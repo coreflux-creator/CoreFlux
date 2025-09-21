@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sign Up | CoreFlux</title>
+  <link rel="stylesheet" href="assets/css/styles.css" />
+</head>
+<body class="page-auth">
+
+  <header>
+    <div class="logo-container">
+      <img src="assets/icons/logo.png" alt="CoreFlux Logo" class="logo" />
+    </div>
+    <nav>
+      <ul class="nav-links">
+        <li><a href="index.html">Home</a></li>
+        <li class="dropdown">
+          <a href="#">Modules</a>
+          <ul class="dropdown-content">
+            <li><a href="people.html">People</a></li>
+            <li><a href="finance.html">Finance</a></li>
+            <li><a href="accounting.html">Accounting</a></li>
+            <li><a href="tax.html">Tax</a></li>
+            <li><a href="wealth.html">Wealth Management</a></li>
+            <li><a href="reporting.html">Reporting</a></li>
+            <li><a href="crm.html">CRM</a></li>
+          </ul>
+        </li>
+        <li><a href="pricing.html">Pricing</a></li>
+        <li><a href="login.html">Login</a></li>
+        <li><a class="cta-button" href="signup.html">Get Started</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <section class="auth-container">
+    <div class="auth-card">
+      <h1>Create Your Account</h1>
+      <p class="auth-subtitle">Get started with CoreFlux in just a few steps.</p>
+      <form class="auth-form" action="register.php" method="post">
+        <label for="name">Full Name</label>
+        <input type="text" id="name" name="name" required />
+
+        <label for="email">Email Address</label>
+        <input type="email" id="email" name="email" required />
+
+        <label for="company">Company Name</label>
+        <input type="text" id="company" name="company" required />
+
+        <label for="password">Create Password</label>
+        <input type="password" id="password" name="password" required />
+
+        <label for="confirm-password">Confirm Password</label>
+        <input type="password" id="confirm-password" name="confirm-password" required />
+
+        <button type="submit" class="submit-button">Sign Up</button>
+      </form>
+    </div>
+  </section>
+
+  <footer>
+    <p>Powered by <img src="assets/icons/swirl-logo.png" alt="CoreFlux" class="swirl-footer" /></p>
+  </footer>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('name')) document.getElementById('name').value = params.get('name');
+    if (params.has('email')) document.getElementById('email').value = params.get('email');
+    if (params.has('company')) document.getElementById('company').value = params.get('company');
+  </script>
+</body>
+</html>

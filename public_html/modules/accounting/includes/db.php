@@ -1,0 +1,1 @@
+<!-- Placeholder for db.php in modules/accounting/includes -->

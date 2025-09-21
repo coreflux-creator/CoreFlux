@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>...</head>
+<body class="onboarding-page">
+  <header class="top-nav">...</header>
+
+  <section class="hero swirl-bg">
+    <h1>Welcome to CoreFlux</h1>
+    <p class="subtitle">Let’s set up your account and team.</p>
+    <img src="assets/icons/hero-onboarding.png" alt="Onboarding" class="hero-illustration" />
+  </section>
+
+  <section class="auth-container">
+    <h2>Complete Your Setup</h2>
+    <form action="onboarding-save.php" method="post">
+      <label for="company">Company Name</label>
+      <input type="text" id="company" name="company" required />
+
+      <label for="timezone">Time Zone</label>
+      <input type="text" id="timezone" name="timezone" placeholder="e.g. EST, PST" required />
+
+      <label for="team-size">Team Size</label>
+      <input type="number" id="team-size" name="team_size" required />
+
+      <button type="submit">Finish Setup</button>
+    </form>
+  </section>
+
+  <footer>...</footer>
+</body>
+</html>

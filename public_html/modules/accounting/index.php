@@ -1,0 +1,1 @@
+<!-- Placeholder for index.php in modules/accounting -->

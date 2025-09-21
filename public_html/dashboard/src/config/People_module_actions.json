@@ -1,0 +1,26 @@
+[
+  {
+    "title": "Employee Directory",
+    "description": "Maintain a centralized staff list with filters, roles, and contact info.",
+    "icon": "/assets/icons/icon-directory.png",
+    "link": "/modules/people/directory"
+  },
+  {
+    "title": "Timesheet Tracking",
+    "description": "Submit, approve, and export timesheets across any pay period.",
+    "icon": "/assets/icons/icon-timesheet.png",
+    "link": "/modules/people/timesheets"
+  },
+  {
+    "title": "Access Control",
+    "description": "Set user roles, approve permissions, and audit security policies.",
+    "icon": "/assets/icons/icon-access.png",
+    "link": "/modules/people/access"
+  },
+  {
+    "title": "Hiring Pipeline",
+    "description": "Organize candidate intake, stage-based tracking, and onboarding workflows.",
+    "icon": "/assets/icons/icon-hiring.png",
+    "link": "/modules/people/hiring"
+  }
+]

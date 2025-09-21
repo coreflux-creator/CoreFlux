@@ -1,0 +1,12 @@
+| Column              | Type     | Description                     |
+| ------------------- | -------- | ------------------------------- |
+| `id`                | INT (PK) | Primary key                     |
+| `tenant_id`         | INT      | Foreign key to CoreFlux tenant  |
+| `scenario_name`     | VARCHAR  | e.g. "Base Case", "High Growth" |
+| `pre_money`         | DECIMAL  | Pre-money valuation             |
+| `post_money`        | DECIMAL  | Post-money valuation            |
+| `exit_value`        | DECIMAL  | Projected exit                  |
+| `cap_rate`          | DECIMAL  | Cap rate for convertible notes  |
+| `option_pool_pct`   | DECIMAL  | Option pool %                   |
+| `participation_cap` | DECIMAL  | e.g. 2x                         |
+| `trigger_tiers`     | BOOLEAN  | Enable tier-based modeling      |

@@ -1,0 +1,11 @@
+| Column             | Type     | Description                          |
+| ------------------ | -------- | ------------------------------------ |
+| `id`               | INT (PK) | Primary key                          |
+| `tenant_id`        | INT      | Foreign key to CoreFlux tenant       |
+| `scenario_id`      | INT      | Linked to a scenario row             |
+| `shareholder`      | VARCHAR  | Name of investor/shareholder         |
+| `class`            | ENUM     | 'Common', 'Preferred', 'Convertible' |
+| `ownership_pct`    | DECIMAL  | % ownership                          |
+| `invested_amount`  | DECIMAL  | Cash invested                        |
+| `convertible_note` | BOOLEAN  | Is this a note?                      |
+| `memo_notes`       | TEXT     | Custom notes for investor memo       |

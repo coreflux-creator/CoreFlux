@@ -1,0 +1,9 @@
+| Column           | Type     | Description             |
+| ---------------- | -------- | ----------------------- |
+| `id`             | INT (PK) | Unique ID               |
+| `cap_table_id`   | INT      | Linked to cap table row |
+| `scenario_id`    | INT      | Linked to scenario      |
+| `proceeds`       | DECIMAL  | Exit proceeds           |
+| `roi`            | DECIMAL  | Return on Investment    |
+| `irr`            | DECIMAL  | Internal Rate of Return |
+| `tier_triggered` | VARCHAR  | Tier 1, 2, or 3         |

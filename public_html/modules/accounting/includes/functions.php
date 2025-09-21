@@ -1,0 +1,1 @@
+<!-- Placeholder for functions.php in modules/accounting/includes -->

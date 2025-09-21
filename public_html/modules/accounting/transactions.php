@@ -1,0 +1,1 @@
+<!-- Placeholder for transactions.php in modules/accounting -->

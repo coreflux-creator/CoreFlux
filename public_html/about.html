@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About | CoreFlux</title>
+  <link rel="stylesheet" href="/assets/css/styles.css" />
+  <style>
+    /* Minimal layout helpers (kept light to respect your existing CSS) */
+    .section { max-width: 1100px; margin: 0 auto; padding: 48px 20px; }
+    .section h2 { margin: 0 0 14px; color: #003366; }
+    .section p { line-height: 1.6; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 20px; }
+    .card { background:#fff; border-radius:16px; padding:22px; box-shadow:0 2px 10px rgba(0,0,0,0.06); }
+    .values li { margin: 8px 0; }
+    .kpis { display:flex; flex-wrap:wrap; gap:20px; margin-top: 14px; }
+    .kpis .stat { flex:1 1 220px; background:#fff; border-radius:16px; padding:22px; box-shadow:0 2px 10px rgba(0,0,0,0.06); text-align:center; }
+    .stat .big { font-size: 28px; font-weight: 700; display:block; margin-bottom: 6px; }
+    .timeline { border-left: 3px solid #e4ecf7; padding-left: 18px; }
+    .timeline .item { margin: 14px 0; }
+    .team-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:20px; }
+    .avatar { width:64px; height:64px; border-radius:50%; background:#e9eef7; display:inline-block; }
+    .cta { text-align:center; margin-top: 10px; }
+    .cta a { display:inline-block; padding:10px 16px; border-radius:8px; background:#002c70; color:#fff; text-decoration:none; font-weight:600; }
+    .cta a:hover { opacity:0.95; }
+  </style>
+</head>
+<body class="about-page">
+  <!-- Header matches your other pages -->
+  <header class="top-nav">
+    <div class="logo-container">
+      <img src="assets/icons/logo.png" alt="CoreFlux Logo" class="logo" />
+      <span class="tagline">Power Your Core. Evolve with Flux.</span>
+    </div>
+    <nav class="nav-links">
+      <a href="index.html">Home</a>
+      <div class="dropdown">
+        <a href="#">Modules</a>
+        <div class="dropdown-content">
+          <a href="people.html">People</a>
+          <a href="finance.html">Finance</a>
+          <a href="accounting.html">Accounting</a>
+          <a href="tax.html">Tax</a>
+          <a href="wealth.html">Wealth Management</a>
+          <a href="reporting.html">Reporting</a>
+          <a href="crm.html">CRM</a>
+        </div>
+      </div>
+      <a href="pricing.html">Pricing</a>
+      <a href="login.html">Login</a>
+      <a href="signup.html" class="get-started">Get Started</a>
+    </nav>
+  </header>
+
+  <section class="hero swirl-bg">
+    <h1>About CoreFlux</h1>
+    <p class="subtitle">A unified platform built for modern professional services—people, finance, and operations in one place.</p>
+    <img src="assets/icons/hero-illustration.png" alt="About Hero" class="hero-illustration" />
+  </section>
+
+  <!-- Our Story -->
+  <section class="section">
+    <div class="grid">
+      <div class="card" style="grid-column: span 12;">
+        <h2>Our Story</h2>
+        <p>
+          CoreFlux started with a simple idea: make it radically easier for firms to run their core—people, finance, accounting,
+          tax, reporting, and CRM—without juggling five different tools. We’re building a platform that scales from solo practices
+          to multi-entity groups with robust multi-tenant controls, custom fields, and streamlined approvals.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Mission & Values -->
+  <section class="section">
+    <div class="grid">
+      <div class="card" style="grid-column: span 7;">
+        <h2>Mission</h2>
+        <p>Empower teams to focus on high-value work by giving them a clear, connected operating system for their business.</p>
+        <ul class="values">
+          <li><strong>Clarity:</strong> Single source of truth across modules.</li>
+          <li><strong>Speed:</strong> Smooth UI with AJAX flows and quick exports.</li>
+          <li><strong>Control:</strong> Tenant-level customization and audit logging by design.</li>
+          <li><strong>Trust:</strong> Sensible permissions, approvals, and observability.</li>
+        </ul>
+      </div>
+      <div class="card" style="grid-column: span 5;">
+        <h2>At a Glance</h2>
+        <div class="kpis">
+          <div class="stat">
+            <span class="big">6</span>
+            Modules (and counting)
+          </div>
+          <div class="stat">
+            <span class="big">Multi-tenant</span>
+            Per-tenant custom fields
+          </div>
+          <div class="stat">
+            <span class="big">Audit-ready</span>
+            Logs & approvals
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Team (placeholders) -->
+  <section class="section">
+    <h2>Leadership</h2>
+    <div class="team-grid">
+      <div class="card">
+        <span class="avatar" aria-hidden="true"></span>
+        <h3 style="margin:12px 0 6px;">Kunal Verma</h3>
+        <p>Managing Director · Product & Strategy</p>
+      </div>
+      <div class="card">
+        <span class="avatar" aria-hidden="true"></span>
+        <h3 style="margin:12px 0 6px;">Core Team</h3>
+        <p>Engineering · Design · Ops</p>
+      </div>
+      <div class="card">
+        <span class="avatar" aria-hidden="true"></span>
+        <h3 style="margin:12px 0 6px;">Advisors</h3>
+        <p>Finance · Compliance · Growth</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Timeline -->
+  <section class="section">
+    <div class="grid">
+      <div class="card" style="grid-column: span 12;">
+        <h2>Timeline</h2>
+        <div class="timeline">
+          <div class="item"><strong>2025:</strong> Core dashboards stabilized; People module build-out in PHP with tenant custom fields.</div>
+          <div class="item"><strong>Next:</strong> Exports, approvals, audit logs, and customizable field schemas across modules.</div>
+        </div>
+      </div>
+    </div>
+    <div class="cta">
+      <a href="signup.html">Get Started</a>
+    </div>
+  </section>
+
+  <footer>
+    <p>Powered by <img src="assets/icons/swirl-logo.png" alt="CoreFlux Swirl" class="swirl-footer" /></p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,1 @@
+// CoreFlux production JS bundle placeholder

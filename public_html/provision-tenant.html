@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>...</head>
+<body class="provision-page">
+  <header class="top-nav">...</header>
+
+  <section class="hero swirl-bg">
+    <h1>Provision New Tenant</h1>
+    <p class="subtitle">Launch a new instance of CoreFlux with isolated data and branding.</p>
+    <img src="assets/icons/hero-provision.png" alt="Provision" class="hero-illustration" />
+  </section>
+
+  <section class="auth-container">
+    <h2>Create New Tenant</h2>
+    <form action="provision-save.php" method="post">
+      <label for="tenant-name">Tenant Name</label>
+      <input type="text" id="tenant-name" name="tenant_name" required />
+
+      <label for="admin-email">Admin Email</label>
+      <input type="email" id="admin-email" name="admin_email" required />
+
+      <label for="subdomain">Subdomain</label>
+      <input type="text" id="subdomain" name="subdomain" placeholder="yourcompany.corefluxapp.com" required />
+
+      <button type="submit">Provision Tenant</button>
+    </form>
+  </section>
+
+  <footer>...</footer>
+</body>
+</html>

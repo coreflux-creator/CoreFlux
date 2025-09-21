@@ -1,0 +1,5 @@
+{
+  "default_logo": "uploads/default_logo.png",
+  "fallback_email_reply_to": "support@corefluxapp.com",
+  "global_footer_message": "Sent via CoreFlux"
+}

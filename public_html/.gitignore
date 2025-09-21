@@ -1,0 +1,30 @@
+# OS/editor junk
+.DS_Store
+Thumbs.db
+
+# Secrets & logs
+.env
+*.log
+storage/*.log
+
+# Build/output
+/public/app/
+/dist/
+/build/
+
+# Dependencies
+/vendor/
+/node_modules/
+
+# Archives & binaries
+*.zip
+*.7z
+*.tar
+*.gz
+*.rar
+*.iso
+*.bak
+
+# IDE
+.vscode/
+.idea/

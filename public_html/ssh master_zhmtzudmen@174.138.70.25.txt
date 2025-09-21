@@ -1,0 +1,24 @@
+ssh master_zhmtzudmen@174.138.70.251 -p 22
+cd ~/applications/coreflux/public_html/
+
+master_zhmtzudmen@174.138.70.251
+
+cd applications/public_html/
+
+cd grcudkpvcd/public_html/
+
+
+$pdo = new PDO("mysql:host=127.0.0.1;dbname=grcudkpvcd", "grcudkpvcd", "7DgX7F4RPz");
+$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+
+<?php
+require 'vendor/autoload.php';
+require 'smtp_yahoo.php';
+
+if (sendConfirmationEmail('kunal.verma@d24capital.com', 'Test User')) {
+    echo "✅ Email sent successfully.";
+} else {
+    echo "❌ Email failed to send.";
+}
+?>

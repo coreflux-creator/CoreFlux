@@ -1,0 +1,214 @@
+/* Base Styles */
+body {
+  margin: 0;
+  font-family: 'Segoe UI', sans-serif;
+  background-color: #ffffff;
+  color: #111;
+}
+
+/* Header */
+.top-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 48px;
+  background-color: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  font-size: 17px;
+}
+
+.logo-container {
+  display: flex;
+  align-items: center;
+}
+
+.logo {
+  height: 125px;
+  margin-right: 12px;
+}
+
+.tagline {
+  display: none;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.nav-links a {
+  text-decoration: none;
+  color: #003366;
+  font-weight: 500;
+}
+
+.get-started {
+  padding: 8px 16px;
+  background-color: #002c70;
+  color: #ffffff !important;
+  border-radius: 6px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.get-started:hover {
+  background-color: #0040aa;
+  cursor: pointer;
+}
+
+.dropdown {
+  position: relative;
+}
+
+.dropdown-content {
+  display: none;
+  position: absolute;
+  background-color: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  top: 100%;
+  left: 0;
+  z-index: 1000;
+  min-width: 180px;
+}
+
+.dropdown-content a {
+  display: block;
+  padding: 10px 16px;
+  color: #003366;
+  text-decoration: none;
+}
+
+.dropdown:hover .dropdown-content {
+  display: block;
+}
+
+/* Hero Section */
+.hero {
+  text-align: center;
+  padding: 80px 20px 40px;
+  color: #fff;
+}
+
+.swirl-bg {
+  background: radial-gradient(circle at center, #003366 20%, #001f33 100%);
+}
+
+.hero h1 {
+  font-size: 52px;
+  margin: 0 0 10px;
+}
+
+.hero .subtitle {
+  font-size: 20px;
+  font-weight: 300;
+  margin-bottom: 30px;
+}
+
+.hero-illustration {
+  width: 340px;
+  max-width: 90%;
+  margin-top: 20px;
+}
+
+/* Modules Section */
+.modules {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  max-width: 1280px;
+  margin: 0 auto;
+  gap: 32px;
+  padding: 60px 40px;
+  background-color: #f9f9f9;
+  text-align: center;
+}
+
+.card {
+  background: #fff;
+  padding: 24px;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transition: transform 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-5px);
+}
+
+.feature-icon {
+  width: 80px;
+  height: 80px;
+  margin-bottom: 16px;
+}
+
+.card h3 {
+  font-size: 18px;
+  margin: 0 0 12px;
+}
+
+.card p {
+  font-size: 15px;
+  color: #444;
+}
+
+/* Footer */
+footer {
+  text-align: center;
+  padding: 24px;
+  font-size: 14px;
+  color: #666;
+}
+
+footer img.swirl-footer {
+  height: 16px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* Responsive Layouts */
+@media (min-width: 1100px) {
+  .modules {
+    grid-template-columns: repeat(4, 1fr); /* Max 4 across */
+  }
+}
+
+@media (max-width: 1099px) and (min-width: 600px) {
+  .modules {
+    grid-template-columns: repeat(2, 1fr); /* 2 across on medium screens */
+  }
+}
+
+@media (max-width: 599px) {
+  .modules {
+    grid-template-columns: 1fr; /* 1 per row on mobile */
+  }
+
+  .hero h1 {
+    font-size: 36px;
+  }
+
+  .hero .subtitle {
+    font-size: 16px;
+  }
+
+  .nav-links {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+}
+
+.sidebar-link.active {
+  font-weight: bold;
+  border-left: 4px solid #002c70;
+  padding-left: 8px;
+}
+.sidebar-link:hover {
+  text-decoration: underline;
+}
+.avatar-placeholder {
+  width: 32px;
+  height: 32px;
+  background-color: #ccc;
+  border-radius: 50%;
+}

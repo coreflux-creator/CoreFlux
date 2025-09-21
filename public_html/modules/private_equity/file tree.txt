@@ -1,0 +1,21 @@
+/modules/private_equity/
+│
+├── index.php                     # Module dashboard
+├── cap_table.php                # Cap table view/edit screen
+├── scenarios.php                # Exit scenario management
+├── investor_memos.php           # View/download memos
+├── visualize.php                # Charts and graphs
+├── data/
+│   ├── save_cap_table.php       # API for saving cap table
+│   ├── run_waterfall.php        # Calculates exit distributions
+│   ├── generate_memo.php        # Creates investor memo
+│   ├── save_scenario.php        # Adds/updates scenarios
+│
+├── js/
+│   └── private_equity.js        # JS for dynamic input and charts
+├── css/
+│   └── private_equity.css       # Styling
+├── templates/
+│   └── memo_template.php        # HTML-to-PDF investor memo
+└── includes/
+    └── functions_pe.php         # Reusable logic (e.g. IRR, ROI, tier calc)

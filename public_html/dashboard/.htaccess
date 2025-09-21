@@ -1,0 +1,13 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /dashboard/
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /dashboard/index.html [L]
+</IfModule>
+
+# Explicitly allow assets
+<FilesMatch "\.(js|css|svg|png|jpg|jpeg|gif|woff2?)$">
+  Header set Cache-Control "max-age=31536000, public"
+</FilesMatch>

@@ -1,0 +1,107 @@
+/* === GLOBAL === */
+body {
+  margin: 0;
+  font-family: 'Segoe UI', sans-serif;
+  background: #f7f9fb;
+}
+h1, h2, h3 {
+  color: #183d56;
+}
+
+/* === HEADER / HERO === */
+header {
+  background: #183d56;
+  color: white;
+  padding: 1.5rem 2rem;
+  text-align: center;
+}
+.hero {
+  text-align: center;
+  padding: 3rem 2rem;
+  background: #183d56;
+  color: white;
+}
+.hero h1 {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+.hero p {
+  font-size: 1.2rem;
+}
+.buttons {
+  margin-top: 2rem;
+}
+.buttons a,
+.btn {
+  display: inline-block;
+  margin: 0.5rem 0;
+  padding: 0.75rem 1.5rem;
+  background: #4fd1c5;
+  color: white;
+  text-decoration: none;
+  border-radius: 6px;
+  font-weight: bold;
+  transition: background 0.2s ease-in-out;
+}
+.buttons a:hover,
+.btn:hover {
+  background: #38b2ac;
+}
+
+/* === FORM BOX === */
+.form-box {
+  background: white;
+  padding: 2rem;
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.08);
+  width: 300px;
+  margin: auto;
+}
+input, select {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  width: 100%;
+}
+button {
+  margin-top: 1.5rem;
+  padding: 0.75rem;
+  background: #4fd1c5;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  font-weight: bold;
+  cursor: pointer;
+}
+button:hover {
+  background: #38b2ac;
+}
+
+/* === DASHBOARD === */
+.topbar {
+  background: #183d56;
+  color: white;
+  padding: 1rem 2rem;
+}
+.sidebar {
+  width: 220px;
+  background: #2d3748;
+  color: white;
+  height: 100vh;
+  padding: 1rem;
+  float: left;
+}
+.sidebar a {
+  color: white;
+  text-decoration: none;
+  display: block;
+  margin: 1rem 0;
+}
+.sidebar a:hover {
+  text-decoration: underline;
+}
+.main {
+  padding: 2rem;
+  margin-left: 220px;
+}

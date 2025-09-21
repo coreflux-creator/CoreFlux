@@ -1,0 +1,26 @@
+CREATE TABLE users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(150) NOT NULL UNIQUE,
+  password VARCHAR(255) NOT NULL,
+  role VARCHAR(20) DEFAULT 'user',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE timesheets (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  week_start DATE NOT NULL,
+  hours_worked DECIMAL(5,2),
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE placements (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  title VARCHAR(100),
+  company VARCHAR(100),
+  start_date DATE,
+  end_date DATE,
+  rate DECIMAL(10,2),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

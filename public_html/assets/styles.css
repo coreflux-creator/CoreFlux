@@ -1,0 +1,186 @@
+/* CoreFlux Styles */
+
+/* Reset and base */
+body, html {
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', sans-serif;
+  background-color: #ffffff;
+  color: #0a2342;
+}
+
+/* Header */
+.main-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 30px;
+  background-color: white;
+  border-bottom: 1px solid #eaeaea;
+}
+
+.logo {
+  height: 60px;
+}
+
+/* Navigation */
+.main-nav ul {
+  list-style: none;
+  display: flex;
+  gap: 30px;
+  padding: 0;
+  margin: 0;
+}
+
+.main-nav ul li {
+  position: relative;
+}
+
+.main-nav ul li a {
+  text-decoration: none;
+  color: #0a2342;
+  font-weight: 500;
+  font-size: 16px;
+}
+
+/* Dropdown */
+.main-nav .dropdown-content {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  flex-direction: column;
+  background-color: white;
+  padding: 10px 0;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  z-index: 1000;
+  min-width: 200px;
+}
+
+.main-nav .dropdown-content li a {
+  display: block;
+  padding: 10px 20px;
+  font-size: 15px;
+  color: #0a2342;
+  white-space: nowrap;
+}
+
+.main-nav .dropdown-content li a:hover {
+  background-color: #f4f4f4;
+}
+
+.main-nav .dropdown:hover .dropdown-content {
+  display: flex;
+}
+
+/* Hero Section */
+.hero {
+  padding: 60px 30px;
+  background: linear-gradient(to bottom right, #00264d, #003366);
+  color: white;
+  text-align: center;
+}
+
+.hero h1 {
+  font-size: 48px;
+  margin-bottom: 20px;
+}
+
+.hero p {
+  font-size: 20px;
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.hero-icon img {
+  margin-top: 30px;
+  max-width: 300px;
+  height: auto;
+}
+
+/* Features Grid */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 30px;
+  padding: 60px 30px;
+}
+
+.feature-card {
+  background-color: #f7f9fc;
+  border-radius: 10px;
+  padding: 30px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+
+.feature-card img {
+  width: 140px;
+  height: auto;
+  margin-bottom: 20px;
+}
+
+.feature-card h2 {
+  font-size: 20px;
+  margin: 0 0 10px;
+}
+
+.feature-card p {
+  font-size: 15px;
+  color: #333;
+}
+
+/* Footer */
+.main-footer {
+  background-color: #f9f9f9;
+  text-align: center;
+  padding: 30px 20px;
+  font-size: 14px;
+  color: #333;
+}
+
+.footer-logo {
+  height: 24px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+/* Responsive layout */
+@media (max-width: 1024px) {
+  .features-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .main-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .main-nav ul {
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .hero h1 {
+    font-size: 36px;
+  }
+
+  .hero p {
+    font-size: 18px;
+  }
+
+  .features-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .feature-card img {
+    width: 100px;
+  }
+
+  .logo {
+    height: 50px;
+  }
+}
