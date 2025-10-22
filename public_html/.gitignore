@@ -28,3 +28,6 @@ storage/*.log
 # IDE
 .vscode/
 .idea/
+
+/storage/logs/
+
