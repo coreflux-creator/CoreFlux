@@ -1,0 +1,39 @@
+name: Deploy public_html to Cloudways via SCP
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Upload everything inside public_html to the remote public_html
+      - name: Copy files with SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: "public_html/*"
+          target: ${{ secrets.CW_REMOTE_PATH }}
+          overwrite: true
+
+      # Optional: clean up files that were deleted locally
+      - name: Remove remote files not present locally
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            # ensure target exists
+            mkdir -p "${{ secrets.CW_REMOTE_PATH }}"
+            # remove any remote files that are not in the local repo (simple sync)
+            find "${{ secrets.CW_REMOTE_PATH }}" -type f -printf "%P\n" | while read f; do
+              if [ ! -f "public_html/$f" ]; then rm -f "${{ secrets.CW_REMOTE_PATH }}/$f"; fi
+            done
