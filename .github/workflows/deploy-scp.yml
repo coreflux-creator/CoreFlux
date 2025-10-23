@@ -37,3 +37,15 @@ jobs:
             find "${{ secrets.CW_REMOTE_PATH }}" -type f -printf "%P\n" | while read f; do
               if [ ! -f "public_html/$f" ]; then rm -f "${{ secrets.CW_REMOTE_PATH }}/$f"; fi
             done
+      - name: Show remote directory and find _deploy_ok.txt
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            echo "Listing ${{ secrets.CW_REMOTE_PATH }}"
+            ls -la "${{ secrets.CW_REMOTE_PATH }}"
+            echo "Searching for _deploy_ok.txt"
+            find "${{ secrets.CW_REMOTE_PATH }}" -maxdepth 2 -type f -name "_deploy_ok.txt" -print
