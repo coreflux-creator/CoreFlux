@@ -10,8 +10,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set deploy target (always inside app's public_html)
-        run: echo "DEPLOY_TARGET=${{ secrets.CW_REMOTE_PATH }}/public_html" >> $GITHUB_ENV
+- name: Set deploy target to app root (where index.html lives)
+  run: echo "DEPLOY_TARGET=${{ secrets.CW_REMOTE_PATH }}" >> $GITHUB_ENV
+
 
       # Upload everything inside local public_html to the remote public_html
       - name: Copy files with SCP
