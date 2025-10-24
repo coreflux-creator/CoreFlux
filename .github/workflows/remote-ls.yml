@@ -1,13 +1,13 @@
 name: Remote LS (no checkout)
 
 on:
-  workflow_dispatch:  # run manually
+  workflow_dispatch:  # run manually from the Actions tab
 
 jobs:
   ls:
     runs-on: ubuntu-latest
     steps:
-      - name: List remote public_html
+      - name: List remote public_html, show .htaccess and _deploy_ok.txt
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.CW_SSH_HOST }}
@@ -15,7 +15,27 @@ jobs:
           key: ${{ secrets.CW_SSH_KEY }}
           port: ${{ secrets.CW_SSH_PORT }}
           script: |
-            echo "Listing: ${{ secrets.CW_REMOTE_PATH }}"
+            set -e
+            echo "PATH: ${{ secrets.CW_REMOTE_PATH }}"
+            echo "===== ls -la ====="
             ls -la "${{ secrets.CW_REMOTE_PATH }}"
-            echo "Searching for _deploy_ok.txt"
-            find "${{ secrets.CW_REMOTE_PATH }}" -maxdepth 2 -type f -name "_deploy_ok.txt" -print
+
+            echo "===== tree (depth 2) ====="
+            find "${{ secrets.CW_REMOTE_PATH }}" -maxdepth 2 -type d -print | sed "s#${{ secrets.CW_REMOTE_PATH }}#.#"
+
+            echo "===== .htaccess (first 200 lines) ====="
+            if [ -f "${{ secrets.CW_REMOTE_PATH }}/.htaccess" ]; then
+              sed -n '1,200p' "${{ secrets.CW_REMOTE_PATH }}/.htaccess"
+            else
+              echo "(no .htaccess)"
+            fi
+
+            echo "===== _deploy_ok.txt ====="
+            if [ -f "${{ secrets.CW_REMOTE_PATH }}/_deploy_ok.txt" ]; then
+              echo "(exists) contents below:"
+              echo "-------------------------"
+              cat "${{ secrets.CW_REMOTE_PATH }}/_deploy_ok.txt" || true
+              echo "-------------------------"
+            else
+              echo "(missing)"
+            fi
