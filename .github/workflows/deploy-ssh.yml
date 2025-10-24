@@ -1,4 +1,4 @@
-name: Deploy public_html to Cloudways over SSH
+name: Deploy public_html to Cloudways via SCP
 
 on:
   push:
@@ -10,22 +10,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # add server host key so SSH doesn't prompt
-      - name: Add Cloudways host to known_hosts
-        env:
-          HOST: ${{ secrets.CW_SSH_HOST }}
-          PORT: ${{ secrets.CW_SSH_PORT }}
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
+      - name: Set deploy target (always inside app's public_html)
+        run: echo "DEPLOY_TARGET=${{ secrets.CW_REMOTE_PATH }}/public_html" >> $GITHUB_ENV
 
-      - name: Rsync public_html
-        uses: burnett01/rsync-deployments@7.0.1
+      # Upload everything inside local public_html to the remote public_html
+      - name: Copy files with SCP
+        uses: appleboy/scp-action@v0.1.7
         with:
-          switches: -avz --delete --exclude='.git*' --exclude='.github'
-          path: public_html/
-          remote_path: ${{ secrets.CW_REMOTE_PATH }}
-          remote_host: ${{ secrets.CW_SSH_HOST }}
-          remote_user: ${{ secrets.CW_SSH_USER }}
-          remote_key: ${{ secrets.CW_SSH_KEY }}
-          remote_port: ${{ secrets.CW_SSH_PORT }}
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          source: "public_html/*"
+          target: ${{ env.DEPLOY_TARGET }}
+          overwrite: true
+
+      # Optional: simple cleanup of remote files that are not present locally
+      - name: Remove remote files not present locally
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.CW_SSH_HOST }}
+          username: ${{ secrets.CW_SSH_USER }}
+          key: ${{ secrets.CW_SSH_KEY }}
+          port: ${{ secrets.CW_SSH_PORT }}
+          script: |
+            mkdir -p "${{ env.DEPLOY_TARGET }}"
+            cd "${{ env.DEPLOY_TARGET }}"
+            # remove remote files that don't exist locally
+            find . -type f -print | while read f; do
+              if [ ! -f "$GITHUB_WORKSPACE/public_html/$f" ]; then rm -f "$f"; fi
+            done
