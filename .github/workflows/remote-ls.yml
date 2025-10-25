@@ -1,13 +1,13 @@
 name: Remote LS (no checkout)
 
 on:
-  workflow_dispatch:  # run manually from the Actions tab
+  workflow_dispatch:
 
 jobs:
   ls:
     runs-on: ubuntu-latest
     steps:
-      - name: List remote public_html, show .htaccess and _deploy_ok.txt
+      - name: Inspect app root and webroot candidates
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.CW_SSH_HOST }}
@@ -16,26 +16,24 @@ jobs:
           port: ${{ secrets.CW_SSH_PORT }}
           script: |
             set -e
-            echo "PATH: ${{ secrets.CW_REMOTE_PATH }}"
-            echo "===== ls -la ====="
-            ls -la "${{ secrets.CW_REMOTE_PATH }}"
+            ROOT="${{ secrets.CW_REMOTE_PATH }}"
+            echo "== APP ROOT =="
+            echo "$ROOT"
+            ls -la "$ROOT" || true
 
-            echo "===== tree (depth 2) ====="
-            find "${{ secrets.CW_REMOTE_PATH }}" -maxdepth 2 -type d -print | sed "s#${{ secrets.CW_REMOTE_PATH }}#.#"
+            CAND1="$ROOT/public_html"
+            CAND2="$ROOT/public_html/public_html"
 
-            echo "===== .htaccess (first 200 lines) ====="
-            if [ -f "${{ secrets.CW_REMOTE_PATH }}/.htaccess" ]; then
-              sed -n '1,200p' "${{ secrets.CW_REMOTE_PATH }}/.htaccess"
-            else
-              echo "(no .htaccess)"
-            fi
-
-            echo "===== _deploy_ok.txt ====="
-            if [ -f "${{ secrets.CW_REMOTE_PATH }}/_deploy_ok.txt" ]; then
-              echo "(exists) contents below:"
-              echo "-------------------------"
-              cat "${{ secrets.CW_REMOTE_PATH }}/_deploy_ok.txt" || true
-              echo "-------------------------"
-            else
-              echo "(missing)"
-            fi
+            for C in "$CAND1" "$CAND2"; do
+              echo
+              echo "== CANDIDATE WEBROOT: $C =="
+              if [ -d "$C" ]; then
+                ls -la "$C" | head -n 50 || true
+                echo "-- .htaccess (first 60 lines) --"
+                if [ -f "$C/.htaccess" ]; then sed -n '1,60p' "$C/.htaccess"; else echo "(no .htaccess)"; fi
+                echo "-- _deploy_ok.txt --"
+                if [ -f "$C/_deploy_ok.txt" ]; then cat "$C/_deploy_ok.txt"; else echo "(missing)"; fi
+              else
+                echo "(not a directory)"
+              fi
+            done
