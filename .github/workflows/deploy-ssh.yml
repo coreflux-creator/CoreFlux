@@ -2,19 +2,22 @@ name: Deploy public_html to Cloudways via SCP
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
 
-- name: Set deploy target to app root (where index.html lives)
-  run: echo "DEPLOY_TARGET=${{ secrets.CW_REMOTE_PATH }}" >> $GITHUB_ENV
+      - name: Set deploy target to webroot
+        run: echo "DEPLOY_TARGET=${{ secrets.CW_REMOTE_PATH }}/public_html" >> $GITHUB_ENV
 
-
-      # Upload everything inside local public_html to the remote public_html
       - name: Copy files with SCP
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -25,19 +28,3 @@ jobs:
           source: "public_html/*"
           target: ${{ env.DEPLOY_TARGET }}
           overwrite: true
-
-      # Optional: simple cleanup of remote files that are not present locally
-      - name: Remove remote files not present locally
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.CW_SSH_HOST }}
-          username: ${{ secrets.CW_SSH_USER }}
-          key: ${{ secrets.CW_SSH_KEY }}
-          port: ${{ secrets.CW_SSH_PORT }}
-          script: |
-            mkdir -p "${{ env.DEPLOY_TARGET }}"
-            cd "${{ env.DEPLOY_TARGET }}"
-            # remove remote files that don't exist locally
-            find . -type f -print | while read f; do
-              if [ ! -f "$GITHUB_WORKSPACE/public_html/$f" ]; then rm -f "$f"; fi
-            done
