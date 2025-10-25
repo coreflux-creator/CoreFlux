@@ -14,8 +14,8 @@ jobs:
           persist-credentials: false
 
       # Deploy to the app root (where your site serves from)
-      - name: Set deploy target to app root
-        run: echo "DEPLOY_TARGET=${{ secrets.CW_REMOTE_PATH }}" >> $GITHUB_ENV
+      -name: Set deploy target to webroot (…/public_html)
+  run: echo "DEPLOY_TARGET=${{ secrets.CW_REMOTE_PATH }}/public_html" >> $GITHUB_ENV
 
       # Upload everything inside local public_html/ to the remote app root
       - name: Copy files with SCP
