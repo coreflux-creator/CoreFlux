@@ -42,30 +42,59 @@ if (defined('USE_DATABASE') && USE_DATABASE) {
     $stmt->execute([$email]);
     $dbUser = $stmt->fetch();
     
-    if (!$dbUser || !password_verify($password, $dbUser['password'])) {
+    if (!$dbUser) {
         header("Location: login.html?error=invalid");
         exit;
     }
     
-    // Check email verification if column exists
-    if (isset($dbUser['email_verified']) && (int)$dbUser['email_verified'] !== 1) {
-        header("Location: login.html?error=unverified");
+    // Check password - try both password and password_hash columns
+    $passwordHash = $dbUser['password_hash'] ?? $dbUser['password'] ?? '';
+    if (!password_verify($password, $passwordHash)) {
+        // Also try the password column if password_hash failed
+        if (!empty($dbUser['password']) && !password_verify($password, $dbUser['password'])) {
+            header("Location: login.html?error=invalid");
+            exit;
+        }
+    }
+    
+    // Check if account is active
+    if (isset($dbUser['is_active']) && (int)$dbUser['is_active'] !== 1) {
+        header("Location: login.html?error=inactive");
         exit;
     }
     
-    // Get user's tenants from database (or default)
-    // TODO: Query user_tenants table when available
+    // Check email verification (optional - skip if not required)
+    // if (isset($dbUser['email_verified']) && (int)$dbUser['email_verified'] !== 1) {
+    //     header("Location: login.html?error=unverified");
+    //     exit;
+    // }
+    
+    // Parse name into first/last
+    $nameParts = explode(' ', $dbUser['name'] ?? 'User', 2);
+    $firstName = $nameParts[0];
+    $lastName = $nameParts[1] ?? '';
+    
+    // Get tenant info - for now use tenant_id from user record
+    $tenantId = $dbUser['tenant_id'] ?? 1;
+    
+    // TODO: Query tenants table for tenant name when available
     $tenants = [
-        ['id' => 1, 'name' => $dbUser['tenant_name'] ?? 'Default Tenant']
+        ['id' => $tenantId, 'name' => 'Tenant ' . $tenantId]
     ];
+    
+    // Map role - your DB uses 'user' as default, map to our roles
+    $role = $dbUser['role'] ?? 'user';
+    if ($role === 'user') {
+        $role = 'employee'; // Map 'user' to 'employee' for module access
+    }
     
     // Build user session
     $user = [
         'id' => $dbUser['id'],
-        'first_name' => $dbUser['first_name'] ?? $dbUser['name'] ?? 'User',
-        'last_name' => $dbUser['last_name'] ?? '',
+        'first_name' => $firstName,
+        'last_name' => $lastName,
         'email' => $dbUser['email'],
-        'role' => $dbUser['role'] ?? 'employee',
+        'role' => $role,
         'avatar' => $dbUser['avatar'] ?? null,
         'tenants' => $tenants,
     ];
