@@ -14,7 +14,7 @@ $subTenants = array_filter($allTenants, fn($t) => !empty($t['parent_id']));
         <h1 class="page-title">Tenants</h1>
         <p class="page-subtitle"><?= count($allTenants) ?> total tenants (<?= count($primaryTenants) ?> primary, <?= count($subTenants) ?> sub-tenants)</p>
     </div>
-    <button class="btn btn-primary" onclick="alert('Create tenant form coming soon')">+ New Tenant</button>
+    <a href="?admin=1&page=tenant_edit&id=0" class="btn btn-primary">+ New Tenant</a>
 </div>
 
 <div class="card">
