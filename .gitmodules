@@ -1,3 +1,6 @@
 [submodule "modules/accounting"]
 	path = modules/accounting
 	url = https://github.com/coreflux-creator/coreflux-accounting.git
+[submodule "modules/people"]
+	path = modules/people
+	url = https://github.com/coreflux-creator/coreflux-people.git
