@@ -1,0 +1,3 @@
+[submodule "modules/accounting"]
+	path = modules/accounting
+	url = https://github.com/coreflux-creator/coreflux-accounting.git
