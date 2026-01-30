@@ -293,6 +293,64 @@ button {
     width: 32px;
     height: 32px;
     border-radius: var(--radius-full);
+
+/* ========================================
+   Master Admin Styles
+   ======================================== */
+.admin-header {
+    background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
+}
+
+.admin-badge {
+    background: var(--color-danger);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-left: 12px;
+}
+
+.admin-sidebar {
+    background: #1e1e1e;
+}
+
+.btn-header {
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 6px;
+    color: var(--color-text-inverse);
+    background: rgba(255, 255, 255, 0.1);
+    transition: all var(--transition-fast);
+}
+
+.btn-header:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.btn-header.btn-active {
+    background: var(--color-danger);
+}
+
+.master-admin-mode .sidebar-link:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.master-admin-mode .sidebar-link.active {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+code {
+    background: var(--color-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Monaco', 'Menlo', monospace;
+}
+
+
     object-fit: cover;
 }
 
