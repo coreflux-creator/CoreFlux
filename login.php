@@ -53,21 +53,22 @@ if (!$validPassword) {
     exit;
 }
 
-// Check active
 if (isset($dbUser['is_active']) && (int)$dbUser['is_active'] !== 1) {
     header("Location: login.html?error=inactive");
     exit;
 }
 
-// Get user's tenants from database
+// Get user's global role (from users table)
+$globalRole = $dbUser['role'] ?? 'employee';
+
+// Get user's tenants
 $tenants = getUserTenants($dbUser['id']);
 
 if (empty($tenants)) {
-    // No tenants assigned - create a default
-    $tenants = [['id' => 1, 'name' => 'Default', 'role' => 'employee', 'is_default' => 1]];
+    $tenants = [['id' => 1, 'name' => 'Default', 'role' => 'employee', 'is_default' => 1, 'parent_id' => null]];
 }
 
-// Use first tenant (or default tenant)
+// Select default tenant
 $defaultTenant = $tenants[0];
 foreach ($tenants as $t) {
     if ($t['is_default']) {
@@ -76,8 +77,8 @@ foreach ($tenants as $t) {
     }
 }
 
-// Get user's role in this tenant (from user_tenants, not users table)
-$tenantRole = $defaultTenant['role'] ?? $dbUser['role'] ?? 'employee';
+// Get user's role in this tenant
+$tenantRole = $defaultTenant['role'] ?? 'employee';
 
 // Parse name
 $nameParts = explode(' ', $dbUser['name'] ?? 'User', 2);
@@ -88,8 +89,8 @@ $user = [
     'first_name' => $nameParts[0],
     'last_name' => $nameParts[1] ?? '',
     'email' => $dbUser['email'],
-    'role' => $tenantRole,  // Role from user_tenants
-    'global_role' => $dbUser['role'], // Role from users table
+    'role' => $tenantRole,
+    'global_role' => $globalRole,
     'avatar' => $dbUser['avatar'] ?? null,
     'tenants' => array_map(function($t) {
         return [
@@ -97,12 +98,18 @@ $user = [
             'name' => $t['name'],
             'role' => $t['role'],
             'logo_url' => $t['logo_url'] ?? null,
+            'parent_id' => $t['parent_id'] ?? null,
         ];
     }, $tenants),
 ];
 
-// Get modules for this tenant
-$modules = getTenantModules($defaultTenant['id']);
+// Get modules for this user in this tenant context
+$modules = getModulesForUserInTenant(
+    $dbUser['id'],
+    $defaultTenant['id'],
+    $globalRole,
+    $tenantRole
+);
 
 // Add actions to each module
 foreach ($modules as &$mod) {
@@ -116,6 +123,7 @@ $_SESSION['modules'] = $modules;
 $_SESSION['tenant'] = $defaultTenant['name'];
 $_SESSION['tenant_id'] = $defaultTenant['id'];
 $_SESSION['tenant_role'] = $tenantRole;
+$_SESSION['global_role'] = $globalRole;
 $_SESSION['active_module'] = $modules[0] ?? null;
 
 header("Location: dashboard.php");
