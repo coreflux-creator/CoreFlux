@@ -4,108 +4,137 @@
 Refactor a PHP-based multi-tenant enterprise application (`coreflux`) to support modularity with:
 - Core as one app providing shell, auth, tenant management
 - Modules as standalone apps (separate Git repos) integrated via submodules
-- Laravel + React architecture (user confirmed choice)
+- **Laravel + React architecture** (user confirmed choice)
+
+## Current Status: WAITING FOR `composer install`
 
 ## Architecture
 
-### Technology Stack (NEW)
-- **Frontend:** React 18 + Vite + Tailwind CSS
-- **Backend:** Laravel 10 + Sanctum (API tokens)
+### Technology Stack
+- **Frontend:** React 18 + Vite + Tailwind CSS ✅ COMPLETE
+- **Backend:** Laravel 10 + Sanctum ✅ CODE WRITTEN (needs composer install)
 - **Database:** MySQL (existing tables)
-- **Modules:** Git submodules
+- **Modules:** Git submodules ✅ CONFIGURED
 
 ### Repository Structure
 ```
-coreflux/                      ← Main repo (core)
-├── frontend/                  ← React SPA ✅ BUILT
-├── laravel/                   ← Laravel backend ✅ WRITTEN (needs composer install)
-├── modules/
-│   ├── accounting/            ← Git submodule ✅ LINKED
-│   └── people/                ← Git submodule ✅ LINKED
+coreflux/
+├── frontend/                  ✅ React SPA (17 files)
+│   ├── src/
+│   │   ├── components/layout/ (Header, Sidebar, DashboardLayout)
+│   │   ├── pages/             (Login, Dashboard, Admin/*, Modules/*)
+│   │   ├── hooks/             (useAuth, useModules)
+│   │   └── lib/               (api.js, utils.js)
+│   └── dist/                  ✅ BUILT
+│
+├── laravel/                   ✅ Laravel backend (27 files)
+│   ├── app/
+│   │   ├── Http/Controllers/  (Auth, Admin/Tenant, Admin/User, Admin/Module)
+│   │   ├── Models/            (User, Tenant, Module, UserTenant, TenantModule)
+│   │   └── Middleware/        (AdminMiddleware)
+│   ├── routes/api.php
+│   ├── config/                (app, auth, cors, database, sanctum)
+│   ├── database/migrations/
+│   └── composer.json
+│
+├── modules/                   ✅ Git submodules
+│   ├── accounting/            → github.com/coreflux-creator/coreflux-accounting
+│   └── people/                → github.com/coreflux-creator/coreflux-people
+│
 ├── .gitmodules                ✅ CONFIGURED
 └── LARAVEL_SETUP.md           ✅ SETUP GUIDE
 ```
 
-## What's Been Implemented
+## What's Complete
 
-### ✅ Phase 1: React Frontend (COMPLETE)
-- Full React app with Vite + Tailwind
+### ✅ React Frontend (17 files)
 - Login page with auth flow
-- Dashboard with module cards
-- Master Admin panel (Tenants, Users, Modules CRUD)
+- Dashboard with welcome banner + module cards
+- Master Admin panel:
+  - Tenants CRUD (list, create, edit, delete)
+  - Users CRUD (list, create, edit, delete, tenant assignment)
+  - Modules toggle per tenant
 - Module overview pages (Accounting, People)
-- Auth context with token management
-- Multi-tenant switching
-- Responsive layout with header + sidebar
+- Header with tenant/module/user dropdowns
+- Sidebar with dynamic nav per module/admin
+- Auth context (login, logout, token management)
+- Modules context (fetch enabled modules)
+- Protected routes + admin route guard
 
-### ✅ Phase 2: Laravel Backend Files (WRITTEN - needs composer install)
-- Models: User, Tenant, Module, UserTenant, TenantModule
-- Controllers: AuthController, TenantController, UserController, ModuleController
-- Routes: api.php with auth and admin routes
-- Middleware: AdminMiddleware for master_admin protection
-- Config: Sanctum, CORS
+### ✅ Laravel Backend (27 files)
+- **Models:** User, Tenant, Module, UserTenant, TenantModule
+- **Controllers:**
+  - AuthController (login, me, logout)
+  - TenantController (CRUD + module toggle)
+  - UserController (CRUD + tenant assignment)
+  - ModuleController (CRUD)
+  - TenantModuleController (get tenant modules)
+- **Routes:** All API routes with Sanctum protection
+- **Middleware:** AdminMiddleware for master_admin only routes
+- **Config:** App, Auth, CORS, Database, Sanctum
+- **Migration:** personal_access_tokens for Sanctum
 
-### ✅ Git Submodules (CONFIGURED)
-- `modules/accounting` → coreflux-creator/coreflux-accounting
-- `modules/people` → coreflux-creator/coreflux-people
+### ✅ Git Submodules
+- `modules/accounting` linked to coreflux-accounting repo
+- `modules/people` linked to coreflux-people repo
 
-## Awaiting User Action
+## Next Step: User Action Required
 
-### 🔴 BLOCKING: Run `composer install`
-The Laravel backend code is written but needs dependencies installed:
+### Run `composer install` on your server:
 
 ```bash
 cd /path/to/coreflux/laravel
 composer install
 cp .env.example .env
 php artisan key:generate
-# Configure .env with DB credentials
-php artisan migrate  # Creates personal_access_tokens table
+
+# Edit .env with your database credentials:
+# DB_HOST=127.0.0.1
+# DB_DATABASE=your_database
+# DB_USERNAME=your_user
+# DB_PASSWORD=your_password
+
+php artisan migrate
 ```
 
-## Remaining Tasks
+## Remaining Work (After composer install)
 
-### After composer install:
-1. **Test auth flow** - Login with existing credentials
-2. **Test admin panel** - CRUD operations
-3. **Add Kernel middleware** - Register AdminMiddleware
-
-### Phase 3: Accounting Module Rewrite (~2 sessions)
+### Session 3-4: Accounting Module Rewrite
 - Convert FastAPI → Laravel controllers
-- Convert MongoDB → MySQL models
-- Keep React frontend, point to new Laravel API
+- Convert MongoDB → MySQL/Eloquent
+- Point existing React frontend to new Laravel API
 
-### Phase 4: People Module Rewrite (~1-2 sessions)
-- Convert existing PHP → Laravel controllers
+### Session 5: People Module Rewrite
+- Convert PHP views → Laravel controllers
 - Build React pages for People features
 
-## Database Schema (Existing)
-- `tenants`: {id, name, parent_id, subdomain}
-- `users`: {id, name, email, password_hash, role}
-- `user_tenants`: {user_id, tenant_id, role}
-- `modules`: {id, name, key}
-- `tenant_modules`: {tenant_id, module_id, is_enabled}
+### Session 6: Integration Testing
+- End-to-end testing
+- Fix any integration issues
 
-## Key Files Created This Session
+## API Endpoints
 
-### Frontend (/app/frontend/)
-- `src/App.jsx` - Main routing
-- `src/pages/LoginPage.jsx` - Login UI
-- `src/pages/DashboardPage.jsx` - Main dashboard
-- `src/pages/admin/*` - Admin panel pages
-- `src/pages/modules/*` - Module overview pages
-- `src/components/layout/*` - Header, Sidebar, Layout
-- `src/hooks/useAuth.jsx` - Auth context
-- `src/hooks/useModules.jsx` - Modules context
-- `src/lib/api.js` - Axios instance
+### Auth
+- `POST /api/auth/login` → token + user + tenants
+- `GET /api/auth/me` → current user + tenants
+- `POST /api/auth/logout` → revoke token
 
-### Backend (/app/laravel/)
-- `app/Models/*.php` - Eloquent models
-- `app/Http/Controllers/*.php` - API controllers
-- `app/Http/Middleware/AdminMiddleware.php`
-- `routes/api.php` - API routes
-- `composer.json` - Dependencies
-- `.env.example` - Environment template
+### Tenant Modules
+- `GET /api/tenants/{id}/modules` → enabled modules
 
-### Documentation
-- `/app/LARAVEL_SETUP.md` - Complete setup guide
+### Admin (master_admin only)
+- `GET|POST /api/admin/tenants`
+- `GET|PUT|DELETE /api/admin/tenants/{id}`
+- `GET /api/admin/tenants/{id}/modules`
+- `POST /api/admin/tenants/{id}/modules/{moduleId}`
+- `GET|POST /api/admin/users`
+- `GET|PUT|DELETE /api/admin/users/{id}`
+- `GET|POST /api/admin/modules`
+
+## Database Schema (Using Existing Tables)
+- `tenants` (id, name, parent_id, subdomain)
+- `users` (id, name, first_name, last_name, email, password_hash, role)
+- `user_tenants` (user_id, tenant_id, role)
+- `modules` (id, name, key, description)
+- `tenant_modules` (tenant_id, module_id, is_enabled)
+- `personal_access_tokens` ← NEW (created by migration)
