@@ -8,25 +8,30 @@ require_once __DIR__ . '/core/data.php';
 
 initSession();
 
-// Auth check
 if (!isAuthenticated()) {
     header("Location: login.html");
     exit;
 }
 
-// Get session data
 $user = getCurrentUser();
 $modules = getSessionModules();
 $activeModule = getActiveModule();
 $tenant = getCurrentTenant();
 $tenantId = $_SESSION['tenant_id'] ?? 1;
 $tenants = $user['tenants'] ?? [];
+$globalRole = $_SESSION['global_role'] ?? $user['global_role'] ?? '';
+$tenantRole = $_SESSION['tenant_role'] ?? $user['role'] ?? 'employee';
+
+// Check if user is master admin
+$isMasterAdmin = ($globalRole === 'master_admin');
+
+// Check if viewing master admin panel
+$viewMasterAdmin = isset($_GET['admin']) && $isMasterAdmin;
 
 // Handle tenant switching
 if (isset($_GET['switch_tenant'])) {
     $newTenantId = (int)$_GET['switch_tenant'];
     
-    // Verify user has access to this tenant
     foreach ($tenants as $t) {
         if ($t['id'] === $newTenantId) {
             $_SESSION['tenant'] = $t['name'];
@@ -34,7 +39,12 @@ if (isset($_GET['switch_tenant'])) {
             $_SESSION['tenant_role'] = $t['role'];
             
             // Reload modules for new tenant
-            $modules = getTenantModules($newTenantId);
+            $modules = getModulesForUserInTenant(
+                $user['id'],
+                $newTenantId,
+                $globalRole,
+                $t['role']
+            );
             foreach ($modules as &$mod) {
                 $mod['actions'] = getModuleSidebarItems($mod['name']);
             }
@@ -61,24 +71,20 @@ if (isset($_GET['module'])) {
     }
 }
 
-// Ensure we have an active module
-if (!$activeModule && !empty($modules)) {
+// Ensure we have an active module (unless master admin view)
+if (!$viewMasterAdmin && !$activeModule && !empty($modules)) {
     $_SESSION['active_module'] = $modules[0];
     $activeModule = $modules[0];
 }
 
-// Get current user's role in tenant
-$userRole = $_SESSION['tenant_role'] ?? $user['role'] ?? 'employee';
-$isAdmin = in_array($userRole, ['master_admin', 'tenant_admin', 'admin']);
+// User role checks
+$isAdmin = in_array($tenantRole, ['master_admin', 'tenant_admin', 'admin']);
 
 // Get module actions filtered by role
 $moduleActions = [];
 if ($activeModule && isset($activeModule['actions'])) {
     foreach ($activeModule['actions'] as $action) {
-        // Filter admin-only actions
-        if (!empty($action['admin_only']) && !$isAdmin) {
-            continue;
-        }
+        if (!empty($action['admin_only']) && !$isAdmin) continue;
         $moduleActions[] = $action;
     }
 }
@@ -87,57 +93,79 @@ if ($activeModule && isset($activeModule['actions'])) {
 $page = $_GET['page'] ?? 'overview';
 $page = preg_replace('/[^a-zA-Z0-9_-]/', '', $page);
 
-// Build view path
-$moduleId = $activeModule['id'] ?? 'people';
-$viewPaths = [
-    __DIR__ . "/modules/{$moduleId}/views/{$page}.php",
-    __DIR__ . "/modules/{$moduleId}/{$page}.php",
-    __DIR__ . "/{$moduleId}/{$page}.php",
-];
-
-$viewPath = null;
-foreach ($viewPaths as $path) {
-    if (file_exists($path)) {
-        $viewPath = $path;
-        break;
+// Determine view path
+if ($viewMasterAdmin) {
+    // Master admin views
+    $viewPath = __DIR__ . "/core/views/admin/{$page}.php";
+    if (!file_exists($viewPath)) {
+        $viewPath = __DIR__ . "/core/views/admin/dashboard.php";
+    }
+} else {
+    // Regular module views
+    $moduleId = $activeModule['id'] ?? 'people';
+    $viewPaths = [
+        __DIR__ . "/modules/{$moduleId}/views/{$page}.php",
+        __DIR__ . "/modules/{$moduleId}/{$page}.php",
+        __DIR__ . "/{$moduleId}/{$page}.php",
+    ];
+    
+    $viewPath = null;
+    foreach ($viewPaths as $path) {
+        if (file_exists($path)) {
+            $viewPath = $path;
+            break;
+        }
+    }
+    
+    if (!$viewPath) {
+        $viewPath = __DIR__ . "/core/views/module_overview.php";
     }
 }
 
-if (!$viewPath) {
-    $viewPath = __DIR__ . "/core/views/module_overview.php";
-}
-
-// Handle AJAX requests
+// Handle AJAX
 $isAjax = isset($_SERVER['HTTP_X_REQUESTED_WITH']) && 
           strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
 
 if ($isAjax) {
     ob_start();
     include $viewPath;
-    $content = ob_get_clean();
-    echo '<main class="main-content" id="main-content">' . $content . '</main>';
+    echo '<main class="main-content" id="main-content">' . ob_get_clean() . '</main>';
     exit;
 }
+
+// Master admin sidebar items
+$masterAdminItems = [
+    ['name' => 'Dashboard', 'route' => 'dashboard'],
+    ['name' => 'Tenants', 'route' => 'tenants'],
+    ['name' => 'Users', 'route' => 'users'],
+    ['name' => 'Modules', 'route' => 'modules'],
+    ['name' => 'Permissions', 'route' => 'permissions'],
+    ['name' => 'Settings', 'route' => 'settings'],
+    ['name' => 'Audit Log', 'route' => 'audit_log'],
+];
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= htmlspecialchars($activeModule['name'] ?? 'Dashboard') ?> | <?= htmlspecialchars($tenant) ?> - CoreFlux</title>
+    <title><?= $viewMasterAdmin ? 'Admin Panel' : htmlspecialchars($activeModule['name'] ?? 'Dashboard') ?> | <?= htmlspecialchars($tenant) ?> - CoreFlux</title>
     <link rel="stylesheet" href="/assets/css/dashboard.css">
 </head>
-<body class="dashboard-page">
+<body class="dashboard-page <?= $viewMasterAdmin ? 'master-admin-mode' : '' ?>">
 
-<!-- Top Navigation -->
-<header class="top-header">
+<header class="top-header <?= $viewMasterAdmin ? 'admin-header' : '' ?>">
     <div class="header-left">
         <a href="/dashboard.php" class="logo-link">
             <img src="/assets/icons/logo-white.png" alt="CoreFlux" class="header-logo">
         </a>
+        <?php if ($viewMasterAdmin): ?>
+            <span class="admin-badge">Master Admin</span>
+        <?php endif; ?>
     </div>
     
     <div class="header-center">
+        <?php if (!$viewMasterAdmin): ?>
         <!-- Module Switcher -->
         <div class="dropdown module-dropdown">
             <button class="dropdown-trigger" type="button">
@@ -161,11 +189,20 @@ if ($isAjax) {
                 <?php endforeach; ?>
             </div>
         </div>
+        <?php endif; ?>
     </div>
     
     <div class="header-right">
+        <?php if ($isMasterAdmin): ?>
+        <!-- Admin Toggle -->
+        <a href="<?= $viewMasterAdmin ? '/dashboard.php' : '/dashboard.php?admin=1' ?>" 
+           class="btn btn-header <?= $viewMasterAdmin ? 'btn-active' : '' ?>">
+            <?= $viewMasterAdmin ? 'Exit Admin' : 'Admin Panel' ?>
+        </a>
+        <?php endif; ?>
+        
+        <?php if (!$viewMasterAdmin && count($tenants) > 1): ?>
         <!-- Tenant Switcher -->
-        <?php if (count($tenants) > 1): ?>
         <div class="dropdown tenant-dropdown">
             <button class="dropdown-trigger" type="button">
                 <span><?= htmlspecialchars($tenant) ?></span>
@@ -178,25 +215,24 @@ if ($isAjax) {
                     <a href="?switch_tenant=<?= urlencode($t['id']) ?>" 
                        class="dropdown-item <?= ($t['name'] === $tenant) ? 'active' : '' ?>">
                         <?= htmlspecialchars($t['name']) ?>
+                        <?php if ($t['parent_id']): ?>
+                            <small style="opacity: 0.6; margin-left: 4px;">(sub)</small>
+                        <?php endif; ?>
                         <small style="opacity: 0.6; margin-left: 8px;"><?= htmlspecialchars($t['role']) ?></small>
                     </a>
                 <?php endforeach; ?>
             </div>
         </div>
-        <?php else: ?>
+        <?php elseif (!$viewMasterAdmin): ?>
         <span class="tenant-name"><?= htmlspecialchars($tenant) ?></span>
         <?php endif; ?>
         
         <!-- User Menu -->
         <div class="dropdown user-dropdown">
             <button class="dropdown-trigger user-trigger" type="button">
-                <?php if (!empty($user['avatar'])): ?>
-                    <img src="<?= htmlspecialchars($user['avatar']) ?>" alt="" class="user-avatar">
-                <?php else: ?>
-                    <span class="user-avatar-placeholder">
-                        <?= strtoupper(substr($user['first_name'] ?? 'U', 0, 1)) ?>
-                    </span>
-                <?php endif; ?>
+                <span class="user-avatar-placeholder">
+                    <?= strtoupper(substr($user['first_name'] ?? 'U', 0, 1)) ?>
+                </span>
                 <span class="user-name"><?= htmlspecialchars($user['first_name'] ?? 'User') ?></span>
                 <svg class="caret" viewBox="0 0 20 20" fill="currentColor">
                     <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
@@ -206,7 +242,13 @@ if ($isAjax) {
                 <div class="dropdown-header">
                     <strong><?= htmlspecialchars(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')) ?></strong>
                     <small><?= htmlspecialchars($user['email'] ?? '') ?></small>
-                    <small style="display: block; margin-top: 4px; color: var(--color-accent);"><?= htmlspecialchars(ucfirst($userRole)) ?></small>
+                    <small style="display: block; margin-top: 4px;">
+                        <?php if ($isMasterAdmin): ?>
+                            <span style="color: #ef4444;">Master Admin</span>
+                        <?php else: ?>
+                            <span style="color: var(--color-accent);"><?= htmlspecialchars(ucfirst($tenantRole)) ?></span>
+                        <?php endif; ?>
+                    </small>
                 </div>
                 <hr class="dropdown-divider">
                 <a href="?page=profile" class="dropdown-item">Profile</a>
@@ -218,22 +260,29 @@ if ($isAjax) {
     </div>
 </header>
 
-<!-- Main Layout -->
 <div class="dashboard-layout">
-    
-    <!-- Sidebar Navigation -->
-    <aside class="sidebar">
-        <?php if ($activeModule): ?>
+    <aside class="sidebar <?= $viewMasterAdmin ? 'admin-sidebar' : '' ?>">
+        <?php if ($viewMasterAdmin): ?>
+            <div class="sidebar-header">
+                <h3>Administration</h3>
+            </div>
+            <nav class="sidebar-nav">
+                <?php foreach ($masterAdminItems as $item): ?>
+                    <?php $isActive = ($page === $item['route']); ?>
+                    <a href="?admin=1&page=<?= urlencode($item['route']) ?>" 
+                       class="sidebar-link <?= $isActive ? 'active' : '' ?>">
+                        <?= htmlspecialchars($item['name']) ?>
+                    </a>
+                <?php endforeach; ?>
+            </nav>
+        <?php elseif ($activeModule): ?>
             <div class="sidebar-header">
                 <h3><?= htmlspecialchars($activeModule['name']) ?></h3>
             </div>
             <nav class="sidebar-nav">
                 <?php foreach ($moduleActions as $action): ?>
-                    <?php 
-                    $isActive = ($page === $action['route']);
-                    $href = "?page=" . urlencode($action['route']);
-                    ?>
-                    <a href="<?= $href ?>" 
+                    <?php $isActive = ($page === $action['route']); ?>
+                    <a href="?page=<?= urlencode($action['route']) ?>" 
                        class="sidebar-link <?= $isActive ? 'active' : '' ?>"
                        data-page="<?= htmlspecialchars($action['route']) ?>">
                         <?= htmlspecialchars($action['name']) ?>
@@ -247,18 +296,15 @@ if ($isAjax) {
         </div>
     </aside>
     
-    <!-- Main Content Area -->
     <main class="main-content" id="main-content">
         <?php include $viewPath; ?>
     </main>
-    
 </div>
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     const main = document.getElementById('main-content');
     
-    // AJAX navigation for sidebar links
     document.body.addEventListener('click', (e) => {
         const link = e.target.closest('a.sidebar-link');
         if (!link) return;
@@ -285,7 +331,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     window.addEventListener('popstate', () => window.location.reload());
     
-    // Dropdown behavior
     document.querySelectorAll('.dropdown-trigger').forEach(trigger => {
         trigger.addEventListener('click', (e) => {
             e.stopPropagation();
