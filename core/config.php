@@ -5,10 +5,10 @@
  */
 
 // Database Configuration
-define('DB_HOST', 'localhost:3306');
-define('DB_NAME', 'z2tpn3mqoatz6okk_master_admin');
-define('DB_USER', 'z2tpn3mqoatz6okk_core');
-define('DB_PASS', 'Qjpza}^8D$eA');
+define('DB_HOST', 'localhost');
+define('DB_NAME', 'grcudkpvcd');
+define('DB_USER', 'grcudkpvcd');
+define('DB_PASS', '7DgX7F4RPz');
 
 // SMTP Configuration
 define('SMTP_HOST', 'smtp.mail.yahoo.com');
