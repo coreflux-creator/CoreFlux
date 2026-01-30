@@ -1,0 +1,19 @@
+# Module-specific ignores
+*.log
+*.cache
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Dependencies (if any)
+vendor/
+node_modules/
+
+# Local config
+config.local.php
+.env.local
