@@ -545,6 +545,214 @@ body {
    Form Elements
    ======================================== */
 .cf-form-group {
+
+/* ========================================
+   Header Components
+   ======================================== */
+.cf-header-left,
+.cf-header-center,
+.cf-header-right {
+    display: flex;
+    align-items: center;
+    gap: var(--cf-space-4);
+}
+
+.cf-header-left { flex: 0 0 auto; }
+.cf-header-center { flex: 1; justify-content: center; }
+.cf-header-right { flex: 0 0 auto; }
+
+.cf-logo-link {
+    display: flex;
+    align-items: center;
+}
+
+.cf-header-logo {
+    height: 32px;
+    width: auto;
+}
+
+.cf-admin-badge {
+    background: var(--cf-danger);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.cf-module-trigger,
+.cf-dropdown-trigger {
+    display: flex;
+    align-items: center;
+    gap: var(--cf-space-2);
+    padding: var(--cf-space-2) var(--cf-space-4);
+    color: var(--cf-text-inverse);
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: var(--cf-radius-md);
+    border: none;
+    cursor: pointer;
+    font-size: var(--cf-text-sm);
+    font-weight: var(--cf-font-medium);
+    transition: background var(--cf-transition-fast);
+}
+
+.cf-module-trigger:hover,
+.cf-dropdown-trigger:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.cf-dropdown-icon {
+    width: 20px;
+    height: 20px;
+    border-radius: var(--cf-radius-sm);
+}
+
+.cf-caret {
+    opacity: 0.7;
+    transition: transform var(--cf-transition-fast);
+}
+
+.cf-dropdown.open .cf-caret {
+    transform: rotate(180deg);
+}
+
+.cf-dropdown-right {
+    left: auto;
+    right: 0;
+}
+
+.cf-dropdown-header {
+    padding: var(--cf-space-3) var(--cf-space-4);
+    border-bottom: 1px solid var(--cf-border-light);
+}
+
+.cf-dropdown-header strong {
+    display: block;
+    font-size: var(--cf-text-sm);
+}
+
+.cf-dropdown-header small {
+    display: block;
+    font-size: var(--cf-text-xs);
+    color: var(--cf-text-secondary);
+    margin-top: 2px;
+}
+
+.cf-dropdown-item.active {
+    background: var(--cf-bg);
+    color: var(--cf-primary);
+    font-weight: var(--cf-font-medium);
+}
+
+.cf-dropdown-item-danger {
+    color: var(--cf-danger);
+}
+
+.cf-tenant-name {
+    color: var(--cf-text-inverse);
+    font-size: var(--cf-text-sm);
+    opacity: 0.9;
+}
+
+.cf-user-trigger {
+    padding: var(--cf-space-1) var(--cf-space-2);
+}
+
+.cf-user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--cf-radius-full);
+    background: rgba(255, 255, 255, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--cf-text-sm);
+    font-weight: var(--cf-font-semibold);
+    color: var(--cf-text-inverse);
+}
+
+.cf-user-name {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cf-btn-header {
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 6px;
+    color: var(--cf-text-inverse);
+    background: rgba(255, 255, 255, 0.1);
+    text-decoration: none;
+    transition: all var(--cf-transition-fast);
+}
+
+.cf-btn-header:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.cf-btn-header.cf-btn-active {
+    background: var(--cf-danger);
+}
+
+.cf-btn-hero {
+    padding: var(--cf-space-3) var(--cf-space-6);
+}
+
+.cf-btn-hero.cf-btn-secondary {
+    background: rgba(255, 255, 255, 0.15);
+    color: var(--cf-text-inverse);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.cf-btn-hero.cf-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+/* Stats Card */
+.cf-stat-value {
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--cf-primary);
+    line-height: 1;
+}
+
+.cf-stat-label {
+    font-size: var(--cf-text-sm);
+    font-weight: var(--cf-font-medium);
+    color: var(--cf-text);
+    margin-top: var(--cf-space-2);
+}
+
+.cf-stat-change {
+    font-size: var(--cf-text-xs);
+    margin-top: var(--cf-space-1);
+}
+
+.cf-stat-change-positive { color: var(--cf-success); }
+.cf-stat-change-negative { color: var(--cf-danger); }
+.cf-stat-change-neutral { color: var(--cf-text-secondary); }
+
+/* Toast close button */
+.cf-toast-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: var(--cf-text-secondary);
+    cursor: pointer;
+    padding: 0;
+    margin-left: auto;
+}
+
+.cf-toast-close:hover {
+    color: var(--cf-text);
+}
+
+
     margin-bottom: var(--cf-space-4);
 }
 
