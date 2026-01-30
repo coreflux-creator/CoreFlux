@@ -4,11 +4,15 @@
  * 
  * This manifest defines how the Accounting module integrates with CoreFlux.
  * Other modules should follow this same structure.
+ * 
+ * Repository: https://github.com/YOURORG/coreflux-accounting
  */
 
 return [
     'id' => 'accounting',
     'name' => 'Accounting',
+    'version' => '1.0.0',
+    'core_version' => '>=1.0.0',
     'icon' => '/assets/icons/icon-accounting.png',
     'description' => 'General ledger, accounts payable, accounts receivable, and financial reporting.',
     
