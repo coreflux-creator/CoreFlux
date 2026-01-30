@@ -1,7 +1,7 @@
 <?php
 /**
  * CoreFlux Data Layer
- * Pulls core data (tenants, modules, permissions) from database
+ * Handles tenants, modules, permissions with hierarchy support
  */
 
 require_once __DIR__ . '/config.php';
@@ -15,7 +15,7 @@ function getUserTenants(int $userId): array {
     if (!$pdo) return [];
     
     $stmt = $pdo->prepare("
-        SELECT t.id, t.name, t.logo_url, t.subdomain, ut.role, ut.is_default
+        SELECT t.id, t.name, t.logo_url, t.subdomain, t.parent_id, ut.role, ut.is_default
         FROM user_tenants ut
         JOIN tenants t ON ut.tenant_id = t.id
         WHERE ut.user_id = ? AND ut.status = 'active'
@@ -26,55 +26,174 @@ function getUserTenants(int $userId): array {
 }
 
 /**
- * Get tenant by ID
+ * Get sub-tenants for a parent tenant
  */
-function getTenantById(int $tenantId): ?array {
+function getSubTenants(int $parentId): array {
     $pdo = getDB();
-    if (!$pdo) return null;
+    if (!$pdo) return [];
     
-    $stmt = $pdo->prepare("SELECT * FROM tenants WHERE id = ?");
-    $stmt->execute([$tenantId]);
-    return $stmt->fetch() ?: null;
+    $stmt = $pdo->prepare("SELECT * FROM tenants WHERE parent_id = ?");
+    $stmt->execute([$parentId]);
+    return $stmt->fetchAll();
 }
 
 /**
- * Get all active modules from database
+ * Check if tenant is a primary (has sub-tenants) or sub-tenant
  */
-function getModulesFromDB(): array {
+function getTenantHierarchyInfo(int $tenantId): array {
+    $pdo = getDB();
+    if (!$pdo) return ['is_primary' => true, 'is_sub' => false, 'parent_id' => null, 'sub_tenants' => []];
+    
+    // Get tenant info
+    $stmt = $pdo->prepare("SELECT * FROM tenants WHERE id = ?");
+    $stmt->execute([$tenantId]);
+    $tenant = $stmt->fetch();
+    
+    if (!$tenant) {
+        return ['is_primary' => true, 'is_sub' => false, 'parent_id' => null, 'sub_tenants' => []];
+    }
+    
+    $isSub = !empty($tenant['parent_id']);
+    
+    // Get sub-tenants if this is a primary
+    $subTenants = [];
+    if (!$isSub) {
+        $subTenants = getSubTenants($tenantId);
+    }
+    
+    return [
+        'is_primary' => !$isSub && count($subTenants) > 0,
+        'is_sub' => $isSub,
+        'parent_id' => $tenant['parent_id'],
+        'sub_tenants' => $subTenants,
+    ];
+}
+
+/**
+ * Get modules enabled for a specific tenant
+ * Respects tenant_modules subscriptions
+ */
+function getTenantSubscribedModules(int $tenantId): array {
+    $pdo = getDB();
+    if (!$pdo) return [];
+    
+    // Check if tenant has specific module subscriptions
+    $stmt = $pdo->prepare("
+        SELECT tm.module_key, m.id, m.name, m.link, am.description
+        FROM tenant_modules tm
+        JOIN modules m ON LOWER(REPLACE(m.name, ' ', '_')) = tm.module_key
+        LEFT JOIN admin_modules am ON LOWER(am.name) = LOWER(m.name)
+        WHERE tm.tenant_id = ? AND tm.is_enabled = 1 AND m.is_active = 1
+    ");
+    $stmt->execute([$tenantId]);
+    $modules = $stmt->fetchAll();
+    
+    // If no specific subscriptions, tenant has no modules (or hasn't been configured)
+    // For now, return empty - admin needs to enable modules for tenant
+    return $modules;
+}
+
+/**
+ * Get all active modules (for master admin or unconfigured tenants)
+ */
+function getAllActiveModules(): array {
     $pdo = getDB();
     if (!$pdo) return [];
     
     $stmt = $pdo->query("
-        SELECT m.id, m.name, m.link, m.is_active,
-               am.description
+        SELECT m.id, m.name, m.link, am.description
         FROM modules m
         LEFT JOIN admin_modules am ON LOWER(am.name) = LOWER(m.name)
         WHERE m.is_active = 1
         ORDER BY m.id
     ");
+    return $stmt->fetchAll();
+}
+
+/**
+ * Get modules for a user in a specific tenant context
+ * Implements the hierarchy rules:
+ * - Sub-tenant user: only sub-tenant's modules
+ * - Primary tenant user: primary's modules + all sub-tenant modules
+ * - Master admin: all modules
+ */
+function getModulesForUserInTenant(int $userId, int $tenantId, string $globalRole, string $tenantRole): array {
+    $pdo = getDB();
+    if (!$pdo) return [];
     
+    // Master admin sees all modules
+    if ($globalRole === 'master_admin') {
+        $modules = getAllActiveModules();
+        return formatModules($modules);
+    }
+    
+    // Get tenant hierarchy info
+    $hierarchy = getTenantHierarchyInfo($tenantId);
+    
+    // Get tenant's subscribed modules
+    $tenantModules = getTenantSubscribedModules($tenantId);
+    
+    // If no modules configured for tenant, fall back to all active modules
+    // (This allows the system to work before tenant_modules is populated)
+    if (empty($tenantModules)) {
+        $tenantModules = getAllActiveModules();
+    }
+    
+    // If this is a primary tenant, also get sub-tenant modules
+    if (!$hierarchy['is_sub'] && !empty($hierarchy['sub_tenants'])) {
+        $subModuleKeys = [];
+        foreach ($hierarchy['sub_tenants'] as $subTenant) {
+            $subMods = getTenantSubscribedModules($subTenant['id']);
+            foreach ($subMods as $sm) {
+                $key = $sm['module_key'] ?? strtolower(str_replace(' ', '_', $sm['name']));
+                $subModuleKeys[$key] = $sm;
+            }
+        }
+        
+        // Merge with primary tenant modules (primary gets union)
+        foreach ($tenantModules as $tm) {
+            $key = $tm['module_key'] ?? strtolower(str_replace(' ', '_', $tm['name']));
+            $subModuleKeys[$key] = $tm;
+        }
+        
+        $tenantModules = array_values($subModuleKeys);
+    }
+    
+    // For non-admin users, could further filter by user_modules table
+    // For now, tenant_admin and admin see all tenant modules
+    if (!in_array($tenantRole, ['tenant_admin', 'admin'])) {
+        // TODO: Filter by user_modules or role_permissions
+        // For now, employees see all tenant modules
+    }
+    
+    return formatModules($tenantModules);
+}
+
+/**
+ * Format raw module data into standard structure
+ */
+function formatModules(array $rawModules): array {
     $modules = [];
-    while ($row = $stmt->fetch()) {
+    $iconMap = [
+        'people' => 'icon-people.png',
+        'finance' => 'icon-finance.png',
+        'accounting' => 'icon-accounting.png',
+        'tax' => 'icon-tax.png',
+        'wealth_management' => 'icon-wealth.png',
+        'wealth management' => 'icon-wealth.png',
+        'crm' => 'icon-crm.png',
+        'reporting' => 'icon-reporting.png',
+    ];
+    
+    foreach ($rawModules as $row) {
         $moduleId = strtolower(str_replace(' ', '_', $row['name']));
-        
-        // Map module name to icon
-        $iconMap = [
-            'people' => 'icon-people.png',
-            'finance' => 'icon-finance.png',
-            'accounting' => 'icon-accounting.png',
-            'tax' => 'icon-tax.png',
-            'wealth_management' => 'icon-wealth.png',
-            'crm' => 'icon-crm.png',
-            'reporting' => 'icon-reporting.png',
-        ];
-        
         $modules[] = [
             'id' => $moduleId,
             'db_id' => $row['id'],
             'name' => $row['name'],
-            'icon' => '/assets/icons/' . ($iconMap[$moduleId] ?? 'icon-module.png'),
+            'icon' => '/assets/icons/' . ($iconMap[$moduleId] ?? $iconMap[strtolower($row['name'])] ?? 'icon-module.png'),
             'description' => $row['description'] ?? '',
-            'link' => $row['link'],
+            'link' => $row['link'] ?? '',
         ];
     }
     
@@ -82,160 +201,119 @@ function getModulesFromDB(): array {
 }
 
 /**
- * Get modules enabled for a specific tenant
- */
-function getTenantModules(int $tenantId): array {
-    $pdo = getDB();
-    if (!$pdo) return getModulesFromDB(); // Fall back to all modules
-    
-    // Check if tenant_modules has entries for this tenant
-    $stmt = $pdo->prepare("
-        SELECT COUNT(*) FROM tenant_modules WHERE tenant_id = ?
-    ");
-    $stmt->execute([$tenantId]);
-    $count = $stmt->fetchColumn();
-    
-    if ($count == 0) {
-        // No tenant-specific config, return all active modules
-        return getModulesFromDB();
-    }
-    
-    // Get tenant-specific modules
-    $stmt = $pdo->prepare("
-        SELECT m.id, m.name, m.link, am.description
-        FROM tenant_modules tm
-        JOIN modules m ON tm.module_key = LOWER(REPLACE(m.name, ' ', '_'))
-        LEFT JOIN admin_modules am ON LOWER(am.name) = LOWER(m.name)
-        WHERE tm.tenant_id = ? AND tm.is_enabled = 1 AND m.is_active = 1
-    ");
-    $stmt->execute([$tenantId]);
-    
-    $modules = [];
-    while ($row = $stmt->fetch()) {
-        $moduleId = strtolower(str_replace(' ', '_', $row['name']));
-        $modules[] = [
-            'id' => $moduleId,
-            'db_id' => $row['id'],
-            'name' => $row['name'],
-            'icon' => '/assets/icons/icon-' . $moduleId . '.png',
-            'description' => $row['description'] ?? '',
-            'link' => $row['link'],
-        ];
-    }
-    
-    return $modules ?: getModulesFromDB();
-}
-
-/**
- * Get permissions for a role
- */
-function getRolePermissions(string $roleSlug): array {
-    $pdo = getDB();
-    if (!$pdo) return [];
-    
-    $stmt = $pdo->prepare("
-        SELECT p.slug
-        FROM permissions p
-        JOIN role_permissions rp ON p.id = rp.permission_id
-        JOIN roles r ON r.id = rp.role_id
-        WHERE r.slug = ?
-    ");
-    $stmt->execute([$roleSlug]);
-    return $stmt->fetchAll(PDO::FETCH_COLUMN);
-}
-
-/**
- * Get all permissions (for master_admin/tenant_admin)
- */
-function getAllPermissions(): array {
-    $pdo = getDB();
-    if (!$pdo) return [];
-    
-    $stmt = $pdo->query("SELECT slug FROM permissions");
-    return $stmt->fetchAll(PDO::FETCH_COLUMN);
-}
-
-/**
  * Get sidebar items for a module
  */
 function getModuleSidebarItems(string $moduleName): array {
-    // For now, return hardcoded actions per module
-    // TODO: Create module_sidebar_items table or use module-specific config
-    
     $moduleActions = [
         'people' => [
-            ['name' => 'Overview', 'route' => 'overview', 'icon' => 'icon-dashboard.png'],
-            ['name' => 'Enter Time', 'route' => 'enter_time', 'icon' => 'icon-timesheet.png'],
-            ['name' => 'Timesheets', 'route' => 'timesheets', 'icon' => 'icon-approvals.png'],
-            ['name' => 'Employee Directory', 'route' => 'employee_directory', 'icon' => 'icon-directory.png'],
-            ['name' => 'Reports', 'route' => 'reports', 'icon' => 'icon-reporting.png'],
-            ['name' => 'Hiring Pipeline', 'route' => 'hiring_pipeline', 'icon' => 'icon-hiring.png', 'admin_only' => true],
+            ['name' => 'Overview', 'route' => 'overview'],
+            ['name' => 'Enter Time', 'route' => 'enter_time'],
+            ['name' => 'Timesheets', 'route' => 'timesheets'],
+            ['name' => 'Employee Directory', 'route' => 'employee_directory'],
+            ['name' => 'Reports', 'route' => 'reports'],
+            ['name' => 'Hiring Pipeline', 'route' => 'hiring_pipeline', 'admin_only' => true],
         ],
         'accounting' => [
-            ['name' => 'Overview', 'route' => 'overview', 'icon' => 'icon-dashboard.png'],
-            ['name' => 'Chart of Accounts', 'route' => 'chart_of_accounts', 'icon' => 'icon-coa.png'],
-            ['name' => 'Journal Entries', 'route' => 'journal_entries', 'icon' => 'icon-journal.png'],
-            ['name' => 'Accounts Payable', 'route' => 'accounts_payable', 'icon' => 'icon-ap.png'],
-            ['name' => 'Accounts Receivable', 'route' => 'accounts_receivable', 'icon' => 'icon-ar.png'],
-            ['name' => 'Bank Reconciliation', 'route' => 'bank_reconciliation', 'icon' => 'icon-bank.png'],
-            ['name' => 'Reports', 'route' => 'reports', 'icon' => 'icon-reporting.png'],
+            ['name' => 'Overview', 'route' => 'overview'],
+            ['name' => 'Chart of Accounts', 'route' => 'chart_of_accounts'],
+            ['name' => 'Journal Entries', 'route' => 'journal_entries'],
+            ['name' => 'Accounts Payable', 'route' => 'accounts_payable'],
+            ['name' => 'Accounts Receivable', 'route' => 'accounts_receivable'],
+            ['name' => 'Bank Reconciliation', 'route' => 'bank_reconciliation'],
+            ['name' => 'Reports', 'route' => 'reports'],
         ],
         'finance' => [
-            ['name' => 'Overview', 'route' => 'overview', 'icon' => 'icon-dashboard.png'],
-            ['name' => 'Budgets', 'route' => 'budgets', 'icon' => 'icon-budget.png'],
-            ['name' => 'Forecasts', 'route' => 'forecasts', 'icon' => 'icon-forecast.png'],
-            ['name' => 'Reports', 'route' => 'reports', 'icon' => 'icon-reporting.png'],
+            ['name' => 'Overview', 'route' => 'overview'],
+            ['name' => 'Budgets', 'route' => 'budgets'],
+            ['name' => 'Forecasts', 'route' => 'forecasts'],
+            ['name' => 'Reports', 'route' => 'reports'],
         ],
         'tax' => [
-            ['name' => 'Overview', 'route' => 'overview', 'icon' => 'icon-dashboard.png'],
+            ['name' => 'Overview', 'route' => 'overview'],
         ],
         'wealth_management' => [
-            ['name' => 'Overview', 'route' => 'overview', 'icon' => 'icon-dashboard.png'],
+            ['name' => 'Overview', 'route' => 'overview'],
         ],
         'crm' => [
-            ['name' => 'Overview', 'route' => 'overview', 'icon' => 'icon-dashboard.png'],
-            ['name' => 'Contacts', 'route' => 'contacts', 'icon' => 'icon-contacts.png'],
-            ['name' => 'Companies', 'route' => 'companies', 'icon' => 'icon-companies.png'],
-            ['name' => 'Deals', 'route' => 'deals', 'icon' => 'icon-deals.png'],
+            ['name' => 'Overview', 'route' => 'overview'],
+            ['name' => 'Contacts', 'route' => 'contacts'],
+            ['name' => 'Companies', 'route' => 'companies'],
+            ['name' => 'Deals', 'route' => 'deals'],
         ],
         'reporting' => [
-            ['name' => 'Overview', 'route' => 'overview', 'icon' => 'icon-dashboard.png'],
-            ['name' => 'Dashboards', 'route' => 'dashboards', 'icon' => 'icon-dashboard.png'],
-            ['name' => 'Reports', 'route' => 'reports', 'icon' => 'icon-reporting.png'],
+            ['name' => 'Overview', 'route' => 'overview'],
+            ['name' => 'Dashboards', 'route' => 'dashboards'],
+            ['name' => 'Reports', 'route' => 'reports'],
         ],
     ];
     
     $key = strtolower(str_replace(' ', '_', $moduleName));
-    return $moduleActions[$key] ?? [['name' => 'Overview', 'route' => 'overview', 'icon' => 'icon-dashboard.png']];
+    return $moduleActions[$key] ?? [['name' => 'Overview', 'route' => 'overview']];
 }
 
 /**
- * Check if user has permission
+ * Check if user is master admin
  */
-function userHasPermission(array $user, string $permission, ?int $tenantId = null): bool {
-    // Master admin and tenant_admin have all permissions
-    $role = $user['role'] ?? '';
-    if (in_array($role, ['master_admin', 'tenant_admin', 'admin'])) {
-        return true;
-    }
-    
-    // Check role_permissions table
-    $permissions = getRolePermissions($role);
-    return in_array($permission, $permissions);
+function isMasterAdmin(array $user): bool {
+    return ($user['global_role'] ?? $user['role'] ?? '') === 'master_admin';
 }
 
 /**
- * Get user's role in a specific tenant
+ * Get master admin dashboard stats
  */
-function getUserRoleInTenant(int $userId, int $tenantId): ?string {
+function getMasterAdminStats(): array {
     $pdo = getDB();
-    if (!$pdo) return null;
+    if (!$pdo) return [];
     
-    $stmt = $pdo->prepare("
-        SELECT role FROM user_tenants 
-        WHERE user_id = ? AND tenant_id = ? AND status = 'active'
+    $stats = [];
+    
+    // Total tenants
+    $stats['total_tenants'] = $pdo->query("SELECT COUNT(*) FROM tenants")->fetchColumn();
+    
+    // Total users
+    $stats['total_users'] = $pdo->query("SELECT COUNT(*) FROM users WHERE is_active = 1")->fetchColumn();
+    
+    // Active modules
+    $stats['active_modules'] = $pdo->query("SELECT COUNT(*) FROM modules WHERE is_active = 1")->fetchColumn();
+    
+    // Total employees
+    $stats['total_employees'] = $pdo->query("SELECT COUNT(*) FROM employees")->fetchColumn();
+    
+    return $stats;
+}
+
+/**
+ * Get all tenants (for master admin)
+ */
+function getAllTenants(): array {
+    $pdo = getDB();
+    if (!$pdo) return [];
+    
+    $stmt = $pdo->query("
+        SELECT t.*, 
+               (SELECT COUNT(*) FROM user_tenants ut WHERE ut.tenant_id = t.id) as user_count,
+               (SELECT COUNT(*) FROM tenants sub WHERE sub.parent_id = t.id) as sub_tenant_count
+        FROM tenants t
+        ORDER BY t.parent_id IS NULL DESC, t.name ASC
     ");
-    $stmt->execute([$userId, $tenantId]);
-    $result = $stmt->fetch();
-    return $result['role'] ?? null;
+    return $stmt->fetchAll();
+}
+
+/**
+ * Get all users (for master admin)
+ */
+function getAllUsers(): array {
+    $pdo = getDB();
+    if (!$pdo) return [];
+    
+    $stmt = $pdo->query("
+        SELECT u.*, 
+               GROUP_CONCAT(DISTINCT t.name SEPARATOR ', ') as tenant_names
+        FROM users u
+        LEFT JOIN user_tenants ut ON u.id = ut.user_id
+        LEFT JOIN tenants t ON ut.tenant_id = t.id
+        GROUP BY u.id
+        ORDER BY u.name
+    ");
+    return $stmt->fetchAll();
 }
