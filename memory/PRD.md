@@ -1,117 +1,111 @@
 # CoreFlux - Product Requirements Document
 
 ## Original Problem Statement
-Refactor a PHP-based multi-tenant enterprise application (`coreflux`) to support modularity. The goal is to have "core as one app and each function as a standalone app that's integrated; wiring in this accounting module will serve as the model."
-
-**Key User Clarification:** Modules should be **separate Git repositories** that integrate with core via Git submodules. This allows independent development while maintaining a seamless, single-app user experience.
+Refactor a PHP-based multi-tenant enterprise application (`coreflux`) to support modularity with:
+- Core as one app providing shell, auth, tenant management
+- Modules as standalone apps (separate Git repos) integrated via submodules
+- Laravel + React architecture (user confirmed choice)
 
 ## Architecture
 
-### Technology Stack
-- **Backend:** PHP
-- **Database:** MySQL (PDO)
-- **Pattern:** Modular Monolith, Multi-tenancy, RBAC
-- **Deployment:** Manual `git pull` to Cloudways server
+### Technology Stack (NEW)
+- **Frontend:** React 18 + Vite + Tailwind CSS
+- **Backend:** Laravel 10 + Sanctum (API tokens)
+- **Database:** MySQL (existing tables)
+- **Modules:** Git submodules
 
 ### Repository Structure
 ```
 coreflux/                      ← Main repo (core)
-├── core/                      ← Auth, shell, design system
+├── frontend/                  ← React SPA ✅ BUILT
+├── laravel/                   ← Laravel backend ✅ WRITTEN (needs composer install)
 ├── modules/
-│   ├── accounting/            ← Git submodule → separate repo
-│   ├── people/                ← Git submodule → separate repo
-│   └── _template/             ← Template for new modules
-├── .gitmodules                ← Submodule configuration
-└── dashboard.php
+│   ├── accounting/            ← Git submodule ✅ LINKED
+│   └── people/                ← Git submodule ✅ LINKED
+├── .gitmodules                ✅ CONFIGURED
+└── LARAVEL_SETUP.md           ✅ SETUP GUIDE
 ```
-
-### Integration Model
-- **Authentication:** Core handles all auth; modules inherit via PHP session
-- **UI Shell:** Core provides header/sidebar; modules render in content area
-- **Design System:** Shared via `/assets/css/coreflux.css`
-- **Database:** Each module uses prefixed tables (e.g., `acct_*`)
-- **Routing:** Subpaths via `?module=xxx&page=yyy`
 
 ## What's Been Implemented
 
-### ✅ Core Application (Completed - Jan 2025)
-- Stable dashboard with demo mode and live mode
-- Database-driven authentication system
-- Multi-tenant system with parent/sub-tenant hierarchies
-- Master Admin panel for managing tenants, users, roles, module subscriptions
+### ✅ Phase 1: React Frontend (COMPLETE)
+- Full React app with Vite + Tailwind
+- Login page with auth flow
+- Dashboard with module cards
+- Master Admin panel (Tenants, Users, Modules CRUD)
+- Module overview pages (Accounting, People)
+- Auth context with token management
+- Multi-tenant switching
+- Responsive layout with header + sidebar
 
-### ✅ Framework Layer (Completed - Jan 2025)
-- Design system (`assets/css/coreflux.css`)
-- PHP shell components (`core/shell/`)
-- UI primitives (`cfPageHero`, `cfCard`, etc.)
-- Module contract system (`manifest.php`)
-- Documentation (`FRAMEWORK_GUIDE.md`)
+### ✅ Phase 2: Laravel Backend Files (WRITTEN - needs composer install)
+- Models: User, Tenant, Module, UserTenant, TenantModule
+- Controllers: AuthController, TenantController, UserController, ModuleController
+- Routes: api.php with auth and admin routes
+- Middleware: AdminMiddleware for master_admin protection
+- Config: Sanctum, CORS
 
-### ✅ Git Submodules Infrastructure (Completed - Jan 2025)
-- Module template at `/modules/_template/`
-- Submodule setup documentation (`SUBMODULE_SETUP.md`)
-- Accounting module prepared for extraction to separate repo
-- Database schema for accounting (`migrations/001_initial_schema.sql`)
-- Helper functions (`includes/functions.php`)
+### ✅ Git Submodules (CONFIGURED)
+- `modules/accounting` → coreflux-creator/coreflux-accounting
+- `modules/people` → coreflux-creator/coreflux-people
 
-### ✅ CI/CD Cleanup (Completed - Jan 2025)
-- Removed failing GitHub Actions workflow (`deploy.yml`)
-- User continues with manual git pull deployment
+## Awaiting User Action
 
-## Prioritized Backlog
+### 🔴 BLOCKING: Run `composer install`
+The Laravel backend code is written but needs dependencies installed:
 
-### P0 - Next Steps (User Action Required)
-1. **Create GitHub repo** for accounting module (e.g., `coreflux-accounting`)
-2. **Push accounting module contents** to the new repo
-3. **Add as submodule** in main CoreFlux repo:
-   ```bash
-   rm -rf modules/accounting
-   git submodule add <repo-url> modules/accounting
-   ```
+```bash
+cd /path/to/coreflux/laravel
+composer install
+cp .env.example .env
+php artisan key:generate
+# Configure .env with DB credentials
+php artisan migrate  # Creates personal_access_tokens table
+```
 
-### P1 - After Submodule Setup
-- Build accounting module views using framework components
-- Run database migration on tenant database
-- Test module integration end-to-end
+## Remaining Tasks
 
-### P2 - Future
-- UI/UX design refinements
-- Wire up granular permissions system
-- Additional modules (People, Finance, etc.) as submodules
+### After composer install:
+1. **Test auth flow** - Login with existing credentials
+2. **Test admin panel** - CRUD operations
+3. **Add Kernel middleware** - Register AdminMiddleware
 
-## Key Database Schema
+### Phase 3: Accounting Module Rewrite (~2 sessions)
+- Convert FastAPI → Laravel controllers
+- Convert MongoDB → MySQL models
+- Keep React frontend, point to new Laravel API
 
-### Core Tables
+### Phase 4: People Module Rewrite (~1-2 sessions)
+- Convert existing PHP → Laravel controllers
+- Build React pages for People features
+
+## Database Schema (Existing)
 - `tenants`: {id, name, parent_id, subdomain}
 - `users`: {id, name, email, password_hash, role}
 - `user_tenants`: {user_id, tenant_id, role}
-- `modules`: {id, name}
-- `tenant_modules`: {tenant_id, module_key, is_enabled}
+- `modules`: {id, name, key}
+- `tenant_modules`: {tenant_id, module_id, is_enabled}
 
-### Accounting Module Tables (prefixed `acct_`)
-- `acct_accounts`: Chart of accounts
-- `acct_journal_entries`: Journal entry headers
-- `acct_journal_lines`: Journal entry detail lines
-- `acct_fiscal_periods`: Accounting periods
-- `acct_vendors`: AP vendors
-- `acct_customers`: AR customers
-- `acct_ap_invoices`: Vendor invoices
-- `acct_ar_invoices`: Customer invoices
+## Key Files Created This Session
 
-## Key Files
+### Frontend (/app/frontend/)
+- `src/App.jsx` - Main routing
+- `src/pages/LoginPage.jsx` - Login UI
+- `src/pages/DashboardPage.jsx` - Main dashboard
+- `src/pages/admin/*` - Admin panel pages
+- `src/pages/modules/*` - Module overview pages
+- `src/components/layout/*` - Header, Sidebar, Layout
+- `src/hooks/useAuth.jsx` - Auth context
+- `src/hooks/useModules.jsx` - Modules context
+- `src/lib/api.js` - Axios instance
 
-### Core
-- `/app/dashboard.php` - Main entry point
-- `/app/login.php` - Authentication
-- `/app/core/` - Core application logic
-- `/app/assets/css/coreflux.css` - Design system
+### Backend (/app/laravel/)
+- `app/Models/*.php` - Eloquent models
+- `app/Http/Controllers/*.php` - API controllers
+- `app/Http/Middleware/AdminMiddleware.php`
+- `routes/api.php` - API routes
+- `composer.json` - Dependencies
+- `.env.example` - Environment template
 
 ### Documentation
-- `/app/FRAMEWORK_GUIDE.md` - Module development docs
-- `/app/SUBMODULE_SETUP.md` - Git submodule setup guide
-
-### Accounting Module (to be extracted)
-- `/app/modules/accounting/manifest.php` - Module metadata
-- `/app/modules/accounting/README.md` - Module docs
-- `/app/modules/accounting/migrations/` - DB schema
-- `/app/modules/accounting/includes/functions.php` - Helpers
+- `/app/LARAVEL_SETUP.md` - Complete setup guide
