@@ -28,4 +28,4 @@ define('APP_URL', 'https://www.corefluxapp.com');
 define('SESSION_LIFETIME', 3600); // 1 hour
 
 // Feature Flags
-define('USE_DATABASE', false); // Set to true when DB is ready
+define('USE_DATABASE', true); // Database authentication enabled
