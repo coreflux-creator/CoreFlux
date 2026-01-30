@@ -1,1 +1,0 @@
-<!-- Placeholder for reports.php in modules/accounting -->
