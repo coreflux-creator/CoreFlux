@@ -10,7 +10,7 @@ $allUsers = getAllUsers();
         <h1 class="page-title">Users</h1>
         <p class="page-subtitle"><?= count($allUsers) ?> total users</p>
     </div>
-    <button class="btn btn-primary" onclick="alert('Create user form coming soon')">+ New User</button>
+    <a href="?admin=1&page=user_edit&id=0" class="btn btn-primary">+ New User</a>
 </div>
 
 <div class="card">
