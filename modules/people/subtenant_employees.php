@@ -1,1 +1,0 @@
-<?php // Sub-tenant logic ?>
