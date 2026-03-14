@@ -1,76 +1,82 @@
 <?php
 /**
- * CoreFlux Deployment Script (v2)
- * 
- * Access via: https://corefluxapp.com/deploy.php?key=YOUR_SECRET_KEY
+ * CoreFlux Deployment Script (v3 - Pure PHP)
  */
 
-// ========== CONFIGURATION ==========
 $SECRET_KEY = 'coreflux-deploy-2024';
-$PROJECT_ROOT = __DIR__;
-// ====================================
 
-// Security check
 if (!isset($_GET['key']) || $_GET['key'] !== $SECRET_KEY) {
-    http_response_code(403);
     die('Access denied.');
 }
 
-// Disable output buffering for real-time output
-ob_implicit_flush(true);
-ob_end_flush();
-
-header('Content-Type: text/plain; charset=utf-8');
-set_time_limit(300);
-
-echo "========================================\n";
-echo "  CoreFlux Deployment\n";
-echo "  " . date('Y-m-d H:i:s') . "\n";
+header('Content-Type: text/html; charset=utf-8');
+echo "<pre style='font-family:monospace;font-size:14px;'>";
+echo "CoreFlux Deployment - " . date('Y-m-d H:i:s') . "\n";
 echo "========================================\n\n";
 
-// Check if dist folder already exists with recent build
-$dist_dir = $PROJECT_ROOT . '/frontend/dist';
-$dest_dir = $PROJECT_ROOT . '/app';
+$root = __DIR__;
+$src = $root . '/frontend/dist';
+$dest = $root . '/app';
 
-if (is_dir($dist_dir) && file_exists($dist_dir . '/index.html')) {
-    echo "[*] Found existing build in frontend/dist\n";
-    echo "    Skipping build, deploying directly...\n\n";
-} else {
-    echo "[!] No build found. You need to build manually via SSH:\n";
-    echo "    cd ~/public_html/frontend && yarn install && yarn build\n\n";
-    die("Deployment stopped - no build available.\n");
+// Check source exists
+if (!is_dir($src)) {
+    die("[ERROR] frontend/dist not found!\n");
 }
 
-// Deploy to app directory
-echo "[*] Deploying to /app directory...\n";
+echo "[1] Clearing old files in /app...\n";
 
-// Clear old files
-exec("rm -rf " . escapeshellarg($dest_dir . '/assets'));
-exec("rm -f " . escapeshellarg($dest_dir . '/index.html'));
-exec("rm -f " . escapeshellarg($dest_dir . '/favicon.svg'));
-
-// Copy new files
-exec("cp -r $dist_dir/* $dest_dir/ 2>&1", $output, $return_code);
-
-if ($return_code === 0) {
-    echo "    [OK] Files deployed!\n\n";
-} else {
-    echo "    [ERROR] " . implode("\n", $output) . "\n";
-    die("Deployment failed.\n");
+// Delete old assets folder
+$assets = $dest . '/assets';
+if (is_dir($assets)) {
+    array_map('unlink', glob("$assets/*"));
+    rmdir($assets);
+    echo "    Removed old assets/\n";
 }
 
-// List deployed files
-echo "[*] Deployed files:\n";
-$files = scandir($dest_dir);
-foreach ($files as $file) {
-    if ($file !== '.' && $file !== '..') {
-        $path = $dest_dir . '/' . $file;
-        $size = is_dir($path) ? 'dir' : round(filesize($path)/1024, 1) . 'KB';
-        echo "    - $file ($size)\n";
+// Delete old files
+foreach (['index.html', 'favicon.svg', 'logo.png', 'logo.svg'] as $f) {
+    $file = $dest . '/' . $f;
+    if (file_exists($file)) {
+        unlink($file);
+        echo "    Removed $f\n";
     }
 }
 
+echo "\n[2] Copying new files...\n";
+
+// Copy index.html
+copy($src . '/index.html', $dest . '/index.html');
+echo "    Copied index.html\n";
+
+// Copy favicon.svg
+if (file_exists($src . '/favicon.svg')) {
+    copy($src . '/favicon.svg', $dest . '/favicon.svg');
+    echo "    Copied favicon.svg\n";
+}
+
+// Copy assets folder
+$src_assets = $src . '/assets';
+if (is_dir($src_assets)) {
+    mkdir($dest . '/assets', 0755, true);
+    foreach (glob($src_assets . '/*') as $file) {
+        $filename = basename($file);
+        // Skip large files (> 1MB)
+        if (filesize($file) > 1000000) {
+            echo "    Skipped $filename (too large)\n";
+            continue;
+        }
+        copy($file, $dest . '/assets/' . $filename);
+        echo "    Copied assets/$filename\n";
+    }
+}
+
+echo "\n[3] Deployed files:\n";
+foreach (glob($dest . '/*') as $f) {
+    $name = basename($f);
+    $size = is_dir($f) ? 'dir' : round(filesize($f)/1024) . 'KB';
+    echo "    - $name ($size)\n";
+}
+
 echo "\n========================================\n";
-echo "  Deployment Complete!\n";
-echo "========================================\n";
-echo "\nTest: https://corefluxapp.com/app/\n";
+echo "DONE! Test: https://corefluxapp.com/app/\n";
+echo "</pre>";
