@@ -1,27 +1,26 @@
 <?php
 /**
- * CoreFlux Deployment Script
+ * CoreFlux Deployment Script (v2)
  * 
  * Access via: https://corefluxapp.com/deploy.php?key=YOUR_SECRET_KEY
- * 
- * IMPORTANT: Change the secret key below before using!
  */
 
 // ========== CONFIGURATION ==========
-$SECRET_KEY = 'coreflux-deploy-2024';  // CHANGE THIS to something unique!
+$SECRET_KEY = 'coreflux-deploy-2024';
 $PROJECT_ROOT = __DIR__;
 // ====================================
 
 // Security check
 if (!isset($_GET['key']) || $_GET['key'] !== $SECRET_KEY) {
     http_response_code(403);
-    die('Access denied. Invalid or missing deployment key.');
+    die('Access denied.');
 }
 
-// Set headers for plain text output
-header('Content-Type: text/plain; charset=utf-8');
+// Disable output buffering for real-time output
+ob_implicit_flush(true);
+ob_end_flush();
 
-// Increase execution time for build process
+header('Content-Type: text/plain; charset=utf-8');
 set_time_limit(300);
 
 echo "========================================\n";
@@ -29,89 +28,49 @@ echo "  CoreFlux Deployment\n";
 echo "  " . date('Y-m-d H:i:s') . "\n";
 echo "========================================\n\n";
 
-// Helper function to run commands
-function run_command($command, $description) {
-    global $PROJECT_ROOT;
-    
-    echo "[*] $description\n";
-    echo "    Command: $command\n";
-    
-    $output = [];
-    $return_code = 0;
-    
-    exec("cd $PROJECT_ROOT && $command 2>&1", $output, $return_code);
-    
-    if (!empty($output)) {
-        foreach ($output as $line) {
-            echo "    $line\n";
-        }
-    }
-    
-    if ($return_code !== 0) {
-        echo "    [ERROR] Command failed with code $return_code\n\n";
-        return false;
-    }
-    
-    echo "    [OK]\n\n";
-    return true;
-}
-
-// Step 1: Git Pull
-if (!run_command('git pull origin main', 'Pulling latest code from Git')) {
-    die("Deployment failed at git pull\n");
-}
-
-// Step 2: Install dependencies
-if (!run_command('cd frontend && yarn install 2>&1 || npm install 2>&1', 'Installing frontend dependencies')) {
-    die("Deployment failed at dependency install\n");
-}
-
-// Step 3: Build frontend
-if (!run_command('cd frontend && yarn build 2>&1 || npm run build 2>&1', 'Building frontend')) {
-    die("Deployment failed at build\n");
-}
-
-// Step 4: Deploy to app directory
-echo "[*] Deploying to /app directory\n";
-
-$source_dir = $PROJECT_ROOT . '/frontend/dist';
+// Check if dist folder already exists with recent build
+$dist_dir = $PROJECT_ROOT . '/frontend/dist';
 $dest_dir = $PROJECT_ROOT . '/app';
 
-// Clear old files
-$old_files = ['index.html', 'favicon.svg', 'assets'];
-foreach ($old_files as $file) {
-    $path = $dest_dir . '/' . $file;
-    if (is_dir($path)) {
-        exec("rm -rf " . escapeshellarg($path));
-    } elseif (file_exists($path)) {
-        unlink($path);
-    }
+if (is_dir($dist_dir) && file_exists($dist_dir . '/index.html')) {
+    echo "[*] Found existing build in frontend/dist\n";
+    echo "    Skipping build, deploying directly...\n\n";
+} else {
+    echo "[!] No build found. You need to build manually via SSH:\n";
+    echo "    cd ~/public_html/frontend && yarn install && yarn build\n\n";
+    die("Deployment stopped - no build available.\n");
 }
+
+// Deploy to app directory
+echo "[*] Deploying to /app directory...\n";
+
+// Clear old files
+exec("rm -rf " . escapeshellarg($dest_dir . '/assets'));
+exec("rm -f " . escapeshellarg($dest_dir . '/index.html'));
+exec("rm -f " . escapeshellarg($dest_dir . '/favicon.svg'));
 
 // Copy new files
-exec("cp -r $source_dir/* $dest_dir/", $output, $return_code);
+exec("cp -r $dist_dir/* $dest_dir/ 2>&1", $output, $return_code);
 
 if ($return_code === 0) {
-    echo "    [OK] Files copied successfully\n\n";
+    echo "    [OK] Files deployed!\n\n";
 } else {
-    die("    [ERROR] Failed to copy files\n");
+    echo "    [ERROR] " . implode("\n", $output) . "\n";
+    die("Deployment failed.\n");
 }
 
-// Step 5: List deployed files
+// List deployed files
 echo "[*] Deployed files:\n";
 $files = scandir($dest_dir);
 foreach ($files as $file) {
     if ($file !== '.' && $file !== '..') {
         $path = $dest_dir . '/' . $file;
-        $size = is_dir($path) ? 'directory' : filesize($path) . ' bytes';
+        $size = is_dir($path) ? 'dir' : round(filesize($path)/1024, 1) . 'KB';
         echo "    - $file ($size)\n";
     }
 }
 
 echo "\n========================================\n";
 echo "  Deployment Complete!\n";
-echo "========================================\n\n";
-echo "Test your deployment:\n";
-echo "  - Marketing site: https://corefluxapp.com/\n";
-echo "  - React app:      https://corefluxapp.com/app/\n";
-echo "  - API:            https://corefluxapp.com/api/\n";
+echo "========================================\n";
+echo "\nTest: https://corefluxapp.com/app/\n";
