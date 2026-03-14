@@ -1,10 +1,14 @@
 import axios from 'axios'
 
+// API base URL - points to Laravel backend
+// In production: https://corefluxapp.com (routes to /api/* via .htaccess)
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '',
   headers: {
     'Content-Type': 'application/json',
+    'Accept': 'application/json',
   },
+  withCredentials: false, // Set to true if using cookie-based auth
 })
 
 // Add auth token to requests

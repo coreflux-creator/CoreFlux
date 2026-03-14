@@ -103,28 +103,44 @@ Refactor a PHP-based multi-tenant application named `coreflux` into a modular ar
 
 ## Deployment Instructions
 
-### To deploy the branded frontend:
+### To deploy the branded frontend to Cloudways:
 
+**Step 1: SSH into your Cloudways server**
 ```bash
-# SSH into Cloudways server
+ssh master_user@your-cloudways-ip
 cd ~/public_html
+```
 
-# Pull latest changes
+**Step 2: Pull latest changes**
+```bash
 git pull origin main
+```
 
-# Build frontend
+**Step 3: Build the frontend**
+```bash
 cd frontend
-npm install  # or yarn
-npm run build
+yarn install  # or npm install
+yarn build    # or npm run build
+```
 
-# Copy build to app directory
+**Step 4: Deploy to the app directory**
+```bash
 cp -r dist/* ../app/
 ```
+
+**Step 5: Verify the deployment**
+- Visit `https://corefluxapp.com/` - Should show the marketing site
+- Visit `https://corefluxapp.com/app/` - Should show the new CoreFlux React app with branding
 
 ### Key URLs
 - **Marketing site:** `https://corefluxapp.com/`
 - **React app:** `https://corefluxapp.com/app/`
 - **API:** `https://corefluxapp.com/api/`
+
+### Environment Variables (frontend/.env)
+```
+VITE_API_URL=https://corefluxapp.com
+```
 
 ---
 

@@ -22,7 +22,16 @@ export function AuthProvider({ children }) {
       }
 
       const response = await api.get('/api/auth/me')
-      setUser(response.data.user)
+      const userData = response.data.user
+      
+      // Normalize user data - handle both name formats
+      const normalizedUser = {
+        ...userData,
+        first_name: userData.first_name || userData.name?.split(' ')[0] || userData.name,
+        last_name: userData.last_name || userData.name?.split(' ').slice(1).join(' ') || '',
+      }
+      
+      setUser(normalizedUser)
       setTenants(response.data.tenants || [])
       
       // Set active tenant from localStorage or first available
@@ -31,6 +40,7 @@ export function AuthProvider({ children }) {
         || response.data.tenants?.[0]
       setTenant(activeTenant)
     } catch (error) {
+      console.error('Auth check failed:', error)
       localStorage.removeItem('token')
       localStorage.removeItem('tenantId')
     } finally {
@@ -40,16 +50,23 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const response = await api.post('/api/auth/login', { email, password })
-    const { token, user, tenants } = response.data
+    const { token, user: userData, tenants: userTenants } = response.data
+    
+    // Normalize user data
+    const normalizedUser = {
+      ...userData,
+      first_name: userData.first_name || userData.name?.split(' ')[0] || userData.name,
+      last_name: userData.last_name || userData.name?.split(' ').slice(1).join(' ') || '',
+    }
     
     localStorage.setItem('token', token)
-    setUser(user)
-    setTenants(tenants || [])
+    setUser(normalizedUser)
+    setTenants(userTenants || [])
     
     // Set first tenant as active
-    if (tenants?.length > 0) {
-      setTenant(tenants[0])
-      localStorage.setItem('tenantId', tenants[0].id)
+    if (userTenants?.length > 0) {
+      setTenant(userTenants[0])
+      localStorage.setItem('tenantId', userTenants[0].id)
     }
     
     return response.data
