@@ -1,140 +1,140 @@
-# CoreFlux - Product Requirements Document
+# CoreFlux Platform - Product Requirements Document
 
 ## Original Problem Statement
-Refactor a PHP-based multi-tenant enterprise application (`coreflux`) to support modularity with:
-- Core as one app providing shell, auth, tenant management
-- Modules as standalone apps (separate Git repos) integrated via submodules
-- **Laravel + React architecture** (user confirmed choice)
+Refactor a PHP-based multi-tenant application named `coreflux` into a modular architecture, with a core app and standalone functional modules. This evolved into a complete architectural overhaul to rebuild the entire application using a modern tech stack: **Laravel** for the backend and **React** for the frontend.
 
-## Current Status: WAITING FOR `composer install`
+## Current Architecture
 
-## Architecture
+### Tech Stack
+- **Frontend:** React 18 + Vite + TailwindCSS
+- **Backend:** Laravel 10 (Sanctum for API authentication)
+- **Database:** MySQL (existing schema)
+- **Deployment:** Cloudways server via Git
 
-### Technology Stack
-- **Frontend:** React 18 + Vite + Tailwind CSS ✅ COMPLETE
-- **Backend:** Laravel 10 + Sanctum ✅ CODE WRITTEN (needs composer install)
-- **Database:** MySQL (existing tables)
-- **Modules:** Git submodules ✅ CONFIGURED
-
-### Repository Structure
+### Directory Structure
 ```
-coreflux/
-├── frontend/                  ✅ React SPA (17 files)
+/app
+├── frontend/                  # React App (source)
 │   ├── src/
-│   │   ├── components/layout/ (Header, Sidebar, DashboardLayout)
-│   │   ├── pages/             (Login, Dashboard, Admin/*, Modules/*)
-│   │   ├── hooks/             (useAuth, useModules)
-│   │   └── lib/               (api.js, utils.js)
-│   └── dist/                  ✅ BUILT
-│
-├── laravel/                   ✅ Laravel backend (27 files)
-│   ├── app/
-│   │   ├── Http/Controllers/  (Auth, Admin/Tenant, Admin/User, Admin/Module)
-│   │   ├── Models/            (User, Tenant, Module, UserTenant, TenantModule)
-│   │   └── Middleware/        (AdminMiddleware)
-│   ├── routes/api.php
-│   ├── config/                (app, auth, cors, database, sanctum)
-│   ├── database/migrations/
-│   └── composer.json
-│
-├── modules/                   ✅ Git submodules
-│   ├── accounting/            → github.com/coreflux-creator/coreflux-accounting
-│   └── people/                → github.com/coreflux-creator/coreflux-people
-│
-├── .gitmodules                ✅ CONFIGURED
-└── LARAVEL_SETUP.md           ✅ SETUP GUIDE
+│   │   ├── components/       # UI components
+│   │   ├── pages/            # Page components
+│   │   ├── hooks/            # React hooks
+│   │   ├── lib/              # Utilities
+│   │   └── styles/           # CSS
+│   └── dist/                 # Build output
+├── laravel/                   # Laravel Backend
+│   ├── app/Http/Controllers/ # API controllers
+│   └── app/Models/           # Eloquent models
+├── modules/                   # Git Submodules
+│   ├── accounting/           # (to be rewritten)
+│   └── people/               # (to be rewritten)
+└── app/                       # Deployed React build
 ```
 
-## What's Complete
+## Brand Identity (Updated: March 2026)
 
-### ✅ React Frontend (17 files)
-- Login page with auth flow
-- Dashboard with welcome banner + module cards
-- Master Admin panel:
-  - Tenants CRUD (list, create, edit, delete)
-  - Users CRUD (list, create, edit, delete, tenant assignment)
-  - Modules toggle per tenant
-- Module overview pages (Accounting, People)
-- Header with tenant/module/user dropdowns
-- Sidebar with dynamic nav per module/admin
-- Auth context (login, logout, token management)
-- Modules context (fetch enabled modules)
-- Protected routes + admin route guard
+### Colors
+- **Core Navy:** `#0A2540` - Primary brand color
+- **Flux Blue:** `#007FFF` - Accent color
+- **Soft Gray:** `#F5F7FA` - Background
+- **Dark Gray:** `#3A3F45` - Body text
 
-### ✅ Laravel Backend (27 files)
-- **Models:** User, Tenant, Module, UserTenant, TenantModule
-- **Controllers:**
-  - AuthController (login, me, logout)
-  - TenantController (CRUD + module toggle)
-  - UserController (CRUD + tenant assignment)
-  - ModuleController (CRUD)
-  - TenantModuleController (get tenant modules)
-- **Routes:** All API routes with Sanctum protection
-- **Middleware:** AdminMiddleware for master_admin only routes
-- **Config:** App, Auth, CORS, Database, Sanctum
-- **Migration:** personal_access_tokens for Sanctum
+### Typography
+- **Primary Font:** Montserrat (fallback: Inter)
+- **H1:** 32px / Bold / Navy
+- **H2:** 24px / SemiBold / Navy
+- **Body:** 16px / Regular / Dark Gray
 
-### ✅ Git Submodules
-- `modules/accounting` linked to coreflux-accounting repo
-- `modules/people` linked to coreflux-people repo
+### Tagline
+"Power Your Core. Evolve with Flux."
 
-## Next Step: User Action Required
+---
 
-### Run `composer install` on your server:
+## Implementation Status
+
+### Completed Work
+- [x] Laravel 10 backend setup with Sanctum authentication
+- [x] React frontend with Vite build system
+- [x] Authentication flow (login API)
+- [x] Admin CRUD for tenants, users, modules
+- [x] Git submodule integration
+- [x] Server routing configuration (.htaccess)
+- [x] **Brand identity applied to React frontend (March 2026)**
+  - New color scheme implemented
+  - Logo component with SVG swirl emblem
+  - Typography with Montserrat font
+  - Updated Login, Dashboard, Header, Sidebar components
+
+### API Endpoints
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/auth/login` | POST | User authentication |
+| `/api/auth/me` | GET | Current user data |
+| `/api/admin/tenants` | GET | List all tenants |
+| `/api/admin/users` | GET | List all users |
+| `/api/admin/modules` | GET | List all modules |
+
+---
+
+## Roadmap
+
+### P0 - Immediate Priority
+1. **Deploy branded frontend** - Copy built React files to `/app` on Cloudways
+2. **Connect React to API** - Wire login form to Laravel API
+3. **Legacy login redirect** - Redirect old login to new React app
+
+### P1 - High Priority
+1. Rewrite Accounting Module to Laravel + React
+2. Rewrite People Module to Laravel + React
+3. Implement granular RBAC permissions
+
+### P2 - Medium Priority
+1. UI/UX refinements
+2. Dashboard widgets with real data
+3. Module-specific settings pages
+
+### P3 - Future
+1. Email notifications
+2. Audit logging
+3. API rate limiting
+4. Multi-language support
+
+---
+
+## Deployment Instructions
+
+### To deploy the branded frontend:
 
 ```bash
-cd /path/to/coreflux/laravel
-composer install
-cp .env.example .env
-php artisan key:generate
+# SSH into Cloudways server
+cd ~/public_html
 
-# Edit .env with your database credentials:
-# DB_HOST=127.0.0.1
-# DB_DATABASE=your_database
-# DB_USERNAME=your_user
-# DB_PASSWORD=your_password
+# Pull latest changes
+git pull origin main
 
-php artisan migrate
+# Build frontend
+cd frontend
+npm install  # or yarn
+npm run build
+
+# Copy build to app directory
+cp -r dist/* ../app/
 ```
 
-## Remaining Work (After composer install)
+### Key URLs
+- **Marketing site:** `https://corefluxapp.com/`
+- **React app:** `https://corefluxapp.com/app/`
+- **API:** `https://corefluxapp.com/api/`
 
-### Session 3-4: Accounting Module Rewrite
-- Convert FastAPI → Laravel controllers
-- Convert MongoDB → MySQL/Eloquent
-- Point existing React frontend to new Laravel API
+---
 
-### Session 5: People Module Rewrite
-- Convert PHP views → Laravel controllers
-- Build React pages for People features
+## Files Reference
+- `/app/frontend/src/` - React source code
+- `/app/frontend/tailwind.config.js` - Tailwind configuration with brand colors
+- `/app/frontend/src/styles/index.css` - Global styles with brand typography
+- `/app/frontend/src/components/ui/Logo.jsx` - Logo component
+- `/app/design_guidelines.md` - Complete brand guidelines
 
-### Session 6: Integration Testing
-- End-to-end testing
-- Fix any integration issues
+---
 
-## API Endpoints
-
-### Auth
-- `POST /api/auth/login` → token + user + tenants
-- `GET /api/auth/me` → current user + tenants
-- `POST /api/auth/logout` → revoke token
-
-### Tenant Modules
-- `GET /api/tenants/{id}/modules` → enabled modules
-
-### Admin (master_admin only)
-- `GET|POST /api/admin/tenants`
-- `GET|PUT|DELETE /api/admin/tenants/{id}`
-- `GET /api/admin/tenants/{id}/modules`
-- `POST /api/admin/tenants/{id}/modules/{moduleId}`
-- `GET|POST /api/admin/users`
-- `GET|PUT|DELETE /api/admin/users/{id}`
-- `GET|POST /api/admin/modules`
-
-## Database Schema (Using Existing Tables)
-- `tenants` (id, name, parent_id, subdomain)
-- `users` (id, name, first_name, last_name, email, password_hash, role)
-- `user_tenants` (user_id, tenant_id, role)
-- `modules` (id, name, key, description)
-- `tenant_modules` (tenant_id, module_id, is_enabled)
-- `personal_access_tokens` ← NEW (created by migration)
+*Last Updated: March 14, 2026*

@@ -10,6 +10,7 @@ import {
   Shield,
   Building2
 } from 'lucide-react'
+import { LogoIcon, LogoText } from '@/components/ui/Logo'
 
 export default function Header() {
   const { user, tenant, tenants, logout, switchTenant, isMasterAdmin } = useAuth()
@@ -22,16 +23,19 @@ export default function Header() {
   const isAdminRoute = location.pathname.startsWith('/admin')
 
   return (
-    <header className={`h-14 flex items-center justify-between px-4 ${isAdminRoute ? 'bg-red-900' : 'bg-cf-navy'}`}>
+    <header 
+      className={`h-14 flex items-center justify-between px-4 ${isAdminRoute ? 'bg-red-900' : 'bg-cf-navy'}`}
+      data-testid="header"
+    >
       {/* Left: Logo */}
       <div className="flex items-center gap-4">
-        <Link to="/dashboard" className="flex items-center gap-2">
-          <img src="/logo-white.png" alt="CoreFlux" className="h-8" onError={(e) => e.target.style.display = 'none'} />
-          <span className="text-white font-semibold text-lg">CoreFlux</span>
+        <Link to="/dashboard" className="flex items-center gap-2" data-testid="header-logo">
+          <LogoIcon className="h-8 w-8" variant="white" />
+          <LogoText variant="white" size="md" />
         </Link>
         
         {isAdminRoute && (
-          <span className="bg-red-700 text-white text-xs px-2 py-1 rounded font-medium">
+          <span className="bg-red-700 text-white text-xs px-2 py-1 rounded font-medium" data-testid="admin-badge">
             Master Admin
           </span>
         )}
@@ -43,13 +47,14 @@ export default function Header() {
           <button
             onClick={() => setShowModuleMenu(!showModuleMenu)}
             className="flex items-center gap-2 text-white hover:bg-white/10 px-3 py-2 rounded-lg transition-colors"
+            data-testid="module-switcher"
           >
             <span>{activeModule?.name || 'Select Module'}</span>
             <ChevronDown className="w-4 h-4" />
           </button>
           
           {showModuleMenu && (
-            <div className="absolute top-full mt-1 left-0 bg-white rounded-lg shadow-lg py-1 min-w-[200px] z-50">
+            <div className="absolute top-full mt-1 left-0 bg-white rounded-lg shadow-lg py-1 min-w-[200px] z-50 border border-gray-100">
               {modules.map((module) => (
                 <button
                   key={module.id}
@@ -57,9 +62,10 @@ export default function Header() {
                     switchModule(module)
                     setShowModuleMenu(false)
                   }}
-                  className={`w-full text-left px-4 py-2 hover:bg-gray-100 ${
-                    activeModule?.id === module.id ? 'bg-blue-50 text-cf-accent' : 'text-gray-700'
+                  className={`w-full text-left px-4 py-2 hover:bg-cf-soft transition-colors ${
+                    activeModule?.id === module.id ? 'bg-cf-soft text-cf-flux font-medium' : 'text-cf-dark'
                   }`}
+                  data-testid={`module-option-${module.id}`}
                 >
                   {module.name}
                 </button>
@@ -76,6 +82,7 @@ export default function Header() {
           <Link
             to={isAdminRoute ? '/dashboard' : '/admin'}
             className="flex items-center gap-2 text-white/80 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/10 transition-colors text-sm"
+            data-testid="admin-link"
           >
             <Shield className="w-4 h-4" />
             {isAdminRoute ? 'Exit Admin' : 'Admin Panel'}
@@ -88,6 +95,7 @@ export default function Header() {
             <button
               onClick={() => setShowTenantMenu(!showTenantMenu)}
               className="flex items-center gap-2 text-white/80 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/10 transition-colors text-sm"
+              data-testid="tenant-switcher"
             >
               <Building2 className="w-4 h-4" />
               <span>{tenant?.name}</span>
@@ -95,7 +103,7 @@ export default function Header() {
             </button>
             
             {showTenantMenu && (
-              <div className="absolute top-full mt-1 right-0 bg-white rounded-lg shadow-lg py-1 min-w-[200px] z-50">
+              <div className="absolute top-full mt-1 right-0 bg-white rounded-lg shadow-lg py-1 min-w-[200px] z-50 border border-gray-100">
                 {tenants.map((t) => (
                   <button
                     key={t.id}
@@ -103,12 +111,13 @@ export default function Header() {
                       switchTenant(t)
                       setShowTenantMenu(false)
                     }}
-                    className={`w-full text-left px-4 py-2 hover:bg-gray-100 ${
-                      tenant?.id === t.id ? 'bg-blue-50 text-cf-accent' : 'text-gray-700'
+                    className={`w-full text-left px-4 py-2 hover:bg-cf-soft transition-colors ${
+                      tenant?.id === t.id ? 'bg-cf-soft text-cf-flux' : 'text-cf-dark'
                     }`}
+                    data-testid={`tenant-option-${t.id}`}
                   >
                     <div className="font-medium">{t.name}</div>
-                    <div className="text-xs text-gray-500">{t.role}</div>
+                    <div className="text-xs text-cf-dark/60">{t.role}</div>
                   </button>
                 ))}
               </div>
@@ -121,8 +130,9 @@ export default function Header() {
           <button
             onClick={() => setShowUserMenu(!showUserMenu)}
             className="flex items-center gap-2 text-white hover:bg-white/10 px-3 py-2 rounded-lg transition-colors"
+            data-testid="user-menu-trigger"
           >
-            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-sm font-medium">
+            <div className="w-8 h-8 rounded-full bg-cf-flux/30 flex items-center justify-center text-sm font-medium">
               {user?.first_name?.[0] || user?.name?.[0] || 'U'}
             </div>
             <span className="text-sm">{user?.first_name || user?.name}</span>
@@ -130,41 +140,44 @@ export default function Header() {
           </button>
           
           {showUserMenu && (
-            <div className="absolute top-full mt-1 right-0 bg-white rounded-lg shadow-lg py-1 min-w-[200px] z-50">
-              <div className="px-4 py-2 border-b">
-                <div className="font-medium text-gray-900">{user?.first_name} {user?.last_name}</div>
-                <div className="text-sm text-gray-500">{user?.email}</div>
+            <div className="absolute top-full mt-1 right-0 bg-white rounded-lg shadow-lg py-1 min-w-[220px] z-50 border border-gray-100">
+              <div className="px-4 py-3 border-b border-gray-100">
+                <div className="font-semibold text-cf-navy">{user?.first_name} {user?.last_name}</div>
+                <div className="text-sm text-cf-dark/60">{user?.email}</div>
                 {isMasterAdmin && (
-                  <div className="text-xs text-red-600 mt-1">Master Admin</div>
+                  <div className="text-xs text-red-600 mt-1 font-medium">Master Admin</div>
                 )}
               </div>
               
               <Link
                 to="/profile"
-                className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100"
+                className="flex items-center gap-3 px-4 py-2.5 text-cf-dark hover:bg-cf-soft transition-colors"
                 onClick={() => setShowUserMenu(false)}
+                data-testid="profile-link"
               >
-                <User className="w-4 h-4" />
+                <User className="w-4 h-4 text-cf-dark/60" />
                 Profile
               </Link>
               
               <Link
                 to="/settings"
-                className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100"
+                className="flex items-center gap-3 px-4 py-2.5 text-cf-dark hover:bg-cf-soft transition-colors"
                 onClick={() => setShowUserMenu(false)}
+                data-testid="settings-link"
               >
-                <Settings className="w-4 h-4" />
+                <Settings className="w-4 h-4 text-cf-dark/60" />
                 Settings
               </Link>
               
-              <hr className="my-1" />
+              <hr className="my-1 border-gray-100" />
               
               <button
                 onClick={() => {
                   logout()
                   setShowUserMenu(false)
                 }}
-                className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 w-full"
+                className="flex items-center gap-3 px-4 py-2.5 text-red-600 hover:bg-red-50 w-full transition-colors"
+                data-testid="logout-button"
               >
                 <LogOut className="w-4 h-4" />
                 Logout

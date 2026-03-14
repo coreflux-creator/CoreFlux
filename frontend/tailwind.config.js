@@ -7,10 +7,16 @@ export default {
   theme: {
     extend: {
       colors: {
-        'cf-navy': '#002c70',
-        'cf-navy-dark': '#001d4d',
-        'cf-accent': '#0066cc',
-        'cf-accent-hover': '#0052a3',
+        // CoreFlux Brand Colors
+        'cf-navy': '#0A2540',        // Core Navy - Primary brand color
+        'cf-navy-dark': '#061829',   // Darker navy for hover states
+        'cf-flux': '#007FFF',        // Flux Blue - Accent color
+        'cf-flux-hover': '#0066CC',  // Flux Blue hover state
+        'cf-soft': '#F5F7FA',        // Soft Gray - Background
+        'cf-dark': '#3A3F45',        // Dark Gray - Body text
+      },
+      fontFamily: {
+        'sans': ['Montserrat', 'Inter', 'system-ui', 'sans-serif'],
       },
     },
   },

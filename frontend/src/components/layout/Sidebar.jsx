@@ -76,10 +76,10 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="w-56 bg-white border-r flex flex-col">
+    <aside className="w-56 bg-white border-r border-gray-200 flex flex-col" data-testid="sidebar">
       {/* Sidebar Header */}
-      <div className="h-12 flex items-center px-4 border-b">
-        <h2 className={`font-semibold ${isAdminRoute ? 'text-red-900' : 'text-gray-900'}`}>
+      <div className="h-12 flex items-center px-4 border-b border-gray-100">
+        <h2 className={`font-semibold ${isAdminRoute ? 'text-red-900' : 'text-cf-navy'}`}>
           {title}
         </h2>
       </div>
@@ -92,14 +92,15 @@ export default function Sidebar() {
             to={item.path}
             end={item.path === '/admin' || item.path === `/modules/${activeModule?.key || activeModule?.name?.toLowerCase()}`}
             className={({ isActive }) => `
-              flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
+              flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors mb-0.5
               ${isActive 
                 ? isAdminRoute 
                   ? 'bg-red-50 text-red-900 font-medium' 
-                  : 'bg-blue-50 text-cf-accent font-medium'
-                : 'text-gray-600 hover:bg-gray-100'
+                  : 'bg-cf-soft text-cf-flux font-medium border-l-2 border-cf-flux ml-[-2px] pl-[14px]'
+                : 'text-cf-dark/80 hover:bg-cf-soft hover:text-cf-dark'
               }
             `}
+            data-testid={`nav-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
           >
             <item.icon className="w-4 h-4" />
             {item.name}
@@ -108,8 +109,11 @@ export default function Sidebar() {
       </nav>
       
       {/* Sidebar Footer */}
-      <div className="p-4 border-t">
-        <div className="text-xs text-gray-400">CoreFlux v1.0</div>
+      <div className="p-4 border-t border-gray-100">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-cf-dark/40">CoreFlux</span>
+          <span className="text-xs text-cf-flux/60">v1.0</span>
+        </div>
       </div>
     </aside>
   )
