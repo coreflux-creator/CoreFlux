@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useModules } from '@/hooks/useModules'
 import { 
@@ -8,7 +8,8 @@ import {
   Settings, 
   User,
   Shield,
-  Building2
+  Building2,
+  LayoutDashboard
 } from 'lucide-react'
 import { LogoIcon, LogoText } from '@/components/ui/Logo'
 
@@ -16,11 +17,21 @@ export default function Header() {
   const { user, tenant, tenants, logout, switchTenant, isMasterAdmin } = useAuth()
   const { modules, activeModule, switchModule } = useModules()
   const location = useLocation()
+  const navigate = useNavigate()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [showTenantMenu, setShowTenantMenu] = useState(false)
   const [showModuleMenu, setShowModuleMenu] = useState(false)
 
   const isAdminRoute = location.pathname.startsWith('/admin')
+  const isModuleRoute = location.pathname.startsWith('/modules')
+
+  const handleModuleSelect = (module) => {
+    switchModule(module)
+    setShowModuleMenu(false)
+    // Navigate to the module page
+    const moduleKey = module.key || module.name?.toLowerCase()
+    navigate(`/modules/${moduleKey}`)
+  }
 
   return (
     <header 
@@ -41,35 +52,59 @@ export default function Header() {
         )}
       </div>
 
-      {/* Center: Module Switcher (not shown in admin mode) */}
-      {!isAdminRoute && modules.length > 0 && (
-        <div className="relative">
-          <button
-            onClick={() => setShowModuleMenu(!showModuleMenu)}
-            className="flex items-center gap-2 text-white hover:bg-white/10 px-3 py-2 rounded-lg transition-colors"
-            data-testid="module-switcher"
+      {/* Center: Navigation */}
+      {!isAdminRoute && (
+        <div className="flex items-center gap-2">
+          {/* Dashboard Link */}
+          <Link
+            to="/dashboard"
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+              !isModuleRoute 
+                ? 'bg-white/20 text-white' 
+                : 'text-white/70 hover:text-white hover:bg-white/10'
+            }`}
+            data-testid="dashboard-link"
           >
-            <span>{activeModule?.name || 'Select Module'}</span>
-            <ChevronDown className="w-4 h-4" />
-          </button>
-          
-          {showModuleMenu && (
-            <div className="absolute top-full mt-1 left-0 bg-white rounded-lg shadow-lg py-1 min-w-[200px] z-50 border border-gray-100">
-              {modules.map((module) => (
-                <button
-                  key={module.id}
-                  onClick={() => {
-                    switchModule(module)
-                    setShowModuleMenu(false)
-                  }}
-                  className={`w-full text-left px-4 py-2 hover:bg-cf-soft transition-colors ${
-                    activeModule?.id === module.id ? 'bg-cf-soft text-cf-flux font-medium' : 'text-cf-dark'
-                  }`}
-                  data-testid={`module-option-${module.id}`}
-                >
-                  {module.name}
-                </button>
-              ))}
+            <LayoutDashboard className="w-4 h-4" />
+            <span className="text-sm font-medium">Dashboard</span>
+          </Link>
+
+          {/* Module Switcher */}
+          {modules.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setShowModuleMenu(!showModuleMenu)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+                  isModuleRoute 
+                    ? 'bg-white/20 text-white' 
+                    : 'text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+                data-testid="module-switcher"
+              >
+                <span className="text-sm font-medium">{activeModule?.name || 'Modules'}</span>
+                <ChevronDown className="w-4 h-4" />
+              </button>
+              
+              {showModuleMenu && (
+                <div className="absolute top-full mt-1 left-0 bg-white rounded-lg shadow-lg py-1 min-w-[200px] z-50 border border-gray-100">
+                  {modules.map((module) => {
+                    const moduleKey = module.key || module.name?.toLowerCase()
+                    const isActive = location.pathname.startsWith(`/modules/${moduleKey}`)
+                    return (
+                      <button
+                        key={module.id}
+                        onClick={() => handleModuleSelect(module)}
+                        className={`w-full text-left px-4 py-2 hover:bg-cf-soft transition-colors ${
+                          isActive ? 'bg-cf-soft text-cf-flux font-medium' : 'text-cf-dark'
+                        }`}
+                        data-testid={`module-option-${module.id}`}
+                      >
+                        {module.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
