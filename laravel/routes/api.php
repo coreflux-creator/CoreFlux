@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Admin\TenantController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\ModuleController;
@@ -13,6 +14,9 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
+
+    // Dashboard stats
+    Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
 
     // Get tenant modules
     Route::get('/tenants/{tenant}/modules', [TenantController::class, 'modules']);
