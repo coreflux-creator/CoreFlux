@@ -51,31 +51,40 @@ export default function PeopleOverview() {
 
   return (
     <div className="space-y-6">
-      {/* Hero */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-6 text-white">
-        <div className="flex items-center gap-2 text-blue-200 text-sm mb-2">
-          <Users className="w-4 h-4" />
-          People Module
+      {/* Hero with icon */}
+      <div className="bg-gradient-to-r from-violet-600 to-violet-700 rounded-xl p-6 text-white relative overflow-hidden">
+        <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-20">
+          <img 
+            src="./assets/icons/icon-people.png" 
+            alt=""
+            className="h-32 w-32 object-contain"
+          />
         </div>
-        <h1 className="text-2xl font-bold mb-2">People Management</h1>
-        <p className="text-blue-100 max-w-xl">
-          Manage your workforce with employee directory, timesheets, approvals, and HR reporting.
-        </p>
-        <div className="flex gap-3 mt-4">
-          <Link 
-            to="/modules/people/directory?new=true"
-            className="bg-white text-blue-700 px-4 py-2 rounded-lg font-medium hover:bg-blue-50 transition-colors flex items-center gap-2"
-          >
-            <UserPlus className="w-4 h-4" />
-            Add Employee
-          </Link>
-          <Link 
-            to="/modules/people/timesheets"
-            className="bg-blue-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-400 transition-colors flex items-center gap-2"
-          >
-            <Calendar className="w-4 h-4" />
-            Submit Timesheet
-          </Link>
+        <div className="relative z-10">
+          <div className="flex items-center gap-2 text-violet-200 text-sm mb-2">
+            <Users className="w-4 h-4" />
+            People Module
+          </div>
+          <h1 className="text-2xl font-bold mb-2">People Management</h1>
+          <p className="text-violet-100 max-w-xl">
+            Manage your workforce with employee directory, timesheets, approvals, and HR reporting.
+          </p>
+          <div className="flex gap-3 mt-4">
+            <Link 
+              to="/modules/people/directory?new=true"
+              className="bg-white text-violet-700 px-4 py-2 rounded-lg font-medium hover:bg-violet-50 transition-colors flex items-center gap-2"
+            >
+              <UserPlus className="w-4 h-4" />
+              Add Employee
+            </Link>
+            <Link 
+              to="/modules/people/timesheets"
+              className="bg-violet-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-violet-400 transition-colors flex items-center gap-2"
+            >
+              <Calendar className="w-4 h-4" />
+              Submit Timesheet
+            </Link>
+          </div>
         </div>
       </div>
 

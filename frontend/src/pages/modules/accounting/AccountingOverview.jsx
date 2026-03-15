@@ -59,29 +59,38 @@ export default function AccountingOverview() {
 
   return (
     <div className="space-y-6">
-      {/* Hero */}
-      <div className="bg-gradient-to-r from-green-600 to-green-700 rounded-xl p-6 text-white">
-        <div className="flex items-center gap-2 text-green-200 text-sm mb-2">
-          <DollarSign className="w-4 h-4" />
-          Accounting Module
+      {/* Hero with icon */}
+      <div className="bg-gradient-to-r from-emerald-600 to-emerald-700 rounded-xl p-6 text-white relative overflow-hidden">
+        <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-20">
+          <img 
+            src="./assets/icons/icon-accounting.png" 
+            alt=""
+            className="h-32 w-32 object-contain"
+          />
         </div>
-        <h1 className="text-2xl font-bold mb-2">Financial Management</h1>
-        <p className="text-green-100 max-w-xl">
-          Complete accounting solution with general ledger, accounts payable, accounts receivable, and financial reporting.
-        </p>
-        <div className="flex gap-3 mt-4">
-          <Link 
-            to="/modules/accounting/journal?new=true"
-            className="bg-white text-green-700 px-4 py-2 rounded-lg font-medium hover:bg-green-50 transition-colors"
-          >
-            New Journal Entry
-          </Link>
-          <Link 
-            to="/modules/accounting/reports"
-            className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-400 transition-colors"
-          >
-            View Reports
-          </Link>
+        <div className="relative z-10">
+          <div className="flex items-center gap-2 text-emerald-200 text-sm mb-2">
+            <DollarSign className="w-4 h-4" />
+            Accounting Module
+          </div>
+          <h1 className="text-2xl font-bold mb-2">Financial Management</h1>
+          <p className="text-emerald-100 max-w-xl">
+            Complete accounting solution with general ledger, accounts payable, accounts receivable, and financial reporting.
+          </p>
+          <div className="flex gap-3 mt-4">
+            <Link 
+              to="/modules/accounting/journal?new=true"
+              className="bg-white text-emerald-700 px-4 py-2 rounded-lg font-medium hover:bg-emerald-50 transition-colors"
+            >
+              New Journal Entry
+            </Link>
+            <Link 
+              to="/modules/accounting/reports"
+              className="bg-emerald-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-emerald-400 transition-colors"
+            >
+              View Reports
+            </Link>
+          </div>
         </div>
       </div>
 

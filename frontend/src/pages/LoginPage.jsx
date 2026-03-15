@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
-import Logo, { LogoIcon, LogoText } from '@/components/ui/Logo'
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -30,82 +29,45 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex" data-testid="login-page">
-      {/* Left: Hero Section */}
+      {/* Left: Hero Section with Image */}
       <div className="hidden lg:flex lg:w-1/2 bg-cf-navy relative overflow-hidden">
-        {/* Background gradient */}
-        <div className="absolute inset-0 bg-gradient-to-br from-cf-navy via-cf-navy-dark to-cf-navy" />
-        
-        {/* Animated swirl pattern background */}
-        <div className="absolute inset-0 opacity-5">
-          <svg viewBox="0 0 1000 1000" className="w-full h-full" preserveAspectRatio="xMidYMid slice">
-            {/* Outer ring */}
-            <circle cx="500" cy="500" r="400" fill="none" stroke="white" strokeWidth="1" />
-            <circle cx="500" cy="500" r="350" fill="none" stroke="white" strokeWidth="1" />
-            <circle cx="500" cy="500" r="300" fill="none" stroke="white" strokeWidth="1" />
-            <circle cx="500" cy="500" r="250" fill="none" stroke="white" strokeWidth="1" />
-            <circle cx="500" cy="500" r="200" fill="none" stroke="white" strokeWidth="1" />
-            {/* Swirl paths */}
-            <path 
-              d="M500,100 Q800,200 700,500 T500,900 Q200,800 300,500 T500,100" 
-              fill="none" 
-              stroke="white" 
-              strokeWidth="2"
-            />
-            <path 
-              d="M500,150 Q750,250 650,500 T500,850 Q250,750 350,500 T500,150" 
-              fill="none" 
-              stroke="white" 
-              strokeWidth="1.5"
-            />
-          </svg>
+        {/* Hero Image */}
+        <div className="absolute inset-0 flex items-center justify-center p-12">
+          <img 
+            src="./assets/icons/hero-login.png" 
+            alt="CoreFlux Platform"
+            className="max-w-full max-h-full object-contain"
+          />
         </div>
         
-        {/* Content */}
-        <div className="relative z-10 flex flex-col justify-center px-16 max-w-xl">
-          {/* Logo */}
-          <div className="flex items-center gap-3 mb-10">
-            <LogoIcon className="h-14 w-14" variant="white" />
-            <LogoText variant="white" size="xl" />
-          </div>
-          
-          <h1 className="text-4xl font-bold text-white mb-4 leading-tight">
+        {/* Overlay gradient */}
+        <div className="absolute inset-0 bg-gradient-to-t from-cf-navy via-transparent to-transparent" />
+        
+        {/* Content at bottom */}
+        <div className="absolute bottom-0 left-0 right-0 p-12 z-10">
+          <h1 className="text-3xl font-bold text-white mb-3">
             Welcome to CoreFlux
           </h1>
-          <p className="text-xl text-white/80 mb-6">
+          <p className="text-lg text-white/80 mb-2">
             Power Your Core. Evolve with Flux.
           </p>
-          <p className="text-base text-white/60 max-w-md leading-relaxed">
-            Enterprise-grade platform for accounting, people management, and more. 
-            All your business modules in one centralized, dynamic platform.
+          <p className="text-white/60 max-w-md">
+            A unified platform for workforce, financial, and operational excellence.
           </p>
-          
-          {/* Feature highlights */}
-          <div className="mt-10 space-y-4">
-            <div className="flex items-center gap-3 text-white/80">
-              <div className="w-2 h-2 rounded-full bg-cf-flux" />
-              <span>Centralized financial insights</span>
-            </div>
-            <div className="flex items-center gap-3 text-white/80">
-              <div className="w-2 h-2 rounded-full bg-cf-flux" />
-              <span>Complete employee management</span>
-            </div>
-            <div className="flex items-center gap-3 text-white/80">
-              <div className="w-2 h-2 rounded-full bg-cf-flux" />
-              <span>Modular, scalable architecture</span>
-            </div>
-          </div>
         </div>
       </div>
 
       {/* Right: Login Form */}
       <div className="flex-1 flex items-center justify-center p-8 bg-cf-soft">
         <div className="w-full max-w-md">
-          {/* Mobile logo */}
-          <div className="lg:hidden text-center mb-8">
-            <div className="flex items-center justify-center gap-2">
-              <LogoIcon className="h-10 w-10" />
-              <LogoText size="lg" />
-            </div>
+          {/* Logo */}
+          <div className="text-center mb-8">
+            <img 
+              src="./logo-web.png" 
+              alt="CoreFlux"
+              className="h-16 mx-auto mb-4"
+            />
+            <p className="text-cf-dark/60 text-sm">Power Your Core. Evolve with Flux.</p>
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
@@ -206,7 +168,7 @@ export default function LoginPage() {
           
           {/* Footer */}
           <div className="text-center mt-8 text-xs text-cf-dark/40">
-            <span>CoreFlux</span>
+            <span>© {new Date().getFullYear()} CoreFlux</span>
             <span className="mx-2">|</span>
             <a href="https://corefluxapp.com" className="hover:text-cf-flux transition-colors">
               www.corefluxapp.com

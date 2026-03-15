@@ -11,7 +11,6 @@ import {
   Building2,
   LayoutDashboard
 } from 'lucide-react'
-import { LogoIcon, LogoText } from '@/components/ui/Logo'
 
 export default function Header() {
   const { user, tenant, tenants, logout, switchTenant, isMasterAdmin } = useAuth()
@@ -41,8 +40,11 @@ export default function Header() {
       {/* Left: Logo */}
       <div className="flex items-center gap-4">
         <Link to="/dashboard" className="flex items-center gap-2" data-testid="header-logo">
-          <LogoIcon className="h-8 w-8" variant="white" />
-          <LogoText variant="white" size="md" />
+          <img 
+            src="./logo-header.png" 
+            alt="CoreFlux"
+            className="h-8"
+          />
         </Link>
         
         {isAdminRoute && (

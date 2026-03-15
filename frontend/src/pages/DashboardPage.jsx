@@ -62,15 +62,16 @@ export default function DashboardPage() {
     <div className="space-y-6" data-testid="dashboard-page">
       {/* Welcome Banner */}
       <div className="bg-gradient-to-br from-cf-navy via-cf-navy to-cf-navy-dark rounded-xl p-8 text-white relative overflow-hidden">
-        {/* Background pattern */}
-        <div className="absolute inset-0 opacity-5">
-          <svg viewBox="0 0 400 400" className="w-full h-full">
-            <circle cx="350" cy="50" r="100" fill="white" />
-            <circle cx="50" cy="350" r="80" fill="white" />
-          </svg>
+        {/* Hero illustration on right */}
+        <div className="absolute right-0 top-0 bottom-0 w-1/3 hidden md:block">
+          <img 
+            src="./assets/icons/hero-illustration.png" 
+            alt=""
+            className="h-full w-full object-contain object-right opacity-90"
+          />
         </div>
         
-        <div className="relative z-10">
+        <div className="relative z-10 max-w-xl">
           <h1 className="text-3xl font-bold mb-2">
             Welcome back, {user?.first_name || user?.name}!
           </h1>
