@@ -4,6 +4,8 @@
 
 CoreFlux provides a standardized shell and design system that modules plug into. This allows each module (Accounting, People, Wealth, etc.) to be developed independently while sharing:
 
+> **Repository Strategy:** Each module lives in its own Git repository and is integrated into the main CoreFlux repo using **Git Subtree**. See `GIT_SUBTREE_SETUP.md` for setup and workflow details.
+
 - **App Shell** - Header, sidebar, content area
 - **Design Tokens** - Colors, spacing, typography
 - **UI Components** - Hero, cards, forms, tables
