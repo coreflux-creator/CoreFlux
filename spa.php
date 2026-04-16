@@ -11,7 +11,8 @@ initSession();
 
 // Check if user is logged in
 if (!isset($_SESSION['user'])) {
-    header("Location: login.html");
+    // Redirect to login with return URL
+    header("Location: login.php?redirect=spa");
     exit;
 }
 
@@ -19,10 +20,8 @@ if (!isset($_SESSION['user'])) {
 $indexFile = __DIR__ . '/app/index.html';
 
 if (file_exists($indexFile)) {
-    // Read and output the index.html
     echo file_get_contents($indexFile);
 } else {
-    // Fallback - show error
     http_response_code(500);
-    echo "Dashboard not found. Please build the React app.";
+    echo "Dashboard not found. Please ensure the React app is built.";
 }
