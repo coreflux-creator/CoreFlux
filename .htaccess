@@ -1,0 +1,20 @@
+RewriteEngine On
+Options -MultiViews
+
+# API routes -> Laravel front controller
+RewriteCond %{REQUEST_URI} ^/api/
+RewriteRule ^api/(.*)$ laravel/public/index.php [L,QSA]
+
+# React app at /app (SPA routing)
+RewriteCond %{REQUEST_URI} ^/app
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^app/(.*)$ app/index.html [L]
+
+# Existing files/dirs served as-is
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule . - [L]
+
+# login.html -> login.php
+RewriteRule ^login\.html$ login.php [L,NC]
