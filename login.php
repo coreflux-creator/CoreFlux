@@ -126,5 +126,11 @@ $_SESSION['tenant_role'] = $tenantRole;
 $_SESSION['global_role'] = $globalRole;
 $_SESSION['active_module'] = $modules[0] ?? null;
 
-header("Location: dashboard.php");
+// Check for redirect parameter (for SPA login flow)
+$redirect = $_GET['redirect'] ?? $_POST['redirect'] ?? 'dashboard';
+if ($redirect === 'spa') {
+    header("Location: spa.php");
+} else {
+    header("Location: dashboard.php");
+}
 exit;
