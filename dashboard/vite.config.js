@@ -2,16 +2,15 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
-  base: '/app/',  // Build output will be served from /app/ path
+  base: '/',  // Serve from root since spa.php handles routing
   plugins: [react()],
   build: {
     outDir: 'dist',
-    assetsDir: 'assets',
+    assetsDir: 'spa-assets',
     emptyOutDir: true,
   },
   server: {
     proxy: {
-      // Proxy PHP requests to the PHP server during development
       '/session.php': 'http://localhost:8080',
       '/login.php': 'http://localhost:8080',
       '/logout.php': 'http://localhost:8080',
