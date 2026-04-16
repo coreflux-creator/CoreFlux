@@ -27,7 +27,11 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [x] Git Subtree setup guide and scripts
 
 ## In Progress
-- [ ] Git Subtree repository structure implementation (user to run on local)
+- [x] React SPA connected to PHP backend (tested with mock server)
+
+## Deployment Required
+- [ ] Deploy React SPA to Cloudways (copy `/app/app/` folder and PHP endpoints)
+- [ ] Update login.php to redirect to spa.php (optional)
 
 ## Backlog (P1)
 - [ ] Fix GitHub Actions CI/CD (use SSH + git pull instead of scp-action)

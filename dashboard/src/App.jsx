@@ -94,12 +94,13 @@ const useSession = () => {
         if (!res.ok) throw new Error('Not authenticated');
         
         const data = await res.json();
-        if (!data.user) throw new Error('Invalid session');
+        if (!data.user || data.error) throw new Error(data.error || 'Invalid session');
         
+        console.log('Connected to PHP backend:', data.user.email);
         setSession(data);
         setUsingDemo(false);
       } catch (err) {
-        console.warn('Using demo mode:', err.message);
+        console.log('Using demo mode - connect to PHP backend for real data');
         const demoSession = { ...DEMO_SESSION };
         demoSession.active_module = demoSession.modules[0];
         setSession(demoSession);
