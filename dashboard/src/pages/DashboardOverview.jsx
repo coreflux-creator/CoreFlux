@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { ModuleCards, Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard, HelpSection } from '../components/UIComponents';
 import { Building2, Users, DollarSign } from 'lucide-react';
 
@@ -31,19 +32,19 @@ const DashboardOverview = ({ session, onModuleChange }) => {
               icon={Building2}
               title="Manage Tenants"
               description="Create and configure tenants"
-              href="/dashboard.php?page=admin&view=tenants"
+              href="/admin/tenants"
             />
             <ActionCard
               icon={Users}
               title="Manage Users"
               description="Add users and assign roles"
-              href="/dashboard.php?page=admin&view=users"
+              href="/admin/users"
             />
             <ActionCard
               icon={DollarSign}
               title="Module Access"
               description="Enable modules per tenant"
-              href="/dashboard.php?page=admin&view=modules"
+              href="/admin/modules"
             />
           </ActionCardsGrid>
         </Section>

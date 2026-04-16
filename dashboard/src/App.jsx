@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import AppLayout from './layout/AppLayout';
 import DashboardOverview from './pages/DashboardOverview';
+import ProfilePage from './pages/ProfilePage';
+import SettingsPage from './pages/SettingsPage';
+import AdminModule from './pages/AdminModule';
 import PeopleModule from './modules/PeopleModule';
 import AccountingModule from './modules/AccountingModule';
 import FinanceModule from './modules/FinanceModule';
@@ -20,7 +23,7 @@ const DEMO_SESSION = {
   user: {
     id: 1,
     first_name: 'Kunal',
-    last_name: 'User',
+    last_name: '',
     email: 'kunal@coreflux.app',
     role: 'admin',
     global_role: 'tenant_admin'
@@ -134,8 +137,12 @@ const AppContent = ({ session, usingDemo }) => {
       }
     }
     
-    // On dashboard, show first module context in sidebar
-    if (location.pathname === '/' || location.pathname === '/dashboard') {
+    // On dashboard/admin/profile/settings, clear module context or keep first
+    if (location.pathname === '/' || 
+        location.pathname === '/dashboard' || 
+        location.pathname.startsWith('/admin') ||
+        location.pathname === '/profile' ||
+        location.pathname === '/settings') {
       if (!activeModule && session.modules.length > 0) {
         setActiveModule(session.modules[0]);
       }
@@ -151,7 +158,7 @@ const AppContent = ({ session, usingDemo }) => {
       alert('Tenant switching requires PHP backend.');
       return;
     }
-    window.location.href = `/dashboard.php?switch_tenant=${tenantId}`;
+    window.location.href = `/switch_tenant.php?tenant_id=${tenantId}`;
   };
 
   const sessionWithActiveModule = {
@@ -159,8 +166,11 @@ const AppContent = ({ session, usingDemo }) => {
     active_module: activeModule
   };
 
-  // Check if on main dashboard
+  // Determine if we should show sidebar
   const isMainDashboard = location.pathname === '/' || location.pathname === '/dashboard';
+  const isAdminPage = location.pathname.startsWith('/admin');
+  const isProfileOrSettings = location.pathname === '/profile' || location.pathname === '/settings';
+  const showSidebar = !isMainDashboard && !isAdminPage && !isProfileOrSettings;
 
   return (
     <>
@@ -174,12 +184,19 @@ const AppContent = ({ session, usingDemo }) => {
         session={sessionWithActiveModule}
         onModuleChange={handleModuleChange}
         onTenantChange={handleTenantChange}
-        showSidebar={!isMainDashboard}
+        showSidebar={showSidebar}
       >
         <Routes>
           {/* Main Dashboard */}
           <Route path="/" element={<DashboardOverview session={session} onModuleChange={handleModuleChange} />} />
           <Route path="/dashboard" element={<DashboardOverview session={session} onModuleChange={handleModuleChange} />} />
+          
+          {/* Profile & Settings */}
+          <Route path="/profile" element={<ProfilePage session={session} />} />
+          <Route path="/settings" element={<SettingsPage session={session} />} />
+          
+          {/* Admin Module */}
+          <Route path="/admin/*" element={<AdminModule session={session} />} />
           
           {/* Module Routes */}
           <Route path="/modules/people/*" element={<PeopleModule session={session} />} />

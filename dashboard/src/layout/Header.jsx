@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { ChevronDown, LayoutDashboard, Shield, Building2 } from 'lucide-react';
 
 const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, onTenantChange }) => {
   const [moduleOpen, setModuleOpen] = useState(false);
   const [tenantOpen, setTenantOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
+  const location = useLocation();
   
   const moduleRef = useRef(null);
   const tenantRef = useRef(null);
@@ -20,11 +22,13 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
+  const isOnDashboard = location.pathname === '/' || location.pathname === '/dashboard';
+
   return (
     <header className="header">
       {/* Left - Logo */}
       <div className="header-left">
-        <a href="/" className="logo">
+        <Link to="/" className="logo">
           <img 
             src="/assets/icons/logo.png" 
             alt="CoreFlux" 
@@ -34,15 +38,15 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
               e.target.src = '/assets/logo.png';
             }}
           />
-        </a>
+        </Link>
       </div>
 
       {/* Center - Dashboard & Module Selector */}
       <div className="header-center">
-        <a href="/" className="header-btn active">
+        <Link to="/" className={`header-btn ${isOnDashboard ? 'active' : ''}`}>
           <LayoutDashboard size={18} className="header-btn-icon" />
           <span>Dashboard</span>
-        </a>
+        </Link>
         
         {modules && modules.length > 0 && (
           <div className={`dropdown ${moduleOpen ? 'open' : ''}`} ref={moduleRef}>
@@ -57,8 +61,9 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
             {moduleOpen && (
               <div className="dropdown-menu">
                 {modules.map((mod) => (
-                  <div
+                  <Link
                     key={mod.id || mod.name}
+                    to={`/modules/${mod.id}/overview`}
                     className={`dropdown-item ${mod.id === activeModule?.id ? 'active' : ''}`}
                     onClick={() => {
                       onModuleChange?.(mod);
@@ -66,7 +71,7 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
                     }}
                   >
                     {mod.name}
-                  </div>
+                  </Link>
                 ))}
               </div>
             )}
@@ -76,11 +81,11 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
 
       {/* Right - Admin, Tenant & User */}
       <div className="header-right">
-        {user?.global_role === 'master_admin' && (
-          <a href="/dashboard.php?page=admin" className="header-btn">
+        {(user?.global_role === 'master_admin' || user?.global_role === 'tenant_admin') && (
+          <Link to="/admin" className="header-btn">
             <Shield size={18} className="header-btn-icon" />
             <span>Admin Panel</span>
-          </a>
+          </Link>
         )}
         
         {/* Tenant Selector */}
@@ -134,10 +139,10 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
                 <div className="dropdown-header-email">{user?.email}</div>
               </div>
               <hr className="dropdown-divider" />
-              <a href="/dashboard.php?page=profile" className="dropdown-item">Profile</a>
-              <a href="/dashboard.php?page=settings" className="dropdown-item">Settings</a>
+              <Link to="/profile" className="dropdown-item" onClick={() => setUserOpen(false)}>Profile</Link>
+              <Link to="/settings" className="dropdown-item" onClick={() => setUserOpen(false)}>Settings</Link>
               <hr className="dropdown-divider" />
-              <a href="/logout.php" className="dropdown-item" style={{ color: 'var(--cf-danger)' }}>Logout</a>
+              <a href="/logout.php" className="dropdown-item" style={{ color: '#ef4444' }}>Logout</a>
             </div>
           )}
         </div>
