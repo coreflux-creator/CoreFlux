@@ -1,1 +1,0 @@
-<!-- Placeholder for script.js in modules/accounting/assets/js -->

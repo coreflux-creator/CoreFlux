@@ -1,1 +1,0 @@
-<?php require_once '../core/db_connection.php'; ?>

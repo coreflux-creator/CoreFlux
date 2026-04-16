@@ -1,1 +1,0 @@
-<!-- Placeholder for overview.php in modules/accounting -->
