@@ -1,156 +1,72 @@
-# CoreFlux Platform - Product Requirements Document
+# CoreFlux Product Requirements Document
 
 ## Original Problem Statement
-Refactor a PHP-based multi-tenant application named `coreflux` into a modular architecture, with a core app and standalone functional modules. This evolved into a complete architectural overhaul to rebuild the entire application using a modern tech stack: **Laravel** for the backend and **React** for the frontend.
+Refactor a monolithic PHP application, CoreFlux, into a modular architecture. The core application provides a standardized shell, design system, and services (like authentication and multi-tenancy). Each business function (e.g., Accounting, People, Finance) is a separate, self-contained module that "plugs into" this core shell.
 
-## Current Architecture
+## Product Requirements
+- A single, unified CoreFlux application (not separate apps connected by SSO)
+- A core shell providing a consistent header, navigation, and design system
+- Modules developed in separate repositories but integrated for deployment
+- Multi-tenant architecture where tenants can subscribe to specific modules
+- Support for parent/sub-tenant relationships
+- Master admin role with platform-wide administrative panel
 
-### Tech Stack
-- **Frontend:** React 18 + Vite + TailwindCSS
-- **Backend:** Laravel 10 (Sanctum for API authentication)
-- **Database:** MySQL (existing schema)
-- **Deployment:** Cloudways server via Git
+## Tech Stack
+- **Backend:** PHP, MySQL
+- **Architecture:** Modular Monolith with Git Subtree
+- **Hosting:** Cloudways
+- **Module Repos:** GitHub (coreflux-people, coreflux/accounts)
 
-### Directory Structure
-```
-/app
-├── frontend/                  # React App (source)
-│   ├── src/
-│   │   ├── components/       # UI components
-│   │   ├── pages/            # Page components
-│   │   ├── hooks/            # React hooks
-│   │   ├── lib/              # Utilities
-│   │   └── styles/           # CSS
-│   └── dist/                 # Build output
-├── laravel/                   # Laravel Backend
-│   ├── app/Http/Controllers/ # API controllers
-│   └── app/Models/           # Eloquent models
-├── modules/                   # Git Submodules
-│   ├── accounting/           # (to be rewritten)
-│   └── people/               # (to be rewritten)
-└── app/                       # Deployed React build
-```
+## Core Features (Completed)
+- [x] Multi-tenant dashboard with dynamic tenant/module loading
+- [x] Database connection to Cloudways MySQL
+- [x] Secure login flow with password_verify()
+- [x] Master admin panel for tenants, users, roles, module subscriptions
+- [x] Framework layer (coreflux.css, shell components, ui.php)
+- [x] FRAMEWORK_GUIDE.md documentation
+- [x] Git Subtree setup guide and scripts
 
-## Brand Identity (Updated: March 2026)
+## In Progress
+- [x] React SPA connected to PHP backend (tested with mock server)
 
-### Colors
-- **Core Navy:** `#0A2540` - Primary brand color
-- **Flux Blue:** `#007FFF` - Accent color
-- **Soft Gray:** `#F5F7FA` - Background
-- **Dark Gray:** `#3A3F45` - Body text
+## Deployment Required
+- [ ] Deploy React SPA to Cloudways (copy `/app/app/` folder and PHP endpoints)
+- [ ] Update login.php to redirect to spa.php (optional)
 
-### Typography
-- **Primary Font:** Montserrat (fallback: Inter)
-- **H1:** 32px / Bold / Navy
-- **H2:** 24px / SemiBold / Navy
-- **Body:** 16px / Regular / Dark Gray
+## Backlog (P1)
+- [ ] Fix GitHub Actions CI/CD (use SSH + git pull instead of scp-action)
+- [ ] Build Accounting module with full CRUD operations
+- [ ] Clean up sidebar_items table duplicates
 
-### Tagline
-"Power Your Core. Evolve with Flux."
+## Backlog (P2)
+- [ ] UI/UX design refinement (consolidate CSS)
+- [ ] Wire up granular permissions at view/action level
+- [ ] Consolidate dashboard.css into coreflux.css
 
----
+## Key Files
+- `/app/core/config.php` - Database credentials
+- `/app/core/data.php` - Data layer functions
+- `/app/dashboard.php` - Main application shell
+- `/app/login.php` - Authentication
+- `/app/FRAMEWORK_GUIDE.md` - Module development guide
+- `/app/GIT_SUBTREE_SETUP.md` - Git Subtree setup instructions
+- `/app/scripts/setup-subtrees.sh` - Initial subtree setup script
+- `/app/scripts/update-modules.sh` - Module update script
 
-## Implementation Status
+## Database Schema
+- users: {id, name, email, password_hash, role, tenant_id}
+- tenants: {id, name, parent_id, slug, domain}
+- user_tenants: {user_id, tenant_id, role}
+- modules: {id, name}
+- tenant_modules: {tenant_id, module_key, is_enabled}
+- permissions: {id, slug, description}
+- role_permissions: {role_id, permission_id}
 
-### Completed Work
-- [x] Laravel 10 backend setup with Sanctum authentication
-- [x] React frontend with Vite build system
-- [x] Authentication flow (login API)
-- [x] Admin CRUD for tenants, users, modules
-- [x] Git submodule integration
-- [x] Server routing configuration (.htaccess)
-- [x] **Brand identity applied to React frontend (March 2026)**
-  - New color scheme implemented
-  - Logo component with SVG swirl emblem
-  - Typography with Montserrat font
-  - Updated Login, Dashboard, Header, Sidebar components
-
-### API Endpoints
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/auth/login` | POST | User authentication |
-| `/api/auth/me` | GET | Current user data |
-| `/api/admin/tenants` | GET | List all tenants |
-| `/api/admin/users` | GET | List all users |
-| `/api/admin/modules` | GET | List all modules |
+## Module Repositories
+| Module | Repository | Subtree Prefix |
+|--------|------------|----------------|
+| People | coreflux-people | modules/people |
+| Accounting | coreflux/accounts | modules/accounting |
 
 ---
-
-## Roadmap
-
-### P0 - Immediate Priority
-1. **Deploy branded frontend** - Copy built React files to `/app` on Cloudways
-2. **Connect React to API** - Wire login form to Laravel API
-3. **Legacy login redirect** - Redirect old login to new React app
-
-### P1 - High Priority
-1. Rewrite Accounting Module to Laravel + React
-2. Rewrite People Module to Laravel + React
-3. Implement granular RBAC permissions
-
-### P2 - Medium Priority
-1. UI/UX refinements
-2. Dashboard widgets with real data
-3. Module-specific settings pages
-
-### P3 - Future
-1. Email notifications
-2. Audit logging
-3. API rate limiting
-4. Multi-language support
-
----
-
-## Deployment Instructions
-
-### To deploy the branded frontend to Cloudways:
-
-**Step 1: SSH into your Cloudways server**
-```bash
-ssh master_user@your-cloudways-ip
-cd ~/public_html
-```
-
-**Step 2: Pull latest changes**
-```bash
-git pull origin main
-```
-
-**Step 3: Build the frontend**
-```bash
-cd frontend
-yarn install  # or npm install
-yarn build    # or npm run build
-```
-
-**Step 4: Deploy to the app directory**
-```bash
-cp -r dist/* ../app/
-```
-
-**Step 5: Verify the deployment**
-- Visit `https://corefluxapp.com/` - Should show the marketing site
-- Visit `https://corefluxapp.com/app/` - Should show the new CoreFlux React app with branding
-
-### Key URLs
-- **Marketing site:** `https://corefluxapp.com/`
-- **React app:** `https://corefluxapp.com/app/`
-- **API:** `https://corefluxapp.com/api/`
-
-### Environment Variables (frontend/.env)
-```
-VITE_API_URL=https://corefluxapp.com
-```
-
----
-
-## Files Reference
-- `/app/frontend/src/` - React source code
-- `/app/frontend/tailwind.config.js` - Tailwind configuration with brand colors
-- `/app/frontend/src/styles/index.css` - Global styles with brand typography
-- `/app/frontend/src/components/ui/Logo.jsx` - Logo component
-- `/app/design_guidelines.md` - Complete brand guidelines
-
----
-
-*Last Updated: March 14, 2026*
+*Last Updated: 2025-03-23*
