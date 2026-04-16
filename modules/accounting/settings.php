@@ -1,1 +1,0 @@
-<!-- Placeholder for settings.php in modules/accounting -->

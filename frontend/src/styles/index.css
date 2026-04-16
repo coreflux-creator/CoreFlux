@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* CoreFlux Brand Colors */
+  --cf-navy: #0A2540;
+  --cf-navy-dark: #061829;
+  --cf-flux: #007FFF;
+  --cf-flux-hover: #0066CC;
+  --cf-soft: #F5F7FA;
+  --cf-dark: #3A3F45;
+}
+
+body {
+  @apply bg-cf-soft text-cf-dark antialiased;
+  font-family: 'Montserrat', 'Inter', system-ui, sans-serif;
+}
+
+/* Typography hierarchy per brand guide */
+h1 {
+  @apply text-[32px] font-bold text-cf-navy;
+}
+
+h2 {
+  @apply text-[24px] font-semibold text-cf-navy;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-100;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400;
+}
+
+/* Focus styles with brand color */
+input:focus, select:focus, textarea:focus, button:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 127, 255, 0.25);
+}

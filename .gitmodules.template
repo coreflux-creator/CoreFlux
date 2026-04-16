@@ -1,0 +1,18 @@
+# Git Submodules Configuration
+# 
+# After creating the module repositories on GitHub, update the URLs below
+# and run: git submodule update --init --recursive
+#
+# To add a new module:
+#   git submodule add <repo-url> modules/<module-name>
+
+[submodule "modules/accounting"]
+	path = modules/accounting
+	url = https://github.com/YOURORG/coreflux-accounting.git
+	branch = main
+
+# Future modules (uncomment and update URL when ready):
+# [submodule "modules/people"]
+# 	path = modules/people
+# 	url = https://github.com/YOURORG/coreflux-people.git
+# 	branch = main
