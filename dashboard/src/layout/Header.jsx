@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, LayoutDashboard, Shield, Building2 } from 'lucide-react';
 
 const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, onTenantChange }) => {
   const [moduleOpen, setModuleOpen] = useState(false);
@@ -10,7 +10,6 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
   const tenantRef = useRef(null);
   const userRef = useRef(null);
 
-  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (moduleRef.current && !moduleRef.current.contains(e.target)) setModuleOpen(false);
@@ -22,34 +21,35 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
   }, []);
 
   return (
-    <header className="top-header">
+    <header className="header">
       {/* Left - Logo */}
       <div className="header-left">
-        <a href="/dashboard.php" className="logo-link">
+        <a href="/" className="logo">
           <img 
-            src="/assets/icons/logo-white.png" 
+            src="/assets/icons/logo.png" 
             alt="CoreFlux" 
-            className="header-logo"
-            onError={(e) => { e.target.style.display = 'none'; }}
+            className="logo-img"
+            onError={(e) => { 
+              e.target.onerror = null;
+              e.target.src = '/assets/logo.png';
+            }}
           />
-          <span className="logo-text">CoreFlux</span>
         </a>
       </div>
 
-      {/* Center - Module Selector */}
+      {/* Center - Dashboard & Module Selector */}
       <div className="header-center">
+        <a href="/" className="header-btn active">
+          <LayoutDashboard size={18} className="header-btn-icon" />
+          <span>Dashboard</span>
+        </a>
+        
         {modules && modules.length > 0 && (
           <div className={`dropdown ${moduleOpen ? 'open' : ''}`} ref={moduleRef}>
             <button 
-              className="dropdown-trigger"
+              className="header-btn"
               onClick={(e) => { e.stopPropagation(); setModuleOpen(!moduleOpen); }}
             >
-              <img 
-                src={activeModule?.icon || '/assets/icons/icon-module.png'} 
-                alt=""
-                className="dropdown-icon"
-                onError={(e) => { e.target.style.display = 'none'; }}
-              />
               <span>{activeModule?.name || 'Select Module'}</span>
               <ChevronDown size={16} className="caret" />
             </button>
@@ -65,13 +65,7 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
                       setModuleOpen(false);
                     }}
                   >
-                    <img 
-                      src={mod.icon} 
-                      alt="" 
-                      className="dropdown-icon"
-                      onError={(e) => { e.target.style.display = 'none'; }}
-                    />
-                    <span>{mod.name}</span>
+                    {mod.name}
                   </div>
                 ))}
               </div>
@@ -80,16 +74,24 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
         )}
       </div>
 
-      {/* Right - Tenant & User */}
+      {/* Right - Admin, Tenant & User */}
       <div className="header-right">
+        {user?.global_role === 'master_admin' && (
+          <a href="/dashboard.php?page=admin" className="header-btn">
+            <Shield size={18} className="header-btn-icon" />
+            <span>Admin Panel</span>
+          </a>
+        )}
+        
         {/* Tenant Selector */}
-        {tenants && tenants.length > 1 ? (
+        {tenants && tenants.length > 0 && (
           <div className={`dropdown ${tenantOpen ? 'open' : ''}`} ref={tenantRef}>
             <button 
-              className="dropdown-trigger"
+              className="header-btn"
               onClick={(e) => { e.stopPropagation(); setTenantOpen(!tenantOpen); }}
             >
-              <span>{tenant || 'Select Tenant'}</span>
+              <Building2 size={18} className="header-btn-icon" />
+              <span>{tenant || 'Tenant'}</span>
               <ChevronDown size={14} className="caret" />
             </button>
             
@@ -105,45 +107,37 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
                     }}
                   >
                     {t.name || t}
-                    {t.role && <small style={{ opacity: 0.6, marginLeft: '8px' }}>{t.role}</small>}
                   </div>
                 ))}
               </div>
             )}
           </div>
-        ) : (
-          <span className="tenant-name">{tenant}</span>
         )}
 
         {/* User Menu */}
         <div className={`dropdown ${userOpen ? 'open' : ''}`} ref={userRef}>
           <button 
-            className="dropdown-trigger user-trigger"
+            className="header-btn"
             onClick={(e) => { e.stopPropagation(); setUserOpen(!userOpen); }}
           >
-            <div className="user-avatar-placeholder">
+            <div className="user-avatar">
               {(user?.first_name || user?.name || 'U').charAt(0).toUpperCase()}
             </div>
-            <span className="user-name">{user?.first_name || user?.name || 'User'}</span>
+            <span>{user?.first_name || user?.name || 'User'}</span>
             <ChevronDown size={14} className="caret" />
           </button>
           
           {userOpen && (
             <div className="dropdown-menu dropdown-menu-right">
               <div className="dropdown-header">
-                <strong>{user?.first_name} {user?.last_name}</strong>
-                <small>{user?.email}</small>
-                {user?.role && (
-                  <small style={{ display: 'block', marginTop: '4px', color: 'var(--color-accent)' }}>
-                    {user.role}
-                  </small>
-                )}
+                <div className="dropdown-header-name">{user?.first_name} {user?.last_name}</div>
+                <div className="dropdown-header-email">{user?.email}</div>
               </div>
               <hr className="dropdown-divider" />
               <a href="/dashboard.php?page=profile" className="dropdown-item">Profile</a>
               <a href="/dashboard.php?page=settings" className="dropdown-item">Settings</a>
               <hr className="dropdown-divider" />
-              <a href="/logout.php" className="dropdown-item dropdown-item-danger">Logout</a>
+              <a href="/logout.php" className="dropdown-item" style={{ color: 'var(--cf-danger)' }}>Logout</a>
             </div>
           )}
         </div>

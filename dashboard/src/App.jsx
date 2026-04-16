@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import AppLayout from './layout/AppLayout';
+import DashboardOverview from './pages/DashboardOverview';
 import PeopleModule from './modules/PeopleModule';
 import AccountingModule from './modules/AccountingModule';
 import FinanceModule from './modules/FinanceModule';
 import GenericModule from './modules/GenericModule';
 
-// Loading screen component
+// Loading screen
 const LoadingScreen = () => (
   <div className="loading-screen">
     <div className="loading-spinner"></div>
@@ -14,22 +15,38 @@ const LoadingScreen = () => (
   </div>
 );
 
-// Demo session data - used when PHP backend is not available
+// Demo session data
 const DEMO_SESSION = {
   user: {
     id: 1,
-    first_name: 'Demo',
+    first_name: 'Kunal',
     last_name: 'User',
-    email: 'demo@coreflux.app',
+    email: 'kunal@coreflux.app',
     role: 'admin',
     global_role: 'tenant_admin'
   },
-  tenant: 'CoreFlux Demo',
+  tenant: 'CoreFlux',
   tenants: [
-    { id: 1, name: 'CoreFlux Demo', role: 'admin' },
+    { id: 1, name: 'CoreFlux', role: 'admin' },
     { id: 2, name: 'Acme Corp', role: 'employee' }
   ],
   modules: [
+    { 
+      id: 'accounting', 
+      name: 'Accounting', 
+      icon: '/assets/icons/icon-accounting.png',
+      description: 'General ledger and financial reporting',
+      actions: [
+        { name: 'Overview', route: 'overview' },
+        { name: 'Chart of Accounts', route: 'chart_of_accounts' },
+        { name: 'Journal Entries', route: 'journal_entries' },
+        { name: 'General Ledger', route: 'general_ledger' },
+        { name: 'Accounts Payable', route: 'accounts_payable' },
+        { name: 'Accounts Receivable', route: 'accounts_receivable' },
+        { name: 'Reports', route: 'reports' },
+        { name: 'Settings', route: 'settings' }
+      ]
+    },
     { 
       id: 'people', 
       name: 'People', 
@@ -42,21 +59,6 @@ const DEMO_SESSION = {
         { name: 'Employee Directory', route: 'employee_directory' },
         { name: 'Reports', route: 'reports' },
         { name: 'Hiring Pipeline', route: 'hiring_pipeline' }
-      ]
-    },
-    { 
-      id: 'accounting', 
-      name: 'Accounting', 
-      icon: '/assets/icons/icon-accounting.png',
-      description: 'General ledger and financial reporting',
-      actions: [
-        { name: 'Overview', route: 'overview' },
-        { name: 'Chart of Accounts', route: 'chart_of_accounts' },
-        { name: 'Journal Entries', route: 'journal_entries' },
-        { name: 'Accounts Payable', route: 'accounts_payable' },
-        { name: 'Accounts Receivable', route: 'accounts_receivable' },
-        { name: 'Bank Reconciliation', route: 'bank_reconciliation' },
-        { name: 'Reports', route: 'reports' }
       ]
     },
     { 
@@ -75,102 +77,77 @@ const DEMO_SESSION = {
   active_module: null
 };
 
-// Hook to fetch session from PHP backend
+// Session hook
 const useSession = () => {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [usingDemo, setUsingDemo] = useState(false);
 
-  const fetchSession = async () => {
-    try {
-      const res = await fetch('/session.php', { 
-        credentials: 'include',
-        headers: { 'Accept': 'application/json' }
-      });
-      
-      if (!res.ok) {
-        throw new Error('Not authenticated');
-      }
-      
-      const data = await res.json();
-      
-      if (!data.user) {
-        throw new Error('Invalid session data');
-      }
-      
-      setSession(data);
-      setError(null);
-      setUsingDemo(false);
-    } catch (err) {
-      console.warn('Could not fetch session from PHP, using demo mode:', err.message);
-      const demoSession = { ...DEMO_SESSION };
-      demoSession.active_module = demoSession.modules[0];
-      setSession(demoSession);
-      setUsingDemo(true);
-      setError(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const fetchSession = async () => {
+      try {
+        const res = await fetch('/session.php', { 
+          credentials: 'include',
+          headers: { 'Accept': 'application/json' }
+        });
+        
+        if (!res.ok) throw new Error('Not authenticated');
+        
+        const data = await res.json();
+        if (!data.user) throw new Error('Invalid session');
+        
+        setSession(data);
+        setUsingDemo(false);
+      } catch (err) {
+        console.warn('Using demo mode:', err.message);
+        const demoSession = { ...DEMO_SESSION };
+        demoSession.active_module = demoSession.modules[0];
+        setSession(demoSession);
+        setUsingDemo(true);
+      } finally {
+        setLoading(false);
+      }
+    };
     fetchSession();
   }, []);
 
-  return { session, loading, error, usingDemo, refetch: fetchSession };
+  return { session, loading, usingDemo };
 };
 
-// Inner App component that has access to router hooks
+// Inner App with router hooks
 const AppContent = ({ session, usingDemo }) => {
   const [activeModule, setActiveModule] = useState(null);
   const location = useLocation();
 
-  // Sync active module with URL path
+  // Sync active module with URL
   useEffect(() => {
     if (!session?.modules) return;
     
     const pathMatch = location.pathname.match(/\/modules\/([^\/]+)/);
     if (pathMatch) {
-      const moduleIdFromUrl = pathMatch[1];
-      const moduleFromUrl = session.modules.find(m => 
-        m.id === moduleIdFromUrl || 
-        m.name.toLowerCase().replace(/\s+/g, '_') === moduleIdFromUrl
-      );
-      if (moduleFromUrl && moduleFromUrl.id !== activeModule?.id) {
-        setActiveModule(moduleFromUrl);
+      const moduleId = pathMatch[1];
+      const mod = session.modules.find(m => m.id === moduleId);
+      if (mod && mod.id !== activeModule?.id) {
+        setActiveModule(mod);
         return;
       }
     }
     
-    // Fall back to first module if no active module
-    if (!activeModule && session?.modules?.length > 0) {
-      setActiveModule(session.modules[0]);
+    // On dashboard, show first module context in sidebar
+    if (location.pathname === '/' || location.pathname === '/dashboard') {
+      if (!activeModule && session.modules.length > 0) {
+        setActiveModule(session.modules[0]);
+      }
     }
   }, [session, location.pathname]);
 
-  // Handle module change from dropdown
-  const handleModuleChange = async (mod) => {
+  const handleModuleChange = (mod) => {
     setActiveModule(mod);
-    
-    if (!usingDemo) {
-      try {
-        await fetch('/update_active_module.php', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ module: mod.id || mod.name }),
-          credentials: 'include'
-        });
-      } catch (e) {
-        console.warn('Failed to update active module on server');
-      }
-    }
   };
 
-  // Handle tenant change
   const handleTenantChange = (tenantId) => {
     if (usingDemo) {
-      alert('Tenant switching requires PHP backend. This is demo mode.');
+      alert('Tenant switching requires PHP backend.');
       return;
     }
     window.location.href = `/dashboard.php?switch_tenant=${tenantId}`;
@@ -181,22 +158,13 @@ const AppContent = ({ session, usingDemo }) => {
     active_module: activeModule
   };
 
+  // Check if on main dashboard
+  const isMainDashboard = location.pathname === '/' || location.pathname === '/dashboard';
+
   return (
     <>
       {usingDemo && (
-        <div style={{
-          position: 'fixed',
-          bottom: '16px',
-          right: '16px',
-          background: '#f59e0b',
-          color: '#000',
-          padding: '8px 16px',
-          borderRadius: '6px',
-          fontSize: '12px',
-          fontWeight: '500',
-          zIndex: 9999,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-        }}>
+        <div className="demo-badge">
           Demo Mode - Connect to PHP backend for full functionality
         </div>
       )}
@@ -205,36 +173,30 @@ const AppContent = ({ session, usingDemo }) => {
         session={sessionWithActiveModule}
         onModuleChange={handleModuleChange}
         onTenantChange={handleTenantChange}
+        showSidebar={!isMainDashboard}
       >
         <Routes>
+          {/* Main Dashboard */}
+          <Route path="/" element={<DashboardOverview session={session} onModuleChange={handleModuleChange} />} />
+          <Route path="/dashboard" element={<DashboardOverview session={session} onModuleChange={handleModuleChange} />} />
+          
+          {/* Module Routes */}
           <Route path="/modules/people/*" element={<PeopleModule session={session} />} />
           <Route path="/modules/accounting/*" element={<AccountingModule session={session} />} />
           <Route path="/modules/finance/*" element={<FinanceModule session={session} />} />
           <Route path="/modules/:moduleId/*" element={<GenericModule session={session} activeModule={activeModule} />} />
-          <Route path="*" element={
-            <Navigate to={`/modules/${activeModule?.id || 'people'}/overview`} replace />
-          } />
         </Routes>
       </AppLayout>
     </>
   );
 };
 
-// Main App Component
+// Main App
 const App = () => {
-  const { session, loading, error, usingDemo } = useSession();
+  const { session, loading, usingDemo } = useSession();
 
-  if (loading) {
-    return <LoadingScreen />;
-  }
-
-  if (!session) {
-    return (
-      <div className="loading-screen">
-        <p className="loading-text">Unable to load session. Please refresh.</p>
-      </div>
-    );
-  }
+  if (loading) return <LoadingScreen />;
+  if (!session) return <div className="loading-screen"><p>Unable to load session.</p></div>;
 
   return (
     <Router>

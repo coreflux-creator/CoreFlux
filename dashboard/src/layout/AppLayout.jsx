@@ -2,7 +2,7 @@ import React from 'react';
 import Header from './Header';
 import Sidebar from './Sidebar';
 
-const AppLayout = ({ session, children, onModuleChange, onTenantChange }) => {
+const AppLayout = ({ session, children, onModuleChange, onTenantChange, showSidebar = true }) => {
   const { user, modules, tenant, tenants, active_module } = session;
 
   return (
@@ -18,9 +18,11 @@ const AppLayout = ({ session, children, onModuleChange, onTenantChange }) => {
       />
 
       <div className="app-main">
-        <Sidebar activeModule={active_module} />
+        {showSidebar && active_module && (
+          <Sidebar activeModule={active_module} />
+        )}
         
-        <main className="main-content">
+        <main className="main-content" style={!showSidebar ? { marginLeft: 0 } : {}}>
           {children}
         </main>
       </div>

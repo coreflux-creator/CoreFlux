@@ -1,243 +1,115 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { ModuleHero, StatsGrid, StatCard, Section, ActionCardsGrid, ActionCard, Card, EmptyState } from '../components/UIComponents';
+import { ModuleHero, Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
+import { Clock, FileText, Users, PieChart, Briefcase } from 'lucide-react';
 
-// API helpers
-const fetchData = async (endpoint) => {
-  try {
-    const res = await fetch(endpoint, { credentials: 'include' });
-    if (!res.ok) throw new Error('Failed to fetch');
-    return await res.json();
-  } catch (e) {
-    console.error('API error:', e);
-    return null;
-  }
-};
+const PeopleOverview = () => (
+  <>
+    <ModuleHero
+      title="People"
+      description="Manage employees, timesheets, and HR operations. Track time, approve submissions, and generate workforce reports."
+      image="/assets/icons/hero-people.png"
+    />
 
-// People Overview Dashboard
-const PeopleOverview = () => {
-  const [stats, setStats] = useState({ employees: 0, pending: 0, hours: 0 });
-  
-  useEffect(() => {
-    // Fetch real stats from API (placeholder - connect to actual endpoints)
-    // For now using demo data
-    setStats({ employees: 24, pending: 5, hours: 186 });
-  }, []);
-
-  return (
-    <>
-      <ModuleHero
-        title="People"
-        description="Manage employees, timesheets, and HR operations. Track time, approve submissions, and generate workforce reports."
-        image="/assets/icons/hero-people.png"
-      />
-
+    <Section title="Quick Overview">
       <StatsGrid>
-        <StatCard value={stats.employees} label="Employees" sublabel="+2 this month" />
-        <StatCard value={stats.pending} label="Pending Timesheets" sublabel="Awaiting approval" />
-        <StatCard value={stats.hours} label="Hours This Week" sublabel="Team total" />
+        <StatCard value="24" label="Employees" type="employees" />
+        <StatCard value="5" label="Pending Timesheets" type="pending" />
+        <StatCard value="186" label="Hours This Week" type="hours" />
+        <StatCard value="18" label="Approved" type="approved" />
       </StatsGrid>
+    </Section>
 
-      <Section title="Quick Actions">
-        <ActionCardsGrid>
-          <ActionCard
-            icon="/assets/icons/icon-timesheet.png"
-            title="Enter Time"
-            description="Log your work hours"
-            href="/modules/people/enter-time"
-          />
-          <ActionCard
-            icon="/assets/icons/icon-approvals.png"
-            title="Timesheets"
-            description="Review and approve"
-            href="/modules/people/timesheets"
-          />
-          <ActionCard
-            icon="/assets/icons/icon-directory.png"
-            title="Employee Directory"
-            description="View all employees"
-            href="/modules/people/employee-directory"
-          />
-          <ActionCard
-            icon="/assets/icons/icon-reports.png"
-            title="Reports"
-            description="Workforce analytics"
-            href="/modules/people/reports"
-          />
-        </ActionCardsGrid>
-      </Section>
-    </>
-  );
-};
+    <Section title="Quick Actions">
+      <ActionCardsGrid>
+        <ActionCard icon={Clock} title="Enter Time" description="Log your work hours" href="/modules/people/enter-time" />
+        <ActionCard icon={FileText} title="Timesheets" description="Review and approve" href="/modules/people/timesheets" />
+        <ActionCard icon={Users} title="Employee Directory" description="View all employees" href="/modules/people/employee-directory" />
+      </ActionCardsGrid>
+    </Section>
+  </>
+);
 
-// Enter Time Page
-const EnterTime = () => {
-  return (
-    <>
-      <ModuleHero
-        title="Enter Time"
-        description="Log your work hours for the current pay period."
-        image="/assets/icons/icon-time-tracking.png"
-      />
-      
-      <Section title="Current Timesheet">
-        <Card>
-          <EmptyState 
-            title="Time Entry"
-            description="Select a date and enter your hours below."
-          />
-          {/* TODO: Add actual time entry form */}
-        </Card>
-      </Section>
-    </>
-  );
-};
+const EnterTime = () => (
+  <>
+    <ModuleHero title="Enter Time" description="Log your work hours for the current pay period." />
+    <Section title="Current Timesheet">
+      <div className="stat-card" style={{ padding: '40px', textAlign: 'center' }}>
+        <p style={{ color: 'var(--cf-text-secondary)' }}>Time entry form will be displayed here.</p>
+      </div>
+    </Section>
+  </>
+);
 
-// Timesheets Page
-const Timesheets = () => {
-  const [timesheets, setTimesheets] = useState([]);
-  
-  return (
-    <>
-      <ModuleHero
-        title="Timesheets"
-        description="Review, approve, or reject submitted timesheets from your team."
-        image="/assets/icons/icon-approvals.png"
-      />
-      
+const Timesheets = () => (
+  <>
+    <ModuleHero title="Timesheets" description="Review, approve, or reject submitted timesheets from your team." />
+    <Section title="Quick Overview">
       <StatsGrid>
-        <StatCard value="5" label="Pending" sublabel="Needs review" />
-        <StatCard value="18" label="Approved" sublabel="This period" />
-        <StatCard value="1" label="Rejected" sublabel="Requires resubmission" />
+        <StatCard value="5" label="Pending" type="pending" />
+        <StatCard value="18" label="Approved" type="approved" />
+        <StatCard value="1" label="Rejected" type="this_month" />
+        <StatCard value="186" label="Total Hours" type="hours" />
       </StatsGrid>
-      
-      <Section title="Pending Approvals">
-        <Card>
-          <EmptyState 
-            title="No Pending Timesheets"
-            description="All timesheets have been reviewed."
-          />
-          {/* TODO: Add actual timesheet list */}
-        </Card>
-      </Section>
-    </>
-  );
-};
+    </Section>
+  </>
+);
 
-// Employee Directory Page
-const EmployeeDirectory = () => {
-  const [employees, setEmployees] = useState([]);
-  
-  return (
-    <>
-      <ModuleHero
-        title="Employee Directory"
-        description="View and manage your organization's employees."
-        image="/assets/icons/icon-directory.png"
-      />
-      
+const EmployeeDirectory = () => (
+  <>
+    <ModuleHero title="Employee Directory" description="View and manage your organization's employees." />
+    <Section title="Quick Overview">
       <StatsGrid>
-        <StatCard value="24" label="Total Employees" sublabel="Active" />
-        <StatCard value="3" label="Departments" sublabel="Engineering, Sales, HR" />
-        <StatCard value="2" label="New Hires" sublabel="This month" />
+        <StatCard value="24" label="Total Employees" type="employees" />
+        <StatCard value="3" label="Departments" type="completed" />
+        <StatCard value="2" label="New Hires" type="this_month" />
+        <StatCard value="22" label="Active" type="approved" />
       </StatsGrid>
-      
-      <Section title="All Employees">
-        <Card>
-          <EmptyState 
-            title="Employee List"
-            description="Employee directory will be displayed here."
-          />
-          {/* TODO: Add actual employee table */}
-        </Card>
-      </Section>
-    </>
-  );
-};
+    </Section>
+  </>
+);
 
-// Reports Page
-const Reports = () => {
-  return (
-    <>
-      <ModuleHero
-        title="Reports"
-        description="Generate workforce analytics and insights."
-        image="/assets/icons/icon-reports.png"
-      />
-      
-      <Section title="Available Reports">
-        <ActionCardsGrid>
-          <ActionCard
-            icon="/assets/icons/icon-time-tracking.png"
-            title="Hours Summary"
-            description="Weekly/monthly breakdown"
-          />
-          <ActionCard
-            icon="/assets/icons/icon-employee.png"
-            title="Headcount Report"
-            description="Employee statistics"
-          />
-          <ActionCard
-            icon="/assets/icons/icon-performance.png"
-            title="Attendance"
-            description="Attendance tracking"
-          />
-          <ActionCard
-            icon="/assets/icons/icon-custom-reports.png"
-            title="Custom Report"
-            description="Build your own"
-          />
-        </ActionCardsGrid>
-      </Section>
-    </>
-  );
-};
+const Reports = () => (
+  <>
+    <ModuleHero title="Reports" description="Generate workforce analytics and insights." />
+    <Section title="Available Reports">
+      <ActionCardsGrid>
+        <ActionCard icon={Clock} title="Hours Summary" description="Weekly/monthly breakdown" />
+        <ActionCard icon={Users} title="Headcount Report" description="Employee statistics" />
+        <ActionCard icon={PieChart} title="Attendance" description="Attendance tracking" />
+      </ActionCardsGrid>
+    </Section>
+  </>
+);
 
-// Hiring Pipeline Page
-const HiringPipeline = () => {
-  return (
-    <>
-      <ModuleHero
-        title="Hiring Pipeline"
-        description="Track candidates through your recruitment process."
-        image="/assets/icons/icon-hiring.png"
-      />
-      
+const HiringPipeline = () => (
+  <>
+    <ModuleHero title="Hiring Pipeline" description="Track candidates through your recruitment process." />
+    <Section title="Quick Overview">
       <StatsGrid>
-        <StatCard value="12" label="Open Positions" sublabel="Actively hiring" />
-        <StatCard value="45" label="Candidates" sublabel="In pipeline" />
-        <StatCard value="3" label="Interviews" sublabel="Scheduled this week" />
+        <StatCard value="12" label="Open Positions" type="pending" />
+        <StatCard value="45" label="Candidates" type="employees" />
+        <StatCard value="3" label="Interviews" type="this_month" />
+        <StatCard value="8" label="Offers Made" type="completed" />
       </StatsGrid>
-      
-      <Section title="Pipeline Overview">
-        <Card>
-          <EmptyState 
-            title="Hiring Pipeline"
-            description="Candidate tracking will be displayed here."
-          />
-        </Card>
-      </Section>
-    </>
-  );
-};
+    </Section>
+  </>
+);
 
-// Main People Module with routing
-const PeopleModule = ({ session }) => {
-  return (
-    <Routes>
-      <Route path="/" element={<Navigate to="overview" replace />} />
-      <Route path="overview" element={<PeopleOverview />} />
-      <Route path="enter-time" element={<EnterTime />} />
-      <Route path="enter_time" element={<Navigate to="../enter-time" replace />} />
-      <Route path="timesheets" element={<Timesheets />} />
-      <Route path="employee-directory" element={<EmployeeDirectory />} />
-      <Route path="employee_directory" element={<Navigate to="../employee-directory" replace />} />
-      <Route path="reports" element={<Reports />} />
-      <Route path="hiring-pipeline" element={<HiringPipeline />} />
-      <Route path="hiring_pipeline" element={<Navigate to="../hiring-pipeline" replace />} />
-      <Route path="*" element={<Navigate to="overview" replace />} />
-    </Routes>
-  );
-};
+const PeopleModule = ({ session }) => (
+  <Routes>
+    <Route path="/" element={<Navigate to="overview" replace />} />
+    <Route path="overview" element={<PeopleOverview />} />
+    <Route path="enter-time" element={<EnterTime />} />
+    <Route path="enter_time" element={<Navigate to="../enter-time" replace />} />
+    <Route path="timesheets" element={<Timesheets />} />
+    <Route path="employee-directory" element={<EmployeeDirectory />} />
+    <Route path="employee_directory" element={<Navigate to="../employee-directory" replace />} />
+    <Route path="reports" element={<Reports />} />
+    <Route path="hiring-pipeline" element={<HiringPipeline />} />
+    <Route path="hiring_pipeline" element={<Navigate to="../hiring-pipeline" replace />} />
+    <Route path="*" element={<Navigate to="overview" replace />} />
+  </Routes>
+);
 
 export default PeopleModule;

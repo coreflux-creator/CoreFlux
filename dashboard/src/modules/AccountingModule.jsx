@@ -1,220 +1,142 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { ModuleHero, StatsGrid, StatCard, Section, ActionCardsGrid, ActionCard, Card, EmptyState } from '../components/UIComponents';
+import { ModuleHero, Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
+import { BookOpen, FileText, TrendingUp, CreditCard, Receipt, PieChart } from 'lucide-react';
 
 // Accounting Overview
-const AccountingOverview = () => {
-  return (
-    <>
-      <ModuleHero
-        title="Accounting"
-        description="General ledger, accounts payable, accounts receivable, and financial reporting."
-        image="/assets/icons/hero-accounting.png"
-      />
+const AccountingOverview = () => (
+  <>
+    <ModuleHero
+      title="Accounting"
+      description="General ledger, accounts payable, accounts receivable, and financial reporting."
+      image="/assets/icons/hero-accounting.png"
+    />
 
+    <Section title="Quick Overview">
       <StatsGrid>
-        <StatCard value="156" label="Active Accounts" sublabel="Chart of Accounts" />
-        <StatCard value="12" label="Pending Entries" sublabel="Awaiting approval" />
-        <StatCard value="$1.2M" label="Total Assets" sublabel="Current period" />
+        <StatCard value="156" label="Active Accounts" type="completed" />
+        <StatCard value="12" label="Pending Entries" type="pending" />
+        <StatCard value="$1.2M" label="Total Assets" type="revenue" />
+        <StatCard value="8" label="This Month" type="this_month" />
       </StatsGrid>
-
-      <Section title="Quick Actions">
-        <ActionCardsGrid>
-          <ActionCard
-            icon="/assets/icons/icon-ledger.png"
-            title="Chart of Accounts"
-            description="View and manage accounts"
-            href="/modules/accounting/chart-of-accounts"
-          />
-          <ActionCard
-            icon="/assets/icons/icon-journal.png"
-            title="Journal Entries"
-            description="Create and post entries"
-            href="/modules/accounting/journal-entries"
-          />
-          <ActionCard
-            icon="/assets/icons/icon-payables.png"
-            title="Accounts Payable"
-            description="Vendor invoices & payments"
-            href="/modules/accounting/accounts-payable"
-          />
-          <ActionCard
-            icon="/assets/icons/icon-reports.png"
-            title="Financial Reports"
-            description="Balance sheet, P&L, cash flow"
-            href="/modules/accounting/reports"
-          />
-        </ActionCardsGrid>
-      </Section>
-    </>
-  );
-};
-
-// Chart of Accounts
-const ChartOfAccounts = () => (
-  <>
-    <ModuleHero
-      title="Chart of Accounts"
-      description="View and manage your organization's chart of accounts."
-      image="/assets/icons/icon-ledger.png"
-    />
-    <Section title="Accounts">
-      <Card>
-        <EmptyState 
-          title="Account List"
-          description="Your chart of accounts will be displayed here."
-        />
-      </Card>
     </Section>
-  </>
-);
 
-// Journal Entries
-const JournalEntries = () => (
-  <>
-    <ModuleHero
-      title="Journal Entries"
-      description="Create, review, and post journal entries."
-      image="/assets/icons/icon-journal.png"
-    />
-    <StatsGrid>
-      <StatCard value="8" label="Draft" sublabel="Not posted" />
-      <StatCard value="4" label="Pending" sublabel="Awaiting approval" />
-      <StatCard value="142" label="Posted" sublabel="This period" />
-    </StatsGrid>
-    <Section title="Recent Entries">
-      <Card>
-        <EmptyState 
-          title="Journal Entries"
-          description="Your journal entries will be displayed here."
-        />
-      </Card>
-    </Section>
-  </>
-);
-
-// Accounts Payable
-const AccountsPayable = () => (
-  <>
-    <ModuleHero
-      title="Accounts Payable"
-      description="Manage vendor invoices and payments."
-      image="/assets/icons/icon-payables.png"
-    />
-    <StatsGrid>
-      <StatCard value="$45,200" label="Outstanding" sublabel="Total payables" />
-      <StatCard value="12" label="Due Soon" sublabel="Next 7 days" />
-      <StatCard value="3" label="Overdue" sublabel="Past due date" />
-    </StatsGrid>
-    <Section title="Pending Invoices">
-      <Card>
-        <EmptyState 
-          title="Invoice List"
-          description="Your vendor invoices will be displayed here."
-        />
-      </Card>
-    </Section>
-  </>
-);
-
-// Accounts Receivable
-const AccountsReceivable = () => (
-  <>
-    <ModuleHero
-      title="Accounts Receivable"
-      description="Manage customer invoices and collections."
-      image="/assets/icons/icon-arap.png"
-    />
-    <StatsGrid>
-      <StatCard value="$128,500" label="Outstanding" sublabel="Total receivables" />
-      <StatCard value="8" label="Due Soon" sublabel="Next 7 days" />
-      <StatCard value="2" label="Overdue" sublabel="Past due date" />
-    </StatsGrid>
-    <Section title="Open Invoices">
-      <Card>
-        <EmptyState 
-          title="Customer Invoices"
-          description="Your customer invoices will be displayed here."
-        />
-      </Card>
-    </Section>
-  </>
-);
-
-// Bank Reconciliation
-const BankReconciliation = () => (
-  <>
-    <ModuleHero
-      title="Bank Reconciliation"
-      description="Reconcile your bank accounts with the general ledger."
-      image="/assets/icons/icon-recon.png"
-    />
-    <Section title="Accounts to Reconcile">
-      <Card>
-        <EmptyState 
-          title="Bank Accounts"
-          description="Select an account to begin reconciliation."
-        />
-      </Card>
-    </Section>
-  </>
-);
-
-// Reports
-const AccountingReports = () => (
-  <>
-    <ModuleHero
-      title="Financial Reports"
-      description="Generate comprehensive financial reports."
-      image="/assets/icons/icon-reports.png"
-    />
-    <Section title="Available Reports">
+    <Section title="Quick Actions">
       <ActionCardsGrid>
-        <ActionCard
-          icon="/assets/icons/icon-ledger.png"
-          title="Balance Sheet"
-          description="Assets, liabilities, equity"
-        />
-        <ActionCard
-          icon="/assets/icons/icon-reports.png"
-          title="Income Statement"
-          description="Revenue and expenses"
-        />
-        <ActionCard
-          icon="/assets/icons/cashflow.png"
-          title="Cash Flow"
-          description="Cash movements"
-        />
-        <ActionCard
-          icon="/assets/icons/icon-custom-reports.png"
-          title="Trial Balance"
-          description="Account balances"
-        />
+        <ActionCard icon={BookOpen} title="Chart of Accounts" description="View and manage accounts" href="/modules/accounting/chart-of-accounts" />
+        <ActionCard icon={FileText} title="Journal Entries" description="Create and post entries" href="/modules/accounting/journal-entries" />
+        <ActionCard icon={CreditCard} title="Accounts Payable" description="Vendor invoices & payments" href="/modules/accounting/accounts-payable" />
       </ActionCardsGrid>
     </Section>
   </>
 );
 
-// Main Accounting Module
-const AccountingModule = ({ session }) => {
-  return (
-    <Routes>
-      <Route path="/" element={<Navigate to="overview" replace />} />
-      <Route path="overview" element={<AccountingOverview />} />
-      <Route path="chart-of-accounts" element={<ChartOfAccounts />} />
-      <Route path="chart_of_accounts" element={<Navigate to="../chart-of-accounts" replace />} />
-      <Route path="journal-entries" element={<JournalEntries />} />
-      <Route path="journal_entries" element={<Navigate to="../journal-entries" replace />} />
-      <Route path="accounts-payable" element={<AccountsPayable />} />
-      <Route path="accounts_payable" element={<Navigate to="../accounts-payable" replace />} />
-      <Route path="accounts-receivable" element={<AccountsReceivable />} />
-      <Route path="accounts_receivable" element={<Navigate to="../accounts-receivable" replace />} />
-      <Route path="bank-reconciliation" element={<BankReconciliation />} />
-      <Route path="bank_reconciliation" element={<Navigate to="../bank-reconciliation" replace />} />
-      <Route path="reports" element={<AccountingReports />} />
-      <Route path="*" element={<Navigate to="overview" replace />} />
-    </Routes>
-  );
-};
+const ChartOfAccounts = () => (
+  <>
+    <ModuleHero title="Chart of Accounts" description="View and manage your organization's chart of accounts." />
+    <Section title="Accounts">
+      <div className="stat-card" style={{ padding: '40px', textAlign: 'center' }}>
+        <p style={{ color: 'var(--cf-text-secondary)' }}>Account list will be displayed here.</p>
+      </div>
+    </Section>
+  </>
+);
+
+const JournalEntries = () => (
+  <>
+    <ModuleHero title="Journal Entries" description="Create, review, and post journal entries." />
+    <Section title="Quick Overview">
+      <StatsGrid>
+        <StatCard value="8" label="Draft" type="pending" />
+        <StatCard value="4" label="Pending Approval" type="this_month" />
+        <StatCard value="142" label="Posted" type="completed" />
+        <StatCard value="$45K" label="This Period" type="revenue" />
+      </StatsGrid>
+    </Section>
+  </>
+);
+
+const GeneralLedger = () => (
+  <>
+    <ModuleHero title="General Ledger" description="View account activity and balances." />
+    <Section title="Ledger Overview">
+      <div className="stat-card" style={{ padding: '40px', textAlign: 'center' }}>
+        <p style={{ color: 'var(--cf-text-secondary)' }}>General ledger data will be displayed here.</p>
+      </div>
+    </Section>
+  </>
+);
+
+const AccountsPayable = () => (
+  <>
+    <ModuleHero title="Accounts Payable" description="Manage vendor invoices and payments." />
+    <Section title="Quick Overview">
+      <StatsGrid>
+        <StatCard value="$45.2K" label="Outstanding" type="revenue" />
+        <StatCard value="12" label="Due Soon" type="pending" />
+        <StatCard value="3" label="Overdue" type="this_month" />
+        <StatCard value="18" label="Paid This Month" type="completed" />
+      </StatsGrid>
+    </Section>
+  </>
+);
+
+const AccountsReceivable = () => (
+  <>
+    <ModuleHero title="Accounts Receivable" description="Manage customer invoices and collections." />
+    <Section title="Quick Overview">
+      <StatsGrid>
+        <StatCard value="$128.5K" label="Outstanding" type="revenue" />
+        <StatCard value="8" label="Due Soon" type="pending" />
+        <StatCard value="2" label="Overdue" type="this_month" />
+        <StatCard value="24" label="Collected" type="completed" />
+      </StatsGrid>
+    </Section>
+  </>
+);
+
+const Reports = () => (
+  <>
+    <ModuleHero title="Financial Reports" description="Generate comprehensive financial reports." />
+    <Section title="Available Reports">
+      <ActionCardsGrid>
+        <ActionCard icon={BookOpen} title="Balance Sheet" description="Assets, liabilities, equity" />
+        <ActionCard icon={PieChart} title="Income Statement" description="Revenue and expenses" />
+        <ActionCard icon={TrendingUp} title="Cash Flow" description="Cash movements" />
+      </ActionCardsGrid>
+    </Section>
+  </>
+);
+
+const AccountingSettings = () => (
+  <>
+    <ModuleHero title="Accounting Settings" description="Configure accounting preferences and defaults." />
+    <Section title="Settings">
+      <div className="stat-card" style={{ padding: '40px', textAlign: 'center' }}>
+        <p style={{ color: 'var(--cf-text-secondary)' }}>Settings panel will be displayed here.</p>
+      </div>
+    </Section>
+  </>
+);
+
+const AccountingModule = ({ session }) => (
+  <Routes>
+    <Route path="/" element={<Navigate to="overview" replace />} />
+    <Route path="overview" element={<AccountingOverview />} />
+    <Route path="chart-of-accounts" element={<ChartOfAccounts />} />
+    <Route path="chart_of_accounts" element={<Navigate to="../chart-of-accounts" replace />} />
+    <Route path="journal-entries" element={<JournalEntries />} />
+    <Route path="journal_entries" element={<Navigate to="../journal-entries" replace />} />
+    <Route path="general-ledger" element={<GeneralLedger />} />
+    <Route path="general_ledger" element={<Navigate to="../general-ledger" replace />} />
+    <Route path="accounts-payable" element={<AccountsPayable />} />
+    <Route path="accounts_payable" element={<Navigate to="../accounts-payable" replace />} />
+    <Route path="accounts-receivable" element={<AccountsReceivable />} />
+    <Route path="accounts_receivable" element={<Navigate to="../accounts-receivable" replace />} />
+    <Route path="reports" element={<Reports />} />
+    <Route path="settings" element={<AccountingSettings />} />
+    <Route path="*" element={<Navigate to="overview" replace />} />
+  </Routes>
+);
 
 export default AccountingModule;
