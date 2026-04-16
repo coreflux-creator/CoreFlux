@@ -1,31 +1,29 @@
 import React from 'react';
 import Header from './Header';
 import Sidebar from './Sidebar';
-import Footer from './Footer';
 
-const AppLayout = ({ session, children }) => {
+const AppLayout = ({ session, children, onModuleChange, onTenantChange }) => {
   const { user, modules, tenant, tenants, active_module } = session;
 
   return (
-    <div className="app-layout" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      {/* Header with user, tenant, and module switching */}
+    <div className="app-layout">
       <Header
         user={user}
         modules={modules}
         tenant={tenant}
         tenants={tenants}
+        activeModule={active_module}
+        onModuleChange={onModuleChange}
+        onTenantChange={onTenantChange}
       />
 
-      {/* Main content with sidebar + page */}
-      <div style={{ display: 'flex', flex: 1 }}>
+      <div className="app-main">
         <Sidebar activeModule={active_module} />
-        <main style={{ flex: 1, padding: '2rem' }}>
+        
+        <main className="main-content">
           {children}
         </main>
       </div>
-
-      {/* Footer */}
-      <Footer />
     </div>
   );
 };

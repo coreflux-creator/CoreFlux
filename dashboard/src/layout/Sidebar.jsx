@@ -1,59 +1,43 @@
-import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
-import { ChevronDown, ChevronRight, Folder } from 'lucide-react'; // Optional icons
+import React from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 
 const Sidebar = ({ activeModule }) => {
-  const [expanded, setExpanded] = useState(true);
+  const location = useLocation();
+  
+  if (!activeModule) return null;
 
-  if (!activeModule || !activeModule.actions) return null;
+  // Get navigation items from module - support both 'actions' and 'navItems' formats
+  const navItems = activeModule.actions || activeModule.navItems || [];
+  const moduleId = activeModule.id || activeModule.name?.toLowerCase().replace(/\s+/g, '_');
 
   return (
-    <aside
-      className="sidebar"
-      style={{
-        width: '240px',
-        background: '#f8f9fb',
-        borderRight: '1px solid #e0e0e0',
-        padding: '1rem'
-      }}
-    >
-      <div
-        onClick={() => setExpanded(!expanded)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          cursor: 'pointer',
-          fontWeight: '600',
-          marginBottom: '1rem',
-          color: '#003366'
-        }}
-      >
-        <Folder size={16} style={{ marginRight: '6px' }} />
-        {activeModule.name}
-        {expanded ? <ChevronDown size={16} style={{ marginLeft: 'auto' }} /> : <ChevronRight size={16} style={{ marginLeft: 'auto' }} />}
+    <aside className="sidebar">
+      <div className="sidebar-header">
+        <h3>{activeModule.name}</h3>
       </div>
-
-      {expanded && (
-        <ul style={{ listStyle: 'none', paddingLeft: 0 }}>
-          {activeModule.actions.map((action) => (
-            <li key={action.name} style={{ marginBottom: '0.5rem' }}>
-              <NavLink
-                to={`/dashboard/${action.route.replace('.php', '')}`}
-                className={({ isActive }) => isActive ? 'sidebar-link active' : 'sidebar-link'}
-                style={{
-                  display: 'block',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  color: '#003366',
-                  textDecoration: 'none'
-                }}
-              >
-                {action.name}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-      )}
+      
+      <nav className="sidebar-nav">
+        {navItems.map((item) => {
+          const route = item.route?.replace('.php', '').replace(/_/g, '-') || 
+                       item.name?.toLowerCase().replace(/\s+/g, '-');
+          const path = `/modules/${moduleId}/${route}`;
+          const isActive = location.pathname.includes(route);
+          
+          return (
+            <NavLink
+              key={item.name || route}
+              to={path}
+              className={`sidebar-link ${isActive ? 'active' : ''}`}
+            >
+              {item.name}
+            </NavLink>
+          );
+        })}
+      </nav>
+      
+      <div className="sidebar-footer">
+        <small>CoreFlux v1.0</small>
+      </div>
     </aside>
   );
 };
