@@ -161,11 +161,47 @@ function BankingTab({ employeeId }) {
 /* ─────────── Payroll Readiness (AI narrated) ─────────── */
 function ReadinessBanner({ employeeId }) {
   const [state, setState] = useState(null);
+  const [draft, setDraft] = useState(null);       // { ai, to, subject, gaps, fallback_body? }
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [sendState, setSendState] = useState(null); // null | 'sending' | 'sent' | {error}
+
   const check = async () => {
     const res = await api.post('/modules/people/api/ai_missing_fields.php', { employee_id: employeeId });
     setState(res);
   };
   useEffect(() => { check(); /* eslint-disable-line */ }, [employeeId]);
+
+  const draftEmail = async () => {
+    setDraftLoading(true);
+    setSendState(null);
+    try {
+      const res = await api.post('/modules/people/api/ai_setup_email.php', { employee_id: employeeId });
+      setDraft(res);
+    } catch (e) {
+      setSendState({ error: e.message || 'Failed to draft' });
+    } finally {
+      setDraftLoading(false);
+    }
+  };
+
+  const sendAfterApproval = async (_finalText, suggestionId) => {
+    if (!suggestionId) {
+      setSendState({ error: 'No approved draft id' });
+      return;
+    }
+    setSendState('sending');
+    try {
+      const res = await api.post('/modules/people/api/send_setup_email.php', {
+        employee_id: employeeId,
+        suggestion_id: suggestionId,
+        subject: draft?.subject,
+      });
+      setSendState({ to: res.to });
+    } catch (e) {
+      setSendState({ error: e.message || 'Send failed' });
+    }
+  };
+
   if (!state) return null;
   if (state.ready) {
     return (
@@ -176,8 +212,22 @@ function ReadinessBanner({ employeeId }) {
   }
   return (
     <div className="readiness readiness--gaps" data-testid="people-readiness-gaps">
-      <h4>Missing before payroll:</h4>
-      <ul>{state.gaps.map((g) => <li key={g}><code>{g}</code></li>)}</ul>
+      <div className="readiness__header">
+        <div>
+          <h4>Missing before payroll:</h4>
+          <ul>{state.gaps.map((g) => <li key={g}><code>{g}</code></li>)}</ul>
+        </div>
+        <button
+          type="button"
+          className="btn btn--primary"
+          onClick={draftEmail}
+          disabled={draftLoading || !!draft}
+          data-testid="people-draft-setup-email-btn"
+        >
+          {draftLoading ? 'Drafting…' : draft ? 'Drafted below' : 'Draft setup email'}
+        </button>
+      </div>
+
       {state.ai && (
         <AISuggestion
           envelope={state.ai}
@@ -186,6 +236,38 @@ function ReadinessBanner({ employeeId }) {
           subjectId={employeeId}
           editable={false}
         />
+      )}
+
+      {draft?.ai && (
+        <div className="readiness__email-draft" data-testid="people-setup-email-draft">
+          <p className="muted">
+            To: <strong>{draft.to}</strong> · Subject: <em>{draft.subject}</em>
+          </p>
+          <AISuggestion
+            envelope={draft.ai}
+            featureKey="people.setup_email_draft"
+            subjectType="employee"
+            subjectId={employeeId}
+            onAccepted={sendAfterApproval}
+          />
+        </div>
+      )}
+
+      {draft && !draft.ai && draft.fallback_body && (
+        <div className="readiness__email-draft" data-testid="people-setup-email-fallback">
+          <p className="muted">AI is disabled for this tenant — edit and send manually.</p>
+          <pre className="fallback-draft">{draft.fallback_body}</pre>
+        </div>
+      )}
+
+      {sendState === 'sending' && <p data-testid="people-setup-email-status">Sending…</p>}
+      {sendState?.to && (
+        <p className="success" data-testid="people-setup-email-status">
+          Email sent to <strong>{sendState.to}</strong>.
+        </p>
+      )}
+      {sendState?.error && (
+        <p className="error" data-testid="people-setup-email-status">Error: {sendState.error}</p>
       )}
     </div>
   );
