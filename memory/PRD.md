@@ -41,16 +41,21 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   - `modules/people/migrations/001_init.sql` — 12 tables covering identity,
     contact, employment history, comp (history-aware), tax (federal+state+I-9),
     banking (encrypted), documents, time off, PII access + change audit
+  - `modules/people/migrations/002_emails_sent.sql` — append-only email audit log
   - `core/encryption.php` — AES-256-GCM, last4, HMAC hash, tamper detection
+  - `core/mailer.php` — `sendEmail()` platform helper wrapping vendored PHPMailer
+    with existing SMTP constants; single chokepoint for all module-initiated email
   - `modules/people/api/*` — employees CRUD, addresses, contacts, comp, tax_federal,
-    tax_state, i9, bank_accounts (encrypted), org_chart, ai_missing_fields, ai_summary
+    tax_state, i9, bank_accounts (encrypted), org_chart, ai_missing_fields, ai_summary,
+    ai_setup_email (draft), send_setup_email (commit)
   - `modules/people/lib/employees.php` — stable cross-module read interface for Payroll
     (peopleGetEmployee, peopleActiveCompensation, peopleActiveFederalTax,
     peopleActiveStateTaxes, peopleActiveBankAccounts, peoplePayrollReadiness)
   - `modules/people/ui/*` — PeopleModule router, EmployeeDirectory, EmployeeDetail
-    (5 tabs + AI-narrated payroll readiness + AI summary), EmployeeCreate, OrgChart
+    (5 tabs + AI-narrated payroll readiness banner with "Draft setup email" →
+    AISuggestion review → send flow), EmployeeCreate, OrgChart
   - `PEOPLE_MODULE_PRD.md` — full spec including cross-module contract for Payroll
-  - `tests/people_encryption_smoke.php` — 5 checks green
+  - `tests/people_encryption_smoke.php` (5 checks green) + `tests/mailer_smoke.php` (4 checks green)
 
 ## Branches
 - `main` — stable core + platform primitives + AI layer
