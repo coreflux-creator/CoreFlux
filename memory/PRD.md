@@ -58,23 +58,22 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   - `tests/people_encryption_smoke.php` (5 checks green) + `tests/mailer_smoke.php` (4 checks green)
 
 ## Branches
-- `main` — stable core + platform primitives + AI layer
-- `feature/people` — People MVP (complete, merges next)
-- `feature/payroll` — Payroll MVP (not yet started; depends on People)
-- `feature/accounting` — Accounting CRUD expansion (not yet started)
+- `main` — stable core + platform primitives + AI layer + **People MVP (merged)**
+- `feature/people` — merged into main 2026-02
+- `feature/payroll` — Payroll MVP (next)
+- `feature/accounting` — Accounting CRUD expansion (later)
 
 ## In Progress
-- [x] People module MVP on `feature/people` — schema + APIs + lib + AI endpoints + UI complete
-- [ ] Merge `feature/people` → `main` after live DB migration runs
+- [ ] User performs Cloudways first-deploy per `DEPLOYMENT_RUNBOOK.md` (5 steps, ~10 min)
 
 ## Backlog (P1)
-- [ ] Run `modules/people/migrations/001_init.sql` on live Cloudways MySQL
-- [ ] Generate + set `COREFLUX_DATA_KEY` in Cloudways env (`php -r 'echo base64_encode(random_bytes(32));'`)
 - [ ] Payroll MVP on `feature/payroll` — consumes People via `modules/people/lib/employees.php`
 - [ ] Accounting module full CRUD on `feature/accounting`
 - [ ] Fix GitHub Actions CI/CD (replace `scp-action` with rsync/webhook + PAT)
 - [ ] Cloudways GitHub server authentication (PAT or SSH key)
 - [ ] Clean `sidebar_items` table duplicates
+- [ ] People follow-ups: documents chunked upload, time-off requests UI, offer-letter AI draft, PII reveal endpoint
+- [ ] Admin UI for tenant AI toggles + `ai_interactions` + `people_emails_sent` browsers
 
 ## Backlog (P2)
 - [ ] Manifest auto-discovery (replace hardcoded `core/modules.php`)
