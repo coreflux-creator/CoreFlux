@@ -4,6 +4,11 @@ Ship your first CoreFlux module end-to-end. This is the hands-on companion to
 [`MODULE_SKELETON.md`](./MODULE_SKELETON.md) — follow the steps in order, you'll
 have a working module wired to the SPA, database, and sidebar in half an hour.
 
+> ⚠️ **If your module uses AI, also read [`AI_INTEGRATION_RULES.md`](./AI_INTEGRATION_RULES.md) before coding.**
+> Hard rule: AI outputs advisory narrative for humans, never values the app
+> computes with. Use `aiAsk()` (backend) and `<AISuggestion />` (frontend); a
+> skeleton AI feature example is included in Step 9 below.
+
 We'll build a toy **Notes** module (a tenant-scoped list of notes) to
 demonstrate every primitive. Swap `notes` for your module's id when building
 the real thing.
@@ -266,6 +271,75 @@ git push -u origin feature/notes
 ```
 
 Open a PR into `main`. Done.
+
+---
+
+## 9. (Optional) Add an AI feature (5 min)
+
+Suppose we want a one-paragraph "What's in my notes this week?" summary on the
+Notes overview. Follow the rule: AI describes, human accepts, deterministic
+code only reads approved text.
+
+**Backend** — add `modules/notes/api/ai_summary.php`:
+
+```php
+<?php
+require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/ai_service.php';
+
+$ctx = api_require_auth();
+
+// Gather deterministic facts from YOUR DB. Send data to AI; get narrative back.
+$recent = scopedQuery(
+    'SELECT title, created_at FROM notes_entries
+     WHERE tenant_id = :tenant_id AND created_at >= (NOW() - INTERVAL 7 DAY)
+     ORDER BY created_at DESC LIMIT 20'
+);
+
+try {
+    $envelope = aiAsk([
+        'feature_class' => 'summary',
+        'kind'          => 'summary',
+        'feature_key'   => 'notes.weekly_summary',
+        'system'        => 'You are a brief workspace assistant.',
+        'prompt'        => 'Summarize the themes across these recent notes for a busy reader.',
+        'context'       => ['notes' => $recent],
+    ]);
+    api_ok(['ai' => $envelope]);
+} catch (AIDisabledException $e) {
+    api_ok(['ai' => null]);                       // graceful fallback
+}
+```
+
+**Frontend** — in `NotesModule.jsx`:
+
+```jsx
+import AISuggestion from '../../../dashboard/src/components/AISuggestion';
+import { api } from '../../../dashboard/src/lib/api';
+
+const [aiEnvelope, setAi] = useState(null);
+const loadSummary = async () => {
+  const res = await api.post('/modules/notes/api/ai_summary.php');
+  setAi(res.ai);
+};
+
+return (
+  <>
+    <button onClick={loadSummary}>Summarize my week</button>
+    {aiEnvelope && (
+      <AISuggestion
+        envelope={aiEnvelope}
+        featureKey="notes.weekly_summary"
+        subjectType="notes_week"
+      />
+    )}
+  </>
+);
+```
+
+**That's it.** The draft is badged, editable, human-reviewed, audited, and
+contract-locked. You did not write any LLM plumbing, auth, audit, or review
+UI — the platform owns all of it.
 
 ---
 

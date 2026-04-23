@@ -7,6 +7,8 @@ node_modules/
 dist/
 .vite/
 .cache/
+__pycache__/
+*.pyc
 
 # Logs
 *.log

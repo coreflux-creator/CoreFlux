@@ -1,0 +1,106 @@
+/* CoreFlux AI Suggestion component styling.
+ * Matches the light, minimal aesthetic of the SPA. Import once in main.jsx
+ * or append to styles.css.
+ */
+
+.ai-suggestion {
+  border: 1px solid #e3e6ec;
+  border-left: 4px solid #5a6cff;
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin: 16px 0;
+  background: #fafbff;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #1c1f26;
+}
+
+.ai-suggestion--approved { border-left-color: #2ea46a; background: #f6fcf8; }
+.ai-suggestion--rejected { border-left-color: #c94040; background: #fdf7f7; opacity: .85; }
+
+.ai-suggestion__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.ai-suggestion__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #eceffd;
+  color: #3a49c7;
+  font-weight: 600;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+.ai-suggestion__meta { color: #6b7280; }
+.ai-suggestion__meta code { background: #eef0f4; padding: 1px 6px; border-radius: 4px; font-size: 11px; }
+
+.ai-suggestion__content p { margin: 0 0 8px 0; }
+.ai-suggestion__content p:last-child { margin-bottom: 0; }
+
+.ai-suggestion__editor {
+  width: 100%;
+  min-height: 120px;
+  border: 1px solid #d2d6de;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font: inherit;
+  color: inherit;
+  background: #fff;
+  resize: vertical;
+}
+
+.ai-suggestion__citations {
+  margin: 10px 0 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: #4a5562;
+}
+
+.ai-suggestion__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.ai-suggestion__btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background-color .15s ease, transform .05s ease;
+}
+.ai-suggestion__btn:disabled { cursor: not-allowed; opacity: .6; }
+.ai-suggestion__btn:active:not(:disabled) { transform: translateY(1px); }
+
+.ai-suggestion__btn--ghost  { background: #fff;     border-color: #d2d6de; color: #1c1f26; }
+.ai-suggestion__btn--ghost:hover:not(:disabled)  { background: #f3f4f8; }
+.ai-suggestion__btn--accept { background: #2ea46a; color: #fff; }
+.ai-suggestion__btn--accept:hover:not(:disabled) { background: #26895a; }
+.ai-suggestion__btn--reject { background: #fff; border-color: #d2d6de; color: #9a2727; }
+.ai-suggestion__btn--reject:hover:not(:disabled) { background: #fdf2f2; }
+
+.ai-suggestion__ok  { color: #2ea46a; font-weight: 600; }
+.ai-suggestion__ko  { color: #9a2727; font-weight: 600; }
+.ai-suggestion__err { color: #9a2727; font-size: 12px; }
+
+.ai-suggestion__disclaimer {
+  margin: 12px 0 0 0;
+  padding-top: 10px;
+  border-top: 1px dashed #e3e6ec;
+  font-size: 11px;
+  color: #6b7280;
+  font-style: italic;
+}

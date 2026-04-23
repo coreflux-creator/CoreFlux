@@ -3,6 +3,11 @@
 This is the canonical layout every CoreFlux module follows. Copy `/modules/_template/`
 to `/modules/<your_module>/` and work from there.
 
+> ⚠️ **Before adding any AI feature, read [`AI_INTEGRATION_RULES.md`](./AI_INTEGRATION_RULES.md).**
+> The hard rule is: AI produces advisory narrative for humans, never values the
+> app computes with. All LLM calls go through `aiAsk()`; all LLM output renders
+> via `<AISuggestion />`.
+
 ## Folder layout
 
 ```
@@ -18,13 +23,15 @@ to `/modules/<your_module>/` and work from there.
 
 ## The four platform primitives
 
-All modules build on these — **never roll your own auth, tenant scoping, or fetch logic.**
+All modules build on these — **never roll your own auth, tenant scoping, fetch logic, or LLM calls.**
 
 | Concern          | Primitive                                     | File                             |
 |------------------|-----------------------------------------------|----------------------------------|
 | API bootstrap    | `api_require_auth`, `api_ok`, `api_error`     | `core/api_bootstrap.php`         |
 | Tenant scoping   | `scopedQuery`, `scopedInsert`, `scopedUpdate` | `core/tenant_scope.php`          |
 | SPA fetch client | `api.get`, `api.post`, `useApi`               | `dashboard/src/lib/api.js`       |
+| AI (backend)     | `aiAsk()` — the only LLM entry point          | `core/ai_service.php`            |
+| AI (frontend)    | `<AISuggestion />` — the only LLM render path | `dashboard/src/components/AISuggestion.jsx` |
 | Module manifest  | returned array                                | `modules/<m>/manifest.php`       |
 
 ## Rules of the road
@@ -78,6 +85,7 @@ cp assets/icons/icon-template.png assets/icons/icon-payroll.png
 - ❌ Putting business logic in `core/` — core stays platform-only
 - ❌ Foreign keys across modules — depend on core tables only (`users`, `tenants`)
 - ❌ Hardcoding tenant ids in SQL — always pull from session via the helpers
+- ❌ Calling the AI sidecar directly or parsing LLM output for values — use `aiAsk()` + `<AISuggestion />` (see [`AI_INTEGRATION_RULES.md`](./AI_INTEGRATION_RULES.md))
 
 ## What's intentionally not here yet
 
