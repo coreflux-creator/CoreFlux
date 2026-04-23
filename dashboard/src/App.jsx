@@ -5,7 +5,7 @@ import DashboardOverview from './pages/DashboardOverview';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import AdminModule from './pages/AdminModule';
-import PeopleModule from './modules/PeopleModule';
+import PeopleModule from '../../modules/people/ui/PeopleModule';
 import AccountingModule from './modules/AccountingModule';
 import FinanceModule from './modules/FinanceModule';
 import GenericModule from './modules/GenericModule';

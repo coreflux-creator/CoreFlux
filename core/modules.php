@@ -11,14 +11,12 @@ function getModuleDefinitions(): array {
             'id' => 'people',
             'name' => 'People',
             'icon' => '/assets/icons/icon-people.png',
-            'description' => 'Manage employees, timesheets, and HR operations',
+            'description' => 'Employee directory, compensation, tax, banking, and time off',
             'actions' => [
-                ['name' => 'Overview', 'route' => 'overview', 'permission' => 'people.view'],
-                ['name' => 'Enter Time', 'route' => 'enter_time', 'permission' => 'people.time.enter'],
-                ['name' => 'Timesheets', 'route' => 'timesheets', 'permission' => 'people.timesheets.view'],
-                ['name' => 'Employee Directory', 'route' => 'employee_directory', 'permission' => 'people.directory.view'],
-                ['name' => 'Reports', 'route' => 'reports', 'permission' => 'people.reports.view'],
-                ['name' => 'Hiring Pipeline', 'route' => 'hiring_pipeline', 'permission' => 'people.hiring.view', 'admin_only' => true],
+                ['name' => 'Directory',  'route' => 'directory',  'permission' => 'people.view'],
+                ['name' => 'Org Chart',  'route' => 'org_chart',  'permission' => 'people.view'],
+                ['name' => 'Time Off',   'route' => 'time_off',   'permission' => 'people.timeoff.manage'],
+                ['name' => 'Onboarding', 'route' => 'onboarding', 'permission' => 'people.manage'],
             ]
         ],
         'accounting' => [

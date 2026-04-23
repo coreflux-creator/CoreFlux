@@ -28,3 +28,4 @@ vendor/
 
 # Emergent internal
 .emergent/cache/
+config.local.php
