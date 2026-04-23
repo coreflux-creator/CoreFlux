@@ -37,19 +37,36 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   - `AI_INTEGRATION_RULES.md` — hard rules: AI is advisory narrative; never outputs
     values/formulas/decisions the app consumes; human-review-gated; one chokepoint
   - `tests/ai_platform_smoke.php` — sidecar + envelope guard smoke test
+- [x] **People module MVP (2026-02, on `feature/people`):**
+  - `modules/people/migrations/001_init.sql` — 12 tables covering identity,
+    contact, employment history, comp (history-aware), tax (federal+state+I-9),
+    banking (encrypted), documents, time off, PII access + change audit
+  - `core/encryption.php` — AES-256-GCM, last4, HMAC hash, tamper detection
+  - `modules/people/api/*` — employees CRUD, addresses, contacts, comp, tax_federal,
+    tax_state, i9, bank_accounts (encrypted), org_chart, ai_missing_fields, ai_summary
+  - `modules/people/lib/employees.php` — stable cross-module read interface for Payroll
+    (peopleGetEmployee, peopleActiveCompensation, peopleActiveFederalTax,
+    peopleActiveStateTaxes, peopleActiveBankAccounts, peoplePayrollReadiness)
+  - `modules/people/ui/*` — PeopleModule router, EmployeeDirectory, EmployeeDetail
+    (5 tabs + AI-narrated payroll readiness + AI summary), EmployeeCreate, OrgChart
+  - `PEOPLE_MODULE_PRD.md` — full spec including cross-module contract for Payroll
+  - `tests/people_encryption_smoke.php` — 5 checks green
 
 ## Branches
-- `main` — stable core + platform primitives
-- `feature/payroll` — Payroll MVP (not yet started)
+- `main` — stable core + platform primitives + AI layer
+- `feature/people` — People MVP (complete, merges next)
+- `feature/payroll` — Payroll MVP (not yet started; depends on People)
 - `feature/accounting` — Accounting CRUD expansion (not yet started)
-- `feature/people` — People module enhancements
 
 ## In Progress
-- [ ] Payroll MVP module (P0 — next)
+- [x] People module MVP on `feature/people` — schema + APIs + lib + AI endpoints + UI complete
+- [ ] Merge `feature/people` → `main` after live DB migration runs
 
 ## Backlog (P1)
-- [ ] Payroll MVP: employee/timesheet/pay-run vertical slice → `feature/payroll`
-- [ ] Accounting module full CRUD → `feature/accounting`
+- [ ] Run `modules/people/migrations/001_init.sql` on live Cloudways MySQL
+- [ ] Generate + set `COREFLUX_DATA_KEY` in Cloudways env (`php -r 'echo base64_encode(random_bytes(32));'`)
+- [ ] Payroll MVP on `feature/payroll` — consumes People via `modules/people/lib/employees.php`
+- [ ] Accounting module full CRUD on `feature/accounting`
 - [ ] Fix GitHub Actions CI/CD (replace `scp-action` with rsync/webhook + PAT)
 - [ ] Cloudways GitHub server authentication (PAT or SSH key)
 - [ ] Clean `sidebar_items` table duplicates
