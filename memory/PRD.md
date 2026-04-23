@@ -23,8 +23,20 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   - `core/tenant_scope.php` — `scopedQuery/Insert/Update/Delete` with identifier allowlist
   - `dashboard/src/lib/api.js` — shared fetch client + `useApi` hook
   - `/modules/_template/` — reference skeleton (manifest/api/migrations/ui)
-  - `MODULE_SKELETON.md` — rules & copy/paste checklist
+  - `MODULE_SKELETON.md` + `MODULE_ONBOARDING.md` — rules & quickstart
   - `tests/core_platform_smoke.php` — CLI smoke test (PHP helpers)
+- [x] **AI platform layer (2026-02):**
+  - `backend/server.py` — FastAPI AI sidecar (OpenAI GPT-5.4 family, per-feature-class
+    model routing, strict typed response envelope, guardrail system prompt, fallback)
+  - `core/ai_service.php` — `aiAsk()` chokepoint with tenant + per-feature gating,
+    envelope contract enforcement, full audit trail
+  - `core/migrations/002_ai_platform.sql` — tenant toggles + `ai_tenant_features`
+    + `ai_interactions` audit + `ai_suggestions` review workflow
+  - `dashboard/src/components/AISuggestion.jsx` — the only render path for AI text
+    (badge, edit, accept/reject, disclaimer, test ids)
+  - `AI_INTEGRATION_RULES.md` — hard rules: AI is advisory narrative; never outputs
+    values/formulas/decisions the app consumes; human-review-gated; one chokepoint
+  - `tests/ai_platform_smoke.php` — sidecar + envelope guard smoke test
 
 ## Branches
 - `main` — stable core + platform primitives
@@ -51,6 +63,10 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] Wire real data into SPA dashboard stats/tables
 - [ ] Deprecate `dashboard.php` once SPA reaches parity
 - [ ] Consolidate dashboard.css into coreflux.css
+- [ ] Admin UI for tenant AI toggles (`tenants.ai_enabled`, `ai_tenant_features`, `ai_full_content_logging`)
+- [ ] Admin page for browsing `ai_interactions` audit trail
+- [ ] Production hosting decision for the Python AI sidecar (Cloudways Python app vs. external service)
+- [ ] Run `core/migrations/002_ai_platform.sql` on the live MySQL database
 
 ## Key Files
 - `/app/core/config.php` — DB credentials + feature flags
