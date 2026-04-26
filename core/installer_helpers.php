@@ -18,7 +18,7 @@ function runMigrationsInProcess(): array {
         [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_EMULATE_PREPARES => false]
     );
     $pdo->exec(<<<'SQL'
-CREATE TABLE IF NOT EXISTS schema_migrations (
+CREATE TABLE IF NOT EXISTS coreflux_migrations (
     id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     file_path     VARCHAR(255) NOT NULL UNIQUE,
     applied_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 SQL);
 
     $applied = [];
-    foreach ($pdo->query('SELECT file_path FROM schema_migrations') as $r) $applied[$r['file_path']] = true;
+    foreach ($pdo->query('SELECT file_path FROM coreflux_migrations') as $r) $applied[$r['file_path']] = true;
 
     $root = dirname(__DIR__);
     $paths = array_merge(
@@ -38,7 +38,7 @@ SQL);
     sort($paths);
 
     $log = [];
-    $insert = $pdo->prepare('INSERT INTO schema_migrations (file_path, checksum_sha) VALUES (:p, :c)');
+    $insert = $pdo->prepare('INSERT INTO coreflux_migrations (file_path, checksum_sha) VALUES (:p, :c)');
     foreach ($paths as $abs) {
         $rel = ltrim(str_replace($root, '', $abs), '/');
         if (isset($applied[$rel])) { $log[] = ['file' => $rel, 'status' => 'already_applied']; continue; }

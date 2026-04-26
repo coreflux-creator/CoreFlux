@@ -3,7 +3,7 @@
  * CoreFlux Migration Runner
  *
  * Scans core/migrations/ and modules/<m>/migrations/, tracks which files have
- * already been applied in a schema_migrations table, and runs the rest in
+ * already been applied in a coreflux_migrations table, and runs the rest in
  * order. Idempotent: safe to run on every deploy.
  *
  * Usage (on the target host):
@@ -32,7 +32,7 @@ $pdo = new PDO(
 );
 
 $pdo->exec(<<<'SQL'
-CREATE TABLE IF NOT EXISTS schema_migrations (
+CREATE TABLE IF NOT EXISTS coreflux_migrations (
     id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     file_path     VARCHAR(255) NOT NULL UNIQUE,
     applied_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 SQL);
 
-$stmt = $pdo->query('SELECT file_path, checksum_sha FROM schema_migrations');
+$stmt = $pdo->query('SELECT file_path, checksum_sha FROM coreflux_migrations');
 $applied = [];
 foreach ($stmt as $r) $applied[$r['file_path']] = $r['checksum_sha'];
 
@@ -79,7 +79,7 @@ foreach ($pending as $abs) echo "  - " . ltrim(str_replace($root, '', $abs), '/'
 if ($dryRun) { echo "(dry-run — no changes made)\n"; exit(0); }
 
 $insert = $pdo->prepare(
-    'INSERT INTO schema_migrations (file_path, checksum_sha) VALUES (:p, :c)'
+    'INSERT INTO coreflux_migrations (file_path, checksum_sha) VALUES (:p, :c)'
 );
 
 foreach ($pending as $abs) {

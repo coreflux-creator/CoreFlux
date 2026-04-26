@@ -45,15 +45,15 @@ $ok("DB connected: " . DB_NAME);
 $required = [
     'tenants','users','ai_interactions','ai_suggestions','ai_tenant_features',
     'people_employees','people_bank_accounts','people_tax_federal','people_tax_state',
-    'people_compensation','people_emails_sent','schema_migrations',
+    'people_compensation','people_emails_sent','coreflux_migrations',
 ];
 $have = array_map(fn($r) => $r[0], $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_NUM));
 $missing = array_diff($required, $have);
 if ($missing) $fail("missing tables: " . implode(', ', $missing) . " — run deploy/run_migrations.php");
 $ok("required tables present (" . count($required) . ")");
 
-$pendingCount = (int) $pdo->query("SELECT COUNT(*) FROM schema_migrations")->fetchColumn();
-$ok("schema_migrations has $pendingCount applied rows");
+$pendingCount = (int) $pdo->query("SELECT COUNT(*) FROM coreflux_migrations")->fetchColumn();
+$ok("coreflux_migrations has $pendingCount applied rows");
 
 // 3. Encryption
 require_once $root . '/core/encryption.php';

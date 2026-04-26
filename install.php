@@ -60,7 +60,7 @@ if (!$alreadyInstalled && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 /**
- * Run the install steps. Throws on any failure.
+ * Run the install steps. Throws on any failure (and rolls back config.local.php).
  * Returns: ['data_key' => '...', 'migrations' => [...], 'smoke' => [...]]
  */
 function installCoreflux(string $openaiKey): array {
@@ -84,11 +84,20 @@ function installCoreflux(string $openaiKey): array {
     }
     @chmod($localCfg, 0640);
 
-    // 3. Run migrations + smoke test (shared with update.php)
+    // 3. Run migrations + smoke test. If anything throws, roll back the config
+    //    so the user can retry cleanly without seeing 'already configured'.
+    try {
+        $migrations = runMigrationsInProcess();
+        $smoke      = runSmokeInProcess($localCfg);
+    } catch (Throwable $e) {
+        @unlink($localCfg);
+        throw $e;
+    }
+
     return [
         'data_key'   => $dataKey,
-        'migrations' => runMigrationsInProcess(),
-        'smoke'      => runSmokeInProcess($localCfg),
+        'migrations' => $migrations,
+        'smoke'      => $smoke,
     ];
 }
 
