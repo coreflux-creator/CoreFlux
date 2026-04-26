@@ -6,6 +6,7 @@ import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import AdminModule from './pages/AdminModule';
 import PeopleModule from '../../modules/people/ui/PeopleModule';
+import PayrollModule from '../../modules/payroll/ui/PayrollModule';
 import AccountingModule from './modules/AccountingModule';
 import FinanceModule from './modules/FinanceModule';
 import GenericModule from './modules/GenericModule';
@@ -74,6 +75,20 @@ const DEMO_SESSION = {
         { name: 'Budgets', route: 'budgets' },
         { name: 'Forecasts', route: 'forecasts' },
         { name: 'Reports', route: 'reports' }
+      ]
+    },
+    {
+      id: 'payroll',
+      name: 'Payroll',
+      icon: '/assets/icons/icon-payroll.png',
+      description: 'Pay schedules, runs, and gross-to-net calculation',
+      actions: [
+        { name: 'Overview',       route: 'overview' },
+        { name: 'Pay Schedules',  route: 'pay_schedules' },
+        { name: 'Pay Periods',    route: 'pay_periods' },
+        { name: 'Employee Setup', route: 'profiles' },
+        { name: 'Runs',           route: 'runs' },
+        { name: 'Settings',       route: 'settings' }
       ]
     }
   ],
@@ -200,6 +215,7 @@ const AppContent = ({ session, usingDemo }) => {
           
           {/* Module Routes */}
           <Route path="/modules/people/*" element={<PeopleModule session={session} />} />
+          <Route path="/modules/payroll/*" element={<PayrollModule session={session} />} />
           <Route path="/modules/accounting/*" element={<AccountingModule session={session} />} />
           <Route path="/modules/finance/*" element={<FinanceModule session={session} />} />
           <Route path="/modules/:moduleId/*" element={<GenericModule session={session} activeModule={activeModule} />} />

@@ -13,7 +13,10 @@ import {
   Clock,
   UserCircle,
   BarChart3,
-  Briefcase
+  Briefcase,
+  Calendar,
+  CalendarClock,
+  Banknote
 } from 'lucide-react';
 
 // Icon mapping for sidebar items
@@ -40,6 +43,18 @@ const iconMap = {
   'hiring-pipeline': Briefcase,
   'budgets': BarChart3,
   'forecasts': TrendingUp,
+  'pay_schedules': Calendar,
+  'pay-schedules': Calendar,
+  'pay_periods': CalendarClock,
+  'pay-periods': CalendarClock,
+  'profiles': UserCircle,
+  'runs': Banknote,
+  'directory': Users,
+  'org_chart': Users,
+  'org-chart': Users,
+  'time_off': Calendar,
+  'time-off': Calendar,
+  'onboarding': Briefcase,
 };
 
 const Sidebar = ({ activeModule }) => {

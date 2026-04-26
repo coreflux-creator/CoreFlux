@@ -46,6 +46,8 @@ $required = [
     'tenants','users','ai_interactions','ai_suggestions','ai_tenant_features',
     'people_employees','people_bank_accounts','people_tax_federal','people_tax_state',
     'people_compensation','people_emails_sent','coreflux_migrations',
+    'payroll_settings','payroll_pay_schedules','payroll_pay_periods','payroll_profiles',
+    'payroll_runs','payroll_line_items','payroll_earnings','payroll_taxes','payroll_deductions',
 ];
 $have = array_map(fn($r) => $r[0], $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_NUM));
 $missing = array_diff($required, $have);

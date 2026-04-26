@@ -56,6 +56,31 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
     AISuggestion review → send flow), EmployeeCreate, OrgChart
   - `PEOPLE_MODULE_PRD.md` — full spec including cross-module contract for Payroll
   - `tests/people_encryption_smoke.php` (5 checks green) + `tests/mailer_smoke.php` (4 checks green)
+- [x] **Payroll module MVP (2026-02):**
+  - `modules/payroll/migrations/001_init.sql` — 9 tables: settings, schedules,
+    pay periods, profiles, runs, line items, earnings, taxes, deductions
+    (cents-only BIGINT, tenant-scoped, idempotent)
+  - `modules/payroll/lib/compute.php` — deterministic gross-to-net engine.
+    Federal W-4 2020+ percentage method, FICA (SS wage base, Medicare + 0.9%
+    additional over $200k YTD), FUTA with SUTA credit, California state tax
+    + SDI. Pre-tax order: 401(k) → health → HSA. **Zero floats.**
+  - `modules/payroll/lib/payroll.php` — cross-module helpers
+    (payrollGetProfile, payrollEmployeesForSchedule, payrollYTDWages,
+    payrollBuildComputeContext, payrollGenerateNextPeriods)
+  - `modules/payroll/api/*.php` — settings, pay_schedules, pay_periods,
+    profiles, runs (compute/approve/paid actions), pay_stub, ai_run_summary
+  - `modules/payroll/ui/*` — PayrollModule router + 8 views: Overview,
+    PaySchedules, PayPeriods, PayrollProfiles, PayrollProfileEdit,
+    PayrollRuns, PayrollRunDetail (with `<AISuggestion />` advisory narrative),
+    PayStub, PayrollSettings
+  - Wired into `dashboard/src/App.jsx`, `core/modules.php` (role module list),
+    `dashboard/src/layout/Sidebar.jsx` icon map
+  - `tests/payroll_compute_smoke.php` — 16 deterministic compute assertions ✓
+    (gross/SS/Medicare exactness, 401k FICA-taxable rule, SS wage base cap,
+    Medicare 0.9% additional, FUTA wage base)
+  - `vite.config.js` — added `resolve.alias` so modules outside `/app/dashboard`
+    can import shared deps; production build green (1693 modules transformed)
+  - `deploy/post_deploy_smoke.php` — added 9 payroll table checks
 
 ## Branches
 - `main` — stable core + platform primitives + AI layer + **People MVP (merged)**
@@ -67,7 +92,7 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] User performs Cloudways deploy: visit `/install.php`, log in, paste OpenAI key, click Install. After that, `/update.php` handles all future deploys.
 
 ## Backlog (P1)
-- [ ] Payroll MVP on `feature/payroll` — consumes People via `modules/people/lib/employees.php`
+- [ ] Payroll Phase 2: multi-state tax tables, garnishments, ACH/NACHA file generation, Form 941 worksheet, W-2 generation
 - [ ] Accounting module full CRUD on `feature/accounting`
 - [ ] Fix GitHub Actions CI/CD (replace `scp-action` with rsync/webhook + PAT)
 - [ ] Cloudways GitHub server authentication (PAT or SSH key)
@@ -128,4 +153,4 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - The SPA falls back to demo mode when `session.php` is unreachable (see `App.jsx`).
 
 ---
-*Last Updated: 2026-02 — platform primitives shipped, Payroll MVP next.*
+*Last Updated: 2026-02 — Payroll MVP shipped (deterministic gross-to-net + AI advisory). User to deploy via /update.php on Cloudways.*

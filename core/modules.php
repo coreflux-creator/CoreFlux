@@ -44,6 +44,20 @@ function getModuleDefinitions(): array {
                 ['name' => 'Forecasts', 'route' => 'forecasts', 'permission' => 'finance.forecasts.view'],
             ]
         ],
+        'payroll' => [
+            'id' => 'payroll',
+            'name' => 'Payroll',
+            'icon' => '/assets/icons/icon-payroll.png',
+            'description' => 'Pay schedules, runs, and gross-to-net calculation',
+            'actions' => [
+                ['name' => 'Overview',       'route' => 'overview',       'permission' => 'payroll.view'],
+                ['name' => 'Pay Schedules',  'route' => 'pay_schedules',  'permission' => 'payroll.schedules.manage'],
+                ['name' => 'Pay Periods',    'route' => 'pay_periods',    'permission' => 'payroll.runs.manage'],
+                ['name' => 'Employee Setup', 'route' => 'profiles',       'permission' => 'payroll.profiles.manage'],
+                ['name' => 'Runs',           'route' => 'runs',           'permission' => 'payroll.runs.view'],
+                ['name' => 'Settings',       'route' => 'settings',       'permission' => 'payroll.manage'],
+            ]
+        ],
         'tax' => [
             'id' => 'tax',
             'name' => 'Tax',
@@ -83,8 +97,8 @@ function getUserModules(string $role): array {
     // For now, role-based access (will evolve to permission-based)
     $roleModules = match($role) {
         'master_admin' => array_keys($allModules),
-        'tenant_admin', 'admin' => ['people', 'accounting', 'finance', 'reporting'],
-        'manager' => ['people', 'reporting'],
+        'tenant_admin', 'admin' => ['people', 'payroll', 'accounting', 'finance', 'reporting'],
+        'manager' => ['people', 'payroll', 'reporting'],
         'employee' => ['people'],
         default => ['people']
     };
