@@ -64,7 +64,7 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - `feature/accounting` — Accounting CRUD expansion (later)
 
 ## In Progress
-- [ ] User performs Cloudways first-deploy per `DEPLOYMENT_RUNBOOK.md` (5 steps, ~10 min)
+- [ ] User performs Cloudways deploy: visit `/install.php`, log in, paste OpenAI key, click Install. After that, `/update.php` handles all future deploys.
 
 ## Backlog (P1)
 - [ ] Payroll MVP on `feature/payroll` — consumes People via `modules/people/lib/employees.php`
