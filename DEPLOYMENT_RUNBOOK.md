@@ -1,128 +1,100 @@
-# CoreFlux Deployment Runbook — Cloudways
+# CoreFlux Deployment — Click & Run
 
-Fresh-deploy and update procedure. Single-stack: PHP + MySQL only. The React SPA is built into static assets; OpenAI is called directly from PHP. **No Python anywhere.**
+CoreFlux deploys with **two URLs you visit in your browser**. No SSH for routine work, no commands to memorize.
 
----
+| URL | When to use |
+|---|---|
+| **`https://<your-app>/install.php`** | First-time setup. Visit once, paste OpenAI key, click Install. |
+| **`https://<your-app>/update.php`** | Every code update after that. Visit, click "Update now". |
 
-## ⚙️ One-time first-deploy (≈8 min)
-
-### Step 1 — Pull the latest code
-
-SSH into your Cloudways app, then:
-
-```bash
-cd ~/applications/<APP_NAME>/public_html
-git pull origin main
-```
-
-> If `git pull` asks for a password, you need a GitHub Personal Access Token configured. Cloudways has docs for this — or use Emergent's "Save to GitHub" feature plus SFTP if you'd rather skip git.
-
-### Step 2 — Create the host-only config file
-
-```bash
-cp core/config.local.example.php core/config.local.php
-nano core/config.local.php
-```
-
-Fill in two values:
-
-- **`COREFLUX_DATA_KEY`** — 32 random bytes, base64-encoded. Encrypts SSN + bank accounts. Generate with:
-  ```bash
-  php -r 'echo base64_encode(random_bytes(32)) . PHP_EOL;'
-  ```
-  Paste the output. **Never change this once data is encrypted with it** — rotating orphans existing ciphertext.
-- **`OPENAI_API_KEY`** — your OpenAI key from <https://platform.openai.com/api-keys>.
-
-Save: `Ctrl+O`, `Enter`, `Ctrl+X`.
-
-The file is gitignored so it stays on the server only.
-
-### Step 3 — Run database migrations
-
-```bash
-php deploy/run_migrations.php --status      # see what's pending
-php deploy/run_migrations.php               # apply pending
-```
-
-The runner is idempotent — safe on every deploy. It tracks applied files in `schema_migrations`.
-
-### Step 4 — Run the smoke test
-
-```bash
-php deploy/post_deploy_smoke.php
-```
-
-Expect 5 ✓ lines:
-```
-✓ data key present (32 bytes)
-✓ OpenAI key configured
-✓ DB connected: <your-db>
-✓ required tables present (12)
-✓ schema_migrations has N applied rows
-✓ encryption round-trip with configured key
-✓ OpenAI direct call works (model=gpt-5.4-mini, NNNms)
-✓ SMTP reachable: smtp.mail.yahoo.com:587
-
-All post-deploy checks passed.
-```
-
-If any line is `✗`, the message tells you which dependency to fix. Re-run after fixing.
-
-### Step 5 — Browser smoke test
-
-Log in to your CoreFlux URL and:
-
-1. **People → Directory** — empty.
-2. **Add employee** — name + hire date.
-3. The detail page shows a **Payroll readiness** banner with gaps (SSN, tax, bank, I-9).
-4. Click **Draft setup email** — AI writes a body. Click **Accept**.
-5. The email sends. Check the recipient inbox + the `people_emails_sent` table:
-   ```bash
-   php -r "require 'core/config.php'; \$p=new PDO('mysql:host='.DB_HOST.';dbname='.DB_NAME, DB_USER, DB_PASS); foreach (\$p->query('SELECT id,kind,to_email,status,created_at FROM people_emails_sent ORDER BY id DESC LIMIT 5') as \$r) print_r(\$r);"
-   ```
+Both pages require you to be logged in as a **master admin** (your existing CoreFlux account). They auto-redirect to the login page if you aren't.
 
 ---
 
-## 🔁 Routine updates
+## 🚀 First-time setup (≈3 min)
+
+1. **Get your code on the server.** On Cloudways, push your repo via "Save to GitHub" from inside Emergent, then on Cloudways do a one-time `git clone` or use Cloudways' built-in Git deploy panel. After that, the **Update** page handles every future deploy without SSH.
+
+2. **Visit `https://<your-app>/install.php`** in your browser.
+
+3. **Log in** with your existing master admin account.
+
+4. **Paste your OpenAI API key.** Get one at <https://platform.openai.com/api-keys>.
+
+5. **Click "Install CoreFlux".**
+
+You'll see a result page with green checkmarks for:
+- Database migrations applied
+- Encryption key generated and verified
+- OpenAI direct call working
+- SMTP reachable
+
+That's it. The page also shows your `COREFLUX_DATA_KEY` once — copy it into your password manager as a backup.
+
+---
+
+## 🔁 Routine updates (≈30 sec)
+
+Anytime you want the latest code in production:
+
+1. Push new code to GitHub (`Save to GitHub` from Emergent, or your normal git workflow).
+2. Visit `https://<your-app>/update.php`.
+3. Click **Update now**.
+
+The page runs:
+- `git pull` (fetches the new code)
+- Applies any new migrations
+- Runs the smoke test
+
+Green checkmarks = you're good. If anything is red, the message tells you what failed.
+
+---
+
+## 🧪 Smoke test on demand
+
+Visit `/install.php` after install — it reports the current health (encryption, OpenAI, SMTP) without re-running anything. Useful 2 minutes of triage before raising a "the AI isn't working" alarm.
+
+---
+
+## 🔐 What's stored where
+
+| File | Created by | Contains | Gitignored? |
+|---|---|---|---|
+| `core/config.local.php` | `install.php` | `COREFLUX_DATA_KEY`, `OPENAI_API_KEY` | ✅ |
+| `core/config.php` | repo | DB + SMTP creds | ❌ (existing project file) |
+
+`config.local.php` only exists on the server. It's regenerated from scratch any time you delete it and revisit `/install.php`.
+
+---
+
+## 🚧 If something goes wrong
+
+| Symptom | Fix |
+|---|---|
+| `/install.php` redirects to login forever | You're not a master admin in CoreFlux. Log in as one. |
+| "could not write … (check folder permissions)" | The web server user can't write `core/config.local.php`. SSH in once and `chmod g+w core/`. |
+| `git pull` fails with auth error on `/update.php` | One-time GitHub PAT setup needed on the server. Cloudways docs cover this. |
+| OpenAI check fails | The key is wrong, has run out of credits, or the model name in `core/ai_service.php` is unavailable on your account. |
+| SMTP check fails | SMTP creds in `core/config.php` are wrong. |
+
+In every case, the page shows the exact error message — copy it to me and I'll diagnose.
+
+---
+
+## ⚙️ Power-user CLI fallback (optional)
+
+If you ever want to run things from SSH:
 
 ```bash
-cd ~/applications/<APP_NAME>/public_html
-git pull origin main
-php deploy/run_migrations.php
-php deploy/post_deploy_smoke.php
+php deploy/run_migrations.php          # apply pending migrations
+php deploy/run_migrations.php --status # see what's pending
+php deploy/post_deploy_smoke.php       # 5-check verifier
 ```
 
-That's it.
+Both scripts are equivalent to what the web pages do.
 
 ---
 
-## 🔑 Secrets map
+## 💡 Optional: make routine updates fully automatic
 
-| Secret | Where to set | Who reads it |
-|---|---|---|
-| `COREFLUX_DATA_KEY` | `core/config.local.php` | `core/encryption.php` |
-| `OPENAI_API_KEY` | `core/config.local.php` | `core/ai_service.php` |
-| DB + SMTP | `core/config.php` (already set) | core + mailer |
-
-Never commit `config.local.php`. It's gitignored.
-
----
-
-## 🚨 Rollback
-
-If `post_deploy_smoke.php` fails after an update:
-
-```bash
-git log --oneline -10                            # find last known-good commit
-git reset --hard <sha>
-```
-
-Migrations are additive; usually safe to leave applied. If a specific migration broke things, reverse it manually and remove its row from `schema_migrations` before re-running.
-
----
-
-## 💡 Optional hardening (P1, not blocking)
-
-- Cron `post_deploy_smoke.php` hourly; email yourself if any ✓ flips to ✗.
-- Move secrets from `config.local.php` to Cloudways environment variables.
-- Add CloudFlare in front for caching + WAF.
+Add a GitHub webhook → Cloudways: every push to `main` calls `/update.php?action=auto` (we'd add a small token). Then deploys happen on push, no clicks. ~15 min to wire when you're ready.
