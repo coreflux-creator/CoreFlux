@@ -23,7 +23,10 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/core/config.php';
 require_once __DIR__ . '/core/auth.php';
+require_once __DIR__ . '/core/admin_gate.php';
 require_once __DIR__ . '/core/installer_helpers.php';
+
+$user = requireAdminForOps('install');
 
 initSession();
 
@@ -38,14 +41,7 @@ $alreadyInstalled = defined('COREFLUX_DATA_KEY')
     && OPENAI_API_KEY !== 'sk-proj-REPLACE_ME';
 
 // ---- Auth gate ----
-$user = getCurrentUser();
-$isMaster = $user && (($user['role'] ?? '') === 'master_admin');
-
-if (!$isMaster) {
-    // Not logged in as master admin — bounce to login then back.
-    header('Location: /login.html?redirect=install');
-    exit;
-}
+// Already enforced above by requireAdminForOps('install'). $user is set.
 
 // ---- Handle install POST ----
 $result = null;
@@ -137,7 +133,7 @@ function h(string $s): string { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8')
 <body>
 <div class="wrap">
   <h1>CoreFlux Setup</h1>
-  <p class="muted">Logged in as <strong><?= h($user['email'] ?? 'admin') ?></strong> (master admin)</p>
+  <p class="muted">Logged in as <strong><?= h($user['email'] ?? 'admin') ?></strong></p>
 
   <?php if ($alreadyInstalled): ?>
     <div class="alert alert--ok">CoreFlux is already configured on this server.</div>

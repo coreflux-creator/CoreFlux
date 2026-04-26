@@ -17,16 +17,15 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/core/config.php';
 require_once __DIR__ . '/core/auth.php';
+require_once __DIR__ . '/core/admin_gate.php';
 require_once __DIR__ . '/core/installer_helpers.php';
+
+$user = requireAdminForOps('update');
 
 initSession();
 
-$user = getCurrentUser();
-$isMaster = $user && (($user['role'] ?? '') === 'master_admin');
-if (!$isMaster) {
-    header('Location: /login.html?redirect=update');
-    exit;
-}
+$user = $user ?? null;
+// Already authed by requireAdminForOps('update') above.
 
 $result = null;
 $error  = null;

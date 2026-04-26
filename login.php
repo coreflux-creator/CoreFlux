@@ -126,9 +126,12 @@ $_SESSION['tenant_role'] = $tenantRole;
 $_SESSION['global_role'] = $globalRole;
 $_SESSION['active_module'] = $modules[0] ?? null;
 
-// Check for redirect parameter (for SPA login flow)
+// Check for redirect parameter (for SPA + admin ops pages)
 $redirect = $_GET['redirect'] ?? $_POST['redirect'] ?? 'dashboard';
-if ($redirect === 'spa') {
+$adminOps = ['install', 'update', 'diagnostics'];
+if (in_array($redirect, $adminOps, true)) {
+    header("Location: /{$redirect}.php");
+} elseif ($redirect === 'spa') {
     header("Location: spa.php");
 } else {
     header("Location: dashboard.php");
