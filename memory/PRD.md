@@ -4,7 +4,7 @@
 Refactor a monolithic PHP application, CoreFlux, into a modular architecture. The core application provides a standardized shell, design system, and services (auth, multi-tenancy). Each business function (Accounting, People, Finance, Payroll) is a separate, self-contained module that "plugs into" this core shell. A React SPA (`spa.php`) is the primary frontend, authenticating via the existing PHP backend.
 
 ## Tech Stack
-- **Backend:** PHP 8, MySQL (PDO), vanilla/custom framework
+- **Backend:** PHP 8 + MySQL (PDO). Single stack. AI calls go direct to OpenAI from PHP.
 - **Frontend:** React 18 + Vite + React Router + Lucide
 - **Architecture:** Modular monolith; modules developed in-repo under `/modules/<name>/`, extracted to subtree repos later
 - **Hosting:** Cloudways
@@ -25,18 +25,18 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   - `/modules/_template/` — reference skeleton (manifest/api/migrations/ui)
   - `MODULE_SKELETON.md` + `MODULE_ONBOARDING.md` — rules & quickstart
   - `tests/core_platform_smoke.php` — CLI smoke test (PHP helpers)
-- [x] **AI platform layer (2026-02):**
-  - `backend/server.py` — FastAPI AI sidecar (OpenAI GPT-5.4 family, per-feature-class
-    model routing, strict typed response envelope, guardrail system prompt, fallback)
-  - `core/ai_service.php` — `aiAsk()` chokepoint with tenant + per-feature gating,
-    envelope contract enforcement, full audit trail
+- [x] **AI platform layer (2026-02, single-stack):**
+  - `core/ai_service.php` — `aiAsk()` chokepoint that POSTs directly to OpenAI
+    via cURL using `OPENAI_API_KEY` from `core/config.local.php`. Tenant +
+    per-feature gating, response envelope contract, auto-fallback to
+    `AI_FALLBACK_MODEL`, full audit trail. **No Python sidecar.**
   - `core/migrations/002_ai_platform.sql` — tenant toggles + `ai_tenant_features`
     + `ai_interactions` audit + `ai_suggestions` review workflow
   - `dashboard/src/components/AISuggestion.jsx` — the only render path for AI text
     (badge, edit, accept/reject, disclaimer, test ids)
   - `AI_INTEGRATION_RULES.md` — hard rules: AI is advisory narrative; never outputs
     values/formulas/decisions the app consumes; human-review-gated; one chokepoint
-  - `tests/ai_platform_smoke.php` — sidecar + envelope guard smoke test
+  - `tests/ai_platform_smoke.php` — direct OpenAI roundtrip + contract + gate (3 ✓)
 - [x] **People module MVP (2026-02, on `feature/people`):**
   - `modules/people/migrations/001_init.sql` — 12 tables covering identity,
     contact, employment history, comp (history-aware), tax (federal+state+I-9),
