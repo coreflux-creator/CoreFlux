@@ -8,8 +8,14 @@
 // DO NOT change once set in production — rotating it will orphan existing ciphertext.
 define('COREFLUX_DATA_KEY', 'REPLACE_ME_WITH_BASE64_32_BYTES');
 
-// AI sidecar reachability (Python FastAPI from /app/backend/).
-// On Cloudways, either run the sidecar on the same VM (localhost) or expose it
-// over HTTPS through a small subdomain + reverse proxy.
-define('AI_SIDECAR_URL',    'http://localhost:8001/api/ai/chat');
-define('AI_SIDECAR_SECRET', 'REPLACE_ME_COPY_FROM_SIDECAR_DOT_ENV');
+// OpenAI key — used directly by core/ai_service.php (no Python sidecar).
+// Get one at https://platform.openai.com/api-keys
+define('OPENAI_API_KEY', 'sk-proj-REPLACE_ME');
+
+// Optional: per-feature-class model overrides. Defaults shown — uncomment to override.
+// define('AI_MODEL_SUMMARY',        'gpt-5.4-mini');
+// define('AI_MODEL_NARRATIVE',      'gpt-5.4');
+// define('AI_MODEL_DRAFT',          'gpt-5.4');
+// define('AI_MODEL_CLASSIFICATION', 'gpt-5.4-mini');
+// define('AI_MODEL_DEEP_REASONING', 'gpt-5.4-thinking');
+// define('AI_FALLBACK_MODEL',       'gpt-5.2');

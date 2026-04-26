@@ -36,7 +36,7 @@ straight out of an LLM response.
 
 ## How to use AI correctly
 
-### 1. Backend — call `aiAsk()` (never the sidecar directly)
+### 1. Backend — call `aiAsk()` (never call OpenAI directly)
 
 ```php
 require_once __DIR__ . '/../../../core/ai_service.php';
@@ -53,6 +53,7 @@ $envelope = aiAsk([
 api_ok(['ai' => $envelope]);
 ```
 
+`aiAsk()` calls OpenAI directly using the key from `core/config.local.php`.
 You never parse `$envelope['content']` for numbers. If you need numbers back
 out, compute them yourself and let the AI describe them.
 
@@ -77,7 +78,7 @@ The component:
   human's decision as the source of truth
 - Emits `data-testid` hooks on every interactive element for testing
 
-### 3. Feature classes → models (all configurable in `/app/backend/.env`)
+### 3. Feature classes → models (configurable in `core/config.local.php`)
 
 | `feature_class` | Default model | Intended use |
 |---|---|---|
@@ -140,8 +141,8 @@ updatePayroll($guess);   // this is exactly what the rule forbids
 $envelope = aiAsk([...]);
 $total = $baseline * floatval($envelope['content']);   // no
 
-// ❌ NEVER — calling the sidecar directly
-$body = curl_get(AI_SIDECAR_URL, [...]);               // bypasses gating + audit
+// ❌ NEVER — calling OpenAI directly
+$body = curl_post('https://api.openai.com/...');        // bypasses gating + audit
 
 // ❌ NEVER — rendering AI text without the review component
 <div>{aiEnvelope.content}</div>                        // missing badge, disclaimer, review

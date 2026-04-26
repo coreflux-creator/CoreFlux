@@ -1,79 +1,90 @@
 <?php
 /**
- * CoreFlux AI Service — the ONE chokepoint for LLM calls.
+ * CoreFlux AI Service — single chokepoint for LLM calls.
  *
- * Rules (enforced here, NOT negotiable per module):
- *   1. Modules may not call the sidecar directly — they call aiAsk().
- *   2. Every call is gated by tenant.ai_enabled + ai_tenant_features[feature_class].
- *   3. Every call is logged to ai_interactions (metadata + hashes always; full
- *      content only when the tenant has opted-in via ai_full_content_logging).
- *   4. The response envelope never carries values the app can calculate with.
- *      Modules must never parse AI output for numbers — build a review/commit
- *      workflow with human approval instead.
+ * PHP calls OpenAI directly via cURL. No sidecar.
  *
- * Usage from a module endpoint:
+ * Modules MUST go through aiAsk() — never call OpenAI directly. That keeps
+ *   - the response-shape contract enforced in one place
+ *   - tenant + per-feature toggles enforced in one place
+ *   - the audit log honest
  *
- *     require_once __DIR__ . '/../../../core/api_bootstrap.php';
- *     require_once __DIR__ . '/../../../core/ai_service.php';
- *     $ctx = api_require_auth();
- *
- *     $envelope = aiAsk([
- *         'feature_class' => 'summary',              // summary | narrative | draft | classification | deep_reasoning
- *         'kind'          => 'summary',
- *         'feature_key'   => 'payroll.pay_period_summary',  // free-form; used for per-feature toggle + audit
- *         'system'        => 'You are a payroll domain assistant.',
- *         'prompt'        => 'Summarize the pay period for pay_run_id=42.',
- *         'context'       => $deterministic_facts,    // OK to send; never trusted back
- *     ]);
- *     api_ok(['ai' => $envelope]);
+ * Configuration (in core/config.local.php on each host):
+ *     define('OPENAI_API_KEY', 'sk-proj-...');     // required
+ *     define('AI_MODEL_SUMMARY',        'gpt-5.4-mini');
+ *     define('AI_MODEL_NARRATIVE',      'gpt-5.4');
+ *     define('AI_MODEL_DRAFT',          'gpt-5.4');
+ *     define('AI_MODEL_CLASSIFICATION', 'gpt-5.4-mini');
+ *     define('AI_MODEL_DEEP_REASONING', 'gpt-5.4-thinking');
+ *     define('AI_FALLBACK_MODEL',       'gpt-5.2');
  */
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/tenant_scope.php';
 
-if (!defined('AI_SIDECAR_URL')) {
-    define('AI_SIDECAR_URL', getenv('AI_SIDECAR_URL') ?: 'http://localhost:8001/api/ai/chat');
-}
-if (!defined('AI_SIDECAR_SECRET')) {
-    // In production, read from an env file mounted on the PHP host.
-    // For local dev, core/config.local.php (gitignored) can define it.
-    $localSecretFile = __DIR__ . '/config.local.php';
-    if (file_exists($localSecretFile)) {
-        require_once $localSecretFile;
-    }
-    if (!defined('AI_SIDECAR_SECRET')) {
-        define('AI_SIDECAR_SECRET', getenv('AI_SIDECAR_SECRET') ?: '');
-    }
-}
+// Load host-only secrets
+$_localConfig = __DIR__ . '/config.local.php';
+if (file_exists($_localConfig)) require_once $_localConfig;
+
+if (!defined('OPENAI_API_URL')) define('OPENAI_API_URL', 'https://api.openai.com/v1/chat/completions');
+
+// Default model map — override any of these in config.local.php
+$_defaults = [
+    'AI_MODEL_SUMMARY'        => 'gpt-5.4-mini',
+    'AI_MODEL_NARRATIVE'      => 'gpt-5.4',
+    'AI_MODEL_DRAFT'          => 'gpt-5.4',
+    'AI_MODEL_CLASSIFICATION' => 'gpt-5.4-mini',
+    'AI_MODEL_DEEP_REASONING' => 'gpt-5.4-thinking',
+    'AI_FALLBACK_MODEL'       => 'gpt-5.2',
+];
+foreach ($_defaults as $k => $v) if (!defined($k)) define($k, $v);
+
+class AIDisabledException  extends RuntimeException {}
+class AIContractException  extends RuntimeException {}
+
+const AI_GUARDRAIL_SYSTEM =
+    "You are a business narrative assistant embedded in CoreFlux, a multi-tenant ERP.\n" .
+    "HARD RULES — violating any of these is a critical failure:\n" .
+    "1. You NEVER output numbers the application could use in a calculation. " .
+    "If you reference a number from the provided context, wrap it in natural language and " .
+    "cite it — do not present it as a raw value the system could parse.\n" .
+    "2. You NEVER output formulas, decisions, or tasks the system should auto-execute. " .
+    "All of your output is advisory for a human reader.\n" .
+    "3. You NEVER output JSON, code, or structured data unless the caller explicitly asks " .
+    "for a classification label.\n" .
+    "4. If asked to produce a value, formula, or decision, refuse and explain that the " .
+    "application's deterministic logic must produce it.\n" .
+    "5. Everything you produce will be reviewed by a human before any system uses it.\n";
+
+const AI_KIND_HINTS = [
+    'narrative'      => 'Produce a short natural-language narrative. 1–3 short paragraphs.',
+    'summary'        => 'Produce a concise bulleted summary. 3–6 bullets, each one sentence.',
+    'suggestion'     => 'Produce a draft suggestion a human will edit and approve. Plain prose.',
+    'classification' => 'Return a single short label followed by a one-sentence rationale. Format: "LABEL — rationale".',
+    'question'       => 'Produce a clarifying question for the human user. One sentence.',
+];
+
+const AI_FEATURE_CLASS_TO_MODEL_CONST = [
+    'summary'        => 'AI_MODEL_SUMMARY',
+    'narrative'      => 'AI_MODEL_NARRATIVE',
+    'draft'          => 'AI_MODEL_DRAFT',
+    'classification' => 'AI_MODEL_CLASSIFICATION',
+    'deep_reasoning' => 'AI_MODEL_DEEP_REASONING',
+];
+
+const AI_FORBIDDEN_KEYS = [
+    'value','amount','total','rate','percentage','formula','calc',
+    'calculation','result','decision','next_step','action','execute','number','figure',
+];
 
 /**
- * Exception surfaced when the tenant (or feature) is AI-disabled.
- */
-class AIDisabledException extends RuntimeException {}
-
-/**
- * Exception surfaced when the sidecar returns a malformed / contract-violating response.
- */
-class AIContractException extends RuntimeException {}
-
-/**
- * Ask the AI sidecar. Returns a typed envelope:
- *   [
- *     'kind'                  => 'narrative',
- *     'content'               => 'human readable text',
- *     'confidence'            => null|float,
- *     'citations'             => [...]|null,
- *     'requires_human_review' => true,
- *     'model'                 => 'gpt-5.4',
- *     'latency_ms'            => 2300,
- *     'prompt_hash'           => '...',
- *     'response_hash'         => '...',
- *     'interaction_id'        => 123,  // audit row id (PHP-added)
- *   ]
+ * Module-facing entry point. Returns the standard envelope:
+ *   ['kind','content','confidence','citations','requires_human_review',
+ *    'model','latency_ms','prompt_hash','response_hash','interaction_id']
  *
- * @throws AIDisabledException  if tenant or feature is off
- * @throws AIContractException  if the sidecar returns something malformed
- * @throws RuntimeException     on transport/HTTP errors
+ * @throws AIDisabledException  tenant or feature is off
+ * @throws AIContractException  bad response / forbidden key
+ * @throws RuntimeException     transport/HTTP failure
  */
 function aiAsk(array $args): array {
     $feature_class = $args['feature_class'] ?? 'narrative';
@@ -84,41 +95,59 @@ function aiAsk(array $args): array {
     $context       = $args['context']       ?? null;
     $citations     = $args['citations']     ?? null;
     $max_tokens    = (int)($args['max_output_tokens'] ?? 800);
-    $session_id    = $args['session_id']    ?? null;
 
-    if ($prompt === '') {
-        throw new InvalidArgumentException('aiAsk: prompt is required');
-    }
+    if ($prompt === '') throw new InvalidArgumentException('aiAsk: prompt is required');
+    if (!isset(AI_KIND_HINTS[$kind])) throw new InvalidArgumentException("aiAsk: invalid kind '$kind'");
 
     $tenantId = currentTenantId();
     $userId   = $_SESSION['user']['id'] ?? null;
 
-    // Gate: tenant + per-feature-class toggles
+    // Tenant + per-feature gating
     $gate = aiGateForTenant($tenantId, $feature_class);
-    if (!$gate['tenant_enabled']) {
-        throw new AIDisabledException('AI is disabled for this tenant');
-    }
-    if (!$gate['feature_enabled']) {
-        throw new AIDisabledException("AI feature class '$feature_class' is disabled for this tenant");
-    }
+    if (!$gate['tenant_enabled'])  throw new AIDisabledException('AI is disabled for this tenant');
+    if (!$gate['feature_enabled']) throw new AIDisabledException("AI feature class '$feature_class' is disabled for this tenant");
     $logFullContent = (bool) $gate['full_content_logging'];
 
-    // Build sidecar request
+    // Resolve the model for this feature class
+    $modelConst = AI_FEATURE_CLASS_TO_MODEL_CONST[$feature_class] ?? null;
+    $primaryModel = $modelConst && defined($modelConst) ? constant($modelConst) : AI_FALLBACK_MODEL;
+
+    // Build system + user messages
+    $systemMsg = AI_GUARDRAIL_SYSTEM . "\n" . AI_KIND_HINTS[$kind]
+               . ($system ? "\n\nDomain context from the calling module:\n" . $system : '');
+    $userMsg = $prompt;
+    if ($context) {
+        $userMsg .= "\n\n[context data — for reference only; do NOT restate numeric values as raw figures]\n"
+                  . substr(json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 0, 8000);
+    }
+    if ($citations) {
+        $lines = [];
+        foreach ($citations as $c) {
+            $line = '- ' . ($c['source'] ?? '');
+            if (!empty($c['excerpt'])) $line .= ': ' . $c['excerpt'];
+            $lines[] = $line;
+        }
+        $userMsg .= "\n\n[known citations you may reference by source id]\n" . implode("\n", $lines);
+    }
+
     $payload = [
-        'feature_class'     => $feature_class,
-        'kind'              => $kind,
-        'system'            => $system,
-        'prompt'            => $prompt,
-        'context'           => $context,
-        'citations'         => $citations,
-        'max_output_tokens' => $max_tokens,
-        'session_id'        => $session_id,
+        'model' => $primaryModel,
+        'messages' => [
+            ['role' => 'system', 'content' => $systemMsg],
+            ['role' => 'user',   'content' => $userMsg],
+        ],
+        'max_completion_tokens' => $max_tokens,
     ];
 
-    [$http, $body] = aiSidecarPost($payload);
+    [$content, $latencyMs, $usedModel, $http, $rawErr] = aiCallOpenAI($payload);
 
-    if ($http < 200 || $http >= 300) {
-        // Always audit failures with metadata
+    // Auto-fallback once on failure
+    if ($content === null && $primaryModel !== AI_FALLBACK_MODEL) {
+        $payload['model'] = AI_FALLBACK_MODEL;
+        [$content, $latencyMs, $usedModel, $http, $rawErr] = aiCallOpenAI($payload);
+    }
+
+    if ($content === null) {
         aiAuditWrite([
             'tenant_id'     => $tenantId,
             'user_id'       => $userId,
@@ -127,28 +156,36 @@ function aiAsk(array $args): array {
             'kind'          => $kind,
             'status'        => 'error',
             'http_status'   => $http,
-            'error'         => substr($body, 0, 1000),
+            'error'         => substr((string)$rawErr, 0, 1000),
         ]);
-        throw new RuntimeException("AI sidecar error ($http): " . substr($body, 0, 300));
+        throw new RuntimeException("OpenAI call failed ($http): " . substr((string)$rawErr, 0, 300));
     }
 
-    $envelope = json_decode($body, true);
-    if (!is_array($envelope) || !isset($envelope['content'], $envelope['kind'], $envelope['requires_human_review'])) {
-        throw new AIContractException('AI sidecar returned malformed envelope');
-    }
-    // Enforce the hard-rule flag (defense in depth)
-    $envelope['requires_human_review'] = true;
-
-    // Block any attempt to attach calculable fields
-    $forbidden = ['value','amount','total','rate','percentage','formula','calc',
-                  'calculation','result','decision','next_step','action','execute','number','figure'];
-    foreach ($forbidden as $f) {
-        if (array_key_exists($f, $envelope)) {
-            throw new AIContractException("AI envelope contained forbidden key: $f");
+    // Contract enforcement: reject responses that try to emit calculable structured fields
+    $stripped = trim($content);
+    if ($stripped !== '' && $stripped[0] === '{' && substr($stripped, -1) === '}') {
+        $maybeJson = json_decode($stripped, true);
+        if (is_array($maybeJson)) {
+            $bad = array_intersect(array_map('strtolower', array_keys($maybeJson)), AI_FORBIDDEN_KEYS);
+            if ($bad) throw new AIContractException('AI response contained forbidden keys: ' . implode(', ', $bad));
         }
     }
 
-    // Audit
+    $promptHash   = hash('sha256', $prompt . ($system ?? ''));
+    $responseHash = hash('sha256', $content);
+
+    $envelope = [
+        'kind'                  => $kind,
+        'content'               => $content,
+        'confidence'            => null,
+        'citations'             => $citations,
+        'requires_human_review' => true,
+        'model'                 => $usedModel,
+        'latency_ms'            => $latencyMs,
+        'prompt_hash'           => $promptHash,
+        'response_hash'         => $responseHash,
+    ];
+
     $auditId = aiAuditWrite([
         'tenant_id'     => $tenantId,
         'user_id'       => $userId,
@@ -157,12 +194,12 @@ function aiAsk(array $args): array {
         'kind'          => $kind,
         'status'        => 'ok',
         'http_status'   => $http,
-        'model'         => $envelope['model']        ?? null,
-        'latency_ms'    => $envelope['latency_ms']   ?? null,
-        'prompt_hash'   => $envelope['prompt_hash']  ?? null,
-        'response_hash' => $envelope['response_hash']?? null,
-        'prompt'        => $logFullContent ? $prompt              : null,
-        'response'      => $logFullContent ? $envelope['content'] : null,
+        'model'         => $usedModel,
+        'latency_ms'    => $latencyMs,
+        'prompt_hash'   => $promptHash,
+        'response_hash' => $responseHash,
+        'prompt'        => $logFullContent ? $prompt  : null,
+        'response'      => $logFullContent ? $content : null,
     ]);
 
     $envelope['interaction_id'] = $auditId;
@@ -171,7 +208,46 @@ function aiAsk(array $args): array {
 
 
 /**
- * Resolve the tenant + feature-class gating flags.
+ * Direct OpenAI HTTPS call. Returns [content|null, latencyMs, usedModel, httpStatus, errorOrNull].
+ * Never throws — returns null content on failure so the caller can decide on fallback.
+ */
+function aiCallOpenAI(array $payload): array {
+    if (!defined('OPENAI_API_KEY') || !OPENAI_API_KEY) {
+        return [null, 0, $payload['model'] ?? '', 0, 'OPENAI_API_KEY not set'];
+    }
+    $start = microtime(true);
+    $ch = curl_init(OPENAI_API_URL);
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_HTTPHEADER     => [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . OPENAI_API_KEY,
+        ],
+        CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 60,
+        CURLOPT_CONNECTTIMEOUT => 10,
+    ]);
+    $body = curl_exec($ch);
+    $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err  = curl_error($ch);
+    curl_close($ch);
+    $latencyMs = (int) ((microtime(true) - $start) * 1000);
+
+    if ($body === false) return [null, $latencyMs, $payload['model'], 0, $err];
+    if ($http < 200 || $http >= 300) return [null, $latencyMs, $payload['model'], $http, $body];
+
+    $data = json_decode($body, true);
+    $content = $data['choices'][0]['message']['content'] ?? null;
+    if (!is_string($content) || trim($content) === '') {
+        return [null, $latencyMs, $payload['model'], $http, 'empty response from model'];
+    }
+    return [trim($content), $latencyMs, $payload['model'], $http, null];
+}
+
+
+/**
+ * Tenant + feature-class gate.
  * Returns: ['tenant_enabled' => bool, 'feature_enabled' => bool, 'full_content_logging' => bool]
  */
 function aiGateForTenant(?int $tenantId, string $featureClass): array {
@@ -179,13 +255,11 @@ function aiGateForTenant(?int $tenantId, string $featureClass): array {
     $default = ['tenant_enabled' => false, 'feature_enabled' => false, 'full_content_logging' => false];
     if (!$pdo || !$tenantId) return $default;
 
-    // Tenant-level toggle
     $stmt = $pdo->prepare('SELECT ai_enabled, ai_full_content_logging FROM tenants WHERE id = :id');
     $stmt->execute(['id' => $tenantId]);
     $tenant = $stmt->fetch();
     if (!$tenant || !(int)($tenant['ai_enabled'] ?? 0)) return $default;
 
-    // Per-feature-class toggle (default ON when tenant is on and no explicit row)
     $stmt = $pdo->prepare(
         'SELECT enabled FROM ai_tenant_features WHERE tenant_id = :t AND feature_class = :f'
     );
@@ -202,7 +276,7 @@ function aiGateForTenant(?int $tenantId, string $featureClass): array {
 
 
 /**
- * Write one audit row. Returns the inserted id (0 if DB unavailable).
+ * Audit row. Returns inserted id (0 if DB unavailable).
  */
 function aiAuditWrite(array $data): int {
     $pdo = getDB();
@@ -227,31 +301,4 @@ function aiAuditWrite(array $data): int {
         error_log('[ai_audit] ' . $e->getMessage());
         return 0;
     }
-}
-
-
-/**
- * Low-level POST to the sidecar. Returns [httpStatus, body].
- */
-function aiSidecarPost(array $payload): array {
-    $ch = curl_init(AI_SIDECAR_URL);
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_HTTPHEADER     => [
-            'Content-Type: application/json',
-            'X-AI-Secret: ' . AI_SIDECAR_SECRET,
-        ],
-        CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 60,
-        CURLOPT_CONNECTTIMEOUT => 5,
-    ]);
-    $body = curl_exec($ch);
-    $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $err  = curl_error($ch);
-    curl_close($ch);
-    if ($body === false) {
-        throw new RuntimeException('AI sidecar transport error: ' . $err);
-    }
-    return [$http, $body];
 }
