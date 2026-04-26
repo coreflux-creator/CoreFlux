@@ -6,6 +6,7 @@ CoreFlux deploys with **two URLs you visit in your browser**. No SSH for routine
 |---|---|
 | **`https://<your-app>/install.php`** | First-time setup. Visit once, paste OpenAI key, click Install. |
 | **`https://<your-app>/update.php`** | Every code update after that. Visit, click "Update now". |
+| **`https://<your-app>/diagnostics.php`** | Anytime — read-only health dashboard with stat tiles, live smoke test, recent AI calls + emails. |
 
 Both pages require you to be logged in as a **master admin** (your existing CoreFlux account). They auto-redirect to the login page if you aren't.
 

@@ -136,6 +136,7 @@ function uh(string $s): string { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8'
     <p>
       <a class="btn" href="/spa.php">Open the app</a>
       <a class="btn btn--ghost" href="/update.php">Run another update</a>
+      <a class="btn btn--ghost" href="/diagnostics.php">Diagnostics</a>
     </p>
 
   <?php else: ?>

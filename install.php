@@ -171,7 +171,10 @@ function h(string $s): string { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8')
     </details>
 
     <hr>
-    <p><a class="btn" href="/spa.php">Open the app</a></p>
+    <p>
+      <a class="btn" href="/spa.php">Open the app</a>
+      <a class="btn btn--ghost" href="/diagnostics.php">Diagnostics</a>
+    </p>
 
   <?php else: ?>
     <p>Two things needed and you're done:</p>
