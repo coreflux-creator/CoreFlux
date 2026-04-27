@@ -45,7 +45,7 @@ function runUpdate(): array {
     //    most managed PHP hosts disable exec()/shell_exec() via disable_functions.
     //    In that case the user is expected to deploy code via the host's UI
     //    (e.g. Cloudways → Application → Deploy via Git) BEFORE clicking Update.
-    if (_canExec()) {
+    if (installerCanExec()) {
         $cmd = sprintf('cd %s && git pull --ff-only origin main 2>&1', escapeshellarg($root));
         $out = []; $rc = 1;
         @exec($cmd, $out, $rc);
@@ -75,17 +75,6 @@ function runUpdate(): array {
     $log['steps'][] = ['name' => 'smoke test', 'ok' => true, 'list' => runSmokeInProcess($localCfg)];
 
     return $log;
-}
-
-/**
- * True only if exec() is callable on this host. Cloudways, many shared hosts,
- * and some managed PHP environments disable shell exec via php.ini's
- * `disable_functions` for security.
- */
-function _canExec(): bool {
-    if (!function_exists('exec')) return false;
-    $disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
-    return !in_array('exec', $disabled, true);
 }
 
 function uh(string $s): string { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8'); }

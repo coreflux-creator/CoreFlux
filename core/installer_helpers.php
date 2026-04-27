@@ -7,6 +7,20 @@
 declare(strict_types=1);
 
 /**
+ * Detect whether shell exec is available on this PHP host. Cloudways and most
+ * managed/shared PHP hosts disable exec()/shell_exec() via php.ini's
+ * `disable_functions` for security, which raises "Call to undefined function
+ * exec()" errors. Any installer/updater code that wants to shell out MUST
+ * gate the call behind this helper and fall back gracefully when it returns
+ * false.
+ */
+function installerCanExec(): bool {
+    if (!function_exists('exec')) return false;
+    $disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
+    return !in_array('exec', $disabled, true);
+}
+
+/**
  * Apply pending migrations. Returns a per-file log:
  *   [ ['file' => 'core/migrations/...', 'status' => 'applied'|'already_applied'|'unreadable'], ... ]
  */

@@ -191,6 +191,58 @@ $emailStats = tally($email24h, 'sent');
     </div>
   <?php endif; ?>
 
+  <!-- Host capabilities -->
+  <?php
+    $execAvailable    = installerCanExec();
+    $disabledFns      = trim((string) ini_get('disable_functions'));
+    $phpVersion       = PHP_VERSION;
+    $maxUpload        = ini_get('upload_max_filesize');
+    $maxPost          = ini_get('post_max_size');
+    $memLimit         = ini_get('memory_limit');
+    $opensslAvailable = extension_loaded('openssl');
+    $pdoMysql         = extension_loaded('pdo_mysql');
+    $curlAvailable    = extension_loaded('curl');
+  ?>
+  <div class="card">
+    <h2>Host capabilities</h2>
+    <div class="row <?= $execAvailable ? 'ok' : 'no' ?>">
+      <span class="tick"><?= $execAvailable ? '✓' : '✗' ?></span>
+      <strong>shell exec</strong>
+      <span class="muted">
+        <?= $execAvailable
+            ? '— exec() is callable; updater can run git pull in-process.'
+            : '— exec() is disabled by php.ini (typical on Cloudways/managed hosts). The updater will skip the in-process git pull and ask you to deploy via your host\'s Git UI before clicking Update.' ?>
+      </span>
+    </div>
+    <div class="row <?= $opensslAvailable ? 'ok' : 'no' ?>">
+      <span class="tick"><?= $opensslAvailable ? '✓' : '✗' ?></span>
+      <strong>openssl</strong>
+      <span class="muted">— required for AES-256-GCM PII encryption.</span>
+    </div>
+    <div class="row <?= $pdoMysql ? 'ok' : 'no' ?>">
+      <span class="tick"><?= $pdoMysql ? '✓' : '✗' ?></span>
+      <strong>pdo_mysql</strong>
+      <span class="muted">— required for the MySQL connection.</span>
+    </div>
+    <div class="row <?= $curlAvailable ? 'ok' : 'no' ?>">
+      <span class="tick"><?= $curlAvailable ? '✓' : '✗' ?></span>
+      <strong>curl</strong>
+      <span class="muted">— required for direct OpenAI calls from <code>core/ai_service.php</code>.</span>
+    </div>
+    <div class="row">
+      <span class="tick muted">·</span>
+      <strong>PHP</strong>
+      <span class="muted"><?= dh($phpVersion) ?> · upload_max_filesize=<?= dh((string)$maxUpload) ?> · post_max_size=<?= dh((string)$maxPost) ?> · memory_limit=<?= dh((string)$memLimit) ?></span>
+    </div>
+    <?php if ($disabledFns !== ''): ?>
+      <div class="row">
+        <span class="tick muted">·</span>
+        <strong>disable_functions</strong>
+        <span class="muted"><code><?= dh($disabledFns) ?></code></span>
+      </div>
+    <?php endif; ?>
+  </div>
+
   <!-- AI interactions -->
   <div class="card">
     <h2>Recent AI interactions <span class="muted">(latest 20)</span></h2>
