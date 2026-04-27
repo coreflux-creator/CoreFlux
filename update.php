@@ -41,15 +41,27 @@ function runUpdate(): array {
     $root = __DIR__;
     $log = ['steps' => []];
 
-    // 1. git pull
-    $cmd = sprintf('cd %s && git pull --ff-only origin main 2>&1', escapeshellarg($root));
-    exec($cmd, $out, $rc);
-    $log['steps'][] = [
-        'name'   => 'git pull origin main',
-        'ok'     => $rc === 0,
-        'output' => implode("\n", $out),
-    ];
-    if ($rc !== 0) return $log;
+    // 1. git pull — only if shell exec is available on this host. Cloudways and
+    //    most managed PHP hosts disable exec()/shell_exec() via disable_functions.
+    //    In that case the user is expected to deploy code via the host's UI
+    //    (e.g. Cloudways → Application → Deploy via Git) BEFORE clicking Update.
+    if (_canExec()) {
+        $cmd = sprintf('cd %s && git pull --ff-only origin main 2>&1', escapeshellarg($root));
+        $out = []; $rc = 1;
+        @exec($cmd, $out, $rc);
+        $log['steps'][] = [
+            'name'   => 'git pull origin main',
+            'ok'     => $rc === 0,
+            'output' => implode("\n", $out),
+        ];
+        if ($rc !== 0) return $log;
+    } else {
+        $log['steps'][] = [
+            'name'   => 'git pull origin main',
+            'ok'     => true,
+            'detail' => 'skipped — exec() disabled on this host. Pull the latest code from your host control panel (e.g. Cloudways → Application → Deploy via Git) before clicking Update.',
+        ];
+    }
 
     // 2. Apply pending migrations
     $log['steps'][] = ['name' => 'apply pending migrations', 'ok' => true, 'list' => runMigrationsInProcess()];
@@ -63,6 +75,17 @@ function runUpdate(): array {
     $log['steps'][] = ['name' => 'smoke test', 'ok' => true, 'list' => runSmokeInProcess($localCfg)];
 
     return $log;
+}
+
+/**
+ * True only if exec() is callable on this host. Cloudways, many shared hosts,
+ * and some managed PHP environments disable shell exec via php.ini's
+ * `disable_functions` for security.
+ */
+function _canExec(): bool {
+    if (!function_exists('exec')) return false;
+    $disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
+    return !in_array('exec', $disabled, true);
 }
 
 function uh(string $s): string { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8'); }
