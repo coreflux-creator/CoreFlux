@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/ModuleRegistry.php';
+require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/api_router.php';
 
 // Tracing
@@ -51,6 +52,13 @@ if ($endpointFile === null) {
 
 // Auth (idempotent — module file may also call api_require_auth())
 $authCtx = api_require_auth();
+
+// Module-level RBAC gate. The user must hold at least the base
+// '<module>.view' permission to reach any endpoint inside that module.
+// Per-endpoint permissions remain the module's responsibility (it can call
+// RBAC::requirePermission($authCtx['user'], 'foo.bar.action') itself).
+$baseModulePerm = $parsed['module_id'] . '.view';
+RBAC::requirePermission($authCtx['user'], $baseModulePerm);
 
 // Stash router context for the included module file
 $GLOBALS['CF_API_REQUEST_ID'] = $requestId;
