@@ -21,6 +21,72 @@ function installerCanExec(): bool {
 }
 
 /**
+ * Inspect the SPA bundle currently shipped in /spa-assets/ vs the freshest
+ * source file under /dashboard/src/ + /modules/. Surfaces a clear "stale UI"
+ * warning when source changed after the last `yarn build` was committed.
+ * Returns rows in the same shape as runSmokeInProcess() so update.php can
+ * render them without special-casing.
+ */
+function spaBundleStatus(string $root): array {
+    $rows = [];
+    $assetsDir = $root . '/spa-assets';
+    if (!is_dir($assetsDir)) {
+        $rows[] = ['check' => 'spa-assets dir', 'ok' => false, 'detail' => "missing $assetsDir — run yarn build in /dashboard"];
+        return $rows;
+    }
+
+    $jsFile = $cssFile = '';
+    $jsMTime = 0;
+    foreach (scandir($assetsDir) as $f) {
+        if (preg_match('/^index-.*\.js$/',  $f)) { $jsFile  = $f; $jsMTime = filemtime("$assetsDir/$f"); }
+        if (preg_match('/^index-.*\.css$/', $f)) { $cssFile = $f; }
+    }
+    if ($jsFile === '' || $cssFile === '') {
+        $rows[] = ['check' => 'spa bundle', 'ok' => false, 'detail' => 'no index-*.js or index-*.css in /spa-assets/'];
+        return $rows;
+    }
+
+    $rows[] = [
+        'check'  => 'spa bundle',
+        'ok'    => true,
+        'detail' => "$jsFile (built " . date('Y-m-d H:i', $jsMTime) . ")",
+    ];
+
+    $newest = 0; $newestFile = '';
+    $scan = function (string $dir) use (&$scan, &$newest, &$newestFile): void {
+        if (!is_dir($dir)) return;
+        $rii = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS));
+        foreach ($rii as $f) {
+            if (!$f->isFile()) continue;
+            $path = $f->getPathname();
+            if (!preg_match('/\.(jsx?|tsx?|css)$/', $path)) continue;
+            $m = $f->getMTime();
+            if ($m > $newest) { $newest = $m; $newestFile = $path; }
+        }
+    };
+    $scan($root . '/dashboard/src');
+    foreach (glob($root . '/modules/*/ui') ?: [] as $uiDir) $scan($uiDir);
+
+    if ($newest > $jsMTime + 5) {
+        $rel = ltrim(str_replace($root, '', $newestFile), '/');
+        $rows[] = [
+            'check'  => 'spa bundle freshness',
+            'ok'    => false,
+            'detail' => "STALE — UI source $rel was modified after the bundle was built. " .
+                        "Run `yarn build` in /dashboard/, commit the new /spa-assets/ files, " .
+                        "redeploy. Until then the browser will keep showing the old UI.",
+        ];
+    } else {
+        $rows[] = [
+            'check'  => 'spa bundle freshness',
+            'ok'    => true,
+            'detail' => 'bundle is newer than all UI source files',
+        ];
+    }
+    return $rows;
+}
+
+/**
  * Apply pending migrations. Returns a per-file log:
  *   [ ['file' => 'core/migrations/...', 'status' => 'applied'|'already_applied'|'unreadable'], ... ]
  */

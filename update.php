@@ -66,7 +66,13 @@ function runUpdate(): array {
     // 2. Apply pending migrations
     $log['steps'][] = ['name' => 'apply pending migrations', 'ok' => true, 'list' => runMigrationsInProcess()];
 
-    // 3. Smoke test
+    // 3. SPA bundle check — the React UI in /spa-assets/ is built ahead of time
+    //    and committed via git. If it's missing or older than the latest source
+    //    in /modules or /dashboard/src, the browser will keep serving stale UI
+    //    even though PHP + DB updated correctly. Surface that mismatch loudly.
+    $log['steps'][] = ['name' => 'SPA bundle', 'ok' => true, 'list' => spaBundleStatus($root)];
+
+    // 4. Smoke test
     $localCfg = $root . '/core/config.local.php';
     if (!file_exists($localCfg)) {
         $log['steps'][] = ['name' => 'smoke test', 'ok' => false, 'detail' => 'core/config.local.php missing — run /install.php first'];
