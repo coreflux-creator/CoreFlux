@@ -126,14 +126,18 @@ $_SESSION['tenant_role'] = $tenantRole;
 $_SESSION['global_role'] = $globalRole;
 $_SESSION['active_module'] = $modules[0] ?? null;
 
-// Check for redirect parameter (for SPA + admin ops pages)
-$redirect = $_GET['redirect'] ?? $_POST['redirect'] ?? 'dashboard';
+// Check for redirect parameter (for SPA + admin ops pages).
+// Default destination is the React SPA (spa.php). The legacy PHP dashboard
+// (dashboard.php) is preserved and reachable via ?redirect=dashboard but
+// MUST NOT be deleted — it is the pre-React fallback per project hard rule
+// (see /app/memory/HARD_RULES.md).
+$redirect = $_GET['redirect'] ?? $_POST['redirect'] ?? 'spa';
 $adminOps = ['install', 'update', 'diagnostics'];
 if (in_array($redirect, $adminOps, true)) {
     header("Location: /{$redirect}.php");
-} elseif ($redirect === 'spa') {
-    header("Location: spa.php");
-} else {
+} elseif ($redirect === 'dashboard') {
     header("Location: dashboard.php");
+} else {
+    header("Location: spa.php");
 }
 exit;
