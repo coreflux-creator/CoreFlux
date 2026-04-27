@@ -1,0 +1,24 @@
+# CoreFlux API Router
+#
+# Pretty URLs: /api/<module>/<endpoint>  →  /api/index.php/<module>/<endpoint>
+#
+# Apache mod_rewrite rules. Cloudways supports these by default.
+# If your host does not support .htaccess overrides, the router still works
+# via the explicit form: /api/index.php/<module>/<endpoint>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Allow direct access to index.php and any real file/dir
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Everything else under /api/ goes to index.php with PATH_INFO
+    RewriteRule ^(.*)$ index.php/$1 [QSA,L]
+</IfModule>
+
+# Hide hidden files
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
