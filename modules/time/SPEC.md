@@ -119,7 +119,9 @@ Constraint: a row in `approved` status MUST have `rate_snapshot_id`, `approved_b
 | `intake_type` | ENUM('email','bulk_upload','client_portal','manual_paste') | |
 | `subject` | VARCHAR(500) NULL | for email |
 | `from_email` | VARCHAR(255) NULL | |
-| `to_inbox` | VARCHAR(255) NULL | which tenant inbox received it |
+| `to_inbox` | VARCHAR(255) NULL | tenant's own folder address that received it (e.g. `timesheets@tenantcompany.com`) |
+| `mail_provider` | ENUM('m365','google','imap','manual_paste') NULL | which connector source |
+| `provider_message_id` | VARCHAR(255) NULL | RFC822 Message-ID from source mail system; for dedupe + back-link |
 | `received_at` | DATETIME | |
 | `raw_storage_object_id` | BIGINT NULL FK→`storage_objects.id` | full email/EML or uploaded CSV file in S3 |
 | `attachments_json` | TEXT NULL | array of storage_object_ids for parsed attachments |
@@ -268,10 +270,13 @@ All under `/api/time/...` via central router.
 - `POST /api/time/bulk/upload` — multipart with CSV/XLSX; body flags: `already_approved` (requires `time.bulk_upload` AND `time.approve`).
 - `GET /api/time/bulk/{intake_id}` — status of a bulk job.
 
-### 5.3 AI inbox / intake
-- `POST /api/time/inbox/inbound` — webhook target for the email ingestion service (locked-down via shared secret). Body is full email payload; the system creates a `time_intake_events` row, stores raw email in S3, queues parser.
+### 5.3 AI inbox / intake (read-only connector model)
+
+CoreFlux does NOT host tenant inboxes. It reads from the tenant's own mail system (Microsoft 365 or Google Workspace) on a poll. See `/app/core/MailService.SPEC.md` for the connector primitive.
+
+- `POST /api/time/inbox/poll` — system endpoint invoked by cron (per tenant); MailService pulls new messages from the tenant's configured `timesheets` folder, creates a `time_intake_events` row per message, stores raw EML + attachments in S3, queues parser. **Does NOT modify the source email** (no read flag, no move, no label).
 - `GET /api/time/intake` — paginated list with `disposition`, `parser_status` filters.
-- `GET /api/time/intake/{id}` — detail incl. AI extraction JSON, attachments, proposed entries.
+- `GET /api/time/intake/{id}` — detail incl. AI extraction JSON, attachments, proposed entries, link back to source email metadata (message-id, sent-at, from, subject).
 - `POST /api/time/intake/{id}/convert` — turn AI proposal into pending_review entries (operator may edit before converting).
 - `POST /api/time/intake/{id}/dismiss` — body `{reason}`; marks event as dismissed (e.g. spam, not a timesheet).
 - `POST /api/time/intake/{id}/flag-unreadable` — feeds the Missing Timesheets dashboard "received-but-unreadable" bucket.
@@ -388,12 +393,13 @@ Every event includes `tenant_id`, `actor_user_id` (or `system` for AI/cron), `me
 ## 10. Multi-tenancy + isolation
 
 - Every query filters by `tenant_id`.
-- Per-tenant inbox subdomain (e.g. `time@acme.coreflux.app`) → DNS routing → email service webhook → `/api/time/inbox/inbound` with `to_inbox` populated; the handler resolves `to_inbox` → `tenant_id`.
+- **Inbox connector**: CoreFlux does NOT host tenant inboxes. Each tenant authorizes CoreFlux (OAuth) against their own Microsoft 365 or Google Workspace account, with the connector configured to read only one named folder (e.g. `timesheets`). Originals are never modified. Detail in `/app/core/MailService.SPEC.md`.
+- **Outbound email**: sent from the tenant's own domain (e.g. `no-reply@tenantcompany.com`), via either (a) tenant's OAuth-connected mail account or (b) shared Resend with tenant domain verified. Configured per tenant in MailService.
 - Tenant-supplied OpenAI API key is required for AI features to work for that tenant. Without a key, AI inbox / extraction is disabled; bulk + manual still work.
 
 ---
 
-## 11. Decisions locked (all from HARD_RULES decisions log)
+## 11. Decisions locked (all from HARD_RULES decisions log + this spec sign-off)
 
 1. ✅ Rate snapshot at approval (option b — frozen).
 2. ✅ Standard categories list (9 entries) + tenant additions under fixed buckets.
@@ -404,6 +410,22 @@ Every event includes `tenant_id`, `actor_user_id` (or `system` for AI/cron), `me
 7. ✅ Bulk uploads can carry `already_approved` flag (gated by `time.approve`).
 8. ✅ Tenant has its own inbox under tenant subdomain.
 9. ✅ AI provider: direct PHP cURL to OpenAI, no Python.
+
+### Locked in this spec sign-off
+10. ✅ **Inbox model = read-only connector** (NOT CoreFlux-hosted inbox). Tenant retains email in their own mail system. Originals stay in their inbox and remain searchable in Outlook/Gmail forever; CoreFlux marks processing status inside CoreFlux only.
+11. ✅ **Mail providers supported at MVP**: Microsoft 365 (Graph API) AND Google Workspace (Gmail API). Both required at launch.
+12. ✅ **Folder-based filtering**: tenant creates a dedicated `timesheets` folder/label in their mail system; CoreFlux only reads that folder. (Future module — invoices — will use a separate `invoices` folder via the same connector.)
+13. ✅ **Non-destructive processing**: CoreFlux does NOT modify, move, label, or mark-as-read the source email. All processing status (`pending_review`, `converted`, `unreadable`) is tracked exclusively inside CoreFlux on `time_intake_events`.
+14. ✅ **Polling architecture** (not webhooks/push). Connector polls per-tenant on a configurable interval (default 5 min). Simpler ops, no webhook secret management, fine for staffing-agency volume.
+15. ✅ **Worker UI = weekly grid** (paper-timesheet mental model). Calendar view deferred.
+16. ✅ **Pay periods auto-generated** by monthly cron (8 weeks ahead per tenant).
+17. ✅ **Late SLA**: tenant default = period_end + **4 calendar days**, per-placement override allowed.
+18. ✅ **Token expiry default**: 7 days.
+19. ✅ **OT auto-split** at 40 hrs/week, with **per-employee override** (salary-exempt, custom rules, state-specific overrides).
+20. ✅ **Holiday calendar**: platform default (US federal) + tenant customizable.
+21. ✅ **No grace period** on consumed bundles — corrections always create a supersede.
+22. ✅ **Bulk upload format**: fixed canonical CSV at MVP. Column-mapping wizard deferred.
+23. ✅ **Outbound emails (token approvals, notifications, future invoices)**: sent FROM the tenant's own domain (e.g. `timesheets@tenantcompany.com`, `no-reply@tenantcompany.com`). Two transport options per tenant: (a) via tenant's own OAuth-connected mail account (Microsoft Graph / Gmail), or (b) via shared Resend account with the tenant's domain verified there. Tenant chooses at config time. **This becomes a Core MailService primitive**, not a Time-module concern.
 
 ---
 
