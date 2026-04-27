@@ -401,6 +401,8 @@ Hard rule: AI never directly modifies invoices, payments, GL postings, or memos.
 3. ✅ Single tenant currency at operational level (Placements); Billing supports historical multi-currency at invoice header for legacy/exception invoices.
 4. ✅ Time → AR feed via `time_downstream_feed.bundle_type='ar'` (Time SPEC §3.7).
 5. ✅ AI describes / humans decide.
+6. ✅ **Posts to Accounting via standardized protocol** (`POST /api/v1/accounting/journal-entries`). Required fields per Accounting SPEC §5: `entity_id`, `idempotency_key` (e.g. `billing.invoice.post.{invoice_id}`), `source_module='billing'`, `source_ref_type`, `source_ref_id`, `external_ref` (invoice number), and `dimensions` per line (customer, placement, department where applicable). Subledger does NOT write to GL tables directly.
+7. ✅ Multi-entity: every invoice carries an `entity_id` (which legal entity is invoicing). Default = tenant's primary entity for tenants with one entity.
 
 ---
 

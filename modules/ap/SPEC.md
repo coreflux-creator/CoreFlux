@@ -305,6 +305,8 @@ Hard rule: AI never approves bills, never posts to GL, never sends payment.
 3. ✅ All outbound communication (remittance advice, check stubs by email) via Core MailService from tenant domain.
 4. ✅ Time → AP feed via `time_downstream_feed.bundle_type='ap'` for non-W2 workers.
 5. ✅ AI describes / humans decide. Two-eye on approve and on payment send.
+6. ✅ **Posts to Accounting via standardized protocol** (`POST /api/v1/accounting/journal-entries`). Required: `entity_id`, `idempotency_key` (e.g. `ap.bill.post.{bill_id}`, `ap.payment.post.{payment_id}`), `source_module='ap'`, `source_ref_type/id`, `external_ref` (vendor's bill number), and `dimensions` per line (vendor, placement, department, project where applicable).
+7. ✅ Multi-entity: every bill / payment / expense report carries an `entity_id`.
 
 ---
 

@@ -325,6 +325,8 @@ class GustoEngine       implements PayrollEngine { ... }   // Phase C — adapte
 5. ✅ Banking encrypted at app layer.
 6. ✅ Two-eye: build ≠ approve ≠ disburse.
 7. ✅ Off-cycle runs supported.
+8. ✅ **Posts to Accounting via standardized protocol** (`POST /api/v1/accounting/journal-entries`). Each pay run produces one or more JEs (gross wages dr / net pay cr / tax accruals / employer burden / deductions). Required: `entity_id`, `idempotency_key` (e.g. `payroll.run.post.{run_id}`), `source_module='payroll'`, `source_ref_type/id`, `dimensions` per line (department, location, placement, employee).
+9. ✅ Multi-entity: every payroll run, profile, and period scoped to an `entity_id`.
 
 ---
 
