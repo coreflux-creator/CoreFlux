@@ -108,6 +108,7 @@ small. Marketing-speak in chat replies is forbidden.
 | 2026-04-27 | People + Placements as TWO SEPARATE MODULES side-by-side in sidebar      | User chat               |
 | 2026-04-27 | Placement fields require: End Client (multi-tier), W2/IC/C2C, Bill Rate, Adder %, Pay Rate, Vendor Portal Fee, Adjusted Bill Rate, Net to Vendor, Background Fee deduction, Referral Vendor + Fee + Duration, Account Manager / Lead / Recruiter + commission splits, Team Commission, Due Date, Corp details (C2C), Net Margin formula | User shared real tracker (Placement tracker aligned.xlsx) |
 | 2026-04-27 | Tier 1 core scaffolding done: ModuleRegistry, central API router, RBAC + config, smoke tests (66 tests passing). Manifest extension blocked pending per-module SPEC walk. | This session  |
+| 2026-02-XX | **Backend stack for ALL business modules (People, Placements, Time, Accounting, Finance, etc.) = PHP 8.** Cloudways managed hosting does not support Python or Node services without leaving the platform; all-PHP keeps deployment, RBAC, ModuleRegistry, and API router consistent. Reverses earlier ambiguity around the People stack. | User chat (this fork) |
 
 ---
 
