@@ -200,13 +200,13 @@ Local dev: `STORAGE_DRIVER=local` swaps in a `LocalDriver` writing to `/app/stor
 
 ---
 
-## 11. Open questions (need user input before implementation)
+## 11. Decisions locked (resolved in spec sign-off)
 
-1. **PHP S3 SDK** — use the official `aws/aws-sdk-php` (large but standard) or a slimmer library? Recommend official.
-2. **Bucket count** — single platform-wide bucket with prefix isolation (simpler) vs per-tenant buckets (stronger isolation, much more ops)? Recommend single bucket at MVP, per-tenant for enterprise tier later.
-3. **Anti-virus scanning** on upload — needed at MVP (lambda + ClamAV scan) or deferred? Most SaaS platforms scan; staffing platforms see uploaded resumes which can carry malware.
-4. **Region** — start in `us-east-1`?
-5. **Direct browser uploads** — use POST presigned URLs so big files (resumes, scanned MSAs) don't tunnel through PHP. Confirm OK to add this in MVP.
+1. ✅ **PHP S3 SDK** — official `aws/aws-sdk-php` (full Amazon SDK). Best docs, best examples, no edge cases on KMS / presigned POST.
+2. ✅ **Bucket layout** — single platform-wide bucket (e.g. `coreflux-prod`) with tenant isolation enforced via path prefixes (`{module}/{tenant_id}/...`). Per-tenant buckets deferred to a future enterprise tier.
+3. ✅ **Anti-virus scanning** — deferred to Phase B. **Must be in place before any paying customer onboards** (SOC2 control). Wire-up plan: AWS Lambda + ClamAV on PutObject events; quarantine prefix → clean prefix on pass.
+4. ✅ **Default region** — `us-east-1`. Per-tenant region routing deferred to enterprise tier.
+5. ✅ **Direct browser uploads via presigned POST URLs** — included in MVP. PHP issues short-lived presigned POSTs; React uploads directly to S3; PHP confirms via a "finalize" endpoint that the object exists, then writes the `storage_objects` row.
 
 ---
 
