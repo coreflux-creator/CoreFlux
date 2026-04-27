@@ -91,6 +91,23 @@ small. Marketing-speak in chat replies is forbidden.
 | 2026-04-27 | HARD RULE: pre-React PHP files must never be deleted                     | User chat (verbatim)    |
 | 2026-04-27 | HARD RULE: no module work without explicit approval                      | User chat               |
 | 2026-04-27 | The People backend was *not* approved as PHP. Stack choice is open.      | User chat               |
+| 2026-04-27 | Time becomes its own module (originally "keep in People", reversed)      | User chat               |
+| 2026-04-27 | Person model: single record + classification enum (w2/1099/temp/perm)    | User chat               |
+| 2026-04-27 | Client is NOT a CoreFlux entity — string label only                      | User chat               |
+| 2026-04-27 | Placement is its own entity. One worker → typically 1 active placement, multiple allowed. | User chat |
+| 2026-04-27 | Bill/pay rates are PER PLACEMENT, effective-dated history, full audit    | User chat               |
+| 2026-04-27 | Rate snapshot semantics: (b) frozen at approval. Posted entries keep their rate even if placement rate changes. | User chat |
+| 2026-04-27 | Custom fields are universal — tenant can customize their instance fully  | User chat               |
+| 2026-04-27 | Time module: AI extracts from inbox / individual sheets / bulk uploads / emails | User chat        |
+| 2026-04-27 | Inbox: tenant has its own inbox under its own domain                     | User chat               |
+| 2026-04-27 | AI may post entries (with attached docs) but downstream cash flow (AP/AR/Billing/Payroll/RevRec) ALWAYS requires explicit human approval at that layer | User chat |
+| 2026-04-27 | NO auto-reply to senders. Tenant_admin gets a "Missing Timesheets" dashboard with two buckets: received-but-unreadable / expected-but-not-received | User chat |
+| 2026-04-27 | Standard time categories: regular_billable, regular_nonbillable, OT_billable, OT_nonbillable, holiday, vacation, sick, bereavement, unpaid_leave (+ tenant-customizable additions) | User chat |
+| 2026-04-27 | Time entries are source-of-truth feeding Payroll, AR, AP, Billing, RevRec — ALL inside CoreFlux core (huge scope) | User chat |
+| 2026-04-27 | Per-placement toggle: send tokenized email approval to client manager (no login). Bulk uploads can carry "already approved" flag. | User chat |
+| 2026-04-27 | People + Placements as TWO SEPARATE MODULES side-by-side in sidebar      | User chat               |
+| 2026-04-27 | Placement fields require: End Client (multi-tier), W2/IC/C2C, Bill Rate, Adder %, Pay Rate, Vendor Portal Fee, Adjusted Bill Rate, Net to Vendor, Background Fee deduction, Referral Vendor + Fee + Duration, Account Manager / Lead / Recruiter + commission splits, Team Commission, Due Date, Corp details (C2C), Net Margin formula | User shared real tracker (Placement tracker aligned.xlsx) |
+| 2026-04-27 | Tier 1 core scaffolding done: ModuleRegistry, central API router, RBAC + config, smoke tests (66 tests passing). Manifest extension blocked pending per-module SPEC walk. | This session  |
 
 ---
 
