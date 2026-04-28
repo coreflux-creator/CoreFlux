@@ -330,16 +330,16 @@ class GustoEngine       implements PayrollEngine { ... }   // Phase C — adapte
 
 ---
 
-## 12. Open questions
+## 12. Decisions locked
 
-1. **Tax tables source of truth** — manual annual update by tenant_admin, or platform-managed (CoreFlux maintains `payroll_tax_tables` centrally and pushes updates to all tenants)? Recommend platform-managed — tenants don't want to touch tax tables.
-2. **Direct deposit / NACHA file** — MVP generates the file; tenant uploads to their bank manually. Or full bank integration? Recommend MVP file-only.
-3. **Multi-state worker support** — workers who work across state lines (e.g. NY resident working in NJ). Required for MVP, or limit to single-state at MVP? Recommend single-state at MVP, multi-state in Phase B.
-4. **Reciprocal agreements** — automatically apply NJ/PA, NJ/NY type reciprocity rules? Recommend Phase B.
-5. **Garnishment ordering** — IRS levy > child support > creditor garnishments. Hardcode the priority or tenant-configurable? Recommend hardcoded federal default; tenant can re-order at their own risk.
-6. **Employer 401k match** — is this in MVP or deferred?
-7. **MVP timing for Check HQ / Gusto integration** — is this Phase B or Phase C? (Affects how much we invest in the in-house engine.)
-8. **Pay card** disbursement option — in MVP or deferred?
+1. ✅ **Tax tables = platform-managed centrally.** CoreFlux maintains federal + per-state tax tables, pushes annual updates to all tenants. Tenants don't touch tax tables.
+2. ✅ **Direct deposit / ACH = full bank integration**, not just NACHA file output. Likely via Plaid Transfer (same provider as AP — see AP SPEC §12-Q1).
+3. ✅ **Multi-state worker support = at MVP** (Phase A). Workers who work across state lines correctly handled from day one.
+4. ✅ **Reciprocal agreements = auto-applied** (NJ/PA, NY/NJ, etc. — platform-maintained reciprocity matrix, applied automatically based on resident state + work state).
+5. ✅ **Garnishment ordering = hardcoded federal default** (IRS levy > child support > creditor garnishments). Not tenant-configurable.
+6. ✅ **Employer 401k match = deferred** (Phase B+).
+7. ✅ **Check HQ / Gusto adapter integration = Phase B** ("soon" — high priority after MVP). Reduces compliance surface.
+8. ✅ **Pay card disbursement = deferred** (no MVP, no near-term phase).
 
 ---
 

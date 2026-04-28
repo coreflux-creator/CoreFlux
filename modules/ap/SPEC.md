@@ -310,14 +310,18 @@ Hard rule: AI never approves bills, never posts to GL, never sends payment.
 
 ---
 
-## 12. Open questions
+## 12. Decisions locked
 
-1. **Mail intake table** — share `time_intake_events` with Time module (rename to `mail_intake_events` at core level), or have a parallel `ap_intake_events`? Recommend: lift into `mail_intake_events` at core level, modules consume by filter on `consuming_module`.
-2. **ACH origination** — does CoreFlux generate NACHA ACH files for the bank, or does it just track payments and the tenant initiates ACH at their bank portal? MVP recommendation: track payments only; integrate NACHA in Phase B (per-tenant bank profile).
-3. **1099 e-file** — generate forms only, or e-file with IRS via a 3rd party (e.g., Track1099, Tax1099.com)? Recommend Phase B integration.
-4. **Three-way match** — needed for MVP or Phase C?
-5. **Card / corporate-card import** — Plaid / Brex / Ramp integration for auto-importing card transactions? Recommend Phase B.
-6. **Vendor portal** — public read-only "view your bills + payment status" via signed link? Mirror of Billing's customer portal Q.
+1. ✅ **Mail intake table = one per module.** AP gets `ap_intake_events`; Time has `time_intake_events`. Each module owns its intake schema (allows module-specific fields without coupling). Both call Core MailService for the actual mail fetch.
+2. ✅ **Outbound payments**: full bank integration in Phase B (not just NACHA file generation). Likely path = **Plaid Transfer** for ACH origination since it covers ~12,000+ US banks (subject to confirmation in §12-Q1 below). Stripe ACH may be added as a faster-but-pricier alternative for tenants who prefer it.
+3. ✅ **1099 = generate forms only at MVP.** E-file via Track1099/Tax1099 integration deferred to Phase B.
+4. ✅ **Three-way match** (PO ↔ receipt ↔ invoice) — **in MVP**. Soft warnings on mismatch (per Billing PO config), not hard blocks unless tenant explicitly configures hard.
+5. ✅ **Card / corporate-card import** = Plaid integration in Phase B (covers most US issuers natively).
+6. ✅ **Vendor portal** = Phase B (mirror of Billing customer portal: tokenized signed-link read-only view of bills + payment status).
+
+## 12-Q. Remaining open
+
+1. **Plaid as the single bank-integration provider** — covers statement import (Q5/16) + ACH origination (Q19/AP-2) + balance verification. Confirm Plaid is the locked vendor for Phase B bank work, with Stripe ACH as alternate route for tenants who opt in.
 
 ---
 

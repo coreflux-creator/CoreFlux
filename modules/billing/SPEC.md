@@ -406,14 +406,14 @@ Hard rule: AI never directly modifies invoices, payments, GL postings, or memos.
 
 ---
 
-## 12. Open questions
+## 12. Decisions locked
 
-1. **Invoice numbering format** — fixed (`INV-2026-0001`) or tenant-customizable (`{prefix}-{YY}-{seq}` template)?
-2. **Customer portal** — public read-only invoice view via signed link (no login)? Many SaaS billing tools offer this.
-3. **Stripe / payment processor integration** — for accepting card / ACH payments, generating receipts? Recommend deferred to Phase B.
-4. **Statement of account** — periodic statement showing all invoices + payments to a client? Recommend yes, monthly.
-5. **PO matching strictness** — when `po_required=true`, hard block or soft warn?
-6. **Tax engine vs static rates** — at MVP, manual tax rates per jurisdiction; do we need Avalara/TaxJar integration roadmap noted?
+1. ✅ **Invoice numbering = tenant-customizable template** (e.g. `{prefix}-{YYYY}-{NNNN}` configurable per tenant; sequence per tenant+entity).
+2. ✅ **Customer portal**: yes (Phase A). Public read-only "view your invoice" via tokenized signed link, no login. **Email also includes the rendered PDF as attachment + optional additional attachments** (e.g., timesheet detail, supporting docs).
+3. ✅ **Stripe / payment processor for accepting payments** = Phase B.
+4. ✅ **Statement of account**: tenant-configured cadence (off / monthly / quarterly), per client.
+5. ✅ **PO matching = soft warn** when `po_required=true` and PO# missing or doesn't match `po_format_regex`.
+6. ✅ **Tax engine integration** (Avalara / TaxJar) — yes, Phase B. MVP uses manual tax rates per jurisdiction.
 
 ---
 

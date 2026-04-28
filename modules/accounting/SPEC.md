@@ -829,12 +829,10 @@ Hard rule (HARD_RULES): AI never posts, approves, reverses, closes, or modifies.
 2. ✅ **Approval rule evaluation = multi-level chain.** All matching rules fire in order by `level` ascending. Two-step / N-step approvals supported by stacking rules.
 3. ✅ **External integrations**: CSV import/export covering ALL accounting ledgers (COA, JEs, TB, periods, dimensions, FX, allocations, intercompany, consolidation results) at v1.0. **QuickBooks + Wave** are the next priorities for native API sync (Phase 1.1). Xero deferred / removed from priority list.
 4. ✅ **Cash flow statement = indirect method only** at v1.0. Direct method deferred to Phase 1.1+ if requested. `cash_flow_tag` on COA already supports indirect.
-
-### Remaining open
-5. **Statistical accounts** — included in the `account_type` enum and used as allocation drivers. Confirm they appear in the COA UI but are excluded from financial statements (TB, P&L, BS).
-6. **Webhook delivery retention** — how long to keep `accounting_outbound_webhook_deliveries` payloads? Recommend 90 days hot, then archive metadata only (drop body).
-7. **Reopen period guardrails** — only allow reopen for the most-recent closed period, or any historical period? Recommend: most-recent only by default; tenant_admin override with reason + extra approval.
-8. **Maker/checker tenant default** — for new tenants, is "same user cannot prepare and approve" ON or OFF by default? Recommend ON.
+5. ✅ **Statistical accounts** kept in COA as `account_type='statistical'`. Excluded from TB / P&L / BS. Used as allocation drivers (e.g., headcount, sqft, units).
+6. ✅ **Webhook delivery retention = 7 years** for `accounting_outbound_webhook_deliveries` (matches IRS retention floor; aligns with audit posture).
+7. ✅ **Reopen-period guardrails**: only the most-recent closed period can be reopened by default. Tenant_admin override allowed for older periods with mandatory reason capture + extra approval (configurable in approval rules).
+8. ✅ **Maker/checker = tenant setting, default OFF.** Per-tenant configuration; new tenants land with maker/checker disabled (so a one-person shop can post). Tenants with multiple finance staff toggle ON in settings.
 
 ---
 

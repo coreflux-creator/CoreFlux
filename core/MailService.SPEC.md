@@ -322,13 +322,14 @@ MAIL_KMS_KEY_ID=alias/coreflux-mail
 
 ---
 
-## 12. Open questions
+## 12. Decisions locked
 
-1. **Per-tenant Resend account** vs **CoreFlux-shared Resend account with tenant domain added**? You said "I have Resend" — confirming you want the shared-account model where you control the API key and add tenant domains under your Resend org. Cleaner for billing; deliverability scales together.
-2. **Outbound on OAuth-via-tenant-mail**: Microsoft caps `Mail.Send` at ~10k messages/day per mailbox; Gmail caps at 2k/day for free, 10k/day for Workspace. Hard limits. Tenants with high outbound volume MUST use Resend. Surface this in the UI? Recommend: yes — show daily volume estimate and warn when approaching.
-3. **Tenant-folder name convention**: do we mandate the folder name (`timesheets`, `invoices`) or let the tenant pick and map? Recommend: tenant picks any name, maps to module in MailService settings.
-4. **Polling interval**: default 5 min OK? Some tenants may want 1 min for time-sensitive workflows. Recommend tenant-configurable, 1–60 min range.
-5. **Email body retention** in `mail_outbox` — 90 days OK? Audit needs vary by jurisdiction (some require 7 years).
+1. ✅ **Inbox connector**: read-only via Microsoft 365 (Graph) + Google Workspace (Gmail) at MVP.
+2. ✅ **Resend = single shared CoreFlux account** with tenant domains added under it. Resend API key stored centrally; tenants do their own DKIM/SPF DNS work to verify their domain on the platform's Resend org.
+3. ✅ **OAuth daily-cap warnings**: surface usage estimate + warning when a tenant approaches M365 (~10k/day) or Gmail (~10k/day) `Mail.Send` daily cap. Recommend Resend transport before they hit the wall.
+4. ✅ **Folder name convention**: tenant picks any folder name in their own mail; maps to consuming module via MailService settings. NOT mandated.
+5. ✅ **Polling interval**: tenant-configurable, **default 60 minutes**, range 1–60 min.
+6. ✅ **`mail_outbox` body retention**: 90 days hot then truncate body (keep metadata + provider message id).
 
 ---
 
