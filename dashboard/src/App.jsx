@@ -35,62 +35,104 @@ const DEMO_SESSION = {
     { id: 2, name: 'Acme Corp', role: 'employee' }
   ],
   modules: [
-    { 
-      id: 'accounting', 
-      name: 'Accounting', 
-      icon: '/assets/icons/icon-accounting.png',
-      description: 'General ledger and financial reporting',
-      actions: [
-        { name: 'Overview', route: 'overview' },
-        { name: 'Chart of Accounts', route: 'chart_of_accounts' },
-        { name: 'Journal Entries', route: 'journal_entries' },
-        { name: 'General Ledger', route: 'general_ledger' },
-        { name: 'Accounts Payable', route: 'accounts_payable' },
-        { name: 'Accounts Receivable', route: 'accounts_receivable' },
-        { name: 'Reports', route: 'reports' },
-        { name: 'Settings', route: 'settings' }
-      ]
-    },
-    { 
-      id: 'people', 
-      name: 'People', 
+    {
+      id: 'people',
+      name: 'People',
       icon: '/assets/icons/icon-people.png',
-      description: 'HR and workforce management',
+      description: 'Talent system of record — directory, classification, work auth, skills, documents, hiring pipeline.',
       actions: [
-        { name: 'Overview', route: 'overview' },
-        { name: 'Enter Time', route: 'enter_time' },
-        { name: 'Timesheets', route: 'timesheets' },
-        { name: 'Employee Directory', route: 'employee_directory' },
-        { name: 'Reports', route: 'reports' },
-        { name: 'Hiring Pipeline', route: 'hiring_pipeline' }
-      ]
-    },
-    { 
-      id: 'finance', 
-      name: 'Finance', 
-      icon: '/assets/icons/icon-finance.png',
-      description: 'Budgeting and forecasting',
-      actions: [
-        { name: 'Overview', route: 'overview' },
-        { name: 'Budgets', route: 'budgets' },
-        { name: 'Forecasts', route: 'forecasts' },
-        { name: 'Reports', route: 'reports' }
+        { name: 'Directory',       route: 'directory' },
+        { name: 'Hiring Pipeline', route: 'pipeline' },
+        { name: 'Document Vault',  route: 'documents' },
+        { name: 'Custom Fields',   route: 'custom_fields' },
       ]
     },
     {
-      id: 'payroll',
-      name: 'Payroll',
-      icon: '/assets/icons/icon-payroll.png',
-      description: 'Pay schedules, runs, and gross-to-net calculation',
+      id: 'placements',
+      name: 'Placements',
+      icon: '/assets/icons/icon-placements.png',
+      description: 'Active engagements — bill/pay rates, vendor chain, commissions, referrals, C2C corp details.',
       actions: [
-        { name: 'Overview',       route: 'overview' },
-        { name: 'Pay Schedules',  route: 'pay_schedules' },
-        { name: 'Pay Periods',    route: 'pay_periods' },
-        { name: 'Employee Setup', route: 'profiles' },
-        { name: 'Runs',           route: 'runs' },
-        { name: 'Settings',       route: 'settings' }
+        { name: 'Active Placements', route: 'list' },
+        { name: 'Expiring Soon',     route: 'expiring' },
+        { name: 'New Placement',     route: 'new' },
+        { name: 'Commissions',       route: 'commissions' },
+        { name: 'Referrals',         route: 'referrals' },
+        { name: 'Reports',           route: 'reports' },
+      ]
+    },
+    {
+      id: 'time',
+      name: 'Time',
+      icon: '/assets/icons/icon-time.png',
+      description: 'Time entries, AI inbox parsing, tokenized client approvals, downstream feeds.',
+      actions: [
+        { name: 'My Time',            route: 'entries' },
+        { name: 'Review Queue',       route: 'review' },
+        { name: 'Inbox (AI)',         route: 'inbox' },
+        { name: 'Bulk Upload',        route: 'bulk' },
+        { name: 'Missing Timesheets', route: 'missing' },
+        { name: 'Pay Periods',        route: 'periods' },
+        { name: 'Reports',            route: 'reports' },
+      ]
+    },
+    {
+      id: 'billing',
+      name: 'Billing',
+      icon: '/assets/icons/icon-billing.png',
+      description: 'Customer invoices, recurring services, payments, AR aging, dunning, credits/debits, tax.',
+      actions: [
+        { name: 'AR Dashboard',     route: 'dashboard' },
+        { name: 'Invoices',         route: 'invoices' },
+        { name: 'Recurring',        route: 'recurring' },
+        { name: 'Payments',         route: 'payments' },
+        { name: 'Credits & Debits', route: 'credits' },
+        { name: 'Aging',            route: 'aging' },
+        { name: 'Dunning Queue',    route: 'dunning' },
+        { name: 'Tax Settings',     route: 'tax' },
+        { name: 'Reports',          route: 'reports' },
+      ]
+    },
+    {
+      id: 'ap',
+      name: 'Accounts Payable',
+      icon: '/assets/icons/icon-ap.png',
+      description: 'Vendor invoices, payments, 1099 / C2C contractor pay, expense reports, AP aging.',
+      actions: [
+        { name: 'AP Dashboard',    route: 'dashboard' },
+        { name: 'Vendor Inbox',    route: 'inbox' },
+        { name: 'Bills',           route: 'bills' },
+        { name: 'Payments',        route: 'payments' },
+        { name: 'Expense Reports', route: 'expenses' },
+        { name: 'AP Aging',        route: 'aging' },
+        { name: '1099 Ledger',     route: '1099' },
+        { name: 'Reports',         route: 'reports' },
+      ]
+    },
+    {
+      id: 'accounting',
+      name: 'Accounting',
+      icon: '/assets/icons/icon-accounting.png',
+      description: 'Enterprise GL — multi-entity, multi-currency, dimensions, allocations, intercompany, consolidation.',
+      actions: [
+        { name: 'Accounting Dashboard', route: 'dashboard' },
+        { name: 'Entities & Groups',    route: 'entities' },
+        { name: 'Chart of Accounts',    route: 'coa' },
+        { name: 'Journal Entries',      route: 'journal' },
+        { name: 'Approval Queue',       route: 'approval-queue' },
+        { name: 'Periods',              route: 'periods' },
+        { name: 'Period Close',         route: 'close' },
+        { name: 'Bank Reconciliation',  route: 'reconcile' },
+        { name: 'Allocations',          route: 'allocations' },
+        { name: 'Intercompany',         route: 'intercompany' },
+        { name: 'Consolidation',        route: 'consolidation' },
+        { name: 'Financial Reports',    route: 'reports' },
+        { name: 'Audit Log',            route: 'audit' },
       ]
     }
+    // Payroll module is approved per HARD_RULES (Phase B / "soon" priority)
+    // but the React UI was built before spec sign-off and will be rebuilt.
+    // Sidebar entry omitted until the spec'd implementation ships.
   ],
   active_module: null
 };
@@ -215,9 +257,10 @@ const AppContent = ({ session, usingDemo }) => {
           
           {/* Module Routes */}
           <Route path="/modules/people/*" element={<PeopleModule session={session} />} />
-          <Route path="/modules/payroll/*" element={<PayrollModule session={session} />} />
-          <Route path="/modules/accounting/*" element={<AccountingModule session={session} />} />
-          <Route path="/modules/finance/*" element={<FinanceModule session={session} />} />
+          {/* Payroll route unwired pending spec'd implementation (HARD_RULES R1: files kept, route disabled). */}
+          {/* <Route path="/modules/payroll/*" element={<PayrollModule session={session} />} /> */}
+          {/* All other modules (placements, time, billing, ap, accounting) fall through to GenericModule
+              "Coming soon" panel until Phase 4 module implementation ships. */}
           <Route path="/modules/:moduleId/*" element={<GenericModule session={session} activeModule={activeModule} />} />
         </Routes>
       </AppLayout>
