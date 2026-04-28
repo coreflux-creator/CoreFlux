@@ -333,7 +333,7 @@ class GustoEngine       implements PayrollEngine { ... }   // Phase C — adapte
 ## 12. Decisions locked
 
 1. ✅ **Tax tables = platform-managed centrally.** CoreFlux maintains federal + per-state tax tables, pushes annual updates to all tenants. Tenants don't touch tax tables.
-2. ✅ **Direct deposit / ACH = full bank integration**, not just NACHA file output. Likely via Plaid Transfer (same provider as AP — see AP SPEC §12-Q1).
+2. ✅ **Direct deposit / ACH = full bank integration** in Phase B. Vendor deferred (decide at Phase B kickoff). Behind same `PaymentRailsDriver` abstraction as AP (see AP SPEC §12).
 3. ✅ **Multi-state worker support = at MVP** (Phase A). Workers who work across state lines correctly handled from day one.
 4. ✅ **Reciprocal agreements = auto-applied** (NJ/PA, NY/NJ, etc. — platform-maintained reciprocity matrix, applied automatically based on resident state + work state).
 5. ✅ **Garnishment ordering = hardcoded federal default** (IRS levy > child support > creditor garnishments). Not tenant-configurable.

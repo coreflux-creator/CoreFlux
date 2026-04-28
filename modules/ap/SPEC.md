@@ -313,15 +313,11 @@ Hard rule: AI never approves bills, never posts to GL, never sends payment.
 ## 12. Decisions locked
 
 1. ✅ **Mail intake table = one per module.** AP gets `ap_intake_events`; Time has `time_intake_events`. Each module owns its intake schema (allows module-specific fields without coupling). Both call Core MailService for the actual mail fetch.
-2. ✅ **Outbound payments**: full bank integration in Phase B (not just NACHA file generation). Likely path = **Plaid Transfer** for ACH origination since it covers ~12,000+ US banks (subject to confirmation in §12-Q1 below). Stripe ACH may be added as a faster-but-pricier alternative for tenants who prefer it.
+2. ✅ **Outbound payments**: full bank integration in Phase B (not just NACHA file generation). **Vendor selection deferred** — decide between Plaid Transfer / Stripe ACH / Modern Treasury / Dwolla / direct bank API at Phase B kickoff. Code abstracts payment rails behind a single `PaymentRailsDriver` interface so the choice is swappable.
 3. ✅ **1099 = generate forms only at MVP.** E-file via Track1099/Tax1099 integration deferred to Phase B.
 4. ✅ **Three-way match** (PO ↔ receipt ↔ invoice) — **in MVP**. Soft warnings on mismatch (per Billing PO config), not hard blocks unless tenant explicitly configures hard.
-5. ✅ **Card / corporate-card import** = Plaid integration in Phase B (covers most US issuers natively).
+5. ✅ **Card / corporate-card import**: Phase B. Vendor deferred (Plaid / Brex / Ramp / direct issuer API — same `PaymentRailsDriver` abstraction).
 6. ✅ **Vendor portal** = Phase B (mirror of Billing customer portal: tokenized signed-link read-only view of bills + payment status).
-
-## 12-Q. Remaining open
-
-1. **Plaid as the single bank-integration provider** — covers statement import (Q5/16) + ACH origination (Q19/AP-2) + balance verification. Confirm Plaid is the locked vendor for Phase B bank work, with Stripe ACH as alternate route for tenants who opt in.
 
 ---
 
