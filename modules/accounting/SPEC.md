@@ -822,17 +822,19 @@ Hard rule (HARD_RULES): AI never posts, approves, reverses, closes, or modifies.
 
 ---
 
-## 12. Open questions
+## 12. Decisions locked (resolved in spec sign-off) + remaining open
 
-1. **Starter COA templates for v1.0** — `staffing_services_us` is the obvious first. What others to ship at v1.0 (SaaS, manufacturing, professional_services_us)? Recommend just `staffing_services_us` at MVP, more later.
-2. **Approval rule evaluation order** — when multiple rules match, do they ALL fire (multi-level chain) or only the most specific (single)? Recommend multi-level chain by `level` ascending.
-3. **Statistical accounts** — included in account_type enum but typically used as drivers for allocations. Confirm we expose them in COA UI but exclude from financial statements.
-4. **External system priorities for v1.0 integrations** — QB Online + Xero only? Or also CSV import/export at minimum first? Recommend CSV at MVP, QB/Xero in Phase 1.1.
-5. **Webhook retention** — how long do we keep `accounting_outbound_webhook_deliveries` payloads? Recommend 90 days hot, then archive metadata only.
-6. **Reopen period guardrails** — only allow reopen for the most-recent closed period? Or any historical? Recommend most-recent only by default; tenant_admin override for edge cases.
-7. **Multi-book / multi-GAAP** — confirmed deferred to Phase 1.2 per source brief.
-8. **Maker/checker tenant default** — ON or OFF for new tenants? Recommend ON.
-9. **Cash flow indirect method only** — confirm; direct method deferred?
+### Locked
+1. ✅ **Starter COA templates at v1.0**: `generic` + `staffing_services_us`. Additional verticals (SaaS, manufacturing, professional services) deferred to Phase 1.1.
+2. ✅ **Approval rule evaluation = multi-level chain.** All matching rules fire in order by `level` ascending. Two-step / N-step approvals supported by stacking rules.
+3. ✅ **External integrations**: CSV import/export covering ALL accounting ledgers (COA, JEs, TB, periods, dimensions, FX, allocations, intercompany, consolidation results) at v1.0. **QuickBooks + Wave** are the next priorities for native API sync (Phase 1.1). Xero deferred / removed from priority list.
+4. ✅ **Cash flow statement = indirect method only** at v1.0. Direct method deferred to Phase 1.1+ if requested. `cash_flow_tag` on COA already supports indirect.
+
+### Remaining open
+5. **Statistical accounts** — included in the `account_type` enum and used as allocation drivers. Confirm they appear in the COA UI but are excluded from financial statements (TB, P&L, BS).
+6. **Webhook delivery retention** — how long to keep `accounting_outbound_webhook_deliveries` payloads? Recommend 90 days hot, then archive metadata only (drop body).
+7. **Reopen period guardrails** — only allow reopen for the most-recent closed period, or any historical period? Recommend: most-recent only by default; tenant_admin override with reason + extra approval.
+8. **Maker/checker tenant default** — for new tenants, is "same user cannot prepare and approve" ON or OFF by default? Recommend ON.
 
 ---
 
