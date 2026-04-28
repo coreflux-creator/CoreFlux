@@ -1,108 +1,146 @@
 <?php
 /**
- * Accounting Module Manifest
- * 
- * This manifest defines how the Accounting module integrates with CoreFlux.
- * Other modules should follow this same structure.
+ * Accounting Module Manifest (GL engine of record)
+ *
+ * Per /app/modules/accounting/SPEC.md (v1.0 enterprise scope).
+ * Multi-entity foundational, dimensions first-class, advanced allocations,
+ * intercompany + consolidation in v1.0, period close as workflow.
+ * Subledgers (Billing/AP/Payroll) post via /api/v1/accounting/journal-entries
+ * with idempotency_key required for system posts.
+ *
+ * Source-of-truth: /app/modules/accounting/SPEC.md.
  */
 
 return [
-    'id' => 'accounting',
-    'name' => 'Accounting',
-    'icon' => '/assets/icons/icon-accounting.png',
-    'description' => 'General ledger, accounts payable, accounts receivable, and financial reporting.',
-    
-    // Navigation items for the sidebar
-    'navItems' => [
-        ['name' => 'Overview', 'route' => 'overview', 'icon' => 'icon-dashboard.png'],
-        ['name' => 'General Ledger', 'route' => 'general_ledger', 'icon' => 'icon-gl.png'],
-        ['name' => 'Chart of Accounts', 'route' => 'chart_of_accounts', 'icon' => 'icon-coa.png'],
-        ['name' => 'Journal Entries', 'route' => 'journal_entries', 'icon' => 'icon-journal.png'],
-        ['name' => 'Accounts Payable', 'route' => 'accounts_payable', 'icon' => 'icon-ap.png'],
-        ['name' => 'Accounts Receivable', 'route' => 'accounts_receivable', 'icon' => 'icon-ar.png'],
-        ['name' => 'Bank Reconciliation', 'route' => 'bank_reconciliation', 'icon' => 'icon-bank.png'],
-        ['name' => 'Period Close', 'route' => 'period_close', 'icon' => 'icon-period.png'],
-        ['name' => 'Reports', 'route' => 'reports', 'icon' => 'icon-reporting.png'],
+    'id'          => 'accounting',
+    'name'        => 'Accounting',
+    'icon'        => '/assets/icons/icon-accounting.png',
+    'description' => 'Enterprise GL — multi-entity, multi-currency, dimensions, allocations, intercompany, consolidation.',
+    'version'     => '1.0.0',
+
+    'actions' => [
+        ['name' => 'Accounting Dashboard', 'route' => 'dashboard',         'permission' => 'accounting.view'],
+        ['name' => 'Entities & Groups',    'route' => 'entities',          'permission' => 'accounting.entities.view'],
+        ['name' => 'Chart of Accounts',    'route' => 'coa',               'permission' => 'accounting.coa.view'],
+        ['name' => 'Dimensions',           'route' => 'dimensions',        'permission' => 'accounting.dimensions.view'],
+        ['name' => 'Journal Entries',      'route' => 'journal',           'permission' => 'accounting.je.create'],
+        ['name' => 'Approval Queue',       'route' => 'approval-queue',    'permission' => 'accounting.je.approve'],
+        ['name' => 'Periods',              'route' => 'periods',           'permission' => 'accounting.period.view'],
+        ['name' => 'Period Close',         'route' => 'close',             'permission' => 'accounting.close_workflow.manage'],
+        ['name' => 'Bank Accounts',        'route' => 'bank',              'permission' => 'accounting.bank.manage'],
+        ['name' => 'Bank Reconciliation',  'route' => 'reconcile',         'permission' => 'accounting.bank.reconcile'],
+        ['name' => 'Recurring JEs',        'route' => 'recurring',         'permission' => 'accounting.recurring.manage'],
+        ['name' => 'Allocations',          'route' => 'allocations',       'permission' => 'accounting.allocations.manage'],
+        ['name' => 'Intercompany',         'route' => 'intercompany',      'permission' => 'accounting.intercompany.manage'],
+        ['name' => 'Consolidation',        'route' => 'consolidation',     'permission' => 'accounting.consolidation.run'],
+        ['name' => 'FX Rates',             'route' => 'fx',                'permission' => 'accounting.fx.manage'],
+        ['name' => 'Integrations',         'route' => 'integrations',      'permission' => 'accounting.integrations.connect'],
+        ['name' => 'Financial Reports',    'route' => 'reports',           'permission' => 'accounting.reports.view'],
+        ['name' => 'Audit Log',            'route' => 'audit',             'permission' => 'accounting.audit.view'],
     ],
-    
-    // Hero configuration for the module overview page
-    'hero' => [
-        'eyebrow' => 'Financial Management',
-        'title' => 'Accounting',
-        'subtitle' => 'Manage your general ledger, accounts payable, accounts receivable, and generate comprehensive financial reports.',
-        'actions' => [
-            ['label' => 'New Journal Entry', 'href' => '?page=journal_new', 'primary' => true],
-            ['label' => 'View Reports', 'href' => '?page=reports', 'primary' => false],
-        ],
-    ],
-    
-    // Feature cards for the overview page
-    'features' => [
-        [
-            'title' => 'General Ledger',
-            'description' => 'Chart of accounts, journal entries, and trial balance.',
-            'icon' => '/assets/icons/icon-gl.png',
-            'href' => '?page=general_ledger',
-        ],
-        [
-            'title' => 'Accounts Payable',
-            'description' => 'Vendor invoices, payments, and aging reports.',
-            'icon' => '/assets/icons/icon-ap.png',
-            'href' => '?page=accounts_payable',
-        ],
-        [
-            'title' => 'Accounts Receivable',
-            'description' => 'Customer invoices, receipts, and collections.',
-            'icon' => '/assets/icons/icon-ar.png',
-            'href' => '?page=accounts_receivable',
-        ],
-        [
-            'title' => 'Financial Reports',
-            'description' => 'Balance sheet, income statement, cash flow.',
-            'icon' => '/assets/icons/icon-reporting.png',
-            'href' => '?page=reports',
-        ],
-    ],
-    
-    // API endpoints exposed by this module
-    'api' => [
-        'prefix' => '/api/accounting',
-        'endpoints' => [
-            'GET /accounts' => 'List chart of accounts',
-            'POST /accounts' => 'Create account',
-            'GET /journal' => 'List journal entries',
-            'POST /journal' => 'Create journal entry',
-            'POST /journal/:id/post' => 'Post journal entry',
-            'POST /journal/:id/reverse' => 'Reverse journal entry',
-            'GET /reports/:type' => 'Generate report',
-        ],
-    ],
-    
-    // Permissions declared by this module
+
     'permissions' => [
-        'accounting.view' => 'Access Accounting module',
-        'accounting.coa.view' => 'View Chart of Accounts',
-        'accounting.coa.edit' => 'Edit Chart of Accounts',
-        'accounting.journal.view' => 'View Journal Entries',
-        'accounting.journal.create' => 'Create Journal Entries',
-        'accounting.journal.post' => 'Post Journal Entries',
-        'accounting.journal.reverse' => 'Reverse Journal Entries',
-        'accounting.ap.view' => 'View Accounts Payable',
-        'accounting.ap.manage' => 'Manage AP Transactions',
-        'accounting.ar.view' => 'View Accounts Receivable',
-        'accounting.ar.manage' => 'Manage AR Transactions',
-        'accounting.reports.view' => 'View Financial Reports',
-        'accounting.reports.export' => 'Export Reports',
+        'accounting.view'                       => 'Access Accounting module',
+        'accounting.audit.view'                 => 'View Accounting audit log',
+        'accounting.entities.view'              => 'View entities + groups',
+        'accounting.entities.manage'            => 'Manage entities + groups',
+        'accounting.coa.view'                   => 'View Chart of Accounts',
+        'accounting.coa.manage'                 => 'Manage Chart of Accounts',
+        'accounting.coa.block'                  => 'Block / unblock accounts from posting',
+        'accounting.dimensions.view'            => 'View dimensions',
+        'accounting.dimensions.manage'          => 'Manage dimension types + values',
+        'accounting.dimensions.security.manage' => 'Manage dimension-level security',
+        'accounting.je.create'                  => 'Create draft journal entry',
+        'accounting.je.edit_draft'              => 'Edit draft journal entry',
+        'accounting.je.submit'                  => 'Submit JE for approval',
+        'accounting.je.approve'                 => 'Approve a JE awaiting approval',
+        'accounting.je.post'                    => 'Post a JE',
+        'accounting.je.reverse'                 => 'Reverse a posted JE',
+        'accounting.je.void'                    => 'Void a draft JE',
+        'accounting.period.view'                => 'View periods',
+        'accounting.period.adjust'              => 'Adjust soft-closed period',
+        'accounting.period.close'               => 'Close a period',
+        'accounting.period.reopen'              => 'Reopen a closed period (high-bar)',
+        'accounting.close_workflow.manage'      => 'Manage close workflow + tasks',
+        'accounting.close_task.assign'          => 'Assign close tasks',
+        'accounting.close_task.complete'        => 'Complete close tasks',
+        'accounting.bank.manage'                => 'Manage bank accounts',
+        'accounting.bank.reconcile'             => 'Run bank reconciliations',
+        'accounting.fx.manage'                  => 'Manage FX rates',
+        'accounting.fx.revalue'                 => 'Run FX revaluation',
+        'accounting.recurring.manage'           => 'Manage recurring JEs',
+        'accounting.allocations.manage'         => 'Manage allocation rule sets',
+        'accounting.allocations.run'            => 'Preview / post allocations',
+        'accounting.intercompany.manage'        => 'Manage intercompany mappings + transactions',
+        'accounting.consolidation.run'          => 'Run consolidation',
+        'accounting.consolidation.approve'      => 'Approve consolidation results',
+        'accounting.integrations.connect'       => 'Connect QB / Wave / etc.',
+        'accounting.integrations.sync'          => 'Run sync with external systems',
+        'accounting.webhooks.manage'            => 'Manage outbound webhook subscriptions',
+        'accounting.reports.view'               => 'View financial reports',
+        'accounting.reports.export'             => 'Export reports (CSV/XLSX/PDF)',
     ],
-    
-    // Audit events this module emits
+
     'audit_events' => [
-        'accounting.account.created',
-        'accounting.account.updated',
-        'accounting.journal.created',
-        'accounting.journal.posted',
-        'accounting.journal.reversed',
+        'accounting.entity.created',
+        'accounting.entity.updated',
+        'accounting.entity.activated',
+        'accounting.entity.deactivated',
+        'accounting.coa.created',
+        'accounting.coa.updated',
+        'accounting.coa.blocked',
+        'accounting.coa.unblocked',
+        'accounting.dimension.type_created',
+        'accounting.dimension.value_created',
+        'accounting.dimension.security_changed',
+        'accounting.je.drafted',
+        'accounting.je.submitted',
+        'accounting.je.approved',
+        'accounting.je.rejected',
+        'accounting.je.posted',
+        'accounting.je.reversed',
+        'accounting.je.voided',
+        'accounting.period.opened',
+        'accounting.period.soft_closed',
         'accounting.period.closed',
         'accounting.period.reopened',
+        'accounting.period.adjusted',
+        'accounting.close_workflow.started',
+        'accounting.close_task.assigned',
+        'accounting.close_task.completed',
+        'accounting.close_packet.built',
+        'accounting.close_workflow.approved',
+        'accounting.bank.account_added',
+        'accounting.bank.statement_imported',
+        'accounting.bank.reconciled',
+        'accounting.fx.rate_added',
+        'accounting.fx.revalued',
+        'accounting.recurring.created',
+        'accounting.recurring.run',
+        'accounting.recurring.paused',
+        'accounting.allocation.rule_created',
+        'accounting.allocation.previewed',
+        'accounting.allocation.posted',
+        'accounting.allocation.reversed',
+        'accounting.intercompany.mapping_created',
+        'accounting.intercompany.match_resolved',
+        'accounting.intercompany.eliminated',
+        'accounting.consolidation.started',
+        'accounting.consolidation.translated',
+        'accounting.consolidation.eliminated',
+        'accounting.consolidation.complete',
+        'accounting.consolidation.reversed',
+        'accounting.integration.connected',
+        'accounting.integration.synced',
+        'accounting.integration.disconnected',
+        'accounting.integration.error',
+        'accounting.webhook.subscription_created',
+        'accounting.webhook.delivered',
+        'accounting.webhook.failed',
+        'accounting.webhook.retried',
     ],
+
+    'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
+
+    'depends_on' => [],
 ];
