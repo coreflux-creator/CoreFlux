@@ -1,85 +1,64 @@
 <analysis>**original_problem_statement**: 
-The user's goal is to refactor a monolithic PHP application, CoreFlux, into a modular architecture. The core application provides a standardized shell, design system, and services (auth, multi-tenancy), while business functions become separate, self-contained modules. 
-**PRODUCT REQUIREMENTS (Updated this session)**: 
-The app is a **Staffing Agency Operating System** (JobDiva pattern), not a generic HR app. 
+The user's goal is to refactor a monolithic PHP application, CoreFlux, into a modular architecture. The core application provides a standardized shell, design system, and services (auth, multi-tenancy, storage, mail), while business functions become separate, self-contained modules. 
+**PRODUCT REQUIREMENTS**: 
+The app is a **Staffing Agency Operating System** (JobDiva pattern). 
 - People (talent pool) and Placements (active deals/contracts) are distinct entities. 
-- Time is a separate module featuring AI inbox monitoring to parse timesheets, with strict human-in-the-loop approvals before feeding downstream (Payroll/Billing/AP/AR). 
-- Rates (bill/pay) must be effective-dated and snapshotted at approval.
-- Strict AI describes, humans decide rule: AI outputs go into a review queue and never directly alter deterministic data.
-- Backend is PHP, Frontend is a React SPA. Direct PHP cURL to OpenAI (NO Python sidecar).
+- Time module features AI inbox monitoring to parse timesheets, with strict human-in-the-loop approvals before feeding downstream (Payroll/Billing/AP/AR).
+- Accounting v1.0 is an enterprise-grade GL (multi-entity, allocations, intercompany, consolidation). 
+- Backend is strictly PHP (no Python/Node). Frontend is a React SPA. Direct PHP cURL to OpenAI.
 
-**User's preferred language**: English (EN) - INSTRUCT next agent to respond in English only.
+**User's preferred language**: INSTRUCT next agent to respond in English only.
 
 **what currently exists?**: 
-A PHP backend connected to a React SPA. In this session, the core platform primitives were stabilized: a Central API Router, a Module Registry, and Role-Based Access Control (RBAC) are now implemented and thoroughly tested in PHP. The  flow correctly routes to the React SPA. A  file was created to strictly enforce user directives (e.g., never delete pre-React files). Note: Unapproved Payroll and People module code exists in the repo but is intentionally hidden from the live site because the React bundle is frozen on an older, stable build.
+A PHP backend connected to a React SPA. 10 comprehensive architectural specifications () have been drafted and locked. The core platform framework (ModuleRegistry, RBAC, API Router) is stable. Phase 1 (Manifest extension) and Phase 2 (React Shell Routing Cleanup) are complete. The React UI now dynamically loads module placeholders. Phase 3a () has been successfully implemented with local and S3 drivers. 
 
 **Last working item**:
-- Last item agent was working: Analyzing the uploaded staffing agency spreadsheet (Placement tracker aligned.xlsx) to capture complex Placement fields (W2 vs Vendor portal, multi-tier clients, commissions, adders, background fees) in order to draft  and .
-- Status: IN PROGRESS
-- Agent Testing Done: N/A (Spec writing phase)
-- Which testing method agent to use?: N/A
+- Last item agent was working: The agent successfully completed Phase 3a (building  and its smoke tests) and generated an AWS S3 Setup Guide () for the user to configure their real AWS environment. 
+- Status: COMPLETED (Phase 3a is done; waiting on user to follow the AWS guide, but this does not block the agent from continuing).
+- Agent Testing Done: Y (Ran 105 PHP backend smoke tests, all passed).
+- Which testing method agent to use? backend testing agent / manual testing via 
 - User Testing Done: N
 
 **All Pending/In progress Issue list**:
-  Issue 1: React bundle contains unapproved modules (P1)
-  Issue 2: People Backend stack discrepancy (P1)
-  
-  Issues Detail:
-  - Issue 1: 
-     - Attempted fixes: The live React bundle () is intentionally frozen on an April 16 build to hide unapproved Payroll and People modules that previous agents built. 
-     - Next debug checklist: Do NOT run yarn run v1.22.22
-info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command. until the user approves Phase 2 (React cleanup). Once specs are approved, unapproved routes must be commented out in  and  before rebuilding the bundle.
-     - Why fix this issue and what will be achieved with the fix? Brings the live React UI up to date with the newly stabilized Core framework without exposing half-baked/rejected modules.
-     - Status: BLOCKED (Waiting on spec approval)
-     - Is recurring issue? N
-     - Should Test frontend/backend/both after fix? Frontend
-     - Blocked on other issue: Finalizing module specs.
-  - Issue 2: 
-     - Attempted fixes: User noted in chat: we spent a day deciding not to do [People backend] in PHP. However, PHP files exist for it. 
-     - Next debug checklist: Clarify the exact tech stack for the business modules with the user before writing implementation code.
-     - Why fix this issue and what will be achieved with the fix? Prevents building features in the wrong language/framework.
+  Issue 1: AWS S3 Configuration Setup
+     - Attempted fixes: Agent provided . User needs to execute it.
+     - Next debug checklist: Ask the user if they have completed the AWS setup. If yes, update  with  and S3 credentials. If not, continue using .
+     - Why fix this issue and what will be achieved with the fix? Required for production file uploads and legal document retention.
      - Status: USER VERIFICATION PENDING
-     - Is recurring issue? Y
-     - Should Test frontend/backend/both after fix? Both
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Backend
      - Blocked on other issue: None
 
 **In progress Task List**:
-  Task 1: Write SPEC.md for People and Placements (P0)
-  Task 2: Write SPEC.md for Time module (P0)
-
- Task Detail:
-  - Task 1: 
-     - Where to resume: Use the extracted data from the Excel file (Message 390) and the chat history to write comprehensive, data-model-focused  and . Show to user for sign-off.
-     - What will be achieved with this? Establishes the true, approved data model for the staffing agency OS.
-     - Status: IN PROGRESS
-     - Should Test frontend/backend/both after fix? N/A
-     - Blocked on something: None
-  - Task 2: 
-     - Where to resume: Base it on chat history—AI inbox monitoring, bulk uploads, rate snapshotting, client email approval flows without login. Write .
-     - What will be achieved with this? Formalizes the Time module requirements.
+  Task 1: Phase 3b - Core MailService
+     - Where to resume: Build  based on . Implement M365 + Gmail + Resend + Log drivers, OAuth flows, and  audit log migrations.
+     - What will be achieved with this? Unlocks inbound timesheet/invoice parsing and outbound platform emails.
      - Status: NOT STARTED
-     - Should Test frontend/backend/both after fix? N/A
-     - Blocked on something: Task 1
+     - Should Test frontend/backend/both after fix? Backend (write smoke tests similar to storage_service)
+     - Blocked on something: None
+
+  Task 2: Phase 3c - Core BrandingService (White-labeling)
+     - Where to resume: Build  per . Implement subdomain routing, color extraction, and public  endpoint.
+     - What will be achieved with this? Allows tenants to have custom branded portals and logos.
+     - Status: NOT STARTED
+     - Should Test frontend/backend/both after fix? Both
+     - Blocked on something: None
 
 **Upcoming and Future Tasks**
     Upcoming Tasks:
-    - (P0) Finalize specs for Accounting, Finance, Reporting.
-    - (P1) Phase 1 completion: Extend module  files to declare correct permissions, nav, and audit events based ONLY on the approved  files.
-    - (P1) Phase 2 completion: Clean up React / (comment out unapproved routes) and run yarn run v1.22.22
-info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command. to ship the updated Core shell to the live site.
-    - (P2) Implement Placements and Time modules based on the approved specs.
+    - (P0) Phase 4: Module Implementation - Start building backend endpoints and React UIs for the 7 business modules strictly according to their  files. Priority order: People → Placements → Time → Accounting v1.0 → Billing → AP → Payroll.
+    - (P1) Implement UI for Core Services (Branding setup UI, Mail OAuth connection UI).
+    - (P2) Phase B tasks (Plaid integration, Stripe integration, Tax engine integration) as defined in the respective SPECs.
     Future Tasks:
-    - (P3) Implement Accounting and Finance modules.
-    - (P3) Extract Modules via Git Subtree (Wait until MVPs are functional).
+    - (P3) Git subtree extraction of modules (after MVPs are functional).
 
 **Completed work in this session**
--  redirect fix (redirects to React  instead of legacy PHP ) (DONE)
-- Cloudways  crash fixed in  and  (DONE)
-- Created  to persist user architectural decisions (DONE)
-- Implemented  for module auto-discovery (DONE)
-- Implemented  &  (DONE)
-- Implemented  &  (DONE)
-*(Note: A Payroll module was fully built in this session but was thoroughly REJECTED by the user as out-of-scope. Ignore this code).*
+- Drafted, reviewed, and locked 10  files (People, Placements, Time, Billing, AP, Payroll, Accounting, StorageService, MailService, BrandingService) (DONE)
+- Logged 23 new hard decisions in  (DONE)
+- Phase 1: Created/updated  for all 7 business modules, registering 132 permissions, 64 sidebar actions, and 193 audit events. (DONE)
+- Phase 2: Cleaned up React shell (, ), commented out legacy unapproved Payroll routing, added generic placeholder routes, and rebuilt the Vite bundle. (DONE)
+- Phase 3a: Implemented  with  and , plus database migrations and smoke tests. (DONE)
+- Created  for the user. (DONE)
 
 **Earlier issues found/mentioned but not fixed**
    Issue 1:  
@@ -87,85 +66,86 @@ info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this comm
    - Why to solve this issue and what will be achieved with this? Prevents UI bugs in navigation.
    - Should Test frontend/backend/both after fix: Frontend
    - Is recurring issue? N
-   Issue 2:
-   - Debug checklist: Cloudways Server Git Authentication fails. 
-   - Why to solve this issue and what will be achieved with this? Streamlines SSH deployments. (Currently bypassed by user via Cloudways UI).
-   - Should Test frontend/backend/both after fix: NA
-   - Is recurring issue? Y
 
 **Known issue recurrence from previous fork**
-  - Issue recurrence in previous fork: Agents ignoring user architectural decisions, building unprompted modules (Payroll), and forcing stack changes (Python sidecars, forced React rewrites). 
+  - Issue recurrence in previous fork: Agents ignoring user architectural decisions, building unprompted modules, and forcing stack changes (Python sidecars, Node.js).
   - Recurrence count: 4
-  - Status: RESOLVED (Mitigated by the creation of  which must be read by all agents).
+  - Status: RESOLVED (Mitigated by strict adherence to ).
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
 - Frontend: React 18, Vite.
-- Backend: PHP 8.
-- Architecture: Core platform + decoupled business modules. Staffing Agency OS (JobDiva pattern).
-- AI Integration: Handled natively in PHP via  to OpenAI. NO Python sidecar.
+- Backend: PHP 8 (Strictly NO Python/Node sidecars).
+- Architecture: Core platform + 7 decoupled business modules.
+- Core Services: Pluggable driver abstractions (Storage, Mail, Branding) handling cross-cutting concerns.
+- Subledger Pattern: Billing, AP, Payroll send JEs to Accounting via strict protocol () with idempotency keys.
 
 **key DB schema**
-  - : {id, name, email, password_hash, role, tenant_id}
-  - , 
-  - *(Note: User rejected recent DB table additions for People/Payroll. Schema is pending approval via SPEC.md phase).*
+  - : {id, tenant_id, entity_type, entity_id, s3_key, file_name, file_size, mime_type, retention_until, legal_hold}
+  - : {id, storage_object_id, user_id, ip_address, expires_at}
 
 **changes in tech stack**
-  - Strictly NO Python sidecar. Direct PHP cURL to OpenAI.
-  - React SPA is the primary frontend, but legacy PHP files must never be deleted per .
+  - Confirmed: 100% PHP backend. No Python.
+  - Storage: AWS S3 (via AWS SDK PHP) chosen as production backend.  used for dev/testing.
 
 **All files of reference** 
-  - : **CRITICAL** User rules. Read this first.
-  - : Discovers  files.
-  - : Role-based access control.
-  - : Central API router.
-  - : Modified to redirect to .
-  - : Smoke tests for the new core framework.
+  - : **CRITICAL** Source of truth for architectural decisions.
+  - : 10 locked specifications defining exactly what to build.
+  -  & : Newly created storage service.
+  - : Updated React router.
 
 **Areas that need refactoring**: 
- and  contain imports for unapproved modules (Payroll, People React UI). These need to be commented out (not deleted) before the next React bundle rebuild.
+- Legacy PHP files in  need to be refactored to match the newly locked  data model.
+-  React components exist but are currently unwired from . Do not delete them; keep them for Phase C reconstruction.
 
 **key api endpoints**
-  - : Handled by .
+  - : The strict posting protocol contract for subledgers.
 
 **Critical Info for New Agent** 
-- **DO NOT RUN yarn run v1.22.22
-info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command. OR REBUILD THE REACT BUNDLE YET.** The current bundle  is intentionally frozen on April 16. Rebuilding it now will push unapproved, half-baked modules to the user's live site. Wait until Phase 2 React Cleanup is explicitly approved.
-- **READ  BEFORE DOING ANYTHING.** It contains non-negotiable directives (e.g., Never delete pre-React files, no unapproved module work).
-- **STAFFING AGENCY OS:** The user is building a Staffing Agency platform, not a generic HR app. People (talent) and Placements (active deals) are separate modules. Time features AI inbox monitoring. 
-- You are currently in a Spec Writing phase. Do not generate code for modules. Generate  files based on chat context and the extracted Excel file, and get user sign-off.
+- **DO NOT ASSUME REQUIREMENTS.** 10  files have been painstakingly negotiated and locked. You must read the specific  for a module/service before writing code for it.
+- **READ  FIRST.** It contains non-negotiable directives (e.g., all-PHP backend, indirect cash flow method, no AI mutations of downstream data).
+- The  is complete and defaults to . You can build modules that upload/download files without waiting for the user to configure AWS S3.
+- The next immediate task is **Phase 3b: Core MailService**.
 
 **documents and test reports created in this job** 
-  - /app/memory/HARD_RULES.md
-  - /app/tests/module_registry_smoke.php
-  - /app/tests/api_router_smoke.php
-  - /app/tests/rbac_smoke.php
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
 
 **Last 10 User Messages and any pending HUMAN messages** 
- - (User) Provided specific answers regarding Placements and Time logic (Snapshot rates, no auto-reply, JobDiva placement pattern).
- - (Agent) Summarized Placement/People split and proposed data fields. Asked for modifications.
- - (User) Confirmed separate modules. Offered a template for placement fields.
- - (User) Uploaded .
- - (Agent) Extracted the Excel file, discovering complex staffing billing models (Vendor portals, Beeline, multi-tier commissions, background fees). Applied a  to save context. 
- - *Pending*: The agent needs to draft  and  using this newly extracted Excel data and present it to the user.
+ - (Agent) Summarized Phase 3a completion, test pass rates, and asked if user wants to view the AWS Setup Guide or move to Phase 3b.
+ - (User) Asked where do I see these aws instructions.
+ - (Agent) Explained how to find  and offered to paste it in chat.
+ - (User) past it.
+ - (Agent) Displayed the AWS Setup Guide contents.
+ - *Pending*: The user will review the AWS setup guide. The agent should now proceed to Phase 3b (MailService) or Phase 3c (BrandingService).
 
 **Project Health Check:**
-- Broken: React bundle is intentionally decoupled/out-of-date from the backend to hide unapproved work.
-- Mocked: Emergent preview environment uses mocked Bash DB tests due to lack of a PHP MySQL driver.
+- Broken: None. React SPA bundle is now successfully synced with the backend module registry.
+- Mocked:  is currently mocking AWS S3 file storage. Database testing is mocked via CLI PHP smoke tests () due to environment DB constraints.
 
 **3rd Party Integrations** 
- - OpenAI GPT-5.4 (Direct REST API integration via cURL in PHP — requires User API Key, strictly NOT using the Emergent LLM Key).
+ - AWS S3 (via PHP SDK) - Requires User AWS Keys.
+ - Postmark/Resend (Email) - Requires User API Keys.
+ - OpenAI GPT-4 (via cURL) - Requires User API Key.
+ - Plaid (Banking) - Deferred to Phase B.
 
 **Testing status**
-  - Testing agent used after significant changes: NO
+  - Testing agent used after significant changes: NO (Agent self-tested via custom PHP smoke testing suite).
   - Troubleshoot agent used after agent stuck in loop: NO
-  - Test files created: , , 
-  - Known regressions: None
+  - Test files created: 
+  - Known regressions: None. (Total smoke tests: 105 passing).
 
 **Credentials to test flow:**
-  - Mock server provides simulated session for . Admin roles are , , or .
+  - Mock server provides simulated session for  with  role.
 
 **What agent forgot to execute**
-- The agent extracted the Placement tracker aligned.xlsx file but ran out of context before writing the actual  and  documents. The next agent should immediately resume writing these specs based on the extracted Excel data in Message 390.</analysis>
+- Nothing was forgotten. The agent executed precisely according to the mutually agreed  phased plan. Next phase is 3b (MailService).</analysis>
