@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS tenant_mail_connections (
 
     INDEX idx_mc_tenant_provider_purpose (tenant_id, provider, purpose),
     INDEX idx_mc_status_polled (status, last_polled_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS tenant_mail_folders (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS tenant_mail_folders (
     INDEX idx_mf_polling_due (polling_enabled, last_polled_at),
     CONSTRAINT fk_mf_connection FOREIGN KEY (connection_id)
         REFERENCES tenant_mail_connections(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS mail_messages_seen (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS mail_messages_seen (
     INDEX idx_ms_tenant_seen (tenant_id, seen_at),
     CONSTRAINT fk_ms_folder FOREIGN KEY (folder_id)
         REFERENCES tenant_mail_folders(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS mail_outbox (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -116,4 +116,4 @@ CREATE TABLE IF NOT EXISTS mail_outbox (
     INDEX idx_mo_tenant_purpose (tenant_id, purpose),
     INDEX idx_mo_status_created (status, created_at),
     INDEX idx_mo_retention (created_at, body_truncated_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

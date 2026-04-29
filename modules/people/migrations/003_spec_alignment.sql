@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS people (
     INDEX idx_people_tenant_classification (tenant_id, classification),
     INDEX idx_people_tenant_workauth_expiry (tenant_id, work_auth_expiry),
     INDEX idx_people_tenant_external (tenant_id, external_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =======================================================================
 -- 2. Emergency contacts
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS people_emergency_contacts (
     created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_pec_person (person_id),
     INDEX idx_pec_tenant (tenant_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =======================================================================
 -- 3. Skills (+ tenant taxonomy)
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS people_skills (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_ps_person (person_id),
     INDEX idx_ps_tenant_skill (tenant_id, skill)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS people_skill_taxonomy (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS people_skill_taxonomy (
     skill VARCHAR(120) NOT NULL,
     category VARCHAR(80) NULL,
     UNIQUE KEY uq_pst_tenant_skill (tenant_id, skill)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =======================================================================
 -- 4. Documents (refs storage_objects from Core StorageService)
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS people_documents (
     INDEX idx_pd_person (person_id),
     INDEX idx_pd_tenant_type (tenant_id, doc_type),
     INDEX idx_pd_expires (tenant_id, expires_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =======================================================================
 -- 5. Banking (encrypted) — one row per person per SPEC §3.1
@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS people_banking (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     updated_by_user_id BIGINT UNSIGNED NULL,
     INDEX idx_pb_tenant (tenant_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =======================================================================
 -- 6. Tax (one row per person per SPEC §3.1)
@@ -175,7 +175,7 @@ CREATE TABLE IF NOT EXISTS people_tax (
     w4_doc_id BIGINT UNSIGNED NULL,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_pt_tenant (tenant_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =======================================================================
 -- 7. Hiring pipeline (hybrid: enum top-level + tenant sub-stage)
@@ -192,7 +192,7 @@ CREATE TABLE IF NOT EXISTS people_pipeline_stages (
     placement_id BIGINT UNSIGNED NULL,
     INDEX idx_pps_person_entered (person_id, entered_at),
     INDEX idx_pps_tenant_stage (tenant_id, stage)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS tenant_pipeline_substages (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -204,7 +204,7 @@ CREATE TABLE IF NOT EXISTS tenant_pipeline_substages (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_tps_tenant_parent_label (tenant_id, parent_stage, label),
     INDEX idx_tps_tenant_parent (tenant_id, parent_stage, order_index)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =======================================================================
 -- 8. Custom fields (per-tenant defs + values)
@@ -223,7 +223,7 @@ CREATE TABLE IF NOT EXISTS people_custom_field_defs (
     deleted_at DATETIME NULL,
     UNIQUE KEY uq_pcfd_tenant_key (tenant_id, field_key),
     INDEX idx_pcfd_tenant (tenant_id, order_index)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS people_custom_field_values (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -237,7 +237,7 @@ CREATE TABLE IF NOT EXISTS people_custom_field_values (
     updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_pcfv_person_field (person_id, field_def_id),
     INDEX idx_pcfv_tenant (tenant_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =======================================================================
 -- 9. PII access log — SOC2 self-serve, tenant_admin visible
@@ -256,4 +256,4 @@ CREATE TABLE IF NOT EXISTS people_pii_access_log (
     INDEX idx_ppal_tenant_created (tenant_id, created_at),
     INDEX idx_ppal_actor (tenant_id, actor_user_id, created_at),
     INDEX idx_ppal_target (tenant_id, target_person_id, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
