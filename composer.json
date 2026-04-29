@@ -1,0 +1,19 @@
+{
+    "name": "coreflux/coreflux",
+    "description": "CoreFlux platform — modular PHP backend.",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.1",
+        "aws/aws-sdk-php": "^3.300",
+        "vlucas/phpdotenv": "^5.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "Core\\": "core/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}
