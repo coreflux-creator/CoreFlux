@@ -82,7 +82,29 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
     can import shared deps; production build green (1693 modules transformed)
   - `deploy/post_deploy_smoke.php` — added 9 payroll table checks
 
-- [x] **Phase 3b — Skinny Core MailService (2026-02):**
+- [x] **Phase 4 — People module SPEC alignment (2026-02-XX, this fork):**
+  - Legacy preserved at `/app/legacy/people_pre_spec_<date>/` (HARD_RULES R1)
+  - `modules/people/migrations/003_spec_alignment.sql` — 12 new SPEC-aligned tables
+    (additive; legacy `people_employees` etc. untouched)
+  - 11 API endpoints under `modules/people/api/` aligned to SPEC §5: `people.php`
+    (CRUD + terminate), `skills`, `pipeline` (incl. substages CRUD + summary),
+    `emergency_contacts`, `documents` (StorageService-backed), `custom_fields`
+    (defs + values), `merge` (with FK re-pointing across 6 tables + audit),
+    `audit_pii` (SOC2 self-serve), `banking` (encrypted), `tax` (encrypted SSN)
+  - `modules/people/lib/people.php` — cross-module read interface (peopleGet,
+    peopleList, peoplePipelineHistory, peopleSkills, peopleDocuments,
+    peopleCustomFieldDefs/Values, peopleLogPIIAccess)
+  - `modules/people/lib/audit.php` — audit_log writer (people.* events)
+  - 8 React components: PeopleModule, Directory (filters + pagination),
+    PersonCreate (validated), PersonDetail (7 tabs per SPEC §6: Overview,
+    Placements, Documents, Skills, Pipeline, Compliance, PII), Pipeline
+    (stage tabs + bucketed counts), DocumentVault, CustomFields, PIIAuditLog
+  - `tests/people_spec_smoke.php` — 104 assertions ✓ (manifest contract,
+    migration tables/enums, API parse, UI files, lib contract, legacy R1)
+  - Vite bundle rebuilt (1696 modules transformed) and synced to `/app/spa-assets/`
+  - `memory/PEOPLE_DEPLOY_NOTES.md` — Cloudways deploy + rollback walkthrough
+
+
   - `core/MailService.php` — single email primitive (send + poll + OAuth flow stub).
     All modules MUST use this; no direct SMTP/IMAP/Graph/Gmail/Resend in module code.
   - `core/mail/MailDriver.php` — pluggable backend interface (poll, send, refresh_oauth, revoke).
