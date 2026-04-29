@@ -82,7 +82,50 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
     can import shared deps; production build green (1693 modules transformed)
   - `deploy/post_deploy_smoke.php` — added 9 payroll table checks
 
+- [x] **Phase 4 — Placements module Phase A (2026-02-XX, this fork):**
+  - Built fresh (legacy folder was empty, only SPEC+manifest existed)
+  - `modules/placements/migrations/001_init.sql` — 9 tables (`utf8mb4_unicode_ci`):
+    `placements`, `placement_client_chain`, `placement_rates`, `placement_commissions`,
+    `placement_referrals`, `placement_corp_details` (encrypted EIN),
+    `placement_documents`, `tenant_vendor_portals`, `tenant_end_clients`
+  - 10 SPEC-aligned API endpoints under `modules/placements/api/`:
+    `placements` (CRUD + end), `chain`, `rates` (draft + approve with snapshot lock +
+    correction flow + auto-close prior effective_to), `commissions`, `referrals`,
+    `corp` (encrypted), `documents`, `approval_contact`, `reports` (expiring +
+    active_by_client), `csv_import` (Core\CsvImportService primitive; resolves
+    person by email, drafts first rate row, creates end-client tier)
+  - `modules/placements/lib/placements.php` — cross-module read interface +
+    deterministic margin formula per SPEC §4 (additive vendor-fee stacking)
+  - 7 React components: PlacementsModule (router), List, Expiring, Reports,
+    PlacementCreate (with Person typeahead), PlacementDetail (9 tabs:
+    Overview / Chain / Rates / Commissions / Referrals / Corp (C2C only) /
+    Documents / Approval / Margin), CsvImport
+  - Approve UX includes correction-with-reason path; PII (EIN) encrypted via
+    `Core\encryption.php`; documents go through StorageService
+  - `tests/placements_spec_smoke.php` — 96 assertions ✓
+  - **383 platform smoke tests total ✓**
+  - Vite bundle rebuilt (302kB JS) and synced; `App.jsx` wires `/modules/placements/*`
+  - `memory/PLACEMENTS_DEPLOY_NOTES.md` — deploy + 15-step smoke walk
+
 - [x] **Phase 4 — People module SPEC alignment + design polish + CSV import (2026-02-XX, this fork):**
+  - Legacy preserved at `/app/legacy/people_pre_spec_<date>/` (HARD_RULES R1)
+  - `modules/people/migrations/003_spec_alignment.sql` — 12 SPEC-aligned tables
+    (utf8mb4_unicode_ci; legacy `people_employees` etc. untouched)
+  - 12 API endpoints (CRUD/terminate/skills/pipeline+substages/emergency_contacts/
+    documents/custom_fields/custom_field_values/merge/audit_pii/banking encrypted/
+    tax encrypted/csv_import)
+  - 9 React components: PeopleModule, Directory, PersonCreate, PersonDetail
+    (7 tabs per SPEC §6), Pipeline, DocumentVault, CustomFields, PIIAuditLog, CsvImport
+  - Design polish: `dashboard/src/styles.css` extended with module-shared
+    primitives (`.btn`, `.btn--primary`, `.btn--ghost`, `.input`, `.data-table`,
+    `.badge` 10 variants, `.tab`, `.error`) on `--cf-*` design tokens
+  - `Core\CsvImportService` shipped at `/app/core/CsvImportService.php`
+  - api_bootstrap surfaces missing-table errors clearly (no more generic 500)
+  - `tests/people_spec_smoke.php` — 104 assertions ✓
+  - `tests/csv_import_service_smoke.php` — 24 assertions ✓
+  - `memory/PEOPLE_DEPLOY_NOTES.md` — deploy walkthrough
+
+
   - Legacy preserved at `/app/legacy/people_pre_spec_<date>/` (HARD_RULES R1)
   - `modules/people/migrations/003_spec_alignment.sql` — 12 new SPEC-aligned tables
     (additive; legacy `people_employees` etc. untouched)
