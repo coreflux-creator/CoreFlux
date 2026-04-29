@@ -233,6 +233,15 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
 ## Backlog (P1)
+- [ ] **Period Close Receipt (PDF + email)** — *captured 2026-02 from
+  Period Close Wizard rollout.* One-page audit artifact emailed to the
+  closer (and stored against the period via `Core\StorageService`) when
+  a period is closed: bundle totals (AR $, Payroll/AP $, billable hrs,
+  PTO hrs), placement-by-placement breakdown, who approved, timestamp,
+  optional supersede references. Gives SOC2-grade traceability between
+  Time approvals and the downstream invoices/paychecks before Billing /
+  AP / Payroll ship. Depends on: real `MailService` driver (Phase B) for
+  the email; works standalone for the PDF + storage piece.
 - [ ] **Time Phase B** — real `M365GraphDriver` / `GmailApiDriver` for
   `Core\MailService` so the Time module can poll inboxes and AI-parse
   timesheets; tokenized client-approval email send + click-through verify
