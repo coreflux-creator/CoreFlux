@@ -10,12 +10,19 @@ credentials required for Phase A; AI inbox polling lands in Phase B).
 - **4 new tables** (idempotent, `utf8mb4_unicode_ci`, additive):
   - `time_periods`, `tenant_time_categories`, `time_entries`,
     `time_downstream_feed`
-- **6 SPEC-aligned API endpoints** under `/api/v1/time/*`:
-  - `entries.php`, `periods.php`, `categories.php`, `reports.php`,
+- 6 SPEC-aligned API endpoints under `/api/v1/time/*`:
+  - `entries.php`, `periods.php` (incl. `?action=preview_close` for the
+    Period Close Wizard preview), `categories.php`, `reports.php`,
     `feed.php`, `csv_import.php`
 - **7 React components** wired into the SPA shell:
   - `TimeModule`, `MyTime`, `ReviewQueue`, `Periods`, `Reports`,
     `Categories`, `CsvImport`
+  - **+ `PeriodCloseWizard`** — pre-flight modal that hits
+    `?action=preview_close` (read-only) and shows the exact AR / AP /
+    Payroll / RevRec bundles that will be written to
+    `time_downstream_feed`, including supersede badges for any
+    consumed bundles being replaced. Blocks confirm if any entries
+    are still `pending_review`.
 - **9 standard categories** + custom (regular_billable, regular_nonbillable,
   OT_billable, OT_nonbillable, holiday, vacation, sick, bereavement,
   unpaid_leave) with deterministic `timeBucket()` rollups (billable /
@@ -26,8 +33,8 @@ credentials required for Phase A; AI inbox polling lands in Phase B).
 - **Downstream feed** bundling (`ar`, `ap`, `payroll`, `revrec`) with
   consume / supersede flow for AR, AP and Payroll modules to pick up
 - **CSV import** via the platform-wide `Core\CsvImportService` primitive
-- **74 contract-level smoke tests** passing locally
-  (`php /app/tests/time_spec_smoke.php`)
+- **74 contract-level smoke tests** passing locally (now **85** with
+  Period Close Wizard checks: `php /app/tests/time_spec_smoke.php`)
 - **383 platform smoke tests** still green (no regressions)
 
 ## Deploy steps

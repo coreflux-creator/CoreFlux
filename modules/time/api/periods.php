@@ -3,6 +3,7 @@
  * Time API — periods
  *
  *   GET  /api/time/periods                      → list (optionally with status filter)
+ *   GET  /api/time/periods?action=preview_close&id=N → bundle preview (no writes)
  *   POST /api/time/periods                      → create period
  *   POST /api/time/periods?action=close&id=N    → close period + build downstream bundles
  *   POST /api/time/periods?action=reopen&id=N   → reopen (if no consumed bundles)
@@ -18,6 +19,16 @@ $ctx = api_require_auth();
 $user = $ctx['user'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
+
+if ($method === 'GET' && $action === 'preview_close') {
+    RBAC::requirePermission($user, 'time.period.close');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 400);
+    $period = scopedFind('SELECT id, status FROM time_periods WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$period) api_error('Not found', 404);
+    if ($period['status'] === 'closed') api_error('Already closed', 409);
+    api_ok(timePreviewBundlesForPeriod($id));
+}
 
 if ($method === 'GET') {
     RBAC::requirePermission($user, 'time.view');

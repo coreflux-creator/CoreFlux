@@ -171,6 +171,117 @@ function timeBuildBundlesForPeriod(int $periodId): array
     return $built;
 }
 
+/**
+ * Read-only "what would happen if I closed this period" preview.
+ * Returns bundle rollups + blockers WITHOUT writing to the DB.
+ *
+ * Shape:
+ *   [
+ *     'period'                 => row,
+ *     'blockers'               => ['pending_review_count' => N],
+ *     'informational'          => ['draft_count' => N, 'rejected_count' => N],
+ *     'approved_entries_count' => N,
+ *     'bundles'                => [
+ *        {placement_id, placement_title, end_client_name, bundle_type,
+ *         entry_count, total_hours_billable, total_hours_nonbillable,
+ *         total_hours_pto, total_amount_bill, total_amount_pay,
+ *         supersedes_existing_bundle_id (?int)},
+ *        ...
+ *     ],
+ *     'totals' => {placements, bundles, hours_billable, hours_pto,
+ *                  amount_bill, amount_pay},
+ *   ]
+ */
+function timePreviewBundlesForPeriod(int $periodId): array
+{
+    $period = scopedFind('SELECT * FROM time_periods WHERE tenant_id = :tenant_id AND id = :id', ['id' => $periodId]);
+    if (!$period) throw new \RuntimeException("Period {$periodId} not found");
+
+    // Blockers + informational counts
+    $statusCounts = scopedQuery(
+        'SELECT status, COUNT(*) AS c FROM time_entries
+         WHERE tenant_id = :tenant_id AND period_id = :pid GROUP BY status',
+        ['pid' => $periodId]
+    );
+    $byStatus = ['draft' => 0, 'pending_review' => 0, 'approved' => 0, 'rejected' => 0, 'superseded' => 0];
+    foreach ($statusCounts as $r) { $byStatus[$r['status']] = (int) $r['c']; }
+
+    // Approved entries (the only thing that bundles)
+    $entries = scopedQuery(
+        'SELECT te.*, pl.title AS placement_title, pl.end_client_name
+         FROM time_entries te
+         LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
+         WHERE te.tenant_id = :tenant_id AND te.period_id = :pid AND te.status = "approved"
+         ORDER BY te.placement_id, te.work_date',
+        ['pid' => $periodId]
+    );
+
+    $byPlacement = [];
+    foreach ($entries as $e) { $byPlacement[$e['placement_id']][] = $e; }
+
+    $bundles = [];
+    $sum = ['placements' => 0, 'bundles' => 0, 'hours_billable' => 0.0, 'hours_pto' => 0.0, 'amount_bill' => 0.0, 'amount_pay' => 0.0];
+
+    foreach ($byPlacement as $placementId => $group) {
+        $sum['placements']++;
+        $rateIds = array_unique(array_filter(array_column($group, 'rate_snapshot_id')));
+        $rateId  = $rateIds ? (int) reset($rateIds) : null;
+        $rate    = $rateId ? scopedFind('SELECT bill_rate, pay_rate FROM placement_rates WHERE tenant_id = :tenant_id AND id = :id', ['id' => $rateId]) : null;
+        $bill    = $rate ? (float) $rate['bill_rate'] : 0.0;
+        $pay     = $rate ? (float) $rate['pay_rate'] : 0.0;
+
+        $totals = ['billable' => 0.0, 'nonbillable' => 0.0, 'pto' => 0.0, 'unpaid' => 0.0];
+        foreach ($group as $e) { $totals[timeBucket($e['category'])] += (float) $e['hours']; }
+
+        $title  = $group[0]['placement_title']  ?? null;
+        $client = $group[0]['end_client_name']  ?? null;
+
+        foreach (['ar','ap','payroll','revrec'] as $bundleType) {
+            $existing = scopedFind(
+                'SELECT id, status FROM time_downstream_feed
+                 WHERE tenant_id = :tenant_id AND period_id = :pid AND placement_id = :plid AND bundle_type = :bt',
+                ['pid' => $periodId, 'plid' => $placementId, 'bt' => $bundleType]
+            );
+            $supersedes = ($existing && $existing['status'] === 'consumed') ? (int) $existing['id'] : null;
+
+            $bundles[] = [
+                'placement_id'                  => (int) $placementId,
+                'placement_title'               => $title,
+                'end_client_name'               => $client,
+                'bundle_type'                   => $bundleType,
+                'entry_count'                   => count($group),
+                'total_hours_billable'          => round($totals['billable'], 2),
+                'total_hours_nonbillable'       => round($totals['nonbillable'], 2),
+                'total_hours_pto'               => round($totals['pto'], 2),
+                'total_amount_bill'             => round($bill * $totals['billable'], 2),
+                'total_amount_pay'              => round($pay  * $totals['billable'], 2),
+                'supersedes_existing_bundle_id' => $supersedes,
+            ];
+            $sum['bundles']++;
+        }
+        $sum['hours_billable'] += $totals['billable'];
+        $sum['hours_pto']      += $totals['pto'];
+        $sum['amount_bill']    += $bill * $totals['billable'];
+        $sum['amount_pay']     += $pay  * $totals['billable'];
+    }
+
+    return [
+        'period' => $period,
+        'blockers' => ['pending_review_count' => $byStatus['pending_review']],
+        'informational' => ['draft_count' => $byStatus['draft'], 'rejected_count' => $byStatus['rejected']],
+        'approved_entries_count' => $byStatus['approved'],
+        'bundles' => $bundles,
+        'totals' => [
+            'placements'     => $sum['placements'],
+            'bundles'        => $sum['bundles'],
+            'hours_billable' => round($sum['hours_billable'], 2),
+            'hours_pto'      => round($sum['hours_pto'], 2),
+            'amount_bill'    => round($sum['amount_bill'], 2),
+            'amount_pay'     => round($sum['amount_pay'], 2),
+        ],
+    ];
+}
+
 function timeAudit(string $event, array $meta = [], ?int $targetId = null): void
 {
     $pdo = getDB();

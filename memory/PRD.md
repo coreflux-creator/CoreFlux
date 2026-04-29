@@ -125,17 +125,23 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
     `reports`, `feed`, `csv_import` (via `Core\CsvImportService`)
   - 7 React components wired into `App.jsx` (`/modules/time/*`):
     `TimeModule` (router), `MyTime`, `ReviewQueue`, `Periods`, `Reports`,
-    `Categories`, `CsvImport`
+    `Categories`, `CsvImport` — plus a **Period Close Wizard**
+    (`PeriodCloseWizard.jsx`) that previews exact AR/AP/Payroll/RevRec
+    bundles via the read-only `?action=preview_close` endpoint before
+    the user confirms close, blocks on `pending_review` entries, and
+    surfaces supersede badges for any consumed bundles being replaced
   - Manifest declares `depends_on: [people, placements]`, 14 permissions,
     10 audit events
   - `modules/time/lib/time.php` — cross-module read interface +
     period bundle builder (`timeBuildBundlesForPeriod`) ready for AR / AP /
     Payroll consumers
-  - `tests/time_spec_smoke.php` — 74 contract assertions ✓
+  - `tests/time_spec_smoke.php` — 85 contract assertions ✓ (was 74; +11
+    for `timePreviewBundlesForPeriod`, `?action=preview_close` endpoint,
+    and the wizard JSX wiring)
   - **All platform smoke tests still green** (people 104, placements 96,
     csv 24, mail 38, RBAC 27, module registry 37, API router 19, payroll
     compute 16, storage 22, time 74)
-  - Vite bundle rebuilt (1711 modules, 327kB JS / 17.6kB CSS) and synced
+  - Vite bundle rebuilt (1712 modules, 336kB JS / 17.6kB CSS) and synced
     to `/app/spa-assets/`
   - `memory/TIME_DEPLOY_NOTES.md` — Cloudways deploy + UI smoke walk
   - Phase B deferred: real `M365GraphDriver` / `GmailApiDriver`,

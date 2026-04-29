@@ -1,21 +1,14 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import PeriodCloseWizard from './PeriodCloseWizard';
 
 export default function Periods() {
   const { data, loading, error, reload } = useApi('/modules/time/api/periods.php');
   const rows = data?.rows ?? [];
   const [busy, setBusy] = useState(null);
   const [uiError, setUiError] = useState(null);
+  const [wizardPeriod, setWizardPeriod] = useState(null);
 
-  const close = async (id) => {
-    if (!confirm('Close this period? All approved entries will be bundled into the downstream feed for AR/AP/Payroll/RevRec.')) return;
-    setBusy(id); setUiError(null);
-    try {
-      const res = await api.post(`/modules/time/api/periods.php?action=close&id=${id}`, {});
-      alert(`Period closed. ${res.bundles_built} downstream bundles built.`);
-      reload();
-    } catch (e) { setUiError(e); } finally { setBusy(null); }
-  };
   const reopen = async (id) => {
     if (!confirm('Reopen? Only possible if no downstream bundles are consumed.')) return;
     setBusy(id); setUiError(null);
@@ -54,13 +47,25 @@ export default function Periods() {
               <td><span className={`badge badge--${p.status}`}>{p.status}</span></td>
               <td>{p.closed_at ? p.closed_at.replace('T', ' ').slice(0, 16) : '—'}</td>
               <td>
-                {p.status === 'open' && <button className="btn" onClick={() => close(p.id)} disabled={busy === p.id} data-testid={`time-period-close-${p.id}`}>Close</button>}
+                {p.status === 'open'   && <button className="btn" onClick={() => setWizardPeriod(p)} disabled={busy === p.id} data-testid={`time-period-close-${p.id}`}>Close…</button>}
                 {p.status === 'closed' && <button className="btn btn--ghost" onClick={() => reopen(p.id)} disabled={busy === p.id} data-testid={`time-period-reopen-${p.id}`}>Reopen</button>}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      {wizardPeriod && (
+        <PeriodCloseWizard
+          period={wizardPeriod}
+          onClose={() => setWizardPeriod(null)}
+          onClosed={(res) => {
+            setWizardPeriod(null);
+            alert(`Period closed. ${res.bundles_built} downstream bundles built.`);
+            reload();
+          }}
+        />
+      )}
     </section>
   );
 }

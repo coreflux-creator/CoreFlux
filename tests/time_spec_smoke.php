@@ -54,13 +54,30 @@ foreach (['entries.php','periods.php','categories.php','reports.php','feed.php',
 }
 
 echo "\nUI components\n";
-foreach (['TimeModule.jsx','MyTime.jsx','ReviewQueue.jsx','Periods.jsx','Reports.jsx','Categories.jsx','CsvImport.jsx'] as $f) {
+foreach (['TimeModule.jsx','MyTime.jsx','ReviewQueue.jsx','Periods.jsx','Reports.jsx','Categories.jsx','CsvImport.jsx','PeriodCloseWizard.jsx'] as $f) {
     $assert("ui/{$f}",  is_file(__DIR__ . "/../modules/time/ui/{$f}"));
 }
 
+echo "\nPeriodCloseWizard wiring\n";
+$periodsJsx = (string) file_get_contents(__DIR__ . '/../modules/time/ui/Periods.jsx');
+$assert('Periods.jsx imports PeriodCloseWizard',     strpos($periodsJsx, "import PeriodCloseWizard from './PeriodCloseWizard'") !== false);
+$assert('Periods.jsx renders <PeriodCloseWizard',     strpos($periodsJsx, '<PeriodCloseWizard') !== false);
+$assert('Periods.jsx Close button opens wizard',      strpos($periodsJsx, 'setWizardPeriod(p)') !== false);
+$wizJsx = (string) file_get_contents(__DIR__ . '/../modules/time/ui/PeriodCloseWizard.jsx');
+$assert('Wizard calls preview_close',                 strpos($wizJsx, 'action=preview_close') !== false);
+$assert('Wizard calls action=close on confirm',       strpos($wizJsx, 'action=close') !== false);
+$assert('Wizard has confirm test id',                 strpos($wizJsx, 'time-period-close-wizard-confirm') !== false);
+$assert('Wizard has bundle table for ar/ap/payroll/revrec',
+    strpos($wizJsx, "['ar', 'ap', 'payroll', 'revrec']") !== false);
+
+echo "\nperiods.php preview_close action\n";
+$periodsPhp = (string) file_get_contents(__DIR__ . '/../modules/time/api/periods.php');
+$assert("periods.php has preview_close branch",       strpos($periodsPhp, "action === 'preview_close'") !== false);
+$assert("periods.php calls timePreviewBundlesForPeriod", strpos($periodsPhp, 'timePreviewBundlesForPeriod(') !== false);
+
 echo "\nLib contract\n";
 foreach (['timeEntryGet','timeEntriesList','timeResolveRateSnapshot','timeBucket',
-          'timeBuildBundlesForPeriod','timeAudit'] as $fn) {
+          'timeBuildBundlesForPeriod','timePreviewBundlesForPeriod','timeAudit'] as $fn) {
     $assert("fn: {$fn}", function_exists($fn));
 }
 
