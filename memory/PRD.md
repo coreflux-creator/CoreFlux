@@ -82,27 +82,45 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
     can import shared deps; production build green (1693 modules transformed)
   - `deploy/post_deploy_smoke.php` — added 9 payroll table checks
 
-- [x] **Phase 4 — People module SPEC alignment (2026-02-XX, this fork):**
+- [x] **Phase 4 — People module SPEC alignment + design polish + CSV import (2026-02-XX, this fork):**
   - Legacy preserved at `/app/legacy/people_pre_spec_<date>/` (HARD_RULES R1)
   - `modules/people/migrations/003_spec_alignment.sql` — 12 new SPEC-aligned tables
     (additive; legacy `people_employees` etc. untouched)
-  - 11 API endpoints under `modules/people/api/` aligned to SPEC §5: `people.php`
+  - 12 API endpoints under `modules/people/api/` aligned to SPEC §5: `people.php`
     (CRUD + terminate), `skills`, `pipeline` (incl. substages CRUD + summary),
     `emergency_contacts`, `documents` (StorageService-backed), `custom_fields`
     (defs + values), `merge` (with FK re-pointing across 6 tables + audit),
-    `audit_pii` (SOC2 self-serve), `banking` (encrypted), `tax` (encrypted SSN)
-  - `modules/people/lib/people.php` — cross-module read interface (peopleGet,
-    peopleList, peoplePipelineHistory, peopleSkills, peopleDocuments,
-    peopleCustomFieldDefs/Values, peopleLogPIIAccess)
+    `audit_pii` (SOC2 self-serve), `banking` (encrypted), `tax` (encrypted SSN),
+    **`csv_import`** (template + dry_run + commit)
+  - `modules/people/lib/people.php` — cross-module read interface
   - `modules/people/lib/audit.php` — audit_log writer (people.* events)
-  - 8 React components: PeopleModule, Directory (filters + pagination),
-    PersonCreate (validated), PersonDetail (7 tabs per SPEC §6: Overview,
-    Placements, Documents, Skills, Pipeline, Compliance, PII), Pipeline
-    (stage tabs + bucketed counts), DocumentVault, CustomFields, PIIAuditLog
-  - `tests/people_spec_smoke.php` — 104 assertions ✓ (manifest contract,
-    migration tables/enums, API parse, UI files, lib contract, legacy R1)
-  - Vite bundle rebuilt (1696 modules transformed) and synced to `/app/spa-assets/`
-  - `memory/PEOPLE_DEPLOY_NOTES.md` — Cloudways deploy + rollback walkthrough
+  - 9 React components: PeopleModule (router), Directory (filters + pagination
+    + Import CSV button), PersonCreate (validated), PersonDetail (7 tabs per
+    SPEC §6), Pipeline, DocumentVault, CustomFields, PIIAuditLog, **CsvImport**
+    (download template → dry-run preview → commit, with skip_invalid)
+  - **Design polish**: `dashboard/src/styles.css` extended with module-shared
+    primitives built on `--cf-*` design tokens (`.btn`, `.btn--primary`,
+    `.btn--ghost`, `.input`, `.data-table`, `.badge` (10 variants), `.tab`,
+    `.error`, `.empty-state`, person-detail tab nav). Replaces unstyled
+    raw browser widgets that were rendering before.
+  - **`Core\CsvImportService`** at `/app/core/CsvImportService.php` — platform
+    primitive built per HARD_RULES rule "every primary-entity module MUST expose
+    CSV import". Schema-driven (modules register fields/types/enums), three-step
+    flow (template → dry-run → commit), validates required/enum/email/date/
+    boolean/cross-row-uniqueness, stateless, streaming-safe.
+  - api_bootstrap.php upgraded: missing-table errors now surface
+    `"Database table 'X' does not exist. Run the module's migration."`
+    instead of generic 500.
+  - `tests/people_spec_smoke.php` — 104 assertions ✓
+  - `tests/csv_import_service_smoke.php` — 24 assertions ✓ (template,
+    validation matrix, duplicate detection, date coercion, commit semantics
+    with/without skip_invalid)
+  - **267 platform smoke tests total ✓** (people 104 + csv 24 + storage 22 +
+    mail 38 + RBAC 27 + module registry 37 + API router 19 + payroll compute 16)
+  - Vite bundle rebuilt (1697 modules, 257kB JS / 17.6kB CSS) and synced to
+    `/app/spa-assets/`
+  - `memory/PEOPLE_DEPLOY_NOTES.md` — Cloudways deploy + rollback walkthrough,
+    now includes CSV import test path and common-errors troubleshooting.
 
 
   - `core/MailService.php` — single email primitive (send + poll + OAuth flow stub).

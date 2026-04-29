@@ -147,6 +147,19 @@ function api_require_role(array $allowedRoles): array {
  */
 set_exception_handler(function (Throwable $e) {
     error_log('[api] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+
+    // Recognise "table doesn't exist" — happens when a module's migration
+    // hasn't been run yet on the target database. Helps the operator spot
+    // it instantly instead of a generic 500.
+    $msg = $e->getMessage();
+    if (preg_match("/Base table or view not found.*?'([^']+)'|Table '[^']*\.([^']+)' doesn't exist/i", $msg, $m)) {
+        $table = $m[1] ?? $m[2] ?? 'unknown';
+        api_error("Database table '{$table}' does not exist. Run the module's migration on this database.", 500, [
+            'hint' => 'See modules/<module>/migrations/*.sql or memory/PEOPLE_DEPLOY_NOTES.md',
+            'table' => $table,
+        ]);
+    }
+
     if (defined('APP_DEBUG') && APP_DEBUG) {
         api_error($e->getMessage(), 500, ['trace' => $e->getTraceAsString()]);
     }

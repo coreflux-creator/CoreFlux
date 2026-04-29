@@ -53,6 +53,8 @@ Log in as `kunal@coreflux.app` (or any `tenant_admin`/`master_admin`).
 
 1. Sidebar → **People** → **Directory**
    - "+ Add person" → fill in first/last/email/classification → Create
+   - "Import CSV" button → Download template → fill in 3-5 test rows → upload →
+     "Validate (dry run)" shows row-by-row preview + errors → Commit
    - Person opens → 7 tabs (Overview / Placements / Documents / Skills /
      Pipeline / Compliance / PII)
    - Edit Overview, save, reload → fields persist
@@ -64,6 +66,16 @@ Log in as `kunal@coreflux.app` (or any `tenant_admin`/`master_admin`).
 3. Sidebar → **People** → **Custom Fields** → add `years_in_industry` (number),
    `is_remote_ok` (boolean), confirm rows
 4. Sidebar → **People** → **PII Access Log** → see the reveal you just did
+
+### Common errors when first loading after deploy
+
+- **"Database table 'people' does not exist"** — the migration didn't run.
+  Re-run `modules/people/migrations/003_spec_alignment.sql` against the DB.
+  (api_bootstrap now surfaces this exact message instead of generic 500.)
+- **Internal server error** with no detail — check `error_log` on Cloudways
+  for the underlying exception.
+- **Buttons / inputs look unstyled** — old SPA bundle still cached.
+  Hard-refresh the browser (Cmd+Shift+R / Ctrl+Shift+R) or empty cache.
 
 ### 5. Sanity SQL after creating a few records
 

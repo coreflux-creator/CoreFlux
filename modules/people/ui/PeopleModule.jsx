@@ -7,6 +7,7 @@ import Pipeline from './Pipeline';
 import DocumentVault from './DocumentVault';
 import CustomFields from './CustomFields';
 import PIIAuditLog from './PIIAuditLog';
+import CsvImport from './CsvImport';
 
 /**
  * People Module — React entry (SPEC-aligned)
@@ -23,6 +24,7 @@ export default function PeopleModule({ session }) {
         <Route path="overview"      element={<Navigate to="../directory" replace />} />
         <Route path="directory"     element={<Directory      session={session} />} />
         <Route path="new"           element={<PersonCreate   session={session} />} />
+        <Route path="csv_import"    element={<CsvImport      session={session} />} />
         <Route path="pipeline"      element={<Pipeline       session={session} />} />
         <Route path="documents"     element={<DocumentVault  session={session} />} />
         <Route path="custom_fields" element={<CustomFields   session={session} />} />

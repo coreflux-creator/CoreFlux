@@ -50,6 +50,7 @@ return [
         'people.updated',
         'people.terminated',
         'people.merged',
+        'people.csv_imported',
         'people.pii.viewed',
         'people.banking.viewed',
         'people.banking.updated',

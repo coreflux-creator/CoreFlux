@@ -37,7 +37,10 @@ export default function Directory() {
             {data ? `${total} total` : 'Loading…'}
           </p>
         </div>
-        <div className="people-directory__actions">
+        <div className="people-directory__actions" style={{ display: 'flex', gap: 'var(--cf-space-2)' }}>
+          <Link to="../csv_import" className="btn" data-testid="people-csv-import-btn">
+            Import CSV
+          </Link>
           <Link to="../new" className="btn btn--primary" data-testid="people-add-btn">
             + Add person
           </Link>
