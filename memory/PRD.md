@@ -107,6 +107,40 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   - Vite bundle rebuilt (302kB JS) and synced; `App.jsx` wires `/modules/placements/*`
   - `memory/PLACEMENTS_DEPLOY_NOTES.md` — deploy + 15-step smoke walk
 
+- [x] **Phase 5 — Time module Phase A (2026-02-XX, this fork):**
+  - Built fresh against `/app/modules/time/SPEC.md` Phase A scope; legacy
+    preserved at `/app/legacy/time_pre_spec_<date>/` (HARD_RULES R1)
+  - `modules/time/migrations/001_init.sql` — 4 tables (`utf8mb4_unicode_ci`,
+    Cloudways-compatible): `time_periods`, `tenant_time_categories`,
+    `time_entries`, `time_downstream_feed`
+  - 9 standard categories + custom (regular_billable, regular_nonbillable,
+    OT_billable, OT_nonbillable, holiday, vacation, sick, bereavement,
+    unpaid_leave); deterministic `timeBucket()` rollups (billable /
+    nonbillable / pto / unpaid / custom) per SPEC §2 / §3.3
+  - 5 entry statuses (draft / pending_review / approved / rejected /
+    superseded), 3 approval channels (manual / tokenized_client_email /
+    bulk_pre_approved), 4 downstream bundle types (ar / ap / payroll /
+    revrec) with consume + supersede flow
+  - 6 SPEC-aligned API endpoints: `entries`, `periods`, `categories`,
+    `reports`, `feed`, `csv_import` (via `Core\CsvImportService`)
+  - 7 React components wired into `App.jsx` (`/modules/time/*`):
+    `TimeModule` (router), `MyTime`, `ReviewQueue`, `Periods`, `Reports`,
+    `Categories`, `CsvImport`
+  - Manifest declares `depends_on: [people, placements]`, 14 permissions,
+    10 audit events
+  - `modules/time/lib/time.php` — cross-module read interface +
+    period bundle builder (`timeBuildBundlesForPeriod`) ready for AR / AP /
+    Payroll consumers
+  - `tests/time_spec_smoke.php` — 74 contract assertions ✓
+  - **All platform smoke tests still green** (people 104, placements 96,
+    csv 24, mail 38, RBAC 27, module registry 37, API router 19, payroll
+    compute 16, storage 22, time 74)
+  - Vite bundle rebuilt (1711 modules, 327kB JS / 17.6kB CSS) and synced
+    to `/app/spa-assets/`
+  - `memory/TIME_DEPLOY_NOTES.md` — Cloudways deploy + UI smoke walk
+  - Phase B deferred: real `M365GraphDriver` / `GmailApiDriver`,
+    AI inbox parsing, tokenized client-approval email click-through
+
 - [x] **Phase 4 — People module SPEC alignment + design polish + CSV import (2026-02-XX, this fork):**
   - Legacy preserved at `/app/legacy/people_pre_spec_<date>/` (HARD_RULES R1)
   - `modules/people/migrations/003_spec_alignment.sql` — 12 SPEC-aligned tables
@@ -193,8 +227,18 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
 ## Backlog (P1)
+- [ ] **Time Phase B** — real `M365GraphDriver` / `GmailApiDriver` for
+  `Core\MailService` so the Time module can poll inboxes and AI-parse
+  timesheets; tokenized client-approval email send + click-through verify
 - [ ] Payroll Phase 2: multi-state tax tables, garnishments, ACH/NACHA file generation, Form 941 worksheet, W-2 generation
-- [ ] Accounting module full CRUD on `feature/accounting`
+- [ ] **Accounting v1.0** — enterprise GL per SPEC.md (multi-entity,
+  allocations, intercompany, consolidation)
+- [ ] **Billing module** — implementation per SPEC.md (consumes Time
+  `bundle_type='ar'` feed)
+- [ ] **AP module** — implementation per SPEC.md (consumes Time
+  `bundle_type='ap'` feed)
+- [ ] **Payroll module refactor** — legacy unwired React components → new
+  modular architecture (consumes Time `bundle_type='payroll'` feed)
 - [ ] Fix GitHub Actions CI/CD (replace `scp-action` with rsync/webhook + PAT)
 - [ ] Cloudways GitHub server authentication (PAT or SSH key)
 - [ ] Clean `sidebar_items` table duplicates
@@ -254,4 +298,4 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - The SPA falls back to demo mode when `session.php` is unreachable (see `App.jsx`).
 
 ---
-*Last Updated: 2026-02 — Phase 3b Skinny MailService shipped (LogDriver + schema + 38 smoke tests). Azure AD app registered, real provider drivers deferred until first real email need.*
+*Last Updated: 2026-02 — Phase 5 Time module Phase A shipped (4 tables, 6 endpoints, 7 React views, 74 contract tests ✓, Vite bundle synced). Phase B (real mail drivers + AI inbox parsing) deferred.*
