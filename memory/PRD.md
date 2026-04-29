@@ -82,7 +82,23 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
     can import shared deps; production build green (1693 modules transformed)
   - `deploy/post_deploy_smoke.php` — added 9 payroll table checks
 
-## Branches
+- [x] **Phase 3b — Skinny Core MailService (2026-02):**
+  - `core/MailService.php` — single email primitive (send + poll + OAuth flow stub).
+    All modules MUST use this; no direct SMTP/IMAP/Graph/Gmail/Resend in module code.
+  - `core/mail/MailDriver.php` — pluggable backend interface (poll, send, refresh_oauth, revoke).
+  - `core/mail/LogDriver.php` — dev-only no-op sender (records to log + outbox writer);
+    real provider drivers (M365GraphDriver, GmailApiDriver, ResendDriver) deferred to
+    when Time module ships or first real outbound email is needed.
+  - `core/migrations/003_mail_service.sql` — `tenant_mail_connections`,
+    `tenant_mail_folders`, `mail_messages_seen`, `mail_outbox` (4 tables, all tenant-scoped,
+    OAuth tokens encrypted at app layer, mail_outbox body 90d retention column).
+  - `tests/mail_service_smoke.php` — 38 assertions ✓ (driver wiring, validation,
+    end-to-end send, outbox writer contract, dedupe, fallback driver, poll,
+    OAuth stub, custom driver registration). Total smoke tests: 143 ✓.
+  - Azure AD app registered at `d5d81312-faf4-47ba-a001-d9a090415baa` (multitenant);
+    client secret + Graph permissions deferred to real-driver phase.
+
+
 - `main` — stable core + platform primitives + AI layer + **People MVP (merged)**
 - `feature/people` — merged into main 2026-02
 - `feature/payroll` — Payroll MVP (next)
@@ -90,6 +106,8 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 
 ## In Progress
 - [ ] User performs Cloudways deploy: visit `/install.php`, log in, paste OpenAI key, click Install. After that, `/update.php` handles all future deploys.
+- [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
+- [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
 ## Backlog (P1)
 - [ ] Payroll Phase 2: multi-state tax tables, garnishments, ACH/NACHA file generation, Form 941 worksheet, W-2 generation
@@ -153,4 +171,4 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - The SPA falls back to demo mode when `session.php` is unreachable (see `App.jsx`).
 
 ---
-*Last Updated: 2026-02 — Payroll MVP shipped (deterministic gross-to-net + AI advisory). User to deploy via /update.php on Cloudways.*
+*Last Updated: 2026-02 — Phase 3b Skinny MailService shipped (LogDriver + schema + 38 smoke tests). Azure AD app registered, real provider drivers deferred until first real email need.*
