@@ -1,6 +1,7 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Section, Card } from '../components/UIComponents';
-import { Bell, Moon, Globe, Lock } from 'lucide-react';
+import { Bell, Moon, Globe, Lock, Mail, ChevronRight } from 'lucide-react';
 
 const SettingsPage = ({ session }) => {
   return (
@@ -11,6 +12,24 @@ const SettingsPage = ({ session }) => {
       </div>
 
       <div style={{ display: 'grid', gap: 'var(--cf-space-5)', maxWidth: '600px' }}>
+        {/* Email delivery — tenant self-service mail settings */}
+        <Link to="/settings/mail" style={{ textDecoration: 'none', color: 'inherit' }} data-testid="settings-mail-link">
+          <Card>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--cf-space-4)' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--cf-blue-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--cf-blue)' }}>
+                  <Mail size={20} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 500 }}>Email delivery</div>
+                  <div style={{ fontSize: 'var(--cf-text-sm)', color: 'var(--cf-text-secondary)' }}>Reply-To address and sender display name for outgoing emails</div>
+                </div>
+              </div>
+              <ChevronRight size={18} style={{ color: 'var(--cf-text-secondary)' }} />
+            </div>
+          </Card>
+        </Link>
+
         {/* Notifications */}
         <Card>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

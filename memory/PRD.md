@@ -107,6 +107,38 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   - Vite bundle rebuilt (302kB JS) and synced; `App.jsx` wires `/modules/placements/*`
   - `memory/PLACEMENTS_DEPLOY_NOTES.md` — deploy + 15-step smoke walk
 
+- [x] **Phase 6b — Tenant mail settings Model B + DNS-aligned delivery (2026-02-XX, this fork):**
+  - `core/migrations/004_tenant_mail_settings.sql` — idempotent via
+    `information_schema` guard (MySQL 5.7 + 8 compatible); adds
+    `tenants.mail_reply_to` + `tenants.mail_from_name_override`
+  - `core/tenant_mail.php` — `cf_tenant_mail_sender(tenantId, module)`
+    returns `{from, from_name, reply_to, model}`. Shared From
+    (`RESEND_FROM_EMAIL`) + tenant-overridable display name +
+    tenant-configurable Reply-To. Model C-forward-compatible.
+  - `api/mail_settings.php` — platform-level GET/PUT gated by
+    `tenant.manage`. Validates reply_to email shape, rejects header
+    injection chars in display name, emits `tenant.mail_settings.updated`
+    audit event.
+  - `dashboard/src/pages/MailSettingsPage.jsx` — tenant self-service UI
+    with live preview card showing exactly how `From:` + `Reply-To:`
+    will render to recipients; linked from `/settings`.
+  - `ResendDriver` — now accepts per-call `from_name` override
+    (empty-string coalesces to default). `MailService` passes
+    `from_name`/`reply_to`/`idempotency_key` through `opts`.
+  - `modules/time/api/approval_tokens.php` — `issue` action now pulls
+    sender via `cf_tenant_mail_sender()` so each tenant's outbound
+    timesheet approval email carries their Reply-To.
+  - `tests/tenant_mail_smoke.php` — 38 assertions ✓ (migration shape,
+    helper API, platform API validation + header-injection guard,
+    ResendDriver per-call override, MailService envelope wiring, UI +
+    routing integration).
+  - All platform smoke suites green (16 suites, 600+ assertions).
+    Vite bundle rebuilt (1714 modules, 349kB JS) and synced.
+  - `memory/MAIL_PLATFORM_SETUP.md` — one-time platform-operator
+    playbook: 4 DNS records on `corefluxapp.com` (SPF + 3× DKIM), one
+    CNAME for return-path alignment to kill "via resend.com",
+    optional DMARC, env vars, end-to-end smoke test.
+
 - [x] **Phase 6 — Time Phase B Slice 1: Tokenized client-approval email via Resend (2026-02-XX, this fork):**
   - New `Core\Mail\ResendDriver` (PHP cURL, no SDK) implementing the
     `MailDriver` interface — outbound only, supports idempotency keys,
@@ -269,6 +301,16 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
 ## Backlog (P1)
+- [ ] **Tenant mail Model C — custom verified From domains**. Bolts onto
+  Model B (Phase 6b): adds `tenants.mail_from_email` +
+  `tenants.mail_from_verified` columns; tenant self-service domain
+  verification flow (paste domain → we call Resend API → surface DNS
+  records → verify button → flip verified flag). Build this when a
+  tenant asks for true white-label From.
+- [ ] **Per-module mail purpose overrides** — `tenant_mail_purposes`
+  table so each tenant can route `time.client_approval_request` via
+  `timesheets@` vs `billing.invoice` via `invoices@`. Low priority
+  until Billing module ships.
 - [ ] **Time Phase B Slice 2 — AI inbox parsing (M365 Graph driver)** for
   auto-ingesting timesheet emails (Azure AD app already registered at
   `d5d81312-faf4-47ba-a001-d9a090415baa`; client secret + Mail.Read
@@ -357,4 +399,4 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - The SPA falls back to demo mode when `session.php` is unreachable (see `App.jsx`).
 
 ---
-*Last Updated: 2026-02 — Phase 6 Time Phase B Slice 1 shipped: Resend driver + tokenized client-approval email flow (issue → email → public Approve/Reject landing page → one-time state flip with `approved_via='tokenized_client_email'`). 53 new smoke tests ✓. Slice 2 (M365 AI inbox) deferred until user provides Azure client secret.*
+*Last Updated: 2026-02 — Phase 6b Tenant mail Model B shipped: per-tenant Reply-To + display name with live preview UI, platform DNS setup doc (SPF + DKIM + DMARC + return-path alignment), header-injection guard, 38 new smoke tests ✓. Model C (custom verified From domains) deferred to first tenant request.*

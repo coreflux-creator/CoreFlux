@@ -4,6 +4,7 @@ import AppLayout from './layout/AppLayout';
 import DashboardOverview from './pages/DashboardOverview';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
+import MailSettingsPage from './pages/MailSettingsPage';
 import AdminModule from './pages/AdminModule';
 import PeopleModule from '../../modules/people/ui/PeopleModule';
 import PlacementsModule from '../../modules/placements/ui/PlacementsModule';
@@ -253,6 +254,7 @@ const AppContent = ({ session, usingDemo }) => {
           {/* Profile & Settings */}
           <Route path="/profile" element={<ProfilePage session={session} />} />
           <Route path="/settings" element={<SettingsPage session={session} />} />
+          <Route path="/settings/mail" element={<MailSettingsPage session={session} />} />
           
           {/* Admin Module */}
           <Route path="/admin/*" element={<AdminModule session={session} />} />

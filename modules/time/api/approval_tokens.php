@@ -24,6 +24,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/mail_bootstrap.php';
+require_once __DIR__ . '/../../../core/tenant_mail.php';
 require_once __DIR__ . '/../lib/time.php';
 require_once __DIR__ . '/../lib/approval_tokens.php';
 
@@ -268,8 +269,9 @@ if ($method === 'POST' && $action === 'issue') {
     $tokenRow = array_merge(['placement_id' => $placementId, 'expires_at' => $expiresAt], $placement);
     $body = timeTokenBuildEmailBody($tokenRow, $entries, $placement, $approveUrl, $rejectUrl);
 
-    // Send via MailService
-    $svc = cf_mail_bootstrap();
+    // Send via MailService — sender resolved per tenant (Model B)
+    $sender  = cf_tenant_mail_sender((int) $ctx['tenant_id'], 'time');
+    $svc     = cf_mail_bootstrap();
     $sendRes = $svc->send(
         (int) $ctx['tenant_id'],
         'time',
@@ -280,7 +282,9 @@ if ($method === 'POST' && $action === 'issue') {
         $body['html'],
         [],
         [
-            'reply_to' => defined('SMTP_FROM_EMAIL') ? SMTP_FROM_EMAIL : null,
+            'from'            => $sender['from'],
+            'from_name'       => $sender['from_name'],
+            'reply_to'        => $sender['reply_to'],
             'idempotency_key' => 'time-token-' . $tokenId,
         ]
     );

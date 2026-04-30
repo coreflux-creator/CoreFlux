@@ -125,6 +125,7 @@ class MailService
             'module'        => $module,
             'purpose'       => $purpose,
             'from'          => $opts['from']      ?? null,
+            'from_name'     => $opts['from_name'] ?? null,
             'reply_to'      => $opts['reply_to']  ?? null,
             'to'            => $to,
             'subject'       => $subject,
@@ -132,6 +133,7 @@ class MailService
             'body_html'     => $bodyHtml,
             'attachments'   => $attachments,
             'connection_id' => $opts['connection_id'] ?? null,
+            'idempotency_key' => $opts['idempotency_key'] ?? null,
         ];
 
         $result = $driver->send($envelope);
