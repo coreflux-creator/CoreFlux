@@ -301,12 +301,45 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
 ## Backlog (P1)
-- [ ] **Tenant mail Model C — custom verified From domains**. Bolts onto
-  Model B (Phase 6b): adds `tenants.mail_from_email` +
-  `tenants.mail_from_verified` columns; tenant self-service domain
-  verification flow (paste domain → we call Resend API → surface DNS
-  records → verify button → flip verified flag). Build this when a
-  tenant asks for true white-label From.
+- [ ] **Tenant mail Model C — custom verified From domains + deliverability health**. Bolts onto
+  Model B (Phase 6b). Scope:
+  - **Schema**: `tenants.mail_from_email` + `tenants.mail_from_verified`
+    + `tenants.mail_resend_domain_id` (Resend's domain record id for API
+    polling) columns (`005_tenant_mail_model_c.sql`)
+  - **Verification flow**: tenant self-service in MailSettingsPage →
+    paste domain → we call Resend's `POST /domains` API → surface the
+    SPF + 3× DKIM DNS records in the UI with copy buttons → "I've added
+    the records, check now" button triggers Resend's verify API →
+    flip `mail_from_verified = 1` on success
+  - **Sender resolution**: `cf_tenant_mail_sender()` prefers verified
+    tenant domain over platform default when `mail_from_verified=1`
+  - **Deliverability health dashboard** (added from 💡 suggestion):
+    - Live SPF / DKIM / DMARC status pulled from Resend's
+      `GET /domains/:id` API (polled on page load + refresh button)
+    - Last-30-day delivery / bounce / complaint rates from Resend
+      webhooks (new `mail_delivery_events` table + webhook endpoint
+      `/api/webhooks/resend.php` with signature verification)
+    - Bounce + complaint drill-down table with recipient, event
+      type, timestamp, original `module.purpose`
+    - "Test send" button → sends a probe email to an address the
+      tenant admin enters → shows the message-id and initial status
+      (queued/sent/failed) with a 30-second auto-poll for delivery
+      confirmation
+    - Gmail placement hint (Primary / Promotions / Spam) when probe
+      recipient is a gmail.com address — inferred from Resend's
+      delivery logs where available
+  - **Resend webhook handler** (required for deliverability telemetry):
+    new `api/webhooks/resend.php` (PUBLIC endpoint, signature-verified
+    via Resend's `svix` signature header), writes
+    `email.delivered` / `email.bounced` / `email.complained` events to
+    `mail_delivery_events` keyed by `mail_outbox.provider_message_id`.
+    Updates `mail_outbox.status` on terminal events.
+  - **UI wiring**: extend `MailSettingsPage` with a "Custom sending
+    domain" card (active once Model C ships) + a new
+    "Email deliverability" tab showing the health metrics above.
+  - Dependencies: Resend's Domains API + Webhooks API (both on free
+    tier); `svix-php` for webhook signature verification (or a
+    minimal hand-rolled HMAC verifier — signature is HMAC-SHA256).
 - [ ] **Per-module mail purpose overrides** — `tenant_mail_purposes`
   table so each tenant can route `time.client_approval_request` via
   `timesheets@` vs `billing.invoice` via `invoices@`. Low priority

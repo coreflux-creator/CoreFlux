@@ -144,11 +144,12 @@ They never see Resend, DNS records, or the API key.
   ALTER TABLE tenants DROP COLUMN mail_reply_to;
   ```
 
-## Phase 6b — Model C (tenant-verified From domains) — NOT in this drop
+## Phase 6b — Model C (tenant-verified From domains + deliverability health) — NOT in this drop
 
 When a tenant asks for emails to *actually come from* their own domain
 (e.g. `timesheets@acme-staffing.com`), we'll bolt on:
-- `tenants.mail_from_email` + `tenants.mail_from_verified` columns
+- `tenants.mail_from_email` + `tenants.mail_from_verified` +
+  `tenants.mail_resend_domain_id` columns
   (`005_tenant_mail_model_c.sql`)
 - Tenant-self-service domain verification flow:
   tenant pastes domain → we call Resend's `POST /domains` API → we surface
@@ -156,6 +157,14 @@ When a tenant asks for emails to *actually come from* their own domain
   Resend's verify API → flip `mail_from_verified = 1`
 - `cf_tenant_mail_sender()` will prefer the verified tenant domain over
   the platform default.
+- **Email deliverability health dashboard** (scoped into Model C): live
+  SPF/DKIM/DMARC status from Resend, 30-day delivery/bounce/complaint
+  rates pulled from a new Resend webhook handler
+  (`api/webhooks/resend.php`, signature-verified) into a
+  `mail_delivery_events` table, drill-down on bounces, and a "test send"
+  probe with Gmail placement hint.
 
 Everything in this drop is forward-compatible with Model C — no breaking
 changes when we ship it.
+
+Full Model C spec lives in `/app/memory/PRD.md` under Backlog (P1).
