@@ -107,6 +107,42 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   - Vite bundle rebuilt (302kB JS) and synced; `App.jsx` wires `/modules/placements/*`
   - `memory/PLACEMENTS_DEPLOY_NOTES.md` — deploy + 15-step smoke walk
 
+- [x] **Phase 6 — Time Phase B Slice 1: Tokenized client-approval email via Resend (2026-02-XX, this fork):**
+  - New `Core\Mail\ResendDriver` (PHP cURL, no SDK) implementing the
+    `MailDriver` interface — outbound only, supports idempotency keys,
+    HTTP-level errors captured into `mail_outbox.error`
+  - New `core/mail_bootstrap.php` — registers `ResendDriver` as default
+    outbound when `RESEND_API_KEY` env is set, installs `mail_outbox`
+    DB writer (idempotent; safe to `require_once` from any module)
+  - `modules/time/migrations/002_approval_tokens.sql` — `time_approval_tokens`
+    table (`utf8mb4_unicode_ci`); SHA-256 token hash stored alongside raw
+    token; unique index on `token`, lazy-expire on access
+  - `modules/time/api/approval_tokens.php` — 5 actions:
+    `issue` (authed, `time.tokenized_email.issue`), `verify` (PUBLIC),
+    `respond` (PUBLIC, token IS the credential), `revoke` (authed),
+    `list` (authed). Respond flips entries atomically to
+    `approved`/`rejected` with `approved_via='tokenized_client_email'`
+  - `modules/time/lib/approval_tokens.php` — token gen
+    (64 hex chars, 32-byte hash), hash round-trip, email body builder
+    with per-day rollup + approve/reject buttons (HTML + text)
+  - `/app/time_approve.php` — public landing page at site root
+    (`noindex, nofollow`), unauthenticated, renders timesheet summary
+    + Approve/Reject form, inline JS POSTs to respond API
+  - Review Queue UI: per-row checkbox + sticky selection bar +
+    validation that all selected rows share same `(placement_id,
+    period_id)`, plus `TokenIssueModal` with TTL picker (1-30 days,
+    default 7)
+  - `tests/time_approval_tokens_smoke.php` — 53 assertions ✓ (migration,
+    token gen, hash round-trip, email body, ResendDriver HTTP contract
+    with injected transport, UI wiring)
+  - All existing platform smoke tests still green (time 85, mail 38,
+    people 104, placements 96, csv 24, rbac 27, module registry 37, API
+    router 19, payroll compute 16, storage 22)
+  - Vite bundle rebuilt (1713 modules, 341kB JS / 17.6kB CSS) and synced
+    to `/app/spa-assets/`
+  - `memory/TIME_PHASE_B_SLICE1_DEPLOY_NOTES.md` — Cloudways deploy +
+    Resend domain-verification walkthrough + smoke test steps
+
 - [x] **Phase 5 — Time module Phase A (2026-02-XX, this fork):**
   - Built fresh against `/app/modules/time/SPEC.md` Phase A scope; legacy
     preserved at `/app/legacy/time_pre_spec_<date>/` (HARD_RULES R1)
@@ -233,6 +269,14 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
 ## Backlog (P1)
+- [ ] **Time Phase B Slice 2 — AI inbox parsing (M365 Graph driver)** for
+  auto-ingesting timesheet emails (Azure AD app already registered at
+  `d5d81312-faf4-47ba-a001-d9a090415baa`; client secret + Mail.Read
+  permissions still required)
+- [ ] **Time Phase B Slice 3 — Gmail API driver** for Google Workspace
+  tenants
+- [ ] **Tokenized-email rate limiting** (P2) — IP throttle on public
+  `?action=respond` and `?action=verify` endpoints
 - [ ] **Period Close Receipt (PDF + email)** — *captured 2026-02 from
   Period Close Wizard rollout.* One-page audit artifact emailed to the
   closer (and stored against the period via `Core\StorageService`) when
@@ -313,4 +357,4 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - The SPA falls back to demo mode when `session.php` is unreachable (see `App.jsx`).
 
 ---
-*Last Updated: 2026-02 — Phase 5 Time module Phase A shipped (4 tables, 6 endpoints, 7 React views, 74 contract tests ✓, Vite bundle synced). Phase B (real mail drivers + AI inbox parsing) deferred.*
+*Last Updated: 2026-02 — Phase 6 Time Phase B Slice 1 shipped: Resend driver + tokenized client-approval email flow (issue → email → public Approve/Reject landing page → one-time state flip with `approved_via='tokenized_client_email'`). 53 new smoke tests ✓. Slice 2 (M365 AI inbox) deferred until user provides Azure client secret.*
