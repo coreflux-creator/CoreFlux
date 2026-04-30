@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { Section, Card } from '../components/UIComponents';
 import { Mail, CheckCircle2, AlertTriangle } from 'lucide-react';
+import MailConnectionsCard from './MailConnectionsCard';
 
 /**
  * Tenant self-service mail settings page — Model B scope:
@@ -18,6 +19,19 @@ const MailSettingsPage = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [saved, setSaved] = useState(false);
+  const [flash, setFlash] = useState(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const m365 = params.get('m365');
+    if (m365 === 'connected') {
+      setFlash({ kind: 'connected', email: params.get('email') });
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (m365 === 'error') {
+      setFlash({ kind: 'error', msg: params.get('msg') });
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   const load = async () => {
     setLoading(true); setError(null);
@@ -156,6 +170,9 @@ const MailSettingsPage = () => {
               </div>
             </div>
           </Card>
+
+          {/* Inbound mailbox connections (Phase B Slice 2a) */}
+          <MailConnectionsCard flash={flash} />
 
           {saved && (
             <div data-testid="mail-settings-saved" style={{ padding: 'var(--cf-space-3)', background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -107,6 +107,46 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   - Vite bundle rebuilt (302kB JS) and synced; `App.jsx` wires `/modules/placements/*`
   - `memory/PLACEMENTS_DEPLOY_NOTES.md` — deploy + 15-step smoke walk
 
+- [x] **Phase 7 — Time Phase B Slice 2a: M365 mailbox connection (2026-02-XX, this fork):**
+  - `Core\Mail\M365GraphDriver` — PHP cURL (no SDK) implementing
+    `MailDriver`: delegated multi-tenant OAuth with PKCE S256,
+    delta-query polling on `/me/mailFolders/{id}/messages/delta`,
+    lazy refresh with 5-min buffer, `$deltatoken` extraction,
+    outbound `send()` returns `failed` (Resend handles outbound).
+  - `/oauth/callback/microsoft365.php` — state-validated via
+    `hash_equals`, 10-min `$_SESSION` window, exchanges code → tokens
+    → fetches `/me` → upserts `tenant_mail_connections` row with
+    AES-256-GCM-encrypted tokens (reuses `Core\encryption`) → audits
+    `mail.connection.connected` → redirects to `/settings/mail` with
+    flash params.
+  - `/api/mail_connections.php` — platform API with 5 actions:
+    `GET` list, `oauth_start`, `list_folders` (live Graph), `watch_folder`
+    (upsert `tenant_mail_folders`), `poll_now` (synchronous delta),
+    `DELETE` (soft revoke). All gated by `tenant.manage`. Returns
+    503 with actionable message if `MICROSOFT_*` env vars are missing.
+  - `dashboard/src/pages/MailConnectionsCard.jsx` — extends Mail Settings
+    page. "Connect Microsoft 365" button → OAuth redirect. Connected
+    mailboxes list with folder picker modal (lucide icons, live item
+    counts), per-folder "Fetch now" button showing top 5 subjects/senders
+    in a result panel, revoke button.
+  - Reuses existing `tenant_mail_connections` + `tenant_mail_folders`
+    schema from Skinny 3b (`core/migrations/003_mail_service.sql`) —
+    **no new migration required**.
+  - `tests/m365_graph_smoke.php` — 46 assertions ✓: PKCE S256 challenge
+    math, delta-token extraction, token exchange happy + error paths
+    (injected transport), `/me` fetch, all 4 API actions, callback
+    state validation + audit event, UI wiring.
+  - All other platform smokes still green
+    (time 85, time-tokens 53, tenant-mail 38, mail 38, people 104,
+    placements 96, csv 24, rbac 27, module registry 37, API router 19,
+    payroll compute 16, storage 22).
+  - Vite bundle rebuilt (1715 modules, 359kB JS) and synced.
+  - `memory/TIME_PHASE_B_SLICE2A_DEPLOY_NOTES.md` — Azure Portal
+    checklist (multi-tenant app + 2 redirect URIs + admin consent),
+    Cloudways env vars, end-to-end smoke test.
+  - **Deferred to Slice 2b+**: AI parsing (`time_intake_events` +
+    OpenAI), Inbox (AI) UI, cron polling.
+
 - [x] **Phase 6b — Tenant mail settings Model B + DNS-aligned delivery (2026-02-XX, this fork):**
   - `core/migrations/004_tenant_mail_settings.sql` — idempotent via
     `information_schema` guard (MySQL 5.7 + 8 compatible); adds
@@ -344,10 +384,20 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   table so each tenant can route `time.client_approval_request` via
   `timesheets@` vs `billing.invoice` via `invoices@`. Low priority
   until Billing module ships.
-- [ ] **Time Phase B Slice 2 — AI inbox parsing (M365 Graph driver)** for
-  auto-ingesting timesheet emails (Azure AD app already registered at
-  `d5d81312-faf4-47ba-a001-d9a090415baa`; client secret + Mail.Read
-  permissions still required)
+- [x] **Time Phase B Slice 2a — M365 mailbox connection** — SHIPPED in
+  Phase 7 (this fork).
+- [ ] **Time Phase B Slice 2b — AI parsing pipeline**: `time_intake_events`
+  table + OpenAI prompt to extract `{placement, work_date, hours, category}`
+  proposals from email body + attachments; intake convert/dismiss/flag
+  endpoints per SPEC §5.3.
+- [ ] **Time Phase B Slice 2c — Inbox (AI) UI**: the sidebar view
+  already scaffolded in the manifest but currently unrouted — shows
+  email ⇄ AI proposal side-by-side with one-click convert to
+  pending_review.
+- [ ] **Time Phase B Slice 2d — Background polling**:
+  `/app/cron/time_inbox_poll.php` entrypoint + Cloudways cron config
+  doc (`*/5 * * * *`). Today's manual "Fetch now" button in the Mail
+  Settings inbound-mailbox card covers the dev smoke case.
 - [ ] **Time Phase B Slice 3 — Gmail API driver** for Google Workspace
   tenants
 - [ ] **Tokenized-email rate limiting** (P2) — IP throttle on public
@@ -432,4 +482,4 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - The SPA falls back to demo mode when `session.php` is unreachable (see `App.jsx`).
 
 ---
-*Last Updated: 2026-02 — Phase 6b Tenant mail Model B shipped: per-tenant Reply-To + display name with live preview UI, platform DNS setup doc (SPF + DKIM + DMARC + return-path alignment), header-injection guard, 38 new smoke tests ✓. Model C (custom verified From domains) deferred to first tenant request.*
+*Last Updated: 2026-02 — Phase 7 Time Phase B Slice 2a shipped: M365GraphDriver (PKCE OAuth, delta polling, no SDK), OAuth callback + tenant-scoped `/api/mail_connections.php`, folder picker + "Fetch now" UI. 46 new smoke tests ✓. Slice 2b (AI parsing via OpenAI) is next.*
