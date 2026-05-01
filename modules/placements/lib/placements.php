@@ -87,12 +87,64 @@ function placementsList(array $filters = []): array
 
 function placementChain(int $placementId): array
 {
+    // SELECT explicit safe columns only — never leak portal_credentials_ct.
+    // Surface a derived has_portal_credentials boolean for UI gating.
     return scopedQuery(
-        'SELECT * FROM placement_client_chain
+        'SELECT id, tenant_id, placement_id, position, party_name, party_role,
+                company_id, vendor_portal_id, portal_fee_pct, portal_fee_flat,
+                contract_storage_object_id, submittal_id, vms_job_id,
+                (portal_credentials_ct IS NOT NULL) AS has_portal_credentials,
+                kms_key_version, created_at, updated_at
+         FROM placement_client_chain
          WHERE tenant_id = :tenant_id AND placement_id = :pid
          ORDER BY position',
         ['pid' => $placementId]
     );
+}
+
+/**
+ * Encrypt + persist vendor portal credentials for a chain row.
+ * Pass a structured array (e.g. {url, username, password, notes}); it is
+ * JSON-encoded then encrypted with the tenant KMS key.
+ */
+function placementChainSetPortalCredentials(int $chainId, array $credentials): void
+{
+    require_once __DIR__ . '/../../../core/encryption.php';
+    $blob = json_encode($credentials, JSON_UNESCAPED_SLASHES);
+    if ($blob === false) throw new \InvalidArgumentException('Could not JSON-encode credentials');
+    $ct = encryptField($blob);
+    getDB()->prepare(
+        'UPDATE placement_client_chain
+         SET portal_credentials_ct = :ct, kms_key_version = :v
+         WHERE id = :id'
+    )->execute(['ct' => $ct, 'v' => 'v1', 'id' => $chainId]);
+}
+
+function placementChainClearPortalCredentials(int $chainId): void
+{
+    getDB()->prepare(
+        'UPDATE placement_client_chain
+         SET portal_credentials_ct = NULL, kms_key_version = NULL
+         WHERE id = :id'
+    )->execute(['id' => $chainId]);
+}
+
+/**
+ * Decrypt + return the credentials dict for a chain row, or null if unset.
+ * Caller MUST audit the read with event 'placement.chain.portal.viewed'.
+ */
+function placementChainRevealPortalCredentials(int $chainId): ?array
+{
+    require_once __DIR__ . '/../../../core/encryption.php';
+    $stmt = getDB()->prepare(
+        'SELECT portal_credentials_ct FROM placement_client_chain WHERE id = :id'
+    );
+    $stmt->execute(['id' => $chainId]);
+    $ct = $stmt->fetchColumn();
+    if (!$ct) return null;
+    $blob = decryptField($ct);
+    $arr  = json_decode((string) $blob, true);
+    return is_array($arr) ? $arr : null;
 }
 
 function placementRates(int $placementId): array

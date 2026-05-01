@@ -166,34 +166,66 @@ function OverviewEdit({ placement, onClose }) {
 
 // ── Chain ────────────────────────────────────────────────
 function ChainTab({ pid, chain, reload }) {
-  const [form, setForm] = useState({ position: 0, party_name: '', party_role: 'end_client', portal_fee_pct: '' });
+  const [form, setForm] = useState({ position: 0, party_name: '', party_role: 'end_client', portal_fee_pct: '', submittal_id: '', vms_job_id: '' });
   const [adding, setAdding] = useState(false);
   const [error, setError]   = useState(null);
+  const [portalFor, setPortalFor] = useState(null); // chain row currently editing portal creds
+
   const add = async (e) => {
     e.preventDefault(); setAdding(true); setError(null);
     try {
       await api.post(`/modules/placements/api/chain.php?placement_id=${pid}`, {
         ...form, position: parseInt(form.position, 10),
         portal_fee_pct: form.portal_fee_pct ? parseFloat(form.portal_fee_pct) : null,
+        submittal_id: form.submittal_id || null,
+        vms_job_id: form.vms_job_id || null,
       });
-      setForm({ position: chain.length, party_name: '', party_role: 'sub_vendor', portal_fee_pct: '' });
+      setForm({ position: chain.length, party_name: '', party_role: 'sub_vendor', portal_fee_pct: '', submittal_id: '', vms_job_id: '' });
       reload();
     } catch (e) { setError(e); }
     finally     { setAdding(false); }
   };
   const del = async (id) => { if (!confirm('Remove tier?')) return; await api.delete(`/modules/placements/api/chain.php?id=${id}`); reload(); };
+
+  // Inline patch helper (used by submittal_id / vms_job_id cells).
+  const patchField = async (id, field, value) => {
+    try {
+      await api.patch(`/modules/placements/api/chain.php?id=${id}`, { [field]: value || null });
+      reload();
+    } catch (e) { alert(`Save failed: ${e.message}`); }
+  };
+
   return (
     <div data-testid="tab-chain">
       <h3>Vendor chain</h3>
       <p style={{ color: 'var(--cf-text-secondary)' }}>Position 0 = end client. Higher numbers = layers between us and them. Fees stack additively.</p>
       <table className="data-table" data-testid="chain-table">
-        <thead><tr><th>#</th><th>Name</th><th>Role</th><th>Portal fee %</th><th></th></tr></thead>
+        <thead><tr><th>#</th><th>Name</th><th>Role</th><th>Portal fee %</th><th>Submittal #</th><th>VMS Job #</th><th>Portal creds</th><th></th></tr></thead>
         <tbody>
-          {chain.length === 0 && <tr><td colSpan={5} className="empty" data-testid="chain-empty">No chain rows yet.</td></tr>}
+          {chain.length === 0 && <tr><td colSpan={8} className="empty" data-testid="chain-empty">No chain rows yet.</td></tr>}
           {chain.map(c => (
             <tr key={c.id} data-testid={`chain-row-${c.id}`}>
-              <td>{c.position}</td><td>{c.party_name}</td><td>{c.party_role}</td>
+              <td>{c.position}</td>
+              <td>{c.party_name}</td>
+              <td>{c.party_role}</td>
               <td>{c.portal_fee_pct ? `${(c.portal_fee_pct * 100).toFixed(2)}%` : '—'}</td>
+              <td>
+                <InlineEdit value={c.submittal_id} onSave={(v) => patchField(c.id, 'submittal_id', v)} testId={`chain-submittal-${c.id}`} placeholder="—" />
+              </td>
+              <td>
+                <InlineEdit value={c.vms_job_id} onSave={(v) => patchField(c.id, 'vms_job_id', v)} testId={`chain-vms-${c.id}`} placeholder="—" />
+              </td>
+              <td>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  data-testid={`chain-portal-btn-${c.id}`}
+                  onClick={() => setPortalFor(c)}
+                  style={{ fontSize: 12 }}
+                >
+                  {c.has_portal_credentials ? '🔒 Manage' : '+ Set'}
+                </button>
+              </td>
               <td><button className="btn btn--ghost" onClick={() => del(c.id)} data-testid={`chain-delete-${c.id}`}>Remove</button></td>
             </tr>
           ))}
@@ -206,10 +238,140 @@ function ChainTab({ pid, chain, reload }) {
           {['end_client','msp','prime_vendor','sub_vendor','direct'].map(r => <option key={r} value={r}>{r}</option>)}
         </select>
         <input className="input" type="number" step="0.0001" placeholder="0.02 = 2%" value={form.portal_fee_pct} onChange={e => setForm({ ...form, portal_fee_pct: e.target.value })} style={{ width: '140px' }} data-testid="chain-fee" />
+        <input className="input" placeholder="Submittal #" value={form.submittal_id} onChange={e => setForm({ ...form, submittal_id: e.target.value })} style={{ width: '140px' }} data-testid="chain-submittal" />
+        <input className="input" placeholder="VMS Job #" value={form.vms_job_id} onChange={e => setForm({ ...form, vms_job_id: e.target.value })} style={{ width: '140px' }} data-testid="chain-vms" />
         <button className="btn btn--primary" disabled={adding} data-testid="chain-add-btn">{adding ? '…' : 'Add tier'}</button>
       </form>
       {error && <p className="error" data-testid="chain-error">Error: {error.message}</p>}
+
+      {portalFor && (
+        <PortalCredsDialog
+          row={portalFor}
+          onClose={() => setPortalFor(null)}
+          onSaved={() => { setPortalFor(null); reload(); }}
+        />
+      )}
     </div>
+  );
+}
+
+function InlineEdit({ value, onSave, testId, placeholder }) {
+  const [editing, setEditing] = useState(false);
+  const [v, setV] = useState(value || '');
+  if (!editing) {
+    return (
+      <span
+        data-testid={testId}
+        onClick={() => { setV(value || ''); setEditing(true); }}
+        style={{ cursor: 'pointer', color: value ? 'inherit' : '#999' }}
+      >
+        {value || placeholder}
+      </span>
+    );
+  }
+  return (
+    <span style={{ display: 'inline-flex', gap: 4 }}>
+      <input
+        className="input"
+        autoFocus
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Escape') setEditing(false); if (e.key === 'Enter') { onSave(v); setEditing(false); } }}
+        data-testid={`${testId}-input`}
+        style={{ width: 120, fontSize: 12 }}
+      />
+      <button type="button" className="btn btn--ghost" data-testid={`${testId}-save`} onClick={() => { onSave(v); setEditing(false); }} style={{ fontSize: 11 }}>✓</button>
+      <button type="button" className="btn btn--ghost" data-testid={`${testId}-cancel`} onClick={() => setEditing(false)} style={{ fontSize: 11 }}>✕</button>
+    </span>
+  );
+}
+
+function PortalCredsDialog({ row, onClose, onSaved }) {
+  const [revealed, setRevealed] = useState(null);     // shown plaintext (from reveal_portal)
+  const [revealing, setRevealing] = useState(false);
+  const [revealError, setRevealError] = useState(null);
+  const [draft, setDraft] = useState({ url: '', username: '', password: '', notes: '' });
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+
+  const reveal = async () => {
+    if (!confirm('Reveal vendor portal credentials? This action is logged to the audit trail.')) return;
+    setRevealing(true); setRevealError(null);
+    try {
+      const res = await api.get(`/modules/placements/api/chain.php?action=reveal_portal&id=${row.id}`);
+      const c = res.credentials || {};
+      setRevealed(c);
+      setDraft({ url: c.url || '', username: c.username || '', password: c.password || '', notes: c.notes || '' });
+    } catch (e) { setRevealError(e); }
+    finally     { setRevealing(false); }
+  };
+
+  const save = async () => {
+    setSaving(true); setSaveError(null);
+    try {
+      const payload = {};
+      ['url','username','password','notes'].forEach((k) => { if (draft[k]) payload[k] = draft[k]; });
+      if (Object.keys(payload).length === 0) { setSaveError({ message: 'At least one field required' }); setSaving(false); return; }
+      await api.post(`/modules/placements/api/chain.php?action=set_portal&id=${row.id}`, payload);
+      onSaved();
+    } catch (e) { setSaveError(e); }
+    finally     { setSaving(false); }
+  };
+
+  const clear = async () => {
+    if (!confirm('Clear stored portal credentials?')) return;
+    setSaving(true); setSaveError(null);
+    try {
+      await api.post(`/modules/placements/api/chain.php?action=clear_portal&id=${row.id}`, {});
+      onSaved();
+    } catch (e) { setSaveError(e); }
+    finally     { setSaving(false); }
+  };
+
+  return (
+    <div
+      data-testid="chain-portal-dialog"
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
+    >
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', padding: 24, borderRadius: 8, width: 'min(520px, 95vw)' }}>
+        <h3 style={{ margin: '0 0 4px' }}>Portal credentials — {row.party_name}</h3>
+        <p style={{ margin: '0 0 16px', fontSize: 13, color: '#666' }}>
+          Encrypted at rest. Reveals are audit-logged. Storage is one record per chain tier.
+        </p>
+        {row.has_portal_credentials && !revealed && (
+          <div style={{ marginBottom: 12 }}>
+            <button type="button" className="btn btn--ghost" data-testid="chain-portal-reveal" onClick={reveal} disabled={revealing}>
+              {revealing ? 'Revealing…' : '👁 Reveal stored credentials'}
+            </button>
+            {revealError && <p className="error" data-testid="chain-portal-reveal-error">Error: {revealError.message}</p>}
+          </div>
+        )}
+        <Field label="Portal URL"><input className="input" value={draft.url} onChange={(e) => setDraft({ ...draft, url: e.target.value })} data-testid="chain-portal-url" placeholder="https://vendor-portal.example.com" /></Field>
+        <Field label="Username"><input className="input" value={draft.username} onChange={(e) => setDraft({ ...draft, username: e.target.value })} data-testid="chain-portal-username" /></Field>
+        <Field label="Password"><input className="input" type="password" value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} data-testid="chain-portal-password" /></Field>
+        <Field label="Notes"><textarea className="input" rows={2} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} data-testid="chain-portal-notes" /></Field>
+        {saveError && <p className="error" data-testid="chain-portal-save-error">Error: {saveError.message}</p>}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+          {row.has_portal_credentials && (
+            <button type="button" className="btn btn--ghost" data-testid="chain-portal-clear" onClick={clear} disabled={saving}>Clear</button>
+          )}
+          <button type="button" className="btn btn--ghost" data-testid="chain-portal-cancel" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn btn--primary" data-testid="chain-portal-save" onClick={save} disabled={saving}>
+            {saving ? 'Saving…' : (row.has_portal_credentials ? 'Update' : 'Save')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', marginBottom: 10 }}>
+      <span style={{ fontSize: '0.85em', color: '#555', marginBottom: 4 }}>{label}</span>
+      {children}
+    </label>
   );
 }
 

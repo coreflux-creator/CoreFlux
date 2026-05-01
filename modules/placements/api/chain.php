@@ -7,21 +7,73 @@
  *   PATCH  /api/placements/chain?id=N
  *   DELETE /api/placements/chain?id=N
  *
+ *   POST   /api/placements/chain?action=set_portal&id=N    body: {url?, username?, password?, notes?}
+ *   POST   /api/placements/chain?action=clear_portal&id=N
+ *   GET    /api/placements/chain?action=reveal_portal&id=N → decrypted creds (audited)
+ *
  * SPEC §3.2.
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/placements.php';
 
-$ctx = api_require_auth();
-$user = $ctx['user'];
+$ctx    = api_require_auth();
+$user   = $ctx['user'];
 $method = api_method();
+$action = $_GET['action'] ?? '';
+
+if ($method === 'GET' && $action === 'reveal_portal') {
+    RBAC::requirePermission($user, 'placements.portal_credentials.view');
+    $id = (int) api_query('id', 0);
+    if ($id <= 0) api_error('id required', 400);
+    // Tenant-scope check (lib bypasses it for the read).
+    $row = scopedFind('SELECT id, placement_id FROM placement_client_chain WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$row) api_error('Not found', 404);
+    $creds = placementChainRevealPortalCredentials($id);
+    placementsAudit('placement.chain.portal.viewed', ['chain_id' => $id, 'placement_id' => (int) $row['placement_id']], (int) $row['placement_id']);
+    api_ok(['credentials' => $creds]);
+}
 
 if ($method === 'GET') {
     RBAC::requirePermission($user, 'placements.view');
     $pid = (int) api_query('placement_id', 0);
     if ($pid <= 0) api_error('placement_id required', 400);
     api_ok(['chain' => placementChain($pid)]);
+}
+
+if ($method === 'POST' && $action === 'set_portal') {
+    RBAC::requirePermission($user, 'placements.manage');
+    $id = (int) api_query('id', 0);
+    if ($id <= 0) api_error('id required', 400);
+    $row = scopedFind('SELECT id, placement_id FROM placement_client_chain WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$row) api_error('Not found', 404);
+    $body = api_json_body();
+    $allowed = ['url','username','password','notes'];
+    $clean = [];
+    foreach ($allowed as $k) if (array_key_exists($k, $body) && $body[$k] !== '') $clean[$k] = (string) $body[$k];
+    if (!$clean) api_error('At least one credential field required', 422);
+    placementChainSetPortalCredentials($id, $clean);
+    // Audit MUST NOT include plaintext — only the field names that were stored.
+    placementsAudit('placement.chain.portal.set', [
+        'chain_id'     => $id,
+        'placement_id' => (int) $row['placement_id'],
+        'fields'       => array_keys($clean),
+    ], (int) $row['placement_id']);
+    api_ok(['ok' => true]);
+}
+
+if ($method === 'POST' && $action === 'clear_portal') {
+    RBAC::requirePermission($user, 'placements.manage');
+    $id = (int) api_query('id', 0);
+    if ($id <= 0) api_error('id required', 400);
+    $row = scopedFind('SELECT id, placement_id FROM placement_client_chain WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$row) api_error('Not found', 404);
+    placementChainClearPortalCredentials($id);
+    placementsAudit('placement.chain.portal.cleared', [
+        'chain_id'     => $id,
+        'placement_id' => (int) $row['placement_id'],
+    ], (int) $row['placement_id']);
+    api_ok(['ok' => true]);
 }
 
 if ($method === 'POST') {
@@ -67,6 +119,8 @@ if ($method === 'POST') {
         'vendor_portal_id'=> $body['vendor_portal_id'] ?? null,
         'portal_fee_pct'  => $body['portal_fee_pct']   ?? null,
         'portal_fee_flat' => $body['portal_fee_flat']  ?? null,
+        'submittal_id'    => $body['submittal_id']     ?? null,
+        'vms_job_id'      => $body['vms_job_id']       ?? null,
         'contract_storage_object_id' => $body['contract_storage_object_id'] ?? null,
     ]);
     placementsAudit('placement.chain.updated', ['placement_id' => $pid, 'op' => 'add', 'chain_id' => $id, 'company_id' => $companyId], $pid);
@@ -78,10 +132,14 @@ if ($method === 'PATCH') {
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();
-    unset($body['id'], $body['tenant_id'], $body['placement_id']);
+    // Strip identity + sensitive fields. Portal creds go through set_portal/clear_portal.
+    foreach (['id','tenant_id','placement_id','portal_credentials_ct','kms_key_version','has_portal_credentials'] as $k) {
+        unset($body[$k]);
+    }
     if (!$body) api_error('No fields to update', 422);
     $rows = scopedUpdate('placement_client_chain', $id, $body);
     if ($rows === 0) api_error('Not found or no change', 404);
+    placementsAudit('placement.chain.updated', ['chain_id' => $id, 'op' => 'patch', 'fields' => array_keys($body)], $id);
     api_ok(['ok' => true]);
 }
 
@@ -91,6 +149,7 @@ if ($method === 'DELETE') {
     if ($id <= 0) api_error('id required', 400);
     $rows = scopedDelete('placement_client_chain', $id);
     if ($rows === 0) api_error('Not found', 404);
+    placementsAudit('placement.chain.updated', ['chain_id' => $id, 'op' => 'delete'], $id);
     api_ok(['ok' => true]);
 }
 

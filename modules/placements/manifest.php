@@ -40,6 +40,7 @@ return [
         'placements.corp.view'             => 'View C2C corp details',
         'placements.corp.manage'           => 'Edit C2C corp details (encrypted EIN)',
         'placements.custom_fields.manage'  => 'Tenant custom fields',
+        'placements.portal_credentials.view' => 'Reveal vendor portal credentials (audited)',
     ],
 
     'audit_events' => [
@@ -48,6 +49,9 @@ return [
         'placement.status_changed',
         'placement.ended',
         'placement.chain.updated',
+        'placement.chain.portal.set',
+        'placement.chain.portal.cleared',
+        'placement.chain.portal.viewed',
         'placement.rate.drafted',
         'placement.rate.approved',
         'placement.rate.superseded',
