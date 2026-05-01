@@ -1,6 +1,7 @@
 import React from 'react';
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import BillsList from './BillsList';
+import BillCreate from './BillCreate';
 import BillDetail from './BillDetail';
 import BillFromTimeBundleModal from './BillFromTimeBundleModal'; // eslint-disable-line no-unused-vars
 import PaymentsList from './PaymentsList';
@@ -48,6 +49,7 @@ export default function APModule() {
       <Routes>
         <Route index element={<Navigate to="bills" replace />} />
         <Route path="bills" element={<BillsList />} />
+        <Route path="bills/new" element={<BillCreate />} />
         <Route path="bills/:id" element={<BillDetail />} />
         <Route path="payments" element={<PaymentsList />} />
         <Route path="vendors" element={<VendorsList />} />

@@ -19,6 +19,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/mail_bootstrap.php';
 require_once __DIR__ . '/../../../core/tenant_mail.php';
 require_once __DIR__ . '/../lib/billing.php';
+require_once __DIR__ . '/../../ap/lib/ap.php';   // apNormalizeItemType() — shared item_type vocabulary
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -115,12 +116,13 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
 
             foreach ($d['lines'] as $l) {
                 $l['invoice_id'] = $invId;
+                $l['item_type']  = apNormalizeItemType($l['item_type'] ?? null, $l['source_type'] ?? 'time');
                 $stmt = $pdo->prepare(
                     'INSERT INTO billing_invoice_lines
-                      (invoice_id, line_no, source_type, source_ref_id, placement_id, rate_snapshot_id,
+                      (invoice_id, line_no, source_type, item_type, source_ref_id, placement_id, rate_snapshot_id,
                        description, quantity, unit, unit_price, subtotal, tax_rate_pct, tax_amount, total)
                      VALUES
-                      (:invoice_id, :line_no, :source_type, :source_ref_id, :placement_id, :rate_snapshot_id,
+                      (:invoice_id, :line_no, :source_type, :item_type, :source_ref_id, :placement_id, :rate_snapshot_id,
                        :description, :quantity, :unit, :unit_price, :subtotal, :tax_rate_pct, :tax_amount, :total)'
                 );
                 $stmt->execute($l);
@@ -201,19 +203,21 @@ if ($method === 'POST' && $action === '') {
         foreach ($computed['lines'] as $l) {
             $stmt = $pdo->prepare(
                 'INSERT INTO billing_invoice_lines
-                  (invoice_id, line_no, source_type, description, quantity, unit, unit_price,
-                   subtotal, tax_rate_pct, tax_amount, total)
+                  (invoice_id, line_no, source_type, item_type, description, quantity, unit, unit_price,
+                   subtotal, tax_rate_pct, tax_amount, total, gl_revenue_account_code)
                  VALUES
-                  (:invoice_id, :line_no, "manual", :description, :quantity, :unit, :unit_price,
-                   :subtotal, :tax_rate_pct, :tax_amount, :total)'
+                  (:invoice_id, :line_no, "manual", :item_type, :description, :quantity, :unit, :unit_price,
+                   :subtotal, :tax_rate_pct, :tax_amount, :total, :gl_rev)'
             );
             $stmt->execute([
                 'invoice_id' => $invId, 'line_no' => $line_no++,
+                'item_type'  => apNormalizeItemType($l['item_type'] ?? null, 'manual'),
                 'description' => $l['description'] ?? '',
                 'quantity' => $l['quantity'] ?? 0, 'unit' => $l['unit'] ?? 'each',
                 'unit_price' => $l['unit_price'] ?? 0, 'subtotal' => $l['subtotal'],
                 'tax_rate_pct' => $l['tax_rate_pct'], 'tax_amount' => $l['tax_amount'],
                 'total' => $l['total'],
+                'gl_rev' => $l['gl_revenue_account_code'] ?? null,
             ]);
         }
         billingAudit('billing.invoice.created', ['invoice_id' => $invId, 'source' => 'manual'], $invId);
@@ -380,10 +384,30 @@ if ($method === 'POST' && $action === 'post') {
     $total    = (float) $row['total'];
     $party    = !empty($row['client_company_id']) ? (int) $row['client_company_id'] : null;
 
+    // Group revenue per gl_revenue_account_code so non-labor lines land in
+    // their own account (e.g. 4100 Reimbursable, 4200 Materials, 4300 SOW
+    // Fees). Lines without an override fall back to 4000 Revenue.
+    $pdo = getDB();
+    $linesStmt = $pdo->prepare(
+        'SELECT item_type, gl_revenue_account_code, SUM(subtotal) AS s
+         FROM billing_invoice_lines WHERE invoice_id = :id
+         GROUP BY item_type, gl_revenue_account_code'
+    );
+    $linesStmt->execute(['id' => $id]);
+    $bucketSums = [];
+    foreach ($linesStmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
+        $code = $r['gl_revenue_account_code'] ?: '4000';
+        $bucketSums[$code] = ($bucketSums[$code] ?? 0) + (float) $r['s'];
+    }
+    if (!$bucketSums) $bucketSums['4000'] = $subtotal;
+
     $lines = [
         ['account_code' => '1100', 'debit' => $total, 'credit' => 0, 'memo' => "Inv {$row['invoice_number']} / {$row['client_name']}", 'counterparty_company_id' => $party],
-        ['account_code' => '4000', 'debit' => 0, 'credit' => $subtotal, 'memo' => "Revenue — {$row['invoice_number']}", 'counterparty_company_id' => $party],
     ];
+    foreach ($bucketSums as $code => $amt) {
+        if (round($amt, 2) <= 0.005) continue;
+        $lines[] = ['account_code' => $code, 'debit' => 0, 'credit' => round($amt, 2), 'memo' => "Revenue — {$row['invoice_number']}", 'counterparty_company_id' => $party];
+    }
     if ($taxTotal > 0.005) {
         $lines[] = ['account_code' => '2100', 'debit' => 0, 'credit' => $taxTotal, 'memo' => "Sales tax — {$row['invoice_number']}", 'counterparty_company_id' => $party];
     }

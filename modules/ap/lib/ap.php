@@ -161,6 +161,7 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
             $lines[] = [
                 'line_no'                 => $lineNo++,
                 'source_type'             => 'time',
+                'item_type'               => 'labor',
                 'source_ref_id'           => (int) $b['id'],
                 'placement_id'            => (int) $b['placement_id'],
                 'rate_snapshot_id'        => $b['rate_snapshot_id'] ? (int) $b['rate_snapshot_id'] : null,
@@ -204,6 +205,39 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
     }
 
     return $bills;
+}
+
+/**
+ * Whitelist for the item_type ENUM on ap_bill_lines / billing_invoice_lines.
+ * Single source of truth — both modules import this list.
+ */
+const AP_LINE_ITEM_TYPES = [
+    'labor', 'expense', 'materials', 'fixed_fee', 'milestone',
+    'discount', 'subscription', 'mileage', 'per_diem', 'reimbursement', 'other',
+];
+
+/**
+ * Coerce a free-text item_type into the ENUM domain. If the caller passes
+ * nothing (or garbage), we infer a sensible default from the source_type
+ * the line is being inserted as.
+ *
+ * Mapping rule:
+ *   source_type = 'time'   → 'labor'
+ *   source_type = 'expense'→ 'expense'
+ *   source_type = others   → 'other' (safer than 'labor' for manual lines
+ *                            so that GL coding never misclassifies billables)
+ */
+function apNormalizeItemType(?string $itemType, string $sourceType = 'manual'): string
+{
+    $candidate = is_string($itemType) ? strtolower(trim($itemType)) : '';
+    if ($candidate !== '' && in_array($candidate, AP_LINE_ITEM_TYPES, true)) {
+        return $candidate;
+    }
+    return match ($sourceType) {
+        'time'    => 'labor',
+        'expense' => 'expense',
+        default   => 'other',
+    };
 }
 
 /**

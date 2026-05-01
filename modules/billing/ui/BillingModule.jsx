@@ -1,6 +1,7 @@
 import React from 'react';
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import InvoicesList from './InvoicesList';
+import InvoiceCreate from './InvoiceCreate';
 import InvoiceDetail from './InvoiceDetail';
 import PaymentsList from './PaymentsList';
 import AgingTable from './AgingTable';
@@ -40,6 +41,7 @@ export default function BillingModule() {
       <Routes>
         <Route index element={<Navigate to="invoices" replace />} />
         <Route path="invoices" element={<InvoicesList />} />
+        <Route path="invoices/new" element={<InvoiceCreate />} />
         <Route path="invoices/:id" element={<InvoiceDetail />} />
         <Route path="payments" element={<PaymentsList />} />
         <Route path="aging" element={<AgingTable />} />

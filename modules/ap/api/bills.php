@@ -95,14 +95,15 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
             $billId = scopedInsert('ap_bills', $bill);
 
             foreach ($d['lines'] as $l) {
-                $l['bill_id'] = $billId;
+                $l['bill_id']   = $billId;
+                $l['item_type'] = apNormalizeItemType($l['item_type'] ?? null, $l['source_type'] ?? 'time');
                 $stmt = $pdo->prepare(
                     'INSERT INTO ap_bill_lines
-                      (bill_id, line_no, source_type, source_ref_id, placement_id, rate_snapshot_id,
+                      (bill_id, line_no, source_type, item_type, source_ref_id, placement_id, rate_snapshot_id,
                        description, quantity, unit, unit_price, subtotal, tax_rate_pct, tax_amount, total,
                        gl_expense_account_code, is_1099_eligible)
                      VALUES
-                      (:bill_id, :line_no, :source_type, :source_ref_id, :placement_id, :rate_snapshot_id,
+                      (:bill_id, :line_no, :source_type, :item_type, :source_ref_id, :placement_id, :rate_snapshot_id,
                        :description, :quantity, :unit, :unit_price, :subtotal, :tax_rate_pct, :tax_amount, :total,
                        :gl_expense_account_code, :is_1099_eligible)'
                 );
@@ -217,15 +218,16 @@ if ($method === 'POST' && $action === '') {
         foreach ($computed['lines'] as $l) {
             $stmt = $pdo->prepare(
                 'INSERT INTO ap_bill_lines
-                  (bill_id, line_no, source_type, description, quantity, unit, unit_price,
+                  (bill_id, line_no, source_type, item_type, description, quantity, unit, unit_price,
                    subtotal, tax_rate_pct, tax_amount, total, gl_expense_account_code, is_1099_eligible)
                  VALUES
-                  (:bill_id, :line_no, "manual", :description, :quantity, :unit, :unit_price,
+                  (:bill_id, :line_no, "manual", :item_type, :description, :quantity, :unit, :unit_price,
                    :subtotal, :tax_rate_pct, :tax_amount, :total, :gl, :is_1099)'
             );
             $stmt->execute([
                 'bill_id'     => $billId,
                 'line_no'     => $line_no++,
+                'item_type'   => apNormalizeItemType($l['item_type'] ?? null, 'manual'),
                 'description' => $l['description'] ?? '',
                 'quantity'    => $l['quantity']    ?? 0,
                 'unit'        => $l['unit']        ?? 'each',

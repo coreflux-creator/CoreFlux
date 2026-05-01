@@ -84,7 +84,7 @@ echo "\nBilling invoice → GL post\n";
 $binv = (string) file_get_contents(__DIR__ . '/../modules/billing/api/invoices.php');
 $a('POST action=post route',                   strpos($binv, "POST' && \$action === 'post'") !== false);
 $a('Dr AR 1100',                               strpos($binv, "'account_code' => '1100'") !== false);
-$a('Cr Revenue 4000',                          strpos($binv, "'account_code' => '4000'") !== false);
+$a('Cr Revenue routes via gl_revenue_account_code (default 4000)', strpos($binv, "\$code = \$r['gl_revenue_account_code'] ?: '4000'") !== false);
 $a('Cr Sales Tax Payable 2100',                strpos($binv, "'account_code' => '2100'") !== false);
 $a('idempotency key billing:invoice:<id>',     strpos($binv, "sprintf('billing:invoice:%d:post', \$id)") !== false);
 $a('audit billing.invoice.posted',             strpos($binv, "'billing.invoice.posted'") !== false);

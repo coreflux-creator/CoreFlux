@@ -144,6 +144,7 @@ function billingBuildDraftFromBundle(int $tenantId, int $periodId, array $placem
             $lines[] = [
                 'line_no'          => $lineNo++,
                 'source_type'      => 'time',
+                'item_type'        => 'labor',
                 'source_ref_id'    => (int) $b['id'],
                 'placement_id'     => (int) $b['placement_id'],
                 'rate_snapshot_id' => $b['rate_snapshot_id'] ? (int) $b['rate_snapshot_id'] : null,

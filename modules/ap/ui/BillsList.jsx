@@ -30,9 +30,12 @@ export default function BillsList() {
             >{s.replace('_', ' ')}</button>
           ))}
         </div>
-        <button className="btn btn--primary" onClick={() => setShowFromBundle(true)} data-testid="ap-new-from-time-bundle">
-          New from time bundle
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Link to="new" className="btn btn--primary" data-testid="ap-new-bill">+ New bill</Link>
+          <button className="btn btn--ghost" onClick={() => setShowFromBundle(true)} data-testid="ap-new-from-time-bundle">
+            New from time bundle
+          </button>
+        </div>
       </div>
 
       {loading && <p>Loading…</p>}
