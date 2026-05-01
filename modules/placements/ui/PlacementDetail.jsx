@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate, NavLink, Routes, Route, Navigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 
 /**
  * Placement Detail — SPEC §7 tabs.
@@ -200,9 +201,9 @@ function ChainTab({ pid, chain, reload }) {
       <h3>Vendor chain</h3>
       <p style={{ color: 'var(--cf-text-secondary)' }}>Position 0 = end client. Higher numbers = layers between us and them. Fees stack additively.</p>
       <table className="data-table" data-testid="chain-table">
-        <thead><tr><th>#</th><th>Name</th><th>Role</th><th>Portal fee %</th><th>Submittal #</th><th>VMS Job #</th><th>Portal creds</th><th></th></tr></thead>
+        <thead><tr><th>#</th><th>Name</th><th>Role</th><th>Portal fee %</th><th>Submittal #</th><th>VMS Job #</th><th>Portal creds</th><th>Contract</th><th></th></tr></thead>
         <tbody>
-          {chain.length === 0 && <tr><td colSpan={8} className="empty" data-testid="chain-empty">No chain rows yet.</td></tr>}
+          {chain.length === 0 && <tr><td colSpan={9} className="empty" data-testid="chain-empty">No chain rows yet.</td></tr>}
           {chain.map(c => (
             <tr key={c.id} data-testid={`chain-row-${c.id}`}>
               <td>{c.position}</td>
@@ -226,6 +227,7 @@ function ChainTab({ pid, chain, reload }) {
                   {c.has_portal_credentials ? '🔒 Manage' : '+ Set'}
                 </button>
               </td>
+              <td><ContractCell row={c} /></td>
               <td><button className="btn btn--ghost" onClick={() => del(c.id)} data-testid={`chain-delete-${c.id}`}>Remove</button></td>
             </tr>
           ))}
@@ -669,3 +671,53 @@ function MarginTab({ currentRate, chain }) {
     </div>
   );
 }
+
+function ContractCell({ row }) {
+  const [state, setState] = useState({ status: 'idle', error: null, draft: null });
+
+  const onPick = async (file) => {
+    if (!file) return;
+    setState({ status: 'uploading', error: null, draft: null });
+    try {
+      const uploaded = await uploadFileViaPresignedPost(
+        `/modules/placements/api/chain.php?action=contract_upload_url&id=${row.id}&file_name=${encodeURIComponent(file.name)}`,
+        file
+      );
+      setState({ status: 'extracting', error: null, draft: null });
+      const ex = await api.post(`/modules/placements/api/chain.php?action=extract_contract&id=${row.id}`, { storage_key: uploaded.storage_key });
+      setState({ status: 'extracted', error: null, draft: ex.draft });
+    } catch (e) { setState({ status: 'error', error: e, draft: null }); }
+  };
+
+  return (
+    <div data-testid={`chain-contract-${row.id}`} style={{ minWidth: 140 }}>
+      {state.status === 'idle' && (
+        <label className="btn btn--ghost" style={{ cursor: 'pointer', fontSize: 12 }} data-testid={`chain-contract-${row.id}-pick-label`}>
+          ✨ Extract MSA/SOW
+          <input
+            type="file"
+            accept="application/pdf,image/*"
+            onChange={(e) => onPick(e.target.files?.[0] || null)}
+            data-testid={`chain-contract-${row.id}-input`}
+            style={{ display: 'none' }}
+          />
+        </label>
+      )}
+      {state.status === 'uploading'  && <span style={{ fontSize: 12, color: '#6b7280' }}>Uploading…</span>}
+      {state.status === 'extracting' && <span style={{ fontSize: 12, color: '#6b7280' }}>Extracting…</span>}
+      {state.status === 'extracted'  && (
+        <button
+          type="button"
+          className="btn btn--ghost"
+          data-testid={`chain-contract-${row.id}-summary-btn`}
+          onClick={() => alert(JSON.stringify(state.draft, null, 2))}
+          style={{ fontSize: 12, color: '#065f46' }}
+        >
+          ✨ {state.draft?.agreement_type || 'contract'} · view summary
+        </button>
+      )}
+      {state.status === 'error' && <span style={{ fontSize: 12, color: '#991b1b' }} data-testid={`chain-contract-${row.id}-error`}>{state.error?.message || 'Failed'}</span>}
+    </div>
+  );
+}
+

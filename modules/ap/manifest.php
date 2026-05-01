@@ -59,6 +59,8 @@ return [
         'ap.bill.attachment.added',
         'ap.bill.line.attachment.added',
         'ap.bill.extracted_from_pdf',
+        'ap.bill.line.extracted_from_receipt',
+        'ap.vendor.extracted_from_w9',
         'ap.intake.received',
         'ap.intake.parsed',
         'ap.intake.converted',

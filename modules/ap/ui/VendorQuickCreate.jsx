@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../../../dashboard/src/lib/api';
+import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 
 /**
  * Inline "Add new vendor" dialog used from BillCreate's vendor picker when
@@ -24,6 +25,30 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel }) 
   const [taxIdLast4, setTaxIdLast4] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
+
+  // ── W-9 / W-8BEN extraction ────────────────────────────────────────
+  const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState(null);
+  const [extractInfo, setExtractInfo]   = useState(null);
+
+  const extractFromW9 = async (file) => {
+    if (!file) return;
+    setExtracting(true); setExtractError(null); setExtractInfo(null);
+    try {
+      const uploaded = await uploadFileViaPresignedPost(
+        `/modules/ap/api/vendors.php?action=upload_url&file_name=${encodeURIComponent(file.name)}`,
+        file
+      );
+      const res = await api.post('/modules/ap/api/vendors.php?action=extract_w9', { storage_key: uploaded.storage_key });
+      const d = res.draft || {};
+      // Pre-fill the form. User reviews everything before submit.
+      if (d.vendor_name)    setName(d.vendor_name);
+      if (d.vendor_type)    setVendorType(d.vendor_type);
+      if (d.tax_id_last4)   setTaxIdLast4(String(d.tax_id_last4).slice(0, 4));
+      setExtractInfo({ classification: d.tax_classification, model: res.model });
+    } catch (e) { setExtractError(e); }
+    finally     { setExtracting(false); }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -103,6 +128,33 @@ export default function VendorQuickCreate({ initialName, onCreated, onCancel }) 
           </div>
         ) : (
           <>
+            <div data-testid="vendor-quick-create-w9-zone" style={{ marginBottom: 12, padding: 10, border: '1px dashed #c7d2fe', borderRadius: 6, background: '#f5f3ff' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 13, color: '#4c1d95' }}>✨ Have a W-9 or W-8BEN?</span>
+                <label className="btn btn--ghost" style={{ cursor: 'pointer', fontSize: 12 }} data-testid="vendor-quick-create-w9-pick-label">
+                  {extracting ? 'Extracting…' : 'Auto-fill from PDF'}
+                  <input
+                    type="file"
+                    accept="application/pdf,image/*"
+                    onChange={(e) => extractFromW9(e.target.files?.[0] || null)}
+                    data-testid="vendor-quick-create-w9-input"
+                    style={{ display: 'none' }}
+                    disabled={extracting}
+                  />
+                </label>
+                {extractInfo && (
+                  <span data-testid="vendor-quick-create-w9-result" style={{ fontSize: 12, color: '#065f46' }}>
+                    Pre-filled · {extractInfo.classification || 'unknown'} · review before saving
+                  </span>
+                )}
+                {extractError && (
+                  <span data-testid="vendor-quick-create-w9-error" style={{ fontSize: 12, color: '#991b1b' }}>
+                    {extractError.message}
+                  </span>
+                )}
+              </div>
+            </div>
+
             <Field label="Vendor name *">
               <input className="input" value={name} onChange={(e) => setName(e.target.value)} data-testid="vendor-quick-create-name" required autoFocus />
             </Field>

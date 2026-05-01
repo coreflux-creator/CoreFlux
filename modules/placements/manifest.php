@@ -52,6 +52,7 @@ return [
         'placement.chain.portal.set',
         'placement.chain.portal.cleared',
         'placement.chain.portal.viewed',
+        'placement.chain.contract_extracted',
         'placement.rate.drafted',
         'placement.rate.approved',
         'placement.rate.superseded',

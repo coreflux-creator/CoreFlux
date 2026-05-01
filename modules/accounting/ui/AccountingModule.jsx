@@ -3,6 +3,9 @@ import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
 import ChartOfAccounts from './ChartOfAccounts';
 import JournalEntries from './JournalEntries';
 import TrialBalance from './TrialBalance';
+import IncomeStatement from './IncomeStatement';
+import BalanceSheet from './BalanceSheet';
+import Periods from './Periods';
 
 /**
  * Accounting Module — Phase 0 UI
@@ -15,16 +18,22 @@ import TrialBalance from './TrialBalance';
 export default function AccountingModule({ session }) {
   return (
     <div data-testid="accounting-module">
-      <nav style={{ display: 'flex', gap: 8, borderBottom: '1px solid #e5e7eb', marginBottom: '1rem' }}>
+      <nav style={{ display: 'flex', gap: 8, borderBottom: '1px solid #e5e7eb', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <Tab to="accounts" label="Chart of Accounts" />
         <Tab to="journal"  label="Journal Entries" />
         <Tab to="trial"    label="Trial Balance" />
+        <Tab to="pnl"      label="Income Statement" />
+        <Tab to="balance"  label="Balance Sheet" />
+        <Tab to="periods"  label="Periods" />
       </nav>
       <Routes>
         <Route index           element={<Navigate to="accounts" replace />} />
         <Route path="accounts" element={<ChartOfAccounts session={session} />} />
         <Route path="journal"  element={<JournalEntries  session={session} />} />
         <Route path="trial"    element={<TrialBalance    session={session} />} />
+        <Route path="pnl"      element={<IncomeStatement session={session} />} />
+        <Route path="balance"  element={<BalanceSheet    session={session} />} />
+        <Route path="periods"  element={<Periods         session={session} />} />
       </Routes>
     </div>
   );

@@ -89,6 +89,9 @@ function getModuleDefinitions(): array {
                 ['name' => 'Chart of Accounts', 'route' => 'accounts', 'permission' => 'accounting.coa.view'],
                 ['name' => 'Journal Entries',   'route' => 'journal',  'permission' => 'accounting.je.create'],
                 ['name' => 'Trial Balance',     'route' => 'trial',    'permission' => 'accounting.coa.view'],
+                ['name' => 'Income Statement',  'route' => 'pnl',      'permission' => 'accounting.coa.view'],
+                ['name' => 'Balance Sheet',     'route' => 'balance',  'permission' => 'accounting.coa.view'],
+                ['name' => 'Periods',           'route' => 'periods',  'permission' => 'accounting.coa.view'],
             ]
         ],
         'payroll' => [

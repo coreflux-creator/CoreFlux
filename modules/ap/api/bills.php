@@ -29,6 +29,52 @@ $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
+if ($method === 'POST' && $action === 'extract_receipt') {
+    // AI-assist for a single bill line — read the uploaded receipt image/PDF
+    // and return suggested fields (item_type, qty, unit, unit_price, GL guess).
+    // The user must accept each value; the response is suggestion, not authoritative.
+    RBAC::requirePermission($user, 'ap.bill.create');
+    require_once __DIR__ . '/../../../core/ai_service.php';
+    $lineId = (int) ($_GET['line_id'] ?? 0);
+    if ($lineId <= 0) api_error('line_id required', 400);
+    $line = getDB()->prepare(
+        'SELECT bl.id FROM ap_bill_lines bl JOIN ap_bills b ON b.id = bl.bill_id
+         WHERE bl.id = :id AND b.tenant_id = :tid'
+    );
+    $line->execute(['id' => $lineId, 'tid' => $tid]);
+    if (!$line->fetch(\PDO::FETCH_ASSOC)) api_error('Not found', 404);
+    $body = api_json_body();
+    api_require_fields($body, ['storage_key']);
+    $signedUrl = StorageService::getInstance()->get_signed_url((string) $body['storage_key']);
+
+    $schemaHint = <<<JSON
+{
+  "merchant":      string|null,
+  "transaction_date": string|null,         // ISO YYYY-MM-DD
+  "description":   string|null,            // concise line description
+  "item_type":     "expense"|"materials"|"mileage"|"per_diem"|"reimbursement"|"other",
+  "quantity":      number|null,
+  "unit":          string|null,            // each|mile|day|gallon|...
+  "unit_price":    number|null,
+  "subtotal":      number|null,
+  "tax_amount":    number|null,
+  "total":         number|null,
+  "currency":      string|null
+}
+JSON;
+
+    try {
+        $res = aiExtract([
+            'feature_key' => 'ap.bill.line.from_receipt',
+            'instruction' => 'Extract a single expense receipt into the JSON shape below. Pick the best item_type from the enum. If multiple items appear on the receipt, summarise into one line and put detail in description.',
+            'schema_hint' => $schemaHint,
+            'images'      => [['url' => $signedUrl]],
+        ]);
+    } catch (\Throwable $e) { api_error('Extraction failed: ' . $e->getMessage(), 502); }
+    apAudit('ap.bill.line.extracted_from_receipt', ['line_id' => $lineId, 'model' => $res['model'], 'interaction_id' => $res['interaction_id']], $lineId);
+    api_ok(['draft' => $res['data'], 'model' => $res['model'], 'interaction_id' => $res['interaction_id'], 'review_required' => true]);
+}
+
 if ($method === 'POST' && $action === 'extract_from_pdf') {
     // AI-assist: read the uploaded vendor invoice (PDF or image) and return
     // a structured draft the BillCreate form can pre-fill. The user remains

@@ -22,6 +22,72 @@ $user   = $ctx['user'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
+if ($method === 'GET' && $action === 'contract_upload_url') {
+    RBAC::requirePermission($user, 'placements.manage');
+    require_once __DIR__ . '/../../../core/StorageService.php';
+    $cid = (int) ($_GET['id'] ?? 0);
+    if ($cid <= 0) api_error('id required', 400);
+    $fileName = (string) ($_GET['file_name'] ?? 'contract.pdf');
+    $svc = Core\StorageService::getInstance();
+    $key  = $svc->build_key('placements', currentTenantId(), 'chain_contract', $cid, $fileName);
+    $post = $svc->get_presigned_post($key);
+    api_ok(['storage_key' => $key, 'upload' => $post]);
+}
+
+if ($method === 'POST' && $action === 'extract_contract') {
+    // AI-assist — read an MSA / SOW / vendor contract PDF and surface key
+    // commercial terms for the chain row. Suggestion only; nothing auto-applied.
+    RBAC::requirePermission($user, 'placements.manage');
+    require_once __DIR__ . '/../../../core/StorageService.php';
+    require_once __DIR__ . '/../../../core/ai_service.php';
+    $cid = (int) ($_GET['id'] ?? 0);
+    if ($cid <= 0) api_error('id required', 400);
+    $row = scopedFind('SELECT id, placement_id FROM placement_client_chain WHERE tenant_id = :tenant_id AND id = :id', ['id' => $cid]);
+    if (!$row) api_error('Not found', 404);
+    $body = api_json_body();
+    api_require_fields($body, ['storage_key']);
+    $signedUrl = Core\StorageService::getInstance()->get_signed_url((string) $body['storage_key']);
+
+    $schemaHint = <<<JSON
+{
+  "counterparty_name":         string|null,
+  "agreement_type":            "msa"|"sow"|"work_order"|"po"|"nda"|"amendment"|"other"|null,
+  "effective_date":            string|null,
+  "term_end_date":             string|null,
+  "renewal_clause":            string|null,        // 1-line summary
+  "rate_caps": {
+    "max_bill_rate":           number|null,
+    "max_pay_rate":            number|null,
+    "currency":                string|null
+  },
+  "payment_terms":             string|null,        // e.g. NET30
+  "termination_notice_days":   number|null,
+  "non_compete_summary":       string|null,
+  "ip_assignment_summary":     string|null,
+  "indemnity_summary":         string|null,
+  "key_clauses":               [{ "title": string, "summary": string }],
+  "submittal_id_in_doc":       string|null,
+  "vms_job_id_in_doc":         string|null,
+  "portal_url_in_doc":         string|null,
+  "warnings":                  [string]            // anything unusual / risky
+}
+JSON;
+    try {
+        $res = aiExtract([
+            'feature_key' => 'placements.chain.from_contract',
+            'instruction' => 'Read this staffing-industry contract (MSA / SOW / amendment / vendor work order) and surface commercial terms for review. Be conservative — null fields you cannot find verbatim. List anything unusual (e.g. uncapped indemnity, exclusivity, perpetual rate freeze, broad non-compete) under warnings.',
+            'schema_hint' => $schemaHint,
+            'images'      => [['url' => $signedUrl, 'mime' => 'application/pdf']],
+            'max_output_tokens' => 2500,
+        ]);
+    } catch (\Throwable $e) { api_error('Extraction failed: ' . $e->getMessage(), 502); }
+    placementsAudit('placement.chain.contract_extracted', [
+        'chain_id' => $cid, 'placement_id' => (int) $row['placement_id'],
+        'model' => $res['model'], 'interaction_id' => $res['interaction_id'],
+    ], (int) $row['placement_id']);
+    api_ok(['draft' => $res['data'], 'model' => $res['model'], 'interaction_id' => $res['interaction_id'], 'review_required' => true]);
+}
+
 if ($method === 'GET' && $action === 'reveal_portal') {
     RBAC::requirePermission($user, 'placements.portal_credentials.view');
     $id = (int) api_query('id', 0);

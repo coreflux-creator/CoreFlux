@@ -18,6 +18,56 @@ $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
+$action = $_GET['action'] ?? '';
+
+if ($method === 'GET' && $action === 'upload_url') {
+    // Presigned S3 POST for staging a W-9 / W-8BEN PDF before extraction.
+    RBAC::requirePermission($user, 'ap.bill.create');
+    require_once __DIR__ . '/../../../core/StorageService.php';
+    $fileName = (string) ($_GET['file_name'] ?? 'w9.pdf');
+    $svc = Core\StorageService::getInstance();
+    $key  = $svc->build_key('ap', $tid, 'vendor_w9', 0, $fileName);
+    $post = $svc->get_presigned_post($key);
+    api_ok(['storage_key' => $key, 'upload' => $post]);
+}
+
+if ($method === 'POST' && $action === 'extract_w9') {
+    // AI-assist for vendor onboarding — read a W-9 / W-8BEN form and return
+    // a suggested vendor draft. User reviews + saves via normal POST.
+    RBAC::requirePermission($user, 'ap.bill.create');
+    require_once __DIR__ . '/../../../core/StorageService.php';
+    require_once __DIR__ . '/../../../core/ai_service.php';
+    $body = api_json_body();
+    api_require_fields($body, ['storage_key']);
+    $signedUrl = Core\StorageService::getInstance()->get_signed_url((string) $body['storage_key']);
+
+    $schemaHint = <<<JSON
+{
+  "vendor_name":          string|null,
+  "business_name":        string|null,
+  "tax_classification":   "individual"|"sole_proprietor"|"c_corp"|"s_corp"|"partnership"|"trust"|"llc"|"other"|null,
+  "tax_id_last4":         string|null,
+  "address_line1":        string|null,
+  "address_line2":        string|null,
+  "city":                 string|null,
+  "state":                string|null,
+  "postal_code":          string|null,
+  "country":              string|null,
+  "vendor_type":          "1099_individual"|"c2c_corp"|"w9_business"|"other",
+  "requires_1099":        boolean|null
+}
+JSON;
+    try {
+        $res = aiExtract([
+            'feature_key' => 'ap.vendor.from_w9',
+            'instruction' => 'Extract a US W-9 (or W-8BEN equivalent) into the JSON shape below. Map tax_classification to vendor_type: individual/sole_proprietor → 1099_individual; c_corp/s_corp → c2c_corp; partnership/trust/other → w9_business. Set requires_1099 = false only if tax_classification is c_corp or s_corp.',
+            'schema_hint' => $schemaHint,
+            'images'      => [['url' => $signedUrl, 'mime' => 'application/pdf']],
+        ]);
+    } catch (\Throwable $e) { api_error('Extraction failed: ' . $e->getMessage(), 502); }
+    apAudit('ap.vendor.extracted_from_w9', ['model' => $res['model'], 'interaction_id' => $res['interaction_id']]);
+    api_ok(['draft' => $res['data'], 'model' => $res['model'], 'interaction_id' => $res['interaction_id'], 'review_required' => true]);
+}
 
 if ($method === 'GET' && !empty($_GET['id'])) {
     RBAC::requirePermission($user, 'ap.view');

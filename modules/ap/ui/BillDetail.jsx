@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 
 export default function BillDetail() {
   const { id } = useParams();
@@ -76,10 +77,10 @@ export default function BillDetail() {
 
       <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>Lines</h3>
       <table className="data-table" data-testid="ap-bill-lines" style={{ marginBottom: 'var(--cf-space-4)' }}>
-        <thead><tr><th>#</th><th>Description</th><th style={{textAlign:'right'}}>Qty</th><th>Unit</th><th style={{textAlign:'right'}}>Unit $</th><th style={{textAlign:'right'}}>Subtotal</th><th style={{textAlign:'right'}}>Total</th><th>GL</th><th>1099?</th></tr></thead>
+        <thead><tr><th>#</th><th>Description</th><th style={{textAlign:'right'}}>Qty</th><th>Unit</th><th style={{textAlign:'right'}}>Unit $</th><th style={{textAlign:'right'}}>Subtotal</th><th style={{textAlign:'right'}}>Total</th><th>GL</th><th>1099?</th><th>Receipt</th></tr></thead>
         <tbody>
           {lines.map(l => (
-            <tr key={l.id}>
+            <tr key={l.id} data-testid={`ap-bill-line-${l.id}`}>
               <td>{l.line_no}</td>
               <td>{l.description}</td>
               <td style={{textAlign:'right'}}>{Number(l.quantity).toFixed(2)}</td>
@@ -89,6 +90,7 @@ export default function BillDetail() {
               <td style={{textAlign:'right'}}>{Number(l.total).toFixed(2)}</td>
               <td>{l.gl_expense_account_code || '—'}</td>
               <td>{Number(l.is_1099_eligible) ? 'Yes' : 'No'}</td>
+              <td><LineReceiptCell line={l} /></td>
             </tr>
           ))}
         </tbody>
@@ -129,3 +131,58 @@ function SummaryBox({ label, value, highlight }) {
     </div>
   );
 }
+
+function LineReceiptCell({ line }) {
+  const [state, setState] = useState({ status: 'idle', filename: null, draft: null, error: null });
+
+  const onPick = async (file) => {
+    if (!file) return;
+    setState({ status: 'uploading', filename: file.name, draft: null, error: null });
+    try {
+      const uploaded = await uploadFileViaPresignedPost(
+        `/modules/ap/api/bills.php?action=upload_url&line_id=${line.id}&file_name=${encodeURIComponent(file.name)}`,
+        file
+      );
+      // Persist the attachment first.
+      await api.post(`/modules/ap/api/bills.php?action=attach_line&line_id=${line.id}`, uploaded);
+      // Then offer extraction (auto-run, suggestion only).
+      setState((s) => ({ ...s, status: 'extracting' }));
+      try {
+        const ex = await api.post(`/modules/ap/api/bills.php?action=extract_receipt&line_id=${line.id}`, { storage_key: uploaded.storage_key });
+        setState({ status: 'extracted', filename: file.name, draft: ex.draft, error: null });
+      } catch (extractErr) {
+        // Attachment was saved; extraction is bonus. Surface as soft warning.
+        setState({ status: 'attached', filename: file.name, draft: null, error: extractErr });
+      }
+    } catch (e) {
+      setState({ status: 'error', filename: file.name, draft: null, error: e });
+    }
+  };
+
+  return (
+    <div data-testid={`ap-bill-line-${line.id}-receipt`} style={{ minWidth: 160 }}>
+      {state.status === 'idle' && (
+        <label className="btn btn--ghost" style={{ cursor: 'pointer', fontSize: 12 }} data-testid={`ap-bill-line-${line.id}-attach-label`}>
+          📎 Attach
+          <input
+            type="file"
+            accept="application/pdf,image/*"
+            onChange={(e) => onPick(e.target.files?.[0] || null)}
+            data-testid={`ap-bill-line-${line.id}-attach-input`}
+            style={{ display: 'none' }}
+          />
+        </label>
+      )}
+      {state.status === 'uploading'  && <span style={{ fontSize: 12, color: '#6b7280' }}>Uploading…</span>}
+      {state.status === 'extracting' && <span style={{ fontSize: 12, color: '#6b7280' }}>✨ Extracting…</span>}
+      {state.status === 'attached'   && <span style={{ fontSize: 12, color: '#065f46' }} title={state.filename}>📎 Attached</span>}
+      {state.status === 'extracted'  && (
+        <span style={{ fontSize: 12, color: '#065f46' }} title={JSON.stringify(state.draft)} data-testid={`ap-bill-line-${line.id}-receipt-extracted`}>
+          ✨ {state.draft?.merchant || 'Extracted'} · {state.draft?.total != null ? `$${Number(state.draft.total).toFixed(2)}` : '—'}
+        </span>
+      )}
+      {state.status === 'error'      && <span style={{ fontSize: 12, color: '#991b1b' }} data-testid={`ap-bill-line-${line.id}-receipt-error`}>{state.error?.message || 'Failed'}</span>}
+    </div>
+  );
+}
+
