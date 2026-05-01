@@ -50,6 +50,8 @@ if ($method === 'POST' && $action === 'upsert') {
     $extra = array_intersect_key($body, array_flip([
         'legal_name','website','phone','primary_contact_name','primary_contact_email','primary_contact_phone',
         'address_line1','address_line2','city','state','postal_code','country','notes',
+        'account_manager_user_id','default_terms','currency','status','tax_classification',
+        'industry','employee_size_range',
     ]));
     $extra['created_by_user_id'] = $user['id'] ?? null;
     $id = companiesUpsertByName($tid, (string) $body['name'], $extra, $roles);
@@ -70,9 +72,22 @@ if ($method === 'POST' && $action === '') {
         'name','legal_name','duns','website','phone',
         'primary_contact_name','primary_contact_email','primary_contact_phone',
         'address_line1','address_line2','city','state','postal_code','country','notes',
+        'account_manager_user_id','default_terms','currency','status','tax_classification',
+        'industry','employee_size_range',
+        'w9_on_file','w9_expires_on','w9_storage_object_id',
+        'coi_on_file','coi_expires_on','coi_storage_object_id',
     ]));
+    if (isset($body['tags']) && is_array($body['tags'])) {
+        $insert['tags_json'] = json_encode(array_values(array_unique(array_filter(array_map('strval', $body['tags'])))));
+    }
+    foreach (['w9_on_file','coi_on_file'] as $b) {
+        if (isset($insert[$b])) $insert[$b] = !empty($insert[$b]) ? 1 : 0;
+    }
     $insert['tenant_id']          = $tid;
     $insert['country']            = $insert['country'] ?? 'US';
+    $insert['currency']           = $insert['currency'] ?? 'USD';
+    $insert['default_terms']      = $insert['default_terms'] ?? 'NET30';
+    $insert['status']             = $insert['status'] ?? 'active';
     $insert['created_by_user_id'] = $user['id'] ?? null;
     $id = scopedInsert('companies', $insert);
 
@@ -96,7 +111,17 @@ if ($method === 'PATCH') {
         'primary_contact_name','primary_contact_email','primary_contact_phone',
         'address_line1','address_line2','city','state','postal_code','country','notes',
         'msa_signed_at','msa_storage_object_id',
+        'account_manager_user_id','default_terms','currency','status','tax_classification',
+        'industry','employee_size_range',
+        'w9_on_file','w9_expires_on','w9_storage_object_id',
+        'coi_on_file','coi_expires_on','coi_storage_object_id',
     ]));
+    foreach (['w9_on_file','coi_on_file'] as $b) {
+        if (isset($allowed[$b])) $allowed[$b] = !empty($allowed[$b]) ? 1 : 0;
+    }
+    if (isset($body['tags']) && is_array($body['tags'])) {
+        $allowed['tags_json'] = json_encode(array_values(array_unique(array_filter(array_map('strval', $body['tags'])))));
+    }
     if ($allowed) {
         $rows = scopedUpdate('companies', $id, $allowed);
         if ($rows === 0 && !isset($body['roles'])) api_error('Not found or no change', 404);
@@ -160,6 +185,59 @@ if ($method === 'DELETE') {
     getDB()->prepare('UPDATE companies SET deleted_at = NOW() WHERE id = :id AND tenant_id = :t')
         ->execute(['id' => $id, 't' => $tid]);
     companiesAudit('company.deleted', ['id' => $id], $id);
+    api_ok(['ok' => true]);
+}
+
+if ($method === 'POST' && $action === 'add-address') {
+    RBAC::requirePermission($user, 'people.manage');
+    $id = (int) ($_GET['id'] ?? 0);
+    $body = api_json_body();
+    api_require_fields($body, ['line1','city']);
+    $kind = (string) ($body['kind'] ?? 'hq');
+    $allowedKinds = ['hq','billing','remit_to','worksite','mailing'];
+    if (!in_array($kind, $allowedKinds, true)) api_error("invalid kind: {$kind}", 422);
+
+    if (!empty($body['is_primary'])) {
+        // Demote any existing primary of the same kind so there's at most one.
+        getDB()->prepare(
+            'UPDATE company_addresses SET is_primary = 0
+             WHERE company_id = :c AND kind = :k'
+        )->execute(['c' => $id, 'k' => $kind]);
+    }
+    $aid = scopedInsert('company_addresses', [
+        'tenant_id'   => $tid,
+        'company_id'  => $id,
+        'kind'        => $kind,
+        'label'       => $body['label']       ?? null,
+        'line1'       => $body['line1'],
+        'line2'       => $body['line2']       ?? null,
+        'city'        => $body['city'],
+        'state'       => $body['state']       ?? null,
+        'postal_code' => $body['postal_code'] ?? null,
+        'country'     => $body['country']     ?? 'US',
+        'is_primary'  => !empty($body['is_primary']) ? 1 : 0,
+        'notes'       => $body['notes']       ?? null,
+    ]);
+    companiesAudit('company.address.added', ['company_id' => $id, 'address_id' => $aid, 'kind' => $kind], $id);
+    api_ok(['address_id' => $aid, 'addresses' => companyAddresses($id)], 201);
+}
+
+if ($method === 'PATCH' && $action === 'address') {
+    RBAC::requirePermission($user, 'people.manage');
+    $aid = (int) ($_GET['id'] ?? 0);
+    $body = api_json_body();
+    foreach (['id','tenant_id','company_id','created_at'] as $k) unset($body[$k]);
+    if (!$body) api_error('No fields to update', 422);
+    $rows = scopedUpdate('company_addresses', $aid, $body);
+    if ($rows === 0) api_error('Not found or no change', 404);
+    api_ok(['ok' => true]);
+}
+
+if ($method === 'DELETE' && $action === 'address') {
+    RBAC::requirePermission($user, 'people.manage');
+    $aid = (int) ($_GET['id'] ?? 0);
+    $rows = scopedDelete('company_addresses', $aid);
+    if ($rows === 0) api_error('Not found', 404);
     api_ok(['ok' => true]);
 }
 

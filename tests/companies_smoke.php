@@ -81,18 +81,26 @@ $assert('referrals POST resolves referrer_company_id',    strpos($refApi, 'refer
 $assert('referrals POST tags role=referrer',              strpos($refApi, "'referrer'") !== false);
 $assert('referrals POST only resolves company for vendor referrer', strpos($refApi, "'vendor'") !== false);
 
-echo "\nUI wiring\n";
-foreach (['CompanyTypeahead.jsx','CompaniesModule.jsx'] as $c) {
+echo "\nUI wiring (Clients + Vendors split — no 'Companies' in user-facing routes)\n";
+foreach (['CompanyTypeahead.jsx','DirectoryModule.jsx','ClientsModule.jsx','VendorsModule.jsx'] as $c) {
     $assert("ui/{$c} exists",                   is_file(__DIR__ . "/../modules/people/ui/{$c}"));
 }
-$cm = (string) file_get_contents(__DIR__ . '/../modules/people/ui/CompaniesModule.jsx');
-foreach (['CompaniesList','CompanyCreate','CompanyDetail'] as $c) {
-    $assert("CompaniesModule renders {$c}",     strpos($cm, "function {$c}") !== false);
+$assert("OLD CompaniesModule.jsx removed",     !is_file(__DIR__ . '/../modules/people/ui/CompaniesModule.jsx'));
+$dm = (string) file_get_contents(__DIR__ . '/../modules/people/ui/DirectoryModule.jsx');
+foreach (['DirectoryList','DirectoryCreate','DirectoryDetail'] as $c) {
+    $assert("DirectoryModule renders {$c}",     strpos($dm, "function {$c}") !== false);
 }
-$assert('list testid present',                  strpos($cm, "data-testid=\"companies-list\"") !== false);
-$assert('create form testid present',           strpos($cm, "data-testid=\"company-create\"") !== false);
-$assert('detail testid present',                strpos($cm, "data-testid=\"company-detail\"") !== false);
-$assert('detail role toggle pills',             strpos($cm, 'company-detail-role-') !== false);
+$assert('mode-driven (clients/vendors)',        strpos($dm, "MODES = {") !== false && strpos($dm, "clients:") !== false && strpos($dm, "vendors:") !== false);
+$assert('cross-link badge on detail',           strpos($dm, 'cross-link') !== false);
+$assert('clients default terms NET30',          strpos($dm, "defaultTerms: 'NET30'") !== false);
+$assert('vendors default terms NET45',          strpos($dm, "defaultTerms: 'NET45'") !== false);
+$assert('detail testids parameterized by mode', strpos($dm, '${mode}-detail-name') !== false);
+$assert('list testids parameterized by mode',   strpos($dm, '${mode}-list') !== false);
+
+$cw = (string) file_get_contents(__DIR__ . '/../modules/people/ui/ClientsModule.jsx');
+$vw = (string) file_get_contents(__DIR__ . '/../modules/people/ui/VendorsModule.jsx');
+$assert('ClientsModule passes mode=clients',    strpos($cw, 'mode="clients"') !== false);
+$assert('VendorsModule passes mode=vendors',    strpos($vw, 'mode="vendors"') !== false);
 
 $ta = (string) file_get_contents(__DIR__ . '/../modules/people/ui/CompanyTypeahead.jsx');
 $assert('typeahead debounces',                  strpos($ta, 'debounceRef') !== false);
@@ -101,8 +109,11 @@ $assert('typeahead role filter passed to API',  strpos($ta, "params.set('role', 
 $assert('typeahead keyboard nav',               strpos($ta, 'ArrowDown') !== false && strpos($ta, 'ArrowUp') !== false);
 
 $pm = (string) file_get_contents(__DIR__ . '/../modules/people/ui/PeopleModule.jsx');
-$assert('PeopleModule wires companies/*',       strpos($pm, '"companies/*"') !== false);
-$assert('PeopleModule imports CompaniesModule', strpos($pm, "import CompaniesModule") !== false);
+$assert('PeopleModule wires clients/*',         strpos($pm, '"clients/*"') !== false);
+$assert('PeopleModule wires vendors/*',         strpos($pm, '"vendors/*"') !== false);
+$assert('PeopleModule does NOT route companies/*', strpos($pm, '"companies/*"') === false);
+$assert('PeopleModule imports ClientsModule',   strpos($pm, "import ClientsModule") !== false);
+$assert('PeopleModule imports VendorsModule',   strpos($pm, "import VendorsModule") !== false);
 
 $pd = (string) file_get_contents(__DIR__ . '/../modules/people/ui/PersonDetail.jsx');
 $assert('PersonDetail has + New placement CTA', strpos($pd, 'person-detail-new-placement') !== false);
@@ -119,9 +130,45 @@ $assert('PlacementCreate posts company_id to chain', strpos($pc, 'company_id: c.
 $assert('PlacementCreate uses bill_rate_unit/pay_rate_unit', strpos($pc, 'bill_rate_unit') !== false && strpos($pc, 'pay_rate_unit') !== false);
 $assert('PlacementCreate uses corp_legal_name',  strpos($pc, 'corp_legal_name') !== false);
 
-echo "\nSidebar (core/modules.php)\n";
+echo "\nSidebar (core/modules.php) — Clients + Vendors split\n";
 $mods = (string) file_get_contents(__DIR__ . '/../core/modules.php');
-$assert('Companies action under People',       strpos($mods, "'route' => 'companies'") !== false);
+$assert('Clients action under People',         strpos($mods, "'route' => 'clients'") !== false);
+$assert('Vendors action under People',         strpos($mods, "'route' => 'vendors'") !== false);
+$assert('NO Companies action in sidebar',      strpos($mods, "'route' => 'companies'") === false);
+
+echo "\nv2 hardening migration (005_companies_v2.sql)\n";
+$v2 = (string) file_get_contents(__DIR__ . '/../modules/people/migrations/005_companies_v2.sql');
+$assert('v2 migration exists',                 strlen($v2) > 0);
+$assert('v2 utf8mb4_unicode_ci',               strpos($v2, 'utf8mb4_unicode_ci') !== false);
+$assert('v2 NOT 0900_ai_ci',                   strpos($v2, 'utf8mb4_0900_ai_ci') === false);
+$assert('company_addresses table',             strpos($v2, 'CREATE TABLE IF NOT EXISTS company_addresses') !== false);
+$assert('addresses kind enum (5 kinds)',       strpos($v2, "ENUM('hq','billing','remit_to','worksite','mailing')") !== false);
+$assert('FK addresses → companies',            strpos($v2, 'fk_ca_company') !== false);
+foreach (['account_manager_user_id','default_terms','currency','status','tax_classification','industry','employee_size_range','w9_on_file','w9_expires_on','coi_on_file','coi_expires_on','tags_json'] as $col) {
+    $assert("v2 adds companies.{$col}",         strpos($v2, "COLUMN_NAME='{$col}'") !== false);
+}
+foreach (['mobile_phone','linkedin_url','department','decision_role','is_active'] as $col) {
+    $assert("v2 adds company_contacts.{$col}",  strpos($v2, "TABLE_NAME='company_contacts' AND COLUMN_NAME='{$col}'") !== false);
+}
+$assert('v2 status enum has 4 states',         strpos($v2, "ENUM(\"prospect\",\"active\",\"inactive\",\"blacklisted\")") !== false);
+$assert('v2 tax_classification enum 8 values', strpos($v2, '"c_corp","s_corp","llc","partnership","sole_prop","nonprofit","government","other"') !== false);
+$assert('v2 decision_role enum',               strpos($v2, '"decision_maker","champion","influencer","blocker","gatekeeper","unknown"') !== false);
+
+echo "\nLib + API hardening\n";
+$lib = (string) file_get_contents(__DIR__ . '/../modules/people/lib/companies.php');
+$assert('lib: companyAddresses fn',            strpos($lib, 'function companyAddresses') !== false);
+$assert('companiesGet returns addresses',      strpos($lib, "row['addresses']") !== false);
+$assert('companiesGet decodes tags_json',      strpos($lib, 'tags_json') !== false);
+
+$apiSrc = (string) file_get_contents(__DIR__ . '/../modules/people/api/companies.php');
+foreach (['add-address','address'] as $a) {
+    $assert("api action: {$a}",                 strpos($apiSrc, "action === '{$a}'") !== false);
+}
+$assert('api: address kind validated',         strpos($apiSrc, "invalid kind") !== false);
+$assert('api: at-most-one-primary per kind',   strpos($apiSrc, 'is_primary = 0') !== false);
+$assert('api: tags accepted as array',         strpos($apiSrc, "tags_json") !== false);
+$assert('api: account_manager_user_id POST',   strpos($apiSrc, 'account_manager_user_id') !== false);
+$assert('api: w9_on_file boolean coerced',     strpos($apiSrc, 'w9_on_file') !== false);
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

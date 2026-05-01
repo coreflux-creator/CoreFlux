@@ -23,9 +23,25 @@ function companiesGet(int $id): ?array
     $row = scopedFind('SELECT * FROM companies WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL', ['id' => $id]);
     if (!$row) return null;
     unset($row['ein_full_ct']);
-    $row['roles'] = companyRoles($id);
-    $row['contacts'] = companyContacts($id);
+    if (!empty($row['tags_json'])) {
+        $row['tags'] = json_decode($row['tags_json'], true) ?: [];
+    } else {
+        $row['tags'] = [];
+    }
+    $row['roles']     = companyRoles($id);
+    $row['contacts']  = companyContacts($id);
+    $row['addresses'] = companyAddresses($id);
     return $row;
+}
+
+function companyAddresses(int $companyId): array
+{
+    $stmt = getDB()->prepare(
+        'SELECT * FROM company_addresses WHERE company_id = :id
+         ORDER BY is_primary DESC, kind ASC, id ASC'
+    );
+    $stmt->execute(['id' => $companyId]);
+    return $stmt->fetchAll(\PDO::FETCH_ASSOC);
 }
 
 function companyRoles(int $companyId): array
