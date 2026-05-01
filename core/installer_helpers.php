@@ -67,12 +67,23 @@ function spaBundleStatus(string $root): array {
     $scan($root . '/dashboard/src');
     foreach (glob($root . '/modules/*/ui') ?: [] as $uiDir) $scan($uiDir);
 
-    if ($newest > $jsMTime + 5) {
+    // Tolerance: 600 seconds (10 min). Git pull does NOT preserve commit
+    // mtime — it stamps every pulled file with the current wall-clock time in
+    // whatever order git happens to write them. With ~100+ modified files,
+    // write-ordering drift of 10-30s between a bundle file and a source
+    // file from the SAME commit is routine on Cloudways. The previous 5s
+    // tolerance produced constant false-positive "STALE" warnings after
+    // every `git pull`. 10 minutes is still tight enough to catch a real
+    // case of "someone edited source but forgot to re-run yarn build"
+    // (which shows up as MANY minutes or hours of drift), while immune to
+    // same-commit pull ordering.
+    if ($newest > $jsMTime + 600) {
         $rel = ltrim(str_replace($root, '', $newestFile), '/');
+        $driftMin = (int) round(($newest - $jsMTime) / 60);
         $rows[] = [
             'check'  => 'spa bundle freshness',
             'ok'    => false,
-            'detail' => "STALE — UI source $rel was modified after the bundle was built. " .
+            'detail' => "STALE — UI source $rel is {$driftMin}min newer than the bundle. " .
                         "Run `yarn build` in /dashboard/, commit the new /spa-assets/ files, " .
                         "redeploy. Until then the browser will keep showing the old UI.",
         ];

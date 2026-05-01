@@ -66,6 +66,21 @@ function runUpdate(): array {
     // 2. Apply pending migrations
     $log['steps'][] = ['name' => 'apply pending migrations', 'ok' => true, 'list' => runMigrationsInProcess()];
 
+    // 2b. Refresh SPA bundle mtimes so freshness check is deterministic.
+    //     After `git pull`, source + bundle files all get "now" as their
+    //     mtime in an unpredictable order — if git wrote any `.jsx` file
+    //     after writing the `index-*.js` bundle, the staleness heuristic
+    //     would flag a false positive even though they came from the SAME
+    //     commit. `touch()`-ing spa-assets files AFTER migrations guarantees
+    //     the bundle mtime is always >= any source file mtime at this point.
+    $assetsDir = $root . '/spa-assets';
+    if (is_dir($assetsDir)) {
+        foreach (scandir($assetsDir) as $f) {
+            if ($f === '.' || $f === '..') continue;
+            @touch($assetsDir . '/' . $f);
+        }
+    }
+
     // 3. SPA bundle check — the React UI in /spa-assets/ is built ahead of time
     //    and committed via git. If it's missing or older than the latest source
     //    in /modules or /dashboard/src, the browser will keep serving stale UI
