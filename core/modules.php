@@ -78,6 +78,7 @@ function getModuleDefinitions(): array {
                 ['name' => 'Expense Reports',  'route' => 'expenses', 'permission' => 'ap.expense.submit'],
                 ['name' => 'AP Aging',         'route' => 'aging',    'permission' => 'ap.reports.view'],
                 ['name' => '1099 Ledger',      'route' => '1099',     'permission' => 'ap.1099.view'],
+                ['name' => 'Export',           'route' => 'export',   'permission' => 'ap.export.run'],
             ]
         ],
         'accounting' => [

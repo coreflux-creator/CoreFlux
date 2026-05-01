@@ -14,7 +14,11 @@
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/StorageService.php';
+require_once __DIR__ . '/../../../core/storage_register.php';
 require_once __DIR__ . '/../lib/ap.php';
+
+use Core\StorageService;
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -22,6 +26,90 @@ $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
 $uid    = (int) ($user['id'] ?? 0);
+
+if ($method === 'GET' && $action === 'upload_url') {
+    // Presigned S3 POST for an expense-line receipt.
+    RBAC::requirePermission($user, 'ap.expense.submit');
+    $lineId = (int) ($_GET['line_id'] ?? 0);
+    if ($lineId <= 0) api_error('line_id required', 400);
+    $fileName = (string) ($_GET['file_name'] ?? 'receipt');
+    $key  = StorageService::getInstance()->build_key('ap', $tid, 'expense_line', $lineId, $fileName);
+    $post = StorageService::getInstance()->get_presigned_post($key);
+    api_ok(['storage_key' => $key, 'upload' => $post]);
+}
+
+if ($method === 'POST' && $action === 'attach_line') {
+    // Register an uploaded receipt onto a single ap_expense_report_lines row.
+    RBAC::requirePermission($user, 'ap.expense.submit');
+    $lineId = (int) ($_GET['line_id'] ?? 0);
+    if ($lineId <= 0) api_error('line_id required', 400);
+    $line = getDB()->prepare(
+        'SELECT erl.id, erl.expense_report_id, er.tenant_id
+         FROM ap_expense_report_lines erl
+         JOIN ap_expense_reports er ON er.id = erl.expense_report_id
+         WHERE erl.id = :id AND er.tenant_id = :tid'
+    );
+    $line->execute(['id' => $lineId, 'tid' => $tid]);
+    $r = $line->fetch(\PDO::FETCH_ASSOC);
+    if (!$r) api_error('Not found', 404);
+    $body = api_json_body();
+    api_require_fields($body, ['storage_key','filename']);
+    $sid = registerStorageObject(
+        $tid, 'ap', 'expense_line', $lineId,
+        (string) $body['storage_key'], (string) $body['filename'],
+        $body['mime'] ?? null, isset($body['size_bytes']) ? (int) $body['size_bytes'] : null,
+        $user['id'] ?? null
+    );
+    getDB()->prepare('UPDATE ap_expense_report_lines SET receipt_storage_object_id = :s WHERE id = :id')
+        ->execute(['s' => $sid, 'id' => $lineId]);
+    apAudit('ap.expense.line.attachment.added', [
+        'expense_report_id' => (int) $r['expense_report_id'],
+        'line_id'           => $lineId,
+        'storage_object_id' => $sid,
+    ], (int) $r['expense_report_id']);
+    api_ok(['ok' => true, 'storage_object_id' => $sid]);
+}
+
+if ($method === 'POST' && $action === 'extract_receipt') {
+    // AI-assist for an expense-line receipt — same shape as ap.bill.line.from_receipt
+    // but maps onto the expense-line schema (date / category / merchant / amount).
+    RBAC::requirePermission($user, 'ap.expense.submit');
+    require_once __DIR__ . '/../../../core/ai_service.php';
+    $body = api_json_body();
+    api_require_fields($body, ['storage_key']);
+    $signedUrl = StorageService::getInstance()->get_signed_url((string) $body['storage_key']);
+
+    $schemaHint = <<<JSON
+{
+  "expense_date":   string|null,            // ISO YYYY-MM-DD
+  "merchant":       string|null,
+  "category":       "meals"|"travel"|"mileage"|"supplies"|"software"|"lodging"|"other",
+  "amount":         number|null,
+  "currency":       string|null,
+  "description":    string|null,
+  "gl_expense_account_code": string|null
+}
+JSON;
+
+    try {
+        $res = aiExtract([
+            'feature_key' => 'ap.expense.line.from_receipt',
+            'instruction' => 'Extract a single employee receipt into the JSON shape below. Pick the best category from the enum. Use the receipt total (post-tax) as amount. If the receipt is itemised, summarise it into one line and put detail in description.',
+            'schema_hint' => $schemaHint,
+            'images'      => [['url' => $signedUrl]],
+        ]);
+    } catch (\Throwable $e) { api_error('Extraction failed: ' . $e->getMessage(), 502); }
+    apAudit('ap.expense.line.extracted_from_receipt', [
+        'model'          => $res['model'],
+        'interaction_id' => $res['interaction_id'],
+    ]);
+    api_ok([
+        'draft'           => $res['data'],
+        'model'           => $res['model'],
+        'interaction_id'  => $res['interaction_id'],
+        'review_required' => true,
+    ]);
+}
 
 if ($method === 'GET' && !empty($_GET['id'])) {
     RBAC::requirePermission($user, 'ap.expense.submit');

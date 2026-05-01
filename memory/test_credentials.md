@@ -19,6 +19,7 @@ including:
 - `ap.vendor.view_pii`
 - `ap.1099.view`, `ap.1099.generate`
 - `ap.reports.view`
+- `ap.export.run` *(new — AP Phase A1)*
 
 **For two-eye testing** (bill approve, payment send, expense approve) you
 need a second user. Create via master admin panel → Users → New user,

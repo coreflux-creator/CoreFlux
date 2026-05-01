@@ -1,8 +1,15 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
+import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 
-const newLine = () => ({ expense_date: new Date().toISOString().slice(0, 10), category: 'meals', merchant: '', amount: '', description: '', billable_to_client_name: '', gl_expense_account_code: '' });
+const newLine = () => ({
+  expense_date: new Date().toISOString().slice(0, 10),
+  category: 'meals', merchant: '', amount: '', description: '',
+  billable_to_client_name: '', gl_expense_account_code: '',
+  storage_key: null, attachment_filename: null, mime: null, size_bytes: null,
+  extract_busy: false, extract_error: null,
+});
 
 export default function ExpenseCreate() {
   const navigate = useNavigate();
@@ -17,12 +24,65 @@ export default function ExpenseCreate() {
   const submit = async () => {
     setBusy(true); setError(null);
     try {
-      const res = await api.post('/modules/ap/api/expenses.php', {
-        period_label: period, notes,
-        lines: lines.filter(l => Number(l.amount) > 0).map(l => ({ ...l, amount: Number(l.amount) })),
-      });
+      const payload = lines.filter(l => Number(l.amount) > 0).map(l => ({
+        expense_date: l.expense_date, category: l.category, merchant: l.merchant,
+        amount: Number(l.amount), currency: 'USD', description: l.description,
+        billable_to_client_name: l.billable_to_client_name,
+        gl_expense_account_code: l.gl_expense_account_code,
+      }));
+      await api.post('/modules/ap/api/expenses.php', { period_label: period, notes, lines: payload });
       navigate(`/modules/ap/expenses`);
     } catch (e) { setError(e); } finally { setBusy(false); }
+  };
+
+  // Upload a receipt image/PDF to S3 (without an expense-line id yet — we use a
+  // pseudo line_id of 0, the storage_key encodes the tenant scope).
+  const onUpload = async (i, file) => {
+    if (!file) return;
+    update(i, 'extract_busy', true); update(i, 'extract_error', null);
+    try {
+      // We don't have a line_id yet (lines are created on save). Use the bills
+      // upload_url endpoint with a phony line_id once draft is saved? Simpler:
+      // we expose upload_url with line_id=-1 reserved for "draft scratch" and
+      // re-key on save. For MVP we let the user save the draft first.
+      const meta = await uploadFileViaPresignedPost(
+        `/modules/ap/api/bills.php?action=upload_url&line_id=0&file_name=${encodeURIComponent(file.name)}`,
+        file
+      );
+      update(i, 'storage_key', meta.storage_key);
+      update(i, 'attachment_filename', meta.filename);
+      update(i, 'mime', meta.mime);
+      update(i, 'size_bytes', meta.size_bytes);
+    } catch (e) {
+      update(i, 'extract_error', e.message || String(e));
+    } finally {
+      update(i, 'extract_busy', false);
+    }
+  };
+
+  const onExtract = async (i) => {
+    const l = lines[i];
+    if (!l.storage_key) { update(i, 'extract_error', 'Upload a receipt first'); return; }
+    update(i, 'extract_busy', true); update(i, 'extract_error', null);
+    try {
+      const res = await api.post('/modules/ap/api/expenses.php?action=extract_receipt', { storage_key: l.storage_key });
+      const d = res?.draft || {};
+      const next = [...lines];
+      next[i] = {
+        ...next[i],
+        expense_date: d.expense_date || next[i].expense_date,
+        merchant:     d.merchant     ?? next[i].merchant,
+        category:     d.category     || next[i].category,
+        amount:       d.amount != null ? String(d.amount) : next[i].amount,
+        description:  d.description  ?? next[i].description,
+        gl_expense_account_code: d.gl_expense_account_code ?? next[i].gl_expense_account_code,
+      };
+      setLines(next);
+    } catch (e) {
+      update(i, 'extract_error', e.message || String(e));
+    } finally {
+      update(i, 'extract_busy', false);
+    }
   };
 
   return (
@@ -41,7 +101,7 @@ export default function ExpenseCreate() {
 
       <h4 style={{ marginTop: 24 }}>Lines</h4>
       <table className="data-table" data-testid="ap-expense-lines">
-        <thead><tr><th>Date</th><th>Category</th><th>Merchant</th><th style={{textAlign:'right'}}>Amount</th><th>Description</th><th>Billable to</th><th>GL code</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>Category</th><th>Merchant</th><th style={{textAlign:'right'}}>Amount</th><th>Description</th><th>Billable to</th><th>GL code</th><th>Receipt</th><th></th></tr></thead>
         <tbody>
           {lines.map((l, i) => (
             <tr key={i}>
@@ -58,6 +118,14 @@ export default function ExpenseCreate() {
               <td><input className="input" value={l.description} onChange={(e) => update(i, 'description', e.target.value)} data-testid={`ap-expense-line-desc-${i}`} /></td>
               <td><input className="input" value={l.billable_to_client_name} onChange={(e) => update(i, 'billable_to_client_name', e.target.value)} data-testid={`ap-expense-line-billto-${i}`} /></td>
               <td><input className="input" value={l.gl_expense_account_code} onChange={(e) => update(i, 'gl_expense_account_code', e.target.value)} data-testid={`ap-expense-line-gl-${i}`} /></td>
+              <td>
+                <ReceiptCell
+                  line={l}
+                  onUpload={(f) => onUpload(i, f)}
+                  onExtract={() => onExtract(i)}
+                  index={i}
+                />
+              </td>
               <td><button className="btn btn--ghost" onClick={() => setLines(lines.filter((_, j) => j !== i))} data-testid={`ap-expense-line-remove-${i}`}>×</button></td>
             </tr>
           ))}
@@ -74,8 +142,50 @@ export default function ExpenseCreate() {
   );
 
   function update(i, field, val) {
-    const next = [...lines];
-    next[i] = { ...next[i], [field]: val };
-    setLines(next);
+    setLines((prev) => {
+      const next = [...prev];
+      next[i] = { ...next[i], [field]: val };
+      return next;
+    });
   }
+}
+
+function ReceiptCell({ line, onUpload, onExtract, index }) {
+  const inputRef = React.useRef(null);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,application/pdf"
+        style={{ display: 'none' }}
+        data-testid={`ap-expense-line-receipt-input-${index}`}
+        onChange={(e) => onUpload(e.target.files?.[0])}
+      />
+      {!line.storage_key && (
+        <button
+          className="btn btn--ghost"
+          data-testid={`ap-expense-line-receipt-upload-${index}`}
+          onClick={() => inputRef.current?.click()}
+          disabled={line.extract_busy}
+        >
+          {line.extract_busy ? 'Uploading…' : 'Upload'}
+        </button>
+      )}
+      {line.storage_key && (
+        <>
+          <span style={{ fontSize: 11, color: '#065f46' }} data-testid={`ap-expense-line-receipt-name-${index}`}>{line.attachment_filename}</span>
+          <button
+            className="btn btn--ghost"
+            data-testid={`ap-expense-line-receipt-extract-${index}`}
+            onClick={onExtract}
+            disabled={line.extract_busy}
+          >
+            {line.extract_busy ? 'Extracting…' : 'AI extract'}
+          </button>
+        </>
+      )}
+      {line.extract_error && <span style={{ fontSize: 11, color: '#991b1b' }} data-testid={`ap-expense-line-receipt-error-${index}`}>{line.extract_error}</span>}
+    </div>
+  );
 }

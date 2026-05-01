@@ -27,6 +27,7 @@ return [
         ['name' => 'AP Aging',         'route' => 'aging',      'permission' => 'ap.reports.view'],
         ['name' => '1099 Ledger',      'route' => '1099',       'permission' => 'ap.1099.view'],
         ['name' => 'Reports',          'route' => 'reports',    'permission' => 'ap.reports.view'],
+        ['name' => 'Export',           'route' => 'export',     'permission' => 'ap.export.run'],
     ],
 
     'permissions' => [
@@ -46,6 +47,7 @@ return [
         'ap.1099.view'             => 'View 1099 ledger',
         'ap.1099.generate'         => 'Generate 1099-NEC forms',
         'ap.reports.view'          => 'View AP reports',
+        'ap.export.run'            => 'Export AP data (CSV / Gusto)',
     ],
 
     'audit_events' => [
@@ -74,6 +76,9 @@ return [
         'ap.expense.approved',
         'ap.expense.rejected',
         'ap.expense.paid',
+        'ap.expense.line.attachment.added',
+        'ap.expense.line.extracted_from_receipt',
+        'ap.export.csv',
         'ap.1099.ledger_built',
         'ap.1099.form_generated',
         'ap.1099.submitted',
