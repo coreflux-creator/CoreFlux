@@ -181,16 +181,54 @@ function OverviewEdit({ person, onClose }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Tab 2 — Placements (read-only proxy, will fill once Placements module ships)
+// Tab 2 — Placements (cross-module read from Placements module)
 // ─────────────────────────────────────────────────────────────────────────
 function PlacementsTab({ personId }) {
+  const path = `/modules/placements/api/placements.php?person_id=${personId}&per_page=50`;
+  const { data, loading, error, reload } = useApi(path);
+  const rows = data?.rows ?? data?.placements ?? [];
+
   return (
     <div data-testid="tab-placements">
-      <h3>Placements</h3>
-      <p style={{ color: '#666' }}>
-        Cross-module read from <code>placements/</code> (filter by <code>person_id={personId}</code>).
-        Renders here once Placements module ships.
-      </p>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <h3 style={{ margin: 0 }}>Placements</h3>
+        <button className="btn btn--ghost" onClick={reload} data-testid="tab-placements-refresh">Refresh</button>
+      </header>
+
+      {loading && <p>Loading…</p>}
+      {error && <p className="error" data-testid="tab-placements-error">Error: {error.message}</p>}
+
+      <table className="data-table" data-testid="tab-placements-table" style={{ width: '100%' }}>
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>End client</th>
+            <th>Engagement</th>
+            <th>Start</th>
+            <th>End</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {!loading && rows.length === 0 && (
+            <tr><td colSpan={7} className="empty" data-testid="tab-placements-empty">No placements for this person yet.</td></tr>
+          )}
+          {rows.map(p => (
+            <tr key={p.id} data-testid={`placement-row-${p.id}`}>
+              <td><strong>{p.title || '—'}</strong></td>
+              <td>{p.end_client_name || '—'}</td>
+              <td>{p.engagement_type ? <span className="badge">{p.engagement_type}</span> : '—'}</td>
+              <td>{(p.start_date || '').slice(0, 10) || '—'}</td>
+              <td>{(p.end_date || '').slice(0, 10) || '—'}</td>
+              <td>{p.status ? <span className={`badge badge--${p.status}`}>{p.status.replace('_', ' ')}</span> : '—'}</td>
+              <td>
+                <a href={`/modules/placements/${p.id}`} data-testid={`placement-open-${p.id}`}>Open →</a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
