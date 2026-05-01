@@ -341,6 +341,48 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
 ## Backlog (P1)
+- [ ] **"Trained on our timesheets" confidence score (Slice 2e)** —
+  *captured 2026-02 from Phase 7 suggestion.* Product moat that kicks
+  in once Slices 2b/2c ship enough AI parse → human-approve events to
+  have data. Scope:
+  - **Schema**: `time_intake_feedback` table keyed by
+    `intake_event_id`. Stores (a) the AI's proposed fields JSON,
+    (b) the human-approved final fields JSON, (c) a computed
+    field-level delta (which fields survived, which were edited, which
+    were dismissed), (d) `decided_by_user_id`, `decided_at`, and
+    `source_signature` (a stable hash of sender_domain + subject_shape
+    + attachment_type so we can bucket similar emails).
+  - **Rollup view**: `time_intake_confidence` (materialized nightly
+    OR computed on-read with a 1-hour cache) showing, per
+    `(tenant_id, source_signature, placement_id)`:
+    `samples`, `exact_convert_rate`, `field_edit_rates{placement, hours,
+    category, work_date}`, `dismiss_rate`, `last_decision_at`.
+    Minimum sample size (10) before a score is shown.
+  - **Inbox UI exposure (goes into Slice 2c)**: small confidence %
+    badge next to each proposal row; hover reveals "Based on N past
+    decisions from this sender, X% converted exactly as proposed"
+    with a link to the feedback history.
+  - **Auto-convert toggle**: per-client setting (stored on
+    `placements` or a new `time_intake_rules` table) —
+    `auto_convert_threshold = 0-100`. If a proposal's confidence
+    bucket exceeds the threshold AND ≥N sample size AND all required
+    fields are AI-populated, the intake event converts straight to
+    `pending_review` without manual review (but never skips the
+    human approval step — SPEC §2 still holds).
+  - **Weekly email digest** to tenant admins: "This week, 87% of
+    AI proposals from Acme Corp's inbox converted with zero edits —
+    consider raising their auto-convert threshold."
+  - **Prompt feedback loop** (stretch): high-confidence historical
+    decisions become tenant-scoped few-shot exemplars in the parse
+    prompt for new emails from the same `source_signature`.
+    Gated by a "use my timesheet history to improve parsing" tenant
+    opt-in (data residency / privacy consideration).
+  - **Edge cases**: when a client changes timesheet format, their
+    `source_signature` changes and the confidence score naturally
+    resets; manual "reset intelligence for this sender" button for
+    admins.
+  - Depends on: Slices 2b (AI parsing pipeline + `time_intake_events`
+    table) and 2c (Inbox UI) being in place first.
 - [ ] **Tenant mail Model C — custom verified From domains + deliverability health**. Bolts onto
   Model B (Phase 6b). Scope:
   - **Schema**: `tenants.mail_from_email` + `tenants.mail_from_verified`
