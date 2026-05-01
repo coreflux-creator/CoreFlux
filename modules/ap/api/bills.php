@@ -351,8 +351,10 @@ if ($method === 'POST' && $action === 'dispute') {
 }
 
 if ($method === 'POST' && $action === 'post') {
-    // STUB: Accounting v1.0 not yet shipped. Emit audit + record intent.
-    // Once Accounting lands, this will POST to /api/v1/accounting/journal-entries.
+    // Post the bill to the GL via the Accounting subledger protocol.
+    //   Dr  Expense (AP default clearing account 5000)
+    //   Cr  Accounts Payable                      (2000)
+    // Idempotent on ap:bill:<id>:post so double-clicking is safe.
     RBAC::requirePermission($user, 'ap.bill.post');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
@@ -360,11 +362,60 @@ if ($method === 'POST' && $action === 'post') {
     if (!in_array($row['status'], ['approved','partially_paid','paid'], true)) {
         api_error("Cannot post from status {$row['status']}", 409);
     }
+    if (!empty($row['journal_entry_id'])) {
+        api_ok(['ok' => true, 'journal_entry_id' => (int) $row['journal_entry_id'], 'idempotent_replay' => true]);
+    }
+
+    require_once __DIR__ . '/../../accounting/lib/accounting.php';
+
+    $pdo = getDB();
+    $linesStmt = $pdo->prepare('SELECT * FROM ap_bill_lines WHERE bill_id = :id ORDER BY line_no');
+    $linesStmt->execute(['id' => $id]);
+    $billLines = $linesStmt->fetchAll(\PDO::FETCH_ASSOC);
+
+    $jeLines = [];
+    foreach ($billLines as $bl) {
+        $acct = $bl['gl_expense_account_code'] ?? '5000';
+        $jeLines[] = [
+            'account_code' => $acct,
+            'debit'        => (float) $bl['total'],
+            'credit'       => 0,
+            'memo'         => $bl['description'],
+            'counterparty_company_id' => !empty($row['vendor_company_id']) ? (int) $row['vendor_company_id'] : null,
+        ];
+    }
+    $jeLines[] = [
+        'account_code' => '2000',
+        'debit'        => 0,
+        'credit'       => (float) $row['total'],
+        'memo'         => "AP " . $row['internal_ref'] . " — " . $row['vendor_name'],
+        'counterparty_company_id' => !empty($row['vendor_company_id']) ? (int) $row['vendor_company_id'] : null,
+    ];
+
+    try {
+        $res = accountingPostJe($tid, [
+            'posting_date'    => $row['bill_date'],
+            'currency'        => $row['currency'],
+            'source_module'   => 'ap',
+            'source_ref_type' => 'ap_bill',
+            'source_ref_id'   => $id,
+            'idempotency_key' => sprintf('ap:bill:%d:post', $id),
+            'memo'            => "AP Bill {$row['internal_ref']} / {$row['vendor_name']}",
+            'lines'           => $jeLines,
+        ], $user['id'] ?? null, true);
+    } catch (\Throwable $e) {
+        api_error('GL post failed: ' . $e->getMessage(), 422);
+    }
+
+    $pdo->prepare('UPDATE ap_bills SET journal_entry_id = :j WHERE id = :id')
+        ->execute(['j' => $res['je_id'], 'id' => $id]);
+
     apAudit('ap.bill.posted', [
         'bill_id' => $id, 'internal_ref' => $row['internal_ref'],
-        'note' => 'GL posting stubbed until Accounting v1.0 ships',
+        'journal_entry_id' => $res['je_id'], 'je_number' => $res['je_number'],
+        'idempotent_replay' => $res['idempotent_replay'],
     ], $id);
-    api_ok(['ok' => true, 'gl_stubbed' => true, 'journal_entry_id' => null]);
+    api_ok(['ok' => true, 'journal_entry_id' => $res['je_id'], 'je_number' => $res['je_number'], 'idempotent_replay' => $res['idempotent_replay']]);
 }
 
 api_error('Method not allowed', 405);

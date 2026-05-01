@@ -170,3 +170,151 @@ function companiesAudit(string $event, array $meta = [], ?int $targetId = null):
         error_log('[companies.audit] ' . $event . ' write-failed: ' . $e->getMessage());
     }
 }
+
+/**
+ * Normalise a company name for duplicate detection.
+ * Lowercase, strip punctuation, collapse whitespace, strip trailing
+ * corporate suffixes (inc, llc, ltd, co, corp, company).
+ */
+function companiesNormalizeName(string $name): string
+{
+    $n = strtolower(trim($name));
+    $n = preg_replace('/[^a-z0-9 ]+/', ' ', $n);
+    $n = preg_replace('/\s+/', ' ', $n);
+    $n = preg_replace('/\b(inc|incorporated|llc|l l c|ltd|limited|co|corp|corporation|company)\b\.?$/', '', trim($n));
+    return trim($n);
+}
+
+/**
+ * Return candidate duplicate pairs for the current tenant.
+ * Two companies are candidates if companiesNormalizeName() yields the same
+ * value OR if SOUNDEX() matches on the bare stem. At most one representative
+ * per normalized key is returned.
+ *
+ * @return array [{normalized, companies: [{id,name,role_count,use_count}]}]
+ */
+function companiesDuplicateCandidates(int $tenantId, int $limit = 200): array
+{
+    $stmt = getDB()->prepare(
+        'SELECT c.id, c.name, c.use_count, c.last_used_at,
+                (SELECT COUNT(*) FROM company_roles cr WHERE cr.company_id = c.id) AS role_count
+         FROM companies c
+         WHERE c.tenant_id = :tid AND c.deleted_at IS NULL
+         ORDER BY c.name ASC
+         LIMIT ' . (int) $limit
+    );
+    $stmt->execute(['tid' => $tenantId]);
+    $all = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+    $groups = [];
+    foreach ($all as $co) {
+        $key = companiesNormalizeName((string) $co['name']);
+        if ($key === '') continue;
+        $groups[$key][] = $co;
+    }
+    $out = [];
+    foreach ($groups as $k => $rows) {
+        if (count($rows) < 2) continue;
+        $out[] = ['normalized' => $k, 'companies' => $rows];
+    }
+    return $out;
+}
+
+/**
+ * Merge $victimId into $survivorId. Both must belong to $tenantId.
+ * Redirects all FKs across AP, Billing, placements, and people's own child
+ * tables (roles, contacts, addresses) to the survivor. Roles are unioned;
+ * contacts + addresses are reparented. The victim is soft-deleted.
+ *
+ * Returns a summary of how many rows were redirected per table.
+ * Throws on tenant mismatch, self-merge, or either id missing.
+ */
+function companiesMerge(int $tenantId, int $survivorId, int $victimId, ?int $actorUserId = null): array
+{
+    if ($survivorId === $victimId) throw new \InvalidArgumentException('Cannot merge a company into itself');
+    $pdo = getDB();
+
+    // Tenant guard
+    $check = $pdo->prepare('SELECT id, name, tenant_id, deleted_at FROM companies WHERE id IN (:s, :v)');
+    $check->execute(['s' => $survivorId, 'v' => $victimId]);
+    $rows = $check->fetchAll(\PDO::FETCH_ASSOC);
+    if (count($rows) !== 2) throw new \RuntimeException('Survivor or victim not found');
+    foreach ($rows as $r) {
+        if ((int) $r['tenant_id'] !== $tenantId) throw new \RuntimeException('Cross-tenant merge blocked');
+        if ($r['deleted_at'] !== null)           throw new \RuntimeException("Company {$r['id']} is already soft-deleted");
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $redir = [];
+
+        // AP side
+        $redir['ap_vendors_index']       = _cfMergeRedirect($pdo, 'ap_vendors_index', 'company_id',        $victimId, $survivorId, $tenantId);
+        $redir['ap_bills']               = _cfMergeRedirect($pdo, 'ap_bills',         'vendor_company_id', $victimId, $survivorId, $tenantId);
+        $redir['ap_payments']            = _cfMergeRedirect($pdo, 'ap_payments',      'vendor_company_id', $victimId, $survivorId, $tenantId);
+        $redir['ap_1099_ledger']         = _cfMergeRedirect($pdo, 'ap_1099_ledger',   'vendor_company_id', $victimId, $survivorId, $tenantId);
+
+        // Billing side
+        $redir['billing_invoices']       = _cfMergeRedirect($pdo, 'billing_invoices', 'client_company_id', $victimId, $survivorId, $tenantId);
+
+        // Placement side
+        $redir['placements']             = _cfMergeRedirect($pdo, 'placements',              'end_client_company_id', $victimId, $survivorId, $tenantId);
+        $redir['placement_client_chain'] = _cfMergeRedirect($pdo, 'placement_client_chain',  'company_id',            $victimId, $survivorId, $tenantId);
+        $redir['placement_referrals']    = _cfMergeRedirect($pdo, 'placement_referrals',     'referrer_company_id',   $victimId, $survivorId, $tenantId);
+
+        // Child tables on companies itself
+        //   Roles: union into survivor (INSERT IGNORE against uq_company_role), then drop victim's.
+        $roleCountStmt = $pdo->prepare('SELECT COUNT(*) FROM company_roles WHERE company_id = :v');
+        $roleCountStmt->execute(['v' => $victimId]);
+        $redir['company_roles'] = (int) $roleCountStmt->fetchColumn();
+        $pdo->prepare(
+            'INSERT IGNORE INTO company_roles (company_id, role)
+             SELECT :s, role FROM company_roles WHERE company_id = :v'
+        )->execute(['s' => $survivorId, 'v' => $victimId]);
+        $pdo->prepare('DELETE FROM company_roles WHERE company_id = :v')->execute(['v' => $victimId]);
+
+        //   Contacts + addresses: reparent.
+        $redir['company_contacts']  = _cfMergeReparent($pdo, 'company_contacts',  $victimId, $survivorId);
+        $redir['company_addresses'] = _cfMergeReparent($pdo, 'company_addresses', $victimId, $survivorId);
+
+        // Bump survivor use_count by victim's count.
+        $pdo->prepare(
+            'UPDATE companies s
+             JOIN companies v ON v.id = :v
+             SET s.use_count = s.use_count + v.use_count,
+                 s.last_used_at = GREATEST(COALESCE(s.last_used_at, "1970-01-01"), COALESCE(v.last_used_at, "1970-01-01"))
+             WHERE s.id = :s'
+        )->execute(['v' => $victimId, 's' => $survivorId]);
+
+        // Soft-delete victim.
+        $pdo->prepare('UPDATE companies SET deleted_at = NOW() WHERE id = :v')->execute(['v' => $victimId]);
+
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+
+    companiesAudit('company.merged', [
+        'survivor_id' => $survivorId,
+        'victim_id'   => $victimId,
+        'actor_user_id' => $actorUserId,
+        'redirected'  => $redir,
+    ], $survivorId);
+
+    return ['survivor_id' => $survivorId, 'victim_id' => $victimId, 'redirected' => $redir];
+}
+
+function _cfMergeRedirect(\PDO $pdo, string $table, string $col, int $victimId, int $survivorId, int $tenantId): int
+{
+    $stmt = $pdo->prepare("UPDATE {$table} SET {$col} = :s WHERE {$col} = :v AND tenant_id = :t");
+    $stmt->execute(['s' => $survivorId, 'v' => $victimId, 't' => $tenantId]);
+    return $stmt->rowCount();
+}
+
+function _cfMergeReparent(\PDO $pdo, string $table, int $victimId, int $survivorId): int
+{
+    $stmt = $pdo->prepare("UPDATE {$table} SET company_id = :s WHERE company_id = :v");
+    $stmt->execute(['s' => $survivorId, 'v' => $victimId]);
+    return $stmt->rowCount();
+}

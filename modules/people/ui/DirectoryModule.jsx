@@ -81,7 +81,10 @@ function DirectoryList({ cfg, mode }) {
           <h2 style={{ margin: 0 }}>{cfg.label}</h2>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--cf-text-secondary)' }}>{cfg.description}</p>
         </div>
-        <Link to="new" className="btn btn--primary" data-testid={`${mode}-new`}>+ New {cfg.listLabel}</Link>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Link to="../merge" className="btn btn--ghost" data-testid={`${mode}-merge-link`}>Merge duplicates</Link>
+          <Link to="new" className="btn btn--primary" data-testid={`${mode}-new`}>+ New {cfg.listLabel}</Link>
+        </div>
       </header>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 'var(--cf-space-3)', flexWrap: 'wrap' }}>

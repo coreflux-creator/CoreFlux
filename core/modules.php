@@ -84,9 +84,11 @@ function getModuleDefinitions(): array {
             'id' => 'accounting',
             'name' => 'Accounting',
             'icon' => '/assets/icons/icon-accounting.png',
-            'description' => 'General ledger (v1.0 pending). GL posting for Billing + AP is stubbed until this ships.',
+            'description' => 'General ledger — Chart of Accounts, Journal Entries, Trial Balance. AP + Billing post here.',
             'actions' => [
-                ['name' => 'Overview', 'route' => 'overview', 'permission' => 'accounting.view'],
+                ['name' => 'Chart of Accounts', 'route' => 'accounts', 'permission' => 'accounting.coa.view'],
+                ['name' => 'Journal Entries',   'route' => 'journal',  'permission' => 'accounting.je.create'],
+                ['name' => 'Trial Balance',     'route' => 'trial',    'permission' => 'accounting.coa.view'],
             ]
         ],
         'payroll' => [

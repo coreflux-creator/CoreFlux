@@ -13,6 +13,7 @@ import BillingModule from '../../modules/billing/ui/BillingModule';
 import APModule from '../../modules/ap/ui/APModule';
 import PayrollModule from '../../modules/payroll/ui/PayrollModule';
 import AccountingModule from './modules/AccountingModule';
+import AccountingV1Module from '../../modules/accounting/ui/AccountingModule';
 import FinanceModule from './modules/FinanceModule';
 import GenericModule from './modules/GenericModule';
 
@@ -267,6 +268,7 @@ const AppContent = ({ session, usingDemo }) => {
           <Route path="/modules/time/*"       element={<TimeModule       session={session} />} />
           <Route path="/modules/billing/*"    element={<BillingModule    session={session} />} />
           <Route path="/modules/ap/*"         element={<APModule         session={session} />} />
+          <Route path="/modules/accounting/*" element={<AccountingV1Module session={session} />} />
           {/* Payroll route unwired pending spec'd implementation (HARD_RULES R1: files kept, route disabled). */}
           {/* <Route path="/modules/payroll/*" element={<PayrollModule session={session} />} /> */}
           {/* All other modules (accounting) fall through to GenericModule

@@ -42,6 +42,25 @@ if ($method === 'GET') {
     api_ok($res + ['available_roles' => COMPANY_ROLES]);
 }
 
+if ($method === 'GET' && $action === 'duplicates') {
+    RBAC::requirePermission($user, 'people.manage');
+    api_ok(['groups' => companiesDuplicateCandidates($tid)]);
+}
+
+if ($method === 'POST' && $action === 'merge') {
+    RBAC::requirePermission($user, 'people.manage');
+    $survivorId = (int) ($_GET['id'] ?? 0);
+    $body = api_json_body();
+    $victimId = (int) ($body['victim_id'] ?? 0);
+    if ($survivorId <= 0 || $victimId <= 0) api_error('survivor id (query) and victim_id (body) required', 422);
+    try {
+        $res = companiesMerge($tid, $survivorId, $victimId, $user['id'] ?? null);
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 409);
+    }
+    api_ok($res);
+}
+
 if ($method === 'POST' && $action === 'upsert') {
     RBAC::requirePermission($user, 'people.manage');
     $body = api_json_body();

@@ -28,6 +28,7 @@ export default function PersonDetail({ session }) {
     { slug: 'skills',     label: 'Skills' },
     { slug: 'pipeline',   label: 'Pipeline' },
     { slug: 'compliance', label: 'Compliance' },
+    { slug: 'custom',     label: 'Custom fields' },
     ...(canSeePII ? [{ slug: 'pii', label: 'PII' }] : []),
   ];
 
@@ -84,6 +85,7 @@ export default function PersonDetail({ session }) {
         <Route path="skills"    element={<SkillsTab     personId={person.id} />} />
         <Route path="pipeline"  element={<PipelineTab   personId={person.id} />} />
         <Route path="compliance"element={<ComplianceTab person={person} reload={reload} />} />
+        <Route path="custom"    element={<CustomFieldsTab personId={person.id} />} />
         {canSeePII && <Route path="pii" element={<PIITab person={person} reload={reload} />} />}
       </Routes>
     </section>
@@ -494,6 +496,119 @@ function PIITab({ person }) {
     </div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tab 7 — Custom fields (per-tenant defs, per-person values)
+// ─────────────────────────────────────────────────────────────────────────
+function CustomFieldsTab({ personId }) {
+  const defsApi  = useApi('/modules/people/api/custom_fields.php');
+  const valsApi  = useApi(`/modules/people/api/custom_field_values.php?person_id=${personId}`);
+  const defs     = defsApi.data?.fields ?? [];
+  const valsRaw  = valsApi.data?.values ?? [];
+  // Normalise values by field_key.
+  const valByKey = {};
+  for (const v of valsRaw) {
+    const d = defs.find((dd) => Number(dd.id) === Number(v.field_def_id));
+    if (!d) continue;
+    valByKey[d.field_key] = v.value_text ?? v.value_number ?? v.value_date ?? v.value_boolean;
+  }
+  const [draft, setDraft]     = useState({});
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState(null);
+  const [savedAt, setSavedAt] = useState(null);
+
+  const loading = defsApi.loading || valsApi.loading;
+  if (loading) return <p data-testid="tab-custom-loading">Loading…</p>;
+  if (defsApi.error) return <p className="error" data-testid="tab-custom-error">Error: {defsApi.error.message}</p>;
+
+  const get = (k) => (k in draft ? draft[k] : (valByKey[k] ?? (defs.find((d) => d.field_key === k)?.field_type === 'boolean' ? false : '')));
+  const setV = (k) => (e) => {
+    const field = defs.find((d) => d.field_key === k);
+    let v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    if (field?.field_type === 'number' && v !== '') v = Number(v);
+    setDraft({ ...draft, [k]: v });
+  };
+
+  const save = async () => {
+    setSaving(true); setError(null);
+    try {
+      const payload = {};
+      for (const k of Object.keys(draft)) payload[k] = draft[k] === '' ? null : draft[k];
+      if (Object.keys(payload).length === 0) { setSaving(false); return; }
+      await api.post(`/modules/people/api/custom_field_values.php?person_id=${personId}`, { values: payload });
+      setDraft({});
+      setSavedAt(Date.now());
+      valsApi.reload();
+    } catch (e) { setError(e); }
+    finally     { setSaving(false); }
+  };
+
+  return (
+    <div data-testid="tab-custom">
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem', gap: 16 }}>
+        <div>
+          <h3 style={{ margin: 0 }}>Custom fields</h3>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#666' }}>
+            Tenant-defined fields. Manage definitions under People &gt; <a href="/modules/people/custom_fields">Custom Fields</a>.
+          </p>
+        </div>
+        <button
+          className="btn btn--primary"
+          data-testid="custom-values-save"
+          onClick={save}
+          disabled={saving || Object.keys(draft).length === 0}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </header>
+
+      {defs.length === 0 && (
+        <p data-testid="custom-values-empty" style={{ color: '#555' }}>
+          No custom fields defined yet for this tenant.
+        </p>
+      )}
+      {error && <p className="error" data-testid="custom-values-error">Error: {error.message}</p>}
+      {savedAt && !saving && <p data-testid="custom-values-saved" style={{ color: '#065f46', fontSize: 13 }}>Saved.</p>}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.75rem' }}>
+        {defs.map((d) => (
+          <label key={d.id} data-testid={`custom-values-field-${d.field_key}`} style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ fontSize: '0.85em', color: '#555', marginBottom: 4 }}>
+              {d.field_label}
+              {d.required ? ' *' : ''}
+              {d.pii ? ' 🔒' : ''}
+            </span>
+            <CustomFieldInput def={d} value={get(d.field_key)} onChange={setV(d.field_key)} />
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CustomFieldInput({ def, value, onChange }) {
+  const testId = `custom-values-input-${def.field_key}`;
+  if (def.field_type === 'boolean') {
+    return <input type="checkbox" data-testid={testId} checked={!!value} onChange={onChange} />;
+  }
+  if (def.field_type === 'date') {
+    return <input type="date" className="input" data-testid={testId} value={value || ''} onChange={onChange} />;
+  }
+  if (def.field_type === 'number') {
+    return <input type="number" className="input" data-testid={testId} value={value ?? ''} onChange={onChange} />;
+  }
+  if (def.field_type === 'select') {
+    const opts = (() => { try { return JSON.parse(def.options_json || '[]'); } catch { return []; } })();
+    return (
+      <select className="input" data-testid={testId} value={value || ''} onChange={onChange}>
+        <option value="">—</option>
+        {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    );
+  }
+  return <input className="input" data-testid={testId} value={value || ''} onChange={onChange} />;
+}
+
 
 const Item = ({ k, v, testId }) => (
   <div>

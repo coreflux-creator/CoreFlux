@@ -10,6 +10,7 @@ import PIIAuditLog from './PIIAuditLog';
 import CsvImport from './CsvImport';
 import ClientsModule from './ClientsModule';
 import VendorsModule from './VendorsModule';
+import CompaniesMerge from './CompaniesMerge';
 
 /**
  * People Module — React entry (SPEC-aligned)
@@ -32,6 +33,7 @@ export default function PeopleModule({ session }) {
         <Route path="custom_fields" element={<CustomFields   session={session} />} />
         <Route path="clients/*"     element={<ClientsModule  session={session} />} />
         <Route path="vendors/*"     element={<VendorsModule  session={session} />} />
+        <Route path="merge"         element={<CompaniesMerge session={session} />} />
         <Route path="audit_pii"     element={<PIIAuditLog    session={session} />} />
         <Route path=":personId/*"   element={<PersonDetail   session={session} />} />
       </Routes>

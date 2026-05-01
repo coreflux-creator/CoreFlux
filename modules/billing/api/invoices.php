@@ -360,4 +360,54 @@ if ($method === 'POST' && $action === 'void') {
     api_ok(['ok' => true, 'bundles_released' => !$hasPayments]);
 }
 
+if ($method === 'POST' && $action === 'post') {
+    // Post the invoice to GL:
+    //   Dr  Accounts Receivable (1100)
+    //   Cr  Revenue             (4000)
+    //   Cr  Sales Tax Payable   (2100)   [only if tax_total > 0]
+    // Idempotent on billing:invoice:<id>:post.
+    RBAC::requirePermission($user, 'billing.invoice.approve');
+    $id  = (int) ($_GET['id'] ?? 0);
+    $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$row) api_error('Not found', 404);
+    if (!in_array($row['status'], ['approved','sent','partially_paid','paid'], true)) {
+        api_error("Cannot post from status {$row['status']}", 409);
+    }
+    require_once __DIR__ . '/../../accounting/lib/accounting.php';
+
+    $subtotal = (float) $row['subtotal'];
+    $taxTotal = (float) $row['tax_total'];
+    $total    = (float) $row['total'];
+    $party    = !empty($row['client_company_id']) ? (int) $row['client_company_id'] : null;
+
+    $lines = [
+        ['account_code' => '1100', 'debit' => $total, 'credit' => 0, 'memo' => "Inv {$row['invoice_number']} / {$row['client_name']}", 'counterparty_company_id' => $party],
+        ['account_code' => '4000', 'debit' => 0, 'credit' => $subtotal, 'memo' => "Revenue — {$row['invoice_number']}", 'counterparty_company_id' => $party],
+    ];
+    if ($taxTotal > 0.005) {
+        $lines[] = ['account_code' => '2100', 'debit' => 0, 'credit' => $taxTotal, 'memo' => "Sales tax — {$row['invoice_number']}", 'counterparty_company_id' => $party];
+    }
+
+    try {
+        $res = accountingPostJe($tid, [
+            'posting_date'    => $row['issue_date'],
+            'currency'        => $row['currency'],
+            'source_module'   => 'billing',
+            'source_ref_type' => 'billing_invoice',
+            'source_ref_id'   => $id,
+            'idempotency_key' => sprintf('billing:invoice:%d:post', $id),
+            'memo'            => "Invoice {$row['invoice_number']} / {$row['client_name']}",
+            'lines'           => $lines,
+        ], $user['id'] ?? null, true);
+    } catch (\Throwable $e) {
+        api_error('GL post failed: ' . $e->getMessage(), 422);
+    }
+    billingAudit('billing.invoice.posted', [
+        'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
+        'journal_entry_id' => $res['je_id'], 'je_number' => $res['je_number'],
+        'idempotent_replay' => $res['idempotent_replay'],
+    ], $id);
+    api_ok(['ok' => true, 'journal_entry_id' => $res['je_id'], 'je_number' => $res['je_number'], 'idempotent_replay' => $res['idempotent_replay']]);
+}
+
 api_error('Method not allowed', 405);

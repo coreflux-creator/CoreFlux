@@ -123,7 +123,8 @@ $assert('void releases bundles when no pmts',  strpos($bills, 'consumed_by_modul
 $assert('approve checks transition allowed',   strpos($bills, "apBillTransitionAllowed(\$row['status'], 'approved')") !== false);
 $assert('from-time-bundle marks bundles consumed', strpos($bills, 'status = "consumed"') !== false);
 $assert('from-time-bundle upserts vendors_index', strpos($bills, 'INSERT INTO ap_vendors_index') !== false);
-$assert('post is stubbed until Accounting',    strpos($bills, "gl_stubbed") !== false);
+$assert('post integrates with Accounting GL',  strpos($bills, "require_once __DIR__ . '/../../accounting/lib/accounting.php'") !== false
+                                                && strpos($bills, 'accountingPostJe') !== false);
 
 $pay = (string) file_get_contents(__DIR__ . '/../modules/ap/api/payments.php');
 $assert('payments has action=allocate',        strpos($pay, "action === 'allocate'") !== false);

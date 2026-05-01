@@ -1,0 +1,54 @@
+<?php
+/**
+ * Accounting API — Legal entities
+ *
+ *   GET    /api/accounting/entities
+ *   POST   /api/accounting/entities           {code,legal_name,country?,base_currency?,parent_entity_id?}
+ *   PATCH  /api/accounting/entities?id=N
+ */
+require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../lib/accounting.php';
+
+$ctx    = api_require_auth();
+$user   = $ctx['user'];
+$tid    = (int) $ctx['tenant_id'];
+$method = api_method();
+
+if ($method === 'GET') {
+    RBAC::requirePermission($user, 'accounting.entities.view');
+    $rows = scopedQuery('SELECT id, code, legal_name, country, base_currency, parent_entity_id, active FROM accounting_entities WHERE tenant_id = :tenant_id ORDER BY code', []);
+    api_ok(['rows' => $rows]);
+}
+
+if ($method === 'POST') {
+    RBAC::requirePermission($user, 'accounting.entities.manage');
+    $body = api_json_body();
+    api_require_fields($body, ['code','legal_name']);
+    $id = scopedInsert('accounting_entities', [
+        'tenant_id'        => $tid,
+        'code'             => (string) $body['code'],
+        'legal_name'       => (string) $body['legal_name'],
+        'country'          => (string) ($body['country'] ?? 'US'),
+        'base_currency'    => (string) ($body['base_currency'] ?? 'USD'),
+        'parent_entity_id' => !empty($body['parent_entity_id']) ? (int) $body['parent_entity_id'] : null,
+        'active'           => 1,
+    ]);
+    accountingAudit('accounting.entity.created', ['id' => $id, 'code' => $body['code']], $id);
+    api_ok(['id' => $id], 201);
+}
+
+if ($method === 'PATCH') {
+    RBAC::requirePermission($user, 'accounting.entities.manage');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 400);
+    $body = api_json_body();
+    foreach (['id','tenant_id','created_at'] as $k) unset($body[$k]);
+    if (!$body) api_error('No fields to update', 422);
+    $rows = scopedUpdate('accounting_entities', $id, $body);
+    if ($rows === 0) api_error('Not found or no change', 404);
+    accountingAudit('accounting.entity.updated', ['id' => $id], $id);
+    api_ok(['ok' => true]);
+}
+
+api_error('Method not allowed', 405);
