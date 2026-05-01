@@ -1,144 +1,153 @@
 <analysis>**original_problem_statement**: 
-The user's goal is to refactor a monolithic PHP application, CoreFlux, into a modular architecture. The core application provides a standardized shell, design system, and services (auth, multi-tenancy, storage, mail, csv import), while business functions become separate, self-contained modules. 
-**PRODUCT REQUIREMENTS**: 
-The app is a **Staffing Agency Operating System** (JobDiva pattern). 
-- Backend is strictly PHP (no Python/Node). Frontend is a React SPA. Direct PHP cURL to external APIs.
-- People and Placements are distinct entities. 
-- Time module features AI inbox monitoring to parse timesheets, with strict human-in-the-loop approvals before feeding downstream (Payroll/Billing/AP/AR).
-- Billing module handles AR.
-- AP module handles vendor payments.
-- Accounting v1.0 is an enterprise-grade GL.
+The user's goal is to refactor a monolithic PHP application, CoreFlux, into a modular architecture. The core application provides a standardized shell, design system, and services (auth, multi-tenancy, storage, mail, csv import), while business functions become separate, self-contained modules. The application is a Staffing Agency Operating System (JobDiva pattern).
 
 **User's preferred language**: English (INSTRUCT next agent to respond in the user's preferred language only)
 
 **what currently exists?**: 
-A highly modular PHP backend connected to a React SPA. Core platform framework is stable, including RBAC, API Router, StorageService, and MailService. The **People**, **Placements**, **Time (Phase A & parts of B)**, and **Billing (Phase A0)** modules have been fully built, tested via PHP smoke scripts, and bundled via Vite. The core MailService has been upgraded to support Resend (for outbound tokenized approvals) and Microsoft 365 (via OAuth for inbound mailbox polling). 
+A highly modular PHP 8 backend with a React 18 SPA frontend. Major modules deployed include People, Placements, Time, Billing, and AP (Phase A0 built this session). Core deployment pipelines have been robustly fixed in this session (SPA deep-linking via , accurate -based bundle serving in , and dynamic module reloading in ). 
+A new  unified directory structure was established this session to act as a single-source-of-truth for all external entities. In the React UI, this is cleanly separated into Clients and Vendors.
 
 **Last working item**:
-    - Last item agent was working: Planning and scoping **AP (Accounts Payable) Phase A0**. After a lengthy discussion regarding MSB (Money Services Business) regulatory compliance, the user and agent agreed to integrate **Plaid Transfer** for ACH outbound payments so the platform doesn't hold tenant funds. The agent successfully called the  to get the Plaid integration playbook but the session ended before implementation began.
-    - Status: NOT STARTED
+    - Last item agent was working: Unifying AP () and Billing () databases to point to the new unified  table, alongside expanding the  schema (DOB, addresses, employment type, etc.) and adding a New-Hire wizard. The agent just created the empty migration file .
+    - Status: IN PROGRESS
     - Agent Testing Done: N
     - Which testing method agent to use? manual testing by  scripts and frontend testing via yarn run v1.22.22
 info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command. / Vite preview.
     - User Testing Done: N
 
 **All Pending/In progress Issue list**:  
-*(No active bugs blocking development. Focus is entirely on new module implementation.)*
+  - Issue 1: AP/Billing index unification with the  table.
+     - Attempted fixes: Created empty SQL migration file .
+     - Next debug checklist: Write idempotent SQL to migrate  and  to FK directly to . Update AP and Billing PHP models/APIs to reflect this.
+     - Why fix this issue and what will be achieved with the fix? Enforces single-source-of-truth. An entity that is both a client and a vendor will only have one record across the entire platform.
+     - Status: IN PROGRESS
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Both
+     - Blocked on other issue: None
+  - Issue 2: Expand  schema fields and implement New-Hire Wizard.
+     - Attempted fixes: Merged into the same  mandate.
+     - Next debug checklist: Expand DB fields (DOB, addresses, hire dates, employment type, etc.). Update React  into a wizard that can simultaneously create a Person + Placement in one go.
+     - Why fix this issue and what will be achieved with the fix? Captures critical HR, taxation, and legal data missing from the current lightweight implementation.
+     - Status: IN PROGRESS
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Both
+     - Blocked on other issue: None
 
 **In progress Task List**:
-  Task 1: Build AP Module Phase A0 (Accounts Payable)
-     - Where to resume: Read the Plaid Transfer integration playbook returned at the end of the conversation history. Scaffold the AP module (migrations, PHP library/API, React UI) based on the agreed AP A0 scope.
-     - What will be achieved with this? End-to-end Accounts Payable flow, allowing tenants to ingest  time entries, manage vendors, track 1099 eligibility (), and initiate ACH payments via Plaid Transfer.
-     - Status: NOT STARTED
+  - Task 1: Complete 
+     - Where to resume: Open  and implement the schema changes. Then update the PHP API layers and React UI.
+     - What will be achieved with this? Unification of financial ledgers to the core HR directory, and fulfillment of the People module SPEC.
+     - Status: IN PROGRESS
      - Should Test frontend/backend/both after fix? Both
      - Blocked on something: None.
 
 **Upcoming and Future Tasks**
     Upcoming Tasks:
-    - (P0) AP Module Phase A0 (Current task).
-    - (P1) Time Module Phase B Slice 2b/2c/2d: AI parsing pipeline (), Inbox (AI) UI, and background polling script. (Note: M365 Mailbox connection / Slice 2a is already done).
-    - (P1) Billing Phase A1: Server-side PDF rendering (dompdf) + S3 storage, AR aging snapshot table + cron, credit/debit memos.
-    - (P1) Accounting v1.0 Module: Build the enterprise GL according to . (Currently, Billing and AP are deferring GL posting until this exists).
-    - (P2) AP Phase A1: CSV export + Gusto integration, Expense Reports.
+    - (P1) Add Vendor portal credentials (encrypted) to .
+    - (P1) Add Submittal IDs / VMS job IDs to placement chain rows.
+    - (P1) People custom-fields admin UI (backend already exists, just needs UI surface).
+    - (P2) Time Module Phase B Slice 2b/2c/2d: AI parsing pipeline (), Inbox (AI) UI, and background polling script.
+    - (P2) Billing Phase A1: Server-side PDF rendering + memos + S3.
+    - (P2) Accounting v1.0 Module: Build the enterprise GL according to .
+
     Future Tasks:
+    - (P3) AP Phase A1: CSV export + Gusto integration, Expense Reports.
+    - (P3) Plaid Transfer integration for AP module outbound payments.
     - (P3) Time Module Phase B Slice 3: Gmail API driver.
 
 **Completed work in this session**
-- Verified, tested, and bundled Time Module Phase A (DONE)
-- Implemented Period Close Wizard for Time module to preview bundles (DONE)
-- Time Phase B Slice 1: Tokenized client approval via Resend (Model B - Shared From + Tenant Reply-To) (DONE)
-- Time Phase B Slice 2a: M365 mailbox connection (OAuth, driver, UI) (DONE)
-- Billing Phase A0: Invoices, lines, payments, customer portal, manual + from-time-bundle creation, aging (DONE)
+- AP Module Phase A0 built end-to-end (Tables, APIs, UI) with 192 new test assertions (DONE)
+- Apache  rewrite rule added for SPA deep links (DONE)
+- Fixed Cloudways stale UI loading bug:  now serves newest JS bundle based on  instead of alphabetical sorting (DONE)
+- Fixed sidebar caching:  dynamically loads modules on refresh (DONE)
+- Created  unified schema for Clients/Vendors (DONE)
+- Refactored React UI to show distinct  and  backed by the same  table (DONE)
 
 **Earlier issues found/mentioned but not fixed**
-   Issue 1: 
-   - Debug checklist: No DB migration runner exists. Currently, migrations are loose  files that the user runs manually on Cloudways ().
-   - Why to solve this issue and what will be achieved with this? Eliminates human error during deployments.
-   - Should Test frontend/backend/both after fix: Backend
-   - Is recurring issue? Y (User has to do this every module deploy)
+   - None currently.
 
 **Known issue recurrence from previous fork**
-  - Issue recurrence in previous fork: Agent mistakenly outputting  for MySQL databases, which crashes on the user's Cloudways MySQL instance.
+  - Issue recurrence in previous fork: Agent mistakenly outputting  for MySQL databases, which crashes Cloudways.
   - Recurrence count: 1
-  - Status: RESOLVED (Always manually verify collation is  in new migrations).
+  - Status: RESOLVED (Always verify collation is ).
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
 - Frontend: React 18, Vite.
-- Backend: STRICTLY PHP 8. **No Python/Node**.
-- Database: MySQL (using  collation).
-- Regulatory Architecture: CoreFlux must **never** hold tenant funds in transit. All payment rails must be API integrations with licensed MSBs (like Plaid Transfer) or direct tenant-bank interactions (NACHA/CSV).
+- Backend: STRICTLY PHP 8. No Python/Node.
+- Database: MySQL ( strictly).
+- CI/CD: User tests on Cloudways. Deployment requires the user to push to GitHub (via the chat UI button), pull on Cloudways, and run . 
 
 **key DB schema**
-  - : {id, tenant_id, invoice_number, status, total, amount_paid, etc.}
-  - : Links payments to invoices.
-  - : Stores OAuth tokens for M365/Gmail.
-  -  tables: (To be created in next task) , , , .
+  - : Unified directory for all external entities (clients, vendors, referrers).
+  - : M2M mapping (role = 'client', 'vendor', etc.).
+  - , : Child tables for companies.
+  - , : AP and Billing tables. 
+  - : HR details for employees/contractors.
 
 **changes in tech stack**
-  - Added Resend API (cURL) for outbound emails.
-  - Added Microsoft Graph API (OAuth/cURL) for inbound mailbox reading.
-  - Added Plaid Transfer (cURL) (Pending implementation for AP).
+  - No new tech added this session.
 
 **All files of reference** 
-  - : Freshly built Billing module reference.
-  -  & : Mail integration implementations.
-  - : AP Module specifications.
-  - : Maintained product requirements and backlog.
+  -  (Empty, pending implementation)
+  -  & 
+  - 
+  -  &  &  (Core deployment/shell files modified today)
 
 **Areas that need refactoring**: 
-- Legacy PHP files in ,  need to be refactored similar to how newer modules were handled.
+-  and  are currently isolated from  and must be migrated.
 
 **key api endpoints**
-  - : Invoices and payments.
-  - : (To be created) Bills and vendors.
+  - 
+  - 
+  - 
 
 **Critical Info for New Agent** 
-- **STRICTLY PHP:** The backend is exclusively PHP 8. Do not spin up Python servers or Node instances. Even API integrations (like Plaid or Resend) must be done via PHP cURL or pure PHP classes without Composer SDKs unless strictly necessary (no Composer PDF library exists yet).
-- **MSB Compliance:** The user and agent agreed that the AP module will use **Plaid Transfer** to originate ACH payments, specifically to avoid CoreFlux becoming a regulated Money Services Business (MSB). Do not build any flow where money enters a CoreFlux-owned bank account.
-- **Idempotent SQL:** All migrations must be idempotent (, and use  checks for ). Always use .
-- **Smoke Tests:** This project heavily relies on custom PHP smoke tests located in . Create a test file for every new module/feature (e.g., ) and execute the suite before finishing.
+- **STRICTLY PHP:** The backend is exclusively PHP 8. Do not use Composer SDKs unless strictly necessary. Do NOT spin up Node/Python instances.
+- **Frontend Build:** Always run yarn run v1.22.22
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command. (Vite) after changing React code. The  script checks the  of the built  to serve the newest bundle.
+- **Companies is a DB construct, not UI:** Do not use the word Companies in the React UI or Sidebar. The business users strictly think in terms of Clients and Vendors, which are filtered views of the  table.
+- **Smoke Tests:** This app has over 1000 automated custom PHP smoke tests. Run  locally before concluding any feature to prevent regressions.
 
 **documents and test reports created in this job** 
   - 
   - 
   - 
-  - 
 
 **Last 10 User Messages and any pending HUMAN messages** 
- - (Agent) Ships Billing Phase A0 successfully. Asks what's next.
- - (User) ap
- - (Agent) Proposes AP Phase A0 scope (bills, payments, vendors). Mentions holding off on outbound payments to avoid MSB licensing.
- - (User) include 1099 ledger and stripe payment integration
- - (Agent) Explains 1099 is easy, but Stripe for AP (outbound) requires heavy vendor KYC, and holding funds requires .5M+ in MSB licensing. Explains difference between Stripe for AR vs AP.
- - (User) Asks for clarification on regulatory issues and MSB licensing realities.
- - (Agent) Provides detailed legal breakdown of MSB licensing. Suggests avoiding holding funds by using Plaid Transfer, Gusto, or NACHA files.
- - (User) Clarifies intent: embed Plaid/Stripe/Mercoa so tenant doesn't sign up separately.
- - (Agent) Analyzes Mercoa, Plaid, Stripe, Nickel. Recommends Plaid Transfer for A0.
- - (User) 3. yes 1. plaid + leave it open for mercoa or nickel later
- - (Agent) Calls  for Plaid Transfer. *Session ends here.*
+ - (User) Reports that Enter time is throwing a 404.
+ - (Agent) Discovers lack of  for SPA deep links. Fixes it.
+ - (User) Claims nothing is being tested in emergent preview.
+ - (Agent) Explains Emergent doesn't run the PHP app, guides user to push to GitHub and pull on Cloudways.
+ - (User) States Cloudways says SPA is stale. Agent fixes false positive.
+ - (User) Screenshots that the browser is still loading yesterday's bundle. Agent discovers  alphabetical sort bug, patches it to .
+ - (User) Mentions the sidebar hasn't updated. Agent fixes  to fetch modules dynamically.
+ - (User) Asks where all the SPEC'd fields for People and Placements went.
+ - (Agent) Creates a unified  directory to properly link vendor/client profiles.
+ - (User) Demands UI be split into Clients and Vendors rather than Companies. Agent executes UI split.
+ - (User) All three — Instructs agent to unify AP/Billing indexes, add People fields, and build the New-Hire wizard simultaneously. 
 
 **Project Health Check:**
 - Broken: None.
-- Mocked: Accounting GL posting (Billing currently stubs/ignores GL posting until Accounting v1.0 is built).
+- Mocked: Accounting GL posting (stubbed with null entries pending Accounting v1.0). Plaid Transfers (stubbed).
 
 **3rd Party Integrations** 
  - AWS S3 (via PHP SDK) 
  - OpenAI GPT-4 (via PHP cURL)
  - Resend (Outbound Email) — requires User API Key
  - Microsoft 365 Graph API — requires User API Key / Azure App Config
- - Plaid Transfer (Pending) — requires User API Key
+ - Plaid Transfer (Stubbed) — requires User API Key
 
 **Testing status**
   - Testing agent used after significant changes: NO (Main agent relies strictly on highly robust custom PHP smoke test scripts).
-  - Troubleshoot agent used after agent stuck in loop: NO (User used support_agent for a Github push issue).
-  - Test files created: , , , .
-  - Known regressions: None. All 383 platform tests pass.
+  - Troubleshoot agent used after agent stuck in loop: NO
+  - Test files created: , 
+  - Known regressions: None.
 
 **Credentials to test flow:**
   - Standard test user  with  role.
 
 **What agent forgot to execute**
-- The agent fetched the Plaid Transfer integration playbook but the context window ended. The agent needs to read the playbook output and actually build the AP Phase A0 module.</analysis>
+The agent created  after the user commanded All three, but ran out of context before writing the SQL script, modifying the backend PHP logic, or writing the React UI for the New-Hire Wizard.</analysis>
