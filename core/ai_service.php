@@ -302,3 +302,138 @@ function aiAuditWrite(array $data): int {
         return 0;
     }
 }
+
+
+
+/**
+ * Structured-extraction sibling of aiAsk(): hands an image (or PDF page image)
+ * + a target JSON schema description to the LLM and parses the response back.
+ *
+ * The narrative guardrails in aiAsk() exist because narratives must NEVER
+ * inject calculable numbers into the system. Extraction is the opposite job:
+ * the entire output is data that a human operator will REVIEW before save.
+ * So we use a different system prompt and explicitly accept JSON output.
+ *
+ * Required tenant gate: feature_class='extraction' must be enabled.
+ *
+ * @param array $args {
+ *   feature_key:     string,                  // e.g. 'ap.bill.from_pdf'
+ *   instruction:     string,                  // what to extract
+ *   schema_hint:     string,                  // JSON shape description
+ *   images:          array<{url|base64,mime}>,// vision inputs (PDF pages, photos)
+ *   max_output_tokens: int = 1500,
+ * }
+ *
+ * @return array {
+ *   data:            array,                   // parsed JSON
+ *   model:           string,
+ *   latency_ms:      int,
+ *   raw:             string,                  // raw LLM string (for audit)
+ *   interaction_id:  int,
+ * }
+ */
+function aiExtract(array $args): array {
+    $featureKey = (string) ($args['feature_key']  ?? 'extraction.generic');
+    $instruction = (string) ($args['instruction'] ?? '');
+    $schemaHint  = (string) ($args['schema_hint'] ?? '');
+    $images      = $args['images']                ?? [];
+    $maxTokens   = (int) ($args['max_output_tokens'] ?? 1500);
+    if ($instruction === '') throw new InvalidArgumentException('aiExtract: instruction required');
+    if (!is_array($images) || count($images) === 0) {
+        throw new InvalidArgumentException('aiExtract: images required (at least one)');
+    }
+
+    $tenantId = currentTenantId();
+    $userId   = $_SESSION['user']['id'] ?? null;
+
+    $gate = aiGateForTenant($tenantId, 'extraction');
+    if (!$gate['tenant_enabled'])  throw new AIDisabledException('AI is disabled for this tenant');
+    if (!$gate['feature_enabled']) throw new AIDisabledException("AI feature class 'extraction' is disabled for this tenant");
+    $logFullContent = (bool) $gate['full_content_logging'];
+
+    // Use the classification model (cheap, fast, vision-capable). Override
+    // with AI_MODEL_EXTRACTION if the host wants a different one.
+    $primaryModel = defined('AI_MODEL_EXTRACTION') ? AI_MODEL_EXTRACTION
+        : (defined('AI_MODEL_CLASSIFICATION') ? AI_MODEL_CLASSIFICATION : AI_FALLBACK_MODEL);
+
+    $systemMsg =
+        "You are a precise data-extraction engine. Read the document images and " .
+        "return ONLY a single JSON object that matches the schema described by the user. " .
+        "If a value is not present in the document, use null — never guess. " .
+        "Return ONLY raw JSON. No prose, no markdown fences. " .
+        "All amounts must be plain decimal numbers (no currency symbols, no thousand separators). " .
+        "All dates must be ISO 8601 (YYYY-MM-DD).";
+
+    // Build the multimodal user message.
+    $userContent = [
+        ['type' => 'text', 'text' => $instruction . "\n\nReturn JSON shaped like:\n" . $schemaHint],
+    ];
+    foreach ($images as $img) {
+        if (!empty($img['url'])) {
+            $userContent[] = ['type' => 'image_url', 'image_url' => ['url' => $img['url']]];
+        } elseif (!empty($img['base64'])) {
+            $mime = $img['mime'] ?? 'image/png';
+            $userContent[] = ['type' => 'image_url', 'image_url' => ['url' => "data:{$mime};base64," . $img['base64']]];
+        }
+    }
+
+    $payload = [
+        'model' => $primaryModel,
+        'messages' => [
+            ['role' => 'system', 'content' => $systemMsg],
+            ['role' => 'user',   'content' => $userContent],
+        ],
+        'max_completion_tokens' => $maxTokens,
+        'response_format' => ['type' => 'json_object'],
+    ];
+
+    [$content, $latencyMs, $usedModel, $http, $rawErr] = aiCallOpenAI($payload);
+    if ($content === null && $primaryModel !== AI_FALLBACK_MODEL) {
+        $payload['model'] = AI_FALLBACK_MODEL;
+        [$content, $latencyMs, $usedModel, $http, $rawErr] = aiCallOpenAI($payload);
+    }
+    if ($content === null) {
+        aiAuditWrite([
+            'tenant_id' => $tenantId, 'user_id' => $userId,
+            'feature_class' => 'extraction', 'feature_key' => $featureKey,
+            'kind' => 'classification', 'status' => 'error',
+            'http_status' => $http, 'error' => substr((string) $rawErr, 0, 1000),
+        ]);
+        throw new RuntimeException("OpenAI extraction failed ($http): " . substr((string) $rawErr, 0, 300));
+    }
+
+    // The model may wrap JSON in fences despite instructions. Strip them.
+    $cleaned = preg_replace('/^\s*```(?:json)?\s*|\s*```\s*$/m', '', trim($content));
+    $data = json_decode((string) $cleaned, true);
+    if (!is_array($data)) {
+        aiAuditWrite([
+            'tenant_id' => $tenantId, 'user_id' => $userId,
+            'feature_class' => 'extraction', 'feature_key' => $featureKey,
+            'kind' => 'classification', 'status' => 'error',
+            'http_status' => $http, 'model' => $usedModel, 'latency_ms' => $latencyMs,
+            'error' => 'Non-JSON response: ' . substr($content, 0, 200),
+            'response' => $logFullContent ? $content : null,
+        ]);
+        throw new AIContractException('Extraction model returned non-JSON');
+    }
+
+    $promptHash   = hash('sha256', $instruction . $schemaHint);
+    $responseHash = hash('sha256', $content);
+    $auditId = aiAuditWrite([
+        'tenant_id' => $tenantId, 'user_id' => $userId,
+        'feature_class' => 'extraction', 'feature_key' => $featureKey,
+        'kind' => 'classification', 'status' => 'ok',
+        'http_status' => $http, 'model' => $usedModel, 'latency_ms' => $latencyMs,
+        'prompt_hash' => $promptHash, 'response_hash' => $responseHash,
+        'prompt'   => $logFullContent ? $instruction : null,
+        'response' => $logFullContent ? $content     : null,
+    ]);
+
+    return [
+        'data'            => $data,
+        'model'           => $usedModel,
+        'latency_ms'      => $latencyMs,
+        'raw'             => $content,
+        'interaction_id'  => $auditId,
+    ];
+}

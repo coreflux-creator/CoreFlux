@@ -58,6 +58,7 @@ return [
         'ap.bill.paid',
         'ap.bill.attachment.added',
         'ap.bill.line.attachment.added',
+        'ap.bill.extracted_from_pdf',
         'ap.intake.received',
         'ap.intake.parsed',
         'ap.intake.converted',

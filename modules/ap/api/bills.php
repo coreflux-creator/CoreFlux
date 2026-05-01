@@ -29,6 +29,79 @@ $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
+if ($method === 'POST' && $action === 'extract_from_pdf') {
+    // AI-assist: read the uploaded vendor invoice (PDF or image) and return
+    // a structured draft the BillCreate form can pre-fill. The user remains
+    // responsible for reviewing every field — the response is suggestion,
+    // not authoritative data.
+    RBAC::requirePermission($user, 'ap.bill.create');
+    require_once __DIR__ . '/../../../core/ai_service.php';
+    $body = api_json_body();
+    api_require_fields($body, ['storage_key']);
+    $key = (string) $body['storage_key'];
+
+    // Generate a short-lived signed URL the LLM can fetch directly.
+    $signedUrl = StorageService::getInstance()->get_signed_url($key);
+
+    $instruction =
+        'Extract the vendor invoice / bill into a JSON draft. ' .
+        'If the document has multiple pages, combine line items in order. ' .
+        'Map ambiguous categories conservatively. Be aggressive about ' .
+        'splitting bundled descriptions into separate line items when ' .
+        'unit prices and quantities are visible.';
+
+    $schemaHint = <<<JSON
+{
+  "vendor_name":      string|null,           // billing entity exactly as printed
+  "bill_number":      string|null,           // vendor's invoice/bill number
+  "bill_date":        string|null,           // ISO YYYY-MM-DD
+  "due_date":         string|null,           // ISO YYYY-MM-DD
+  "po_number":        string|null,
+  "currency":         string|null,           // 3-letter ISO (default USD if not stated)
+  "subtotal":         number|null,
+  "tax_total":        number|null,
+  "total":            number|null,
+  "notes":            string|null,
+  "lines": [
+    {
+      "item_type":     "labor"|"expense"|"materials"|"fixed_fee"|"milestone"|"discount"|"subscription"|"mileage"|"per_diem"|"reimbursement"|"other",
+      "description":   string,
+      "quantity":      number|null,
+      "unit":          string|null,          // hour|each|mile|day|month|...
+      "unit_price":    number|null,
+      "subtotal":      number|null
+    }
+  ]
+}
+JSON;
+
+    try {
+        $res = aiExtract([
+            'feature_key' => 'ap.bill.from_pdf',
+            'instruction' => $instruction,
+            'schema_hint' => $schemaHint,
+            'images'      => [['url' => $signedUrl, 'mime' => 'application/pdf']],
+            'max_output_tokens' => 2000,
+        ]);
+    } catch (\Throwable $e) {
+        api_error('Extraction failed: ' . $e->getMessage(), 502, ['extractor' => 'gpt']);
+    }
+    apAudit('ap.bill.extracted_from_pdf', [
+        'storage_key' => $key,
+        'model'       => $res['model'],
+        'latency_ms'  => $res['latency_ms'],
+        'lines'       => is_array($res['data']['lines'] ?? null) ? count($res['data']['lines']) : 0,
+        'interaction_id' => $res['interaction_id'],
+    ]);
+    api_ok([
+        'draft'           => $res['data'],
+        'model'           => $res['model'],
+        'latency_ms'      => $res['latency_ms'],
+        'interaction_id'  => $res['interaction_id'],
+        'review_required' => true,
+    ]);
+}
+
 if ($method === 'GET' && $action === 'upload_url') {
     // Generate a presigned S3 POST for a bill or bill-line attachment.
     //   ?id=N            → bill-level (vendor invoice PDF)

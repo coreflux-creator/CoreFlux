@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
-import LineItemEditor, { blankLine } from '../../../dashboard/src/components/LineItemEditor';
+import LineItemEditor, { blankLine, ITEM_TYPES } from '../../../dashboard/src/components/LineItemEditor';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 import VendorQuickCreate from './VendorQuickCreate';
+
+const ITEM_TYPE_FALLBACK = ITEM_TYPES.map((t) => t.value);
 
 /**
  * Manual AP bill creator — supports any item_type (labor, expense, materials,
@@ -44,6 +46,45 @@ export default function BillCreate() {
       return;
     }
     setPendingFile(file);
+  };
+
+  // ── AI extraction ───────────────────────────────────────────────────
+  const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState(null);
+  const [extractResult, setExtractResult] = useState(null);
+
+  const extractFromPdf = async () => {
+    if (!pendingFile) { setExtractError(new Error('Drop a PDF first')); return; }
+    setExtracting(true); setExtractError(null); setExtractResult(null);
+    try {
+      // Upload first (needs to be in S3 for the LLM to fetch).
+      const uploaded = await uploadFileViaPresignedPost(
+        `/modules/ap/api/bills.php?action=upload_url&file_name=${encodeURIComponent(pendingFile.name)}`,
+        pendingFile
+      );
+      const res = await api.post('/modules/ap/api/bills.php?action=extract_from_pdf', { storage_key: uploaded.storage_key });
+      const d = res.draft || {};
+
+      // Merge non-empty fields. We never overwrite the vendor pick (that's
+      // tied to the companies directory) — the user must confirm.
+      if (d.bill_number)  setBillNumber(d.bill_number);
+      if (d.bill_date)    setBillDate(d.bill_date);
+      if (d.due_date)     setDueDate(d.due_date);
+      if (d.po_number)    setPoNumber(d.po_number);
+      if (d.notes)        setNotes(d.notes);
+      if (Array.isArray(d.lines) && d.lines.length > 0) {
+        setLines(d.lines.map((l) => ({
+          item_type:        ITEM_TYPE_FALLBACK.includes(l.item_type) ? l.item_type : 'other',
+          description:      l.description || '',
+          quantity:         l.quantity ?? 1,
+          unit:             l.unit || 'each',
+          unit_price:       l.unit_price ?? '',
+          gl_account_code:  '', // never let AI guess GL — user picks
+        })));
+      }
+      setExtractResult({ vendor_name: d.vendor_name, total: d.total, lineCount: (d.lines || []).length, model: res.model, latency: res.latency_ms });
+    } catch (e) { setExtractError(e); }
+    finally     { setExtracting(false); }
   };
 
   const subtotal = lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
@@ -160,6 +201,30 @@ export default function BillCreate() {
             error={pendingFileError}
             testIdPrefix="ap-bill-create-attachment"
           />
+          {pendingFile && (
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={extractFromPdf}
+                disabled={extracting}
+                data-testid="ap-bill-create-extract"
+                title="Use AI to read the PDF and pre-fill bill #, dates, and line items. You'll review every field before saving."
+              >
+                {extracting ? '✨ Extracting…' : '✨ Extract from PDF'}
+              </button>
+              {extractResult && (
+                <span data-testid="ap-bill-create-extract-result" style={{ fontSize: 12, color: '#065f46' }}>
+                  Pre-filled {extractResult.lineCount} line{extractResult.lineCount === 1 ? '' : 's'}{extractResult.vendor_name ? ` (vendor: ${extractResult.vendor_name})` : ''}{extractResult.model ? ` · ${extractResult.model}` : ''} — review every field before saving.
+                </span>
+              )}
+              {extractError && (
+                <span data-testid="ap-bill-create-extract-error" style={{ fontSize: 12, color: '#991b1b' }}>
+                  Extract failed: {extractError.message}
+                </span>
+              )}
+            </div>
+          )}
         </Field>
 
         <h3 style={{ margin: '16px 0 8px' }}>Line items</h3>
