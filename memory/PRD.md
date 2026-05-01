@@ -662,4 +662,4 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - The SPA falls back to demo mode when `session.php` is unreachable (see `App.jsx`).
 
 ---
-*Last Updated: 2026-02 — Phase 9 AP module Phase A0 shipped: closes the Time → vendor-pay loop with from-time-bundle bill creation, two-eye approval, SoD on payment release, auto-FIFO allocation, 1099-NEC ledger with proportional attribution, vendor PII encryption, on-read AP aging. Plaid Transfer env-gated (keys deferred). GL posting stubbed until Accounting v1.0. 192 new contract tests ✓ (903 platform total).*
+*Last Updated: 2026-02 — Phase 9 AP module Phase A0 shipped. Plus sidebar + SPA deep-link fix: added `/app/.htaccess` SPA fallback (deep URLs like `/modules/time/entries` no longer Apache-404), updated `core/modules.php` to expose time/billing/placements/ap modules with correct action routes (e.g. "My Time" → `/modules/time/entries`), deleted dead `dashboard/src/modules/PeopleModule.jsx` (had stale "Enter Time" card). 903 platform tests ✓.*

@@ -1,0 +1,32 @@
+# CoreFlux — Apache root config (SPA fallback + security)
+#
+# Cloudways MySQL stack runs Apache + mod_rewrite. This .htaccess routes deep
+# SPA URLs (e.g. /modules/time/entries, /settings/mail, /admin/tenants) back
+# through /spa.php so React Router can render them. Any real file or
+# directory (PHP endpoints, /api/, /dashboard/ assets, /spa-assets/) is
+# served as-is.
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # Pass through real files/dirs (PHP endpoints, assets, api router, etc.)
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Known SPA root paths → spa.php
+    RewriteRule ^(modules|admin|settings|profile|dashboard)(/.*)?$ spa.php [L,QSA]
+</IfModule>
+
+# Hide hidden files (.git, .env, .htaccess itself)
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# Deny direct access to memory/ + legacy/ + tests/
+RedirectMatch 404 ^/(memory|legacy|tests)(/|$)
+
+# Sensible defaults
+Options -Indexes
+DirectoryIndex index.php index.html
