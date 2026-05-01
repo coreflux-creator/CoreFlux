@@ -125,3 +125,65 @@ PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='placement_client_chain' AND COLUMN_NAME='kms_key_version');
 SET @sql := IF(@col=0,'ALTER TABLE placement_client_chain ADD COLUMN kms_key_version VARCHAR(64) NULL AFTER portal_credentials_ct','DO 0');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+
+-- ──────────────────────────────────────────────────────────────────────
+-- Part D: People extension — hire/termination dates, mailing address,
+-- pay frequency, gender/marital, explicit employment_type (distinct from
+-- talent-pool classification: one person can be classification=w2 with
+-- employment_type=full_time|part_time|temp, etc.).
+-- Additive + idempotent via information_schema.
+-- ──────────────────────────────────────────────────────────────────────
+
+SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='people' AND COLUMN_NAME='employment_type');
+SET @sql := IF(@col=0,'ALTER TABLE people ADD COLUMN employment_type ENUM("full_time","part_time","contractor","intern","temp") NULL AFTER classification','DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='people' AND COLUMN_NAME='hire_date');
+SET @sql := IF(@col=0,'ALTER TABLE people ADD COLUMN hire_date DATE NULL AFTER employment_type','DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='people' AND COLUMN_NAME='termination_date');
+SET @sql := IF(@col=0,'ALTER TABLE people ADD COLUMN termination_date DATE NULL AFTER hire_date','DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='people' AND COLUMN_NAME='pay_frequency');
+SET @sql := IF(@col=0,'ALTER TABLE people ADD COLUMN pay_frequency ENUM("weekly","biweekly","semimonthly","monthly") NULL AFTER termination_date','DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='people' AND COLUMN_NAME='gender');
+SET @sql := IF(@col=0,'ALTER TABLE people ADD COLUMN gender VARCHAR(40) NULL AFTER pay_frequency','DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='people' AND COLUMN_NAME='marital_status');
+SET @sql := IF(@col=0,'ALTER TABLE people ADD COLUMN marital_status VARCHAR(40) NULL AFTER gender','DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='people' AND COLUMN_NAME='mailing_address_line1');
+SET @sql := IF(@col=0,'ALTER TABLE people ADD COLUMN mailing_address_line1 VARCHAR(255) NULL AFTER home_country','DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='people' AND COLUMN_NAME='mailing_address_line2');
+SET @sql := IF(@col=0,'ALTER TABLE people ADD COLUMN mailing_address_line2 VARCHAR(255) NULL AFTER mailing_address_line1','DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='people' AND COLUMN_NAME='mailing_city');
+SET @sql := IF(@col=0,'ALTER TABLE people ADD COLUMN mailing_city VARCHAR(120) NULL AFTER mailing_address_line2','DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='people' AND COLUMN_NAME='mailing_state');
+SET @sql := IF(@col=0,'ALTER TABLE people ADD COLUMN mailing_state VARCHAR(60) NULL AFTER mailing_city','DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='people' AND COLUMN_NAME='mailing_postal_code');
+SET @sql := IF(@col=0,'ALTER TABLE people ADD COLUMN mailing_postal_code VARCHAR(20) NULL AFTER mailing_state','DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='people' AND COLUMN_NAME='mailing_country');
+SET @sql := IF(@col=0,'ALTER TABLE people ADD COLUMN mailing_country CHAR(2) NULL AFTER mailing_postal_code','DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Index for reports that filter by active/hire ranges (common HR dashboards).
+SET @idx := (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='people' AND INDEX_NAME='idx_people_tenant_hire');
+SET @sql := IF(@idx=0,'CREATE INDEX idx_people_tenant_hire ON people (tenant_id, hire_date)','DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

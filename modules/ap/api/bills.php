@@ -118,11 +118,22 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
                 )->execute(['bid_id' => $billId, 'bid' => (int) $bid, 'tid' => $tid]);
             }
 
-            // Upsert into vendors_index
+            // Upsert into vendors_index + companies directory for non-individuals
+            $companyId = null;
+            if (in_array($bill['vendor_type'], ['c2c_corp','w9_business','utility','other'], true)) {
+                require_once __DIR__ . '/../../people/lib/companies.php';
+                $companyId = companiesUpsertByName($tid, (string) $bill['vendor_name'], [
+                    'created_by_user_id' => $user['id'] ?? null,
+                ], ['vendor']);
+                companiesBumpUsage($companyId);
+                $pdo->prepare('UPDATE ap_bills SET vendor_company_id = :cid WHERE id = :id')
+                    ->execute(['cid' => $companyId, 'id' => $billId]);
+            }
             $pdo->prepare(
-                'INSERT INTO ap_vendors_index (tenant_id, vendor_name, vendor_type, requires_1099, last_bill_at, placement_id_last)
-                 VALUES (:t, :v, :vt, :r, NOW(), :pid)
+                'INSERT INTO ap_vendors_index (tenant_id, vendor_name, company_id, vendor_type, requires_1099, last_bill_at, placement_id_last)
+                 VALUES (:t, :v, :cid, :vt, :r, NOW(), :pid)
                  ON DUPLICATE KEY UPDATE
+                   company_id = COALESCE(VALUES(company_id), company_id),
                    vendor_type = VALUES(vendor_type),
                    requires_1099 = GREATEST(requires_1099, VALUES(requires_1099)),
                    last_bill_at = NOW(),
@@ -130,6 +141,7 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
             )->execute([
                 't'  => $tid,
                 'v'  => $bill['vendor_name'],
+                'cid'=> $companyId,
                 'vt' => $bill['vendor_type'],
                 'r'  => $bill['vendor_type'] === '1099_individual' ? 1 : 0,
                 'pid'=> !empty($d['lines'][0]['placement_id']) ? (int) $d['lines'][0]['placement_id'] : null,
@@ -170,12 +182,22 @@ if ($method === 'POST' && $action === '') {
     $pdo->beginTransaction();
     try {
         $internalRef = apNextInternalRef($tid);
+        $vendorType = (string) ($body['vendor_type'] ?? 'other');
+        $vendorCompanyId = !empty($body['vendor_company_id']) ? (int) $body['vendor_company_id'] : null;
+        if (!$vendorCompanyId && in_array($vendorType, ['c2c_corp','w9_business','utility','other'], true)) {
+            require_once __DIR__ . '/../../people/lib/companies.php';
+            $vendorCompanyId = companiesUpsertByName($tid, (string) $body['vendor_name'], [
+                'created_by_user_id' => $user['id'] ?? null,
+            ], ['vendor']);
+            companiesBumpUsage($vendorCompanyId);
+        }
         $billId = scopedInsert('ap_bills', [
             'tenant_id'         => $tid,
             'bill_number'       => (string) ($body['bill_number'] ?? $internalRef),
             'internal_ref'      => $internalRef,
             'vendor_name'       => (string) $body['vendor_name'],
-            'vendor_type'       => (string) ($body['vendor_type'] ?? 'other'),
+            'vendor_company_id' => $vendorCompanyId,
+            'vendor_type'       => $vendorType,
             'received_at'       => (string) ($body['received_at'] ?? date('Y-m-d')),
             'bill_date'         => (string) ($body['bill_date']   ?? date('Y-m-d')),
             'due_date'          => (string) ($body['due_date']    ?? date('Y-m-d', strtotime("+{$netDays} days"))),
@@ -235,7 +257,7 @@ if ($method === 'PATCH') {
     }
 
     $body = api_json_body();
-    $editable = ['vendor_name','vendor_type','bill_number','bill_date','due_date','po_number','notes_internal','placement_id'];
+    $editable = ['vendor_name','vendor_company_id','vendor_type','bill_number','bill_date','due_date','po_number','notes_internal','placement_id'];
     $sets = []; $binds = ['id' => $id];
     foreach ($editable as $f) {
         if (array_key_exists($f, $body)) {

@@ -117,9 +117,19 @@ if ($method === 'POST') {
         'created_by_user_id'   => $user['id']              ?? null,
     ];
 
+    // Additive employment/HR fields (migration 006). All optional; whitelisted.
+    $extraEmp = ['employment_type','hire_date','termination_date','pay_frequency','gender','marital_status'];
+    foreach ($extraEmp as $k) {
+        if (array_key_exists($k, $body) && $body[$k] !== '' && $body[$k] !== null) {
+            $insert[$k] = $body[$k];
+        }
+    }
+
     // PII / address fields are gated by people.pii.manage on create just like PATCH.
     $piiKeys = ['dob', 'ssn_last4', 'home_address_line1', 'home_address_line2',
-                'home_city', 'home_state', 'home_postal_code', 'home_country'];
+                'home_city', 'home_state', 'home_postal_code', 'home_country',
+                'mailing_address_line1', 'mailing_address_line2',
+                'mailing_city', 'mailing_state', 'mailing_postal_code', 'mailing_country'];
     $piiTouched = [];
     foreach ($piiKeys as $k) {
         if (array_key_exists($k, $body) && $body[$k] !== '' && $body[$k] !== null) {
@@ -157,7 +167,9 @@ if ($method === 'PATCH') {
 
     // PII fields require people.pii.manage
     $piiKeys = ['dob', 'ssn_last4', 'home_address_line1', 'home_address_line2',
-                'home_city', 'home_state', 'home_postal_code', 'home_country'];
+                'home_city', 'home_state', 'home_postal_code', 'home_country',
+                'mailing_address_line1', 'mailing_address_line2',
+                'mailing_city', 'mailing_state', 'mailing_postal_code', 'mailing_country'];
     $touchingPII = false;
     foreach ($piiKeys as $k) if (array_key_exists($k, $body)) $touchingPII = true;
     if ($touchingPII) {

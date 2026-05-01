@@ -96,6 +96,7 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
 
     $pdo = getDB();
     $created = [];
+    require_once __DIR__ . '/../../people/lib/companies.php';
     $pdo->beginTransaction();
     try {
         foreach ($drafts as $d) {
@@ -103,6 +104,12 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
             $inv['tenant_id'] = $tid;
             $inv['invoice_number'] = billingNextInvoiceNumber($tid);
             $inv['created_by_user_id'] = $user['id'] ?? null;
+
+            $clientCid = companiesUpsertByName($tid, (string) $inv['client_name'], [
+                'created_by_user_id' => $user['id'] ?? null,
+            ], ['client']);
+            companiesBumpUsage($clientCid);
+            $inv['client_company_id'] = $clientCid;
 
             $invId = scopedInsert('billing_invoices', $inv);
 
@@ -161,10 +168,20 @@ if ($method === 'POST' && $action === '') {
 
     $pdo->beginTransaction();
     try {
+        // Resolve/auto-create the unified companies.id for the billed client.
+        require_once __DIR__ . '/../../people/lib/companies.php';
+        $clientCompanyId = !empty($body['client_company_id']) ? (int) $body['client_company_id'] : null;
+        if (!$clientCompanyId) {
+            $clientCompanyId = companiesUpsertByName($tid, (string) $body['client_name'], [
+                'created_by_user_id' => $user['id'] ?? null,
+            ], ['client']);
+            companiesBumpUsage($clientCompanyId);
+        }
         $invId = scopedInsert('billing_invoices', [
             'tenant_id'         => $tid,
             'invoice_number'    => billingNextInvoiceNumber($tid),
             'client_name'       => (string) $body['client_name'],
+            'client_company_id' => $clientCompanyId,
             'bill_to_json'      => isset($body['bill_to']) ? json_encode($body['bill_to']) : null,
             'currency'          => (string) ($body['currency'] ?? 'USD'),
             'issue_date'        => (string) ($body['issue_date'] ?? date('Y-m-d')),
@@ -216,7 +233,7 @@ if ($method === 'PATCH') {
     if ($row['status'] !== 'draft') api_error('Only draft invoices can be edited', 409);
 
     $body = api_json_body();
-    $editable = ['client_name','bill_to_json','issue_date','due_date','po_number','notes_internal','notes_external'];
+    $editable = ['client_name','client_company_id','bill_to_json','issue_date','due_date','po_number','notes_internal','notes_external'];
     $sets = []; $binds = ['id' => $id];
     foreach ($editable as $f) {
         if (array_key_exists($f, $body)) {

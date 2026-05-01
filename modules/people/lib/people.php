@@ -21,6 +21,7 @@ function peopleSafeFields(): string
     return 'id, tenant_id, external_id, first_name, middle_name, last_name, preferred_name, '
          . 'email_primary, email_secondary, phone_primary, phone_secondary, '
          . 'classification, status, work_auth_status, work_auth_expiry, requires_sponsorship, '
+         . 'employment_type, hire_date, termination_date, pay_frequency, '
          . 'linkedin_url, resume_storage_object_id, recruiter_notes, source, referred_by_person_id, '
          . 'created_by_user_id, created_at, updated_at, deleted_at';
 }
@@ -28,8 +29,9 @@ function peopleSafeFields(): string
 /** PII fields — gated by people.pii.view + audit-logged via peoplePIIRead(). */
 function peoplePIIFields(): string
 {
-    return 'dob, ssn_last4, home_address_line1, home_address_line2, '
-         . 'home_city, home_state, home_postal_code, home_country';
+    return 'dob, ssn_last4, gender, marital_status, '
+         . 'home_address_line1, home_address_line2, home_city, home_state, home_postal_code, home_country, '
+         . 'mailing_address_line1, mailing_address_line2, mailing_city, mailing_state, mailing_postal_code, mailing_country';
 }
 
 /**
