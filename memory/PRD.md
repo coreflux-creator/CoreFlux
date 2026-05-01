@@ -107,7 +107,85 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   - Vite bundle rebuilt (302kB JS) and synced; `App.jsx` wires `/modules/placements/*`
   - `memory/PLACEMENTS_DEPLOY_NOTES.md` — deploy + 15-step smoke walk
 
-- [x] **Phase 8 — Billing module Phase A0: invoice the work end-to-end (2026-02-XX, this fork):**
+- [x] **Phase 9 — AP module Phase A0: invoice-to-pay loop (2026-02-XX, this fork):**
+  - Mirror of Billing on the cost side. Closes the Time → vendor-pay loop:
+    closed period → AP bundles → pending-approval bill → two-eye approve
+    → record payment → allocate (FIFO or manual) → clear payment →
+    1099-NEC ledger rebuild. Plaid Transfer env-gated (keys deferred).
+    GL posting stubbed until Accounting v1.0.
+  - **Schema** `modules/ap/migrations/001_init.sql` (idempotent,
+    `utf8mb4_unicode_ci`, `information_schema`-guarded ALTERs) —
+    8 tables: `ap_vendors_index` (encrypted EIN/SSN), `ap_bills`
+    (8-state machine inbox→pending_review→pending_approval→approved→
+    partially_paid→paid→void→disputed), `ap_bill_lines`
+    (with `is_1099_eligible` + `gl_expense_account_code`),
+    `ap_payments` (6-state draft→queued→sent→cleared→failed→void,
+    method enum includes `plaid` for future Plaid Transfer),
+    `ap_payment_allocations`, `ap_expense_reports` + lines
+    (submit→approve→convert to bill), `ap_1099_ledger` (UNIQUE per
+    tenant+tax_year+vendor). 4 tenant config columns
+    (`ap_bill_prefix`, `ap_next_bill_seq`, `ap_default_terms`,
+    `ap_1099_threshold` default $600).
+  - **Library** `modules/ap/lib/ap.php` — `apNextInternalRef` (atomic
+    FOR UPDATE on tenant row, format `{prefix}-{YYYY}-{NNNN}`),
+    `apBuildDraftFromBundle` with `per_vendor`/`per_placement`
+    aggregation detecting C2C corp vs 1099 individual via
+    `placements.engagement_type` + `placement_corp_details.corp_name`,
+    `apBillTransitionAllowed` / `apPaymentTransitionAllowed` matrix
+    enforcement, `apAllocatePayment` (manual + auto-FIFO, atomic,
+    refuses over-allocation / disputed / void), on-read
+    `apComputeAging` (5 buckets), `apBuild1099Ledger` (idempotent
+    upsert, proportional allocation of payment $ to 1099-eligible
+    lines via bill_lines_eligible_total/bill_total), `apPlaidConfigured`
+    env probe, `apAudit` emitter.
+  - **API** `modules/ap/api/{bills,payments,vendors,expenses,aging,1099}.php` —
+    Bills: list/detail/manual create/`from-time-bundle` (marks
+    bundles `consumed_by_module='ap'`)/PATCH/approve (two-eye; refuses
+    lines with total ≤ 0)/void (releases bundles if no payments)/dispute/
+    post (STUBBED; emits audit, sets `journal_entry_id=NULL` until
+    Accounting v1.0 exists). Payments: list (with
+    `plaid_enabled` probe)/create (auto-FIFO optional)/allocate/send
+    (SoD: creator ≠ releaser; refuses disputed/void bills)/clear/void
+    (reverses allocations, recomputes bill statuses). Vendors:
+    typeahead + upsert + PII reveal gated by `ap.vendor.view_pii`
+    with audit. Expenses: submit/approve (converts to bill
+    source=expense_report)/reject. Aging: on-read. 1099: year ledger +
+    rebuild action.
+  - **React UI** `modules/ap/ui/*` (10 components):
+    `APModule` (router with 6-tab sub-nav), `BillsList` (status filter
+    chips + from-time-bundle modal), `BillDetail` (summary + lines +
+    allocations + approve/dispute/void/post actions),
+    `BillFromTimeBundleModal` (period select → live AP bundle preview
+    → aggregation toggle → bulk-create), `PaymentsList` (record-payment
+    modal with plaid method gated on env, allocate modal with
+    manual + auto-FIFO), `VendorsList` (search + create with encrypted
+    tax ID), `ExpensesList` (submit/approve/reject actions),
+    `ExpenseCreate` (multi-line entry with receipt placeholders),
+    `AgingTable` (5 buckets per vendor with overdue color-coding +
+    totals row), `Ledger1099` (rebuild from cleared payments, shows
+    vendors over $600 threshold).
+  - Wired into `App.jsx` at `/modules/ap/*` matching other modules.
+  - **Manifest** `depends_on` = `['placements','time']` (accounting
+    deferred — same pattern as Billing; once Accounting v1.0 ships,
+    both modules will add it).
+  - `tests/ap_spec_smoke.php` — 192 contract assertions ✓
+    (migration shape + 8-state + 6-state enums, library math + both
+    transition matrices, Plaid env probe, API parse + action routing +
+    two-eye / SoD / void-reverses-allocations, manifest perms + audit
+    events, UI wiring with all testids).
+  - `tests/module_registry_smoke.php` updated: ap now asserts
+    `depends_on` = placements+time (NOT accounting) per design.
+  - All 15 platform smoke suites green: **903 assertions total ✓**
+    (ap 192, billing 103, time 85, time-tokens 53, tenant-mail 38,
+    m365 46, mail 38, people 104, placements 96, csv 24, rbac 27,
+    module registry 40, API router 19, payroll compute 16, storage 22,
+    plus core/mailer/people-encryption/ai-platform baseline).
+  - Vite bundle rebuilt (1731 modules, 428kB JS / 17.6kB CSS) and synced.
+  - `memory/AP_DEPLOY_NOTES.md` — Cloudways migration, optional
+    Plaid enable steps, 9-step smoke walk, rollback.
+
+
+- [x] **Phase 8 — Billing module Phase A0: invoice the work end-to-end (2026-02-XX, prior fork):**
   - First subledger module shipped. Closes the Time → revenue loop:
     closed period → AR bundles → draft invoice → approve (two-eye) →
     send via Resend with tenant Reply-To → public customer-portal view
@@ -519,8 +597,10 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   allocations, intercompany, consolidation)
 - [ ] **Billing module** — implementation per SPEC.md (consumes Time
   `bundle_type='ar'` feed)
-- [ ] **AP module** — implementation per SPEC.md (consumes Time
-  `bundle_type='ap'` feed)
+- [x] **AP module Phase A0** — SHIPPED in Phase 9 (this fork). Next:
+  AP Phase A1 — Gusto CSV export, inbox AI parsing alongside Time Slice
+  2b/2c, recurring bills, NACHA, card import (Plaid/Brex/Ramp),
+  three-way match, 1099-NEC PDF generation, vendor portal.
 - [ ] **Payroll module refactor** — legacy unwired React components → new
   modular architecture (consumes Time `bundle_type='payroll'` feed)
 - [ ] Fix GitHub Actions CI/CD (replace `scp-action` with rsync/webhook + PAT)
@@ -582,4 +662,4 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - The SPA falls back to demo mode when `session.php` is unreachable (see `App.jsx`).
 
 ---
-*Last Updated: 2026-02 — Phase 8 Billing module Phase A0 shipped: closes the Time → revenue loop with from-time-bundle invoicing, two-eye approval, public customer portal (HTML print-to-PDF), Resend-powered customer emails with tenant Reply-To, payments + auto-FIFO allocation, on-read AR aging. 103 new contract tests ✓. Phase A1 (server-side PDF, memos, GL posting) deferred.*
+*Last Updated: 2026-02 — Phase 9 AP module Phase A0 shipped: closes the Time → vendor-pay loop with from-time-bundle bill creation, two-eye approval, SoD on payment release, auto-FIFO allocation, 1099-NEC ledger with proportional attribution, vendor PII encryption, on-read AP aging. Plaid Transfer env-gated (keys deferred). GL posting stubbed until Accounting v1.0. 192 new contract tests ✓ (903 platform total).*

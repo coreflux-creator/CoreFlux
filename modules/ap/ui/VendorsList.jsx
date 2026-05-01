@@ -1,0 +1,93 @@
+import React, { useState } from 'react';
+import { api, useApi } from '../../../dashboard/src/lib/api';
+
+export default function VendorsList() {
+  const [q, setQ] = useState('');
+  const path = q ? `/modules/ap/api/vendors.php?q=${encodeURIComponent(q)}` : '/modules/ap/api/vendors.php';
+  const { data, loading, error, reload } = useApi(path);
+  const rows = data?.rows ?? [];
+  const [showCreate, setShowCreate] = useState(false);
+
+  return (
+    <section data-testid="ap-vendors-list">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)', gap: 8 }}>
+        <input className="input" placeholder="Search vendors…" value={q} onChange={(e) => setQ(e.target.value)} data-testid="ap-vendors-search" style={{ maxWidth: 320 }} />
+        <button className="btn btn--primary" onClick={() => setShowCreate(true)} data-testid="ap-vendor-new">New vendor</button>
+      </div>
+
+      {loading && <p>Loading…</p>}
+      {error && <p className="error">Error: {error.message}</p>}
+
+      <table className="data-table" data-testid="ap-vendors-table">
+        <thead><tr><th>Name</th><th>Type</th><th>Terms</th><th>Tax ID</th><th>1099?</th><th>Last bill</th></tr></thead>
+        <tbody>
+          {rows.length === 0 && !loading && <tr><td colSpan={6} className="empty" data-testid="ap-vendors-empty">No vendors yet.</td></tr>}
+          {rows.map(v => (
+            <tr key={v.id} data-testid={`ap-vendor-row-${v.id}`}>
+              <td>{v.vendor_name}</td>
+              <td><span className="badge">{v.vendor_type}</span></td>
+              <td>{v.default_terms}</td>
+              <td>{v.tax_id_last4 ? `••${v.tax_id_last4}` : '—'}</td>
+              <td>{Number(v.requires_1099) ? 'Yes' : 'No'}</td>
+              <td>{v.last_bill_at || '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {showCreate && <VendorCreateModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); reload(); }} />}
+    </section>
+  );
+}
+
+function VendorCreateModal({ onClose, onCreated }) {
+  const [form, setForm] = useState({ vendor_name: '', vendor_type: '1099_individual', default_terms: 'NET30', tax_id_full: '', requires_1099: true });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const submit = async () => {
+    setBusy(true); setError(null);
+    try { await api.post('/modules/ap/api/vendors.php', form); onCreated?.(); }
+    catch (e) { setError(e); } finally { setBusy(false); }
+  };
+  return (
+    <div style={modalOverlay} onClick={(e) => e.target === e.currentTarget && !busy && onClose?.()} data-testid="ap-vendor-modal">
+      <div style={modalBox}>
+        <header style={modalHeader}><h3 style={{ margin: 0 }}>New vendor</h3></header>
+        <div style={{ padding: 20, display: 'grid', gap: 12 }}>
+          <label style={{ fontSize: 13 }}><span style={{ color: 'var(--cf-text-secondary)' }}>Name</span>
+            <input className="input" value={form.vendor_name} onChange={(e) => setForm({ ...form, vendor_name: e.target.value })} data-testid="ap-vendor-name" style={{ marginTop: 4 }} />
+          </label>
+          <label style={{ fontSize: 13 }}><span style={{ color: 'var(--cf-text-secondary)' }}>Type</span>
+            <select className="input" value={form.vendor_type} onChange={(e) => setForm({ ...form, vendor_type: e.target.value })} data-testid="ap-vendor-type" style={{ marginTop: 4 }}>
+              <option value="1099_individual">1099 Individual</option>
+              <option value="c2c_corp">C2C Corp</option>
+              <option value="w9_business">W9 Business</option>
+              <option value="utility">Utility</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 13 }}><span style={{ color: 'var(--cf-text-secondary)' }}>Default terms</span>
+            <input className="input" value={form.default_terms} onChange={(e) => setForm({ ...form, default_terms: e.target.value })} data-testid="ap-vendor-terms" style={{ marginTop: 4 }} />
+          </label>
+          <label style={{ fontSize: 13 }}><span style={{ color: 'var(--cf-text-secondary)' }}>Tax ID (EIN / SSN)</span>
+            <input className="input" value={form.tax_id_full} onChange={(e) => setForm({ ...form, tax_id_full: e.target.value })} data-testid="ap-vendor-taxid" placeholder="Encrypted at rest" style={{ marginTop: 4 }} />
+          </label>
+          <label style={{ display: 'inline-flex', gap: 6, fontSize: 14 }}>
+            <input type="checkbox" checked={form.requires_1099} onChange={(e) => setForm({ ...form, requires_1099: e.target.checked })} data-testid="ap-vendor-requires-1099" />
+            Requires 1099-NEC
+          </label>
+          {error && <p className="error">Error: {error.message}</p>}
+        </div>
+        <footer style={modalFooter}>
+          <button className="btn btn--ghost" onClick={onClose} data-testid="ap-vendor-cancel">Cancel</button>
+          <button className="btn btn--primary" onClick={submit} disabled={busy || !form.vendor_name} data-testid="ap-vendor-save">{busy ? 'Saving…' : 'Save'}</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+const modalOverlay = { position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
+const modalBox = { background: 'var(--cf-surface, #fff)', borderRadius: 12, width: 'min(480px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column' };
+const modalHeader = { padding: 20, borderBottom: '1px solid var(--cf-border, #e5e7eb)' };
+const modalFooter = { padding: 16, borderTop: '1px solid var(--cf-border, #e5e7eb)', display: 'flex', justifyContent: 'flex-end', gap: 8, background: 'var(--cf-surface-alt, #f9fafb)' };

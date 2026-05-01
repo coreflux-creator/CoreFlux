@@ -83,8 +83,12 @@ $assert("billing depends on time",
 $assert("billing depends on placements",
     in_array('placements', $billing['depends_on'] ?? [], true));
 $ap = $reg->getModule('ap');
-$assert("ap depends on accounting",
-    in_array('accounting', $ap['depends_on'] ?? [], true));
+$assert("ap depends on placements",
+    in_array('placements', $ap['depends_on'] ?? [], true));
+$assert("ap depends on time",
+    in_array('time', $ap['depends_on'] ?? [], true));
+$assert("ap does NOT depend on accounting yet (Accounting v1.0 pending; GL posting stubbed)",
+    !in_array('accounting', $ap['depends_on'] ?? [], true));
 $payroll = $reg->getModule('payroll');
 $assert("payroll depends on accounting",
     in_array('accounting', $payroll['depends_on'] ?? [], true));

@@ -10,6 +10,7 @@ import PeopleModule from '../../modules/people/ui/PeopleModule';
 import PlacementsModule from '../../modules/placements/ui/PlacementsModule';
 import TimeModule from '../../modules/time/ui/TimeModule';
 import BillingModule from '../../modules/billing/ui/BillingModule';
+import APModule from '../../modules/ap/ui/APModule';
 import PayrollModule from '../../modules/payroll/ui/PayrollModule';
 import AccountingModule from './modules/AccountingModule';
 import FinanceModule from './modules/FinanceModule';
@@ -265,9 +266,10 @@ const AppContent = ({ session, usingDemo }) => {
           <Route path="/modules/placements/*" element={<PlacementsModule session={session} />} />
           <Route path="/modules/time/*"       element={<TimeModule       session={session} />} />
           <Route path="/modules/billing/*"    element={<BillingModule    session={session} />} />
+          <Route path="/modules/ap/*"         element={<APModule         session={session} />} />
           {/* Payroll route unwired pending spec'd implementation (HARD_RULES R1: files kept, route disabled). */}
           {/* <Route path="/modules/payroll/*" element={<PayrollModule session={session} />} /> */}
-          {/* All other modules (billing, ap, accounting) fall through to GenericModule
+          {/* All other modules (accounting) fall through to GenericModule
               "Coming soon" panel until Phase 4 module implementation ships. */}
           <Route path="/modules/:moduleId/*" element={<GenericModule session={session} activeModule={activeModule} />} />
         </Routes>
