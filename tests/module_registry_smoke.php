@@ -78,8 +78,10 @@ $time = $reg->getModule('time');
 $assert("time depends on placements",
     in_array('placements', $time['depends_on'] ?? [], true));
 $billing = $reg->getModule('billing');
-$assert("billing depends on accounting",
-    in_array('accounting', $billing['depends_on'] ?? [], true));
+$assert("billing depends on time",
+    in_array('time', $billing['depends_on'] ?? [], true));
+$assert("billing depends on placements",
+    in_array('placements', $billing['depends_on'] ?? [], true));
 $ap = $reg->getModule('ap');
 $assert("ap depends on accounting",
     in_array('accounting', $ap['depends_on'] ?? [], true));

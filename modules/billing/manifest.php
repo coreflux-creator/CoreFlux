@@ -78,5 +78,5 @@ return [
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
 
-    'depends_on' => ['placements', 'time', 'accounting'],
+    'depends_on' => ['placements', 'time'],
 ];

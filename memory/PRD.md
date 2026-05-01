@@ -107,6 +107,59 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   - Vite bundle rebuilt (302kB JS) and synced; `App.jsx` wires `/modules/placements/*`
   - `memory/PLACEMENTS_DEPLOY_NOTES.md` — deploy + 15-step smoke walk
 
+- [x] **Phase 8 — Billing module Phase A0: invoice the work end-to-end (2026-02-XX, this fork):**
+  - First subledger module shipped. Closes the Time → revenue loop:
+    closed period → AR bundles → draft invoice → approve (two-eye) →
+    send via Resend with tenant Reply-To → public customer-portal view
+    → record payment → allocate (FIFO or manual) → AR aging shrinks.
+  - **Schema** `modules/billing/migrations/001_init.sql` (idempotent,
+    `utf8mb4_unicode_ci`, `information_schema`-guarded ALTERs):
+    `billing_invoices`, `billing_invoice_lines`, `billing_payments`,
+    `billing_payment_allocations`, `billing_invoice_tokens` + 5 nullable
+    columns on `tenants` (`billing_tax_rate_pct`, `billing_invoice_prefix`,
+    `billing_next_invoice_seq`, `billing_invoice_terms`,
+    `billing_payment_instructions`).
+  - **Library** `modules/billing/lib/billing.php` — atomic invoice
+    numbering (FOR UPDATE on tenant row), `billingBuildDraftFromBundle`
+    with `per_placement` / `per_client` aggregation, tax math,
+    state-transition matrix per SPEC §9 (draft → approved → sent →
+    partially_paid → paid → void), token gen (sha256 hash compare),
+    payment allocation (manual + auto-FIFO, atomic, refuses
+    over-allocation), on-read aging buckets (current / 1-30 / 31-60 /
+    61-90 / 91+), audit emitter.
+  - **API** `modules/billing/api/{invoices,payments,aging}.php` — full
+    CRUD + state actions. Invoices: list/detail/create-manual/`from-time-bundle`
+    (marks bundles `consumed_by_module='billing'`)/PATCH-draft/approve
+    (two-eye: actor !== creator)/send (issues token + emails customer
+    via Resend with tenant Reply-To from Phase 6b)/void (releases
+    bundles back to `ready` if no payments allocated). Payments: list /
+    record (with optional auto-FIFO at create time) / `allocate`.
+    Aging: on-read computation.
+  - **Public viewer** `/billing/invoice.php?t=<token>` —
+    unauthenticated, `noindex,nofollow`, print-friendly CSS,
+    view-counter, paid/partial/void status banners.
+  - **React UI** `modules/billing/ui/*` (6 components):
+    `BillingModule` (router with sub-nav), `InvoicesList` (status filter
+    chips + paginated table), `InvoiceDetail` (5 summary boxes,
+    approve/send/void actions, token info, allocations table),
+    `InvoiceFromTimeBundleModal` (period select → live AR bundle preview
+    → aggregation toggle → bulk-create), `PaymentsList`
+    (record-payment + allocate-modal with manual + auto-FIFO),
+    `AgingTable` (5 buckets per client with overdue color-coding).
+  - Wired into `App.jsx` at `/modules/billing/*` matching other modules.
+  - **Manifest** depends_on tightened to `['placements','time']`
+    (accounting bolts on later when v1.0 ships).
+  - `tests/billing_spec_smoke.php` — 103 contract assertions ✓
+    (migration shape, library math, transition matrix, API parse + action
+    routing, manifest perms, UI wiring, public viewer security).
+  - All 14 platform smoke suites still green
+    (billing 103, time 85, time-tokens 53, tenant-mail 38, m365 46,
+    mail 38, people 104, placements 96, csv 24, rbac 27, module
+    registry 38, API router 19, payroll compute 16, storage 22).
+  - Vite bundle rebuilt (1721 modules, 386kB JS / 17.6kB CSS) and synced.
+  - `memory/BILLING_DEPLOY_NOTES.md` — Cloudways migration steps,
+    tenant config SQL, end-to-end smoke walk, rollback.
+
 - [x] **Phase 7 — Time Phase B Slice 2a: M365 mailbox connection (2026-02-XX, this fork):**
   - `Core\Mail\M365GraphDriver` — PHP cURL (no SDK) implementing
     `MailDriver`: delegated multi-tenant OAuth with PKCE S256,
@@ -457,6 +510,11 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   `Core\MailService` so the Time module can poll inboxes and AI-parse
   timesheets; tokenized client-approval email send + click-through verify
 - [ ] Payroll Phase 2: multi-state tax tables, garnishments, ACH/NACHA file generation, Form 941 worksheet, W-2 generation
+- [ ] **Billing Phase A1**: server-side PDF render (dompdf + S3),
+  credit/debit memos, tax jurisdictions matrix, AR aging snapshot table
+  + cron, GL posting endpoint (waits on Accounting v1.0)
+- [ ] **Billing Phase B**: recurring services, dunning automation,
+  statements of account, AI anomaly flags, Stripe / ACH acceptance
 - [ ] **Accounting v1.0** — enterprise GL per SPEC.md (multi-entity,
   allocations, intercompany, consolidation)
 - [ ] **Billing module** — implementation per SPEC.md (consumes Time
@@ -524,4 +582,4 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - The SPA falls back to demo mode when `session.php` is unreachable (see `App.jsx`).
 
 ---
-*Last Updated: 2026-02 — Phase 7 Time Phase B Slice 2a shipped: M365GraphDriver (PKCE OAuth, delta polling, no SDK), OAuth callback + tenant-scoped `/api/mail_connections.php`, folder picker + "Fetch now" UI. 46 new smoke tests ✓. Slice 2b (AI parsing via OpenAI) is next.*
+*Last Updated: 2026-02 — Phase 8 Billing module Phase A0 shipped: closes the Time → revenue loop with from-time-bundle invoicing, two-eye approval, public customer portal (HTML print-to-PDF), Resend-powered customer emails with tenant Reply-To, payments + auto-FIFO allocation, on-read AR aging. 103 new contract tests ✓. Phase A1 (server-side PDF, memos, GL posting) deferred.*

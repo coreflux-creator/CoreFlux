@@ -16,12 +16,16 @@ $action = $_GET['action'] ?? '';
 
 if ($method === 'GET') {
     RBAC::requirePermission($user, 'time.view');
-    $where  = ['tenant_id = :tenant_id', 'status = "ready"'];
+    $where  = ['tdf.tenant_id = :tenant_id', 'tdf.status = "ready"'];
     $params = [];
-    if (!empty($_GET['bundle_type'])) { $where[] = 'bundle_type = :bt'; $params['bt'] = $_GET['bundle_type']; }
-    if (!empty($_GET['period_id']))   { $where[] = 'period_id = :pid';  $params['pid'] = (int) $_GET['period_id']; }
+    if (!empty($_GET['bundle_type'])) { $where[] = 'tdf.bundle_type = :bt'; $params['bt'] = $_GET['bundle_type']; }
+    if (!empty($_GET['period_id']))   { $where[] = 'tdf.period_id = :pid';  $params['pid'] = (int) $_GET['period_id']; }
     $rows = scopedQuery(
-        'SELECT * FROM time_downstream_feed WHERE ' . implode(' AND ', $where) . ' ORDER BY created_at DESC LIMIT 500',
+        'SELECT tdf.*, p.title AS placement_title, p.end_client_name
+         FROM time_downstream_feed tdf
+         LEFT JOIN placements p ON p.id = tdf.placement_id AND p.tenant_id = tdf.tenant_id
+         WHERE ' . implode(' AND ', $where) . '
+         ORDER BY tdf.created_at DESC LIMIT 500',
         $params
     );
     api_ok(['rows' => $rows]);
