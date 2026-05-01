@@ -102,9 +102,32 @@ if ($method === 'POST') {
         'remote_policy'    => $body['remote_policy']    ?? null,
         'title'            => $body['title'],
         'end_client_name'  => $body['end_client_name']  ?? null,
+        'end_client_company_id' => !empty($body['end_client_company_id']) ? (int) $body['end_client_company_id'] : null,
+        'client_approver_name'  => $body['client_approver_name']  ?? null,
+        'client_approver_email' => $body['client_approver_email'] ?? null,
         'notes'            => $body['notes']            ?? null,
         'created_by_user_id' => $user['id'] ?? null,
     ];
+
+    // If a company_id is provided, prefer its canonical name and tag it 'client'.
+    // If only a free-text end_client_name is provided, upsert into companies for
+    // future picks. Either path leaves us with a clean FK + display string.
+    require_once __DIR__ . '/../../people/lib/companies.php';
+    if (!empty($insert['end_client_company_id'])) {
+        $co = companiesGet((int) $insert['end_client_company_id']);
+        if ($co) {
+            $insert['end_client_name'] = $co['name'];
+            companiesAddRole((int) $co['id'], 'client');
+            companiesBumpUsage((int) $co['id']);
+        }
+    } elseif (!empty($insert['end_client_name'])) {
+        $cid = companiesUpsertByName(currentTenantId(), (string) $insert['end_client_name'], [
+            'created_by_user_id' => $user['id'] ?? null,
+        ], ['client']);
+        $insert['end_client_company_id'] = $cid;
+        companiesBumpUsage($cid);
+    }
+
     $id = scopedInsert('placements', $insert);
 
     // Bump end-client typeahead

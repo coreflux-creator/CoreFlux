@@ -24,10 +24,30 @@ if ($method === 'POST') {
     $body = api_json_body();
     api_require_fields($body, ['referrer_type', 'fee_basis', 'start_date']);
 
+    // Vendor referrer? Resolve to canonical company_id (auto-create if needed).
+    require_once __DIR__ . '/../../people/lib/companies.php';
+    $companyId = !empty($body['referrer_company_id']) ? (int) $body['referrer_company_id'] : null;
+    $vendorName = $body['referrer_vendor_name'] ?? null;
+    if ($body['referrer_type'] === 'vendor') {
+        if ($companyId) {
+            $co = companiesGet($companyId);
+            if (!$co) api_error('referrer_company_id not found in this tenant', 422);
+            $vendorName = $co['name'];
+            companiesAddRole($companyId, 'referrer');
+            companiesBumpUsage($companyId);
+        } elseif ($vendorName) {
+            $companyId = companiesUpsertByName(currentTenantId(), (string) $vendorName, [
+                'created_by_user_id' => $user['id'] ?? null,
+            ], ['referrer']);
+            companiesBumpUsage($companyId);
+        }
+    }
+
     $id = scopedInsert('placement_referrals', [
         'placement_id'           => $pid,
         'referrer_type'          => $body['referrer_type'],
-        'referrer_vendor_name'   => $body['referrer_vendor_name'] ?? null,
+        'referrer_vendor_name'   => $vendorName,
+        'referrer_company_id'    => $companyId,
         'referrer_person_id'     => $body['referrer_person_id']   ?? null,
         'referrer_user_id'       => $body['referrer_user_id']     ?? null,
         'fee_pct'                => $body['fee_pct']  ?? null,
@@ -38,8 +58,8 @@ if ($method === 'POST') {
         'end_date'               => $body['end_date'] ?? null,
         'notes'                  => $body['notes']    ?? null,
     ]);
-    placementsAudit('placement.referral.added', ['placement_id' => $pid, 'referral_id' => $id], $pid);
-    api_ok(['id' => $id], 201);
+    placementsAudit('placement.referral.added', ['placement_id' => $pid, 'referral_id' => $id, 'company_id' => $companyId], $pid);
+    api_ok(['id' => $id, 'company_id' => $companyId], 201);
 }
 
 if ($method === 'PATCH') {

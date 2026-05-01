@@ -29,22 +29,48 @@ if ($method === 'POST') {
     $pid = (int) api_query('placement_id', 0);
     if ($pid <= 0) api_error('placement_id required', 400);
     $body = api_json_body();
-    api_require_fields($body, ['position', 'party_name', 'party_role']);
+    api_require_fields($body, ['position', 'party_role']);
     if (!in_array($body['party_role'], ['end_client','msp','prime_vendor','sub_vendor','direct'], true)) {
         api_error('Invalid party_role', 422);
     }
+    if (empty($body['party_name']) && empty($body['company_id'])) {
+        api_error('Either company_id (preferred) or party_name is required', 422);
+    }
+
+    // Resolve the company FK + display name in either direction.
+    require_once __DIR__ . '/../../people/lib/companies.php';
+    $companyId   = !empty($body['company_id']) ? (int) $body['company_id'] : null;
+    $partyName   = $body['party_name'] ?? null;
+    $roleForDir  = $body['party_role'] === 'end_client'
+                   ? 'client'
+                   : ($body['party_role'] === 'direct' ? 'client' : $body['party_role']);
+
+    if ($companyId) {
+        $co = companiesGet($companyId);
+        if (!$co) api_error('company_id not found in this tenant', 422);
+        $partyName = $co['name'];
+        companiesAddRole($companyId, $roleForDir);
+        companiesBumpUsage($companyId);
+    } else {
+        $companyId = companiesUpsertByName(currentTenantId(), (string) $partyName, [
+            'created_by_user_id' => $user['id'] ?? null,
+        ], [$roleForDir]);
+        companiesBumpUsage($companyId);
+    }
+
     $id = scopedInsert('placement_client_chain', [
         'placement_id'    => $pid,
         'position'        => (int) $body['position'],
-        'party_name'      => $body['party_name'],
+        'party_name'      => $partyName,
         'party_role'      => $body['party_role'],
+        'company_id'      => $companyId,
         'vendor_portal_id'=> $body['vendor_portal_id'] ?? null,
         'portal_fee_pct'  => $body['portal_fee_pct']   ?? null,
         'portal_fee_flat' => $body['portal_fee_flat']  ?? null,
         'contract_storage_object_id' => $body['contract_storage_object_id'] ?? null,
     ]);
-    placementsAudit('placement.chain.updated', ['placement_id' => $pid, 'op' => 'add', 'chain_id' => $id], $pid);
-    api_ok(['id' => $id], 201);
+    placementsAudit('placement.chain.updated', ['placement_id' => $pid, 'op' => 'add', 'chain_id' => $id, 'company_id' => $companyId], $pid);
+    api_ok(['id' => $id, 'company_id' => $companyId], 201);
 }
 
 if ($method === 'PATCH') {

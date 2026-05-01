@@ -23,6 +23,7 @@ function getModuleDefinitions(): array {
             'actions' => [
                 ['name' => 'Directory',       'route' => 'directory',     'permission' => 'people.view'],
                 ['name' => 'Hiring Pipeline', 'route' => 'pipeline',      'permission' => 'people.view'],
+                ['name' => 'Companies',       'route' => 'companies',     'permission' => 'people.view'],
                 ['name' => 'Document Vault',  'route' => 'documents',     'permission' => 'people.view'],
                 ['name' => 'Custom Fields',   'route' => 'custom_fields', 'permission' => 'people.manage'],
             ]

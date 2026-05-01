@@ -33,7 +33,7 @@ export default function PersonDetail({ session }) {
 
   return (
     <section className="person-detail" data-testid="person-detail">
-      <header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
           <button onClick={() => nav('..')} className="btn btn--ghost" data-testid="person-detail-back">← Directory</button>
           <h2 data-testid="person-detail-name" style={{ marginTop: '0.5rem' }}>
@@ -46,6 +46,13 @@ export default function PersonDetail({ session }) {
             {' · '}
             <span data-testid="person-detail-email">{person.email_primary}</span>
           </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <a
+            href={`/modules/placements/new?person_id=${person.id}`}
+            className="btn btn--primary"
+            data-testid="person-detail-new-placement"
+          >+ New placement</a>
         </div>
       </header>
 

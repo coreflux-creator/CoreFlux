@@ -117,7 +117,30 @@ if ($method === 'POST') {
         'created_by_user_id'   => $user['id']              ?? null,
     ];
 
+    // PII / address fields are gated by people.pii.manage on create just like PATCH.
+    $piiKeys = ['dob', 'ssn_last4', 'home_address_line1', 'home_address_line2',
+                'home_city', 'home_state', 'home_postal_code', 'home_country'];
+    $piiTouched = [];
+    foreach ($piiKeys as $k) {
+        if (array_key_exists($k, $body) && $body[$k] !== '' && $body[$k] !== null) {
+            $piiTouched[] = $k;
+            $insert[$k] = $body[$k];
+        }
+    }
+    if ($piiTouched) {
+        RBAC::requirePermission($user, 'people.pii.manage');
+    }
+    if (array_key_exists('referred_by_person_id', $body) && $body['referred_by_person_id']) {
+        $insert['referred_by_person_id'] = (int) $body['referred_by_person_id'];
+    }
+
     $id = scopedInsert('people', $insert);
+    if ($piiTouched) {
+        peopleLogPIIAccess(
+            (int) ($user['id'] ?? 0), $id, 'pii.set',
+            ['fields' => $piiTouched, 'on' => 'create']
+        );
+    }
     peopleAudit('people.created', ['id' => $id, 'classification' => $insert['classification']], $id);
     api_ok(['person' => peopleGet($id)], 201);
 }
