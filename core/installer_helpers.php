@@ -35,11 +35,16 @@ function spaBundleStatus(string $root): array {
         return $rows;
     }
 
+    // Pick the bundle by NEWEST mtime (matches spa.php's selection logic).
+    // Old alphabetical-last logic was the root cause of "deploys appear to
+    // do nothing" — Vite leaves stale content-hashed siblings behind, and
+    // alphabetical order was non-deterministic w.r.t. which was current.
     $jsFile = $cssFile = '';
-    $jsMTime = 0;
+    $jsMTime = $cssMTime = 0;
     foreach (scandir($assetsDir) as $f) {
-        if (preg_match('/^index-.*\.js$/',  $f)) { $jsFile  = $f; $jsMTime = filemtime("$assetsDir/$f"); }
-        if (preg_match('/^index-.*\.css$/', $f)) { $cssFile = $f; }
+        $path = "$assetsDir/$f";
+        if (preg_match('/^index-.*\.js$/',  $f) && filemtime($path) > $jsMTime)  { $jsFile  = $f; $jsMTime  = filemtime($path); }
+        if (preg_match('/^index-.*\.css$/', $f) && filemtime($path) > $cssMTime) { $cssFile = $f; $cssMTime = filemtime($path); }
     }
     if ($jsFile === '' || $cssFile === '') {
         $rows[] = ['check' => 'spa bundle', 'ok' => false, 'detail' => 'no index-*.js or index-*.css in /spa-assets/'];

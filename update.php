@@ -73,13 +73,43 @@ function runUpdate(): array {
     //     would flag a false positive even though they came from the SAME
     //     commit. `touch()`-ing spa-assets files AFTER migrations guarantees
     //     the bundle mtime is always >= any source file mtime at this point.
+    //
+    //     We ALSO prune stale bundle siblings: when Vite produces a new
+    //     content-hashed `index-XXX.js`, the OLD `index-YYY.js` from the
+    //     previous build keeps sitting there. Without pruning, spa.php
+    //     could still pick the wrong sibling, and we'd get the
+    //     "deploy looks like it did nothing" symptom even after the new
+    //     bundle was successfully pulled. The newest .js wins; older .js
+    //     siblings are deleted (same for .css).
     $assetsDir = $root . '/spa-assets';
+    $pruned = [];
     if (is_dir($assetsDir)) {
+        $jsList = $cssList = [];
         foreach (scandir($assetsDir) as $f) {
             if ($f === '.' || $f === '..') continue;
-            @touch($assetsDir . '/' . $f);
+            $path = $assetsDir . '/' . $f;
+            @touch($path);
+            if (preg_match('/^index-.*\.js$/',  $f)) $jsList[$f]  = filemtime($path);
+            if (preg_match('/^index-.*\.css$/', $f)) $cssList[$f] = filemtime($path);
         }
+        // Keep the single newest .js + .css; delete the rest.
+        $keepNewest = static function (array $list) use ($assetsDir, &$pruned): void {
+            if (count($list) <= 1) return;
+            arsort($list);                       // newest mtime first
+            $newest = array_key_first($list);
+            foreach ($list as $name => $m) {
+                if ($name === $newest) continue;
+                if (@unlink($assetsDir . '/' . $name)) $pruned[] = $name;
+            }
+        };
+        $keepNewest($jsList);
+        $keepNewest($cssList);
     }
+    $log['steps'][] = [
+        'name'   => 'prune stale spa-assets siblings',
+        'ok'     => true,
+        'detail' => $pruned ? ('removed: ' . implode(', ', $pruned)) : 'no stale bundle siblings found',
+    ];
 
     // 3. SPA bundle check — the React UI in /spa-assets/ is built ahead of time
     //    and committed via git. If it's missing or older than the latest source
