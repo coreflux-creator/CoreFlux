@@ -70,7 +70,7 @@ for reference + for the second redirect URI)
 Add under **Application Settings → Environment Variables**:
 
 ```
-MICROSOFT_CLIENT_ID=d5d81312-faf4-47ba-a001-d9a090415baa
+MICROSOFT_CLIENT_ID=ap-phase-a0
 MICROSOFT_CLIENT_SECRET=<paste the Value from Azure step 6>
 MICROSOFT_REDIRECT_URI=https://www.corefluxapp.com/oauth/callback/microsoft365.php
 ```
