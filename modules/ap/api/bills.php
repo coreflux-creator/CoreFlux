@@ -17,13 +17,92 @@
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/StorageService.php';
+require_once __DIR__ . '/../../../core/storage_register.php';
 require_once __DIR__ . '/../lib/ap.php';
+
+use Core\StorageService;
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
+
+if ($method === 'GET' && $action === 'upload_url') {
+    // Generate a presigned S3 POST for a bill or bill-line attachment.
+    //   ?id=N            → bill-level (vendor invoice PDF)
+    //   ?line_id=N       → per-line (e.g. expense receipt)
+    RBAC::requirePermission($user, 'ap.bill.create');
+    $billId = (int) ($_GET['id'] ?? 0);
+    $lineId = (int) ($_GET['line_id'] ?? 0);
+    if ($billId <= 0 && $lineId <= 0) api_error('id or line_id required', 400);
+    $fileName = (string) ($_GET['file_name'] ?? 'attachment');
+    $entityType = $lineId ? 'bill_line' : 'bill';
+    $entityId   = $lineId ?: $billId;
+    $key  = StorageService::getInstance()->build_key('ap', $tid, $entityType, $entityId, $fileName);
+    $post = StorageService::getInstance()->get_presigned_post($key);
+    api_ok(['storage_key' => $key, 'upload' => $post]);
+}
+
+if ($method === 'POST' && $action === 'attach') {
+    // Register an uploaded vendor invoice PDF on the bill header.
+    RBAC::requirePermission($user, 'ap.bill.create');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 400);
+    $row = scopedFind('SELECT id FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$row) api_error('Not found', 404);
+    $body = api_json_body();
+    api_require_fields($body, ['storage_key','filename']);
+    $sid = registerStorageObject(
+        $tid, 'ap', 'bill', $id,
+        (string) $body['storage_key'], (string) $body['filename'],
+        $body['mime'] ?? null, isset($body['size_bytes']) ? (int) $body['size_bytes'] : null,
+        $user['id'] ?? null
+    );
+    getDB()->prepare('UPDATE ap_bills SET attachment_storage_object_id = :s WHERE id = :id')
+        ->execute(['s' => $sid, 'id' => $id]);
+    apAudit('ap.bill.attachment.added', ['bill_id' => $id, 'storage_object_id' => $sid, 'filename' => $body['filename']], $id);
+    api_ok(['ok' => true, 'storage_object_id' => $sid]);
+}
+
+if ($method === 'POST' && $action === 'attach_line') {
+    // Attach a receipt to a single ap_bill_lines row (expense / reimbursement / materials).
+    RBAC::requirePermission($user, 'ap.bill.create');
+    $lineId = (int) ($_GET['line_id'] ?? 0);
+    if ($lineId <= 0) api_error('line_id required', 400);
+    $line = getDB()->prepare(
+        'SELECT bl.id, bl.bill_id, b.tenant_id
+         FROM ap_bill_lines bl JOIN ap_bills b ON b.id = bl.bill_id
+         WHERE bl.id = :id AND b.tenant_id = :tid'
+    );
+    $line->execute(['id' => $lineId, 'tid' => $tid]);
+    $r = $line->fetch(\PDO::FETCH_ASSOC);
+    if (!$r) api_error('Not found', 404);
+    $body = api_json_body();
+    api_require_fields($body, ['storage_key','filename']);
+    $sid = registerStorageObject(
+        $tid, 'ap', 'bill_line', $lineId,
+        (string) $body['storage_key'], (string) $body['filename'],
+        $body['mime'] ?? null, isset($body['size_bytes']) ? (int) $body['size_bytes'] : null,
+        $user['id'] ?? null
+    );
+    getDB()->prepare('UPDATE ap_bill_lines SET attachment_storage_object_id = :s WHERE id = :id')
+        ->execute(['s' => $sid, 'id' => $lineId]);
+    apAudit('ap.bill.line.attachment.added', ['bill_id' => (int) $r['bill_id'], 'line_id' => $lineId, 'storage_object_id' => $sid], (int) $r['bill_id']);
+    api_ok(['ok' => true, 'storage_object_id' => $sid]);
+}
+
+if ($method === 'GET' && $action === 'attachment_url') {
+    // Sign + return a download URL for the bill or bill-line attachment.
+    RBAC::requirePermission($user, 'ap.view');
+    $sid = (int) ($_GET['storage_object_id'] ?? 0);
+    if ($sid <= 0) api_error('storage_object_id required', 400);
+    $obj = scopedFind('SELECT s3_key, filename FROM storage_objects WHERE id = :id AND tenant_id = :tenant_id', ['id' => $sid]);
+    if (!$obj) api_error('Not found', 404);
+    $url = StorageService::getInstance()->get_signed_url($obj['s3_key']);
+    api_ok(['signed_url' => $url, 'filename' => $obj['filename']]);
+}
 
 if ($method === 'GET' && !empty($_GET['id'])) {
     RBAC::requirePermission($user, 'ap.view');

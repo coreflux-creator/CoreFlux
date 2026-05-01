@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import LineItemEditor, { blankLine } from '../../../dashboard/src/components/LineItemEditor';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
+import VendorQuickCreate from './VendorQuickCreate';
 
 /**
  * Manual AP bill creator — supports any item_type (labor, expense, materials,
@@ -16,6 +18,8 @@ export default function BillCreate() {
   const expenseAccounts = accountsApi.data?.rows ?? [];
 
   const [vendor, setVendor]       = useState(null);
+  const [showCreateVendor, setShowCreateVendor] = useState(false);
+  const [pendingVendorName, setPendingVendorName] = useState('');
   const [vendorType, setVendorType] = useState('w9_business');
   const [billNumber, setBillNumber] = useState('');
   const [billDate, setBillDate]   = useState(new Date().toISOString().slice(0, 10));
@@ -27,6 +31,20 @@ export default function BillCreate() {
 
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
+
+  // Vendor invoice PDF — staged here, attached after the bill is created.
+  const [pendingFile, setPendingFile]       = useState(null);
+  const [pendingFileError, setPendingFileError] = useState(null);
+
+  const stageFile = (file) => {
+    setPendingFileError(null);
+    if (!file) { setPendingFile(null); return; }
+    if (file.size > 25 * 1024 * 1024) {
+      setPendingFileError(new Error('File exceeds 25 MB. Compress or split before uploading.'));
+      return;
+    }
+    setPendingFile(file);
+  };
 
   const subtotal = lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
   const taxTotal = subtotal * ((Number(taxPct) || 0) / 100);
@@ -60,6 +78,24 @@ export default function BillCreate() {
       };
       if (payload.lines.length === 0) throw new Error('Add at least one line item');
       const res = await api.post('/modules/ap/api/bills.php', payload);
+
+      // If the user staged a vendor-invoice PDF, upload it and attach it
+      // to the freshly-created bill. We do this AFTER the bill exists so
+      // failed S3 uploads don't block bill creation.
+      if (pendingFile) {
+        try {
+          const uploaded = await uploadFileViaPresignedPost(
+            `/modules/ap/api/bills.php?action=upload_url&id=${res.id}&file_name=${encodeURIComponent(pendingFile.name)}`,
+            pendingFile
+          );
+          await api.post(`/modules/ap/api/bills.php?action=attach&id=${res.id}`, uploaded);
+        } catch (uploadErr) {
+          // Bill is still saved — surface a soft warning by routing with
+          // an error param. The detail page can read it and show a banner.
+          nav(`../bills/${res.id}?attach_error=${encodeURIComponent(uploadErr.message)}`);
+          return;
+        }
+      }
       nav(`../bills/${res.id}`);
     } catch (e2) { setErr(e2); }
     finally     { setBusy(false); }
@@ -84,8 +120,9 @@ export default function BillCreate() {
               role="vendor"
               value={vendor}
               onChange={setVendor}
+              onCreate={(typedName) => { setPendingVendorName(typedName); setShowCreateVendor(true); }}
               testId="ap-bill-create-vendor"
-              placeholder="Search vendors…"
+              placeholder="Search vendors or type a new name…"
             />
           </Field>
           <Field label="Vendor type">
@@ -115,6 +152,15 @@ export default function BillCreate() {
             <input type="number" step="0.001" className="input" value={taxPct} onChange={(e) => setTaxPct(e.target.value)} data-testid="ap-bill-create-tax" />
           </Field>
         </div>
+
+        <Field label="Vendor invoice PDF (optional)">
+          <FileDropZone
+            file={pendingFile}
+            onFile={stageFile}
+            error={pendingFileError}
+            testIdPrefix="ap-bill-create-attachment"
+          />
+        </Field>
 
         <h3 style={{ margin: '16px 0 8px' }}>Line items</h3>
         <LineItemEditor
@@ -148,7 +194,58 @@ export default function BillCreate() {
           </button>
         </div>
       </form>
+
+      {showCreateVendor && (
+        <VendorQuickCreate
+          initialName={pendingVendorName}
+          onCancel={() => setShowCreateVendor(false)}
+          onCreated={(v) => { setVendor({ id: v.company_id || v.id, name: v.name }); setShowCreateVendor(false); }}
+        />
+      )}
     </section>
+  );
+}
+
+function FileDropZone({ file, onFile, error, testIdPrefix }) {
+  const [drag, setDrag] = useState(false);
+  return (
+    <div
+      data-testid={testIdPrefix}
+      onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+      onDragLeave={() => setDrag(false)}
+      onDrop={(e) => {
+        e.preventDefault(); setDrag(false);
+        const f = e.dataTransfer.files?.[0];
+        if (f) onFile(f);
+      }}
+      style={{
+        padding: 12, border: `2px dashed ${drag ? '#2563eb' : '#d1d5db'}`,
+        borderRadius: 6, background: drag ? '#eff6ff' : '#f9fafb',
+        display: 'flex', alignItems: 'center', gap: 10, transition: 'border-color 120ms',
+      }}
+    >
+      {file ? (
+        <>
+          <span style={{ flex: 1, fontSize: 14 }} data-testid={`${testIdPrefix}-filename`}>📎 {file.name} <span style={{ color: '#888' }}>({Math.round(file.size / 1024)} KB)</span></span>
+          <button type="button" className="btn btn--ghost" onClick={() => onFile(null)} data-testid={`${testIdPrefix}-clear`}>Remove</button>
+        </>
+      ) : (
+        <>
+          <span style={{ flex: 1, fontSize: 13, color: '#6b7280' }}>Drop a PDF here, or</span>
+          <label className="btn btn--ghost" style={{ cursor: 'pointer' }} data-testid={`${testIdPrefix}-pick-label`}>
+            Pick file
+            <input
+              type="file"
+              accept="application/pdf,image/*"
+              onChange={(e) => onFile(e.target.files?.[0] || null)}
+              data-testid={`${testIdPrefix}-input`}
+              style={{ display: 'none' }}
+            />
+          </label>
+        </>
+      )}
+      {error && <span style={{ color: '#991b1b', fontSize: 12 }} data-testid={`${testIdPrefix}-error`}>{error.message}</span>}
+    </div>
   );
 }
 

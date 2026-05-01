@@ -48,10 +48,12 @@ if ($method === 'GET') {
         $params['q'] = '%' . str_replace(['%','_'], ['\\%','\\_'], $_GET['q']) . '%';
     }
     if (!empty($_GET['type'])) { $where[] = 'v.vendor_type = :vt'; $params['vt'] = $_GET['type']; }
+    if (!empty($_GET['category'])) { $where[] = 'v.vendor_category = :cat'; $params['cat'] = $_GET['category']; }
     if (!empty($_GET['company_id'])) { $where[] = 'v.company_id = :cid'; $params['cid'] = (int) $_GET['company_id']; }
     $rows = scopedQuery(
         'SELECT v.id, v.vendor_name, v.company_id, c.name AS company_name,
-                v.vendor_type, v.tax_id_last4, v.requires_1099, v.default_terms, v.last_bill_at
+                v.vendor_type, v.vendor_category, v.payment_method, v.remit_to_email,
+                v.tax_id_last4, v.payment_account_last4, v.requires_1099, v.default_terms, v.last_bill_at
          FROM ap_vendors_index v
          LEFT JOIN companies c ON c.id = v.company_id AND c.tenant_id = v.tenant_id AND c.deleted_at IS NULL
          WHERE ' . implode(' AND ', $where) . ' ORDER BY v.vendor_name ASC LIMIT 200',
@@ -70,6 +72,24 @@ if ($method === 'POST') {
     $kms  = $taxIdFull ? 'v1' : null;
     $vendorType = (string) ($body['vendor_type'] ?? 'other');
 
+    // Vendor category — explicit user choice. hourly_labor MUST be backed
+    // by a fully-onboarded person/placement; service_provider only needs
+    // basics + payment details.
+    $allowedCats = ['hourly_labor','service_provider'];
+    $vendorCat = (string) ($body['vendor_category']
+        ?? (in_array($vendorType, ['1099_individual','c2c_corp'], true) ? 'hourly_labor' : 'service_provider'));
+    if (!in_array($vendorCat, $allowedCats, true)) api_error('Invalid vendor_category', 422, ['allowed' => $allowedCats]);
+
+    // Optional payment details (encrypt account number if supplied in full).
+    $paymentMethod = $body['payment_method'] ?? null;
+    if ($paymentMethod !== null && !in_array($paymentMethod, ['ach','wire','check','card','cash','plaid','other'], true)) {
+        api_error('Invalid payment_method', 422);
+    }
+    $payAcctFull = isset($body['payment_account_full']) ? (string) $body['payment_account_full'] : null;
+    $payAcctCt    = $payAcctFull ? encryptField($payAcctFull)        : null;
+    $payAcctLast4 = $payAcctFull ? last4($payAcctFull)               : ($body['payment_account_last4'] ?? null);
+    $payKms       = $payAcctFull ? 'v1'                              : null;
+
     // Resolve or auto-create the unified companies.id for non-individual vendors.
     // 1099 individuals stay as people-side records — no company row is created.
     $companyId = !empty($body['company_id']) ? (int) $body['company_id'] : null;
@@ -84,27 +104,47 @@ if ($method === 'POST') {
     $pdo = getDB();
     $pdo->prepare(
         'INSERT INTO ap_vendors_index
-           (tenant_id, vendor_name, company_id, vendor_type, default_terms, tax_id_last4, tax_id_full_ct, kms_key_version, requires_1099)
+           (tenant_id, vendor_name, company_id, vendor_type, vendor_category,
+            payment_method, remit_to_email, remit_to_phone,
+            payment_account_last4, payment_account_ct, kms_key_version_payment,
+            default_terms, tax_id_last4, tax_id_full_ct, kms_key_version, requires_1099)
          VALUES
-           (:t, :v, :cid, :vt, :terms, :last4, :ct, :kms, :r)
+           (:t, :v, :cid, :vt, :cat,
+            :pm, :rmail, :rphone,
+            :pal4, :pact, :pkms,
+            :terms, :last4, :ct, :kms, :r)
          ON DUPLICATE KEY UPDATE
-           company_id     = COALESCE(VALUES(company_id), company_id),
-           vendor_type    = VALUES(vendor_type),
-           default_terms  = VALUES(default_terms),
-           tax_id_last4   = COALESCE(VALUES(tax_id_last4), tax_id_last4),
-           tax_id_full_ct = COALESCE(VALUES(tax_id_full_ct), tax_id_full_ct),
-           kms_key_version= COALESCE(VALUES(kms_key_version), kms_key_version),
-           requires_1099  = VALUES(requires_1099)'
+           company_id              = COALESCE(VALUES(company_id), company_id),
+           vendor_type             = VALUES(vendor_type),
+           vendor_category         = VALUES(vendor_category),
+           payment_method          = COALESCE(VALUES(payment_method), payment_method),
+           remit_to_email          = COALESCE(VALUES(remit_to_email), remit_to_email),
+           remit_to_phone          = COALESCE(VALUES(remit_to_phone), remit_to_phone),
+           payment_account_last4   = COALESCE(VALUES(payment_account_last4), payment_account_last4),
+           payment_account_ct      = COALESCE(VALUES(payment_account_ct), payment_account_ct),
+           kms_key_version_payment = COALESCE(VALUES(kms_key_version_payment), kms_key_version_payment),
+           default_terms           = VALUES(default_terms),
+           tax_id_last4            = COALESCE(VALUES(tax_id_last4), tax_id_last4),
+           tax_id_full_ct          = COALESCE(VALUES(tax_id_full_ct), tax_id_full_ct),
+           kms_key_version         = COALESCE(VALUES(kms_key_version), kms_key_version),
+           requires_1099           = VALUES(requires_1099)'
     )->execute([
-        't'     => $tid,
-        'v'     => (string) $body['vendor_name'],
-        'cid'   => $companyId,
-        'vt'    => $vendorType,
-        'terms' => (string) ($body['default_terms'] ?? 'NET30'),
-        'last4' => $last4,
-        'ct'    => $ct,
-        'kms'   => $kms,
-        'r'     => !empty($body['requires_1099']) ? 1 : 0,
+        't'      => $tid,
+        'v'      => (string) $body['vendor_name'],
+        'cid'    => $companyId,
+        'vt'     => $vendorType,
+        'cat'    => $vendorCat,
+        'pm'     => $paymentMethod,
+        'rmail'  => $body['remit_to_email'] ?? null,
+        'rphone' => $body['remit_to_phone'] ?? null,
+        'pal4'   => $payAcctLast4,
+        'pact'   => $payAcctCt,
+        'pkms'   => $payKms,
+        'terms'  => (string) ($body['default_terms'] ?? 'NET30'),
+        'last4'  => $last4,
+        'ct'     => $ct,
+        'kms'    => $kms,
+        'r'      => !empty($body['requires_1099']) ? 1 : 0,
     ]);
     $id = (int) $pdo->lastInsertId();
     if ($id === 0) {

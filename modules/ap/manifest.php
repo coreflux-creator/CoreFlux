@@ -56,6 +56,8 @@ return [
         'ap.bill.voided',
         'ap.bill.disputed',
         'ap.bill.paid',
+        'ap.bill.attachment.added',
+        'ap.bill.line.attachment.added',
         'ap.intake.received',
         'ap.intake.parsed',
         'ap.intake.converted',
