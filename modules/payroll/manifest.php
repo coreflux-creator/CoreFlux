@@ -62,6 +62,8 @@ return [
         'payroll.run.posted',
         'payroll.run.reversed',
         'payroll.run.voided',
+        'payroll.run.exported_gusto',
+        'payroll.run.exported_csv',
         'payroll.deduction.created',
         'payroll.deduction.updated',
         'payroll.deduction.deactivated',

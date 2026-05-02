@@ -113,6 +113,27 @@ export default function PayrollRunDetail() {
 
       {error && <p className="error">{error}</p>}
 
+      {run.status !== 'draft' && (
+        <div className="payroll-run-detail__exports" style={{ display: 'flex', gap: 8, margin: '8px 0' }}>
+          <a
+            className="btn btn--ghost"
+            href={`/modules/payroll/api/runs.php?action=export_run&id=${run.id}`}
+            data-testid="payroll-run-export-csv"
+            download
+          >
+            Download audit CSV
+          </a>
+          <a
+            className="btn btn--ghost"
+            href={`/modules/payroll/api/runs.php?action=export_gusto&id=${run.id}`}
+            data-testid="payroll-run-export-gusto"
+            download
+          >
+            Download Gusto-import CSV
+          </a>
+        </div>
+      )}
+
       <div className="payroll-stats" data-testid="payroll-run-totals">
         <div className="stat-card">
           <div className="stat-card__value">{run.employee_count}</div>

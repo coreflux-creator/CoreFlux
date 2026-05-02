@@ -19,6 +19,101 @@ require_once __DIR__ . '/../lib/compute.php';
 
 $ctx = api_require_auth();
 
+// --------------------------------------------------------------------
+// CSV exports — short-circuit before regular GET handler.
+//   ?action=export_gusto&id=<run_id>   → Gusto "Run regular payroll" hours-import CSV
+//   ?action=export_run&id=<run_id>     → Full pre-calculated audit dump (every line item)
+// Streams text/csv with Content-Disposition: attachment.
+// Audit-logged via payrollAudit().
+// --------------------------------------------------------------------
+if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', 'export_run'], true)) {
+    $runId  = (int) ($_GET['id'] ?? 0);
+    $action = (string) $_GET['action'];
+    if ($runId <= 0) api_error('id required', 400);
+
+    $detail = _payrollRunDetail($runId);
+    if (!$detail['run']) api_error('Run not found', 404);
+    $run   = $detail['run'];
+    $lines = $detail['lines'];
+
+    if (!headers_sent()) {
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Cache-Control: no-store');
+    }
+    $fname = ($action === 'export_gusto' ? 'payroll-gusto-' : 'payroll-run-')
+           . $runId . '-' . ($run['pay_date'] ?? date('Ymd')) . '.csv';
+    header('Content-Disposition: attachment; filename="' . $fname . '"');
+
+    $out = fopen('php://output', 'w');
+
+    if ($action === 'export_gusto') {
+        // Gusto "Run regular payroll → Import hours from CSV" template.
+        // Hours-only — Gusto runs the actual gross-to-net.
+        $headers = [
+            'first_name', 'last_name', 'employee_id',
+            'regular_hours', 'overtime_hours', 'double_overtime_hours',
+            'holiday_hours', 'pto_hours', 'sick_hours',
+            'bonus', 'commission', 'reimbursement',
+        ];
+        fputcsv($out, $headers);
+        foreach ($lines as $l) {
+            $bonus = 0.0; $commission = 0.0; $reimbursement = 0.0;
+            foreach (($l['earnings'] ?? []) as $e) {
+                $cents = (int) ($e['amount_cents'] ?? 0);
+                $kind  = strtolower((string) ($e['kind'] ?? ''));
+                if (in_array($kind, ['bonus','spot_bonus','signing_bonus'], true))      $bonus         += $cents / 100;
+                elseif (in_array($kind, ['commission','referral'], true))                $commission    += $cents / 100;
+                elseif (in_array($kind, ['reimbursement','expense'], true))              $reimbursement += $cents / 100;
+            }
+            fputcsv($out, [
+                $l['legal_first_name'] ?? '',
+                $l['legal_last_name']  ?? '',
+                $l['employee_number']  ?? '',
+                number_format((float) ($l['hours_regular']  ?? 0), 2, '.', ''),
+                number_format((float) ($l['hours_overtime'] ?? 0), 2, '.', ''),
+                '0.00', '0.00', '0.00', '0.00',
+                number_format($bonus,         2, '.', ''),
+                number_format($commission,    2, '.', ''),
+                number_format($reimbursement, 2, '.', ''),
+            ]);
+        }
+    } else {
+        // Full pre-calc audit dump — every dollar we calculated, signed.
+        $headers = [
+            'run_id','pay_date','employee_number','legal_first_name','legal_last_name',
+            'work_state','pay_type','pay_rate','pay_frequency',
+            'hours_regular','hours_overtime',
+            'gross','pretax_deductions','taxable','employee_taxes','posttax_deductions','net',
+            'employer_taxes','payment_method','status',
+        ];
+        fputcsv($out, $headers);
+        $cents = static fn($c) => number_format(((int) $c) / 100, 2, '.', '');
+        foreach ($lines as $l) {
+            fputcsv($out, [
+                $runId, $run['pay_date'] ?? '',
+                $l['employee_number'] ?? '',
+                $l['legal_first_name'] ?? '', $l['legal_last_name'] ?? '',
+                $l['work_state'] ?? '', $l['pay_type'] ?? '',
+                $cents($l['pay_rate_cents'] ?? 0), $l['pay_frequency'] ?? '',
+                number_format((float) ($l['hours_regular']  ?? 0), 2, '.', ''),
+                number_format((float) ($l['hours_overtime'] ?? 0), 2, '.', ''),
+                $cents($l['gross_cents']          ?? 0),
+                $cents($l['pretax_cents']         ?? 0),
+                $cents($l['taxable_cents']        ?? 0),
+                $cents($l['employee_taxes_cents'] ?? 0),
+                $cents($l['posttax_cents']        ?? 0),
+                $cents($l['net_cents']            ?? 0),
+                $cents($l['employer_taxes_cents'] ?? 0),
+                $l['payment_method'] ?? '', $l['status'] ?? '',
+            ]);
+        }
+    }
+    fclose($out);
+    payrollAudit($action === 'export_gusto' ? 'payroll.run.exported_gusto' : 'payroll.run.exported_csv',
+        ['run_id' => $runId, 'rows' => count($lines)], $runId);
+    exit;
+}
+
 switch (api_method()) {
     case 'GET': {
         $id = (int) (api_query('id') ?? 0);

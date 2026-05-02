@@ -56,6 +56,98 @@ $prior = scopedFind(
     ['rid' => $runId]
 );
 
+// ----------------------------------------------------------------------
+// Anomaly flags — deterministic, computed in SQL, never invented by AI.
+// The model receives them in `context.anomalies` and can call them out.
+//   - new_hires:        in this run but not in prior run
+//   - terminations:     in prior run but not in this run
+//   - large_swings:     gross delta vs prior run > 25% per employee
+//   - missing_tax_setup: employees included with no active fed tax setup
+// ----------------------------------------------------------------------
+$anomalies = [
+    'new_hires'         => [],
+    'terminations'      => [],
+    'large_swings'      => [],
+    'missing_tax_setup' => [],
+];
+
+$thisLines = scopedQuery(
+    "SELECT li.employee_id, li.gross_cents,
+            e.legal_first_name, e.legal_last_name, e.employee_number
+     FROM payroll_line_items li
+     JOIN people_employees e ON e.id = li.employee_id AND e.tenant_id = li.tenant_id
+     WHERE li.tenant_id = :tenant_id AND li.run_id = :rid",
+    ['rid' => $runId]
+);
+$thisByEmp = [];
+foreach ($thisLines as $r) $thisByEmp[(int) $r['employee_id']] = $r;
+
+if ($prior) {
+    $priorLines = scopedQuery(
+        "SELECT li.employee_id, li.gross_cents
+         FROM payroll_line_items li
+         WHERE li.tenant_id = :tenant_id AND li.run_id = :rid",
+        ['rid' => (int) $prior['id']]
+    );
+    $priorByEmp = [];
+    foreach ($priorLines as $r) $priorByEmp[(int) $r['employee_id']] = (int) $r['gross_cents'];
+
+    foreach ($thisByEmp as $empId => $row) {
+        if (!isset($priorByEmp[$empId])) {
+            $anomalies['new_hires'][] = [
+                'employee_number' => $row['employee_number'],
+                'name'            => trim($row['legal_first_name'] . ' ' . $row['legal_last_name']),
+            ];
+            continue;
+        }
+        $was = $priorByEmp[$empId];
+        $now = (int) $row['gross_cents'];
+        if ($was > 0) {
+            $deltaPct = round((($now - $was) / $was) * 100, 1);
+            if (abs($deltaPct) >= 25.0) {
+                $anomalies['large_swings'][] = [
+                    'employee_number' => $row['employee_number'],
+                    'name'            => trim($row['legal_first_name'] . ' ' . $row['legal_last_name']),
+                    'delta_pct'       => $deltaPct,
+                    'direction'       => $deltaPct > 0 ? 'up' : 'down',
+                ];
+            }
+        }
+    }
+    foreach ($priorByEmp as $empId => $_g) {
+        if (!isset($thisByEmp[$empId])) {
+            $row = scopedFind(
+                'SELECT employee_number, legal_first_name, legal_last_name
+                 FROM people_employees WHERE tenant_id = :tenant_id AND id = :id',
+                ['id' => $empId]
+            );
+            if ($row) {
+                $anomalies['terminations'][] = [
+                    'employee_number' => $row['employee_number'],
+                    'name'            => trim($row['legal_first_name'] . ' ' . $row['legal_last_name']),
+                ];
+            }
+        }
+    }
+}
+
+// Missing federal tax setup detection (LEFT JOIN — employees in this run with no active row)
+$missing = scopedQuery(
+    "SELECT e.employee_number, e.legal_first_name, e.legal_last_name
+     FROM payroll_line_items li
+     JOIN people_employees e ON e.id = li.employee_id AND e.tenant_id = li.tenant_id
+     LEFT JOIN people_tax_federal tf
+            ON tf.tenant_id = e.tenant_id AND tf.employee_id = e.id AND tf.is_active = 1
+     WHERE li.tenant_id = :tenant_id AND li.run_id = :rid AND tf.id IS NULL",
+    ['rid' => $runId]
+);
+foreach ($missing as $r) {
+    $anomalies['missing_tax_setup'][] = [
+        'employee_number' => $r['employee_number'],
+        'name'            => trim($r['legal_first_name'] . ' ' . $r['legal_last_name']),
+    ];
+}
+
 $context = [
     'pay_period' => [
         'start'    => $run['period_start'],
@@ -81,6 +173,7 @@ $context = [
         'gross_dollars'   => round(((int)$prior['gross_total_cents']) / 100, 2),
         'net_dollars'     => round(((int)$prior['net_total_cents']) / 100, 2),
     ] : null,
+    'anomalies' => $anomalies,
 ];
 
 try {
@@ -91,10 +184,13 @@ try {
         'system'        => 'You narrate a payroll run for an HR/finance reader. Stay descriptive; do NOT '
                           .'restate dollar figures as raw numbers — say "headcount rose modestly" or "the '
                           .'largest department by spend was Engineering" rather than echoing values. The '
-                          .'numbers below are already shown to the human in a deterministic table.',
+                          .'numbers below are already shown to the human in a deterministic table. When '
+                          .'context.anomalies has entries, call them out by name (new hires, terminations, '
+                          .'large pay swings, missing tax setups) so the reviewer knows where to look.',
         'prompt'        => 'Write a 2-paragraph narrative summarizing this completed payroll run. '
                           .'Highlight notable distribution across departments and any meaningful '
-                          .'change vs the prior run if present. End with one suggestion of what a '
+                          .'change vs the prior run if present. Surface every anomaly in the '
+                          .'context.anomalies block by name. End with one suggestion of what a '
                           .'reviewer should double-check.',
         'context'       => $context,
     ]);

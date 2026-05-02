@@ -223,3 +223,30 @@ function payrollGetTenantSettings(): array {
         'futa_credit_rate_bps' => 540,
     ];
 }
+
+
+/**
+ * Append-only audit log writer for payroll events.
+ * Mirrors apAudit() / billingAudit() — never throws.
+ */
+function payrollAudit(string $event, array $meta = [], ?int $targetId = null): void
+{
+    try {
+        $ctx  = function_exists('currentTenantContext') ? currentTenantContext() : null;
+        $pdo  = getDB();
+        if (!$pdo) return;
+        $pdo->prepare(
+            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
+             VALUES (:tenant_id, :actor, :event, :target_id, :meta_json, :ip, NOW())'
+        )->execute([
+            'tenant_id' => $ctx['tenant_id'] ?? null,
+            'actor'     => $ctx['user']['id'] ?? null,
+            'event'     => $event,
+            'target_id' => $targetId,
+            'meta_json' => json_encode($meta),
+            'ip'        => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+    } catch (\Throwable $e) {
+        error_log('[payroll.audit] ' . $event . ' write-failed: ' . $e->getMessage());
+    }
+}
