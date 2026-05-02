@@ -89,5 +89,60 @@ $a('export hrefs use action=export_run',       strpos($rd, 'action=export_run') 
 $a('export hrefs use action=export_gusto',     strpos($rd, 'action=export_gusto') !== false);
 $a('exports hidden until compute finished',    strpos($rd, "run.status !== 'draft'") !== false);
 
+echo "\nPayroll runs.php — Gusto sync API\n";
+$a('mark_gusto_synced action',                 strpos($runs, "action === 'mark_gusto_synced'") !== false);
+$a('mark_gusto_synced requires gusto_run_id',  strpos($runs, "['gusto_run_id']") !== false);
+$a('mark_gusto_synced rejects non-http URL',   strpos($runs, "preg_match('#^https?://#i'") !== false);
+$a('mark_gusto_synced sets status submitted',  strpos($runs, "'gusto_status'      => 'submitted'") !== false);
+$a('mark_gusto_synced audits',                 strpos($runs, 'payroll.run.gusto_synced') !== false);
+$a('mark_gusto_paid action',                   strpos($runs, "action === 'mark_gusto_paid'") !== false);
+$a('mark_gusto_paid requires linked run',      strpos($runs, "Run is not linked to Gusto', 409") !== false);
+$a('mark_gusto_paid sets status=paid',         strpos($runs, "'gusto_status' => 'paid'") !== false);
+$a('mark_gusto_paid mirrors local status to paid', strpos($runs, "if (\$run['status'] !== 'paid')") !== false);
+$a('mark_gusto_paid audits',                   strpos($runs, 'payroll.run.gusto_marked_paid') !== false);
+$a('unlink_gusto action',                      strpos($runs, "action === 'unlink_gusto'") !== false);
+$a('unlink_gusto clears all gusto fields',
+    strpos($runs, "'gusto_run_id'      => null") !== false &&
+    strpos($runs, "'gusto_payroll_url' => null") !== false &&
+    strpos($runs, "'gusto_status'      => null") !== false);
+$a('unlink_gusto audits',                      strpos($runs, 'payroll.run.gusto_unlinked') !== false);
+
+echo "\nPayroll lib — Gusto-managed helper\n";
+$a('payrollRunIsGustoManaged declared',        strpos($lib, 'function payrollRunIsGustoManaged') !== false);
+
+echo "\nPayroll migration 002_gusto_sync.sql\n";
+$mig = __DIR__ . '/../modules/payroll/migrations/002_gusto_sync.sql';
+$a('migration file exists', file_exists($mig));
+$migC = (string) file_get_contents($mig);
+$a('adds gusto_run_id column',                 strpos($migC, 'ADD COLUMN gusto_run_id') !== false);
+$a('adds gusto_payroll_url column',            strpos($migC, 'ADD COLUMN gusto_payroll_url') !== false);
+$a('adds gusto_status enum',                   strpos($migC, "ENUM('linked','submitted','paid','voided')") !== false);
+$a('adds gusto_synced_at + gusto_synced_by',
+    strpos($migC, 'ADD COLUMN gusto_synced_at') !== false &&
+    strpos($migC, 'ADD COLUMN gusto_synced_by') !== false);
+$a('adds gusto_paid_at column',                strpos($migC, 'ADD COLUMN gusto_paid_at') !== false);
+$a('adds tenant + gusto_run_id index',         strpos($migC, 'idx_run_tenant_gusto') !== false);
+
+echo "\nPayroll manifest — Gusto-sync audit events\n";
+$a("declares 'payroll.run.gusto_synced'",       strpos($man, "'payroll.run.gusto_synced'") !== false);
+$a("declares 'payroll.run.gusto_marked_paid'",  strpos($man, "'payroll.run.gusto_marked_paid'") !== false);
+$a("declares 'payroll.run.gusto_unlinked'",     strpos($man, "'payroll.run.gusto_unlinked'") !== false);
+
+echo "\nPayrollRunDetail.jsx — Gusto sync panel\n";
+$a('GustoSyncPanel component',                 strpos($rd, 'function GustoSyncPanel') !== false);
+$a('panel testid',                             strpos($rd, 'payroll-run-gusto-panel') !== false);
+$a('Gusto run ID input',                       strpos($rd, 'payroll-run-gusto-id-input') !== false);
+$a('Gusto URL input',                          strpos($rd, 'payroll-run-gusto-url-input') !== false);
+$a('Mark synced button',                       strpos($rd, 'payroll-run-gusto-link-btn') !== false);
+$a('Mark paid button',                         strpos($rd, 'payroll-run-gusto-mark-paid-btn') !== false);
+$a('Unlink button',                            strpos($rd, 'payroll-run-gusto-unlink-btn') !== false);
+$a('status pill submitted',                    strpos($rd, 'payroll-run-gusto-status-submitted') !== false);
+$a('status pill paid',                         strpos($rd, 'payroll-run-gusto-status-paid') !== false);
+$a('Mark paid action sent',                    strpos($rd, "post('mark_gusto_paid')") !== false);
+$a('Unlink action sent',                       strpos($rd, "post('unlink_gusto')") !== false);
+$a('Mark synced action sent',                  strpos($rd, "post('mark_gusto_synced'") !== false);
+$a('confirms Mark paid suppresses duplicate post',
+    strpos($rd, 'skip the duplicate cash-leg GL post') !== false);
+
 echo PHP_EOL . "Total: $pass passed, $fail failed" . PHP_EOL;
 exit($fail === 0 ? 0 : 1);

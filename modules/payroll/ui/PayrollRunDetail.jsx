@@ -114,24 +114,7 @@ export default function PayrollRunDetail() {
       {error && <p className="error">{error}</p>}
 
       {run.status !== 'draft' && (
-        <div className="payroll-run-detail__exports" style={{ display: 'flex', gap: 8, margin: '8px 0' }}>
-          <a
-            className="btn btn--ghost"
-            href={`/modules/payroll/api/runs.php?action=export_run&id=${run.id}`}
-            data-testid="payroll-run-export-csv"
-            download
-          >
-            Download audit CSV
-          </a>
-          <a
-            className="btn btn--ghost"
-            href={`/modules/payroll/api/runs.php?action=export_gusto&id=${run.id}`}
-            data-testid="payroll-run-export-gusto"
-            download
-          >
-            Download Gusto-import CSV
-          </a>
-        </div>
+        <GustoSyncPanel run={run} reload={load} runId={parseInt(runId, 10)} />
       )}
 
       <div className="payroll-stats" data-testid="payroll-run-totals">
@@ -228,6 +211,172 @@ export default function PayrollRunDetail() {
           </tbody>
         </table>
       )}
+    </section>
+  );
+}
+
+
+/**
+ * Gusto sync polish — three states:
+ *   1. Not yet synced       → download CSV + "Mark synced to Gusto" form
+ *   2. Synced (submitted)   → show Gusto run ID + URL, "Mark paid in Gusto" button, Unlink
+ *   3. Paid in Gusto        → show paid badge + Unlink (rare, e.g. wrong ID pasted)
+ * The "Mark paid in Gusto" button records that Gusto handled disbursement,
+ * which the future post-to-GL code reads to suppress duplicate cash-leg JEs.
+ */
+function GustoSyncPanel({ run, reload, runId }) {
+  const [busy, setBusy] = React.useState(null);
+  const [err, setErr]   = React.useState(null);
+  const [gid, setGid]   = React.useState('');
+  const [url, setUrl]   = React.useState('');
+
+  const post = async (action, body = {}) => {
+    setBusy(action); setErr(null);
+    try {
+      const res = await api.post('/modules/payroll/api/runs.php', { run_id: runId, action, ...body });
+      await reload();
+      return res;
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally { setBusy(null); }
+  };
+
+  const linked = !!run.gusto_run_id;
+  const paid   = run.gusto_status === 'paid';
+
+  return (
+    <section
+      className="payroll-run-detail__gusto"
+      data-testid="payroll-run-gusto-panel"
+      style={{
+        margin: '12px 0', padding: 12, border: '1px solid var(--cf-border, #e5e7eb)',
+        borderRadius: 8, background: '#fafbff',
+      }}
+    >
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 14 }}>Gusto sync</h3>
+        {linked && (
+          <span
+            data-testid={paid ? 'payroll-run-gusto-status-paid' : 'payroll-run-gusto-status-submitted'}
+            style={{
+              padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
+              background: paid ? '#d1fae5' : '#dbeafe',
+              color:      paid ? '#065f46' : '#1e40af',
+            }}
+          >
+            {paid ? 'Paid in Gusto' : 'Submitted to Gusto'}
+          </span>
+        )}
+      </header>
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+        <a
+          className="btn btn--ghost"
+          href={`/modules/payroll/api/runs.php?action=export_run&id=${run.id}`}
+          data-testid="payroll-run-export-csv"
+          download
+        >Download audit CSV</a>
+        <a
+          className="btn btn--ghost"
+          href={`/modules/payroll/api/runs.php?action=export_gusto&id=${run.id}`}
+          data-testid="payroll-run-export-gusto"
+          download
+        >Download Gusto-import CSV</a>
+      </div>
+
+      {!linked && (
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 560 }}>
+          <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)', margin: 0 }}>
+            After uploading the CSV in Gusto, paste the Gusto payroll run ID here so CoreFlux
+            knows this run is being executed in Gusto. The audit trail stays inside CoreFlux —
+            no payroll data is ever sent off-platform automatically.
+          </p>
+          <label style={{ fontSize: 12 }}>
+            <span style={{ color: 'var(--cf-text-secondary)' }}>Gusto run ID</span>
+            <input
+              className="input"
+              value={gid}
+              onChange={(e) => setGid(e.target.value)}
+              data-testid="payroll-run-gusto-id-input"
+              style={{ display: 'block', marginTop: 4 }}
+              placeholder="e.g. 7c8a4d12-..."
+            />
+          </label>
+          <label style={{ fontSize: 12 }}>
+            <span style={{ color: 'var(--cf-text-secondary)' }}>Gusto payroll URL <em>(optional)</em></span>
+            <input
+              className="input"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              data-testid="payroll-run-gusto-url-input"
+              style={{ display: 'block', marginTop: 4 }}
+              placeholder="https://app.gusto.com/payrolls/..."
+            />
+          </label>
+          <button
+            className="btn btn--primary"
+            data-testid="payroll-run-gusto-link-btn"
+            disabled={!gid || busy === 'mark_gusto_synced'}
+            onClick={() => post('mark_gusto_synced', { gusto_run_id: gid.trim(), gusto_payroll_url: url.trim() || null })}
+            style={{ alignSelf: 'flex-start' }}
+          >
+            {busy === 'mark_gusto_synced' ? 'Linking…' : 'Mark synced to Gusto'}
+          </button>
+        </div>
+      )}
+
+      {linked && (
+        <div style={{ marginTop: 12, fontSize: 13, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div>
+            <strong>Gusto run ID:</strong>{' '}
+            <code data-testid="payroll-run-gusto-id">{run.gusto_run_id}</code>
+          </div>
+          {run.gusto_payroll_url && (
+            <div>
+              <a
+                href={run.gusto_payroll_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="payroll-run-gusto-link"
+              >Open in Gusto ↗</a>
+            </div>
+          )}
+          {run.gusto_synced_at && (
+            <div style={{ color: 'var(--cf-text-secondary)', fontSize: 11 }}>
+              Synced at {run.gusto_synced_at}
+              {run.gusto_paid_at ? ` · paid at ${run.gusto_paid_at}` : ''}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            {!paid && (
+              <button
+                className="btn btn--primary"
+                data-testid="payroll-run-gusto-mark-paid-btn"
+                disabled={busy === 'mark_gusto_paid'}
+                onClick={() => {
+                  if (window.confirm('Confirm Gusto reports this run as paid? CoreFlux will mark this run paid and skip the duplicate cash-leg GL post when the run posts to Accounting.')) {
+                    post('mark_gusto_paid');
+                  }
+                }}
+              >
+                {busy === 'mark_gusto_paid' ? 'Updating…' : 'Mark paid in Gusto'}
+              </button>
+            )}
+            <button
+              className="btn btn--ghost"
+              data-testid="payroll-run-gusto-unlink-btn"
+              disabled={busy === 'unlink_gusto'}
+              onClick={() => {
+                if (window.confirm('Unlink this run from Gusto? Use only if you pasted the wrong ID.')) {
+                  post('unlink_gusto');
+                }
+              }}
+            >Unlink</button>
+          </div>
+        </div>
+      )}
+
+      {err && <p className="error" data-testid="payroll-run-gusto-error" style={{ marginTop: 8 }}>{err}</p>}
     </section>
   );
 }

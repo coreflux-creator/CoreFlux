@@ -196,6 +196,75 @@ switch (api_method()) {
             api_ok(['ok' => true, 'status' => 'paid']);
         }
 
+        // ----------------------------------------------------------------
+        // Gusto sync polish — track the round-trip after CSV upload.
+        //   mark_gusto_synced { run_id, gusto_run_id, gusto_payroll_url? }
+        //   mark_gusto_paid   { run_id }   — Gusto reports the run as paid
+        //   unlink_gusto      { run_id }   — undo (e.g. wrong ID pasted)
+        // ----------------------------------------------------------------
+        if ($action === 'mark_gusto_synced') {
+            api_require_fields($body, ['gusto_run_id']);
+            $gid = trim((string) $body['gusto_run_id']);
+            if ($gid === '') api_error('gusto_run_id required', 422);
+            $url = isset($body['gusto_payroll_url']) ? trim((string) $body['gusto_payroll_url']) : null;
+            if ($url !== null && $url !== '' && !preg_match('#^https?://#i', $url)) {
+                api_error('gusto_payroll_url must be http(s)', 422);
+            }
+            scopedUpdate('payroll_runs', $runId, [
+                'gusto_run_id'      => $gid,
+                'gusto_payroll_url' => $url ?: null,
+                'gusto_status'      => 'submitted',
+                'gusto_synced_at'   => date('Y-m-d H:i:s'),
+                'gusto_synced_by'   => $ctx['user']['id'] ?? null,
+            ]);
+            payrollAudit('payroll.run.gusto_synced',
+                ['gusto_run_id' => $gid, 'has_url' => $url ? true : false], $runId);
+            api_ok(['ok' => true, 'gusto_status' => 'submitted', 'gusto_run_id' => $gid]);
+        }
+        if ($action === 'mark_gusto_paid') {
+            if (empty($run['gusto_run_id'])) api_error('Run is not linked to Gusto', 409);
+            scopedUpdate('payroll_runs', $runId, [
+                'gusto_status' => 'paid',
+                'gusto_paid_at'=> date('Y-m-d H:i:s'),
+            ]);
+            // Mirror to local status so the rest of the UI reflects "paid".
+            // Local paid_at is left untouched if already set; otherwise we
+            // stamp it here so reports / aging / dashboards see this run as
+            // paid without us double-posting cash movement (Gusto did it).
+            if ($run['status'] !== 'paid') {
+                scopedUpdate('payroll_runs', $runId, [
+                    'status'  => 'paid',
+                    'paid_at' => $run['paid_at'] ?: date('Y-m-d H:i:s'),
+                ]);
+                $pdo = getDB();
+                if ($pdo) {
+                    $stmt = $pdo->prepare(
+                        "UPDATE payroll_line_items SET status='paid', updated_at=NOW()
+                         WHERE tenant_id = :tenant_id AND run_id = :rid"
+                    );
+                    $stmt->execute(['tenant_id' => currentTenantId(), 'rid' => $runId]);
+                }
+                scopedUpdate('payroll_pay_periods', (int) $run['pay_period_id'], ['status' => 'paid']);
+            }
+            payrollAudit('payroll.run.gusto_marked_paid',
+                ['gusto_run_id' => $run['gusto_run_id']], $runId);
+            api_ok(['ok' => true, 'gusto_status' => 'paid', 'status' => 'paid']);
+        }
+        if ($action === 'unlink_gusto') {
+            if (empty($run['gusto_run_id'])) api_error('Run is not linked to Gusto', 409);
+            scopedUpdate('payroll_runs', $runId, [
+                'gusto_run_id'      => null,
+                'gusto_payroll_url' => null,
+                'gusto_status'      => null,
+                'gusto_synced_at'   => null,
+                'gusto_synced_by'   => null,
+                'gusto_paid_at'     => null,
+            ]);
+            payrollAudit('payroll.run.gusto_unlinked',
+                ['previous_gusto_run_id' => $run['gusto_run_id']], $runId);
+            api_ok(['ok' => true]);
+        }
+
         api_error('Unknown action', 422);
     }
 }

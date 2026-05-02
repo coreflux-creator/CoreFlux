@@ -250,3 +250,17 @@ function payrollAudit(string $event, array $meta = [], ?int $targetId = null): v
         error_log('[payroll.audit] ' . $event . ' write-failed: ' . $e->getMessage());
     }
 }
+
+/**
+ * True iff this payroll run is being executed in Gusto (CSV uploaded, Gusto
+ * run ID captured back). When this is the case, future post-to-GL code MUST
+ * NOT post the cash-movement leg (DD payable, taxes payable disbursement,
+ * etc.) because Gusto is doing that — we'd double-count.
+ *
+ * Wage-accrual posting (Dr Wages Expense / Cr Wages Payable) IS still ours
+ * to do; only the disbursement leg is suppressed when gusto_managed.
+ */
+function payrollRunIsGustoManaged(array $run): bool
+{
+    return !empty($run['gusto_run_id']);
+}
