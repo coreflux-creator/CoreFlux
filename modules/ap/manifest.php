@@ -28,6 +28,7 @@ return [
         ['name' => '1099 Ledger',      'route' => '1099',       'permission' => 'ap.1099.view'],
         ['name' => 'Reports',          'route' => 'reports',    'permission' => 'ap.reports.view'],
         ['name' => 'Export',           'route' => 'export',     'permission' => 'ap.export.run'],
+        ['name' => 'Settings',         'route' => 'settings',   'permission' => 'ap.view'],
     ],
 
     'permissions' => [
@@ -79,6 +80,7 @@ return [
         'ap.expense.line.attachment.added',
         'ap.expense.line.extracted_from_receipt',
         'ap.export.csv',
+        'ap.settings.updated',
         'ap.1099.ledger_built',
         'ap.1099.form_generated',
         'ap.1099.submitted',

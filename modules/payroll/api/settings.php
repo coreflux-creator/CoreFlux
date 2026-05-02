@@ -28,6 +28,7 @@ switch (api_method()) {
             'address_street1','address_street2','address_city','address_region',
             'address_postal','address_country','default_pay_schedule_id',
             'suta_rate_bps','futa_credit_rate_bps','ai_run_summary_enabled',
+            'disbursement_rail','nacha_company_id','nacha_origin_routing',
         ];
         $data = [];
         foreach ($fields as $f) if (array_key_exists($f, $body)) $data[$f] = $body[$f];

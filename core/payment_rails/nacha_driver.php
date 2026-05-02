@@ -130,6 +130,30 @@ class NachaDriver implements PaymentRailsDriver
         return 'submitted';
     }
 
+    public function metadata(): array
+    {
+        return [
+            'cost_per_item_dollars'    => 0.0,
+            'cost_pct'                 => 0.0,
+            'settlement_business_days' => ['min' => 1, 'max' => 2],
+            'supports_same_day_ach'    => true,    // tenant can request SDA at the bank portal
+            'supports_rtp'             => false,
+            'needs_pre_approval'       => false,
+            'needs_funding_link'       => false,
+            'fallback_to'              => null,    // already the fallback
+            'pros'                     => [
+                'Zero per-transfer cost',
+                'No third-party dependency or API approvals',
+                'Works with any bank that originates ACH',
+            ],
+            'cons'                     => [
+                'Tenant must manually upload the file to their bank portal',
+                'Status tracking is out-of-band (bank rec only)',
+                'Requires an ACH origination agreement with the tenant\'s bank',
+            ],
+        ];
+    }
+
     // -------------------------------------------------------------------
     // Internal record builders
     // -------------------------------------------------------------------

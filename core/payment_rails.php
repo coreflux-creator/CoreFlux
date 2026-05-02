@@ -71,6 +71,27 @@ interface PaymentRailsDriver
      * Returns one of: pending|submitted|posted|settled|returned|cancelled|failed|unknown.
      */
     public function getStatus(string $railExternalRef): string;
+
+    /**
+     * Static descriptive metadata about the rail — cost, settlement window,
+     * supported features, fallback chain. Used to populate the rail-card
+     * UI on AP / Payroll settings pages so tenants can pick rails on real
+     * numbers, not gut feel.
+     *
+     * @return array{
+     *   cost_per_item_dollars: float,        // e.g. 0.50 for plaid_transfer
+     *   cost_pct:              float,        // e.g. 0.005 (0.5%) for plaid_transfer
+     *   settlement_business_days: array{min:int, max:int},  // e.g. {0, 1} for same-day-capable rails
+     *   supports_same_day_ach: bool,
+     *   supports_rtp:          bool,
+     *   needs_pre_approval:    bool,         // true for plaid_transfer (1-2 wk Plaid review)
+     *   needs_funding_link:    bool,         // true if tenant must link an account via Plaid Link
+     *   fallback_to:           string|null,  // rail id to fall back to on origination failure
+     *   pros:                  array<int, string>,
+     *   cons:                  array<int, string>,
+     * }
+     */
+    public function metadata(): array;
 }
 
 /**
@@ -105,23 +126,29 @@ function paymentRailsGetDriver(string $rail): PaymentRailsDriver
 
 /**
  * Available rails (registry). Exposed so admin UIs can render a dropdown.
+ * Now also surfaces rail metadata (cost / settlement / fallback) so the
+ * rail-card UI can show real numbers.
  *
- * @return array<int, array{id: string, name: string, configured: bool, description: string}>
+ * @return array<int, array{id: string, name: string, configured: bool, description: string, metadata: array<string, mixed>}>
  */
 function paymentRailsList(): array
 {
+    $nacha = paymentRailsGetDriver('nacha');
+    $plaid = paymentRailsGetDriver('plaid_transfer');
     return [
         [
             'id'          => 'nacha',
             'name'        => 'NACHA file',
-            'configured'  => paymentRailsGetDriver('nacha')->isConfigured(),
+            'configured'  => $nacha->isConfigured(),
             'description' => 'Generate a NACHA-format ACH file. Tenant uploads it to their bank\'s cash-management portal. Zero external dependency.',
+            'metadata'    => $nacha->metadata(),
         ],
         [
             'id'          => 'plaid_transfer',
             'name'        => 'Plaid Transfer (ACH API)',
-            'configured'  => paymentRailsGetDriver('plaid_transfer')->isConfigured(),
+            'configured'  => $plaid->isConfigured(),
             'description' => 'Programmatic ACH origination via Plaid. Requires Plaid Transfer pre-approval (1-2 weeks) and PLAID_CLIENT_ID + PLAID_SECRET_* env vars. Tenant must link a funding account through Plaid Link first.',
+            'metadata'    => $plaid->metadata(),
         ],
     ];
 }

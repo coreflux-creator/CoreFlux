@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { api } from '../../../dashboard/src/lib/api';
+import { api, useApi } from '../../../dashboard/src/lib/api';
+import RailPicker from '../../../dashboard/src/components/RailPicker';
 
 export default function PayrollSettings() {
+  const { data: railsData, loading: railsLoading } = useApi('/core/api/payment_rails.php');
   const [form, setForm] = useState({
     legal_name: '',
     dba_name: '',
@@ -15,6 +17,9 @@ export default function PayrollSettings() {
     suta_rate_bps: 340,
     futa_credit_rate_bps: 540,
     ai_run_summary_enabled: 1,
+    disbursement_rail: 'nacha',
+    nacha_company_id: '',
+    nacha_origin_routing: '',
   });
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -23,7 +28,7 @@ export default function PayrollSettings() {
 
   useEffect(() => {
     api.get('/modules/payroll/api/settings.php').then((d) => {
-      if (d.settings) setForm({ ...form, ...d.settings });
+      if (d.settings) setForm({ ...form, ...d.settings, disbursement_rail: d.settings.disbursement_rail || 'nacha' });
       setLoaded(true);
     }).catch((e) => { setError(e.message); setLoaded(true); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -38,7 +43,7 @@ export default function PayrollSettings() {
     finally { setBusy(false); }
   };
 
-  if (!loaded) return <p>Loading…</p>;
+  if (!loaded || railsLoading) return <p>Loading…</p>;
 
   return (
     <section className="payroll-settings" data-testid="payroll-settings">
@@ -115,6 +120,39 @@ export default function PayrollSettings() {
             />
             <small className="muted">540 = full 5.40% SUTA credit (effective FUTA = 0.6%).</small>
           </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Disbursement rail</legend>
+          <p className="muted" style={{ marginTop: 0 }}>
+            How CoreFlux funds direct-deposit. Per-row override available on each payroll run.
+          </p>
+          <RailPicker
+            rails={railsData?.rails || []}
+            value={form.disbursement_rail}
+            onChange={(railId) => setForm({ ...form, disbursement_rail: railId })}
+            testIdPrefix="payroll-rail"
+          />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginTop: 12 }}>
+            <label>
+              <span>NACHA Company ID</span>
+              <input
+                maxLength={10}
+                value={form.nacha_company_id || ''}
+                onChange={(e) => setForm({ ...form, nacha_company_id: e.target.value })}
+                data-testid="payroll-settings-nacha-company-id"
+              />
+            </label>
+            <label>
+              <span>NACHA Origin Routing (ODFI ABA)</span>
+              <input
+                maxLength={9}
+                value={form.nacha_origin_routing || ''}
+                onChange={(e) => setForm({ ...form, nacha_origin_routing: e.target.value.replace(/\D/g, '').slice(0, 9) })}
+                data-testid="payroll-settings-nacha-origin-routing"
+              />
+            </label>
+          </div>
         </fieldset>
 
         <fieldset>

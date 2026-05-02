@@ -11,6 +11,7 @@ import ExpenseCreate from './ExpenseCreate';
 import AgingTable from './AgingTable';
 import Ledger1099 from './Ledger1099';
 import Export from './Export';
+import Settings from './Settings';
 
 const navItems = [
   { to: '/modules/ap/bills',    label: 'Bills' },
@@ -20,6 +21,7 @@ const navItems = [
   { to: '/modules/ap/aging',    label: 'Aging' },
   { to: '/modules/ap/1099',     label: '1099' },
   { to: '/modules/ap/export',   label: 'Export' },
+  { to: '/modules/ap/settings', label: 'Settings' },
 ];
 
 export default function APModule() {
@@ -60,6 +62,7 @@ export default function APModule() {
         <Route path="aging" element={<AgingTable />} />
         <Route path="1099" element={<Ledger1099 />} />
         <Route path="export" element={<Export />} />
+        <Route path="settings" element={<Settings />} />
       </Routes>
     </div>
   );

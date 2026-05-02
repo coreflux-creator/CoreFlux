@@ -93,6 +93,31 @@ class PlaidTransferDriver implements PaymentRailsDriver
         return 'unknown';
     }
 
+    public function metadata(): array
+    {
+        return [
+            'cost_per_item_dollars'    => 0.50,    // ballpark Plaid Transfer per-item
+            'cost_pct'                 => 0.005,   // 0.5% fee
+            'settlement_business_days' => ['min' => 0, 'max' => 1],
+            'supports_same_day_ach'    => true,
+            'supports_rtp'             => true,    // Plaid supports RTP rail
+            'needs_pre_approval'       => true,    // 1-2 wk Plaid Transfer Application review
+            'needs_funding_link'       => true,    // tenant must link funding source via Plaid Link
+            'fallback_to'              => 'nacha', // if Plaid declines, fall back to NACHA file
+            'pros'                     => [
+                'Programmatic origination — no manual bank-portal step',
+                'Status webhooks (pending → posted → settled → returned)',
+                'Same-day ACH and RTP available',
+                'Built-in risk / Signal Payment Risk checks',
+            ],
+            'cons'                     => [
+                'Per-transfer fee (~$0.50 + 0.5%)',
+                'Requires Plaid Transfer Application approval (1-2 week review)',
+                'Tenant must link a funding account via Plaid Link',
+            ],
+        ];
+    }
+
     /**
      * Helper Phase B will use to make signed Plaid API calls.
      * Kept here so the contract is visible from the scaffold.
