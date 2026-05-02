@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
 
 /**
@@ -25,8 +26,8 @@ export default function IncomeStatement() {
       {error   && <p className="error">Error: {error.message}</p>}
       {data && (
         <>
-          <Section title="Revenue" rows={data.revenue} total={data.total_revenue} testIdPrefix="accounting-pnl-revenue" />
-          <Section title="Expenses" rows={data.expense} total={data.total_expense} testIdPrefix="accounting-pnl-expense" />
+          <Section title="Revenue" rows={data.revenue} total={data.total_revenue} testIdPrefix="accounting-pnl-revenue" from={from} to={to} />
+          <Section title="Expenses" rows={data.expense} total={data.total_expense} testIdPrefix="accounting-pnl-expense" from={from} to={to} />
           <table className="data-table" style={{ width: '100%', marginTop: 16, borderTop: '2px solid #111' }}>
             <tbody>
               <tr style={{ fontWeight: 700, fontSize: 16 }}>
@@ -43,7 +44,7 @@ export default function IncomeStatement() {
   );
 }
 
-function Section({ title, rows, total, testIdPrefix }) {
+function Section({ title, rows, total, testIdPrefix, from, to }) {
   return (
     <div style={{ marginBottom: 12 }}>
       <h3 style={{ margin: '12px 0 4px', fontSize: 14, textTransform: 'uppercase', color: '#374151' }}>{title}</h3>
@@ -53,7 +54,15 @@ function Section({ title, rows, total, testIdPrefix }) {
           {rows.length === 0 && <tr><td colSpan={3} className="empty" data-testid={`${testIdPrefix}-empty`}>No activity</td></tr>}
           {rows.map((r) => (
             <tr key={r.code} data-testid={`${testIdPrefix}-row-${r.code}`}>
-              <td><code>{r.code}</code></td>
+              <td>
+                <Link
+                  to={`/modules/accounting/journal-entries?account_code=${encodeURIComponent(r.code)}&from=${from}&to=${to}`}
+                  data-testid={`${testIdPrefix}-drill-${r.code}`}
+                  style={{ textDecoration: 'none' }}
+                >
+                  <code>{r.code}</code>
+                </Link>
+              </td>
               <td>{r.name}</td>
               <td style={{ textAlign: 'right' }}>{fmt(r.amount)}</td>
             </tr>

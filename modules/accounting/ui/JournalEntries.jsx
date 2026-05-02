@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 
 /**
@@ -17,14 +18,33 @@ export default function JournalEntries() {
 }
 
 function List({ onOpen, onNew }) {
-  const { data, loading, error } = useApi('/modules/accounting/api/journal_entries.php');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const accountCode = searchParams.get('account_code') || '';
+  const from        = searchParams.get('from')         || '';
+  const to          = searchParams.get('to')           || '';
+  const qs = new URLSearchParams();
+  if (accountCode) qs.set('account_code', accountCode);
+  if (from)        qs.set('from', from);
+  if (to)          qs.set('to', to);
+  const apiUrl = '/modules/accounting/api/journal_entries.php' + (qs.toString() ? `?${qs}` : '');
+  const { data, loading, error } = useApi(apiUrl);
   const rows = data?.rows ?? [];
+  const filterActive = !!(accountCode || from || to);
   return (
     <div data-testid="accounting-journal-list">
       <header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>Journal Entries</h2>
         <button className="btn btn--primary" data-testid="accounting-journal-new" onClick={onNew}>+ New JE</button>
       </header>
+      {filterActive && (
+        <div data-testid="accounting-journal-filter-pill" style={{ display: 'inline-flex', gap: 8, alignItems: 'center', padding: '6px 10px', background: '#dbeafe', color: '#1e40af', borderRadius: 6, fontSize: 12, marginBottom: 8 }}>
+          <span>
+            Filtered by{accountCode ? <> account <code>{accountCode}</code></> : null}
+            {from ? <> · from {from}</> : null}{to ? <> · to {to}</> : null}
+          </span>
+          <button className="btn btn--ghost" data-testid="accounting-journal-filter-clear" onClick={() => setSearchParams({})} style={{ padding: '0 6px' }}>×</button>
+        </div>
+      )}
       {loading && <p>Loading…</p>}
       {error   && <p className="error">Error: {error.message}</p>}
       <table className="data-table" style={{ width: '100%' }}>

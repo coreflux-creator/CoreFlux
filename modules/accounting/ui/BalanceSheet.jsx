@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
 
 /**
@@ -21,9 +22,9 @@ export default function BalanceSheet() {
       {error   && <p className="error">Error: {error.message}</p>}
       {data && (
         <>
-          <Section title="Assets"      rows={data.assets}      total={data.total_assets}      testIdPrefix="accounting-balance-assets"      totalTestId="accounting-balance-assets-total" />
-          <Section title="Liabilities" rows={data.liabilities} total={data.total_liabilities} testIdPrefix="accounting-balance-liabilities" totalTestId="accounting-balance-liabilities-total" />
-          <Section title="Equity"      rows={data.equity}      total={data.total_equity}      testIdPrefix="accounting-balance-equity"      totalTestId="accounting-balance-equity-total" />
+          <Section title="Assets"      rows={data.assets}      total={data.total_assets}      testIdPrefix="accounting-balance-assets"      totalTestId="accounting-balance-assets-total" asOf={asOf} />
+          <Section title="Liabilities" rows={data.liabilities} total={data.total_liabilities} testIdPrefix="accounting-balance-liabilities" totalTestId="accounting-balance-liabilities-total" asOf={asOf} />
+          <Section title="Equity"      rows={data.equity}      total={data.total_equity}      testIdPrefix="accounting-balance-equity"      totalTestId="accounting-balance-equity-total" asOf={asOf} />
           <table className="data-table" style={{ width: '100%', marginTop: 16, borderTop: '2px solid #111' }}>
             <tbody>
               <tr style={{ fontWeight: 600 }}>
@@ -47,7 +48,7 @@ export default function BalanceSheet() {
   );
 }
 
-function Section({ title, rows, total, testIdPrefix, totalTestId }) {
+function Section({ title, rows, total, testIdPrefix, totalTestId, asOf }) {
   return (
     <div style={{ marginBottom: 12 }}>
       <h3 style={{ margin: '12px 0 4px', fontSize: 14, textTransform: 'uppercase', color: '#374151' }}>{title}</h3>
@@ -57,7 +58,15 @@ function Section({ title, rows, total, testIdPrefix, totalTestId }) {
           {rows.length === 0 && <tr><td colSpan={3} className="empty" data-testid={`${testIdPrefix}-empty`}>None</td></tr>}
           {rows.map((r) => (
             <tr key={r.code + (r.synthetic ? '-syn' : '')} data-testid={`${testIdPrefix}-row-${r.code}`} style={r.synthetic ? { fontStyle: 'italic', color: '#6b7280' } : undefined}>
-              <td><code>{r.code}</code></td>
+              <td>
+                {r.synthetic
+                  ? <code>{r.code}</code>
+                  : <Link
+                      to={`/modules/accounting/journal-entries?account_code=${encodeURIComponent(r.code)}&to=${asOf}`}
+                      data-testid={`${testIdPrefix}-drill-${r.code}`}
+                      style={{ textDecoration: 'none' }}
+                    ><code>{r.code}</code></Link>}
+              </td>
               <td>{r.name}{r.synthetic ? ' *' : ''}</td>
               <td style={{ textAlign: 'right' }}>{fmt(r.amount)}</td>
             </tr>

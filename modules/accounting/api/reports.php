@@ -33,7 +33,13 @@ if ($type === 'balance_sheet') {
     api_ok(reportBalanceSheet($tid, $asOf, $eid));
 }
 
-api_error('Unknown report type. Use income_statement or balance_sheet.', 422);
+if ($type === 'cash_flow_indirect' || $type === 'cash_flow') {
+    $from = (string) ($_GET['from'] ?? date('Y-01-01'));
+    $to   = (string) ($_GET['to']   ?? date('Y-m-d'));
+    api_ok(reportCashFlowIndirect($tid, $from, $to, $eid));
+}
+
+api_error('Unknown report type. Use income_statement, balance_sheet, or cash_flow_indirect.', 422);
 
 /**
  * Income Statement (P&L) — revenue and expenses for the period.
@@ -148,5 +154,137 @@ function reportBalanceSheet(int $tenantId, string $asOf, ?int $entityId): array
         'total_equity'       => round($eTot, 2),
         'liabilities_plus_equity' => round($lTot + $eTot, 2),
         'balanced'           => abs($aTot - ($lTot + $eTot)) < 0.005,
+    ];
+}
+
+
+/**
+ * Cash Flow Statement (indirect method).
+ *
+ * Per SPEC §12 (Phase A v1.0): "Cash flow statement = indirect method only.
+ * cash_flow_tag on COA already supports indirect."
+ *
+ * Method:
+ *   1. Net income from the period (reportIncomeStatement).
+ *   2. Walk every non-cash balance-sheet account, compute the period-change
+ *      and bucket it by `cash_flow_tag`:
+ *        - operating_addback_*    → add to net income (e.g. depreciation expense)
+ *        - operating_wc_ar / wc_ap / wc_inventory / wc_other → working capital
+ *        - investing_*            → investing activities
+ *        - financing_*            → financing activities
+ *        - cash_and_equivalents   → SKIP (these ARE the cash we're explaining)
+ *        - NULL / unset           → tagged 'untagged' (admin must classify in COA)
+ *   3. Beginning cash + total change = ending cash. We tie out ending cash
+ *      against the actual GL ending balance of cash accounts and report the
+ *      difference (should be 0).
+ *
+ * Sign convention (asset accounts are debit-normal, liability/equity are credit-normal):
+ *   - Increase in non-cash asset      → use of cash (subtract)
+ *   - Decrease in non-cash asset      → source of cash (add)
+ *   - Increase in liability or equity → source of cash (add)
+ *   - Decrease in liability or equity → use of cash (subtract)
+ */
+function reportCashFlowIndirect(int $tenantId, string $from, string $to, ?int $entityId): array
+{
+    $pdo = getDB();
+
+    // 1. Net income for the period
+    $is        = reportIncomeStatement($tenantId, $from, $to, $entityId);
+    $netIncome = (float) $is['net_income'];
+
+    // 2. Pull balance-sheet account balances at the start (day before $from)
+    //    and end ($to) so we can compute the period change.
+    $startDate = date('Y-m-d', strtotime($from . ' -1 day'));
+    $startBs   = reportBalanceSheet($tenantId, $startDate, $entityId);
+    $endBs     = reportBalanceSheet($tenantId, $to,        $entityId);
+
+    // Index account balances by code for fast lookup
+    $startByCode = []; $endByCode = []; $tagByCode = []; $typeByCode = []; $nameByCode = [];
+    foreach ([['rows' => array_merge($startBs['assets'], $startBs['liabilities'], $startBs['equity']), 'tgt' => &$startByCode],
+             ['rows' => array_merge($endBs['assets'],   $endBs['liabilities'],   $endBs['equity']),   'tgt' => &$endByCode]] as $bag) {
+        foreach ($bag['rows'] as $r) {
+            if (!empty($r['synthetic'])) continue;
+            $bag['tgt'][(string) $r['code']] = (float) $r['amount'];
+        }
+    }
+    // cash_flow_tag lookup direct from accounting_accounts
+    $tagStmt = $pdo->prepare(
+        'SELECT code, name, account_type, COALESCE(cash_flow_tag, "untagged") AS cash_flow_tag
+         FROM accounting_accounts WHERE tenant_id = :t'
+    );
+    $tagStmt->execute(['t' => $tenantId]);
+    foreach ($tagStmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
+        $tagByCode[(string) $r['code']]  = (string) $r['cash_flow_tag'];
+        $typeByCode[(string) $r['code']] = (string) $r['account_type'];
+        $nameByCode[(string) $r['code']] = (string) $r['name'];
+    }
+
+    $sections = [
+        'operating'            => ['lines' => [], 'subtotal' => 0.0],
+        'investing'            => ['lines' => [], 'subtotal' => 0.0],
+        'financing'            => ['lines' => [], 'subtotal' => 0.0],
+        'untagged'             => ['lines' => [], 'subtotal' => 0.0],
+    ];
+
+    // 3. Walk every account that appeared in either balance sheet
+    $allCodes = array_unique(array_merge(array_keys($startByCode), array_keys($endByCode)));
+    $cashEndingFromGl = 0.0;
+    $cashStartingFromGl = 0.0;
+    foreach ($allCodes as $code) {
+        $tag    = $tagByCode[$code] ?? 'untagged';
+        $type   = $typeByCode[$code] ?? '';
+        $name   = $nameByCode[$code] ?? $code;
+        $start  = $startByCode[$code] ?? 0.0;
+        $end    = $endByCode[$code]   ?? 0.0;
+        $delta  = round($end - $start, 2);
+
+        if ($tag === 'cash_and_equivalents') {
+            $cashStartingFromGl += $start;
+            $cashEndingFromGl   += $end;
+            continue;
+        }
+
+        // Convert balance-change into cash-impact:
+        //   asset increase      → use of cash → flip sign
+        //   liability/equity ↑  → source of cash → keep sign
+        $cashImpact = ($type === 'asset') ? -$delta : $delta;
+
+        $bucket = 'untagged';
+        if (str_starts_with($tag, 'operating')) $bucket = 'operating';
+        elseif (str_starts_with($tag, 'investing')) $bucket = 'investing';
+        elseif (str_starts_with($tag, 'financing')) $bucket = 'financing';
+
+        if (abs($cashImpact) < 0.005) continue;
+        $sections[$bucket]['lines'][] = [
+            'code'        => $code,
+            'name'        => $name,
+            'cash_flow_tag' => $tag,
+            'amount'      => round($cashImpact, 2),
+        ];
+        $sections[$bucket]['subtotal'] = round($sections[$bucket]['subtotal'] + $cashImpact, 2);
+    }
+
+    // Operating starts with net income
+    array_unshift($sections['operating']['lines'], [
+        'code' => null, 'name' => 'Net income', 'cash_flow_tag' => 'net_income',
+        'amount' => round($netIncome, 2),
+    ]);
+    $sections['operating']['subtotal'] = round($sections['operating']['subtotal'] + $netIncome, 2);
+
+    $netChange       = round($sections['operating']['subtotal'] + $sections['investing']['subtotal'] + $sections['financing']['subtotal'], 2);
+    $cashGlChange    = round($cashEndingFromGl - $cashStartingFromGl, 2);
+    $reconciliation  = round($cashGlChange - $netChange, 2);
+
+    return [
+        'period'               => ['from' => $from, 'to' => $to, 'entity_id' => $entityId],
+        'net_income'           => round($netIncome, 2),
+        'sections'             => $sections,
+        'net_change_in_cash'   => $netChange,
+        'cash_beginning'       => round($cashStartingFromGl, 2),
+        'cash_ending'          => round($cashEndingFromGl, 2),
+        'cash_change_from_gl'  => $cashGlChange,
+        'reconciliation_diff'  => $reconciliation,    // should be 0.00
+        'balanced'             => abs($reconciliation) < 0.01,
+        'untagged_warning'     => count($sections['untagged']['lines']) > 0,
     ];
 }

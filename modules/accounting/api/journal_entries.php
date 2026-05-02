@@ -44,24 +44,35 @@ if ($method === 'GET' && !empty($_GET['id'])) {
 
 if ($method === 'GET') {
     RBAC::requirePermission($user, 'accounting.je.create');
-    $where  = ['tenant_id = :tenant_id'];
+    $where  = ['je.tenant_id = :tenant_id'];
     $params = [];
-    if (!empty($_GET['status']))        { $where[] = 'status = :s';            $params['s']   = $_GET['status']; }
-    if (!empty($_GET['source_module'])) { $where[] = 'source_module = :src';   $params['src'] = $_GET['source_module']; }
-    if (!empty($_GET['from']))          { $where[] = 'posting_date >= :f';     $params['f']   = $_GET['from']; }
-    if (!empty($_GET['to']))            { $where[] = 'posting_date <= :to2';   $params['to2'] = $_GET['to']; }
-    if (!empty($_GET['entity_id']))     { $where[] = 'entity_id = :e';         $params['e']   = (int) $_GET['entity_id']; }
+    if (!empty($_GET['status']))        { $where[] = 'je.status = :s';            $params['s']   = $_GET['status']; }
+    if (!empty($_GET['source_module'])) { $where[] = 'je.source_module = :src';   $params['src'] = $_GET['source_module']; }
+    if (!empty($_GET['from']))          { $where[] = 'je.posting_date >= :f';     $params['f']   = $_GET['from']; }
+    if (!empty($_GET['to']))            { $where[] = 'je.posting_date <= :to2';   $params['to2'] = $_GET['to']; }
+    if (!empty($_GET['entity_id']))     { $where[] = 'je.entity_id = :e';         $params['e']   = (int) $_GET['entity_id']; }
+    $accountJoin = '';
+    if (!empty($_GET['account_code'])) {
+        $accountJoin = ' INNER JOIN accounting_journal_entry_lines l ON l.je_id = je.id
+                         INNER JOIN accounting_accounts a ON a.id = l.account_id ';
+        $where[]   = 'a.code = :acode';
+        $params['acode'] = (string) $_GET['account_code'];
+    }
     $perPage = max(1, min(200, (int) ($_GET['per_page'] ?? 50)));
     $page    = max(1, (int) ($_GET['page'] ?? 1));
     $offset  = ($page - 1) * $perPage;
     $rows = scopedQuery(
-        'SELECT id, je_number, posting_date, entity_id, period_id, source_module,
-                source_ref_type, source_ref_id, status, currency, total_debit, total_credit, memo, posted_at
-         FROM accounting_journal_entries WHERE ' . implode(' AND ', $where) . '
-         ORDER BY posting_date DESC, id DESC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
+        'SELECT DISTINCT je.id, je.je_number, je.posting_date, je.entity_id, je.period_id, je.source_module,
+                je.source_ref_type, je.source_ref_id, je.status, je.currency, je.total_debit, je.total_credit, je.memo, je.posted_at
+         FROM accounting_journal_entries je ' . $accountJoin . '
+         WHERE ' . implode(' AND ', $where) . '
+         ORDER BY je.posting_date DESC, je.id DESC LIMIT ' . (int) $perPage . ' OFFSET ' . (int) $offset,
         $params
     );
-    $cnt = scopedQuery('SELECT COUNT(*) AS c FROM accounting_journal_entries WHERE ' . implode(' AND ', $where), $params);
+    $cnt = scopedQuery(
+        'SELECT COUNT(DISTINCT je.id) AS c FROM accounting_journal_entries je ' . $accountJoin . ' WHERE ' . implode(' AND ', $where),
+        $params
+    );
     api_ok(['rows' => $rows, 'total' => (int) ($cnt[0]['c'] ?? 0), 'page' => $page, 'per_page' => $perPage]);
 }
 
