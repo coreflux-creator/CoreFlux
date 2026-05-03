@@ -8,6 +8,7 @@ import TrialBalance from './TrialBalance';
 import IncomeStatement from './IncomeStatement';
 import BalanceSheet from './BalanceSheet';
 import CashFlowStatement from './CashFlowStatement';
+import BankReconciliation from './BankReconciliation';
 import Periods from './Periods';
 
 /**
@@ -23,6 +24,7 @@ export default function AccountingModule({ session }) {
         <Tab to="pnl"      label="Income Statement" />
         <Tab to="balance"  label="Balance Sheet" />
         <Tab to="cash-flow" label="Cash Flow" />
+        <Tab to="bank-rec"  label="Bank Rec" />
         <Tab to="periods"  label="Periods" />
       </nav>
       <Routes>
@@ -37,6 +39,7 @@ export default function AccountingModule({ session }) {
         <Route path="pnl"      element={<IncomeStatement session={session} />} />
         <Route path="balance"  element={<BalanceSheet    session={session} />} />
         <Route path="cash-flow" element={<CashFlowStatement session={session} />} />
+        <Route path="bank-rec/*" element={<BankReconciliation session={session} />} />
         <Route path="periods"  element={<Periods         session={session} />} />
       </Routes>
     </div>

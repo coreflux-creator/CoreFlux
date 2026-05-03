@@ -1,0 +1,272 @@
+import React, { useState } from 'react';
+import { Routes, Route, Link, useParams, useNavigate } from 'react-router-dom';
+import { api, useApi } from '../../../dashboard/src/lib/api';
+
+/**
+ * Bank Reconciliation module.
+ *  - /modules/accounting/bank-rec                            → list of bank accounts
+ *  - /modules/accounting/bank-rec/:id                        → statement lines + matching grid + AI
+ *  - /modules/accounting/bank-rec/:id/rules                  → rule list / AI-suggested rule queue
+ */
+export default function BankReconciliation() {
+  return (
+    <Routes>
+      <Route index element={<AccountsList />} />
+      <Route path=":id" element={<AccountDetail />} />
+      <Route path=":id/rules" element={<RulesList />} />
+    </Routes>
+  );
+}
+
+function AccountsList() {
+  const { data, loading, error, reload } = useApi('/modules/accounting/api/bank_accounts.php');
+  const [showNew, setShow] = useState(false);
+  return (
+    <section data-testid="accounting-bank-accounts">
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ margin: 0 }}>Bank Reconciliation</h2>
+        <button className="btn btn--primary" onClick={() => setShow(true)} data-testid="accounting-bank-account-new">+ Add bank account</button>
+      </header>
+      {loading && <p>Loading…</p>}
+      {error   && <p className="error">{error.message}</p>}
+      {showNew && <NewAccountForm onDone={() => { setShow(false); reload(); }} onCancel={() => setShow(false)} />}
+      <table className="data-table" data-testid="accounting-bank-accounts-table">
+        <thead><tr><th>Name</th><th>GL code</th><th>Bank</th><th>Last4</th><th>Feed</th><th>Last sync</th><th></th></tr></thead>
+        <tbody>
+          {(data?.rows || []).length === 0 && !loading && (
+            <tr><td colSpan={7} className="empty" data-testid="accounting-bank-accounts-empty">No bank accounts yet.</td></tr>
+          )}
+          {(data?.rows || []).map(a => (
+            <tr key={a.id} data-testid={`accounting-bank-account-row-${a.id}`}>
+              <td><Link to={`${a.id}`} data-testid={`accounting-bank-account-link-${a.id}`}>{a.name}</Link></td>
+              <td><code>{a.gl_account_code}</code></td>
+              <td>{a.bank_name || '—'}</td>
+              <td>{a.last4 || '—'}</td>
+              <td>{a.feed_provider || 'manual'}</td>
+              <td>{a.last_feed_synced_at || '—'}</td>
+              <td><Link to={`${a.id}/rules`} data-testid={`accounting-bank-account-rules-${a.id}`}>Rules ↗</Link></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function NewAccountForm({ onDone, onCancel }) {
+  const [form, setForm] = useState({ name: '', gl_account_code: '', bank_name: '', last4: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState(null);
+  const submit = async (e) => {
+    e.preventDefault(); setBusy(true); setErr(null);
+    try { await api.post('/modules/accounting/api/bank_accounts.php', form); onDone(); }
+    catch (e2) { setErr(e2.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <form onSubmit={submit} data-testid="accounting-bank-account-form" style={{ marginBottom: 16, padding: 12, border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8, background: '#fafbff' }}>
+      <h3 style={{ margin: '0 0 12px', fontSize: 14 }}>New bank account</h3>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+        <input className="input" placeholder="Name (e.g. Operating Chase ...4421)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="accounting-bank-account-name" required />
+        <input className="input" placeholder="GL account code" value={form.gl_account_code} onChange={(e) => setForm({ ...form, gl_account_code: e.target.value })} data-testid="accounting-bank-account-gl" required />
+        <input className="input" placeholder="Bank name" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} data-testid="accounting-bank-account-bank-name" />
+        <input className="input" placeholder="Last 4" maxLength={4} value={form.last4} onChange={(e) => setForm({ ...form, last4: e.target.value })} data-testid="accounting-bank-account-last4" />
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button className="btn btn--ghost" type="button" onClick={onCancel}>Cancel</button>
+        <button className="btn btn--primary" type="submit" disabled={busy} data-testid="accounting-bank-account-save">{busy ? 'Saving…' : 'Save'}</button>
+      </div>
+      {err && <p className="error" data-testid="accounting-bank-account-error">{err}</p>}
+    </form>
+  );
+}
+
+function AccountDetail() {
+  const { id } = useParams();
+  const { data, loading, error, reload } = useApi(`/modules/accounting/api/bank_statements.php?bank_account_id=${id}&match_status=unmatched`);
+  const [csv, setCsv]       = useState('');
+  const [busy, setBusy]     = useState(null);
+  const [actErr, setErr]    = useState(null);
+
+  const importCsv = async (e) => {
+    e.preventDefault();
+    setBusy('import'); setErr(null);
+    try {
+      await api.post(`/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id=${id}`, { csv });
+      setCsv('');
+      reload();
+    } catch (e2) { setErr(e2.message); }
+    finally { setBusy(null); }
+  };
+  const applyRules = async () => {
+    setBusy('apply'); setErr(null);
+    try { await api.post(`/modules/accounting/api/bank_statements.php?action=apply_rules&bank_account_id=${id}`); reload(); }
+    catch (e2) { setErr(e2.message); }
+    finally { setBusy(null); }
+  };
+
+  return (
+    <section data-testid="accounting-bank-account-detail">
+      <Link to=".." style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← Bank accounts</Link>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 16 }}>
+        <h2 style={{ margin: 0 }}>Statement lines</h2>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Link to="rules" className="btn btn--ghost" data-testid="accounting-bank-rules-link">Rules</Link>
+          <button className="btn btn--ghost" onClick={applyRules} disabled={busy === 'apply'} data-testid="accounting-bank-apply-rules">
+            {busy === 'apply' ? 'Applying…' : 'Apply rules now'}
+          </button>
+        </div>
+      </header>
+
+      <form onSubmit={importCsv} style={{ marginBottom: 16 }}>
+        <details>
+          <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--cf-text-secondary)' }}>Import CSV</summary>
+          <textarea
+            value={csv}
+            onChange={(e) => setCsv(e.target.value)}
+            placeholder="date,description,amount,fitid&#10;2026-02-15,AWS Charge,-340.12,abc123"
+            rows={6}
+            className="input"
+            data-testid="accounting-bank-csv-input"
+            style={{ width: '100%', marginTop: 8, fontFamily: 'monospace', fontSize: 11 }}
+          />
+          <button className="btn btn--primary" type="submit" disabled={!csv.trim() || busy === 'import'} data-testid="accounting-bank-csv-import" style={{ marginTop: 8 }}>
+            {busy === 'import' ? 'Importing…' : 'Import CSV'}
+          </button>
+          {actErr && <p className="error" data-testid="accounting-bank-import-error">{actErr}</p>}
+        </details>
+      </form>
+
+      {loading && <p>Loading…</p>}
+      {error   && <p className="error">{error.message}</p>}
+      <table className="data-table" data-testid="accounting-bank-lines-table">
+        <thead><tr><th>Date</th><th>Description</th><th style={{ textAlign: 'right' }}>Amount</th><th>Status</th><th>AI</th><th></th></tr></thead>
+        <tbody>
+          {(data?.rows || []).length === 0 && !loading && (
+            <tr><td colSpan={6} className="empty" data-testid="accounting-bank-lines-empty">No unmatched lines. Import a statement above to get started.</td></tr>
+          )}
+          {(data?.rows || []).map(l => (
+            <BankLineRow key={l.id} line={l} reload={reload} />
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function BankLineRow({ line, reload }) {
+  const [busy, setBusy] = useState(null);
+  const [aiResp, setAi] = useState(null);
+  const [err, setErr]   = useState(null);
+
+  const callAi = async (action) => {
+    setBusy(action); setErr(null);
+    try {
+      const res = await api.post(`/modules/accounting/api/bank_ai.php?action=${action}&line_id=${line.id}`);
+      setAi({ action, ...res });
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(null); }
+  };
+
+  return (
+    <>
+      <tr data-testid={`accounting-bank-line-${line.id}`}>
+        <td>{line.posted_date}</td>
+        <td>{line.description}</td>
+        <td style={{ textAlign: 'right', color: line.amount < 0 ? '#991b1b' : '#065f46' }}>{Number(line.amount).toFixed(2)}</td>
+        <td><span data-testid={`accounting-bank-line-status-${line.match_status}`}>{line.match_status}</span></td>
+        <td style={{ fontSize: 11 }}>
+          {line.applied_rule_id ? <span data-testid={`accounting-bank-line-applied-${line.id}`} style={{ background: '#d1fae5', color: '#065f46', padding: '2px 6px', borderRadius: 4 }}>⚙ Rule applied</span>
+            : line.ai_suggested_rule_id ? <span data-testid={`accounting-bank-line-rule-suggested-${line.id}`} style={{ background: '#dbeafe', color: '#1e40af', padding: '2px 6px', borderRadius: 4 }}>✨ Rule suggested</span>
+            : line.ai_suggested_account_code ? <span data-testid={`accounting-bank-line-cat-suggested-${line.id}`} style={{ background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: 4 }}>✨ Cat. {line.ai_suggested_account_code}</span>
+            : '—'}
+        </td>
+        <td>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button className="btn btn--ghost" onClick={() => callAi('suggest_match')}      disabled={busy} data-testid={`accounting-bank-ai-match-${line.id}`}>
+              {busy === 'suggest_match' ? '…' : 'AI match'}
+            </button>
+            <button className="btn btn--ghost" onClick={() => callAi('suggest_categorize')} disabled={busy} data-testid={`accounting-bank-ai-cat-${line.id}`}>
+              {busy === 'suggest_categorize' ? '…' : 'AI cat.'}
+            </button>
+            <button className="btn btn--ghost" onClick={() => callAi('suggest_rule')}       disabled={busy} data-testid={`accounting-bank-ai-rule-${line.id}`}>
+              {busy === 'suggest_rule' ? '…' : 'AI rule'}
+            </button>
+          </div>
+        </td>
+      </tr>
+      {aiResp && (
+        <tr data-testid={`accounting-bank-ai-result-${line.id}`}>
+          <td colSpan={6} style={{ background: '#fafbff', padding: 12 }}>
+            <strong style={{ fontSize: 12 }}>AI {aiResp.action.replace('suggest_', '')}:</strong>
+            <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', margin: '4px 0' }}>{aiResp.ai_response || JSON.stringify(aiResp.candidates || aiResp, null, 2)}</pre>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn--ghost" onClick={() => setAi(null)} data-testid={`accounting-bank-ai-dismiss-${line.id}`}>Dismiss</button>
+            </div>
+          </td>
+        </tr>
+      )}
+      {err && (
+        <tr><td colSpan={6}><p className="error" data-testid={`accounting-bank-ai-error-${line.id}`}>{err}</p></td></tr>
+      )}
+    </>
+  );
+}
+
+function RulesList() {
+  const { id } = useParams();
+  const { data, loading, error, reload } = useApi(`/modules/accounting/api/bank_rules.php?bank_account_id=${id}`);
+
+  const flip = async (ruleId, action) => {
+    try { await api.post(`/modules/accounting/api/bank_rules.php?action=${action}&id=${ruleId}`); reload(); }
+    catch (e) { alert(e.message); }
+  };
+
+  return (
+    <section data-testid="accounting-bank-rules">
+      <Link to=".." style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← Statement lines</Link>
+      <h2 style={{ marginTop: 8 }}>Bank rules</h2>
+      <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+        Rules categorize bank-statement lines automatically. <strong>Suggested</strong> rules fire as
+        AI suggestions on new imports — a reviewer must accept before anything posts. Click <em>Approve</em>
+        to flip a rule to <strong>auto-apply</strong>: future matches are categorized without review.
+      </p>
+      {loading && <p>Loading…</p>}
+      {error   && <p className="error">{error.message}</p>}
+      <table className="data-table" data-testid="accounting-bank-rules-table">
+        <thead><tr><th>Name</th><th>Pattern</th><th>Target</th><th>Direction</th><th>Mode</th><th>Applied</th><th>Source</th><th></th></tr></thead>
+        <tbody>
+          {(data?.rows || []).length === 0 && !loading && (
+            <tr><td colSpan={8} className="empty" data-testid="accounting-bank-rules-empty">No rules yet. Use "AI rule" on an unmatched line to draft one.</td></tr>
+          )}
+          {(data?.rows || []).map(r => (
+            <tr key={r.id} data-testid={`accounting-bank-rule-row-${r.id}`}>
+              <td>{r.name}</td>
+              <td><code style={{ fontSize: 11 }}>{r.pattern_kind}: {r.pattern}</code></td>
+              <td><code>{r.target_account_code}</code></td>
+              <td>{r.direction}</td>
+              <td>
+                {r.is_approved
+                  ? <span data-testid={`accounting-bank-rule-mode-approved-${r.id}`} style={{ background: '#d1fae5', color: '#065f46', padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>Auto-apply</span>
+                  : <span data-testid={`accounting-bank-rule-mode-suggested-${r.id}`} style={{ background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>Suggested</span>}
+              </td>
+              <td>{r.times_applied}</td>
+              <td><span style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>{r.created_via}</span></td>
+              <td>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {!r.is_approved && (
+                    <button className="btn btn--primary" onClick={() => flip(r.id, 'approve')} data-testid={`accounting-bank-rule-approve-${r.id}`}>Approve</button>
+                  )}
+                  {r.status === 'active' && (
+                    <button className="btn btn--ghost" onClick={() => flip(r.id, 'pause')} data-testid={`accounting-bank-rule-pause-${r.id}`}>Pause</button>
+                  )}
+                  <button className="btn btn--ghost" onClick={() => flip(r.id, 'archive')} data-testid={`accounting-bank-rule-archive-${r.id}`}>Archive</button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
