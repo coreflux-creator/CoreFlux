@@ -216,32 +216,70 @@ function BankLineRow({ line, reload }) {
 function RulesList() {
   const { id } = useParams();
   const { data, loading, error, reload } = useApi(`/modules/accounting/api/bank_rules.php?bank_account_id=${id}`);
+  const [learnBusy, setLearnBusy] = useState(false);
+  const [learnRes, setLearnRes]   = useState(null);
+  const [learnErr, setLearnErr]   = useState(null);
 
   const flip = async (ruleId, action) => {
     try { await api.post(`/modules/accounting/api/bank_rules.php?action=${action}&id=${ruleId}`); reload(); }
     catch (e) { alert(e.message); }
   };
 
+  const learn = async () => {
+    setLearnBusy(true); setLearnErr(null); setLearnRes(null);
+    try {
+      const res = await api.post('/modules/accounting/api/bank_rules.php?action=learn');
+      setLearnRes(res);
+      reload();
+    } catch (e) { setLearnErr(e.message); }
+    finally { setLearnBusy(false); }
+  };
+
   return (
     <section data-testid="accounting-bank-rules">
       <Link to=".." style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← Statement lines</Link>
-      <h2 style={{ marginTop: 8 }}>Bank rules</h2>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 12 }}>
+        <h2 style={{ margin: 0 }}>Bank rules</h2>
+        <button
+          className="btn btn--ghost"
+          onClick={learn}
+          disabled={learnBusy}
+          data-testid="accounting-bank-rules-learn"
+          title="Find common patterns from your accepted AI categorizations and draft new rules"
+        >
+          {learnBusy ? 'Learning…' : '✨ Learn from accepts'}
+        </button>
+      </header>
       <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>
         Rules categorize bank-statement lines automatically. <strong>Suggested</strong> rules fire as
         AI suggestions on new imports — a reviewer must accept before anything posts. Click <em>Approve</em>
         to flip a rule to <strong>auto-apply</strong>: future matches are categorized without review.
+        The <em>Learn from accepts</em> button mines your accepted AI categorizations for common patterns
+        and drafts new rules — once you've accepted the same merchant ≥3 times, CoreFlux will surface
+        a one-click rule for it here.
       </p>
+      {learnErr && <p className="error" data-testid="accounting-bank-rules-learn-error">{learnErr}</p>}
+      {learnRes && (
+        <div data-testid="accounting-bank-rules-learn-result" style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 13 }}>
+          {learnRes.drafted === 0
+            ? <span data-testid="accounting-bank-rules-learn-empty">No new patterns yet — accept more AI categorizations and try again. Evaluated {learnRes.clusters_evaluated} categorization cluster(s).</span>
+            : <>
+                <strong data-testid="accounting-bank-rules-learn-count">Drafted {learnRes.drafted} new rule(s).</strong>
+                {' '}They appear below as <em>Suggested</em>. Click <strong>Approve</strong> on any to switch them to auto-apply.
+              </>}
+        </div>
+      )}
       {loading && <p>Loading…</p>}
       {error   && <p className="error">{error.message}</p>}
       <table className="data-table" data-testid="accounting-bank-rules-table">
         <thead><tr><th>Name</th><th>Pattern</th><th>Target</th><th>Direction</th><th>Mode</th><th>Applied</th><th>Source</th><th></th></tr></thead>
         <tbody>
           {(data?.rows || []).length === 0 && !loading && (
-            <tr><td colSpan={8} className="empty" data-testid="accounting-bank-rules-empty">No rules yet. Use "AI rule" on an unmatched line to draft one.</td></tr>
+            <tr><td colSpan={8} className="empty" data-testid="accounting-bank-rules-empty">No rules yet. Use "AI rule" on an unmatched line to draft one — or click "Learn from accepts" above.</td></tr>
           )}
           {(data?.rows || []).map(r => (
-            <tr key={r.id} data-testid={`accounting-bank-rule-row-${r.id}`}>
-              <td>{r.name}</td>
+            <tr key={r.id} data-testid={`accounting-bank-rule-row-${r.id}`} style={r.created_via === 'ai_learned' ? { background: '#fafbff' } : undefined}>
+              <td>{r.name}{r.created_via === 'ai_learned' && <span data-testid={`accounting-bank-rule-learned-${r.id}`} style={{ marginLeft: 6, fontSize: 10, padding: '1px 6px', borderRadius: 999, background: '#e0e7ff', color: '#3730a3' }}>learned</span>}</td>
               <td><code style={{ fontSize: 11 }}>{r.pattern_kind}: {r.pattern}</code></td>
               <td><code>{r.target_account_code}</code></td>
               <td>{r.direction}</td>

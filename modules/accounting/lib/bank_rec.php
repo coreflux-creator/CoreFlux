@@ -259,8 +259,6 @@ function bankRecAutoSuggestMatches(int $tenantId, array $bankLine, int $bankAcco
 {
     $amount = (float) ($bankLine['amount'] ?? 0);
     if ($amount === 0.0) return [];
-    // Bank-line amount: + = credit (deposit) → matches a JE with debit on bank GL account.
-    // We just match absolute amount on either side of any JE line for simplicity.
     return scopedQuery(
         'SELECT je.id AS je_id, je.je_number, je.posting_date, je.memo,
                 je.source_module, je.source_ref_id,
@@ -279,4 +277,152 @@ function bankRecAutoSuggestMatches(int $tenantId, array $bankLine, int $bankAcco
          ORDER BY je.posting_date DESC LIMIT 20',
         ['abs_amt' => abs($amount), 'd' => $bankLine['posted_date']]
     );
+}
+
+/**
+ * Rule learner — turn accepted AI categorizations into draft rules.
+ *
+ * Algorithm:
+ *   1. Pull every accepted bank line (categorized_via='ai_accepted')
+ *      with their description and chosen account_code.
+ *   2. Group by account_code.
+ *   3. For each cluster: extract every alphanumeric token (≥4 chars,
+ *      lowercased) from each description, count occurrences across
+ *      DISTINCT line descriptions in the cluster.
+ *   4. Tokens hit by ≥ $minOccurrences distinct lines become rule
+ *      candidates. Skip tokens already in an active rule's pattern for
+ *      the same target account (no duplicates).
+ *   5. Insert the best (highest-occurrence) candidate per cluster as a
+ *      new accounting_bank_rules row with is_approved=0 + created_via=
+ *      'ai_learned' so the user can one-click Approve in the rules UI.
+ *
+ * Returns counts + the list of drafted rules so the caller can show
+ * them inline.
+ *
+ * @return array{drafted: int, drafts: array<int, array<string,mixed>>, clusters_evaluated: int}
+ */
+function bankRecLearnRulesFromAccepts(int $tenantId, int $minOccurrences, ?int $userId): array
+{
+    $minOccurrences = max(2, $minOccurrences);
+
+    $rows = scopedQuery(
+        'SELECT id, description, categorized_account_code, amount
+         FROM accounting_bank_statement_lines
+         WHERE tenant_id = :tenant_id
+           AND categorized_via = "ai_accepted"
+           AND categorized_account_code IS NOT NULL
+           AND description IS NOT NULL
+         ORDER BY categorized_at DESC
+         LIMIT 2000'
+    );
+    if (empty($rows)) return ['drafted' => 0, 'drafts' => [], 'clusters_evaluated' => 0];
+
+    // Group by account_code → distinct descriptions
+    $clusters = [];
+    foreach ($rows as $r) {
+        $code = (string) $r['categorized_account_code'];
+        $desc = trim((string) $r['description']);
+        if (!isset($clusters[$code])) $clusters[$code] = [];
+        if (!isset($clusters[$code][$desc])) $clusters[$code][$desc] = (float) $r['amount'];
+    }
+
+    // Existing patterns for de-dup
+    $existing = scopedQuery(
+        'SELECT pattern, target_account_code FROM accounting_bank_rules
+         WHERE tenant_id = :tenant_id AND status IN ("active","paused")'
+    );
+    $existingSet = [];
+    foreach ($existing as $r) {
+        $existingSet[strtolower((string) $r['target_account_code']) . '|' . strtolower((string) $r['pattern'])] = true;
+    }
+
+    $drafts = [];
+    foreach ($clusters as $accountCode => $descMap) {
+        if (count($descMap) < $minOccurrences) continue;
+
+        // Tokenize each description: alphanumeric tokens of ≥ 4 chars, lowercased
+        $tokenCounts = [];
+        foreach (array_keys($descMap) as $desc) {
+            $tokens = bankRecExtractTokens($desc);
+            // count each token once per description (so 'AWS AWS AWS' in one
+            // description does NOT inflate the count)
+            foreach (array_unique($tokens) as $tok) {
+                $tokenCounts[$tok] = ($tokenCounts[$tok] ?? 0) + 1;
+            }
+        }
+        // Pick the highest-occurrence token that beats the threshold and
+        // isn't already a rule pattern for this account.
+        arsort($tokenCounts);
+        foreach ($tokenCounts as $tok => $count) {
+            if ($count < $minOccurrences) break;
+            $key = strtolower($accountCode) . '|' . $tok;
+            if (isset($existingSet[$key])) continue;
+
+            // Direction heuristic: if every line is debit, lock to debit
+            $allDebit = true; $allCredit = true;
+            foreach ($descMap as $amt) {
+                if ($amt > 0) $allDebit  = false;
+                if ($amt < 0) $allCredit = false;
+            }
+            $direction = $allDebit ? 'debit' : ($allCredit ? 'credit' : 'any');
+
+            $insertId = scopedInsert('accounting_bank_rules', [
+                'name'                => 'Auto-learned: ' . strtoupper($tok) . ' → ' . $accountCode,
+                'pattern_kind'        => 'contains',
+                'pattern'             => $tok,
+                'direction'           => $direction,
+                'target_account_code' => $accountCode,
+                'is_approved'         => 0,
+                'created_via'         => 'ai_learned',
+                'created_by_user_id'  => $userId,
+            ]);
+            $drafts[] = [
+                'id'                  => $insertId,
+                'name'                => 'Auto-learned: ' . strtoupper($tok) . ' → ' . $accountCode,
+                'pattern'             => $tok,
+                'target_account_code' => $accountCode,
+                'direction'           => $direction,
+                'occurrences'         => $count,
+            ];
+            $existingSet[$key] = true;
+            break;  // one rule per cluster per learner run
+        }
+    }
+
+    return [
+        'drafted'            => count($drafts),
+        'drafts'             => $drafts,
+        'clusters_evaluated' => count($clusters),
+    ];
+}
+
+/**
+ * Extract candidate rule tokens from a bank-line description.
+ * Pure function — exposed so unit tests can hit it directly.
+ *
+ *   - lowercased
+ *   - alphanumeric tokens only (split on non-[a-z0-9])
+ *   - ≥ 4 chars
+ *   - drops generic stop-tokens that show up everywhere (date / amount /
+ *     boilerplate ACH labels)
+ *
+ * @return array<int, string>
+ */
+function bankRecExtractTokens(string $desc): array
+{
+    $low = strtolower($desc);
+    $raw = preg_split('/[^a-z0-9]+/', $low) ?: [];
+    $stop = [
+        'ach','debit','credit','payment','xfer','transfer','online','mobile','from',
+        'amount','txn','transaction','reference','ref','memo','date','posted','pending',
+        'inc','llc','corp','ltd','co',
+    ];
+    $out = [];
+    foreach ($raw as $t) {
+        if (strlen($t) < 4) continue;
+        if (preg_match('/^\d+$/', $t)) continue;       // pure numeric (txn IDs)
+        if (in_array($t, $stop, true)) continue;
+        $out[] = $t;
+    }
+    return $out;
 }

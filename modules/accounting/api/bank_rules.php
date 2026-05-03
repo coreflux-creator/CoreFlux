@@ -42,6 +42,18 @@ if ($method === 'GET') {
     api_ok(['rows' => $rows]);
 }
 
+if ($method === 'POST' && $action === 'learn') {
+    // Walk recent accepted AI categorizations, find common substrings per
+    // (target_account_code) cluster, draft new rules with is_approved=0.
+    RBAC::requirePermission($user, 'accounting.coa.edit');
+    require_once __DIR__ . '/../lib/bank_rec.php';
+    $minOccurrences = max(2, (int) ($_GET['min_occurrences'] ?? 3));
+    $res = bankRecLearnRulesFromAccepts((int) $ctx['tenant_id'], $minOccurrences, $user['id'] ?? null);
+    accountingAudit('accounting.bank.rules_learned',
+        ['drafted' => $res['drafted'], 'min_occurrences' => $minOccurrences]);
+    api_ok($res);
+}
+
 if ($method === 'POST' && in_array($action, ['approve','pause','archive'], true)) {
     RBAC::requirePermission($user, 'accounting.coa.edit');
     $id = (int) ($_GET['id'] ?? 0);

@@ -103,4 +103,40 @@ if ($method === 'POST' && $action === 'apply_rules') {
     api_ok($res);
 }
 
+if ($method === 'POST' && $action === 'accept_ai_categorize') {
+    // Stamp the user-accepted COA code onto the bank line + emit an
+    // ai_suggestions row so the learner can find this accept.
+    RBAC::requirePermission($user, 'accounting.je.create');
+    $lid  = (int) ($_GET['line_id'] ?? 0);
+    if ($lid <= 0) api_error('line_id required', 400);
+    $body = api_json_body();
+    api_require_fields($body, ['account_code']);
+    $line = scopedFind('SELECT id, description FROM accounting_bank_statement_lines WHERE tenant_id = :tenant_id AND id = :id', ['id' => $lid]);
+    if (!$line) api_error('Line not found', 404);
+    scopedUpdate('accounting_bank_statement_lines', $lid, [
+        'categorized_account_code' => (string) $body['account_code'],
+        'categorized_at'           => date('Y-m-d H:i:s'),
+        'categorized_by_user_id'   => $user['id'] ?? null,
+        'categorized_via'          => 'ai_accepted',
+    ]);
+    // Also write the standard ai_suggestions accept row so the rest of
+    // CoreFlux's AI accept-tracking sees this in the same place.
+    scopedInsert('ai_suggestions', [
+        'user_id'        => $user['id'] ?? null,
+        'interaction_id' => isset($body['ai_interaction_id']) ? (int) $body['ai_interaction_id'] : null,
+        'module'         => 'accounting',
+        'feature_key'    => 'accounting.bank.suggest_categorize',
+        'subject_type'   => 'bank_statement_line',
+        'subject_id'     => $lid,
+        'draft_content'  => (string) ($body['draft_content'] ?? ''),
+        'final_content'  => (string) $body['account_code'],
+        'status'         => 'approved',
+        'reviewed_by'    => $user['id'] ?? null,
+        'reviewed_at'    => date('Y-m-d H:i:s'),
+    ]);
+    accountingAudit('accounting.bank.ai_categorize_accepted',
+        ['line_id' => $lid, 'account_code' => $body['account_code']], $lid);
+    api_ok(['ok' => true]);
+}
+
 api_error('Method not allowed', 405);
