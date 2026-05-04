@@ -29,7 +29,7 @@ $ctx = api_require_auth();
 // Streams text/csv with Content-Disposition: attachment.
 // Audit-logged via payrollAudit().
 // --------------------------------------------------------------------
-if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', 'export_run'], true)) {
+if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', 'export_run', 'export_template'], true)) {
     $runId  = (int) ($_GET['id'] ?? 0);
     $action = (string) $_GET['action'];
     if ($runId <= 0) api_error('id required', 400);
@@ -38,6 +38,36 @@ if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', '
     if (!$detail['run']) api_error('Run not found', 404);
     $run   = $detail['run'];
     $lines = $detail['lines'];
+
+    // Tenant-defined template export (Gusto Payroll Import preset, custom CSV
+    // for a bank portal, etc.). Replaces NACHA fallback per user direction:
+    // when Plaid Transfer can't go live, tenants pick a CSV template instead.
+    if ($action === 'export_template') {
+        require_once __DIR__ . '/../../../core/export_templates.php';
+        $tplId = (int) ($_GET['template_id'] ?? 0);
+        if (!$tplId) api_error('template_id required', 400);
+        try {
+            $tpl = exportTemplateGet($tplId, (int) currentTenantId());
+        } catch (\Throwable $e) { api_error($e->getMessage(), 404); }
+        if ($tpl['dataset'] !== 'payroll_disbursements') {
+            api_error("template's dataset must be payroll_disbursements", 422);
+        }
+        $rows = exportDatasetFetchPayrollDisbursements((int) currentTenantId(), ['run_id' => $runId]);
+        if (!headers_sent()) {
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Cache-Control: no-store');
+        }
+        $fname = 'payroll-' . preg_replace('/[^A-Za-z0-9_-]/', '-', strtolower($tpl['name']))
+               . '-' . $runId . '-' . ($run['pay_date'] ?? date('Ymd')) . '.csv';
+        header('Content-Disposition: attachment; filename="' . $fname . '"');
+        $out = fopen('php://output', 'w');
+        exportTemplateRenderToStream($tplId, $rows, $out, (int) currentTenantId());
+        fclose($out);
+        payrollAudit('payroll.run.exported_template', [
+            'run_id' => $runId, 'template_id' => $tplId, 'rows' => count($rows),
+        ], $runId);
+        exit;
+    }
 
     if (!headers_sent()) {
         header('Content-Type: text/csv; charset=utf-8');

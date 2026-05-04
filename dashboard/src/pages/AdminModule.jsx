@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard, Card } from '../components/UIComponents';
-import { Building2, Users, Package, Plus, Search, Edit, Trash2, Layers } from 'lucide-react';
+import { Building2, Users, Package, Plus, Search, Edit, Trash2, Layers, FileText } from 'lucide-react';
 import SubTenantsAdmin from './SubTenantsAdmin';
+import ExportTemplatesAdmin from './ExportTemplatesAdmin';
 
 // Admin Overview
 const AdminOverview = () => (
@@ -192,6 +193,7 @@ const AdminSidebar = () => {
     { to: '/admin/sub-tenants', label: 'Sub-Tenants', icon: Layers },
     { to: '/admin/users', label: 'Users', icon: Users },
     { to: '/admin/modules', label: 'Module Access', icon: Package },
+    { to: '/admin/export-templates', label: 'Export Templates', icon: FileText },
   ];
 
   return (
@@ -227,6 +229,7 @@ const AdminModule = ({ session }) => {
           <Route path="/" element={<AdminOverview />} />
           <Route path="/tenants" element={<TenantsPage />} />
           <Route path="/sub-tenants" element={<SubTenantsAdmin session={session} />} />
+          <Route path="/export-templates" element={<ExportTemplatesAdmin session={session} />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/modules" element={<ModulesPage />} />
         </Routes>

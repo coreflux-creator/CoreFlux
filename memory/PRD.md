@@ -781,11 +781,62 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - Backend: +36 new smoke assertions in `/app/tests/payroll_phase_a1_smoke.php`. Combined suite: **29 files, 1,608+ passing / 0 failed**. Vite build green.
 
 ---
-*Last Updated: 2026-02 — P1 closeout pass. **All six closeout items shipped.**
+*Last Updated: 2026-02 — Export Templates ship; NACHA retired from UI.
 
-**1. Eager-load `config.local.php`** in `core/plaid_service.php` and
-`core/encryption.php` (file-scope, before any function declaration).
-Prevents missing-env bugs when services are required out of order.
+**New feature (per user direction):** tenant-defined CSV templates that
+apply to ALL data exports. Replaces the NACHA-file fallback.
+
+**Schema** — `core/migrations/008_export_templates.sql` adds
+`export_templates` table (scope = `platform`|`tenant`, dataset key,
+delimiter, quote_char, has_header_row, encoding, `column_mappings_json`,
+`is_system`, `based_on_template_id`). Seeds two platform presets:
+*Gusto Payroll Import (default)* + *AP Payments — Standard CSV*.
+
+**Library** — `core/export_datasets.php` declares the dataset registry
+(payroll_disbursements, ap_payments, expenses) with available source
+fields (employee_first_name … gross_pay_dollars … bank_routing_number …).
+`core/export_templates.php` exposes `exportTemplateList/Get/Create/Update/
+Delete/Clone/ParseHeaders/Render/RenderToStream`. Mappings support `kind:
+field` (read row[source_field]) and `kind: fixed` (static string).
+
+**API** — `/api/export_templates.php`:
+GET (list / single / `?action=datasets`), POST (create or
+`?action=clone&id=N` or `?action=parse_headers` for sample-CSV upload),
+PATCH (`?id=N`), DELETE (`?id=N`). Master_admin gates platform-scope
+mutations; tenant_admin gates own tenant scope.
+
+**Wire-in** — three exports honour `template_id`:
+- `/modules/payroll/api/runs.php?action=export_template&id=R&template_id=T`
+- `/modules/ap/api/payments.php?action=export_template&template_id=T&ids=…`
+- `/modules/ap/api/expenses.php?action=export_selected&template_id=T&ids=…`
+
+**UI** — `dashboard/src/pages/ExportTemplatesAdmin.jsx` at
+`/admin/export-templates` (sidebar entry added). Modal editor: name,
+dataset (locked after create), delimiter, header-row toggle, optional
+sample-CSV upload (parses headers, auto-fills mapping rows), per-row
+output_header + kind (field|fixed) + dropdown / fixed_value.
+Master_admin sees a `scope` picker to author platform-wide presets.
+`dashboard/src/components/ExportTemplatePicker.jsx` is a reusable
+dropdown wired into PaymentsList, ExpensesList, and PayrollRunDetail
+("Export via template" button).
+
+**NACHA retired:** Originate-NACHA-batch button removed from
+PaymentsList. Soft-fall-back from `paymentRailsDispatch` deleted —
+when Plaid Transfer isn't configured, callers now see "Either link a
+funding source under Treasury → Plaid, or export via Admin → Export
+Templates." Driver code retained for any tenant scripting it directly.
+
+**Build:** Vite → `index-CIMd7kPo.js` (802 kB) + reused CSS
+`index-Cwhpy62y.css`. Stale bundle pruned. `.deploy-version` stamped.
+
+**Tests:** `tests/export_templates_smoke.php` — **66 assertions ✓**.
+Updated `ap_batch_export_smoke.php` and `payment_rails_wireup_smoke.php`
+to reflect new behavior. **Total platform: 51 files, 3,064 passing /
+0 failed** (was 50 / 2,998).
+
+**Cloudways deploy:** `php deploy/run_migrations.php` once after pull —
+the runner picks up `core/migrations/008_export_templates.sql` (which
+seeds the two platform presets idempotently).*
 
 **2. Bulk-select export for ExpensesList** — sticky multi-select bar, count
 + total, "Export selected to CSV" hits new

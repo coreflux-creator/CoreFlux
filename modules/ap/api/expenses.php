@@ -34,6 +34,34 @@ if ($method === 'GET' && $action === 'export_selected') {
     if (!$ids) api_error('ids required', 400);
     if (count($ids) > 500) api_error('too many ids (max 500)', 400);
 
+    // Tenant-template-formatted CSV (preferred); falls back to the built-in
+    // raw-dump format below if no template_id is supplied.
+    $tplId = (int) ($_GET['template_id'] ?? 0);
+    if ($tplId > 0) {
+        require_once __DIR__ . '/../../../core/export_templates.php';
+        require_once __DIR__ . '/../../../core/export_datasets.php';
+        try {
+            $tpl = exportTemplateGet($tplId, $tid);
+        } catch (\Throwable $e) { api_error($e->getMessage(), 404); }
+        if ($tpl['dataset'] !== 'expenses') {
+            api_error("template's dataset must be expenses", 422);
+        }
+        $rows = exportDatasetFetchExpenses($tid, ['ids' => $ids]);
+        $stamp = date('Y-m-d');
+        $name  = preg_replace('/[^A-Za-z0-9_-]/', '-', strtolower($tpl['name']));
+        header('Content-Type: text/csv; charset=utf-8');
+        header("Content-Disposition: attachment; filename=expenses-{$name}-{$stamp}.csv");
+        $out = fopen('php://output', 'w');
+        exportTemplateRenderToStream($tplId, $rows, $out, $tid);
+        fclose($out);
+        if (function_exists('apAudit')) {
+            apAudit('ap.expense.export_selected_template', [
+                'ids' => $ids, 'template_id' => $tplId, 'rows' => count($rows),
+            ]);
+        }
+        exit;
+    }
+
     $pdo = getDB();
     $place = implode(',', array_fill(0, count($ids), '?'));
     $params = $ids;

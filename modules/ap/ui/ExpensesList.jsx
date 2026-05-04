@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 
 const STATUSES = ['', 'draft', 'submitted', 'approved', 'rejected', 'paid'];
 
@@ -43,6 +44,12 @@ export default function ExpensesList() {
     const ids = Array.from(selected).join(',');
     const url = `/modules/ap/api/expenses.php?action=export_selected&ids=${ids}`;
     window.open(url, '_blank');
+  };
+
+  const exportSelectedTpl = (tplId) => {
+    if (selected.size === 0) return null;
+    const ids = Array.from(selected).join(',');
+    return `/modules/ap/api/expenses.php?action=export_selected&template_id=${tplId}&ids=${ids}`;
   };
 
   const totalSelected = useMemo(() => {
@@ -89,12 +96,19 @@ export default function ExpensesList() {
               Clear
             </button>
             <button
-              className="btn btn--primary"
+              className="btn btn--ghost"
               onClick={exportSelected}
               data-testid="ap-expenses-bulk-export"
             >
-              Export selected to CSV
+              Export raw CSV
             </button>
+            <ExportTemplatePicker
+              dataset="expenses"
+              buildHref={exportSelectedTpl}
+              disabled={selected.size === 0}
+              label="Export via template"
+              testid="ap-expenses-bulk-export-template"
+            />
           </span>
         </div>
       )}

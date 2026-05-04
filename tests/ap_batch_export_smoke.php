@@ -60,9 +60,9 @@ $pl = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/PaymentsList.jsx')
 $a('imports useBulkSelection',                        $c($pl, "from '../../../dashboard/src/lib/useBulkSelection'"));
 $a('row-level checkbox + select-all',                 $c($pl, 'data-testid="ap-payments-select-all"')
                                                   &&  $c($pl, 'ap-payment-select-${p.id}'));
-$a('bulk-actions bar with eligible count',            $c($pl, 'data-testid="ap-payments-bulk-bar"')
-                                                  &&  $c($pl, 'eligible for NACHA batch'));
-$a('originate batch button',                          $c($pl, 'data-testid="ap-payments-originate-batch"'));
+$a('bulk-actions bar (NACHA copy intentionally removed 2026-02)',
+    $c($pl, 'data-testid="ap-payments-bulk-bar"'));
+$a('export-via-template picker present',              $c($pl, 'ExportTemplatePicker'));
 $a('export selected button',                          $c($pl, 'data-testid="ap-payments-export-selected"'));
 $a('triggers blob download for NACHA file',           $c($pl, 'new Blob') && $c($pl, 'res.nacha_filename'));
 $a('eligibility = ach|plaid + draft|queued|sent w/o rail',

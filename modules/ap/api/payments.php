@@ -23,6 +23,45 @@ $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
+if ($method === 'GET' && $action === 'export_template') {
+    RBAC::requirePermission($user, 'ap.payment.send');
+    require_once __DIR__ . '/../../../core/export_templates.php';
+    require_once __DIR__ . '/../../../core/export_datasets.php';
+
+    $tplId = (int) ($_GET['template_id'] ?? 0);
+    if (!$tplId) api_error('template_id required', 400);
+    $idsRaw = (string) ($_GET['ids'] ?? '');
+    $ids = array_values(array_filter(array_map('intval', explode(',', $idsRaw)), fn ($x) => $x > 0));
+    if (!$ids) api_error('ids required', 400);
+    if (count($ids) > 500) api_error('too many ids (max 500)', 400);
+
+    try {
+        $tpl = exportTemplateGet($tplId, $tid);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 404); }
+    if ($tpl['dataset'] !== 'ap_payments') {
+        api_error("template's dataset must be ap_payments", 422);
+    }
+
+    $rows = exportDatasetFetchApPayments($tid, ['ids' => $ids]);
+
+    if (!headers_sent()) {
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Cache-Control: no-store');
+    }
+    $stamp = date('Y-m-d');
+    $name  = preg_replace('/[^A-Za-z0-9_-]/', '-', strtolower($tpl['name']));
+    header('Content-Disposition: attachment; filename="ap-' . $name . '-' . $stamp . '.csv"');
+    $out = fopen('php://output', 'w');
+    exportTemplateRenderToStream($tplId, $rows, $out, $tid);
+    fclose($out);
+    if (function_exists('apAudit')) {
+        apAudit('ap.payments.exported_template', [
+            'ids' => $ids, 'template_id' => $tplId, 'rows' => count($rows),
+        ]);
+    }
+    exit;
+}
+
 if ($method === 'GET') {
     RBAC::requirePermission($user, 'ap.view');
     $where  = ['tenant_id = :tenant_id'];

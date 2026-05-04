@@ -35,8 +35,8 @@ $a('paymentRailsDispatch declared',            $c($h, 'function paymentRailsDisp
 $a('Decrypt validates 9-digit routing',        $c($h, 'routing must be 9 digits'));
 $a('Decrypt validates account length 4..17',   $c($h, 'account number length invalid'));
 $a('BuildItem requires positive amount_cents', $c($h, 'amount_cents must be > 0'));
-$a('Dispatch falls back to nacha when rail not configured',
-    $c($h, "rail   = 'nacha'") && $c($h, 'isConfigured()'));
+$a('Dispatch surfaces config error (no NACHA fall-back per 2026-02)',
+    $c($h, 'Admin → Export Templates') && $c($h, 'isConfigured()'));
 
 echo "\nAP — payments.php?action=originate\n";
 $ap = (string) file_get_contents(__DIR__ . '/../modules/ap/api/payments.php');

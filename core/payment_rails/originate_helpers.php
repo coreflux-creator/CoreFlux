@@ -84,13 +84,16 @@ function paymentRailsDispatch(string $module, array $sourceRow, array $settings,
     $rail   = paymentRailsResolveRail($module, $sourceRow, $settings);
     $driver = paymentRailsGetDriver($rail);
     if (!$driver->isConfigured()) {
-        // Soft-fail to NACHA so AP/Payroll never wedge if Plaid isn't wired yet.
-        if ($rail !== 'nacha') {
-            $driver = paymentRailsGetDriver('nacha');
-            $rail   = 'nacha';
-        } else {
-            throw new PaymentRailsNotConfiguredException("Rail $rail is not configured");
-        }
+        // Plaid Transfer not configured for this tenant. Per product
+        // direction (2026-02), we no longer auto-fall-back to NACHA — instead
+        // surface a clean error so the UI can prompt the tenant to either
+        // (a) link a Plaid funding source, or (b) export via a CSV template
+        // that matches their bank/payroll provider.
+        throw new PaymentRailsNotConfiguredException(
+            "Rail '$rail' is not configured for this tenant. Either link a " .
+            'funding source under Treasury → Plaid, or export your payments ' .
+            'via Admin → Export Templates and upload to your bank manually.'
+        );
     }
     $opts = [
         'company_name'    => (string) ($settings['nacha_company_name']    ?? ($module === 'payroll' ? 'PAYROLL'  : 'AP')),

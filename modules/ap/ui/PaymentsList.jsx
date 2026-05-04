@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useBulkSelection } from '../../../dashboard/src/lib/useBulkSelection';
+import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 
 export default function PaymentsList() {
   const { data, loading, error, reload } = useApi('/modules/ap/api/payments.php');
@@ -72,19 +73,15 @@ export default function PaymentsList() {
       {sel.size > 0 && (
         <div data-testid="ap-payments-bulk-bar" style={bulkBar}>
           <span><strong>{sel.size}</strong> selected</span>
-          <span style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>
-            {eligibleSelected.length}/{sel.size} eligible for NACHA batch
-          </span>
-          <button
-            className="btn btn--primary"
-            onClick={originateBatch}
-            disabled={batching || !eligibleSelected.length}
-            data-testid="ap-payments-originate-batch"
-          >
-            {batching ? 'Building NACHA…' : `Originate NACHA batch (${eligibleSelected.length})`}
-          </button>
+          <ExportTemplatePicker
+            dataset="ap_payments"
+            buildHref={(tplId) => `/modules/ap/api/payments.php?action=export_template&template_id=${tplId}&ids=${sel.ids.join(',')}`}
+            disabled={!sel.size}
+            label="Export via template"
+            testid="ap-payments-export-template"
+          />
           <button className="btn btn--ghost" onClick={exportSelected} data-testid="ap-payments-export-selected">
-            Export selected (CSV)
+            Raw CSV
           </button>
           <button className="btn btn--ghost" onClick={sel.clear} data-testid="ap-payments-clear-selection">Clear</button>
         </div>

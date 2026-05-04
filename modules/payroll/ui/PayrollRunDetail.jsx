@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
 import AISuggestion from '../../../dashboard/src/components/AISuggestion';
+import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 
 const fmtMoney = (cents) =>
   ((cents || 0) / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
@@ -428,6 +429,12 @@ function GustoSyncPanel({ run, reload, runId }) {
           data-testid="payroll-run-export-gusto"
           download
         >Download Gusto-import CSV</a>
+        <ExportTemplatePicker
+          dataset="payroll_disbursements"
+          buildHref={(tplId) => `/modules/payroll/api/runs.php?action=export_template&id=${run.id}&template_id=${tplId}`}
+          label="Export via template"
+          testid="payroll-run-export-template"
+        />
       </div>
 
       {apiConnected && !linked && (
