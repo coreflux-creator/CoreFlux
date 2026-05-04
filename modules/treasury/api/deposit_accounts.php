@@ -28,18 +28,14 @@ switch (api_method()) {
                 ba.id, ba.name, ba.gl_account_code, ba.bank_name, ba.last4,
                 ba.currency, ba.feed_provider, ba.last_feed_synced_at,
                 ba.status, ba.plaid_account_id,
-                COALESCE(SUM(
-                    CASE WHEN jel.side = 'debit' THEN jel.amount
-                         ELSE -jel.amount END
-                ), 0) AS gl_balance
+                COALESCE(SUM(jel.debit - jel.credit), 0) AS gl_balance
              FROM accounting_bank_accounts ba
              LEFT JOIN accounting_accounts aa
                ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
-             LEFT JOIN accounting_journal_entry_lines jel
-               ON jel.tenant_id = ba.tenant_id AND jel.account_id = aa.id
              LEFT JOIN accounting_journal_entries je
-               ON je.id = jel.journal_entry_id AND je.tenant_id = jel.tenant_id
-                 AND je.status = 'posted'
+               ON je.tenant_id = aa.tenant_id AND je.status = 'posted'
+             LEFT JOIN accounting_journal_entry_lines jel
+               ON jel.je_id = je.id AND jel.account_id = aa.id
              WHERE ba.tenant_id = :tenant_id AND ba.status = 'active'
              GROUP BY ba.id
              ORDER BY ba.name"

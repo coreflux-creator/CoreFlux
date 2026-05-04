@@ -27,18 +27,14 @@ switch (api_method()) {
                 aa.id, aa.code, aa.name, aa.account_type, aa.active,
                 tla.subtype, tla.last4, tla.institution_name, tla.credit_limit_cents,
                 tla.apr_bps, tla.statement_day, tla.autopay_from_bank_account_id,
-                COALESCE(SUM(
-                    CASE WHEN jel.side = 'credit' THEN jel.amount
-                         ELSE -jel.amount END
-                ), 0) AS gl_balance
+                COALESCE(SUM(jel.credit - jel.debit), 0) AS gl_balance
              FROM accounting_accounts aa
              LEFT JOIN treasury_liability_accounts tla
                ON tla.tenant_id = aa.tenant_id AND tla.account_id = aa.id
-             LEFT JOIN accounting_journal_entry_lines jel
-               ON jel.tenant_id = aa.tenant_id AND jel.account_id = aa.id
              LEFT JOIN accounting_journal_entries je
-               ON je.id = jel.journal_entry_id AND je.tenant_id = jel.tenant_id
-                 AND je.status = 'posted'
+               ON je.tenant_id = aa.tenant_id AND je.status = 'posted'
+             LEFT JOIN accounting_journal_entry_lines jel
+               ON jel.je_id = je.id AND jel.account_id = aa.id
              WHERE aa.tenant_id = :tenant_id
                AND aa.account_type = 'liability'
                AND aa.active = 1
