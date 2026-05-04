@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import RailPicker from '../../../dashboard/src/components/RailPicker';
+import GustoConnectCard from './GustoConnectCard';
 
 export default function PayrollSettings() {
   const { data: railsData, loading: railsLoading } = useApi('/core/api/payment_rails.php');
@@ -53,6 +54,8 @@ export default function PayrollSettings() {
       </header>
 
       <form onSubmit={submit} className="payroll-settings__form">
+        <GustoConnectCard />
+
         <fieldset>
           <legend>Company</legend>
           <label>

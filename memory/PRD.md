@@ -471,6 +471,17 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Gusto OAuth integration — 2026-02)
+- [x] **Gusto Embedded Payroll OAuth API** (sandbox-first; production flip is a one-line env change).
+  - Migration `004_gusto_oauth.sql`: `tenant_gusto_connections` (encrypted access+refresh tokens, `company_uuid`, env, scopes, status, last-used/refreshed/error timestamps); idempotent additive columns on `payroll_runs` (`gusto_payroll_uuid`, `gusto_submission_status`, `gusto_submitted_at`, `gusto_submitted_by_user_id`, `gusto_submission_error`).
+  - `core/gusto_service.php`: env-aware host (`api.gusto-demo.com` vs `api.gusto.com`), authorization URL builder with session-bound CSRF state (single-use, 10-min TTL), code-for-token + refresh exchanges, encrypted persistence via `encryptField`, `gustoRequest()` chokepoint with proactive 60s-pre-expiry refresh + transparent refresh-on-401 + 429 Retry-After honoring, payroll API helpers (list/get/PUT comp/calculate/submit), HMAC SHA-256 webhook verification, audit-log writer.
+  - Top-level endpoints (no router gate, mirroring Plaid): `/api/gusto_oauth_start.php` (302 redirect or JSON), `/api/gusto_oauth_callback.php` (state validation → exchange → persist → bounce to `#/modules/payroll/settings`), `/api/gusto_webhook.php` (verification-token handshake + signature verify + status sync).
+  - Module APIs: `gusto_connect.php` (GET status / DELETE soft-revoke), `gusto_submit.php` (`?action=list_unprocessed` then submit-by-uuid → PUT compensations → /calculate → /submit, two-eye gated on `payroll.run.disburse`).
+  - **Coexists with the existing CSV-paste flow**: tenants without an OAuth connection still see the "Mark synced to Gusto" form unchanged. Connected tenants see a "Submit run to Gusto" panel with a Gusto-pay-period dropdown; the CSV form auto-hides once submitted.
+  - Manifest: 12 new audit events (`payroll.gusto.{connect_initiated, connected, disconnected, token_refreshed, token_refreshed_on_401, run_submitted, run_submission_failed, webhook_received, webhook_signature_invalid, webhook_verification_received, connect_denied, connect_state_invalid, connect_exchange_failed, connect_persist_failed}`).
+  - UI: `GustoConnectCard.jsx` embedded in Payroll Settings (3 states: not configured / configured-not-connected / connected-with-disconnect), OAuth submit panel on `PayrollRunDetail` with employee_number-based matching display, success/error bounce ribbon driven by `?gusto=ok|err&reason=…&detail=…` query string.
+  - Smoke test: `tests/gusto_integration_smoke.php` — 108 assertions including pure HMAC verification round-trip, env-host switching, single-use OAuth state lifecycle, CSRF mismatch rejection, replay rejection. Full suite now **2,968 passing** (was 2,860).
+
 ## Recently completed (Payroll cycles + AI cross-checks — 2026-02)
 - [x] **Pay Cycles**: Cohort layer above pay schedules. Same schedule cadence
   (e.g. bi-weekly) can host multiple cohorts (NY engineers, CA sales, FL

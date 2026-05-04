@@ -340,6 +340,16 @@ function GustoSyncPanel({ run, reload, runId }) {
   const [err, setErr]   = React.useState(null);
   const [gid, setGid]   = React.useState('');
   const [url, setUrl]   = React.useState('');
+  const [conn, setConn] = React.useState(null);
+  const [unprocessed, setUnprocessed] = React.useState(null);
+  const [pickedUuid, setPickedUuid]   = React.useState('');
+  const [submitResult, setSubmitResult] = React.useState(null);
+
+  React.useEffect(() => {
+    api.get('/modules/payroll/api/gusto_connect.php')
+      .then((d) => setConn(d))
+      .catch(() => setConn({ configured: false, connection: null }));
+  }, []);
 
   const post = async (action, body = {}) => {
     setBusy(action); setErr(null);
@@ -352,8 +362,33 @@ function GustoSyncPanel({ run, reload, runId }) {
     } finally { setBusy(null); }
   };
 
+  const listUnprocessed = async () => {
+    setBusy('list_unprocessed'); setErr(null);
+    try {
+      const res = await api.post('/modules/payroll/api/gusto_submit.php', {
+        run_id: runId, action: 'list_unprocessed',
+      });
+      setUnprocessed(res.payrolls || []);
+      if ((res.payrolls || []).length === 1) setPickedUuid(res.payrolls[0].uuid);
+    } catch (e) { setErr(e.message); } finally { setBusy(null); }
+  };
+
+  const submitToGusto = async () => {
+    if (!pickedUuid) { setErr('Pick a Gusto payroll period first'); return; }
+    if (!window.confirm('Submit this run to Gusto? Hours, overtime, bonuses, and reimbursements will be pushed to the selected Gusto payroll period and the run will be moved to "submitted" in Gusto.')) return;
+    setBusy('submit_to_gusto'); setErr(null);
+    try {
+      const res = await api.post('/modules/payroll/api/gusto_submit.php', {
+        run_id: runId, gusto_payroll_uuid: pickedUuid,
+      });
+      setSubmitResult(res);
+      await reload();
+    } catch (e) { setErr(e.message); } finally { setBusy(null); }
+  };
+
   const linked = !!run.gusto_run_id;
   const paid   = run.gusto_status === 'paid';
+  const apiConnected = !!(conn && conn.connection && conn.connection.status === 'active');
 
   return (
     <section
@@ -394,6 +429,92 @@ function GustoSyncPanel({ run, reload, runId }) {
           download
         >Download Gusto-import CSV</a>
       </div>
+
+      {apiConnected && !linked && (
+        <div
+          data-testid="payroll-run-gusto-api-panel"
+          style={{ marginTop: 12, padding: 12, border: '1px dashed var(--cf-border, #cbd5e1)', borderRadius: 6 }}
+        >
+          <p style={{ margin: 0, fontSize: 13 }}>
+            <strong>Submit to Gusto via API</strong>{' '}
+            <span className="muted">
+              ({conn.connection.company_name || conn.connection.company_uuid.slice(0, 8) + '…'} · {conn.connection.env})
+            </span>
+          </p>
+          <p className="muted" style={{ fontSize: 12, margin: '4px 0 8px 0' }}>
+            Pushes hours + bonuses to Gusto using the OAuth connection. Run must be approved.
+            Employees match by employee_number across both systems.
+          </p>
+          {!unprocessed && (
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={listUnprocessed}
+              disabled={busy === 'list_unprocessed' || run.status === 'draft'}
+              data-testid="payroll-run-gusto-list-unprocessed-btn"
+            >
+              {busy === 'list_unprocessed' ? 'Loading Gusto periods…' : 'Find matching Gusto payroll period'}
+            </button>
+          )}
+          {unprocessed && unprocessed.length === 0 && (
+            <p className="error" data-testid="payroll-run-gusto-no-unprocessed">
+              No unprocessed Gusto payroll periods found for this date range. Check that a pay schedule exists in Gusto for this period.
+            </p>
+          )}
+          {unprocessed && unprocessed.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={{ fontSize: 12 }}>
+                <span style={{ color: 'var(--cf-text-secondary)' }}>Gusto pay period</span>
+                <select
+                  className="input"
+                  value={pickedUuid}
+                  onChange={(e) => setPickedUuid(e.target.value)}
+                  data-testid="payroll-run-gusto-period-select"
+                  style={{ display: 'block', marginTop: 4 }}
+                >
+                  <option value="">— select —</option>
+                  {unprocessed.map((p) => (
+                    <option key={p.uuid} value={p.uuid}>
+                      {p.period_start} → {p.period_end} (pay {p.pay_date})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={submitToGusto}
+                disabled={busy === 'submit_to_gusto' || !pickedUuid}
+                data-testid="payroll-run-gusto-submit-btn"
+                style={{ alignSelf: 'flex-start' }}
+              >
+                {busy === 'submit_to_gusto' ? 'Submitting to Gusto…' : 'Submit run to Gusto'}
+              </button>
+            </div>
+          )}
+          {submitResult && (
+            <p
+              className="success"
+              data-testid="payroll-run-gusto-submit-result"
+              style={{ marginTop: 8, fontSize: 12 }}
+            >
+              ✓ Submitted to Gusto · status: {submitResult.submission_status} ·{' '}
+              {submitResult.matched_employees} employee(s) matched
+              {submitResult.skipped?.length ? ` · ${submitResult.skipped.length} skipped` : ''}
+            </p>
+          )}
+        </div>
+      )}
+
+      {!apiConnected && !linked && (
+        <p
+          className="muted"
+          data-testid="payroll-run-gusto-csv-fallback-hint"
+          style={{ marginTop: 8, fontSize: 12 }}
+        >
+          Tip: connect Gusto in <em>Payroll Settings</em> to skip the CSV upload step and submit runs over the API instead.
+        </p>
+      )}
 
       {!linked && (
         <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 560 }}>
