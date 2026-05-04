@@ -28,6 +28,18 @@ CREATE TABLE IF NOT EXISTS accounting_consolidation_runs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
+-- Add journal_entry_id to billing_invoices first if it's missing — the AR
+-- posting flow (invoices.php "post" + "post_with_ic_split") writes to it,
+-- but no earlier migration created the column on production schemas.
+SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME   = 'billing_invoices'
+               AND COLUMN_NAME  = 'journal_entry_id');
+SET @sql := IF(@col = 0,
+    'ALTER TABLE billing_invoices ADD COLUMN journal_entry_id BIGINT UNSIGNED NULL, ADD INDEX idx_binv_je (tenant_id, journal_entry_id)',
+    'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- Add intercompany_group_id to billing_invoices so invoices posted via
 -- IC split are linked to their group alongside journal_entry_id.
 SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS
@@ -35,6 +47,6 @@ SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS
                AND TABLE_NAME   = 'billing_invoices'
                AND COLUMN_NAME  = 'intercompany_group_id');
 SET @sql := IF(@col = 0,
-    'ALTER TABLE billing_invoices ADD COLUMN intercompany_group_id VARCHAR(64) NULL AFTER journal_entry_id, ADD INDEX idx_binv_ic_group (tenant_id, intercompany_group_id)',
+    'ALTER TABLE billing_invoices ADD COLUMN intercompany_group_id VARCHAR(64) NULL, ADD INDEX idx_binv_ic_group (tenant_id, intercompany_group_id)',
     'DO 0');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
