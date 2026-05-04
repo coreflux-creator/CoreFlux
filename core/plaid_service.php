@@ -428,3 +428,37 @@ function plaidAudit(string $event, array $meta = [], ?int $targetId = null): voi
         error_log('[plaid.audit] ' . $event . ' write-failed: ' . $e->getMessage());
     }
 }
+
+/**
+ * Pick a unique GL account code under (tenant_id, code).
+ *   First try base (e.g. '1000'); if taken, append '-{last4}'; if still taken,
+ *   append '-{last8 of accId}'; otherwise increment a numeric suffix until free.
+ *
+ * Shared between the Plaid Link exchange path (/api/plaid_bank_link.php)
+ * and the orphan-backfill path (/api/plaid_diagnostics.php?action=backfill).
+ */
+function plaidAllocateBankGlCode(PDO $pdo, int $tenantId, string $base, ?string $mask, string $accId): string
+{
+    $candidates = [$base];
+    if ($mask) $candidates[] = $base . '-' . $mask;
+    $candidates[] = $base . '-' . substr(preg_replace('/[^A-Za-z0-9]/', '', $accId), -8);
+    $check  = $pdo->prepare('SELECT 1 FROM accounting_bank_accounts WHERE tenant_id = :t AND gl_account_code = :c LIMIT 1');
+    $check2 = $pdo->prepare('SELECT 1 FROM accounting_accounts        WHERE tenant_id = :t AND code             = :c LIMIT 1');
+    foreach ($candidates as $c) {
+        $check->execute(['t' => $tenantId, 'c' => $c]);
+        if ($check->fetchColumn()) continue;
+        $check2->execute(['t' => $tenantId, 'c' => $c]);
+        if ($check2->fetchColumn()) continue;
+        return $c;
+    }
+    for ($i = 2; $i < 100; $i++) {
+        $c = $base . '-' . $i;
+        $check->execute(['t' => $tenantId, 'c' => $c]);
+        if ($check->fetchColumn()) continue;
+        $check2->execute(['t' => $tenantId, 'c' => $c]);
+        if ($check2->fetchColumn()) continue;
+        return $c;
+    }
+    throw new RuntimeException('Could not allocate a free GL code for ' . $base);
+}
+

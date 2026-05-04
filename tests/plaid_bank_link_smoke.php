@@ -20,7 +20,13 @@ $src = file_get_contents(__DIR__ . '/../api/plaid_bank_link.php');
 $assert('endpoint exists',                   is_string($src) && strlen($src) > 200);
 $assert('action=link_token branch',          strpos($src, "action === 'link_token'") !== false);
 $assert('action=exchange branch',            strpos($src, "action === 'exchange'") !== false);
-$assert("products = ['auth','transactions']", strpos($src, "['auth', 'transactions']") !== false);
+$assert("products = ['transactions'] only (auth filters out credit cards)",
+                                             strpos($src, "['transactions']") !== false
+                                             && strpos($src, "['auth', 'transactions']") === false);
+$assert("auth attached via required_if_supported_products",
+                                             strpos($src, "'required_if_supported_products' => ['auth']") !== false);
+$assert("liabilities attached via optional_products",
+                                             strpos($src, "'optional_products'              => ['liabilities']") !== false);
 $assert('encrypts token before storage',     strpos($src, 'plaidEncryptAccessToken(') !== false);
 $assert("inserts plaid_items purpose='bank_feed'",
                                              strpos($src, "'bank_feed'") !== false);
@@ -37,8 +43,8 @@ $assert('per-account try/catch (silent failures fixed)',
                                              && substr_count($src, "} catch (\\Throwable \$e)") >= 3);
 $assert('returns errors[] to caller',        strpos($src, "'errors'") !== false);
 $assert('GL code allocator avoids unique conflict',
-                                             strpos($src, '_plaidAllocateBankGlCode(') !== false);
-$assert('GL allocator suffixes with last4',  strpos($src, "\$base . '-' . \$mask") !== false);
+                                             strpos($src, 'plaidAllocateBankGlCode(') !== false);
+$assert('GL allocator suffixes with last4',  strpos(file_get_contents(__DIR__ . '/../core/plaid_service.php'), "\$base . '-' . \$mask") !== false);
 $assert('runtime ALTER TABLE adds plaid_account_id if migration not run',
                                              strpos($src, "ADD COLUMN plaid_account_id") !== false);
 $assert('routes credit cards to subtype=credit_card',
@@ -73,6 +79,26 @@ $assert('computes orphans',                  strpos($diag, "'orphaned_plaid_acco
 $assert('guards against missing column',     strpos($diag, "AND column_name  = 'plaid_account_id'") !== false);
 $assert('PHP parses cleanly',                $lint(__DIR__ . '/../api/plaid_diagnostics.php'));
 
+// ─── Backfill action (orphan rescue) ───
+echo "/api/plaid_diagnostics.php?action=backfill\n";
+$assert('backfill action handler',           strpos($diag, "action'] ?? '') === 'backfill'") !== false);
+$assert('backfill is POST-only',             strpos($diag, "api_method() === 'POST'") !== false);
+$assert('backfill requires accounting.bank.manage perm',
+                                             strpos($diag, "'accounting.bank.manage'") !== false);
+$assert('backfill loads plaid_service for shared helpers',
+                                             strpos($diag, "require_once __DIR__ . '/../core/plaid_service.php'") !== false);
+$assert('backfill uses shared plaidAllocateBankGlCode helper',
+                                             substr_count($diag, 'plaidAllocateBankGlCode(') >= 2);
+$assert('backfill mirrors deposit orphans',  strpos($diag, 'INSERT INTO accounting_bank_accounts') !== false);
+$assert('backfill mirrors liability orphans',strpos($diag, 'INSERT INTO treasury_liability_accounts') !== false);
+$assert('backfill audits payment_rails.plaid.backfill',
+                                             strpos($diag, "'payment_rails.plaid.backfill'") !== false);
+$assert('backfill returns orphans_processed',strpos($diag, "'orphans_processed'") !== false);
+$assert('backfill returns errors[]',         strpos($diag, "'errors'") !== false);
+$assert('shared helper lives in plaid_service',
+                                             strpos(file_get_contents(__DIR__ . '/../core/plaid_service.php'),
+                                                    'function plaidAllocateBankGlCode(') !== false);
+
 // ─── Treasury UI wire-in ───
 echo "Treasury UI\n";
 $ui = file_get_contents(__DIR__ . '/../modules/treasury/ui/TreasuryOverview.jsx');
@@ -93,6 +119,20 @@ $assert('diagnostics button rendered',       strpos($ui, 'data-testid="plaid-ban
 $assert('error stack pre-line for multi-line errors',
                                              strpos($ui, "whiteSpace: 'pre-line'") !== false);
 $assert('PlaidTransferFundingCard preserved',strpos($ui, 'PlaidTransferFundingCard') !== false);
+$assert('UI surfaces orphan banner',         strpos($ui, 'data-testid="plaid-orphan-banner"') !== false);
+$assert('UI has Backfill orphans button',    strpos($ui, 'data-testid="plaid-backfill-orphans-btn"') !== false);
+$assert('UI calls backfill action',          strpos($ui, "/api/plaid_diagnostics.php?action=backfill") !== false);
+$assert('UI shows DiagStat panel',           strpos($ui, 'data-testid="plaid-diagnostics-panel"') !== false);
+
+// ─── Link token endpoint /api/plaid_link_token.php (multi-purpose) ───
+echo "/api/plaid_link_token.php\n";
+$lt = file_get_contents(__DIR__ . '/../api/plaid_link_token.php');
+$assert('bank_feed default is transactions only',
+                                             strpos($lt, "'bank_feed'        => ['transactions']") !== false);
+$assert("bank_feed adds required_if_supported auth", strpos($lt, "'required_if_supported_products'") !== false);
+$assert("bank_feed adds optional liabilities", strpos($lt, "'optional_products'") !== false && strpos($lt, "['liabilities']") !== false);
+$assert("'liabilities' added to allowed product set",
+                                             strpos($lt, "'auth','transactions','identity','liabilities'") !== false);
 
 echo "\n";
 echo "Pass: {$pass}\n";

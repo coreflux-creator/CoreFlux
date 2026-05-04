@@ -44,13 +44,25 @@ $action = (string) ($_GET['action'] ?? 'link_token');
 
 if ($action === 'link_token') {
     try {
+        // IMPORTANT: Putting 'auth' in `products` restricts Link to depository
+        // accounts only — credit cards, loans, and lines of credit are hidden
+        // (Auth only supports debitable depository accounts). For a unified
+        // read-only bank feed we want EVERY account the user authorizes
+        // (deposits + credit cards + loans), so 'transactions' is the required
+        // product and 'auth' is attached opportunistically where the
+        // institution supports it (depository accounts). 'liabilities'
+        // enrichment (APR, statement balance, min payment) is requested as
+        // optional so credit/loan accounts surface their extra data when
+        // available without blocking institutions that don't support it.
         $resp = plaidPost('/link/token/create', [
-            'client_name'   => 'CoreFlux Treasury',
-            'user'          => ['client_user_id' => 'cf_tenant_' . $tenantId . '_u' . ($user['id'] ?? 0)],
-            'language'      => 'en',
-            'country_codes' => ['US'],
-            'products'      => ['auth', 'transactions'],
-            'webhook'       => plaidWebhookUrl(),
+            'client_name'                    => 'CoreFlux Treasury',
+            'user'                           => ['client_user_id' => 'cf_tenant_' . $tenantId . '_u' . ($user['id'] ?? 0)],
+            'language'                       => 'en',
+            'country_codes'                  => ['US'],
+            'products'                       => ['transactions'],
+            'required_if_supported_products' => ['auth'],
+            'optional_products'              => ['liabilities'],
+            'webhook'                        => plaidWebhookUrl(),
         ]);
         api_ok([
             'link_token' => $resp['link_token'] ?? null,
@@ -101,7 +113,7 @@ if ($action === 'exchange') {
         'ct'   => $tokenCt,
         'iiid' => (string) ($institution['institution_id'] ?? '') ?: null,
         'iname'=> (string) ($institution['name']            ?? '') ?: null,
-        'prods'=> json_encode(['auth', 'transactions']),
+        'prods'=> json_encode(['transactions', 'auth_optional', 'liabilities_optional']),
         'u'    => (int) ($user['id'] ?? 0),
     ]);
     $stmt = $pdo->prepare(
@@ -184,7 +196,7 @@ if ($action === 'exchange') {
                 // suffix per Plaid account so multiple checking accounts don't
                 // collide on '1000'. Pattern: 1000 / 1000-{last4} / 1000-{last8 of accId}.
                 $baseCode = $subtype === 'savings' ? '1010' : '1000';
-                $glCode   = _plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);
+                $glCode   = plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);
 
                 $instLabel = $institution['name'] ?? '';
                 $bankName  = $instLabel !== '' ? $instLabel : ($name ?: 'Bank');
@@ -219,7 +231,7 @@ if ($action === 'exchange') {
 
                 $baseCode = $type === 'loan' ? '2200' : '2100';
                 $glName   = $type === 'loan' ? 'Notes Payable' : 'Credit Card Payable';
-                $glCode   = _plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);
+                $glCode   = plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);
 
                 $treasurySubtype = match (true) {
                     $subtype === 'credit card'                  => 'credit_card',
@@ -288,34 +300,5 @@ if ($action === 'exchange') {
     ]);
 }
 
-/**
- * Pick a unique GL account code under (tenant_id, code).
- *   First try base (e.g. '1000'); if taken, append '-{last4}'; if still taken,
- *   append '-{last8 of accId}'; otherwise increment a numeric suffix until free.
- */
-function _plaidAllocateBankGlCode(PDO $pdo, int $tenantId, string $base, ?string $mask, string $accId): string {
-    $candidates = [$base];
-    if ($mask) $candidates[] = $base . '-' . $mask;
-    $candidates[] = $base . '-' . substr(preg_replace('/[^A-Za-z0-9]/', '', $accId), -8);
-    $check = $pdo->prepare('SELECT 1 FROM accounting_bank_accounts WHERE tenant_id = :t AND gl_account_code = :c LIMIT 1');
-    $check2 = $pdo->prepare('SELECT 1 FROM accounting_accounts        WHERE tenant_id = :t AND code             = :c LIMIT 1');
-    foreach ($candidates as $c) {
-        $check->execute(['t' => $tenantId, 'c' => $c]);
-        if ($check->fetchColumn()) continue;
-        $check2->execute(['t' => $tenantId, 'c' => $c]);
-        if ($check2->fetchColumn()) continue;
-        return $c;
-    }
-    // Last-resort: increment numeric suffix.
-    for ($i = 2; $i < 100; $i++) {
-        $c = $base . '-' . $i;
-        $check->execute(['t' => $tenantId, 'c' => $c]);
-        if ($check->fetchColumn()) continue;
-        $check2->execute(['t' => $tenantId, 'c' => $c]);
-        if ($check2->fetchColumn()) continue;
-        return $c;
-    }
-    throw new RuntimeException('Could not allocate a free GL code for ' . $base);
-}
-
 api_error('Unknown action: ' . $action, 422);
+

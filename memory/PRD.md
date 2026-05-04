@@ -781,7 +781,70 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - Backend: +36 new smoke assertions in `/app/tests/payroll_phase_a1_smoke.php`. Combined suite: **29 files, 1,608+ passing / 0 failed**. Vite build green.
 
 ---
-*Last Updated: 2026-02 — Export Templates ship; NACHA retired from UI.
+*Last Updated: 2026-02 — Plaid Bank Link production fix + Orphan Backfill (this fork).*
+
+**Bug** — Production users connecting their bank only saw depository accounts;
+credit cards / lines-of-credit / loans were silently absent from the
+account picker AND from `plaid_accounts`. Diagnostics confirmed: 1 Plaid
+item, 1 deposit mirrored, 0 orphans (cards never came through Link at all).
+
+**Root cause** — `/api/plaid_bank_link.php` requested
+`products: ['auth','transactions']`. Plaid hides credit/loan accounts from
+Link when `auth` is in the required `products` array (Auth only supports
+debitable depository accounts — see Plaid docs "initializing-products").
+The same misconfig was duplicated in `/api/plaid_link_token.php` for the
+`bank_feed` purpose default.
+
+**Fix**
+- `/api/plaid_bank_link.php` link_token now requests
+  `products: ['transactions']`,
+  `required_if_supported_products: ['auth']` (auth attaches automatically
+  to depository accounts when supported, never blocks credit/loan),
+  `optional_products: ['liabilities']` (richer APR / statement balance /
+  min payment data on cards & loans where the institution supports it).
+- `/api/plaid_link_token.php` mirrors the same shape for `purpose=bank_feed`.
+  `'liabilities'` added to the `$allowed` product whitelist.
+- Extracted `_plaidAllocateBankGlCode()` helper from
+  `plaid_bank_link.php` into shared `/app/core/plaid_service.php` as
+  `plaidAllocateBankGlCode()` so backfill + exchange paths use one
+  collision-safe GL allocator (1000 → 1000-{last4} → 1000-{last8 of
+  acct_id} → 1000-N).
+
+**Orphan backfill** (no Plaid re-auth required)
+- `/api/plaid_diagnostics.php?action=backfill` (POST,
+  `accounting.bank.manage` perm, audited as
+  `payment_rails.plaid.backfill`) walks every row in `plaid_accounts` not
+  yet mirrored in `accounting_bank_accounts` / `treasury_liability_accounts`
+  and creates the missing rows using the cached Plaid metadata. Self-heals
+  the `plaid_account_id` column on `treasury_liability_accounts` if the
+  treasury 002 migration hasn't been run yet. Returns
+  `{orphans_processed, bank_accounts_created[], liability_accounts_created[],
+  skipped[], errors[]}`.
+- Treasury UI: clicking "Run diagnostics" now renders an inline 5-stat
+  panel (Plaid Items / Plaid Accounts / Mirrored as Deposit / Mirrored as
+  Liability / Orphaned). When orphans > 0, an amber banner lists the
+  offending accounts and exposes a one-click "Backfill N orphans" button
+  that calls the new endpoint and refreshes the panel.
+
+**Smoke tests** — `tests/plaid_bank_link_smoke.php` extended with 21 new
+assertions covering the products config, the shared helper move, the
+backfill action shape, and the inline diagnostics panel UI testids.
+Full custom suite now: **3,161 passing assertions / 0 failed**.
+
+**Vite bundle** rebuilt → `index-DXVQFtfd.js` (813 kB), 1780 modules.
+`.deploy-version` bumped + 2 new sentinels
+(`api/plaid_diagnostics.php`, `modules/treasury/migrations/002_plaid_liability_link.sql`).
+
+**User action required to see existing missing cards**
+1. Visit Treasury → click "Run diagnostics" → if orphans > 0, click
+   "Backfill N orphans". This rescues anything Plaid already returned in
+   prior connect attempts but never made it into the mirror tables.
+2. To pick up cards/loans Plaid never returned (because the old products
+   config filtered them out at the institution level), click
+   "Connect bank" again — Link now shows credit cards alongside checking
+   accounts.
+
+
 
 **New feature (per user direction):** tenant-defined CSV templates that
 apply to ALL data exports. Replaces the NACHA-file fallback.

@@ -14,6 +14,7 @@ sentinels:
 - api/tenants.php
 - api/plaid_transfer_link.php
 - api/plaid_bank_link.php
+- api/plaid_diagnostics.php
 - api/export_templates.php
 - modules/payroll/api/gusto_sync.php
 - modules/payroll/api/runs.php
@@ -52,6 +53,7 @@ sentinels:
 - modules/payroll/ui/GustoConnectCard.jsx
 - modules/treasury/manifest.php
 - modules/treasury/migrations/001_init.sql
+- modules/treasury/migrations/002_plaid_liability_link.sql
 - modules/treasury/api/deposit_accounts.php
 - modules/treasury/api/liability_accounts.php
 - modules/treasury/ui/TreasuryModule.jsx
@@ -59,13 +61,16 @@ sentinels:
 - modules/treasury/ui/DepositAccounts.jsx
 - modules/treasury/ui/LiabilityAccounts.jsx
 expected_bundle:
-- spa-assets/index-BG7d1q8w.js
+- spa-assets/index-DXVQFtfd.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
 - legacy.tenant_edit_php_redirected
 - plaid.bank_link.read_only
 - plaid.bank_link.liability_mirror
+- plaid.bank_link.products_fix_credit_cards
+- plaid.bank_link.orphan_backfill_action
+- plaid.bank_link.diagnostics_panel_inline
 - export_templates.crud
 - export_templates.platform_presets
 - export_templates.upload_sample_csv

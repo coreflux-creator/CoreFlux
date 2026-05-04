@@ -85,7 +85,7 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
         try {
             if ($type === 'depository') {
                 $base = $subtype === 'savings' ? '1010' : '1000';
-                $glCode = _plaidAllocateBankGlCodeBackfill($pdo, $tenantId, $base, $mask, $accId);
+                $glCode = plaidAllocateBankGlCode($pdo, $tenantId, $base, $mask, $accId);
                 $bankName = $instName !== '' ? $instName : ($name ?: 'Bank');
                 $insName  = trim(($instName ? "{$instName} — " : '') . ($name ?: 'Account'));
 
@@ -106,7 +106,7 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
             if ($type === 'credit' || $type === 'loan') {
                 $base = $type === 'loan' ? '2200' : '2100';
                 $defName = $type === 'loan' ? 'Notes Payable' : 'Credit Card Payable';
-                $glCode = _plaidAllocateBankGlCodeBackfill($pdo, $tenantId, $base, $mask, $accId);
+                $glCode = plaidAllocateBankGlCode($pdo, $tenantId, $base, $mask, $accId);
                 $treasurySubtype = match (true) {
                     $subtype === 'credit card'                  => 'credit_card',
                     in_array($subtype, ['line of credit'], true)=> 'line_of_credit',

@@ -41,16 +41,19 @@ RBAC::requirePermission($user, $perm);
 $products = $body['products'] ?? null;
 if (!is_array($products) || !$products) {
     // Per-purpose default: vendor/employee/funding only need 'auth' (routing+account
-    // verification). Bank feeds need 'transactions' for nightly statement pulls.
+    // verification). Bank feeds need 'transactions' for nightly statement pulls,
+    // and DELIBERATELY do not require 'auth' — Plaid hides credit cards / loans
+    // from Link when 'auth' is in required products. 'auth' is attached
+    // opportunistically via required_if_supported_products (depository only).
     $products = match ($purpose) {
-        'bank_feed'        => ['transactions','auth'],
+        'bank_feed'        => ['transactions'],
         'vendor_banking',
         'employee_banking',
         'tenant_funding'   => ['auth'],
         default            => ['auth'],
     };
 }
-$allowed  = ['auth','transactions','identity'];
+$allowed  = ['auth','transactions','identity','liabilities'];
 $products = array_values(array_intersect($allowed, array_map('strval', $products)));
 if (!$products) api_error('No valid products requested', 422);
 
@@ -61,6 +64,14 @@ $req = [
     'country_codes' => ['US'],
     'products'      => $products,
 ];
+
+// For bank_feed purpose, attach auth + liabilities opportunistically so Link
+// surfaces deposits + credit cards + loans and we get richer data per type
+// without restricting the account picker.
+if ($purpose === 'bank_feed' && !in_array('auth', $products, true)) {
+    $req['required_if_supported_products'] = ['auth'];
+    $req['optional_products']              = ['liabilities'];
+}
 $webhookUrl = (string) ($body['webhook_url'] ?? plaidWebhookUrl() ?? '');
 if ($webhookUrl !== '') $req['webhook'] = $webhookUrl;
 

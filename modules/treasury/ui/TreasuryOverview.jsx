@@ -138,6 +138,8 @@ function BankConnectCard({ onLinked }) {
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg]   = React.useState(null);
   const [err, setErr]   = React.useState(null);
+  const [diag, setDiag] = React.useState(null);
+  const [backfilling, setBackfilling] = React.useState(false);
 
   const link = async () => {
     setBusy(true); setMsg(null); setErr(null);
@@ -189,6 +191,44 @@ function BankConnectCard({ onLinked }) {
     } finally { setBusy(false); }
   };
 
+  const runDiagnostics = async () => {
+    setErr(null); setMsg(null);
+    try {
+      const res = await fetch('/api/plaid_diagnostics.php', { credentials: 'include' });
+      const data = await res.json();
+      console.log('[plaid_diagnostics]', data);
+      setDiag(data);
+    } catch (e) { setErr(e.message); }
+  };
+
+  const backfillOrphans = async () => {
+    if (!confirm('Backfill orphaned Plaid accounts into Treasury? This will create the missing deposit and liability rows from the cached Plaid account list — no Plaid re-authentication needed.')) return;
+    setBackfilling(true); setErr(null); setMsg(null);
+    try {
+      const res = await fetch('/api/plaid_diagnostics.php?action=backfill', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Backfill failed');
+      const dep = data.bank_accounts_created?.length || 0;
+      const lia = data.liability_accounts_created?.length || 0;
+      const skipped = data.skipped?.length || 0;
+      const errs = data.errors || [];
+      setMsg(`Backfilled ${dep} deposit${dep === 1 ? '' : 's'} + ${lia} liabilit${lia === 1 ? 'y' : 'ies'} (processed ${data.orphans_processed}, skipped ${skipped}).`);
+      if (errs.length) {
+        setErr('Some accounts could not be backfilled:\n• ' + errs.join('\n• '));
+      }
+      // Refresh diagnostics view
+      await runDiagnostics();
+      if ((dep || lia) && onLinked) setTimeout(onLinked, 1200);
+    } catch (e) {
+      setErr(e.error || e.message || 'Backfill failed');
+    } finally { setBackfilling(false); }
+  };
+
+  const orphanCount = diag?.orphaned_plaid_accounts?.length || 0;
+
   return (
     <div data-testid="plaid-bank-connect-card">
       <h3>Connect a bank (read-only feed)</h3>
@@ -197,34 +237,64 @@ function BankConnectCard({ onLinked }) {
         transactions auto-sync for reconciliation. Depository accounts land
         on the deposits tab; cards and loans land on the liabilities tab.
         <strong> No money moves</strong> — this is a read-only feed using
-        Plaid Auth + Transactions. To enable outbound ACH payments, use{' '}
+        Plaid Transactions (+ Auth on deposits, Liabilities on cards/loans
+        when supported). To enable outbound ACH payments, use{' '}
         <em>Outbound disbursements</em> below.
       </p>
       <button onClick={link} disabled={busy} className="btn btn--primary" data-testid="plaid-bank-connect-btn">
         {busy ? 'Opening Plaid…' : 'Connect bank'}
       </button>
       <button
-        onClick={async () => {
-          try {
-            const res = await fetch('/api/plaid_diagnostics.php', { credentials: 'include' });
-            const data = await res.json();
-            const summary = `Plaid Items: ${data.plaid_items?.length || 0}
-Plaid Accounts: ${data.plaid_accounts?.length || 0}
-Mirrored as Deposit: ${data.accounting_bank_accounts_for_plaid?.length || 0}
-Mirrored as Liability: ${data.treasury_liability_accounts_for_plaid?.length || 0}
-Orphaned (not mirrored): ${data.orphaned_plaid_accounts?.length || 0}
-
-Full payload in browser console.`;
-            console.log('[plaid_diagnostics]', data);
-            alert(summary);
-          } catch (e) { setErr(e.message); }
-        }}
+        onClick={runDiagnostics}
         className="btn btn--ghost"
         data-testid="plaid-bank-diagnostics-btn"
         style={{ marginLeft: 8 }}
       >
         Run diagnostics
       </button>
+      {diag && (
+        <div data-testid="plaid-diagnostics-panel" style={{
+          marginTop: 12, padding: 12, background: 'var(--cf-surface)',
+          border: '1px solid var(--cf-border)', borderRadius: 6, fontSize: 13,
+        }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 8 }}>
+            <DiagStat label="Plaid Items"           value={diag.plaid_items?.length || 0} />
+            <DiagStat label="Plaid Accounts"        value={diag.plaid_accounts?.length || 0} />
+            <DiagStat label="Mirrored as Deposit"   value={diag.accounting_bank_accounts_for_plaid?.length || 0} />
+            <DiagStat label="Mirrored as Liability" value={diag.treasury_liability_accounts_for_plaid?.length || 0} />
+            <DiagStat label="Orphaned (not mirrored)" value={orphanCount} warn={orphanCount > 0} />
+          </div>
+          {orphanCount > 0 && (
+            <div data-testid="plaid-orphan-banner" style={{
+              padding: 10, background: '#fef3c7', border: '1px solid #f59e0b',
+              borderRadius: 4, marginBottom: 8, color: '#78350f',
+            }}>
+              <strong>{orphanCount} Plaid account{orphanCount === 1 ? '' : 's'} not yet mirrored into Treasury.</strong>
+              {' '}One-click backfill creates the missing deposit / liability rows from the cached Plaid metadata — no re-authentication needed.
+              <ul style={{ margin: '6px 0 6px 20px', fontSize: 12 }}>
+                {(diag.orphaned_plaid_accounts || []).slice(0, 5).map((o) => (
+                  <li key={o.id}>
+                    {o.name} {o.mask ? `…${o.mask}` : ''} — <em>{o.type}/{o.subtype || '—'}</em>
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={backfillOrphans}
+                disabled={backfilling}
+                className="btn btn--primary"
+                data-testid="plaid-backfill-orphans-btn"
+              >
+                {backfilling ? 'Backfilling…' : `Backfill ${orphanCount} orphan${orphanCount === 1 ? '' : 's'}`}
+              </button>
+            </div>
+          )}
+          {orphanCount === 0 && (
+            <p style={{ margin: 0, color: '#065f46' }} data-testid="plaid-no-orphans">
+              All Plaid accounts are mirrored into Treasury. ✓
+            </p>
+          )}
+        </div>
+      )}
       {msg && <p style={{ color: '#065f46', fontSize: 13, marginTop: 8 }} data-testid="plaid-bank-connect-success">{msg}</p>}
       {err && <p className="error" data-testid="plaid-bank-connect-error" style={{ whiteSpace: 'pre-line' }}>{err}</p>}
     </div>
@@ -300,4 +370,18 @@ async function ensurePlaidLink() {
     s.onload = resolve; s.onerror = () => reject(new Error('Failed to load Plaid Link'));
     document.head.appendChild(s);
   });
+}
+
+function DiagStat({ label, value, warn }) {
+  return (
+    <div style={{
+      padding: 8, background: warn ? '#fef3c7' : 'var(--cf-bg, #fff)',
+      border: '1px solid var(--cf-border)', borderRadius: 4, textAlign: 'center',
+    }}>
+      <div style={{ fontSize: 18, fontWeight: 600, color: warn ? '#b45309' : 'inherit' }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--cf-text-muted, #666)' }}>{label}</div>
+    </div>
+  );
 }
