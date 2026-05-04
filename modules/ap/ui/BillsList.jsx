@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api'; // eslint-disable-line no-unused-vars
+import { useBulkSelection } from '../../../dashboard/src/lib/useBulkSelection';
 import BillFromTimeBundleModal from './BillFromTimeBundleModal';
 
 const STATUS_FILTERS = ['all','pending_approval','approved','partially_paid','paid','disputed','void'];
@@ -11,6 +12,15 @@ export default function BillsList() {
   const path = '/modules/ap/api/bills.php' + (status !== 'all' ? `?status=${status}` : '');
   const { data, loading, error, reload } = useApi(path);
   const rows = data?.rows ?? [];
+  const sel = useBulkSelection(rows.map(r => r.id));
+
+  const exportSelected = () => {
+    if (!sel.size) return;
+    const a = document.createElement('a');
+    a.href = `/modules/ap/api/export.php?type=bills&ids=${sel.ids.join(',')}`;
+    a.rel  = 'noopener';
+    a.click();
+  };
 
   return (
     <section data-testid="ap-bills-list">
@@ -38,15 +48,50 @@ export default function BillsList() {
         </div>
       </div>
 
+      {sel.size > 0 && (
+        <div data-testid="ap-bills-bulk-bar" style={billsBulkBar}>
+          <span><strong>{sel.size}</strong> selected</span>
+          <button className="btn btn--primary" onClick={exportSelected} data-testid="ap-bills-export-selected">
+            Export selected (CSV)
+          </button>
+          <button className="btn btn--ghost" onClick={sel.clear} data-testid="ap-bills-clear-selection">Clear</button>
+        </div>
+      )}
+
       {loading && <p>Loading…</p>}
       {error && <p className="error" data-testid="ap-bills-error">Error: {error.message}</p>}
 
       <table className="data-table" data-testid="ap-bills-table">
-        <thead><tr><th>Ref</th><th>Vendor</th><th>Type</th><th>Bill date</th><th>Due</th><th style={{textAlign:'right'}}>Total</th><th style={{textAlign:'right'}}>Due</th><th>Status</th></tr></thead>
+        <thead>
+          <tr>
+            <th style={{ width: 32 }}>
+              <input
+                type="checkbox"
+                checked={sel.allSelected}
+                ref={el => { if (el) el.indeterminate = sel.someSelected; }}
+                onChange={sel.toggleAll}
+                disabled={!rows.length}
+                data-testid="ap-bills-select-all"
+              />
+            </th>
+            <th>Ref</th><th>Vendor</th><th>Type</th><th>Bill date</th><th>Due</th>
+            <th style={{textAlign:'right'}}>Total</th>
+            <th style={{textAlign:'right'}}>Due</th>
+            <th>Status</th>
+          </tr>
+        </thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={8} className="empty" data-testid="ap-bills-empty">No bills yet.</td></tr>}
+          {rows.length === 0 && !loading && <tr><td colSpan={9} className="empty" data-testid="ap-bills-empty">No bills yet.</td></tr>}
           {rows.map(r => (
-            <tr key={r.id} data-testid={`ap-bill-row-${r.id}`}>
+            <tr key={r.id} data-testid={`ap-bill-row-${r.id}`} style={sel.has(r.id) ? { background: 'var(--cf-surface-alt, #f9fafb)' } : null}>
+              <td>
+                <input
+                  type="checkbox"
+                  checked={sel.has(r.id)}
+                  onChange={() => sel.toggle(r.id)}
+                  data-testid={`ap-bill-select-${r.id}`}
+                />
+              </td>
               <td><Link to={`/modules/ap/bills/${r.id}`} data-testid={`ap-bill-link-${r.id}`}>{r.internal_ref}</Link></td>
               <td>{r.vendor_name}</td>
               <td><span className="badge">{r.vendor_type}</span></td>
@@ -69,3 +114,9 @@ export default function BillsList() {
     </section>
   );
 }
+
+const billsBulkBar = {
+  display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+  background: 'var(--cf-surface-alt, #f3f4f6)', borderRadius: 8,
+  marginBottom: 12, flexWrap: 'wrap',
+};

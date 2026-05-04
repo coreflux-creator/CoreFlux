@@ -121,6 +121,142 @@ if ($method === 'POST' && $action === 'send') {
     api_ok(['ok' => true]);
 }
 
+if ($method === 'POST' && $action === 'originate_batch') {
+    RBAC::requirePermission($user, 'ap.payment.send');
+    $body = api_json_body();
+    $ids  = array_values(array_unique(array_filter(array_map('intval', (array) ($body['ids'] ?? [])))));
+    if (!$ids)               api_error('ids[] required', 422);
+    if (count($ids) > 500)   api_error('Batch limited to 500 payments per file', 422);
+
+    $pdo = getDB();
+    $place = implode(',', array_fill(0, count($ids), '?'));
+    $stmt  = $pdo->prepare(
+        "SELECT * FROM ap_payments
+         WHERE tenant_id = ? AND id IN ($place) ORDER BY id"
+    );
+    $stmt->execute(array_merge([$tid], $ids));
+    $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    if (count($rows) !== count($ids)) {
+        api_error('Some ids not found in this tenant', 404, [
+            'requested' => $ids, 'found' => array_column($rows, 'id'),
+        ]);
+    }
+
+    // Validate state transitions up-front so we never half-originate a batch.
+    foreach ($rows as $r) {
+        if ($r['status'] === 'sent' && empty($r['rail_external_ref'])) {
+            // OK — already sent, just hasn't been originated yet.
+        } elseif ($r['status'] === 'draft' || $r['status'] === 'queued') {
+            // OK — will transition to sent as part of this batch.
+        } else {
+            api_error("Payment #{$r['id']} not eligible (status={$r['status']}, rail_ref="
+                . ($r['rail_external_ref'] ?: 'none') . ')', 409);
+        }
+        if (!in_array($r['method'], ['ach','plaid'], true)) {
+            api_error("Payment #{$r['id']} method={$r['method']} not eligible (must be ach|plaid)", 422);
+        }
+    }
+
+    // Build all RailItems before opening the transaction. Any failure here =>
+    // 422, no DB writes — the user retries after fixing vendor banking.
+    $items   = [];
+    $vendors = [];
+    foreach ($rows as $r) {
+        $vname = $r['vendor_name'];
+        if (!isset($vendors[$vname])) {
+            $v = scopedFind(
+                'SELECT vendor_type, payment_routing_ct, payment_account_ct, payment_account_type
+                 FROM ap_vendors_index WHERE tenant_id = :tenant_id AND vendor_name = :vn LIMIT 1',
+                ['vn' => $vname]
+            );
+            if (!$v) api_error("Vendor '$vname' not found in vendor index (payment #{$r['id']})", 422);
+            $vendors[$vname] = $v;
+        }
+        $v = $vendors[$vname];
+        try {
+            $bank = paymentRailsDecryptBank(
+                $v['payment_routing_ct'] ?? null, $v['payment_account_ct'] ?? null,
+                "vendor $vname (payment #{$r['id']})"
+            );
+        } catch (\Throwable $e) {
+            api_error($e->getMessage(), 422);
+        }
+        $items[] = paymentRailsBuildItem([
+            'external_ref'   => 'ap_payment:' . $r['id'],
+            'recipient_name' => (string) $vname,
+            'routing'        => $bank['routing'],
+            'account'        => $bank['account'],
+            'account_type'   => $v['payment_account_type'] ?: 'checking',
+            'amount_cents'   => (int) round(((float) $r['amount']) * 100),
+            'sec_code'       => $v['vendor_type'] === '1099_individual' ? 'ppd' : 'ccd',
+            'description'    => 'AP-PAY',
+        ]);
+    }
+
+    $settings = scopedFind('SELECT * FROM ap_settings WHERE tenant_id = :tenant_id LIMIT 1') ?: [];
+    try {
+        $res = paymentRailsDispatch('ap', ['effective_date' => date('Y-m-d', strtotime('+1 day'))], $settings, $items);
+    } catch (PaymentRailsOriginateException $e) {
+        apAudit('ap.payment.batch_originate_failed', [
+            'count' => count($ids), 'ids' => $ids, 'error' => $e->getMessage(),
+        ]);
+        api_error($e->getMessage(), 422);
+    }
+
+    // Atomic persist: every payment in the batch flips together or none do.
+    $pdo->beginTransaction();
+    try {
+        $upd = $pdo->prepare(
+            'UPDATE ap_payments
+             SET status              = "sent",
+                 disbursement_rail   = :r,
+                 rail_external_ref   = :x,
+                 rail_status         = :s,
+                 rail_originated_at  = NOW()
+             WHERE tenant_id = :t AND id = :id'
+        );
+        $byRef = [];
+        foreach ($res['items'] as $it) $byRef[$it['external_ref']] = $it;
+        foreach ($rows as $r) {
+            $itemRes = $byRef['ap_payment:' . $r['id']] ?? ['status' => $res['status'] ?? 'submitted', 'rail_external_ref' => $res['batch_id']];
+            $upd->execute([
+                'r'  => $res['rail'],
+                'x'  => $itemRes['rail_external_ref'] ?? $res['batch_id'],
+                's'  => $itemRes['status']            ?? 'submitted',
+                't'  => $tid,
+                'id' => $r['id'],
+            ]);
+        }
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        $pdo->rollBack();
+        apAudit('ap.payment.batch_originate_failed', [
+            'count' => count($ids), 'ids' => $ids, 'error' => 'persist: ' . $e->getMessage(),
+        ]);
+        api_error('Persist failed: ' . $e->getMessage(), 500);
+    }
+
+    apAudit('ap.payment.batch_originated', [
+        'count'    => count($ids), 'ids' => $ids,
+        'rail'     => $res['rail'], 'batch_id' => $res['batch_id'],
+        'amount_total' => array_sum(array_map(fn($r) => (float) $r['amount'], $rows)),
+    ]);
+
+    $resp = [
+        'ok'          => true,
+        'rail'        => $res['rail'],
+        'batch_id'    => $res['batch_id'],
+        'item_count'  => count($items),
+        'amount_total'=> array_sum(array_map(fn($r) => (float) $r['amount'], $rows)),
+    ];
+    if ($res['rail'] === 'nacha' && !empty($res['payload']['content'])) {
+        $resp['nacha_file_b64'] = base64_encode((string) $res['payload']['content']);
+        $resp['nacha_filename'] = $res['payload']['filename']
+            ?? sprintf('ap-batch-%s-%d.ach', date('Ymd-His'), count($ids));
+    }
+    api_ok($resp);
+}
+
 if ($method === 'POST' && $action === 'originate') {
     RBAC::requirePermission($user, 'ap.payment.send');
     $id  = (int) ($_GET['id'] ?? 0);

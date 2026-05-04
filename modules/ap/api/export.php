@@ -32,6 +32,20 @@ $from   = $_GET['from'] ?? null;
 $to     = $_GET['to']   ?? null;
 $year   = (int) ($_GET['tax_year'] ?? date('Y'));
 
+// Bulk-select: optional ?ids=1,2,3 — restricts to specific row ids.
+// When present, from/to are still applied (defense in depth) but ids drive
+// the result. Cap at 1000 to avoid pathological URLs.
+$idsRaw = trim((string) ($_GET['ids'] ?? ''));
+$ids    = [];
+if ($idsRaw !== '') {
+    foreach (explode(',', $idsRaw) as $tok) {
+        $n = (int) trim($tok);
+        if ($n > 0) $ids[] = $n;
+    }
+    $ids = array_values(array_unique($ids));
+    if (count($ids) > 1000) api_error('ids list too large (max 1000)', 422);
+}
+
 /**
  * Stream a CSV directly to the client.
  * @param string $filename
@@ -65,6 +79,11 @@ if ($type === 'bills') {
     $params = ['tid' => $tid];
     if ($from) { $where[] = 'bill_date >= :from'; $params['from'] = $from; }
     if ($to)   { $where[] = 'bill_date <= :to';   $params['to']   = $to; }
+    if ($ids) {
+        $place  = [];
+        foreach ($ids as $i => $n) { $key = "id$i"; $place[] = ":$key"; $params[$key] = $n; }
+        $where[] = 'id IN (' . implode(',', $place) . ')';
+    }
     $stmt = $db->prepare('SELECT id, bill_number, internal_ref, vendor_name, vendor_type, source,
                                  bill_date, due_date, currency, subtotal, tax_total, total,
                                  amount_paid, amount_due, status, po_number, placement_id, journal_entry_id
@@ -82,6 +101,11 @@ if ($type === 'payments') {
     $params = ['tid' => $tid];
     if ($from) { $where[] = 'pay_date >= :from'; $params['from'] = $from; }
     if ($to)   { $where[] = 'pay_date <= :to';   $params['to']   = $to; }
+    if ($ids) {
+        $place = [];
+        foreach ($ids as $i => $n) { $key = "id$i"; $place[] = ":$key"; $params[$key] = $n; }
+        $where[] = 'id IN (' . implode(',', $place) . ')';
+    }
     $stmt = $db->prepare('SELECT id, vendor_name, pay_date, method, reference, amount, currency,
                                  bank_account_id, status, cleared_at, journal_entry_id
                           FROM ap_payments WHERE ' . implode(' AND ', $where) . ' ORDER BY pay_date, id');
@@ -97,6 +121,12 @@ if ($type === 'expenses') {
     $params = ['tid' => $tid];
     if ($from) { $where[] = 'erl.expense_date >= :from'; $params['from'] = $from; }
     if ($to)   { $where[] = 'erl.expense_date <= :to';   $params['to']   = $to; }
+    if ($ids) {
+        // ids are line_ids when restricting expenses (one row per line).
+        $place = [];
+        foreach ($ids as $i => $n) { $key = "id$i"; $place[] = ":$key"; $params[$key] = $n; }
+        $where[] = 'erl.id IN (' . implode(',', $place) . ')';
+    }
     $stmt = $db->prepare(
         'SELECT er.id AS report_id, er.period_label, er.status AS report_status, er.submitter_user_id,
                 erl.id AS line_id, erl.expense_date, erl.category, erl.merchant, erl.amount, erl.currency,

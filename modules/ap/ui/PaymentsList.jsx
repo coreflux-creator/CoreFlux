@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { useBulkSelection } from '../../../dashboard/src/lib/useBulkSelection';
 
 export default function PaymentsList() {
   const { data, loading, error, reload } = useApi('/modules/ap/api/payments.php');
@@ -7,6 +8,51 @@ export default function PaymentsList() {
   const plaidEnabled = !!data?.plaid_enabled;
   const [showRecord, setShowRecord] = useState(false);
   const [showAllocate, setShowAllocate] = useState(null); // payment row
+  const [batching, setBatching]   = useState(false);
+  const [batchErr, setBatchErr]   = useState(null);
+  const [batchInfo, setBatchInfo] = useState(null);
+
+  const sel = useBulkSelection(rows.map(r => r.id));
+
+  // Eligibility for NACHA batch: ach|plaid method, status draft|queued|sent (without rail_external_ref).
+  const isOriginatable = (p) =>
+    ['ach','plaid'].includes(p.method) &&
+    (['draft','queued'].includes(p.status) || (p.status === 'sent' && !p.rail_external_ref));
+
+  const eligibleSelected = rows.filter(p => sel.has(p.id) && isOriginatable(p));
+
+  const exportSelected = () => {
+    if (!sel.size) return;
+    const a = document.createElement('a');
+    a.href = `/modules/ap/api/export.php?type=payments&ids=${sel.ids.join(',')}`;
+    a.rel  = 'noopener';
+    a.click();
+  };
+
+  const originateBatch = async () => {
+    if (!eligibleSelected.length) return;
+    setBatching(true); setBatchErr(null); setBatchInfo(null);
+    try {
+      const res = await api.post('/modules/ap/api/payments.php?action=originate_batch', {
+        ids: eligibleSelected.map(p => p.id),
+      });
+      // Trigger NACHA file download from the base64 payload.
+      if (res?.nacha_file_b64) {
+        const bin = atob(res.nacha_file_b64);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        const blob = new Blob([arr], { type: 'application/octet-stream' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = res.nacha_filename || 'ap-batch.ach'; a.click();
+        URL.revokeObjectURL(url);
+      }
+      setBatchInfo(res);
+      sel.clear();
+      reload();
+    } catch (e) { setBatchErr(e); }
+    finally { setBatching(false); }
+  };
 
   return (
     <section data-testid="ap-payments-list">
@@ -22,15 +68,69 @@ export default function PaymentsList() {
         <button className="btn btn--primary" onClick={() => setShowRecord(true)} data-testid="ap-record-payment">Record payment</button>
       </div>
 
+      {/* Bulk-actions toolbar — appears whenever any row is checked */}
+      {sel.size > 0 && (
+        <div data-testid="ap-payments-bulk-bar" style={bulkBar}>
+          <span><strong>{sel.size}</strong> selected</span>
+          <span style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>
+            {eligibleSelected.length}/{sel.size} eligible for NACHA batch
+          </span>
+          <button
+            className="btn btn--primary"
+            onClick={originateBatch}
+            disabled={batching || !eligibleSelected.length}
+            data-testid="ap-payments-originate-batch"
+          >
+            {batching ? 'Building NACHA…' : `Originate NACHA batch (${eligibleSelected.length})`}
+          </button>
+          <button className="btn btn--ghost" onClick={exportSelected} data-testid="ap-payments-export-selected">
+            Export selected (CSV)
+          </button>
+          <button className="btn btn--ghost" onClick={sel.clear} data-testid="ap-payments-clear-selection">Clear</button>
+        </div>
+      )}
+      {batchErr && <p className="error" data-testid="ap-payments-batch-error">Batch failed: {batchErr.message}</p>}
+      {batchInfo && (
+        <p data-testid="ap-payments-batch-success" style={{ background: '#ecfdf5', color: '#065f46', padding: 8, borderRadius: 6, fontSize: 13 }}>
+          ✓ Batch originated — rail={batchInfo.rail}, batch_id={batchInfo.batch_id}, items={batchInfo.item_count}, total=${Number(batchInfo.amount_total).toFixed(2)}
+          {batchInfo.nacha_filename && <> · file: <code>{batchInfo.nacha_filename}</code></>}
+        </p>
+      )}
+
       {loading && <p>Loading…</p>}
       {error && <p className="error">Error: {error.message}</p>}
 
       <table className="data-table" data-testid="ap-payments-table">
-        <thead><tr><th>#</th><th>Vendor</th><th>Date</th><th>Method</th><th>Ref</th><th style={{textAlign:'right'}}>Amount</th><th style={{textAlign:'right'}}>Unallocated</th><th>Status</th><th></th></tr></thead>
+        <thead>
+          <tr>
+            <th style={{ width: 32 }}>
+              <input
+                type="checkbox"
+                checked={sel.allSelected}
+                ref={el => { if (el) el.indeterminate = sel.someSelected; }}
+                onChange={sel.toggleAll}
+                data-testid="ap-payments-select-all"
+                disabled={!rows.length}
+              />
+            </th>
+            <th>#</th><th>Vendor</th><th>Date</th><th>Method</th><th>Ref</th>
+            <th style={{textAlign:'right'}}>Amount</th>
+            <th style={{textAlign:'right'}}>Unallocated</th>
+            <th>Status</th><th>Rail</th><th></th>
+          </tr>
+        </thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={9} className="empty" data-testid="ap-payments-empty">No payments yet.</td></tr>}
+          {rows.length === 0 && !loading && <tr><td colSpan={11} className="empty" data-testid="ap-payments-empty">No payments yet.</td></tr>}
           {rows.map(p => (
-            <tr key={p.id} data-testid={`ap-payment-row-${p.id}`}>
+            <tr key={p.id} data-testid={`ap-payment-row-${p.id}`} style={sel.has(p.id) ? { background: 'var(--cf-surface-alt, #f9fafb)' } : null}>
+              <td>
+                <input
+                  type="checkbox"
+                  checked={sel.has(p.id)}
+                  onChange={() => sel.toggle(p.id)}
+                  data-testid={`ap-payment-select-${p.id}`}
+                />
+              </td>
               <td>#{p.id}</td>
               <td>{p.vendor_name}</td>
               <td>{p.pay_date}</td>
@@ -39,6 +139,11 @@ export default function PaymentsList() {
               <td style={{textAlign:'right'}}>{Number(p.amount).toFixed(2)} {p.currency}</td>
               <td style={{textAlign:'right'}}>{Number(p.unallocated_amount).toFixed(2)}</td>
               <td><span className={`badge badge--${p.status}`}>{p.status}</span></td>
+              <td style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>
+                {p.disbursement_rail
+                  ? <><span className="badge">{p.disbursement_rail}</span> {p.rail_status || ''}</>
+                  : '—'}
+              </td>
               <td>
                 {Number(p.unallocated_amount) > 0 && (
                   <button className="btn btn--ghost" data-testid={`ap-allocate-open-${p.id}`} onClick={() => setShowAllocate(p)}>Allocate</button>
@@ -54,6 +159,12 @@ export default function PaymentsList() {
     </section>
   );
 }
+
+const bulkBar = {
+  display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+  background: 'var(--cf-surface-alt, #f3f4f6)', borderRadius: 8,
+  marginBottom: 12, flexWrap: 'wrap',
+};
 
 function RecordPaymentModal({ onClose, onCreated, plaidEnabled }) {
   const [form, setForm] = useState({
