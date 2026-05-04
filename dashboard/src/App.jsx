@@ -135,10 +135,21 @@ const DEMO_SESSION = {
         { name: 'Financial Reports',    route: 'reports' },
         { name: 'Audit Log',            route: 'audit' },
       ]
+    },
+    {
+      id: 'payroll',
+      name: 'Payroll',
+      icon: '/assets/icons/icon-payroll.png',
+      description: 'W-2 employee compensation runs — pay schedules, periods, profiles, runs, paystubs, NACHA disbursement.',
+      actions: [
+        { name: 'Overview',       route: 'overview' },
+        { name: 'Pay Schedules',  route: 'pay_schedules' },
+        { name: 'Pay Periods',    route: 'pay_periods' },
+        { name: 'Employee Setup', route: 'profiles' },
+        { name: 'Runs',           route: 'runs' },
+        { name: 'Settings',       route: 'settings' },
+      ]
     }
-    // Payroll module is approved per HARD_RULES (Phase B / "soon" priority)
-    // but the React UI was built before spec sign-off and will be rebuilt.
-    // Sidebar entry omitted until the spec'd implementation ships.
   ],
   active_module: null
 };

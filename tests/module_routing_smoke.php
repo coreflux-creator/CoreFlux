@@ -49,6 +49,15 @@ foreach (['people','placements','time','billing','ap','accounting','payroll'] as
 $a('No commented-out payroll route in App.jsx',
     !preg_match('#/\*\s*<Route\s+path="/modules/payroll/\*"#', $app));
 
+// DEMO_SESSION fallback (used when /session.php is unreachable) must list
+// every catalog module so admin previews show the same nav as production.
+foreach (['people','placements','time','billing','ap','accounting','payroll'] as $m) {
+    $a("DEMO_SESSION includes id: '$m'",
+        preg_match("#id:\\s*'$m'#", $app) === 1);
+}
+$a('No "Payroll module ... omitted" stale comment',
+    !preg_match('#Payroll module is approved.*omitted#s', $app));
+
 // Built bundle carries every route.
 $bundles = glob(__DIR__ . '/../spa-assets/index-*.js');
 $bundle  = $bundles ? (string) file_get_contents($bundles[0]) : '';
