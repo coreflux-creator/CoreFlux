@@ -781,7 +781,21 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - Backend: +36 new smoke assertions in `/app/tests/payroll_phase_a1_smoke.php`. Combined suite: **29 files, 1,608+ passing / 0 failed**. Vite build green.
 
 ---
-*Last Updated: 2026-02 — Payroll Phase A1 shipped (Gusto CSV extract, audit CSV, AI anomaly flags on `<AISuggestion />`).*
+*Last Updated: 2026-02 — True Sub-Tenant Provisioning foundation shipped (P1).
+Migration `007_subtenant_provisioning.sql` adds `tenants.tenant_type`
+(`master`/`sub`), `tenants.is_active`, `user_tenants.last_active_at`,
+plus `tenant_module_scope` and `tenant_provisioning_log` tables.
+`core/sub_tenants.php` exposes `effectiveTenantIdForModule()`,
+`subTenantProvision/Deactivate/ScopeSet/ScopeMap/TouchLastActive/LastActiveFor`.
+Defaults per user: people / placements / companies / crm = `shared`,
+billing / ap / accounting / payroll / treasury / time / tax = `isolated`.
+`/api/sub_tenants.php` covers list / create / patch / delete / scope GET+PATCH /
+session switch, gated to master_admin or parent's tenant_admin.
+`switch_tenant.php` rewritten to set `$_SESSION['tenant_id']`, stamp
+`last_active_at`, whitelist `?next=` redirect, reject inactive tenants.
+Smoke test `tests/sub_tenant_provisioning_smoke.php` — 63 assertions ✓.
+**2,948 platform smoke assertions passing.** SPA UI for sub-tenant CRUD +
+scope toggle + login picker is the next slice.*
 
 *2026-02 — Payroll: Sync-to-Gusto server-side polish:*
 - **Migration `002_gusto_sync.sql`** adds `gusto_run_id`, `gusto_payroll_url`, `gusto_status` (`linked`/`submitted`/`paid`/`voided`), `gusto_synced_at`, `gusto_synced_by`, `gusto_paid_at` to `payroll_runs`, plus `idx_run_tenant_gusto`. All nullable + idempotent — runs that never hit Gusto behave identically to before.
