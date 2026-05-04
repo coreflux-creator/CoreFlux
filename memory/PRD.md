@@ -967,3 +967,44 @@ Path-B architectural decision: customer uses ONE CoreFlux tenant per legal famil
 
 ---
 *Last Updated: 2026-02 — Phase 2 A.7 shipped: ownership relationships + consolidated IS/BS/TB with in-query intercompany eliminations. Foundations for per-entity AR/HR/AP via new entity_id columns.*
+
+
+---
+*2026-02 — Accounting Phase 2 Sprint A.8 (Consolidation lock + NCI + Entity pickers + AR IC split):*
+- **Migration `008_consolidation_runs.sql`** — `accounting_consolidation_runs` table (locked snapshot of IS/BS/TB payloads with `payload_json` LONGTEXT, `status` enum locked/reversed/draft, `period_from`/`period_to`, `entity_ids_json`, `root_entity_id`, `locked_at`/`reversed_at`/`reverse_reason`/`ai_narrative_generated_at`). Adds `intercompany_group_id` on `billing_invoices` for cross-entity AR splits.
+- **Consolidation lock workflow** in `lib/consolidation.php`:
+  - `consolidationLockRun` — computes the consolidated payload (delegating to existing IS/BS/TB engines) and persists a locked JSON snapshot with audit `accounting.consolidation.run_locked`. Falls back to root_entity_id descendant tree when explicit entity_ids aren't supplied.
+  - `consolidationReverseRun` — reverses locked → reversed; requires explicit reason; emits `accounting.consolidation.run_reversed`.
+  - `consolidationListRuns` / `consolidationGetRun` — listing + detail with eager-decoded JSON.
+- **NCI breakout on Balance Sheet** — `consolidateBalanceSheet` now queries each in-scope entity's effective ownership edge, computes `(100 − pct)%` of standalone equity as `nci_equity` (with `nci_detail` array), and exposes `controlling_equity` separately. Skips fully-owned (pct=100) and non-`full` consolidation methods.
+- **Period-reopen auto-reverse** — `api/periods.php` reopen handler scans for `accounting_consolidation_runs.status = 'locked'` overlapping the reopened period and auto-reverses each with reason "Period reopened: …", auditing `accounting.consolidation.runs_auto_reversed`.
+- **API** `consolidation_runs.php` — GET list / GET id / POST?action=lock / POST?action=reverse with `accounting.reports.view` (read) and `accounting.reports.export` (write) guards.
+- **AR Intercompany Split** — new `POST /api/billing/invoices?action=post_with_ic_split` mirroring the AP/JE split engine. Posts AR-debit (money owed TO us) on multiple entities sharing one `intercompany_group_id`; idempotent via `idempotency_key='ic:invoice:<id>'`; audits `billing.invoice.posted_ic`.
+- **Entity pickers on create flows** — `EntityPicker.jsx` (shared) added to `BillCreate.jsx`, `InvoiceCreate.jsx`, `PersonCreate.jsx`. Backends (`ap/api/bills.php`, `billing/api/invoices.php`, `people/api/people.php`) all accept `entity_id` on insert.
+- **UI** `Consolidation.jsx` — "🔒 Lock & publish" button, past-runs table with per-run reverse, "Controlling equity" + "NCI equity" rows on the Balance Sheet view.
+- Backend: +61 assertions in `accounting_phase2_a8_smoke.php`. Combined suite: **2,418 passing / 0 failed**.
+
+*2026-02 — Payment Rails wire-up (P1 sprint 1):*
+- **Migration `ap/009_vendor_routing.sql`** — adds `payment_routing_ct VARBINARY(512)` + `payment_routing_last4 CHAR(4)` + `payment_account_type ENUM('checking','savings')` on `ap_vendors_index` (idempotent, utf8mb4_unicode_ci).
+- **Shared helper `core/payment_rails/originate_helpers.php`**:
+  - `paymentRailsDecryptBank($routingCt, $accountCt, $context)` — AES-GCM decrypt, validate 9-digit ABA + 4..17-char account, return `[routing, account, last4_acct]`. Clear non-PII errors.
+  - `paymentRailsBuildItem($row)` — coerce a per-module dict into the canonical RailItem shape (recipient ≤22 chars, description ≤10 chars, account_type whitelisted, amount_cents > 0).
+  - `paymentRailsDispatch($module, $sourceRow, $settings, $items)` — resolves rail via `paymentRailsResolveRail`, soft-falls-back to NACHA when the chosen rail isn't configured (so AP/Payroll never wedge while Plaid is in pre-approval).
+- **AP** `POST /api/ap/payments?action=originate&id=N` — single payment for one vendor, decrypts vendor banking, picks SEC code (PPD for `1099_individual`, CCD otherwise), dispatches a 1-item batch, persists `disbursement_rail` / `rail_external_ref` / `rail_status` / `rail_originated_at` on `ap_payments`. Returns NACHA file as `nacha_file_b64` (+ `nacha_filename`) when rail=nacha. Audits `ap.payment.originated` / `ap.payment.originate_failed`. Idempotent (refuses if already originated).
+- **Payroll** `POST /api/payroll/runs` action=originate — joins `payroll_line_items` × `people_employees` × `people_bank_accounts` (priority-1 active), decrypts each employee's primary bank, builds PPD batch, skips check / no-bank / zero-net items with structured `skipped[]` reasons, dispatches batch through chosen rail, persists rail metadata on `payroll_runs`. Audits `payroll.run.originated` / `payroll.run.originate_failed`. Two-eye: requires `payroll.run.disburse`, `status=approved`.
+- **AP `vendors.php`** now accepts `payment_routing_full` (encrypted on write) + `payment_account_type` on vendor create/upsert.
+- **Manifests**: 4 new audit events (`ap.payment.originated`, `ap.payment.originate_failed`, `payroll.run.originated`, `payroll.run.originate_failed`).
+- New smoke `payment_rails_wireup_smoke.php` (60 assertions). **Combined suite: 2,478 passing / 0 failed across 38 files**.
+
+---
+*Last Updated: 2026-02 — Sprint A.8 shipped (consolidation lock + NCI + AR IC split + entity pickers). PaymentRails wired into AP + Payroll with NACHA driver as zero-key default; Plaid Transfer driver still scaffolded (awaiting tenant API keys).*
+
+## Open / Pending P1
+- **Plaid Transfer go-live** — needs tenant-supplied `PLAID_CLIENT_ID` / `PLAID_SECRET_*` / `PLAID_ENV` + Transfer pre-approval. Driver scaffold is in place; once keys land, the per-tenant `tenant_payment_rails` row gets populated and `disbursement_rail='plaid_transfer'` flips on without any consumer-code changes.
+- **True sub-tenant provisioning** (Path B) — multi-sprint: `parent_tenant_id` on `tenants`, sub-tenant create flow under master login, per-sub-tenant module mirroring (HR/AP/Payroll fully isolated), cross-tenant intercompany posting, master-admin tenant switcher + consolidated dashboards.
+
+## P2 Backlog
+- Time Module Phase B Slice 2b/2c/2d
+- Billing Phase A1 (server-side PDF)
+- Gusto OAuth API adapter
+
