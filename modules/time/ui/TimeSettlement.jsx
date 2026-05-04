@@ -58,6 +58,13 @@ function SettlementBoard({ target }) {
   const [err, setErr]                 = useState(null);
   const [success, setSuccess]         = useState(null);
 
+  // AI suggestions panel state.
+  const [aiBusy, setAiBusy]         = useState(false);
+  const [aiSugs, setAiSugs]         = useState(null);    // {suggestions, advisories, ai_used}
+  const [aiErr, setAiErr]           = useState(null);
+
+  const supportsAutoCreate = target === 'billing' || target === 'ap';
+
   const qs = useMemo(() => {
     const p = new URLSearchParams({ target });
     if (from) p.set('from', from);
@@ -112,6 +119,48 @@ function SettlementBoard({ target }) {
     finally { setBusy(false); }
   };
 
+  const autoExtract = async () => {
+    if (!selectedEntryIds.length) return;
+    if (!supportsAutoCreate) return;
+    if (!confirm(`Create new draft ${target === 'billing' ? 'AR invoice(s)' : 'AP bill(s)'} from ${selectedEntryIds.length} entries and mark them extracted?`)) return;
+    setBusy(true); setErr(null); setSuccess(null);
+    try {
+      const res = await api.post(
+        '/modules/time/api/settlement.php?action=auto_extract',
+        { entry_ids: selectedEntryIds, target }
+      );
+      const created = res.created || {};
+      const summaryParts = Object.entries(created).map(([pid, info]) =>
+        `Placement #${pid} → ${info.kind} #${info.target_id} (${info.line_count} lines, ${info.currency} ${Number(info.total).toFixed(2)})`
+      );
+      setSuccess(`✓ Auto-created ${Object.keys(created).length} ${target === 'billing' ? 'invoice(s)' : 'bill(s)'} · ${res.extracted_count} entries extracted\n` + summaryParts.join('\n'));
+      sel.clear();
+      reload();
+    } catch (e) { setErr(e); }
+    finally { setBusy(false); }
+  };
+
+  const fetchAiSuggestions = async () => {
+    setAiBusy(true); setAiErr(null); setAiSugs(null);
+    try {
+      const res = await api.post(
+        '/modules/time/api/settlement.php?action=ai_suggest',
+        { target, from: from || undefined, to: to || undefined, placement_id: placementId ? Number(placementId) : undefined }
+      );
+      setAiSugs(res);
+    } catch (e) { setAiErr(e); }
+    finally { setAiBusy(false); }
+  };
+
+  const applySuggestion = (sug) => {
+    // Map back from entry_ids → day-block keys (placement:work_date).
+    const wantedEntryIds = new Set((sug.entry_ids || []).map(Number));
+    const blockKeys = blocks
+      .filter(b => b.entries.some(e => wantedEntryIds.has(e.id)))
+      .map(b => `${b.placement_id}:${b.work_date}`);
+    sel.selectMany(blockKeys);
+  };
+
   return (
     <>
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 12, flexWrap: 'wrap' }}>
@@ -127,7 +176,48 @@ function SettlementBoard({ target }) {
                            style={{ ...inp, width: 110 }} />
         </label>
         <button className="btn btn--ghost" onClick={() => reload()} data-testid="time-settlement-reload">Refresh</button>
+        <button className="btn btn--ghost" onClick={fetchAiSuggestions} disabled={aiBusy}
+                data-testid="time-settlement-ai-suggest"
+                style={{ marginLeft: 'auto' }}>
+          {aiBusy ? '✨ Thinking…' : '✨ AI Suggest batches'}
+        </button>
       </div>
+
+      {aiErr && <p className="error" data-testid="time-settlement-ai-error">AI error: {aiErr.message}</p>}
+      {aiSugs && (
+        <div data-testid="time-settlement-ai-panel" style={aiPanel}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <strong style={{ fontSize: 13 }}>{aiSugs.ai_used ? '✨ AI suggestions' : '🛠 Rule-based suggestions'}</strong>
+            <span style={{ color: 'var(--cf-text-secondary)', fontSize: 12 }}>{aiSugs.suggestions?.length || 0} batches</span>
+            <button className="btn btn--ghost" onClick={() => setAiSugs(null)} style={{ marginLeft: 'auto', fontSize: 11 }}
+                    data-testid="time-settlement-ai-close">close</button>
+          </div>
+          {(aiSugs.advisories || []).map((ad, i) => (
+            <p key={i} style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--cf-text-secondary)' }}>· {ad}</p>
+          ))}
+          <div style={{ display: 'grid', gap: 8 }}>
+            {(aiSugs.suggestions || []).map((sug, i) => (
+              <div key={i} data-testid={`time-settlement-ai-suggestion-${i}`} style={sugCard}>
+                <div style={{ flex: 1 }}>
+                  <strong style={{ fontSize: 13 }}>{sug.name}</strong>
+                  <div style={{ fontSize: 11, color: 'var(--cf-text-secondary)', marginTop: 2 }}>{sug.reasoning}</div>
+                  <div style={{ fontSize: 11, marginTop: 4 }}>
+                    <span style={{ color: '#374151' }}>{sug.entry_ids?.length || 0} entries · {Number(sug.total_hours || 0).toFixed(2)}h</span>
+                    {(sug.flags || []).map(f => (
+                      <span key={f} className="badge" style={{ marginLeft: 6, background: '#fef3c7', color: '#92400e' }}>⚠ {f}</span>
+                    ))}
+                  </div>
+                </div>
+                <button className="btn btn--primary" onClick={() => applySuggestion(sug)}
+                        data-testid={`time-settlement-ai-apply-${i}`}
+                        style={{ fontSize: 12 }}>
+                  Use this batch
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {sel.size > 0 && (
         <div data-testid="time-settlement-bulk-bar" style={bulkBar}>
@@ -142,6 +232,13 @@ function SettlementBoard({ target }) {
                   data-testid="time-settlement-extract">
             {busy ? 'Extracting…' : `Extract → ${targetMeta.label.split(' → ')[1]}`}
           </button>
+          {supportsAutoCreate && (
+            <button className="btn btn--primary" onClick={autoExtract} disabled={busy}
+                    data-testid="time-settlement-auto-extract"
+                    style={{ background: '#059669' }}>
+              {busy ? 'Working…' : `+ Auto-create & extract`}
+            </button>
+          )}
           <button className="btn btn--ghost" onClick={sel.clear} data-testid="time-settlement-clear">Clear</button>
         </div>
       )}
@@ -220,4 +317,15 @@ const bulkBar = {
 };
 const successStyle = {
   background: '#ecfdf5', color: '#065f46', padding: 8, borderRadius: 6, fontSize: 13,
+  whiteSpace: 'pre-wrap',
+};
+const aiPanel = {
+  border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8, padding: 12,
+  background: 'linear-gradient(180deg, #eff6ff 0%, #fff 100%)',
+  marginBottom: 12,
+};
+const sugCard = {
+  display: 'flex', alignItems: 'flex-start', gap: 12,
+  padding: 10, background: '#fff', borderRadius: 6,
+  border: '1px solid var(--cf-border, #e5e7eb)',
 };

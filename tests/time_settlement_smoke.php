@@ -130,5 +130,54 @@ $mod = (string) file_get_contents(__DIR__ . '/../modules/time/ui/TimeModule.jsx'
 $a('TimeModule routes /settlement → TimeSettlement',
     $c($mod, '<Route path="settlement" element={<TimeSettlement />}'));
 
+echo "\nlib/settlement_create.php — auto-create engine\n";
+$cr = (string) file_get_contents(__DIR__ . '/../modules/time/lib/settlement_create.php');
+$a('timeSettlementAutoCreate() exposed',         $c($cr, 'function timeSettlementAutoCreate'));
+$a('rejects payroll target (uses run line flow)', $c($cr, 'payroll requires existing run line'));
+$a('groups entries by placement_id',              $c($cr, '$byPlacement[(int) $e[\'placement_id\']]'));
+$a('looks up placement_rates with effective dates',$c($cr, 'effective_from <= :d') && $c($cr, 'superseded_by IS NULL'));
+$a('OT multiplier applied for OT_billable',        $c($cr, "OT_billable") && $c($cr, 'ot_multiplier'));
+$a('billing creates draft AR invoice + per-day lines',
+    $c($cr, "scopedInsert('billing_invoices'") && $c($cr, "INSERT INTO billing_invoice_lines"));
+$a('AP creates pending_approval bill',             $c($cr, "scopedInsert('ap_bills'") && $c($cr, "'status'         => 'pending_approval'"));
+$a('atomic: begin/commit/rollBack',                $c($cr, '$pdo->beginTransaction()') && $c($cr, '$pdo->commit()') && $c($cr, '$pdo->rollBack()'));
+$a('only allows status=approved entries',          $c($cr, "\$e['status'] !== 'approved'"));
+$a('refuses already-extracted entries',            $c($cr, 'already extracted to'));
+$a('audits time.settlement.auto_extracted_*',      $c($cr, 'time.settlement.auto_extracted_'));
+$a('FOR UPDATE row lock',                          $c($cr, 'FOR UPDATE'));
+$a('PERIOD CLOSE NOT REFERENCED in auto-create',
+    !preg_match('/time_periods.*\.status|tp\.status|p\.status\s*=\s*[\'"]closed/', $cr));
+
+echo "\nlib/settlement_ai.php — AI assist + fallback\n";
+$ai = (string) file_get_contents(__DIR__ . '/../modules/time/lib/settlement_ai.php');
+$a('timeSettlementAiSuggest()',                    $c($ai, 'function timeSettlementAiSuggest'));
+$a('uses gpt-4o-mini',                             $c($ai, "'model'           => 'gpt-4o-mini'"));
+$a('low temperature (0.2) for deterministic output', $c($ai, "'temperature'     => 0.2"));
+$a('forces JSON response_format',                  $c($ai, "'response_format' => ['type' => 'json_object']"));
+$a('compresses blocks before send',                $c($ai, '$compact'));
+$a('caps payload at 200 blocks',                   $c($ai, 'count($blocks) > 200'));
+$a('rules-based fallback when AI unavailable',     $c($ai, '_settlementFallbackGroup'));
+$a('fallback flags weekend + long_day',            $c($ai, "'weekend'") && $c($ai, "'long_day'"));
+$a('writes ai_audit row',                          $c($ai, 'aiAuditWrite('));
+$a('gracefully handles unparseable AI output',     $c($ai, 'unparseable'));
+
+echo "\napi — auto_extract + ai_suggest actions\n";
+$api2 = (string) file_get_contents(__DIR__ . '/../modules/time/api/settlement.php');
+$a('auto_extract action handler',                  $c($api2, "\$action === 'auto_extract'"));
+$a('auto_extract gates extract permission',         $c($api2, "RBAC::requirePermission(\$user, \"time.settlement.extract.\$target\")"));
+$a('auto_extract refuses target=payroll',           $c($api2, "auto_extract supports billing|ap only"));
+$a('ai_suggest action handler',                    $c($api2, "\$action === 'ai_suggest'"));
+$a('ai_suggest builds blocks server-side if FE omitted',
+    $c($api2, '!is_array($blocks)') && $c($api2, 'timeSettlementReady($target, $filters)'));
+
+echo "\nUI — TimeSettlement.jsx auto-extract + AI\n";
+$ui2 = (string) file_get_contents(__DIR__ . '/../modules/time/ui/TimeSettlement.jsx');
+$a('Auto-create button (billing+ap)',              $c($ui2, 'data-testid="time-settlement-auto-extract"'));
+$a('AI Suggest button',                            $c($ui2, 'data-testid="time-settlement-ai-suggest"'));
+$a('AI panel renders suggestions',                 $c($ui2, 'time-settlement-ai-panel') && $c($ui2, 'time-settlement-ai-suggestion-'));
+$a('"Use this batch" → applies to selection',      $c($ui2, 'sel.selectMany(blockKeys)'));
+$a('disables auto-create on payroll target',       $c($ui2, 'supportsAutoCreate'));
+$a('confirmation prompt before auto-create',       $c($ui2, 'Create new draft'));
+
 echo PHP_EOL . "Total: $pass passed, $fail failed" . PHP_EOL;
 exit($fail === 0 ? 0 : 1);

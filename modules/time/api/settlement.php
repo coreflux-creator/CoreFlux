@@ -23,6 +23,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/settlement.php';
+require_once __DIR__ . '/../lib/settlement_create.php';
+require_once __DIR__ . '/../lib/settlement_ai.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
@@ -127,4 +129,67 @@ if ($action === 'unextract') {
     api_ok($res);
 }
 
-api_error('Unknown action — use ?action=extract|unextract', 400);
+// ----------------------------------------------------------- auto_extract
+// Creates the destination target (AR invoice / AP bill) on the fly per
+// placement, emits per-day lines from time data, stamps every entry with
+// the new ref. Atomic. Permission: time.settlement.extract.<target>.
+if ($action === 'auto_extract') {
+    RBAC::requirePermission($user, "time.settlement.extract.$target");
+    if (!in_array($target, ['billing','ap'], true)) {
+        api_error('auto_extract supports billing|ap only (payroll requires existing run line)', 422);
+    }
+    $ids = $body['entry_ids'] ?? [];
+    if (!is_array($ids) || !$ids) api_error('entry_ids[] required', 422);
+
+    try {
+        $res = timeSettlementAutoCreate($ids, $target, (int) ($user['id'] ?? 0));
+    } catch (TimeSettlementException $e) {
+        api_error($e->getMessage(), 422);
+    } catch (\Throwable $e) {
+        api_error('Auto-create failed: ' . $e->getMessage(), 500);
+    }
+    api_ok($res);
+}
+
+// ----------------------------------------------------------- ai_suggest
+// Sends the current ready blocks to GPT-4o-mini for batch grouping.
+// Falls back to rules-based grouping if AI is unavailable.
+if ($action === 'ai_suggest') {
+    RBAC::requirePermission($user, "time.settlement.view.$target");
+    $blocks = $body['blocks'] ?? null;
+    if (!is_array($blocks)) {
+        // Build server-side from the same query so the FE doesn't have to send all data.
+        $filters = array_filter([
+            'placement_id' => isset($body['placement_id']) ? (int) $body['placement_id'] : null,
+            'person_id'    => isset($body['person_id'])    ? (int) $body['person_id']    : null,
+            'from'         => $body['from'] ?? null,
+            'to'           => $body['to']   ?? null,
+        ], fn ($v) => $v !== null && $v !== '' && $v !== 0);
+        $rows = timeSettlementReady($target, $filters);
+        $blocks = [];
+        foreach ($rows as $r) {
+            $key = $r['placement_id'] . '|' . $r['work_date'];
+            if (!isset($blocks[$key])) {
+                $cycle = $target === 'billing' ? ($r['client_bill_cycle'] ?? 'monthly')
+                       : ($target === 'ap'    ? ($r['vendor_pay_cycle']  ?? 'biweekly') : 'biweekly');
+                $anchor = $target === 'billing' ? ($r['client_bill_cycle_anchor'] ?? null)
+                        : ($target === 'ap'    ? ($r['vendor_pay_cycle_anchor']  ?? null) : null);
+                $blocks[$key] = [
+                    'placement_id' => (int) $r['placement_id'],
+                    'work_date'    => $r['work_date'],
+                    'cycle_default'=> $cycle,
+                    'cycle_window' => timeSettlementCycleSuggestion($cycle, $anchor, $r['work_date']),
+                    'entries'      => [],
+                    'total_hours'  => 0.0,
+                ];
+            }
+            $blocks[$key]['entries'][] = ['id' => (int) $r['id'], 'category' => $r['category'], 'hours' => (float) $r['hours']];
+            $blocks[$key]['total_hours'] += (float) $r['hours'];
+        }
+        $blocks = array_values($blocks);
+    }
+    $res = timeSettlementAiSuggest($target, $blocks);
+    api_ok($res);
+}
+
+api_error('Unknown action — use ?action=extract|unextract|auto_extract|ai_suggest', 400);
