@@ -27,6 +27,51 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 $uid    = (int) ($user['id'] ?? 0);
 
+if ($method === 'GET' && $action === 'export_selected') {
+    RBAC::requirePermission($user, 'ap.expense.submit');
+    $idsRaw = (string) ($_GET['ids'] ?? '');
+    $ids = array_values(array_filter(array_map('intval', explode(',', $idsRaw)), fn ($x) => $x > 0));
+    if (!$ids) api_error('ids required', 400);
+    if (count($ids) > 500) api_error('too many ids (max 500)', 400);
+
+    $pdo = getDB();
+    $place = implode(',', array_fill(0, count($ids), '?'));
+    $params = $ids;
+    array_unshift($params, $tid);
+    $stmt = $pdo->prepare(
+        "SELECT er.id, er.period_label, er.submitter_user_id, er.total, er.currency,
+                er.status, er.bill_id, er.created_at,
+                erl.id AS line_id, erl.expense_date, erl.merchant, erl.category,
+                erl.amount, erl.description, erl.gl_expense_account_code
+           FROM ap_expense_reports er
+      LEFT JOIN ap_expense_report_lines erl ON erl.expense_report_id = er.id
+          WHERE er.tenant_id = ? AND er.id IN ($place)
+       ORDER BY er.id, erl.id"
+    );
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $stamp = date('Y-m-d');
+    header('Content-Type: text/csv; charset=utf-8');
+    header("Content-Disposition: attachment; filename=expenses-{$stamp}.csv");
+    $out = fopen('php://output', 'w');
+    fputcsv($out, ['report_id','period_label','submitter_user_id','status','currency','bill_id','created_at',
+                   'line_id','expense_date','merchant','category','amount','gl_account_code','description']);
+    foreach ($rows as $r) {
+        fputcsv($out, [
+            $r['id'], $r['period_label'], $r['submitter_user_id'], $r['status'], $r['currency'],
+            $r['bill_id'], $r['created_at'],
+            $r['line_id'], $r['expense_date'], $r['merchant'], $r['category'],
+            $r['amount'], $r['gl_expense_account_code'], $r['description'],
+        ]);
+    }
+    fclose($out);
+    if (function_exists('apAudit')) {
+        apAudit('ap.expense.export_selected', ['ids' => $ids, 'count' => count($ids)]);
+    }
+    exit;
+}
+
 if ($method === 'GET' && $action === 'upload_url') {
     // Presigned S3 POST for an expense-line receipt.
     RBAC::requirePermission($user, 'ap.expense.submit');

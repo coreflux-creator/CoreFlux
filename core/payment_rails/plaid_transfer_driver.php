@@ -75,22 +75,128 @@ class PlaidTransferDriver implements PaymentRailsDriver
                 'Plaid Dashboard, and re-attempt. Falling back to NACHA in the meantime.'
             );
         }
-        // Phase B will implement: per-item /transfer/authorization/create →
-        // /transfer/create with idempotency_key and transfer_id, returning
-        // the rail_external_ref (Plaid transfer.id) per item. Until then,
-        // we throw cleanly so callers fall back to NACHA.
-        throw new PaymentRailsNotConfiguredException(
-            'Plaid Transfer originate() not yet wired. ' .
-            'See /app/core/payment_rails/plaid_transfer_driver.php docblock for the Phase B checklist.'
+
+        // Resolve the funding source for this tenant. Required for Plaid Transfer
+        // — every /transfer/authorization/create needs an `access_token` +
+        // `account_id` of the originator's funding bank account, persisted in
+        // tenant_payment_rails after the tenant completes the Plaid Link flow.
+        $tenantId = $opts['tenant_id'] ?? null;
+        if (!$tenantId) {
+            throw new \RuntimeException('Plaid Transfer originate(): opts[tenant_id] required');
+        }
+        $pdo = function_exists('getDB') ? getDB() : null;
+        if (!$pdo) {
+            throw new \RuntimeException('Plaid Transfer originate(): no DB connection');
+        }
+        $stmt = $pdo->prepare(
+            "SELECT access_token_ct, account_id, item_id, status
+               FROM tenant_payment_rails
+              WHERE tenant_id = :t AND rail = 'plaid_transfer' LIMIT 1"
         );
+        $stmt->execute(['t' => (int) $tenantId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$row || $row['status'] !== 'linked' || empty($row['access_token_ct']) || empty($row['account_id'])) {
+            throw new PaymentRailsNotConfiguredException(
+                'Plaid Transfer: tenant has not linked a funding source yet. ' .
+                'Complete /modules/treasury → Connect Bank → Plaid Link first.'
+            );
+        }
+        require_once __DIR__ . '/../plaid_service.php';
+        $accessToken = plaidDecryptAccessToken($row['access_token_ct']);
+        if (!$accessToken) throw new \RuntimeException('Plaid Transfer: could not decrypt access_token');
+
+        $accountId = (string) $row['account_id'];
+        $batchId   = 'plaid-' . date('Ymd-His') . '-' . substr(bin2hex(random_bytes(3)), 0, 6);
+        $effective = (string) ($opts['effective_date'] ?? date('Y-m-d'));
+        $companyName = substr((string) ($opts['company_name'] ?? 'CoreFlux'), 0, 50);
+
+        $resultItems = [];
+        $fail = 0;
+
+        foreach ($items as $i => $it) {
+            $externalRef  = (string) $it['external_ref'];
+            $amountCents  = (int)    ($it['amount_cents'] ?? 0);
+            $amountStr    = sprintf('%.2f', $amountCents / 100);
+            $secCode      = strtolower((string) ($it['sec_code'] ?? 'ppd'));
+            $accType      = (string) ($it['account_type'] ?? 'checking');
+            $idem         = "ic:rail:{$externalRef}";
+            $userType     = $secCode === 'ccd' ? 'business' : 'individual';
+
+            try {
+                // Step 1 — authorization (Plaid risk-checks the transfer).
+                $authPayload = [
+                    'access_token'   => $accessToken,
+                    'account_id'     => $accountId,
+                    'type'           => 'credit',
+                    'network'        => 'ach',
+                    'amount'         => $amountStr,
+                    'ach_class'      => $secCode,
+                    'user' => [
+                        'legal_name'   => substr((string) ($it['recipient_name'] ?? ''), 0, 100),
+                    ],
+                    'idempotency_key' => $idem . ':auth',
+                ];
+                $auth = $this->callPlaid(self::ENDPOINT_AUTHORIZATION_CREATE, $authPayload);
+                $authId = $auth['authorization']['id'] ?? null;
+                $decision = $auth['authorization']['decision'] ?? 'declined';
+                if (!$authId || $decision !== 'approved') {
+                    throw new \RuntimeException("authorization {$decision}: " .
+                        ($auth['authorization']['decision_rationale']['description'] ?? 'declined'));
+                }
+
+                // Step 2 — actual transfer create.
+                $transferPayload = [
+                    'access_token'     => $accessToken,
+                    'account_id'       => $accountId,
+                    'authorization_id' => $authId,
+                    'description'      => substr((string) ($it['description'] ?? 'payment'), 0, 15),
+                    'amount'           => $amountStr,
+                    'idempotency_key'  => $idem . ':transfer',
+                ];
+                $tr = $this->callPlaid(self::ENDPOINT_TRANSFER_CREATE, $transferPayload);
+                $transferId = $tr['transfer']['id'] ?? null;
+                $status     = $tr['transfer']['status'] ?? 'pending';
+
+                $resultItems[] = [
+                    'external_ref'      => $externalRef,
+                    'status'            => $status,
+                    'rail_external_ref' => $transferId,
+                    'error'             => null,
+                ];
+            } catch (\Throwable $e) {
+                $fail++;
+                $resultItems[] = [
+                    'external_ref'      => $externalRef,
+                    'status'            => 'failed',
+                    'rail_external_ref' => null,
+                    'error'             => $e->getMessage(),
+                ];
+            }
+        }
+
+        return [
+            'batch_id' => $batchId,
+            'status'   => $fail === 0 ? 'submitted' : ($fail === count($items) ? 'failed' : 'submitted'),
+            'items'    => $resultItems,
+            'payload'  => [
+                'effective_date' => $effective,
+                'company_name'   => $companyName,
+                'tenant_id'      => (int) $tenantId,
+            ],
+        ];
     }
 
     public function getStatus(string $railExternalRef): string
     {
-        if (!$this->isConfigured()) return 'unknown';
-        // Phase B: POST {host}/transfer/get { transfer_id: $railExternalRef }
-        // and translate Plaid status (pending|posted|settled|cancelled|failed|returned) 1:1.
-        return 'unknown';
+        if (!$this->isConfigured() || $railExternalRef === '') return 'unknown';
+        try {
+            $resp = $this->callPlaid(self::ENDPOINT_TRANSFER_GET, ['transfer_id' => $railExternalRef]);
+            $s = (string) ($resp['transfer']['status'] ?? 'unknown');
+            // Plaid statuses: pending, posted, settled, cancelled, failed, returned.
+            return $s === '' ? 'unknown' : $s;
+        } catch (\Throwable $e) {
+            return 'unknown';
+        }
     }
 
     public function metadata(): array

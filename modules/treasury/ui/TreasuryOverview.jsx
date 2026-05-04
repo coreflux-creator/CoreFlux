@@ -123,6 +123,80 @@ export default function TreasuryOverview() {
           </table>
         )}
       </section>
+      <section className="treasury-overview__section">
+        <PlaidTransferFundingCard />
+      </section>
     </section>
   );
+}
+
+function PlaidTransferFundingCard() {
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg]   = React.useState(null);
+  const [err, setErr]   = React.useState(null);
+
+  const link = async () => {
+    setBusy(true); setMsg(null); setErr(null);
+    try {
+      const tok = await fetch('/api/plaid_transfer_link.php', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      }).then((r) => r.json().then((d) => r.ok ? d : Promise.reject(d)));
+      if (!tok.link_token) throw new Error('No link_token returned');
+
+      // Plaid Link script must be loaded for `Plaid.create()`. Load on demand.
+      await ensurePlaidLink();
+      const handler = window.Plaid.create({
+        token: tok.link_token,
+        onSuccess: async (publicToken, meta) => {
+          const accountId = meta?.accounts?.[0]?.id;
+          if (!accountId) { setErr('No account selected'); return; }
+          try {
+            const res = await fetch('/api/plaid_transfer_link.php?action=exchange', {
+              method: 'POST', credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ public_token: publicToken, account_id: accountId }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Exchange failed');
+            setMsg(`Linked ${meta?.institution?.name || 'bank'} · account ${meta?.accounts?.[0]?.mask || ''}`);
+          } catch (e) {
+            setErr(e.message);
+          }
+        },
+        onExit: (e) => { if (e) setErr(e.error_message || 'Cancelled'); },
+      });
+      handler.open();
+    } catch (e) {
+      setErr(e.error || e.message || 'Plaid Link failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div data-testid="plaid-transfer-funding-card">
+      <h3>Outbound disbursements (Plaid Transfer)</h3>
+      <p className="muted" style={{ fontSize: 13 }}>
+        Link a funding bank account to enable programmatic ACH/RTP credits
+        out of CoreFlux for AP payments and Payroll runs. One-time setup;
+        subsequent originate calls reuse this token.
+      </p>
+      <button onClick={link} disabled={busy} className="btn btn--primary" data-testid="plaid-transfer-link-btn">
+        {busy ? 'Opening Plaid…' : 'Link funding source'}
+      </button>
+      {msg && <p style={{ color: '#065f46', fontSize: 13, marginTop: 8 }} data-testid="plaid-transfer-link-success">{msg}</p>}
+      {err && <p className="error" data-testid="plaid-transfer-link-error">{err}</p>}
+    </div>
+  );
+}
+
+async function ensurePlaidLink() {
+  if (window.Plaid) return;
+  await new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js';
+    s.onload = resolve; s.onerror = () => reject(new Error('Failed to load Plaid Link'));
+    document.head.appendChild(s);
+  });
 }

@@ -5,9 +5,13 @@ of recent files to prove the server is on HEAD (not 10 commits behind).
 sentinels:
 - core/sub_tenants.php
 - core/migrations/007_subtenant_provisioning.sql
+- core/gusto_track_b.php
 - api/sub_tenants.php
 - api/sub_tenant_analytics.php
+- api/plaid_transfer_link.php
+- modules/payroll/api/gusto_sync.php
 - modules/accounting/lib/cross_tenant_intercompany.php
+- modules/placements/migrations/002_cycle_config.sql
 - dashboard/src/pages/SubTenantsAdmin.jsx
 - dashboard/src/pages/TenantPicker.jsx
 - dashboard/src/pages/SubTenantSummaryCard.jsx
@@ -18,6 +22,9 @@ sentinels:
 - modules/payroll/api/gusto_connect.php
 - modules/payroll/api/gusto_submit.php
 - core/gusto_service.php
+- core/plaid_service.php
+- core/encryption.php
+- core/payment_rails/plaid_transfer_driver.php
 - api/gusto_oauth_start.php
 - api/gusto_oauth_callback.php
 - api/gusto_webhook.php
@@ -36,13 +43,22 @@ sentinels:
 - modules/treasury/ui/DepositAccounts.jsx
 - modules/treasury/ui/LiabilityAccounts.jsx
 expected_bundle:
-- spa-assets/index-Ddi1O3kE.js
+- spa-assets/index-D793u6dw.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - subtenant.provisioning
 - subtenant.module_scope
 - subtenant.fleet_view
 - accounting.cross_tenant_intercompany
+- plaid.transfer.originate
+- plaid.transfer.link_funding
+- gusto.track_b.employees
+- gusto.track_b.pay_schedules
+- gusto.track_b.compensations
+- gusto.track_b.webhook_subscribe
+- placements.cycle_config
+- ap.expenses.bulk_export
+- core.config_eager_load
 - payroll.cycles
 - payroll.anomalies
 - payroll.gusto_oauth

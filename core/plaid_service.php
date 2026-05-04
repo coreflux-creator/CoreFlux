@@ -19,6 +19,14 @@
 
 declare(strict_types=1);
 
+// Eager-load host-specific secrets BEFORE any service function runs. Same
+// pattern as ai_service.php / gusto_service.php. Some entry points (cron,
+// webhooks) call plaidConfigured() before requiring encryption.php, so we
+// can't rely on encryption.php's lazy load to prime PLAID_* constants.
+$_plaidLocalConfig = __DIR__ . '/config.local.php';
+if (file_exists($_plaidLocalConfig)) require_once $_plaidLocalConfig;
+unset($_plaidLocalConfig);
+
 require_once __DIR__ . '/encryption.php';
 
 // ---------------------------------------------------------------- config

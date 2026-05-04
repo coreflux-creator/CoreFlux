@@ -32,6 +32,7 @@ export default function PlacementDetail({ session }) {
     { slug: 'commissions', label: 'Commissions' },
     { slug: 'referrals',   label: 'Referrals' },
     ...(placement.engagement_type === 'c2c' ? [{ slug: 'corp', label: 'Corp (C2C)' }] : []),
+    { slug: 'cycles',      label: 'Cycles' },
     { slug: 'documents',   label: 'Documents' },
     { slug: 'approval',    label: 'Approval' },
     { slug: 'margin',      label: 'Margin' },
@@ -68,6 +69,7 @@ export default function PlacementDetail({ session }) {
         <Route path="commissions"element={<CommissionsTab pid={placement.id} rows={commissions} reload={reload} />} />
         <Route path="referrals"  element={<ReferralsTab   pid={placement.id} rows={referrals} reload={reload} />} />
         <Route path="corp"       element={<CorpTab        pid={placement.id} />} />
+        <Route path="cycles"     element={<CyclesTab      placement={placement} reload={reload} />} />
         <Route path="documents"  element={<DocumentsTab   pid={placement.id} rows={documents} reload={reload} />} />
         <Route path="approval"   element={<ApprovalTab    pid={placement.id} placement={placement} reload={reload} />} />
         <Route path="margin"     element={<MarginTab      currentRate={currentRate} chain={chain} />} />
@@ -721,3 +723,100 @@ function ContractCell({ row }) {
   );
 }
 
+
+
+// ── Cycles ────────────────────────────────────────────────
+// Each placement can be on a different cadence for billing, AP, and payroll.
+// Time settlement walks these pointers when generating downstream bundles.
+function CyclesTab({ placement, reload }) {
+  const { data: cyclesData, loading: cyclesLoading } = useApi('/modules/payroll/api/cycles.php');
+  const cycles = cyclesData?.rows || cyclesData?.cycles || [];
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [draft, setDraft] = useState({
+    billing_cycle_id: placement.billing_cycle_id || '',
+    ap_cycle_id:      placement.ap_cycle_id      || '',
+    payroll_cycle_id: placement.payroll_cycle_id || '',
+  });
+
+  const save = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const patch = {};
+      ['billing_cycle_id','ap_cycle_id','payroll_cycle_id'].forEach((k) => {
+        patch[k] = draft[k] === '' ? null : Number(draft[k]);
+      });
+      await api.patch(`/modules/placements/api/placements.php?id=${placement.id}`, patch);
+      reload();
+    } catch (e) {
+      setErr(e.message || 'Save failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const Picker = ({ field, label, hint }) => (
+    <div style={{ marginBottom: 16 }}>
+      <label style={{ display: 'block', fontWeight: 500, marginBottom: 4 }}>{label}</label>
+      <select
+        className="input"
+        value={draft[field]}
+        onChange={(e) => setDraft({ ...draft, [field]: e.target.value })}
+        data-testid={`placement-cycle-${field}`}
+        style={{ width: 320 }}
+      >
+        <option value="">— None (placement excluded) —</option>
+        {cycles.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name} ({c.cadence || c.frequency || 'cycle'})
+          </option>
+        ))}
+      </select>
+      {hint && <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)', marginTop: 4 }}>{hint}</div>}
+    </div>
+  );
+
+  return (
+    <div data-testid="tab-cycles" style={{ maxWidth: 640 }}>
+      <h3 style={{ marginTop: 0 }}>Cycle assignment</h3>
+      <p style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>
+        Decoupled cadences. A single engagement can bill bi-weekly, pay vendors
+        monthly, and run W-2 payroll semi-monthly. Time settlement walks these
+        pointers when generating AR / AP / Payroll bundles for the period.
+      </p>
+
+      {cyclesLoading
+        ? <p>Loading cycles…</p>
+        : (
+          <>
+            <Picker
+              field="billing_cycle_id"
+              label="Billing cycle (AR)"
+              hint="Cadence on which this placement's hours invoice the client."
+            />
+            <Picker
+              field="ap_cycle_id"
+              label="AP cycle (vendor pay)"
+              hint="When 1099 / C2C vendor payments cut for hours on this placement."
+            />
+            <Picker
+              field="payroll_cycle_id"
+              label="Payroll cycle (W-2)"
+              hint="When W-2 employee paychecks cut for hours on this placement."
+            />
+
+            {err && <div className="alert alert--err" data-testid="placement-cycles-error">{err}</div>}
+
+            <button
+              className="btn btn--primary"
+              onClick={save}
+              disabled={busy}
+              data-testid="placement-cycles-save"
+            >
+              {busy ? 'Saving…' : 'Save cycle assignment'}
+            </button>
+          </>
+        )}
+    </div>
+  );
+}

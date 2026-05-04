@@ -221,6 +221,7 @@ export default function GustoConnectCard() {
           >
             Disconnect
           </button>
+          <GustoTrackBSyncPanel />
         </div>
       )}
 
@@ -228,3 +229,66 @@ export default function GustoConnectCard() {
     </fieldset>
   );
 }
+
+function GustoTrackBSyncPanel() {
+  const [busy, setBusy] = React.useState(null);
+  const [result, setResult] = React.useState(null);
+  const [err, setErr] = React.useState(null);
+
+  const run = async (action, label) => {
+    setBusy(action); setErr(null); setResult(null);
+    try {
+      const res = await fetch(`/modules/payroll/api/gusto_sync.php?action=${action}`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `${label} failed`);
+      setResult({ label, data });
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div data-testid="gusto-track-b-panel" style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--cf-border)' }}>
+      <h4 style={{ marginTop: 0 }}>Track B sync (production-prep)</h4>
+      <p className="muted" style={{ fontSize: 13 }}>
+        Push employees, pay schedules, and compensations into Gusto so each
+        payroll run has a real-time mirror. Required by Gusto for production
+        approval. Idempotent — safe to re-run.
+      </p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <button onClick={() => run('employees', 'Employees')} disabled={!!busy}
+                className="btn btn--ghost" data-testid="gusto-sync-employees-btn">
+          {busy === 'employees' ? 'Syncing…' : 'Sync employees'}
+        </button>
+        <button onClick={() => run('pay_schedules', 'Pay schedules')} disabled={!!busy}
+                className="btn btn--ghost" data-testid="gusto-sync-pay-schedules-btn">
+          {busy === 'pay_schedules' ? 'Syncing…' : 'Sync pay schedules'}
+        </button>
+        <button onClick={() => run('compensations', 'Compensations')} disabled={!!busy}
+                className="btn btn--ghost" data-testid="gusto-sync-compensations-btn">
+          {busy === 'compensations' ? 'Syncing…' : 'Sync compensations'}
+        </button>
+        <button onClick={() => run('webhook_subscribe', 'Webhook subscription')} disabled={!!busy}
+                className="btn btn--ghost" data-testid="gusto-sync-webhook-btn">
+          {busy === 'webhook_subscribe' ? 'Subscribing…' : 'Subscribe to webhooks'}
+        </button>
+        <button onClick={() => run('all', 'Full sync')} disabled={!!busy}
+                className="btn btn--primary" data-testid="gusto-sync-all-btn">
+          {busy === 'all' ? 'Running full sync…' : 'Run full sync'}
+        </button>
+      </div>
+      {err && <p className="error" data-testid="gusto-track-b-error">{err}</p>}
+      {result && (
+        <pre data-testid="gusto-track-b-result" style={{ marginTop: 12, fontSize: 12, background: 'var(--cf-bg-elev)', padding: 12, borderRadius: 4, maxHeight: 300, overflow: 'auto' }}>
+          {result.label}: {JSON.stringify(result.data, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
+

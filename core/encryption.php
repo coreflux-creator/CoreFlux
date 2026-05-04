@@ -17,6 +17,12 @@
  *   $ssn    = decryptField($cipher);   // plaintext — only when authorized
  */
 
+// Eager-load host secrets so COREFLUX_DATA_KEY is available even when this
+// file is required before any other service has primed the constants.
+$_encLocalConfig = __DIR__ . '/config.local.php';
+if (file_exists($_encLocalConfig)) require_once $_encLocalConfig;
+unset($_encLocalConfig);
+
 function _coreflux_data_key(): string {
     static $key = null;
     if ($key !== null) return $key;
