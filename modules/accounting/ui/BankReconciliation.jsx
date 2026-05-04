@@ -191,7 +191,7 @@ function AccountDetail() {
             testIdSuffix="bank-feed"
             onLinked={async (r) => {
               try {
-                await api.post('/api/plaid_sync_transactions', { item_id: r.item_id, accounting_bank_account_id: Number(id) });
+                await api.post('/api/plaid_sync_transactions.php', { item_id: r.item_id, accounting_bank_account_id: Number(id) });
                 reload();
               } catch (_e) {}
             }}

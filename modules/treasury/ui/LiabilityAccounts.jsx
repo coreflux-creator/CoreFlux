@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
+import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import AccountTransactions from './AccountTransactions';
 
 const fmtMoney = (n) =>
   (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
@@ -12,9 +14,19 @@ const SUBTYPE_LABELS = {
 };
 
 export default function LiabilityAccounts() {
+  return (
+    <Routes>
+      <Route index        element={<LiabilityList />} />
+      <Route path=":id"   element={<LiabilityDetail />} />
+    </Routes>
+  );
+}
+
+function LiabilityList() {
   const { data, loading, reload } = useApi('/modules/treasury/api/liability_accounts.php');
   const rows = data?.rows || [];
   const [showNew, setShowNew] = useState(false);
+  const navigate = useNavigate();
 
   return (
     <section className="treasury-liabilities" data-testid="treasury-liabilities">
@@ -23,8 +35,8 @@ export default function LiabilityAccounts() {
           <h2>Liability accounts</h2>
           <p className="muted">
             Credit cards, loans, and lines of credit. Balances shown as
-            outstanding (credit-normal sign flipped). Statement-day tracking
-            + autopay routing will hook into payment runs in a later phase.
+            outstanding (credit-normal sign flipped). Click a row to see card
+            activity.
           </p>
         </div>
         <button
@@ -55,6 +67,7 @@ export default function LiabilityAccounts() {
               <th style={{ textAlign: 'right' }}>Limit</th>
               <th style={{ textAlign: 'right' }}>Util</th>
               <th>APR</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -63,7 +76,12 @@ export default function LiabilityAccounts() {
                 ? Math.round((r.gl_balance / r.credit_limit) * 100)
                 : null;
               return (
-                <tr key={r.id} data-testid={`treasury-liability-row-${r.id}`}>
+                <tr
+                  key={r.id}
+                  data-testid={`treasury-liability-row-${r.id}`}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => navigate(`./${r.id}`)}
+                >
                   <td><code>{r.code}</code></td>
                   <td>{r.name}</td>
                   <td>{SUBTYPE_LABELS[r.subtype] || r.subtype || '—'}</td>
@@ -79,12 +97,47 @@ export default function LiabilityAccounts() {
                     {util !== null ? `${util}%` : '—'}
                   </td>
                   <td>{r.apr_pct !== null && r.apr_pct !== undefined ? `${r.apr_pct.toFixed(2)}%` : '—'}</td>
+                  <td>
+                    <Link
+                      to={`./${r.id}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="btn btn--ghost"
+                      data-testid={`treasury-liability-view-${r.id}`}
+                      style={{ padding: '4px 10px', fontSize: 12 }}
+                    >
+                      View →
+                    </Link>
+                  </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       )}
+    </section>
+  );
+}
+
+function LiabilityDetail() {
+  const { id } = useParams();
+  const accountId = Number(id);
+  const { data: listData } = useApi('/modules/treasury/api/liability_accounts.php');
+  const account = (listData?.rows || []).find((r) => r.id === accountId);
+
+  const label = account
+    ? `${account.name}${account.last4 ? ` · ····${account.last4}` : ''}`
+    : `Liability account #${accountId}`;
+
+  return (
+    <section data-testid="treasury-liability-detail">
+      <p style={{ marginBottom: 12 }}>
+        <Link to=".." className="muted" style={{ fontSize: 13 }}>← Back to liability accounts</Link>
+      </p>
+      <AccountTransactions
+        accountId={accountId}
+        type="liability"
+        accountLabel={label}
+      />
     </section>
   );
 }

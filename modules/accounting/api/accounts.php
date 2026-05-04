@@ -20,6 +20,75 @@ $method = api_method();
 const ACCT_TYPES = ['asset','liability','equity','revenue','expense'];
 const NORMAL_DEFAULT = ['asset' => 'debit','expense' => 'debit','liability' => 'credit','equity' => 'credit','revenue' => 'credit'];
 
+if ($method === 'POST' && (string) ($_GET['action'] ?? '') === 'auto_group_plaid') {
+    RBAC::requirePermission($user, 'accounting.coa.manage');
+    require_once __DIR__ . '/../../../core/plaid_service.php';
+
+    $pdo = getDB();
+
+    // Find every Plaid-mirrored liability with no parent yet.
+    $rows = $pdo->prepare(
+        "SELECT aa.id AS aa_id, aa.code, aa.name, tla.institution_name
+           FROM accounting_accounts aa
+           JOIN treasury_liability_accounts tla
+             ON tla.tenant_id = aa.tenant_id AND tla.account_id = aa.id
+          WHERE aa.tenant_id = :t
+            AND aa.parent_account_id IS NULL
+            AND tla.institution_name IS NOT NULL
+            AND tla.institution_name <> ''"
+    );
+    $rows->execute(['t' => $tid]);
+    $rows = $rows->fetchAll(PDO::FETCH_ASSOC);
+
+    $reparented = []; $errors = [];
+    foreach ($rows as $r) {
+        try {
+            $parentId = plaidEnsureInstitutionParent($pdo, $tid, $r['institution_name'], '2100');
+            if ($parentId && $parentId !== (int) $r['aa_id']) {
+                $upd = $pdo->prepare(
+                    'UPDATE accounting_accounts SET parent_account_id = :pid
+                      WHERE tenant_id = :t AND id = :id'
+                );
+                $upd->execute(['pid' => $parentId, 't' => $tid, 'id' => $r['aa_id']]);
+                $reparented[] = [
+                    'id' => (int) $r['aa_id'], 'code' => $r['code'], 'name' => $r['name'],
+                    'parent_id' => $parentId, 'institution' => $r['institution_name'],
+                ];
+            }
+        } catch (\Throwable $e) {
+            $errors[] = "{$r['name']}: " . $e->getMessage();
+        }
+    }
+
+    accountingAudit('accounting.coa.auto_grouped_plaid', [
+        'reparented' => count($reparented), 'errors' => count($errors),
+    ], null);
+
+    api_ok([
+        'reparented' => $reparented,
+        'errors'     => $errors,
+        'count'      => count($reparented),
+    ]);
+}
+
+if ($method === 'GET' && (string) ($_GET['action'] ?? '') === 'tree') {
+    RBAC::requirePermission($user, 'accounting.coa.view');
+    $type = $_GET['type'] ?? null;
+    $where  = ['tenant_id = :tenant_id', 'active = 1'];
+    $params = [];
+    if ($type && in_array($type, ACCT_TYPES, true)) {
+        $where[] = 'account_type = :t';
+        $params['t'] = $type;
+    }
+    $flat = scopedQuery(
+        'SELECT id, code, name, account_type, normal_side, parent_account_id, is_postable
+           FROM accounting_accounts WHERE ' . implode(' AND ', $where) . '
+          ORDER BY code ASC LIMIT 1000',
+        $params
+    );
+    api_ok(['rows' => $flat, 'types' => ACCT_TYPES]);
+}
+
 if ($method === 'GET' && !empty($_GET['id'])) {
     RBAC::requirePermission($user, 'accounting.coa.view');
     $row = scopedFind('SELECT * FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id', ['id' => (int) $_GET['id']]);

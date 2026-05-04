@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Routes, Route, Link, useParams } from 'react-router-dom';
+import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import PlaidLinkButton from '../../../dashboard/src/components/PlaidLinkButton';
+import AccountTransactions from './AccountTransactions';
 
 const fmtMoney = (n) =>
   (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
@@ -10,7 +11,7 @@ export default function DepositAccounts() {
   return (
     <Routes>
       <Route index         element={<DepositList />} />
-      <Route path=":id/*"  element={<DepositDetailRedirect />} />
+      <Route path=":id"    element={<DepositDetail />} />
     </Routes>
   );
 }
@@ -19,6 +20,7 @@ function DepositList() {
   const { data, loading, reload } = useApi('/modules/treasury/api/deposit_accounts.php');
   const rows = data?.rows || [];
   const [showNew, setShowNew] = useState(false);
+  const navigate = useNavigate();
 
   return (
     <section className="treasury-deposits" data-testid="treasury-deposits">
@@ -60,7 +62,12 @@ function DepositList() {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id} data-testid={`treasury-deposit-row-${r.id}`}>
+              <tr
+                key={r.id}
+                data-testid={`treasury-deposit-row-${r.id}`}
+                style={{ cursor: 'pointer' }}
+                onClick={() => navigate(`./${r.id}`)}
+              >
                 <td>{r.name}</td>
                 <td><code>{r.gl_account_code}</code></td>
                 <td>{r.bank_name || '—'}</td>
@@ -76,7 +83,15 @@ function DepositList() {
                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                   {fmtMoney(r.gl_balance)}
                 </td>
-                <td>
+                <td onClick={(e) => e.stopPropagation()}>
+                  <Link
+                    to={`./${r.id}`}
+                    className="btn btn--ghost"
+                    data-testid={`treasury-deposit-view-${r.id}`}
+                    style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
+                  >
+                    View →
+                  </Link>
                   <PlaidLinkButton
                     purpose="bank_feed"
                     accountingBankAccountId={r.id}
@@ -84,7 +99,7 @@ function DepositList() {
                     testIdSuffix={`deposit-${r.id}`}
                     onLinked={async (res) => {
                       try {
-                        await api.post('/api/plaid_sync_transactions', {
+                        await api.post('/api/plaid_sync_transactions.php', {
                           item_id: res.item_id,
                           accounting_bank_account_id: r.id,
                         });
@@ -145,16 +160,33 @@ function NewDepositForm({ onDone }) {
   );
 }
 
-function DepositDetailRedirect() {
+function DepositDetail() {
   const { id } = useParams();
-  // Detail view re-uses the accounting bank-rec page for now (statement
-  // lines + matching + rules already live there). Future: a treasury-
-  // native view with forecast + sweep rules.
-  window.location.hash = `#/modules/accounting/bank-rec/${id}`;
+  const accountId = Number(id);
+  const { data: listData } = useApi('/modules/treasury/api/deposit_accounts.php');
+  const account = (listData?.rows || []).find((r) => r.id === accountId);
+  const label = account
+    ? `${account.name}${account.last4 ? ` · ····${account.last4}` : ''}`
+    : `Deposit account #${accountId}`;
+
   return (
-    <p className="muted">
-      Opening bank reconciliation view for account #{id}…{' '}
-      <Link to="..">Back to deposits</Link>
-    </p>
+    <section data-testid="treasury-deposit-detail">
+      <p style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Link to=".." className="muted" style={{ fontSize: 13 }}>← Back to deposit accounts</Link>
+        <a
+          href={`#/modules/accounting/bank-rec/${accountId}`}
+          className="btn btn--ghost"
+          data-testid={`treasury-deposit-bankrec-${accountId}`}
+          style={{ fontSize: 12 }}
+        >
+          Open Bank Reconciliation →
+        </a>
+      </p>
+      <AccountTransactions
+        accountId={accountId}
+        type="deposit"
+        accountLabel={label}
+      />
+    </section>
   );
 }

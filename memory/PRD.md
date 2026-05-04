@@ -781,7 +781,37 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - Backend: +36 new smoke assertions in `/app/tests/payroll_phase_a1_smoke.php`. Combined suite: **29 files, 1,608+ passing / 0 failed**. Vite build green.
 
 ---
-*Last Updated: 2026-02 — Plaid Bank Link production fix + Orphan Backfill (this fork).*
+*Last Updated: 2026-02 — Treasury transactions feed + CoA hierarchy + Plaid 4-bug-fix combo (this fork).*
+
+**Bugs found & fixed this round**:
+1. Treasury deposit + liability list APIs were 500'ing on schema drift (queried non-existent `jel.side`/`jel.amount`/`jel.journal_entry_id`/`jel.tenant_id`). The Plaid mirror was working; the listing query was hiding it. Rewrote both queries to `(jel.debit - jel.credit)` joined via `jel.je_id` with `je.status='posted'`.
+2. Plaid Link `products: ['auth','transactions']` hid credit cards. Now `products:['transactions']` + `required_if_supported_products:['auth']` + `optional_products:['liabilities']`.
+3. The Retry / Sync button posted to `/api/plaid_sync_transactions` (no `.php`) which the API router rejected as not matching `/api/<module>/<endpoint>`. Appended `.php` in two callers (Treasury Deposit list + Bank Reconciliation).
+4. Plaid sync was item-level (one item → one bank account). Refactored to fan out per-Plaid-account, mapping each transaction's `account_id` to either `accounting_bank_accounts` (deposits → `accounting_bank_statement_lines`) or the new `treasury_liability_statement_lines` (cards/loans). Removed transactions flip the right table's `match_status='ignored'`.
+
+**New features**
+- **Per-account transactions view** — Treasury Deposit and Liability lists now have a clickable `View →` per row that opens a transactions detail page (`/modules/treasury/{deposits|liabilities}/{id}`). Page renders date / description / category / amount / match-status, plus inflow/outflow totals and a `Sync from Plaid` button. Deposit detail also exposes a deep-link to the existing Bank Reconciliation page.
+- **`treasury_liability_statement_lines`** — new table for credit-card / loan transactions (mirror shape of `accounting_bank_statement_lines` but keyed on `liability_account_id`). Self-heals on first sync if migration 003 not yet applied.
+- **`/modules/treasury/api/account_transactions.php`** — unified read endpoint with `?type=deposit|liability` switch, returns rows + inflow_total + outflow_total + plaid_item_pk for the sync button. Has `?action=sync` POST sub-action that proxies to `/api/plaid_sync_transactions.php` keeping cookies / auth context.
+- **CoA hierarchy auto-grouping** — `plaid_bank_link.php` now creates a header row per institution (`accounting_accounts` with `is_postable=0`, name = institution as-is e.g. "American Express") and assigns child cards' `parent_account_id` to it. Helper `plaidEnsureInstitutionParent()` lives in `core/plaid_service.php`, idempotent by name.
+- **`POST /api/accounting/accounts.php?action=auto_group_plaid`** — one-shot retroactive backfill: walks every Plaid-mirrored liability with `parent_account_id IS NULL` and assigns it to its institution parent (creating the parent if missing). Audited as `accounting.coa.auto_grouped_plaid`.
+- **`GET /api/accounting/accounts.php?action=tree`** — same data as the list, framed for tree-view rendering.
+- **CoA tree UI** — `ChartOfAccounts.jsx` rewritten with indented parent / child rendering, type filter, "Auto-group Plaid liabilities" button, and a "Move…" dialog per row that lets users reparent any account under any same-type parent (cycle-safe — descendants are not eligible). Header rows (`is_postable=0`) get a `header` badge.
+
+**Tested** — `tests/treasury_balance_query_smoke.php` (13 assertions), `tests/treasury_transactions_and_coa_hierarchy_smoke.php` (60 assertions). Full custom suite: **3,234 passing / 0 failed**.
+
+**Migration impact** — Migration `modules/treasury/003_liability_statement_lines.sql` is idempotent and will be auto-applied by `update.php` on next deploy. Adds `treasury_liability_statement_lines` + `idx_aa_tenant_parent` index.
+
+**Vite** — `index-Dxgu_7Ty.js` (813 kB, 1780 modules). `.deploy-version` updated with new bundle name + 5 new sentinels.
+
+**User actions to test end-to-end**:
+1. Refresh Treasury → should see 1 deposit + 2 liabilities listed.
+2. Click `View →` on the AmEx Business Platinum row → see the transactions panel.
+3. Click `Sync from Plaid` → transactions populate.
+4. Go to Accounting → Chart of Accounts → click `Auto-group Plaid liabilities`. The two AmEx cards should now indent under a new "American Express" header row.
+5. To move "American Express" + future "Discover" under a manual parent like "Credit Cards", first add a top-level Credit Cards account (type=liability, header), then click `Move…` on each institution row.
+
+
 
 **Bug** — Production users connecting their bank only saw depository accounts;
 credit cards / lines-of-credit / loans were silently absent from the

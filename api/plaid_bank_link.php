@@ -249,11 +249,24 @@ if ($action === 'exchange') {
                 $aaId = (int) $aaCheck->fetchColumn();
                 if ($aaId === 0) {
                     $glLabel = $name !== '' ? "{$glName} — {$name}" . ($mask ? " …{$mask}" : '') : $glName;
+
+                    // Auto-grouping: ensure an institution-level parent exists
+                    // (e.g. "American Express", "Chase") so cards from the
+                    // same issuer roll up together. User can manually
+                    // re-parent later via /modules/accounting/accounts.
+                    $instLabel = trim((string) ($institution['name'] ?? ''));
+                    $parentId  = null;
+                    if ($instLabel !== '') {
+                        $parentId = plaidEnsureInstitutionParent(
+                            $pdo, $tenantId, $instLabel, $baseCode
+                        );
+                    }
+
                     $pdo->prepare(
                         "INSERT INTO accounting_accounts
-                            (tenant_id, code, name, account_type, normal_side, active, created_at)
-                         VALUES (:t, :c, :n, 'liability', 'credit', 1, NOW())"
-                    )->execute(['t' => $tenantId, 'c' => $glCode, 'n' => $glLabel]);
+                            (tenant_id, code, name, account_type, normal_side, parent_account_id, active, created_at)
+                         VALUES (:t, :c, :n, 'liability', 'credit', :pa, 1, NOW())"
+                    )->execute(['t' => $tenantId, 'c' => $glCode, 'n' => $glLabel, 'pa' => $parentId]);
                     $aaId = (int) $pdo->lastInsertId();
                 }
 
@@ -301,4 +314,5 @@ if ($action === 'exchange') {
 }
 
 api_error('Unknown action: ' . $action, 422);
+
 

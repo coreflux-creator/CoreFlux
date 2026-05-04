@@ -428,6 +428,50 @@ function plaidAudit(string $event, array $meta = [], ?int $targetId = null): voi
         error_log('[plaid.audit] ' . $event . ' write-failed: ' . $e->getMessage());
     }
 }
+/**
+ * Find or create an institution-level parent COA row for liability auto-grouping.
+ *
+ * Creates a parent row at code "{baseCode}-{slug}" (e.g. "2100-AMEX")
+ * named exactly the institution (e.g. "American Express"), with
+ * account_type='liability', is_postable=0 (header row, no journal entries
+ * post to it directly), parent_account_id=NULL.
+ *
+ * Idempotent: if an existing row matches by name OR code, returns its id
+ * without modification. User is free to rename / re-parent it later via the
+ * Chart of Accounts UI.
+ */
+function plaidEnsureInstitutionParent(PDO $pdo, int $tenantId, string $instName, string $baseCode): ?int
+{
+    $instName = trim($instName);
+    if ($instName === '') return null;
+
+    $stmt = $pdo->prepare(
+        "SELECT id FROM accounting_accounts
+          WHERE tenant_id = :t AND name = :n AND account_type = 'liability' LIMIT 1"
+    );
+    $stmt->execute(['t' => $tenantId, 'n' => $instName]);
+    $existing = (int) $stmt->fetchColumn();
+    if ($existing > 0) return $existing;
+
+    $slug = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $instName));
+    $slug = $slug === '' ? 'INST' : substr($slug, 0, 8);
+    $code = $baseCode . '-' . $slug;
+
+    $codeCheck = $pdo->prepare(
+        "SELECT id FROM accounting_accounts WHERE tenant_id = :t AND code = :c LIMIT 1"
+    );
+    $codeCheck->execute(['t' => $tenantId, 'c' => $code]);
+    $byCode = (int) $codeCheck->fetchColumn();
+    if ($byCode > 0) return $byCode;
+
+    $pdo->prepare(
+        "INSERT INTO accounting_accounts
+            (tenant_id, code, name, account_type, normal_side, is_postable, parent_account_id, active, created_at)
+         VALUES (:t, :c, :n, 'liability', 'credit', 0, NULL, 1, NOW())"
+    )->execute(['t' => $tenantId, 'c' => $code, 'n' => $instName]);
+
+    return (int) $pdo->lastInsertId();
+}
 
 /**
  * Pick a unique GL account code under (tenant_id, code).
