@@ -6,6 +6,7 @@ import Periods from './Periods';
 import Reports from './Reports';
 import Categories from './Categories';
 import CsvImport from './CsvImport';
+import TimeSettlement from './TimeSettlement';
 
 /**
  * Time Module — Phase A routes.
@@ -19,6 +20,7 @@ export default function TimeModule({ session }) {
         <Route path="overview"  element={<Navigate to="../entries" replace />} />
         <Route path="entries"   element={<MyTime session={session} />} />
         <Route path="review"    element={<ReviewQueue session={session} />} />
+        <Route path="settlement" element={<TimeSettlement />} />
         <Route path="periods"   element={<Periods session={session} />} />
         <Route path="reports"   element={<Reports />} />
         <Route path="bulk"      element={<CsvImport />} />

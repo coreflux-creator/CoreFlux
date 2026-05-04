@@ -18,13 +18,14 @@ return [
     'version'     => '0.1.0',
 
     'actions' => [
-        ['name' => 'My Time',            'route' => 'entries',  'permission' => 'time.entry.self'],
-        ['name' => 'Review Queue',       'route' => 'review',   'permission' => 'time.review'],
-        ['name' => 'Inbox (AI)',         'route' => 'inbox',    'permission' => 'time.review'],
-        ['name' => 'Bulk Upload',        'route' => 'bulk',     'permission' => 'time.bulk_upload'],
-        ['name' => 'Missing Timesheets', 'route' => 'missing',  'permission' => 'time.dashboard.missing'],
-        ['name' => 'Pay Periods',        'route' => 'periods',  'permission' => 'time.period.close'],
-        ['name' => 'Reports',            'route' => 'reports',  'permission' => 'time.view'],
+        ['name' => 'My Time',            'route' => 'entries',    'permission' => 'time.entry.self'],
+        ['name' => 'Review Queue',       'route' => 'review',     'permission' => 'time.review'],
+        ['name' => 'Settlement',         'route' => 'settlement', 'permission' => 'time.settlement.view.billing'],
+        ['name' => 'Inbox (AI)',         'route' => 'inbox',      'permission' => 'time.review'],
+        ['name' => 'Bulk Upload',        'route' => 'bulk',       'permission' => 'time.bulk_upload'],
+        ['name' => 'Missing Timesheets', 'route' => 'missing',    'permission' => 'time.dashboard.missing'],
+        ['name' => 'Pay Periods',        'route' => 'periods',    'permission' => 'time.period.close'],
+        ['name' => 'Reports',            'route' => 'reports',    'permission' => 'time.view'],
     ],
 
     'permissions' => [
@@ -42,6 +43,15 @@ return [
         'time.dashboard.missing'        => 'View Missing Timesheets dashboard',
         'time.categories.manage'        => 'Define tenant custom time categories',
         'time.audit.view'               => 'View time audit log',
+        'time.settlement.view.billing'      => 'View ready-to-extract days for AR billing',
+        'time.settlement.view.ap'           => 'View ready-to-extract days for AP (1099/C2C)',
+        'time.settlement.view.payroll'      => 'View ready-to-extract days for payroll',
+        'time.settlement.extract.billing'   => 'Mark approved days as extracted into an AR invoice',
+        'time.settlement.extract.ap'        => 'Mark approved days as extracted into an AP bill',
+        'time.settlement.extract.payroll'   => 'Mark approved days as extracted into a payroll line',
+        'time.settlement.unextract.billing' => 'Reverse a billing extract (corrections)',
+        'time.settlement.unextract.ap'      => 'Reverse an AP extract (corrections)',
+        'time.settlement.unextract.payroll' => 'Reverse a payroll extract (corrections)',
     ],
 
     'audit_events' => [
@@ -72,6 +82,12 @@ return [
         'time.category.created',
         'time.category.updated',
         'time.category.deactivated',
+        'time.settlement.extracted_billing',
+        'time.settlement.extracted_ap',
+        'time.settlement.extracted_payroll',
+        'time.settlement.unextracted_billing',
+        'time.settlement.unextracted_ap',
+        'time.settlement.unextracted_payroll',
     ],
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
