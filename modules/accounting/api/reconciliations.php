@@ -162,4 +162,22 @@ if ($method === 'POST' && $action === 'generate_ai_narrative') {
     api_ok($res);
 }
 
+// ── action=save_ai_narrative ─────────────────────────────────────────────
+// Persists the human-accepted narrative text (called by <AISuggestion />
+// onAccepted callback — nothing persists until the user accepts).
+if ($method === 'POST' && $action === 'save_ai_narrative') {
+    RBAC::requirePermission($user, 'accounting.bank.reconcile');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 400);
+    $body = api_json_body();
+    $final = trim((string) ($body['final_content'] ?? ''));
+    if ($final === '') api_error('final_content required', 422);
+    reconciliationPacketSaveNarrative($tid, $id, $final);
+    accountingAudit('accounting.reconciliation.ai_narrative_accepted', [
+        'reconciliation_id' => $id,
+        'length'            => strlen($final),
+    ], $id);
+    api_ok(['ok' => true]);
+}
+
 api_error('Method not allowed', 405);

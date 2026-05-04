@@ -121,6 +121,7 @@ return [
         'accounting.reconciliation.reopened',
         'accounting.reconciliation.packet_built',
         'accounting.reconciliation.ai_narrative_generated',
+        'accounting.reconciliation.ai_narrative_accepted',
         'accounting.ledger.imported',
         'accounting.ledger.exported',
         'accounting.fx.rate_added',

@@ -873,3 +873,13 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 
 ---
 *Last Updated: 2026-02 — Accounting Phase 2 Sprint A.4 shipped (CSV ledger import/export, standard reports, reconciliation packet with AI narrative + printable PDF layout).*
+
+*2026-02 — Reconciliation narrative now goes through `<AISuggestion />`:*
+- **Library split**: `reconciliationPacketGenerateNarrative()` no longer auto-persists — it only returns the AI envelope. New `reconciliationPacketSaveNarrative()` persists the human-accepted (and possibly edited) text.
+- **New endpoint** `?action=save_ai_narrative` accepts `{final_content}` and writes it to `accounting_reconciliations.ai_narrative` + `ai_narrative_generated_at`. Audits `accounting.reconciliation.ai_narrative_accepted`.
+- **UI** `ReconciliationPacket.jsx` now renders the generated narrative inside `<AISuggestion envelope={aiEnvelope} featureKey="accounting.reconciliation.packet_narrative" subjectType="accounting_reconciliation" subjectId={id} onAccepted={...} onRejected={...} />`. The accept/reject row goes through the standard `/core/api/ai_suggestions.php` pipeline (same as Payroll run summaries) so it shows up on the cross-tenant AI admin dashboard.
+- **Manifest** declares the new `accounting.reconciliation.ai_narrative_accepted` audit event.
+- Backend: +8 new smoke assertions on top of Phase 2 A.4 (115 total for A.4). Full suite: **33 files, 2,173 passing / 0 failed**. Vite build green (629kB JS).
+
+---
+*Last Updated: 2026-02 — Reconciliation AI narrative now uses the platform-standard `<AISuggestion />` review gate (Badge → Edit → Accept/Reject → audit).*

@@ -91,8 +91,9 @@ function reconciliationPacketBuild(int $tenantId, int $reconId): array
 }
 
 /**
- * Call aiAsk() with the packet totals as context; persist the narrative.
- * Returns the AI envelope (including `content`, `model`, `interaction_id`).
+ * Call aiAsk() with the packet totals as context and return the envelope.
+ * Does NOT persist — persistence happens only if the user accepts via
+ * the <AISuggestion /> review flow (save_ai_narrative endpoint).
  */
 function reconciliationPacketGenerateNarrative(int $tenantId, int $reconId, ?int $actorUserId): array
 {
@@ -112,7 +113,7 @@ function reconciliationPacketGenerateNarrative(int $tenantId, int $reconId, ?int
         'unmatched_sample'  => array_slice($packet['unmatched'], 0, 10),
     ];
 
-    $res = aiAsk([
+    return aiAsk([
         'feature_class' => 'narrative',
         'kind'          => 'narrative',
         'feature_key'   => 'accounting.reconciliation.packet_narrative',
@@ -124,16 +125,21 @@ function reconciliationPacketGenerateNarrative(int $tenantId, int $reconId, ?int
         'context'       => $context,
         'max_output_tokens' => 400,
     ]);
+}
 
+/**
+ * Persist the human-accepted narrative text to the reconciliation row.
+ * Called from the <AISuggestion /> onAccepted callback.
+ */
+function reconciliationPacketSaveNarrative(int $tenantId, int $reconId, string $finalContent): void
+{
     getDB()->prepare(
         'UPDATE accounting_reconciliations
          SET ai_narrative = :n, ai_narrative_generated_at = :ts
          WHERE id = :id AND tenant_id = :t'
     )->execute([
-        'n'  => $res['content'] ?? '',
+        'n'  => $finalContent,
         'ts' => date('Y-m-d H:i:s'),
         'id' => $reconId, 't' => $tenantId,
     ]);
-
-    return $res;
 }

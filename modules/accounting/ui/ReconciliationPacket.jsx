@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import AISuggestion from '../../../dashboard/src/components/AISuggestion';
 
 /**
  * Reconciliation packet — print-friendly one-pager.
@@ -17,6 +18,8 @@ export default function ReconciliationPacket() {
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
   const [reason, setReason] = useState('');
+  const [aiEnvelope, setAiEnvelope] = useState(null);
+  const [aiError, setAiError]       = useState(null);
 
   if (loading) return <p>Loading…</p>;
   if (error)   return <p className="error">{error.message}</p>;
@@ -30,6 +33,25 @@ export default function ReconciliationPacket() {
     try { await api.post(`/modules/accounting/api/reconciliations.php?action=${action}&id=${id}`, body || {}); reload(); }
     catch (e) { setErr(e.message); }
     finally { setBusy(false); }
+  };
+
+  const generateNarrative = async () => {
+    setBusy(true); setAiError(null); setAiEnvelope(null);
+    try {
+      const env = await api.post(`/modules/accounting/api/reconciliations.php?action=generate_ai_narrative&id=${id}`, {});
+      setAiEnvelope(env);
+    } catch (e) { setAiError(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const onNarrativeAccepted = async (finalContent) => {
+    // Persist human-accepted narrative. <AISuggestion /> has already
+    // written the approve row to ai_suggestions; we additionally copy the
+    // final text onto accounting_reconciliations.ai_narrative.
+    try {
+      await api.post(`/modules/accounting/api/reconciliations.php?action=save_ai_narrative&id=${id}`, { final_content: finalContent });
+      reload();
+    } catch (e) { setAiError(e.message); }
   };
 
   return (
@@ -128,21 +150,34 @@ export default function ReconciliationPacket() {
 
       <div className="packet-section">
         <h3>AI narrative</h3>
-        {data.ai_narrative ? (
+        {data.ai_narrative && !aiEnvelope && (
           <div data-testid="accounting-packet-ai-narrative" style={{ background: '#f9fafb', border: '1px solid #e5e7eb', padding: 12, borderRadius: 6, whiteSpace: 'pre-wrap' }}>
             <div style={{ fontSize: 11, color: '#666', marginBottom: 6 }}>
-              AI-generated · Generated {data.ai_narrative_generated_at} · Review before using externally.
+              Accepted · Saved {data.ai_narrative_generated_at}
             </div>
             {data.ai_narrative}
           </div>
-        ) : (
-          <p style={{ color: '#666', fontSize: 13 }} data-testid="accounting-packet-ai-empty">No narrative yet. Generate one to include context for reviewers.</p>
+        )}
+        {!data.ai_narrative && !aiEnvelope && (
+          <p style={{ color: '#666', fontSize: 13 }} data-testid="accounting-packet-ai-empty">No narrative yet. Generate one to include reviewer context in the packet.</p>
+        )}
+        {aiError && <p className="error" data-testid="accounting-packet-ai-error">{aiError}</p>}
+        {aiEnvelope && (
+          <AISuggestion
+            envelope={aiEnvelope}
+            featureKey="accounting.reconciliation.packet_narrative"
+            subjectType="accounting_reconciliation"
+            subjectId={parseInt(id, 10)}
+            onAccepted={(finalContent) => { onNarrativeAccepted(finalContent); setAiEnvelope(null); }}
+            onRejected={() => setAiEnvelope(null)}
+          />
         )}
         <button
           className="btn btn--ghost cf-no-print"
           disabled={busy}
-          onClick={() => doAction('generate_ai_narrative')}
+          onClick={generateNarrative}
           data-testid="accounting-packet-generate-narrative"
+          style={{ marginTop: 8 }}
         >{busy ? 'Generating…' : (data.ai_narrative ? 'Regenerate narrative' : 'Generate AI narrative')}</button>
       </div>
 

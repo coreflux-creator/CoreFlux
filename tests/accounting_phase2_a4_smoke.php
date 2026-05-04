@@ -95,6 +95,10 @@ $a('action=close refuses already-closed',       $contains($rc, "\$action === 'cl
 $a('action=reopen requires reason',             $contains($rc, "\$action === 'reopen'") && $contains($rc, 'reason required to reopen'));
 $a('action=packet returns builder output',      $contains($rc, "\$action === 'packet'") && $contains($rc, 'reconciliationPacketBuild('));
 $a('action=generate_ai_narrative calls lib',    $contains($rc, "\$action === 'generate_ai_narrative'") && $contains($rc, 'reconciliationPacketGenerateNarrative('));
+$a('action=save_ai_narrative persists final content',
+    $contains($rc, "\$action === 'save_ai_narrative'") &&
+    $contains($rc, 'reconciliationPacketSaveNarrative(') &&
+    $contains($rc, 'final_content'));
 $a('emits recon.opened/closed/reopened audits',
     $contains($rc, "'accounting.reconciliation.opened'") &&
     $contains($rc, "'accounting.reconciliation.closed'") &&
@@ -105,6 +109,14 @@ echo "\nlib/reconciliation_packet.php\n";
 $lp = (string) file_get_contents(__DIR__ . '/../modules/accounting/lib/reconciliation_packet.php');
 $a('reconciliationPacketBuild declared',        $contains($lp, 'function reconciliationPacketBuild'));
 $a('reconciliationPacketGenerateNarrative declared', $contains($lp, 'function reconciliationPacketGenerateNarrative'));
+$a('reconciliationPacketSaveNarrative declared',$contains($lp, 'function reconciliationPacketSaveNarrative'));
+$a('generate does NOT auto-persist',
+    !preg_match('/function reconciliationPacketGenerateNarrative.*?\n\}/s', $lp, $m) ||
+    strpos($m[0], 'UPDATE accounting_reconciliations') === false);
+$a('save persists ai_narrative',
+    $contains($lp, 'function reconciliationPacketSaveNarrative') &&
+    $contains($lp, 'UPDATE accounting_reconciliations') &&
+    $contains($lp, 'ai_narrative = :n'));
 $a('builds matched + unmatched + totals',
     $contains($lp, "'matched'") && $contains($lp, "'unmatched'") && $contains($lp, "'totals'"));
 $a('narrative goes through aiAsk chokepoint',   $contains($lp, 'aiAsk(') && $contains($lp, 'accounting.reconciliation.packet_narrative'));
@@ -174,6 +186,14 @@ $a('matched + unmatched tables',
     $contains($rp, 'accounting-packet-unmatched-table'));
 $a('workflow kv',                               $contains($rp, 'accounting-packet-workflow'));
 $a('AI narrative generate button',              $contains($rp, 'accounting-packet-generate-narrative'));
+$a('uses <AISuggestion /> review component',
+    $contains($rp, "from '../../../dashboard/src/components/AISuggestion'") &&
+    $contains($rp, '<AISuggestion'));
+$a('AISuggestion wired with featureKey + subject',
+    $contains($rp, 'featureKey="accounting.reconciliation.packet_narrative"') &&
+    $contains($rp, 'subjectType="accounting_reconciliation"'));
+$a('onAccepted persists via save_ai_narrative',
+    $contains($rp, 'action=save_ai_narrative'));
 $a('close button',                              $contains($rp, 'accounting-packet-close'));
 $a('reopen button + reason input',
     $contains($rp, 'accounting-packet-reopen-reason') &&
@@ -190,6 +210,7 @@ $a('recon.closed audit',                        $contains($man, "'accounting.rec
 $a('recon.reopened audit',                      $contains($man, "'accounting.reconciliation.reopened'"));
 $a('recon.packet_built audit',                  $contains($man, "'accounting.reconciliation.packet_built'"));
 $a('recon.ai_narrative_generated audit',        $contains($man, "'accounting.reconciliation.ai_narrative_generated'"));
+$a('recon.ai_narrative_accepted audit',         $contains($man, "'accounting.reconciliation.ai_narrative_accepted'"));
 $a('ledger.imported audit',                     $contains($man, "'accounting.ledger.imported'"));
 $a('ledger.exported audit',                     $contains($man, "'accounting.ledger.exported'"));
 
