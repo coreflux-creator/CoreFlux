@@ -16,6 +16,11 @@ export default function GustoConnectCard() {
   const [state, setState] = useState({ loading: true });
   const [err, setErr] = useState(null);
   const [bounce, setBounce] = useState(null);
+  const [showManual, setShowManual] = useState(false);
+  const [manualForm, setManualForm] = useState({
+    company_uuid: '', company_name: '', access_token: '', refresh_token: '',
+  });
+  const [manualBusy, setManualBusy] = useState(false);
 
   const load = async () => {
     setState((s) => ({ ...s, loading: true }));
@@ -27,7 +32,6 @@ export default function GustoConnectCard() {
 
   useEffect(() => {
     load();
-    // Parse bounce params from OAuth callback redirect (uses hash routing).
     const hash = window.location.hash || '';
     const qIdx = hash.indexOf('?');
     if (qIdx >= 0) {
@@ -43,8 +47,18 @@ export default function GustoConnectCard() {
   }, []);
 
   const connect = () => {
-    // Top-level navigation so we leave the SPA and come back via the callback.
     window.location.href = '/api/gusto_oauth_start.php';
+  };
+
+  const submitManual = async (e) => {
+    e.preventDefault();
+    setManualBusy(true); setErr(null);
+    try {
+      await api.post('/modules/payroll/api/gusto_connect.php', manualForm);
+      setShowManual(false);
+      setManualForm({ company_uuid: '', company_name: '', access_token: '', refresh_token: '' });
+      await load();
+    } catch (e2) { setErr(e2.message); } finally { setManualBusy(false); }
   };
 
   const disconnect = async () => {
@@ -101,6 +115,81 @@ export default function GustoConnectCard() {
           >
             Connect Gusto ({state.env})
           </button>
+
+          {state.env === 'sandbox' && (
+            <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px dashed var(--cf-border, #cbd5e1)' }}>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setShowManual((v) => !v)}
+                data-testid="gusto-connect-manual-toggle"
+              >
+                {showManual ? 'Cancel' : 'Or paste demo tokens manually (sandbox)'}
+              </button>
+              {showManual && (
+                <form
+                  onSubmit={submitManual}
+                  data-testid="gusto-connect-manual-form"
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}
+                >
+                  <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+                    From the Gusto Developer Portal → <em>Demo Partner Managed Companies</em> → click
+                    <em> Show Tokens</em> on a demo company, then paste the values here. This skips OAuth
+                    for sandbox testing.
+                  </p>
+                  <label>
+                    <span>Company UUID</span>
+                    <input
+                      required type="text"
+                      value={manualForm.company_uuid}
+                      onChange={(e) => setManualForm({ ...manualForm, company_uuid: e.target.value })}
+                      placeholder="4b448395-fd3f-45e8-bf40-d9b6b3747737"
+                      data-testid="gusto-connect-manual-company-uuid"
+                    />
+                  </label>
+                  <label>
+                    <span>Company name (optional)</span>
+                    <input
+                      type="text"
+                      value={manualForm.company_name}
+                      onChange={(e) => setManualForm({ ...manualForm, company_name: e.target.value })}
+                      placeholder="Thunderhawk Technology Partners LLC"
+                      data-testid="gusto-connect-manual-company-name"
+                    />
+                  </label>
+                  <label>
+                    <span>Access token</span>
+                    <input
+                      required type="text"
+                      value={manualForm.access_token}
+                      onChange={(e) => setManualForm({ ...manualForm, access_token: e.target.value })}
+                      data-testid="gusto-connect-manual-access-token"
+                      autoComplete="off" spellCheck={false}
+                    />
+                  </label>
+                  <label>
+                    <span>Refresh token</span>
+                    <input
+                      required type="text"
+                      value={manualForm.refresh_token}
+                      onChange={(e) => setManualForm({ ...manualForm, refresh_token: e.target.value })}
+                      data-testid="gusto-connect-manual-refresh-token"
+                      autoComplete="off" spellCheck={false}
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    className="btn btn--primary"
+                    disabled={manualBusy}
+                    data-testid="gusto-connect-manual-submit"
+                    style={{ alignSelf: 'flex-start' }}
+                  >
+                    {manualBusy ? 'Saving…' : 'Save sandbox connection'}
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
         </>
       )}
 
