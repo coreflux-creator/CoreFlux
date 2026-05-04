@@ -945,3 +945,25 @@ Path-B architectural decision: customer uses ONE CoreFlux tenant per legal famil
 
 ---
 *Last Updated: 2026-02 — Phase 2 A.6 shipped: IC splits on AP bills + manual JEs via the reusable dialog; Elimination Worksheet live with AI narrative for pre-close sanity.*
+
+
+*2026-02 — Accounting Phase 2 Sprint A.7 (Consolidation foundations + entity-aware schema extensions):*
+
+- **Migration `007_consolidation.sql`** — new `accounting_entity_relationships` table (directional edges with `ownership_pct DECIMAL(7,4)`, `relationship_type` enum (subsidiary/affiliate/branch/jv/other), `consolidation_method` enum (full/equity/cost/none), `effective_from`/`effective_to` for dated ownership changes, unique on (tenant, parent, child, effective_from)). Adds `entity_id` to `billing_invoices`, `people`, and `ap_bills` with tenant+entity composite indexes. All idempotent.
+- **Consolidation engine** `lib/consolidation.php`:
+  - `entityRelationshipList` / `entityRelationshipUpsert` — CRUD with full validation (pct 0..100, whitelisted types & methods).
+  - `entityRelationshipResolveDescendants($rootEntityId, $asOf)` — BFS traversal honoring `effective_from/to` and skipping `cost` / `none` method children.
+  - `consolidateTrialBalance` / `consolidateIncomeStatement` / `consolidateBalanceSheet` — union per-entity data AND apply intercompany eliminations in-query (where BOTH the source JE entity AND the line's `counterparty_entity_id` are in scope). Every row exposes `debit_gross` / `credit_gross` / `debit_elim` / `credit_elim` / `debit_net` / `credit_net` / `balance_signed` so the UI can show the reader "here's what we eliminated".
+  - NCI (non-controlling interest) tracked as a known-limitation for v1.0 — the ownership_pct is persisted but treatment is "full include" for the subsidiary method for now.
+- **API** `api/entity_relationships.php` — list/upsert/delete + `?action=descendants&root_entity_id=N&as_of=YYYY-MM-DD` to resolve a consolidation tree.
+- **API** `reports.php` extended with `?consolidate=1&entity_ids=1,2,3` (or `&root_entity_id=N`) for all 3 financial statements (IS/BS/TB). Falls through to legacy single-entity mode when flag absent.
+- **UI** `Consolidation.jsx` at `/accounting/consolidation` — two halves:
+  1. **Ownership structure** editor (parent, child, %, type, method).
+  2. **Consolidated report viewer** — pick entities via checkboxes, pick report type (IS / BS / TB), period. Renders the consolidated statement with an "Elim" column so reviewers see both the gross number and what was eliminated.
+- **Manifest**: 3 new audit events for relationship_created/updated/deactivated.
+- **Schema extensions — `entity_id` columns** (ALTER-only; UI pickers to follow):
+  - `billing_invoices.entity_id`, `people.entity_id`, `ap_bills.entity_id` — idempotent adds with `(tenant_id, entity_id)` indexes. Feature APIs still tenant-scope today; next sprint wires the create flows + filters so users can scope AR/HR/AP natively to an entity without going through an IC split.
+- Backend: +60 new smoke assertions in `/app/tests/accounting_phase2_a7_smoke.php` (incl. 5 pure-function unit asserts on validation). Combined suite: **36 files, 2,357 passing / 0 failed**. Vite build green, synced.
+
+---
+*Last Updated: 2026-02 — Phase 2 A.7 shipped: ownership relationships + consolidated IS/BS/TB with in-query intercompany eliminations. Foundations for per-entity AR/HR/AP via new entity_id columns.*
