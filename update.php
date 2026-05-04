@@ -92,6 +92,24 @@ function runUpdate(): array {
     //     siblings are deleted (same for .css).
     $assetsDir = $root . '/spa-assets';
     $pruned = [];
+
+    // Discover the expected bundle from .deploy-version so we can prune ANY
+    // bundle that doesn't match (even when there's only one — the partial-
+    // deploy failure mode where a stale solo bundle is the only file left).
+    $expectedBundles = [];
+    $stampFile = $root . '/.deploy-version';
+    if (is_file($stampFile)) {
+        $stamp = (string) file_get_contents($stampFile);
+        if (preg_match('/expected_bundle:\s*\n((?:\s*-[^\n]*\n)+)/', $stamp, $bm)) {
+            foreach (preg_split('/\r?\n/', trim($bm[1])) as $line) {
+                $rel = trim((string) preg_replace('/^\s*-\s*/', '', $line));
+                if ($rel !== '' && str_starts_with($rel, 'spa-assets/')) {
+                    $expectedBundles[basename($rel)] = true;
+                }
+            }
+        }
+    }
+
     if (is_dir($assetsDir)) {
         $jsList = $cssList = [];
         foreach (scandir($assetsDir) as $f) {
@@ -101,7 +119,35 @@ function runUpdate(): array {
             if (preg_match('/^index-.*\.js$/',  $f)) $jsList[$f]  = filemtime($path);
             if (preg_match('/^index-.*\.css$/', $f)) $cssList[$f] = filemtime($path);
         }
-        // Keep the single newest .js + .css; delete the rest.
+
+        // Pass 1: if we have an expected bundle list, drop ANY file not in
+        // that list — but only when the expected file IS actually present.
+        // (If the expected bundle is missing, we keep the stale one rather
+        // than leaving the SPA serving a 404 — at least it boots.)
+        if ($expectedBundles) {
+            $expectedJsPresent  = false;
+            $expectedCssPresent = false;
+            foreach ($expectedBundles as $name => $_) {
+                if (str_ends_with($name, '.js')  && isset($jsList[$name]))  $expectedJsPresent  = true;
+                if (str_ends_with($name, '.css') && isset($cssList[$name])) $expectedCssPresent = true;
+            }
+            if ($expectedJsPresent) {
+                foreach ($jsList as $name => $_) {
+                    if (!isset($expectedBundles[$name]) && @unlink($assetsDir . '/' . $name)) $pruned[] = $name;
+                }
+            }
+            if ($expectedCssPresent) {
+                foreach ($cssList as $name => $_) {
+                    if (!isset($expectedBundles[$name]) && @unlink($assetsDir . '/' . $name)) $pruned[] = $name;
+                }
+            }
+            // Refresh lists after deletion for pass 2.
+            $jsList  = array_intersect_key($jsList,  array_flip(array_filter(array_keys($jsList),  fn($n) => file_exists($assetsDir . '/' . $n))));
+            $cssList = array_intersect_key($cssList, array_flip(array_filter(array_keys($cssList), fn($n) => file_exists($assetsDir . '/' . $n))));
+        }
+
+        // Pass 2: classic newest-mtime keep (covers cases where multiple
+        // expected/unrelated bundles linger after Vite rebuilds).
         $keepNewest = static function (array $list) use ($assetsDir, &$pruned): void {
             if (count($list) <= 1) return;
             arsort($list);                       // newest mtime first
@@ -231,9 +277,10 @@ function runUpdate(): array {
 
 /**
  * Read /app/.deploy-version and verify every "sentinel" file exists on
- * disk. If any are missing, the host is parked on a commit older than
- * the one that wrote .deploy-version → Cloudways' git deploy didn't run.
- * Surfaces a red ✗ so the user can't miss it.
+ * disk AND that the expected bundle (the only `.js` shipped at HEAD) is
+ * present. Surfaces a red ✗ if anything is missing so the user can't
+ * miss a partial Cloudways deploy where the bundle silently failed to
+ * transfer (very real failure mode — happened on this app's first deploy).
  */
 function _deployVersionCheck(string $root): array
 {
@@ -259,21 +306,33 @@ function _deployVersionCheck(string $root): array
         if ($rel === '') continue;
         if (!file_exists($root . '/' . $rel)) $missing[] = $rel;
     }
+    // Also check for the expected bundle (the JS file specifically — it's
+    // the file that's failed to transfer in the past while the .css of the
+    // same commit succeeded).
+    if (preg_match('/expected_bundle:\s*\n((?:\s*-[^\n]*\n)+)/', $stamp, $bm)) {
+        foreach (preg_split('/\r?\n/', trim($bm[1])) as $line) {
+            $rel = trim((string) preg_replace('/^\s*-\s*/', '', $line));
+            if ($rel === '') continue;
+            if (!file_exists($root . '/' . $rel)) $missing[] = $rel . ' (expected bundle file)';
+        }
+    }
     if (!$missing) {
         return [
             'name'   => 'deploy version stamp',
             'ok'     => true,
-            'detail' => 'all sentinel files present — host is on or newer than this stamp',
+            'detail' => 'all sentinel files + expected bundle present — host is on or newer than this stamp',
         ];
     }
     return [
         'name'   => 'deploy version stamp',
         'ok'     => false,
-        'detail' => 'STALE DEPLOY — Cloudways has not pulled the latest commit. ' .
-                    count($missing) . ' sentinel file(s) missing on disk: '
+        'detail' => 'STALE OR PARTIAL DEPLOY — Cloudways did not deliver the latest commit cleanly. ' .
+                    count($missing) . ' file(s) missing on disk: '
                     . implode(', ', array_slice($missing, 0, 5))
                     . (count($missing) > 5 ? ' …(+' . (count($missing) - 5) . ' more)' : '')
-                    . '. Fix: Cloudways → Application → Deployment via Git → Pull Latest, then re-run Update.',
+                    . '. Fix: re-run Cloudways → Deployment via Git → Pull Latest. '
+                    . 'If the same file fails twice, the bundle likely exceeded a per-file transfer threshold — '
+                    . 'upload it manually via SFTP or File Manager.',
     ];
 }
 
