@@ -97,6 +97,7 @@ function getModuleDefinitions(): array {
                 ['name' => 'Recurring JEs',    'route' => 'recurring','permission' => 'accounting.je.create'],
                 ['name' => 'Standard Reports', 'route' => 'reports',  'permission' => 'accounting.reports.view'],
                 ['name' => 'CSV Import',       'route' => 'import',   'permission' => 'accounting.coa.manage'],
+                ['name' => 'Intercompany',     'route' => 'intercompany','permission' => 'accounting.intercompany.manage'],
                 ['name' => 'Periods',           'route' => 'periods',  'permission' => 'accounting.coa.view'],
             ]
         ],

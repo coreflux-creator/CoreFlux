@@ -222,6 +222,7 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
             'memo'                    => $l['memo'] ?? null,
             'counterparty_company_id' => !empty($l['counterparty_company_id']) ? (int) $l['counterparty_company_id'] : null,
             'counterparty_person_id'  => !empty($l['counterparty_person_id'])  ? (int) $l['counterparty_person_id']  : null,
+            'counterparty_entity_id'  => !empty($l['counterparty_entity_id'])  ? (int) $l['counterparty_entity_id']  : null,
             'dim_json'                => isset($l['dims']) ? json_encode($l['dims']) : null,
         ];
     }
@@ -255,13 +256,14 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
         foreach ($resolved as $l) {
             $stmt = $pdo->prepare(
                 'INSERT INTO accounting_journal_entry_lines
-                   (je_id, line_no, account_id, debit, credit, memo, counterparty_company_id, counterparty_person_id, dim_json)
-                 VALUES (:je, :ln, :a, :d, :c, :m, :cc, :cp, :dj)'
+                   (je_id, line_no, account_id, debit, credit, memo, counterparty_company_id, counterparty_person_id, counterparty_entity_id, dim_json)
+                 VALUES (:je, :ln, :a, :d, :c, :m, :cc, :cp, :ce, :dj)'
             );
             $stmt->execute([
                 'je' => $jeId, 'ln' => $l['line_no'], 'a' => $l['account_id'],
                 'd'  => $l['debit'], 'c' => $l['credit'], 'm' => $l['memo'],
                 'cc' => $l['counterparty_company_id'], 'cp' => $l['counterparty_person_id'],
+                'ce' => $l['counterparty_entity_id'],
                 'dj' => $l['dim_json'],
             ]);
         }

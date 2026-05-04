@@ -883,3 +883,34 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 
 ---
 *Last Updated: 2026-02 — Reconciliation AI narrative now uses the platform-standard `<AISuggestion />` review gate (Badge → Edit → Accept/Reject → audit).*
+
+
+*2026-02 — Accounting Phase 2 Sprint A.5 (Intercompany Split Engine):*
+- **Migration `006_intercompany.sql`** — new `accounting_intercompany_mappings` table (directional: one row per `from_entity → to_entity` with `due_from_account_code` + `due_to_account_code`), `intercompany_group_id VARCHAR(64)` column on JEs (indexed with tenant_id), `counterparty_entity_id BIGINT UNSIGNED` column on JE lines.
+- **Engine** `lib/intercompany.php`:
+  - `intercompanyGetMapping` / `intercompanyUpsertMapping` — pre-configured per-pair mapping; ad-hoc override supported at post time (user choice 1c).
+  - `intercompanyPostSplit($tenantId, $payload, $actor)` — posts N balanced JEs (one per entity) via the existing `accountingPostJe()` chokepoint, linking them all via a fresh `intercompany_group_id`. Each target-entity JE is debit/credit balanced by construction using the mapping's due-from/due-to. Source entity always gets its own balancing JE (user choice 2b), so TB in source stays clean.
+  - Idempotency keyed per leg: `<prefix>:source`, `<prefix>:target:<entity_id>` — retrying the same post returns prior JE ids instead of double-posting.
+  - Full atomic transaction per split (all legs or none).
+  - Auto-marks the originating bank statement line as `matched` against the source JE when `bank_statement_line_id` is present.
+  - `intercompanyReverseGroup($tenantId, $groupId, $reason)` — reverses every leg in the group via `accountingReverseJe()` (user choice 5a — cascaded reversal).
+- **API** `api/intercompany.php` — list/resolve/upsert/delete mappings; `?action=post_split`, `?action=reverse_group`, `?action=group` (list JEs in a group). Cross-entity posting requires `accounting.je.post` permission in every target entity (user choice 3b — tenant-scoped `accounting.*` covers this for master_admin / tenant_admin).
+- **Core `accountingPostJe()`** extended to pass through `counterparty_entity_id` on each line so IC lines are self-documenting in the DB (supports future IC reporting / eliminations).
+- **UI — reusable dialog** `components/IntercompanySplitDialog.jsx`:
+  - One modal used from (currently) Bank Reconciliation, (next) Journal Entry Create, (next) AP Bill Post.
+  - Splits table: user picks entity + account + amount per row. Auto-resolves the IC mapping for each cross-entity row; shows `DR 1500 / CR 2500` inline; flags rows with missing mappings in red so the user can go configure before posting.
+  - Live balance check: splits must total to the source offset amount before the Post button enables.
+  - Sign convention: `sourceOffsetSide='credit'` (bank charge — money LEFT source entity) vs `'debit'` (deposit — money CAME IN). Everything flips correctly for deposits.
+- **UI — settings page** `IntercompanyMappings.jsx` at `/accounting/intercompany`: form + table for managing the (from, to, due_from, due_to, notes, active) mappings. One row per direction (A→B and B→A are separate rows by design).
+- **Bank Rec integration**: every unmatched bank line now has a `⊕ Split / IC` button that opens the dialog with the bank's entity + GL account pre-filled. On successful post, the line is auto-matched and reloads. Sign is auto-detected: negative amount → credit source offset (charge); positive → debit source offset (deposit).
+- **Manifest**: declares 5 new IC audit events (`mapping_created/updated/deactivated`, `split_posted`, `group_reversed`).
+- Backend: +75 new smoke assertions in `/app/tests/accounting_phase2_a5_smoke.php`. Combined suite: **34 files, 2,248 passing / 0 failed**. Vite build green (641kB JS). Bundle synced to `/app/spa-assets/`.
+
+### Scope cuts explicitly flagged as next up
+- **AP bill → intercompany split** — the `<IntercompanySplitDialog />` is reusable, but `ap_bills` post flow still needs a hook on the bill detail page. Will add in next sprint.
+- **Manual JE → intercompany split** — same reusable dialog, still needs an entry-point button on `JournalEntryCreate.jsx`.
+- **Cross-tenant posting** (if the user actually meant parent-CoreFlux-tenant ↔ sub-CoreFlux-tenant as opposed to multi-entity within one tenant) — would require a cross-tenant posting service. Shipped the multi-entity version for now since that covers the example ("parent co's card → sub-co's credit card account").
+- **Auto-reconcile the matching bank line on the RECIPIENT side** (if both entities have bank feeds) — P1 next.
+
+---
+*Last Updated: 2026-02 — Intercompany split engine live: one screen splits any transaction across N entities, auto-books due-from/due-to offsets, links all legs via group_id for cascaded reversal. Integrated into Bank Rec unmatched-line flow; reusable dialog ready for AP + manual JE in next sprint.*

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Routes, Route, Link, useParams, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import ReconciliationPacket from './ReconciliationPacket';
+import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
 
 /**
  * Bank Reconciliation module.
@@ -152,10 +153,12 @@ function NewAccountForm({ onDone, onCancel }) {
 
 function AccountDetail() {
   const { id } = useParams();
+  const accountApi = useApi(`/modules/accounting/api/bank_accounts.php?id=${id}`);
   const { data, loading, error, reload } = useApi(`/modules/accounting/api/bank_statements.php?bank_account_id=${id}&match_status=unmatched`);
   const [csv, setCsv]       = useState('');
   const [busy, setBusy]     = useState(null);
   const [actErr, setErr]    = useState(null);
+  const bankAccount = accountApi.data?.account || null;
 
   const importCsv = async (e) => {
     e.preventDefault();
@@ -216,7 +219,7 @@ function AccountDetail() {
             <tr><td colSpan={6} className="empty" data-testid="accounting-bank-lines-empty">No unmatched lines. Import a statement above to get started.</td></tr>
           )}
           {(data?.rows || []).map(l => (
-            <BankLineRow key={l.id} line={l} reload={reload} />
+            <BankLineRow key={l.id} line={l} reload={reload} bankAccount={bankAccount} />
           ))}
         </tbody>
       </table>
@@ -224,10 +227,11 @@ function AccountDetail() {
   );
 }
 
-function BankLineRow({ line, reload }) {
+function BankLineRow({ line, reload, bankAccount }) {
   const [busy, setBusy] = useState(null);
   const [aiResp, setAi] = useState(null);
   const [err, setErr]   = useState(null);
+  const [splitOpen, setSplitOpen] = useState(false);
 
   const callAi = async (action) => {
     setBusy(action); setErr(null);
@@ -262,9 +266,29 @@ function BankLineRow({ line, reload }) {
             <button className="btn btn--ghost" onClick={() => callAi('suggest_rule')}       disabled={busy} data-testid={`accounting-bank-ai-rule-${line.id}`}>
               {busy === 'suggest_rule' ? '…' : 'AI rule'}
             </button>
+            <button
+              className="btn btn--primary"
+              onClick={() => setSplitOpen(true)}
+              disabled={!bankAccount || !bankAccount.entity_id || !bankAccount.gl_account_code}
+              data-testid={`accounting-bank-ic-split-${line.id}`}
+              title="Split this line across entities (intercompany)"
+            >⊕ Split / IC</button>
           </div>
         </td>
       </tr>
+      {splitOpen && (
+        <IntercompanySplitDialog
+          open={splitOpen}
+          onClose={() => setSplitOpen(false)}
+          onPosted={() => { setSplitOpen(false); reload(); }}
+          amount={Math.abs(Number(line.amount))}
+          sourceEntityId={Number(bankAccount?.entity_id)}
+          sourceOffsetAccountCode={bankAccount?.gl_account_code}
+          sourceOffsetSide={Number(line.amount) < 0 ? 'credit' : 'debit'}
+          bankStatementLineId={line.id}
+          defaultMemo={line.description}
+        />
+      )}
       {aiResp && (
         <tr data-testid={`accounting-bank-ai-result-${line.id}`}>
           <td colSpan={6} style={{ background: '#fafbff', padding: 12 }}>
