@@ -92,6 +92,9 @@ function getModuleDefinitions(): array {
                 ['name' => 'Trial Balance',     'route' => 'trial',    'permission' => 'accounting.coa.view'],
                 ['name' => 'Income Statement',  'route' => 'pnl',      'permission' => 'accounting.coa.view'],
                 ['name' => 'Balance Sheet',     'route' => 'balance',  'permission' => 'accounting.coa.view'],
+                ['name' => 'Cash Flow',         'route' => 'cash-flow','permission' => 'accounting.coa.view'],
+                ['name' => 'Bank Rec',          'route' => 'bank-rec', 'permission' => 'accounting.coa.view'],
+                ['name' => 'Recurring JEs',    'route' => 'recurring','permission' => 'accounting.je.create'],
                 ['name' => 'Periods',           'route' => 'periods',  'permission' => 'accounting.coa.view'],
             ]
         ],

@@ -26,10 +26,17 @@ if ($onlyTenant !== null) {
     $tenants = $pdo->query('SELECT id FROM tenants WHERE status = "active"')->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 }
 
+if (session_status() === PHP_SESSION_NONE) {
+    // Safe no-op outside of a real session; allows currentTenantId() to read $_SESSION.
+    @session_start();
+}
+
 $total = ['ran' => 0, 'skipped' => 0, 'errors' => 0];
 foreach ($tenants as $t) {
     $tid = (int) $t['id'];
-    setTenantContextOverride($tid, ['user' => null, 'tenant_id' => $tid]);
+    // currentTenantId() reads $_SESSION['tenant_id'] — set it per tenant.
+    $_SESSION['tenant_id'] = $tid;
+    $_SESSION['user']      = ['id' => null, 'tenant_id' => $tid];
     try {
         $r = recurringJeRunDueForTenant($tid, null);
         $total['ran']     += $r['ran'];
