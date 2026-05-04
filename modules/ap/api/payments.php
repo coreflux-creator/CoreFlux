@@ -13,6 +13,8 @@
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/payment_rails.php';
+require_once __DIR__ . '/../../../core/payment_rails/originate_helpers.php';
 require_once __DIR__ . '/../lib/ap.php';
 
 $ctx    = api_require_auth();
@@ -117,6 +119,82 @@ if ($method === 'POST' && $action === 'send') {
         'rail' => $row['method'] === 'plaid' ? 'plaid_transfer' : 'manual',
     ], $id);
     api_ok(['ok' => true]);
+}
+
+if ($method === 'POST' && $action === 'originate') {
+    RBAC::requirePermission($user, 'ap.payment.send');
+    $id  = (int) ($_GET['id'] ?? 0);
+    $row = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$row) api_error('Not found', 404);
+    if ($row['status'] !== 'sent') api_error('Originate requires status=sent', 409);
+    if (!in_array($row['method'], ['ach','plaid'], true)) api_error('Originate only supports ach/plaid methods', 422);
+    if (!empty($row['rail_external_ref']))      api_error('Already originated on rail ' . $row['disbursement_rail'], 409);
+
+    // Pull vendor banking + tenant settings.
+    $vendor = scopedFind(
+        'SELECT id, vendor_name, vendor_type, vendor_category, payment_routing_ct,
+                payment_account_ct, payment_account_type
+         FROM ap_vendors_index WHERE tenant_id = :tenant_id AND vendor_name = :vn LIMIT 1',
+        ['vn' => $row['vendor_name']]
+    );
+    if (!$vendor) api_error('Vendor not found in vendor index', 422);
+    try {
+        $bank = paymentRailsDecryptBank($vendor['payment_routing_ct'] ?? null,
+                                        $vendor['payment_account_ct']  ?? null,
+                                        'vendor ' . $vendor['vendor_name']);
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 422);
+    }
+    $settings = scopedFind('SELECT * FROM ap_settings WHERE tenant_id = :tenant_id LIMIT 1') ?: [];
+
+    $item = paymentRailsBuildItem([
+        'external_ref'   => 'ap_payment:' . $row['id'],
+        'recipient_name' => (string) $row['vendor_name'],
+        'routing'        => $bank['routing'],
+        'account'        => $bank['account'],
+        'account_type'   => $vendor['payment_account_type'] ?: 'checking',
+        'amount_cents'   => (int) round(((float) $row['amount']) * 100),
+        // CCD = corporate credit (vendor pay). PPD only for individual 1099 contractors.
+        'sec_code'       => $vendor['vendor_type'] === '1099_individual' ? 'ppd' : 'ccd',
+        'description'    => 'AP-PAY',
+    ]);
+
+    try {
+        $res = paymentRailsDispatch('ap', $row, $settings, [$item]);
+    } catch (PaymentRailsOriginateException $e) {
+        apAudit('ap.payment.originate_failed', ['payment_id' => $id, 'error' => $e->getMessage()], $id);
+        api_error($e->getMessage(), 422);
+    }
+
+    $itemRes = $res['items'][0] ?? ['status' => 'failed'];
+    getDB()->prepare(
+        'UPDATE ap_payments SET disbursement_rail = :r, rail_external_ref = :x,
+                rail_status = :s, rail_originated_at = NOW()
+         WHERE tenant_id = :t AND id = :id'
+    )->execute([
+        'r'  => $res['rail'],
+        'x'  => $itemRes['rail_external_ref'] ?? $res['batch_id'],
+        's'  => $itemRes['status'] ?? $res['status'],
+        't'  => $tid,
+        'id' => $id,
+    ]);
+    apAudit('ap.payment.originated', [
+        'payment_id' => $id, 'rail' => $res['rail'], 'batch_id' => $res['batch_id'],
+        'status' => $itemRes['status'] ?? $res['status'], 'amount' => $row['amount'],
+    ], $id);
+
+    // Surface NACHA file content for client download (driver-specific).
+    $resp = [
+        'ok'       => true,
+        'rail'     => $res['rail'],
+        'batch_id' => $res['batch_id'],
+        'status'   => $itemRes['status'] ?? $res['status'],
+    ];
+    if ($res['rail'] === 'nacha' && !empty($res['payload']['content'])) {
+        $resp['nacha_file_b64']   = base64_encode((string) $res['payload']['content']);
+        $resp['nacha_filename']   = $res['payload']['filename'] ?? null;
+    }
+    api_ok($resp);
 }
 
 if ($method === 'POST' && $action === 'clear') {

@@ -62,6 +62,8 @@ return [
         'payroll.run.posted',
         'payroll.run.reversed',
         'payroll.run.voided',
+        'payroll.run.originated',
+        'payroll.run.originate_failed',
         'payroll.run.exported_gusto',
         'payroll.run.exported_csv',
         'payroll.run.gusto_synced',

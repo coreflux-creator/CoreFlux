@@ -14,6 +14,8 @@
  */
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/payment_rails.php';
+require_once __DIR__ . '/../../../core/payment_rails/originate_helpers.php';
 require_once __DIR__ . '/../lib/payroll.php';
 require_once __DIR__ . '/../lib/compute.php';
 
@@ -194,6 +196,116 @@ switch (api_method()) {
             }
             scopedUpdate('payroll_pay_periods', (int) $run['pay_period_id'], ['status' => 'paid']);
             api_ok(['ok' => true, 'status' => 'paid']);
+        }
+
+        // ----------------------------------------------------------------
+        // Originate disbursement through paymentRails (NACHA / Plaid Transfer).
+        // Builds RailItems from each line_item with payment_method='direct_deposit'
+        // + the employee's primary active bank account, dispatches the batch,
+        // persists rail_external_ref / rail_status on the run.
+        // Two-eye: requires payroll.run.disburse, run must be approved, not yet
+        // originated. Emits audit `payroll.run.originated`.
+        // ----------------------------------------------------------------
+        if ($action === 'originate') {
+            RBAC::requirePermission($ctx['user'], 'payroll.run.disburse');
+            if ($run['status'] !== 'approved') api_error('Originate requires status=approved', 409);
+            if (!empty($run['rail_external_ref'])) {
+                api_error('Already originated on rail ' . $run['disbursement_rail'], 409);
+            }
+
+            $pdo = getDB();
+            // Pull line items + each employee's primary active bank account.
+            $linesStmt = $pdo->prepare(
+                "SELECT li.id, li.employee_id, li.net_cents, li.payment_method,
+                        e.first_name, e.last_name, e.id AS emp_id,
+                        b.id AS bank_id, b.routing_cipher, b.account_cipher, b.account_type
+                 FROM payroll_line_items li
+                 JOIN people_employees e ON e.id = li.employee_id AND e.tenant_id = li.tenant_id
+                 LEFT JOIN people_bank_accounts b ON b.tenant_id = li.tenant_id
+                          AND b.employee_id = li.employee_id
+                          AND b.status = 'active'
+                          AND b.priority = (SELECT MIN(priority) FROM people_bank_accounts
+                                             WHERE tenant_id = li.tenant_id AND employee_id = li.employee_id
+                                             AND status='active')
+                 WHERE li.tenant_id = :t AND li.run_id = :rid AND li.status = 'approved'
+                 ORDER BY li.id"
+            );
+            $linesStmt->execute(['t' => currentTenantId(), 'rid' => $runId]);
+            $lines = $linesStmt->fetchAll(\PDO::FETCH_ASSOC);
+            if (!$lines) api_error('No approved line items for this run', 422);
+
+            $items = [];
+            $skipped = [];
+            foreach ($lines as $ln) {
+                if ($ln['payment_method'] !== 'direct_deposit') {
+                    $skipped[] = ['employee_id' => (int) $ln['employee_id'], 'reason' => 'check'];
+                    continue;
+                }
+                if (empty($ln['bank_id'])) {
+                    $skipped[] = ['employee_id' => (int) $ln['employee_id'], 'reason' => 'no_active_bank_account'];
+                    continue;
+                }
+                if ((int) $ln['net_cents'] <= 0) {
+                    $skipped[] = ['employee_id' => (int) $ln['employee_id'], 'reason' => 'zero_or_negative_net'];
+                    continue;
+                }
+                try {
+                    $bank = paymentRailsDecryptBank(
+                        $ln['routing_cipher'], $ln['account_cipher'],
+                        'employee ' . $ln['first_name'] . ' ' . $ln['last_name']
+                    );
+                    $items[] = paymentRailsBuildItem([
+                        'external_ref'   => 'payroll_line:' . $ln['id'],
+                        'recipient_name' => trim(((string) $ln['first_name']) . ' ' . ((string) $ln['last_name'])),
+                        'routing'        => $bank['routing'],
+                        'account'        => $bank['account'],
+                        'account_type'   => $ln['account_type'] ?: 'checking',
+                        'amount_cents'   => (int) $ln['net_cents'],
+                        'sec_code'       => 'ppd',  // W-2 employees → consumer credits
+                        'description'    => 'PAYROLL',
+                    ]);
+                } catch (PaymentRailsOriginateException $e) {
+                    $skipped[] = ['employee_id' => (int) $ln['employee_id'], 'reason' => $e->getMessage()];
+                }
+            }
+            if (!$items) api_error('No bankable line items', 422, ['skipped' => $skipped]);
+
+            $settings = scopedFind('SELECT * FROM payroll_settings WHERE tenant_id = :tenant_id LIMIT 1') ?: [];
+            try {
+                $res = paymentRailsDispatch('payroll', $run, $settings, $items);
+            } catch (PaymentRailsOriginateException $e) {
+                payrollAudit('payroll.run.originate_failed', ['run_id' => $runId, 'error' => $e->getMessage()], $runId);
+                api_error($e->getMessage(), 422);
+            }
+
+            scopedUpdate('payroll_runs', $runId, [
+                'disbursement_rail'  => $res['rail'],
+                'rail_external_ref'  => $res['batch_id'],
+                'rail_status'        => $res['status'],
+                'rail_originated_at' => date('Y-m-d H:i:s'),
+            ]);
+            payrollAudit('payroll.run.originated', [
+                'run_id'  => $runId,
+                'rail'    => $res['rail'],
+                'batch_id'=> $res['batch_id'],
+                'status'  => $res['status'],
+                'item_count' => count($items),
+                'skipped_count' => count($skipped),
+            ], $runId);
+
+            $resp = [
+                'ok'          => true,
+                'rail'        => $res['rail'],
+                'batch_id'    => $res['batch_id'],
+                'status'      => $res['status'],
+                'item_count'  => count($items),
+                'skipped'     => $skipped,
+            ];
+            if ($res['rail'] === 'nacha' && !empty($res['payload']['content'])) {
+                $resp['nacha_file_b64'] = base64_encode((string) $res['payload']['content']);
+                $resp['nacha_filename'] = $res['payload']['filename'] ?? null;
+            }
+            api_ok($resp);
         }
 
         // ----------------------------------------------------------------

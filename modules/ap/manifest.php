@@ -74,6 +74,8 @@ return [
         'ap.payment.sent',
         'ap.payment.cleared',
         'ap.payment.voided',
+        'ap.payment.originated',
+        'ap.payment.originate_failed',
         'ap.expense.submitted',
         'ap.expense.approved',
         'ap.expense.rejected',

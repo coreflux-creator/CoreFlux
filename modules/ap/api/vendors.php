@@ -140,6 +140,15 @@ if ($method === 'POST') {
     $payAcctLast4 = $payAcctFull ? last4($payAcctFull)               : ($body['payment_account_last4'] ?? null);
     $payKms       = $payAcctFull ? 'v1'                              : null;
 
+    // Encrypted ACH routing for paymentRails::originate() (NACHA / Plaid Transfer).
+    $payRoutFull  = isset($body['payment_routing_full']) ? (string) $body['payment_routing_full'] : null;
+    if ($payRoutFull !== null && preg_replace('/\D/', '', $payRoutFull) === '') $payRoutFull = null;
+    $payRoutCt    = $payRoutFull ? encryptField($payRoutFull)        : null;
+    $payRoutLast4 = $payRoutFull ? last4($payRoutFull)               : ($body['payment_routing_last4'] ?? null);
+    $payAcctType  = isset($body['payment_account_type']) && in_array($body['payment_account_type'], ['checking','savings'], true)
+                    ? $body['payment_account_type']
+                    : null;
+
     // Resolve or auto-create the unified companies.id for non-individual vendors.
     // 1099 individuals stay as people-side records — no company row is created.
     $companyId = !empty($body['company_id']) ? (int) $body['company_id'] : null;
@@ -157,11 +166,13 @@ if ($method === 'POST') {
            (tenant_id, vendor_name, company_id, vendor_type, vendor_category,
             payment_method, remit_to_email, remit_to_phone,
             payment_account_last4, payment_account_ct, kms_key_version_payment,
+            payment_routing_ct, payment_routing_last4, payment_account_type,
             default_terms, tax_id_last4, tax_id_full_ct, kms_key_version, requires_1099)
          VALUES
            (:t, :v, :cid, :vt, :cat,
             :pm, :rmail, :rphone,
             :pal4, :pact, :pkms,
+            :prct, :prl4, :patyp,
             :terms, :last4, :ct, :kms, :r)
          ON DUPLICATE KEY UPDATE
            company_id              = COALESCE(VALUES(company_id), company_id),
@@ -173,6 +184,9 @@ if ($method === 'POST') {
            payment_account_last4   = COALESCE(VALUES(payment_account_last4), payment_account_last4),
            payment_account_ct      = COALESCE(VALUES(payment_account_ct), payment_account_ct),
            kms_key_version_payment = COALESCE(VALUES(kms_key_version_payment), kms_key_version_payment),
+           payment_routing_ct      = COALESCE(VALUES(payment_routing_ct), payment_routing_ct),
+           payment_routing_last4   = COALESCE(VALUES(payment_routing_last4), payment_routing_last4),
+           payment_account_type    = COALESCE(VALUES(payment_account_type), payment_account_type),
            default_terms           = VALUES(default_terms),
            tax_id_last4            = COALESCE(VALUES(tax_id_last4), tax_id_last4),
            tax_id_full_ct          = COALESCE(VALUES(tax_id_full_ct), tax_id_full_ct),
@@ -190,6 +204,9 @@ if ($method === 'POST') {
         'pal4'   => $payAcctLast4,
         'pact'   => $payAcctCt,
         'pkms'   => $payKms,
+        'prct'   => $payRoutCt,
+        'prl4'   => $payRoutLast4,
+        'patyp'  => $payAcctType,
         'terms'  => (string) ($body['default_terms'] ?? 'NET30'),
         'last4'  => $last4,
         'ct'     => $ct,
