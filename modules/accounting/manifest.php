@@ -36,6 +36,8 @@ return [
         ['name' => 'FX Rates',             'route' => 'fx',                'permission' => 'accounting.fx.manage'],
         ['name' => 'Integrations',         'route' => 'integrations',      'permission' => 'accounting.integrations.connect'],
         ['name' => 'Financial Reports',    'route' => 'reports',           'permission' => 'accounting.reports.view'],
+        ['name' => 'Standard Reports',     'route' => 'standard-reports',  'permission' => 'accounting.reports.view'],
+        ['name' => 'CSV Import',           'route' => 'import',            'permission' => 'accounting.ledger.import'],
         ['name' => 'Audit Log',            'route' => 'audit',             'permission' => 'accounting.audit.view'],
     ],
 
@@ -79,6 +81,7 @@ return [
         'accounting.webhooks.manage'            => 'Manage outbound webhook subscriptions',
         'accounting.reports.view'               => 'View financial reports',
         'accounting.reports.export'             => 'Export reports (CSV/XLSX/PDF)',
+        'accounting.ledger.import'              => 'Import ledger CSVs (COA / JEs / Periods)',
     ],
 
     'audit_events' => [
@@ -113,6 +116,13 @@ return [
         'accounting.bank.account_added',
         'accounting.bank.statement_imported',
         'accounting.bank.reconciled',
+        'accounting.reconciliation.opened',
+        'accounting.reconciliation.closed',
+        'accounting.reconciliation.reopened',
+        'accounting.reconciliation.packet_built',
+        'accounting.reconciliation.ai_narrative_generated',
+        'accounting.ledger.imported',
+        'accounting.ledger.exported',
         'accounting.fx.rate_added',
         'accounting.fx.revalued',
         'accounting.recurring.created',

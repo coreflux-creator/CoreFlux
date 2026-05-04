@@ -95,6 +95,8 @@ function getModuleDefinitions(): array {
                 ['name' => 'Cash Flow',         'route' => 'cash-flow','permission' => 'accounting.coa.view'],
                 ['name' => 'Bank Rec',          'route' => 'bank-rec', 'permission' => 'accounting.coa.view'],
                 ['name' => 'Recurring JEs',    'route' => 'recurring','permission' => 'accounting.je.create'],
+                ['name' => 'Standard Reports', 'route' => 'reports',  'permission' => 'accounting.reports.view'],
+                ['name' => 'CSV Import',       'route' => 'import',   'permission' => 'accounting.coa.manage'],
                 ['name' => 'Periods',           'route' => 'periods',  'permission' => 'accounting.coa.view'],
             ]
         ],

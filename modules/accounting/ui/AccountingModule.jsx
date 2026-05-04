@@ -10,6 +10,8 @@ import BalanceSheet from './BalanceSheet';
 import CashFlowStatement from './CashFlowStatement';
 import BankReconciliation from './BankReconciliation';
 import RecurringJournalEntries from './RecurringJournalEntries';
+import StandardReports from './StandardReports';
+import AccountingImport from './AccountingImport';
 import Periods from './Periods';
 
 /**
@@ -27,6 +29,8 @@ export default function AccountingModule({ session }) {
         <Tab to="cash-flow" label="Cash Flow" />
         <Tab to="bank-rec"  label="Bank Rec" />
         <Tab to="recurring" label="Recurring JEs" />
+        <Tab to="reports"   label="Reports" />
+        <Tab to="import"    label="Import" />
         <Tab to="periods"  label="Periods" />
       </nav>
       <Routes>
@@ -43,6 +47,8 @@ export default function AccountingModule({ session }) {
         <Route path="cash-flow" element={<CashFlowStatement session={session} />} />
         <Route path="bank-rec/*" element={<BankReconciliation session={session} />} />
         <Route path="recurring/*" element={<RecurringJournalEntries session={session} />} />
+        <Route path="reports"  element={<StandardReports  session={session} />} />
+        <Route path="import"   element={<AccountingImport session={session} />} />
         <Route path="periods"  element={<Periods         session={session} />} />
       </Routes>
     </div>

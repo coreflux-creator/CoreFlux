@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Routes, Route, Link, useParams, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import ReconciliationPacket from './ReconciliationPacket';
 
 /**
  * Bank Reconciliation module.
@@ -14,8 +15,76 @@ export default function BankReconciliation() {
       <Route index element={<AccountsList />} />
       <Route path=":id" element={<AccountDetail />} />
       <Route path=":id/rules" element={<RulesList />} />
+      <Route path="reconciliations/:id" element={<ReconciliationsList />} />
+      <Route path="packet/:id" element={<ReconciliationPacket />} />
     </Routes>
   );
+}
+
+function ReconciliationsList() {
+  const { id } = useParams();
+  const { data, loading, error, reload } = useApi(`/modules/accounting/api/reconciliations.php?bank_account_id=${id}`);
+  const [form, setForm] = useState({ period_end: new Date().toISOString().slice(0,10), statement_balance: '', gl_balance: '', notes: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const open = async (e) => {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      await api.post('/modules/accounting/api/reconciliations.php?action=open', {
+        bank_account_id: Number(id),
+        period_end: form.period_end,
+        statement_balance: parseFloat(form.statement_balance) || 0,
+        gl_balance: parseFloat(form.gl_balance) || 0,
+        notes: form.notes || null,
+      });
+      setForm({ period_end: new Date().toISOString().slice(0,10), statement_balance: '', gl_balance: '', notes: '' });
+      reload();
+    } catch (e2) { setErr(e2.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <section data-testid="accounting-reconciliations-list">
+      <Link to={`/modules/accounting/bank-rec/${id}`} style={{ fontSize: 13, color: '#666' }}>← Bank account</Link>
+      <h2 style={{ marginTop: 8 }}>Reconciliations</h2>
+      <form onSubmit={open} style={{ display: 'flex', gap: 8, alignItems: 'end', marginBottom: 16, flexWrap: 'wrap', padding: 12, background: '#f9fafb', borderRadius: 6 }}>
+        <label style={{ fontSize: 13 }}>Period end<input type="date" className="input" value={form.period_end} onChange={e => setForm({ ...form, period_end: e.target.value })} required data-testid="accounting-recon-period-end" style={{ display: 'block' }} /></label>
+        <label style={{ fontSize: 13 }}>Statement balance<input className="input" type="number" step="0.01" value={form.statement_balance} onChange={e => setForm({ ...form, statement_balance: e.target.value })} data-testid="accounting-recon-statement-balance" style={{ display: 'block' }} /></label>
+        <label style={{ fontSize: 13 }}>GL balance<input className="input" type="number" step="0.01" value={form.gl_balance} onChange={e => setForm({ ...form, gl_balance: e.target.value })} data-testid="accounting-recon-gl-balance" style={{ display: 'block' }} /></label>
+        <label style={{ fontSize: 13, flex: 1 }}>Notes<input className="input" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} data-testid="accounting-recon-notes" style={{ display: 'block', width: '100%' }} /></label>
+        <button className="btn btn--primary" type="submit" disabled={busy} data-testid="accounting-recon-open">{busy ? 'Opening…' : 'Open reconciliation'}</button>
+      </form>
+      {err && <p className="error">{err}</p>}
+      {loading && <p>Loading…</p>}
+      {error && <p className="error">{error.message}</p>}
+      <table className="data-table" data-testid="accounting-recon-table">
+        <thead><tr><th>Period end</th><th>Status</th><th style={{textAlign:'right'}}>Statement</th><th style={{textAlign:'right'}}>GL</th><th style={{textAlign:'right'}}>Diff</th><th>Opened</th><th>Closed</th><th></th></tr></thead>
+        <tbody>
+          {(data?.rows || []).length === 0 && !loading && (
+            <tr><td colSpan={8} style={{color:'#999'}}>No reconciliations yet for this account.</td></tr>
+          )}
+          {(data?.rows || []).map(r => (
+            <tr key={r.id} data-testid={`accounting-recon-row-${r.id}`}>
+              <td>{r.period_end}</td>
+              <td><span className="badge">{r.status}</span></td>
+              <td style={{textAlign:'right'}}>{fmtMoney(r.statement_balance)}</td>
+              <td style={{textAlign:'right'}}>{fmtMoney(r.gl_balance)}</td>
+              <td style={{textAlign:'right', color: Math.abs(parseFloat(r.difference||0)) < 0.01 ? '#065f46' : '#991b1b'}}>{fmtMoney(r.difference)}</td>
+              <td>{r.opened_at || '—'}</td>
+              <td>{r.closed_at || '—'}</td>
+              <td><Link className="btn btn--ghost" to={`/modules/accounting/bank-rec/packet/${r.id}`} data-testid={`accounting-recon-packet-${r.id}`}>Open packet →</Link></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function fmtMoney(n) {
+  const v = parseFloat(n);
+  if (Number.isNaN(v)) return '—';
+  return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function AccountsList() {
@@ -112,6 +181,7 @@ function AccountDetail() {
         <h2 style={{ margin: 0 }}>Statement lines</h2>
         <div style={{ display: 'flex', gap: 8 }}>
           <Link to="rules" className="btn btn--ghost" data-testid="accounting-bank-rules-link">Rules</Link>
+          <Link to={`/modules/accounting/bank-rec/reconciliations/${id}`} className="btn btn--ghost" data-testid="accounting-bank-packets-link">Reconciliations</Link>
           <button className="btn btn--ghost" onClick={applyRules} disabled={busy === 'apply'} data-testid="accounting-bank-apply-rules">
             {busy === 'apply' ? 'Applying…' : 'Apply rules now'}
           </button>
