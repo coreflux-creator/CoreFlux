@@ -169,12 +169,16 @@ function BankConnectCard({ onLinked }) {
             if (!res.ok) throw new Error(data.error || 'Exchange failed');
             const dep = data.bank_accounts_created?.length || 0;
             const lia = data.liability_accounts_created?.length || 0;
+            const errs = data.errors || [];
             const parts = [];
             if (dep) parts.push(`${dep} deposit${dep === 1 ? '' : 's'}`);
             if (lia) parts.push(`${lia} liabilit${lia === 1 ? 'y' : 'ies'}`);
             const summary = parts.length ? parts.join(' + ') : 'no new accounts (already linked?)';
             setMsg(`Linked ${meta?.institution?.name || 'bank'} — ${summary}.`);
-            if (onLinked) setTimeout(onLinked, 1200);
+            if (errs.length) {
+              setErr('Some accounts could not be added:\n• ' + errs.join('\n• '));
+            }
+            if ((dep || lia) && onLinked) setTimeout(onLinked, 1200);
           } catch (e) { setErr(e.message); }
         },
         onExit: (e) => { if (e) setErr(e.error_message || 'Cancelled'); },
@@ -199,8 +203,30 @@ function BankConnectCard({ onLinked }) {
       <button onClick={link} disabled={busy} className="btn btn--primary" data-testid="plaid-bank-connect-btn">
         {busy ? 'Opening Plaid…' : 'Connect bank'}
       </button>
+      <button
+        onClick={async () => {
+          try {
+            const res = await fetch('/api/plaid_diagnostics.php', { credentials: 'include' });
+            const data = await res.json();
+            const summary = `Plaid Items: ${data.plaid_items?.length || 0}
+Plaid Accounts: ${data.plaid_accounts?.length || 0}
+Mirrored as Deposit: ${data.accounting_bank_accounts_for_plaid?.length || 0}
+Mirrored as Liability: ${data.treasury_liability_accounts_for_plaid?.length || 0}
+Orphaned (not mirrored): ${data.orphaned_plaid_accounts?.length || 0}
+
+Full payload in browser console.`;
+            console.log('[plaid_diagnostics]', data);
+            alert(summary);
+          } catch (e) { setErr(e.message); }
+        }}
+        className="btn btn--ghost"
+        data-testid="plaid-bank-diagnostics-btn"
+        style={{ marginLeft: 8 }}
+      >
+        Run diagnostics
+      </button>
       {msg && <p style={{ color: '#065f46', fontSize: 13, marginTop: 8 }} data-testid="plaid-bank-connect-success">{msg}</p>}
-      {err && <p className="error" data-testid="plaid-bank-connect-error">{err}</p>}
+      {err && <p className="error" data-testid="plaid-bank-connect-error" style={{ whiteSpace: 'pre-line' }}>{err}</p>}
     </div>
   );
 }

@@ -118,8 +118,29 @@ if ($action === 'exchange') {
     }
     $plaidAccounts = is_array($resp['accounts'] ?? null) ? $resp['accounts'] : [];
 
+    // Defensive: ensure the liability-link column exists. Migration 002 in the
+    // treasury module adds it idempotently; some hosts may have linked the API
+    // before pulling the migration. Auto-add at runtime so credit/loan inserts
+    // don't blow up with "Unknown column 'plaid_account_id'".
+    try {
+        $colCheck = $pdo->prepare(
+            "SELECT COUNT(*) FROM information_schema.columns
+              WHERE table_schema = DATABASE()
+                AND table_name   = 'treasury_liability_accounts'
+                AND column_name  = 'plaid_account_id'"
+        );
+        $colCheck->execute();
+        if ((int) $colCheck->fetchColumn() === 0) {
+            $pdo->exec("ALTER TABLE treasury_liability_accounts
+                          ADD COLUMN plaid_account_id VARCHAR(80) NULL");
+        }
+    } catch (\Throwable $e) {
+        // Non-fatal: liability mirror will fail per-account and surface to UI.
+    }
+
     $createdBank = [];
     $createdLiab = [];
+    $itemErrors  = [];
     foreach ($plaidAccounts as $acc) {
         $accId   = (string) ($acc['account_id'] ?? '');
         if ($accId === '') continue;
@@ -129,107 +150,123 @@ if ($action === 'exchange') {
         $type    = (string) ($acc['type']          ?? '') ?: null;
         $subtype = (string) ($acc['subtype']       ?? '') ?: null;
 
-        $pdo->prepare(
-            "INSERT INTO plaid_accounts
-                 (tenant_id, plaid_item_pk, account_id, name, official_name,
-                  mask, type, subtype, created_at)
-             VALUES (:t, :pk, :a, :n, :o, :m, :ty, :st, NOW())
-             ON DUPLICATE KEY UPDATE
-                 name = VALUES(name), official_name = VALUES(official_name),
-                 mask = VALUES(mask), type = VALUES(type), subtype = VALUES(subtype),
-                 updated_at = NOW()"
-        )->execute([
-            't' => $tenantId, 'pk' => $itemPk, 'a' => $accId,
-            'n' => $name, 'o' => $official, 'm' => $mask,
-            'ty' => $type, 'st' => $subtype,
-        ]);
-
-        // Mirror as a deposit account so it surfaces in Treasury immediately.
-        // Depository (checking/savings) → accounting_bank_accounts.
-        // Credit / loan → treasury_liability_accounts (via accounting_accounts FK).
-        if ($type === 'depository') {
-            $check = $pdo->prepare(
-                'SELECT id FROM accounting_bank_accounts
-                  WHERE tenant_id = :t AND plaid_account_id = :a LIMIT 1'
-            );
-            $check->execute(['t' => $tenantId, 'a' => $accId]);
-            $existingId = (int) $check->fetchColumn();
-            if ($existingId > 0) { $createdBank[] = $existingId; continue; }
-
-            // Pick a sensible default GL code.
-            $glCode = $subtype === 'savings' ? '1010' : '1000';
-            $instLabel = $institution['name'] ?? '';
-            $bankName = $instLabel !== '' ? $instLabel : ($name ?: 'Bank');
-            $insName  = trim(($instLabel ? "{$instLabel} — " : '') . ($name ?: 'Account'));
-
+        try {
             $pdo->prepare(
-                'INSERT INTO accounting_bank_accounts
-                    (tenant_id, name, gl_account_code, bank_name, last4, currency,
-                     feed_provider, status, plaid_account_id, last_feed_synced_at,
-                     created_at)
-                 VALUES (:t, :nm, :gl, :bk, :l4, :c, "plaid", "active", :pa, NULL, NOW())'
+                "INSERT INTO plaid_accounts
+                     (tenant_id, plaid_item_pk, account_id, name, official_name,
+                      mask, type, subtype, created_at)
+                 VALUES (:t, :pk, :a, :n, :o, :m, :ty, :st, NOW())
+                 ON DUPLICATE KEY UPDATE
+                     name = VALUES(name), official_name = VALUES(official_name),
+                     mask = VALUES(mask), type = VALUES(type), subtype = VALUES(subtype),
+                     updated_at = NOW()"
             )->execute([
-                't'  => $tenantId, 'nm' => $insName, 'gl' => $glCode,
-                'bk' => $bankName, 'l4' => $mask, 'c'  => 'USD', 'pa' => $accId,
+                't' => $tenantId, 'pk' => $itemPk, 'a' => $accId,
+                'n' => $name, 'o' => $official, 'm' => $mask,
+                'ty' => $type, 'st' => $subtype,
             ]);
-            $createdBank[] = (int) $pdo->lastInsertId();
+        } catch (\Throwable $e) {
+            $itemErrors[] = "plaid_accounts insert failed for {$name}: " . $e->getMessage();
+            continue;
+        }
+
+        if ($type === 'depository') {
+            try {
+                $check = $pdo->prepare(
+                    'SELECT id FROM accounting_bank_accounts
+                      WHERE tenant_id = :t AND plaid_account_id = :a LIMIT 1'
+                );
+                $check->execute(['t' => $tenantId, 'a' => $accId]);
+                $existingId = (int) $check->fetchColumn();
+                if ($existingId > 0) { $createdBank[] = $existingId; continue; }
+
+                // GL codes are UNIQUE per (tenant, code), so derive a unique
+                // suffix per Plaid account so multiple checking accounts don't
+                // collide on '1000'. Pattern: 1000 / 1000-{last4} / 1000-{last8 of accId}.
+                $baseCode = $subtype === 'savings' ? '1010' : '1000';
+                $glCode   = _plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);
+
+                $instLabel = $institution['name'] ?? '';
+                $bankName  = $instLabel !== '' ? $instLabel : ($name ?: 'Bank');
+                $insName   = trim(($instLabel ? "{$instLabel} — " : '') . ($name ?: 'Account'));
+
+                $pdo->prepare(
+                    'INSERT INTO accounting_bank_accounts
+                        (tenant_id, name, gl_account_code, bank_name, last4, currency,
+                         feed_provider, status, plaid_account_id, last_feed_synced_at,
+                         created_at)
+                     VALUES (:t, :nm, :gl, :bk, :l4, :c, "plaid_transactions", "active", :pa, NULL, NOW())'
+                )->execute([
+                    't'  => $tenantId, 'nm' => $insName, 'gl' => $glCode,
+                    'bk' => $bankName, 'l4' => $mask, 'c'  => 'USD', 'pa' => $accId,
+                ]);
+                $createdBank[] = (int) $pdo->lastInsertId();
+            } catch (\Throwable $e) {
+                $itemErrors[] = "deposit account '{$name}' (...{$mask}): " . $e->getMessage();
+            }
             continue;
         }
 
         if ($type === 'credit' || $type === 'loan') {
-            $check = $pdo->prepare(
-                'SELECT id FROM treasury_liability_accounts
-                  WHERE tenant_id = :t AND plaid_account_id = :a LIMIT 1'
-            );
-            $check->execute(['t' => $tenantId, 'a' => $accId]);
-            $existingId = (int) $check->fetchColumn();
-            if ($existingId > 0) { $createdLiab[] = $existingId; continue; }
+            try {
+                $check = $pdo->prepare(
+                    'SELECT id FROM treasury_liability_accounts
+                      WHERE tenant_id = :t AND plaid_account_id = :a LIMIT 1'
+                );
+                $check->execute(['t' => $tenantId, 'a' => $accId]);
+                $existingId = (int) $check->fetchColumn();
+                if ($existingId > 0) { $createdLiab[] = $existingId; continue; }
 
-            // Map Plaid type/subtype → GL code + treasury subtype.
-            $glCode = $type === 'loan' ? '2200' : '2100';
-            $glName = $type === 'loan' ? 'Notes Payable' : 'Credit Card Payable';
-            $treasurySubtype = match (true) {
-                $subtype === 'credit card'           => 'credit_card',
-                in_array($subtype, ['line of credit'], true) => 'line_of_credit',
-                $type    === 'loan'                  => 'loan',
-                default                              => 'other_liability',
-            };
+                $baseCode = $type === 'loan' ? '2200' : '2100';
+                $glName   = $type === 'loan' ? 'Notes Payable' : 'Credit Card Payable';
+                $glCode   = _plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);
 
-            // Find or create the underlying accounting_accounts row (one per
-            // GL code per tenant). Liability accounts have credit normal-side.
-            $aaCheck = $pdo->prepare(
-                'SELECT id FROM accounting_accounts
-                  WHERE tenant_id = :t AND code = :c LIMIT 1'
-            );
-            $aaCheck->execute(['t' => $tenantId, 'c' => $glCode]);
-            $aaId = (int) $aaCheck->fetchColumn();
-            if ($aaId === 0) {
+                $treasurySubtype = match (true) {
+                    $subtype === 'credit card'                  => 'credit_card',
+                    in_array($subtype, ['line of credit'], true)=> 'line_of_credit',
+                    $type    === 'loan'                         => 'loan',
+                    default                                     => 'other_liability',
+                };
+
+                // Find or create the GL account row.
+                $aaCheck = $pdo->prepare(
+                    'SELECT id FROM accounting_accounts
+                      WHERE tenant_id = :t AND code = :c LIMIT 1'
+                );
+                $aaCheck->execute(['t' => $tenantId, 'c' => $glCode]);
+                $aaId = (int) $aaCheck->fetchColumn();
+                if ($aaId === 0) {
+                    $glLabel = $name !== '' ? "{$glName} — {$name}" . ($mask ? " …{$mask}" : '') : $glName;
+                    $pdo->prepare(
+                        "INSERT INTO accounting_accounts
+                            (tenant_id, code, name, account_type, normal_side, active, created_at)
+                         VALUES (:t, :c, :n, 'liability', 'credit', 1, NOW())"
+                    )->execute(['t' => $tenantId, 'c' => $glCode, 'n' => $glLabel]);
+                    $aaId = (int) $pdo->lastInsertId();
+                }
+
                 $pdo->prepare(
-                    "INSERT INTO accounting_accounts
-                        (tenant_id, code, name, account_type, normal_side, active, created_at)
-                     VALUES (:t, :c, :n, 'liability', 'credit', 1, NOW())"
-                )->execute(['t' => $tenantId, 'c' => $glCode, 'n' => $glName]);
-                $aaId = (int) $pdo->lastInsertId();
+                    'INSERT INTO treasury_liability_accounts
+                        (tenant_id, account_id, subtype, institution_name, last4,
+                         plaid_account_id, created_at)
+                     VALUES (:t, :aid, :st, :inst, :l4, :pa, NOW())'
+                )->execute([
+                    't'   => $tenantId,
+                    'aid' => $aaId,
+                    'st'  => $treasurySubtype,
+                    'inst'=> (string) ($institution['name'] ?? '') ?: null,
+                    'l4'  => $mask,
+                    'pa'  => $accId,
+                ]);
+                $createdLiab[] = (int) $pdo->lastInsertId();
+            } catch (\Throwable $e) {
+                $itemErrors[] = "liability account '{$name}' (...{$mask}): " . $e->getMessage();
             }
-
-            $pdo->prepare(
-                'INSERT INTO treasury_liability_accounts
-                    (tenant_id, account_id, subtype, institution_name, last4,
-                     plaid_account_id, created_at)
-                 VALUES (:t, :aid, :st, :inst, :l4, :pa, NOW())'
-            )->execute([
-                't'   => $tenantId,
-                'aid' => $aaId,
-                'st'  => $treasurySubtype,
-                'inst'=> (string) ($institution['name'] ?? '') ?: null,
-                'l4'  => $mask,
-                'pa'  => $accId,
-            ]);
-            $createdLiab[] = (int) $pdo->lastInsertId();
             continue;
         }
 
         // Unknown / investment / other — leave on plaid_accounts only.
+        $itemErrors[] = "skipped {$type}/{$subtype} account '{$name}' (not a deposit or liability)";
     }
 
     plaidAudit('payment_rails.plaid.bank_linked', [
@@ -237,6 +274,7 @@ if ($action === 'exchange') {
         'institution'              => $institution['name'] ?? null,
         'bank_accounts_created'    => $createdBank,
         'liability_accounts_created' => $createdLiab,
+        'errors'                   => $itemErrors,
     ], null);
 
     api_ok([
@@ -246,7 +284,38 @@ if ($action === 'exchange') {
         'accounts_linked'            => count($plaidAccounts),
         'bank_accounts_created'      => $createdBank,
         'liability_accounts_created' => $createdLiab,
+        'errors'                     => $itemErrors,
     ]);
+}
+
+/**
+ * Pick a unique GL account code under (tenant_id, code).
+ *   First try base (e.g. '1000'); if taken, append '-{last4}'; if still taken,
+ *   append '-{last8 of accId}'; otherwise increment a numeric suffix until free.
+ */
+function _plaidAllocateBankGlCode(PDO $pdo, int $tenantId, string $base, ?string $mask, string $accId): string {
+    $candidates = [$base];
+    if ($mask) $candidates[] = $base . '-' . $mask;
+    $candidates[] = $base . '-' . substr(preg_replace('/[^A-Za-z0-9]/', '', $accId), -8);
+    $check = $pdo->prepare('SELECT 1 FROM accounting_bank_accounts WHERE tenant_id = :t AND gl_account_code = :c LIMIT 1');
+    $check2 = $pdo->prepare('SELECT 1 FROM accounting_accounts        WHERE tenant_id = :t AND code             = :c LIMIT 1');
+    foreach ($candidates as $c) {
+        $check->execute(['t' => $tenantId, 'c' => $c]);
+        if ($check->fetchColumn()) continue;
+        $check2->execute(['t' => $tenantId, 'c' => $c]);
+        if ($check2->fetchColumn()) continue;
+        return $c;
+    }
+    // Last-resort: increment numeric suffix.
+    for ($i = 2; $i < 100; $i++) {
+        $c = $base . '-' . $i;
+        $check->execute(['t' => $tenantId, 'c' => $c]);
+        if ($check->fetchColumn()) continue;
+        $check2->execute(['t' => $tenantId, 'c' => $c]);
+        if ($check2->fetchColumn()) continue;
+        return $c;
+    }
+    throw new RuntimeException('Could not allocate a free GL code for ' . $base);
 }
 
 api_error('Unknown action: ' . $action, 422);

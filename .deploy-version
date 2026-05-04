@@ -59,7 +59,7 @@ sentinels:
 - modules/treasury/ui/DepositAccounts.jsx
 - modules/treasury/ui/LiabilityAccounts.jsx
 expected_bundle:
-- spa-assets/index-Cbyu13tZ.js
+- spa-assets/index-BG7d1q8w.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
