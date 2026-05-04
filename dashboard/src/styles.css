@@ -1050,3 +1050,181 @@ fieldset:disabled { opacity: 0.6; }
     border: 1px solid var(--cf-border);
     box-shadow: var(--cf-shadow-sm);
 }
+
+
+/* ─── Payroll Settings form ───────────────────────────────────────────
+   The Settings page used JSX classes (.payroll-settings__form, fieldset
+   + legend, label > span + input) without any matching CSS. The global
+   `fieldset { border: none }` rule then made the form render as raw,
+   inline HTML. This block re-styles fieldsets specifically inside the
+   payroll-settings form into card-like sections with stacked label/input
+   rows, matching the rest of the app.
+   --------------------------------------------------------------------- */
+.payroll-settings,
+.payroll-run-detail,
+.payroll-runs,
+.payroll-profiles,
+.payroll-schedules,
+.payroll-cycles,
+.payroll-anomalies-page,
+.payroll-periods {
+    padding: var(--cf-space-6);
+    background: var(--cf-bg);
+    min-height: 100%;
+    font-family: var(--cf-font);
+    color: var(--cf-text);
+}
+
+.payroll-settings h2,
+.payroll-runs h2,
+.payroll-profiles h2,
+.payroll-schedules h2,
+.payroll-anomalies-page h2,
+.payroll-periods h2,
+.payroll-run-detail h2 {
+    font-size: var(--cf-text-2xl);
+    font-weight: 600;
+    color: var(--cf-text);
+    margin: 0 0 var(--cf-space-2);
+}
+
+.payroll-settings__form,
+.payroll-schedules__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cf-space-6);
+    max-width: 880px;
+}
+
+.payroll-settings__form fieldset,
+.payroll-schedules__form fieldset {
+    background: var(--cf-surface);
+    border: 1px solid var(--cf-border);
+    border-radius: var(--cf-radius-lg);
+    box-shadow: var(--cf-shadow-sm);
+    padding: var(--cf-space-5) var(--cf-space-6) var(--cf-space-6);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--cf-space-4) var(--cf-space-6);
+    margin: 0;
+}
+@media (max-width: 720px) {
+    .payroll-settings__form fieldset,
+    .payroll-schedules__form fieldset {
+        grid-template-columns: 1fr;
+    }
+}
+
+.payroll-settings__form fieldset > legend,
+.payroll-schedules__form fieldset > legend {
+    grid-column: 1 / -1;
+    font-size: var(--cf-text-base);
+    font-weight: 600;
+    color: var(--cf-text);
+    padding: 0;
+    margin-bottom: var(--cf-space-1);
+}
+
+.payroll-settings__form fieldset > p,
+.payroll-settings__form fieldset > div[data-testid="gusto-connect-connected"],
+.payroll-settings__form fieldset > div[data-testid^="gusto-connect-"],
+.payroll-settings__form fieldset > button {
+    grid-column: 1 / -1;
+}
+
+.payroll-settings__form label,
+.payroll-schedules__form label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cf-space-1);
+    font-size: var(--cf-text-sm);
+    color: var(--cf-text);
+}
+.payroll-settings__form label > span,
+.payroll-schedules__form label > span {
+    font-weight: 500;
+    color: var(--cf-text-secondary, var(--cf-text-muted));
+    font-size: var(--cf-text-xs, 12px);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.payroll-settings__form label > input,
+.payroll-settings__form label > select,
+.payroll-settings__form label > textarea,
+.payroll-schedules__form label > input,
+.payroll-schedules__form label > select {
+    appearance: none;
+    border: 1px solid var(--cf-border);
+    background: var(--cf-surface);
+    color: var(--cf-text);
+    font: inherit;
+    font-size: var(--cf-text-sm);
+    padding: var(--cf-space-2) var(--cf-space-3);
+    border-radius: var(--cf-radius-md);
+    transition: border-color var(--cf-transition-fast), box-shadow var(--cf-transition-fast);
+    width: 100%;
+}
+.payroll-settings__form label > input:focus,
+.payroll-settings__form label > select:focus,
+.payroll-schedules__form label > input:focus,
+.payroll-schedules__form label > select:focus {
+    outline: none;
+    border-color: var(--cf-accent);
+    box-shadow: 0 0 0 3px var(--cf-accent-light, rgba(59, 130, 246, 0.15));
+}
+
+.payroll-settings__form label > small,
+.payroll-settings__form label > .muted {
+    font-size: var(--cf-text-xs, 12px);
+    color: var(--cf-text-muted);
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    margin-top: 2px;
+}
+
+/* AI checkbox row + standalone-row labels: span both grid columns. */
+.payroll-settings__form fieldset > label.payroll-settings__row-full,
+.payroll-settings__form fieldset > label:has(> input[type="checkbox"]) {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--cf-space-2);
+}
+.payroll-settings__form fieldset > label:has(> input[type="checkbox"]) > span {
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: var(--cf-text-sm);
+    color: var(--cf-text);
+}
+
+/* RailPicker (NACHA vs Plaid) is rendered inside a fieldset — it has its
+   own internal grid, so let it span both columns + escape the parent grid. */
+.payroll-settings__form fieldset > .rail-picker,
+.payroll-settings__form fieldset > [class*="rail"] {
+    grid-column: 1 / -1;
+}
+
+/* ─── Inline alerts (Gusto OAuth callback bounce ribbon, etc.) ───── */
+.alert {
+    padding: var(--cf-space-3) var(--cf-space-4);
+    border-radius: var(--cf-radius-md);
+    border: 1px solid var(--cf-border);
+    font-size: var(--cf-text-sm);
+    line-height: 1.45;
+}
+.alert--ok  { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+.alert--err { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+
+/* Submit-row: full-width centered button at end of form. */
+.payroll-settings__form > button[type="submit"],
+.payroll-settings__form > .success {
+    align-self: flex-start;
+}
+
+/* Save success message. */
+.payroll-settings__form .success {
+    color: #065f46;
+    font-size: var(--cf-text-sm);
+    margin: 0;
+}

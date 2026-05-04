@@ -19,8 +19,8 @@ sentinels:
 - modules/payroll/ui/PayrollAnomalies.jsx
 - modules/payroll/ui/GustoConnectCard.jsx
 expected_bundle:
-- spa-assets/index-C_9jigSA.js
-- spa-assets/index-CTzz4nho.css
+- spa-assets/index-Br3RMzji.js
+- spa-assets/index-Cwhpy62y.css
 last_known_features:
 - payroll.cycles
 - payroll.anomalies
