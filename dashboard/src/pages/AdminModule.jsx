@@ -4,6 +4,7 @@ import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard, Card } from 
 import { Building2, Users, Package, Plus, Search, Edit, Trash2, Layers, FileText } from 'lucide-react';
 import SubTenantsAdmin from './SubTenantsAdmin';
 import ExportTemplatesAdmin from './ExportTemplatesAdmin';
+import MasterTenantsAdmin from './MasterTenantsAdmin';
 
 // Admin Overview
 const AdminOverview = () => (
@@ -32,56 +33,9 @@ const AdminOverview = () => (
   </>
 );
 
-// Tenants Management
-const TenantsPage = () => {
-  const [tenants, setTenants] = useState([
-    { id: 1, name: 'CoreFlux', slug: 'coreflux', users: 5, modules: 3 },
-    { id: 2, name: 'Acme Corp', slug: 'acme', users: 4, modules: 2 },
-    { id: 3, name: 'Beta Industries', slug: 'beta', users: 3, modules: 1 },
-  ]);
-
-  return (
-    <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-6)' }}>
-        <div>
-          <h1 style={{ fontSize: 'var(--cf-text-2xl)', fontWeight: 700, marginBottom: 'var(--cf-space-2)' }}>Manage Tenants</h1>
-          <p style={{ color: 'var(--cf-text-secondary)' }}>Create and manage tenant organizations.</p>
-        </div>
-        <button className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--cf-primary)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
-          <Plus size={18} /> Add Tenant
-        </button>
-      </div>
-
-      <Card>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--cf-border)' }}>
-              <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--cf-text-secondary)', fontWeight: 500, fontSize: '13px' }}>Tenant Name</th>
-              <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--cf-text-secondary)', fontWeight: 500, fontSize: '13px' }}>Slug</th>
-              <th style={{ textAlign: 'center', padding: '12px 16px', color: 'var(--cf-text-secondary)', fontWeight: 500, fontSize: '13px' }}>Users</th>
-              <th style={{ textAlign: 'center', padding: '12px 16px', color: 'var(--cf-text-secondary)', fontWeight: 500, fontSize: '13px' }}>Modules</th>
-              <th style={{ textAlign: 'right', padding: '12px 16px', color: 'var(--cf-text-secondary)', fontWeight: 500, fontSize: '13px' }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tenants.map((tenant) => (
-              <tr key={tenant.id} style={{ borderBottom: '1px solid var(--cf-border-light)' }}>
-                <td style={{ padding: '16px', fontWeight: 500 }}>{tenant.name}</td>
-                <td style={{ padding: '16px', color: 'var(--cf-text-secondary)' }}>{tenant.slug}</td>
-                <td style={{ padding: '16px', textAlign: 'center' }}>{tenant.users}</td>
-                <td style={{ padding: '16px', textAlign: 'center' }}>{tenant.modules}</td>
-                <td style={{ padding: '16px', textAlign: 'right' }}>
-                  <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--cf-accent)', marginRight: '8px' }}><Edit size={16} /></button>
-                  <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444' }}><Trash2 size={16} /></button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
-    </>
-  );
-};
+// Tenants Management is handled by /pages/MasterTenantsAdmin.jsx (replaced
+// the legacy /core/views/admin/tenant_edit.php form). The mock TenantsPage
+// previously here was deleted in 2026-02 P1 closeout.
 
 // Users Management
 const UsersPage = () => {
@@ -227,7 +181,7 @@ const AdminModule = ({ session }) => {
       <div style={{ flex: 1, marginLeft: '220px', padding: 'var(--cf-space-6)' }}>
         <Routes>
           <Route path="/" element={<AdminOverview />} />
-          <Route path="/tenants" element={<TenantsPage />} />
+          <Route path="/tenants" element={<MasterTenantsAdmin session={session} />} />
           <Route path="/sub-tenants" element={<SubTenantsAdmin session={session} />} />
           <Route path="/export-templates" element={<ExportTemplatesAdmin session={session} />} />
           <Route path="/users" element={<UsersPage />} />

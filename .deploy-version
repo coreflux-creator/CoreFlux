@@ -11,6 +11,7 @@ sentinels:
 - core/gusto_track_b.php
 - api/sub_tenants.php
 - api/sub_tenant_analytics.php
+- api/tenants.php
 - api/plaid_transfer_link.php
 - api/plaid_bank_link.php
 - api/export_templates.php
@@ -21,6 +22,7 @@ sentinels:
 - modules/accounting/lib/cross_tenant_intercompany.php
 - modules/placements/migrations/002_cycle_config.sql
 - dashboard/src/pages/SubTenantsAdmin.jsx
+- dashboard/src/pages/MasterTenantsAdmin.jsx
 - dashboard/src/pages/TenantPicker.jsx
 - dashboard/src/pages/SubTenantSummaryCard.jsx
 - dashboard/src/pages/ExportTemplatesAdmin.jsx
@@ -57,9 +59,11 @@ sentinels:
 - modules/treasury/ui/DepositAccounts.jsx
 - modules/treasury/ui/LiabilityAccounts.jsx
 expected_bundle:
-- spa-assets/index-BZanaRHw.js
+- spa-assets/index-Cbyu13tZ.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
+- master_tenants.crud_in_spa
+- legacy.tenant_edit_php_redirected
 - plaid.bank_link.read_only
 - plaid.bank_link.liability_mirror
 - export_templates.crud
