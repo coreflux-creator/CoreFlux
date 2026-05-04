@@ -6,6 +6,7 @@ import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import MailSettingsPage from './pages/MailSettingsPage';
 import AdminModule from './pages/AdminModule';
+import TenantPicker from './pages/TenantPicker';
 import PeopleModule from '../../modules/people/ui/PeopleModule';
 import PlacementsModule from '../../modules/placements/ui/PlacementsModule';
 import TimeModule from '../../modules/time/ui/TimeModule';
@@ -243,7 +244,7 @@ const AppContent = ({ session, usingDemo }) => {
       alert('Tenant switching requires PHP backend.');
       return;
     }
-    window.location.href = `/switch_tenant.php?tenant_id=${tenantId}`;
+    window.location.href = `/switch_tenant.php?tenant_id=${tenantId}&next=/spa.php`;
   };
 
   const sessionWithActiveModule = {
@@ -276,6 +277,9 @@ const AppContent = ({ session, usingDemo }) => {
           <Route path="/" element={<DashboardOverview session={session} onModuleChange={handleModuleChange} />} />
           <Route path="/dashboard" element={<DashboardOverview session={session} onModuleChange={handleModuleChange} />} />
           
+          {/* Tenant picker */}
+          <Route path="/select-tenant" element={<TenantPicker session={session} />} />
+
           {/* Profile & Settings */}
           <Route path="/profile" element={<ProfilePage session={session} />} />
           <Route path="/settings" element={<SettingsPage session={session} />} />

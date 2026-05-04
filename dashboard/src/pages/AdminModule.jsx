@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard, Card } from '../components/UIComponents';
-import { Building2, Users, Package, Plus, Search, Edit, Trash2 } from 'lucide-react';
+import { Building2, Users, Package, Plus, Search, Edit, Trash2, Layers } from 'lucide-react';
+import SubTenantsAdmin from './SubTenantsAdmin';
 
 // Admin Overview
 const AdminOverview = () => (
@@ -188,6 +189,7 @@ const AdminSidebar = () => {
   const links = [
     { to: '/admin', label: 'Overview', icon: Package },
     { to: '/admin/tenants', label: 'Tenants', icon: Building2 },
+    { to: '/admin/sub-tenants', label: 'Sub-Tenants', icon: Layers },
     { to: '/admin/users', label: 'Users', icon: Users },
     { to: '/admin/modules', label: 'Module Access', icon: Package },
   ];
@@ -224,6 +226,7 @@ const AdminModule = ({ session }) => {
         <Routes>
           <Route path="/" element={<AdminOverview />} />
           <Route path="/tenants" element={<TenantsPage />} />
+          <Route path="/sub-tenants" element={<SubTenantsAdmin session={session} />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/modules" element={<ModulesPage />} />
         </Routes>

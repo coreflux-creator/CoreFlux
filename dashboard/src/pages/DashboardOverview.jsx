@@ -1,7 +1,8 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ModuleCards, Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard, HelpSection } from '../components/UIComponents';
-import { Building2, Users, DollarSign } from 'lucide-react';
+import { Building2, Users, DollarSign, Layers } from 'lucide-react';
+import SubTenantSummaryCard from './SubTenantSummaryCard';
 
 const DashboardOverview = ({ session, onModuleChange }) => {
   const { modules = [], user } = session;
@@ -11,6 +12,9 @@ const DashboardOverview = ({ session, onModuleChange }) => {
 
   return (
     <>
+      {/* Sub-tenant fleet view (master_admin only; renders nothing otherwise) */}
+      {isAdmin && <SubTenantSummaryCard session={session} />}
+
       {/* Module Access Cards */}
       <ModuleCards modules={modules} onModuleClick={onModuleChange} />
 
@@ -45,6 +49,12 @@ const DashboardOverview = ({ session, onModuleChange }) => {
               title="Module Access"
               description="Enable modules per tenant"
               href="/admin/modules"
+            />
+            <ActionCard
+              icon={Layers}
+              title="Sub-Tenants"
+              description="Provision sub-tenants & module scope"
+              href="/admin/sub-tenants"
             />
           </ActionCardsGrid>
         </Section>

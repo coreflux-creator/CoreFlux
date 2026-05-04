@@ -3,6 +3,14 @@ This file is rewritten on every Emergent commit. update.php compares its
 contents against the latest entry in coreflux_migrations + the existence
 of recent files to prove the server is on HEAD (not 10 commits behind).
 sentinels:
+- core/sub_tenants.php
+- core/migrations/007_subtenant_provisioning.sql
+- api/sub_tenants.php
+- api/sub_tenant_analytics.php
+- modules/accounting/lib/cross_tenant_intercompany.php
+- dashboard/src/pages/SubTenantsAdmin.jsx
+- dashboard/src/pages/TenantPicker.jsx
+- dashboard/src/pages/SubTenantSummaryCard.jsx
 - modules/payroll/lib/cycles.php
 - modules/payroll/lib/anomalies.php
 - modules/payroll/api/cycles.php
@@ -28,9 +36,13 @@ sentinels:
 - modules/treasury/ui/DepositAccounts.jsx
 - modules/treasury/ui/LiabilityAccounts.jsx
 expected_bundle:
-- spa-assets/index-DEK66Dv1.js
+- spa-assets/index-Ddi1O3kE.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
+- subtenant.provisioning
+- subtenant.module_scope
+- subtenant.fleet_view
+- accounting.cross_tenant_intercompany
 - payroll.cycles
 - payroll.anomalies
 - payroll.gusto_oauth

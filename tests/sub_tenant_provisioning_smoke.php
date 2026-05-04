@@ -118,6 +118,72 @@ foreach ($declaredModules as $m) {
             && in_array(SUBTENANT_MODULE_SCOPE_DEFAULTS[$m], ['shared','isolated'], true));
 }
 
+// ─── Cross-tenant intercompany helper ───
+echo "Cross-tenant intercompany helper\n";
+$ic = file_get_contents(__DIR__ . '/../modules/accounting/lib/cross_tenant_intercompany.php');
+$assert('helper file loads',                          is_string($ic) && strlen($ic) > 200);
+$assert('declares accountingPostCrossTenantIntercompany',
+                                                      preg_match('/function\s+accountingPostCrossTenantIntercompany\s*\(/', $ic) === 1);
+$assert('rejects same from/to tenant',                strpos($ic, 'from and to tenant must differ') !== false);
+$assert('requires positive amount',                   strpos($ic, 'amount must be > 0') !== false);
+$assert('verifies same master parent',                strpos($ic, 'cross-tenant intercompany requires the same master parent') !== false);
+$assert('uses accountingPostJe()',                    substr_count($ic, 'accountingPostJe(') >= 2);
+$assert('idempotency_key cross_intercompany:from',    strpos($ic, '"cross_intercompany:{$ref}:from"') !== false);
+$assert('idempotency_key cross_intercompany:to',      strpos($ic, '"cross_intercompany:{$ref}:to"') !== false);
+$assert('shared intercompany_ref propagated',         strpos($ic, 'intercompany_ref') !== false);
+$assert('audits via subTenantAudit',                  strpos($ic, "subTenantAudit(") !== false);
+$assert('PHP parses cleanly',                         _php_lint(__DIR__ . '/../modules/accounting/lib/cross_tenant_intercompany.php'));
+
+// ─── Analytics API ───
+echo "/api/sub_tenant_analytics.php\n";
+$an = file_get_contents(__DIR__ . '/../api/sub_tenant_analytics.php');
+$assert('analytics endpoint loads',                   is_string($an) && strlen($an) > 200);
+$assert('returns active_sub_tenants',                 strpos($an, "'active_sub_tenants'") !== false);
+$assert('returns total_sub_tenants',                  strpos($an, "'total_sub_tenants'") !== false);
+$assert('returns posted_this_month_cents',            strpos($an, "'posted_this_month_cents'") !== false);
+$assert('returns ar_outstanding_cents',               strpos($an, "'ar_outstanding_cents'") !== false);
+$assert('returns last_active_sub',                    strpos($an, "'last_active_sub'") !== false);
+$assert('returns by_sub roll-up',                     strpos($an, "'by_sub'") !== false);
+$assert('guards on master tenant_admin',              strpos($an, "tenant_admin") !== false);
+$assert('graceful when accounting_journal_entries missing', strpos($an, "_stTableExists") !== false);
+$assert('PHP parses cleanly',                         _php_lint(__DIR__ . '/../api/sub_tenant_analytics.php'));
+
+// ─── React UI surfaces ───
+echo "React UI\n";
+$page1 = file_get_contents(__DIR__ . '/../dashboard/src/pages/SubTenantsAdmin.jsx');
+$assert('SubTenantsAdmin.jsx exists',                 is_string($page1) && strlen($page1) > 500);
+$assert('uses /api/sub_tenants.php',                  strpos($page1, "/api/sub_tenants.php") !== false);
+$assert('PATCH scope action',                         strpos($page1, "?action=scope&id=") !== false);
+$assert('renders 11 modules in scope table',          (substr_count($page1, "'shared'") + substr_count($page1, '"shared"')) >= 1);
+$assert('data-testid: sub-tenants-admin',             strpos($page1, 'data-testid="sub-tenants-admin"') !== false);
+$assert('data-testid: sub-tenant-create-submit',      strpos($page1, 'data-testid="sub-tenant-create-submit"') !== false);
+$assert('data-testid: sub-tenant-deactivate-btn',     strpos($page1, 'data-testid="sub-tenant-deactivate-btn"') !== false);
+
+$page2 = file_get_contents(__DIR__ . '/../dashboard/src/pages/TenantPicker.jsx');
+$assert('TenantPicker.jsx exists',                    is_string($page2) && strlen($page2) > 200);
+$assert('routes through /switch_tenant.php',          strpos($page2, '/switch_tenant.php?tenant_id=') !== false);
+$assert('preserves ?next=/spa.php',                   strpos($page2, 'next=/spa.php') !== false);
+$assert('auto-redirect single tenant',                strpos($page2, 'tenants.length === 1') !== false);
+$assert('data-testid: tenant-picker',                 strpos($page2, 'data-testid="tenant-picker"') !== false);
+
+$page3 = file_get_contents(__DIR__ . '/../dashboard/src/pages/SubTenantSummaryCard.jsx');
+$assert('SubTenantSummaryCard.jsx exists',            is_string($page3) && strlen($page3) > 200);
+$assert('hits /api/sub_tenant_analytics.php',         strpos($page3, '/api/sub_tenant_analytics.php') !== false);
+$assert('hides on error (master gate)',               strpos($page3, 'if (error) return null') !== false);
+$assert('manage link to /admin/sub-tenants',          strpos($page3, '/admin/sub-tenants') !== false);
+$assert('data-testid: sub-tenant-summary-card',       strpos($page3, 'data-testid="sub-tenant-summary-card"') !== false);
+
+// App-level wiring
+$app = file_get_contents(__DIR__ . '/../dashboard/src/App.jsx');
+$assert('App.jsx routes /select-tenant',              strpos($app, "<Route path=\"/select-tenant\"") !== false);
+$assert('App.jsx tenant change passes &next=',        strpos($app, '/switch_tenant.php?tenant_id=${tenantId}&next=/spa.php') !== false);
+$admin = file_get_contents(__DIR__ . '/../dashboard/src/pages/AdminModule.jsx');
+$assert('AdminModule routes /sub-tenants',            strpos($admin, "<Route path=\"/sub-tenants\"") !== false);
+$assert('AdminModule sidebar Sub-Tenants link',       strpos($admin, "label: 'Sub-Tenants'") !== false);
+$dash = file_get_contents(__DIR__ . '/../dashboard/src/pages/DashboardOverview.jsx');
+$assert('DashboardOverview shows summary card',       strpos($dash, '<SubTenantSummaryCard') !== false);
+$assert('DashboardOverview admin action card link',   strpos($dash, '/admin/sub-tenants') !== false);
+
 echo "\n";
 echo "Pass: {$pass}\n";
 echo "Fail: {$fail}\n";
