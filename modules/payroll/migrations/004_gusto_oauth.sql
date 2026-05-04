@@ -18,8 +18,10 @@ CREATE TABLE IF NOT EXISTS tenant_gusto_connections (
     company_uuid                VARCHAR(64) NOT NULL,
     company_name                VARCHAR(200) NULL,
     -- Encrypted bearer + refresh tokens (AES-256-GCM ciphertext).
-    access_token_ct             TEXT NOT NULL,
-    refresh_token_ct            TEXT NOT NULL,
+    -- VARBINARY because encryptField() returns raw bytes (12B nonce + 16B
+    -- tag + ciphertext); TEXT/utf8mb4 rejects bytes outside the UTF-8 range.
+    access_token_ct             VARBINARY(2048) NOT NULL,
+    refresh_token_ct            VARBINARY(2048) NOT NULL,
     token_type                  VARCHAR(20) NOT NULL DEFAULT 'bearer',
     -- Token expiration (access_token TTL is 7200s on issue).
     access_token_expires_at     DATETIME NOT NULL,

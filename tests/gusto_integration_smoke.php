@@ -20,6 +20,10 @@ $a('utf8mb4_unicode_ci collation',           strpos($mig, 'utf8mb4_unicode_ci') 
 $a('encrypted access/refresh columns',
     strpos($mig, 'access_token_ct') !== false &&
     strpos($mig, 'refresh_token_ct') !== false);
+$a('access_token_ct stored as VARBINARY (raw AES-GCM bytes)',
+    strpos($mig, 'access_token_ct             VARBINARY') !== false);
+$a('refresh_token_ct stored as VARBINARY',
+    strpos($mig, 'refresh_token_ct            VARBINARY') !== false);
 $a('access_token expiry column',             strpos($mig, 'access_token_expires_at') !== false);
 $a('env column (sandbox/production)',        strpos($mig, "env                         VARCHAR(20)") !== false);
 $a('per-tenant uniqueness on company_uuid',  strpos($mig, 'uq_gconn_tenant_company') !== false);

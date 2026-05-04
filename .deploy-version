@@ -15,6 +15,7 @@ sentinels:
 - api/gusto_webhook.php
 - modules/payroll/migrations/003_pay_cycles.sql
 - modules/payroll/migrations/004_gusto_oauth.sql
+- modules/payroll/migrations/005_gusto_token_blob.sql
 - modules/payroll/ui/PayCyclesPanel.jsx
 - modules/payroll/ui/PayrollAnomalies.jsx
 - modules/payroll/ui/GustoConnectCard.jsx
