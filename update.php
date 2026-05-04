@@ -63,6 +63,15 @@ function runUpdate(): array {
         ];
     }
 
+    // 1b. Sentinel-file deploy-staleness check.
+    //     /app/.deploy-version lists the files that MUST exist for the
+    //     server to be considered on HEAD. If any are missing, the host
+    //     is on an older commit than git — the staleness check below
+    //     would be a false ✓ otherwise (because everything's stale
+    //     together). We surface this loudly with a red ✗ so the user
+    //     immediately sees that Cloudways' git deploy hasn't run.
+    $log['steps'][] = _deployVersionCheck($root);
+
     // 2. Apply pending migrations
     $log['steps'][] = ['name' => 'apply pending migrations', 'ok' => true, 'list' => runMigrationsInProcess()];
 
@@ -218,6 +227,54 @@ function runUpdate(): array {
     }
 
     return $log;
+}
+
+/**
+ * Read /app/.deploy-version and verify every "sentinel" file exists on
+ * disk. If any are missing, the host is parked on a commit older than
+ * the one that wrote .deploy-version → Cloudways' git deploy didn't run.
+ * Surfaces a red ✗ so the user can't miss it.
+ */
+function _deployVersionCheck(string $root): array
+{
+    $stampFile = $root . '/.deploy-version';
+    if (!is_file($stampFile)) {
+        return [
+            'name'   => 'deploy version stamp',
+            'ok'     => true,
+            'detail' => 'no .deploy-version file (older deploy) — skip',
+        ];
+    }
+    $stamp = (string) file_get_contents($stampFile);
+    if (!preg_match('/sentinels:\s*\n((?:\s*-[^\n]*\n)+)/', $stamp, $m)) {
+        return [
+            'name'   => 'deploy version stamp',
+            'ok'     => true,
+            'detail' => '.deploy-version present but no sentinels block — skip',
+        ];
+    }
+    $missing = [];
+    foreach (preg_split('/\r?\n/', trim($m[1])) as $line) {
+        $rel = trim((string) preg_replace('/^\s*-\s*/', '', $line));
+        if ($rel === '') continue;
+        if (!file_exists($root . '/' . $rel)) $missing[] = $rel;
+    }
+    if (!$missing) {
+        return [
+            'name'   => 'deploy version stamp',
+            'ok'     => true,
+            'detail' => 'all sentinel files present — host is on or newer than this stamp',
+        ];
+    }
+    return [
+        'name'   => 'deploy version stamp',
+        'ok'     => false,
+        'detail' => 'STALE DEPLOY — Cloudways has not pulled the latest commit. ' .
+                    count($missing) . ' sentinel file(s) missing on disk: '
+                    . implode(', ', array_slice($missing, 0, 5))
+                    . (count($missing) > 5 ? ' …(+' . (count($missing) - 5) . ' more)' : '')
+                    . '. Fix: Cloudways → Application → Deployment via Git → Pull Latest, then re-run Update.',
+    ];
 }
 
 function uh(string $s): string { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8'); }

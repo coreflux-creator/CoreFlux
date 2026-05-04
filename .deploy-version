@@ -1,0 +1,24 @@
+CoreFlux deploy version stamp.
+This file is rewritten on every Emergent commit. update.php compares its
+contents against the latest entry in coreflux_migrations + the existence
+of recent files to prove the server is on HEAD (not 10 commits behind).
+sentinels:
+- modules/payroll/lib/cycles.php
+- modules/payroll/lib/anomalies.php
+- modules/payroll/api/cycles.php
+- modules/payroll/api/anomalies.php
+- modules/payroll/api/gusto_connect.php
+- modules/payroll/api/gusto_submit.php
+- core/gusto_service.php
+- api/gusto_oauth_start.php
+- api/gusto_oauth_callback.php
+- api/gusto_webhook.php
+- modules/payroll/migrations/003_pay_cycles.sql
+- modules/payroll/migrations/004_gusto_oauth.sql
+- modules/payroll/ui/PayCyclesPanel.jsx
+- modules/payroll/ui/PayrollAnomalies.jsx
+- modules/payroll/ui/GustoConnectCard.jsx
+last_known_features:
+- payroll.cycles
+- payroll.anomalies
+- payroll.gusto_oauth
