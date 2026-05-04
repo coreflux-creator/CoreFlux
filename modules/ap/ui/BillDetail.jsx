@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
+import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
 
 export default function BillDetail() {
   const { id } = useParams();
   const { data, loading, error, reload } = useApi(`/modules/ap/api/bills.php?id=${id}`);
   const [busy, setBusy] = useState(null);
   const [actionError, setActionError] = useState(null);
+  const [icSplitOpen, setIcSplitOpen] = useState(false);
 
   if (loading) return <p>Loading…</p>;
   if (error)   return <p className="error" data-testid="ap-bill-detail-error">Error: {error.message}</p>;
@@ -57,6 +59,7 @@ export default function BillDetail() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {canApprove && <button className="btn btn--primary" onClick={approve} disabled={busy==='approve'} data-testid="ap-bill-approve">{busy==='approve' ? 'Approving…' : 'Approve'}</button>}
           {canPost    && <button className="btn btn--ghost" onClick={postGl} disabled={busy==='post'} data-testid="ap-bill-post">{busy==='post' ? 'Posting…' : 'Post to GL'}</button>}
+          {canPost    && !bill.journal_entry_id && <button className="btn btn--ghost" onClick={() => setIcSplitOpen(true)} data-testid="ap-bill-post-ic-split">⊕ Post with IC split</button>}
           {canDispute && <button className="btn btn--ghost" onClick={dispute} disabled={busy==='dispute'} data-testid="ap-bill-dispute">{busy==='dispute' ? 'Disputing…' : 'Dispute'}</button>}
           {canVoid    && <button className="btn btn--ghost" onClick={voidIt} disabled={busy==='void'} data-testid="ap-bill-void">{busy==='void' ? 'Voiding…' : 'Void'}</button>}
         </div>
@@ -66,6 +69,20 @@ export default function BillDetail() {
         <p className="error" data-testid="ap-bill-disputed-reason" style={{ marginBottom: 12 }}>Disputed: {bill.dispute_reason}</p>
       )}
       {actionError && <p className="error" data-testid="ap-bill-action-error">Error: {actionError.message}</p>}
+
+      {icSplitOpen && (
+        <IntercompanySplitDialog
+          open={icSplitOpen}
+          onClose={() => setIcSplitOpen(false)}
+          onPosted={() => { setIcSplitOpen(false); reload(); }}
+          amount={Number(bill.total)}
+          sourceEntityId={1}
+          sourceOffsetAccountCode="2000"
+          sourceOffsetSide="credit"
+          defaultMemo={`AP Bill ${bill.internal_ref} / ${bill.vendor_name}`}
+          postUrl={`/modules/ap/api/bills.php?action=post_with_ic_split&id=${id}`}
+        />
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 'var(--cf-space-4)' }}>
         <SummaryBox label="Subtotal"  value={`${Number(bill.subtotal).toFixed(2)} ${bill.currency}`} />

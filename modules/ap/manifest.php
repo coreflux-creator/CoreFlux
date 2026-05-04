@@ -56,6 +56,7 @@ return [
         'ap.bill.updated',
         'ap.bill.approved',
         'ap.bill.posted',
+        'ap.bill.posted_ic',
         'ap.bill.voided',
         'ap.bill.disputed',
         'ap.bill.paid',

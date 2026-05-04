@@ -551,10 +551,6 @@ if ($method === 'POST' && $action === 'dispute') {
 }
 
 if ($method === 'POST' && $action === 'post') {
-    // Post the bill to the GL via the Accounting subledger protocol.
-    //   Dr  Expense (AP default clearing account 5000)
-    //   Cr  Accounts Payable                      (2000)
-    // Idempotent on ap:bill:<id>:post so double-clicking is safe.
     RBAC::requirePermission($user, 'ap.bill.post');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
@@ -616,6 +612,110 @@ if ($method === 'POST' && $action === 'post') {
         'idempotent_replay' => $res['idempotent_replay'],
     ], $id);
     api_ok(['ok' => true, 'journal_entry_id' => $res['je_id'], 'je_number' => $res['je_number'], 'idempotent_replay' => $res['idempotent_replay']]);
+}
+
+// =======================================================================
+// Post with intercompany split — uses the shared IC engine to emit one
+// balanced JE per target entity instead of a single-entity Dr/Cr pair.
+//
+// Body shape mirrors intercompany.php?action=post_split's `splits[]`:
+//   {
+//     entity_id:  <source/AP-owning entity id (defaults to tenant default)>,
+//     ap_account_code: "2000",
+//     splits: [
+//       {entity_id:1, account_code:"5100", amount:700, memo:"..."},
+//       {entity_id:2, account_code:"5100", amount:300, memo:"..."},
+//     ]
+//   }
+// Splits.total must equal bill.total.
+// Idempotency: ic:bill:<id>  (different from ap:bill:<id>:post so you
+// can't accidentally double-post the same bill one way and the other).
+// =======================================================================
+if ($method === 'POST' && $action === 'post_with_ic_split') {
+    RBAC::requirePermission($user, 'ap.bill.post');
+    RBAC::requirePermission($user, 'accounting.je.post');
+    $id  = (int) ($_GET['id'] ?? 0);
+    $row = scopedFind('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$row) api_error('Not found', 404);
+    if (!in_array($row['status'], ['approved','partially_paid','paid'], true)) {
+        api_error("Cannot post from status {$row['status']}", 409);
+    }
+    if (!empty($row['journal_entry_id'])) {
+        api_ok([
+            'ok' => true,
+            'journal_entry_id'       => (int) $row['journal_entry_id'],
+            'intercompany_group_id'  => $row['intercompany_group_id'] ?? null,
+            'idempotent_replay'      => true,
+        ]);
+    }
+
+    require_once __DIR__ . '/../../accounting/lib/accounting.php';
+    require_once __DIR__ . '/../../accounting/lib/intercompany.php';
+
+    $body = api_json_body();
+    // Accept either the dialog-native shape (source.entity_id + source.offset_line)
+    // or a slim shape (entity_id + ap_account_code + splits).
+    $source = $body['source'] ?? null;
+    if ($source && !empty($source['entity_id'])) {
+        $sourceEntityId = (int) $source['entity_id'];
+        $apAccount      = (string) ($source['offset_line']['account_code'] ?? '2000');
+    } else {
+        $sourceEntityId = !empty($body['entity_id']) ? (int) $body['entity_id']
+                                                      : (int) accountingDefaultEntity($tid)['id'];
+        $apAccount      = trim((string) ($body['ap_account_code'] ?? '2000'));
+    }
+    $splits = $body['splits'] ?? [];
+    if (!is_array($splits) || !$splits) api_error('splits[] required', 422);
+
+    try {
+        $res = intercompanyPostSplit($tid, [
+            'posting_date' => $row['bill_date'],
+            'memo'         => 'AP Bill ' . $row['internal_ref'] . ' / ' . $row['vendor_name'],
+            'group_id'     => null,
+            'idempotency_prefix' => sprintf('ic:bill:%d', $id),
+            'source'       => [
+                'entity_id'   => $sourceEntityId,
+                'offset_line' => [
+                    'account_code' => $apAccount,
+                    'amount'       => (float) $row['total'],
+                    'side'         => 'credit',
+                    'memo'         => 'AP ' . $row['internal_ref'],
+                ],
+            ],
+            'splits' => array_map(fn ($s) => [
+                'entity_id'    => (int) $s['entity_id'],
+                'account_code' => (string) $s['account_code'],
+                'amount'       => (float) $s['amount'],
+                'memo'         => $s['memo'] ?? null,
+                'ic_override'  => $s['ic_override'] ?? null,
+            ], $splits),
+        ], $user['id'] ?? null);
+    } catch (\Throwable $e) {
+        api_error('GL post failed: ' . $e->getMessage(), 422);
+    }
+
+    $sourceLeg = null;
+    foreach ($res['jes'] as $leg) if ($leg['role'] === 'source') { $sourceLeg = $leg; break; }
+    if (!$sourceLeg) $sourceLeg = $res['jes'][0] ?? null;
+
+    getDB()->prepare(
+        'UPDATE ap_bills SET journal_entry_id = :j, intercompany_group_id = :g WHERE id = :id AND tenant_id = :t'
+    )->execute([
+        'j'  => $sourceLeg['je_id'], 'g' => $res['group_id'], 'id' => $id, 't' => $tid,
+    ]);
+
+    apAudit('ap.bill.posted_ic', [
+        'bill_id'               => $id, 'internal_ref' => $row['internal_ref'],
+        'journal_entry_id'      => (int) $sourceLeg['je_id'],
+        'intercompany_group_id' => $res['group_id'],
+        'leg_count'             => count($res['jes']),
+    ], $id);
+    api_ok([
+        'ok' => true,
+        'journal_entry_id'       => (int) $sourceLeg['je_id'],
+        'intercompany_group_id'  => $res['group_id'],
+        'jes'                    => $res['jes'],
+    ]);
 }
 
 api_error('Method not allowed', 405);

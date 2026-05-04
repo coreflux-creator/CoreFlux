@@ -129,6 +129,8 @@ return [
         'accounting.intercompany.mapping_deactivated',
         'accounting.intercompany.split_posted',
         'accounting.intercompany.group_reversed',
+        'accounting.intercompany.elimination_viewed',
+        'accounting.intercompany.elimination_narrative_generated',
         'accounting.fx.rate_added',
         'accounting.fx.revalued',
         'accounting.recurring.created',

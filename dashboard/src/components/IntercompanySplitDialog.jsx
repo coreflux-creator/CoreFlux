@@ -23,6 +23,7 @@ export default function IntercompanySplitDialog({
   open, onClose, onPosted,
   amount, sourceEntityId, sourceOffsetAccountCode, sourceOffsetSide = 'credit',
   bankStatementLineId = null, defaultMemo = '',
+  postUrl = '/modules/accounting/api/intercompany.php?action=post_split',
 }) {
   const [entities, setEntities] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -93,7 +94,7 @@ export default function IntercompanySplitDialog({
           })),
         bank_statement_line_id: bankStatementLineId || null,
       };
-      const res = await api.post('/modules/accounting/api/intercompany.php?action=post_split', payload);
+      const res = await api.post(postUrl, payload);
       if (onPosted) onPosted(res);
       onClose();
     } catch (e) { setErr(e.message); }

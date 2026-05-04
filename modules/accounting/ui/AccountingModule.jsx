@@ -13,6 +13,7 @@ import RecurringJournalEntries from './RecurringJournalEntries';
 import StandardReports from './StandardReports';
 import AccountingImport from './AccountingImport';
 import IntercompanyMappings from './IntercompanyMappings';
+import EliminationWorksheet from './EliminationWorksheet';
 import Periods from './Periods';
 
 /**
@@ -33,6 +34,7 @@ export default function AccountingModule({ session }) {
         <Tab to="reports"   label="Reports" />
         <Tab to="import"    label="Import" />
         <Tab to="intercompany" label="Intercompany" />
+        <Tab to="elimination"  label="Elimination" />
         <Tab to="periods"  label="Periods" />
       </nav>
       <Routes>
@@ -52,6 +54,7 @@ export default function AccountingModule({ session }) {
         <Route path="reports"  element={<StandardReports  session={session} />} />
         <Route path="import"   element={<AccountingImport session={session} />} />
         <Route path="intercompany" element={<IntercompanyMappings session={session} />} />
+        <Route path="elimination"  element={<EliminationWorksheet session={session} />} />
         <Route path="periods"  element={<Periods         session={session} />} />
       </Routes>
     </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
+import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
 
 /**
  * Manual Journal Entry creator.
@@ -24,6 +25,8 @@ export default function JournalEntryCreate() {
   const [lines, setLines] = useState([newLine(), newLine()]);
   const [busy, setBusy]   = useState(false);
   const [error, setError] = useState(null);
+  const [icOpen, setIcOpen] = useState(false);
+  const [icSeed, setIcSeed] = useState(null);
 
   useEffect(() => {
     api.get('/modules/accounting/api/accounts.php').then((d) => {
@@ -157,7 +160,51 @@ export default function JournalEntryCreate() {
       <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
         <button className="btn btn--ghost"   onClick={() => submit('draft')} disabled={busy || !balanced} data-testid="accounting-je-save-draft">{busy ? 'Saving…' : 'Save as draft'}</button>
         <button className="btn btn--primary" onClick={() => submit('post')}  disabled={busy || !balanced} data-testid="accounting-je-post">{busy ? 'Posting…' : 'Save & post'}</button>
+        <button
+          className="btn btn--ghost"
+          onClick={() => {
+            // Seed the IC dialog from the largest line as the "source offset"
+            // (the single line that balances all the others); remaining lines
+            // become the splits.
+            const rows = lines.filter(l => l.account_code && (parseFloat(l.debit) > 0 || parseFloat(l.credit) > 0));
+            if (rows.length < 2) { setError('Add at least 2 lines before splitting across entities'); return; }
+            const byAmount = [...rows].sort((a, b) => (parseFloat(b.debit) + parseFloat(b.credit) || 0) - (parseFloat(a.debit) + parseFloat(a.credit) || 0));
+            const offsetRow = byAmount[0];
+            const offsetAmt = parseFloat(offsetRow.debit) || parseFloat(offsetRow.credit) || 0;
+            const offsetSide = parseFloat(offsetRow.debit) > 0 ? 'debit' : 'credit';
+            const splitSeeds = rows.filter(r => r !== offsetRow).map(r => ({
+              entity_id: 1,
+              account_code: r.account_code,
+              amount: parseFloat(r.debit) || parseFloat(r.credit) || 0,
+              memo: r.description,
+            }));
+            setIcSeed({
+              amount: offsetAmt,
+              sourceOffsetAccountCode: offsetRow.account_code,
+              sourceOffsetSide: offsetSide,
+              splits: splitSeeds,
+            });
+            setIcOpen(true);
+          }}
+          data-testid="accounting-je-ic-split"
+          disabled={busy}
+        >⊕ Split across entities</button>
       </div>
+      {icOpen && icSeed && (
+        <IntercompanySplitDialog
+          open={icOpen}
+          onClose={() => setIcOpen(false)}
+          onPosted={(res) => {
+            setIcOpen(false);
+            if (res?.jes?.[0]?.je_id) navigate(`/modules/accounting/journal-entries/${res.jes[0].je_id}`);
+          }}
+          amount={icSeed.amount}
+          sourceEntityId={1}
+          sourceOffsetAccountCode={icSeed.sourceOffsetAccountCode}
+          sourceOffsetSide={icSeed.sourceOffsetSide}
+          defaultMemo={memo}
+        />
+      )}
     </section>
   );
 }

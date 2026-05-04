@@ -914,3 +914,34 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 
 ---
 *Last Updated: 2026-02 — Intercompany split engine live: one screen splits any transaction across N entities, auto-books due-from/due-to offsets, links all legs via group_id for cascaded reversal. Integrated into Bank Rec unmatched-line flow; reusable dialog ready for AP + manual JE in next sprint.*
+
+
+*2026-02 — Accounting Phase 2 Sprint A.6 (IC on AP + Manual JE + Elimination Worksheet):*
+
+Path-B architectural decision: customer uses ONE CoreFlux tenant per legal family, with `accounting_entities` playing the role of "sub-companies". Module entity-awareness status: Accounting ✅ full · Bank accounts ✅ (have entity_id) · People ⚠️ partial · AP/AR/Payroll ⚠️ tenant-scoped (book into entities via IC splits at post time). Tracked as P0 backlog.
+
+- **Migration `ap/007_intercompany.sql`** — adds `intercompany_group_id` on `ap_bills` (indexed on tenant + group). Idempotent.
+- **AP API** `api/bills.php?action=post_with_ic_split` — posts a bill via the shared `intercompanyPostSplit()` engine instead of the simple Dr-Expense-Cr-AP path. Accepts both the dialog-native `source.offset_line` shape AND a slim `{entity_id, ap_account_code, splits}` shape. Idempotency keyed `ic:bill:<id>`. Links the source-leg JE id + group id onto the `ap_bills` row. Emits `ap.bill.posted_ic`. Requires BOTH `ap.bill.post` and `accounting.je.post`.
+- **Core engine** `lib/intercompany.php` — new `intercompanyEliminationWorksheet($t, $from, $to)`: returns `{groups, pairs, orphans, summary}`. For each `(A → B)` pair aggregates IC-tagged lines from A's books vs mirror lines in B's books; `imbalance_signed = (A's Dr - A's Cr) + (B's Dr - B's Cr)` which is 0 for a perfect pair. Surfaces orphan lines — IC-tagged (`counterparty_entity_id IS NOT NULL`) but NOT part of any `intercompany_group_id` (i.e. manually tagged, likely a miss).
+- **Accounting API** `api/intercompany.php` gains `?action=elimination_worksheet` + `?action=narrate_elimination` (AI summary via `aiAsk()` chokepoint, same "no dollar figures" prompt pattern as reconciliation packet).
+- **Reusable dialog** `IntercompanySplitDialog.jsx` now accepts a `postUrl` prop — defaults to the IC engine, but can be pointed at `bills.php?action=post_with_ic_split&id=N` (or future AR/Payroll endpoints) so each module handles its own linkage.
+- **AP BillDetail.jsx** — new `⊕ Post with IC split` button opens the dialog pre-filled with AP liability account `2000`, side `credit`, amount = bill total. On post, the bill row is linked to the source leg's JE id + group id in a single round trip.
+- **JournalEntryCreate.jsx** — new `⊕ Split across entities` button. Seeds the dialog by picking the largest line as the "source offset" and treating the remaining lines as the splits-to-distribute; user can adjust entities + accounts before posting.
+- **EliminationWorksheet.jsx** at `/accounting/elimination` — month-end worksheet with:
+  - 4 stat tiles (groups / pairs / ⚠ imbalanced / ⚠ orphans).
+  - Entity pair balance table (imbalanced pairs in red, balanced pairs with ✓).
+  - IC groups table with per-leg totals.
+  - Orphan IC-tagged lines (if any) — for post-hoc cleanup.
+  - `⬇ Pairs CSV` + `✨ Summarize` AI narrative button with the standard "no restate dollars" guard.
+- **Manifest** — 2 new audit events (`elimination_viewed`, `elimination_narrative_generated`); `ap.bill.posted_ic` added to AP manifest.
+- Backend: +49 new smoke assertions in `/app/tests/accounting_phase2_a6_smoke.php`. Combined suite: **35 files, 2,297 passing / 0 failed**. Vite build green, synced.
+
+### Backlog (P0 to deliver the "Path B, full feature isolation" vision you asked about)
+- **AR / Billing** — add `entity_id` to `billing_invoices` + entity selector on invoice create. Otherwise invoices live at tenant level and must post into entities via IC split (works, but noisy).
+- **People** — extend `entity_id` from `people_custom_data` down to the core `people` / `employment` records so HR data can be scoped per entity.
+- **Payroll** — per-entity payroll runs (multi-EIN scenarios).
+- **Consolidation** — entity-pair ownership %, affiliate / subsidiary / branch relationships, eliminations worksheet promoted into a formal consolidation run with close workflow.
+- **Cross-entity P&L / BS** — `reports.php` needs "consolidate selected entities" mode (union + eliminations applied) instead of single `entity_id` only.
+
+---
+*Last Updated: 2026-02 — Phase 2 A.6 shipped: IC splits on AP bills + manual JEs via the reusable dialog; Elimination Worksheet live with AI narrative for pre-close sanity.*
