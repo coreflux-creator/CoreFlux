@@ -19,3 +19,16 @@ define('OPENAI_API_KEY', 'sk-proj-REPLACE_ME');
 // define('AI_MODEL_CLASSIFICATION', 'gpt-5.4-mini');
 // define('AI_MODEL_DEEP_REASONING', 'gpt-5.4-thinking');
 // define('AI_FALLBACK_MODEL',       'gpt-5.2');
+
+// =========================================================================
+// Plaid (Link / Auth / Transactions / Transfer)
+// -------------------------------------------------------------------------
+// Used by /app/core/plaid_service.php + /app/core/payment_rails/plaid_*
+// Get keys at https://dashboard.plaid.com/developers/keys.
+// PLAID_ENV controls which secret + host is active ('sandbox' | 'production').
+// =========================================================================
+// define('PLAID_CLIENT_ID',          'REPLACE_ME');
+// define('PLAID_SECRET_SANDBOX',     'REPLACE_ME');
+// define('PLAID_SECRET_PRODUCTION',  'REPLACE_ME');
+// define('PLAID_ENV',                'sandbox');
+// define('PLAID_WEBHOOK_URL',        'https://yourdomain.com/api/core/webhooks/plaid');

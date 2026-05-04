@@ -3,6 +3,7 @@ import { Routes, Route, Link, useParams, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import ReconciliationPacket from './ReconciliationPacket';
 import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
+import PlaidLinkButton from '../../../dashboard/src/components/PlaidLinkButton';
 
 /**
  * Bank Reconciliation module.
@@ -182,7 +183,19 @@ function AccountDetail() {
       <Link to=".." style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← Bank accounts</Link>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>Statement lines</h2>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <PlaidLinkButton
+            purpose="bank_feed"
+            accountingBankAccountId={Number(id)}
+            label="Connect bank (Plaid)"
+            testIdSuffix="bank-feed"
+            onLinked={async (r) => {
+              try {
+                await api.post('/api/plaid_sync_transactions', { item_id: r.item_id, accounting_bank_account_id: Number(id) });
+                reload();
+              } catch (_e) {}
+            }}
+          />
           <Link to="rules" className="btn btn--ghost" data-testid="accounting-bank-rules-link">Rules</Link>
           <Link to={`/modules/accounting/bank-rec/reconciliations/${id}`} className="btn btn--ghost" data-testid="accounting-bank-packets-link">Reconciliations</Link>
           <button className="btn btn--ghost" onClick={applyRules} disabled={busy === 'apply'} data-testid="accounting-bank-apply-rules">
