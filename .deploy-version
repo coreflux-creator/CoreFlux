@@ -12,6 +12,7 @@ sentinels:
 - api/sub_tenants.php
 - api/sub_tenant_analytics.php
 - api/plaid_transfer_link.php
+- api/plaid_bank_link.php
 - api/export_templates.php
 - modules/payroll/api/gusto_sync.php
 - modules/payroll/api/runs.php
@@ -56,9 +57,10 @@ sentinels:
 - modules/treasury/ui/DepositAccounts.jsx
 - modules/treasury/ui/LiabilityAccounts.jsx
 expected_bundle:
-- spa-assets/index-CIMd7kPo.js
+- spa-assets/index-CHSOd8qZ.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
+- plaid.bank_link.read_only
 - export_templates.crud
 - export_templates.platform_presets
 - export_templates.upload_sample_csv

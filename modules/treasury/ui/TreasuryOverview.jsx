@@ -124,9 +124,77 @@ export default function TreasuryOverview() {
         )}
       </section>
       <section className="treasury-overview__section">
+        <BankConnectCard onLinked={() => window.location.reload()} />
+      </section>
+
+      <section className="treasury-overview__section">
         <PlaidTransferFundingCard />
       </section>
     </section>
+  );
+}
+
+function BankConnectCard({ onLinked }) {
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg]   = React.useState(null);
+  const [err, setErr]   = React.useState(null);
+
+  const link = async () => {
+    setBusy(true); setMsg(null); setErr(null);
+    try {
+      const tok = await fetch('/api/plaid_bank_link.php', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      }).then((r) => r.json().then((d) => r.ok ? d : Promise.reject(d)));
+      if (!tok.link_token) throw new Error('No link_token returned');
+
+      await ensurePlaidLink();
+      const handler = window.Plaid.create({
+        token: tok.link_token,
+        onSuccess: async (publicToken, meta) => {
+          try {
+            const res = await fetch('/api/plaid_bank_link.php?action=exchange', {
+              method: 'POST', credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                public_token: publicToken,
+                accounts:    meta?.accounts || [],
+                institution: {
+                  name:           meta?.institution?.name           || null,
+                  institution_id: meta?.institution?.institution_id || null,
+                },
+              }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Exchange failed');
+            const created = data.bank_accounts_created?.length || 0;
+            setMsg(`Linked ${meta?.institution?.name || 'bank'} — ${created} deposit account${created === 1 ? '' : 's'} added.`);
+            if (onLinked) setTimeout(onLinked, 1200);
+          } catch (e) { setErr(e.message); }
+        },
+        onExit: (e) => { if (e) setErr(e.error_message || 'Cancelled'); },
+      });
+      handler.open();
+    } catch (e) {
+      setErr(e.error || e.message || 'Plaid Link failed');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div data-testid="plaid-bank-connect-card">
+      <h3>Connect a bank (read-only feed)</h3>
+      <p className="muted" style={{ fontSize: 13 }}>
+        Link checking / savings accounts so balances and transactions auto-sync
+        for bank reconciliation. <strong>No money moves</strong> — this is a
+        read-only feed using Plaid Auth + Transactions. To enable outbound ACH
+        payments, use <em>Outbound disbursements</em> below.
+      </p>
+      <button onClick={link} disabled={busy} className="btn btn--primary" data-testid="plaid-bank-connect-btn">
+        {busy ? 'Opening Plaid…' : 'Connect bank'}
+      </button>
+      {msg && <p style={{ color: '#065f46', fontSize: 13, marginTop: 8 }} data-testid="plaid-bank-connect-success">{msg}</p>}
+      {err && <p className="error" data-testid="plaid-bank-connect-error">{err}</p>}
+    </div>
   );
 }
 
