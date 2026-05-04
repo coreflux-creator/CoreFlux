@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import EntityPicker from '../../../dashboard/src/components/EntityPicker';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
@@ -28,6 +29,7 @@ export default function BillCreate() {
   const [dueDate, setDueDate]     = useState('');
   const [poNumber, setPoNumber]   = useState('');
   const [taxPct, setTaxPct]       = useState(0);
+  const [entityId, setEntityId]   = useState(null);
   const [notes, setNotes]         = useState('');
   const [lines, setLines]         = useState([blankLine('expense')]);
 
@@ -96,6 +98,7 @@ export default function BillCreate() {
     try {
       if (!vendor) throw new Error('Pick a vendor');
       const payload = {
+        entity_id: entityId,
         vendor_name: vendor.name,
         vendor_company_id: vendor.id,
         vendor_type: vendorType,
@@ -192,6 +195,9 @@ export default function BillCreate() {
           <Field label="Tax rate %">
             <input type="number" step="0.001" className="input" value={taxPct} onChange={(e) => setTaxPct(e.target.value)} data-testid="ap-bill-create-tax" />
           </Field>
+          <div style={{ gridColumn: 'span 2' }}>
+            <EntityPicker value={entityId} onChange={setEntityId} testId="ap-bill-create-entity" label="Home entity (bill owner)" />
+          </div>
         </div>
 
         <Field label="Vendor invoice PDF (optional)">

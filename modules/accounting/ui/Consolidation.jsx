@@ -183,9 +183,71 @@ function ConsolidatedReport() {
       {!qs && <p style={{color:'#666'}}>Pick at least one entity to run the consolidation.</p>}
       {loading && <p>Running consolidation…</p>}
       {error && <p className="error">{error.message}</p>}
+      {data && (
+        <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:8 }}>
+          <button
+            className="btn btn--primary"
+            disabled={lockBusy}
+            data-testid="accounting-consol-lock"
+            onClick={async () => {
+              if (!window.confirm('Lock this consolidation? A snapshot will be persisted; you\'ll need to reverse it with a reason to re-lock for the same period.')) return;
+              setLockBusy(true); setLockErr(null);
+              try {
+                const res = await api.post('/modules/accounting/api/consolidation_runs.php?action=lock', {
+                  report_type: reportType,
+                  entity_ids: entityIds,
+                  period_from: reportType === 'income_statement' ? from : null,
+                  period_to:   to,
+                  notes: `Locked from Consolidation UI`,
+                });
+                setLockedId(res?.id || null);
+                runsApi.reload();
+              } catch (e) { setLockErr(e.message); }
+              finally { setLockBusy(false); }
+            }}
+          >{lockBusy ? 'Locking…' : '🔒 Lock & publish'}</button>
+          {lockedId && <span style={{fontSize:12,color:'#065f46'}} data-testid="accounting-consol-lock-success">✓ Locked as run #{lockedId}</span>}
+          {lockErr && <span style={{fontSize:12,color:'#991b1b'}}>{lockErr}</span>}
+        </div>
+      )}
       {data && reportType === 'income_statement' && <IsView data={data} />}
       {data && reportType === 'balance_sheet'    && <BsView data={data} />}
       {data && reportType === 'trial_balance'    && <TbView data={data} />}
+
+      {runsApi.data?.rows?.length > 0 && (
+        <div style={{marginTop:24}} data-testid="accounting-consol-runs">
+          <h4 style={{fontSize:13, margin:'0 0 6px'}}>Past {reportType.replace('_',' ')} runs</h4>
+          <table className="data-table" style={{fontSize:12}}>
+            <thead><tr><th>ID</th><th>Period</th><th>Entities</th><th>Status</th><th>Locked</th><th>Reversed</th><th></th></tr></thead>
+            <tbody>
+              {runsApi.data.rows.map(r => (
+                <tr key={r.id} data-testid={`accounting-consol-run-${r.id}`}>
+                  <td>#{r.id}</td>
+                  <td>{r.period_from ? `${r.period_from} → ` : ''}{r.period_to}</td>
+                  <td>{(JSON.parse(r.entity_ids_json || '[]') || []).join(', ')}</td>
+                  <td><span className="badge">{r.status}</span></td>
+                  <td>{r.locked_at || '—'}</td>
+                  <td>{r.reversed_at || '—'}</td>
+                  <td>{r.status === 'locked' && (
+                    <button
+                      className="btn btn--ghost"
+                      data-testid={`accounting-consol-run-reverse-${r.id}`}
+                      onClick={async () => {
+                        const reason = prompt('Reason for reversing this locked run?');
+                        if (!reason) return;
+                        try {
+                          await api.post(`/modules/accounting/api/consolidation_runs.php?action=reverse&id=${r.id}`, { reason });
+                          runsApi.reload();
+                        } catch (e) { alert(e.message); }
+                      }}
+                    >Reverse</button>
+                  )}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -226,6 +288,20 @@ function BsView({ data }) {
               <tr><td colSpan={2} style={{fontWeight:600}}>Total {label.toLowerCase()}</td><td style={{textAlign:'right',fontWeight:600}}>{fmt(data['total_'+k])}</td><td></td></tr>
             </React.Fragment>
           ))}
+          {Number(data.nci_equity || 0) !== 0 && (
+            <>
+              <tr style={{background:'#fef3c7'}}>
+                <td colSpan={2} style={{fontWeight:600}}>  Controlling interest equity</td>
+                <td style={{textAlign:'right',fontWeight:600}} data-testid="accounting-consol-controlling-equity">{fmt(data.controlling_equity)}</td>
+                <td></td>
+              </tr>
+              <tr style={{background:'#fef3c7'}}>
+                <td colSpan={2} style={{fontWeight:600}}>  Non-controlling interest (NCI)</td>
+                <td style={{textAlign:'right',fontWeight:600}} data-testid="accounting-consol-nci-equity">{fmt(data.nci_equity)}</td>
+                <td style={{fontSize:11,color:'#666'}}>{(data.nci_detail || []).map(d => `E${d.entity_id} @ ${d.ownership_pct}%`).join(' · ')}</td>
+              </tr>
+            </>
+          )}
         </tbody>
       </table>
     </div>

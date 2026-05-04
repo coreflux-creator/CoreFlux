@@ -143,6 +143,9 @@ if ($method === 'POST') {
     if (array_key_exists('referred_by_person_id', $body) && $body['referred_by_person_id']) {
         $insert['referred_by_person_id'] = (int) $body['referred_by_person_id'];
     }
+    if (array_key_exists('entity_id', $body) && !empty($body['entity_id'])) {
+        $insert['entity_id'] = (int) $body['entity_id'];
+    }
 
     $id = scopedInsert('people', $insert);
     if ($piiTouched) {

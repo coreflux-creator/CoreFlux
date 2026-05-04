@@ -307,6 +307,229 @@ function consolidateBalanceSheet(int $tenantId, array $entityIds, string $asOf):
         elseif ($r['account_type'] === 'liability'){ $liab[] = $r;   $tl += $r['balance_signed']; }
         elseif ($r['account_type'] === 'equity')  { $equity[] = $r; $te += $r['balance_signed']; }
     }
+
+    // ── Non-controlling interest (NCI) breakout ───────────────────────
+    // For any child entity in scope whose effective ownership_pct < 100,
+    // carve (100 - pct)% of that child's standalone equity into
+    // nci_equity and shrink controlling equity by the same amount.
+    $nciEquity = 0.0;
+    $nciDetail = [];
+    $db = getDB();
+    foreach ($entityIds as $eid) {
+        $edgeStmt = $db->prepare(
+            'SELECT ownership_pct, consolidation_method
+             FROM accounting_entity_relationships
+             WHERE tenant_id = :t AND child_entity_id = :c AND active = 1
+               AND effective_from <= :asof
+               AND (effective_to IS NULL OR effective_to >= :asof)
+             ORDER BY effective_from DESC LIMIT 1'
+        );
+        $edgeStmt->execute(['t' => $tenantId, 'c' => (int) $eid, 'asof' => $asOf]);
+        $edge = $edgeStmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$edge) continue;
+        $pct = (float) $edge['ownership_pct'];
+        if ($pct >= 100.0 || $edge['consolidation_method'] !== 'full') continue;
+
+        // Child's standalone equity = sum of equity accounts on its books.
+        $eqStmt = $db->prepare(
+            'SELECT COALESCE(SUM(
+                CASE WHEN a.normal_side = "credit" THEN l.credit - l.debit ELSE l.debit - l.credit END
+             ), 0) AS bal
+             FROM accounting_journal_entry_lines l
+             JOIN accounting_journal_entries je ON je.id = l.je_id
+             JOIN accounting_accounts a ON a.id = l.account_id
+             WHERE je.tenant_id = :t AND je.status = "posted"
+               AND je.posting_date <= :asof
+               AND je.entity_id = :e
+               AND a.account_type = "equity"'
+        );
+        $eqStmt->execute(['t' => $tenantId, 'asof' => $asOf, 'e' => (int) $eid]);
+        $childEq = (float) ($eqStmt->fetch(\PDO::FETCH_ASSOC)['bal'] ?? 0);
+        $nci = round($childEq * (100 - $pct) / 100.0, 2);
+        if (abs($nci) < 0.005) continue;
+        $nciEquity += $nci;
+        $nciDetail[] = [
+            'entity_id'         => (int) $eid,
+            'ownership_pct'     => $pct,
+            'standalone_equity' => round($childEq, 2),
+            'nci_amount'        => $nci,
+        ];
+    }
+    $controllingEquity = round($te - $nciEquity, 2);
+
+    return [
+        'as_of'             => $asOf,
+        'entities'          => $entityIds,
+        'assets'            => $assets,
+        'liabilities'       => $liab,
+        'equity'            => $equity,
+        'total_assets'      => round($ta, 2),
+        'total_liabilities' => round($tl, 2),
+        'total_equity'      => round($te, 2),
+        'controlling_equity'=> $controllingEquity,
+        'nci_equity'        => round($nciEquity, 2),
+        'nci_detail'        => $nciDetail,
+        'eliminations'      => $tb['eliminations'],
+        'is_consolidated'   => true,
+    ];
+}
+
+// =======================================================================
+// Consolidation run snapshots — "Lock & publish" workflow
+// =======================================================================
+
+/**
+ * Compute the consolidated payload and persist a locked snapshot.
+ * Returns the new run id + the payload that was locked.
+ */
+function consolidationLockRun(int $tenantId, array $input, ?int $actorUserId): array
+{
+    $type      = (string) ($input['report_type'] ?? '');
+    if (!in_array($type, ['income_statement','balance_sheet','trial_balance'], true)) {
+        throw new \InvalidArgumentException('report_type must be income_statement|balance_sheet|trial_balance');
+    }
+    $entityIds = array_values(array_unique(array_map('intval', $input['entity_ids'] ?? [])));
+    if (!empty($input['root_entity_id']) && !$entityIds) {
+        $tree = entityRelationshipResolveDescendants($tenantId, (int) $input['root_entity_id'], (string) ($input['period_to'] ?? date('Y-m-d')));
+        $entityIds = array_map('intval', array_keys($tree));
+    }
+    if (!$entityIds) throw new \InvalidArgumentException('entity_ids[] (or root_entity_id) required');
+
+    $from = !empty($input['period_from']) ? (string) $input['period_from'] : null;
+    $to   = (string) ($input['period_to'] ?? date('Y-m-d'));
+
+    // Compute the payload using the same engine the UI uses.
+    if     ($type === 'income_statement') $payload = consolidateIncomeStatement($tenantId, $entityIds, $from ?: date('Y-01-01'), $to);
+    elseif ($type === 'balance_sheet')    $payload = consolidateBalanceSheet($tenantId, $entityIds, $to);
+    else                                  $payload = consolidateTrialBalance($tenantId, $entityIds, $to);
+
+    $db = getDB();
+    $db->prepare(
+        'INSERT INTO accounting_consolidation_runs
+            (tenant_id, report_type, period_from, period_to, entity_ids_json,
+             root_entity_id, payload_json, status, locked_at, locked_by_user_id, notes)
+         VALUES
+            (:t, :rt, :pf, :pt, :eids, :root, :pj, "locked", NOW(), :u, :notes)'
+    )->execute([
+        't'     => $tenantId,
+        'rt'    => $type,
+        'pf'    => $from,
+        'pt'    => $to,
+        'eids'  => json_encode($entityIds),
+        'root'  => !empty($input['root_entity_id']) ? (int) $input['root_entity_id'] : null,
+        'pj'    => json_encode($payload, JSON_UNESCAPED_UNICODE),
+        'u'     => $actorUserId,
+        'notes' => $input['notes'] ?? null,
+    ]);
+    $id = (int) $db->lastInsertId();
+    accountingAudit('accounting.consolidation.run_locked', [
+        'run_id'      => $id, 'report_type' => $type, 'period_to' => $to,
+        'entity_ids'  => $entityIds,
+    ], $id);
+    return ['id' => $id, 'payload' => $payload];
+}
+
+/**
+ * Reverse a locked run. Used automatically when a period is reopened.
+ */
+function consolidationReverseRun(int $tenantId, int $runId, string $reason, ?int $actorUserId): void
+{
+    if (trim($reason) === '') throw new \InvalidArgumentException('reason required');
+    $row = scopedFind('SELECT * FROM accounting_consolidation_runs WHERE tenant_id = :tenant_id AND id = :id', ['id' => $runId]);
+    if (!$row) throw new \RuntimeException('Run not found');
+    if ($row['status'] !== 'locked') throw new \RuntimeException("Cannot reverse from status {$row['status']}");
+    getDB()->prepare(
+        'UPDATE accounting_consolidation_runs
+         SET status = "reversed", reversed_at = NOW(), reversed_by_user_id = :u, reverse_reason = :r
+         WHERE id = :id AND tenant_id = :t'
+    )->execute(['u' => $actorUserId, 'r' => $reason, 'id' => $runId, 't' => $tenantId]);
+    accountingAudit('accounting.consolidation.run_reversed', ['run_id' => $runId, 'reason' => $reason], $runId);
+}
+
+function consolidationListRuns(int $tenantId, ?string $reportType = null): array
+{
+    $where  = ['tenant_id = :tenant_id']; $params = [];
+    if ($reportType) { $where[] = 'report_type = :rt'; $params['rt'] = $reportType; }
+    return scopedQuery(
+        'SELECT id, report_type, period_from, period_to, entity_ids_json, root_entity_id,
+                status, locked_at, locked_by_user_id, reversed_at, reversed_by_user_id,
+                reverse_reason, ai_narrative_generated_at
+         FROM accounting_consolidation_runs
+         WHERE ' . implode(' AND ', $where) . '
+         ORDER BY period_to DESC, id DESC LIMIT 100',
+        $params
+    );
+}
+
+function consolidationGetRun(int $tenantId, int $runId): ?array
+{
+    $row = scopedFind('SELECT * FROM accounting_consolidation_runs WHERE tenant_id = :tenant_id AND id = :id', ['id' => $runId]);
+    if (!$row) return null;
+    $row['payload'] = json_decode((string) $row['payload_json'], true);
+    unset($row['payload_json']);
+    $row['entity_ids'] = json_decode((string) $row['entity_ids_json'], true);
+    unset($row['entity_ids_json']);
+    return $row;
+}
+
+    $tb = consolidateTrialBalance($tenantId, $entityIds, $asOf);
+    $assets = []; $liab = []; $equity = [];
+    $ta = 0; $tl = 0; $te = 0;
+    foreach ($tb['rows'] as $r) {
+        if ($r['account_type'] === 'asset')      { $assets[] = $r; $ta += $r['balance_signed']; }
+        elseif ($r['account_type'] === 'liability'){ $liab[] = $r;   $tl += $r['balance_signed']; }
+        elseif ($r['account_type'] === 'equity')  { $equity[] = $r; $te += $r['balance_signed']; }
+    }
+
+    // ── Non-controlling interest (NCI) breakout ───────────────────────
+    // For any child entity in scope whose effective ownership_pct < 100,
+    // carve (100 - pct)% of that child's standalone equity into
+    // nci_equity and shrink controlling equity by the same amount.
+    $nciEquity = 0.0;
+    $nciDetail = [];
+    $db = getDB();
+    foreach ($entityIds as $eid) {
+        $edgeStmt = $db->prepare(
+            'SELECT ownership_pct, consolidation_method
+             FROM accounting_entity_relationships
+             WHERE tenant_id = :t AND child_entity_id = :c AND active = 1
+               AND effective_from <= :asof
+               AND (effective_to IS NULL OR effective_to >= :asof)
+             ORDER BY effective_from DESC LIMIT 1'
+        );
+        $edgeStmt->execute(['t' => $tenantId, 'c' => (int) $eid, 'asof' => $asOf]);
+        $edge = $edgeStmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$edge) continue;
+        $pct = (float) $edge['ownership_pct'];
+        if ($pct >= 100.0 || $edge['consolidation_method'] !== 'full') continue;
+
+        // Child's standalone equity = sum of equity accounts on its books.
+        $eqStmt = $db->prepare(
+            'SELECT COALESCE(SUM(
+                CASE WHEN a.normal_side = "credit" THEN l.credit - l.debit ELSE l.debit - l.credit END
+             ), 0) AS bal
+             FROM accounting_journal_entry_lines l
+             JOIN accounting_journal_entries je ON je.id = l.je_id
+             JOIN accounting_accounts a ON a.id = l.account_id
+             WHERE je.tenant_id = :t AND je.status = "posted"
+               AND je.posting_date <= :asof
+               AND je.entity_id = :e
+               AND a.account_type = "equity"'
+        );
+        $eqStmt->execute(['t' => $tenantId, 'asof' => $asOf, 'e' => (int) $eid]);
+        $childEq = (float) ($eqStmt->fetch(\PDO::FETCH_ASSOC)['bal'] ?? 0);
+        $nci = round($childEq * (100 - $pct) / 100.0, 2);
+        if (abs($nci) < 0.005) continue;
+        $nciEquity += $nci;
+        $nciDetail[] = [
+            'entity_id'         => (int) $eid,
+            'ownership_pct'     => $pct,
+            'standalone_equity' => round($childEq, 2),
+            'nci_amount'        => $nci,
+        ];
+    }
+    $controllingEquity = round($te - $nciEquity, 2);
+
     return [
         'as_of'            => $asOf,
         'entities'         => $entityIds,
@@ -316,6 +539,9 @@ function consolidateBalanceSheet(int $tenantId, array $entityIds, string $asOf):
         'total_assets'     => round($ta, 2),
         'total_liabilities'=> round($tl, 2),
         'total_equity'     => round($te, 2),
+        'controlling_equity'=> $controllingEquity,
+        'nci_equity'       => round($nciEquity, 2),
+        'nci_detail'       => $nciDetail,
         'eliminations'     => $tb['eliminations'],
         'is_consolidated'  => true,
     ];

@@ -85,6 +85,29 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','reopen'], tru
              WHERE id = :id'
         )->execute(['ts' => $now, 'u' => $user['id'] ?? null, 'r' => $reason, 'id' => $id]);
         accountingAudit('accounting.period.reopened', ['period_id' => $id, 'period_number' => (int) $row['period_number'], 'reason' => $reason], $id);
+
+        // Auto-reverse every locked consolidation run whose period_to
+        // falls inside the reopened period. Audit trail is preserved —
+        // no deletion, just status = reversed.
+        require_once __DIR__ . '/../lib/consolidation.php';
+        $runsStmt = $pdo->prepare(
+            'SELECT id FROM accounting_consolidation_runs
+             WHERE tenant_id = :t AND status = "locked"
+               AND period_to >= :sd AND period_to <= :ed'
+        );
+        $runsStmt->execute(['t' => $tid, 'sd' => $row['start_date'], 'ed' => $row['end_date']]);
+        $affected = 0;
+        foreach ($runsStmt->fetchAll(\PDO::FETCH_ASSOC) as $rr) {
+            try {
+                consolidationReverseRun($tid, (int) $rr['id'], 'Period reopened: ' . $reason, $user['id'] ?? null);
+                $affected++;
+            } catch (\Throwable $_) { /* already reversed */ }
+        }
+        if ($affected > 0) {
+            accountingAudit('accounting.consolidation.runs_auto_reversed', [
+                'period_id' => $id, 'reversed_count' => $affected,
+            ], $id);
+        }
     }
     api_ok(['ok' => true]);
 }

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
 import CompanyTypeahead from './CompanyTypeahead';
+import EntityPicker from '../../../dashboard/src/components/EntityPicker';
 
 /**
  * New-Hire Wizard (formerly a single "Add person" form).
@@ -57,6 +58,8 @@ export default function PersonCreate() {
     mailing_same_as_home: true,
     mailing_address_line1: '', mailing_address_line2: '',
     mailing_city: '', mailing_state: '', mailing_postal_code: '', mailing_country: 'US',
+    // Multi-entity: which entity does this employee belong to?
+    entity_id: null,
   });
 
   // Step 3 — Placement (all optional; skipped if title empty)
@@ -289,6 +292,12 @@ function Step1({ form, set }) {
         <Field label="Source">
           <input data-testid="person-create-source" value={form.source} onChange={set('source')} className="input" placeholder="LinkedIn, Referral: Jane…" />
         </Field>
+        <EntityPicker
+          value={form.entity_id}
+          onChange={(v) => setForm({ ...form, entity_id: v })}
+          testId="person-create-entity"
+          label="Home entity"
+        />
       </Row>
       <Row>
         <Field label="LinkedIn URL">

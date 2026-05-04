@@ -55,6 +55,7 @@ return [
         'billing.invoice.sent',
         'billing.invoice.voided',
         'billing.invoice.posted',
+        'billing.invoice.posted_ic',
         'billing.invoice.disputed',
         'billing.invoice.paid_in_full',
         'billing.recurring.created',

@@ -403,6 +403,7 @@ if ($method === 'POST' && $action === '') {
             'currency'          => (string) ($body['currency']    ?? 'USD'),
             'po_number'         => $body['po_number']     ?? null,
             'placement_id'      => !empty($body['placement_id']) ? (int) $body['placement_id'] : null,
+            'entity_id'         => !empty($body['entity_id'])    ? (int) $body['entity_id']    : null,
             'notes_internal'    => $body['notes_internal'] ?? null,
             'subtotal'          => $computed['subtotal'],
             'tax_total'         => $computed['tax_total'],

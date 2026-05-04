@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import EntityPicker from '../../../dashboard/src/components/EntityPicker';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import LineItemEditor, { blankLine } from '../../../dashboard/src/components/LineItemEditor';
@@ -18,6 +19,7 @@ export default function InvoiceCreate() {
   const [dueDate, setDue]     = useState('');
   const [poNumber, setPo]     = useState('');
   const [taxPct, setTaxPct]   = useState(0);
+  const [entityId, setEntityId] = useState(null);
   const [notesInt, setNotesInt] = useState('');
   const [notesExt, setNotesExt] = useState('');
   const [lines, setLines]     = useState([blankLine('fixed_fee')]);
@@ -34,6 +36,7 @@ export default function InvoiceCreate() {
     try {
       if (!client) throw new Error('Pick a client');
       const payload = {
+        entity_id: entityId,
         client_name: client.name,
         client_company_id: client.id,
         issue_date: issueDate,
@@ -97,6 +100,9 @@ export default function InvoiceCreate() {
           <Field label="Tax rate %">
             <input type="number" step="0.001" className="input" value={taxPct} onChange={(e) => setTaxPct(e.target.value)} data-testid="billing-invoice-create-tax" />
           </Field>
+          <div>
+            <EntityPicker value={entityId} onChange={setEntityId} testId="billing-invoice-create-entity" label="Issuing entity" />
+          </div>
         </div>
 
         <h3 style={{ margin: '16px 0 8px' }}>Line items</h3>

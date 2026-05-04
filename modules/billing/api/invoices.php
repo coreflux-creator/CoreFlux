@@ -184,6 +184,7 @@ if ($method === 'POST' && $action === '') {
             'invoice_number'    => billingNextInvoiceNumber($tid),
             'client_name'       => (string) $body['client_name'],
             'client_company_id' => $clientCompanyId,
+            'entity_id'         => !empty($body['entity_id']) ? (int) $body['entity_id'] : null,
             'bill_to_json'      => isset($body['bill_to']) ? json_encode($body['bill_to']) : null,
             'currency'          => (string) ($body['currency'] ?? 'USD'),
             'issue_date'        => (string) ($body['issue_date'] ?? date('Y-m-d')),
@@ -432,6 +433,88 @@ if ($method === 'POST' && $action === 'post') {
         'idempotent_replay' => $res['idempotent_replay'],
     ], $id);
     api_ok(['ok' => true, 'journal_entry_id' => $res['je_id'], 'je_number' => $res['je_number'], 'idempotent_replay' => $res['idempotent_replay']]);
+}
+
+// =======================================================================
+// Post invoice with intercompany revenue split — one entity books AR +
+// Due-From-<other>; each other entity books its revenue share + Due-To.
+// Idempotency: ic:invoice:<id>
+// =======================================================================
+if ($method === 'POST' && $action === 'post_with_ic_split') {
+    RBAC::requirePermission($user, 'billing.invoice.approve');
+    RBAC::requirePermission($user, 'accounting.je.post');
+    $id  = (int) ($_GET['id'] ?? 0);
+    $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$row) api_error('Not found', 404);
+    if (!in_array($row['status'], ['approved','sent','partially_paid','paid'], true)) {
+        api_error("Cannot post from status {$row['status']}", 409);
+    }
+    if (!empty($row['journal_entry_id'])) {
+        api_ok([
+            'ok' => true,
+            'journal_entry_id'      => (int) $row['journal_entry_id'],
+            'intercompany_group_id' => $row['intercompany_group_id'] ?? null,
+            'idempotent_replay'     => true,
+        ]);
+    }
+    require_once __DIR__ . '/../../accounting/lib/accounting.php';
+    require_once __DIR__ . '/../../accounting/lib/intercompany.php';
+
+    $body   = api_json_body();
+    $source = $body['source'] ?? null;
+    if ($source && !empty($source['entity_id'])) {
+        $sourceEntityId = (int) $source['entity_id'];
+        $arAccount      = (string) ($source['offset_line']['account_code'] ?? '1100');
+    } else {
+        $sourceEntityId = !empty($body['entity_id']) ? (int) $body['entity_id']
+                                                      : (int) accountingDefaultEntity($tid)['id'];
+        $arAccount      = trim((string) ($body['ar_account_code'] ?? '1100'));
+    }
+    $splits = $body['splits'] ?? [];
+    if (!is_array($splits) || !$splits) api_error('splits[] required', 422);
+
+    try {
+        $res = intercompanyPostSplit($tid, [
+            'posting_date'       => $row['issue_date'],
+            'memo'               => "Invoice {$row['invoice_number']} / {$row['client_name']}",
+            'idempotency_prefix' => sprintf('ic:invoice:%d', $id),
+            'source'             => [
+                'entity_id'   => $sourceEntityId,
+                'offset_line' => [
+                    'account_code' => $arAccount,
+                    'amount'       => (float) $row['total'],
+                    'side'         => 'debit',
+                    'memo'         => "AR {$row['invoice_number']}",
+                ],
+            ],
+            'splits' => array_map(fn ($s) => [
+                'entity_id'    => (int) $s['entity_id'],
+                'account_code' => (string) $s['account_code'],
+                'amount'       => (float) $s['amount'],
+                'memo'         => $s['memo'] ?? null,
+                'ic_override'  => $s['ic_override'] ?? null,
+            ], $splits),
+        ], $user['id'] ?? null);
+    } catch (\Throwable $e) {
+        api_error('GL post failed: ' . $e->getMessage(), 422);
+    }
+
+    $sourceLeg = null;
+    foreach ($res['jes'] as $leg) if ($leg['role'] === 'source') { $sourceLeg = $leg; break; }
+    if (!$sourceLeg) $sourceLeg = $res['jes'][0] ?? null;
+
+    getDB()->prepare(
+        'UPDATE billing_invoices SET journal_entry_id = :j, intercompany_group_id = :g WHERE id = :id AND tenant_id = :t'
+    )->execute(['j' => $sourceLeg['je_id'], 'g' => $res['group_id'], 'id' => $id, 't' => $tid]);
+
+    billingAudit('billing.invoice.posted_ic', [
+        'invoice_id'           => $id, 'invoice_number' => $row['invoice_number'],
+        'journal_entry_id'     => (int) $sourceLeg['je_id'],
+        'intercompany_group_id'=> $res['group_id'],
+        'leg_count'            => count($res['jes']),
+    ], $id);
+
+    api_ok(['ok' => true, 'journal_entry_id' => (int) $sourceLeg['je_id'], 'intercompany_group_id' => $res['group_id'], 'jes' => $res['jes']]);
 }
 
 api_error('Method not allowed', 405);
