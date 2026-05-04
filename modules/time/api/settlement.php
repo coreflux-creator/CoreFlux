@@ -135,8 +135,8 @@ if ($action === 'unextract') {
 // the new ref. Atomic. Permission: time.settlement.extract.<target>.
 if ($action === 'auto_extract') {
     RBAC::requirePermission($user, "time.settlement.extract.$target");
-    if (!in_array($target, ['billing','ap'], true)) {
-        api_error('auto_extract supports billing|ap only (payroll requires existing run line)', 422);
+    if (!in_array($target, ['billing','ap','payroll'], true)) {
+        api_error('auto_extract supports billing|ap|payroll only', 422);
     }
     $ids = $body['entry_ids'] ?? [];
     if (!is_array($ids) || !$ids) api_error('entry_ids[] required', 422);

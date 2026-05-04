@@ -14,6 +14,7 @@ import APModule from '../../modules/ap/ui/APModule';
 import PayrollModule from '../../modules/payroll/ui/PayrollModule';
 import AccountingModule from './modules/AccountingModule';
 import AccountingV1Module from '../../modules/accounting/ui/AccountingModule';
+import TreasuryModule from '../../modules/treasury/ui/TreasuryModule';
 import FinanceModule from './modules/FinanceModule';
 import GenericModule from './modules/GenericModule';
 
@@ -149,6 +150,16 @@ const DEMO_SESSION = {
         { name: 'Runs',           route: 'runs' },
         { name: 'Settings',       route: 'settings' },
       ]
+    },
+    {
+      id: 'treasury',
+      name: 'Treasury',
+      description: 'Deposit + liability account ledgers, bank feeds, cash position.',
+      actions: [
+        { name: 'Overview',           route: 'overview' },
+        { name: 'Deposit Accounts',   route: 'deposits' },
+        { name: 'Liability Accounts', route: 'liabilities' },
+      ]
     }
   ],
   active_module: null
@@ -281,6 +292,7 @@ const AppContent = ({ session, usingDemo }) => {
           <Route path="/modules/ap/*"         element={<APModule         session={session} />} />
           <Route path="/modules/accounting/*" element={<AccountingV1Module session={session} />} />
           <Route path="/modules/payroll/*"    element={<PayrollModule    session={session} />} />
+          <Route path="/modules/treasury/*"   element={<TreasuryModule   session={session} />} />
           {/* All other modules fall through to GenericModule
               "Coming soon" panel until Phase 4 module implementation ships. */}
           <Route path="/modules/:moduleId/*" element={<GenericModule session={session} activeModule={activeModule} />} />

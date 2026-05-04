@@ -1,0 +1,160 @@
+import React, { useState } from 'react';
+import { Routes, Route, Link, useParams } from 'react-router-dom';
+import { api, useApi } from '../../../dashboard/src/lib/api';
+import PlaidLinkButton from '../../../dashboard/src/components/PlaidLinkButton';
+
+const fmtMoney = (n) =>
+  (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+
+export default function DepositAccounts() {
+  return (
+    <Routes>
+      <Route index         element={<DepositList />} />
+      <Route path=":id/*"  element={<DepositDetailRedirect />} />
+    </Routes>
+  );
+}
+
+function DepositList() {
+  const { data, loading, reload } = useApi('/modules/treasury/api/deposit_accounts.php');
+  const rows = data?.rows || [];
+  const [showNew, setShowNew] = useState(false);
+
+  return (
+    <section className="treasury-deposits" data-testid="treasury-deposits">
+      <header className="treasury-overview__header">
+        <div>
+          <h2>Deposit accounts</h2>
+          <p className="muted">
+            Checking, savings, and cash-on-hand accounts. Connect via Plaid to
+            pull live bank-feed transactions into the ledger.
+          </p>
+        </div>
+        <button
+          className="btn btn--primary"
+          onClick={() => setShowNew((v) => !v)}
+          data-testid="treasury-deposit-new-btn"
+        >
+          {showNew ? 'Cancel' : '+ New deposit account'}
+        </button>
+      </header>
+
+      {showNew && <NewDepositForm onDone={() => { setShowNew(false); reload(); }} />}
+
+      {loading && <p>Loading…</p>}
+      {!loading && rows.length === 0 && (
+        <p className="empty-state" data-testid="treasury-deposits-empty">
+          No deposit accounts yet. Click <em>+ New deposit account</em> to add one.
+        </p>
+      )}
+
+      {rows.length > 0 && (
+        <table className="data-table" data-testid="treasury-deposits-table">
+          <thead>
+            <tr>
+              <th>Name</th><th>GL code</th><th>Bank</th><th>Last 4</th>
+              <th>Feed</th><th>Last sync</th>
+              <th style={{ textAlign: 'right' }}>GL balance</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} data-testid={`treasury-deposit-row-${r.id}`}>
+                <td>{r.name}</td>
+                <td><code>{r.gl_account_code}</code></td>
+                <td>{r.bank_name || '—'}</td>
+                <td>{r.last4 || '—'}</td>
+                <td>
+                  {r.plaid_connected ? (
+                    <span className="badge badge--active">plaid</span>
+                  ) : (
+                    <span className="badge">manual</span>
+                  )}
+                </td>
+                <td className="muted">{r.last_feed_synced_at || '—'}</td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  {fmtMoney(r.gl_balance)}
+                </td>
+                <td>
+                  <PlaidLinkButton
+                    purpose="bank_feed"
+                    accountingBankAccountId={r.id}
+                    label={r.plaid_connected ? 'Reconnect / Sync' : 'Connect Plaid'}
+                    testIdSuffix={`deposit-${r.id}`}
+                    onLinked={async (res) => {
+                      try {
+                        await api.post('/api/plaid_sync_transactions', {
+                          item_id: res.item_id,
+                          accounting_bank_account_id: r.id,
+                        });
+                        reload();
+                      } catch (_e) { reload(); }
+                    }}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
+function NewDepositForm({ onDone }) {
+  const [f, setF] = useState({ name: '', gl_account_code: '', bank_name: '', last4: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState(null);
+  const submit = async () => {
+    setBusy(true); setErr(null);
+    try { await api.post('/modules/treasury/api/deposit_accounts.php', f); onDone(); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <div
+      data-testid="treasury-deposit-new-form"
+      style={{
+        padding: 16, marginBottom: 16, background: 'var(--cf-surface)',
+        border: '1px solid var(--cf-border)', borderRadius: 8,
+      }}
+    >
+      <h3 style={{ margin: '0 0 12px', fontSize: 14 }}>New deposit account</h3>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+        <input className="input" placeholder="Name (Operating Chase ...4421)"
+          value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })}
+          data-testid="treasury-deposit-name" required />
+        <input className="input" placeholder="GL account code (1010)"
+          value={f.gl_account_code} onChange={(e) => setF({ ...f, gl_account_code: e.target.value })}
+          data-testid="treasury-deposit-gl" required />
+        <input className="input" placeholder="Bank name (optional)"
+          value={f.bank_name} onChange={(e) => setF({ ...f, bank_name: e.target.value })} />
+        <input className="input" placeholder="Last 4" maxLength={4}
+          value={f.last4} onChange={(e) => setF({ ...f, last4: e.target.value })} />
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button
+          type="button" className="btn btn--primary"
+          onClick={submit} disabled={busy || !f.name || !f.gl_account_code}
+          data-testid="treasury-deposit-save">
+          {busy ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      {err && <p className="error" data-testid="treasury-deposit-error">{err}</p>}
+    </div>
+  );
+}
+
+function DepositDetailRedirect() {
+  const { id } = useParams();
+  // Detail view re-uses the accounting bank-rec page for now (statement
+  // lines + matching + rules already live there). Future: a treasury-
+  // native view with forecast + sweep rules.
+  window.location.hash = `#/modules/accounting/bank-rec/${id}`;
+  return (
+    <p className="muted">
+      Opening bank reconciliation view for account #{id}…{' '}
+      <Link to="..">Back to deposits</Link>
+    </p>
+  );
+}

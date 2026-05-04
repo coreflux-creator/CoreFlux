@@ -133,7 +133,24 @@ $a('TimeModule routes /settlement → TimeSettlement',
 echo "\nlib/settlement_create.php — auto-create engine\n";
 $cr = (string) file_get_contents(__DIR__ . '/../modules/time/lib/settlement_create.php');
 $a('timeSettlementAutoCreate() exposed',         $c($cr, 'function timeSettlementAutoCreate'));
-$a('rejects payroll target (uses run line flow)', $c($cr, 'payroll requires existing run line'));
+$a('accepts billing|ap|payroll targets',          $c($cr, "['billing','ap','payroll']"));
+$a('payroll branch routes to dedicated handler',  $c($cr, '_settleTimeIntoPayroll'));
+$a('payroll: groups entries by employee',         $c($cr, '$byEmployee[(int) $emp[\'employee_id\']]'));
+$a('payroll: resolves person_id → employee via user_id',
+                                                  $c($cr, 'WHERE e.tenant_id = ? AND e.user_id = ?'));
+$a('payroll: resolves person_id → employee via email fallback',
+                                                  $c($cr, 'WHERE e.tenant_id = ? AND e.personal_email = ?'));
+$a('payroll: finds open period in employee\'s cycle',
+                                                  $c($cr, "WHERE tenant_id = :t AND cycle_id = :c") &&
+                                                  $c($cr, "status IN ('draft','open')"));
+$a('payroll: finds-or-creates draft run on period',$c($cr, 'INSERT INTO payroll_runs') && $c($cr, "status = 'draft'"));
+$a('payroll: upserts line items (additive)',      $c($cr, 'ON DUPLICATE KEY UPDATE') &&
+                                                  $c($cr, 'hours_regular  + VALUES(hours_regular)'));
+$a('payroll: splits OT vs regular by category',   $c($cr, "str_contains(\$cat, 'overtime')"));
+$a('payroll: skipped[] for unmatched employees',  $c($cr, "'no_matching_employee'"));
+$a('payroll: skipped[] for missing payroll_profile/cycle',
+                                                  $c($cr, "'no_payroll_profile_or_cycle'"));
+$a('payroll: skipped[] when no open period',      $c($cr, "'no_open_period_in_cycle'"));
 $a('groups entries by placement_id',              $c($cr, '$byPlacement[(int) $e[\'placement_id\']]'));
 $a('looks up placement_rates with effective dates',$c($cr, 'effective_from <= :d') && $c($cr, 'superseded_by IS NULL'));
 $a('OT multiplier applied for OT_billable',        $c($cr, "OT_billable") && $c($cr, 'ot_multiplier'));
@@ -165,18 +182,18 @@ echo "\napi — auto_extract + ai_suggest actions\n";
 $api2 = (string) file_get_contents(__DIR__ . '/../modules/time/api/settlement.php');
 $a('auto_extract action handler',                  $c($api2, "\$action === 'auto_extract'"));
 $a('auto_extract gates extract permission',         $c($api2, "RBAC::requirePermission(\$user, \"time.settlement.extract.\$target\")"));
-$a('auto_extract refuses target=payroll',           $c($api2, "auto_extract supports billing|ap only"));
+$a('auto_extract accepts target=payroll',           $c($api2, "auto_extract supports billing|ap|payroll only"));
 $a('ai_suggest action handler',                    $c($api2, "\$action === 'ai_suggest'"));
 $a('ai_suggest builds blocks server-side if FE omitted',
     $c($api2, '!is_array($blocks)') && $c($api2, 'timeSettlementReady($target, $filters)'));
 
 echo "\nUI — TimeSettlement.jsx auto-extract + AI\n";
 $ui2 = (string) file_get_contents(__DIR__ . '/../modules/time/ui/TimeSettlement.jsx');
-$a('Auto-create button (billing+ap)',              $c($ui2, 'data-testid="time-settlement-auto-extract"'));
+$a('Auto-create button (billing+ap+payroll)',      $c($ui2, 'data-testid="time-settlement-auto-extract"'));
 $a('AI Suggest button',                            $c($ui2, 'data-testid="time-settlement-ai-suggest"'));
 $a('AI panel renders suggestions',                 $c($ui2, 'time-settlement-ai-panel') && $c($ui2, 'time-settlement-ai-suggestion-'));
 $a('"Use this batch" → applies to selection',      $c($ui2, 'sel.selectMany(blockKeys)'));
-$a('disables auto-create on payroll target',       $c($ui2, 'supportsAutoCreate'));
+$a('payroll auto-create now enabled in UI',        $c($ui2, "target === 'payroll'"));
 $a('confirmation prompt before auto-create',       $c($ui2, 'Create new draft'));
 
 echo PHP_EOL . "Total: $pass passed, $fail failed" . PHP_EOL;

@@ -63,7 +63,7 @@ function SettlementBoard({ target }) {
   const [aiSugs, setAiSugs]         = useState(null);    // {suggestions, advisories, ai_used}
   const [aiErr, setAiErr]           = useState(null);
 
-  const supportsAutoCreate = target === 'billing' || target === 'ap';
+  const supportsAutoCreate = target === 'billing' || target === 'ap' || target === 'payroll';
 
   const qs = useMemo(() => {
     const p = new URLSearchParams({ target });

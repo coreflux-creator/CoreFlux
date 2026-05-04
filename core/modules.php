@@ -35,9 +35,13 @@ function getModuleDefinitions(): array {
             'icon' => '/assets/icons/icon-placements.png',
             'description' => 'Active engagements — rates, vendor chain, commissions, referrals, C2C.',
             'actions' => [
+                ['name' => 'Overview',          'route' => 'overview',    'permission' => 'placements.view'],
                 ['name' => 'Active Placements', 'route' => 'list',        'permission' => 'placements.view'],
                 ['name' => 'Expiring Soon',     'route' => 'expiring',    'permission' => 'placements.view'],
                 ['name' => 'New Placement',     'route' => 'new',         'permission' => 'placements.create'],
+                ['name' => 'Commissions',       'route' => 'commissions', 'permission' => 'placements.view'],
+                ['name' => 'Referrals',         'route' => 'referrals',   'permission' => 'placements.view'],
+                ['name' => 'CSV Import',        'route' => 'csv_import',  'permission' => 'placements.create'],
                 ['name' => 'Reports',           'route' => 'reports',     'permission' => 'placements.view'],
             ]
         ],
@@ -47,8 +51,12 @@ function getModuleDefinitions(): array {
             'icon' => '/assets/icons/icon-time.png',
             'description' => 'Time entries, review queue, tokenized client approvals, downstream feeds.',
             'actions' => [
+                ['name' => 'Overview',     'route' => 'overview',   'permission' => 'time.view'],
                 ['name' => 'My Time',      'route' => 'entries',    'permission' => 'time.entry.self'],
+                ['name' => 'Inbox',        'route' => 'inbox',      'permission' => 'time.approve'],
                 ['name' => 'Review Queue', 'route' => 'review',     'permission' => 'time.approve'],
+                ['name' => 'Missing Time', 'route' => 'missing',    'permission' => 'time.approve'],
+                ['name' => 'Settlement',   'route' => 'settlement', 'permission' => 'time.approve'],
                 ['name' => 'Pay Periods',  'route' => 'periods',    'permission' => 'time.period.manage'],
                 ['name' => 'Reports',      'route' => 'reports',    'permission' => 'time.view'],
                 ['name' => 'Categories',   'route' => 'categories', 'permission' => 'time.period.manage'],
@@ -79,6 +87,7 @@ function getModuleDefinitions(): array {
                 ['name' => 'AP Aging',         'route' => 'aging',    'permission' => 'ap.reports.view'],
                 ['name' => '1099 Ledger',      'route' => '1099',     'permission' => 'ap.1099.view'],
                 ['name' => 'Export',           'route' => 'export',   'permission' => 'ap.export.run'],
+                ['name' => 'Settings',         'route' => 'settings', 'permission' => 'ap.view'],
             ]
         ],
         'accounting' => [
@@ -98,6 +107,8 @@ function getModuleDefinitions(): array {
                 ['name' => 'Standard Reports', 'route' => 'reports',  'permission' => 'accounting.reports.view'],
                 ['name' => 'CSV Import',       'route' => 'import',   'permission' => 'accounting.coa.manage'],
                 ['name' => 'Intercompany',     'route' => 'intercompany','permission' => 'accounting.intercompany.manage'],
+                ['name' => 'Consolidation',    'route' => 'consolidation','permission' => 'accounting.intercompany.manage'],
+                ['name' => 'Elimination',      'route' => 'elimination','permission' => 'accounting.intercompany.manage'],
                 ['name' => 'Periods',           'route' => 'periods',  'permission' => 'accounting.coa.view'],
             ]
         ],
@@ -109,10 +120,23 @@ function getModuleDefinitions(): array {
             'actions' => [
                 ['name' => 'Overview',       'route' => 'overview',       'permission' => 'payroll.view'],
                 ['name' => 'Pay Schedules',  'route' => 'pay_schedules',  'permission' => 'payroll.schedules.manage'],
+                ['name' => 'Pay Cycles',     'route' => 'cycles',         'permission' => 'payroll.cycles.manage'],
                 ['name' => 'Pay Periods',    'route' => 'pay_periods',    'permission' => 'payroll.runs.manage'],
                 ['name' => 'Employee Setup', 'route' => 'profiles',       'permission' => 'payroll.profiles.manage'],
                 ['name' => 'Runs',           'route' => 'runs',           'permission' => 'payroll.runs.view'],
+                ['name' => 'Anomalies',      'route' => 'anomalies',      'permission' => 'payroll.anomalies.view'],
                 ['name' => 'Settings',       'route' => 'settings',       'permission' => 'payroll.manage'],
+            ]
+        ],
+        'treasury' => [
+            'id' => 'treasury',
+            'name' => 'Treasury',
+            'icon' => '/assets/icons/icon-treasury.png',
+            'description' => 'Deposit + liability account ledgers, bank feeds, cash position.',
+            'actions' => [
+                ['name' => 'Overview',           'route' => 'overview',    'permission' => 'treasury.view'],
+                ['name' => 'Deposit Accounts',   'route' => 'deposits',    'permission' => 'treasury.deposit.manage'],
+                ['name' => 'Liability Accounts', 'route' => 'liabilities', 'permission' => 'treasury.liability.manage'],
             ]
         ],
     ];
@@ -126,7 +150,7 @@ function getUserModules(string $role): array {
 
     $roleModules = match($role) {
         'master_admin'                => array_keys($allModules),
-        'tenant_admin', 'admin'       => ['people', 'placements', 'time', 'billing', 'ap', 'accounting', 'payroll'],
+        'tenant_admin', 'admin'       => ['people', 'placements', 'time', 'billing', 'ap', 'accounting', 'payroll', 'treasury'],
         'manager'                     => ['people', 'placements', 'time', 'billing', 'ap'],
         'employee'                    => ['people', 'time'],
         default                       => ['people', 'time']

@@ -19,10 +19,21 @@ sentinels:
 - modules/payroll/ui/PayCyclesPanel.jsx
 - modules/payroll/ui/PayrollAnomalies.jsx
 - modules/payroll/ui/GustoConnectCard.jsx
+- modules/treasury/manifest.php
+- modules/treasury/migrations/001_init.sql
+- modules/treasury/api/deposit_accounts.php
+- modules/treasury/api/liability_accounts.php
+- modules/treasury/ui/TreasuryModule.jsx
+- modules/treasury/ui/TreasuryOverview.jsx
+- modules/treasury/ui/DepositAccounts.jsx
+- modules/treasury/ui/LiabilityAccounts.jsx
 expected_bundle:
-- spa-assets/index-Cogph3hu.js
+- spa-assets/index-DEK66Dv1.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - payroll.cycles
 - payroll.anomalies
 - payroll.gusto_oauth
+- treasury.module
+- time.settlement.payroll_auto_create
+- modules.sidebar.audit
