@@ -55,6 +55,11 @@ $a('plaidJwkToPem() — P-256 only',$c($svc, 'function plaidJwkToPem'));
 $a('plaidEs256RawToDer()',        $c($svc, 'function plaidEs256RawToDer'));
 $a('plaidEncryptAccessToken()',   $c($svc, 'function plaidEncryptAccessToken'));
 $a('plaidAudit()',                $c($svc, 'function plaidAudit'));
+$a('plaidWebhookUrl() auto-derive helper',     $c($svc, 'function plaidWebhookUrl'));
+$a('plaidUpdateItemWebhook() helper',          $c($svc, 'function plaidUpdateItemWebhook'));
+$a('plaidSyncAllItemWebhooks() helper',        $c($svc, 'function plaidSyncAllItemWebhooks'));
+$a('webhook URL falls back to APP_PUBLIC_URL', $c($svc, "plaidGet('APP_PUBLIC_URL')"));
+$a('webhook URL respects X-Forwarded-Proto',   $c($svc, 'HTTP_X_FORWARDED_PROTO'));
 $a('encryption.php required',     $c($svc, "require_once __DIR__ . '/encryption.php'"));
 $a('5-min freshness window',      $c($svc, '300'));
 $a('hash_equals() body-hash check', $c($svc, 'hash_equals('));
@@ -66,6 +71,21 @@ require_once __DIR__ . '/../core/plaid_service.php';
 $ct = plaidEncryptAccessToken('access-sandbox-abc123');
 $a('encrypt → ciphertext non-empty',         is_string($ct) && strlen($ct) >= 28);
 $a('decrypt round-trip',                     plaidDecryptAccessToken($ct) === 'access-sandbox-abc123');
+
+// Auto-derived webhook URL.
+$_SERVER['HTTP_HOST'] = 'app.example.com';
+$_SERVER['HTTPS']     = 'on';
+unset($_SERVER['HTTP_X_FORWARDED_PROTO']);
+$a('plaidWebhookUrl auto-derives https from $_SERVER',
+    plaidWebhookUrl() === 'https://app.example.com/api/plaid_webhook.php');
+
+$_SERVER['HTTPS'] = 'off';
+$_SERVER['HTTP_X_FORWARDED_PROTO'] = 'https';
+$a('plaidWebhookUrl honours X-Forwarded-Proto',
+    plaidWebhookUrl() === 'https://app.example.com/api/plaid_webhook.php');
+
+unset($_SERVER['HTTP_HOST'], $_SERVER['HTTP_X_FORWARDED_PROTO'], $_SERVER['HTTPS']);
+$a('plaidWebhookUrl returns null without HTTP_HOST + APP_PUBLIC_URL', plaidWebhookUrl() === null);
 
 // JWK→PEM: synthesize a P-256 keypair, render JWK, convert to PEM, sign+verify.
 $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
@@ -87,7 +107,20 @@ $raw = str_repeat("\x80", 64);   // both r and s start with 0x80 → must prepen
 $der = plaidEs256RawToDer($raw);
 $a('EsRawToDer prepends 0x00 for high-bit r/s', $der[0] === "\x30" && strlen($der) === strlen($raw) + 8);
 
-echo "\napi/plaid_link_token.php\n";
+echo "\nupdate.php integration\n";
+$up = (string) file_get_contents(__DIR__ . '/../update.php');
+$a('update.php loads plaid_service if present',   $c($up, "require_once \$root . '/core/plaid_service.php'"));
+$a('update.php gates on plaidConfigured()',       $c($up, 'function_exists(\'plaidConfigured\') && plaidConfigured()'));
+$a('update.php calls plaidSyncAllItemWebhooks()', $c($up, 'plaidSyncAllItemWebhooks()'));
+$a('update.php soft-fails Plaid step (deploy continues)',
+    $c($up, "'ok'     => true,    // soft-fail (deploy continues)") || $c($up, '// soft-fail'));
+$a('update.php surfaces webhook URL + counts in detail',
+    $c($up, "'webhook=%s'") || $c($up, 'webhook=%s'));
+
+echo "\nlink_token.php auto-uses plaidWebhookUrl()\n";
+$lt2 = (string) file_get_contents(__DIR__ . '/../api/plaid_link_token.php');
+$a('link_token resolves webhook via plaidWebhookUrl()', $c($lt2, 'plaidWebhookUrl()'));
+$a('link_token still allows body override',             $c($lt2, "\$body['webhook_url']"));
 $lt = (string) file_get_contents(__DIR__ . '/../api/plaid_link_token.php');
 $a('POST guard',                              $c($lt, "if (api_method() !== 'POST')"));
 $a('purpose enum guard',                      $c($lt, "['bank_feed','vendor_banking','employee_banking','tenant_funding']"));

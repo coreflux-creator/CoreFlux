@@ -125,6 +125,42 @@ function runUpdate(): array {
     }
     $log['steps'][] = ['name' => 'smoke test', 'ok' => true, 'list' => runSmokeInProcess($localCfg)];
 
+    // 5. Plaid: push the canonical webhook URL to every linked Item so a
+    //    domain change (or first-time setup) doesn't require any manual
+    //    work in the Plaid Dashboard. Best-effort: never blocks the deploy.
+    if (file_exists($root . '/core/plaid_service.php')) {
+        require_once $root . '/core/plaid_service.php';
+        if (function_exists('plaidConfigured') && plaidConfigured()) {
+            try {
+                $sync = plaidSyncAllItemWebhooks();
+                $detail = sprintf(
+                    'webhook=%s — checked %d, updated %d, skipped %d, failed %d%s',
+                    (string) ($sync['webhook_url'] ?? '?'),
+                    (int) $sync['checked'], (int) $sync['updated'],
+                    (int) $sync['skipped'], (int) $sync['failed'],
+                    !empty($sync['errors']) ? ' [errors: ' . implode('; ', array_slice($sync['errors'], 0, 3)) . ']' : ''
+                );
+                $log['steps'][] = [
+                    'name'   => 'sync Plaid webhook URL to all linked Items',
+                    'ok'     => $sync['failed'] === 0,
+                    'detail' => $detail,
+                ];
+            } catch (\Throwable $e) {
+                $log['steps'][] = [
+                    'name'   => 'sync Plaid webhook URL to all linked Items',
+                    'ok'     => true,    // soft-fail (deploy continues)
+                    'detail' => 'soft-skip — ' . $e->getMessage(),
+                ];
+            }
+        } else {
+            $log['steps'][] = [
+                'name'   => 'sync Plaid webhook URL to all linked Items',
+                'ok'     => true,
+                'detail' => 'skipped — Plaid not configured (PLAID_CLIENT_ID / PLAID_SECRET_* not set)',
+            ];
+        }
+    }
+
     return $log;
 }
 

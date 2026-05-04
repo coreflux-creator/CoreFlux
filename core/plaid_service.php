@@ -61,6 +61,106 @@ function plaidClientCreds(): array
     ];
 }
 
+/**
+ * Resolve the canonical webhook URL Plaid should POST to.
+ *
+ * Order of resolution:
+ *   1) PLAID_WEBHOOK_URL constant or env  (explicit override)
+ *   2) APP_PUBLIC_URL constant or env     (canonical app base URL — used by mailers)
+ *   3) Auto-derived from $_SERVER         (works inside a request)
+ *
+ * Returns null only when running in CLI without any of the above set.
+ */
+function plaidWebhookUrl(): ?string
+{
+    $explicit = plaidGet('PLAID_WEBHOOK_URL');
+    if ($explicit && $explicit !== '') return rtrim($explicit, '/');
+
+    $base = plaidGet('APP_PUBLIC_URL');
+    if ($base && $base !== '') return rtrim($base, '/') . '/api/plaid_webhook.php';
+
+    $host = $_SERVER['HTTP_HOST'] ?? '';
+    if ($host === '') return null;
+    $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO'])) {
+        $proto = strtolower(explode(',', $_SERVER['HTTP_X_FORWARDED_PROTO'])[0]);
+    }
+    return $proto . '://' . $host . '/api/plaid_webhook.php';
+}
+
+/**
+ * Ensure a single Plaid Item points at our webhook URL.
+ * Returns ['updated' => bool, 'old' => ?string, 'new' => string] or throws PlaidApiException.
+ */
+function plaidUpdateItemWebhook(string $accessToken, string $newWebhookUrl): array
+{
+    $resp = plaidPost('/item/webhook/update', [
+        'access_token' => $accessToken,
+        'webhook'      => $newWebhookUrl,
+    ]);
+    return [
+        'updated' => true,
+        'item'    => $resp['item'] ?? null,
+        'new'     => $newWebhookUrl,
+    ];
+}
+
+/**
+ * Push the canonical webhook URL to every linked plaid_items row.
+ * Used by /update.php after each deploy so domain changes propagate
+ * automatically. Read-mostly: only calls /item/webhook/update if the
+ * stored URL differs from the canonical one.
+ *
+ * @return array{checked:int, updated:int, skipped:int, failed:int, errors:array<int,string>}
+ */
+function plaidSyncAllItemWebhooks(?string $forceUrl = null): array
+{
+    $url = $forceUrl ?: plaidWebhookUrl();
+    $out = ['checked' => 0, 'updated' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [], 'webhook_url' => $url];
+    if (!$url) {
+        $out['errors'][] = 'cannot resolve webhook URL (set APP_PUBLIC_URL or PLAID_WEBHOOK_URL)';
+        return $out;
+    }
+    if (!plaidConfigured()) {
+        $out['errors'][] = 'Plaid not configured';
+        return $out;
+    }
+    $pdo = function_exists('getDB') ? getDB() : null;
+    if (!$pdo) { $out['errors'][] = 'no db'; return $out; }
+
+    $rows = $pdo->query(
+        "SELECT id, tenant_id, item_id, access_token_ct
+         FROM plaid_items
+         WHERE status IN ('linked','requires_update')
+         ORDER BY tenant_id, id"
+    )->fetchAll(\PDO::FETCH_ASSOC);
+
+    foreach ($rows as $row) {
+        $out['checked']++;
+        $accessToken = plaidDecryptAccessToken($row['access_token_ct']);
+        if (!$accessToken) {
+            $out['failed']++;
+            $out['errors'][] = "item {$row['item_id']}: decrypt failed";
+            continue;
+        }
+        try {
+            // Read the current webhook to avoid a noop write.
+            $cur = plaidPost('/item/get', ['access_token' => $accessToken]);
+            $existing = (string) ($cur['item']['webhook'] ?? '');
+            if ($existing === $url) { $out['skipped']++; continue; }
+            plaidUpdateItemWebhook($accessToken, $url);
+            $out['updated']++;
+            plaidAudit('core.plaid.webhook_url_synced', [
+                'item_id' => $row['item_id'], 'old' => $existing, 'new' => $url,
+            ], (int) $row['id']);
+        } catch (PlaidApiException $e) {
+            $out['failed']++;
+            $out['errors'][] = "item {$row['item_id']}: " . $e->getMessage();
+        }
+    }
+    return $out;
+}
+
 // ---------------------------------------------------------------- HTTP
 
 class PlaidApiException extends \RuntimeException

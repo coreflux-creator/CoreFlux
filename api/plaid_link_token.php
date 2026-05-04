@@ -51,7 +51,7 @@ $req = [
     'country_codes' => ['US'],
     'products'      => $products,
 ];
-$webhookUrl = (string) ($body['webhook_url'] ?? plaidGet('PLAID_WEBHOOK_URL', ''));
+$webhookUrl = (string) ($body['webhook_url'] ?? plaidWebhookUrl() ?? '');
 if ($webhookUrl !== '') $req['webhook'] = $webhookUrl;
 
 // Update mode: re-auth an existing item after ITEM_LOGIN_REQUIRED.
