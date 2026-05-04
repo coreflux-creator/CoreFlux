@@ -50,8 +50,7 @@ export default function GustoConnectCard() {
     window.location.href = '/api/gusto_oauth_start.php';
   };
 
-  const submitManual = async (e) => {
-    e.preventDefault();
+  const submitManual = async () => {
     setManualBusy(true); setErr(null);
     try {
       await api.post('/modules/payroll/api/gusto_connect.php', manualForm);
@@ -127,8 +126,7 @@ export default function GustoConnectCard() {
                 {showManual ? 'Cancel' : 'Or paste demo tokens manually (sandbox)'}
               </button>
               {showManual && (
-                <form
-                  onSubmit={submitManual}
+                <div
                   data-testid="gusto-connect-manual-form"
                   style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}
                 >
@@ -178,15 +176,16 @@ export default function GustoConnectCard() {
                     />
                   </label>
                   <button
-                    type="submit"
+                    type="button"
                     className="btn btn--primary"
-                    disabled={manualBusy}
+                    onClick={submitManual}
+                    disabled={manualBusy || !manualForm.company_uuid || !manualForm.access_token || !manualForm.refresh_token}
                     data-testid="gusto-connect-manual-submit"
                     style={{ alignSelf: 'flex-start' }}
                   >
                     {manualBusy ? 'Saving…' : 'Save sandbox connection'}
                   </button>
-                </form>
+                </div>
               )}
             </div>
           )}
