@@ -125,12 +125,41 @@ function runUpdate(): array {
     }
     $log['steps'][] = ['name' => 'smoke test', 'ok' => true, 'list' => runSmokeInProcess($localCfg)];
 
-    // 5. Plaid: push the canonical webhook URL to every linked Item so a
-    //    domain change (or first-time setup) doesn't require any manual
-    //    work in the Plaid Dashboard. Best-effort: never blocks the deploy.
+    // 5. Plaid: health check + push the canonical webhook URL to every linked
+    //    Item so a domain change (or first-time setup) doesn't require any
+    //    manual work in the Plaid Dashboard. Best-effort: never blocks deploy.
     if (file_exists($root . '/core/plaid_service.php')) {
         require_once $root . '/core/plaid_service.php';
         if (function_exists('plaidConfigured') && plaidConfigured()) {
+            // 5a. Probe each product against the live Plaid env.
+            try {
+                $health = plaidProductsHealthCheck(['auth','transactions','identity']);
+                $bits = []; $allOk = true;
+                foreach ($health['products'] as $product => $info) {
+                    if (!empty($info['enabled'])) {
+                        $bits[] = $product . '=ENABLED';
+                    } else {
+                        $allOk = false;
+                        $hint  = !empty($info['request_url'])
+                            ? ' → request at ' . $info['request_url']
+                            : '';
+                        $bits[] = $product . '=DISABLED (' . ($info['error'] ?? 'unknown') . ')' . $hint;
+                    }
+                }
+                $log['steps'][] = [
+                    'name'   => sprintf('Plaid product health (env=%s)', $health['env']),
+                    'ok'     => $allOk,
+                    'detail' => implode(' | ', $bits),
+                ];
+            } catch (\Throwable $e) {
+                $log['steps'][] = [
+                    'name'   => 'Plaid product health',
+                    'ok'     => false,
+                    'detail' => 'check failed: ' . $e->getMessage(),
+                ];
+            }
+
+            // 5b. Push canonical webhook URL to every linked item.
             try {
                 $sync = plaidSyncAllItemWebhooks();
                 $detail = sprintf(

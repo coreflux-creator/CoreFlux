@@ -62,6 +62,36 @@ function plaidClientCreds(): array
 }
 
 /**
+ * Probe each product against the active Plaid env to confirm enablement.
+ * Used by /update.php so the user sees actionable status on every deploy.
+ *
+ * @return array{ env: string, products: array<string, array{enabled:bool, error?:string, request_url?:string}> }
+ */
+function plaidProductsHealthCheck(array $products = ['auth','transactions','identity']): array
+{
+    $out = ['env' => plaidEnv(), 'products' => []];
+    foreach ($products as $p) {
+        try {
+            plaidPost('/link/token/create', [
+                'client_name'   => 'CoreFlux Health Check',
+                'user'          => ['client_user_id' => 'cf_health_' . bin2hex(random_bytes(2))],
+                'language'      => 'en',
+                'country_codes' => ['US'],
+                'products'      => [$p],
+            ], 10);
+            $out['products'][$p] = ['enabled' => true];
+        } catch (PlaidApiException $e) {
+            $entry = ['enabled' => false, 'error' => $e->errorCode . ': ' . $e->getMessage()];
+            if (stripos($e->errorCode, 'INVALID_PRODUCT') !== false || stripos($e->getMessage(), 'not enabled') !== false) {
+                $entry['request_url'] = 'https://dashboard.plaid.com/overview/request-products';
+            }
+            $out['products'][$p] = $entry;
+        }
+    }
+    return $out;
+}
+
+/**
  * Resolve the canonical webhook URL Plaid should POST to.
  *
  * Order of resolution:

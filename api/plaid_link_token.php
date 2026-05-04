@@ -38,8 +38,18 @@ $perm = match ($purpose) {
 };
 RBAC::requirePermission($user, $perm);
 
-$products = $body['products'] ?? ['auth','transactions'];
-if (!is_array($products) || !$products) $products = ['auth','transactions'];
+$products = $body['products'] ?? null;
+if (!is_array($products) || !$products) {
+    // Per-purpose default: vendor/employee/funding only need 'auth' (routing+account
+    // verification). Bank feeds need 'transactions' for nightly statement pulls.
+    $products = match ($purpose) {
+        'bank_feed'        => ['transactions','auth'],
+        'vendor_banking',
+        'employee_banking',
+        'tenant_funding'   => ['auth'],
+        default            => ['auth'],
+    };
+}
 $allowed  = ['auth','transactions','identity'];
 $products = array_values(array_intersect($allowed, array_map('strval', $products)));
 if (!$products) api_error('No valid products requested', 422);

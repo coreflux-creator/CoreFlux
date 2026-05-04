@@ -55,6 +55,9 @@ $a('plaidJwkToPem() — P-256 only',$c($svc, 'function plaidJwkToPem'));
 $a('plaidEs256RawToDer()',        $c($svc, 'function plaidEs256RawToDer'));
 $a('plaidEncryptAccessToken()',   $c($svc, 'function plaidEncryptAccessToken'));
 $a('plaidAudit()',                $c($svc, 'function plaidAudit'));
+$a('plaidProductsHealthCheck() helper',        $c($svc, 'function plaidProductsHealthCheck'));
+$a('health check exposes request_url for INVALID_PRODUCT',
+    $c($svc, 'request_url') && $c($svc, 'overview/request-products'));
 $a('plaidWebhookUrl() auto-derive helper',     $c($svc, 'function plaidWebhookUrl'));
 $a('plaidUpdateItemWebhook() helper',          $c($svc, 'function plaidUpdateItemWebhook'));
 $a('plaidSyncAllItemWebhooks() helper',        $c($svc, 'function plaidSyncAllItemWebhooks'));
@@ -112,6 +115,9 @@ $up = (string) file_get_contents(__DIR__ . '/../update.php');
 $a('update.php loads plaid_service if present',   $c($up, "require_once \$root . '/core/plaid_service.php'"));
 $a('update.php gates on plaidConfigured()',       $c($up, 'function_exists(\'plaidConfigured\') && plaidConfigured()'));
 $a('update.php calls plaidSyncAllItemWebhooks()', $c($up, 'plaidSyncAllItemWebhooks()'));
+$a('update.php calls plaidProductsHealthCheck()', $c($up, 'plaidProductsHealthCheck('));
+$a('update.php surfaces enabled/disabled per product',
+    $c($up, '=ENABLED') && $c($up, '=DISABLED'));
 $a('update.php soft-fails Plaid step (deploy continues)',
     $c($up, "'ok'     => true,    // soft-fail (deploy continues)") || $c($up, '// soft-fail'));
 $a('update.php surfaces webhook URL + counts in detail',
@@ -125,7 +131,9 @@ $lt = (string) file_get_contents(__DIR__ . '/../api/plaid_link_token.php');
 $a('POST guard',                              $c($lt, "if (api_method() !== 'POST')"));
 $a('purpose enum guard',                      $c($lt, "['bank_feed','vendor_banking','employee_banking','tenant_funding']"));
 $a('per-purpose RBAC gate',                   $c($lt, 'RBAC::requirePermission'));
-$a('products defaults to auth+transactions',  $c($lt, "['auth','transactions']"));
+$a('purpose-aware product defaults (auth-only for vendor/employee)',
+    $c($lt, "'bank_feed'        => ['transactions','auth']") &&
+    $c($lt, "'employee_banking'") && $c($lt, "=> ['auth']"));
 $a('update mode: existing item access_token', $c($lt, "\$body['update_item_id']") && $c($lt, "\$req['access_token']"));
 $a('calls /link/token/create',                $c($lt, "/link/token/create"));
 
@@ -193,7 +201,7 @@ $a('updates cursor + last_transaction_sync_at',$c($cr, 'last_transaction_sync_at
 $a('exit code reflects failures',             $c($cr, 'exit($fail > 0 ? 1 : 0)'));
 
 // =====================================================================
-// Functional tests against the Plaid SANDBOX (only run if creds present)
+// Functional tests against the active Plaid env (only if creds present)
 // =====================================================================
 if (plaidConfigured() && plaidEnv() === 'sandbox') {
     echo "\nFunctional — Plaid Sandbox round-trip\n";
@@ -228,8 +236,13 @@ if (plaidConfigured() && plaidEnv() === 'sandbox') {
     } catch (PlaidApiException $e) {
         $a('SANDBOX FUNCTIONAL: unexpected error: ' . $e->getMessage(), false);
     }
+} elseif (plaidConfigured() && plaidEnv() === 'production') {
+    echo "\nFunctional — Plaid Production health check\n";
+    $h = plaidProductsHealthCheck(['auth']);
+    $a('Plaid PROD: Auth product enabled',
+        !empty($h['products']['auth']['enabled']));
 } else {
-    echo "\nFunctional Plaid sandbox tests SKIPPED (PLAID_* not configured)\n";
+    echo "\nFunctional Plaid tests SKIPPED (PLAID_* not configured)\n";
 }
 
 echo PHP_EOL . "Total: $pass passed, $fail failed" . PHP_EOL;

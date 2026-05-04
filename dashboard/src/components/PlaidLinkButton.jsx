@@ -55,11 +55,15 @@ export default function PlaidLinkButton({
   const [linkToken, setLinkToken] = useState(null);
 
   // Pre-fetch the link_token + Plaid SDK on mount so click is instant.
+  // products: explicit prop wins; else server picks per-purpose defaults
+  // (vendor/employee/funding → ['auth']; bank_feed → ['transactions','auth']).
   useEffect(() => {
     let cancelled = false;
     setStatus('loading');
+    const reqBody = { purpose };
+    if (products) reqBody.products = products;
     Promise.all([
-      api.post('/api/plaid_link_token', { purpose, products: products || ['auth','transactions'] }),
+      api.post('/api/plaid_link_token', reqBody),
       loadPlaidLink(),
     ])
       .then(([tokenResp]) => {
