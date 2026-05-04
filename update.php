@@ -190,6 +190,33 @@ function runUpdate(): array {
         }
     }
 
+    // 6. Payroll cycle sweep — advance any active cycle whose newest period
+    //    has ended on/before today, generating the next pay_period + draft
+    //    run automatically. Idempotent + best-effort (never blocks deploy).
+    if (file_exists($root . '/modules/payroll/lib/cycles.php')) {
+        try {
+            require_once $root . '/modules/payroll/lib/cycles.php';
+            $sweep = payrollCycleAutoAdvanceAll();
+            $advanced = 0; $notDue = 0; $errors = 0;
+            foreach ($sweep as $r) {
+                if ($r['status'] === 'advanced') $advanced++;
+                elseif ($r['status'] === 'error') $errors++;
+                else $notDue++;
+            }
+            $log['steps'][] = [
+                'name'   => 'payroll cycles auto-advance',
+                'ok'     => $errors === 0,
+                'detail' => sprintf('advanced=%d, not_due=%d, errors=%d', $advanced, $notDue, $errors),
+            ];
+        } catch (\Throwable $e) {
+            $log['steps'][] = [
+                'name'   => 'payroll cycles auto-advance',
+                'ok'     => true,    // soft-fail
+                'detail' => 'soft-skip — ' . $e->getMessage(),
+            ];
+        }
+    }
+
     return $log;
 }
 

@@ -471,6 +471,40 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Payroll cycles + AI cross-checks — 2026-02)
+- [x] **Pay Cycles**: Cohort layer above pay schedules. Same schedule cadence
+  (e.g. bi-weekly) can host multiple cohorts (NY engineers, CA sales, FL
+  contractors) on independent calendars. Migration `003_pay_cycles.sql`
+  adds `payroll_pay_cycles`, `payroll_anomaly_findings`, `cycle_id`
+  columns on profiles + periods, and a cycle-scoped uniqueness key.
+- [x] **Cycle engine** (`/modules/payroll/lib/cycles.php`):
+  `payrollCycleNextWindow` (pure date math), `payrollCycleAdvance`
+  (transactional period+draft-run insert), `payrollCycleAutoAdvanceAll`
+  (cron-style sweep across tenants).
+- [x] **AI cross-checks** (`/modules/payroll/lib/anomalies.php`): three
+  deterministic checks — `hours_drift` (≥25% warn / ≥50% critical vs
+  trailing-3 average), `missing_time` (0 hours vs prior > 0 average),
+  `rate_change` (current vs most-recent prior pay rate). Findings
+  persisted to `payroll_anomaly_findings`. Optional GPT-5.4 narrative
+  enrichment via `aiAsk()` — best-effort, never blocks detection.
+- [x] **APIs**: `cycles.php` (CRUD + `?action=advance` + `?action=auto_advance`)
+  and `anomalies.php` (run findings, dashboard feed, POST detect, PATCH ack).
+- [x] **Compute hook**: `runs.php?action=compute` now runs anomaly detection
+  immediately after a successful gross-to-net pass.
+- [x] **Auto-advance on deploy**: `update.php` step 6 sweeps every active
+  cycle whose newest period has ended.
+- [x] **UI**: `PayCyclesPanel` (cycles list + create + advance + auto-sweep,
+  embedded in PaySchedules), `PayrollAnomalies` page (tenant-wide
+  unacknowledged feed), anomaly panel + ack buttons on `PayrollRunDetail`,
+  alert badge + latest-findings teaser on `PayrollOverview`.
+- [x] Manifest: new permissions (`payroll.cycles.manage`,
+  `payroll.anomalies.view`, `payroll.anomalies.acknowledge`) and audit
+  events (`payroll.cycle.{created,updated,deactivated,advanced,auto_advanced}`,
+  `payroll.anomalies.{detected,acknowledged}`).
+- [x] **Smoke tests**: `tests/payroll_cycles_smoke.php` — 104 assertions
+  covering schema, library functions, date math, API surface, UI testids,
+  routing. Full suite now at **2,860 passing assertions** (was 2,756).
+
 ## Backlog (P1)
 - [ ] **"Trained on our timesheets" confidence score (Slice 2e)** —
   *captured 2026-02 from Phase 7 suggestion.* Product moat that kicks

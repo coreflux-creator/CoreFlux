@@ -13,6 +13,9 @@ export default function PayrollRunDetail() {
   const [aiEnvelope, setAiEnvelope] = useState(null);
   const [aiError, setAiError] = useState(null);
   const [error, setError] = useState(null);
+  const [anomalies, setAnomalies] = useState([]);
+  const [anomaliesLoading, setAnomaliesLoading] = useState(false);
+  const [anomalySummary, setAnomalySummary] = useState(null);
 
   const load = async () => {
     try {
@@ -21,13 +24,23 @@ export default function PayrollRunDetail() {
     } catch (e) { setError(e.message); }
   };
 
-  useEffect(() => { load(); }, [runId]);
+  const loadAnomalies = async () => {
+    setAnomaliesLoading(true);
+    try {
+      const r = await api.get(`/modules/payroll/api/anomalies.php?run_id=${runId}`);
+      setAnomalies(r.findings || []);
+    } catch (e) { /* swallow — panel just hides */ }
+    finally { setAnomaliesLoading(false); }
+  };
+
+  useEffect(() => { load(); loadAnomalies(); }, [runId]);
 
   const compute = async () => {
     setBusy('compute'); setError(null);
     try {
       await api.post('/modules/payroll/api/runs.php', { run_id: parseInt(runId, 10), action: 'compute' });
       await load();
+      await loadAnomalies();
     } catch (e) { setError(e.message); } finally { setBusy(null); }
   };
 
@@ -55,6 +68,25 @@ export default function PayrollRunDetail() {
     } catch (e) {
       setAiError(e.message);
     } finally { setBusy(null); }
+  };
+
+  const rerunAnomalies = async (withAi) => {
+    setBusy('anomalies'); setError(null);
+    try {
+      const res = await api.post('/modules/payroll/api/anomalies.php', {
+        run_id: parseInt(runId, 10),
+        ai: !!withAi,
+      });
+      setAnomalySummary(res);
+      await loadAnomalies();
+    } catch (e) { setError(e.message); } finally { setBusy(null); }
+  };
+
+  const ackAnomaly = async (id) => {
+    try {
+      await api.put(`/modules/payroll/api/anomalies.php?id=${id}`, {});
+      await loadAnomalies();
+    } catch (e) { setError(e.message); }
   };
 
   if (!data?.run) return <p>Loading…</p>;
@@ -171,6 +203,85 @@ export default function PayrollRunDetail() {
               Click <em>Generate summary</em> to get an advisory narrative. The figures above are produced
               deterministically by CoreFlux — AI only describes them.
             </p>
+          )}
+        </section>
+      )}
+
+      {run.status !== 'draft' && (
+        <section className="payroll-run-detail__anomalies" data-testid="payroll-run-anomalies">
+          <header className="payroll-run-detail__section-head">
+            <h3>
+              AI cross-checks
+              {anomalies.length > 0 && (
+                <span
+                  className={`badge badge--${anomalies.some((a) => a.severity === 'critical') ? 'critical' : 'warning'}`}
+                  data-testid="payroll-run-anomalies-count"
+                  style={{ marginLeft: 8 }}
+                >
+                  {anomalies.length}
+                </span>
+              )}
+            </h3>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                className="btn btn--ghost"
+                onClick={() => rerunAnomalies(false)}
+                disabled={busy === 'anomalies'}
+                data-testid="payroll-run-anomalies-rerun"
+              >
+                {busy === 'anomalies' ? 'Checking…' : 'Re-run checks'}
+              </button>
+              <button
+                className="btn btn--ghost"
+                onClick={() => rerunAnomalies(true)}
+                disabled={busy === 'anomalies'}
+                data-testid="payroll-run-anomalies-rerun-ai"
+              >
+                Re-run with AI narrative
+              </button>
+            </div>
+          </header>
+          {anomaliesLoading && <p className="muted">Loading…</p>}
+          {!anomaliesLoading && anomalies.length === 0 && (
+            <p className="muted" data-testid="payroll-run-anomalies-empty">
+              No anomalies detected vs prior runs (hours drift, missing time, rate changes).
+            </p>
+          )}
+          {anomalySummary?.ai?.content && (
+            <AISuggestion
+              envelope={anomalySummary.ai}
+              featureKey="payroll.anomalies"
+              subjectType="payroll_run"
+              subjectId={parseInt(runId, 10)}
+            />
+          )}
+          {anomalies.length > 0 && (
+            <ul className="payroll-run-detail__anomaly-list">
+              {anomalies.map((a) => (
+                <li
+                  key={a.id}
+                  className={`payroll-anomaly payroll-anomaly--${a.severity}`}
+                  data-testid={`payroll-run-anomaly-${a.id}`}
+                >
+                  <span className={`badge badge--${a.severity}`}>{a.severity}</span>
+                  <span className={`badge badge--${a.code}`} style={{ marginLeft: 4 }}>{a.code}</span>
+                  <span className="payroll-anomaly__msg" style={{ marginLeft: 8 }}>{a.message}</span>
+                  {!a.acknowledged_at && (
+                    <button
+                      className="btn btn--ghost btn--sm"
+                      onClick={() => ackAnomaly(a.id)}
+                      data-testid={`payroll-run-anomaly-ack-${a.id}`}
+                      style={{ marginLeft: 8 }}
+                    >
+                      Acknowledge
+                    </button>
+                  )}
+                  {a.acknowledged_at && (
+                    <span className="muted" style={{ marginLeft: 8 }}>✓ acknowledged {a.acknowledged_at}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
         </section>
       )}

@@ -28,9 +28,11 @@ class PayCycleException extends \RuntimeException {}
 function payrollCycleNextWindow(array $cycle, array $schedule, ?string $asOf = null): array
 {
     $asOf      = $asOf ?: date('Y-m-d');
-    $periodNum = (int) $cycle['next_period_number'] ?: 1;
+    $periodNum = (int) ($cycle['next_period_number'] ?? 1) ?: 1;
     $anchor    = $cycle['anchor_date_override'] ?: $schedule['period_start_anchor'];
-    $offset    = (int) ($cycle['pay_date_offset_days_override'] ?? $schedule['pay_date_offset_days'] ?? 5);
+    $offset    = $cycle['pay_date_offset_days_override'] !== null && $cycle['pay_date_offset_days_override'] !== ''
+                 ? (int) $cycle['pay_date_offset_days_override']
+                 : (int) ($schedule['pay_date_offset_days'] ?? 5);
     $freq      = (string) $schedule['frequency'];
 
     $anchorTs = strtotime((string) $anchor);
@@ -150,6 +152,65 @@ function payrollCycleList(): array
     );
     $stmt->execute(['tenant_id' => currentTenantId()]);
     return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+}
+
+/**
+ * Cron-style sweep: advance every active cycle whose latest period has
+ * ended on/before $asOf. Run from update.php on each deploy + on a server
+ * cron. Returns a per-cycle log [['cycle_id'=>1, 'status'=>'advanced', ...]].
+ *
+ * Idempotent: a cycle whose newest period still has period_end > today
+ * is skipped with status='not_due'.
+ */
+function payrollCycleAutoAdvanceAll(?string $asOf = null): array
+{
+    $asOf = $asOf ?: date('Y-m-d');
+    $pdo  = getDB();
+    if (!$pdo) return [];
+
+    // All-tenants sweep: walk distinct tenant_ids, switch tenant context for each.
+    $tenants = $pdo->query('SELECT DISTINCT tenant_id FROM payroll_pay_cycles WHERE active = 1')->fetchAll();
+    $log = [];
+    foreach ($tenants as $tr) {
+        $tid = (int) $tr['tenant_id'];
+        $previous = $_SESSION['tenant_id'] ?? null;
+        $_SESSION['tenant_id'] = $tid;
+        try {
+            $cycles = payrollCycleList();
+            foreach ($cycles as $c) {
+                if (empty($c['active'])) {
+                    $log[] = ['tenant_id' => $tid, 'cycle_id' => (int) $c['id'], 'status' => 'inactive'];
+                    continue;
+                }
+                // Find newest period for this cycle.
+                $newest = scopedFind(
+                    'SELECT period_end FROM payroll_pay_periods
+                      WHERE tenant_id = :tenant_id AND cycle_id = :cid
+                      ORDER BY period_number DESC LIMIT 1',
+                    ['cid' => (int) $c['id']]
+                );
+                $needsAdvance = !$newest || (strtotime((string) $newest['period_end']) < strtotime($asOf));
+                if (!$needsAdvance) {
+                    $log[] = ['tenant_id' => $tid, 'cycle_id' => (int) $c['id'], 'status' => 'not_due',
+                              'newest_period_end' => $newest['period_end']];
+                    continue;
+                }
+                try {
+                    $res = payrollCycleAdvance((int) $c['id']);
+                    $log[] = ['tenant_id' => $tid, 'cycle_id' => (int) $c['id'], 'status' => 'advanced',
+                              'period_id' => $res['period_id'], 'run_id' => $res['run_id'],
+                              'window' => $res['window']];
+                } catch (\Throwable $e) {
+                    $log[] = ['tenant_id' => $tid, 'cycle_id' => (int) $c['id'], 'status' => 'error',
+                              'error' => $e->getMessage()];
+                }
+            }
+        } finally {
+            if ($previous === null) unset($_SESSION['tenant_id']);
+            else                    $_SESSION['tenant_id'] = $previous;
+        }
+    }
+    return $log;
 }
 
 function payrollAuditLight(string $event, array $meta = [], ?int $targetId = null): void

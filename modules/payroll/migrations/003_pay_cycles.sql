@@ -85,6 +85,28 @@ JOIN payroll_pay_cycles c
 SET pp.cycle_id = c.id
 WHERE pp.cycle_id IS NULL AND pp.schedule_id IS NOT NULL;
 
+-- Two cycles can share a schedule (e.g. NY-engineers vs CA-sales on the same
+-- bi-weekly cadence). Period numbers MUST be unique per CYCLE, not per
+-- schedule, otherwise two cycles starting at period_number=1 collide on the
+-- old uq_period_tenant_sched_num key. Drop the schedule-scoped uniqueness
+-- (idempotent) and replace it with a cycle-scoped one.
+SET @uq := (SELECT COUNT(*) FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payroll_pay_periods'
+              AND INDEX_NAME='uq_period_tenant_sched_num');
+SET @sql := IF(@uq > 0,
+    'ALTER TABLE payroll_pay_periods DROP INDEX uq_period_tenant_sched_num',
+    'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @uq2 := (SELECT COUNT(*) FROM information_schema.STATISTICS
+             WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='payroll_pay_periods'
+               AND INDEX_NAME='uq_period_tenant_cycle_num');
+SET @sql := IF(@uq2 = 0,
+    'ALTER TABLE payroll_pay_periods
+        ADD UNIQUE KEY uq_period_tenant_cycle_num (tenant_id, cycle_id, period_number)',
+    'DO 0');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- Anomaly snapshot table — feeds AI cross-check + makes results auditable.
 CREATE TABLE IF NOT EXISTS payroll_anomaly_findings (
     id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

@@ -9,6 +9,7 @@ export default function PayrollOverview() {
   const runsApi    = useApi('/modules/payroll/api/runs.php');
   const periodsApi = useApi('/modules/payroll/api/pay_periods.php');
   const profilesApi = useApi('/modules/payroll/api/profiles.php');
+  const anomApi    = useApi('/modules/payroll/api/anomalies.php?dashboard=1&limit=10');
 
   const recentRuns = runsApi.data?.runs ?? [];
   const upcomingPeriods = (periodsApi.data?.periods ?? [])
@@ -17,6 +18,9 @@ export default function PayrollOverview() {
   const profiles = profilesApi.data?.profiles ?? [];
   const readyCount = profiles.filter((p) => p.ready).length;
   const gapCount = profiles.length - readyCount;
+  const anomalies      = anomApi.data?.unacknowledged ?? [];
+  const anomalyTotal   = anomApi.data?.count ?? 0;
+  const criticalCount  = anomApi.data?.critical_count ?? 0;
 
   return (
     <section className="payroll-overview" data-testid="payroll-overview">
@@ -45,7 +49,46 @@ export default function PayrollOverview() {
           <div className="stat-card__value">{recentRuns.length}</div>
           <div className="stat-card__label">Recent runs</div>
         </div>
+        {anomalyTotal > 0 && (
+          <Link
+            to="../anomalies"
+            className={`stat-card stat-card--alert${criticalCount > 0 ? ' stat-card--critical' : ''}`}
+            data-testid="payroll-overview-anomalies-badge"
+          >
+            <div className="stat-card__value" data-testid="payroll-overview-anomalies-count">
+              {anomalyTotal}
+            </div>
+            <div className="stat-card__label">
+              AI anomaly{anomalyTotal === 1 ? '' : 'ies'}
+              {criticalCount > 0 && (
+                <span className="badge badge--critical" data-testid="payroll-overview-anomalies-critical">
+                  {' '}{criticalCount} critical
+                </span>
+              )}
+            </div>
+          </Link>
+        )}
       </div>
+
+      {anomalies.length > 0 && (
+        <section className="payroll-overview__anomalies" data-testid="payroll-overview-anomalies-panel">
+          <header className="payroll-overview__section-head">
+            <h3>Latest unacknowledged anomalies</h3>
+            <Link to="../anomalies" className="btn btn--ghost" data-testid="payroll-overview-anomalies-view-all">
+              View all
+            </Link>
+          </header>
+          <ul className="payroll-overview__anomaly-list">
+            {anomalies.slice(0, 5).map((a) => (
+              <li key={a.id} className={`payroll-overview__anomaly payroll-overview__anomaly--${a.severity}`}>
+                <span className={`badge badge--${a.severity}`}>{a.severity}</span>
+                <span className="payroll-overview__anomaly-msg">{a.message}</span>
+                {a.pay_date && <span className="muted"> · {a.pay_date}</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <div className="payroll-overview__grid">
         <section>

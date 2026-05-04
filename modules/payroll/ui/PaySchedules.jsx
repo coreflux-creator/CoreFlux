@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApi, api } from '../../../dashboard/src/lib/api';
+import PayCyclesPanel from './PayCyclesPanel';
 
 const FREQS = ['weekly', 'biweekly', 'semimonthly', 'monthly'];
 
@@ -145,6 +146,9 @@ export default function PaySchedules() {
           </tbody>
         </table>
       )}
+
+      <hr style={{ margin: '32px 0', border: 0, borderTop: '1px solid #eef0f4' }} />
+      <PayCyclesPanel />
     </section>
   );
 }

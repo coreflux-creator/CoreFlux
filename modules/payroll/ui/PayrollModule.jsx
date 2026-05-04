@@ -2,12 +2,14 @@ import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import PayrollOverview from './PayrollOverview';
 import PaySchedules from './PaySchedules';
+import PayCyclesPanel from './PayCyclesPanel';
 import PayPeriods from './PayPeriods';
 import PayrollProfiles from './PayrollProfiles';
 import PayrollProfileEdit from './PayrollProfileEdit';
 import PayrollRuns from './PayrollRuns';
 import PayrollRunDetail from './PayrollRunDetail';
 import PayrollSettings from './PayrollSettings';
+import PayrollAnomalies from './PayrollAnomalies';
 import PayStub from './PayStub';
 
 /**
@@ -23,6 +25,9 @@ export default function PayrollModule({ session }) {
       <Route path="overview"        element={<PayrollOverview session={session} />} />
       <Route path="pay_schedules"   element={<PaySchedules session={session} />} />
       <Route path="pay-schedules"   element={<Navigate to="../pay_schedules" replace />} />
+      <Route path="cycles"          element={<PayCyclesPanel session={session} />} />
+      <Route path="pay_cycles"      element={<Navigate to="../cycles" replace />} />
+      <Route path="anomalies"       element={<PayrollAnomalies session={session} />} />
       <Route path="pay_periods"     element={<PayPeriods session={session} />} />
       <Route path="pay-periods"     element={<Navigate to="../pay_periods" replace />} />
       <Route path="profiles"        element={<PayrollProfiles session={session} />} />

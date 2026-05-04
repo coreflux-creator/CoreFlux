@@ -18,6 +18,7 @@ require_once __DIR__ . '/../../../core/payment_rails.php';
 require_once __DIR__ . '/../../../core/payment_rails/originate_helpers.php';
 require_once __DIR__ . '/../lib/payroll.php';
 require_once __DIR__ . '/../lib/compute.php';
+require_once __DIR__ . '/../lib/anomalies.php';
 
 $ctx = api_require_auth();
 
@@ -161,6 +162,11 @@ switch (api_method()) {
 
         if ($action === 'compute') {
             _payrollComputeRun($runId, $body['hours_overrides'] ?? []);
+            // Auto-run anomaly cross-checks immediately after a successful
+            // compute so the run-detail page has fresh findings to surface.
+            // Best-effort: never blocks the response.
+            try { payrollAnomaliesDetect($runId, false); }
+            catch (\Throwable $e) { error_log('[payroll.runs] anomaly detect skipped: ' . $e->getMessage()); }
             api_ok(_payrollRunDetail($runId));
         }
         if ($action === 'approve') {
