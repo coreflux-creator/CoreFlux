@@ -25,6 +25,15 @@
 
 declare(strict_types=1);
 
+// Load host-specific secrets BEFORE any service function runs. This must
+// be unconditional + at file scope (not inside a function) — otherwise
+// gustoConfigured() can be called before any other service primes the
+// constants, and we'd report "not configured" even when the host actually
+// has the keys. Same eager-load pattern as ai_service.php.
+$_gustoLocalConfig = __DIR__ . '/config.local.php';
+if (file_exists($_gustoLocalConfig)) require_once $_gustoLocalConfig;
+unset($_gustoLocalConfig);
+
 require_once __DIR__ . '/encryption.php';
 
 // ---------------------------------------------------------------- exceptions
