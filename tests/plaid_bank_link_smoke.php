@@ -29,11 +29,28 @@ $assert('hydrates accounts via /accounts/get',
 $assert('mirrors depository acct in accounting_bank_accounts',
                                              strpos($src, 'INSERT INTO accounting_bank_accounts') !== false);
 $assert("feed_provider='plaid' on insert",   strpos($src, '"plaid"') !== false);
-$assert('skips non-depository (cards/loans)',strpos($src, "if (\$type !== 'depository') continue;") !== false);
+$assert('mirrors credit/loan in treasury_liability_accounts',
+                                             strpos($src, 'INSERT INTO treasury_liability_accounts') !== false);
+$assert('routes credit cards to subtype=credit_card',
+                                             strpos($src, "=> 'credit_card'") !== false);
+$assert('routes loans to subtype=loan',      strpos($src, "=> 'loan'") !== false);
+$assert('finds-or-creates accounting_accounts row for liability',
+                                             strpos($src, "INSERT INTO accounting_accounts") !== false
+                                             && strpos($src, "'liability', 'credit'") !== false);
+$assert('skips investment / other types',    strpos($src, 'leave on plaid_accounts only') !== false);
 $assert('idempotent on existing item',       strpos($src, 'ON DUPLICATE KEY UPDATE') !== false);
 $assert('audits payment_rails.plaid.bank_linked',
                                              strpos($src, 'payment_rails.plaid.bank_linked') !== false);
+$assert('returns liability_accounts_created',strpos($src, "'liability_accounts_created'") !== false);
 $assert('PHP parses cleanly',                $lint(__DIR__ . '/../api/plaid_bank_link.php'));
+
+// ─── Treasury liability migration ───
+echo "Treasury liability migration\n";
+$mig = file_get_contents(__DIR__ . '/../modules/treasury/migrations/002_plaid_liability_link.sql');
+$assert('migration exists',                  is_string($mig) && strlen($mig) > 100);
+$assert('adds plaid_account_id column',      strpos($mig, 'plaid_account_id VARCHAR(80)') !== false);
+$assert('idempotent guard',                  strpos($mig, 'information_schema.columns') !== false);
+$assert('uniq index on (tenant, plaid_acc)', strpos($mig, 'uq_tla_tenant_plaid') !== false);
 
 // ─── Treasury UI wire-in ───
 echo "Treasury UI\n";
@@ -47,6 +64,8 @@ $assert('exchange POST wired',               strpos($ui, '/api/plaid_bank_link.p
 $assert('passes accounts metadata',          strpos($ui, "accounts:    meta?.accounts || []") !== false);
 $assert('passes institution metadata',       strpos($ui, "institution: {") !== false);
 $assert('clarifies "no money moves"',        strpos($ui, 'No money moves') !== false);
+$assert('UI mentions liabilities + deposits',strpos($ui, 'liabilities tab') !== false);
+$assert('summarises both deposits + liabs',  strpos($ui, 'data.liability_accounts_created') !== false);
 $assert('data-testid: plaid-bank-connect-btn',
                                              strpos($ui, 'data-testid="plaid-bank-connect-btn"') !== false);
 $assert('PlaidTransferFundingCard preserved',strpos($ui, 'PlaidTransferFundingCard') !== false);

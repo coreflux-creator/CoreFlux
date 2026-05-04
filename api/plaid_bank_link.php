@@ -119,6 +119,7 @@ if ($action === 'exchange') {
     $plaidAccounts = is_array($resp['accounts'] ?? null) ? $resp['accounts'] : [];
 
     $createdBank = [];
+    $createdLiab = [];
     foreach ($plaidAccounts as $acc) {
         $accId   = (string) ($acc['account_id'] ?? '');
         if ($accId === '') continue;
@@ -144,49 +145,107 @@ if ($action === 'exchange') {
         ]);
 
         // Mirror as a deposit account so it surfaces in Treasury immediately.
-        // Only depository (checking/savings) accounts; credit cards / loans
-        // belong on the liability tab.
-        if ($type !== 'depository') continue;
+        // Depository (checking/savings) → accounting_bank_accounts.
+        // Credit / loan → treasury_liability_accounts (via accounting_accounts FK).
+        if ($type === 'depository') {
+            $check = $pdo->prepare(
+                'SELECT id FROM accounting_bank_accounts
+                  WHERE tenant_id = :t AND plaid_account_id = :a LIMIT 1'
+            );
+            $check->execute(['t' => $tenantId, 'a' => $accId]);
+            $existingId = (int) $check->fetchColumn();
+            if ($existingId > 0) { $createdBank[] = $existingId; continue; }
 
-        $check = $pdo->prepare(
-            'SELECT id FROM accounting_bank_accounts
-              WHERE tenant_id = :t AND plaid_account_id = :a LIMIT 1'
-        );
-        $check->execute(['t' => $tenantId, 'a' => $accId]);
-        $existingId = (int) $check->fetchColumn();
-        if ($existingId > 0) { $createdBank[] = $existingId; continue; }
+            // Pick a sensible default GL code.
+            $glCode = $subtype === 'savings' ? '1010' : '1000';
+            $instLabel = $institution['name'] ?? '';
+            $bankName = $instLabel !== '' ? $instLabel : ($name ?: 'Bank');
+            $insName  = trim(($instLabel ? "{$instLabel} — " : '') . ($name ?: 'Account'));
 
-        // Pick a sensible default GL code.
-        $glCode = $subtype === 'savings' ? '1010' : '1000';
-        $instLabel = $institution['name'] ?? '';
-        $bankName = $instLabel !== '' ? $instLabel : ($name ?: 'Bank');
-        $insName  = trim(($instLabel ? "{$instLabel} — " : '') . ($name ?: 'Account'));
+            $pdo->prepare(
+                'INSERT INTO accounting_bank_accounts
+                    (tenant_id, name, gl_account_code, bank_name, last4, currency,
+                     feed_provider, status, plaid_account_id, last_feed_synced_at,
+                     created_at)
+                 VALUES (:t, :nm, :gl, :bk, :l4, :c, "plaid", "active", :pa, NULL, NOW())'
+            )->execute([
+                't'  => $tenantId, 'nm' => $insName, 'gl' => $glCode,
+                'bk' => $bankName, 'l4' => $mask, 'c'  => 'USD', 'pa' => $accId,
+            ]);
+            $createdBank[] = (int) $pdo->lastInsertId();
+            continue;
+        }
 
-        $pdo->prepare(
-            'INSERT INTO accounting_bank_accounts
-                (tenant_id, name, gl_account_code, bank_name, last4, currency,
-                 feed_provider, status, plaid_account_id, last_feed_synced_at,
-                 created_at)
-             VALUES (:t, :nm, :gl, :bk, :l4, :c, "plaid", "active", :pa, NULL, NOW())'
-        )->execute([
-            't'  => $tenantId, 'nm' => $insName, 'gl' => $glCode,
-            'bk' => $bankName, 'l4' => $mask, 'c'  => 'USD', 'pa' => $accId,
-        ]);
-        $createdBank[] = (int) $pdo->lastInsertId();
+        if ($type === 'credit' || $type === 'loan') {
+            $check = $pdo->prepare(
+                'SELECT id FROM treasury_liability_accounts
+                  WHERE tenant_id = :t AND plaid_account_id = :a LIMIT 1'
+            );
+            $check->execute(['t' => $tenantId, 'a' => $accId]);
+            $existingId = (int) $check->fetchColumn();
+            if ($existingId > 0) { $createdLiab[] = $existingId; continue; }
+
+            // Map Plaid type/subtype → GL code + treasury subtype.
+            $glCode = $type === 'loan' ? '2200' : '2100';
+            $glName = $type === 'loan' ? 'Notes Payable' : 'Credit Card Payable';
+            $treasurySubtype = match (true) {
+                $subtype === 'credit card'           => 'credit_card',
+                in_array($subtype, ['line of credit'], true) => 'line_of_credit',
+                $type    === 'loan'                  => 'loan',
+                default                              => 'other_liability',
+            };
+
+            // Find or create the underlying accounting_accounts row (one per
+            // GL code per tenant). Liability accounts have credit normal-side.
+            $aaCheck = $pdo->prepare(
+                'SELECT id FROM accounting_accounts
+                  WHERE tenant_id = :t AND code = :c LIMIT 1'
+            );
+            $aaCheck->execute(['t' => $tenantId, 'c' => $glCode]);
+            $aaId = (int) $aaCheck->fetchColumn();
+            if ($aaId === 0) {
+                $pdo->prepare(
+                    "INSERT INTO accounting_accounts
+                        (tenant_id, code, name, account_type, normal_side, active, created_at)
+                     VALUES (:t, :c, :n, 'liability', 'credit', 1, NOW())"
+                )->execute(['t' => $tenantId, 'c' => $glCode, 'n' => $glName]);
+                $aaId = (int) $pdo->lastInsertId();
+            }
+
+            $pdo->prepare(
+                'INSERT INTO treasury_liability_accounts
+                    (tenant_id, account_id, subtype, institution_name, last4,
+                     plaid_account_id, created_at)
+                 VALUES (:t, :aid, :st, :inst, :l4, :pa, NOW())'
+            )->execute([
+                't'   => $tenantId,
+                'aid' => $aaId,
+                'st'  => $treasurySubtype,
+                'inst'=> (string) ($institution['name'] ?? '') ?: null,
+                'l4'  => $mask,
+                'pa'  => $accId,
+            ]);
+            $createdLiab[] = (int) $pdo->lastInsertId();
+            continue;
+        }
+
+        // Unknown / investment / other — leave on plaid_accounts only.
     }
 
     plaidAudit('payment_rails.plaid.bank_linked', [
-        'item_id'             => $itemId,
-        'institution'         => $institution['name'] ?? null,
-        'bank_accounts_created' => $createdBank,
+        'item_id'                  => $itemId,
+        'institution'              => $institution['name'] ?? null,
+        'bank_accounts_created'    => $createdBank,
+        'liability_accounts_created' => $createdLiab,
     ], null);
 
     api_ok([
-        'ok'                    => true,
-        'item_id'               => $itemId,
-        'plaid_item_pk'         => $itemPk,
-        'accounts_linked'       => count($plaidAccounts),
-        'bank_accounts_created' => $createdBank,
+        'ok'                         => true,
+        'item_id'                    => $itemId,
+        'plaid_item_pk'              => $itemPk,
+        'accounts_linked'            => count($plaidAccounts),
+        'bank_accounts_created'      => $createdBank,
+        'liability_accounts_created' => $createdLiab,
     ]);
 }
 

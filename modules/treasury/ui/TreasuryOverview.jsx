@@ -167,8 +167,13 @@ function BankConnectCard({ onLinked }) {
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Exchange failed');
-            const created = data.bank_accounts_created?.length || 0;
-            setMsg(`Linked ${meta?.institution?.name || 'bank'} — ${created} deposit account${created === 1 ? '' : 's'} added.`);
+            const dep = data.bank_accounts_created?.length || 0;
+            const lia = data.liability_accounts_created?.length || 0;
+            const parts = [];
+            if (dep) parts.push(`${dep} deposit${dep === 1 ? '' : 's'}`);
+            if (lia) parts.push(`${lia} liabilit${lia === 1 ? 'y' : 'ies'}`);
+            const summary = parts.length ? parts.join(' + ') : 'no new accounts (already linked?)';
+            setMsg(`Linked ${meta?.institution?.name || 'bank'} — ${summary}.`);
             if (onLinked) setTimeout(onLinked, 1200);
           } catch (e) { setErr(e.message); }
         },
@@ -184,10 +189,12 @@ function BankConnectCard({ onLinked }) {
     <div data-testid="plaid-bank-connect-card">
       <h3>Connect a bank (read-only feed)</h3>
       <p className="muted" style={{ fontSize: 13 }}>
-        Link checking / savings accounts so balances and transactions auto-sync
-        for bank reconciliation. <strong>No money moves</strong> — this is a
-        read-only feed using Plaid Auth + Transactions. To enable outbound ACH
-        payments, use <em>Outbound disbursements</em> below.
+        Link checking, savings, credit cards, and loans so balances and
+        transactions auto-sync for reconciliation. Depository accounts land
+        on the deposits tab; cards and loans land on the liabilities tab.
+        <strong> No money moves</strong> — this is a read-only feed using
+        Plaid Auth + Transactions. To enable outbound ACH payments, use{' '}
+        <em>Outbound disbursements</em> below.
       </p>
       <button onClick={link} disabled={busy} className="btn btn--primary" data-testid="plaid-bank-connect-btn">
         {busy ? 'Opening Plaid…' : 'Connect bank'}
