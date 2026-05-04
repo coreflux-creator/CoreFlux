@@ -33,9 +33,13 @@ $modules = function_exists('getUserModules')
     ? getUserModules($role)
     : ($_SESSION['modules'] ?? []);
 
-// Format modules with ID for React routing
+// Format modules with ID for React routing.
+// IMPORTANT: prefer the explicit `id` from getModuleDefinitions(); deriving
+// the slug from `name` would turn "Accounts Payable" into `accounts_payable`,
+// which doesn't match the React route `/modules/ap/*` and falls through to
+// GenericModule ("This module is being developed").
 $formattedModules = array_map(function($mod) {
-    $id = strtolower(str_replace(' ', '_', $mod['name'] ?? $mod['id'] ?? 'module'));
+    $id = $mod['id'] ?? strtolower(str_replace(' ', '_', $mod['name'] ?? 'module'));
     return [
         'id' => $id,
         'name' => $mod['name'] ?? ucfirst($id),
@@ -48,7 +52,7 @@ $formattedModules = array_map(function($mod) {
 // Format active module if set
 $formattedActiveModule = null;
 if ($activeModule) {
-    $id = strtolower(str_replace(' ', '_', $activeModule['name'] ?? 'module'));
+    $id = $activeModule['id'] ?? strtolower(str_replace(' ', '_', $activeModule['name'] ?? 'module'));
     $formattedActiveModule = [
         'id' => $id,
         'name' => $activeModule['name'] ?? ucfirst($id),

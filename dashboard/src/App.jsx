@@ -269,9 +269,8 @@ const AppContent = ({ session, usingDemo }) => {
           <Route path="/modules/billing/*"    element={<BillingModule    session={session} />} />
           <Route path="/modules/ap/*"         element={<APModule         session={session} />} />
           <Route path="/modules/accounting/*" element={<AccountingV1Module session={session} />} />
-          {/* Payroll route unwired pending spec'd implementation (HARD_RULES R1: files kept, route disabled). */}
-          {/* <Route path="/modules/payroll/*" element={<PayrollModule session={session} />} /> */}
-          {/* All other modules (accounting) fall through to GenericModule
+          <Route path="/modules/payroll/*"    element={<PayrollModule    session={session} />} />
+          {/* All other modules fall through to GenericModule
               "Coming soon" panel until Phase 4 module implementation ships. */}
           <Route path="/modules/:moduleId/*" element={<GenericModule session={session} activeModule={activeModule} />} />
         </Routes>
