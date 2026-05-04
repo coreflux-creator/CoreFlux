@@ -28,6 +28,143 @@ require_once __DIR__ . '/../core/RBAC.php';
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];
 RBAC::requirePermission($ctx['user'], 'accounting.bank.manage');
+if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') {
+    require_once __DIR__ . '/../core/plaid_service.php';
+
+    // Self-heal: add the liability column if it isn't there yet (mirror of
+    // the same guard in plaid_bank_link.php).
+    try {
+        $colCheck = $pdo->prepare(
+            "SELECT COUNT(*) FROM information_schema.columns
+              WHERE table_schema = DATABASE()
+                AND table_name   = 'treasury_liability_accounts'
+                AND column_name  = 'plaid_account_id'"
+        );
+        $colCheck->execute();
+        if ((int) $colCheck->fetchColumn() === 0) {
+            $pdo->exec("ALTER TABLE treasury_liability_accounts
+                          ADD COLUMN plaid_account_id VARCHAR(80) NULL");
+        }
+    } catch (\Throwable $e) { /* surfaces per-account below */ }
+
+    $stmt = $pdo->prepare(
+        "SELECT pa.id AS pa_id, pa.account_id, pa.name, pa.mask, pa.type, pa.subtype,
+                pi.institution_name
+           FROM plaid_accounts pa
+           JOIN plaid_items    pi ON pi.id = pa.plaid_item_pk
+          WHERE pa.tenant_id = :t
+            AND pa.account_id NOT IN (
+              SELECT plaid_account_id FROM accounting_bank_accounts
+               WHERE tenant_id = :t2 AND plaid_account_id IS NOT NULL
+            )"
+    );
+    $stmt->execute(['t' => $tenantId, 't2' => $tenantId]);
+    $orphans = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Filter out anything already in liabilities (separate query — UNION-friendly).
+    try {
+        $liabIds = $pdo->prepare(
+            "SELECT plaid_account_id FROM treasury_liability_accounts
+              WHERE tenant_id = :t AND plaid_account_id IS NOT NULL"
+        );
+        $liabIds->execute(['t' => $tenantId]);
+        $alreadyLiab = array_flip(array_column($liabIds->fetchAll(PDO::FETCH_ASSOC), 'plaid_account_id'));
+        $orphans = array_values(array_filter($orphans, fn ($o) => !isset($alreadyLiab[$o['account_id']])));
+    } catch (\Throwable $e) { /* table may not exist; nothing to filter */ }
+
+    $createdBank = []; $createdLiab = []; $skipped = []; $errors = [];
+
+    foreach ($orphans as $a) {
+        $accId   = (string) $a['account_id'];
+        $name    = (string) $a['name'];
+        $mask    = (string) ($a['mask'] ?? '') ?: null;
+        $type    = (string) ($a['type'] ?? '');
+        $subtype = (string) ($a['subtype'] ?? '');
+        $instName= (string) ($a['institution_name'] ?? '');
+
+        try {
+            if ($type === 'depository') {
+                $base = $subtype === 'savings' ? '1010' : '1000';
+                $glCode = _plaidAllocateBankGlCodeBackfill($pdo, $tenantId, $base, $mask, $accId);
+                $bankName = $instName !== '' ? $instName : ($name ?: 'Bank');
+                $insName  = trim(($instName ? "{$instName} — " : '') . ($name ?: 'Account'));
+
+                $pdo->prepare(
+                    'INSERT INTO accounting_bank_accounts
+                        (tenant_id, name, gl_account_code, bank_name, last4, currency,
+                         feed_provider, status, plaid_account_id, last_feed_synced_at,
+                         created_at)
+                     VALUES (:t, :nm, :gl, :bk, :l4, :c, "plaid_transactions", "active", :pa, NULL, NOW())'
+                )->execute([
+                    't'  => $tenantId, 'nm' => $insName, 'gl' => $glCode,
+                    'bk' => $bankName, 'l4' => $mask, 'c'  => 'USD', 'pa' => $accId,
+                ]);
+                $createdBank[] = (int) $pdo->lastInsertId();
+                continue;
+            }
+
+            if ($type === 'credit' || $type === 'loan') {
+                $base = $type === 'loan' ? '2200' : '2100';
+                $defName = $type === 'loan' ? 'Notes Payable' : 'Credit Card Payable';
+                $glCode = _plaidAllocateBankGlCodeBackfill($pdo, $tenantId, $base, $mask, $accId);
+                $treasurySubtype = match (true) {
+                    $subtype === 'credit card'                  => 'credit_card',
+                    in_array($subtype, ['line of credit'], true)=> 'line_of_credit',
+                    $type    === 'loan'                         => 'loan',
+                    default                                     => 'other_liability',
+                };
+
+                $aaCheck = $pdo->prepare('SELECT id FROM accounting_accounts WHERE tenant_id = :t AND code = :c LIMIT 1');
+                $aaCheck->execute(['t' => $tenantId, 'c' => $glCode]);
+                $aaId = (int) $aaCheck->fetchColumn();
+                if ($aaId === 0) {
+                    $glLabel = $name !== '' ? "{$defName} — {$name}" . ($mask ? " …{$mask}" : '') : $defName;
+                    $pdo->prepare(
+                        "INSERT INTO accounting_accounts
+                            (tenant_id, code, name, account_type, normal_side, active, created_at)
+                         VALUES (:t, :c, :n, 'liability', 'credit', 1, NOW())"
+                    )->execute(['t' => $tenantId, 'c' => $glCode, 'n' => $glLabel]);
+                    $aaId = (int) $pdo->lastInsertId();
+                }
+
+                $pdo->prepare(
+                    'INSERT INTO treasury_liability_accounts
+                        (tenant_id, account_id, subtype, institution_name, last4,
+                         plaid_account_id, created_at)
+                     VALUES (:t, :aid, :st, :inst, :l4, :pa, NOW())'
+                )->execute([
+                    't'   => $tenantId, 'aid' => $aaId, 'st'  => $treasurySubtype,
+                    'inst'=> $instName !== '' ? $instName : null,
+                    'l4'  => $mask, 'pa'  => $accId,
+                ]);
+                $createdLiab[] = (int) $pdo->lastInsertId();
+                continue;
+            }
+
+            $skipped[] = "{$type}/{$subtype} '{$name}' (not a deposit or liability)";
+        } catch (\Throwable $e) {
+            $errors[] = "'{$name}' (...{$mask}, type={$type}/{$subtype}): " . $e->getMessage();
+        }
+    }
+
+    if (function_exists('plaidAudit')) {
+        plaidAudit('payment_rails.plaid.backfill', [
+            'bank_accounts_created'      => $createdBank,
+            'liability_accounts_created' => $createdLiab,
+            'skipped'                    => $skipped,
+            'errors'                     => $errors,
+        ], null);
+    }
+
+    api_ok([
+        'orphans_processed'          => count($orphans),
+        'bank_accounts_created'      => $createdBank,
+        'liability_accounts_created' => $createdLiab,
+        'skipped'                    => $skipped,
+        'errors'                     => $errors,
+    ]);
+}
+
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
 
 $pdo = getDB();
