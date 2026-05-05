@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useApi } from '../lib/api';
+import { api, useApi } from '../lib/api';
 import { Card } from '../components/UIComponents';
 import { fmtMoney } from '../lib/format';
 import {
   Users, Trophy, Briefcase, RefreshCw, Search,
-  ArrowUp, ArrowDown, ArrowUpDown,
+  ArrowUp, ArrowDown, ArrowUpDown, Flag, Sparkles, X,
+  CheckCircle2, AlertTriangle, Loader2,
 } from 'lucide-react';
 
 /**
@@ -173,6 +174,18 @@ function PlacementMarginTable({ rows }) {
   const [q, setQ]     = useState('');
   const [key, setKey] = useState('period_margin');
   const [dir, setDir] = useState('desc');
+  const [aiFor, setAiFor]     = useState(null);   // placement row currently in AI panel
+  const [flagFor, setFlagFor] = useState(null);   // placement row in flag modal
+
+  // Pull all open flags for placements so we can render a 🚩 indicator.
+  const flagsApi = useApi('/api/review_flags.php?entity_type=placement&status=open');
+  const flagsByPlacement = useMemo(() => {
+    const m = {};
+    for (const f of (flagsApi.data?.flags || [])) {
+      (m[f.entity_id] = m[f.entity_id] || []).push(f);
+    }
+    return m;
+  }, [flagsApi.data]);
 
   const sorted = useMemo(() => {
     let out = rows;
@@ -196,7 +209,6 @@ function PlacementMarginTable({ rows }) {
   const Caret = ({ k }) => k === key ? (dir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)
                                      : <ArrowUpDown size={12} style={{ opacity: 0.4 }} />;
 
-  // Aggregate footer
   const totals = useMemo(() => sorted.reduce((acc, r) => ({
     period_hours:    acc.period_hours    + (r.period_hours    || 0),
     period_margin:   acc.period_margin   + (r.period_margin   || 0),
@@ -231,30 +243,60 @@ function PlacementMarginTable({ rows }) {
             <th onClick={() => sortBy('period_hours')}   style={{ cursor: 'pointer', textAlign: 'right' }}>Hours <Caret k="period_hours" /></th>
             <th onClick={() => sortBy('period_margin')}  style={{ cursor: 'pointer', textAlign: 'right' }}>Period margin <Caret k="period_margin" /></th>
             <th onClick={() => sortBy('lifetime_margin')} style={{ cursor: 'pointer', textAlign: 'right' }}>Lifetime <Caret k="lifetime_margin" /></th>
+            <th style={{ textAlign: 'right', width: 110 }}>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {sorted.map(r => (
-            <tr key={r.id} data-testid={`placement-row-${r.id}`}>
-              <td>
-                <Link to={`/modules/placements/list/${r.id}`} className="link"
-                      data-testid={`placement-link-${r.id}`}>{r.candidate}</Link>
-              </td>
-              <td>{r.client}</td>
-              <td style={{ color: '#64748b' }}>{r.recruiter || '—'}</td>
-              <td><span className="badge badge--info">{r.engagement_type}</span></td>
-              <td>{r.state || '—'}</td>
-              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.bill_rate)}</td>
-              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.pay_rate)}</td>
-              <td style={{ textAlign: 'right', fontWeight: 500, fontVariantNumeric: 'tabular-nums',
-                          color: r.margin_per_hour > 0 ? '#10b981' : '#ef4444' }}>{fmtMoney(r.margin_per_hour)}</td>
-              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.period_hours.toFixed(1)}</td>
-              <td style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.period_margin)}</td>
-              <td style={{ textAlign: 'right', color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.lifetime_margin)}</td>
-            </tr>
-          ))}
+          {sorted.map(r => {
+            const flags = flagsByPlacement[r.id] || [];
+            const flagged = flags.length > 0;
+            return (
+              <tr key={r.id} data-testid={`placement-row-${r.id}`}
+                  style={{ background: flagged ? '#fef9c3' : undefined }}>
+                <td>
+                  <Link to={`/modules/placements/list/${r.id}`} className="link"
+                        data-testid={`placement-link-${r.id}`}>{r.candidate || '—'}</Link>
+                  {flagged && (
+                    <span style={{ marginLeft: 6, fontSize: 11, color: '#b45309' }}
+                          title={flags.map(f => f.reason_code).join(', ')}
+                          data-testid={`placement-flag-badge-${r.id}`}>
+                      <Flag size={11} fill="#f59e0b" /> {flags.length}
+                    </span>
+                  )}
+                </td>
+                <td>{r.client}</td>
+                <td style={{ color: '#64748b' }}>{r.recruiter || '—'}</td>
+                <td><span className="badge badge--info">{r.engagement_type}</span></td>
+                <td>{r.state || '—'}</td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.bill_rate)}</td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.pay_rate)}</td>
+                <td style={{ textAlign: 'right', fontWeight: 500, fontVariantNumeric: 'tabular-nums',
+                            color: r.margin_per_hour > 0 ? '#10b981' : '#ef4444' }}>{fmtMoney(r.margin_per_hour)}</td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.period_hours.toFixed(1)}</td>
+                <td style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.period_margin)}</td>
+                <td style={{ textAlign: 'right', color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.lifetime_margin)}</td>
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <button className="btn btn--ghost"
+                          title="Ask AI about this placement"
+                          onClick={() => setAiFor(r)}
+                          data-testid={`placement-ai-btn-${r.id}`}
+                          style={{ padding: '4px 6px' }}>
+                    <Sparkles size={14} />
+                  </button>
+                  <button className="btn btn--ghost"
+                          title={flagged ? 'View / resolve flags' : 'Flag for review'}
+                          onClick={() => setFlagFor(r)}
+                          data-testid={`placement-flag-btn-${r.id}`}
+                          style={{ padding: '4px 6px',
+                                  color: flagged ? '#b45309' : 'inherit' }}>
+                    <Flag size={14} fill={flagged ? '#f59e0b' : 'none'} />
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
           {sorted.length === 0 && (
-            <tr><td colSpan={11} style={{ textAlign: 'center', padding: 24, color: '#64748b' }}>
+            <tr><td colSpan={12} style={{ textAlign: 'center', padding: 24, color: '#64748b' }}>
               No placements match.
             </td></tr>
           )}
@@ -266,10 +308,28 @@ function PlacementMarginTable({ rows }) {
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{totals.period_hours.toFixed(1)}</td>
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(totals.period_margin)}</td>
               <td style={{ textAlign: 'right', color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(totals.lifetime_margin)}</td>
+              <td></td>
             </tr>
           </tfoot>
         )}
       </table>
+
+      {aiFor && (
+        <PlacementAiPanel
+          placement={aiFor}
+          onClose={() => setAiFor(null)}
+          onFlagged={() => { flagsApi.reload(); setAiFor(null); }}
+          onRequestFlag={() => { setFlagFor(aiFor); setAiFor(null); }}
+        />
+      )}
+      {flagFor && (
+        <PlacementFlagModal
+          placement={flagFor}
+          existingFlags={flagsByPlacement[flagFor.id] || []}
+          onClose={() => setFlagFor(null)}
+          onSaved={() => { flagsApi.reload(); setFlagFor(null); }}
+        />
+      )}
     </Card>
   );
 }
@@ -317,3 +377,239 @@ function HeadcountBreakdown({ breakdown }) {
     </Card>
   );
 }
+
+/* ===================== AI panel + Flag modal (placement actions) ===================== */
+
+const REASON_OPTIONS = [
+  { v: 'low_margin',                l: 'Low / negative margin' },
+  { v: 'stale_unsigned_timesheet',  l: 'Stale or unsigned timesheet' },
+  { v: 'rate_outdated',             l: 'Rate looks outdated' },
+  { v: 'missing_data',              l: 'Missing recruiter / rate / data' },
+  { v: 'other',                     l: 'Other' },
+];
+
+function PlacementAiPanel({ placement, onClose, onFlagged, onRequestFlag }) {
+  const [busy,    setBusy]    = useState(true);
+  const [err,     setErr]     = useState(null);
+  const [insight, setInsight] = useState(null);
+  const [flagging,setFlagging]= useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setBusy(true); setErr(null);
+      try {
+        const res = await api.post('/api/reports_ai_explain.php', {
+          entity_type: 'placement', entity_id: placement.id,
+        });
+        if (!cancelled) setInsight(res);
+      } catch (e) { if (!cancelled) setErr(e.message || 'AI unavailable'); }
+      finally    { if (!cancelled) setBusy(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [placement.id]);
+
+  const acceptRecommendedFlag = async () => {
+    if (!insight?.recommended_flag) return;
+    setFlagging(true);
+    try {
+      await api.post('/api/review_flags.php', {
+        entity_type: 'placement',
+        entity_id:   placement.id,
+        reason_code: insight.recommended_flag.reason_code,
+        severity:    insight.recommended_flag.severity,
+        notes:       insight.recommended_flag.rationale,
+      });
+      onFlagged();
+    } catch (e) { setErr(e.message || 'Could not flag'); }
+    finally    { setFlagging(false); }
+  };
+
+  return (
+    <ModalShell title={`AI insight — ${placement.candidate || 'placement'} @ ${placement.client}`}
+                onClose={onClose} testid="placement-ai-panel" wide>
+      {busy && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#64748b' }}>
+          <Loader2 size={14} className="spin" /> Asking the model…
+        </div>
+      )}
+      {err && <p style={{ color: '#b91c1c' }}>{err}</p>}
+      {insight && (
+        <>
+          <div style={{
+            background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
+            padding: 14, marginBottom: 12, fontSize: 14, lineHeight: 1.55,
+            whiteSpace: 'pre-wrap',
+          }} data-testid="placement-ai-answer">
+            {insight.answer}
+          </div>
+
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+            <span>
+              <Sparkles size={12} style={{ display: 'inline', marginRight: 4 }} />
+              source: <strong>{insight.source}</strong>
+            </span>
+            {insight.confidence != null && (
+              <span>confidence: <strong>{Math.round(insight.confidence * 100)}%</strong></span>
+            )}
+          </div>
+
+          {insight.recommended_flag && (
+            <div style={{
+              background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8,
+              padding: 12, marginBottom: 12,
+            }} data-testid="placement-ai-recommended-flag">
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>
+                <AlertTriangle size={12} style={{ display: 'inline', marginRight: 4 }} />
+                Recommended flag: {insight.recommended_flag.reason_code.replace(/_/g, ' ')}
+              </div>
+              <div style={{ fontSize: 13, color: '#78350f' }}>
+                {insight.recommended_flag.rationale}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Link to={`/modules/placements/list/${placement.id}`}
+                  className="btn btn--ghost"
+                  data-testid="placement-ai-open-placement">
+              Open placement
+            </Link>
+            {insight.recommended_flag && (
+              <button className="btn btn--primary"
+                      onClick={acceptRecommendedFlag}
+                      disabled={flagging}
+                      data-testid="placement-ai-accept-flag">
+                <Flag size={14} /> {flagging ? 'Flagging…' : 'Apply this flag'}
+              </button>
+            )}
+            <button className="btn btn--ghost"
+                    onClick={onRequestFlag}
+                    data-testid="placement-ai-custom-flag">
+              <Flag size={14} /> Custom flag…
+            </button>
+          </div>
+        </>
+      )}
+    </ModalShell>
+  );
+}
+
+function PlacementFlagModal({ placement, existingFlags, onClose, onSaved }) {
+  const [reason,   setReason]   = useState(REASON_OPTIONS[0].v);
+  const [severity, setSeverity] = useState('warn');
+  const [notes,    setNotes]    = useState('');
+  const [busy,     setBusy]     = useState(false);
+  const [err,      setErr]      = useState(null);
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      await api.post('/api/review_flags.php', {
+        entity_type: 'placement', entity_id: placement.id,
+        reason_code: reason, severity, notes,
+      });
+      onSaved();
+    } catch (e) { setErr(e.message || 'Save failed'); }
+    finally    { setBusy(false); }
+  };
+
+  const onResolve = async (id) => {
+    try {
+      await api.patch(`/api/review_flags.php?id=${id}`, { status: 'resolved' });
+      onSaved();
+    } catch (e) { alert(e.message || 'Resolve failed'); }
+  };
+
+  return (
+    <ModalShell title={`Flags — ${placement.candidate || 'placement'} @ ${placement.client}`}
+                onClose={onClose} testid="placement-flag-modal">
+      {existingFlags.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b',
+                        textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>
+            Open flags
+          </div>
+          {existingFlags.map(f => (
+            <div key={f.id} style={{
+              border: '1px solid #e2e8f0', borderRadius: 8, padding: 10, marginBottom: 8,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
+            }} data-testid={`placement-flag-existing-${f.id}`}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, textTransform: 'capitalize' }}>
+                  {String(f.reason_code).replace(/_/g, ' ')}
+                  <span className={`badge badge--${f.severity === 'critical' ? 'critical' : 'warn'}`}
+                        style={{ marginLeft: 8, fontSize: 10 }}>{f.severity}</span>
+                </div>
+                {f.notes && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{f.notes}</div>}
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                  Flagged by {f.flagged_by_name || '—'} · {f.created_at}
+                </div>
+              </div>
+              <button className="btn btn--ghost" onClick={() => onResolve(f.id)}
+                      data-testid={`placement-flag-resolve-${f.id}`}
+                      style={{ color: '#10b981' }}>
+                <CheckCircle2 size={14} /> Resolve
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <form onSubmit={onSubmit} data-testid="placement-flag-form">
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b',
+                      textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>
+          New flag
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, marginBottom: 10 }}>
+          <select className="input" value={reason} onChange={(e) => setReason(e.target.value)}
+                  data-testid="placement-flag-reason">
+            {REASON_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+          </select>
+          <select className="input" value={severity} onChange={(e) => setSeverity(e.target.value)}
+                  data-testid="placement-flag-severity">
+            <option value="info">Info</option>
+            <option value="warn">Warn</option>
+            <option value="critical">Critical</option>
+          </select>
+        </div>
+        <textarea className="input" rows={3} value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Optional context for the team…"
+                  data-testid="placement-flag-notes"
+                  style={{ width: '100%', marginBottom: 10 }} />
+        {err && <p style={{ color: '#b91c1c', marginBottom: 8 }}>{err}</p>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button type="button" className="btn btn--ghost" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn btn--primary" disabled={busy}
+                  data-testid="placement-flag-submit">
+            <Flag size={14} /> {busy ? 'Saving…' : 'Add flag'}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+function ModalShell({ title, onClose, children, testid, wide }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+    }} onClick={onClose} data-testid={testid}>
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: 24,
+        maxWidth: wide ? 640 : 480, width: '100%',
+        boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+      }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600 }}>{title}</h2>
+          <button onClick={onClose} className="btn btn--ghost"><X size={14} /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+

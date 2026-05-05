@@ -817,6 +817,17 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - Schema-contract gate confirmed clean — both APIs join `placements ↔ people` correctly, no orphan column references.
 - 45 new smoke assertions in `tests/sprint7_reports_drill_smoke.php`. **Full suite: 68 files, 3,964 ✓ / 0 failed.**
 
+*2026-02 — Sprint 8: Actionable rows + AI assistance on placement margin (this fork):*
+- New `core/migrations/015_review_flags.sql` — polymorphic `review_flags` table (entity_type ∈ {placement, invoice, bill, person}) tracking reason_code, severity (info/warn/critical), status (open/resolved/dismissed), AI summary/confidence/source.
+- New `/api/review_flags.php` — manager+ CRUD with idempotent flag-on-open (re-flagging the same (entity, reason) updates instead of duplicating). PATCH resolves/dismisses with audit, joins users for actor display names.
+- New `/api/reports_ai_explain.php` — row-level AI insight for placements. Routes through the existing `aiAsk()` envelope (uses Emergent LLM key) with a CFO-style staffing prompt; returns answer + confidence + source + a structured `recommended_flag` payload. Falls back to a deterministic heuristic when AI is offline (low margin / stale timesheet / missing data signals).
+- `StaffingReports.jsx` placement-margin table is now interactive:
+  - Each row gets two action buttons (Sparkles = "Ask AI", Flag = "Flag for review"); flagged rows are highlighted yellow with a count badge.
+  - **AI panel** modal — calls `/reports_ai_explain.php`, shows the answer + source + confidence + a yellow "Recommended flag" card with one-click "Apply this flag" button (which POSTs to review_flags); also offers "Custom flag…" and "Open placement".
+  - **Flag modal** — lists existing open flags with per-flag Resolve buttons, plus a "New flag" form (reason dropdown / severity / free-text notes).
+  - Confirmed treasury → bank-reconciliation flow is still inline (AI suggestions in `AccountTransactions.jsx` with confidence pills, accept/reject, rule learning) — no regression on Sprint 5 hardening.
+- 40 new smoke assertions in `tests/sprint8_placement_actions_smoke.php`. **Full suite: 69 files, 4,004 ✓ / 0 failed.**
+
 
 
 *2026-02 — Payroll Phase A1 (Gusto CSV extract + Audit CSV + AI anomaly flags):*
