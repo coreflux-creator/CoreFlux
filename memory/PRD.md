@@ -798,6 +798,16 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - `ExecutiveDashboard.jsx` extended with a **View picker** dropdown (own + Shared groups), **Save view** button, and **Manage views** modal (set default, toggle shared, delete). URL `?view=<slug>` deep-links any team member to the same slice; on plain `/exec` the user's default view auto-loads.
 - 44 new smoke assertions in `tests/sprint5_saved_views_smoke.php`. **Full suite: 66 files, 3,872 ✓ / 0 failed.**
 
+*2026-02 — Sprint 6: Restructure (Reports as its own module + real charts + login fix):*
+- **Home dashboard restored.** `/` now renders `DashboardOverview` (module nav cards) for everyone, with a tiny **KPI snapshot strip** at top (4 numbers: Revenue MTD, Run Rate 90d, Active Headcount, AR Outstanding) + an "Open full reports →" CTA. The full executive snapshot moved out of the home page.
+- **Reports is its own module.** New `dashboard/src/pages/ReportsModule.jsx` with a left sidebar and three routes: `/modules/reports/exec`, `/modules/reports/finance`, `/modules/reports/staffing`. Registered in `core/modules.php` so it shows up in the global module picker for managers+ / admins / master_admin.
+- **Real line charts.** New zero-dep `dashboard/src/components/LineChart.jsx` (gridlines, axis labels, hover crosshair, multi-series, dashed prior-year overlay, tooltip). Replaces the tiny sparklines on the report band — sparklines stay on the small KPI cards.
+- **Date range picker.** Custom from/to inputs + presets (MTD, QTD, YTD, last quarter, last year). Coexists with the weeks pills (4w/12w/26w/52w/104w) — picking a custom range supersedes weeks; "Clear range" returns to weeks.
+- **Prior-year comparison.** New `?compare=prior_year` parameter on `/api/exec_dashboard.php` returns parallel `prev_period` series shifted -52 weeks. Toggle button "vs. prior year" overlays the dashed line on the revenue chart.
+- **Login → old app fix.** `dashboard.php` (legacy PHP shell) now redirects authenticated users to `/spa.php`. Two preserved escape hatches: `?legacy=1` (PHP UI) and `?admin=1` (master-admin panel) for debugging only.
+- **Saved views capture the new fields** (from / to / compare_prior_year), so a saved "Acme Q4" view restores its date range and the comparison toggle.
+- 47 new smoke assertions in `tests/sprint6_restructure_smoke.php`. Sprint 4 test updated to the restructured routing. **Full suite: 67 files, 3,919 ✓ / 0 failed.**
+
 
 
 *2026-02 — Payroll Phase A1 (Gusto CSV extract + Audit CSV + AI anomaly flags):*

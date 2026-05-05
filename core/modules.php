@@ -139,6 +139,17 @@ function getModuleDefinitions(): array {
                 ['name' => 'Liability Accounts', 'route' => 'liabilities', 'permission' => 'treasury.liability.manage'],
             ]
         ],
+        'reports' => [
+            'id' => 'reports',
+            'name' => 'Reports',
+            'icon' => '/assets/icons/icon-reports.png',
+            'description' => 'CEO/CFO snapshot — revenue, margin, run rate, headcount, placements, KPIs with drill-downs.',
+            'actions' => [
+                ['name' => 'Executive snapshot', 'route' => 'exec',     'permission' => 'reports.view'],
+                ['name' => 'Corporate finance',  'route' => 'finance',  'permission' => 'reports.view'],
+                ['name' => 'Staffing operations','route' => 'staffing', 'permission' => 'reports.view'],
+            ]
+        ],
     ];
 }
 
@@ -150,8 +161,8 @@ function getUserModules(string $role): array {
 
     $roleModules = match($role) {
         'master_admin'                => array_keys($allModules),
-        'tenant_admin', 'admin'       => ['people', 'placements', 'time', 'billing', 'ap', 'accounting', 'payroll', 'treasury'],
-        'manager'                     => ['people', 'placements', 'time', 'billing', 'ap'],
+        'tenant_admin', 'admin'       => ['people', 'placements', 'time', 'billing', 'ap', 'accounting', 'payroll', 'treasury', 'reports'],
+        'manager'                     => ['people', 'placements', 'time', 'billing', 'ap', 'reports'],
         'employee'                    => ['people', 'time'],
         default                       => ['people', 'time']
     };

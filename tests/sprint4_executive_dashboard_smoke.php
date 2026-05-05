@@ -79,9 +79,9 @@ _a('AP aging card drilldown',            str_contains($ui, 'aging-ap') && str_co
 
 echo "\nApp.jsx routing\n";
 _a('imports ExecutiveDashboard',         str_contains($app, "import ExecutiveDashboard from './pages/ExecutiveDashboard'"));
-_a('routes /exec to ExecutiveDashboard', str_contains($app, '<Route path="/exec"') && str_contains($app, '<ExecutiveDashboard'));
-_a('RoleAwareDashboard routes managers+',str_contains($app, 'RoleAwareDashboard'));
-_a('employees still see DashboardOverview', str_contains($app, '<DashboardOverview'));
+_a('legacy /exec redirects into Reports module', str_contains($app, '<Route path="/exec"') && str_contains($app, 'Navigate to="/modules/reports/exec"'));
+_a('home page is DashboardOverview',     str_contains($app, '<Route path="/"') && str_contains($app, '<DashboardOverview'));
+_a('Reports module hosts the executive dashboard', str_contains($app, '<Route path="/modules/reports/*"'));
 
 echo "\n--- $pass assertions, $fail failed ---\n";
 exit($fail === 0 ? 0 : 1);

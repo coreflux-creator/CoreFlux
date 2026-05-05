@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'r
 import AppLayout from './layout/AppLayout';
 import DashboardOverview from './pages/DashboardOverview';
 import ExecutiveDashboard from './pages/ExecutiveDashboard';
+import ReportsModule from './pages/ReportsModule';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import MailSettingsPage from './pages/MailSettingsPage';
@@ -294,11 +295,14 @@ const AppContent = ({ session, usingDemo }) => {
         showSidebar={showSidebar}
       >
         <Routes>
-          {/* Main Dashboard — managers+ get the executive snapshot, everyone
-              else lands on the simpler module-cards overview. */}
-          <Route path="/"          element={<RoleAwareDashboard session={session} onModuleChange={handleModuleChange} />} />
-          <Route path="/dashboard" element={<RoleAwareDashboard session={session} onModuleChange={handleModuleChange} />} />
-          <Route path="/exec"      element={<ExecutiveDashboard session={session} />} />
+          {/* Home: module-cards overview for everyone, with a small KPI
+              snapshot strip at the top. The full executive snapshot lives
+              under /modules/reports — Reports is its own module. */}
+          <Route path="/"          element={<DashboardOverview session={session} onModuleChange={handleModuleChange} />} />
+          <Route path="/dashboard" element={<DashboardOverview session={session} onModuleChange={handleModuleChange} />} />
+          {/* Backwards-compat: the old /exec route now bounces into the
+              Reports module so anyone still hitting it lands correctly. */}
+          <Route path="/exec"      element={<Navigate to="/modules/reports/exec" replace />} />
           
           {/* Tenant picker */}
           <Route path="/select-tenant" element={<TenantPicker session={session} />} />
@@ -320,6 +324,7 @@ const AppContent = ({ session, usingDemo }) => {
           <Route path="/modules/accounting/*" element={<AccountingV1Module session={session} />} />
           <Route path="/modules/payroll/*"    element={<PayrollModule    session={session} />} />
           <Route path="/modules/treasury/*"   element={<TreasuryModule   session={session} />} />
+          <Route path="/modules/reports/*"    element={<ReportsModule    session={session} />} />
           {/* Vendor self-service portal — uses its own cf_vp_sid cookie auth,
               independent of platform user session. */}
           <Route path="/vendor/portal"        element={<VendorPortal />} />
@@ -360,24 +365,5 @@ const App = () => {
     </Router>
   );
 };
-
-/**
- * Pick the right landing page for the role.
- * - master_admin / tenant_admin / admin / manager → ExecutiveDashboard (KPIs + drill-downs)
- * - everyone else                                 → DashboardOverview   (module cards)
- */
-function RoleAwareDashboard({ session, onModuleChange }) {
-  const role  = session?.user?.role;
-  const grole = session?.user?.global_role;
-  const isExec =
-    grole === 'master_admin' ||
-    grole === 'tenant_admin' ||
-    role  === 'admin'        ||
-    role  === 'manager'      ||
-    role  === 'tenant_admin';
-  return isExec
-    ? <ExecutiveDashboard session={session} />
-    : <DashboardOverview  session={session} onModuleChange={onModuleChange} />;
-}
 
 export default App;

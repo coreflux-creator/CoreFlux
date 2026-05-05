@@ -65,7 +65,7 @@ export const ModuleCards = ({ modules, onModuleClick }) => (
 );
 
 // Section with optional header link
-export const Section = ({ title, linkText, linkHref, onRefresh, children }) => (
+export const Section = ({ title, linkText, linkHref, onRefresh, action, children }) => (
   <section className="section">
     <div className="section-header">
       <h2 className="section-title">{title}</h2>
@@ -79,6 +79,7 @@ export const Section = ({ title, linkText, linkHref, onRefresh, children }) => (
           {linkText}
         </Link>
       )}
+      {action}
     </div>
     {children}
   </section>

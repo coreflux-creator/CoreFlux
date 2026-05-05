@@ -1,6 +1,17 @@
 <?php
 /**
- * CoreFlux Dashboard - Main Shell Entrypoint
+ * CoreFlux Dashboard — legacy PHP shell (deprecated 2026-02 fork).
+ *
+ * The React SPA at /spa.php is the canonical app. We keep this file in
+ * the tree because the platform's "Save to GitHub" hard-rule prohibits
+ * deleting legacy fallbacks (see /app/memory/HARD_RULES.md), but every
+ * authenticated GET now bounces straight to /spa.php so users never
+ * land on the old chrome again.
+ *
+ * Two preserved escape hatches:
+ *   - ?legacy=1            → keeps the old PHP UI (admin debugging only)
+ *   - ?admin=1 + master    → original master-admin panel (until SPA admin
+ *                            ships the last few legacy pages)
  */
 
 require_once __DIR__ . '/core/auth.php';
@@ -10,6 +21,19 @@ initSession();
 
 if (!isAuthenticated()) {
     header("Location: login.html");
+    exit;
+}
+
+// Default route for everyone: the React SPA. The two escape hatches below
+// keep the legacy UI reachable for debugging without polluting the user
+// experience.
+$keepLegacy = isset($_GET['legacy']) && $_GET['legacy'] === '1';
+$adminPanel = isset($_GET['admin']) && (($_SESSION['global_role'] ?? '') === 'master_admin');
+
+if (!$keepLegacy && !$adminPanel) {
+    // Forward any incoming hash via fragment-preserving redirect — PHP can't
+    // see the fragment, but the SPA listens to it.
+    header('Location: /spa.php');
     exit;
 }
 

@@ -6,8 +6,9 @@ import Sparkline from '../components/Sparkline';
 import { fmtMoney } from '../lib/format';
 import {
   TrendingUp, DollarSign, Users, Briefcase, Clock, BookmarkPlus, Star, Trash2, Share2, X,
-  AlertTriangle, ArrowDownCircle, ArrowUpCircle, BarChart3, Filter, RefreshCw,
+  AlertTriangle, ArrowDownCircle, ArrowUpCircle, BarChart3, Filter, RefreshCw, Calendar,
 } from 'lucide-react';
+import LineChart from '../components/LineChart';
 
 /**
  * ExecutiveDashboard — CEO/CFO snapshot of the business.
@@ -31,12 +32,15 @@ const WEEKS_PRESETS = [
   { v: 104, l: '104w' },
 ];
 
-export default function ExecutiveDashboard({ session }) {
+export default function ExecutiveDashboard({ session, bandFilter = null }) {
   const location = useLocation();
   const navigate = useNavigate();
   const urlView  = new URLSearchParams(location.search).get('view') || '';
 
   const [weeks,         setWeeks]         = useState(12);
+  const [dateFrom,      setDateFrom]      = useState('');   // YYYY-MM-DD; '' = use weeks preset
+  const [dateTo,        setDateTo]        = useState('');
+  const [comparePrior,  setComparePrior]  = useState(false);
   const [clientId,      setClientId]      = useState('');
   const [recruiterId,   setRecruiterId]   = useState('');
   const [placementType, setPlacementType] = useState('');
@@ -44,15 +48,17 @@ export default function ExecutiveDashboard({ session }) {
   const [showFilters,   setShowFilters]   = useState(false);
   const [showSave,      setShowSave]      = useState(false);
   const [showManage,    setShowManage]    = useState(false);
-  const [activeView,    setActiveView]    = useState(null); // serialized view obj when one is loaded
+  const [activeView,    setActiveView]    = useState(null);
 
   const viewsApi = useApi('/api/exec_dashboard_views.php');
   const savedViews = viewsApi.data?.views || [];
 
-  // Apply a view's filters into local state. Pass null to reset to defaults.
   const applyView = (view) => {
     const f = view?.filters || {};
     setWeeks(Number(f.weeks) || 12);
+    setDateFrom(f.from              || '');
+    setDateTo(f.to                  || '');
+    setComparePrior(!!f.compare_prior_year);
     setClientId(f.client_id           || '');
     setRecruiterId(f.recruiter_id     || '');
     setPlacementType(f.placement_type || '');
@@ -60,7 +66,6 @@ export default function ExecutiveDashboard({ session }) {
     setActiveView(view || null);
   };
 
-  // Initial load: pick view from ?view=slug, otherwise the user's default.
   useEffect(() => {
     if (!savedViews.length) return;
     if (activeView) return;
@@ -73,14 +78,23 @@ export default function ExecutiveDashboard({ session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedViews.length]);
 
+  const customRange = !!(dateFrom && dateTo);
+
   const qs = useMemo(() => {
-    const p = new URLSearchParams({ weeks: String(weeks) });
+    const p = new URLSearchParams();
+    if (customRange) {
+      p.set('from', dateFrom);
+      p.set('to',   dateTo);
+    } else {
+      p.set('weeks', String(weeks));
+    }
+    if (comparePrior)  p.set('compare', 'prior_year');
     if (clientId)      p.set('client_id', clientId);
     if (recruiterId)   p.set('recruiter_id', recruiterId);
     if (placementType) p.set('placement_type', placementType);
     if (worksiteState) p.set('worksite_state', worksiteState);
     return p.toString();
-  }, [weeks, clientId, recruiterId, placementType, worksiteState]);
+  }, [weeks, customRange, dateFrom, dateTo, comparePrior, clientId, recruiterId, placementType, worksiteState]);
 
   const { data, loading, error, reload } = useApi(`/api/exec_dashboard.php?${qs}`);
   const filters = useApi('/api/exec_filters.php');
@@ -91,8 +105,12 @@ export default function ExecutiveDashboard({ session }) {
   const fmtN  = (n) => Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
   const fmtH  = (n) => `${Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 1 })} hrs`;
 
-  const currentFilters = { weeks, client_id: clientId, recruiter_id: recruiterId,
-                           placement_type: placementType, worksite_state: worksiteState };
+  const currentFilters = {
+    weeks, from: dateFrom, to: dateTo,
+    compare_prior_year: comparePrior,
+    client_id: clientId, recruiter_id: recruiterId,
+    placement_type: placementType, worksite_state: worksiteState,
+  };
 
   const onPickView = (slug) => {
     if (!slug) {
@@ -140,16 +158,26 @@ export default function ExecutiveDashboard({ session }) {
           <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', padding: 4, borderRadius: 8 }}>
             {WEEKS_PRESETS.map(p => (
               <button key={p.v}
-                      onClick={() => setWeeks(p.v)}
+                      onClick={() => { setWeeks(p.v); setDateFrom(''); setDateTo(''); }}
                       data-testid={`exec-weeks-${p.v}`}
                       style={{
                         padding: '4px 10px', borderRadius: 6, fontSize: 13, fontWeight: 500,
-                        background: weeks === p.v ? 'var(--cf-accent, #2563eb)' : 'transparent',
-                        color:      weeks === p.v ? '#fff' : 'var(--cf-text-secondary)',
+                        background: !customRange && weeks === p.v ? 'var(--cf-accent, #2563eb)' : 'transparent',
+                        color:      !customRange && weeks === p.v ? '#fff' : 'var(--cf-text-secondary)',
                         border: 'none', cursor: 'pointer',
                       }}>{p.l}</button>
             ))}
           </div>
+          <DateRangePicker
+            from={dateFrom} to={dateTo}
+            onChange={(f, t) => { setDateFrom(f); setDateTo(t); }}
+            customRange={customRange} />
+          <button className={`btn ${comparePrior ? 'btn--primary' : 'btn--ghost'}`}
+                  onClick={() => setComparePrior(!comparePrior)}
+                  data-testid="exec-toggle-compare"
+                  title="Toggle prior-year comparison">
+            <Calendar size={14} /> vs. prior year
+          </button>
           <button className="btn btn--ghost" onClick={() => setShowFilters(!showFilters)} data-testid="exec-toggle-filters">
             <Filter size={14} /> Filters
           </button>
@@ -212,9 +240,33 @@ export default function ExecutiveDashboard({ session }) {
 
       {!loading && data && (
         <>
-          {/* Finance band */}
-          <Section title="Corporate finance" icon={DollarSign}>
-            <KpiGrid>
+          {(!bandFilter || bandFilter === 'finance') && (
+            <Section title="Corporate finance" icon={DollarSign}>
+              {/* Headline chart band — real LineChart with optional prior-year overlay */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, marginBottom: 16 }}>
+                <ChartCard title="Revenue (weekly)" testid="chart-revenue">
+                  <LineChart
+                    height={280}
+                    format={fmt}
+                    series={[
+                      { name: 'Current', color: '#2563eb', data: f.revenue?.trend || [] },
+                      ...(comparePrior && f.revenue?.prev_period
+                        ? [{ name: 'Prior year', color: '#94a3b8', dashed: true, data: f.revenue.prev_period }]
+                        : []),
+                    ]}
+                  />
+                </ChartCard>
+                <ChartCard title="Gross margin (weekly)" testid="chart-margin">
+                  <LineChart
+                    height={280}
+                    format={fmt}
+                    series={[
+                      { name: 'Current', color: '#10b981', data: f.margin?.trend || [] },
+                    ]}
+                  />
+                </ChartCard>
+              </div>
+              <KpiGrid>
               <KpiCard
                 title="Revenue (YTD)" value={fmt(f.revenue?.ytd)}
                 sub={`MTD ${fmt(f.revenue?.mtd)} · QTD ${fmt(f.revenue?.qtd)}`}
@@ -247,9 +299,32 @@ export default function ExecutiveDashboard({ session }) {
               <AgingCard title="AP aging"   data={f.ap_aging} href="/modules/ap/aging"      testid="aging-ap" />
             </div>
           </Section>
+          )}
 
-          {/* Staffing band */}
+          {(!bandFilter || bandFilter === 'staffing') && (
           <Section title="Staffing operations" icon={Users}>
+            {/* Staffing chart band */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, marginBottom: 16 }}>
+              <ChartCard title="New starts vs. terminations" testid="chart-headcount-flow">
+                <LineChart
+                  height={260}
+                  format={fmtN}
+                  series={[
+                    { name: 'New starts',   color: '#10b981', data: s.new_starts?.trend   || [] },
+                    { name: 'Terminations', color: '#ef4444', data: s.terminations?.trend || [] },
+                  ]}
+                />
+              </ChartCard>
+              <ChartCard title="Billable hours (weekly)" testid="chart-billable-hours">
+                <LineChart
+                  height={260}
+                  format={fmtH}
+                  series={[
+                    { name: 'Hours', color: '#6366f1', data: s.billable_hours?.trend || [] },
+                  ]}
+                />
+              </ChartCard>
+            </div>
             <KpiGrid>
               <KpiCard
                 title="Active headcount" value={fmtN(s.headcount?.active)}
@@ -315,6 +390,7 @@ export default function ExecutiveDashboard({ session }) {
               </KpiGrid>
             </div>
           </Section>
+          )}
         </>
       )}
     </div>
@@ -661,5 +737,109 @@ function Field({ label, children }) {
       <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{label}</div>
       {children}
     </label>
+  );
+}
+
+
+/* ===================== Chart card + Date range picker ===================== */
+
+function ChartCard({ title, testid, children }) {
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: 16 }}
+         data-testid={testid}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--cf-text-secondary)',
+                    textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function DateRangePicker({ from, to, onChange, customRange }) {
+  const [open, setOpen] = useState(false);
+  const ref = React.useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [open]);
+
+  const today = new Date();
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const setBucket = (kind) => {
+    const t = new Date(today); let f;
+    if (kind === 'mtd')  f = new Date(t.getFullYear(), t.getMonth(), 1);
+    if (kind === 'qtd')  f = new Date(t.getFullYear(), Math.floor(t.getMonth() / 3) * 3, 1);
+    if (kind === 'ytd')  f = new Date(t.getFullYear(), 0, 1);
+    if (kind === 'last_quarter') {
+      const q = Math.floor(t.getMonth() / 3); f = new Date(t.getFullYear(), (q - 1) * 3, 1);
+      const e = new Date(t.getFullYear(), q * 3, 0);
+      onChange(iso(f), iso(e)); setOpen(false); return;
+    }
+    if (kind === 'last_year') {
+      f = new Date(t.getFullYear() - 1, 0, 1);
+      const e = new Date(t.getFullYear() - 1, 11, 31);
+      onChange(iso(f), iso(e)); setOpen(false); return;
+    }
+    onChange(iso(f), iso(t)); setOpen(false);
+  };
+
+  const label = customRange ? `${from} → ${to}` : 'Date range';
+
+  return (
+    <div style={{ position: 'relative' }} ref={ref}>
+      <button className={`btn ${customRange ? 'btn--primary' : 'btn--ghost'}`}
+              onClick={() => setOpen(!open)} data-testid="exec-date-picker-toggle">
+        <Calendar size={14} /> {label}
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', right: 0,
+          background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+          boxShadow: '0 10px 30px rgba(0,0,0,0.12)', padding: 12, zIndex: 100, minWidth: 280,
+        }} data-testid="exec-date-picker-panel">
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b',
+                        textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Quick presets</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 12 }}>
+            {[
+              ['mtd',          'MTD'],
+              ['qtd',          'QTD'],
+              ['ytd',          'YTD'],
+              ['last_quarter', 'Last quarter'],
+              ['last_year',    'Last year'],
+            ].map(([k, l]) => (
+              <button key={k} className="btn btn--ghost" onClick={() => setBucket(k)}
+                      data-testid={`exec-date-preset-${k}`}>{l}</button>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b',
+                        textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Custom</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <label style={{ fontSize: 12 }}>
+              From
+              <input type="date" className="input" value={from || ''}
+                     onChange={(e) => onChange(e.target.value, to)}
+                     data-testid="exec-date-from" />
+            </label>
+            <label style={{ fontSize: 12 }}>
+              To
+              <input type="date" className="input" value={to || ''}
+                     onChange={(e) => onChange(from, e.target.value)}
+                     data-testid="exec-date-to" />
+            </label>
+          </div>
+          {customRange && (
+            <button className="btn btn--ghost" style={{ marginTop: 10, width: '100%' }}
+                    onClick={() => { onChange('', ''); setOpen(false); }}
+                    data-testid="exec-date-clear">
+              Clear range (use weeks preset)
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

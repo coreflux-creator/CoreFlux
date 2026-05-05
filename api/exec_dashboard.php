@@ -60,8 +60,36 @@ if (!$pdo) api_error('No database connection', 500);
 
 $weeks  = max(1, min(104, (int) api_query('weeks', 12)));
 $today  = new DateTimeImmutable('today');
-$from   = $today->modify('-' . ($weeks - 1) . ' weeks')->modify('monday this week');
-$to     = $today;
+
+// Custom date range support — overrides the weeks preset when provided.
+// `from` (YYYY-MM-DD) anchors the start of the trendline window;
+// `to` (YYYY-MM-DD) anchors the end. Both must validate or we silently
+// fall back to the weeks preset.
+$rawFrom = (string) api_query('from', '');
+$rawTo   = (string) api_query('to',   '');
+$customRange = false;
+$from = null; $to = null;
+if ($rawFrom !== '' && $rawTo !== '') {
+    try {
+        $from = (new DateTimeImmutable($rawFrom))->modify('monday this week');
+        $to   = new DateTimeImmutable($rawTo);
+        if ($from <= $to) {
+            $customRange = true;
+            $weeks = max(1, min(208, (int) ceil(($to->getTimestamp() - $from->getTimestamp()) / 604800) + 1));
+        }
+    } catch (Throwable $_) { /* ignore — fall through */ }
+}
+if (!$customRange) {
+    $from = $today->modify('-' . ($weeks - 1) . ' weeks')->modify('monday this week');
+    $to   = $today;
+}
+
+// Prior-year comparison: when ?compare=prior_year is set, every trended
+// metric also returns a `prev_period` series shifted exactly 52 weeks earlier.
+$compare = (string) api_query('compare', '');
+$compareEnabled = $compare === 'prior_year';
+$prevFrom = $from->modify('-52 weeks');
+$prevTo   = $to->modify('-52 weeks');
 
 $clientId       = (int) api_query('client_id', 0);
 $recruiterId    = (int) api_query('recruiter_id', 0);
@@ -195,6 +223,16 @@ if (_execRowsExist($pdo, 'billing_invoices')) {
         ['t' => $tenantId, 's' => $from->format('Y-m-d')]
     );
     $finance['revenue']['trend'] = _execTrendlineFromRows($from, $to, $trendRows, 'd', 'v');
+
+    if ($compareEnabled) {
+        $prevRows = _execSafeFetch($pdo,
+            "SELECT issue_date AS d, total AS v FROM billing_invoices
+              WHERE tenant_id = :t AND status IN ('sent','partially_paid','paid')
+                AND issue_date BETWEEN :a AND :b",
+            ['t' => $tenantId, 'a' => $prevFrom->format('Y-m-d'), 'b' => $prevTo->format('Y-m-d')]
+        );
+        $finance['revenue']['prev_period'] = _execTrendlineFromRows($prevFrom, $prevTo, $prevRows, 'd', 'v');
+    }
 }
 
 if (_execRowsExist($pdo, 'ap_bills')) {
@@ -378,7 +416,13 @@ api_ok([
         'from'  => $from->format('Y-m-d'),
         'to'    => $to->format('Y-m-d'),
         'weeks' => $weeks,
+        'custom' => $customRange,
     ],
+    'compare' => $compareEnabled ? [
+        'mode'      => 'prior_year',
+        'prev_from' => $prevFrom->format('Y-m-d'),
+        'prev_to'   => $prevTo->format('Y-m-d'),
+    ] : null,
     'filters' => [
         'client_id'      => $clientId ?: null,
         'recruiter_id'   => $recruiterId ?: null,
