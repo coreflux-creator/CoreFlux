@@ -11,7 +11,7 @@
 CREATE TABLE IF NOT EXISTS review_flags (
     id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     tenant_id       INT UNSIGNED NOT NULL,
-    entity_type     ENUM('placement','invoice','bill','person') NOT NULL,
+    entity_type     ENUM('placement','invoice','bill','person','recruiter') NOT NULL,
     entity_id       BIGINT UNSIGNED NOT NULL,
     reason_code     VARCHAR(64) NOT NULL,
     notes           TEXT NULL,

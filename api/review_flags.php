@@ -34,7 +34,7 @@ if (!in_array($role, ['master_admin', 'tenant_admin', 'admin', 'manager'], true)
 $pdo = getDB();
 if (!$pdo) api_error('No database connection', 500);
 
-const _RF_ENTITY_TYPES = ['placement','invoice','bill','person'];
+const _RF_ENTITY_TYPES = ['placement','invoice','bill','person','recruiter'];
 const _RF_SEVERITIES   = ['info','warn','critical'];
 const _RF_STATUSES     = ['open','resolved','dismissed'];
 const _RF_REASON_CODES = [

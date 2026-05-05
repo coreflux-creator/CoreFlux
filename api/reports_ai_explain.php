@@ -40,8 +40,158 @@ $entityType = (string) $body['entity_type'];
 $entityId   = (int)    $body['entity_id'];
 $question   = trim((string) ($body['question'] ?? ''));
 
-if ($entityType !== 'placement') {
-    api_error('Only entity_type=placement supported in this build', 422);
+if ($entityType !== 'placement' && $entityType !== 'recruiter') {
+    api_error('entity_type must be placement or recruiter in this build', 422);
+}
+
+if ($entityType === 'recruiter') {
+    /* ---------- recruiter context ---------- */
+    $stmt = $pdo->prepare(
+        "SELECT u.id, u.name, u.email
+           FROM users u
+          WHERE u.id = :id LIMIT 1"
+    );
+    $stmt->execute(['id' => $entityId]);
+    $rec = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$rec) api_error('Recruiter not found', 404);
+
+    // Aggregate the recruiter's book.
+    $stmt = $pdo->prepare(
+        "SELECT COUNT(DISTINCT p.id) AS placement_count,
+                SUM(CASE WHEN p.status = 'active' THEN 1 ELSE 0 END) AS active_count
+           FROM placements p
+           JOIN placement_commissions pc
+             ON pc.placement_id = p.id AND pc.role = 'recruiter'
+          WHERE p.tenant_id = :t AND pc.user_id = :rid"
+    );
+    $stmt->execute(['t' => $tenantId, 'rid' => $entityId]);
+    $book = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['placement_count' => 0, 'active_count' => 0];
+
+    // Last 90d billable hours + margin contribution.
+    $today    = new DateTimeImmutable('today');
+    $cutoff90 = $today->modify('-90 days')->format('Y-m-d');
+    $stmt = $pdo->prepare(
+        "SELECT COALESCE(SUM(te.hours),0) AS hrs,
+                COALESCE(SUM(te.hours *
+                  (SELECT pr.bill_rate - pr.pay_rate FROM placement_rates pr
+                    WHERE pr.placement_id = te.placement_id
+                      AND pr.approved_at IS NOT NULL
+                      AND pr.effective_from <= te.work_date
+                      AND (pr.effective_to IS NULL OR pr.effective_to >= te.work_date)
+                  ORDER BY pr.effective_from DESC LIMIT 1)),0) AS margin
+           FROM time_entries te
+          WHERE te.tenant_id = :t AND te.status = 'approved'
+            AND te.category IN ('regular_billable','OT_billable')
+            AND te.work_date >= :s
+            AND te.placement_id IN (
+              SELECT placement_id FROM placement_commissions
+               WHERE tenant_id = :t AND user_id = :rid AND role = 'recruiter')"
+    );
+    $stmt->execute(['t' => $tenantId, 'rid' => $entityId, 's' => $cutoff90]);
+    $perf = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['hrs' => 0, 'margin' => 0];
+
+    // Team median margin/hr (90d) — used as the comparison baseline.
+    $stmt = $pdo->prepare(
+        "SELECT pc.user_id,
+                SUM(te.hours) AS h,
+                SUM(te.hours *
+                  (SELECT pr.bill_rate - pr.pay_rate FROM placement_rates pr
+                    WHERE pr.placement_id = te.placement_id
+                      AND pr.approved_at IS NOT NULL
+                      AND pr.effective_from <= te.work_date
+                      AND (pr.effective_to IS NULL OR pr.effective_to >= te.work_date)
+                  ORDER BY pr.effective_from DESC LIMIT 1)) AS m
+           FROM time_entries te
+           JOIN placement_commissions pc
+             ON pc.placement_id = te.placement_id AND pc.role = 'recruiter'
+          WHERE te.tenant_id = :t AND te.status = 'approved'
+            AND te.category IN ('regular_billable','OT_billable')
+            AND te.work_date >= :s
+       GROUP BY pc.user_id
+       HAVING h > 0"
+    );
+    $stmt->execute(['t' => $tenantId, 's' => $cutoff90]);
+    $teamRows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $perHr = [];
+    foreach ($teamRows as $tr) $perHr[] = ((float) $tr['m']) / max(1.0, (float) $tr['h']);
+    sort($perHr);
+    $teamMedian = $perHr ? round($perHr[(int) floor(count($perHr) / 2)], 2) : 0;
+
+    $myMarginPerHr = ((float) $perf['hrs']) > 0
+        ? round(((float) $perf['margin']) / (float) $perf['hrs'], 2)
+        : 0;
+
+    $context = [
+        'recruiter'                => $rec['name'],
+        'placements_total'         => (int) $book['placement_count'],
+        'placements_active'        => (int) $book['active_count'],
+        'period_hours_90d'         => round((float) $perf['hrs'], 2),
+        'period_margin_90d'        => round((float) $perf['margin'], 2),
+        'avg_margin_per_hour_90d'  => $myMarginPerHr,
+        'team_median_margin_per_hour_90d' => $teamMedian,
+        'gap_to_median'            => round($myMarginPerHr - $teamMedian, 2),
+    ];
+
+    // Heuristic signals for recruiters.
+    $signals = [];
+    if ($context['placements_active'] === 0)        $signals[] = ['missing_data','Recruiter has zero active placements in the last 90 days.'];
+    if ($teamMedian > 0 && $myMarginPerHr < $teamMedian * 0.7)
+                                                    $signals[] = ['low_margin',"Avg margin/hr is \${$myMarginPerHr} — meaningfully below team median \${$teamMedian}."];
+    if (($context['period_hours_90d'] ?? 0) < 50)   $signals[] = ['stale_unsigned_timesheet','<50 billable hours across the recruiter book in the last 90 days.'];
+    $recommendedFlag = $signals[0] ?? null;
+
+    $envelope = null;
+    try {
+        $envelope = aiAsk([
+            'feature_class'     => 'narrative',
+            'feature_key'       => 'reports.recruiter_explain',
+            'kind'              => 'narrative',
+            'system'            => 'You are a staffing-business CFO co-pilot. Given a recruiter and their '
+                                  . 'book of business, write 2-3 short bullets that (1) summarise their '
+                                  . 'production, (2) call out anything that should trigger a flag for review, '
+                                  . '(3) suggest one concrete coaching action. Be plain and specific.',
+            'prompt'            => $question !== ''
+                                  ? $question
+                                  : 'Should this recruiter be flagged for review?',
+            'context'           => $context,
+            'max_output_tokens' => 350,
+        ]);
+    } catch (Throwable $e) {
+        error_log('reports_ai_explain (recruiter) LLM disabled: ' . $e->getMessage());
+    }
+
+    if ($envelope && !empty($envelope['content'])) {
+        api_ok([
+            'answer'           => $envelope['content'],
+            'confidence'       => $envelope['confidence'] ?? null,
+            'source'           => 'llm:' . ($envelope['model'] ?? 'unknown'),
+            'recommended_flag' => $recommendedFlag ? [
+                'reason_code' => $recommendedFlag[0],
+                'rationale'   => $recommendedFlag[1],
+                'severity'    => 'warn',
+            ] : null,
+            'context'          => $context,
+        ]);
+    }
+
+    $lines = ["{$context['recruiter']} ran \${$context['period_margin_90d']} margin on {$context['period_hours_90d']} hrs in 90d ({$context['placements_active']} active placements)."];
+    if ($recommendedFlag) {
+        $lines[] = "Heads up: {$recommendedFlag[1]}";
+        $lines[] = 'Recommended: 1:1 review of pipeline + rate guidance.';
+    } else {
+        $lines[] = 'No automatic concerns surfaced — performing in line with the team.';
+    }
+    api_ok([
+        'answer'           => implode(' ', $lines),
+        'confidence'       => 0.6,
+        'source'           => 'heuristic',
+        'recommended_flag' => $recommendedFlag ? [
+            'reason_code' => $recommendedFlag[0],
+            'rationale'   => $recommendedFlag[1],
+            'severity'    => 'warn',
+        ] : null,
+        'context'          => $context,
+    ]);
 }
 
 /* ---------- gather placement context ---------- */
