@@ -177,6 +177,10 @@ export default function PayrollRunDetail() {
         </div>
       </div>
 
+      {run.pay_period_id && (
+        <PayrollPreflightCard periodId={run.pay_period_id} />
+      )}
+
       {run.status !== 'draft' && (
         <section className="payroll-run-detail__ai">
           <header className="payroll-run-detail__section-head">
@@ -387,6 +391,18 @@ function GustoSyncPanel({ run, reload, runId }) {
     } catch (e) { setErr(e.message); } finally { setBusy(null); }
   };
 
+  const [previewResult, setPreviewResult] = useState(null);
+  const previewToGusto = async () => {
+    if (!pickedUuid) { setErr('Pick a Gusto payroll period first'); return; }
+    setBusy('preview_to_gusto'); setErr(null); setPreviewResult(null);
+    try {
+      const res = await api.post('/modules/payroll/api/gusto_preview.php', {
+        run_id: runId, gusto_payroll_uuid: pickedUuid,
+      });
+      setPreviewResult(res);
+    } catch (e) { setErr(e.message); } finally { setBusy(null); }
+  };
+
   const linked = !!run.gusto_run_id;
   const paid   = run.gusto_status === 'paid';
   const apiConnected = !!(conn && conn.connection && conn.connection.status === 'active');
@@ -487,17 +503,31 @@ function GustoSyncPanel({ run, reload, runId }) {
                   ))}
                 </select>
               </label>
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={submitToGusto}
-                disabled={busy === 'submit_to_gusto' || !pickedUuid}
-                data-testid="payroll-run-gusto-submit-btn"
-                style={{ alignSelf: 'flex-start' }}
-              >
-                {busy === 'submit_to_gusto' ? 'Submitting to Gusto…' : 'Submit run to Gusto'}
-              </button>
+              <div style={{ display: 'flex', gap: 8, alignSelf: 'flex-start' }}>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={previewToGusto}
+                  disabled={busy === 'preview_to_gusto' || !pickedUuid}
+                  data-testid="payroll-run-gusto-preview-btn"
+                  title="Show what would be PUT to Gusto without submitting"
+                >
+                  {busy === 'preview_to_gusto' ? 'Loading preview…' : 'Preview diff'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={submitToGusto}
+                  disabled={busy === 'submit_to_gusto' || !pickedUuid}
+                  data-testid="payroll-run-gusto-submit-btn"
+                >
+                  {busy === 'submit_to_gusto' ? 'Submitting to Gusto…' : 'Submit run to Gusto'}
+                </button>
+              </div>
             </div>
+          )}
+          {previewResult && (
+            <GustoPreviewPanel result={previewResult} onClose={() => setPreviewResult(null)} />
           )}
           {submitResult && (
             <p
@@ -619,3 +649,212 @@ function GustoSyncPanel({ run, reload, runId }) {
     </section>
   );
 }
+
+
+function PayrollPreflightCard({ periodId }) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err,  setErr]  = useState(null);
+  const [open, setOpen] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setBusy(true); setErr(null);
+    api.get(`/modules/payroll/api/preflight.php?period_id=${periodId}`)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setErr(e.message); })
+      .finally(() => { if (!cancelled) setBusy(false); });
+    return () => { cancelled = true; };
+  }, [periodId]);
+
+  if (busy && !data) {
+    return <p className="muted" data-testid="payroll-preflight-loading">Running preflight checks…</p>;
+  }
+  if (err) {
+    return <p className="error" data-testid="payroll-preflight-error">Preflight failed: {err}</p>;
+  }
+  if (!data) return null;
+
+  const { summary, employees } = data;
+  const tone = summary.ready_to_run ? '#065f46' : (summary.blockers > 0 ? '#991b1b' : '#92400e');
+  const bg   = summary.ready_to_run ? '#ecfdf5' : (summary.blockers > 0 ? '#fef2f2' : '#fffbeb');
+  const headline = summary.ready_to_run
+    ? `${summary.total_w2_employees} employees ready to run`
+    : (summary.blockers > 0
+        ? `${summary.blockers} blocker${summary.blockers === 1 ? '' : 's'} across ${employees.filter((e) => !e.ready).length} employee${employees.filter((e) => !e.ready).length === 1 ? '' : 's'}`
+        : `${summary.warnings} warning${summary.warnings === 1 ? '' : 's'} — review before submit`);
+
+  return (
+    <section
+      data-testid="payroll-preflight-card"
+      style={{
+        margin: '16px 0', padding: 14, background: bg,
+        border: `1px solid ${tone}`, borderRadius: 6,
+      }}
+    >
+      <header
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+        onClick={() => setOpen(!open)}
+      >
+        <strong style={{ color: tone }}>
+          Preflight: {headline}
+        </strong>
+        <button
+          type="button"
+          className="btn btn--ghost"
+          data-testid="payroll-preflight-toggle"
+          style={{ padding: '2px 10px', fontSize: 12 }}
+        >
+          {open ? 'Hide details' : 'Show details'}
+        </button>
+      </header>
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          {employees.length === 0 && (
+            <p className="muted" data-testid="payroll-preflight-empty">
+              No W2 employees enrolled on this schedule. Enable payroll profiles
+              under Payroll → Profiles for each W2 employee on this schedule.
+            </p>
+          )}
+          {employees.map((e) => (
+            <div
+              key={e.employee_id}
+              data-testid={`payroll-preflight-employee-${e.employee_id}`}
+              style={{
+                padding: '8px 0', borderTop: '1px solid rgba(0,0,0,0.06)',
+                display: 'flex', justifyContent: 'space-between', gap: 16,
+              }}
+            >
+              <div style={{ flex: 1 }}>
+                <div>
+                  <strong>{e.name}</strong>
+                  {e.employee_number && <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>#{e.employee_number}</span>}
+                  {e.ready
+                    ? <span className="badge badge--active" style={{ marginLeft: 10 }}>ready</span>
+                    : <span className="badge" style={{ marginLeft: 10, background: '#fee2e2', color: '#991b1b' }}>{e.blocker_count} blocker{e.blocker_count === 1 ? '' : 's'}</span>}
+                </div>
+                {e.blockers.map((b, i) => (
+                  <div key={'b' + i} style={{ fontSize: 12, color: '#991b1b', marginTop: 4 }}>
+                    ✗ <strong>{b.label}</strong> — {b.hint}
+                  </div>
+                ))}
+                {e.warnings.map((w, i) => (
+                  <div key={'w' + i} style={{ fontSize: 12, color: '#92400e', marginTop: 4 }}>
+                    ⚠ <strong>{w.label}</strong> — {w.hint}
+                  </div>
+                ))}
+                {e.info.map((info, i) => (
+                  <div key={'i' + i} style={{ fontSize: 12, color: '#475569', marginTop: 4 }}>
+                    {info.label}{info.hint ? ` — ${info.hint}` : ''}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function GustoPreviewPanel({ result, onClose }) {
+  const { gusto_payroll: gp, summary, employees, unmatched_in_coreflux, unmatched_in_gusto } = result;
+  const tone = summary.safe_to_submit ? '#065f46' : '#92400e';
+  const bg   = summary.safe_to_submit ? '#ecfdf5' : '#fffbeb';
+  return (
+    <div
+      data-testid="payroll-gusto-preview-panel"
+      style={{
+        marginTop: 16, padding: 14, background: bg,
+        border: `1px solid ${tone}`, borderRadius: 6,
+      }}
+    >
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <strong style={{ color: tone }}>
+          Gusto preview: {summary.matched} matched, {summary.total_employees_in_gusto - summary.matched} unmatched in Gusto, {unmatched_in_coreflux.length} unmatched in CoreFlux
+        </strong>
+        <button
+          type="button"
+          className="btn btn--ghost"
+          onClick={onClose}
+          data-testid="payroll-gusto-preview-close"
+          style={{ padding: '2px 10px', fontSize: 12 }}
+        >
+          Close
+        </button>
+      </header>
+      <p className="muted" style={{ fontSize: 12, margin: '0 0 10px' }}>
+        Gusto payroll {gp.uuid} · {gp.period_start} → {gp.period_end} · status {gp.status}
+      </p>
+
+      {employees.length > 0 && (
+        <table className="data-table" data-testid="payroll-gusto-preview-table">
+          <thead>
+            <tr>
+              <th>Employee</th>
+              <th style={{ textAlign: 'right' }}>Reg hrs</th>
+              <th style={{ textAlign: 'right' }}>OT hrs</th>
+              <th>Fixed</th>
+              <th>Changes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {employees.map((e) => (
+              <tr key={e.gusto_employee_number || e.name} data-testid={`payroll-gusto-preview-row-${e.gusto_employee_number || 'unmatched'}`}>
+                <td>
+                  <strong>{e.name || '—'}</strong>
+                  <div className="muted" style={{ fontSize: 11 }}>#{e.gusto_employee_number}</div>
+                  {!e.matched && <span className="badge" style={{ background: '#fee2e2', color: '#991b1b' }}>not in CoreFlux</span>}
+                </td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  {e.proposed?.regular_hours ?? e.current?.regular_hours ?? 0}
+                  {e.diff?.find((d) => d.field === 'regular_hours') && (
+                    <span className="muted" style={{ fontSize: 10, marginLeft: 4 }}>
+                      (was {e.current?.regular_hours ?? 0})
+                    </span>
+                  )}
+                </td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  {e.proposed?.overtime_hours ?? e.current?.overtime_hours ?? 0}
+                  {e.diff?.find((d) => d.field === 'overtime_hours') && (
+                    <span className="muted" style={{ fontSize: 10, marginLeft: 4 }}>
+                      (was {e.current?.overtime_hours ?? 0})
+                    </span>
+                  )}
+                </td>
+                <td style={{ fontSize: 12 }}>
+                  {(e.proposed?.fixed || e.current?.fixed || []).map((f, i) => (
+                    <div key={i}>{f.name}: ${f.amount.toFixed(2)}</div>
+                  ))}
+                </td>
+                <td style={{ fontSize: 12 }}>
+                  {!e.diff || e.diff.length === 0
+                    ? <span className="muted">no change</span>
+                    : (
+                      <ul style={{ margin: 0, paddingLeft: 16 }}>
+                        {e.diff.map((d, i) => (
+                          <li key={i}>{d.field}: {String(d.from)} → {String(d.to)}</li>
+                        ))}
+                      </ul>
+                    )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {unmatched_in_coreflux.length > 0 && (
+        <div style={{ marginTop: 10, padding: 8, background: '#fef2f2', borderRadius: 4 }}>
+          <strong style={{ fontSize: 12, color: '#991b1b' }}>CoreFlux lines with no Gusto employee:</strong>
+          <ul style={{ margin: 4, paddingLeft: 16, fontSize: 12 }}>
+            {unmatched_in_coreflux.map((u, i) => (
+              <li key={i}>{u.name} (#{u.employee_number || '—'}) — {u.reason}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+

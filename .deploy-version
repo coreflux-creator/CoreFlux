@@ -75,14 +75,18 @@ sentinels:
 - api/ai_categorization_rules.php
 - core/migrate.php
 - core/migrations/010_plaid_account_balances.sql
-- core/migrations/011_ai_categorization_rules_visibility.sql
+- modules/payroll/api/preflight.php
+- modules/payroll/api/gusto_preview.php
+- core/migrations/012_payroll_profile_alignment.sql
+- memory/PAYROLL_READINESS.md
+- tests/payroll_preflight_and_gusto_preview_smoke.php
 - dashboard/src/lib/format.js
 - modules/treasury/ui/SavedRules.jsx
 - tests/plaid_account_select_and_remove_smoke.php
 - tests/hardening_pass1_smoke.php
 - tests/schema_contract_smoke.php
 expected_bundle:
-- spa-assets/index-DWkYwBik.js
+- spa-assets/index-DH4KvVeO.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa

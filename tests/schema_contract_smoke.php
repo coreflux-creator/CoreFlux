@@ -77,7 +77,7 @@ if (preg_match_all(
             if ($line === '') continue;
             // Skip constraint clauses.
             if (preg_match('/^\s*(PRIMARY|KEY|UNIQUE|INDEX|CONSTRAINT|FOREIGN|FULLTEXT|SPATIAL|CHECK)\b/i', $line)) continue;
-            if (preg_match('/^`?(\w+)`?\s+(?:TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT|DECIMAL|NUMERIC|FLOAT|DOUBLE|BIT|CHAR|VARCHAR|TEXT|TINYTEXT|MEDIUMTEXT|LONGTEXT|DATE|DATETIME|TIMESTAMP|TIME|YEAR|JSON|BLOB|TINYBLOB|MEDIUMBLOB|LONGBLOB|ENUM|SET|BOOL|BOOLEAN)/i', $line, $m)) {
+            if (preg_match('/^`?(\w+)`?\s+(?:TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT|DECIMAL|NUMERIC|FLOAT|DOUBLE|BIT|CHAR|VARCHAR|VARBINARY|BINARY|TEXT|TINYTEXT|MEDIUMTEXT|LONGTEXT|DATE|DATETIME|TIMESTAMP|TIME|YEAR|JSON|BLOB|TINYBLOB|MEDIUMBLOB|LONGBLOB|ENUM|SET|BOOL|BOOLEAN|GEOMETRY|POINT)/i', $line, $m)) {
                 $columnsByTable[$table][strtolower($m[1])] = true;
             }
         }
@@ -227,42 +227,24 @@ foreach ($phpFiles as $phpFile) {
 //
 // FORMAT: "alias.column  (table=name)" — must match the violation string
 // produced below exactly.
+//
+// 2026-02 sweep: most of these were resolved by migration 012
+// (`payroll_profile_alignment.sql`) which added the missing columns
+// directly on payroll_profiles, ap_1099_ledger, placement_corp_details,
+// people_tax_federal, accounting_journal_entry_lines, people, and
+// placements. Anything that remains here is a real follow-up.
 $knownLegacyViolations = [
-    // payroll_profiles is the per-employee payroll-config row, not the
-    // per-run earnings line. These three columns live on payroll_line_items
-    // and people respectively. The settlement engine should JOIN through.
-    'pp.pay_type  (table=payroll_profiles)',
-    'pp.pay_rate_cents  (table=payroll_profiles)',
-    'pp.flsa_class  (table=payroll_profiles)',
-    // 1099 ledger uses `vendor_id` semantically but column is named differently.
-    'l.vendor_id  (table=ap_1099_ledger)',
-    // Placement corp details — corp_name lives on placement_corps, not the
-    // join table.
-    'pcd.corp_name  (table=placement_corp_details)',
-    // people_tax_federal — `is_active` lookup; column is actually `effective_through`.
-    'tf.is_active  (table=people_tax_federal)',
-    // Legacy time-settlement queries that pre-date the payroll_profiles
-    // refactor — same root cause as the first three.
-    'pp.client_bill_cycle_anchor  (table=placements)',
-    'pp.vendor_pay_cycle_anchor  (table=placements)',
-    // tenants alias used for sub-tenant tree queries; alias is wrong but
-    // the underlying join works because parent_id lives on user_tenants.
-    'st.parent_id  (table=tenants)',
-    'ut.tenant_id  (table=user_tenants)',
-    // accounting_journal_entry_lines doesn't have description/tenant_id
-    // columns directly — they live on the parent JE. Already fixed in the
-    // critical paths; this is one stale advisor query.
-    'l.description  (table=accounting_journal_entry_lines)',
-    'l.tenant_id  (table=accounting_journal_entry_lines)',
-    // people.user_id alias inside settlement_create — column name is
-    // user_account_id in the spec migration.
-    'pe.user_id  (table=people)',
     // user_tenants is bootstrapped outside the migrations dir (CoreFlux
     // legacy install path) so the parser can't see its columns. Real DB
     // has both `tenant_id` and `status`. Audit follow-up: move the
     // user_tenants schema into a numbered migration so this allowlist
     // can shrink.
+    'ut.tenant_id  (table=user_tenants)',
     'ut.status  (table=user_tenants)',
+    // tenants alias used for sub-tenant tree queries; alias is `st`
+    // (sub_tenants) but the parser maps it to `tenants`. Real query
+    // joins through correctly.
+    'st.parent_id  (table=tenants)',
 ];
 
 $violationCount = 0;
