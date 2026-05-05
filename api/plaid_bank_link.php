@@ -54,6 +54,11 @@ if ($action === 'link_token') {
         // enrichment (APR, statement balance, min payment) is requested as
         // optional so credit/loan accounts surface their extra data when
         // available without blocking institutions that don't support it.
+        //
+        // `account_filters` keeps investment / brokerage / payroll cards out of
+        // the picker entirely so the user only sees account types CoreFlux can
+        // mirror into Treasury. Per-account opt-in is then enforced in our own
+        // post-Link picker (see exchange branch + UI).
         $resp = plaidPost('/link/token/create', [
             'client_name'                    => 'CoreFlux Treasury',
             'user'                           => ['client_user_id' => 'cf_tenant_' . $tenantId . '_u' . ($user['id'] ?? 0)],
@@ -62,6 +67,11 @@ if ($action === 'link_token') {
             'products'                       => ['transactions'],
             'required_if_supported_products' => ['auth'],
             'optional_products'              => ['liabilities'],
+            'account_filters'                => [
+                'depository' => ['account_subtypes' => ['checking', 'savings', 'money market', 'cd']],
+                'credit'     => ['account_subtypes' => ['credit card', 'paypal']],
+                'loan'       => ['account_subtypes' => ['line of credit', 'student', 'mortgage', 'auto', 'commercial', 'home equity', 'consumer', 'other']],
+            ],
             'webhook'                        => plaidWebhookUrl(),
         ]);
         api_ok([
@@ -80,6 +90,20 @@ if ($action === 'exchange') {
     $publicToken = trim((string) ($body['public_token'] ?? ''));
     if ($publicToken === '') api_error('public_token required', 422);
     $institution = is_array($body['institution'] ?? null) ? $body['institution'] : [];
+
+    // Per-account opt-in: when the UI passes selected_account_ids[], only those
+    // Plaid accounts get mirrored into Treasury. Unselected accounts still get
+    // recorded in plaid_accounts (so you can backfill later via diagnostics)
+    // but won't pollute deposit/liability lists. Empty/missing == mirror all
+    // (legacy behavior).
+    $selectedIds = [];
+    if (isset($body['selected_account_ids']) && is_array($body['selected_account_ids'])) {
+        $selectedIds = array_values(array_filter(array_map(
+            fn ($v) => (string) $v,
+            $body['selected_account_ids']
+        ), fn ($v) => $v !== ''));
+    }
+    $selectedSet = $selectedIds ? array_flip($selectedIds) : null;
 
     try {
         $exchange = plaidExchangePublicToken($publicToken);
@@ -153,6 +177,7 @@ if ($action === 'exchange') {
     $createdBank = [];
     $createdLiab = [];
     $itemErrors  = [];
+    $skippedOptOut = [];
     foreach ($plaidAccounts as $acc) {
         $accId   = (string) ($acc['account_id'] ?? '');
         if ($accId === '') continue;
@@ -179,6 +204,14 @@ if ($action === 'exchange') {
             ]);
         } catch (\Throwable $e) {
             $itemErrors[] = "plaid_accounts insert failed for {$name}: " . $e->getMessage();
+            continue;
+        }
+
+        // Per-account opt-in gate: if the UI sent an explicit allow-list,
+        // skip mirroring everything else. The plaid_accounts row above is
+        // still kept so the orphan-backfill diagnostic can ingest it later.
+        if ($selectedSet !== null && !isset($selectedSet[$accId])) {
+            $skippedOptOut[] = "{$name}" . ($mask ? " …{$mask}" : '');
             continue;
         }
 
@@ -299,6 +332,8 @@ if ($action === 'exchange') {
         'institution'              => $institution['name'] ?? null,
         'bank_accounts_created'    => $createdBank,
         'liability_accounts_created' => $createdLiab,
+        'selected_account_ids'     => $selectedIds,
+        'skipped_opt_out'          => $skippedOptOut,
         'errors'                   => $itemErrors,
     ], null);
 
@@ -309,6 +344,7 @@ if ($action === 'exchange') {
         'accounts_linked'            => count($plaidAccounts),
         'bank_accounts_created'      => $createdBank,
         'liability_accounts_created' => $createdLiab,
+        'skipped_opt_out'            => $skippedOptOut,
         'errors'                     => $itemErrors,
     ]);
 }

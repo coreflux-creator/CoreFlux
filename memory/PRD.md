@@ -1237,7 +1237,20 @@ Path-B architectural decision: customer uses ONE CoreFlux tenant per legal famil
 - New smoke `payment_rails_wireup_smoke.php` (60 assertions). **Combined suite: 2,478 passing / 0 failed across 38 files**.
 
 ---
-*Last Updated: 2026-02 — Sprint A.8 shipped (consolidation lock + NCI + AR IC split + entity pickers). PaymentRails wired into AP + Payroll with NACHA driver as zero-key default; Plaid Transfer driver still scaffolded (awaiting tenant API keys).*
+*2026-02 — Plaid bank-link UX: account picker + per-account remove + institution disconnect:*
+- **`/api/plaid_bank_link.php` link_token** — added `account_filters` (`depository`/`credit`/`loan` subtypes only) so investment / brokerage / payroll cards never appear in the picker.
+- **`/api/plaid_bank_link.php?action=exchange`** — accepts `selected_account_ids[]`. Plaid accounts not on the allowlist still get recorded in `plaid_accounts` (so the diagnostics panel can backfill later) but skip the deposit/liability mirror. Response surfaces `skipped_opt_out`.
+- **`/modules/treasury/api/deposit_accounts.php` DELETE** — `mode=hide` flips `status='closed'`; `mode=delete` purges `accounting_bank_statement_lines` + the bank account row but blocks (409) when posted JEs reference the GL code.
+- **`/modules/treasury/api/liability_accounts.php` DELETE** — `mode=hide` deactivates the COA row; `mode=delete` purges liability statement lines + companion + COA row, again blocking when posted JEs exist.
+- **New `/api/plaid_items.php`** — GET lists connected institutions with mirrored counts; DELETE revokes via Plaid `/item/remove`, cascade-hides every mirrored deposit/liability for that institution, and marks the `plaid_items` row `disconnected` for audit.
+- **Treasury UI**:
+  - DepositAccounts row: replaced the conflated "Reconnect / Sync" with separate **Sync** (direct API call, no modal), **Hide**, **Delete** buttons.
+  - LiabilityAccounts row: same triplet — Sync (resolves item via diagnostics), Hide, Delete.
+  - TreasuryOverview: post-Link **account picker modal** lets the user opt in account-by-account before any data is mirrored; new **Connected institutions** panel with Disconnect button per Plaid item.
+- Smoke `tests/plaid_account_select_and_remove_smoke.php` — 41 assertions. **Combined suite: 3,352 passing / 2 failed (pre-existing AP A1 follow-ups)**.
+
+---
+*Last Updated: 2026-02 — Plaid bank-link UX overhaul (account picker, per-account remove, item disconnect) shipped.*
 
 ## Open / Pending P1
 - **Plaid Transfer go-live** — needs tenant-supplied `PLAID_CLIENT_ID` / `PLAID_SECRET_*` / `PLAID_ENV` + Transfer pre-approval. Driver scaffold is in place; once keys land, the per-tenant `tenant_payment_rails` row gets populated and `disbursement_rail='plaid_transfer'` flips on without any consumer-code changes.

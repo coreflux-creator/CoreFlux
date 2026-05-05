@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
-import PlaidLinkButton from '../../../dashboard/src/components/PlaidLinkButton';
 
 const fmtMoney = (n) =>
   (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
@@ -61,58 +60,134 @@ function DepositList() {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr
-                key={r.id}
-                data-testid={`treasury-deposit-row-${r.id}`}
-                style={{ cursor: 'pointer' }}
-                onClick={() => { window.location.hash = `#/modules/accounting/bank-rec/${r.id}`; }}
-              >
-                <td>{r.name}</td>
-                <td><code>{r.gl_account_code}</code></td>
-                <td>{r.bank_name || '—'}</td>
-                <td>{r.last4 || '—'}</td>
-                <td>
-                  {r.plaid_connected ? (
-                    <span className="badge badge--active">plaid</span>
-                  ) : (
-                    <span className="badge">manual</span>
-                  )}
-                </td>
-                <td className="muted">{r.last_feed_synced_at || '—'}</td>
-                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                  {fmtMoney(r.gl_balance)}
-                </td>
-                <td onClick={(e) => e.stopPropagation()}>
-                  <a
-                    href={`#/modules/accounting/bank-rec/${r.id}`}
-                    className="btn btn--ghost"
-                    data-testid={`treasury-deposit-view-${r.id}`}
-                    style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
-                  >
-                    Open reconciliation →
-                  </a>
-                  <PlaidLinkButton
-                    purpose="bank_feed"
-                    accountingBankAccountId={r.id}
-                    label={r.plaid_connected ? 'Reconnect / Sync' : 'Connect Plaid'}
-                    testIdSuffix={`deposit-${r.id}`}
-                    onLinked={async (res) => {
-                      try {
-                        await api.post('/api/plaid_sync_transactions.php', {
-                          item_id: res.item_id,
-                          accounting_bank_account_id: r.id,
-                        });
-                        reload();
-                      } catch (_e) { reload(); }
-                    }}
-                  />
-                </td>
-              </tr>
+              <DepositRow key={r.id} row={r} onChanged={reload} />
             ))}
           </tbody>
         </table>
       )}
     </section>
+  );
+}
+
+function DepositRow({ row: r, onChanged }) {
+  const [busy, setBusy] = useState(null); // 'sync' | 'hide' | 'delete' | null
+  const [err, setErr]   = useState(null);
+
+  const sync = async (e) => {
+    e.stopPropagation();
+    setBusy('sync'); setErr(null);
+    try {
+      // Resolve item_id from plaid_account_id via diagnostics — avoids re-opening
+      // Plaid Link just to refresh transactions.
+      const diag = await api.get('/api/plaid_diagnostics.php');
+      const acc = (diag.plaid_accounts || []).find((a) => a.account_id === r.plaid_account_id);
+      const itemPk = acc?.plaid_item_pk;
+      const item = (diag.plaid_items || []).find((i) => i.id === itemPk);
+      if (!item) throw new Error('Plaid item not found for this account. Try Reconnect.');
+      await api.post('/api/plaid_sync_transactions.php', {
+        item_id: item.item_id,
+        accounting_bank_account_id: r.id,
+      });
+      onChanged && onChanged();
+    } catch (e) { setErr(e.message || 'Sync failed'); }
+    finally { setBusy(null); }
+  };
+
+  const hide = async (e) => {
+    e.stopPropagation();
+    if (!confirm(`Hide "${r.name}"? It will be removed from the list but historical transactions remain.`)) return;
+    setBusy('hide'); setErr(null);
+    try {
+      await api.delete(`/modules/treasury/api/deposit_accounts.php?id=${r.id}&mode=hide`);
+      onChanged && onChanged();
+    } catch (e) { setErr(e.message || 'Hide failed'); }
+    finally { setBusy(null); }
+  };
+
+  const hardDelete = async (e) => {
+    e.stopPropagation();
+    if (!confirm(`Permanently DELETE "${r.name}" and all its imported statement lines?\n\nThis cannot be undone. (Allowed only when no posted journal entries reference this account.)`)) return;
+    setBusy('delete'); setErr(null);
+    try {
+      await api.delete(`/modules/treasury/api/deposit_accounts.php?id=${r.id}&mode=delete`);
+      onChanged && onChanged();
+    } catch (e) { setErr(e.message || 'Delete failed'); }
+    finally { setBusy(null); }
+  };
+
+  return (
+    <>
+    <tr
+      data-testid={`treasury-deposit-row-${r.id}`}
+      style={{ cursor: 'pointer' }}
+      onClick={() => { window.location.hash = `#/modules/accounting/bank-rec/${r.id}`; }}
+    >
+      <td>{r.name}</td>
+      <td><code>{r.gl_account_code}</code></td>
+      <td>{r.bank_name || '—'}</td>
+      <td>{r.last4 || '—'}</td>
+      <td>
+        {r.plaid_connected ? (
+          <span className="badge badge--active">plaid</span>
+        ) : (
+          <span className="badge">manual</span>
+        )}
+      </td>
+      <td className="muted">{r.last_feed_synced_at || '—'}</td>
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+        {fmtMoney(r.gl_balance)}
+      </td>
+      <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
+        <a
+          href={`#/modules/accounting/bank-rec/${r.id}`}
+          className="btn btn--ghost"
+          data-testid={`treasury-deposit-view-${r.id}`}
+          style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
+        >
+          Open reconciliation →
+        </a>
+        {r.plaid_connected && (
+          <button
+            type="button"
+            onClick={sync}
+            disabled={busy === 'sync'}
+            className="btn btn--ghost"
+            data-testid={`treasury-deposit-sync-${r.id}`}
+            style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
+          >
+            {busy === 'sync' ? 'Syncing…' : 'Sync'}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={hide}
+          disabled={busy === 'hide'}
+          className="btn btn--ghost"
+          data-testid={`treasury-deposit-hide-${r.id}`}
+          style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
+          title="Hide this account from Treasury (keeps history)"
+        >
+          {busy === 'hide' ? 'Hiding…' : 'Hide'}
+        </button>
+        <button
+          type="button"
+          onClick={hardDelete}
+          disabled={busy === 'delete'}
+          className="btn btn--ghost"
+          data-testid={`treasury-deposit-delete-${r.id}`}
+          style={{ padding: '4px 10px', fontSize: 12, color: '#b91c1c' }}
+          title="Permanently delete this account and its statement lines"
+        >
+          {busy === 'delete' ? 'Deleting…' : 'Delete'}
+        </button>
+      </td>
+    </tr>
+    {err && (
+      <tr data-testid={`treasury-deposit-err-${r.id}`}>
+        <td colSpan={8} style={{ color: '#b91c1c', fontSize: 12, paddingLeft: 16 }}>{err}</td>
+      </tr>
+    )}
+    </>
   );
 }
 

@@ -71,50 +71,125 @@ function LiabilityList() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
-              const util = r.credit_limit && r.credit_limit > 0
-                ? Math.round((r.gl_balance / r.credit_limit) * 100)
-                : null;
-              return (
-                <tr
-                  key={r.id}
-                  data-testid={`treasury-liability-row-${r.id}`}
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => navigate(`./${r.id}`)}
-                >
-                  <td><code>{r.code}</code></td>
-                  <td>{r.name}</td>
-                  <td>{SUBTYPE_LABELS[r.subtype] || r.subtype || '—'}</td>
-                  <td>{r.institution_name || '—'}</td>
-                  <td>{r.last4 || '—'}</td>
-                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {fmtMoney(r.gl_balance)}
-                  </td>
-                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {r.credit_limit ? fmtMoney(r.credit_limit) : '—'}
-                  </td>
-                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {util !== null ? `${util}%` : '—'}
-                  </td>
-                  <td>{r.apr_pct !== null && r.apr_pct !== undefined ? `${r.apr_pct.toFixed(2)}%` : '—'}</td>
-                  <td>
-                    <Link
-                      to={`./${r.id}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="btn btn--ghost"
-                      data-testid={`treasury-liability-view-${r.id}`}
-                      style={{ padding: '4px 10px', fontSize: 12 }}
-                    >
-                      View →
-                    </Link>
-                  </td>
-                </tr>
-              );
-            })}
+            {rows.map((r) => (
+              <LiabilityRow key={r.id} row={r} navigate={navigate} onChanged={reload} />
+            ))}
           </tbody>
         </table>
       )}
     </section>
+  );
+}
+
+function LiabilityRow({ row: r, navigate, onChanged }) {
+  const [busy, setBusy] = useState(null);
+  const [err, setErr]   = useState(null);
+  const util = r.credit_limit && r.credit_limit > 0
+    ? Math.round((r.gl_balance / r.credit_limit) * 100)
+    : null;
+
+  const sync = async (e) => {
+    e.stopPropagation();
+    setBusy('sync'); setErr(null);
+    try {
+      const diag = await api.get('/api/plaid_diagnostics.php');
+      const liabRow = (diag.treasury_liability_accounts_for_plaid || []).find((l) => l.account_id === r.id);
+      const acc = (diag.plaid_accounts || []).find((a) => a.account_id === liabRow?.plaid_account_id);
+      const item = (diag.plaid_items || []).find((i) => i.id === acc?.plaid_item_pk);
+      if (!item) throw new Error('No Plaid item linked. This is a manual liability — sync only applies to Plaid-connected cards.');
+      await api.post('/api/plaid_sync_transactions.php', { item_id: item.item_id });
+      onChanged && onChanged();
+    } catch (e) { setErr(e.message || 'Sync failed'); }
+    finally { setBusy(null); }
+  };
+
+  const hide = async (e) => {
+    e.stopPropagation();
+    if (!confirm(`Hide "${r.name}"? Historical journal entries remain; the account just won't appear in Treasury.`)) return;
+    setBusy('hide'); setErr(null);
+    try {
+      await api.delete(`/modules/treasury/api/liability_accounts.php?id=${r.id}&mode=hide`);
+      onChanged && onChanged();
+    } catch (e) { setErr(e.message || 'Hide failed'); }
+    finally { setBusy(null); }
+  };
+
+  const hardDelete = async (e) => {
+    e.stopPropagation();
+    if (!confirm(`Permanently DELETE "${r.name}"?\n\nThis cannot be undone. (Allowed only when no posted journal entries reference this liability.)`)) return;
+    setBusy('delete'); setErr(null);
+    try {
+      await api.delete(`/modules/treasury/api/liability_accounts.php?id=${r.id}&mode=delete`);
+      onChanged && onChanged();
+    } catch (e) { setErr(e.message || 'Delete failed'); }
+    finally { setBusy(null); }
+  };
+
+  return (
+    <>
+    <tr
+      data-testid={`treasury-liability-row-${r.id}`}
+      style={{ cursor: 'pointer' }}
+      onClick={() => navigate(`./${r.id}`)}
+    >
+      <td><code>{r.code}</code></td>
+      <td>{r.name}</td>
+      <td>{SUBTYPE_LABELS[r.subtype] || r.subtype || '—'}</td>
+      <td>{r.institution_name || '—'}</td>
+      <td>{r.last4 || '—'}</td>
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.gl_balance)}</td>
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.credit_limit ? fmtMoney(r.credit_limit) : '—'}</td>
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{util !== null ? `${util}%` : '—'}</td>
+      <td>{r.apr_pct !== null && r.apr_pct !== undefined ? `${r.apr_pct.toFixed(2)}%` : '—'}</td>
+      <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
+        <Link
+          to={`./${r.id}`}
+          className="btn btn--ghost"
+          data-testid={`treasury-liability-view-${r.id}`}
+          style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
+        >
+          View →
+        </Link>
+        <button
+          type="button"
+          onClick={sync}
+          disabled={busy === 'sync'}
+          className="btn btn--ghost"
+          data-testid={`treasury-liability-sync-${r.id}`}
+          style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
+        >
+          {busy === 'sync' ? 'Syncing…' : 'Sync'}
+        </button>
+        <button
+          type="button"
+          onClick={hide}
+          disabled={busy === 'hide'}
+          className="btn btn--ghost"
+          data-testid={`treasury-liability-hide-${r.id}`}
+          style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
+          title="Hide this liability from Treasury (keeps history)"
+        >
+          {busy === 'hide' ? 'Hiding…' : 'Hide'}
+        </button>
+        <button
+          type="button"
+          onClick={hardDelete}
+          disabled={busy === 'delete'}
+          className="btn btn--ghost"
+          data-testid={`treasury-liability-delete-${r.id}`}
+          style={{ padding: '4px 10px', fontSize: 12, color: '#b91c1c' }}
+          title="Permanently delete this liability"
+        >
+          {busy === 'delete' ? 'Deleting…' : 'Delete'}
+        </button>
+      </td>
+    </tr>
+    {err && (
+      <tr data-testid={`treasury-liability-err-${r.id}`}>
+        <td colSpan={10} style={{ color: '#b91c1c', fontSize: 12, paddingLeft: 16 }}>{err}</td>
+      </tr>
+    )}
+    </>
   );
 }
 

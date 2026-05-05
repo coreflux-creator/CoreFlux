@@ -128,9 +128,109 @@ export default function TreasuryOverview() {
       </section>
 
       <section className="treasury-overview__section">
+        <ConnectedInstitutions onChanged={() => window.location.reload()} />
+      </section>
+
+      <section className="treasury-overview__section">
         <PlaidTransferFundingCard />
       </section>
     </section>
+  );
+}
+
+function ConnectedInstitutions({ onChanged }) {
+  const { data, loading, reload } = useApi('/api/plaid_items.php');
+  const rows = data?.rows || [];
+  const [busy, setBusy] = React.useState(null);
+  const [err, setErr]   = React.useState(null);
+
+  const disconnect = async (item) => {
+    const confirmMsg =
+      `Disconnect ${item.institution_name || 'this institution'}?\n\n` +
+      `• Plaid will revoke our access token (no more transaction syncs).\n` +
+      `• ${item.mirrored_deposit_count || 0} deposit account(s) and ${item.mirrored_liability_count || 0} liability account(s) will be hidden from Treasury.\n` +
+      `• Historical journal entries and statement lines stay intact.\n\n` +
+      `Continue?`;
+    if (!confirm(confirmMsg)) return;
+    setBusy(item.id); setErr(null);
+    try {
+      await fetch(`/api/plaid_items.php?id=${item.id}`, {
+        method: 'DELETE', credentials: 'include',
+      }).then((r) => r.json().then((d) => r.ok ? d : Promise.reject(d)));
+      await reload();
+      if (onChanged) onChanged();
+    } catch (e) {
+      setErr(e.error || e.message || 'Disconnect failed');
+    } finally { setBusy(null); }
+  };
+
+  return (
+    <div data-testid="treasury-connected-institutions">
+      <h3>Connected institutions</h3>
+      <p className="muted" style={{ fontSize: 13 }}>
+        Each row is a single Plaid login — disconnecting revokes the token at
+        Plaid and hides every mirrored deposit / liability from this list.
+        Use <em>Hide</em> or <em>Delete</em> on individual rows above for
+        per-account control.
+      </p>
+      {loading && <p>Loading…</p>}
+      {!loading && rows.length === 0 && (
+        <p className="empty-state" data-testid="treasury-connected-institutions-empty">
+          No banks connected yet.
+        </p>
+      )}
+      {rows.length > 0 && (
+        <table className="data-table" data-testid="treasury-connected-institutions-table">
+          <thead>
+            <tr>
+              <th>Institution</th><th>Status</th>
+              <th style={{ textAlign: 'right' }}>Accounts</th>
+              <th style={{ textAlign: 'right' }}>Mirrored</th>
+              <th>Last webhook</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} data-testid={`treasury-plaid-item-row-${r.id}`}>
+                <td>
+                  <strong>{r.institution_name || '—'}</strong>
+                  <div className="muted" style={{ fontSize: 11 }}>{r.item_id}</div>
+                </td>
+                <td>
+                  {r.status === 'linked' && <span className="badge badge--active">linked</span>}
+                  {r.status === 'disconnected' && <span className="badge">disconnected</span>}
+                  {r.status === 'error' && <span className="badge" style={{ background: '#fee2e2', color: '#991b1b' }}>error</span>}
+                  {r.last_error_message && (
+                    <div className="muted" style={{ fontSize: 11 }}>{r.last_error_message}</div>
+                  )}
+                </td>
+                <td style={{ textAlign: 'right' }}>{r.account_count}</td>
+                <td style={{ textAlign: 'right' }}>
+                  {r.mirrored_deposit_count} dep · {r.mirrored_liability_count} liab
+                </td>
+                <td className="muted" style={{ fontSize: 12 }}>{r.last_webhook_at || '—'}</td>
+                <td style={{ textAlign: 'right' }}>
+                  {r.status !== 'disconnected' && (
+                    <button
+                      type="button"
+                      onClick={() => disconnect(r)}
+                      disabled={busy === r.id}
+                      className="btn btn--ghost"
+                      data-testid={`treasury-plaid-item-disconnect-${r.id}`}
+                      style={{ padding: '4px 10px', fontSize: 12, color: '#b91c1c' }}
+                    >
+                      {busy === r.id ? 'Disconnecting…' : 'Disconnect'}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {err && <p className="error" data-testid="treasury-connected-institutions-error">{err}</p>}
+    </div>
   );
 }
 
@@ -140,6 +240,11 @@ function BankConnectCard({ onLinked }) {
   const [err, setErr]   = React.useState(null);
   const [diag, setDiag] = React.useState(null);
   const [backfilling, setBackfilling] = React.useState(false);
+
+  // Post-Link account picker state
+  const [picker, setPicker] = React.useState(null); // { publicToken, institution, accounts:[{id,name,mask,subtype,type}] }
+  const [pickerSelected, setPickerSelected] = React.useState({}); // accountId -> bool
+  const [exchanging, setExchanging] = React.useState(false);
 
   const link = async () => {
     setBusy(true); setMsg(null); setErr(null);
@@ -153,35 +258,23 @@ function BankConnectCard({ onLinked }) {
       await ensurePlaidLink();
       const handler = window.Plaid.create({
         token: tok.link_token,
-        onSuccess: async (publicToken, meta) => {
-          try {
-            const res = await fetch('/api/plaid_bank_link.php?action=exchange', {
-              method: 'POST', credentials: 'include',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                public_token: publicToken,
-                accounts:    meta?.accounts || [],
-                institution: {
-                  name:           meta?.institution?.name           || null,
-                  institution_id: meta?.institution?.institution_id || null,
-                },
-              }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Exchange failed');
-            const dep = data.bank_accounts_created?.length || 0;
-            const lia = data.liability_accounts_created?.length || 0;
-            const errs = data.errors || [];
-            const parts = [];
-            if (dep) parts.push(`${dep} deposit${dep === 1 ? '' : 's'}`);
-            if (lia) parts.push(`${lia} liabilit${lia === 1 ? 'y' : 'ies'}`);
-            const summary = parts.length ? parts.join(' + ') : 'no new accounts (already linked?)';
-            setMsg(`Linked ${meta?.institution?.name || 'bank'} — ${summary}.`);
-            if (errs.length) {
-              setErr('Some accounts could not be added:\n• ' + errs.join('\n• '));
-            }
-            if ((dep || lia) && onLinked) setTimeout(onLinked, 1200);
-          } catch (e) { setErr(e.message); }
+        onSuccess: (publicToken, meta) => {
+          // Pop the picker — the user opts in account-by-account before we
+          // mirror anything into Treasury. If Plaid returned no metadata
+          // accounts (rare), fall back to "include all" exchange.
+          const accounts = (meta?.accounts || []).map((a) => ({
+            id: a.id, name: a.name, mask: a.mask,
+            type: a.type, subtype: a.subtype,
+          }));
+          if (accounts.length === 0) {
+            doExchange(publicToken, meta?.institution || {}, null);
+            return;
+          }
+          // Default-select all (matches old behavior, but visible & toggleable).
+          const sel = {};
+          accounts.forEach((a) => { sel[a.id] = true; });
+          setPickerSelected(sel);
+          setPicker({ publicToken, institution: meta?.institution || {}, accounts });
         },
         onExit: (e) => { if (e) setErr(e.error_message || 'Cancelled'); },
       });
@@ -189,6 +282,54 @@ function BankConnectCard({ onLinked }) {
     } catch (e) {
       setErr(e.error || e.message || 'Plaid Link failed');
     } finally { setBusy(false); }
+  };
+
+  const doExchange = async (publicToken, institution, selectedIds) => {
+    setExchanging(true); setErr(null);
+    try {
+      const body = {
+        public_token: publicToken,
+        institution: {
+          name:           institution?.name           || null,
+          institution_id: institution?.institution_id || null,
+        },
+      };
+      if (Array.isArray(selectedIds)) body.selected_account_ids = selectedIds;
+      const res = await fetch('/api/plaid_bank_link.php?action=exchange', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Exchange failed');
+      const dep = data.bank_accounts_created?.length || 0;
+      const lia = data.liability_accounts_created?.length || 0;
+      const skipped = data.skipped_opt_out?.length || 0;
+      const errs = data.errors || [];
+      const parts = [];
+      if (dep) parts.push(`${dep} deposit${dep === 1 ? '' : 's'}`);
+      if (lia) parts.push(`${lia} liabilit${lia === 1 ? 'y' : 'ies'}`);
+      if (skipped) parts.push(`${skipped} skipped (you opted out)`);
+      const summary = parts.length ? parts.join(' + ') : 'no new accounts (already linked?)';
+      setMsg(`Linked ${institution?.name || 'bank'} — ${summary}.`);
+      if (errs.length) {
+        setErr('Some accounts could not be added:\n• ' + errs.join('\n• '));
+      }
+      setPicker(null);
+      if ((dep || lia) && onLinked) setTimeout(onLinked, 1200);
+    } catch (e) { setErr(e.message); }
+    finally { setExchanging(false); }
+  };
+
+  const confirmPicker = () => {
+    if (!picker) return;
+    const ids = Object.entries(pickerSelected).filter(([, v]) => v).map(([k]) => k);
+    if (ids.length === 0) {
+      if (!confirm('No accounts selected — cancel this connection?')) return;
+      setPicker(null);
+      return;
+    }
+    doExchange(picker.publicToken, picker.institution, ids);
   };
 
   const runDiagnostics = async () => {
@@ -297,6 +438,77 @@ function BankConnectCard({ onLinked }) {
       )}
       {msg && <p style={{ color: '#065f46', fontSize: 13, marginTop: 8 }} data-testid="plaid-bank-connect-success">{msg}</p>}
       {err && <p className="error" data-testid="plaid-bank-connect-error" style={{ whiteSpace: 'pre-line' }}>{err}</p>}
+      {picker && (
+        <div
+          data-testid="plaid-account-picker-modal"
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+        >
+          <div style={{
+            background: '#fff', borderRadius: 8, padding: 24, width: 'min(560px, 92vw)',
+            maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
+          }}>
+            <h3 style={{ marginTop: 0 }}>Choose accounts to ingest</h3>
+            <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
+              {picker.institution?.name || 'Plaid'} returned {picker.accounts.length} account
+              {picker.accounts.length === 1 ? '' : 's'}. Only the ones you check
+              below will be mirrored into Treasury — uncheck personal / out-of-scope
+              accounts. You can always backfill later from <em>Run diagnostics</em>.
+            </p>
+            <div style={{ borderTop: '1px solid var(--cf-border, #e5e7eb)', margin: '12px 0' }} />
+            <div data-testid="plaid-account-picker-list">
+              {picker.accounts.map((a) => (
+                <label
+                  key={a.id}
+                  data-testid={`plaid-account-picker-row-${a.id}`}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '8px 4px', borderBottom: '1px solid var(--cf-border, #f1f5f9)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!pickerSelected[a.id]}
+                    onChange={(e) => setPickerSelected((s) => ({ ...s, [a.id]: e.target.checked }))}
+                    data-testid={`plaid-account-picker-cb-${a.id}`}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 500 }}>
+                      {a.name} {a.mask ? <span className="muted">····{a.mask}</span> : null}
+                    </div>
+                    <div className="muted" style={{ fontSize: 12 }}>
+                      {a.type}{a.subtype ? ` · ${a.subtype}` : ''}
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setPicker(null)}
+                disabled={exchanging}
+                data-testid="plaid-account-picker-cancel"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={confirmPicker}
+                disabled={exchanging}
+                data-testid="plaid-account-picker-confirm"
+              >
+                {exchanging ? 'Saving…' : `Add ${Object.values(pickerSelected).filter(Boolean).length} account${Object.values(pickerSelected).filter(Boolean).length === 1 ? '' : 's'}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

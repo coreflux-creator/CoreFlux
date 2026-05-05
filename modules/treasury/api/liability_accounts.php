@@ -93,6 +93,69 @@ switch (api_method()) {
             api_error('Failed to create liability account: ' . $e->getMessage(), 422);
         }
     }
+
+    case 'DELETE': {
+        RBAC::requirePermission($ctx['user'], 'treasury.liability.manage');
+        $id   = (int) ($_GET['id'] ?? 0);
+        $mode = (string) ($_GET['mode'] ?? 'hide');
+        if ($id <= 0) api_error('id required', 400);
+        if (!in_array($mode, ['hide', 'delete'], true)) {
+            api_error('mode must be "hide" or "delete"', 422);
+        }
+
+        $row = scopedFind(
+            "SELECT aa.id, aa.code, aa.name
+               FROM accounting_accounts aa
+              WHERE aa.tenant_id = :tenant_id AND aa.id = :id AND aa.account_type = 'liability'",
+            ['id' => $id]
+        );
+        if (!$row) api_error('Liability account not found', 404);
+
+        $pdo = getDB();
+        if ($mode === 'delete') {
+            $usage = scopedFind(
+                "SELECT COUNT(*) AS c
+                   FROM accounting_journal_entry_lines jel
+                   JOIN accounting_journal_entries je ON je.id = jel.je_id
+                  WHERE je.tenant_id = :tenant_id AND jel.account_id = :id AND je.status = 'posted'",
+                ['id' => $id]
+            );
+            if ((int) ($usage['c'] ?? 0) > 0) {
+                api_error('Cannot hard-delete: posted journal entries reference this liability. Use mode=hide instead.', 409, [
+                    'posted_lines' => (int) $usage['c'],
+                ]);
+            }
+            // Best-effort: clear liability statement lines + companion row, then COA row.
+            try {
+                $pdo->prepare(
+                    'DELETE FROM treasury_liability_statement_lines
+                      WHERE tenant_id = :t AND liability_account_id = :id'
+                )->execute(['t' => currentTenantId(), 'id' => $id]);
+            } catch (\Throwable $_) { /* table may not exist on fresh tenant */ }
+            // Companion row in treasury_liability_accounts is keyed by account_id.
+            $pdo->prepare(
+                'DELETE FROM treasury_liability_accounts
+                  WHERE tenant_id = :t AND account_id = :aid'
+            )->execute(['t' => currentTenantId(), 'aid' => $id]);
+            scopedDelete('accounting_accounts', $id);
+        } else {
+            scopedUpdate('accounting_accounts', $id, ['active' => 0]);
+        }
+
+        try {
+            $pdo->prepare(
+                'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
+                 VALUES (:t, :u, :e, :tid, :m, NOW())'
+            )->execute([
+                't' => currentTenantId(), 'u' => (int) ($ctx['user']['id'] ?? 0),
+                'e' => 'treasury.liability.' . ($mode === 'delete' ? 'deleted' : 'hidden'),
+                'tid' => $id,
+                'm' => json_encode(['code' => $row['code'], 'name' => $row['name']]),
+            ]);
+        } catch (\Throwable $_) {}
+
+        api_ok(['ok' => true, 'mode' => $mode]);
+    }
 }
 
 api_error('Method not allowed', 405);

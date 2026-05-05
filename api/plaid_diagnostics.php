@@ -31,6 +31,8 @@ RBAC::requirePermission($ctx['user'], 'accounting.bank.manage');
 if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') {
     require_once __DIR__ . '/../core/plaid_service.php';
 
+    $pdo = getDB();
+
     // Self-heal: add the liability column if it isn't there yet (mirror of
     // the same guard in plaid_bank_link.php).
     try {

@@ -77,6 +77,66 @@ switch (api_method()) {
 
         api_ok(['id' => $id], 201);
     }
+
+    case 'DELETE': {
+        RBAC::requirePermission($ctx['user'], 'treasury.deposit.manage');
+        $id   = (int) ($_GET['id'] ?? 0);
+        $mode = (string) ($_GET['mode'] ?? 'hide');
+        if ($id <= 0) api_error('id required', 400);
+        if (!in_array($mode, ['hide', 'delete'], true)) {
+            api_error('mode must be "hide" or "delete"', 422);
+        }
+
+        $row = scopedFind(
+            'SELECT id, name, plaid_account_id FROM accounting_bank_accounts
+              WHERE tenant_id = :tenant_id AND id = :id',
+            ['id' => $id]
+        );
+        if (!$row) api_error('Deposit account not found', 404);
+
+        $pdo = getDB();
+        if ($mode === 'delete') {
+            // Hard delete is only allowed when no posted journal entry references
+            // the matching GL code — otherwise the ledger goes inconsistent.
+            $usage = scopedFind(
+                "SELECT COUNT(*) AS c
+                   FROM accounting_journal_entry_lines jel
+                   JOIN accounting_journal_entries je ON je.id = jel.je_id
+                   JOIN accounting_accounts aa ON aa.id = jel.account_id
+                   JOIN accounting_bank_accounts ba ON ba.gl_account_code = aa.code AND ba.tenant_id = aa.tenant_id
+                  WHERE ba.tenant_id = :tenant_id AND ba.id = :id AND je.status = 'posted'",
+                ['id' => $id]
+            );
+            if ((int) ($usage['c'] ?? 0) > 0) {
+                api_error('Cannot hard-delete: posted journal entries reference this account. Use mode=hide instead.', 409, [
+                    'posted_lines' => (int) $usage['c'],
+                ]);
+            }
+            // Wipe statement lines, then the bank account row itself. Plaid_accounts
+            // intentionally NOT touched (caller can disconnect the item separately).
+            $pdo->prepare(
+                'DELETE FROM accounting_bank_statement_lines
+                  WHERE tenant_id = :t AND bank_account_id = :id'
+            )->execute(['t' => currentTenantId(), 'id' => $id]);
+            scopedDelete('accounting_bank_accounts', $id);
+        } else {
+            scopedUpdate('accounting_bank_accounts', $id, ['status' => 'closed']);
+        }
+
+        try {
+            $pdo->prepare(
+                'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
+                 VALUES (:t, :u, :e, :tid, :m, NOW())'
+            )->execute([
+                't' => currentTenantId(), 'u' => (int) ($ctx['user']['id'] ?? 0),
+                'e' => 'treasury.deposit.' . ($mode === 'delete' ? 'deleted' : 'hidden'),
+                'tid' => $id,
+                'm' => json_encode(['name' => $row['name'], 'plaid_account_id' => $row['plaid_account_id']]),
+            ]);
+        } catch (\Throwable $_) {}
+
+        api_ok(['ok' => true, 'mode' => $mode]);
+    }
 }
 
 api_error('Method not allowed', 405);
