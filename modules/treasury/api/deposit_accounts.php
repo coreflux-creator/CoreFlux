@@ -18,8 +18,43 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 
 $ctx = api_require_auth();
 
+/**
+ * Self-heal: ensure the live-balance columns exist on plaid_accounts before
+ * the GET LEFT-JOIN runs them. Production tenants who haven't pulled
+ * migration 010 yet would otherwise hit "Unknown column pa.current_balance_cents"
+ * and get an empty list back. Mirrors the same guard used by
+ * plaidPersistAccountBalances() in core/plaid_service.php.
+ */
+function _treasuryEnsurePlaidBalanceColumns(): void {
+    static $done = false;
+    if ($done) return;
+    $pdo = getDB();
+    foreach ([
+        ['current_balance_cents',   'BIGINT NULL'],
+        ['available_balance_cents', 'BIGINT NULL'],
+        ['limit_balance_cents',     'BIGINT NULL'],
+        ['iso_currency_code',       'CHAR(3) NULL'],
+        ['balance_as_of',           'TIMESTAMP NULL'],
+    ] as [$col, $def]) {
+        try {
+            $chk = $pdo->prepare(
+                "SELECT COUNT(*) FROM information_schema.columns
+                  WHERE table_schema = DATABASE()
+                    AND table_name   = 'plaid_accounts'
+                    AND column_name  = :c"
+            );
+            $chk->execute(['c' => $col]);
+            if ((int) $chk->fetchColumn() === 0) {
+                $pdo->exec("ALTER TABLE plaid_accounts ADD COLUMN {$col} {$def}");
+            }
+        } catch (\Throwable $_) { /* non-fatal */ }
+    }
+    $done = true;
+}
+
 switch (api_method()) {
     case 'GET': {
+        _treasuryEnsurePlaidBalanceColumns();
         // Left-join GL balance (sum of journal lines to the matching
         // gl_account_code for posted entries) so the UI has a current
         // ledger balance without an extra round-trip. Also surface the

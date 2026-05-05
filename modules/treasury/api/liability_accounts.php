@@ -18,8 +18,56 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 
 $ctx = api_require_auth();
 
+/**
+ * Self-heal: ensure the live-balance columns exist on plaid_accounts before
+ * the GET LEFT-JOIN runs them. Production tenants who haven't pulled
+ * migration 010 yet would otherwise hit "Unknown column pa.current_balance_cents"
+ * and get an empty list back.
+ */
+function _treasuryLiabilityEnsurePlaidBalanceColumns(): void {
+    static $done = false;
+    if ($done) return;
+    $pdo = getDB();
+    foreach ([
+        ['current_balance_cents',   'BIGINT NULL'],
+        ['available_balance_cents', 'BIGINT NULL'],
+        ['limit_balance_cents',     'BIGINT NULL'],
+        ['iso_currency_code',       'CHAR(3) NULL'],
+        ['balance_as_of',           'TIMESTAMP NULL'],
+    ] as [$col, $def]) {
+        try {
+            $chk = $pdo->prepare(
+                "SELECT COUNT(*) FROM information_schema.columns
+                  WHERE table_schema = DATABASE()
+                    AND table_name   = 'plaid_accounts'
+                    AND column_name  = :c"
+            );
+            $chk->execute(['c' => $col]);
+            if ((int) $chk->fetchColumn() === 0) {
+                $pdo->exec("ALTER TABLE plaid_accounts ADD COLUMN {$col} {$def}");
+            }
+        } catch (\Throwable $_) { /* non-fatal */ }
+    }
+    // Also ensure tla.plaid_account_id exists (from migration 002).
+    try {
+        $chk = $pdo->prepare(
+            "SELECT COUNT(*) FROM information_schema.columns
+              WHERE table_schema = DATABASE()
+                AND table_name   = 'treasury_liability_accounts'
+                AND column_name  = 'plaid_account_id'"
+        );
+        $chk->execute();
+        if ((int) $chk->fetchColumn() === 0) {
+            $pdo->exec("ALTER TABLE treasury_liability_accounts
+                          ADD COLUMN plaid_account_id VARCHAR(80) NULL");
+        }
+    } catch (\Throwable $_) { /* non-fatal */ }
+    $done = true;
+}
+
 switch (api_method()) {
     case 'GET': {
+        _treasuryLiabilityEnsurePlaidBalanceColumns();
         // Liabilities are CREDIT-normal accounts, so we flip the sign so
         // the UI shows a positive outstanding balance. Also surface the
         // live Plaid balance (cached on plaid_accounts) so users see the
