@@ -73,7 +73,8 @@ function DepositRow({ row: r, onChanged, navigate }) {
   const [busy, setBusy] = useState(null); // 'sync' | 'hide' | 'delete' | null
   const [err, setErr]   = useState(null);
 
-  const open = () => navigate(`./${r.id}`);
+  // Absolute path so navigation works no matter where this list is mounted.
+  const open = () => navigate(`/modules/treasury/deposits/${r.id}`);
 
   const sync = async (e) => {
     e.stopPropagation();
@@ -144,7 +145,7 @@ function DepositRow({ row: r, onChanged, navigate }) {
       </td>
       <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
         <Link
-          to={`./${r.id}`}
+          to={`/modules/treasury/deposits/${r.id}`}
           className="btn btn--ghost"
           data-testid={`treasury-deposit-view-${r.id}`}
           style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
@@ -240,12 +241,9 @@ function NewDepositForm({ onDone }) {
 }
 
 function DepositDetail() {
-  // Render the bank-feed transactions inline in Treasury — same component
-  // the liability detail uses, so users get a consistent place to view
-  // activity, sync, and categorize without bouncing to the Accounting
-  // module. The full reconciliation editor (statement lines + matching
-  // grid) still lives at /modules/accounting/bank-rec/:id and can be
-  // opened from there when the user wants the heavy-duty workspace.
+  // QuickBooks-style: click an account → see its transactions, right here.
+  // No bouncing to other modules, no "open workspace" link. The bank-feed
+  // table, sync button, and per-row Categorize/Ignore/Match all live below.
   const { id } = useParams();
   const accountId = Number(id);
   const { data: listData } = useApi('/modules/treasury/api/deposit_accounts.php');
@@ -257,15 +255,13 @@ function DepositDetail() {
   return (
     <section data-testid="treasury-deposit-detail">
       <p style={{ marginBottom: 12 }}>
-        <Link to=".." className="muted" style={{ fontSize: 13 }}>← Back to deposit accounts</Link>
-        {' · '}
         <Link
-          to={`/modules/accounting/bank-rec/${accountId}`}
+          to="/modules/treasury/deposits"
           className="muted"
           style={{ fontSize: 13 }}
-          data-testid="treasury-deposit-detail-bankrec-link"
+          data-testid="treasury-deposit-detail-back"
         >
-          Open full reconciliation workspace →
+          ← Back to deposit accounts
         </Link>
       </p>
       <AccountTransactions

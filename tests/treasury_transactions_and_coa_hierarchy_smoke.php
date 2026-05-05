@@ -151,7 +151,7 @@ $assert('Deposit row labels Transactions (not Open reconciliation)',
 $assert('DepositDetail renders inline AccountTransactions',
                                              strpos($dep_ui, 'function DepositDetail()') !== false
                                              && strpos($dep_ui, 'AccountTransactions') !== false
-                                             && strpos($dep_ui, 'Open full reconciliation workspace') !== false);
+                                             && strpos($dep_ui, 'treasury-deposit-detail') !== false);
 $assert('Sync URL has .php suffix (router-safe)',
                                              strpos($dep_ui, '/api/plaid_sync_transactions.php') !== false);
 

@@ -53,6 +53,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-migrate: run pending schema migrations on first request per process.
+// Cached in-memory so subsequent requests skip the work. Failures are
+// non-fatal — they get surfaced via /api/migrate.php for admin review,
+// but never 500 the user-facing endpoint.
+// ---------------------------------------------------------------------------
+require_once __DIR__ . '/migrate.php';
+try { coreflux_run_migrations(); } catch (\Throwable $_) { /* non-fatal */ }
+
+// ---------------------------------------------------------------------------
 // Response helpers
 // ---------------------------------------------------------------------------
 function api_ok($data = null, int $status = 200): void {

@@ -201,6 +201,21 @@ if (api_method() === 'POST') {
         (int) ($ctx['user']['id'] ?? 0)
     );
 
+    // If there WAS an AI suggestion and the user picked something different,
+    // record the reject so the saved-rules dashboard can de-rank that
+    // (merchant → suggested-account) pairing on future syncs.
+    if ($aiSuggestionId) {
+        $sug = scopedFind(
+            'SELECT suggested_value FROM ai_suggestions
+              WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+            ['id' => $aiSuggestionId]
+        );
+        $suggestedAccountId = (int) ($sug['suggested_value'] ?? 0);
+        if ($suggestedAccountId > 0 && $suggestedAccountId !== $counterId) {
+            aiRecordCategorizationReject($tenantId, $line, $suggestedAccountId);
+        }
+    }
+
     api_ok([
         'ok'             => true,
         'line_id'        => $lineId,

@@ -54,26 +54,44 @@ if ($action === 'suggest_match') {
             'note'            => 'No JE candidates within the date / amount window. Try widening the search or use suggest_categorize to draft a new JE instead.',
         ]);
     }
-    $res = aiAsk([
-        'feature_class'   => 'advisory',
-        'kind'            => 'classification',
-        'feature_key'     => 'accounting.bank.suggest_match',
-        'system'          => 'Pick the most likely JE that matches this bank-statement line. Score each candidate 0-1 and explain in one sentence why.',
-        'prompt'          => 'Bank line: ' . json_encode([
-            'date'        => $line['posted_date'],
-            'description' => $line['description'],
-            'amount'      => (float) $line['amount'],
-        ]) . "\nReturn: {best_je_id, confidence, reasoning, top_n: [{je_id, confidence, reasoning}]}",
-        'context'         => ['candidates' => $candidates],
-        'max_output_tokens' => 600,
-    ]);
-    api_ok([
-        'candidates'       => $candidates,
-        'ai_response'      => $res['text'] ?? null,
-        'interaction_id'   => $res['interaction_id'] ?? null,
-        'model'            => $res['model']          ?? null,
-        'review_required'  => true,
-    ]);
+    try {
+        $res = aiAsk([
+            'feature_class'   => 'advisory',
+            'kind'            => 'classification',
+            'feature_key'     => 'accounting.bank.suggest_match',
+            'system'          => 'Pick the most likely JE that matches this bank-statement line. Score each candidate 0-1 and explain in one sentence why.',
+            'prompt'          => 'Bank line: ' . json_encode([
+                'date'        => $line['posted_date'],
+                'description' => $line['description'],
+                'amount'      => (float) $line['amount'],
+            ]) . "\nReturn: {best_je_id, confidence, reasoning, top_n: [{je_id, confidence, reasoning}]}",
+            'context'         => ['candidates' => $candidates],
+            'max_output_tokens' => 600,
+        ]);
+        api_ok([
+            'candidates'       => $candidates,
+            'ai_response'      => $res['text'] ?? null,
+            'interaction_id'   => $res['interaction_id'] ?? null,
+            'model'            => $res['model']          ?? null,
+            'review_required'  => true,
+        ]);
+    } catch (AIDisabledException $e) {
+        api_ok([
+            'candidates'       => $candidates,
+            'ai_response'      => null,
+            'ai_unavailable'   => true,
+            'note'             => 'AI is off for this tenant — picking the closest match by amount + date. Review and confirm manually below.',
+            'review_required'  => true,
+        ]);
+    } catch (\Throwable $e) {
+        api_ok([
+            'candidates'       => $candidates,
+            'ai_response'      => null,
+            'ai_unavailable'   => true,
+            'note'             => 'AI service unavailable (' . substr($e->getMessage(), 0, 120) . '). Use the candidates list and pick manually.',
+            'review_required'  => true,
+        ]);
+    }
 }
 
 if ($action === 'suggest_categorize') {
@@ -95,24 +113,33 @@ if ($action === 'suggest_categorize') {
         ['id' => (int) $line['bank_account_id']]
     );
     $sideAccountId = (int) ($bankAcct['id'] ?? 0);
-    $sug = aiSuggestCounterpartAccount(
-        $tenantId,
-        [
-            'id'            => $lineId,
-            'amount'        => (float) $line['amount'],
-            'posted_date'   => $line['posted_date'],
-            'description'   => $line['description'],
-            'merchant_name' => $line['description'],   // bank-rec lines lack a merchant col
-            'category'      => null,                   // ditto pfcategory
-        ],
-        'deposit',
-        $sideAccountId,
-        $accounts
-    );
-    api_ok([
-        'suggestion'      => $sug,
-        'review_required' => !$sug['auto_accept'],
-    ]);
+    try {
+        $sug = aiSuggestCounterpartAccount(
+            $tenantId,
+            [
+                'id'            => $lineId,
+                'amount'        => (float) $line['amount'],
+                'posted_date'   => $line['posted_date'],
+                'description'   => $line['description'],
+                'merchant_name' => $line['description'],   // bank-rec lines lack a merchant col
+                'category'      => null,                   // ditto pfcategory
+            ],
+            'deposit',
+            $sideAccountId,
+            $accounts
+        );
+        api_ok([
+            'suggestion'      => $sug,
+            'review_required' => !$sug['auto_accept'],
+        ]);
+    } catch (\Throwable $e) {
+        api_ok([
+            'suggestion'      => null,
+            'ai_unavailable'  => true,
+            'note'            => 'AI suggestion unavailable (' . substr($e->getMessage(), 0, 120) . '). Categorize manually using the COA dropdown.',
+            'review_required' => true,
+        ]);
+    }
 }
 
 if ($action === 'suggest_rule') {
@@ -129,30 +156,39 @@ if ($action === 'suggest_rule') {
          FROM accounting_bank_rules WHERE tenant_id = :tenant_id AND status = "active"
          LIMIT 50'
     );
-    $res = aiAsk([
-        'feature_class'   => 'advisory',
-        'kind'            => 'classification',
-        'feature_key'     => 'accounting.bank.suggest_rule',
-        'system'          => 'Propose a single bank-rec rule. The pattern must be the most generalizable substring '
-                            . 'of the bank line description (drop trailing IDs/amounts/dates). Pattern_kind should '
-                            . 'be "contains" unless the description is short and stable, in which case "starts_with". '
-                            . 'Pick a target_account_code from the provided COA. Do NOT propose a rule that duplicates '
-                            . 'an existing one. Suggest is_approved=0 (default — staged for review) unless the merchant '
-                            . 'is unambiguous (e.g. "AWS", "Stripe Fee").',
-        'prompt'          => 'Bank line: ' . json_encode([
-            'date'        => $line['posted_date'],
-            'description' => $line['description'],
-            'amount'      => (float) $line['amount'],
-        ]) . "\nReturn: {name, pattern_kind, pattern, target_account_code, suggested_is_approved, reasoning}",
-        'context'         => ['coa' => $coa, 'existing_rules' => $existingRules],
-        'max_output_tokens' => 400,
-    ]);
-    api_ok([
-        'ai_response'     => $res['text'] ?? null,
-        'interaction_id'  => $res['interaction_id'] ?? null,
-        'model'           => $res['model']          ?? null,
-        'review_required' => true,
-    ]);
+    try {
+        $res = aiAsk([
+            'feature_class'   => 'advisory',
+            'kind'            => 'classification',
+            'feature_key'     => 'accounting.bank.suggest_rule',
+            'system'          => 'Propose a single bank-rec rule. The pattern must be the most generalizable substring '
+                                . 'of the bank line description (drop trailing IDs/amounts/dates). Pattern_kind should '
+                                . 'be "contains" unless the description is short and stable, in which case "starts_with". '
+                                . 'Pick a target_account_code from the provided COA. Do NOT propose a rule that duplicates '
+                                . 'an existing one. Suggest is_approved=0 (default — staged for review) unless the merchant '
+                                . 'is unambiguous (e.g. "AWS", "Stripe Fee").',
+            'prompt'          => 'Bank line: ' . json_encode([
+                'date'        => $line['posted_date'],
+                'description' => $line['description'],
+                'amount'      => (float) $line['amount'],
+            ]) . "\nReturn: {name, pattern_kind, pattern, target_account_code, suggested_is_approved, reasoning}",
+            'context'         => ['coa' => $coa, 'existing_rules' => $existingRules],
+            'max_output_tokens' => 400,
+        ]);
+        api_ok([
+            'ai_response'     => $res['text'] ?? null,
+            'interaction_id'  => $res['interaction_id'] ?? null,
+            'model'           => $res['model']          ?? null,
+            'review_required' => true,
+        ]);
+    } catch (\Throwable $e) {
+        api_ok([
+            'ai_response'     => null,
+            'ai_unavailable'  => true,
+            'note'            => 'AI rule drafting unavailable (' . substr($e->getMessage(), 0, 120) . '). Create a rule manually below.',
+            'review_required' => true,
+        ]);
+    }
 }
 
 api_error('Unknown action', 400);

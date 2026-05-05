@@ -1276,7 +1276,29 @@ Path-B architectural decision: customer uses ONE CoreFlux tenant per legal famil
 Smoke `plaid_account_select_and_remove_smoke.php` extended to **87 assertions** (was 62). Suite: **3,352 passing / 2 failed (pre-existing AP A1)**.
 
 ---
-*Last Updated: 2026-02 — Treasury reconnect-dedupe + cleanup utility + human-formatted dates/currency shipped.*
+*2026-02 — Hardening pass 1 + Saved Rules + bank-rec 500 fix + nav cleanup:*
+
+**Hardening (foundational, prevents future regressions):**
+- **`core/migrate.php`** — idempotent migration runner. Hashes each `migrations/*.sql` file; on subsequent calls, skips files whose content hash hasn't changed. Splits SQL on statement boundaries, executes each inside a try/catch, and treats schema-shape errors (`Duplicate column name`, `already exists`, `Duplicate key name`) as no-ops so older migrations re-run safely. Records every applied file in `_migrations` table with sha256 + duration_ms + last_error. CLI entry point too: `php /app/core/migrate.php`.
+- **`api_bootstrap.php`** — calls `coreflux_run_migrations()` on every request (cached per-process via static flag). Failure is non-fatal, surfaced via `coreflux_migration_status()`. **This means the deposit_accounts.php "Unknown column" 500 of last week cannot recur** — the schema self-applies before any user-facing endpoint runs.
+- **`tests/schema_contract_smoke.php`** — parses every PHP file under `/api` and `/modules`, extracts `alias.column` references from SQL string literals, checks against the union of every CREATE TABLE / ALTER TABLE in the migration tree (including dynamic ALTERs guarded by `information_schema` checks). 13 known-legacy violations explicitly allowlisted with file-and-reason comments; any NEW violation fails the gate.
+- **Migration 010 atomic** — split `ALTER TABLE plaid_accounts ADD COLUMN …` into 5 standalone statements so the runner's "Duplicate column" safe-pattern handles partial application. No more `ADD COLUMN IF NOT EXISTS` dependency (fails on MySQL < 8.0.29).
+
+**AI categorization rules from accept/reject (the moat, made visible):**
+- **Migration 011** — adds `reject_count` / `last_rejected_at` / `disabled_at` / `disabled_reason` / `disabled_by_user` to `ai_categorization_history`.
+- **`core/ai_categorization.php`** — history queries now filter `disabled_at IS NULL` and require `accept_count - COALESCE(reject_count,0) > 0`, ordered by net score. Rejects shave confidence by `min(0.20, rejects × 0.05)`. New `aiRecordCategorizationReject($tenantId, $line, $rejectedAccountId)` helper.
+- **`account_transactions.php` POST `categorize_and_post`** — when the user picks an account different from what the AI suggested, the previous suggestion's account gets a reject bump for that merchant + pfcategory.
+- **`/api/ai_categorization_rules.php`** — GET lists every learned (merchant → account) mapping with accept/reject counts, account display info, and decorated flags (`auto_apply_eligible`, `weak`, `contested`, `is_disabled`). PATCH mutes / unmutes a rule. DELETE forgets it entirely.
+- **Saved Rules tab** in Treasury module — new `SavedRules.jsx` page: pattern, signal kind, target account, accept/reject counts, status badges, Mute/Unmute toggle, Forget action. Header summary: "20 learned, 6 auto-applying, 2 muted".
+
+**Bank-rec "Internal server error" fixed:** `bank_ai.php` now wraps every `aiAsk()` and `aiSuggestCounterpartAccount()` call in try/catch. When OpenAI is disabled / unreachable / throwing, the endpoint returns `ai_unavailable: true` with a useful note instead of 500'ing. Manual categorize via the existing dropdown is unaffected.
+
+**Nav cleanup (no more bouncing modules):** Stripped the `Open full reconciliation workspace →` link from DepositDetail. Click an account → see its transactions inline, period. All Treasury row clicks + view buttons now use absolute paths (`/modules/treasury/deposits/{id}`) so navigation isn't sensitive to mount-point context. LiabilityDetail's back-link is also absolute.
+
+Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.php` (3 ✅, 13 known-legacy allowlisted). Combined suite **3,352 ✅ / 2 ❌** (pre-existing AP A1).
+
+---
+*Last Updated: 2026-02 — Hardening pass 1 (migration runner, schema gate) + Saved Rules + nav cleanup shipped.*
 
 ## Open / Pending P1
 - **Plaid Transfer go-live** — needs tenant-supplied `PLAID_CLIENT_ID` / `PLAID_SECRET_*` / `PLAID_ENV` + Transfer pre-approval. Driver scaffold is in place; once keys land, the per-tenant `tenant_payment_rails` row gets populated and `disbursement_rail='plaid_transfer'` flips on without any consumer-code changes.

@@ -134,7 +134,7 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
     <tr
       data-testid={`treasury-liability-row-${r.id}`}
       style={{ cursor: 'pointer' }}
-      onClick={() => navigate(`./${r.id}`)}
+      onClick={() => navigate(`/modules/treasury/liabilities/${r.id}`)}
     >
       <td><code>{r.code}</code></td>
       <td>{r.name}</td>
@@ -150,7 +150,7 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
       <td>{r.apr_pct !== null && r.apr_pct !== undefined ? `${r.apr_pct.toFixed(2)}%` : '—'}</td>
       <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
         <Link
-          to={`./${r.id}`}
+          to={`/modules/treasury/liabilities/${r.id}`}
           className="btn btn--ghost"
           data-testid={`treasury-liability-view-${r.id}`}
           style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
@@ -213,7 +213,7 @@ function LiabilityDetail() {
   return (
     <section data-testid="treasury-liability-detail">
       <p style={{ marginBottom: 12 }}>
-        <Link to=".." className="muted" style={{ fontSize: 13 }}>← Back to liability accounts</Link>
+        <Link to="/modules/treasury/liabilities" className="muted" style={{ fontSize: 13 }} data-testid="treasury-liability-detail-back">← Back to liability accounts</Link>
       </p>
       <AccountTransactions
         accountId={accountId}

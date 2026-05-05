@@ -215,13 +215,22 @@ function aiCategorizationFromHistory(int $tenantId, string $merchant, string $pf
     $bestRow    = null;
     $bestSignal = null;
 
+    // Skip disabled rules (UI mute) + rules with more rejects than accepts
+    // (the user's been overriding them — clearly the wrong learn). Order
+    // by net score (accept - reject) so even a slightly-rejected merchant
+    // with 10 accepts still wins over a clean 1-accept entry.
+    $whereDisabled = ' AND disabled_at IS NULL ';
+    $whereScore    = ' AND (accept_count - COALESCE(reject_count,0)) > 0 ';
+    $orderScore    = ' ORDER BY (accept_count - COALESCE(reject_count,0)) DESC ';
+
     if ($merchant !== '') {
         $stmt = $pdo->prepare(
-            "SELECT final_value, accept_count
+            "SELECT final_value, accept_count, COALESCE(reject_count,0) AS reject_count
                FROM ai_categorization_history
               WHERE tenant_id = :t AND feature_key = :f
                 AND signal_kind = 'merchant' AND signal_value = :v
-              ORDER BY accept_count DESC LIMIT 1"
+                $whereDisabled $whereScore
+              $orderScore LIMIT 1"
         );
         $stmt->execute(['t' => $tenantId, 'f' => AI_CATEGORIZATION_FEATURE_KEY, 'v' => strtolower($merchant)]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -229,11 +238,12 @@ function aiCategorizationFromHistory(int $tenantId, string $merchant, string $pf
     }
     if (!$bestRow && $pfcat !== '') {
         $stmt = $pdo->prepare(
-            "SELECT final_value, accept_count
+            "SELECT final_value, accept_count, COALESCE(reject_count,0) AS reject_count
                FROM ai_categorization_history
               WHERE tenant_id = :t AND feature_key = :f
                 AND signal_kind = 'pfcategory' AND signal_value = :v
-              ORDER BY accept_count DESC LIMIT 1"
+                $whereDisabled $whereScore
+              $orderScore LIMIT 1"
         );
         $stmt->execute(['t' => $tenantId, 'f' => AI_CATEGORIZATION_FEATURE_KEY, 'v' => strtolower($pfcat)]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -247,15 +257,75 @@ function aiCategorizationFromHistory(int $tenantId, string $merchant, string $pf
     foreach ($eligible as $a) { if ((int) $a['id'] === $accountId) { $stillEligible = true; break; } }
     if (!$stillEligible) return null;
 
-    $count = (int) $bestRow['accept_count'];
+    // Net score informs confidence. Rejects shave it back proportionally.
+    $accepts = (int) $bestRow['accept_count'];
+    $rejects = (int) $bestRow['reject_count'];
+    $score   = $accepts - $rejects;
+    $penalty = $rejects > 0 ? min(0.20, $rejects * 0.05) : 0.0;
+
     if ($bestSignal === 'merchant') {
-        $confidence = $count >= 3 ? 0.97 : ($count >= 1 ? 0.85 : 0.60);
-        $reasoning  = "You've categorized \"{$merchant}\" this way " . $count . "× before.";
+        $base       = $score >= 3 ? 0.97 : ($score >= 1 ? 0.85 : 0.60);
+        $confidence = max(0.40, $base - $penalty);
+        $reasoning  = "You've categorized \"{$merchant}\" this way " . $accepts . "× before"
+                    . ($rejects > 0 ? " (and overridden " . $rejects . "×)" : '') . ".";
     } else {
-        $confidence = $count >= 3 ? 0.78 : 0.62;
-        $reasoning  = "Plaid category \"{$pfcat}\" has been categorized this way " . $count . "× before.";
+        $base       = $score >= 3 ? 0.78 : 0.62;
+        $confidence = max(0.40, $base - $penalty);
+        $reasoning  = "Plaid category \"{$pfcat}\" has been categorized this way " . $accepts . "× before"
+                    . ($rejects > 0 ? " (and overridden " . $rejects . "×)" : '') . ".";
     }
     return ['account_id' => $accountId, 'confidence' => $confidence, 'reasoning' => $reasoning];
+}
+
+/**
+ * Record a rejection — user picked a different account than the AI
+ * suggested. Bumps reject_count on any matching history row keyed on
+ * the line's merchant or pfcategory, so future suggestions de-rank.
+ *
+ * Idempotent: if no matching history row exists yet, we insert a
+ * placeholder with accept_count=0 / reject_count=1 so the contested
+ * pattern is still tracked.
+ */
+function aiRecordCategorizationReject(int $tenantId, array $line, int $rejectedAccountId): void
+{
+    $merchant = strtolower(trim((string) ($line['merchant_name'] ?? '')));
+    $pfcat    = strtolower(trim((string) ($line['category']      ?? '')));
+    if ($merchant === '' && $pfcat === '') return;
+    $pdo  = getDB();
+    foreach (
+        array_filter([
+            ['merchant', $merchant],
+            ['pfcategory', $pfcat],
+        ], fn ($p) => $p[1] !== '')
+        as [$kind, $value]
+    ) {
+        $stmt = $pdo->prepare(
+            "UPDATE ai_categorization_history
+                SET reject_count     = reject_count + 1,
+                    last_rejected_at = NOW()
+              WHERE tenant_id = :t AND feature_key = :f
+                AND signal_kind = :k AND signal_value = :v
+                AND final_value = :fv"
+        );
+        $stmt->execute([
+            't' => $tenantId, 'f' => AI_CATEGORIZATION_FEATURE_KEY,
+            'k' => $kind, 'v' => $value, 'fv' => 'account_id:' . $rejectedAccountId,
+        ]);
+        if ($stmt->rowCount() === 0) {
+            // Insert a placeholder (accept_count=0). UNIQUE KEY collision = ignore.
+            try {
+                $pdo->prepare(
+                    "INSERT INTO ai_categorization_history
+                        (tenant_id, feature_key, signal_kind, signal_value, final_value,
+                         accept_count, reject_count, last_rejected_at, created_at)
+                     VALUES (:t, :f, :k, :v, :fv, 0, 1, NOW(), NOW())"
+                )->execute([
+                    't' => $tenantId, 'f' => AI_CATEGORIZATION_FEATURE_KEY,
+                    'k' => $kind, 'v' => $value, 'fv' => 'account_id:' . $rejectedAccountId,
+                ]);
+            } catch (\Throwable $_) { /* dupe = fine */ }
+        }
+    }
 }
 
 function aiCategorizationFromPfcRules(string $pfcat, float $amount, string $type, array $eligible): ?array
