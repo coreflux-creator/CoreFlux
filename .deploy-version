@@ -66,7 +66,7 @@ sentinels:
 - modules/accounting/api/accounts.php
 - modules/accounting/ui/ChartOfAccounts.jsx
 expected_bundle:
-- spa-assets/index-Dxgu_7Ty.js
+- spa-assets/index-CR1gQThN.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa

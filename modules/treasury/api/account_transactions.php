@@ -27,69 +27,11 @@ $tenantId = (int) $ctx['tenant_id'];
 RBAC::requirePermission($ctx['user'], 'accounting.bank.manage');
 $pdo = getDB();
 
-if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'sync') {
-    require_once __DIR__ . '/../../../core/plaid_service.php';
-
-    $body   = api_json_body();
-    $itemPk = (int) ($body['plaid_item_pk'] ?? 0);
-    if ($itemPk <= 0) api_error('plaid_item_pk required', 422);
-
-    $item = scopedFind(
-        'SELECT * FROM plaid_items WHERE tenant_id = :tenant_id AND id = :id',
-        ['id' => $itemPk]
-    );
-    if (!$item) api_error('Plaid item not found', 404);
-
-    // Inline-call the existing sync endpoint logic by setting up a sub-request
-    // — simpler than a network call, identical behaviour, gets the same auth.
-    $_GET    = [];
-    $_POST   = [];
-    $bodyJson = json_encode(['item_id' => $item['item_id']]);
-    file_put_contents('php://temp', $bodyJson);
-    // Reset the api_json_body cache by re-passing the body via a global.
-    $GLOBALS['__plaid_sync_inline_body'] = $bodyJson;
-
-    // Direct include — re-uses auth context already established.
-    // Use ob_start to swallow the api_ok JSON and capture the result.
-    ob_start();
-    try {
-        // The endpoint reads api_json_body() which reads php://input.
-        // Rewriting php://input is tricky, so we instead duplicate the
-        // sync logic here at a high level: just hand off to the same code
-        // by re-defining api_json_body before include. Cleanest path: shell
-        // out via cURL to localhost would require auth cookies... so we do
-        // a minimal direct call.
-        $apiUrl = (function () {
-            $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-            $host  = $_SERVER['HTTP_HOST'] ?? 'localhost';
-            return "{$proto}://{$host}/api/plaid_sync_transactions.php";
-        })();
-
-        $cookieHeader = '';
-        foreach ($_COOKIE as $k => $v) $cookieHeader .= urlencode($k) . '=' . urlencode($v) . '; ';
-
-        $ch = curl_init($apiUrl);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $bodyJson,
-            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
-            CURLOPT_COOKIE         => rtrim($cookieHeader, '; '),
-            CURLOPT_TIMEOUT        => 60,
-        ]);
-        $raw  = curl_exec($ch);
-        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        ob_end_clean();
-
-        $data = $raw ? json_decode($raw, true) : null;
-        if ($code >= 400) api_error($data['error'] ?? 'Sync failed', $code, $data ?: null);
-        api_ok($data ?: []);
-    } catch (\Throwable $e) {
-        ob_end_clean();
-        api_error('Sync failed: ' . $e->getMessage(), 500);
-    }
-}
+if (api_method() === 'POST') api_error(
+    'POST not supported here. Sync via /api/plaid_sync_transactions.php with '
+    . '{ item_id: <plaid_item_external_id> } — exposed in this endpoint\'s GET response.',
+    405
+);
 
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
 
@@ -158,40 +100,56 @@ foreach ($rows as $r) {
     else         $outflow += abs($a);
 }
 
-// Locate the Plaid item pk for the "Sync now" button (if this account is Plaid-linked).
-$plaidItemPk = null;
-$plaidAccountId = null;
+// Locate the Plaid item for the "Sync from Plaid" button (if linked).
+// Returns the Plaid string item_id so the UI can call /api/plaid_sync_transactions.php
+// directly — no localhost proxy, no curl-back, no cookie round-trip.
+$plaidItemPk        = null;
+$plaidItemExternalId = null;
+$plaidAccountId     = null;
 if ($type === 'deposit') {
     $row = $pdo->prepare(
-        'SELECT pa.plaid_item_pk, pa.account_id
+        'SELECT pi.id AS pk, pi.item_id AS external_id, pa.account_id
            FROM accounting_bank_accounts ba
            JOIN plaid_accounts pa
              ON pa.tenant_id = ba.tenant_id AND pa.account_id = ba.plaid_account_id
+           JOIN plaid_items   pi
+             ON pi.id = pa.plaid_item_pk AND pi.tenant_id = pa.tenant_id
           WHERE ba.tenant_id = :t AND ba.id = :id LIMIT 1'
     );
     $row->execute(['t' => $tenantId, 'id' => $accountId]);
     $r = $row->fetch(PDO::FETCH_ASSOC);
-    if ($r) { $plaidItemPk = (int) $r['plaid_item_pk']; $plaidAccountId = (string) $r['account_id']; }
+    if ($r) {
+        $plaidItemPk         = (int) $r['pk'];
+        $plaidItemExternalId = (string) $r['external_id'];
+        $plaidAccountId      = (string) $r['account_id'];
+    }
 } else {
     try {
         $row = $pdo->prepare(
-            'SELECT pa.plaid_item_pk, pa.account_id
+            'SELECT pi.id AS pk, pi.item_id AS external_id, pa.account_id
                FROM treasury_liability_accounts tla
                JOIN plaid_accounts pa
                  ON pa.tenant_id = tla.tenant_id AND pa.account_id = tla.plaid_account_id
+               JOIN plaid_items   pi
+                 ON pi.id = pa.plaid_item_pk AND pi.tenant_id = pa.tenant_id
               WHERE tla.tenant_id = :t AND tla.account_id = :id LIMIT 1'
         );
         $row->execute(['t' => $tenantId, 'id' => $accountId]);
         $r = $row->fetch(PDO::FETCH_ASSOC);
-        if ($r) { $plaidItemPk = (int) $r['plaid_item_pk']; $plaidAccountId = (string) $r['account_id']; }
+        if ($r) {
+            $plaidItemPk         = (int) $r['pk'];
+            $plaidItemExternalId = (string) $r['external_id'];
+            $plaidAccountId      = (string) $r['account_id'];
+        }
     } catch (\Throwable $_) {}
 }
 
 api_ok([
-    'rows'             => $rows,
-    'count'            => $count,
-    'inflow_total'     => round($inflow, 2),
-    'outflow_total'    => round($outflow, 2),
-    'plaid_item_pk'    => $plaidItemPk,
-    'plaid_account_id' => $plaidAccountId,
+    'rows'                  => $rows,
+    'count'                 => $count,
+    'inflow_total'          => round($inflow, 2),
+    'outflow_total'         => round($outflow, 2),
+    'plaid_item_pk'         => $plaidItemPk,
+    'plaid_item_external_id'=> $plaidItemExternalId,
+    'plaid_account_id'      => $plaidAccountId,
 ]);

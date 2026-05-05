@@ -56,12 +56,12 @@ $assert('type=liability reads treasury_liability_statement_lines',
 $assert('limit clamped 1-500',               strpos($at, 'min(500') !== false);
 $assert('returns inflow_total + outflow_total', strpos($at, "'inflow_total'") !== false
                                              && strpos($at, "'outflow_total'") !== false);
+$assert('returns plaid_item_external_id (string id for direct sync)',
+                                             strpos($at, "'plaid_item_external_id'") !== false);
 $assert('returns plaid_item_pk for deposit + liability paths',
                                              substr_count($at, 'plaid_item_pk') >= 2);
-$assert('?action=sync wires Plaid sync',     strpos($at, "action'] ?? '') === 'sync'") !== false);
-$assert('sync requires plaid_item_pk',       strpos($at, 'plaid_item_pk required') !== false);
-$assert('sync requires accounting.bank.manage perm',
-                                             strpos($at, "'accounting.bank.manage'") !== false);
+$assert('POST is rejected (no proxy — UI calls /api/plaid_sync_transactions.php direct)',
+                                             strpos($at, 'POST not supported here') !== false);
 $assert('PHP parses cleanly',                $lint(__DIR__ . '/../modules/treasury/api/account_transactions.php'));
 
 // ─── Migration 003 ───
@@ -113,6 +113,11 @@ $at_ui = file_get_contents(__DIR__ . '/../modules/treasury/ui/AccountTransaction
 $assert('AccountTransactions component',     strpos($at_ui, 'export default function AccountTransactions(') !== false);
 $assert('loads from account_transactions.php', strpos($at_ui, '/modules/treasury/api/account_transactions.php?account_id=') !== false);
 $assert('Sync from Plaid button',            strpos($at_ui, 'treasury-${type}-sync-btn') !== false);
+$assert('Sync calls real endpoint directly (no proxy)',
+                                             strpos($at_ui, "/api/plaid_sync_transactions.php") !== false
+                                             && strpos($at_ui, 'plaid_item_external_id') !== false);
+$assert('Sync handles 0-result with "Up to date" message',
+                                             strpos($at_ui, 'Up to date') !== false);
 $assert('renders inflow/outflow headline',   strpos($at_ui, 'Inflow ') !== false && strpos($at_ui, 'Outflow ') !== false);
 
 $dep_ui = file_get_contents(__DIR__ . '/../modules/treasury/ui/DepositAccounts.jsx');

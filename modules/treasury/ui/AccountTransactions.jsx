@@ -24,20 +24,34 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   const count = data?.count || 0;
   const inflow  = data?.inflow_total  || 0;
   const outflow = data?.outflow_total || 0;
-  const plaidItemPk = data?.plaid_item_pk;
+  const plaidItemPk         = data?.plaid_item_pk;
+  const plaidItemExternalId = data?.plaid_item_external_id;
 
   const syncNow = async () => {
-    if (!plaidItemPk) return;
+    if (!plaidItemExternalId) {
+      setSyncErr('This account is not connected to a Plaid item — cannot sync.');
+      return;
+    }
     setSyncing(true); setSyncErr(null); setSyncMsg(null);
     try {
-      const res = await api.post(
-        '/modules/treasury/api/account_transactions.php?action=sync',
-        { plaid_item_pk: plaidItemPk }
-      );
-      const summary = `Pulled ${res.added || 0} new + ${res.modified || 0} updated`
-        + (res.removed ? ` − ${res.removed} removed` : '')
-        + (res.unmapped ? ` (skipped ${res.unmapped} unmapped)` : '')
-        + ` across ${res.pages || 0} page(s).`;
+      // Direct call to the real endpoint — no proxy. Plaid /transactions/sync
+      // can take 30-60s on first sync (Plaid backfills historical activity),
+      // so do not race the result; show progress instead.
+      const res = await api.post('/api/plaid_sync_transactions.php', {
+        item_id: plaidItemExternalId,
+      });
+      const added    = res.added    || 0;
+      const modified = res.modified || 0;
+      const removed  = res.removed  || 0;
+      const unmapped = res.unmapped || 0;
+      const total = added + modified + removed;
+      const summary = total === 0
+        ? `Up to date — no new transactions from Plaid (${res.pages || 0} page${res.pages === 1 ? '' : 's'} checked).`
+            + (unmapped ? ` ${unmapped} txn${unmapped === 1 ? '' : 's'} skipped (account not mirrored).` : '')
+        : `Pulled ${added} new + ${modified} updated`
+            + (removed  ? ` − ${removed} removed`            : '')
+            + (unmapped ? ` (skipped ${unmapped} unmapped)`  : '')
+            + ` across ${res.pages || 0} page${res.pages === 1 ? '' : 's'}.`;
       setSyncMsg(summary);
       reload();
     } catch (e) {
@@ -58,7 +72,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
             <span style={{ color: '#b91c1c' }}>Outflow {fmtMoney(outflow)}</span>
           </p>
         </div>
-        {plaidItemPk && (
+        {plaidItemExternalId && (
           <button
             onClick={syncNow}
             disabled={syncing}
@@ -91,7 +105,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
           }}
         >
           <p style={{ margin: '0 0 8px', fontSize: 14 }}>No transactions yet.</p>
-          {plaidItemPk
+          {plaidItemExternalId
             ? <p style={{ margin: 0, fontSize: 12 }}>Click <strong>Sync from Plaid</strong> above to pull the most recent activity.</p>
             : <p style={{ margin: 0, fontSize: 12 }}>This account isn't connected to Plaid; transactions will appear here once a feed is wired.</p>}
         </div>
