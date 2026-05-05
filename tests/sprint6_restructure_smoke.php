@@ -42,7 +42,7 @@ echo "\nReportsModule — sidebar + child routes\n";
 _a('renders sidebar with link to /exec',          str_contains($reps, '/modules/reports/exec') && str_contains($reps, 'reports-link-${'));
 _a('default redirects /modules/reports → /exec',  str_contains($reps, 'Navigate to="exec"'));
 _a('routes /finance and /staffing',               str_contains($reps, '<Route path="/finance"') && str_contains($reps, '<Route path="/staffing"'));
-_a('finance/staffing pre-filter via bandFilter',  str_contains($reps, 'bandFilter="finance"') && str_contains($reps, 'bandFilter="staffing"'));
+_a('finance / staffing have their own drill pages',  str_contains($reps, "import FinanceReports") && str_contains($reps, "import StaffingReports") && str_contains($reps, '<FinanceReports') && str_contains($reps, '<StaffingReports'));
 
 echo "\nLineChart — real chart\n";
 _a('zero-dep SVG line chart exists',              str_contains($line, 'export default function LineChart'));

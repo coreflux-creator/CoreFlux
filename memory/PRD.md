@@ -808,6 +808,15 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - **Saved views capture the new fields** (from / to / compare_prior_year), so a saved "Acme Q4" view restores its date range and the comparison toggle.
 - 47 new smoke assertions in `tests/sprint6_restructure_smoke.php`. Sprint 4 test updated to the restructured routing. **Full suite: 67 files, 3,919 ✓ / 0 failed.**
 
+*2026-02 — Sprint 7: Reports drill pages — Finance + Staffing (this fork):*
+- New `/api/reports_finance.php` — returns `pnl` (Revenue, Direct Cost, Gross Margin, Indirect, Net Income with optional prior-year column), `cash_flow` (Beginning → Receipts → -Operating → -Payroll → Ending + weekly trend), `ar_detail` (one row per outstanding invoice with `days_overdue`), `ap_detail` (same shape for bills).
+- New `/api/reports_staffing.php` — returns `placement_margin` (one row per active placement with bill rate, pay rate, $/hr margin, period hours, period & lifetime margin, recruiter), `recruiter_board` (aggregated leaderboard), `headcount_breakdown` (by classification + by home state).
+- New `dashboard/src/pages/FinanceReports.jsx` — full P&L card with Δ% column when "vs. prior year" is on, cash-flow waterfall with weekly net-receipts line chart, sortable + filterable AR / AP detail tables that link through to invoice/bill detail.
+- New `dashboard/src/pages/StaffingReports.jsx` — recruiter leaderboard (sortable on every column), placement margin table (filter on candidate/client/recruiter/state, totals footer, click-through to placement detail), 2-panel headcount breakdown.
+- `ReportsModule.jsx` swapped the bandFilter stubs for the new drill components (sidebar Finance / Staffing now go to real pages).
+- Schema-contract gate confirmed clean — both APIs join `placements ↔ people` correctly, no orphan column references.
+- 45 new smoke assertions in `tests/sprint7_reports_drill_smoke.php`. **Full suite: 68 files, 3,964 ✓ / 0 failed.**
+
 
 
 *2026-02 — Payroll Phase A1 (Gusto CSV extract + Audit CSV + AI anomaly flags):*

@@ -1,21 +1,17 @@
 import React from 'react';
 import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { BarChart3, DollarSign, Users, Briefcase, Clock, Package } from 'lucide-react';
+import { BarChart3, DollarSign, Users } from 'lucide-react';
 import ExecutiveDashboard from './ExecutiveDashboard';
+import FinanceReports from './FinanceReports';
+import StaffingReports from './StaffingReports';
 
 /**
  * ReportsModule — top-level Reports app.
  *
- * Layout: left sidebar (navigation across report pages) + content area.
- *
  * Pages:
  *   /modules/reports/exec       — full executive snapshot (KPIs + line charts)
- *   /modules/reports/finance    — finance-only deep dive (TODO: drill page)
- *   /modules/reports/staffing   — staffing-only deep dive (TODO: drill page)
- *
- * The Reports module is the only place that hosts the full executive
- * dashboard. The home page (/) keeps a tiny KPI snapshot strip + a button
- * that brings users here.
+ *   /modules/reports/finance    — finance drill: P&L, cash flow, AR/AP detail
+ *   /modules/reports/staffing   — staffing drill: placement margins + recruiter board
  */
 
 const ReportsSidebar = () => {
@@ -48,14 +44,6 @@ const ReportsSidebar = () => {
     </aside>
   );
 };
-
-/**
- * Stub pages for finance / staffing deep-dives. They reuse the
- * ExecutiveDashboard but pre-filter to only their band; until those drill
- * views are designed, they redirect to the consolidated /exec.
- */
-const FinanceReports  = ({ session }) => <ExecutiveDashboard session={session} bandFilter="finance"  />;
-const StaffingReports = ({ session }) => <ExecutiveDashboard session={session} bandFilter="staffing" />;
 
 const ReportsModule = ({ session }) => {
   return (
