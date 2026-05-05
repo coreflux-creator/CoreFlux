@@ -82,7 +82,7 @@ sentinels:
 - tests/hardening_pass1_smoke.php
 - tests/schema_contract_smoke.php
 expected_bundle:
-- spa-assets/index-CmIvT3S1.js
+- spa-assets/index-DWkYwBik.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -145,3 +145,5 @@ last_known_features:
 - treasury.module
 - time.settlement.payroll_auto_create
 - modules.sidebar.audit
+- treasury.plaid_health_banner
+- ap.approvals_inlined_tabs

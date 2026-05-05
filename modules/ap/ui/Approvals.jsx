@@ -16,13 +16,36 @@ export default function Approvals() {
   return (
     <section data-testid="ap-approvals">
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, borderBottom: '1px solid #e5e7eb' }}>
-        <TabBtn label="Inbox"     val="inbox"     activeTab={tab} onClick={setTab} testid="ap-approvals-tab-inbox" />
-        <TabBtn label="Workflows" val="workflows" activeTab={tab} onClick={setTab} testid="ap-approvals-tab-workflows" />
+        <button
+          type="button"
+          data-testid="ap-approvals-tab-inbox"
+          onClick={() => setTab('inbox')}
+          style={tabStyle(tab === 'inbox')}
+        >
+          Inbox
+        </button>
+        <button
+          type="button"
+          data-testid="ap-approvals-tab-workflows"
+          onClick={() => setTab('workflows')}
+          style={tabStyle(tab === 'workflows')}
+        >
+          Workflows
+        </button>
       </div>
       {tab === 'inbox'     && <ApprovalsInbox />}
       {tab === 'workflows' && <WorkflowsAdmin />}
     </section>
   );
+}
+
+function tabStyle(active) {
+  return {
+    padding: '8px 14px', background: 'transparent', border: 'none',
+    borderBottom: active ? '2px solid #111827' : '2px solid transparent',
+    marginBottom: -1, fontWeight: active ? 600 : 400,
+    color: active ? '#111827' : '#6b7280', cursor: 'pointer',
+  };
 }
 
 function TabBtn({ label, val, activeTab, onClick, testid }) {
@@ -32,12 +55,7 @@ function TabBtn({ label, val, activeTab, onClick, testid }) {
       type="button"
       data-testid={testid}
       onClick={() => onClick(val)}
-      style={{
-        padding: '8px 14px', background: 'transparent', border: 'none',
-        borderBottom: active ? '2px solid #111827' : '2px solid transparent',
-        marginBottom: -1, fontWeight: active ? 600 : 400,
-        color: active ? '#111827' : '#6b7280', cursor: 'pointer',
-      }}
+      style={tabStyle(active)}
     >
       {label}
     </button>

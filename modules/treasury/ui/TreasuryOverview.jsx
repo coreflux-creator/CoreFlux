@@ -127,6 +127,10 @@ export default function TreasuryOverview() {
         )}
       </section>
       <section className="treasury-overview__section">
+        <PlaidHealthBanner />
+      </section>
+
+      <section className="treasury-overview__section">
         <BankConnectCard onLinked={() => window.location.reload()} />
       </section>
 
@@ -138,6 +142,116 @@ export default function TreasuryOverview() {
         <PlaidTransferFundingCard />
       </section>
     </section>
+  );
+}
+
+function PlaidHealthBanner() {
+  // Any plaid_item with a non-null last_error_code or status != 'linked' is
+  // in a broken state — usually ITEM_LOGIN_REQUIRED (credentials expired).
+  // Show a blocker banner at the top of Treasury so the user doesn't spend
+  // time wondering why balances are stale.
+  const { data, reload } = useApi('/api/plaid_items.php');
+  const [busy, setBusy]   = React.useState(null);
+  const [err, setErr]     = React.useState(null);
+
+  const needing = (data?.rows || []).filter(
+    (r) => r.status === 'error' || (r.last_error_code && r.last_error_code !== 'item_remove_warning')
+  );
+  if (!data || needing.length === 0) return null;
+
+  const reconnect = async (item) => {
+    setBusy(item.id); setErr(null);
+    try {
+      // Plaid link-token in update mode — lets Link re-auth the same item
+      // without losing historical transactions or the access_token PK.
+      const tok = await fetch('/api/plaid_link_token.php', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ purpose: 'bank_feed', update_item_id: item.item_id }),
+      }).then((r) => r.json().then((d) => r.ok ? d : Promise.reject(d)));
+      if (!tok.link_token) throw new Error('No link_token returned');
+
+      await ensurePlaidLink();
+      const handler = window.Plaid.create({
+        token: tok.link_token,
+        onSuccess: async () => {
+          try {
+            // Clear the cached error and trigger a sync so balances refresh.
+            await fetch(`/api/plaid_items.php?id=${item.id}`, {
+              method: 'GET', credentials: 'include',
+            });
+            await fetch('/api/plaid_sync_transactions.php', {
+              method: 'POST', credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ item_id: item.item_id }),
+            });
+            await reload();
+          } catch (e) { setErr(e.message || 'Reconnect sync failed'); }
+          finally { setBusy(null); }
+        },
+        onExit: (e) => { if (e) setErr(e.error_message || 'Cancelled'); setBusy(null); },
+      });
+      handler.open();
+    } catch (e) {
+      setErr(e.error || e.message || 'Reconnect failed');
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div
+      data-testid="treasury-plaid-health-banner"
+      style={{
+        padding: 14, background: '#fef2f2', border: '1px solid #ef4444',
+        borderRadius: 6, marginBottom: 20,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+        <div>
+          <strong style={{ color: '#991b1b' }}>
+            {needing.length} bank connection{needing.length === 1 ? '' : 's'} need attention
+          </strong>
+          <p className="muted" style={{ fontSize: 13, margin: '4px 0 0' }}>
+            Balances and transactions won't refresh until these are reconnected.
+            This is almost always because the bank's login / MFA credentials
+            have expired — one click puts you through Plaid's re-auth flow.
+          </p>
+        </div>
+      </div>
+      <ul style={{ listStyle: 'none', padding: 0, margin: '12px 0 0' }}>
+        {needing.map((item) => (
+          <li
+            key={item.id}
+            data-testid={`treasury-plaid-health-row-${item.id}`}
+            style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '8px 0', borderTop: '1px solid #fecaca',
+            }}
+          >
+            <div>
+              <strong>{item.institution_name || item.item_id}</strong>
+              {item.last_error_code && (
+                <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
+                  {item.last_error_code}
+                  {item.last_error_message ? ` — ${item.last_error_message}` : ''}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={() => reconnect(item)}
+              disabled={busy === item.id}
+              data-testid={`treasury-plaid-health-reconnect-${item.id}`}
+              style={{ padding: '4px 14px', fontSize: 12 }}
+            >
+              {busy === item.id ? 'Opening Plaid…' : 'Reconnect'}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {err && <p className="error" data-testid="treasury-plaid-health-err" style={{ marginTop: 8 }}>{err}</p>}
+    </div>
   );
 }
 
