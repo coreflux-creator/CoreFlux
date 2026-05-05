@@ -132,7 +132,8 @@ $a('POST guard',                              $c($lt, "if (api_method() !== 'POS
 $a('purpose enum guard',                      $c($lt, "['bank_feed','vendor_banking','employee_banking','tenant_funding']"));
 $a('per-purpose RBAC gate',                   $c($lt, 'RBAC::requirePermission'));
 $a('purpose-aware product defaults (auth-only for vendor/employee)',
-    $c($lt, "'bank_feed'        => ['transactions','auth']") &&
+    $c($lt, "'bank_feed'        => ['transactions']") &&
+    $c($lt, "required_if_supported_products") &&
     $c($lt, "'employee_banking'") && $c($lt, "=> ['auth']"));
 $a('update mode: existing item access_token', $c($lt, "\$body['update_item_id']") && $c($lt, "\$req['access_token']"));
 $a('calls /link/token/create',                $c($lt, "/link/token/create"));
@@ -168,7 +169,7 @@ $a('upserts to accounting_bank_statement_lines',
 $a('flips Plaid +outflow → signed -debit',    $c($tx, '* -1'));
 $a('mutation-during-pagination retry once',   $c($tx, 'MUTATION_DURING_PAGINATION'));
 $a('200-page safety cap',                     $c($tx, "exceeded 200 pages") || $c($tx, '> 200'));
-$a('marks removed → match_status=ignored',    $c($tx, "match_status = \"ignored\""));
+$a('marks removed → match_status=ignored',    $c($tx, "match_status = 'ignored'"));
 $a('audits transactions_synced',              $c($tx, "'core.plaid.transactions_synced'"));
 
 echo "\napi/plaid_webhook.php\n";

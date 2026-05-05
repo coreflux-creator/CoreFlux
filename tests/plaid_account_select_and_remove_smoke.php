@@ -124,7 +124,9 @@ _a('Deposit row label says "Transactions →"',               str_contains($depU
 _a('Liability row label says "Transactions →"',             str_contains($liaUI, 'Transactions →'));
 _a('DepositDetail renders AccountTransactions in-Treasury', str_contains($depUI, 'AccountTransactions')
                                                           && str_contains($depUI, "type=\"deposit\""));
-_a('DepositDetail still links to full bank-rec workspace',  str_contains($depUI, 'Open full reconciliation workspace'));
+// Intentionally removed (2026-02): user feedback "literally nothing changed... no transactions"
+// led the agent to drop the bouncy intermediate link. Transactions render inline now.
+_a('DepositDetail no longer bounces to bank-rec workspace',  !str_contains($depUI, 'Open full reconciliation workspace'));
 
 _a('Deposit list shows Bank balance column',                str_contains($depUI, '>Bank balance<')
                                                           && str_contains($depUI, 'treasury-deposit-bank-balance-'));

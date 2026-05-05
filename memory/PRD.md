@@ -769,6 +769,16 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 ---
 *Last Updated: 2026-02 — Accounting Phase 1 verified + AP Phase A1 shipped (Export CSVs, Gusto-CSV roll-up, AI Receipts on Expenses, Status pill / filters on the Expenses list).*
 
+*2026-02 — Payroll Preflight + Gusto Preview verification (this fork):*
+- Re-installed php8.2-cli in the preview env and ran the entire smoke suite.
+- `payroll_preflight_and_gusto_preview_smoke.php` — 31/31 ✓ (preflight checks SSN/DOB/W-4/state-tax/active-placement/pay_rate, Gusto preview is read-only diff with `safe_to_submit` flag, migration 012 wires payroll_profiles.{pay_type, pay_rate_cents, flsa_class}, UI renders both panels on PayrollRunDetail, schema-contract gate green).
+- Synced 3 stale test assertions left over from intentional code changes the prior agent shipped (no functional regressions, just text-match drift):
+  - `plaid_account_select_and_remove_smoke.php` — flipped expectation: DepositDetail intentionally no longer bounces to bank-rec (user-requested simplification).
+  - `payment_rails_smoke.php` — `originate()` now requires `tenant_id`; test passes it through and accepts either Phase-B exception type.
+  - `plaid_integration_smoke.php` — bank_feed `products` now `['transactions']` + `required_if_supported_products:['auth']` (credit-card visibility fix); `match_status='ignored'` quote style.
+- **Full suite: 61 files, 3,680 assertions ✓ / 0 failed.**
+
+
 
 *2026-02 — Payroll Phase A1 (Gusto CSV extract + Audit CSV + AI anomaly flags):*
 - **Confirmed in-house engine remains the calculator of record** for MVP; deterministic gross-to-net compute (already shipped, 16/16 tests green) handles W-2 employees end-to-end. 1099 / C2C contractor pay continues to flow through AP — no separate payroll path. Gusto integration shape for this phase is **CSV-only**; Phase B will layer an OAuth API adapter behind the same `PayrollEngine` interface so the in-house engine becomes swappable without UI/workflow changes.

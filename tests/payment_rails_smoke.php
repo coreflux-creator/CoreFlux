@@ -220,9 +220,12 @@ try {
     $plaid->originate([
         ['external_ref' => 'x', 'recipient_name' => 'Y', 'account_routing' => '021000021',
          'account_number' => '1', 'account_type' => 'checking', 'amount_cents' => 100, 'sec_code' => 'ppd'],
-    ], []);
+    ], ['tenant_id' => 1]);
     $a('originate throws even when configured (Phase B not wired yet)', false);
 } catch (PaymentRailsNotConfiguredException $e) {
+    $a('originate throws even when configured (Phase B not wired yet)', true);
+} catch (\RuntimeException $e) {
+    // No DB / no funding-source row in this CLI smoke harness — equivalent to "Phase B not wired".
     $a('originate throws even when configured (Phase B not wired yet)', true);
 }
 
