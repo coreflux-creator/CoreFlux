@@ -33,6 +33,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
 
   const eligibleAccounts = (coa?.rows || [])
     .filter((a) => a.is_postable !== 0 && a.id !== accountId);
+  const accountsById = new Map(eligibleAccounts.map((a) => [a.id, a]));
 
   const lineAction = async (lineId, action, extra = {}) => {
     setRowError(null);
@@ -48,10 +49,11 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
     }
   };
 
-  const categorizeAndPost = (lineId, counterpartId, memo) =>
+  const categorizeAndPost = (lineId, counterpartId, memo, aiSuggestionId) =>
     lineAction(lineId, 'categorize_and_post', {
       counterpart_account_id: counterpartId,
       memo: memo || null,
+      ai_suggestion_id: aiSuggestionId || null,
     });
 
   const ignoreLine  = (lineId) => lineAction(lineId, 'ignore');
@@ -206,6 +208,18 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                     )}
                   </td>
                   <td>
+                    {r.match_status === 'unmatched' && r.ai_suggestion?.suggested_account_id && (
+                      <AiSuggestionPill
+                        suggestion={r.ai_suggestion}
+                        suggestedAccount={accountsById.get(r.ai_suggestion.suggested_account_id)}
+                        onAccept={() => categorizeAndPost(
+                          r.id,
+                          r.ai_suggestion.suggested_account_id,
+                          null,
+                          r.ai_suggestion.suggestion_id
+                        )}
+                      />
+                    )}
                     {r.match_status === 'unmatched' && (
                       <>
                         <button
@@ -257,7 +271,10 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                     line={r}
                     type={type}
                     accounts={eligibleAccounts}
-                    onSave={(counterpartId, memo) => categorizeAndPost(r.id, counterpartId, memo)}
+                    aiSuggestion={r.ai_suggestion}
+                    onSave={(counterpartId, memo) => categorizeAndPost(
+                      r.id, counterpartId, memo, r.ai_suggestion?.suggestion_id
+                    )}
                     onCancel={() => setCategorizingId(null)}
                   />
                 )}
@@ -270,7 +287,53 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   );
 }
 
-function CategorizeRow({ line, type, accounts, onSave, onCancel }) {
+function AiSuggestionPill({ suggestion, suggestedAccount, onAccept }) {
+  if (!suggestedAccount) return null;
+  const conf = Math.round((suggestion.confidence || 0) * 100);
+  // Color: ≥90% green (auto-accept threshold), 70-89% blue, 40-69% amber, <40% gray.
+  const color = conf >= 90 ? '#065f46'
+              : conf >= 70 ? '#1d4ed8'
+              : conf >= 40 ? '#b45309'
+              :              '#6b7280';
+  const bg    = conf >= 90 ? '#d1fae5'
+              : conf >= 70 ? '#dbeafe'
+              : conf >= 40 ? '#fef3c7'
+              :              '#f3f4f6';
+  return (
+    <div
+      data-testid={`treasury-txn-ai-pill-${suggestion.suggestion_id}`}
+      style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontSize: 11 }}
+    >
+      <span
+        title={suggestion.reasoning}
+        style={{
+          padding: '2px 6px', borderRadius: 10, background: bg, color,
+          fontWeight: 600, whiteSpace: 'nowrap',
+        }}
+        data-testid={`treasury-txn-ai-confidence-${suggestion.suggestion_id}`}
+      >
+        AI: {conf}%
+      </span>
+      <span style={{ color: '#475569' }}>
+        suggests <code>{suggestedAccount.code}</code> {suggestedAccount.name}
+      </span>
+      <button
+        type="button"
+        className="btn btn--ghost"
+        onClick={onAccept}
+        data-testid={`treasury-txn-ai-accept-${suggestion.suggestion_id}`}
+        style={{ padding: '0 6px', fontSize: 11, color, borderColor: color }}
+      >
+        Accept
+      </button>
+      <span className="muted" style={{ fontSize: 10 }}>
+        ({suggestion.source})
+      </span>
+    </div>
+  );
+}
+
+function CategorizeRow({ line, type, accounts, aiSuggestion, onSave, onCancel }) {
   // Charges (negative amount) typically debit an EXPENSE account.
   // Payments / refunds (positive amount) credit either revenue (rare for cards)
   // or, more commonly for cards, the bank deposit account that was charged
@@ -290,7 +353,9 @@ function CategorizeRow({ line, type, accounts, onSave, onCancel }) {
     .filter((a) => !preferredTypes.includes(a.account_type))
     .sort((a, b) => (a.code || '').localeCompare(b.code || ''));
 
-  const [counterpartId, setCounterpartId] = useState('');
+  const [counterpartId, setCounterpartId] = useState(
+    aiSuggestion?.suggested_account_id ? String(aiSuggestion.suggested_account_id) : ''
+  );
   const [memo, setMemo]                   = useState('');
   const [busy, setBusy]                   = useState(false);
 

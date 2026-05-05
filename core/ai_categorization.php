@@ -1,0 +1,449 @@
+<?php
+/**
+ * AI Categorization Service.
+ *
+ * One central entry point that suggests an `accounting_accounts.id` for a
+ * given bank or liability statement line, with a calibrated confidence score
+ * (0.0 – 1.0). Compounds a per-tenant moat as users accept/override:
+ *
+ *   1.  HISTORY      — exact merchant_name match, ≥3 prior accepts → 0.97
+ *                       1-2 prior accepts                          → 0.85
+ *                      Lower-cardinality fuzzy match               → 0.60
+ *   2.  PFC MAPPING  — Plaid `personal_finance_category.primary` →
+ *                      well-known GL account_type filter           → 0.55-0.75
+ *                      (e.g. FOOD_AND_DRINK → expense, recent restaurant a/c)
+ *   3.  LLM FALLBACK — GPT-4o-mini, capped to expense+asset accounts,
+ *                      explains its reasoning                       → 0.30-0.55
+ *
+ * Always records into:
+ *   - ai_interactions (audit, status='ok'|'error')
+ *   - ai_suggestions  (status='draft', confidence_score, suggested_value,
+ *                      suggestion_source, prompt_version, model_version)
+ *
+ * On accept / override (called by account_transactions.php POST handlers):
+ *   - ai_suggestions row updates → status='approved', accepted_as_is=0|1, final_value
+ *   - ai_categorization_history upserts (signal=merchant|pfcategory)
+ *
+ * Versioning: PROMPT_VERSION + MODEL_VERSION constants here. Bump them when
+ * the prompt or model changes so historical accept-rates aren't conflated.
+ */
+declare(strict_types=1);
+
+const AI_CATEGORIZATION_PROMPT_VERSION = 'v1.0';
+const AI_CATEGORIZATION_MODEL          = 'gpt-4o-mini';
+const AI_CATEGORIZATION_MODEL_VERSION  = 'gpt-4o-mini-2024-07-18';
+const AI_CATEGORIZATION_AUTO_ACCEPT    = 0.90;   // confidence threshold for one-click auto-post
+const AI_CATEGORIZATION_FEATURE_KEY    = 'treasury.categorize.expense_account';
+
+require_once __DIR__ . '/ai_service.php';
+
+/**
+ * Suggest a counterpart account for a statement line.
+ *
+ * @param int    $tenantId
+ * @param array  $line       statement line row (must have: amount, posted_date,
+ *                           description, merchant_name?, category?)
+ * @param string $type       'deposit' | 'liability'
+ * @param int    $sideAccountId  the bank/card account_id (so we never suggest itself)
+ * @param array  $allAccounts    chart of accounts rows (id, code, name, account_type, is_postable)
+ * @return array {
+ *   suggestion_id:       int,
+ *   suggested_account_id:int|null,
+ *   confidence:          float,  // 0..1
+ *   source:              'history'|'rules'|'llm'|'hybrid',
+ *   reasoning:           string,
+ *   auto_accept:         bool,   // confidence >= AI_CATEGORIZATION_AUTO_ACCEPT
+ * }
+ */
+function aiSuggestCounterpartAccount(
+    int $tenantId,
+    array $line,
+    string $type,
+    int $sideAccountId,
+    array $allAccounts
+): array {
+    $startedAt = microtime(true);
+    $merchant  = trim((string) ($line['merchant_name'] ?? ''));
+    $desc      = trim((string) ($line['description']    ?? ''));
+    $pfcat     = trim((string) ($line['category']       ?? ''));
+    $amount    = (float) ($line['amount'] ?? 0);
+
+    // Whitelist of postable accounts (excluding the line's own side).
+    $eligible = array_values(array_filter($allAccounts, function ($a) use ($sideAccountId) {
+        return ((int) ($a['is_postable'] ?? 1)) === 1 && (int) $a['id'] !== $sideAccountId;
+    }));
+
+    $suggestion = aiCategorizationFromHistory($tenantId, $merchant, $pfcat, $eligible);
+    $source     = 'history';
+
+    if (!$suggestion) {
+        $suggestion = aiCategorizationFromPfcRules($pfcat, $amount, $type, $eligible);
+        $source     = $suggestion ? 'rules' : null;
+    }
+
+    if (!$suggestion) {
+        try {
+            $suggestion = aiCategorizationFromLlm($tenantId, $merchant, $desc, $pfcat, $amount, $type, $eligible);
+            $source     = $suggestion ? 'llm' : null;
+        } catch (\Throwable $e) {
+            error_log('[ai_categorization] LLM fallback failed: ' . $e->getMessage());
+            $suggestion = null;
+            $source     = null;
+        }
+    }
+
+    $latencyMs = (int) ((microtime(true) - $startedAt) * 1000);
+
+    // Audit: record into ai_interactions even when we couldn't suggest.
+    $interactionId = aiAuditWrite([
+        'tenant_id'     => $tenantId,
+        'feature_class' => 'classification',
+        'feature_key'   => AI_CATEGORIZATION_FEATURE_KEY,
+        'kind'          => 'classification',
+        'status'        => $suggestion ? 'ok' : 'error',
+        'model'         => $source === 'llm' ? AI_CATEGORIZATION_MODEL_VERSION : ($source ?: 'none'),
+        'latency_ms'    => $latencyMs,
+        'prompt'        => json_encode([
+            'merchant' => $merchant, 'desc' => $desc, 'pfc' => $pfcat,
+            'amount'   => $amount,   'type' => $type,
+        ]),
+        'response'      => $suggestion ? json_encode($suggestion) : null,
+        'error'         => $suggestion ? null : 'no_suggestion',
+    ]);
+
+    // Persist a draft ai_suggestions row so we can track accept/override later.
+    $suggestionId = aiInsertSuggestion($tenantId, [
+        'interaction_id'   => $interactionId,
+        'module'           => 'treasury',
+        'feature_key'      => AI_CATEGORIZATION_FEATURE_KEY,
+        'subject_type'     => $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line',
+        'subject_id'       => (int) ($line['id'] ?? 0),
+        'draft_content'    => $suggestion ? ($suggestion['reasoning'] ?? '') : 'No suggestion',
+        'confidence_score' => $suggestion ? (float) $suggestion['confidence'] : null,
+        'prompt_version'   => AI_CATEGORIZATION_PROMPT_VERSION,
+        'model_version'    => $source === 'llm' ? AI_CATEGORIZATION_MODEL_VERSION : $source,
+        'suggested_value'  => $suggestion ? (string) $suggestion['account_id'] : null,
+        'suggestion_source'=> $source,
+    ]);
+
+    if (!$suggestion) {
+        return [
+            'suggestion_id'        => $suggestionId,
+            'suggested_account_id' => null,
+            'confidence'           => 0.0,
+            'source'               => 'none',
+            'reasoning'            => 'No confident suggestion',
+            'auto_accept'          => false,
+        ];
+    }
+
+    return [
+        'suggestion_id'        => $suggestionId,
+        'suggested_account_id' => (int) $suggestion['account_id'],
+        'confidence'           => (float) $suggestion['confidence'],
+        'source'               => $source,
+        'reasoning'            => (string) ($suggestion['reasoning'] ?? ''),
+        'auto_accept'          => $suggestion['confidence'] >= AI_CATEGORIZATION_AUTO_ACCEPT,
+    ];
+}
+
+/**
+ * Record the outcome of a suggestion (accept-as-is OR override). Updates
+ * ai_suggestions.status + accepted_as_is + final_value, then upserts the
+ * accepted final_value into ai_categorization_history so the next call gets
+ * a high-confidence history hit.
+ *
+ * Safe to call with $suggestionId=0 (user posted a JE without an AI suggestion);
+ * we then just upsert the history row keyed on merchant.
+ */
+function aiRecordCategorizationOutcome(
+    int $tenantId,
+    ?int $suggestionId,
+    int $finalAccountId,
+    array $line,
+    int $userId
+): void {
+    $pdo      = getDB();
+    $merchant = trim((string) ($line['merchant_name'] ?? ''));
+    $pfcat    = trim((string) ($line['category']       ?? ''));
+
+    if ($suggestionId && $suggestionId > 0) {
+        $check = $pdo->prepare(
+            'SELECT suggested_value FROM ai_suggestions
+              WHERE tenant_id = :t AND id = :id LIMIT 1'
+        );
+        $check->execute(['t' => $tenantId, 'id' => $suggestionId]);
+        $row = $check->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            $suggestedAcctId = (int) ($row['suggested_value'] ?? 0);
+            $acceptedAsIs   = ($suggestedAcctId === $finalAccountId) ? 1 : 0;
+            $pdo->prepare(
+                'UPDATE ai_suggestions
+                    SET status         = "approved",
+                        final_content  = :memo,
+                        final_value    = :fv,
+                        accepted_as_is = :ai,
+                        reviewed_by    = :uid,
+                        reviewed_at    = NOW(),
+                        updated_at     = NOW()
+                  WHERE tenant_id = :t AND id = :id'
+            )->execute([
+                't'   => $tenantId,
+                'id'  => $suggestionId,
+                'memo'=> 'Accepted ' . ($acceptedAsIs ? 'as-is' : 'with override'),
+                'fv'  => (string) $finalAccountId,
+                'ai'  => $acceptedAsIs,
+                'uid' => $userId ?: null,
+            ]);
+        }
+    }
+
+    aiUpsertCategorizationHistory($tenantId, AI_CATEGORIZATION_FEATURE_KEY, 'merchant',
+        strtolower($merchant), 'account_id:' . $finalAccountId);
+    if ($pfcat !== '') {
+        aiUpsertCategorizationHistory($tenantId, AI_CATEGORIZATION_FEATURE_KEY, 'pfcategory',
+            strtolower($pfcat), 'account_id:' . $finalAccountId);
+    }
+}
+
+// ───────────────────────────── private helpers ─────────────────────────────
+
+function aiCategorizationFromHistory(int $tenantId, string $merchant, string $pfcat, array $eligible): ?array
+{
+    if ($merchant === '' && $pfcat === '') return null;
+    $pdo = getDB();
+    $bestRow    = null;
+    $bestSignal = null;
+
+    if ($merchant !== '') {
+        $stmt = $pdo->prepare(
+            "SELECT final_value, accept_count
+               FROM ai_categorization_history
+              WHERE tenant_id = :t AND feature_key = :f
+                AND signal_kind = 'merchant' AND signal_value = :v
+              ORDER BY accept_count DESC LIMIT 1"
+        );
+        $stmt->execute(['t' => $tenantId, 'f' => AI_CATEGORIZATION_FEATURE_KEY, 'v' => strtolower($merchant)]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) { $bestRow = $row; $bestSignal = 'merchant'; }
+    }
+    if (!$bestRow && $pfcat !== '') {
+        $stmt = $pdo->prepare(
+            "SELECT final_value, accept_count
+               FROM ai_categorization_history
+              WHERE tenant_id = :t AND feature_key = :f
+                AND signal_kind = 'pfcategory' AND signal_value = :v
+              ORDER BY accept_count DESC LIMIT 1"
+        );
+        $stmt->execute(['t' => $tenantId, 'f' => AI_CATEGORIZATION_FEATURE_KEY, 'v' => strtolower($pfcat)]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) { $bestRow = $row; $bestSignal = 'pfcategory'; }
+    }
+    if (!$bestRow) return null;
+
+    if (!preg_match('/^account_id:(\d+)$/', $bestRow['final_value'], $m)) return null;
+    $accountId = (int) $m[1];
+    $stillEligible = false;
+    foreach ($eligible as $a) { if ((int) $a['id'] === $accountId) { $stillEligible = true; break; } }
+    if (!$stillEligible) return null;
+
+    $count = (int) $bestRow['accept_count'];
+    if ($bestSignal === 'merchant') {
+        $confidence = $count >= 3 ? 0.97 : ($count >= 1 ? 0.85 : 0.60);
+        $reasoning  = "You've categorized \"{$merchant}\" this way " . $count . "× before.";
+    } else {
+        $confidence = $count >= 3 ? 0.78 : 0.62;
+        $reasoning  = "Plaid category \"{$pfcat}\" has been categorized this way " . $count . "× before.";
+    }
+    return ['account_id' => $accountId, 'confidence' => $confidence, 'reasoning' => $reasoning];
+}
+
+function aiCategorizationFromPfcRules(string $pfcat, float $amount, string $type, array $eligible): ?array
+{
+    if ($pfcat === '') return null;
+    // Plaid → GL account_type + name-keyword preference.
+    static $RULES = [
+        'FOOD_AND_DRINK'      => ['expense', ['meals','food','restaurant','dining']],
+        'GENERAL_MERCHANDISE' => ['expense', ['supplies','office']],
+        'GENERAL_SERVICES'    => ['expense', ['services','consulting','contract']],
+        'TRANSPORTATION'      => ['expense', ['travel','transport','uber','lyft','gas']],
+        'TRAVEL'              => ['expense', ['travel','airfare','hotel','lodging']],
+        'PERSONAL_CARE'       => ['expense', ['personal','health']],
+        'MEDICAL'             => ['expense', ['medical','health','wellness']],
+        'ENTERTAINMENT'       => ['expense', ['entertainment','event']],
+        'HOME_IMPROVEMENT'    => ['expense', ['repair','maintenance','building']],
+        'RENT_AND_UTILITIES'  => ['expense', ['rent','utilities','phone','internet']],
+        'BANK_FEES'           => ['expense', ['fee','bank','charge']],
+        'GOVERNMENT_AND_NON_PROFIT' => ['expense', ['tax','government','license']],
+        'INCOME'              => ['revenue', ['revenue','sales','income']],
+        'TRANSFER_IN'         => ['asset',   ['cash','bank','transfer']],
+        'TRANSFER_OUT'        => ['asset',   ['cash','bank','transfer']],
+        'LOAN_PAYMENTS'       => ['liability',['loan','note','payable']],
+    ];
+    $primary = strtoupper(preg_replace('/\s.*$/', '', $pfcat)); // first token if "FOOD_AND_DRINK / FAST_FOOD"
+    if (!isset($RULES[$primary])) return null;
+    [$wantType, $keywords] = $RULES[$primary];
+
+    $candidates = array_values(array_filter($eligible, fn($a) => ($a['account_type'] ?? '') === $wantType));
+    if (!$candidates) return null;
+
+    $best = null; $bestScore = -1;
+    foreach ($candidates as $a) {
+        $score = 0;
+        $haystack = strtolower(($a['name'] ?? '') . ' ' . ($a['code'] ?? ''));
+        foreach ($keywords as $k) {
+            if (strpos($haystack, $k) !== false) $score++;
+        }
+        if ($score > $bestScore) { $bestScore = $score; $best = $a; }
+    }
+    if (!$best) return null;
+
+    $confidence = $bestScore >= 1 ? 0.72 : 0.55;
+    return [
+        'account_id' => (int) $best['id'],
+        'confidence' => $confidence,
+        'reasoning'  => "Plaid category \"{$pfcat}\" maps to {$wantType} accounts; \"{$best['code']} {$best['name']}\" matched {$bestScore} keyword(s).",
+    ];
+}
+
+function aiCategorizationFromLlm(int $tenantId, string $merchant, string $desc, string $pfcat, float $amount, string $type, array $eligible): ?array
+{
+    $gate = aiGateForTenant($tenantId, 'classification');
+    if (empty($gate['tenant_enabled']) || empty($gate['feature_enabled'])) return null;
+    $cands = array_slice($eligible, 0, 50);
+    if (!$cands) return null;
+
+    $list = [];
+    foreach ($cands as $a) {
+        $list[] = sprintf("- id=%d code=%s type=%s name=%s",
+            (int) $a['id'], $a['code'], $a['account_type'], $a['name']);
+    }
+    $accountText = implode("\n", $list);
+
+    $prompt = <<<PROMPT
+You are a bookkeeping assistant. Pick the MOST LIKELY counterpart GL account for a statement line.
+
+Statement line:
+  type: {$type}
+  amount: {$amount}   (negative = charge/outflow, positive = payment/inflow)
+  merchant: {$merchant}
+  description: {$desc}
+  plaid_category: {$pfcat}
+
+Candidate accounts (id, code, type, name):
+{$accountText}
+
+Reply with STRICT JSON:
+{"account_id": <int>, "confidence": <0.0-1.0>, "reasoning": "<1 sentence>"}
+
+Rules:
+- account_id MUST be one of the candidate ids.
+- For charges (negative amount), prefer expense accounts.
+- For payments (positive amount), prefer asset accounts (e.g. cash, bank).
+- Confidence: 0.50 baseline; +0.15 if merchant name strongly suggests a category; -0.15 if the line is ambiguous.
+- Keep reasoning under 140 chars.
+PROMPT;
+
+    [$content, $latencyMs, $modelUsed, $http, $error] = aiCallOpenAI([
+        'model'    => AI_CATEGORIZATION_MODEL,
+        'messages' => [
+            ['role' => 'system', 'content' => 'You are a precise bookkeeping classifier. Reply with STRICT JSON only.'],
+            ['role' => 'user',   'content' => $prompt],
+        ],
+        'response_format' => ['type' => 'json_object'],
+        'temperature'     => 0.1,
+        'max_tokens'      => 200,
+    ]);
+    if (!$content || $http < 200 || $http >= 300) return null;
+    $j = json_decode($content, true);
+    if (!is_array($j) || !isset($j['account_id'])) return null;
+
+    $accId = (int) $j['account_id'];
+    $eligibleIds = array_map(fn($a) => (int) $a['id'], $cands);
+    if (!in_array($accId, $eligibleIds, true)) return null;
+
+    $conf = max(0.30, min(0.85, (float) ($j['confidence'] ?? 0.5)));
+    return [
+        'account_id' => $accId,
+        'confidence' => $conf,
+        'reasoning'  => substr((string) ($j['reasoning'] ?? 'LLM suggestion'), 0, 200),
+    ];
+}
+
+function aiInsertSuggestion(int $tenantId, array $row): int
+{
+    $pdo = getDB();
+    $pdo->prepare(
+        'INSERT INTO ai_suggestions
+            (tenant_id, interaction_id, module, feature_key, subject_type, subject_id,
+             draft_content, status, confidence_score, prompt_version, model_version,
+             suggested_value, suggestion_source, created_at)
+         VALUES
+            (:t, :iid, :m, :fk, :st, :si, :dc, "draft", :cs, :pv, :mv, :sv, :ss, NOW())'
+    )->execute([
+        't'   => $tenantId,
+        'iid' => $row['interaction_id'] ?: null,
+        'm'   => $row['module'],
+        'fk'  => $row['feature_key'],
+        'st'  => $row['subject_type'],
+        'si'  => $row['subject_id'] ?: null,
+        'dc'  => $row['draft_content'] ?? '',
+        'cs'  => $row['confidence_score'],
+        'pv'  => $row['prompt_version'],
+        'mv'  => $row['model_version'],
+        'sv'  => $row['suggested_value'],
+        'ss'  => $row['suggestion_source'],
+    ]);
+    return (int) $pdo->lastInsertId();
+}
+
+function aiUpsertCategorizationHistory(int $tenantId, string $featureKey, string $signalKind, string $signalValue, string $finalValue): void
+{
+    if ($signalValue === '') return;
+    $pdo = getDB();
+    $pdo->prepare(
+        'INSERT INTO ai_categorization_history
+            (tenant_id, feature_key, signal_kind, signal_value, final_value, accept_count, last_accepted_at)
+         VALUES (:t, :fk, :sk, :sv, :fv, 1, NOW())
+         ON DUPLICATE KEY UPDATE
+            accept_count     = accept_count + 1,
+            last_accepted_at = NOW()'
+    )->execute([
+        't'  => $tenantId, 'fk' => $featureKey, 'sk' => $signalKind,
+        'sv' => $signalValue, 'fv' => $finalValue,
+    ]);
+}
+
+/**
+ * Aggregate a daily snapshot into ai_accuracy_daily for a date range.
+ * Idempotent (REPLACE INTO). Cheap enough to call on dashboard load
+ * for the current day; the dashboard backfills the last 30 days lazily.
+ */
+function aiRollupAccuracyDaily(int $tenantId, string $fromDate, string $toDate): int
+{
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        "REPLACE INTO ai_accuracy_daily
+            (tenant_id, feature_key, snapshot_date,
+             suggestions_count, accepted_count, overridden_count, rejected_count,
+             avg_confidence, avg_accepted_conf, avg_overridden_conf)
+         SELECT
+            tenant_id,
+            feature_key,
+            DATE(COALESCE(reviewed_at, created_at)) AS d,
+            COUNT(*) AS sc,
+            SUM(CASE WHEN status='approved'  AND accepted_as_is = 1 THEN 1 ELSE 0 END),
+            SUM(CASE WHEN status='approved'  AND accepted_as_is = 0 THEN 1 ELSE 0 END),
+            SUM(CASE WHEN status='rejected'                          THEN 1 ELSE 0 END),
+            AVG(confidence_score),
+            AVG(CASE WHEN status='approved' AND accepted_as_is = 1 THEN confidence_score END),
+            AVG(CASE WHEN status='approved' AND accepted_as_is = 0 THEN confidence_score END)
+           FROM ai_suggestions
+          WHERE tenant_id = :t
+            AND DATE(COALESCE(reviewed_at, created_at)) BETWEEN :a AND :b
+            AND confidence_score IS NOT NULL
+          GROUP BY tenant_id, feature_key, d"
+    );
+    $stmt->execute(['t' => $tenantId, 'a' => $fromDate, 'b' => $toDate]);
+    return $stmt->rowCount();
+}

@@ -19,9 +19,9 @@ export default function VendorsList() {
       {error && <p className="error">Error: {error.message}</p>}
 
       <table className="data-table" data-testid="ap-vendors-table">
-        <thead><tr><th>Name</th><th>Type</th><th>Terms</th><th>Tax ID</th><th>1099?</th><th>Last bill</th></tr></thead>
+        <thead><tr><th>Name</th><th>Type</th><th>Terms</th><th>Tax ID</th><th>1099?</th><th>Last bill</th><th></th></tr></thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={6} className="empty" data-testid="ap-vendors-empty">No vendors yet.</td></tr>}
+          {rows.length === 0 && !loading && <tr><td colSpan={7} className="empty" data-testid="ap-vendors-empty">No vendors yet.</td></tr>}
           {rows.map(v => (
             <tr key={v.id} data-testid={`ap-vendor-row-${v.id}`}>
               <td>{v.vendor_name}</td>
@@ -30,6 +30,9 @@ export default function VendorsList() {
               <td>{v.tax_id_last4 ? `••${v.tax_id_last4}` : '—'}</td>
               <td>{Number(v.requires_1099) ? 'Yes' : 'No'}</td>
               <td>{v.last_bill_at || '—'}</td>
+              <td>
+                <PortalInviteButton vendor={v} />
+              </td>
             </tr>
           ))}
         </tbody>
@@ -37,6 +40,50 @@ export default function VendorsList() {
 
       {showCreate && <VendorCreateModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); reload(); }} />}
     </section>
+  );
+}
+
+function PortalInviteButton({ vendor }) {
+  const [busy, setBusy] = useState(false);
+  const [link, setLink] = useState(null);
+  const [err, setErr]   = useState(null);
+  const invite = async () => {
+    const email = prompt(`Send vendor portal invite for "${vendor.vendor_name}". Email:`, vendor.contact_email || '');
+    if (!email) return;
+    setBusy(true); setErr(null); setLink(null);
+    try {
+      const res = await api.post(
+        '/modules/ap/api/vendor_portal.php?action=invite',
+        { vendor_id: vendor.id, email }
+      );
+      setLink(res.magic_link);
+    } catch (e) { setErr(e.message); }
+    finally     { setBusy(false); }
+  };
+  return (
+    <>
+      <button
+        type="button"
+        className="btn btn--ghost"
+        onClick={invite}
+        disabled={busy}
+        data-testid={`ap-vendor-portal-invite-${vendor.id}`}
+        style={{ padding: '2px 8px', fontSize: 11 }}
+      >
+        {busy ? '…' : 'Portal invite'}
+      </button>
+      {link && (
+        <div data-testid={`ap-vendor-portal-link-${vendor.id}`} style={{ fontSize: 10, marginTop: 4 }}>
+          <input
+            value={link}
+            readOnly
+            onClick={(e) => e.target.select()}
+            style={{ width: '100%', fontSize: 10, padding: 2 }}
+          />
+        </div>
+      )}
+      {err && <div style={{ color: '#b91c1c', fontSize: 10 }}>{err}</div>}
+    </>
   );
 }
 

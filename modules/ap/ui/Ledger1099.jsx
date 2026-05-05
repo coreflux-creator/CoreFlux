@@ -24,6 +24,13 @@ export default function Ledger1099() {
             <input className="input" type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} data-testid="ap-1099-year" style={{ marginLeft: 8, width: 100 }} />
           </label>
           <button className="btn btn--primary" onClick={rebuild} disabled={busy} data-testid="ap-1099-rebuild">{busy ? 'Rebuilding…' : 'Rebuild from cleared payments'}</button>
+          <button
+            className="btn btn--ghost"
+            onClick={() => window.open(`/api/ap/1099.php?action=print&tax_year=${year}`, '_blank')}
+            data-testid="ap-1099-print"
+          >
+            Print 1099-NEC forms →
+          </button>
         </div>
       </div>
 

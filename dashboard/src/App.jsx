@@ -16,6 +16,7 @@ import PayrollModule from '../../modules/payroll/ui/PayrollModule';
 import AccountingModule from './modules/AccountingModule';
 import AccountingV1Module from '../../modules/accounting/ui/AccountingModule';
 import TreasuryModule from '../../modules/treasury/ui/TreasuryModule';
+import VendorPortal from './pages/VendorPortal';
 import FinanceModule from './modules/FinanceModule';
 import GenericModule from './modules/GenericModule';
 
@@ -297,6 +298,9 @@ const AppContent = ({ session, usingDemo }) => {
           <Route path="/modules/accounting/*" element={<AccountingV1Module session={session} />} />
           <Route path="/modules/payroll/*"    element={<PayrollModule    session={session} />} />
           <Route path="/modules/treasury/*"   element={<TreasuryModule   session={session} />} />
+          {/* Vendor self-service portal — uses its own cf_vp_sid cookie auth,
+              independent of platform user session. */}
+          <Route path="/vendor/portal"        element={<VendorPortal />} />
           {/* All other modules fall through to GenericModule
               "Coming soon" panel until Phase 4 module implementation ships. */}
           <Route path="/modules/:moduleId/*" element={<GenericModule session={session} activeModule={activeModule} />} />

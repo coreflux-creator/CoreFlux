@@ -77,30 +77,41 @@ if ($action === 'suggest_match') {
 }
 
 if ($action === 'suggest_categorize') {
-    // Pull the COA for context (active expense + asset accounts mostly)
-    $coa = scopedQuery(
-        'SELECT code, name, account_type FROM accounting_accounts
-         WHERE tenant_id = :tenant_id AND active = 1
-         ORDER BY account_type, code'
+    // Use the unified ai_categorization service (history → rules → LLM cascade)
+    // so deposits feed the same per-tenant moat as liabilities. Returns a
+    // structured suggestion + a confidence score 0-1, persisted as a draft
+    // ai_suggestions row keyed on (subject_type='bank_statement_line', subject_id).
+    require_once __DIR__ . '/../../../core/ai_categorization.php';
+    $accounts = scopedQuery(
+        'SELECT id, code, name, account_type, is_postable
+           FROM accounting_accounts
+          WHERE tenant_id = :tenant_id AND active = 1
+          ORDER BY code ASC LIMIT 1000'
     );
-    $res = aiAsk([
-        'feature_class'   => 'advisory',
-        'kind'            => 'classification',
-        'feature_key'     => 'accounting.bank.suggest_categorize',
-        'system'          => 'Pick the single best Chart-of-Accounts code for this bank-statement line. Use ONLY codes from the provided COA. Explain in one sentence.',
-        'prompt'          => 'Bank line: ' . json_encode([
-            'date'        => $line['posted_date'],
-            'description' => $line['description'],
-            'amount'      => (float) $line['amount'],
-        ]) . "\nReturn: {account_code, account_name, confidence, reasoning}",
-        'context'         => ['coa' => $coa, 'bank_gl_code' => $line['bank_gl_code']],
-        'max_output_tokens' => 400,
-    ]);
+    $bankAcct = scopedFind(
+        'SELECT aa.id FROM accounting_bank_accounts ba
+           JOIN accounting_accounts aa ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
+          WHERE ba.tenant_id = :tenant_id AND ba.id = :id LIMIT 1',
+        ['id' => (int) $line['bank_account_id']]
+    );
+    $sideAccountId = (int) ($bankAcct['id'] ?? 0);
+    $sug = aiSuggestCounterpartAccount(
+        $tenantId,
+        [
+            'id'            => $lineId,
+            'amount'        => (float) $line['amount'],
+            'posted_date'   => $line['posted_date'],
+            'description'   => $line['description'],
+            'merchant_name' => $line['description'],   // bank-rec lines lack a merchant col
+            'category'      => null,                   // ditto pfcategory
+        ],
+        'deposit',
+        $sideAccountId,
+        $accounts
+    );
     api_ok([
-        'ai_response'     => $res['text'] ?? null,
-        'interaction_id'  => $res['interaction_id'] ?? null,
-        'model'           => $res['model']          ?? null,
-        'review_required' => true,
+        'suggestion'      => $sug,
+        'review_required' => !$sug['auto_accept'],
     ]);
 }
 

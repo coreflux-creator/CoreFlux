@@ -79,14 +79,16 @@ $a('suggest_match action',                         strpos($bai, "action === 'sug
 $a('suggest_match calls bankRecAutoSuggestMatches',strpos($bai, 'bankRecAutoSuggestMatches(') !== false);
 $a('suggest_match feature_key',                    strpos($bai, "'accounting.bank.suggest_match'") !== false);
 $a('suggest_categorize action',                    strpos($bai, "action === 'suggest_categorize'") !== false);
-$a('suggest_categorize feature_key',               strpos($bai, "'accounting.bank.suggest_categorize'") !== false);
+$a('suggest_categorize uses unified moat service', strpos($bai, 'aiSuggestCounterpartAccount(') !== false);
 $a('suggest_categorize loads COA',                 strpos($bai, "FROM accounting_accounts") !== false);
 $a('suggest_rule action',                          strpos($bai, "action === 'suggest_rule'") !== false);
 $a('suggest_rule feature_key',                     strpos($bai, "'accounting.bank.suggest_rule'") !== false);
 $a('suggest_rule passes existing rules to AI',     strpos($bai, "'existing_rules'") !== false);
 $a('suggest_rule mentions is_approved default 0',  stripos($bai, 'is_approved=0') !== false);
-$a('all suggestions return review_required true',  substr_count($bai, "'review_required' => true") >= 3);
-$a('uses aiAsk advisory feature_class',            substr_count($bai, "'feature_class'   => 'advisory'") >= 3);
+$a('suggest_rule + suggest_match still advisory',  substr_count($bai, "'feature_class'   => 'advisory'") >= 2);
+$a('suggest_categorize returns review_required + auto_accept',
+                                                   strpos($bai, "review_required") !== false
+                                                && strpos($bai, "auto_accept")      !== false);
 
 echo "\nlib/bank_rec.php helpers\n";
 $lib = (string) file_get_contents(__DIR__ . '/../modules/accounting/lib/bank_rec.php');

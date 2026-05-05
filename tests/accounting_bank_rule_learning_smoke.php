@@ -36,9 +36,8 @@ $bs = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/bank_stat
 $a('accept_ai_categorize action',                   strpos($bs, "action === 'accept_ai_categorize'") !== false);
 $a('requires account_code',                         strpos($bs, "api_require_fields(\$body, ['account_code'])") !== false);
 $a('stamps categorized_via=ai_accepted',            strpos($bs, "'categorized_via'          => 'ai_accepted'") !== false);
-$a('writes ai_suggestions accept row',
-    strpos($bs, "'ai_suggestions'") !== false &&
-    strpos($bs, "'feature_key'    => 'accounting.bank.suggest_categorize'") !== false);
+$a('records outcome via unified ai moat helper',
+    strpos($bs, 'aiRecordCategorizationOutcome(') !== false);
 $a('audits accept event',                            strpos($bs, "'accounting.bank.ai_categorize_accepted'") !== false);
 
 echo "\nbank_rules.php — learn action\n";

@@ -12,16 +12,18 @@ import AgingTable from './AgingTable';
 import Ledger1099 from './Ledger1099';
 import Export from './Export';
 import Settings from './Settings';
+import Approvals from './Approvals';
 
 const navItems = [
-  { to: '/modules/ap/bills',    label: 'Bills' },
-  { to: '/modules/ap/payments', label: 'Payments' },
-  { to: '/modules/ap/vendors',  label: 'Vendors' },
-  { to: '/modules/ap/expenses', label: 'Expenses' },
-  { to: '/modules/ap/aging',    label: 'Aging' },
-  { to: '/modules/ap/1099',     label: '1099' },
-  { to: '/modules/ap/export',   label: 'Export' },
-  { to: '/modules/ap/settings', label: 'Settings' },
+  { to: '/modules/ap/bills',     label: 'Bills' },
+  { to: '/modules/ap/approvals', label: 'Approvals' },
+  { to: '/modules/ap/payments',  label: 'Payments' },
+  { to: '/modules/ap/vendors',   label: 'Vendors' },
+  { to: '/modules/ap/expenses',  label: 'Expenses' },
+  { to: '/modules/ap/aging',     label: 'Aging' },
+  { to: '/modules/ap/1099',      label: '1099' },
+  { to: '/modules/ap/export',    label: 'Export' },
+  { to: '/modules/ap/settings',  label: 'Settings' },
 ];
 
 export default function APModule() {
@@ -56,6 +58,7 @@ export default function APModule() {
         <Route path="bills/new" element={<BillCreate />} />
         <Route path="bills/:id" element={<BillDetail />} />
         <Route path="payments" element={<PaymentsList />} />
+        <Route path="approvals" element={<Approvals />} />
         <Route path="vendors" element={<VendorsList />} />
         <Route path="expenses" element={<ExpensesList />} />
         <Route path="expenses/new" element={<ExpenseCreate />} />

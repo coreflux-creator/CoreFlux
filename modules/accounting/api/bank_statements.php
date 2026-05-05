@@ -104,14 +104,15 @@ if ($method === 'POST' && $action === 'apply_rules') {
 }
 
 if ($method === 'POST' && $action === 'accept_ai_categorize') {
-    // Stamp the user-accepted COA code onto the bank line + emit an
-    // ai_suggestions row so the learner can find this accept.
+    // Stamp the user-accepted COA code onto the bank line + record the
+    // accept/override into ai_categorization_history so future predictions
+    // for the same merchant get a high-confidence history hit.
     RBAC::requirePermission($user, 'accounting.je.create');
     $lid  = (int) ($_GET['line_id'] ?? 0);
     if ($lid <= 0) api_error('line_id required', 400);
     $body = api_json_body();
     api_require_fields($body, ['account_code']);
-    $line = scopedFind('SELECT id, description FROM accounting_bank_statement_lines WHERE tenant_id = :tenant_id AND id = :id', ['id' => $lid]);
+    $line = scopedFind('SELECT id, description, amount FROM accounting_bank_statement_lines WHERE tenant_id = :tenant_id AND id = :id', ['id' => $lid]);
     if (!$line) api_error('Line not found', 404);
     scopedUpdate('accounting_bank_statement_lines', $lid, [
         'categorized_account_code' => (string) $body['account_code'],
@@ -119,23 +120,28 @@ if ($method === 'POST' && $action === 'accept_ai_categorize') {
         'categorized_by_user_id'   => $user['id'] ?? null,
         'categorized_via'          => 'ai_accepted',
     ]);
-    // Also write the standard ai_suggestions accept row so the rest of
-    // CoreFlux's AI accept-tracking sees this in the same place.
-    scopedInsert('ai_suggestions', [
-        'user_id'        => $user['id'] ?? null,
-        'interaction_id' => isset($body['ai_interaction_id']) ? (int) $body['ai_interaction_id'] : null,
-        'module'         => 'accounting',
-        'feature_key'    => 'accounting.bank.suggest_categorize',
-        'subject_type'   => 'bank_statement_line',
-        'subject_id'     => $lid,
-        'draft_content'  => (string) ($body['draft_content'] ?? ''),
-        'final_content'  => (string) $body['account_code'],
-        'status'         => 'approved',
-        'reviewed_by'    => $user['id'] ?? null,
-        'reviewed_at'    => date('Y-m-d H:i:s'),
-    ]);
+
+    // Resolve account_code → account_id for the unified history table.
+    $finalAcct = scopedFind(
+        'SELECT id FROM accounting_accounts WHERE tenant_id = :tenant_id AND code = :c LIMIT 1',
+        ['c' => (string) $body['account_code']]
+    );
+    $finalAccountId = $finalAcct ? (int) $finalAcct['id'] : 0;
+
+    require_once __DIR__ . '/../../../core/ai_categorization.php';
+    aiRecordCategorizationOutcome(
+        (int) $ctx['tenant_id'],
+        (int) ($body['ai_suggestion_id'] ?? 0) ?: null,
+        $finalAccountId,
+        [
+            'id'            => $lid,
+            'merchant_name' => $line['description'],
+            'category'      => null,
+        ],
+        (int) ($user['id'] ?? 0)
+    );
     accountingAudit('accounting.bank.ai_categorize_accepted',
-        ['line_id' => $lid, 'account_code' => $body['account_code']], $lid);
+        ['line_id' => $lid, 'account_code' => $body['account_code'], 'final_account_id' => $finalAccountId], $lid);
     api_ok(['ok' => true]);
 }
 

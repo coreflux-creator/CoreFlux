@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard, Card } from '../components/UIComponents';
-import { Building2, Users, Package, Plus, Search, Edit, Trash2, Layers, FileText } from 'lucide-react';
+import { Building2, Users, Package, Plus, Search, Edit, Trash2, Layers, FileText, Sparkles } from 'lucide-react';
 import SubTenantsAdmin from './SubTenantsAdmin';
 import ExportTemplatesAdmin from './ExportTemplatesAdmin';
 import MasterTenantsAdmin from './MasterTenantsAdmin';
+import AiAccuracyDashboard from './AiAccuracyDashboard';
 
 // Admin Overview
 const AdminOverview = () => (
@@ -148,6 +149,7 @@ const AdminSidebar = () => {
     { to: '/admin/users', label: 'Users', icon: Users },
     { to: '/admin/modules', label: 'Module Access', icon: Package },
     { to: '/admin/export-templates', label: 'Export Templates', icon: FileText },
+    { to: '/admin/ai-accuracy', label: 'AI Accuracy', icon: Sparkles },
   ];
 
   return (
@@ -184,6 +186,7 @@ const AdminModule = ({ session }) => {
           <Route path="/tenants" element={<MasterTenantsAdmin session={session} />} />
           <Route path="/sub-tenants" element={<SubTenantsAdmin session={session} />} />
           <Route path="/export-templates" element={<ExportTemplatesAdmin session={session} />} />
+          <Route path="/ai-accuracy" element={<AiAccuracyDashboard session={session} />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/modules" element={<ModulesPage />} />
         </Routes>
