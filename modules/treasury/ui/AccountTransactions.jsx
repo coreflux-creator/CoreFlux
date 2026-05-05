@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { fmtMoney, fmtDate } from '../../../dashboard/src/lib/format';
 
-const fmtMoney = (n) =>
+const fmtMoneyOriginal = (n) =>
   (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+// Keep backwards compatibility for inline calls; prefer the imported fmtMoney
+// from ../../../dashboard/src/lib/format which handles null/empty/strings.
 
 /**
  * Shared transactions list used by both DepositDetail + LiabilityDetail.
@@ -166,7 +169,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
               <React.Fragment key={r.id}>
                 <tr data-testid={`treasury-txn-row-${r.id}`}>
                   <td style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                    {r.posted_date}
+                    {fmtDate(r.posted_date)}
                   </td>
                   <td>
                     {r.description || r.merchant_name || '—'}

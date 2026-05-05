@@ -1,9 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
-
-const fmtMoney = (n) =>
-  (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+import { fmtMoney, fmtRelative } from '../../../dashboard/src/lib/format';
 
 export default function TreasuryOverview() {
   const dep = useApi('/modules/treasury/api/deposit_accounts.php');
@@ -145,7 +143,11 @@ export default function TreasuryOverview() {
 
 function ConnectedInstitutions({ onChanged }) {
   const { data, loading, reload } = useApi('/api/plaid_items.php');
+  const dedupeApi = useApi('/api/plaid_dedupe.php');
   const rows = data?.rows || [];
+  const dupeDeposits   = dedupeApi.data?.deposit_clusters?.length   || 0;
+  const dupeLiabs      = dedupeApi.data?.liability_clusters?.length || 0;
+  const dupeCount      = dupeDeposits + dupeLiabs;
   const [busy, setBusy] = React.useState(null);
   const [err, setErr]   = React.useState(null);
 
@@ -169,6 +171,27 @@ function ConnectedInstitutions({ onChanged }) {
     } finally { setBusy(null); }
   };
 
+  const cleanupDupes = async () => {
+    const msg =
+      `Found ${dupeCount} duplicate cluster${dupeCount === 1 ? '' : 's'} ` +
+      `(${dupeDeposits} deposit, ${dupeLiabs} liability). ` +
+      `For each cluster, the most-recently-synced row will be kept and the others hidden. Continue?`;
+    if (!confirm(msg)) return;
+    setBusy('dedupe'); setErr(null);
+    try {
+      const res = await fetch('/api/plaid_dedupe.php?action=run', {
+        method: 'POST', credentials: 'include',
+      }).then((r) => r.json().then((d) => r.ok ? d : Promise.reject(d)));
+      const hd = res.hidden_deposit_ids?.length || 0;
+      const hl = res.hidden_liability_ids?.length || 0;
+      alert(`Cleanup complete — hid ${hd} deposit + ${hl} liability duplicate(s).`);
+      await dedupeApi.reload();
+      if (onChanged) onChanged();
+    } catch (e) {
+      setErr(e.error || e.message || 'Dedupe failed');
+    } finally { setBusy(null); }
+  };
+
   return (
     <div data-testid="treasury-connected-institutions">
       <h3>Connected institutions</h3>
@@ -178,6 +201,30 @@ function ConnectedInstitutions({ onChanged }) {
         Use <em>Hide</em> or <em>Delete</em> on individual rows above for
         per-account control.
       </p>
+      {dupeCount > 0 && (
+        <div
+          data-testid="treasury-dedupe-banner"
+          style={{
+            padding: 10, background: '#fef3c7', border: '1px solid #f59e0b',
+            borderRadius: 4, marginBottom: 12, color: '#78350f',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
+          }}
+        >
+          <span>
+            <strong>{dupeCount} duplicate cluster{dupeCount === 1 ? '' : 's'} detected.</strong>
+            {' '}Earlier reconnects spawned extra rows in Treasury. One click consolidates them.
+          </span>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={cleanupDupes}
+            disabled={busy === 'dedupe'}
+            data-testid="treasury-dedupe-run-btn"
+          >
+            {busy === 'dedupe' ? 'Cleaning…' : `Cleanup ${dupeCount} duplicate${dupeCount === 1 ? '' : 's'}`}
+          </button>
+        </div>
+      )}
       {loading && <p>Loading…</p>}
       {!loading && rows.length === 0 && (
         <p className="empty-state" data-testid="treasury-connected-institutions-empty">
@@ -214,7 +261,7 @@ function ConnectedInstitutions({ onChanged }) {
                 <td style={{ textAlign: 'right' }}>
                   {r.mirrored_deposit_count} dep · {r.mirrored_liability_count} liab
                 </td>
-                <td className="muted" style={{ fontSize: 12 }}>{r.last_webhook_at || '—'}</td>
+                <td className="muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{r.last_webhook_at ? fmtRelative(r.last_webhook_at) : '—'}</td>
                 <td style={{ textAlign: 'right' }}>
                   {r.status !== 'disconnected' && (
                     <button

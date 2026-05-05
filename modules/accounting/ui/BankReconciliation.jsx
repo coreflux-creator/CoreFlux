@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Routes, Route, Link, useParams, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { fmtMoney, fmtDate, fmtDateTime } from '../../../dashboard/src/lib/format';
 import ReconciliationPacket from './ReconciliationPacket';
 import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
 import PlaidLinkButton from '../../../dashboard/src/components/PlaidLinkButton';
@@ -67,13 +68,13 @@ function ReconciliationsList() {
           )}
           {(data?.rows || []).map(r => (
             <tr key={r.id} data-testid={`accounting-recon-row-${r.id}`}>
-              <td>{r.period_end}</td>
+              <td>{fmtDate(r.period_end)}</td>
               <td><span className="badge">{r.status}</span></td>
-              <td style={{textAlign:'right'}}>{fmtMoney(r.statement_balance)}</td>
-              <td style={{textAlign:'right'}}>{fmtMoney(r.gl_balance)}</td>
-              <td style={{textAlign:'right', color: Math.abs(parseFloat(r.difference||0)) < 0.01 ? '#065f46' : '#991b1b'}}>{fmtMoney(r.difference)}</td>
-              <td>{r.opened_at || '—'}</td>
-              <td>{r.closed_at || '—'}</td>
+              <td style={{textAlign:'right', fontVariantNumeric: 'tabular-nums'}}>{fmtMoney(r.statement_balance)}</td>
+              <td style={{textAlign:'right', fontVariantNumeric: 'tabular-nums'}}>{fmtMoney(r.gl_balance)}</td>
+              <td style={{textAlign:'right', fontVariantNumeric: 'tabular-nums', color: Math.abs(parseFloat(r.difference||0)) < 0.01 ? '#065f46' : '#991b1b'}}>{fmtMoney(r.difference)}</td>
+              <td>{fmtDateTime(r.opened_at)}</td>
+              <td>{fmtDateTime(r.closed_at)}</td>
               <td><Link className="btn btn--ghost" to={`/modules/accounting/bank-rec/packet/${r.id}`} data-testid={`accounting-recon-packet-${r.id}`}>Open packet →</Link></td>
             </tr>
           ))}
@@ -81,12 +82,6 @@ function ReconciliationsList() {
       </table>
     </section>
   );
-}
-
-function fmtMoney(n) {
-  const v = parseFloat(n);
-  if (Number.isNaN(v)) return '—';
-  return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function AccountsList() {
@@ -258,9 +253,9 @@ function BankLineRow({ line, reload, bankAccount }) {
   return (
     <>
       <tr data-testid={`accounting-bank-line-${line.id}`}>
-        <td>{line.posted_date}</td>
+        <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(line.posted_date)}</td>
         <td>{line.description}</td>
-        <td style={{ textAlign: 'right', color: line.amount < 0 ? '#991b1b' : '#065f46' }}>{Number(line.amount).toFixed(2)}</td>
+        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: line.amount < 0 ? '#991b1b' : '#065f46' }}>{fmtMoney(line.amount)}</td>
         <td><span data-testid={`accounting-bank-line-status-${line.match_status}`}>{line.match_status}</span></td>
         <td style={{ fontSize: 11 }}>
           {line.applied_rule_id ? <span data-testid={`accounting-bank-line-applied-${line.id}`} style={{ background: '#d1fae5', color: '#065f46', padding: '2px 6px', borderRadius: 4 }}>⚙ Rule applied</span>

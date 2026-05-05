@@ -217,21 +217,64 @@ if ($action === 'exchange') {
 
         if ($type === 'depository') {
             try {
+                // 1) Exact re-link match — same Plaid account_id seen before.
                 $check = $pdo->prepare(
                     'SELECT id FROM accounting_bank_accounts
                       WHERE tenant_id = :t AND plaid_account_id = :a LIMIT 1'
                 );
                 $check->execute(['t' => $tenantId, 'a' => $accId]);
                 $existingId = (int) $check->fetchColumn();
-                if ($existingId > 0) { $createdBank[] = $existingId; continue; }
+                if ($existingId > 0) {
+                    // Re-activate in case it was previously hidden by a disconnect.
+                    $pdo->prepare(
+                        "UPDATE accounting_bank_accounts
+                            SET status = 'active', updated_at = NOW()
+                          WHERE tenant_id = :t AND id = :id AND status <> 'active'"
+                    )->execute(['t' => $tenantId, 'id' => $existingId]);
+                    $createdBank[] = $existingId;
+                    continue;
+                }
 
+                // 2) Adoption — same bank+last4 already linked under a different
+                //    Plaid account_id (Plaid issues a brand-new account_id every
+                //    time the user runs Link, even for the exact same bank account
+                //    they previously connected). Rather than letting a fresh row
+                //    pile up, find the most-recently-touched matching row, point
+                //    it at the new Plaid account_id, and reuse its GL code so all
+                //    historical JEs keep their references intact.
+                $instLabel = (string) ($institution['name'] ?? '');
+                if ($mask) {
+                    $stmt = $pdo->prepare(
+                        'SELECT id FROM accounting_bank_accounts
+                          WHERE tenant_id = :t
+                            AND last4     = :l4
+                            AND (bank_name = :bk OR :bk = "")
+                          ORDER BY (status = "active") DESC, updated_at DESC, id DESC
+                          LIMIT 1'
+                    );
+                    $stmt->execute(['t' => $tenantId, 'l4' => $mask, 'bk' => $instLabel]);
+                    $adoptId = (int) $stmt->fetchColumn();
+                    if ($adoptId > 0) {
+                        $pdo->prepare(
+                            "UPDATE accounting_bank_accounts
+                                SET plaid_account_id = :pa,
+                                    feed_provider    = 'plaid_transactions',
+                                    status           = 'active',
+                                    updated_at       = NOW()
+                              WHERE tenant_id = :t AND id = :id"
+                        )->execute(['t' => $tenantId, 'pa' => $accId, 'id' => $adoptId]);
+                        $createdBank[] = $adoptId;
+                        continue;
+                    }
+                }
+
+                // 3) Brand-new bank account — allocate a fresh row.
                 // GL codes are UNIQUE per (tenant, code), so derive a unique
                 // suffix per Plaid account so multiple checking accounts don't
                 // collide on '1000'. Pattern: 1000 / 1000-{last4} / 1000-{last8 of accId}.
                 $baseCode = $subtype === 'savings' ? '1010' : '1000';
                 $glCode   = plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);
 
-                $instLabel = $institution['name'] ?? '';
                 $bankName  = $instLabel !== '' ? $instLabel : ($name ?: 'Bank');
                 $insName   = trim(($instLabel ? "{$instLabel} — " : '') . ($name ?: 'Account'));
 
@@ -254,14 +297,56 @@ if ($action === 'exchange') {
 
         if ($type === 'credit' || $type === 'loan') {
             try {
+                // 1) Exact re-link match.
                 $check = $pdo->prepare(
-                    'SELECT id FROM treasury_liability_accounts
+                    'SELECT id, account_id FROM treasury_liability_accounts
                       WHERE tenant_id = :t AND plaid_account_id = :a LIMIT 1'
                 );
                 $check->execute(['t' => $tenantId, 'a' => $accId]);
-                $existingId = (int) $check->fetchColumn();
-                if ($existingId > 0) { $createdLiab[] = $existingId; continue; }
+                $existingRow = $check->fetch(PDO::FETCH_ASSOC);
+                if ($existingRow) {
+                    // Re-activate companion COA row in case it was deactivated.
+                    $pdo->prepare(
+                        "UPDATE accounting_accounts
+                            SET active = 1, updated_at = NOW()
+                          WHERE tenant_id = :t AND id = :id AND active = 0"
+                    )->execute(['t' => $tenantId, 'id' => (int) $existingRow['account_id']]);
+                    $createdLiab[] = (int) $existingRow['id'];
+                    continue;
+                }
 
+                // 2) Adoption — same institution+last4 already linked under a
+                //    different Plaid account_id. Reassign the new Plaid id to
+                //    the existing row instead of spawning a duplicate card.
+                $instLabelRaw = (string) ($institution['name'] ?? '');
+                if ($mask) {
+                    $stmt = $pdo->prepare(
+                        'SELECT tla.id, tla.account_id FROM treasury_liability_accounts tla
+                          WHERE tla.tenant_id = :t
+                            AND tla.last4     = :l4
+                            AND (tla.institution_name = :inst OR :inst = "")
+                          ORDER BY tla.updated_at DESC, tla.id DESC
+                          LIMIT 1'
+                    );
+                    $stmt->execute(['t' => $tenantId, 'l4' => $mask, 'inst' => $instLabelRaw]);
+                    $adopt = $stmt->fetch(PDO::FETCH_ASSOC);
+                    if ($adopt) {
+                        $pdo->prepare(
+                            'UPDATE treasury_liability_accounts
+                                SET plaid_account_id = :pa, updated_at = NOW()
+                              WHERE tenant_id = :t AND id = :id'
+                        )->execute(['t' => $tenantId, 'pa' => $accId, 'id' => (int) $adopt['id']]);
+                        $pdo->prepare(
+                            'UPDATE accounting_accounts
+                                SET active = 1, updated_at = NOW()
+                              WHERE tenant_id = :t AND id = :id'
+                        )->execute(['t' => $tenantId, 'id' => (int) $adopt['account_id']]);
+                        $createdLiab[] = (int) $adopt['id'];
+                        continue;
+                    }
+                }
+
+                // 3) Brand-new card / loan — allocate a fresh COA + companion row.
                 $baseCode = $type === 'loan' ? '2200' : '2100';
                 $glName   = $type === 'loan' ? 'Notes Payable' : 'Credit Card Payable';
                 $glCode   = plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);

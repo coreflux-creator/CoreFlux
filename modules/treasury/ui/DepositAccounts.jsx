@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
 import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { fmtMoney, fmtRelative } from '../../../dashboard/src/lib/format';
 import AccountTransactions from './AccountTransactions';
-
-const fmtMoney = (n) =>
-  (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 
 export default function DepositAccounts() {
   return (
@@ -137,7 +135,7 @@ function DepositRow({ row: r, onChanged, navigate }) {
           <span className="badge">manual</span>
         )}
       </td>
-      <td className="muted">{r.last_feed_synced_at || '—'}</td>
+      <td className="muted" style={{ whiteSpace: 'nowrap' }}>{r.last_feed_synced_at ? fmtRelative(r.last_feed_synced_at) : '—'}</td>
       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }} data-testid={`treasury-deposit-bank-balance-${r.id}`}>
         {r.bank_balance !== null && r.bank_balance !== undefined ? fmtMoney(r.bank_balance) : '—'}
       </td>

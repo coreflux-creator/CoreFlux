@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
 import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { fmtMoney } from '../../../dashboard/src/lib/format';
 import AccountTransactions from './AccountTransactions';
-
-const fmtMoney = (n) =>
-  (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 
 const SUBTYPE_LABELS = {
   credit_card:     'Credit card',

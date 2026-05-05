@@ -1266,7 +1266,17 @@ Path-B architectural decision: customer uses ONE CoreFlux tenant per legal famil
 - Smoke `tests/plaid_account_select_and_remove_smoke.php` extended to **62 assertions** (was 41). Combined suite: **3,352 passing / 2 failed** (pre-existing AP A1 follow-ups).
 
 ---
-*Last Updated: 2026-02 — Plaid bank-link UX overhaul + Treasury data flow fix shipped.*
+*2026-02 — Plaid reconnect dedup + dedupe utility + human formatting:*
+- **Root cause of duplicates** — Plaid issues a brand-new `account_id` every time the user runs Link, even for the same physical bank account. The exchange path was matching only on `account_id`, so each reconnect spawned a fresh `accounting_bank_accounts` / `treasury_liability_accounts` row with a new GL-code suffix.
+- **Adoption logic in `/api/plaid_bank_link.php`** — exchange now (1) checks for an exact `plaid_account_id` re-link (and re-activates if it was hidden), then (2) falls back to a `(bank_name, last4)` / `(institution_name, last4)` adoption: rather than create a new row, the most-recently-touched matching row is updated in place with the new `plaid_account_id` and re-activated. GL code stays stable, so historical journal entries keep their references.
+- **`/api/plaid_dedupe.php`** — new endpoint to clean up dupes already in the DB. GET previews clusters; POST?action=run keeps the most-recently-synced row per cluster, lifts the latest `plaid_account_id` to the survivor, and hides the rest. Permission `accounting.bank.manage`.
+- **Cleanup banner** in TreasuryOverview's Connected Institutions panel — auto-detects existing duplicate clusters and surfaces a single-button cleanup CTA so users don't have to hit Hide on each row.
+- **Human formatting library** — new `dashboard/src/lib/format.js` exporting `fmtMoney` (locale-aware currency), `fmtDate` ("Apr 29, 2026" — wall-date safe, no UTC midnight shift), `fmtDateTime`, `fmtRelative` ("5m ago"). Adopted across `BankReconciliation.jsx`, `AccountTransactions.jsx`, `DepositAccounts.jsx`, `LiabilityAccounts.jsx`, `TreasuryOverview.jsx`. Bank-rec amounts color-coded green for credits, red for debits. Inline `fmtMoney` duplicates removed.
+
+Smoke `plaid_account_select_and_remove_smoke.php` extended to **87 assertions** (was 62). Suite: **3,352 passing / 2 failed (pre-existing AP A1)**.
+
+---
+*Last Updated: 2026-02 — Treasury reconnect-dedupe + cleanup utility + human-formatted dates/currency shipped.*
 
 ## Open / Pending P1
 - **Plaid Transfer go-live** — needs tenant-supplied `PLAID_CLIENT_ID` / `PLAID_SECRET_*` / `PLAID_ENV` + Transfer pre-approval. Driver scaffold is in place; once keys land, the per-tenant `tenant_payment_rails` row gets populated and `disbursement_rail='plaid_transfer'` flips on without any consumer-code changes.

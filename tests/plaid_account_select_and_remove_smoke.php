@@ -131,5 +131,42 @@ _a('Deposit list shows Bank balance column',                str_contains($depUI,
 _a('Liability list shows Bank balance column',              str_contains($liaUI, '>Bank balance<')
                                                           && str_contains($liaUI, 'treasury-liability-bank-balance-'));
 
+echo "\nReconnect adoption (no more duplicates) + dedupe endpoint\n";
+_a('exchange has exact re-link match path',                 str_contains($bankLink, 'Exact re-link match'));
+_a('exchange has adoption path keyed on bank+last4',        str_contains($bankLink, 'Adoption — same bank+last4 already linked'));
+_a('exchange adoption updates plaid_account_id in place',   str_contains($bankLink, 'SET plaid_account_id = :pa,'));
+_a('exchange re-activates closed rows on relink',           str_contains($bankLink, "SET status = 'active', updated_at = NOW()"));
+_a('liability adoption keyed on institution+last4',         str_contains($bankLink, 'tla.institution_name = :inst'));
+
+$dedupe = (string) file_get_contents(__DIR__ . '/../api/plaid_dedupe.php');
+_a('plaid_dedupe.php exists',                               $dedupe !== '');
+_a('GET previews deposit clusters',                         str_contains($dedupe, 'deposit_clusters'));
+_a('GET previews liability clusters',                       str_contains($dedupe, 'liability_clusters'));
+_a('POST?action=run hides extras + lifts plaid_account_id', str_contains($dedupe, "?action=run") || str_contains($dedupe, "'run'"));
+_a('dedupe scoped to active rows only',                     str_contains($dedupe, "status = 'active'"));
+_a('dedupe permission gated on accounting.bank.manage',     str_contains($dedupe, "RBAC::requirePermission(\$ctx['user'], 'accounting.bank.manage')"));
+
+echo "\nHuman formatting (dates + currency)\n";
+$fmt = (string) file_get_contents(__DIR__ . '/../dashboard/src/lib/format.js');
+_a('format.js exports fmtMoney',                            str_contains($fmt, 'export function fmtMoney'));
+_a('format.js exports fmtDate',                             str_contains($fmt, 'export function fmtDate'));
+_a('format.js exports fmtRelative',                         str_contains($fmt, 'export function fmtRelative'));
+_a('fmtMoney uses currency style',                          str_contains($fmt, "style: 'currency'"));
+_a('fmtDate avoids UTC midnight shift',                     str_contains($fmt, 'wall date'));
+
+$br = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/BankReconciliation.jsx');
+_a('BankRec imports shared formatters',                     str_contains($br, 'lib/format'));
+_a('BankRec line uses fmtDate(line.posted_date)',           str_contains($br, 'fmtDate(line.posted_date)'));
+_a('BankRec line uses fmtMoney(line.amount)',               str_contains($br, 'fmtMoney(line.amount)'));
+_a('BankRec local fmtMoney duplicate removed',              !str_contains($br, "function fmtMoney(n)"));
+
+$at = (string) file_get_contents(__DIR__ . '/../modules/treasury/ui/AccountTransactions.jsx');
+_a('AccountTransactions imports shared formatters',         str_contains($at, 'lib/format'));
+_a('AccountTransactions uses fmtDate on posted_date',       str_contains($at, 'fmtDate(r.posted_date)'));
+
+_a('Deposit list humanises last_feed_synced_at',            str_contains($depUI, 'fmtRelative(r.last_feed_synced_at)'));
+_a('Connected Institutions cleanup banner',                 str_contains($ov, 'treasury-dedupe-banner'));
+_a('Connected Institutions cleanup button',                 str_contains($ov, 'treasury-dedupe-run-btn'));
+
 echo "\n--- $assertCount assertions, $failCount failed ---\n";
 exit($failCount === 0 ? 0 : 1);
