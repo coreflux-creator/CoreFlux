@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import PlaidLinkButton from '../../../dashboard/src/components/PlaidLinkButton';
-import AccountTransactions from './AccountTransactions';
 
 const fmtMoney = (n) =>
   (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
@@ -66,7 +65,7 @@ function DepositList() {
                 key={r.id}
                 data-testid={`treasury-deposit-row-${r.id}`}
                 style={{ cursor: 'pointer' }}
-                onClick={() => navigate(`./${r.id}`)}
+                onClick={() => { window.location.hash = `#/modules/accounting/bank-rec/${r.id}`; }}
               >
                 <td>{r.name}</td>
                 <td><code>{r.gl_account_code}</code></td>
@@ -84,14 +83,14 @@ function DepositList() {
                   {fmtMoney(r.gl_balance)}
                 </td>
                 <td onClick={(e) => e.stopPropagation()}>
-                  <Link
-                    to={`./${r.id}`}
+                  <a
+                    href={`#/modules/accounting/bank-rec/${r.id}`}
                     className="btn btn--ghost"
                     data-testid={`treasury-deposit-view-${r.id}`}
                     style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
                   >
-                    View →
-                  </Link>
+                    Open reconciliation →
+                  </a>
                   <PlaidLinkButton
                     purpose="bank_feed"
                     accountingBankAccountId={r.id}
@@ -161,32 +160,18 @@ function NewDepositForm({ onDone }) {
 }
 
 function DepositDetail() {
+  // Deposit account detail = the full Bank Reconciliation editor (statement
+  // lines + matching grid + AI rules). Routing inside Treasury used to
+  // render its own read-only transactions list, but the editor lives under
+  // Accounting and we don't want to duplicate it. So bounce.
   const { id } = useParams();
-  const accountId = Number(id);
-  const { data: listData } = useApi('/modules/treasury/api/deposit_accounts.php');
-  const account = (listData?.rows || []).find((r) => r.id === accountId);
-  const label = account
-    ? `${account.name}${account.last4 ? ` · ····${account.last4}` : ''}`
-    : `Deposit account #${accountId}`;
-
+  React.useEffect(() => {
+    window.location.hash = `#/modules/accounting/bank-rec/${id}`;
+  }, [id]);
   return (
-    <section data-testid="treasury-deposit-detail">
-      <p style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Link to=".." className="muted" style={{ fontSize: 13 }}>← Back to deposit accounts</Link>
-        <a
-          href={`#/modules/accounting/bank-rec/${accountId}`}
-          className="btn btn--ghost"
-          data-testid={`treasury-deposit-bankrec-${accountId}`}
-          style={{ fontSize: 12 }}
-        >
-          Open Bank Reconciliation →
-        </a>
-      </p>
-      <AccountTransactions
-        accountId={accountId}
-        type="deposit"
-        accountLabel={label}
-      />
-    </section>
+    <p className="muted" data-testid="treasury-deposit-detail">
+      Opening reconciliation for account #{id}…{' '}
+      <Link to="..">Back to deposits</Link>
+    </p>
   );
 }

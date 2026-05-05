@@ -63,7 +63,7 @@ export default function PlaidLinkButton({
     const reqBody = { purpose };
     if (products) reqBody.products = products;
     Promise.all([
-      api.post('/api/plaid_link_token', reqBody),
+      api.post('/api/plaid_link_token.php', reqBody),
       loadPlaidLink(),
     ])
       .then(([tokenResp]) => {
@@ -88,7 +88,7 @@ export default function PlaidLinkButton({
       onSuccess: async (publicToken, metadata) => {
         setStatus('exchanging');
         try {
-          const result = await api.post('/api/plaid_exchange', {
+          const result = await api.post('/api/plaid_exchange.php', {
             public_token: publicToken,
             purpose,
             vendor_id:                  vendorId,

@@ -61,7 +61,21 @@ $assert('returns plaid_item_external_id (string id for direct sync)',
 $assert('returns plaid_item_pk for deposit + liability paths',
                                              substr_count($at, 'plaid_item_pk') >= 2);
 $assert('POST is rejected (no proxy — UI calls /api/plaid_sync_transactions.php direct)',
-                                             strpos($at, 'POST not supported here') !== false);
+                                             strpos($at, 'To pull from Plaid') !== false);
+$assert('POST ?action=ignore handler',       strpos($at, "action === 'ignore'") !== false);
+$assert('POST ?action=unmatch handler',      strpos($at, "action === 'unmatch'") !== false);
+$assert('POST ?action=match handler',        strpos($at, "action === 'match'") !== false);
+$assert('POST ?action=categorize_and_post handler',
+                                             strpos($at, "categorize_and_post") !== false);
+$assert('uses accountingPostJe with idempotency key',
+                                             strpos($at, "accountingPostJe(") !== false
+                                             && strpos($at, "treasury_feed:{") !== false);
+$assert('charge: DR counterpart, CR side',   strpos($at, "\$debitId  = \$counterId") !== false);
+$assert('payment: DR side, CR counterpart',  strpos($at, "\$debitId  = \$sideAccountId") !== false);
+$assert('rejects same-account counterpart',  strpos($at, 'Counterpart cannot be the same') !== false);
+$assert('source_module=treasury_feed',       strpos($at, "'source_module'  => 'treasury_feed'") !== false);
+$assert('liability matched_je_id self-heal ALTER',
+                                             strpos($at, 'ADD COLUMN matched_je_id BIGINT UNSIGNED NULL') !== false);
 $assert('PHP parses cleanly',                $lint(__DIR__ . '/../modules/treasury/api/account_transactions.php'));
 
 // ─── Migration 003 ───
@@ -119,15 +133,33 @@ $assert('Sync calls real endpoint directly (no proxy)',
 $assert('Sync handles 0-result with "Up to date" message',
                                              strpos($at_ui, 'Up to date') !== false);
 $assert('renders inflow/outflow headline',   strpos($at_ui, 'Inflow ') !== false && strpos($at_ui, 'Outflow ') !== false);
+$assert('per-row Categorize button',         strpos($at_ui, 'treasury-txn-categorize-${r.id}') !== false);
+$assert('per-row Ignore button',             strpos($at_ui, 'treasury-txn-ignore-${r.id}') !== false);
+$assert('per-row Unmatch button when matched',
+                                             strpos($at_ui, 'treasury-txn-unmatch-${r.id}') !== false);
+$assert('CategorizeRow inline editor',       strpos($at_ui, 'function CategorizeRow(') !== false);
+$assert('CategorizeRow groups by expense/asset/revenue',
+                                             strpos($at_ui, "preferredTypes") !== false);
+$assert('CategorizeRow links matched JE',    strpos($at_ui, 'treasury-txn-je-${r.id}') !== false);
+$assert('CategorizeRow shows live JE preview',
+                                             strpos($at_ui, "Will create a balanced JE") !== false);
 
 $dep_ui = file_get_contents(__DIR__ . '/../modules/treasury/ui/DepositAccounts.jsx');
-$assert('DepositDetail wires AccountTransactions',
+$assert('Deposit View routes straight to bank-rec (no read-only intermediate)',
+                                             strpos($dep_ui, '#/modules/accounting/bank-rec/${r.id}') !== false
+                                             && strpos($dep_ui, 'Open reconciliation →') !== false);
+$assert('DepositDetail forwards to bank-rec',
                                              strpos($dep_ui, 'function DepositDetail()') !== false
-                                             && strpos($dep_ui, '<AccountTransactions') !== false);
-$assert('Deposit row View → button',         strpos($dep_ui, 'treasury-deposit-view-${r.id}') !== false);
-$assert('Open Bank Reconciliation deep-link',strpos($dep_ui, 'treasury-deposit-bankrec-') !== false);
+                                             && strpos($dep_ui, 'Opening reconciliation') !== false);
 $assert('Sync URL has .php suffix (router-safe)',
                                              strpos($dep_ui, '/api/plaid_sync_transactions.php') !== false);
+
+$plb = file_get_contents(__DIR__ . '/../dashboard/src/components/PlaidLinkButton.jsx');
+$assert('PlaidLinkButton link_token has .php',  strpos($plb, "/api/plaid_link_token.php") !== false);
+$assert('PlaidLinkButton exchange has .php',    strpos($plb, "/api/plaid_exchange.php") !== false);
+$assert('PlaidLinkButton no router-rejected raw paths',
+                                              strpos($plb, "/api/plaid_link_token'") === false
+                                              && strpos($plb, "/api/plaid_exchange'") === false);
 
 $lia_ui = file_get_contents(__DIR__ . '/../modules/treasury/ui/LiabilityAccounts.jsx');
 $assert('LiabilityDetail wires AccountTransactions',

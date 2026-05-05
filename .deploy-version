@@ -55,6 +55,7 @@ sentinels:
 - modules/treasury/migrations/001_init.sql
 - modules/treasury/migrations/002_plaid_liability_link.sql
 - modules/treasury/migrations/003_liability_statement_lines.sql
+- modules/treasury/migrations/004_liability_match_post.sql
 - modules/treasury/api/deposit_accounts.php
 - modules/treasury/api/liability_accounts.php
 - modules/treasury/api/account_transactions.php
@@ -66,7 +67,7 @@ sentinels:
 - modules/accounting/api/accounts.php
 - modules/accounting/ui/ChartOfAccounts.jsx
 expected_bundle:
-- spa-assets/index-CR1gQThN.js
+- spa-assets/index-BYzHDN3z.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa

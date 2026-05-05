@@ -27,11 +27,180 @@ $tenantId = (int) $ctx['tenant_id'];
 RBAC::requirePermission($ctx['user'], 'accounting.bank.manage');
 $pdo = getDB();
 
-if (api_method() === 'POST') api_error(
-    'POST not supported here. Sync via /api/plaid_sync_transactions.php with '
-    . '{ item_id: <plaid_item_external_id> } — exposed in this endpoint\'s GET response.',
-    405
-);
+if (api_method() === 'POST') {
+    $action = (string) ($_GET['action'] ?? '');
+    if (!in_array($action, ['ignore', 'unmatch', 'categorize_and_post', 'match'], true)) {
+        api_error(
+            "POST requires action=ignore|unmatch|categorize_and_post|match. "
+            . "To pull from Plaid, call /api/plaid_sync_transactions.php directly.",
+            422
+        );
+    }
+    $body = api_json_body();
+    $type = (string) ($body['type'] ?? $_GET['type'] ?? '');
+    if (!in_array($type, ['deposit', 'liability'], true)) {
+        api_error("type='deposit' or 'liability' required", 422);
+    }
+    $lineId = (int) ($body['line_id'] ?? 0);
+    if ($lineId <= 0) api_error('line_id required', 422);
+
+    $table = $type === 'deposit'
+        ? 'accounting_bank_statement_lines'
+        : 'treasury_liability_statement_lines';
+    $col   = $type === 'deposit' ? 'bank_account_id' : 'liability_account_id';
+
+    // Ensure migration 004 cols exist on first POST in case the deploy hasn't run yet.
+    if ($type === 'liability') {
+        try {
+            $pdo->exec("ALTER TABLE treasury_liability_statement_lines
+                ADD COLUMN matched_je_id BIGINT UNSIGNED NULL AFTER match_status");
+        } catch (\Throwable $_) { /* already exists */ }
+    }
+
+    // Load the line scoped to tenant.
+    $line = $pdo->prepare("SELECT * FROM {$table} WHERE tenant_id = :t AND id = :id LIMIT 1");
+    $line->execute(['t' => $tenantId, 'id' => $lineId]);
+    $line = $line->fetch(PDO::FETCH_ASSOC);
+    if (!$line) api_error('Statement line not found', 404);
+
+    if ($action === 'ignore') {
+        $pdo->prepare("UPDATE {$table} SET match_status = 'ignored'
+                       WHERE tenant_id = :t AND id = :id")
+            ->execute(['t' => $tenantId, 'id' => $lineId]);
+        api_ok(['ok' => true, 'line_id' => $lineId, 'match_status' => 'ignored']);
+    }
+
+    if ($action === 'unmatch') {
+        $pdo->prepare("UPDATE {$table}
+                          SET match_status = 'unmatched', matched_je_id = NULL
+                        WHERE tenant_id = :t AND id = :id")
+            ->execute(['t' => $tenantId, 'id' => $lineId]);
+        api_ok(['ok' => true, 'line_id' => $lineId, 'match_status' => 'unmatched']);
+    }
+
+    if ($action === 'match') {
+        $jeId = (int) ($body['je_id'] ?? 0);
+        if ($jeId <= 0) api_error('je_id required', 422);
+        $jeOk = $pdo->prepare(
+            'SELECT 1 FROM accounting_journal_entries
+              WHERE tenant_id = :t AND id = :id LIMIT 1'
+        );
+        $jeOk->execute(['t' => $tenantId, 'id' => $jeId]);
+        if (!$jeOk->fetchColumn()) api_error('Journal entry not found', 404);
+
+        $pdo->prepare("UPDATE {$table}
+                          SET match_status = 'matched', matched_je_id = :je
+                        WHERE tenant_id = :t AND id = :id")
+            ->execute(['t' => $tenantId, 'id' => $lineId, 'je' => $jeId]);
+        api_ok(['ok' => true, 'line_id' => $lineId, 'matched_je_id' => $jeId]);
+    }
+
+    // categorize_and_post — auto-create a balanced JE from the statement line.
+    //
+    //   Charge / outflow (line.amount < 0):
+    //     DR counterpart_account (e.g. expense)   abs(amount)
+    //     CR account (deposit bank acct OR liability GL)  abs(amount)
+    //
+    //   Payment / inflow (line.amount > 0):
+    //     DR account                              amount
+    //     CR counterpart_account (e.g. revenue / expense reversal)  amount
+    //
+    // Source-module 'treasury_feed', source_ref tagged so the matched JE
+    // can be traced back to the statement line. Idempotency-keyed so
+    // double-clicks don't double-post.
+    require_once __DIR__ . '/../../accounting/lib/accounting.php';
+
+    $counterId = (int) ($body['counterpart_account_id'] ?? 0);
+    if ($counterId <= 0) api_error('counterpart_account_id required', 422);
+
+    $counterCheck = $pdo->prepare(
+        "SELECT id, code, name, account_type
+           FROM accounting_accounts
+          WHERE tenant_id = :t AND id = :id AND active = 1 LIMIT 1"
+    );
+    $counterCheck->execute(['t' => $tenantId, 'id' => $counterId]);
+    $counter = $counterCheck->fetch(PDO::FETCH_ASSOC);
+    if (!$counter) api_error('Counterpart account not found', 404);
+
+    // Resolve the side-of-the-line "account" — for deposits we look up the
+    // accounting_accounts.id via accounting_bank_accounts.gl_account_code;
+    // for liabilities the account_id IS the COA row (treasury_liability_accounts
+    // joins to it directly).
+    if ($type === 'deposit') {
+        $bank = $pdo->prepare(
+            'SELECT ba.gl_account_code, aa.id AS account_id
+               FROM accounting_bank_accounts ba
+               JOIN accounting_accounts aa
+                 ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
+              WHERE ba.tenant_id = :t AND ba.id = :id LIMIT 1'
+        );
+        $bank->execute(['t' => $tenantId, 'id' => (int) $line[$col]]);
+        $bank = $bank->fetch(PDO::FETCH_ASSOC);
+        if (!$bank) api_error('Could not resolve deposit GL account', 500);
+        $sideAccountId = (int) $bank['account_id'];
+    } else {
+        // liability_account_id IS accounting_accounts.id.
+        $sideAccountId = (int) $line[$col];
+    }
+
+    if ($sideAccountId === $counterId) {
+        api_error('Counterpart cannot be the same as the statement-line account', 422);
+    }
+
+    $amt = round((float) $line['amount'], 2);
+    $abs = abs($amt);
+    if ($abs <= 0) api_error('Cannot post a zero-amount line', 422);
+
+    if ($amt < 0) {
+        // Outflow / charge.
+        $debitId  = $counterId;
+        $creditId = $sideAccountId;
+    } else {
+        // Inflow / payment.
+        $debitId  = $sideAccountId;
+        $creditId = $counterId;
+    }
+
+    $memo = trim((string) ($body['memo'] ?? ''));
+    if ($memo === '') {
+        $memo = trim((string) ($line['description'] ?? $line['merchant_name'] ?? 'Treasury feed posting'));
+        if ($memo === '') $memo = 'Treasury feed posting';
+    }
+
+    try {
+        $res = accountingPostJe($tenantId, [
+            'posting_date'   => (string) $line['posted_date'],
+            'memo'           => $memo,
+            'currency'       => 'USD',
+            'source_module'  => 'treasury_feed',
+            'source_ref_type'=> $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line',
+            'source_ref_id'  => $lineId,
+            'idempotency_key'=> "treasury_feed:{$type}:{$lineId}",
+            'lines' => [
+                ['account_id' => $debitId,  'debit'  => $abs, 'credit' => 0,    'memo' => $memo],
+                ['account_id' => $creditId, 'debit'  => 0,    'credit' => $abs, 'memo' => $memo],
+            ],
+        ], (int) ($ctx['user']['id'] ?? 0), true);
+    } catch (\Throwable $e) {
+        api_error('Could not post journal entry: ' . $e->getMessage(), 422);
+    }
+
+    $pdo->prepare("UPDATE {$table}
+                      SET match_status = 'matched', matched_je_id = :je
+                    WHERE tenant_id = :t AND id = :id")
+        ->execute(['t' => $tenantId, 'id' => $lineId, 'je' => $res['je_id']]);
+
+    api_ok([
+        'ok'             => true,
+        'line_id'        => $lineId,
+        'matched_je_id'  => $res['je_id'],
+        'je_number'      => $res['je_number'],
+        'status'         => $res['status'],
+        'total_debit'    => $res['total_debit'],
+        'total_credit'   => $res['total_credit'],
+        'idempotent_replay' => $res['idempotent_replay'] ?? false,
+    ]);
+}
 
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
 
@@ -71,16 +240,22 @@ if ($type === 'deposit') {
                 bank_reference        VARCHAR(120) NULL,
                 fitid                 VARCHAR(120) NULL,
                 match_status          ENUM('unmatched','matched','ignored') NOT NULL DEFAULT 'unmatched',
+                matched_je_id         BIGINT UNSIGNED NULL,
                 created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE KEY uq_tlsl_fitid (tenant_id, liability_account_id, fitid),
                 INDEX idx_tlsl_acct_date (tenant_id, liability_account_id, posted_date)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
         );
+        // Self-heal for tenants that ran migration 003 before 004 was added.
+        try {
+            $pdo->exec("ALTER TABLE treasury_liability_statement_lines
+                          ADD COLUMN matched_je_id BIGINT UNSIGNED NULL AFTER match_status");
+        } catch (\Throwable $_) {}
     } catch (\Throwable $_) {}
 
     $stmt = $pdo->prepare(
         'SELECT id, posted_date, description, amount, bank_reference, fitid,
-                merchant_name, category, match_status, NULL AS matched_je_id, created_at
+                merchant_name, category, match_status, matched_je_id, created_at
            FROM treasury_liability_statement_lines
           WHERE tenant_id = :t AND liability_account_id = :a
           ORDER BY posted_date DESC, id DESC
