@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useApi } from '../lib/api';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { api, useApi } from '../lib/api';
 import { Card } from '../components/UIComponents';
 import Sparkline from '../components/Sparkline';
 import { fmtMoney } from '../lib/format';
 import {
-  TrendingUp, DollarSign, Users, Briefcase, Clock,
+  TrendingUp, DollarSign, Users, Briefcase, Clock, BookmarkPlus, Star, Trash2, Share2, X,
   AlertTriangle, ArrowDownCircle, ArrowUpCircle, BarChart3, Filter, RefreshCw,
 } from 'lucide-react';
 
@@ -18,6 +18,10 @@ import {
  * trendline (revenue / AR / payroll are always tenant-wide).
  *
  * Drill-downs route to existing module pages via React Router.
+ *
+ * Saved Views: persist (window + filter) tuples per user with optional
+ * tenant-wide sharing. URL ?view=<slug> deep-links any team member to
+ * the same slice. A user's `is_default=1` view auto-loads on /exec.
  */
 const WEEKS_PRESETS = [
   { v: 4,   l: '4w'   },
@@ -28,12 +32,46 @@ const WEEKS_PRESETS = [
 ];
 
 export default function ExecutiveDashboard({ session }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const urlView  = new URLSearchParams(location.search).get('view') || '';
+
   const [weeks,         setWeeks]         = useState(12);
   const [clientId,      setClientId]      = useState('');
   const [recruiterId,   setRecruiterId]   = useState('');
   const [placementType, setPlacementType] = useState('');
   const [worksiteState, setWorksiteState] = useState('');
   const [showFilters,   setShowFilters]   = useState(false);
+  const [showSave,      setShowSave]      = useState(false);
+  const [showManage,    setShowManage]    = useState(false);
+  const [activeView,    setActiveView]    = useState(null); // serialized view obj when one is loaded
+
+  const viewsApi = useApi('/api/exec_dashboard_views.php');
+  const savedViews = viewsApi.data?.views || [];
+
+  // Apply a view's filters into local state. Pass null to reset to defaults.
+  const applyView = (view) => {
+    const f = view?.filters || {};
+    setWeeks(Number(f.weeks) || 12);
+    setClientId(f.client_id           || '');
+    setRecruiterId(f.recruiter_id     || '');
+    setPlacementType(f.placement_type || '');
+    setWorksiteState(f.worksite_state || '');
+    setActiveView(view || null);
+  };
+
+  // Initial load: pick view from ?view=slug, otherwise the user's default.
+  useEffect(() => {
+    if (!savedViews.length) return;
+    if (activeView) return;
+    if (urlView) {
+      const match = savedViews.find(v => v.slug === urlView);
+      if (match) { applyView(match); return; }
+    }
+    const def = savedViews.find(v => v.is_default && v.is_owner);
+    if (def && !urlView) applyView(def);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedViews.length]);
 
   const qs = useMemo(() => {
     const p = new URLSearchParams({ weeks: String(weeks) });
@@ -53,6 +91,28 @@ export default function ExecutiveDashboard({ session }) {
   const fmtN  = (n) => Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
   const fmtH  = (n) => `${Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 1 })} hrs`;
 
+  const currentFilters = { weeks, client_id: clientId, recruiter_id: recruiterId,
+                           placement_type: placementType, worksite_state: worksiteState };
+
+  const onPickView = (slug) => {
+    if (!slug) {
+      applyView(null);
+      navigate('/exec', { replace: true });
+      return;
+    }
+    const view = savedViews.find(v => v.slug === slug);
+    if (view) {
+      applyView(view);
+      navigate(`/exec?view=${slug}`, { replace: true });
+    }
+  };
+
+  const onSaved = (savedSlug) => {
+    setShowSave(false);
+    viewsApi.reload();
+    if (savedSlug) navigate(`/exec?view=${savedSlug}`, { replace: true });
+  };
+
   return (
     <div data-testid="executive-dashboard" style={{ padding: '0 0 48px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 'var(--cf-space-6)', flexWrap: 'wrap', gap: 12 }}>
@@ -67,7 +127,16 @@ export default function ExecutiveDashboard({ session }) {
               : 'Loading the snapshot…'}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <ViewPicker
+            views={savedViews}
+            activeSlug={activeView?.slug || ''}
+            onPick={onPickView}
+            onManage={() => setShowManage(true)}
+          />
+          <button className="btn btn--ghost" onClick={() => setShowSave(true)} data-testid="exec-save-view">
+            <BookmarkPlus size={14} /> Save view
+          </button>
           <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', padding: 4, borderRadius: 8 }}>
             {WEEKS_PRESETS.map(p => (
               <button key={p.v}
@@ -89,6 +158,23 @@ export default function ExecutiveDashboard({ session }) {
           </button>
         </div>
       </div>
+
+      {showSave && (
+        <SaveViewModal
+          filters={currentFilters}
+          isMaster={session?.user?.global_role === 'master_admin' ||
+                    session?.user?.global_role === 'tenant_admin'}
+          onClose={() => setShowSave(false)}
+          onSaved={onSaved}
+        />
+      )}
+      {showManage && (
+        <ManageViewsModal
+          views={savedViews}
+          onClose={() => { setShowManage(false); viewsApi.reload(); }}
+          onPicked={(slug) => { setShowManage(false); onPickView(slug); }}
+        />
+      )}
 
       {showFilters && (
         <Card style={{ marginBottom: 16 }}>
@@ -347,6 +433,233 @@ function FilterSelect({ label, value, onChange, options, testid }) {
               style={{ width: '100%' }}>
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
+    </label>
+  );
+}
+
+
+/* ===================== Saved Views — picker + modals ===================== */
+
+function ViewPicker({ views, activeSlug, onPick, onManage }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <select
+        className="input"
+        value={activeSlug}
+        onChange={(e) => onPick(e.target.value)}
+        data-testid="exec-view-picker"
+        style={{ minWidth: 180, height: 32 }}
+      >
+        <option value="">— Custom view —</option>
+        {views.length > 0 && (
+          <>
+            <optgroup label="My views">
+              {views.filter(v => v.is_owner).map(v => (
+                <option key={v.id} value={v.slug}>
+                  {v.is_default ? '★ ' : ''}{v.name}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Shared">
+              {views.filter(v => !v.is_owner).map(v => (
+                <option key={v.id} value={v.slug}>
+                  {v.name} · {v.owner_name}
+                </option>
+              ))}
+            </optgroup>
+          </>
+        )}
+      </select>
+      {views.length > 0 && (
+        <button className="btn btn--ghost"
+                onClick={onManage}
+                data-testid="exec-views-manage"
+                title="Manage saved views">
+          ⚙︎
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SaveViewModal({ filters, isMaster, onClose, onSaved }) {
+  const [name,    setName]    = useState('');
+  const [shared,  setShared]  = useState(false);
+  const [defOn,   setDefOn]   = useState(false);
+  const [busy,    setBusy]    = useState(false);
+  const [err,     setErr]     = useState(null);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      const res = await api.post('/api/exec_dashboard_views.php', {
+        name, filters, is_shared: shared, is_default: defOn,
+      });
+      onSaved(res.slug);
+    } catch (e) { setErr(e.message || 'Save failed'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <SimpleModal title="Save current view" onClose={onClose} testid="exec-save-modal">
+      <form onSubmit={submit}>
+        <Field label="Name">
+          <input className="input" value={name} required
+                 onChange={(e) => setName(e.target.value)}
+                 placeholder="e.g. Acme Q4 — staffing"
+                 data-testid="exec-save-name" />
+        </Field>
+        <Field label="Filters captured">
+          <pre style={{
+            background: '#f8fafc', padding: 10, borderRadius: 6, fontSize: 12,
+            color: '#475569', overflow: 'auto', maxHeight: 100,
+          }} data-testid="exec-save-filters-preview">
+            {JSON.stringify(filters, null, 2)}
+          </pre>
+        </Field>
+        <label style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+          <input type="checkbox" checked={defOn} onChange={(e) => setDefOn(e.target.checked)}
+                 data-testid="exec-save-default" />
+          <span>Make this my default view (auto-loads on /exec)</span>
+        </label>
+        {isMaster && (
+          <label style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+            <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)}
+                   data-testid="exec-save-shared" />
+            <span><Share2 size={12} style={{ display: 'inline', marginRight: 4 }} />
+              Share with everyone in this tenant</span>
+          </label>
+        )}
+        {err && <p style={{ color: '#b91c1c', marginBottom: 10 }}>{err}</p>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button type="button" className="btn btn--ghost" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn btn--primary" disabled={busy}
+                  data-testid="exec-save-submit">
+            {busy ? 'Saving…' : 'Save view'}
+          </button>
+        </div>
+      </form>
+    </SimpleModal>
+  );
+}
+
+function ManageViewsModal({ views, onClose, onPicked }) {
+  const [busyId, setBusyId] = useState(null);
+
+  const onSetDefault = async (v) => {
+    setBusyId(v.id);
+    try { await api.patch(`/api/exec_dashboard_views.php?id=${v.id}`, { is_default: !v.is_default }); }
+    catch (e) { alert(e.message || 'Update failed'); }
+    finally { setBusyId(null); v.is_default = !v.is_default; }
+  };
+  const onToggleShared = async (v) => {
+    setBusyId(v.id);
+    try { await api.patch(`/api/exec_dashboard_views.php?id=${v.id}`, { is_shared: !v.is_shared }); }
+    catch (e) { alert(e.message || 'Update failed'); }
+    finally { setBusyId(null); v.is_shared = !v.is_shared; }
+  };
+  const onDelete = async (v) => {
+    if (!confirm(`Delete "${v.name}"?`)) return;
+    setBusyId(v.id);
+    try { await api.delete(`/api/exec_dashboard_views.php?id=${v.id}`); onClose(); }
+    catch (e) { alert(e.message || 'Delete failed'); setBusyId(null); }
+  };
+
+  return (
+    <SimpleModal title="Manage saved views" onClose={onClose} testid="exec-manage-modal" wide>
+      {views.length === 0 ? (
+        <p style={{ color: 'var(--cf-text-secondary)' }}>No saved views yet.</p>
+      ) : (
+        <table className="data-table" data-testid="exec-manage-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Owner</th>
+              <th style={{ textAlign: 'center', width: 80 }}>Default</th>
+              <th style={{ textAlign: 'center', width: 80 }}>Shared</th>
+              <th style={{ width: 200 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {views.map(v => (
+              <tr key={v.id} data-testid={`exec-manage-row-${v.slug}`}>
+                <td>
+                  <button onClick={() => onPicked(v.slug)}
+                          className="btn btn--ghost"
+                          style={{ padding: 0, fontWeight: 500 }}
+                          data-testid={`exec-manage-load-${v.slug}`}>
+                    {v.name}
+                  </button>
+                </td>
+                <td style={{ color: 'var(--cf-text-secondary)' }}>
+                  {v.is_owner ? 'You' : (v.owner_name || '—')}
+                </td>
+                <td style={{ textAlign: 'center' }}>
+                  {v.is_owner ? (
+                    <button className={`btn btn--ghost`}
+                            onClick={() => onSetDefault(v)}
+                            disabled={busyId === v.id}
+                            data-testid={`exec-manage-default-${v.slug}`}
+                            title={v.is_default ? 'Default view' : 'Set as default'}>
+                      <Star size={14} fill={v.is_default ? '#facc15' : 'transparent'} />
+                    </button>
+                  ) : (v.is_default ? <Star size={14} fill="#facc15" /> : '—')}
+                </td>
+                <td style={{ textAlign: 'center' }}>
+                  {v.is_owner ? (
+                    <input type="checkbox" checked={v.is_shared}
+                           disabled={busyId === v.id}
+                           onChange={() => onToggleShared(v)}
+                           data-testid={`exec-manage-shared-${v.slug}`} />
+                  ) : (v.is_shared ? '✓' : '—')}
+                </td>
+                <td style={{ textAlign: 'right' }}>
+                  {v.is_owner && (
+                    <button className="btn btn--ghost"
+                            onClick={() => onDelete(v)}
+                            disabled={busyId === v.id}
+                            data-testid={`exec-manage-delete-${v.slug}`}
+                            style={{ color: '#b91c1c' }}>
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </SimpleModal>
+  );
+}
+
+function SimpleModal({ title, onClose, children, testid, wide = false }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+    }} onClick={onClose} data-testid={testid}>
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: 24,
+        maxWidth: wide ? 720 : 480, width: '100%',
+        boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+      }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 600 }}>{title}</h2>
+          <button onClick={onClose} className="btn btn--ghost"><X size={16} /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <label style={{ display: 'block', marginBottom: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{label}</div>
+      {children}
     </label>
   );
 }

@@ -792,6 +792,12 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - **Schema baseline migration** `013_user_tenants_baseline.sql` — added so the schema-contract gate can see legacy `users` / `user_tenants` / `tenant_modules` columns. Brought the legacy allowlist from 3 → 1 entry.
 - **Full smoke suite: 65 files, 3,828 assertions ✓ / 0 failed.**
 
+*2026-02 — Sprint 5: Saved Views on the executive dashboard (this fork):*
+- New `core/migrations/014_exec_dashboard_views.sql` — `exec_dashboard_views` table holds bookmarked (window + filter) tuples per user with optional tenant-wide sharing and a per-user `is_default` flag.
+- New `/api/exec_dashboard_views.php` — full CRUD: list (own + shared), GET-by-slug, POST (slugified name with collision-resistant suffixes), PATCH (name / filters / shared / default — flipping default clears siblings), DELETE. Visibility: owners always; shared views also editable by tenant_admin / master_admin / admin.
+- `ExecutiveDashboard.jsx` extended with a **View picker** dropdown (own + Shared groups), **Save view** button, and **Manage views** modal (set default, toggle shared, delete). URL `?view=<slug>` deep-links any team member to the same slice; on plain `/exec` the user's default view auto-loads.
+- 44 new smoke assertions in `tests/sprint5_saved_views_smoke.php`. **Full suite: 66 files, 3,872 ✓ / 0 failed.**
+
 
 
 *2026-02 — Payroll Phase A1 (Gusto CSV extract + Audit CSV + AI anomaly flags):*
