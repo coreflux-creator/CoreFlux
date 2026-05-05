@@ -769,14 +769,28 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 ---
 *Last Updated: 2026-02 — Accounting Phase 1 verified + AP Phase A1 shipped (Export CSVs, Gusto-CSV roll-up, AI Receipts on Expenses, Status pill / filters on the Expenses list).*
 
-*2026-02 — Payroll Preflight + Gusto Preview verification (this fork):*
-- Re-installed php8.2-cli in the preview env and ran the entire smoke suite.
-- `payroll_preflight_and_gusto_preview_smoke.php` — 31/31 ✓ (preflight checks SSN/DOB/W-4/state-tax/active-placement/pay_rate, Gusto preview is read-only diff with `safe_to_submit` flag, migration 012 wires payroll_profiles.{pay_type, pay_rate_cents, flsa_class}, UI renders both panels on PayrollRunDetail, schema-contract gate green).
-- Synced 3 stale test assertions left over from intentional code changes the prior agent shipped (no functional regressions, just text-match drift):
-  - `plaid_account_select_and_remove_smoke.php` — flipped expectation: DepositDetail intentionally no longer bounces to bank-rec (user-requested simplification).
-  - `payment_rails_smoke.php` — `originate()` now requires `tenant_id`; test passes it through and accepts either Phase-B exception type.
-  - `plaid_integration_smoke.php` — bank_feed `products` now `['transactions']` + `required_if_supported_products:['auth']` (credit-card visibility fix); `match_status='ignored'` quote style.
-- **Full suite: 61 files, 3,680 assertions ✓ / 0 failed.**
+*2026-02 — Sprints 1-4: Login UX + admin tools rebuild + executive dashboard (this fork):*
+- **Sprint 1 — Login + tenant module filter (18 assertions ✓)**
+  - Killed the silent "Demo Mode" fallback. SPA now redirects to `/login.html?next=...` on a 401, and the login page rebounces back to the deep route after auth.
+  - `session.php` now filters modules by `tenant_modules.is_enabled` for the active tenant — non-master_admin users only see apps the tenant has subscribed to. Greenfield tenants (no rows) default to all-on.
+  - `login.html` surfaces backend `?error=` codes and supports a `?next=` deep-link return; `login.php` whitelists the next path (no open-redirect).
+  - Default post-login destination flipped from legacy `dashboard.php` to the React SPA.
+  - Hard-failure path now shows a clean "We couldn't load your session" screen with a "Sign in again" link (testid `session-error-screen`).
+- **Sprint 2 — Real admin tools (38 assertions ✓)**
+  - New `/api/users.php`: list / create / update / password-reset / soft-deactivate / per-tenant assignment. master_admin gets every user; tenant_admin scoped to active tenant + sub-tenants. Cannot assign master_admin without being one. Cannot deactivate self.
+  - New `/api/tenant_modules.php`: idempotent UPSERT toggle of module subscriptions per tenant; tracks `enabled_at` / `disabled_at`. Audit emits `tenant.module_enabled` / `tenant.module_disabled`.
+  - `dashboard/src/pages/UsersAdmin.jsx` + `ModuleAccessAdmin.jsx` replace the mock arrays that used to live in `AdminModule.jsx`. Live CRUD, search, password-reset modal, status pills, tenant picker.
+  - `AdminModule.jsx` rewritten — sidebar links + routes wired to real components (master tenants / sub-tenants / users / module access / export templates / AI accuracy).
+- **Sprint 3 — Core staffing loop E2E contract (42 assertions ✓)**
+  - New `tests/sprint3_staffing_loop_e2e_smoke.php` asserts the full chain People → Placements → Time → Billing/AP/Payroll is wired end-to-end: cross-module library functions exist, API actions exist, time bundles are consumed by the right modules, App.jsx routes every module, and `getModuleDefinitions()` registers the staffing modules. Stops the "where did all of this logic go?" class of regressions cold.
+- **Sprint 4 — Executive Dashboard (50 assertions ✓)**
+  - New `/api/exec_dashboard.php` aggregates revenue / margin / AR aging / AP aging / payroll YTD / run rate (90d annualised) / headcount split / new starts / terminations / net change / active placements / new placements / ending soon / billable hours. All filterable by client, recruiter, placement type, worksite state. Trendlines bucketed by week.
+  - New `/api/exec_filters.php` populates the four filter dropdowns from real tenant data.
+  - `dashboard/src/pages/ExecutiveDashboard.jsx` renders 12 KPI cards in two bands (corporate finance + staffing operations) plus AR/AP aging tables. Each card is a clickable drill-down that routes to the relevant module page. Hover sparkline on every trended KPI; window-size buttons for 4w / 12w / 26w / 52w / 104w.
+  - New `Sparkline.jsx` (zero-dep SVG component) with hover tooltip showing `(week, amount)`.
+  - `App.jsx` introduces `RoleAwareDashboard`: managers/admins/master_admin/tenant_admin get the executive snapshot; employees keep the simpler module-cards overview.
+- **Schema baseline migration** `013_user_tenants_baseline.sql` — added so the schema-contract gate can see legacy `users` / `user_tenants` / `tenant_modules` columns. Brought the legacy allowlist from 3 → 1 entry.
+- **Full smoke suite: 65 files, 3,828 assertions ✓ / 0 failed.**
 
 
 

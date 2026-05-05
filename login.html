@@ -48,16 +48,18 @@
 
   <section class="auth-container">
     <h2>Welcome Back</h2>
+    <div id="loginError" class="login-error" data-testid="login-error" style="display:none;background:#fee2e2;color:#991b1b;padding:10px;border-radius:6px;margin-bottom:16px;font-size:14px;text-align:center"></div>
     <form action="/login.php" method="POST" id="loginForm">
-      <input type="hidden" name="redirect" id="redirectField" value="dashboard" />
-      
+      <input type="hidden" name="redirect" id="redirectField" value="spa" />
+      <input type="hidden" name="next"     id="nextField"     value="" />
+
       <label for="username">Username</label>
-      <input type="text" id="username" name="username" required autocomplete="username" />
+      <input type="text" id="username" name="username" required autocomplete="username" data-testid="login-username" />
 
       <label for="password">Password</label>
-      <input type="password" id="password" name="password" required autocomplete="current-password" />
+      <input type="password" id="password" name="password" required autocomplete="current-password" data-testid="login-password" />
 
-      <button type="submit">Log In</button>
+      <button type="submit" data-testid="login-submit">Log In</button>
 
       <div class="link"><p><a href="forgot_password.php">Forgot Password?</a></p></div>
       <div class="link"><p>Don't have an account? <a href="signup.html">Sign up</a></p></div>
@@ -65,11 +67,25 @@
   </section>
 
   <script>
-    // Check for redirect parameter in URL and pass it to form
+    // Read ?redirect= and ?next= from the URL.
     const urlParams = new URLSearchParams(window.location.search);
     const redirect = urlParams.get('redirect');
-    if (redirect) {
-      document.getElementById('redirectField').value = redirect;
+    const next     = urlParams.get('next');
+    if (redirect) document.getElementById('redirectField').value = redirect;
+    if (next)     document.getElementById('nextField').value     = next;
+
+    // Surface backend error codes from ?error=...
+    const ERROR_MESSAGES = {
+      missing:  'Please enter your email and password.',
+      db:       'We couldn\'t reach the database. Try again in a moment.',
+      invalid:  'Invalid email or password.',
+      inactive: 'Your account is inactive. Contact your tenant administrator.'
+    };
+    const errCode = urlParams.get('error');
+    if (errCode && ERROR_MESSAGES[errCode]) {
+      const el = document.getElementById('loginError');
+      el.textContent = ERROR_MESSAGES[errCode];
+      el.style.display = 'block';
     }
   </script>
 

@@ -234,13 +234,6 @@ foreach ($phpFiles as $phpFile) {
 // people_tax_federal, accounting_journal_entry_lines, people, and
 // placements. Anything that remains here is a real follow-up.
 $knownLegacyViolations = [
-    // user_tenants is bootstrapped outside the migrations dir (CoreFlux
-    // legacy install path) so the parser can't see its columns. Real DB
-    // has both `tenant_id` and `status`. Audit follow-up: move the
-    // user_tenants schema into a numbered migration so this allowlist
-    // can shrink.
-    'ut.tenant_id  (table=user_tenants)',
-    'ut.status  (table=user_tenants)',
     // tenants alias used for sub-tenant tree queries; alias is `st`
     // (sub_tenants) but the parser maps it to `tenants`. Real query
     // joins through correctly.

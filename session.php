@@ -28,10 +28,45 @@ $activeModule = $_SESSION['active_module'] ?? null;
 // already-logged-in users would keep seeing the stale sidebar until they
 // logged out. Reading from getUserModules() each call eliminates that.
 require_once __DIR__ . '/core/modules.php';
+require_once __DIR__ . '/core/db.php';
 $role    = $user['role']        ?? $_SESSION['role']        ?? 'employee';
+$globalRole = $user['global_role'] ?? $_SESSION['global_role'] ?? $role;
 $modules = function_exists('getUserModules')
     ? getUserModules($role)
     : ($_SESSION['modules'] ?? []);
+
+// Tenant-subscription gate: every non-master_admin user only sees modules
+// their active tenant has subscribed to in `tenant_modules`. master_admin
+// continues to see every module regardless of subscription (platform ops).
+// Tenants with NO `tenant_modules` rows are treated as "all enabled" so a
+// freshly-provisioned tenant still works before an admin walks the toggles.
+if ($globalRole !== 'master_admin' && $tenantId) {
+    try {
+        $pdo = getDB();
+        if ($pdo) {
+            $stmt = $pdo->prepare(
+                "SELECT module_key, is_enabled FROM tenant_modules WHERE tenant_id = ?"
+            );
+            $stmt->execute([(int)$tenantId]);
+            $sub = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $sub[(string)$r['module_key']] = (int)$r['is_enabled'] === 1;
+            }
+            if (!empty($sub)) {
+                $modules = array_values(array_filter($modules, function ($m) use ($sub) {
+                    $key = $m['id'] ?? '';
+                    // If the tenant has an explicit row, honour it; if no row
+                    // exists for this module, default to enabled (greenfield).
+                    return !array_key_exists($key, $sub) || $sub[$key];
+                }));
+            }
+        }
+    } catch (Throwable $e) {
+        // Silent fall-through: prefer showing the role's full module list
+        // over breaking the SPA if tenant_modules query trips on schema drift.
+        error_log('session.php tenant_modules filter failed: ' . $e->getMessage());
+    }
+}
 
 // Format modules with ID for React routing.
 // IMPORTANT: prefer the explicit `id` from getModuleDefinitions(); deriving

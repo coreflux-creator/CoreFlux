@@ -1,169 +1,69 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard, Card } from '../components/UIComponents';
-import { Building2, Users, Package, Plus, Search, Edit, Trash2, Layers, FileText, Sparkles } from 'lucide-react';
+import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
+import { Building2, Users, Package, Layers, FileText, Sparkles } from 'lucide-react';
 import SubTenantsAdmin from './SubTenantsAdmin';
 import ExportTemplatesAdmin from './ExportTemplatesAdmin';
 import MasterTenantsAdmin from './MasterTenantsAdmin';
 import AiAccuracyDashboard from './AiAccuracyDashboard';
+import UsersAdmin from './UsersAdmin';
+import ModuleAccessAdmin from './ModuleAccessAdmin';
 
-// Admin Overview
+/**
+ * AdminModule — administrator surface.
+ *
+ * Sprint 2 (2026-02 fork): replaced the mock UsersPage / ModulesPage that
+ * shipped with hardcoded arrays. Both are now real React + API.
+ */
+
 const AdminOverview = () => (
   <>
     <div style={{ marginBottom: 'var(--cf-space-6)' }}>
-      <h1 style={{ fontSize: 'var(--cf-text-2xl)', fontWeight: 700, marginBottom: 'var(--cf-space-2)' }}>Admin Panel</h1>
-      <p style={{ color: 'var(--cf-text-secondary)' }}>Manage tenants, users, and module access across the platform.</p>
+      <h1 style={{ fontSize: 'var(--cf-text-2xl)', fontWeight: 700, marginBottom: 'var(--cf-space-2)' }}>
+        Admin Panel
+      </h1>
+      <p style={{ color: 'var(--cf-text-secondary)' }}>
+        Manage tenants, users, and module access across the platform.
+      </p>
     </div>
-
-    <Section title="Quick Stats">
-      <StatsGrid>
-        <StatCard value="3" label="Total Tenants" type="completed" />
-        <StatCard value="12" label="Total Users" type="active_users" />
-        <StatCard value="6" label="Active Modules" type="this_month" />
-        <StatCard value="100%" label="System Health" type="approved" />
-      </StatsGrid>
-    </Section>
 
     <Section title="Quick Actions">
       <ActionCardsGrid>
-        <ActionCard icon={Building2} title="Manage Tenants" description="View and edit tenants" href="/admin/tenants" />
-        <ActionCard icon={Users} title="Manage Users" description="View and edit users" href="/admin/users" />
-        <ActionCard icon={Package} title="Module Access" description="Configure module access" href="/admin/modules" />
+        <ActionCard icon={Building2} title="Master tenants" description="Top-level customers + branding" href="/admin/tenants" />
+        <ActionCard icon={Layers}    title="Sub-tenants"    description="Provision sub-tenants & module scope" href="/admin/sub-tenants" />
+        <ActionCard icon={Users}     title="Users"          description="Add users, assign roles, reset passwords" href="/admin/users" />
+        <ActionCard icon={Package}   title="Module access"  description="Toggle which apps a tenant can see" href="/admin/modules" />
+        <ActionCard icon={FileText}  title="Export templates" description="CSV templates for any module" href="/admin/export-templates" />
+        <ActionCard icon={Sparkles}  title="AI accuracy"    description="Confidence-score moat dashboard" href="/admin/ai-accuracy" />
       </ActionCardsGrid>
     </Section>
   </>
 );
 
-// Tenants Management is handled by /pages/MasterTenantsAdmin.jsx (replaced
-// the legacy /core/views/admin/tenant_edit.php form). The mock TenantsPage
-// previously here was deleted in 2026-02 P1 closeout.
-
-// Users Management
-const UsersPage = () => {
-  const [users, setUsers] = useState([
-    { id: 1, name: 'Kunal', email: 'kunal@coreflux.app', role: 'Admin', tenant: 'CoreFlux' },
-    { id: 2, name: 'John Doe', email: 'john@acme.com', role: 'Employee', tenant: 'Acme Corp' },
-    { id: 3, name: 'Jane Smith', email: 'jane@beta.com', role: 'Manager', tenant: 'Beta Industries' },
-  ]);
-
-  return (
-    <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-6)' }}>
-        <div>
-          <h1 style={{ fontSize: 'var(--cf-text-2xl)', fontWeight: 700, marginBottom: 'var(--cf-space-2)' }}>Manage Users</h1>
-          <p style={{ color: 'var(--cf-text-secondary)' }}>Add users and assign roles.</p>
-        </div>
-        <button style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--cf-primary)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
-          <Plus size={18} /> Add User
-        </button>
-      </div>
-
-      <Card>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--cf-border)' }}>
-              <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--cf-text-secondary)', fontWeight: 500, fontSize: '13px' }}>Name</th>
-              <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--cf-text-secondary)', fontWeight: 500, fontSize: '13px' }}>Email</th>
-              <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--cf-text-secondary)', fontWeight: 500, fontSize: '13px' }}>Role</th>
-              <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--cf-text-secondary)', fontWeight: 500, fontSize: '13px' }}>Tenant</th>
-              <th style={{ textAlign: 'right', padding: '12px 16px', color: 'var(--cf-text-secondary)', fontWeight: 500, fontSize: '13px' }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((user) => (
-              <tr key={user.id} style={{ borderBottom: '1px solid var(--cf-border-light)' }}>
-                <td style={{ padding: '16px', fontWeight: 500 }}>{user.name}</td>
-                <td style={{ padding: '16px', color: 'var(--cf-text-secondary)' }}>{user.email}</td>
-                <td style={{ padding: '16px' }}>
-                  <span style={{ padding: '4px 12px', background: 'var(--cf-accent-light)', color: 'var(--cf-accent)', borderRadius: '20px', fontSize: '12px', fontWeight: 500 }}>{user.role}</span>
-                </td>
-                <td style={{ padding: '16px', color: 'var(--cf-text-secondary)' }}>{user.tenant}</td>
-                <td style={{ padding: '16px', textAlign: 'right' }}>
-                  <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--cf-accent)', marginRight: '8px' }}><Edit size={16} /></button>
-                  <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444' }}><Trash2 size={16} /></button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
-    </>
-  );
-};
-
-// Modules Management
-const ModulesPage = () => {
-  const [moduleAccess, setModuleAccess] = useState([
-    { tenant: 'CoreFlux', accounting: true, people: true, finance: true },
-    { tenant: 'Acme Corp', accounting: true, people: true, finance: false },
-    { tenant: 'Beta Industries', accounting: true, people: false, finance: false },
-  ]);
-
-  return (
-    <>
-      <div style={{ marginBottom: 'var(--cf-space-6)' }}>
-        <h1 style={{ fontSize: 'var(--cf-text-2xl)', fontWeight: 700, marginBottom: 'var(--cf-space-2)' }}>Module Access</h1>
-        <p style={{ color: 'var(--cf-text-secondary)' }}>Enable or disable modules per tenant.</p>
-      </div>
-
-      <Card>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--cf-border)' }}>
-              <th style={{ textAlign: 'left', padding: '12px 16px', color: 'var(--cf-text-secondary)', fontWeight: 500, fontSize: '13px' }}>Tenant</th>
-              <th style={{ textAlign: 'center', padding: '12px 16px', color: 'var(--cf-text-secondary)', fontWeight: 500, fontSize: '13px' }}>Accounting</th>
-              <th style={{ textAlign: 'center', padding: '12px 16px', color: 'var(--cf-text-secondary)', fontWeight: 500, fontSize: '13px' }}>People</th>
-              <th style={{ textAlign: 'center', padding: '12px 16px', color: 'var(--cf-text-secondary)', fontWeight: 500, fontSize: '13px' }}>Finance</th>
-            </tr>
-          </thead>
-          <tbody>
-            {moduleAccess.map((row, idx) => (
-              <tr key={idx} style={{ borderBottom: '1px solid var(--cf-border-light)' }}>
-                <td style={{ padding: '16px', fontWeight: 500 }}>{row.tenant}</td>
-                <td style={{ padding: '16px', textAlign: 'center' }}>
-                  <input type="checkbox" checked={row.accounting} onChange={() => {}} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
-                </td>
-                <td style={{ padding: '16px', textAlign: 'center' }}>
-                  <input type="checkbox" checked={row.people} onChange={() => {}} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
-                </td>
-                <td style={{ padding: '16px', textAlign: 'center' }}>
-                  <input type="checkbox" checked={row.finance} onChange={() => {}} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
-    </>
-  );
-};
-
-// Admin Sidebar
 const AdminSidebar = () => {
   const location = useLocation();
-  
   const links = [
-    { to: '/admin', label: 'Overview', icon: Package },
-    { to: '/admin/tenants', label: 'Tenants', icon: Building2 },
-    { to: '/admin/sub-tenants', label: 'Sub-Tenants', icon: Layers },
-    { to: '/admin/users', label: 'Users', icon: Users },
-    { to: '/admin/modules', label: 'Module Access', icon: Package },
+    { to: '/admin',                  label: 'Overview',         icon: Package },
+    { to: '/admin/tenants',          label: 'Master tenants',   icon: Building2 },
+    { to: '/admin/sub-tenants',      label: 'Sub-Tenants',      icon: Layers },
+    { to: '/admin/users',            label: 'Users',            icon: Users },
+    { to: '/admin/modules',          label: 'Module access',    icon: Package },
     { to: '/admin/export-templates', label: 'Export Templates', icon: FileText },
-    { to: '/admin/ai-accuracy', label: 'AI Accuracy', icon: Sparkles },
+    { to: '/admin/ai-accuracy',      label: 'AI Accuracy',      icon: Sparkles },
   ];
-
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
         <h2 className="sidebar-title">Admin</h2>
       </div>
       <nav className="sidebar-nav">
-        {links.map((link) => {
+        {links.map(link => {
           const Icon = link.icon;
-          const isActive = location.pathname === link.to;
+          const active = location.pathname === link.to;
           return (
             <div key={link.to} className="sidebar-item">
-              <Link to={link.to} className={`sidebar-link ${isActive ? 'active' : ''}`}>
+              <Link to={link.to} className={`sidebar-link ${active ? 'active' : ''}`}
+                    data-testid={`admin-link-${link.to.split('/').pop() || 'overview'}`}>
                 <Icon size={18} className="sidebar-icon" />
                 <span>{link.label}</span>
               </Link>
@@ -175,20 +75,19 @@ const AdminSidebar = () => {
   );
 };
 
-// Main Admin Module
 const AdminModule = ({ session }) => {
   return (
     <div style={{ display: 'flex', marginLeft: '-220px', minHeight: 'calc(100vh - 56px)' }}>
       <AdminSidebar />
       <div style={{ flex: 1, marginLeft: '220px', padding: 'var(--cf-space-6)' }}>
         <Routes>
-          <Route path="/" element={<AdminOverview />} />
-          <Route path="/tenants" element={<MasterTenantsAdmin session={session} />} />
-          <Route path="/sub-tenants" element={<SubTenantsAdmin session={session} />} />
-          <Route path="/export-templates" element={<ExportTemplatesAdmin session={session} />} />
-          <Route path="/ai-accuracy" element={<AiAccuracyDashboard session={session} />} />
-          <Route path="/users" element={<UsersPage />} />
-          <Route path="/modules" element={<ModulesPage />} />
+          <Route path="/"                  element={<AdminOverview />} />
+          <Route path="/tenants"           element={<MasterTenantsAdmin session={session} />} />
+          <Route path="/sub-tenants"       element={<SubTenantsAdmin   session={session} />} />
+          <Route path="/users"             element={<UsersAdmin        session={session} />} />
+          <Route path="/modules"           element={<ModuleAccessAdmin session={session} />} />
+          <Route path="/export-templates"  element={<ExportTemplatesAdmin session={session} />} />
+          <Route path="/ai-accuracy"       element={<AiAccuracyDashboard session={session} />} />
         </Routes>
       </div>
     </div>

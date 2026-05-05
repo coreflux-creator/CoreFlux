@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import AppLayout from './layout/AppLayout';
 import DashboardOverview from './pages/DashboardOverview';
+import ExecutiveDashboard from './pages/ExecutiveDashboard';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import MailSettingsPage from './pages/MailSettingsPage';
@@ -29,6 +30,10 @@ const LoadingScreen = () => (
 );
 
 // Demo session data
+// PRESERVED for local dev only (set window.__CF_FORCE_DEMO__ = true before
+// loading the SPA bundle to opt in). Production never falls back to demo —
+// an unauthenticated /session.php response now redirects to /login.php
+// instead of dropping a "Demo Mode" badge over the real app.
 const DEMO_SESSION = {
   user: {
     id: 1,
@@ -176,25 +181,40 @@ const useSession = () => {
   useEffect(() => {
     const fetchSession = async () => {
       try {
-        const res = await fetch('/session.php', { 
+        const res = await fetch('/session.php', {
           credentials: 'include',
           headers: { 'Accept': 'application/json' }
         });
-        
-        if (!res.ok) throw new Error('Not authenticated');
-        
+
+        if (res.status === 401) {
+          // Not authenticated → punt to login. No more silent demo fallback.
+          // Preserve where the user was trying to go via ?next=.
+          const next = encodeURIComponent(window.location.pathname + window.location.hash);
+          window.location.replace(`/login.html?next=${next}`);
+          return;
+        }
+        if (!res.ok) throw new Error(`session.php ${res.status}`);
+
         const data = await res.json();
         if (!data.user || data.error) throw new Error(data.error || 'Invalid session');
-        
+
         console.log('Connected to PHP backend:', data.user.email);
         setSession(data);
         setUsingDemo(false);
       } catch (err) {
-        console.log('Using demo mode - connect to PHP backend for real data');
-        const demoSession = { ...DEMO_SESSION };
-        demoSession.active_module = demoSession.modules[0];
-        setSession(demoSession);
-        setUsingDemo(true);
+        // Hard-failure path. Only opt into demo when the dev explicitly
+        // sets window.__CF_FORCE_DEMO__ = true (offline dev). Otherwise
+        // show a clean error rather than silently masking real bugs.
+        if (typeof window !== 'undefined' && window.__CF_FORCE_DEMO__ === true) {
+          const demoSession = { ...DEMO_SESSION };
+          demoSession.active_module = demoSession.modules[0];
+          setSession(demoSession);
+          setUsingDemo(true);
+        } else {
+          console.error('Session load failed:', err);
+          setSession({ __error: String(err.message || err) });
+          setUsingDemo(false);
+        }
       } finally {
         setLoading(false);
       }
@@ -274,9 +294,11 @@ const AppContent = ({ session, usingDemo }) => {
         showSidebar={showSidebar}
       >
         <Routes>
-          {/* Main Dashboard */}
-          <Route path="/" element={<DashboardOverview session={session} onModuleChange={handleModuleChange} />} />
-          <Route path="/dashboard" element={<DashboardOverview session={session} onModuleChange={handleModuleChange} />} />
+          {/* Main Dashboard — managers+ get the executive snapshot, everyone
+              else lands on the simpler module-cards overview. */}
+          <Route path="/"          element={<RoleAwareDashboard session={session} onModuleChange={handleModuleChange} />} />
+          <Route path="/dashboard" element={<RoleAwareDashboard session={session} onModuleChange={handleModuleChange} />} />
+          <Route path="/exec"      element={<ExecutiveDashboard session={session} />} />
           
           {/* Tenant picker */}
           <Route path="/select-tenant" element={<TenantPicker session={session} />} />
@@ -315,6 +337,21 @@ const App = () => {
   const { session, loading, usingDemo } = useSession();
 
   if (loading) return <LoadingScreen />;
+  if (session?.__error) {
+    return (
+      <div className="loading-screen" data-testid="session-error-screen">
+        <div style={{ maxWidth: 480, textAlign: 'center', padding: 32 }}>
+          <h2 style={{ marginBottom: 12 }}>We couldn't load your session</h2>
+          <p style={{ color: 'var(--cf-text-secondary)', marginBottom: 20 }}>
+            {session.__error}
+          </p>
+          <a href="/login.html" className="btn btn--primary" data-testid="session-error-login-link">
+            Sign in again
+          </a>
+        </div>
+      </div>
+    );
+  }
   if (!session) return <div className="loading-screen"><p>Unable to load session.</p></div>;
 
   return (
@@ -323,5 +360,24 @@ const App = () => {
     </Router>
   );
 };
+
+/**
+ * Pick the right landing page for the role.
+ * - master_admin / tenant_admin / admin / manager → ExecutiveDashboard (KPIs + drill-downs)
+ * - everyone else                                 → DashboardOverview   (module cards)
+ */
+function RoleAwareDashboard({ session, onModuleChange }) {
+  const role  = session?.user?.role;
+  const grole = session?.user?.global_role;
+  const isExec =
+    grole === 'master_admin' ||
+    grole === 'tenant_admin' ||
+    role  === 'admin'        ||
+    role  === 'manager'      ||
+    role  === 'tenant_admin';
+  return isExec
+    ? <ExecutiveDashboard session={session} />
+    : <DashboardOverview  session={session} onModuleChange={onModuleChange} />;
+}
 
 export default App;

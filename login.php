@@ -132,11 +132,21 @@ $_SESSION['active_module'] = $modules[0] ?? null;
 // MUST NOT be deleted — it is the pre-React fallback per project hard rule
 // (see /app/memory/HARD_RULES.md).
 $redirect = $_GET['redirect'] ?? $_POST['redirect'] ?? 'spa';
+$next     = $_POST['next']    ?? $_GET['next']    ?? '';
 $adminOps = ['install', 'update', 'diagnostics'];
+
+// SPA deep-link return: only honour local paths (no scheme/host) so we can't
+// be tricked into open-redirect to a phishing host.
+$isLocalPath = is_string($next) && $next !== '' && strncmp($next, '/', 1) === 0
+            && strncmp($next, '//', 2) !== 0;
+
 if (in_array($redirect, $adminOps, true)) {
     header("Location: /{$redirect}.php");
 } elseif ($redirect === 'dashboard') {
     header("Location: dashboard.php");
+} elseif ($isLocalPath) {
+    // Land back on the deep route the SPA bounced from.
+    header("Location: /spa.php" . (str_contains($next, '#') ? $next : '#' . $next));
 } else {
     header("Location: spa.php");
 }
