@@ -337,6 +337,12 @@ if ($action === 'exchange') {
         'errors'                   => $itemErrors,
     ], null);
 
+    // Cache live Plaid balances so the Treasury list shows a non-zero "Bank
+    // balance" column the moment the user lands back on the page. Done AFTER
+    // the upsert loop above so plaid_accounts rows exist.
+    try { plaidPersistAccountBalances($pdo, $tenantId, $plaidAccounts); }
+    catch (\Throwable $_) { /* non-fatal */ }
+
     api_ok([
         'ok'                         => true,
         'item_id'                    => $itemId,

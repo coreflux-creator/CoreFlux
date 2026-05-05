@@ -71,9 +71,10 @@ sentinels:
 - modules/accounting/api/accounts.php
 - modules/accounting/ui/ChartOfAccounts.jsx
 - api/plaid_items.php
+- core/migrations/010_plaid_account_balances.sql
 - tests/plaid_account_select_and_remove_smoke.php
 expected_bundle:
-- spa-assets/index-BYtIvvY6.js
+- spa-assets/index-D93N4h9Q.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -91,6 +92,11 @@ last_known_features:
 - treasury.liability.row_sync_button
 - treasury.liability.row_hide_delete
 - treasury.connected_institutions_panel
+- treasury.deposit.bank_balance_column
+- treasury.liability.bank_balance_column
+- treasury.deposit.detail_inline_transactions
+- treasury.deposit.label_transactions
+- plaid.account_balances_cache
 - plaid.transactions.fan_out_per_account
 - plaid.transactions.liability_statement_lines
 - treasury.deposit_detail.transactions_view

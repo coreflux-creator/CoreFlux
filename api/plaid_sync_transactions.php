@@ -157,6 +157,16 @@ plaidAudit('core.plaid.transactions_synced', [
     'item_id' => $itemIdExt, 'results' => $results, 'accounts' => count($accountMap),
 ], (int) $item['id']);
 
+// Also refresh balance cache so the Treasury list pages can show the live
+// current balance without firing /accounts/balance/get on every render.
+try {
+    $balResp = plaidGetAccounts($accessToken);
+    if (is_array($balResp['accounts'] ?? null)) {
+        plaidPersistAccountBalances($pdo, $tenantId, $balResp['accounts']);
+        $results['balances_refreshed'] = count($balResp['accounts']);
+    }
+} catch (\Throwable $_) { /* non-fatal — sync results still returned */ }
+
 api_ok($results);
 
 // ---------------------------------------------------------------- helpers

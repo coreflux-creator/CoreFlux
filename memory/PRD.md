@@ -1250,7 +1250,23 @@ Path-B architectural decision: customer uses ONE CoreFlux tenant per legal famil
 - Smoke `tests/plaid_account_select_and_remove_smoke.php` — 41 assertions. **Combined suite: 3,352 passing / 2 failed (pre-existing AP A1 follow-ups)**.
 
 ---
-*Last Updated: 2026-02 — Plaid bank-link UX overhaul (account picker, per-account remove, item disconnect) shipped.*
+*2026-02 — Treasury data flow: live Plaid balances + in-Treasury transactions + nav fix:*
+- **Bug:** Deposit row "Open reconciliation →" link did nothing — SPA uses `BrowserRouter` but the row was triggering hash-based navigation (`window.location.hash = "#/..."`), which BrowserRouter ignores.
+- **Bug:** GL Balance always showed `$0.00` because no JEs are posted yet for fresh Plaid accounts (correct ledger behavior, but useless to the user). Plaid's live current balance was being thrown away after `/accounts/get` returned it.
+- **Migration `010_plaid_account_balances.sql`** — caches `current_balance_cents` / `available_balance_cents` / `limit_balance_cents` / `iso_currency_code` / `balance_as_of` on `plaid_accounts`. Idempotent (`ADD COLUMN IF NOT EXISTS`) + runtime self-heal in `plaidPersistAccountBalances()` for tenants behind on migrations.
+- **`core/plaid_service.php`** — new `plaidPersistAccountBalances($pdo, $tenantId, $accounts)` helper, called from both `/api/plaid_bank_link.php?action=exchange` (right after the upsert loop) and `/api/plaid_sync_transactions.php` (after the cursor advances) so balances refresh on every Sync click.
+- **API contracts**:
+  - `/modules/treasury/api/deposit_accounts.php` GET now LEFT-JOINs `plaid_accounts` and returns `bank_balance` + `available_balance` per row.
+  - `/modules/treasury/api/liability_accounts.php` GET same join; if the user didn't enter a manual `credit_limit` we fall back to Plaid's reported limit.
+- **UI**:
+  - DepositAccounts row navigation switched to `react-router-dom` `useNavigate` + `<Link>` (BrowserRouter-safe). Renamed "Open reconciliation →" → **"Transactions →"**.
+  - DepositDetail now renders `<AccountTransactions type="deposit">` inline in Treasury (mirroring LiabilityDetail) so the activity feed lives in one consistent place. A small "Open full reconciliation workspace →" link still points to the heavy-duty Accounting bank-rec page.
+  - LiabilityAccounts row label "View →" renamed to **"Transactions →"** for parity.
+  - Both list pages add a new **Bank balance** column (live Plaid number) next to **GL balance** (posted-JE total). The Treasury Overview hero stats now total Bank balance, falling back to GL only when no feed exists.
+- Smoke `tests/plaid_account_select_and_remove_smoke.php` extended to **62 assertions** (was 41). Combined suite: **3,352 passing / 2 failed** (pre-existing AP A1 follow-ups).
+
+---
+*Last Updated: 2026-02 — Plaid bank-link UX overhaul + Treasury data flow fix shipped.*
 
 ## Open / Pending P1
 - **Plaid Transfer go-live** — needs tenant-supplied `PLAID_CLIENT_ID` / `PLAID_SECRET_*` / `PLAID_ENV` + Transfer pre-approval. Driver scaffold is in place; once keys land, the per-tenant `tenant_payment_rails` row gets populated and `disbursement_rail='plaid_transfer'` flips on without any consumer-code changes.

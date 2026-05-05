@@ -145,12 +145,13 @@ $assert('CategorizeRow shows live JE preview',
                                              strpos($at_ui, "Will create a balanced JE") !== false);
 
 $dep_ui = file_get_contents(__DIR__ . '/../modules/treasury/ui/DepositAccounts.jsx');
-$assert('Deposit View routes straight to bank-rec (no read-only intermediate)',
-                                             strpos($dep_ui, '#/modules/accounting/bank-rec/${r.id}') !== false
-                                             && strpos($dep_ui, 'Open reconciliation →') !== false);
-$assert('DepositDetail forwards to bank-rec',
+$assert('Deposit row labels Transactions (not Open reconciliation)',
+                                             strpos($dep_ui, 'Transactions →') !== false
+                                             && strpos($dep_ui, 'Open reconciliation') === false);
+$assert('DepositDetail renders inline AccountTransactions',
                                              strpos($dep_ui, 'function DepositDetail()') !== false
-                                             && strpos($dep_ui, 'Opening reconciliation') !== false);
+                                             && strpos($dep_ui, 'AccountTransactions') !== false
+                                             && strpos($dep_ui, 'Open full reconciliation workspace') !== false);
 $assert('Sync URL has .php suffix (router-safe)',
                                              strpos($dep_ui, '/api/plaid_sync_transactions.php') !== false);
 

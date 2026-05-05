@@ -11,8 +11,13 @@ export default function TreasuryOverview() {
 
   const depositRows   = dep.data?.rows || [];
   const liabilityRows = lia.data?.rows || [];
-  const depositTotal  = depositRows.reduce((s, r) => s + (r.gl_balance || 0), 0);
-  const liabilityTotal = liabilityRows.reduce((s, r) => s + (r.gl_balance || 0), 0);
+  // Headline figures prefer the live Plaid balance (what's actually in the
+  // bank right now) and fall back to the GL balance only when no feed exists.
+  const balanceOf = (r) => (r.bank_balance !== null && r.bank_balance !== undefined)
+    ? r.bank_balance
+    : (r.gl_balance || 0);
+  const depositTotal   = depositRows.reduce((s, r) => s + balanceOf(r), 0);
+  const liabilityTotal = liabilityRows.reduce((s, r) => s + balanceOf(r), 0);
   const netCash = depositTotal - liabilityTotal;
 
   return (
@@ -63,7 +68,7 @@ export default function TreasuryOverview() {
         ) : (
           <table className="data-table" data-testid="treasury-overview-deposits-table">
             <thead>
-              <tr><th>Name</th><th>Bank</th><th>Last 4</th><th>Feed</th><th style={{ textAlign: 'right' }}>GL Balance</th></tr>
+              <tr><th>Name</th><th>Bank</th><th>Last 4</th><th>Feed</th><th style={{ textAlign: 'right' }}>Bank balance</th></tr>
             </thead>
             <tbody>
               {depositRows.slice(0, 5).map((r) => (
@@ -79,7 +84,7 @@ export default function TreasuryOverview() {
                     )}
                   </td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {fmtMoney(r.gl_balance)}
+                    {fmtMoney(balanceOf(r))}
                   </td>
                 </tr>
               ))}
@@ -112,7 +117,7 @@ export default function TreasuryOverview() {
                   <td>{(r.subtype || 'other_liability').replace('_', ' ')}</td>
                   <td>{r.last4 || '—'}</td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                    {fmtMoney(r.gl_balance)}
+                    {fmtMoney(balanceOf(r))}
                   </td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                     {r.credit_limit ? fmtMoney(r.credit_limit) : '—'}

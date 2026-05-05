@@ -506,3 +506,78 @@ function plaidAllocateBankGlCode(PDO $pdo, int $tenantId, string $base, ?string 
     throw new RuntimeException('Could not allocate a free GL code for ' . $base);
 }
 
+/**
+ * Persist /accounts/get balance data into plaid_accounts so the Treasury
+ * list pages can render a live "Bank balance" column without firing Plaid
+ * on every GET. Safe to call multiple times — uses UPDATE + runtime
+ * ALTER guards so tenants that haven't run migration 010 yet self-heal.
+ *
+ * @param array  $plaidAccounts  Raw /accounts/get `accounts` array (each item
+ *                               has `account_id`, `balances.current`,
+ *                               `balances.available`, `balances.limit`,
+ *                               `balances.iso_currency_code`).
+ * @return int                   Number of plaid_accounts rows updated.
+ */
+function plaidPersistAccountBalances(PDO $pdo, int $tenantId, array $plaidAccounts): int
+{
+    if (!$plaidAccounts) return 0;
+
+    // Self-heal: add the balance columns if migration 010 isn't applied yet.
+    static $columnsEnsured = false;
+    if (!$columnsEnsured) {
+        foreach ([
+            ['current_balance_cents',   'BIGINT NULL'],
+            ['available_balance_cents', 'BIGINT NULL'],
+            ['limit_balance_cents',     'BIGINT NULL'],
+            ['iso_currency_code',       'CHAR(3) NULL'],
+            ['balance_as_of',           'TIMESTAMP NULL'],
+        ] as [$col, $def]) {
+            try {
+                $chk = $pdo->prepare(
+                    "SELECT COUNT(*) FROM information_schema.columns
+                      WHERE table_schema = DATABASE()
+                        AND table_name   = 'plaid_accounts'
+                        AND column_name  = :c"
+                );
+                $chk->execute(['c' => $col]);
+                if ((int) $chk->fetchColumn() === 0) {
+                    $pdo->exec("ALTER TABLE plaid_accounts ADD COLUMN {$col} {$def}");
+                }
+            } catch (\Throwable $_) { /* non-fatal */ }
+        }
+        $columnsEnsured = true;
+    }
+
+    $upd = $pdo->prepare(
+        'UPDATE plaid_accounts
+            SET current_balance_cents   = :cur,
+                available_balance_cents = :avl,
+                limit_balance_cents     = :lim,
+                iso_currency_code       = :iso,
+                balance_as_of           = NOW(),
+                updated_at              = NOW()
+          WHERE tenant_id = :t AND account_id = :a'
+    );
+
+    $updated = 0;
+    foreach ($plaidAccounts as $acc) {
+        $accId = (string) ($acc['account_id'] ?? '');
+        if ($accId === '') continue;
+        $b = is_array($acc['balances'] ?? null) ? $acc['balances'] : [];
+        $cur = isset($b['current'])   && is_numeric($b['current'])   ? (int) round(((float) $b['current'])   * 100) : null;
+        $avl = isset($b['available']) && is_numeric($b['available']) ? (int) round(((float) $b['available']) * 100) : null;
+        $lim = isset($b['limit'])     && is_numeric($b['limit'])     ? (int) round(((float) $b['limit'])     * 100) : null;
+        $iso = isset($b['iso_currency_code']) ? substr((string) $b['iso_currency_code'], 0, 3) : 'USD';
+
+        try {
+            $upd->execute([
+                't'   => $tenantId, 'a' => $accId,
+                'cur' => $cur, 'avl' => $avl, 'lim' => $lim, 'iso' => $iso,
+            ]);
+            $updated += $upd->rowCount();
+        } catch (\Throwable $_) { /* non-fatal per-row */ }
+    }
+    return $updated;
+}
+
+

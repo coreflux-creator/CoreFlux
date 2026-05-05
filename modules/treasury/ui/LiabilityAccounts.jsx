@@ -63,7 +63,8 @@ function LiabilityList() {
             <tr>
               <th>Code</th><th>Name</th><th>Type</th><th>Institution</th>
               <th>Last 4</th>
-              <th style={{ textAlign: 'right' }}>Outstanding</th>
+              <th style={{ textAlign: 'right' }}>Bank balance</th>
+              <th style={{ textAlign: 'right' }}>GL balance</th>
               <th style={{ textAlign: 'right' }}>Limit</th>
               <th style={{ textAlign: 'right' }}>Util</th>
               <th>APR</th>
@@ -84,8 +85,13 @@ function LiabilityList() {
 function LiabilityRow({ row: r, navigate, onChanged }) {
   const [busy, setBusy] = useState(null);
   const [err, setErr]   = useState(null);
+  // "Outstanding" prefers the live Plaid current balance when available
+  // (which already reflects unposted activity); falls back to GL balance.
+  const outstanding = (r.bank_balance !== null && r.bank_balance !== undefined)
+    ? r.bank_balance
+    : r.gl_balance;
   const util = r.credit_limit && r.credit_limit > 0
-    ? Math.round((r.gl_balance / r.credit_limit) * 100)
+    ? Math.round((outstanding / r.credit_limit) * 100)
     : null;
 
   const sync = async (e) => {
@@ -137,6 +143,9 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
       <td>{SUBTYPE_LABELS[r.subtype] || r.subtype || '—'}</td>
       <td>{r.institution_name || '—'}</td>
       <td>{r.last4 || '—'}</td>
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }} data-testid={`treasury-liability-bank-balance-${r.id}`}>
+        {r.bank_balance !== null && r.bank_balance !== undefined ? fmtMoney(r.bank_balance) : '—'}
+      </td>
       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.gl_balance)}</td>
       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.credit_limit ? fmtMoney(r.credit_limit) : '—'}</td>
       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{util !== null ? `${util}%` : '—'}</td>
@@ -148,7 +157,7 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
           data-testid={`treasury-liability-view-${r.id}`}
           style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
         >
-          View →
+          Transactions →
         </Link>
         <button
           type="button"
@@ -186,7 +195,7 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
     </tr>
     {err && (
       <tr data-testid={`treasury-liability-err-${r.id}`}>
-        <td colSpan={10} style={{ color: '#b91c1c', fontSize: 12, paddingLeft: 16 }}>{err}</td>
+        <td colSpan={11} style={{ color: '#b91c1c', fontSize: 12, paddingLeft: 16 }}>{err}</td>
       </tr>
     )}
     </>

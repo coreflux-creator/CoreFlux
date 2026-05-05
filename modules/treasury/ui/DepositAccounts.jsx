@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import AccountTransactions from './AccountTransactions';
 
 const fmtMoney = (n) =>
   (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
@@ -54,13 +55,14 @@ function DepositList() {
             <tr>
               <th>Name</th><th>GL code</th><th>Bank</th><th>Last 4</th>
               <th>Feed</th><th>Last sync</th>
+              <th style={{ textAlign: 'right' }}>Bank balance</th>
               <th style={{ textAlign: 'right' }}>GL balance</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
-              <DepositRow key={r.id} row={r} onChanged={reload} />
+              <DepositRow key={r.id} row={r} onChanged={reload} navigate={navigate} />
             ))}
           </tbody>
         </table>
@@ -69,9 +71,11 @@ function DepositList() {
   );
 }
 
-function DepositRow({ row: r, onChanged }) {
+function DepositRow({ row: r, onChanged, navigate }) {
   const [busy, setBusy] = useState(null); // 'sync' | 'hide' | 'delete' | null
   const [err, setErr]   = useState(null);
+
+  const open = () => navigate(`./${r.id}`);
 
   const sync = async (e) => {
     e.stopPropagation();
@@ -120,7 +124,7 @@ function DepositRow({ row: r, onChanged }) {
     <tr
       data-testid={`treasury-deposit-row-${r.id}`}
       style={{ cursor: 'pointer' }}
-      onClick={() => { window.location.hash = `#/modules/accounting/bank-rec/${r.id}`; }}
+      onClick={open}
     >
       <td>{r.name}</td>
       <td><code>{r.gl_account_code}</code></td>
@@ -134,18 +138,21 @@ function DepositRow({ row: r, onChanged }) {
         )}
       </td>
       <td className="muted">{r.last_feed_synced_at || '—'}</td>
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }} data-testid={`treasury-deposit-bank-balance-${r.id}`}>
+        {r.bank_balance !== null && r.bank_balance !== undefined ? fmtMoney(r.bank_balance) : '—'}
+      </td>
       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
         {fmtMoney(r.gl_balance)}
       </td>
       <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
-        <a
-          href={`#/modules/accounting/bank-rec/${r.id}`}
+        <Link
+          to={`./${r.id}`}
           className="btn btn--ghost"
           data-testid={`treasury-deposit-view-${r.id}`}
           style={{ padding: '4px 10px', fontSize: 12, marginRight: 6 }}
         >
-          Open reconciliation →
-        </a>
+          Transactions →
+        </Link>
         {r.plaid_connected && (
           <button
             type="button"
@@ -184,7 +191,7 @@ function DepositRow({ row: r, onChanged }) {
     </tr>
     {err && (
       <tr data-testid={`treasury-deposit-err-${r.id}`}>
-        <td colSpan={8} style={{ color: '#b91c1c', fontSize: 12, paddingLeft: 16 }}>{err}</td>
+        <td colSpan={9} style={{ color: '#b91c1c', fontSize: 12, paddingLeft: 16 }}>{err}</td>
       </tr>
     )}
     </>
@@ -235,18 +242,39 @@ function NewDepositForm({ onDone }) {
 }
 
 function DepositDetail() {
-  // Deposit account detail = the full Bank Reconciliation editor (statement
-  // lines + matching grid + AI rules). Routing inside Treasury used to
-  // render its own read-only transactions list, but the editor lives under
-  // Accounting and we don't want to duplicate it. So bounce.
+  // Render the bank-feed transactions inline in Treasury — same component
+  // the liability detail uses, so users get a consistent place to view
+  // activity, sync, and categorize without bouncing to the Accounting
+  // module. The full reconciliation editor (statement lines + matching
+  // grid) still lives at /modules/accounting/bank-rec/:id and can be
+  // opened from there when the user wants the heavy-duty workspace.
   const { id } = useParams();
-  React.useEffect(() => {
-    window.location.hash = `#/modules/accounting/bank-rec/${id}`;
-  }, [id]);
+  const accountId = Number(id);
+  const { data: listData } = useApi('/modules/treasury/api/deposit_accounts.php');
+  const account = (listData?.rows || []).find((r) => r.id === accountId);
+  const label = account
+    ? `${account.name}${account.last4 ? ` · ····${account.last4}` : ''}`
+    : `Deposit account #${accountId}`;
+
   return (
-    <p className="muted" data-testid="treasury-deposit-detail">
-      Opening reconciliation for account #{id}…{' '}
-      <Link to="..">Back to deposits</Link>
-    </p>
+    <section data-testid="treasury-deposit-detail">
+      <p style={{ marginBottom: 12 }}>
+        <Link to=".." className="muted" style={{ fontSize: 13 }}>← Back to deposit accounts</Link>
+        {' · '}
+        <Link
+          to={`/modules/accounting/bank-rec/${accountId}`}
+          className="muted"
+          style={{ fontSize: 13 }}
+          data-testid="treasury-deposit-detail-bankrec-link"
+        >
+          Open full reconciliation workspace →
+        </Link>
+      </p>
+      <AccountTransactions
+        accountId={accountId}
+        type="deposit"
+        accountLabel={label}
+      />
+    </section>
   );
 }

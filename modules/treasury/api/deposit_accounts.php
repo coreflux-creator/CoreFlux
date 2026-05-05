@@ -22,14 +22,21 @@ switch (api_method()) {
     case 'GET': {
         // Left-join GL balance (sum of journal lines to the matching
         // gl_account_code for posted entries) so the UI has a current
-        // ledger balance without an extra round-trip.
+        // ledger balance without an extra round-trip. Also surface the
+        // live Plaid balance (cached on plaid_accounts) so users see a
+        // useful number even before any reconciliation has happened.
         $rows = scopedQuery(
             "SELECT
                 ba.id, ba.name, ba.gl_account_code, ba.bank_name, ba.last4,
                 ba.currency, ba.feed_provider, ba.last_feed_synced_at,
                 ba.status, ba.plaid_account_id,
+                pa.current_balance_cents   AS plaid_current_cents,
+                pa.available_balance_cents AS plaid_available_cents,
+                pa.balance_as_of           AS plaid_balance_as_of,
                 COALESCE(SUM(jel.debit - jel.credit), 0) AS gl_balance
              FROM accounting_bank_accounts ba
+             LEFT JOIN plaid_accounts pa
+               ON pa.tenant_id = ba.tenant_id AND pa.account_id = ba.plaid_account_id
              LEFT JOIN accounting_accounts aa
                ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
              LEFT JOIN accounting_journal_entries je
@@ -42,8 +49,11 @@ switch (api_method()) {
         );
         // Plaid connect URL helper — one link-token per account.
         foreach ($rows as &$r) {
-            $r['gl_balance'] = (float) $r['gl_balance'];
-            $r['plaid_connected'] = !empty($r['plaid_account_id']);
+            $r['gl_balance']     = (float) $r['gl_balance'];
+            $r['plaid_connected']= !empty($r['plaid_account_id']);
+            $r['bank_balance']   = isset($r['plaid_current_cents'])   ? (int) $r['plaid_current_cents']   / 100 : null;
+            $r['available_balance'] = isset($r['plaid_available_cents']) ? (int) $r['plaid_available_cents'] / 100 : null;
+            unset($r['plaid_current_cents'], $r['plaid_available_cents']);
         }
         api_ok(['rows' => $rows, 'count' => count($rows)]);
     }

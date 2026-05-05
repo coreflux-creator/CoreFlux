@@ -21,16 +21,25 @@ $ctx = api_require_auth();
 switch (api_method()) {
     case 'GET': {
         // Liabilities are CREDIT-normal accounts, so we flip the sign so
-        // the UI shows a positive outstanding balance.
+        // the UI shows a positive outstanding balance. Also surface the
+        // live Plaid balance (cached on plaid_accounts) so users see the
+        // outstanding even before any JE has posted.
         $rows = scopedQuery(
             "SELECT
                 aa.id, aa.code, aa.name, aa.account_type, aa.active,
                 tla.subtype, tla.last4, tla.institution_name, tla.credit_limit_cents,
                 tla.apr_bps, tla.statement_day, tla.autopay_from_bank_account_id,
+                tla.plaid_account_id,
+                pa.current_balance_cents   AS plaid_current_cents,
+                pa.available_balance_cents AS plaid_available_cents,
+                pa.limit_balance_cents     AS plaid_limit_cents,
+                pa.balance_as_of           AS plaid_balance_as_of,
                 COALESCE(SUM(jel.credit - jel.debit), 0) AS gl_balance
              FROM accounting_accounts aa
              LEFT JOIN treasury_liability_accounts tla
                ON tla.tenant_id = aa.tenant_id AND tla.account_id = aa.id
+             LEFT JOIN plaid_accounts pa
+               ON pa.tenant_id = aa.tenant_id AND pa.account_id = tla.plaid_account_id
              LEFT JOIN accounting_journal_entries je
                ON je.tenant_id = aa.tenant_id AND je.status = 'posted'
              LEFT JOIN accounting_journal_entry_lines jel
@@ -42,9 +51,19 @@ switch (api_method()) {
              ORDER BY aa.code"
         );
         foreach ($rows as &$r) {
-            $r['gl_balance']   = (float) $r['gl_balance'];
-            $r['credit_limit'] = isset($r['credit_limit_cents']) ? (int) $r['credit_limit_cents'] / 100 : null;
-            $r['apr_pct']      = isset($r['apr_bps']) ? (int) $r['apr_bps'] / 100 : null;
+            $r['gl_balance']    = (float) $r['gl_balance'];
+            $r['credit_limit']  = isset($r['credit_limit_cents']) ? (int) $r['credit_limit_cents'] / 100 : null;
+            $r['apr_pct']       = isset($r['apr_bps']) ? (int) $r['apr_bps'] / 100 : null;
+            // Plaid bank balance: for credit cards this is the outstanding amount owed
+            // (already a positive number from Plaid); for loans it's the outstanding principal.
+            $r['bank_balance']     = isset($r['plaid_current_cents'])   ? (int) $r['plaid_current_cents']   / 100 : null;
+            $r['available_balance']= isset($r['plaid_available_cents']) ? (int) $r['plaid_available_cents'] / 100 : null;
+            // Plaid-reported credit limit takes precedence over the manual one when present.
+            if ($r['credit_limit'] === null && isset($r['plaid_limit_cents'])) {
+                $r['credit_limit'] = (int) $r['plaid_limit_cents'] / 100;
+            }
+            $r['plaid_connected']= !empty($r['plaid_account_id']);
+            unset($r['plaid_current_cents'], $r['plaid_available_cents'], $r['plaid_limit_cents']);
         }
         api_ok(['rows' => $rows, 'count' => count($rows)]);
     }
