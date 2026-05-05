@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../lib/ap.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];
@@ -29,10 +30,31 @@ $action = (string) ($_GET['action'] ?? '');
 
 if ($method === 'GET') {
     RBAC::requirePermission($user, 'ap.view');
+    if (!empty($_GET['count_pending'])) {
+        $stmt = $pdo->prepare(
+            "SELECT COUNT(*) FROM ap_bill_approvals
+              WHERE tenant_id = :t AND approver_user_id = :u AND state = 'pending'"
+        );
+        $stmt->execute(['t' => $tenantId, 'u' => $userId]);
+        api_ok(['count' => (int) $stmt->fetchColumn()]);
+    }
+    if (!empty($_GET['comments_for_bill'])) {
+        $billIdQ = (int) $_GET['comments_for_bill'];
+        $stmt = $pdo->prepare(
+            "SELECT c.id, c.bill_id, c.user_id, c.body, c.created_at,
+                    u.name AS user_name, u.email AS user_email
+               FROM ap_bill_approval_comments c
+               LEFT JOIN users u ON u.id = c.user_id
+              WHERE c.tenant_id = :t AND c.bill_id = :b
+              ORDER BY c.created_at ASC LIMIT 500"
+        );
+        $stmt->execute(['t' => $tenantId, 'b' => $billIdQ]);
+        api_ok(['rows' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+    }
     if (!empty($_GET['inbox'])) {
         $stmt = $pdo->prepare(
             "SELECT a.id, a.bill_id, a.step_no, a.created_at,
-                    b.vendor_name, b.invoice_number, b.amount_total, b.due_date,
+                    b.vendor_name, b.bill_number, b.total AS amount_total, b.due_date,
                     b.status AS bill_status,
                     (SELECT COUNT(*) FROM ap_bill_approvals a2
                        WHERE a2.tenant_id = a.tenant_id AND a2.bill_id = a.bill_id) AS total_steps
@@ -69,6 +91,19 @@ $bill->execute(['t' => $tenantId, 'id' => $billId]);
 $bill = $bill->fetch(PDO::FETCH_ASSOC);
 if (!$bill) api_error('Bill not found', 404);
 
+if ($action === 'comment') {
+    RBAC::requirePermission($user, 'ap.view');
+    $body2 = $body['body'] ?? '';
+    $body2 = trim((string) $body2);
+    if ($body2 === '') api_error('body required', 422);
+    $pdo->prepare(
+        'INSERT INTO ap_bill_approval_comments (tenant_id, bill_id, user_id, body, created_at)
+         VALUES (:t, :b, :u, :body, NOW())'
+    )->execute(['t' => $tenantId, 'b' => $billId, 'u' => $userId, 'body' => $body2]);
+    apAudit('ap.bill.approval_comment_added', ['bill_id' => $billId], $billId);
+    api_ok(['ok' => true, 'id' => (int) $pdo->lastInsertId()], 201);
+}
+
 if ($action === 'submit') {
     RBAC::requirePermission($user, 'ap.bill.create');
     $exists = $pdo->prepare('SELECT 1 FROM ap_bill_approvals WHERE tenant_id = :t AND bill_id = :b LIMIT 1');
@@ -76,7 +111,7 @@ if ($action === 'submit') {
     if ($exists->fetchColumn()) {
         api_error('Bill already has an approval workflow in progress', 409);
     }
-    $amt = (float) $bill['amount_total'];
+    $amt = (float) $bill['total'];
 
     // Pick default active workflow.
     $wf = $pdo->prepare(
@@ -125,6 +160,23 @@ if ($action === 'submit') {
         api_error('Could not submit for approval: ' . $e->getMessage(), 500);
     }
 
+    // Notify the first-step approver(s) — best-effort.
+    try {
+        $firstStep = (int) $rules[0]['step_no'];
+        $firstApprovers = array_filter(array_map(
+            fn($r) => (int) $r['step_no'] === $firstStep ? (int) $r['approver_user_id'] : 0,
+            $rules
+        ));
+        if ($firstApprovers) {
+            $place = implode(',', array_fill(0, count($firstApprovers), '?'));
+            $stmt = $pdo->prepare("SELECT id, name, email FROM users WHERE id IN ({$place})");
+            $stmt->execute(array_values($firstApprovers));
+            $approvers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            apBillApprovalNotify($pdo, $tenantId, $billId, $bill, $approvers);
+        }
+    } catch (\Throwable $_) { /* swallow — submit succeeded; notifications are best-effort */ }
+
+    apAudit('ap.bill.approval_submitted', ['bill_id' => $billId, 'workflow_id' => $wfId, 'steps' => count($rules)], $billId);
     api_ok(['ok' => true, 'workflow_id' => $wfId, 'steps' => count($rules)]);
 }
 
@@ -186,4 +238,80 @@ try {
     api_error('Could not record decision: ' . $e->getMessage(), 500);
 }
 
+// On approval-not-final, notify the next step's approvers — best-effort.
+if ($newState === 'approved') {
+    try {
+        $nextStep = $pdo->prepare(
+            "SELECT step_no FROM ap_bill_approvals
+              WHERE tenant_id = :t AND bill_id = :b AND state = 'pending'
+              ORDER BY step_no ASC LIMIT 1"
+        );
+        $nextStep->execute(['t' => $tenantId, 'b' => $billId]);
+        $sn = (int) ($nextStep->fetchColumn() ?: 0);
+        if ($sn > 0) {
+            $next = $pdo->prepare(
+                "SELECT u.id, u.name, u.email FROM ap_bill_approvals a
+                   JOIN users u ON u.id = a.approver_user_id
+                  WHERE a.tenant_id = :t AND a.bill_id = :b AND a.step_no = :s AND a.state = 'pending'"
+            );
+            $next->execute(['t' => $tenantId, 'b' => $billId, 's' => $sn]);
+            $approvers = $next->fetchAll(PDO::FETCH_ASSOC);
+            apBillApprovalNotify($pdo, $tenantId, $billId, null, $approvers);
+        }
+    } catch (\Throwable $_) { /* best-effort */ }
+}
+
+apAudit("ap.bill.approval_{$newState}", ['bill_id' => $billId, 'step' => (int) $step['step_no']], $billId);
 api_ok(['ok' => true, 'state' => $newState]);
+
+// ─── helpers ───
+function apBillApprovalNotify(\PDO $pdo, int $tenantId, int $billId, ?array $bill, array $approvers): void
+{
+    if (!$approvers) return;
+    if ($bill === null) {
+        $b = $pdo->prepare('SELECT bill_number, vendor_name, total, due_date FROM ap_bills WHERE tenant_id = :t AND id = :id');
+        $b->execute(['t' => $tenantId, 'id' => $billId]);
+        $bill = $b->fetch(PDO::FETCH_ASSOC) ?: [];
+    }
+    $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host  = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $url   = "{$proto}://{$host}/#/modules/ap/approvals";
+    $logIns = $pdo->prepare(
+        'INSERT INTO ap_bill_approval_notifications
+            (tenant_id, bill_id, approval_id, approver_user_id, sent_to_email, status, error_text)
+         VALUES (:t, :b, :a, :u, :em, :st, :err)'
+    );
+    foreach ($approvers as $a) {
+        $email = (string) ($a['email'] ?? '');
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) continue;
+        $sent = false; $err = null;
+        if (function_exists('mailerSend')) {
+            try {
+                mailerSend([
+                    'to'      => $email,
+                    'subject' => 'Bill awaiting your approval — ' . ($bill['bill_number'] ?? '') . ' / ' . ($bill['vendor_name'] ?? ''),
+                    'body_html' => '<p>Hi ' . htmlspecialchars((string) ($a['name'] ?? '')) . ',</p>'
+                        . '<p>A bill is awaiting your approval:</p>'
+                        . '<ul>'
+                        . '<li>Vendor: ' . htmlspecialchars((string) ($bill['vendor_name'] ?? '')) . '</li>'
+                        . '<li>Bill #: ' . htmlspecialchars((string) ($bill['bill_number'] ?? '')) . '</li>'
+                        . '<li>Amount: $' . number_format((float) ($bill['total'] ?? 0), 2) . '</li>'
+                        . '<li>Due: ' . htmlspecialchars((string) ($bill['due_date'] ?? '—')) . '</li>'
+                        . '</ul>'
+                        . '<p><a href="' . $url . '">Open the approvals inbox →</a></p>',
+                ]);
+                $sent = true;
+            } catch (\Throwable $e) { $err = $e->getMessage(); }
+        } else {
+            $err = 'mailer not configured';
+        }
+        $logIns->execute([
+            't'  => $tenantId, 'b' => $billId,
+            'a'  => 0, // approval row id is per-step; we just stamp a 0 here for header-level submit nudge
+            'u'  => (int) ($a['id'] ?? 0),
+            'em' => $email,
+            'st' => $sent ? 'sent' : 'failed',
+            'err'=> $err ? substr($err, 0, 500) : null,
+        ]);
+    }
+}

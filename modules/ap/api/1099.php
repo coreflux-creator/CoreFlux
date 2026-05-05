@@ -40,6 +40,80 @@ if ($method === 'GET') {
     api_ok(['tax_year' => $year, 'rows' => $rows, 'totals' => $totals]);
 }
 
+if ($method === 'GET' && $action === 'readiness') {
+    RBAC::requirePermission($user, 'ap.1099.view');
+    $year = (int) ($_GET['tax_year'] ?? date('Y'));
+    if ($year < 2000 || $year > 2100) api_error('invalid tax_year', 422);
+    $pdo = getDB();
+
+    // For each ledger row, check W-9 on file + valid TIN format.
+    $rows = $pdo->prepare(
+        'SELECT l.id, l.vendor_name, l.vendor_type, l.tax_id_last4,
+                l.total_paid, l.requires_1099_nec,
+                v.id AS vendor_id, v.tax_id_full_ct, v.tax_id_last4 AS vendor_tax_id_last4
+           FROM ap_1099_ledger l
+           LEFT JOIN ap_vendors_index v ON v.tenant_id = l.tenant_id AND v.vendor_name = l.vendor_name
+          WHERE l.tenant_id = :t AND l.tax_year = :y
+          ORDER BY l.total_paid DESC'
+    );
+    $rows->execute(['t' => $tid, 'y' => $year]);
+    $rows = $rows->fetchAll(PDO::FETCH_ASSOC);
+
+    // W-9 docs uploaded via vendor portal (Phase 2).
+    $w9Stmt = $pdo->prepare(
+        "SELECT vendor_id, MAX(uploaded_at) AS last_w9_at, COUNT(*) AS w9_count,
+                SUM(CASE WHEN status='approved' THEN 1 ELSE 0 END) AS w9_approved
+           FROM ap_vendor_portal_documents
+          WHERE tenant_id = :t AND document_type = 'w9'
+          GROUP BY vendor_id"
+    );
+    try {
+        $w9Stmt->execute(['t' => $tid]);
+        $w9ByVendor = [];
+        foreach ($w9Stmt->fetchAll(PDO::FETCH_ASSOC) as $w) {
+            $w9ByVendor[(int) $w['vendor_id']] = $w;
+        }
+    } catch (\Throwable $_) { $w9ByVendor = []; }
+
+    $out = [];
+    $blockerCount = 0; $readyCount = 0;
+    foreach ($rows as $r) {
+        $vid = (int) ($r['vendor_id'] ?? 0);
+        $w9  = $w9ByVendor[$vid] ?? null;
+        $hasW9        = $w9 && (int) $w9['w9_approved'] > 0;
+        $tinPresent   = !empty($r['tax_id_full_ct']) || !empty($r['vendor_tax_id_last4']);
+        $tinValid4    = !empty($r['vendor_tax_id_last4']) && preg_match('/^\d{4}$/', (string) $r['vendor_tax_id_last4']);
+
+        $blockers = [];
+        if (!$tinPresent)              $blockers[] = 'Missing TIN (EIN/SSN)';
+        if ($tinPresent && !$tinValid4) $blockers[] = 'TIN last-4 not 4 digits';
+        if (!$hasW9 && (int) $r['requires_1099_nec'] === 1) $blockers[] = 'No approved W-9 on file';
+
+        $ready = empty($blockers);
+        if ($ready) $readyCount++; else $blockerCount++;
+
+        $out[] = [
+            'ledger_id'        => (int) $r['id'],
+            'vendor_id'        => $vid,
+            'vendor_name'      => $r['vendor_name'],
+            'vendor_type'      => $r['vendor_type'],
+            'total_paid'       => (float) $r['total_paid'],
+            'requires_1099_nec'=> (int) $r['requires_1099_nec'],
+            'has_w9'           => (bool) $hasW9,
+            'w9_count'         => $w9 ? (int) $w9['w9_count'] : 0,
+            'tin_present'      => (bool) $tinPresent,
+            'tin_last4'        => $r['vendor_tax_id_last4'] ?? $r['tax_id_last4'],
+            'ready'            => $ready,
+            'blockers'         => $blockers,
+        ];
+    }
+    api_ok([
+        'tax_year' => $year,
+        'rows'     => $out,
+        'summary'  => ['ready' => $readyCount, 'blocked' => $blockerCount, 'total' => count($out)],
+    ]);
+}
+
 if ($method === 'POST' && $action === 'rebuild') {
     RBAC::requirePermission($user, 'ap.1099.generate');
     $year = (int) ($_GET['tax_year'] ?? date('Y'));

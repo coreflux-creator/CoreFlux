@@ -64,7 +64,9 @@ function TabBtn({ label, val, activeTab, onClick, testid }) {
 
 function ApprovalsInbox() {
   const { data, loading, reload } = useApi('/modules/ap/api/bill_approvals.php?inbox=1');
+  const { data: countData } = useApi('/modules/ap/api/bill_approvals.php?count_pending=1');
   const rows = data?.rows || [];
+  const pendingCount = countData?.count ?? null;
   const [actingId, setActingId] = useState(null);
   const [note, setNote] = useState('');
   const [err, setErr] = useState(null);
@@ -83,7 +85,12 @@ function ApprovalsInbox() {
 
   return (
     <div data-testid="ap-approvals-inbox">
-      <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>Awaiting your approval</h3>
+      <h3 style={{ margin: '0 0 12px', fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+        Awaiting your approval
+        {pendingCount !== null && pendingCount > 0 && (
+          <span className="badge" data-testid="ap-approvals-pending-badge" style={{ background: '#dc2626', color: '#fff' }}>{pendingCount}</span>
+        )}
+      </h3>
       {err && <p className="error" data-testid="ap-approvals-error">{err}</p>}
       {loading && <p>Loading…</p>}
       {!loading && rows.length === 0 && (
@@ -105,7 +112,7 @@ function ApprovalsInbox() {
               <React.Fragment key={r.id}>
                 <tr data-testid={`ap-approvals-row-${r.bill_id}`}>
                   <td>{r.vendor_name}</td>
-                  <td><code>{r.invoice_number || '—'}</code></td>
+                  <td><code>{r.bill_number || '—'}</code></td>
                   <td style={{ textAlign: 'right' }}>{fmtMoney(r.amount_total)}</td>
                   <td>{r.due_date || '—'}</td>
                   <td>{r.step_no} of {r.total_steps}</td>

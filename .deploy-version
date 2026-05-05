@@ -86,7 +86,7 @@ sentinels:
 - tests/hardening_pass1_smoke.php
 - tests/schema_contract_smoke.php
 expected_bundle:
-- spa-assets/index-BK9O9JnX.js
+- spa-assets/index-BTCnpv79.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -151,3 +151,11 @@ last_known_features:
 - modules.sidebar.audit
 - treasury.plaid_health_banner
 - ap.approvals_inlined_tabs
+- ap.bill_approvals.column_drift_fixed
+- ap.vendor_portal.phase2_uploads_banking
+- ap.recurring_bills
+- ap.purchase_orders
+- ap.three_way_match
+- ap.1099.readiness_check
+- ap.bill.approval_thread_comments
+- ap.bill.approval_email_notifications

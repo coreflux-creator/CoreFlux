@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
+import ThreeWayMatchPanel from './ThreeWayMatchPanel';
+import BillApprovalThread from './BillApprovalThread';
 
 export default function BillDetail() {
   const { id } = useParams();
@@ -91,6 +93,9 @@ export default function BillDetail() {
         <SummaryBox label="Paid"      value={`${Number(bill.amount_paid).toFixed(2)}`} />
         <SummaryBox label="Due"       value={`${Number(bill.amount_due).toFixed(2)}`} highlight />
       </div>
+
+      {bill.po_number && <ThreeWayMatchPanel billId={id} />}
+      <BillApprovalThread billId={id} />
 
       <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>Lines</h3>
       <table className="data-table" data-testid="ap-bill-lines" style={{ marginBottom: 'var(--cf-space-4)' }}>

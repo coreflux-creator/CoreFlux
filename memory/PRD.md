@@ -767,7 +767,50 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 - Backend: +55 new smoke assertions in `/app/tests/ap_phase_a1_smoke.php`. Combined suite: **28 files, 1,572 passing / 0 failed**. Vite build green.
 
 ---
-*Last Updated: 2026-02 — Accounting Phase 1 verified + AP Phase A1 shipped (Export CSVs, Gusto-CSV roll-up, AI Receipts on Expenses, Status pill / filters on the Expenses list).*
+*Last Updated: 2026-02 — AP Phase A1 follow-ups V2 (this fork). Sprint covers the original "deferred" items plus material polish:*
+
+**Bug fixes (existing code was broken in production):**
+- `bill_approvals.php` was querying `b.invoice_number` / `b.amount_total` which don't exist in `ap_bills`. Fixed to `bill_number` / `total`. Single-letter table aliases were bypassing the schema-contract gate; the bug shipped silently. Added `$bill['total']` lookup for amount-bracket workflow resolution.
+- `vendor_portal.php` queried `ap_vendors` (table doesn't exist — actual table is `ap_vendors_index`) and `ap_payments.vendor_id` / `ap_bills.invoice_number` etc (none of which exist). Rewritten to: query `ap_vendors_index`, match bills by `vendor_name`, join payments via `ap_payment_allocations`, surface `bill_number` / `pay_date` / `total` correctly.
+- React `Approvals.jsx` and `VendorPortal.jsx` updated to render the renamed fields.
+
+**Migration 012 — ap_vendor_portal_documents:** vendor-uploaded W-9 / COI / banking-form / contract files. `pending_review → approved | rejected` workflow. Adds `ap_vendors_index.contact_email` for direct portal-invite addressing (independent of payment remit-to).
+
+**Migration 013 — ap_recurring_bills:** scheduled bill template with frequency `weekly | biweekly | monthly | quarterly | yearly`, `day_of_period` clamp, `next_bill_date`, `end_date`, status `active | paused | ended`. Generated bills land as `pending_review` and follow the normal approval workflow (no auto-approve, no auto-pay). Idempotent advance (`last_generated_date` snapshot).
+
+**Migration 014 — ap_purchase_orders + ap_po_receipts:** PO header + lines, receipt log, per-line `quantity_received` rollup. Tenant config `ap_three_way_match_enforce` (soft warning by default, hard-block opt-in) + `ap_three_way_match_tolerance_pct` (default 5%).
+
+**Migration 015 — ap_bill_approval_comments + ap_bill_approval_notifications:** conversation thread on every bill, audit log of every email-notification send (including failures with `error_text`).
+
+**Library — `lib/recurring.php`:** `apRecurringNextDate()` (pure date math, robust month-overflow handling — Jan-31 monthly correctly clamps to Feb-28 instead of strtotime's Mar-3 quirk), `apRecurringGenerateDue()` (transactional draft-bill insert + line + schedule advance, idempotent on next_bill_date).
+
+**Library — `lib/three_way_match.php`:** `apThreeWayMatch()` returns `{ matched, po, po_total, receipt_total, bill_total, tolerance_pct, warnings, enforce }`. Generates human-readable warnings when bill ≠ PO outside tolerance, when bill > received, or when PO is closed/cancelled.
+
+**API — `recurring.php`:** GET list, POST create, PATCH update, `?action=pause|resume|end|generate_due`. Audit `ap.recurring.*`.
+
+**API — `purchase_orders.php`:** GET list/detail, POST create header+lines, PATCH update, `?action=receive` (records `ap_po_receipts` + line-level qty rollup, updates PO `partially_received | received` status), `?action=close`, **`?action=match&bill_id=N`** (the three-way match endpoint surfaced on BillDetail).
+
+**API — `1099.php`:** new `?action=readiness&tax_year=YYYY` returns per-vendor `{ has_w9, tin_present, tin_last4, ready, blockers }` plus summary `{ ready, blocked, total }`. W-9 sourced from `ap_vendor_portal_documents` (vendors uploaded via portal).
+
+**API — `bill_approvals.php` extensions:** `?count_pending=1` (badge count for current user), `?comments_for_bill=N` (comment thread feed), `?action=comment` (post comment), email notifications fired on `submit` (notify first-step approvers) and on each step approval (notify next-step approvers). Audit log every send to `ap_bill_approval_notifications`.
+
+**API — `vendor_portal.php` Phase 2:** `?action=upload_url` (presigned S3 POST for vendor-uploaded docs), `?action=upload_document` (records via `storage_register.php` chokepoint, lands as `pending_review`), `?action=update_banking` (vendor self-service banking edit — encrypts account/routing via `encryptField()`, audit-logs field NAMES only), `?action=documents` (list).
+
+**UI:**
+- `RecurringBills.jsx` — list + new + pause/resume/end + "Generate due now" button.
+- `PurchaseOrders.jsx` — list + new (header + line editor + GL acct picker) + detail modal with per-line "receive now" inline editor + receipt log.
+- `ThreeWayMatchPanel.jsx` — auto-renders on `BillDetail` whenever the bill has a `po_number`. Color-coded (green=match, amber=warnings) + BLOCKING badge when tenant has enforce-on. Linked to PO detail page.
+- `BillApprovalThread.jsx` — auto-renders on every `BillDetail`. Shows the approval chain (state per step, decision_at, decision_note) + a comment thread that anyone with `ap.view` can post to.
+- `Approvals.jsx` — pending-count badge appears next to the inbox heading.
+- `Ledger1099.jsx` — "Readiness" toggle button surfaces a panel of vendors with blockers (missing TIN, malformed TIN last-4, no approved W-9) before you click "Print 1099-NEC forms".
+- `VendorPortal.jsx` — three-tab nav (Overview / Documents / Banking). Documents tab supports drag-drop upload with type picker. Banking tab supports remittance email/phone, payment method, account type, and replace-account/routing (full numbers only sent during update, never echoed back; only last-4 displayed thereafter).
+- `APModule.jsx` — sidebar gains Recurring + POs entries; routes `/modules/ap/recurring` and `/modules/ap/purchase-orders` (+ detail).
+
+**Manifest:** new permissions `ap.po.manage`, `ap.vendor.create`, `ap.vendor.portal_review`, `ap.bills.approve_admin`. New audit events `ap.bill.approval_*` (4), `ap.recurring.*` (7), `ap.po.*` (4), `ap.vendor.portal_*` (4), `ap.1099.print_rendered`.
+
+**Tests:** new `tests/ap_phase_a1_followups_v2_smoke.php` — 124 assertions across migrations, libs, APIs, manifest, all UI components, plus 6 functional pure-date-math assertions on `apRecurringNextDate()`. Full suite now: **71 files, 4,160 passing / 0 failed.**
+
+**Vite bundle rebuilt:** 1799 modules, 996 kB JS / 21.5 kB CSS. `/app/.deploy-version` updated.
 
 *2026-02 — Sprints 1-4: Login UX + admin tools rebuild + executive dashboard (this fork):*
 - **Sprint 1 — Login + tenant module filter (18 assertions ✓)**
