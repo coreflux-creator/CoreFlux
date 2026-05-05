@@ -21,7 +21,7 @@ $ui  = (string) file_get_contents(__DIR__ . '/../dashboard/src/pages/StaffingRep
 
 echo "\nMigration 015 — review_flags\n";
 _a('CREATE TABLE review_flags',                  str_contains($mig, 'CREATE TABLE IF NOT EXISTS review_flags'));
-_a('polymorphic entity_type',                    str_contains($mig, "entity_type     ENUM('placement','invoice','bill','person')"));
+_a('polymorphic entity_type',                    str_contains($mig, "entity_type     ENUM('placement','invoice','bill','person'"));
 _a('reason_code + severity + status enums',      str_contains($mig, 'severity') && str_contains($mig, 'status') && str_contains($mig, "'open','resolved','dismissed'"));
 _a('AI fields (summary / confidence / source)',  str_contains($mig, 'ai_summary') && str_contains($mig, 'ai_confidence') && str_contains($mig, 'ai_source'));
 _a('indexed by entity + status',                 str_contains($mig, 'idx_rf_tenant_entity') && str_contains($mig, 'idx_rf_tenant_status'));
