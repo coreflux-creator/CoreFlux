@@ -89,8 +89,8 @@ if ($method === 'POST' && $action === 'extract') {
                 . '{"work_date":string,"project":string|null,"client":string|null,'
                 . '"category":"regular_billable"|"regular_nonbillable"|"OT_billable"|"OT_nonbillable"|"holiday"|"vacation"|"sick"|"bereavement"|"unpaid_leave"|null,'
                 . '"hours":number,"description":string|null}]}]}';
-            $instruction = 'Extract a multi-person paper or PDF timesheet (e.g. a foreman daily log, '
-                . 'crew sign-in sheet, or printed weekly grid for many workers). Group rows by person_name. '
+            $instruction = 'Extract a multi-person paper or PDF timesheet (e.g. an agency timesheet, '
+                . 'team log, or printed weekly grid for many workers). Group rows by person_name. '
                 . 'Each line is a (date, project, hours) triple. work_date MUST be ISO YYYY-MM-DD. '
                 . 'If the timesheet shows a single week with day-of-week columns (Mon-Sun), '
                 . 'derive each work_date from the implied week. Default category to regular_billable when not labelled. '

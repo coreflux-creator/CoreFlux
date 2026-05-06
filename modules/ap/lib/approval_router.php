@@ -135,12 +135,21 @@ function apRouteBillForApproval(int $tenantId, array $bill, ?int $actorUserId = 
     $pushCount = 0;
     if ($apIds) {
         require_once __DIR__ . '/../../../core/push_service.php';
+        require_once __DIR__ . '/risk_explainer.php';
+        $aiExplain = '';
+        try {
+            if (!empty($bill['vendor_id']) && $eval['risk']['level'] !== 'none') {
+                $aiExplain = apExplainRisk($tenantId, (int) $bill['vendor_id'], $billId);
+            }
+        } catch (\Throwable $_) { $aiExplain = ''; }
+
         $title = 'AP bill needs approval';
         $body  = sprintf('Bill #%d for $%s%s. Open to review.',
             $billId,
             number_format((float) ($bill['total_amount'] ?? 0), 2),
             $eval['risk']['level'] !== 'none' ? " ({$eval['risk']['level']} risk)" : ''
         );
+        if ($aiExplain) $body .= "\n\n" . $aiExplain;
         $opts = [
             'category'        => 'ap_bill_approval',
             'deep_link'       => '/modules/ap/bills/' . $billId,

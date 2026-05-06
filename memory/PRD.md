@@ -470,7 +470,97 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
-## Recently completed (Sprint 3 — Industry Layer 1 + Push primitive, 2026-02)
+## Recently completed (Sprint 4 — Platform polish, 2026-02)
+**Sprint 4 of the holistic 4-sprint plan. Closes the foundation phase.**
+
+### A1 — Generic WorkflowEngine ✅
+- `core/migrations/019_workflow_engine.sql` creates 3 tables:
+  `workflow_definitions` (versioned, tenant + def_key + steps_json + subject_type),
+  `workflow_instances` (status enum pending/approved/rejected/cancelled/escalated/expired,
+  current_step, sla_due_at, payload_json, idempotent on subject_type+subject_id),
+  `workflow_step_actions` (action enum approve/reject/skip/delegate/comment/escalate +
+  via enum app/email/api/system).
+- `core/workflow_engine.php` exports `workflowDefine`, `workflowStart`, `workflowAct`,
+  `workflowGetPendingForUser`, `workflowGetInstance`. Quorum-aware step advancement,
+  versioned definitions, idempotent start (returns existing instance for the subject),
+  audit-logs every state change to `audit_log`, fires push notifications to step
+  approvers via `core/push_service.php`.
+- This is the meta-engine that future sprints retrofit AP bill approvals,
+  Billing two-eye, period close tasks, and time approval onto. The hand-rolled
+  per-module tables stay for backwards compat — the engine writes to its own
+  instance/actions tables.
+
+### A2 — Generic email-only approval tokens ✅
+- `core/migrations/020_approval_tokens.sql` — `approval_tokens` table
+  (token sha256-hashed at rest, subject_type+subject_id linkage,
+  workflow_instance_id, actor_user_id OR actor_email, actions_json
+  whitelist of permitted operations, expires_at, consumed_at).
+- `core/approval_tokens.php` — `approvalTokenIssue` (random_bytes(32)
+  → hex → sha256-store), `approvalTokenLookup`, `approvalTokenConsume`
+  (idempotent — same token on second use returns already_consumed).
+- Generalises today's time-module tokenized approval into a CORE primitive
+  any module can use for managers/clients/vendors approving via email link
+  without logging in.
+
+### A3 — Unified Audit-log API ✅
+- `api/audit_log.php` — GET with filters (event LIKE, user_id, from/to date),
+  paginated up to 5000, JSON or CSV (`?format=csv` returns
+  `audit-log-tenant-N-YYYYMMDD.csv` attachment with id/event/user_id/
+  user_name/user_email/target_id/meta/ip/created_at). Tenant-scoped;
+  master_admin / tenant_admin / admin only.
+
+### B1 — Active-entity switcher (CORE add-on) ✅
+- `core/active_entity.php` — `activeEntityGet`/`activeEntitySet`/
+  `activeEntityAvailable` per-user PHP-session helpers.
+- `api/active_entity.php` — GET (current + dropdown options) / POST (set).
+  Session-key namespaced per tenant (`active_entity_id__tN`).
+
+### AI risk explainer (Sprint 3 add-on per user request) ✅
+- `modules/ap/lib/risk_explainer.php` — `apExplainRisk(tenantId, vendorId, billId)`
+  takes the 6-factor risk vocabulary + bill summary and asks `core/ai_service.php`
+  for a 1-sentence operator-friendly explanation ("Vendor was created 6 days ago
+  and lacks a W-9; bill amount is 3× their typical run-rate."). Best-effort —
+  returns "" on any failure (network / missing key / etc.). All 6 risk factors
+  mapped to plain English.
+- **Wired into `apRouteBillForApproval`**: the explanation is appended to the push
+  body so approvers see a human reason in 2 seconds instead of decoding 6 fields.
+
+### E1 — "Foreman / crew sheet" sweep ✅
+- All user-visible UI labels + AI-extraction prompts updated to staffing-native
+  terminology: "agency timesheet" / "team log" / "team-lead" / "sender".
+- 6 occurrences across 3 files (`TimesheetUpload.jsx`, `time/api/upload.php`,
+  `time/lib/intake.php`). Smoke test `e1_foreman_sweep` enforces zero remaining
+  occurrences in source (excluding tests + memory).
+- **Bonus**: caught + fixed pre-existing dead-code corruption at the bottom
+  of `TimesheetUpload.jsx` that had been silently breaking Vite builds (only
+  surfaced because Sprint 4 forced a real rebuild).
+
+### Validation
+- `tests/sprint4_platform_smoke.php` — **69/69 ✓** (workflow tables + lib +
+  push + audit hooks, approval-tokens sha256-hashing + random_bytes entropy,
+  AI explainer best-effort + 6-factor map + push-body wiring, active-entity
+  helpers + API, audit-log filters + CSV + admin guard, foreman sweep
+  zero-occurrence check).
+- **Full PHP suite: 77 files passing**, zero regressions.
+- **Vite build green**: 1806 modules → `index-BgP77g8k.js` + `index-Cwhpy62y.css`.
+  `.deploy-version` + `spa-assets/index.html` synced.
+
+### Holistic 4-sprint plan: ✅ COMPLETE
+Reports → Accounting depth → Industry Layer 1 (Staffing) → Platform polish.
+4,800+ assertions. Zero regressions. Architecture rule (CORE vs INDUSTRY) honoured
+throughout — every CORE primitive is vertical-agnostic, every staffing-specific
+piece lives in modules whose names already reflect the vertical.
+
+### Known open
+- Multi-entity switcher UI in dashboard SPA — backend ready (`active_entity.php`)
+  but the React header dropdown still needs to be wired.
+- WorkflowEngine retrofit — existing AP bill approvals / Billing two-eye /
+  period close tasks / time approval still use hand-rolled tables. Cutover
+  is a Sprint 5+ activity once the new engine has shipped a few real workflows.
+- Real APNs/FCM creds for push delivery (when the user is ready, log driver
+  is the safe default until then).
+
+
 **Sprint 3 of the holistic 4-sprint plan. CORE add-on (push) + first INDUSTRY layer (Staffing).**
 
 ### Push primitive (CORE) ✅

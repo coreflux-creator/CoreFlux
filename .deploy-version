@@ -86,7 +86,7 @@ sentinels:
 - tests/hardening_pass1_smoke.php
 - tests/schema_contract_smoke.php
 expected_bundle:
-- spa-assets/index-D6ICRwjV.js
+- spa-assets/index-BgP77g8k.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -187,3 +187,9 @@ last_known_features:
 - ap.approval_router.with_push
 - ap.vendor_risk.evaluator
 - ap.bill_evidence_bundle.builder
+- core.workflow_engine.v1
+- core.approval_tokens.generic
+- core.active_entity.session
+- core.audit_log.api_csv
+- ap.risk_explainer.ai
+- time.foreman_to_team_log_sweep

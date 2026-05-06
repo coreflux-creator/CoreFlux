@@ -13,7 +13,7 @@ const nextTmpId = () => ++_tmpId;
 /**
  * Upload Timesheet — supports two modes:
  *   • Single — one person (you), N projects/days. Mirrors AP `BillCreate` extract.
- *   • Bulk   — one PDF with many people's hours (foreman daily log, crew sign-in).
+ *   • Bulk   — one PDF with many people's hours (agency timesheet, team log).
  *              AI groups by person_name; you confirm the people-mapping; entries
  *              fan out to each person's draft entries.
  *
@@ -195,7 +195,7 @@ export default function TimesheetUpload() {
               <input type="radio" name="time-upload-mode" value="single" checked={mode === 'single'} onChange={() => setMode('single')} data-testid="time-upload-mode-single" /> Just my hours
             </label>
             <label style={{ fontSize: 13 }}>
-              <input type="radio" name="time-upload-mode" value="bulk" checked={mode === 'bulk'} onChange={() => setMode('bulk')} data-testid="time-upload-mode-bulk" /> Many people (foreman log / crew sheet)
+              <input type="radio" name="time-upload-mode" value="bulk" checked={mode === 'bulk'} onChange={() => setMode('bulk')} data-testid="time-upload-mode-bulk" /> Many people (agency timesheet / team log)
             </label>
           </fieldset>
           <input type="file" accept="image/*,application/pdf" onChange={(e) => setFile(e.target.files?.[0] || null)} data-testid="time-upload-file" />

@@ -13,7 +13,7 @@ require_once __DIR__ . '/../../../core/ai_service.php';
 require_once __DIR__ . '/time.php';
 
 /**
- * Look up a foreman/sender by their from-address. Returns:
+ * Look up a sender (agency timesheet originator) by their from-address. Returns:
  *   ['user_id' => int|null, 'person_id' => int|null, 'person_name' => string|null]
  * Match path: users.email → people.email_primary inside the tenant.
  */
@@ -134,7 +134,7 @@ function timeIntakeEnrichDraftWithSender(\PDO $pdo, int $tenantId, array $draft,
     if (empty($placements)) return $draft;
 
     $apply = function (array $group) use ($personId, $personName, $placements) {
-        // Prepend sender to match_candidates so the picker defaults to the foreman.
+        // Prepend sender to match_candidates so the picker defaults to the team-lead.
         if (!isset($group['match_candidates']) || !is_array($group['match_candidates'])) {
             $group['match_candidates'] = [];
         }
@@ -348,7 +348,7 @@ function timeIntakeIngestAttachments(int $tenantId, int $intakeId, array $attach
         $docId = (int) $pdo->lastInsertId();
         $docIds[] = $docId;
 
-        // AI extract — bulk mode (intake usually = foreman log).
+        // AI extract — bulk mode (intake usually = agency team log).
         try {
             $signed = $svc->get_signed_url($key);
             $schema = '{"week_ending":string|null,'
@@ -358,7 +358,7 @@ function timeIntakeIngestAttachments(int $tenantId, int $intakeId, array $attach
                 . '"hours":number,"description":string|null}]}]}';
             $res = aiExtract([
                 'feature_key' => 'time.timesheet.from_intake',
-                'instruction' => 'Extract a multi-person paper or PDF timesheet (foreman daily log / crew sign-in). Group rows by person_name. work_date MUST be ISO YYYY-MM-DD.',
+                'instruction' => 'Extract a multi-person paper or PDF timesheet (agency timesheet / team log). Group rows by person_name. work_date MUST be ISO YYYY-MM-DD.',
                 'schema_hint' => $schema,
                 'images'      => [['url' => $signed, 'mime' => $mime]],
             ]);
@@ -368,7 +368,7 @@ function timeIntakeIngestAttachments(int $tenantId, int $intakeId, array $attach
                 $draft['people'] = timeUploadResolvePeople($pdo, $tenantId, $draft['people']);
             }
             // Auto-fill sender context (person + placement hints) if the
-            // foreman's email maps to a known user/person.
+            // sender's email maps to a known user/person.
             if (!empty($senderCtx['person_id'])) {
                 $draft = timeIntakeEnrichDraftWithSender($pdo, $tenantId, $draft, $senderCtx);
             }
