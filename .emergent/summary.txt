@@ -1,152 +1,152 @@
 <analysis>**original_problem_statement**: 
 The user's goal is to refactor a monolithic PHP application, CoreFlux, into a modular architecture. Core services (auth, multi-tenancy, storage, mail) are standardized, while business functions are self-contained modules. 
-PRODUCT REQUIREMENTS: 
-- Implement true Sub-Tenant Provisioning.
-- Standardize Payment Rails, Plaid Integrations, and Gusto Embedded Payroll.
-- Expand the Treasury module to support read-only Plaid bank feeds.
-- Create a generic Export Templates system for CSV generation.
-- Move legacy Master-Tenant PHP CRUD pages into the React SPA.
-- Implement an AI confidence-score moat (training AI on accept/reject).
-- Implement AP Phase A1 follow-ups (bill approvals, vendor portal, 1099-NEC prep).
+PRODUCT REQUIREMENTS (UPDATED): Stop piecemeal development and build features holistically across , , , , , and  modules based on 5 core specification documents (, , , , ). The architecture is strictly divided into CORE (vertical-agnostic ERP/Accounting/Platform features) and INDUSTRY LAYER (vertical-specific plugins like Staffing). 
 
 **User's preferred language**: English
 (INSTRUCT next agent to respond in the user's preferred language only)
 
 **what currently exists?** 
-A strictly PHP 8 backend with a React 18 SPA frontend (Vite). The system relies on an extensive suite of custom PHP CLI smoke tests (>3,350 assertions). The application features modules for Treasury, Accounting, AP, Payroll, People, Plaid sync, and AI categorization. 
-In this session, the agent significantly hardened the application. Major enhancements included: overhauling the Plaid integration UX (account picker, deduping, balances flow), implementing a global / formatter, adding an idempotent database migration runner to , creating a strict schema-drift CLI test, adding an AI Saved Rules UI, and implementing a Payroll Preflight & Gusto Submit Preview workflow.
+A PHP 8 backend, a React 18 SPA frontend (Vite), and a newly scaffolded React Native/Expo SDK 55 mobile monorepo (). The system uses a strict custom PHP CLI smoke testing framework (>4,400 assertions) ensuring rigid database schema parity (). In this session, the agent completed a massive 5-sprint run covering the new Reports Module, Accounting Depth (Dimensions/Close Workflows), Staffing Industry Layer (AP Approval routing, Vendor Risk), Platform polish (Workflow Engine, PWA, JWT Auth), and scaffolded a Mobile Worker MVP using Expo.
 
 **Last working item**: 
-    - Last item agent was working: Payroll Preflight and Gusto Preview implementation. The agent created the preflight checks, Gusto preview UI panel, fixed legacy SQL schema drifts in People/Time modules, and ran all smoke tests successfully.
-    - Status: USER VERIFICATION PENDING
-    - Agent Testing Done: Y
-    - Which testing method agent to use? manual testing by 
+    - Last item agent was working: Planning and scoping Sprint 6 which focuses on Mobile Deep Linking and Dashboards. The user explicitly approved adding deep linking () to the mobile Expo app so that tapping a push notification routes directly to the bill-detail screen () with 1-tap approve/reject buttons.
+    - Status: NOT STARTED (Scope approved by user, implementation pending).
+    - Agent Testing Done: Y (for completed Sprint 5).
+    - Which testing method agent to use? manual testing by  (DO NOT use testing subagent, custom PHP CLI suite is the source of truth).
     - User Testing Done: N
 
 **All Pending/In progress Issue list**: 
-None. The agent successfully cleared all schema drift violations, bank-rec 500 errors, and AP Phase A1 failing tests. 
+  Issue 1: Implement Expo Deep Linking for Workflow Approvals (Sprint 6)
+     - Attempted fixes: Scaffolded  routing, but deep linking () is not yet wired to handle incoming push notification taps.
+     - Next debug checklist: Update  and  for URL scheme and deep link handling. Map the notification payload to .
+     - Why fix this issue and what will be achieved with the fix? Fulfills the user's explicit request for 1-tap mobile approval workflows directly from push notifications.
+     - Status: NOT STARTED
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Frontend (Mobile)
 
 **In progress Task List**: 
-None currently in progress. The agent just completed the Gusto Preview and Payroll Preflight tasks.
+  Task 1: Execute Sprint 6 scope (Mobile Deep Linking + UI Dashboards)
+     - Where to resume: Navigate to  and implement deep link parsing. Then proceed with the web dashboard builds if required by Sprint 6 scope.
+     - What will be achieved with this? Seamless push-to-action mobile UX.
+     - Status: NOT STARTED
+     - Should Test frontend/backend/both after fix? Frontend
+     - Blocked on something: None.
 
 **Upcoming and Future Tasks**
     Upcoming Tasks:
-    - (P2) Period Close Receipt PDF: formal close of accounting periods with a signed/archived PDF artifact.
-    - (P2) Billing Phase A1: server-side invoice PDF generation + dunning workflow (auto-reminders, late-fee policy).
-    
-    Future Tasks:
-    - (P3) Time Phase B Slices 2b/2c/2d: corrections/adjustments flow, multi-approver routing, per-week guardrails.
-    *(Note: Tenant Mail Model C was explicitly excluded by the user because AWS is not yet configured).*
+    - (P0) Sprint 6: Mobile Deep Linking () for direct approval routing in the Expo app.
+    - (P0) Sprint 6: UI implementations for Dashboards (Workflow Inbox UI, Dimensions Admin UI, Period Close Workflow UI, Audit Viewer UI).
+    - (P1) AP Workflow Migration: Run a cutover migration to re-point existing pending AP bills to the newly created  (Workflow Engine).
+    - (P2) Period Close Receipt PDF (Phase 2): Auto-attach the executive snapshot PDF to the close packet email.
 
 **Completed work in this session**
-- Plaid bank-link UX overhaul (Split Sync/Reconnect, Account Picker, Hide/Delete, Health Banner) (DONE)
-- Treasury data flow, Plaid balances persistence, and React Router absolute navigation (DONE)
-- Plaid account duplicate cleanup/deduping logic and UI banner (DONE)
-- UI global data/currency formatting via  (DONE)
-- Core Hardening: Idempotent migration runner () and schema-drift CLI tests () (DONE)
-- Bank-Rec 500 fixes and Saved Rules UI for AI Accept/Reject categorization (DONE)
-- Fixed AP Phase A1 failing smoke tests related to  (DONE)
-- Payroll Readiness Audit & documentation () (DONE)
-- Payroll Preflight API and Gusto Submit Preview integration (DONE)
+- Sprint 1 (Reports Phase 1): Added  view, Reports Module shell, Staffing Overview, Exec Snapshot, Client Profitability, Rate Spread, and Overtime Watch. (DONE)
+- Sprint 2 (Accounting + Mobile Foundation): Added multi-entity switcher, tenant-configurable dimensions engine, period close workflow, JWT auth alongside session, mobile devices table, and PWA manifest. (DONE)
+- Sprint 3 (Industry Layer 1): Added  routing, AP approval policies, vendor risk rules, evidence bundles, and a push notification primitive (). (DONE)
+- Sprint 4 (Platform): Built , approval tokens primitive, AI risk explainer, Audit Log API, and swept all foreman terminology to team log. (DONE)
+- Sprint 5 (Mobile Worker MVP): Scaffolded  monorepo with Expo SDK 55, React Native 0.83.1, API client, JWT hooks, and base tab routing. (DONE)
 
 **Earlier issues found/mentioned but not fixed**
-   - None unresolved. All previously reported bugs (bank-rec 500, broken navigation, missing balances) were fully fixed and verified in this session.
+   - Issue 1: Real APNs/FCM credentials needed for Push Notifications
+     - Debug checklist: Currently,  uses a 'log' driver. To actually send notifications to mobile devices, the system needs an APNs  key and FCM service-account JSON.
+     - Why to solve this issue and what will be achieved with this? Unblocks actual delivery of mobile push notifications.
+     - Should Test frontend/backend/both after fix: Backend
+     - Is recurring issue? N
 
 **Known issue recurrence from previous fork**
-  - Issue recurrence in previous fork: Database schema drift (runtime queries failing because DB migrations hadn't executed).
-  - Recurrence count: 1 (in this session, a new Plaid balance column broke the GET request).
-  - Status: RESOLVED (Agent introduced  invoked at bootstrap, alongside a strict  CI gate).
+  - Issue recurrence in previous fork: Database schema drift ( failing due to undocumented columns in PHP scripts that aren't in SQL migrations).
+  - Recurrence count: 2 (Occurred in Sprint 2 with  vs  and Sprint 3 with ).
+  - Status: RESOLVED (Fixed immediately by updating migration files/PHP). Note: The next agent MUST ensure every SQL alias referenced in PHP exists in a  migration file.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
-- Frontend: React 18, Vite.
-- Backend: STRICTLY PHP 8. No Node/Python instances.
-- Database: MySQL ().
-- Migrations: Now executed idempotently on-the-fly via  triggered inside .
-- Testing: Custom PHP scripts run via CLI. A strict  now parses all SQL strings across the codebase to ensure no queries request non-existent columns.
+- Backend: PHP 8 (Direct PDO, NO ORM, strictly typed).
+- Web Frontend: React 18, Vite, PWA Service Worker.
+- Mobile Frontend: Expo SDK 55, React Native, File-based Expo Router.
+- Auth: Hybrid Session Cookie (Web) + JWT (Mobile).
+- Testing: Custom PHP CLI scripts (). DO NOT USE TESTING SUBAGENT.
 
 **key DB schema**
-  - : Extended to hold live .
-  - : Tracks accepted/rejected AI suggestions to form the ML moat.
-  -  & : Core to the new Payroll Preflight workflows.
-  - : The canonical table for employee data (migrated legacy violations from ).
+  - : Tenant-configurable accounting dimensions.
+  - : Stores APNs/FCM tokens for push routing.
+  -  & : Core engine for generic multi-step approvals.
+  - : Audit log of push notifications sent.
+  - : Rules defining which bills route to which managers.
 
 **changes in tech stack**
-  -  implemented: The deploy process/API runtime now dynamically applies migrations. Any SQL files added must use  or run idempotent operations.
-  -  implemented: The test suite actively reads PHP files to cross-check  queries against the union of all  schema files.
+  - Introduced **Expo SDK 55 / React Native** inside  for the worker MVP app.
+  - Introduced **JWT Authentication** () for mobile clients.
+  - Introduced **Progressive Web App (PWA)** capabilities to the web SPA.
 
 **All files of reference** 
-  -  (Idempotent runner)
-  -  (Schema validator)
-  -  &  (New AI rules visibility)
-  -  (Global UI formatting)
-  -  &  (Payroll readiness implementations)
-  -  (New Gusto submission preview panels)
+  -  (Crucial roadmap and architectural source of truth)
+  -  &  (Deep linking targets for Sprint 6)
+  -  &  (Platform primitives)
+  -  (Core database updates)
+  -  (Newest test reference)
 
 **Areas that need refactoring**: 
-- Legacy SQL schema queries. The agent whitelisted 3 legacy table references in  (mostly in legacy  modules). Future updates to those modules should resolve these aliases and drop the whitelisting.
+- Legacy Reports UI components (, ) still exist on disk but are unrouted. Can be cleaned up or preserved based on user preference.
 
 **key api endpoints**
   - 
   - 
   - 
-  - 
 
 **Critical Info for New Agent** 
-- **STRICTLY PHP:** The backend is exclusively PHP 8.
-- **Frontend Build:** Always run yarn run v1.22.22
+- **ARCHITECTURE BOUNDARIES:** Adhere strictly to the CORE vs INDUSTRY LAYER separation defined in . Do not hardcode staffing logic (like  or ) into CORE components like Accounting dimensions.
+- **MOBILE DEV:** The  app is standard Expo. Navigate there and use yarn install v1.22.22
+info No lockfile found.
+[1/4] Resolving packages...
+[2/4] Fetching packages...
+[3/4] Linking dependencies...
+[4/4] Building fresh packages...
+success Saved lockfile.
+Done in 0.05s. for package management.
+- **FRONTEND BUILDS:** ALWAYS run yarn run v1.22.22
 $ vite build
 vite v5.4.21 building for production...
 transforming...
-✓ 1786 modules transformed.
+✓ 1806 modules transformed.
 rendering chunks...
 computing gzip size...
 dist/index.html                       0.46 kB │ gzip:   0.30 kB
 dist/spa-assets/index-Cwhpy62y.css   21.57 kB │ gzip:   4.34 kB
-dist/spa-assets/index-DH4KvVeO.js   882.26 kB │ gzip: 208.09 kB
-✓ built in 5.56s
-Done in 5.92s. after changing React code. 
-- **Deploy Stamp:** ALWAYS update  with the newly generated  and  bundle names after running a Vite build, otherwise the frontend will not render updates.
-- **Schema Contract Gate:** If you write a PHP query referencing a SQL column, that column *must* exist in a  migration file, or  will fail.
-- **Smoke Tests:** Run  before finishing any work. Current passing count: 3,354.
+dist/spa-assets/index-BgP77g8k.js   969.67 kB │ gzip: 226.15 kB
+✓ built in 6.83s
+Done in 7.30s. after changing React code and update  with the newly generated  and  hashes!
+- **SCHEMA CONTRACT:** If you query a new column in PHP, it MUST be declared in a  file, or the  suite will fail.
+- **TESTING:** ALWAYS run  to verify all 4,400+ assertions pass before finishing a task.
 
 **documents and test reports created in this job** 
   - 
+  - 
 
 **Last 10 User Messages and any pending HUMAN messages** 
+ - (Agent) 
  - (User) 
- - (User)  (Agent heavily refactored Plaid UX).
- - (User) Uploaded images:  (Agent fixed hash-routing logic & added balances).
- - (User)  (Agent fixed 500 error triggered by unapplied schema migrations).
- - (User)  (Agent proposed Hardening Sprint. User selected option B to build schema gates & auto-migrations).
- - (User) Uploaded images:  (Agent fixed deduping & formatting).
- - (User)  (Agent built AI rule tracking).
- - (User)  (Agent removed bad intermediate links and routed directly to transactions).
- - (User)  (Agent built readiness audit).
- - (User)  (Agent successfully built Payroll Preflight and Gusto Preview).
- - (Pending) None. User verification of the Payroll Gusto preview UI and Preflight implementation is pending.
+ - *(Pending)*: The user gave the go-ahead for Sprint 6 (Mobile Deep Linking + Dashboards). Implement this immediately.
 
 **Project Health Check:**
-- Broken: None. Schema drift issues heavily mitigated.
-- Mocked: Gusto sandbox tokens. OpenAI calls gracefully fallback if keys are missing (wrapped in ).
+- Broken: None (4,400+ assertions passing).
+- Mocked: Push Notification Delivery ( uses a 'log' driver mimicking delivery until APNs/FCM keys are provided).
 
 **3rd Party Integrations** 
- - AWS S3 (via PHP SDK) - *Currently deferred by user*
- - OpenAI GPT-4o-mini (via PHP cURL ) — requires User API Key
- - Resend (Outbound Email) — requires User API Key
- - Plaid (Auth, Transfer, Transactions) — requires User API Keys
- - Gusto (Embedded Payroll) — requires User API Keys
+ - OpenAI GPT-4o-mini (Requires User API Key)
+ - Resend (Requires User API Key)
+ - Plaid (Requires User API Keys)
+ - Gusto (Requires User API Keys)
 
 **Testing status**
-  - Testing agent used after significant changes: NO (Custom PHP CLI suite utilized exclusively and expanded continuously).
+  - Testing agent used after significant changes: NO (Exclusively using custom PHP CLI suite)
   - Troubleshoot agent used after agent stuck in loop: NO
-  - Test files created: , , 
-  - Known regressions: None. Full suite passes (3,354 assertions).
+  - Test files created: 
+  - Known regressions: None
 
 **Credentials to test flow:**
   - Standard test user  with  role.
 
 **What agent forgot to execute**
-The agent completed all tasks flawlessly, including the P0 Plaid fixes, the Hardening Sprint, and the Payroll Preflight feature. Nothing was left unexecuted. The next agent should await the user's feedback on the Payroll module or propose picking up the (P2) Period Close / Billing features.</analysis>
+The agent got approval from the user to start Sprint 6 (specifically adding Expo deep-linking to route push notifications to the new approval screens), but then used the  tool without writing the implementation. The next agent must immediately begin executing the Sprint 6 scope.</analysis>
