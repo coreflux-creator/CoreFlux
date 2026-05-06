@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'r
 import AppLayout from './layout/AppLayout';
 import DashboardOverview from './pages/DashboardOverview';
 import ExecutiveDashboard from './pages/ExecutiveDashboard';
-import ReportsModule from './pages/ReportsModule';
+import ReportsModule from '../../modules/reports/ui/ReportsModule';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import MailSettingsPage from './pages/MailSettingsPage';

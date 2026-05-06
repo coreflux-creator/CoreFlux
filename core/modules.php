@@ -143,11 +143,13 @@ function getModuleDefinitions(): array {
             'id' => 'reports',
             'name' => 'Reports',
             'icon' => '/assets/icons/icon-reports.png',
-            'description' => 'CEO/CFO snapshot — revenue, margin, run rate, headcount, placements, KPIs with drill-downs.',
+            'description' => 'Industry-aware analytics — staffing dashboards, margin reports, custom builder.',
             'actions' => [
-                ['name' => 'Executive snapshot', 'route' => 'exec',     'permission' => 'reports.view'],
-                ['name' => 'Corporate finance',  'route' => 'finance',  'permission' => 'reports.view'],
-                ['name' => 'Staffing operations','route' => 'staffing', 'permission' => 'reports.view'],
+                ['name' => 'Staffing Overview',     'route' => 'overview',             'permission' => 'reports.view'],
+                ['name' => 'Executive Snapshot',    'route' => 'executive_snapshot',   'permission' => 'reports.view'],
+                ['name' => 'Client Profitability',  'route' => 'client_profitability', 'permission' => 'reports.view'],
+                ['name' => 'Rate & Spread',         'route' => 'rate_spread',          'permission' => 'reports.view'],
+                ['name' => 'Overtime Watch',        'route' => 'overtime_watch',       'permission' => 'reports.view'],
             ]
         ],
     ];

@@ -460,7 +460,6 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   - Azure AD app registered at `d5d81312-faf4-47ba-a001-d9a090415baa` (multitenant);
     client secret + Graph permissions deferred to real-driver phase.
 
-
 - `main` — stable core + platform primitives + AI layer + **People MVP (merged)**
 - `feature/people` — merged into main 2026-02
 - `feature/payroll` — Payroll MVP (next)
@@ -471,7 +470,95 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
-## Recently completed (Gusto OAuth integration — 2026-02)
+## Recently completed (Reports Module Phase 1 — 2026-02, this fork)
+**Sprint 1 of the holistic 4-sprint plan (Reports → Accounting → Staffing loop → Platform).**
+Industry-aware analytics module shipped per `Reports.docx` spec. First sprint anchors leadership dashboards
+on the platform we already had: People + Placements + Time + Billing + AP.
+
+- [x] **Schema**: `modules/reports/migrations/001_init.sql` — creates `v_timesheet_day_fin` MySQL view
+  joining `time_entries` ⨝ `placement_rates` (via `rate_snapshot_id`). Idempotent
+  (`DROP VIEW IF EXISTS` then `CREATE VIEW`). Surfaces 21 columns including computed
+  `revenue`, `cost`, `gross_profit`, `is_overtime`, `is_billable`. The shared base layer
+  for all staffing reports per Reports.docx §Data Foundation.
+- [x] **Period resolver** (`lib/periods.php`): translates 12 UI codes
+  (`1w/2w/4w/8w/12w/mtd/last_month/qtd/last_quarter/ytd/last_12m/last_year`) plus
+  custom `from/to` into Monday-aligned weekly bucket ranges. Default = 4 weeks per spec.
+- [x] **Metric helpers** (`lib/staffing_metrics.php`): `staffingKpiTotals`, `staffingWeeklySeries`,
+  `staffingHeadcount`, `staffingTimesheetHealth`, `staffingRunRate`. All tenant-scoped.
+- [x] **5 API endpoints** (all `reports.view`-gated, GET-only):
+  `overview.php` (KPIs + weekly chart + headcount + run rate + timesheet health),
+  `executive_snapshot.php` (16-field printable summary), `client_profitability.php`
+  (per-client table + low-margin alerts <20% GP), `rate_spread.php` (per-placement
+  spread + negative/low flags), `overtime_watch.php` (totals + weekly trend +
+  employee/client leaderboards).
+- [x] **8 React components** under `modules/reports/ui/`: `ReportsModule` (router),
+  `ReportsSidebar` (module-only sidebar grouped Overview/Staffing/Build per Reports.docx),
+  `PeriodSelector` (shared 12-option dropdown, 4w default), `StaffingOverview` (6 KPI tiles
+  + SVG line chart + headcount + run rate + timesheet health), `ExecutiveSnapshot`
+  (16-tile printable), `ClientProfitability`, `RateSpreadMonitor`, `OvertimeWatch`.
+- [x] **Manifest**: 5 actions, 4 permissions (`reports.view`, `reports.export`,
+  `reports.custom.build`, `reports.custom.share`), 5 audit events
+  (`dashboard.viewed`, `exported`, `custom.created/updated/deleted`).
+  `depends_on: [people, placements, time]`. Default roles include `manager`.
+- [x] **Wiring**: `dashboard/src/App.jsx` repointed to new module; `core/modules.php`
+  Reports actions updated to spec routes (`overview/executive_snapshot/
+  client_profitability/rate_spread/overtime_watch`); legacy `/exec /finance /staffing`
+  routes redirected to spec equivalents inside the new module.
+- [x] **Smoke**: `tests/reports_phase1_smoke.php` — **141 assertions ✓**
+  (manifest, migration shape, period math for all 12 codes + custom + fallback,
+  API parse + RBAC guard + GET-only + ?period accept, lib exports, UI testid coverage,
+  App.jsx + core/modules.php wiring).
+- [x] **Full suite green**: 74 PHP smoke files passing, no regressions
+  (sprint6 assertion updated for new routes).
+- [x] **Vite build green**: 1806 modules, `index-D6ICRwjV.js` (970 kB) + `index-Cwhpy62y.css`
+  (21.6 kB). `.deploy-version` + `index.html` updated.
+- [x] **Deploy notes**: `memory/REPORTS_PHASE1_DEPLOY_NOTES.md` — Cloudways migration
+  walkthrough + 4-step UI smoke walk + view verification SQL.
+
+**Sprint 1 deferred to Sprint 5 (Reports Phase 2)**: Recruiter/AM Performance,
+Worker Mix & Margin, Near-Term Forecast (D4b), Custom Report Builder (D6),
+Other Reports catalog (D7), CSV/XLSX/PDF exports + scheduled delivery (D8),
+Industry selector + Hospitality scaffold (A5).
+
+## Holistic Multi-Module Plan (ratified 2026-02 from Core/Spec/ERP/Reports/Accounting docs)
+
+User feedback: "stop one-step-at-a-time, take a holistic pass." 5 specs read
+end-to-end. Unifying thesis:
+
+> CoreFlux is a **staffing-first, multi-tenant, multi-entity ERP** where
+> Placements + Time are the operational source of truth. Approved time
+> auto-generates AR (Billing + QBO mirror), AP (1099/C2C contractor pay +
+> Gusto), and Payroll (W-2 via Gusto) into an **enterprise Accounting
+> ledger** (multi-entity, dimensions, close controls, allocations,
+> intercompany, consolidation), governed by a **platform shell**
+> (RBAC, audit, generic workflow, email-only tokens, custom fields, exports),
+> surfaced through an **industry-aware Reports module**.
+
+**4-sprint sequence** (each independently testable; user-confirmed order):
+1. ✅ **Sprint 1 — Reports Phase 1**: D1+D2+D3+D4a (Staffing Overview + 4 reports)
+   — SHIPPED above.
+2. **Sprint 2 — Accounting depth**: B1 multi-entity switcher + per-entity
+   fiscal calendars/numbering, B2 dimensions engine (account-level required
+   rules + post-time validation), B4 period close workflow (checklist +
+   reopen-with-reason + close-packet PDF artifact, retiring the P2 backlog item).
+3. **Sprint 3 — Staffing loop deepening**: C1 worker_class on people drives
+   Time→AR/AP/Payroll routing, C2 layered admin-defined AP approval policies,
+   C3 vendor risk rules (new vendor / bank change / missing W-9), C4 evidence
+   bundles on AP bills.
+4. **Sprint 4 — Platform + cleanup**: A1 generic WorkflowEngine, A2 generalized
+   email-only tokens (AP/Billing/journal/period close), A3 unified Audit Viewer,
+   E1 "foreman → agency timesheet/team log" UI sweep.
+
+**Deferred to later sprints** (P1+P2 in roadmap):
+- B5 FX/CTA, B6 Consolidation, B7 Allocations, B8 Intercompany rules
+- C5 Push-time-to-Gusto endpoint
+- C6 **QuickBooks Online invoice mirror** (one QBO company per entity strategy
+  per user pick)
+- D6 Custom Report Builder, D7 Other Reports directory
+- A4 Custom-fields Tier A fanout to Placements/Clients/Vendors
+- A5 Industry selector + Hospitality vertical scaffold
+
+
 - [x] **Gusto Embedded Payroll OAuth API** (sandbox-first; production flip is a one-line env change).
   - Migration `004_gusto_oauth.sql`: `tenant_gusto_connections` (encrypted access+refresh tokens, `company_uuid`, env, scopes, status, last-used/refreshed/error timestamps); idempotent additive columns on `payroll_runs` (`gusto_payroll_uuid`, `gusto_submission_status`, `gusto_submitted_at`, `gusto_submitted_by_user_id`, `gusto_submission_error`).
   - `core/gusto_service.php`: env-aware host (`api.gusto-demo.com` vs `api.gusto.com`), authorization URL builder with session-bound CSRF state (single-use, 10-min TTL), code-for-token + refresh exchanges, encrypted persistence via `encryptField`, `gustoRequest()` chokepoint with proactive 60s-pre-expiry refresh + transparent refresh-on-401 + 429 Retry-After honoring, payroll API helpers (list/get/PUT comp/calculate/submit), HMAC SHA-256 webhook verification, audit-log writer.

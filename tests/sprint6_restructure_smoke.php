@@ -79,7 +79,10 @@ _a('range.custom flag echoed',                    str_contains($api, "'custom' =
 
 echo "\ncore/modules.php — Reports registered\n";
 _a('reports module declared',                     str_contains($mods, "'reports' => ["));
-_a('reports actions: exec / finance / staffing',  str_contains($mods, "'route' => 'exec'") && str_contains($mods, "'route' => 'finance'") && str_contains($mods, "'route' => 'staffing'"));
+_a('reports actions: overview / executive_snapshot / client_profitability',
+    str_contains($mods, "'route' => 'overview'") &&
+    str_contains($mods, "'route' => 'executive_snapshot'") &&
+    str_contains($mods, "'route' => 'client_profitability'"));
 _a('manager+ role grants reports access',         str_contains($mods, "'manager'                     => ['people', 'placements', 'time', 'billing', 'ap', 'reports']"));
 _a('admin role grants reports access',            str_contains($mods, "'tenant_admin', 'admin'       => ['people', 'placements', 'time', 'billing', 'ap', 'accounting', 'payroll', 'treasury', 'reports']"));
 
