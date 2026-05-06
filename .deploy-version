@@ -88,8 +88,10 @@ sentinels:
 - api/audit_anomaly.php
 - tests/sprint6i_audit_anomaly_smoke.php
 - modules/time/migrations/007_backfill_person_id.sql
+- modules/placements/migrations/003_internal_engagement_type.sql
+- tests/sprint6j_placement_create_full_smoke.php
 expected_bundle:
-- spa-assets/index-BNq27wyF.js
+- spa-assets/index-BeRgJ-y8.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -230,6 +232,11 @@ last_known_features:
 - ux.global_exception_handler.surface_sql_details
 - ux.shared_data_warning_component
 - ai.audit.anomaly_spotter
+- placements.create.full_spec_form
+- placements.engagement_type.internal
+- placements.create.commission_inline_rows
+- placements.create.referral_inline_row
+- placements.create.required_fields_hint
 - treasury.bank_feed.split_categorize
 - treasury.bank_feed.intercompany_split
 - treasury.bank_feed.ai_categorize_panel

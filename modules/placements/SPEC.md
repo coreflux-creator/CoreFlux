@@ -48,7 +48,7 @@ It is the **commercial spine** of the staffing agency. Every dollar that flows i
 | `end_date` | DATE NULL | NULL = open-ended |
 | `actual_end_date` | DATE NULL | set when `status='ended'` |
 | `due_date` | DATE NULL | tracker field — contract renewal / extension deadline |
-| `engagement_type` | ENUM('w2','1099','c2c','temp_to_perm','direct_hire') | |
+| `engagement_type` | ENUM('w2','1099','c2c','temp_to_perm','direct_hire','internal') | `internal` = agency's own employee (admin, recruiter, accountant) — not placed at an external client |
 | `worksite_state` | VARCHAR(60) NULL | tax / labor law |
 | `worksite_country` | CHAR(2) NULL | |
 | `remote_policy` | ENUM('onsite','hybrid','remote') NULL | |

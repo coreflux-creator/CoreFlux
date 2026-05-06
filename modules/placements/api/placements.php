@@ -21,7 +21,7 @@ $user = $ctx['user'];
 $method = api_method();
 
 const ALLOWED_STATUS = ['draft','pending_start','active','on_hold','ended','cancelled'];
-const ALLOWED_ETYPE  = ['w2','1099','c2c','temp_to_perm','direct_hire'];
+const ALLOWED_ETYPE  = ['w2','1099','c2c','temp_to_perm','direct_hire','internal'];
 
 if ($method === 'GET') {
     $id = (int) api_query('id', 0);

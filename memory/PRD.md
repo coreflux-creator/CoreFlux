@@ -470,7 +470,29 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
-## Recently completed (Sprint 6i — Audit-log Anomaly Spotter, 2026-02)
+## Recently completed (Sprint 6j — PlacementCreate Bundle C: full SPEC §3 form, 2026-02)
+**User reported the create-placement form felt incomplete: button greyed out without explanation, unclear which fields were required, missing planned commercial fields, and no first-class workflow for "internal" hires (their own admin / recruiter / accountant employees).** This sprint closes the gap so the user can drive the people → placement → time → bill/pay loop end-to-end.
+
+### What shipped
+- **New** `modules/placements/migrations/003_internal_engagement_type.sql` — adds `'internal'` to the `engagement_type` ENUM. Idempotent `MODIFY COLUMN`.
+- `modules/placements/api/placements.php` — `ALLOWED_ETYPE` now includes `'internal'`. SPEC §3.1 row updated to document the new value.
+- `modules/placements/ui/PlacementCreate.jsx` — full rewrite covering everything in SPEC §3:
+  - **UX clarity**: blue "Required fields: Person · Title · Start date · Engagement type" hint banner above the form, inline "Fill required: …" message next to the disabled submit button, native `title=` tooltip on the button. No more silent grey-out.
+  - **Internal-hire toggle**: top-of-form checkbox auto-fills `engagement_type='internal'`, hides End-client + Vendor-chain sections, clears any previously-typed values. Untoggling restores `w2`.
+  - **Initial rate**: bill rate, bill unit (5 options), pay rate, pay unit, currency (USD/CAD/GBP/EUR/INR), OT mult, DT mult, **adder %** (employer burden, posted as fraction), **background fee total** (one-time), effective-from defaulting to placement start date.
+  - **Commissions** (collapsible "Show advanced"): inline add/remove rows. Per row: role (5 options), user picker (`/api/users.php`), split %, flat $, basis (4 options), effective_from. Posted as fractions to `/modules/placements/api/commissions.php`.
+  - **Referral** (collapsible): single optional row with referrer_type (vendor/person/user), referrer picker (`CompanyTypeahead` for vendor, user picker for user, person id for person), fee %, fee $, fee_basis (5 options), duration_months, start_date. Posts to `/modules/placements/api/referrals.php`.
+  - **C2C corp details** (gated to `engagement_type='c2c'`): legal name, EIN, full address (line 1/2/city/state/postal/country), contact (name/email/phone). Inline note pointing users to PlacementDetail → Documents tab for MSA / COI / W-9 uploads (the storage flow needs a placement_id to attach against, so it lives post-create).
+
+### Validation
+- **New** `tests/sprint6j_placement_create_full_smoke.php` — **40/40 ✓**: migration shape, API enum extension, required-fields banner + missing-fields hint + disabled-button gate, internal-hire toggle behaviour, all rate fields (currency / units / adder / background), commission row testids + API target + fraction conversion, referral row + 5 fee_basis options + fraction conversion, full corp address + contact testids, c2c gating, advanced-toggle collapse.
+- All other suites still green: **88 PHP smoke files, 0 failures**.
+- Vite build green: 1811 modules → `index-BeRgJ-y8.js`. `.deploy-version` synced (5 new feature flags).
+
+### What's still post-create-only (intentional)
+- MSA / COI / W-9 / chain-contract uploads — already supported on PlacementDetail with the StorageService presigned-POST flow. Adding multi-file pre-upload to the create form would require either juggling staged uploads before the placement_id exists, or pre-creating a draft placement just for storage_key namespacing — neither is worth the complexity vs the 1-second post-create document upload that already works.
+
+
 **Direct continuation of Sprint 6h. Adds the AI feature the user OK'd: an "anomaly spotter" banner on the audit-log viewer that surfaces spikes, off-hours actions, and mass-export sessions through the existing `aiAsk()` chokepoint.**
 
 ### What shipped
