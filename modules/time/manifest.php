@@ -70,6 +70,7 @@ return [
         'time.intake.error',
         'time.intake.converted',
         'time.intake.dismissed',
+        'time.intake.sender_alias_recorded',
         'time.intake.flagged_unreadable',
         'time.bulk.uploaded',
         'time.upload.extracted',

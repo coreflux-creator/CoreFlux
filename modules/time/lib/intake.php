@@ -19,9 +19,37 @@ require_once __DIR__ . '/time.php';
  */
 function timeIntakeResolveSenderContext(int $tenantId, string $fromAddress): array
 {
-    $out = ['user_id' => null, 'person_id' => null, 'person_name' => null];
+    $out = ['user_id' => null, 'person_id' => null, 'person_name' => null, 'via' => null];
     if ($fromAddress === '') return $out;
     $pdo = getDB();
+
+    // 1) Saved alias takes priority — caller-ID style learning.
+    $alias = $pdo->prepare(
+        "SELECT a.person_id,
+                TRIM(CONCAT_WS(' ', p.first_name, p.last_name)) AS person_name
+           FROM time_intake_sender_aliases a
+           LEFT JOIN people p ON p.id = a.person_id AND p.tenant_id = a.tenant_id AND p.deleted_at IS NULL
+          WHERE a.tenant_id = :t AND LOWER(a.from_address) = LOWER(:em)
+          LIMIT 1"
+    );
+    $alias->execute(['t' => $tenantId, 'em' => $fromAddress]);
+    $aliasRow = $alias->fetch(\PDO::FETCH_ASSOC);
+    if ($aliasRow && $aliasRow['person_id']) {
+        // Bump use_count for telemetry / "frequent senders" UI.
+        $pdo->prepare(
+            'UPDATE time_intake_sender_aliases
+                SET use_count = use_count + 1, last_used_at = NOW()
+              WHERE tenant_id = :t AND LOWER(from_address) = LOWER(:em)'
+        )->execute(['t' => $tenantId, 'em' => $fromAddress]);
+        return [
+            'user_id'     => null,
+            'person_id'   => (int) $aliasRow['person_id'],
+            'person_name' => $aliasRow['person_name'] ?: null,
+            'via'         => 'alias',
+        ];
+    }
+
+    // 2) Fallback — match users.email → people.email_primary inside tenant.
     $stmt = $pdo->prepare(
         "SELECT u.id AS user_id,
                 p.id AS person_id,
@@ -41,8 +69,35 @@ function timeIntakeResolveSenderContext(int $tenantId, string $fromAddress): arr
         $out['user_id']     = (int) $row['user_id'];
         $out['person_id']   = $row['person_id'] ? (int) $row['person_id'] : null;
         $out['person_name'] = $row['person_name'] ?: null;
+        $out['via']         = 'users_email';
     }
     return $out;
+}
+
+/**
+ * Record (or refresh) a sender → person mapping confirmed by the user.
+ * Last-write-wins on (tenant_id, from_address).
+ */
+function timeIntakeRecordSenderAlias(int $tenantId, string $fromAddress, int $personId, ?int $confirmedByUserId = null): void
+{
+    if ($fromAddress === '' || $personId <= 0) return;
+    $pdo = getDB();
+    $pdo->prepare(
+        'INSERT INTO time_intake_sender_aliases
+            (tenant_id, from_address, person_id, confirmed_by_user_id, use_count, last_used_at)
+         VALUES (:t, :fa, :pid, :uid, 1, NOW())
+         ON DUPLICATE KEY UPDATE
+             person_id = VALUES(person_id),
+             confirmed_by_user_id = VALUES(confirmed_by_user_id),
+             use_count = use_count + 1,
+             last_used_at = NOW()'
+    )->execute([
+        't' => $tenantId, 'fa' => strtolower($fromAddress),
+        'pid' => $personId, 'uid' => $confirmedByUserId,
+    ]);
+    timeAudit('time.intake.sender_alias_recorded', [
+        'from_address' => $fromAddress, 'person_id' => $personId,
+    ], $personId);
 }
 
 /**
@@ -282,12 +337,12 @@ function timeIntakeIngestAttachments(int $tenantId, int $intakeId, array $attach
 
         $pdo->prepare(
             'INSERT INTO time_uploaded_documents
-                (tenant_id, uploaded_by_user_id, file_name, storage_object_id,
+                (tenant_id, uploaded_by_user_id, file_name, storage_object_id, intake_event_id,
                  storage_key, mime_type, extraction_status, created_at)
-             VALUES (:t, :u, :fn, :so, :sk, :mt, "pending", NOW())'
+             VALUES (:t, :u, :fn, :so, :ie, :sk, :mt, "pending", NOW())'
         )->execute([
             't' => $tenantId, 'u' => $uploadedByUserId ?? 0,
-            'fn' => $name, 'so' => $storageObjectId,
+            'fn' => $name, 'so' => $storageObjectId, 'ie' => $intakeId,
             'sk' => $key,   'mt' => $mime,
         ]);
         $docId = (int) $pdo->lastInsertId();

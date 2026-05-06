@@ -895,6 +895,26 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 
 **Tests:** intake smoke now 69 assertions (was 47; +22 for auto-resolve). Full suite **73 files / 4,315 / 4,315 passing.**
 
+---
+*Sub-update — Sender alias learning (caller-ID style):*
+
+**Why:** auto-resolve from `users.email` only catches foremen who are platform users with matching addresses. Real-world sender addresses rotate (`john@company.com` Monday, `john.smith@company.com` Tuesday, the assistant's `tina@company.com` from the same person on Friday). After the user confirms the mapping once, the system should remember.
+
+**Migration 006 — `time_intake_sender_aliases`:** unique on (tenant_id, from_address), tracks `person_id`, `confirmed_by_user_id`, `use_count`, `last_used_at`. Last-write-wins via `ON DUPLICATE KEY UPDATE`. Also adds `time_uploaded_documents.intake_event_id` so a doc can be reverse-mapped to its source intake row (and from there to the sender address).
+
+**Lib (`lib/intake.php`):**
+- `timeIntakeResolveSenderContext()` rewritten with priority: 1) saved alias (by lowercased from_address), 2) `users.email → people.email_primary` join. The alias path also bumps `use_count` and `last_used_at` (frequent-senders telemetry).
+- New `timeIntakeRecordSenderAlias()` upserts the mapping; audited as `time.intake.sender_alias_recorded`.
+- The ingest pipeline stamps `intake_event_id` on every `time_uploaded_documents` row it creates, so the alias-record API can resolve doc → from_address.
+
+**API (`api/intake.php`):** new `POST ?action=record_alias` body `{document_id, person_id}` — looks up the doc → intake → from_address, upserts the alias, returns `{recorded: true|false}`. Returns `{recorded: false}` (not an error) when there's no intake row, so the UI can call this unconditionally for both intake-fed and manual uploads without needing branching.
+
+**UI (`TimesheetUpload.jsx`):** the save loop now calls `record_alias` per group after a successful save (best-effort, no-op when there's no intake row). Rules: only sends when `g.person_id` is set AND at least one line in the group saved successfully.
+
+**Compounding behavior:** because `via=alias` is checked before `via=users_email`, alias confirmations will override / supersede the email-match path, which is what you want when a foreman uses an alternate address that doesn't match their `users.email` record.
+
+**Tests:** intake smoke 69 → 91 assertions. Full suite **73 files / 4,337 / 4,337 passing.**
+
 *2026-02 — Sprints 1-4: Login UX + admin tools rebuild + executive dashboard (this fork):*
 - **Sprint 1 — Login + tenant module filter (18 assertions ✓)**
   - Killed the silent "Demo Mode" fallback. SPA now redirects to `/login.html?next=...` on a 401, and the login page rebounces back to the deep route after auth.

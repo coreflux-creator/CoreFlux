@@ -112,6 +112,41 @@ $assert('UI shows sender-resolved hero badge',          strpos($ui2, 'data-testi
 $assert('UI defaults person_id from auto_resolved_from_sender', strpos($ui2, 'auto_resolved_from_sender') !== false);
 $assert('UI single-mode picks up sender_person_id',     strpos($ui2, 'draft.sender_person_id') !== false);
 
+// ─── Sender alias learning (caller-ID style) ───
+echo "Time intake — sender alias learning\n";
+$mig6 = file_get_contents(__DIR__ . '/../modules/time/migrations/006_intake_sender_aliases.sql');
+$assert('migration 006 creates time_intake_sender_aliases', strpos($mig6, 'CREATE TABLE IF NOT EXISTS time_intake_sender_aliases') !== false);
+$assert('alias UNIQUE on (tenant_id, from_address)',    strpos($mig6, 'uq_tisa_tenant_from (tenant_id, from_address)') !== false);
+$assert('alias has use_count + last_used_at',           strpos($mig6, 'use_count') !== false && strpos($mig6, 'last_used_at') !== false);
+$assert('migration 006 adds time_uploaded_documents.intake_event_id', strpos($mig6, "ADD COLUMN intake_event_id") !== false);
+
+$lib3 = file_get_contents(__DIR__ . '/../modules/time/lib/intake.php');
+$assert('resolveSenderContext checks alias FIRST',      preg_match('/Saved alias takes priority/', $lib3) === 1);
+$assert('alias path bumps use_count',                   strpos($lib3, 'use_count = use_count + 1') !== false);
+$assert('alias path returns via=alias',                 strpos($lib3, "'via'         => 'alias'") !== false);
+$assert('users.email path returns via=users_email',     strpos($lib3, "'users_email'") !== false);
+$assert('timeIntakeRecordSenderAlias() helper',         strpos($lib3, 'function timeIntakeRecordSenderAlias') !== false);
+$assert('upsert via ON DUPLICATE KEY UPDATE',           strpos($lib3, 'ON DUPLICATE KEY UPDATE') !== false);
+$assert('audit time.intake.sender_alias_recorded',      strpos($lib3, 'time.intake.sender_alias_recorded') !== false);
+$assert('lowercases stored from_address',               strpos($lib3, "strtolower(\$fromAddress)") !== false);
+
+$assert('ingest stamps intake_event_id on doc',         strpos($lib3, "'ie' => \$intakeId") !== false);
+
+$api2 = file_get_contents(__DIR__ . '/../modules/time/api/intake.php');
+$assert('?action=record_alias endpoint',                strpos($api2, "action === 'record_alias'") !== false);
+$assert('record_alias resolves doc → from_address',     strpos($api2, "FROM time_uploaded_documents d") !== false && strpos($api2, "JOIN time_intake_events e") !== false);
+$assert('record_alias returns recorded:false when no intake', strpos($api2, "'recorded' => false") !== false);
+$assert('record_alias gated by time.entry.create',      strpos($api2, "RBAC::requirePermission(\$user, 'time.entry.create')") !== false);
+
+$man3 = file_get_contents(__DIR__ . '/../modules/time/manifest.php');
+$assert('audit sender_alias_recorded declared',         strpos($man3, 'time.intake.sender_alias_recorded') !== false);
+
+$ui3 = file_get_contents(__DIR__ . '/../modules/time/ui/TimesheetUpload.jsx');
+$assert('UI calls record_alias after save',             strpos($ui3, 'action=record_alias') !== false);
+$assert('UI sends document_id + person_id',             strpos($ui3, 'document_id: docId') !== false && strpos($ui3, 'person_id:   g.person_id') !== false);
+$assert('UI skips group with no person_id',             strpos($ui3, 'if (!g.person_id) continue;') !== false);
+$assert('UI skips group with no successful save',       strpos($ui3, 'if (!groupHadSave) continue;') !== false);
+
 // ─── UI ───
 echo "Time intake — UI components\n";
 $mod = file_get_contents(__DIR__ . '/../modules/time/ui/TimeModule.jsx');

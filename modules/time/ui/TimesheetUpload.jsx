@@ -156,6 +156,19 @@ export default function TimesheetUpload() {
 
     if (savedIds.length > 0 && docId) {
       try { await api.post(`/modules/time/api/upload.php?id=${docId}&action=consume`, { entry_ids: savedIds }); } catch (_) {}
+      // Record sender→person alias per group so future emails from the same
+      // address auto-resolve. Best-effort; no-op when there's no intake row.
+      for (const g of groups) {
+        if (!g.person_id) continue;
+        const groupHadSave = g.lines.some((l) => l.saved_id);
+        if (!groupHadSave) continue;
+        try {
+          await api.post('/modules/time/api/intake.php?action=record_alias', {
+            document_id: docId,
+            person_id:   g.person_id,
+          });
+        } catch (_) { /* best-effort */ }
+      }
     }
     setSaveResult({ saved: savedIds.length, attempted: totalIncluded });
     setSaving(false);

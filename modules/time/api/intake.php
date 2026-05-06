@@ -274,4 +274,37 @@ if ($method === 'POST' && $action === 'dismiss') {
     api_ok(['ok' => true, 'status' => 'dismissed']);
 }
 
+// ─── Record a confirmed sender → person mapping ───
+//
+// Called by the review UI after the user picks a person for an intake-derived
+// document, so next time the same email address arrives we auto-resolve.
+//   POST body: { document_id, person_id }
+if ($method === 'POST' && $action === 'record_alias') {
+    RBAC::requirePermission($user, 'time.entry.create');
+    $body     = api_json_body();
+    $docId    = (int) ($body['document_id'] ?? 0);
+    $personId = (int) ($body['person_id']   ?? 0);
+    if ($docId <= 0 || $personId <= 0) api_error('document_id + person_id required', 422);
+
+    $row = $pdo->prepare(
+        'SELECT d.intake_event_id, e.from_address
+           FROM time_uploaded_documents d
+           LEFT JOIN time_intake_events e ON e.id = d.intake_event_id AND e.tenant_id = d.tenant_id
+          WHERE d.tenant_id = :t AND d.id = :id LIMIT 1'
+    );
+    $row->execute(['t' => $tenantId, 'id' => $docId]);
+    $row = $row->fetch(\PDO::FETCH_ASSOC);
+    if (!$row || empty($row['from_address'])) {
+        api_ok(['ok' => true, 'recorded' => false, 'reason' => 'no intake from_address']);
+    }
+    timeIntakeRecordSenderAlias(
+        $tenantId,
+        (string) $row['from_address'],
+        $personId,
+        (int) ($user['id'] ?? 0) ?: null
+    );
+    api_ok(['ok' => true, 'recorded' => true, 'from_address' => $row['from_address']]);
+}
+
 api_error('Method not allowed', 405);
+

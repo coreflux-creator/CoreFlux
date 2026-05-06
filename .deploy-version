@@ -86,7 +86,7 @@ sentinels:
 - tests/hardening_pass1_smoke.php
 - tests/schema_contract_smoke.php
 expected_bundle:
-- spa-assets/index-DQHRPdks.js
+- spa-assets/index-DaFXMJef.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -165,3 +165,4 @@ last_known_features:
 - time.timesheet_upload_bulk_people
 - time.email_intake_webhook_and_poll
 - time.intake.sender_auto_resolve
+- time.intake.sender_alias_learning
