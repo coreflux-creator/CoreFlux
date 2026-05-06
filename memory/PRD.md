@@ -620,11 +620,18 @@ end-to-end. Unifying thesis:
 **4-sprint sequence** (each independently testable; user-confirmed order):
 1. ✅ **Sprint 1 — Reports Phase 1**: D1+D2+D3+D4a (Staffing Overview + 4 reports) — SHIPPED.
 2. ✅ **Sprint 2 — Accounting depth + Mobile foundation**: B2 dimensions engine, B4 period close workflow + close-packet HTML artifact, M1 JWT auth, M2 device registry, M3 PWA manifest + SW — SHIPPED. (B1 multi-entity switcher deferred to Sprint 3 since the entity model already exists; the only missing piece is a UI switcher which is small and best done after we have multiple seeded entities to test with.)
-3. **Sprint 3 — Industry Layer 1 (Staffing edition)**: C1 worker_class on people drives
+3. **Sprint 3 — Industry Layer 1 (Staffing edition) + Push primitive**: C1 worker_class on people drives
    Time→AR/AP/Payroll routing, C2 layered admin-defined AP approval policies,
    C3 vendor risk rules (new vendor / bank change / missing W-9), C4 evidence
    bundles on AP bills. Reframed: this is the *first* industry plug-in over Core,
    not "deepening" Core itself.
+   **Push primitive (CORE add-on, ratified 2026-02 by user)**: tenant-scoped
+   `pushService::sendToUser($tenantId, $userId, $title, $body, $data)` helper
+   plus `tenant_push_outbox` queue table (pluggable APNs+FCM drivers; real
+   creds wired when user provides them). Sprint 3 wires the first call site
+   in C2: AP-approval-routed → push the approver. Establishes the pattern
+   for every later approval/notify event (Time approval, period close tasks,
+   vendor risk flags, etc.).
 4. **Sprint 4 — Platform + cleanup**: A1 generic WorkflowEngine, A2 generalized
    email-only tokens (AP/Billing/journal/period close), A3 unified Audit Viewer,
    E1 "foreman → agency timesheet/team log" UI sweep.
