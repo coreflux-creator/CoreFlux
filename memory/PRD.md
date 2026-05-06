@@ -537,10 +537,14 @@ end-to-end. Unifying thesis:
 **4-sprint sequence** (each independently testable; user-confirmed order):
 1. ✅ **Sprint 1 — Reports Phase 1**: D1+D2+D3+D4a (Staffing Overview + 4 reports)
    — SHIPPED above.
-2. **Sprint 2 — Accounting depth**: B1 multi-entity switcher + per-entity
+2. **Sprint 2 — Accounting depth + Mobile foundation**: B1 multi-entity switcher + per-entity
    fiscal calendars/numbering, B2 dimensions engine (account-level required
    rules + post-time validation), B4 period close workflow (checklist +
    reopen-with-reason + close-packet PDF artifact, retiring the P2 backlog item).
+   **Mobile track parallel-add**: M1 JWT auth + `/api/auth/mobile_login` endpoint
+   alongside existing session-cookie auth (additive, doesn't break web). M2 device
+   registration table for push notifications. M3 PWA manifest + service worker
+   on the existing SPA (instant mobile-friendly).
 3. **Sprint 3 — Staffing loop deepening**: C1 worker_class on people drives
    Time→AR/AP/Payroll routing, C2 layered admin-defined AP approval policies,
    C3 vendor risk rules (new vendor / bank change / missing W-9), C4 evidence
@@ -548,6 +552,36 @@ end-to-end. Unifying thesis:
 4. **Sprint 4 — Platform + cleanup**: A1 generic WorkflowEngine, A2 generalized
    email-only tokens (AP/Billing/journal/period close), A3 unified Audit Viewer,
    E1 "foreman → agency timesheet/team log" UI sweep.
+5. **Sprint 5+ — Mobile worker app (Expo / React Native)**: scaffold
+   `/app/mobile/` Expo monorepo. Worker-first MVP: login → time entry → photo
+   receipt → submit → approval-status + push notifications. Then layered:
+   Recruiter/AM read-only dashboards (placements, margin, OT) and
+   **Platform user (staffing exec)** dashboards (Executive Snapshot mobile view,
+   Staffing Overview KPIs). Single codebase ships iOS App Store + Google Play +
+   Web PWA. Consumes the same `/api/*` already shipped — zero API rework.
+
+**Multi-vertical principle (locked in 2026-02 by user):**
+Staffing is the first vertical, not the only vertical. Core (RBAC, audit,
+workflow, custom fields, exports, mobile auth, PWA, Expo shell) and
+Accounting (multi-entity, dimensions, close, allocations, intercompany,
+consolidation) MUST stay vertical-agnostic. Staffing-specific logic
+(worker_class routing, Gusto, QBO mirror, staffing reports, recruiter/AM
+fields) lives only in modules whose names already reflect the vertical
+(`time`, `placements`, `payroll`, the staffing-flavored Reports menu).
+The Reports module already enforces this via the industry selector (D1
+shipped, A5 industry switcher in Sprint 5+).
+
+**Mobile audiences (worker / recruiter+AM / platform-user-execs):**
+Three role-based home screens in one Expo app, gated by the same RBAC
+the web SPA uses. Workers get time entry + receipts + approval inbox.
+Recruiters/AMs get read-only placement & margin dashboards. Execs get
+Executive Snapshot + Staffing Overview KPIs.
+
+**Pinned mobile-workflow ideas (deferred to Sprint 6+):**
+- Jobsite kiosk/tablet flow for time approval
+- Contractor onboarding scan-and-sign
+- Vendor COI photo upload from phone
+
 
 **Deferred to later sprints** (P1+P2 in roadmap):
 - B5 FX/CTA, B6 Consolidation, B7 Allocations, B8 Intercompany rules
