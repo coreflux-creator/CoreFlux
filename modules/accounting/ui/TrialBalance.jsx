@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApi } from '../../../dashboard/src/lib/api';
+import DataWarning from '../../../dashboard/src/components/DataWarning';
 
 /**
  * Trial Balance — on-read report from posted journal entries.
@@ -25,6 +26,7 @@ export default function TrialBalance() {
       </header>
       {loading && <p>Loading…</p>}
       {error   && <p className="error">Error: {error.message}</p>}
+      {data?.data_warning && <DataWarning text={data.data_warning} hint="Run accounting migrations or post your first balanced JE." />}
       <table className="data-table" style={{ width: '100%' }}>
         <thead><tr><th>Code</th><th>Name</th><th>Type</th><th style={{ textAlign: 'right' }}>Debit</th><th style={{ textAlign: 'right' }}>Credit</th><th style={{ textAlign: 'right' }}>Balance</th></tr></thead>
         <tbody>

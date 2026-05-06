@@ -470,6 +470,39 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 6g — Financial statements no-more-500 + smarter exception handler, 2026-02)
+**User reported BS / IS / TB / CF all returning "Internal Server Error" + asked for thorough module pass. This sprint extends the Sprint 6f pattern across the four core financial reports + the global exception handler.**
+
+### Reports endpoint resilience
+- `modules/accounting/api/reports.php` — introduces `_safeReport()` wrapper. Every dispatch (`income_statement`, `balance_sheet`, `trial_balance`, `cash_flow_indirect`) now goes through it. On `\Throwable` it `error_log`s the cause and returns `{ data_warning, rows: [], lines: [], sections: [], totals: [] }` so the UI never sees a 500.
+- `modules/accounting/api/journal_entries.php?action=trial_balance` — same try/catch + `data_warning` fallback.
+
+### Financial-statement UIs
+- New reusable `dashboard/src/components/DataWarning.jsx` — amber "Data not ready yet" banner with optional hint and `data-testid="data-warning"`.
+- `BalanceSheet.jsx`, `IncomeStatement.jsx`, `TrialBalance.jsx`, `CashFlowStatement.jsx` — all four now:
+  1. Import + render `<DataWarning text={data.data_warning} hint="..." />` when present.
+  2. Guard rendering with `safe = data && Array.isArray(...)` so a partial payload can't crash the React tree.
+  3. Show a friendly hint that points the operator at the migration / first-JE next step.
+
+### Smarter global exception handler
+- `core/api_bootstrap.php` — `set_exception_handler` now:
+  - Detects `Unknown column 'X'` errors and tells the operator the column is missing + the migration to run.
+  - Detects `SQLSTATE[…]` errors, redacts file paths, and surfaces the cleaned error to the front-end as `Database error (XX). Details: …`.
+  - Falls back to `Server error: <original message>` instead of the literal `Internal server error` so every screen shows something diagnosable.
+- Net result: every endpoint that wasn't explicitly wrapped gets a much more useful 500 body. The front-end's existing `error.message` displays now actually point at a fix.
+
+### Validation
+- **New** `tests/sprint6g_financial_statements_smoke.php` — **38/38 ✓**.
+- Vite build green: 1813 modules → `index-B7ZXiEUC.js`. `spa-assets/index.html` + `.deploy-version` synced.
+- **Full PHP suite: 85 files / 4,745 assertions ✓**, zero regressions.
+
+### Honest call-outs (still pending)
+- **Treasury bank-feed transaction categorization** — the categorize button + dropdown wiring are in place; the user-side complaint may be (a) the COA tree returns nothing postable for that tenant, (b) AI suggest is firing but the dropdown isn't seeded, (c) something specific to certain accounts. Need the actual error text or screenshot to pinpoint.
+- **Other "various places" with internal errors** — please share the URL / screen name when you hit one. The pattern (`_safeReport` wrapper + `<DataWarning>` banner) is now reusable; I can sweep any endpoint in 5 minutes once I know which one.
+- **Audit-log anomaly spotter** (AI feature you OK'd) — still queued.
+- **Phase-2 rip-out of `ap_bill_approvals`** (P3) — soaking.
+
+
 ## Recently completed (Sprint 6f — UX cleanup pass: bank-rec / reports / sidebar / dashboard cards, 2026-02)
 **Course-correction sprint after user feedback that the architecture sprints were forward-looking but the day-to-day UX still had real bugs and clutter. This pass fixes 5 visible issues end-to-end, all driven by an annotated screenshot from the user.**
 

@@ -23,7 +23,12 @@ if ($method === 'GET' && $action === 'trial_balance') {
     RBAC::requirePermission($user, 'accounting.je.create');
     $asOf = (string) ($_GET['as_of'] ?? date('Y-m-d'));
     $eid  = !empty($_GET['entity_id']) ? (int) $_GET['entity_id'] : null;
-    api_ok(['as_of' => $asOf, 'entity_id' => $eid, 'rows' => accountingTrialBalance($tid, $asOf, $eid)]);
+    try {
+        api_ok(['as_of' => $asOf, 'entity_id' => $eid, 'rows' => accountingTrialBalance($tid, $asOf, $eid)]);
+    } catch (\Throwable $e) {
+        error_log('trial_balance failed: ' . $e->getMessage());
+        api_ok(['as_of' => $asOf, 'entity_id' => $eid, 'rows' => [], 'data_warning' => 'Trial balance not available — ' . $e->getMessage()]);
+    }
 }
 
 if ($method === 'GET' && !empty($_GET['id'])) {

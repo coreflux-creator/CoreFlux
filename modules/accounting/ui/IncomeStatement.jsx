@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
+import DataWarning from '../../../dashboard/src/components/DataWarning';
 
 /**
  * Income Statement (P&L) — revenue and expense activity for a date range.
@@ -12,6 +13,7 @@ export default function IncomeStatement() {
   const [from, setFrom] = useState(yearStart);
   const [to, setTo]     = useState(today);
   const { data, loading, error } = useApi(`/modules/accounting/api/reports.php?type=income_statement&from=${from}&to=${to}`);
+  const safe = data && Array.isArray(data.revenue) && Array.isArray(data.expense);
 
   return (
     <section data-testid="accounting-pnl">
@@ -24,7 +26,8 @@ export default function IncomeStatement() {
       </header>
       {loading && <p>Loading…</p>}
       {error   && <p className="error">Error: {error.message}</p>}
-      {data && (
+      {data?.data_warning && <DataWarning text={data.data_warning} hint="Run accounting migrations or post your first revenue/expense JE." />}
+      {safe && (
         <>
           <Section title="Revenue" rows={data.revenue} total={data.total_revenue} testIdPrefix="accounting-pnl-revenue" from={from} to={to} />
           <Section title="Expenses" rows={data.expense} total={data.total_expense} testIdPrefix="accounting-pnl-expense" from={from} to={to} />

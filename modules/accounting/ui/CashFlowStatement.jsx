@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApi } from '../../../dashboard/src/lib/api';
+import DataWarning from '../../../dashboard/src/components/DataWarning';
 
 /**
  * Cash Flow Statement (indirect method).
@@ -12,6 +13,7 @@ export default function CashFlowStatement() {
   const [from, setFrom] = useState(yearStart);
   const [to, setTo]     = useState(today);
   const { data, loading, error } = useApi(`/modules/accounting/api/reports.php?type=cash_flow_indirect&from=${from}&to=${to}`);
+  const safe = data && data.sections;
 
   return (
     <section data-testid="accounting-cash-flow">
@@ -28,7 +30,8 @@ export default function CashFlowStatement() {
       </header>
       {loading && <p>Loading…</p>}
       {error   && <p className="error">Error: {error.message}</p>}
-      {data && (
+      {data?.data_warning && <DataWarning text={data.data_warning} hint="Run accounting migrations or post some balanced JEs in this period." />}
+      {safe && (
         <>
           {data.untagged_warning && (
             <div data-testid="accounting-cf-untagged-warning" style={{ background: '#fef3c7', color: '#92400e', padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 13 }}>

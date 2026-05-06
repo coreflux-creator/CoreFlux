@@ -183,9 +183,22 @@ set_exception_handler(function (Throwable $e) {
             'table' => $table,
         ]);
     }
+    if (preg_match("/Unknown column '([^']+)'/i", $msg, $m)) {
+        api_error("Database column '{$m[1]}' is missing — a migration probably needs to run.", 500, [
+            'hint'   => 'Run the relevant migration in modules/*/migrations/*.sql then retry.',
+            'column' => $m[1],
+        ]);
+    }
+    if (preg_match("/SQLSTATE\\[(\\w+)\\]/i", $msg, $m)) {
+        // Surface a redacted SQL error rather than the generic phrase the user keeps seeing.
+        $clean = preg_replace('/in \\/[\\w\\/.\\-]+\\.php:\\d+/', '', $msg);
+        api_error("Database error ({$m[1]}). Details: " . trim((string) $clean), 500, ['kind' => 'sql']);
+    }
 
     if (defined('APP_DEBUG') && APP_DEBUG) {
         api_error($e->getMessage(), 500, ['trace' => $e->getTraceAsString()]);
     }
-    api_error('Internal server error', 500);
+    // Last-resort: include the original message so the user sees something
+    // diagnosable on screen instead of a literal "Internal server error".
+    api_error('Server error: ' . $msg, 500, ['kind' => 'unhandled']);
 });

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
+import DataWarning from '../../../dashboard/src/components/DataWarning';
 
 /**
  * Balance Sheet — Assets / Liabilities / Equity as of a date.
@@ -10,6 +11,7 @@ import { useApi } from '../../../dashboard/src/lib/api';
 export default function BalanceSheet() {
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
   const { data, loading, error } = useApi(`/modules/accounting/api/reports.php?type=balance_sheet&as_of=${asOf}`);
+  const safe = data && Array.isArray(data.assets) && Array.isArray(data.liabilities) && Array.isArray(data.equity);
   return (
     <section data-testid="accounting-balance">
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -20,7 +22,8 @@ export default function BalanceSheet() {
       </header>
       {loading && <p>Loading…</p>}
       {error   && <p className="error">Error: {error.message}</p>}
-      {data && (
+      {data?.data_warning && <DataWarning text={data.data_warning} hint="Run accounting migrations or post your first balanced JE to populate this view." />}
+      {safe && (
         <>
           <Section title="Assets"      rows={data.assets}      total={data.total_assets}      testIdPrefix="accounting-balance-assets"      totalTestId="accounting-balance-assets-total" asOf={asOf} />
           <Section title="Liabilities" rows={data.liabilities} total={data.total_liabilities} testIdPrefix="accounting-balance-liabilities" totalTestId="accounting-balance-liabilities-total" asOf={asOf} />

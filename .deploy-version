@@ -86,7 +86,7 @@ sentinels:
 - tests/hardening_pass1_smoke.php
 - tests/schema_contract_smoke.php
 expected_bundle:
-- spa-assets/index-CYESTHsp.js
+- spa-assets/index-B7ZXiEUC.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -223,3 +223,6 @@ last_known_features:
 - ux.dashboard_cards.per_module_icon_color
 - ux.bank_rec.close_reopen_archive
 - ux.bank_rec.show_closed_toggle
+- ux.financial_statements.no_more_500
+- ux.global_exception_handler.surface_sql_details
+- ux.shared_data_warning_component

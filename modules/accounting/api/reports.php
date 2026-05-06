@@ -38,29 +38,54 @@ if ($consolidate) {
     if (!$entityIds) api_error('consolidate=1 requires entity_ids=... or root_entity_id=...', 422);
 }
 
+/**
+ * Wrap a report builder so any SQL / library error becomes a 200 with a
+ * `data_warning` string instead of a raw 500. The front-end shows an
+ * amber "data not ready yet" banner per Sprint 6f UX-cleanup pattern.
+ */
+function _safeReport(callable $fn): array {
+    try {
+        $out = $fn();
+        return is_array($out) ? $out : ['rows' => $out];
+    } catch (\Throwable $e) {
+        error_log('accounting/reports failed: ' . $e->getMessage());
+        return [
+            'data_warning' => 'Report data not ready yet — ' . $e->getMessage(),
+            'rows'         => [],
+            'lines'        => [],
+            'sections'     => [],
+            'totals'       => [],
+        ];
+    }
+}
+
 if ($type === 'income_statement') {
     $from = (string) ($_GET['from'] ?? date('Y-01-01'));
     $to   = (string) ($_GET['to']   ?? date('Y-m-d'));
-    if ($consolidate) api_ok(consolidateIncomeStatement($tid, $entityIds, $from, $to));
-    api_ok(reportIncomeStatement($tid, $from, $to, $eid));
+    api_ok(_safeReport(fn() => $consolidate
+        ? consolidateIncomeStatement($tid, $entityIds, $from, $to)
+        : reportIncomeStatement($tid, $from, $to, $eid)));
 }
 
 if ($type === 'balance_sheet') {
     $asOf = (string) ($_GET['as_of'] ?? date('Y-m-d'));
-    if ($consolidate) api_ok(consolidateBalanceSheet($tid, $entityIds, $asOf));
-    api_ok(reportBalanceSheet($tid, $asOf, $eid));
+    api_ok(_safeReport(fn() => $consolidate
+        ? consolidateBalanceSheet($tid, $entityIds, $asOf)
+        : reportBalanceSheet($tid, $asOf, $eid)));
 }
 
 if ($type === 'trial_balance') {
     $asOf = (string) ($_GET['as_of'] ?? date('Y-m-d'));
-    if ($consolidate) api_ok(consolidateTrialBalance($tid, $entityIds, $asOf));
-    api_ok(['rows' => accountingTrialBalance($tid, $asOf, $eid), 'as_of' => $asOf, 'entity_id' => $eid]);
+    api_ok(_safeReport(function () use ($consolidate, $tid, $entityIds, $asOf, $eid) {
+        if ($consolidate) return consolidateTrialBalance($tid, $entityIds, $asOf);
+        return ['rows' => accountingTrialBalance($tid, $asOf, $eid), 'as_of' => $asOf, 'entity_id' => $eid];
+    }));
 }
 
 if ($type === 'cash_flow_indirect' || $type === 'cash_flow') {
     $from = (string) ($_GET['from'] ?? date('Y-01-01'));
     $to   = (string) ($_GET['to']   ?? date('Y-m-d'));
-    api_ok(reportCashFlowIndirect($tid, $from, $to, $eid));
+    api_ok(_safeReport(fn() => reportCashFlowIndirect($tid, $from, $to, $eid)));
 }
 
 api_error('Unknown report type. Use income_statement, balance_sheet, trial_balance, or cash_flow_indirect.', 422);
