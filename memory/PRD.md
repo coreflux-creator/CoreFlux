@@ -470,6 +470,33 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 6d — Entity-scope rollout to AP/Billing + AI Workflow Inbox, 2026-02)
+**Continues the Sprint 6c cutover wave. Two new entity-scoped surfaces, one new AI feature, and a direct answer to the "are we adding AI as we go?" question.**
+
+### Entity scope — AP bills + Billing invoices
+- `modules/ap/api/bills.php` — GET list now accepts `?entity_id=N` and filters `ap_bills.entity_id` (column shipped in migration 007).
+- `modules/ap/ui/BillsList.jsx` — imports `useActiveEntity`, threads `entity_id` into the query-string alongside status filter, shows a scope-notice line (testid `ap-bills-entity-scope`).
+- `modules/billing/api/invoices.php` — GET list accepts `?entity_id=N` against `billing_invoices.entity_id`.
+- `modules/billing/ui/InvoicesList.jsx` — same `useActiveEntity` pattern + scope notice (testid `billing-invoices-entity-scope`).
+- Flip the Briefcase dropdown in the header and the AP / Billing lists immediately re-scope — no page reload.
+
+### AI Workflow Inbox summary (new AI surface)
+- **New** `api/workflow_ai.php` — POST-only `?action=summarize&id=N` routes through the existing `core/ai_service.php::aiAsk()` chokepoint with `feature_class='narrative'` + `feature_key='workflow.inbox.summary'`. Max 140 output tokens, 1-sentence gist. Any throwable → empty string so the UI degrades silently and the feature never blocks.
+- `dashboard/src/pages/WorkflowInbox.jsx` — each card now has an "AI hint" button (Sparkles icon, testid `workflow-inbox-ai-summarize-<id>`). Clicking posts to the new endpoint and renders the advisory text in a sky-blue banner labelled "AI summary · advisory only" (testid `workflow-inbox-ai-summary-<id>`). Respects the platform-wide AI_INTEGRATION_RULES: narrative only, never emits values/decisions, always human-review-gated.
+
+### "Are we adding AI as we go?" — state of the art
+- **Already live** from earlier phases: `core/ai_service.php` single chokepoint, `AISuggestion.jsx` the only UI render path, AP risk explainer, payroll anomaly narratives, People onboarding-email drafts + missing-fields AI.
+- **Sprint 6d (this batch)**: Workflow Inbox AI summary.
+- **Suggested next AI surfaces** (flagged, not yet shipped):
+  - **Period-close readiness narrative**: "Here's what's blocking close for entity X — 3 JEs unreviewed, 1 reconciliation exception, FX not revalued."
+  - **Audit-log anomaly spotter**: flag unusual event patterns per user (e.g. 50 exports in 5 min).
+  - **AP bill attachment parser** (already lives as `aiExtract` in bills.php) — could be auto-invoked on upload instead of manual trigger.
+
+### Validation
+- **New** `tests/sprint6d_entity_scope_ai_smoke.php` — **28/28 ✓**.
+- Vite build green: 1811 modules → `index-BYKnQHBD.js`. `spa-assets/index.html` + `.deploy-version` synced.
+- **Full PHP suite: 82 files / 3,727 assertions ✓**, zero regressions.
+
 ## Recently completed (Sprint 6c — AP → WorkflowEngine cutover + module entity scope, 2026-02)
 **Paired cutover: legacy AP bill approvals start mirroring into the generic WorkflowEngine, and the multi-entity header switcher starts actually scoping accounting queries.**
 

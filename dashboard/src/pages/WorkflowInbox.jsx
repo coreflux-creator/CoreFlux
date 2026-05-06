@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../lib/api';
-import { Inbox, Clock } from 'lucide-react';
+import { Inbox, Clock, Sparkles } from 'lucide-react';
 
 /**
  * WorkflowInbox — generic approval inbox surfacing every pending
@@ -22,6 +22,20 @@ export default function WorkflowInbox() {
   const [actErr, setActErr] = useState(null);
   const [commenting, setCommenting] = useState(null);
   const [commentText, setCommentText] = useState('');
+  const [summaries, setSummaries] = useState({});     // {instanceId: text}
+  const [summaryBusy, setSummaryBusy] = useState(null);
+
+  const summarize = async (id) => {
+    setSummaryBusy(id);
+    try {
+      const r = await api.post(`/api/workflow_ai.php?action=summarize&id=${id}`, {});
+      setSummaries(s => ({ ...s, [id]: r?.summary || '(no summary)' }));
+    } catch {
+      setSummaries(s => ({ ...s, [id]: '(summary unavailable)' }));
+    } finally {
+      setSummaryBusy(null);
+    }
+  };
 
   const act = async (id, action, comment) => {
     setBusy(`${id}:${action}`); setActErr(null);
@@ -87,6 +101,21 @@ export default function WorkflowInbox() {
                 <p style={{ margin: '8px 0', color: '#334155', fontSize: 14 }}>{payload.body}</p>
               )}
 
+              {/* Sprint 6c — AI narrative advisory ("what is this approval about?") */}
+              {summaries[i.id] && (
+                <div data-testid={`workflow-inbox-ai-summary-${i.id}`}
+                     style={{ display: 'flex', gap: 8, padding: 10, marginTop: 6,
+                              background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8 }}>
+                  <Sparkles size={14} color="#0369a1" style={{ flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <div style={{ fontSize: 11, color: '#0369a1', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                      AI summary · advisory only
+                    </div>
+                    <div style={{ fontSize: 13, color: '#0c4a6e', marginTop: 2 }}>{summaries[i.id]}</div>
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 16, fontSize: 13, color: '#475569', marginTop: 8 }}>
                 {payload.amount_label && <span><strong>Amount:</strong> {payload.amount_label}</span>}
                 {payload.risk         && <span style={{ color: payload.risk === 'high' ? '#dc2626' : '#475569' }}>
@@ -115,6 +144,16 @@ export default function WorkflowInbox() {
                         onClick={() => { setCommenting(i.id === commenting ? null : i.id); setCommentText(''); }}>
                   Comment
                 </button>
+                {!summaries[i.id] && (
+                  <button className="btn btn--ghost"
+                          data-testid={`workflow-inbox-ai-summarize-${i.id}`}
+                          disabled={summaryBusy === i.id}
+                          onClick={() => summarize(i.id)}
+                          style={{ color: '#0369a1' }}>
+                    <Sparkles size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                    {summaryBusy === i.id ? 'Thinking…' : 'AI hint'}
+                  </button>
+                )}
                 {payload.deep_link && (
                   <a href={payload.deep_link}
                      data-testid={`workflow-inbox-open-${i.id}`}

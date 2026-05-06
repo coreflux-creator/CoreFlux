@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api'; // eslint-disable-line no-unused-vars
 import { useBulkSelection } from '../../../dashboard/src/lib/useBulkSelection';
+import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import BillFromTimeBundleModal from './BillFromTimeBundleModal';
 
 const STATUS_FILTERS = ['all','pending_approval','approved','partially_paid','paid','disputed','void'];
@@ -9,7 +10,11 @@ const STATUS_FILTERS = ['all','pending_approval','approved','partially_paid','pa
 export default function BillsList() {
   const [status, setStatus] = useState('all');
   const [showFromBundle, setShowFromBundle] = useState(false);
-  const path = '/modules/ap/api/bills.php' + (status !== 'all' ? `?status=${status}` : '');
+  const { activeEntityId, activeEntity } = useActiveEntity();
+  const qs = new URLSearchParams();
+  if (status !== 'all')    qs.set('status', status);
+  if (activeEntityId)      qs.set('entity_id', String(activeEntityId));
+  const path = '/modules/ap/api/bills.php' + (qs.toString() ? `?${qs}` : '');
   const { data, loading, error, reload } = useApi(path);
   const rows = data?.rows ?? [];
   const sel = useBulkSelection(rows.map(r => r.id));
@@ -24,6 +29,12 @@ export default function BillsList() {
 
   return (
     <section data-testid="ap-bills-list">
+      {activeEntity && (
+        <div data-testid="ap-bills-entity-scope"
+             style={{ fontSize: 12, color: '#1e40af', marginBottom: 8 }}>
+          Scoped to entity <code>{activeEntity.code}</code> — switch in the header to see another.
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)', flexWrap: 'wrap', gap: 8 }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {STATUS_FILTERS.map(s => (

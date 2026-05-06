@@ -252,6 +252,8 @@ if ($method === 'GET') {
     if (!empty($_GET['source']))      { $where[] = 'source = :src';      $params['src'] = $_GET['source']; }
     if (!empty($_GET['due_before']))  { $where[] = 'due_date < :db';     $params['db'] = $_GET['due_before']; }
     if (!empty($_GET['placement_id'])) { $where[] = 'placement_id = :pid'; $params['pid'] = (int) $_GET['placement_id']; }
+    // Sprint 6c — respect the header's multi-entity switcher.
+    if (!empty($_GET['entity_id']))    { $where[] = 'entity_id = :eid';   $params['eid'] = (int) $_GET['entity_id']; }
     $perPage = max(1, min(200, (int) ($_GET['per_page'] ?? 50)));
     $page    = max(1, (int) ($_GET['page'] ?? 1));
     $offset  = ($page - 1) * $perPage;

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import InvoiceFromTimeBundleModal from './InvoiceFromTimeBundleModal';
 
 const STATUS_FILTERS = ['all','draft','approved','sent','partially_paid','paid','void'];
@@ -8,12 +9,22 @@ const STATUS_FILTERS = ['all','draft','approved','sent','partially_paid','paid',
 export default function InvoicesList() {
   const [status, setStatus] = useState('all');
   const [showCreate, setShowCreate] = useState(false);
-  const path = '/modules/billing/api/invoices.php' + (status !== 'all' ? `?status=${status}` : '');
+  const { activeEntityId, activeEntity } = useActiveEntity();
+  const qs = new URLSearchParams();
+  if (status !== 'all') qs.set('status', status);
+  if (activeEntityId)   qs.set('entity_id', String(activeEntityId));
+  const path = '/modules/billing/api/invoices.php' + (qs.toString() ? `?${qs}` : '');
   const { data, loading, error, reload } = useApi(path);
   const rows = data?.rows ?? [];
 
   return (
     <section data-testid="billing-invoices-list">
+      {activeEntity && (
+        <div data-testid="billing-invoices-entity-scope"
+             style={{ fontSize: 12, color: '#1e40af', marginBottom: 8 }}>
+          Scoped to entity <code>{activeEntity.code}</code> — switch in the header to see another.
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)' }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {STATUS_FILTERS.map(s => (

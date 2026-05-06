@@ -86,7 +86,7 @@ sentinels:
 - tests/hardening_pass1_smoke.php
 - tests/schema_contract_smoke.php
 expected_bundle:
-- spa-assets/index-BunRMujp.js
+- spa-assets/index-BYKnQHBD.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -210,3 +210,6 @@ last_known_features:
 - accounting.entity_scoped_journal_entries
 - accounting.entity_scoped_periods
 - accounting.entity_scoped_close_workflow
+- ap.bills.entity_scoped
+- billing.invoices.entity_scoped
+- ai.workflow_inbox.summary
