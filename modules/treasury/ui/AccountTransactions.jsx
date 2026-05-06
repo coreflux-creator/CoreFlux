@@ -34,7 +34,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   const fetchAiCat = async (lineId) => {
     setAiBusyId(lineId); setRowError(null);
     try {
-      const res = await api.post('/modules/accounting/api/bank_ai.php?action=suggest_categorize', { line_id: lineId });
+      const res = await api.post(`/modules/accounting/api/bank_ai.php?action=suggest_categorize&line_id=${lineId}`);
       setAiPanelByLine(prev => ({ ...prev, [lineId]: { action: 'suggest_categorize', ...res } }));
     } catch (e) {
       setRowError(`AI suggestion failed: ${e.message}`);

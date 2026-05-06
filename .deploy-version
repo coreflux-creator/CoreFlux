@@ -91,7 +91,7 @@ sentinels:
 - modules/placements/migrations/003_internal_engagement_type.sql
 - tests/sprint6j_placement_create_full_smoke.php
 expected_bundle:
-- spa-assets/index-BeRgJ-y8.js
+- spa-assets/index-DYOXEdkm.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -237,6 +237,8 @@ last_known_features:
 - placements.create.commission_inline_rows
 - placements.create.referral_inline_row
 - placements.create.required_fields_hint
+- placements.create.status_default_fix
+- treasury.bank_feed.ai_cat_line_id_querystring
 - treasury.bank_feed.split_categorize
 - treasury.bank_feed.intercompany_split
 - treasury.bank_feed.ai_categorize_panel

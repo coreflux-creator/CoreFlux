@@ -470,7 +470,24 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
-## Recently completed (Sprint 6j — PlacementCreate Bundle C: full SPEC §3 form, 2026-02)
+## Recently completed (Sprint 6k — Two production bug fixes from mobile screenshots, 2026-02)
+**User reported via 4 mobile screenshots: (1) corefluxapp.com unreachable on phone (transient — not a code issue), (2) PlacementCreate failed with `Column 'status' cannot be null` (SQLSTATE 23000), (3) Treasury Bank Feed AI cat button → "AI suggestion failed: line_id required".**
+
+### Bug 1 — Placement create status default
+- `modules/placements/api/placements.php` — `'status' => in_array($body['status'] ?? 'draft', ALLOWED_STATUS, true) ? $body['status'] : 'draft'` was a long-standing pre-existing bug. The ternary's truthy branch read `$body['status']` directly (undefined → null) when the test passed against the 'draft' default. Refactored to use an intermediate `$statusInput` variable so both branches reference the same coalesced value. Form posts now insert with `status='draft'` as intended.
+
+### Bug 2 — Treasury fetchAiCat URL
+- `modules/treasury/ui/AccountTransactions.jsx` line 37 was POSTing `{ line_id: lineId }` in the JSON body, but `api/accounting/bank_ai.php` reads `line_id` from `$_GET` (matching the existing Bank Reconciliation pattern). Fixed by appending `&line_id=${lineId}` to the URL. AI categorize now works on Treasury Bank Feed transactions.
+
+### Validation
+- **New** `tests/sprint6k_create_and_treasury_ai_smoke.php` — **7/7 ✓**: confirms the buggy ternary is gone, the new `$statusInput` flow exists, the fetchAiCat URL now carries `line_id`, and JSON-body line_id is no longer sent.
+- All other suites still green: **89 PHP smoke files, 0 failures**.
+- Vite rebuilt → `index-DYOXEdkm.js`. `.deploy-version` synced.
+
+### Not in scope
+- "Can't open this page" / corefluxapp.com unreachable on iPhone Chrome — transient connectivity issue (5G, captive portal, or Cloudways outage). No code change made; user should retry, restart Chrome, or check Cloudways status if it persists.
+
+
 **User reported the create-placement form felt incomplete: button greyed out without explanation, unclear which fields were required, missing planned commercial fields, and no first-class workflow for "internal" hires (their own admin / recruiter / accountant employees).** This sprint closes the gap so the user can drive the people → placement → time → bill/pay loop end-to-end.
 
 ### What shipped

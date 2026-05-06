@@ -89,10 +89,11 @@ if ($method === 'POST') {
         ['id' => (int) $body['person_id']]);
     if (!$person) api_error('person_id not found in this tenant', 422);
 
+    $statusInput = $body['status'] ?? 'draft';
     $insert = [
         'person_id'        => (int) $body['person_id'],
         'external_id'      => $body['external_id']      ?? null,
-        'status'           => in_array($body['status'] ?? 'draft', ALLOWED_STATUS, true) ? $body['status'] : 'draft',
+        'status'           => in_array($statusInput, ALLOWED_STATUS, true) ? $statusInput : 'draft',
         'start_date'       => $body['start_date'],
         'end_date'         => $body['end_date']         ?? null,
         'due_date'         => $body['due_date']         ?? null,
