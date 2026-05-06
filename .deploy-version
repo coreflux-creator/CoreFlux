@@ -164,3 +164,4 @@ last_known_features:
 - time.timesheet_upload_ai_extract
 - time.timesheet_upload_bulk_people
 - time.email_intake_webhook_and_poll
+- time.intake.sender_auto_resolve

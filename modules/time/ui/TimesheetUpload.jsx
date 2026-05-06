@@ -65,17 +65,21 @@ export default function TimesheetUpload() {
       setGroups(people.map((p) => ({
         tmpId:        nextTmpId(),
         person_name:  p.person_name || '',
-        person_id:    p.match_candidates?.length === 1 ? p.match_candidates[0].id : '',
+        person_id:    p.match_candidates?.length === 1 ? p.match_candidates[0].id
+                       : p.match_candidates?.[0]?.auto_resolved_from_sender ? p.match_candidates[0].id
+                       : '',
         match_candidates: p.match_candidates || [],
+        sender_resolved: !!p.match_candidates?.[0]?.auto_resolved_from_sender,
         lines: (Array.isArray(p.lines) ? p.lines : []).map((l) => normaliseLine(l)),
       })));
     } else {
       const lines = Array.isArray(draft.lines) ? draft.lines : [];
       setGroups([{
         tmpId:        nextTmpId(),
-        person_name:  draft.person_name || '',
-        person_id:    '',
+        person_name:  draft.sender_person_name || draft.person_name || '',
+        person_id:    draft.sender_person_id || '',
         match_candidates: [],
+        sender_resolved: !!draft.sender_resolved,
         lines: lines.map((l) => normaliseLine(l)),
       }]);
     }
@@ -203,6 +207,7 @@ export default function TimesheetUpload() {
             {confidence != null && <> · confidence <strong>{(confidence * 100).toFixed(0)}%</strong></>}
             {model && <> · {model}</>}
             {draft.week_ending && <> · week ending <strong>{draft.week_ending}</strong></>}
+            {draft.sender_resolved && <> · <span data-testid="time-upload-sender-resolved">✨ auto-mapped to <strong>{draft.sender_person_name}</strong></span></>}
           </div>
 
           {groups.map((g) => (
@@ -273,13 +278,15 @@ function GroupCard({ group, bulk, placementOptionsForPerson, onPersonPick, onLin
                 <select
                   className="input"
                   value={l.placement_id}
-                  onChange={(e) => onLineChange(l.tmpId, { placement_id: e.target.value ? Number(e.target.value) : '' })}
+                  onChange={(e) => onLineChange(l.tmpId, { placement_id: e.target.value ? Number(e.target.value) : '', placement_auto_filled: false })}
                   disabled={!!l.saved_id || (bulk && !group.person_id)}
-                  style={{ minWidth: 200 }}
+                  style={{ minWidth: 200, background: l.placement_auto_filled ? '#ecfdf5' : 'transparent' }}
+                  data-testid={`time-upload-line-${group.tmpId}-${l.tmpId}-placement`}
                 >
                   <option value="">— pick placement —</option>
                   {placementOpts.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
                 </select>
+                {l.placement_auto_filled && <span data-testid={`time-upload-line-${l.tmpId}-auto`} style={{ fontSize: 10, color: '#065f46', marginLeft: 4 }}>✨ auto</span>}
               </td>
               <td>
                 <select className="input" value={l.category} onChange={(e) => onLineChange(l.tmpId, { category: e.target.value })} disabled={!!l.saved_id}>
@@ -370,7 +377,8 @@ function normaliseLine(l) {
     tmpId:        nextTmpId(),
     work_date:    l.work_date || '',
     project_text: l.project || '',
-    placement_id: '',
+    placement_id: l.placement_id_hint ? Number(l.placement_id_hint) : '',
+    placement_auto_filled: !!l.placement_id_hint,
     category:     CATS.includes(l.category) ? l.category : 'regular_billable',
     hours:        Number(l.hours) > 0 ? Number(l.hours) : 0,
     description:  l.description || '',

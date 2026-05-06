@@ -877,6 +877,24 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 
 **To activate the poll path:** tenant admin OAuth-connects M365/Gmail in Settings (existing `start_oauth_flow` scaffold), creates a `tenant_mail_folders` row pointing at the `timesheets` label, sets `polling_enabled=1`. Cron POSTs `/api/time/intake.php?action=poll`. (Note: M365GraphDriver currently emits message metadata only; full attachment fetch is a future driver extension — intake rows are captured nonetheless.)
 
+---
+*Sub-update — Sender auto-resolve (1-click confirm for known foremen):*
+
+**Why:** when the email's `From:` matches a `users.email` record AND that user is linked to a `people` row (via `email_primary`), most of the review work is already known — we shouldn't ask the foreman to map themselves on every upload.
+
+**Implementation:**
+- `timeIntakeResolveSenderContext()` returns `{user_id, person_id, person_name}` by joining `users` → `people` on `email_primary`.
+- `timeIntakeEnrichDraftWithSender()` queries the sender's active placements and post-processes the AI draft:
+  - **Person mapping:** prepends the sender to `match_candidates` of the lone person-card (single-person email) or any group whose extracted `person_name` fuzzy-matches the sender. Adds `auto_resolved_from_sender: true` flag.
+  - **Placement hints:** if sender has exactly 1 active placement → fills `placement_id_hint` on every line. Otherwise fuzzy-matches each line's AI-extracted `project` text against placement titles and fills the hint when a substring match is found.
+- Stamps `draft.sender_resolved=true` + `sender_person_id` + `sender_person_name`.
+
+**UI:** `TimesheetUpload.jsx` updates `normaliseLine()` to read `placement_id_hint` and pre-select the dropdown (with green tint + "✨ auto" badge per line). Shows a hero-level "✨ auto-mapped to {name}" badge on the success banner. Bulk-mode person picker auto-resolves to the sender when AI flagged the candidate.
+
+**Both ingest paths benefit:** webhook + poll (via `lib/intake.php`), AND the manual `?action=extract` upload path (via the logged-in user's email).
+
+**Tests:** intake smoke now 69 assertions (was 47; +22 for auto-resolve). Full suite **73 files / 4,315 / 4,315 passing.**
+
 *2026-02 — Sprints 1-4: Login UX + admin tools rebuild + executive dashboard (this fork):*
 - **Sprint 1 — Login + tenant module filter (18 assertions ✓)**
   - Killed the silent "Demo Mode" fallback. SPA now redirects to `/login.html?next=...` on a 401, and the login page rebounces back to the deep route after auth.

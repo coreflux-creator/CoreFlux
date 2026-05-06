@@ -21,6 +21,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/time.php';
 require_once __DIR__ . '/../lib/upload_helpers.php';
+require_once __DIR__ . '/../lib/intake.php';
 
 $ctx       = api_require_auth();
 $tenantId  = (int) $ctx['tenant_id'];
@@ -129,6 +130,16 @@ if ($method === 'POST' && $action === 'extract') {
         } else {
             $lines = is_array($draft['lines'] ?? null) ? $draft['lines'] : [];
             $confidence = timeUploadConfidence($lines);
+        }
+
+        // Auto-fill sender context (placement hints + identity) — the
+        // logged-in user IS the sender for manual upload.
+        $userEmail = (string) ($user['email'] ?? '');
+        if ($userEmail !== '') {
+            $sCtx = timeIntakeResolveSenderContext($tenantId, $userEmail);
+            if (!empty($sCtx['person_id'])) {
+                $draft = timeIntakeEnrichDraftWithSender($pdo, $tenantId, $draft, $sCtx);
+            }
         }
 
         $pdo->prepare(

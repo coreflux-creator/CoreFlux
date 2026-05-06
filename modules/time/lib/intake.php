@@ -13,20 +13,140 @@ require_once __DIR__ . '/../../../core/ai_service.php';
 require_once __DIR__ . '/time.php';
 
 /**
+ * Look up a foreman/sender by their from-address. Returns:
+ *   ['user_id' => int|null, 'person_id' => int|null, 'person_name' => string|null]
+ * Match path: users.email → people.email_primary inside the tenant.
+ */
+function timeIntakeResolveSenderContext(int $tenantId, string $fromAddress): array
+{
+    $out = ['user_id' => null, 'person_id' => null, 'person_name' => null];
+    if ($fromAddress === '') return $out;
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        "SELECT u.id AS user_id,
+                p.id AS person_id,
+                TRIM(CONCAT_WS(' ', p.first_name, p.last_name)) AS person_name
+           FROM users u
+           JOIN user_tenants ut ON ut.user_id = u.id AND ut.tenant_id = :t
+           LEFT JOIN people p
+                  ON p.tenant_id = :t
+                 AND p.deleted_at IS NULL
+                 AND LOWER(p.email_primary) = LOWER(u.email)
+          WHERE LOWER(u.email) = LOWER(:em)
+          LIMIT 1"
+    );
+    $stmt->execute(['t' => $tenantId, 'em' => $fromAddress]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if ($row) {
+        $out['user_id']     = (int) $row['user_id'];
+        $out['person_id']   = $row['person_id'] ? (int) $row['person_id'] : null;
+        $out['person_name'] = $row['person_name'] ?: null;
+    }
+    return $out;
+}
+
+/**
  * Resolve a from-address to a user in the tenant. Returns user_id or null.
  */
 function timeIntakeResolveSender(int $tenantId, string $fromAddress): ?int
 {
-    if ($fromAddress === '') return null;
-    $pdo = getDB();
+    return timeIntakeResolveSenderContext($tenantId, $fromAddress)['user_id'];
+}
+
+/**
+ * Enrich an AI-extracted draft with sender context so the review UI can
+ * "1-click confirm" for known foremen.
+ *
+ *   - Prepends the sender to match_candidates of the lone person-card (or
+ *     of any group whose person_name fuzzy-matches the sender).
+ *   - Pre-fills `placement_id_hint` on each line when:
+ *       * the sender has exactly 1 active placement, OR
+ *       * the line's `project` text fuzzy-matches a placement title.
+ */
+function timeIntakeEnrichDraftWithSender(\PDO $pdo, int $tenantId, array $draft, array $sender): array
+{
+    if (empty($sender['person_id'])) return $draft;
+    $personId   = (int) $sender['person_id'];
+    $personName = (string) ($sender['person_name'] ?? '');
+
     $stmt = $pdo->prepare(
-        'SELECT u.id FROM users u
-          JOIN user_tenants ut ON ut.user_id = u.id AND ut.tenant_id = :t
-         WHERE LOWER(u.email) = LOWER(:em) LIMIT 1'
+        "SELECT id, title, end_client_name FROM placements
+          WHERE tenant_id = :t AND person_id = :p AND status = 'active'
+          ORDER BY id DESC LIMIT 50"
     );
-    $stmt->execute(['t' => $tenantId, 'em' => $fromAddress]);
-    $id = $stmt->fetchColumn();
-    return $id ? (int) $id : null;
+    $stmt->execute(['t' => $tenantId, 'p' => $personId]);
+    $placements = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    if (empty($placements)) return $draft;
+
+    $apply = function (array $group) use ($personId, $personName, $placements) {
+        // Prepend sender to match_candidates so the picker defaults to the foreman.
+        if (!isset($group['match_candidates']) || !is_array($group['match_candidates'])) {
+            $group['match_candidates'] = [];
+        }
+        $alreadyHas = false;
+        foreach ($group['match_candidates'] as $c) {
+            if ((int) ($c['id'] ?? 0) === $personId) { $alreadyHas = true; break; }
+        }
+        if (!$alreadyHas) {
+            array_unshift($group['match_candidates'], [
+                'id'    => $personId,
+                'name'  => $personName,
+                'email' => null,
+                'auto_resolved_from_sender' => true,
+            ]);
+        }
+        // Pre-fill placement_id_hint per line.
+        $singlePlacement = count($placements) === 1 ? (int) $placements[0]['id'] : null;
+        if (is_array($group['lines'] ?? null)) {
+            foreach ($group['lines'] as &$ln) {
+                if (!empty($ln['placement_id_hint'])) continue;
+                if ($singlePlacement) {
+                    $ln['placement_id_hint'] = $singlePlacement;
+                    continue;
+                }
+                $proj = strtolower((string) ($ln['project'] ?? ''));
+                if ($proj === '') continue;
+                foreach ($placements as $p) {
+                    $hay = strtolower(($p['title'] ?? '') . ' ' . ($p['end_client_name'] ?? ''));
+                    if ($hay !== '' && str_contains($hay, $proj)) {
+                        $ln['placement_id_hint'] = (int) $p['id'];
+                        break;
+                    }
+                }
+            }
+            unset($ln);
+        }
+        return $group;
+    };
+
+    if (isset($draft['people']) && is_array($draft['people'])) {
+        $count = count($draft['people']);
+        $draft['people'] = array_map(function ($g) use ($apply, $count, $personName) {
+            // Apply auto-resolve only when group is the lone person OR the
+            // extracted name fuzzy-matches the sender. Other groups are left
+            // alone (they'll need manual person mapping).
+            if ($count === 1) return $apply($g);
+            $extracted = strtolower(trim((string) ($g['person_name'] ?? '')));
+            $senderLow = strtolower($personName);
+            if ($extracted !== '' && $senderLow !== '' && (
+                $extracted === $senderLow || str_contains($extracted, $senderLow) || str_contains($senderLow, $extracted)
+            )) {
+                return $apply($g);
+            }
+            return $g;
+        }, $draft['people']);
+        $draft['sender_resolved'] = true;
+        $draft['sender_person_id'] = $personId;
+        $draft['sender_person_name'] = $personName;
+    } elseif (isset($draft['lines']) && is_array($draft['lines'])) {
+        // Single mode draft — wrap as a one-group apply.
+        $g = $apply(['person_name' => $personName, 'lines' => $draft['lines'], 'match_candidates' => []]);
+        $draft['lines'] = $g['lines'];
+        $draft['sender_resolved']  = true;
+        $draft['sender_person_id'] = $personId;
+        $draft['sender_person_name'] = $personName;
+    }
+    return $draft;
 }
 
 /**
@@ -125,6 +245,16 @@ function timeIntakeIngestAttachments(int $tenantId, int $intakeId, array $attach
     $pdo = getDB();
     $svc = \Core\StorageService::getInstance();
 
+    // Resolve sender context once per intake — used to enrich each draft.
+    $senderCtx = ['user_id' => null, 'person_id' => null, 'person_name' => null];
+    $intakeRow = $pdo->prepare('SELECT from_address FROM time_intake_events WHERE id = :id AND tenant_id = :t');
+    $intakeRow->execute(['id' => $intakeId, 't' => $tenantId]);
+    $fromAddress = (string) ($intakeRow->fetchColumn() ?: '');
+    if ($fromAddress !== '') {
+        $senderCtx = timeIntakeResolveSenderContext($tenantId, $fromAddress);
+    }
+    if (!$uploadedByUserId && !empty($senderCtx['user_id'])) $uploadedByUserId = (int) $senderCtx['user_id'];
+
     $docIds = [];
     foreach ($attachments as $att) {
         $name = (string) ($att['file_name'] ?? 'timesheet.pdf');
@@ -181,6 +311,11 @@ function timeIntakeIngestAttachments(int $tenantId, int $intakeId, array $attach
             // Pre-resolve each person_name against people directory.
             if (function_exists('timeUploadResolvePeople') && !empty($draft['people'])) {
                 $draft['people'] = timeUploadResolvePeople($pdo, $tenantId, $draft['people']);
+            }
+            // Auto-fill sender context (person + placement hints) if the
+            // foreman's email maps to a known user/person.
+            if (!empty($senderCtx['person_id'])) {
+                $draft = timeIntakeEnrichDraftWithSender($pdo, $tenantId, $draft, $senderCtx);
             }
             $allLines = [];
             foreach (($draft['people'] ?? []) as $p) {

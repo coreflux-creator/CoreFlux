@@ -78,6 +78,40 @@ $assert('action Intake Queue route',                    strpos($man, "'route' =>
 $assert('time.intake.received audit declared',          strpos($man, 'time.intake.received') !== false);
 $assert('time.intake.dismissed audit declared',         strpos($man, 'time.intake.dismissed') !== false);
 
+// ─── Sender auto-resolve ───
+echo "Time intake — sender auto-resolve\n";
+$assert('timeIntakeResolveSenderContext() helper',      strpos($lib, 'function timeIntakeResolveSenderContext') !== false);
+$assert('joins users → people via email_primary',       strpos($lib, 'LOWER(p.email_primary) = LOWER(u.email)') !== false);
+$assert('returns user_id + person_id + person_name',    strpos($lib, "'user_id' => null, 'person_id' => null, 'person_name' => null") !== false);
+
+$assert('timeIntakeEnrichDraftWithSender() helper',     strpos($lib, 'function timeIntakeEnrichDraftWithSender') !== false);
+$assert('queries active placements for sender',         strpos($lib, "FROM placements") !== false && strpos($lib, "status = 'active'") !== false);
+$assert('prepends sender to match_candidates',          strpos($lib, 'array_unshift($group[\'match_candidates\']') !== false);
+$assert('flags auto_resolved_from_sender on candidate', strpos($lib, "'auto_resolved_from_sender' => true") !== false);
+$assert('single-placement → fills every line hint',     strpos($lib, '$singlePlacement') !== false);
+$assert('fuzzy match project text → placement title',   strpos($lib, "str_contains(\$hay, \$proj)") !== false);
+$assert('stamps draft.sender_resolved = true',          strpos($lib, "\$draft['sender_resolved'] = true") !== false);
+$assert('stamps draft.sender_person_id',                strpos($lib, "sender_person_id") !== false);
+
+$lib2 = file_get_contents(__DIR__ . '/../modules/time/lib/intake.php');
+$assert('ingest pulls from_address from intake row',    strpos($lib2, "SELECT from_address FROM time_intake_events") !== false);
+$assert('ingest calls enrich when sender resolves',     strpos($lib2, 'timeIntakeEnrichDraftWithSender') !== false);
+$assert('ingest defaults uploaded_by to sender user_id',strpos($lib2, "uploadedByUserId = (int) \$senderCtx['user_id']") !== false);
+
+// ─── Manual upload also enriches via current user ───
+$apiUp2 = file_get_contents(__DIR__ . '/../modules/time/api/upload.php');
+$assert('manual upload includes intake helpers',        strpos($apiUp2, 'lib/intake.php') !== false);
+$assert('manual upload calls enrich with current user', strpos($apiUp2, 'timeIntakeResolveSenderContext') !== false && strpos($apiUp2, 'timeIntakeEnrichDraftWithSender') !== false);
+
+// ─── UI consumes placement_id_hint ───
+$ui2 = file_get_contents(__DIR__ . '/../modules/time/ui/TimesheetUpload.jsx');
+$assert('UI normaliseLine reads placement_id_hint',     strpos($ui2, 'l.placement_id_hint ? Number(l.placement_id_hint)') !== false);
+$assert('UI tracks placement_auto_filled flag',         strpos($ui2, 'placement_auto_filled') !== false);
+$assert('UI shows ✨ auto badge on autofilled rows',    strpos($ui2, "data-testid={`time-upload-line-\${l.tmpId}-auto`}") !== false);
+$assert('UI shows sender-resolved hero badge',          strpos($ui2, 'data-testid="time-upload-sender-resolved"') !== false);
+$assert('UI defaults person_id from auto_resolved_from_sender', strpos($ui2, 'auto_resolved_from_sender') !== false);
+$assert('UI single-mode picks up sender_person_id',     strpos($ui2, 'draft.sender_person_id') !== false);
+
 // ─── UI ───
 echo "Time intake — UI components\n";
 $mod = file_get_contents(__DIR__ . '/../modules/time/ui/TimeModule.jsx');
