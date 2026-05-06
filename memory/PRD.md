@@ -470,7 +470,44 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
-## Recently completed (Sprint 4 — Platform polish, 2026-02)
+## Recently completed (Sprint 5 — Mobile Worker MVP scaffold, 2026-02)
+**First post-foundation sprint. Backend stays at 78 PHP smoke files green; new `/app/mobile/` Expo monorepo ships alongside.**
+
+### Mobile / Expo (SDK 55, RN 0.83, React 19.2)
+- `/app/mobile/` — single-codebase Expo Router app shipping iOS App Store + Google Play + Web PWA. Consumes the same `/api/*` the SPA uses, JWT auth via `mobile_login` (Sprint 2).
+- **Screens**: Login (tenant code + email + password), Home (this-week summary tiles), Time entry (placement → date → category → hours, save draft / submit), Receipts (camera + photo library upload), Approvals (workflow inbox with inline approve/reject), Profile (sign out).
+- **Auth flow**: `expo-secure-store` token persistence (in-memory fallback on web), refresh-token rotation handled transparently in `src/api/client.ts` on any 401.
+- **Typed API surface**: `src/lib/api.ts` wraps the 8 mobile-relevant PHP endpoints with TypeScript types.
+- **Permissions**: iOS `NSCameraUsageDescription` + `NSPhotoLibraryUsageDescription`, Android `CAMERA` + `READ_EXTERNAL_STORAGE`. Deep-link scheme `coreflux://`.
+- **README**: full run / build / push-credential setup walkthrough.
+
+### Backend additions
+- `api/workflow.php` — REST endpoints for the WorkflowEngine the mobile Approvals tab consumes:
+  - `GET /api/workflow.php?path=inbox` → pending instances for current user
+  - `POST /api/workflow.php?action=act&id=N` → approve/reject/skip/delegate/comment/escalate
+  - `GET /api/workflow.php?id=N` → single instance lookup
+
+### Validation
+- `tests/sprint5_mobile_scaffold_smoke.php` — **89/89 ✓** (Expo monorepo layout, package.json deps + versions, app.json bundle IDs + permissions + plugins, fetch+JWT-refresh client, secure-store with web fallback, auth flow against `mobile_login` + device revoke, typed API wrappers, screen testIDs, workflow API parse + handlers).
+- **Full PHP suite: 78 files passing**, zero regressions.
+
+### How to run (dev path)
+```
+cd mobile
+yarn install
+npx expo install --fix
+yarn start            # Metro
+# scan QR from Expo Go on a real device, or press i / a
+```
+Point `app.json` `expo.extra.apiBaseUrl` at the Cloudways host.
+
+### What's NOT yet wired
+- Real APNs / FCM push delivery (user explicitly deferred — log driver remains the safe default)
+- Offline time-entry queue
+- Recruiter / AM dashboards
+- Platform-user (staffing-exec) Executive Snapshot mobile view
+
+
 **Sprint 4 of the holistic 4-sprint plan. Closes the foundation phase.**
 
 ### A1 — Generic WorkflowEngine ✅

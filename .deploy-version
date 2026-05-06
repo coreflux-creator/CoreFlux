@@ -193,3 +193,6 @@ last_known_features:
 - core.audit_log.api_csv
 - ap.risk_explainer.ai
 - time.foreman_to_team_log_sweep
+- mobile.expo_scaffold_v0_1
+- mobile.worker_mvp_screens
+- core.workflow_api
