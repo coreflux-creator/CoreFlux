@@ -230,6 +230,21 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
         throw new \RuntimeException(sprintf('Unbalanced JE: debits=%.2f credits=%.2f', $totalDebit, $totalCredit));
     }
 
+    // B2: per-account dimension validation. Tenant-configurable; no-op if no
+    // dimensions defined for this tenant. Throws on first failure.
+    if (file_exists(__DIR__ . '/dimensions.php')) {
+        require_once __DIR__ . '/dimensions.php';
+        $linesForDimCheck = [];
+        foreach ($lines as $i => $l) {
+            $accId = (int) ($resolved[$i]['account_id'] ?? 0);
+            $linesForDimCheck[] = [
+                'account_id' => $accId,
+                'dims'       => (array) ($l['dims'] ?? []),
+            ];
+        }
+        accountingValidateJeDims($tenantId, $linesForDimCheck);
+    }
+
     $pdo->beginTransaction();
     try {
         $jeNumber = accountingNextJeNumber($tenantId);

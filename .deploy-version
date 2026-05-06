@@ -173,3 +173,9 @@ last_known_features:
 - reports.rate_spread_monitor
 - reports.overtime_watch
 - reports.v_timesheet_day_fin_view
+- accounting.dimensions.engine
+- accounting.close_workflow.checklist
+- accounting.close_packet.html_artifact
+- mobile.jwt_auth
+- mobile.devices_registry
+- mobile.pwa_manifest_and_sw

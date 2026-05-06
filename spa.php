@@ -58,10 +58,22 @@ if (empty($jsFile) || empty($cssFile)) {
     <link rel="icon" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CoreFlux Dashboard</title>
+    <link rel="manifest" href="/spa-assets/manifest.webmanifest" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="CoreFlux" />
     <script type="module" crossorigin src="/spa-assets/<?php echo $jsFile; ?>"></script>
     <link rel="stylesheet" crossorigin href="/spa-assets/<?php echo $cssFile; ?>">
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/spa-assets/sw.js').catch(function () { /* offline-first nice-to-have */ });
+        });
+      }
+    </script>
   </body>
 </html>

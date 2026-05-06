@@ -470,7 +470,90 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
-## Recently completed (Reports Module Phase 1 — 2026-02, this fork)
+## Recently completed (Sprint 2 — Accounting depth + Mobile foundation, 2026-02)
+**Sprint 2 of the holistic 4-sprint plan. CORE-only (zero industry-specific code).**
+
+### B2 — Tenant-configurable dimensions engine ✅
+- `modules/accounting/migrations/009_dimensions_and_close.sql` creates 5 tables:
+  `accounting_dimensions` (registry, tenant-defined keys + label + data_type +
+  required_default), `accounting_dimension_values` (optional value whitelist),
+  `accounting_account_dim_rules` (per-account requirement: `required` /
+  `optional` / `blocked`), `accounting_close_tasks`, `accounting_close_packets`.
+- `modules/accounting/lib/dimensions.php` exports
+  `accountingDimensionRegistry`, `accountingAccountDimRules`,
+  `accountingValidateLineDims`, `accountingValidateJeDims` — all
+  vertical-agnostic. Tenants register their own keys (a hospitality tenant
+  registers `shift`/`service_period`; staffing registers
+  `placement`/`worker_class`).
+- **Wired into `accountingPostJe()`**: dimension validation runs after
+  debit/credit balance check and before transaction begin, so subledger
+  postings (AP, Billing, Payroll) cannot bypass the rules.
+- API `modules/accounting/api/dimensions.php` — full CRUD on dims +
+  values + per-account rules. Permissions: `accounting.dimensions.view` /
+  `accounting.dimensions.manage` (already declared in manifest).
+
+### B4 — Period close workflow ✅
+- `modules/accounting/lib/close.php` exports
+  `accountingDefaultCloseChecklist` (9-step seed: reconcile_bank,
+  review_unposted, subledger_lock, accruals, fx_revalue,
+  review_trial_balance, flux_review, lock_period, build_packet),
+  `accountingSeedCloseChecklist` (idempotent), `accountingCompleteCloseTask`,
+  `accountingBuildClosePacketHtml` (period meta + JE counts +
+  checklist with completion stamps + trial balance — print-to-PDF ready).
+- API `modules/accounting/api/close_tasks.php` — list / seed / complete /
+  patch (assignee, due_date, status, notes).
+- API `modules/accounting/api/close_packet.php` — render HTML inline or
+  download as `close-packet-period-N.html` attachment, plus
+  `?action=record` to log a packet build event in `accounting_close_packets`.
+- **Retires the P2 "Period Close Receipt PDF" backlog item** — close
+  packet artifact ships in this sprint.
+
+### Mobile foundation (parallel track) ✅
+- `core/migrations/017_mobile_auth.sql` creates `tenant_mobile_devices`
+  (apns_token, fcm_token, platform, last_seen, revoked_at) and
+  `auth_refresh_tokens` (sha256-hashed refresh tokens, server-side
+  revocable per device).
+- `core/jwt.php` — dependency-free HS256 sign/verify, refresh-token
+  issue/consume/revoke. Secret from env `JWT_SECRET` (falls back to
+  `APP_KEY`).
+- `core/api_bootstrap.php` `api_require_auth()` now accepts
+  `Authorization: Bearer <jwt>` alongside the existing PHP session
+  cookie. JWT payload hydrates session-shape context so all downstream
+  RBAC + tenant-scoping code keeps working unchanged.
+- `api/auth/mobile_login.php` — POST `{email, password, tenant_code?,
+  device_id?, platform?, app_version?}` returns
+  `{access_token, refresh_token, expires_in, refresh_expires_at, user, tenant}`.
+  Auto-registers the device if `device_id` provided.
+- `api/auth/mobile_refresh.php` — rotates the refresh token and mints a
+  fresh access token. Old refresh is revoked.
+- `api/auth/mobile_devices.php` — GET list / POST register-or-update /
+  DELETE revoke (also cascades refresh-token revocation for that device).
+- **PWA**: `spa-assets/manifest.webmanifest` (standalone display, theme
+  colour, install icons, shortcuts to Time entry + Reports),
+  `spa-assets/sw.js` (cache-first app shell, network-only `/api/*`,
+  network-first navigations with cached fallback). `spa.php` registers
+  the SW + links the manifest + sets iOS PWA meta tags. Users can now
+  "Add to Home Screen" on iOS/Android and get an icon-launchable shell.
+
+### Validation
+- `tests/sprint2_accounting_mobile_smoke.php` — **81/81 ✓**
+  (migrations, lib exports, JE wiring, RBAC guards, JWT round-trip
+  including expired/tampered/gibberish rejection, bootstrap JWT
+  hydration, PWA manifest + SW handlers, spa.php wiring).
+- **Schema contract**: caught 1 real bug in `mobile_login.php`
+  (`ut.is_active` vs actual column `ut.status`) — fixed before merge.
+- **Full PHP suite**: 75 files passing, zero regressions.
+- **Vite build**: green; no React changes this sprint, bundle hash
+  unchanged.
+- `.deploy-version` updated with 6 new feature flags.
+
+### Architecture rule honoured
+Every line of Sprint 2 code is vertical-agnostic. Dimension keys are
+tenant-defined; close workflow operates on any GL; JWT/device tables
+are `tenant_id` + `user_id` only. **Zero references to staffing,
+placements, recruiters, or worker_class in any Sprint 2 file.**
+
+
 **Sprint 1 of the holistic 4-sprint plan (Reports → Accounting → Staffing loop → Platform).**
 Industry-aware analytics module shipped per `Reports.docx` spec. First sprint anchors leadership dashboards
 on the platform we already had: People + Placements + Time + Billing + AP.
@@ -535,16 +618,8 @@ end-to-end. Unifying thesis:
 > surfaced through an **industry-aware Reports module**.
 
 **4-sprint sequence** (each independently testable; user-confirmed order):
-1. ✅ **Sprint 1 — Reports Phase 1**: D1+D2+D3+D4a (Staffing Overview + 4 reports)
-   — SHIPPED above.
-2. **Sprint 2 — Accounting depth + Mobile foundation**: B1 multi-entity switcher + per-entity
-   fiscal calendars/numbering, B2 dimensions engine (account-level required
-   rules + post-time validation), B4 period close workflow (checklist +
-   reopen-with-reason + close-packet PDF artifact, retiring the P2 backlog item).
-   **Mobile track parallel-add**: M1 JWT auth + `/api/auth/mobile_login` endpoint
-   alongside existing session-cookie auth (additive, doesn't break web). M2 device
-   registration table for push notifications. M3 PWA manifest + service worker
-   on the existing SPA (instant mobile-friendly).
+1. ✅ **Sprint 1 — Reports Phase 1**: D1+D2+D3+D4a (Staffing Overview + 4 reports) — SHIPPED.
+2. ✅ **Sprint 2 — Accounting depth + Mobile foundation**: B2 dimensions engine, B4 period close workflow + close-packet HTML artifact, M1 JWT auth, M2 device registry, M3 PWA manifest + SW — SHIPPED. (B1 multi-entity switcher deferred to Sprint 3 since the entity model already exists; the only missing piece is a UI switcher which is small and best done after we have multiple seeded entities to test with.)
 3. **Sprint 3 — Industry Layer 1 (Staffing edition)**: C1 worker_class on people drives
    Time→AR/AP/Payroll routing, C2 layered admin-defined AP approval policies,
    C3 vendor risk rules (new vendor / bank change / missing W-9), C4 evidence

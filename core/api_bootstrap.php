@@ -123,8 +123,23 @@ function api_require_fields(array $data, array $required): void {
  * Emits 401 if not authenticated, 400 if no tenant selected.
  */
 function api_require_auth(bool $requireTenant = true): array {
+    // Accept JWT bearer first (mobile / API clients), fall back to session cookie (web SPA).
     if (!isAuthenticated()) {
-        api_error('Not authenticated', 401);
+        require_once __DIR__ . '/jwt.php';
+        $payload = jwtFromRequest();
+        if ($payload && !empty($payload['user_id']) && !empty($payload['tenant_id'])) {
+            // Hydrate session-shape context for the rest of the stack to use.
+            $_SESSION['user'] = [
+                'id'       => (int) $payload['user_id'],
+                'name'     => (string) ($payload['name'] ?? ''),
+                'email'    => (string) ($payload['email'] ?? ''),
+                'role'     => (string) ($payload['role'] ?? 'employee'),
+                'auth_via' => 'jwt',
+            ];
+            $_SESSION['tenant_id'] = (int) $payload['tenant_id'];
+        } else {
+            api_error('Not authenticated', 401);
+        }
     }
     $user     = getCurrentUser();
     $tenantId = currentTenantId();
