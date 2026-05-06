@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 
 /**
@@ -74,6 +75,7 @@ export default function MyTime() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 'var(--cf-space-2)' }}>
+          <Link to="/modules/time/upload" className="btn" data-testid="time-my-time-upload-link">↑ Upload timesheet</Link>
           <button className="btn" onClick={() => setMonday(addDays(monday, -7))} data-testid="time-week-prev">← Prev</button>
           <button className="btn" onClick={() => setMonday(startOfWeek(new Date()))} data-testid="time-week-this">This week</button>
           <button className="btn" onClick={() => setMonday(addDays(monday,  7))} data-testid="time-week-next">Next →</button>

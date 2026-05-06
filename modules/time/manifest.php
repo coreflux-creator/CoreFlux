@@ -19,6 +19,7 @@ return [
 
     'actions' => [
         ['name' => 'My Time',            'route' => 'entries',    'permission' => 'time.entry.self'],
+        ['name' => 'Upload Timesheet',   'route' => 'upload',     'permission' => 'time.entry.self'],
         ['name' => 'Review Queue',       'route' => 'review',     'permission' => 'time.review'],
         ['name' => 'Settlement',         'route' => 'settlement', 'permission' => 'time.settlement.view.billing'],
         ['name' => 'Inbox (AI)',         'route' => 'inbox',      'permission' => 'time.review'],
@@ -31,6 +32,7 @@ return [
     'permissions' => [
         'time.view'                     => 'View time data (gated by sub-perms)',
         'time.entry.self'               => 'Submit own time entries',
+        'time.entry.create'             => 'Submit own time entries (alias for self / upload flow)',
         'time.entry.manage'             => 'Create / edit entries on behalf of others',
         'time.review'                   => 'Work the AI / intake review queue',
         'time.approve'                  => 'Approve entries (snapshot-lock the rate). Two-eye control.',
@@ -69,6 +71,9 @@ return [
         'time.intake.dismissed',
         'time.intake.flagged_unreadable',
         'time.bulk.uploaded',
+        'time.upload.extracted',
+        'time.upload.extract_failed',
+        'time.upload.consumed',
         'time.token.issued',
         'time.token.responded',
         'time.token.revoked',

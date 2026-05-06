@@ -812,6 +812,38 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 
 **Vite bundle rebuilt:** 1799 modules, 996 kB JS / 21.5 kB CSS. `/app/.deploy-version` updated.
 
+---
+*Sub-update — vendor-portal auto-process + Time module manual timesheet upload (this fork):*
+
+**Vendor portal upload — auto-process on land.** When a vendor uploads via portal:
+- W-9 → `aiExtract()` reads it → if confidence ≥ 80% AND extracted TIN doesn't disagree with vendor record → auto-update `ap_vendors_index` (vendor_type, tax_id_last4, requires_1099) and flip status to `approved`. Otherwise flagged with the AI draft attached.
+- COI → AI-extract carrier + policy + dates → archived; auto-approved.
+- banking_form / contract / other → archival; auto-approved (Banking tab is the real banking-update path).
+- Migration 012 extended with `ai_extracted_json TEXT`, `ai_confidence DECIMAL(4,3)`, `ai_action ENUM('auto_approved','flagged_for_review','none')`.
+
+**New admin queue at `/modules/ap/vendor-uploads`** surfaces ONLY the exception cases. Approve/reject with note (both audited via `ap.vendor.portal_document_approved` / `_rejected`). Permission-gated by `ap.vendor.portal_review`.
+
+---
+*Sub-update — Time manual timesheet upload (this fork):*
+
+**Why:** Hourly/contract crews still use paper timesheets and sign-in sheets. Mirror the AP `BillCreate` extract pattern.
+
+**Migration 004 — `time_uploaded_documents`:** audit trail for every uploaded paper/PDF/photo timesheet, with `extraction_status` (pending → extracted | failed | consumed), `ai_extracted_json`, `ai_confidence`, `consumed_entry_count`. Idempotent.
+
+**API — `/app/modules/time/api/upload.php`:**
+- `?action=upload_url&file_name=X` → presigned S3 POST (PDF/image, 25 MB cap).
+- `?action=extract` → records the doc up-front (audit even on AI fail), calls `aiExtract()` with vision schema `{week_ending, person_name, lines:[{work_date,project,client,category,hours,description}]}`, computes `timeUploadConfidence()` (fraction of lines with parseable date + non-zero hours + project), persists draft.
+- `?id=N&action=consume` → marks doc consumed once user has saved entries; records the count.
+- Audit events: `time.upload.extracted`, `time.upload.extract_failed`, `time.upload.consumed`.
+
+**UI — `TimesheetUpload.jsx`:** drop file → AI extract → table of editable line drafts. Each line: AI-suggested project text shown as hint, user picks placement from typeahead (active placements only), edits date/category/hours/description, includes/excludes via checkbox. Save loop calls `entries.php POST` per line with `source='ai_inbox'` + `source_ref_id={doc_id}`, then marks the doc `consumed`. Per-line save status badge (saved #ID / error).
+
+**MyTime header gains "↑ Upload timesheet" link** for discoverability.
+
+**Manifest:** new sidebar action "Upload Timesheet" route; new permission `time.entry.create` (alias for self-service); audits declared.
+
+**Tests:** new `tests/time_timesheet_upload_smoke.php` — 43 assertions across migration, API contract, manifest, all UI testids, and the source-stamping convention. Full suite now: **72 files, 4,231 / 4,231 passing.**
+
 *2026-02 — Sprints 1-4: Login UX + admin tools rebuild + executive dashboard (this fork):*
 - **Sprint 1 — Login + tenant module filter (18 assertions ✓)**
   - Killed the silent "Demo Mode" fallback. SPA now redirects to `/login.html?next=...` on a 401, and the login page rebounces back to the deep route after auth.
