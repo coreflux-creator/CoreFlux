@@ -41,7 +41,7 @@ $assert('GET ?id=N returns document + draft',              strpos($api, "ai_extr
 $assert('audit time.upload.extracted',                     strpos($api, 'time.upload.extracted') !== false);
 $assert('audit time.upload.extract_failed',                strpos($api, 'time.upload.extract_failed') !== false);
 $assert('audit time.upload.consumed',                      strpos($api, 'time.upload.consumed') !== false);
-$assert('timeUploadConfidence() helper',                   strpos($api, 'function timeUploadConfidence') !== false);
+$assert('timeUploadConfidence() helper',                   strpos($api, 'function timeUploadConfidence') !== false || strpos(file_get_contents(__DIR__ . '/../modules/time/lib/upload_helpers.php'), 'function timeUploadConfidence') !== false);
 $assert('PHP parses cleanly',                              $lint(__DIR__ . '/../modules/time/api/upload.php'));
 
 // ─── Manifest ───
@@ -89,9 +89,10 @@ $assert('UI fetches people via /modules/people/api/people.php', strpos($ui, '/mo
 $assert('API accepts mode=bulk param',                     strpos($api, "['single', 'bulk']") !== false);
 $assert('API uses bulk schema with people array',          strpos($api, '"people":[{"person_name"') !== false);
 $assert('API uses bulk feature_key',                       strpos($api, "'time.timesheet.from_upload_bulk'") !== false);
+$_helpers = file_get_contents(__DIR__ . '/../modules/time/lib/upload_helpers.php');
 $assert('API resolves people via timeUploadResolvePeople', strpos($api, 'timeUploadResolvePeople') !== false);
-$assert('API queries people table for matches',            strpos($api, 'FROM people') !== false && strpos($api, 'first_name') !== false);
-$assert('API attaches match_candidates to each person',    strpos($api, "'match_candidates'") !== false);
+$assert('API queries people table for matches',            strpos($_helpers, 'FROM people') !== false && strpos($_helpers, 'first_name') !== false);
+$assert('API attaches match_candidates to each person',    strpos($_helpers, "'match_candidates'") !== false);
 $assert('API audit includes mode + people_count',          strpos($api, "'mode'") !== false && strpos($api, "'people_count'") !== false);
 
 $mt = file_get_contents(__DIR__ . '/../modules/time/ui/MyTime.jsx');

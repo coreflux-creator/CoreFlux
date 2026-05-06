@@ -8,6 +8,7 @@ import Categories from './Categories';
 import CsvImport from './CsvImport';
 import TimeSettlement from './TimeSettlement';
 import TimesheetUpload from './TimesheetUpload';
+import IntakeQueue from './IntakeQueue';
 
 /**
  * Time Module — Phase A routes.
@@ -21,6 +22,7 @@ export default function TimeModule({ session }) {
         <Route path="overview"  element={<Navigate to="../entries" replace />} />
         <Route path="entries"   element={<MyTime session={session} />} />
         <Route path="upload"    element={<TimesheetUpload />} />
+        <Route path="intake"    element={<IntakeQueue />} />
         <Route path="review"    element={<ReviewQueue session={session} />} />
         <Route path="settlement" element={<TimeSettlement />} />
         <Route path="periods"   element={<Periods session={session} />} />

@@ -20,6 +20,7 @@ return [
     'actions' => [
         ['name' => 'My Time',            'route' => 'entries',    'permission' => 'time.entry.self'],
         ['name' => 'Upload Timesheet',   'route' => 'upload',     'permission' => 'time.entry.self'],
+        ['name' => 'Intake Queue',       'route' => 'intake',     'permission' => 'time.review'],
         ['name' => 'Review Queue',       'route' => 'review',     'permission' => 'time.review'],
         ['name' => 'Settlement',         'route' => 'settlement', 'permission' => 'time.settlement.view.billing'],
         ['name' => 'Inbox (AI)',         'route' => 'inbox',      'permission' => 'time.review'],

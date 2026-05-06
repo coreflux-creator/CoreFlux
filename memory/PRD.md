@@ -846,6 +846,37 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 
 **Bulk-people mode:** the same `TimesheetUpload` page now offers a radio toggle "Just my hours" vs "Many people (foreman log / crew sheet)". Bulk extraction uses a different AI schema (`{week_ending, people:[{person_name, lines:[...]}]}`) and the backend pre-resolves each person_name against `people` (exact match on `first_name+last_name` / `preferred_name+last_name` / `preferred_name`) so the UI can default the picker to a unique match. Per-line placement options are filtered to the chosen person's active placements. New audit metadata: `mode`, `people_count`.
 
+---
+*Sub-update — Email intake (poll + webhook) — this fork:*
+
+**Why:** Foreman emails the timesheet to a tenant inbox, system AI-extracts overnight, foreman walks in next morning to a pre-mapped review queue. Two paths converge on the same data model:
+
+**Path 1 — M365 / Gmail OAuth poll (per Time SPEC §B Slice 2b/2c):** uses existing `Core\MailService::poll_folder()`. Tenant connects mailbox via existing OAuth scaffold, points module='time' folder at the `timesheets` label. `POST /api/time/intake.php?action=poll` walks new messages with attachments, creates `time_intake_events` rows, and (when the driver supports `fetch_message_with_attachments()`) pipes attachments into the AI extract pipeline. M365GraphDriver currently only emits metadata; full attachment fetch is a one-method extension flagged in the response payload (`note` field) so the UI can call `?action=process&id=N` later.
+
+**Path 2 — SendGrid Inbound Parse / Postmark webhook (e):** `POST /api/time/intake.php?action=webhook&provider=sendgrid|postmark|generic` handles each provider's payload shape. **No platform-user auth** — verified via tenant's `time_intake_webhook_secret` (HMAC-SHA256 over the raw body). Tenant resolution: exact match on `tenants.time_intake_email_address` OR `time+t{TENANT_ID}-...@…` plus-addressing. Always returns 200 (even on tenant miss) so providers don't retry forever.
+
+**Migration 005 — `time_intake_events`:** unified inbox table covering all sources (poll/webhook/SMS-future). Idempotent on `(tenant_id, source, provider_message_id)` so re-poll is safe. Status flow `received → downloaded → extracted → dismissed | failed`. Two new tenant config columns: `time_intake_email_address` + `time_intake_webhook_secret`.
+
+**Lib — `lib/intake.php`:**
+- `timeIntakeRecordEvent()` — idempotent intake row + dedupe-ledger update.
+- `timeIntakeIngestAttachments()` — uploads each attachment to S3 via StorageService, registers via `storage_register.php`, creates `time_uploaded_documents` rows, runs **bulk** AI extract (foreman-log default), pre-resolves each `person_name` → `match_candidates`, persists draft + confidence, marks intake row `extracted`.
+- `timeIntakeIsTimesheetAttachment()` — filters out signature gifs / .ics calendar invites.
+- `timeIntakeVerifyWebhookHmac()`, `timeIntakeTenantFromAddress()` — webhook plumbing.
+
+**Lib — `lib/upload_helpers.php`:** extracted `timeUploadResolvePeople()` and `timeUploadConfidence()` from `api/upload.php` so they can be reused by intake without re-firing the upload route's `if($method...)` guards.
+
+**UI — `IntakeQueue.jsx`** at `/modules/time/intake`. Lists events with status badges, "Poll mail folder" button, per-row Process / Dismiss actions, and per-document deep-link into `TimesheetUpload`'s review UI.
+
+**Manifest:** new sidebar action "Intake Queue", new audits `time.intake.received | parsed | dismissed`.
+
+**Best-effort acknowledgment reply:** after webhook ingest, `MailService::send()` fires a "Got your timesheet — ready to review" email back to the foreman. Swallowed if no outbound driver configured.
+
+**Tests:** new `tests/time_intake_smoke.php` — 47 assertions across migration, lib, API, manifest, UI. Plus existing tests updated for the helper extraction. Full suite: **73 files / 4,293 / 4,293 passing.**
+
+**To activate the webhook path:** tenant admin sets `tenants.time_intake_email_address` to the chosen receive address (e.g. `time+t42-acme@inbound.coreflux.app`), generates a random `time_intake_webhook_secret`, plumbs SendGrid Inbound Parse to POST to `/api/time/intake.php?action=webhook&provider=sendgrid` with the secret in `X-CF-Intake-Signature` header.
+
+**To activate the poll path:** tenant admin OAuth-connects M365/Gmail in Settings (existing `start_oauth_flow` scaffold), creates a `tenant_mail_folders` row pointing at the `timesheets` label, sets `polling_enabled=1`. Cron POSTs `/api/time/intake.php?action=poll`. (Note: M365GraphDriver currently emits message metadata only; full attachment fetch is a future driver extension — intake rows are captured nonetheless.)
+
 *2026-02 — Sprints 1-4: Login UX + admin tools rebuild + executive dashboard (this fork):*
 - **Sprint 1 — Login + tenant module filter (18 assertions ✓)**
   - Killed the silent "Demo Mode" fallback. SPA now redirects to `/login.html?next=...` on a 401, and the login page rebounces back to the deep route after auth.

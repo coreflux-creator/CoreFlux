@@ -20,6 +20,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/time.php';
+require_once __DIR__ . '/../lib/upload_helpers.php';
 
 $ctx       = api_require_auth();
 $tenantId  = (int) $ctx['tenant_id'];
@@ -207,64 +208,3 @@ if ($method === 'POST' && $action === 'consume') {
 }
 
 api_error('Unknown action', 422);
-
-/**
- * Resolve each AI-extracted person_name to a candidate row in people_index.
- *
- * Match strategy:
- *   1. Exact match on `legal_name` (case-insensitive).
- *   2. Exact match on `CONCAT(first_name, ' ', last_name)`.
- *   3. Exact match on `preferred_name`.
- *
- * Each people-card returned to the UI gets `match_candidates: [{id, name}]`
- * — typically zero or one rows. The user always confirms before save.
- */
-function timeUploadResolvePeople(\PDO $pdo, int $tenantId, array $people): array
-{
-    if (empty($people)) return [];
-    foreach ($people as &$p) {
-        $name = trim((string) ($p['person_name'] ?? ''));
-        $p['match_candidates'] = [];
-        if ($name === '') continue;
-        $stmt = $pdo->prepare(
-            "SELECT id, first_name, last_name, preferred_name, email_primary
-               FROM people
-              WHERE tenant_id = :t
-                AND deleted_at IS NULL
-                AND (
-                       LOWER(CONCAT_WS(' ', first_name, last_name))           = LOWER(:n)
-                    OR LOWER(CONCAT_WS(' ', preferred_name, last_name))       = LOWER(:n)
-                    OR LOWER(preferred_name)                                  = LOWER(:n)
-                )
-              LIMIT 5"
-        );
-        $stmt->execute(['t' => $tenantId, 'n' => $name]);
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $display = trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? ''));
-            if ($display === '') $display = (string) ($row['preferred_name'] ?? '');
-            $p['match_candidates'][] = [
-                'id'            => (int) $row['id'],
-                'name'          => $display,
-                'email'         => $row['email_primary'] ?? null,
-            ];
-        }
-    }
-    return $people;
-}
-
-/**
- * Heuristic: fraction of extracted lines that have a parseable work_date
- * AND a non-zero hours value AND a project string.
- */
-function timeUploadConfidence(array $lines): float
-{
-    if (empty($lines)) return 0.0;
-    $good = 0;
-    foreach ($lines as $l) {
-        $hasDate    = !empty($l['work_date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $l['work_date']);
-        $hasHours   = !empty($l['hours']) && (float) $l['hours'] > 0;
-        $hasProject = !empty($l['project']);
-        if ($hasDate && $hasHours && $hasProject) $good++;
-    }
-    return round($good / count($lines), 3);
-}

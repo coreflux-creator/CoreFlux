@@ -86,7 +86,7 @@ sentinels:
 - tests/hardening_pass1_smoke.php
 - tests/schema_contract_smoke.php
 expected_bundle:
-- spa-assets/index-jGAwsFuz.js
+- spa-assets/index-DQHRPdks.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -163,3 +163,4 @@ last_known_features:
 - ap.vendor_portal.admin_review_queue
 - time.timesheet_upload_ai_extract
 - time.timesheet_upload_bulk_people
+- time.email_intake_webhook_and_poll
