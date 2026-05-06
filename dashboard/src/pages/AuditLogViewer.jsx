@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { api } from '../lib/api';
-import { ScrollText, Download, RefreshCw } from 'lucide-react';
+import { ScrollText, Download, RefreshCw, Sparkles } from 'lucide-react';
 
 /**
  * AuditLogViewer — admin-gated viewer for the unified audit_log
@@ -19,6 +19,9 @@ export default function AuditLogViewer({ session }) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState(null);
   const [expanded, setExpanded] = useState(null);
+  const [anomaly, setAnomaly] = useState(null);
+  const [anomalyLoading, setAnomalyLoading] = useState(false);
+  const [anomalyHours, setAnomalyHours] = useState(24);
 
   const queryString = useMemo(() => {
     const p = new URLSearchParams();
@@ -43,6 +46,18 @@ export default function AuditLogViewer({ session }) {
   };
 
   const csvHref = `/api/audit_log.php?${queryString}${queryString ? '&' : ''}format=csv`;
+
+  const runAnomalyCheck = async () => {
+    setAnomalyLoading(true);
+    try {
+      const r = await api.post(`/api/audit_anomaly.php?action=spot&hours=${anomalyHours}`);
+      setAnomaly(r);
+    } catch (e) {
+      setAnomaly({ error: e?.message || 'Failed to run anomaly check' });
+    } finally {
+      setAnomalyLoading(false);
+    }
+  };
 
   return (
     <section data-testid="audit-log-viewer" style={{ padding: 'var(--cf-space-6)' }}>
@@ -104,6 +119,91 @@ export default function AuditLogViewer({ session }) {
               data-testid="audit-count">
           {count} row{count === 1 ? '' : 's'}
         </span>
+      </div>
+
+      {/* Anomaly Spotter — AI advisory only */}
+      <div data-testid="audit-anomaly-card"
+           style={{ marginBottom: 16, padding: 14, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <Sparkles size={16} color="#0369a1" />
+          <strong style={{ fontSize: 13, color: '#075985' }}>AI anomaly spotter · advisory only</strong>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#475569', marginLeft: 8 }}>
+            Window
+            <select className="input"
+                    data-testid="audit-anomaly-hours"
+                    value={anomalyHours}
+                    onChange={e => setAnomalyHours(Number(e.target.value))}
+                    style={{ padding: '2px 6px', fontSize: 12 }}>
+              <option value={1}>1 hour</option>
+              <option value={6}>6 hours</option>
+              <option value={24}>24 hours</option>
+              <option value={72}>3 days</option>
+              <option value={168}>7 days</option>
+            </select>
+          </label>
+          <button className="btn btn--primary"
+                  data-testid="audit-anomaly-run"
+                  onClick={runAnomalyCheck}
+                  disabled={anomalyLoading}
+                  style={{ fontSize: 12, marginLeft: 'auto' }}>
+            <Sparkles size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+            {anomalyLoading ? 'Analysing…' : 'Spot anomalies'}
+          </button>
+        </div>
+
+        {anomaly?.error && (
+          <p className="error" data-testid="audit-anomaly-error" style={{ marginTop: 10, marginBottom: 0 }}>
+            {anomaly.error}
+          </p>
+        )}
+
+        {anomaly && !anomaly.error && (
+          <div style={{ marginTop: 12 }}>
+            {anomaly.summary
+              ? <p data-testid="audit-anomaly-summary" style={{ margin: 0, fontSize: 13, color: '#0c4a6e', lineHeight: 1.55 }}>
+                  {anomaly.summary}
+                </p>
+              : <p data-testid="audit-anomaly-empty" style={{ margin: 0, fontSize: 13, color: '#64748b', fontStyle: 'italic' }}>
+                  AI summary unavailable. Review the raw signals below.
+                </p>}
+
+            <div data-testid="audit-anomaly-signals"
+                 style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+              <span className="badge" data-testid="audit-anomaly-signal-total">
+                {anomaly.signals?.total_events ?? 0} total events
+              </span>
+              <span className="badge" data-testid="audit-anomaly-signal-offhours">
+                {anomaly.signals?.off_hours_count ?? 0} off-hours
+              </span>
+              <span className="badge" data-testid="audit-anomaly-signal-spikes">
+                {(anomaly.signals?.spike_events ?? []).length} spike event{(anomaly.signals?.spike_events ?? []).length === 1 ? '' : 's'}
+              </span>
+              <span className="badge" data-testid="audit-anomaly-signal-mass-exports">
+                {(anomaly.signals?.mass_export_users ?? []).length} mass-export user{(anomaly.signals?.mass_export_users ?? []).length === 1 ? '' : 's'}
+              </span>
+            </div>
+
+            {(anomaly.signals?.spike_events?.length > 0 || anomaly.signals?.mass_export_users?.length > 0 || anomaly.signals?.top_users?.length > 0) && (
+              <div style={{ marginTop: 10, fontSize: 12, color: '#334155' }}>
+                {anomaly.signals?.spike_events?.length > 0 && (
+                  <div data-testid="audit-anomaly-spike-list" style={{ marginBottom: 4 }}>
+                    <strong>Spikes:</strong> {anomaly.signals.spike_events.map(s => `${s.event} (${s.count})`).join(', ')}
+                  </div>
+                )}
+                {anomaly.signals?.mass_export_users?.length > 0 && (
+                  <div data-testid="audit-anomaly-mass-list" style={{ marginBottom: 4 }}>
+                    <strong>Mass exports (last hour):</strong> {anomaly.signals.mass_export_users.map(u => `${u.name} (${u.count})`).join(', ')}
+                  </div>
+                )}
+                {anomaly.signals?.top_users?.length > 0 && (
+                  <div data-testid="audit-anomaly-top-users">
+                    <strong>Top users:</strong> {anomaly.signals.top_users.map(u => `${u.name} (${u.count})`).join(', ')}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {error && <p className="error" data-testid="audit-error">Error: {error.message}</p>}

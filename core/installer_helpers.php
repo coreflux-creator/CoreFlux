@@ -166,11 +166,11 @@ SQL);
         // errors instead of aborting the whole file. Strip comment-only
         // lines so trailing comments after the last `;` don't trigger an
         // empty-query exec error.
-        $statements = array_filter(array_map('trim', preg_split('/;\s*\R/m', $sql)));
+        $statements = array_filter(array_map('trim', preg_split('/;\\s*\\R/m', $sql)));
         $skipped = 0;
         $hardErrors = [];
         foreach ($statements as $stmt) {
-            $clean = trim(preg_replace('/^\s*--.*$/m', '', $stmt));
+            $clean = trim(preg_replace('/^\\s*--.*$/m', '', $stmt));
             if ($clean === '' || $clean === ';') continue;
             try {
                 $pdo->exec($clean);

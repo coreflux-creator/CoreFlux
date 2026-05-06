@@ -470,6 +470,46 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 6i — Audit-log Anomaly Spotter, 2026-02)
+**Direct continuation of Sprint 6h. Adds the AI feature the user OK'd: an "anomaly spotter" banner on the audit-log viewer that surfaces spikes, off-hours actions, and mass-export sessions through the existing `aiAsk()` chokepoint.**
+
+### What shipped
+- **New** `api/audit_anomaly.php` — admin-gated POST `?action=spot&hours=N` (1-168). Computes 4 grounded signals from `audit_log`:
+  - **Spike events**: events whose count ≥ max(3× median, 10).
+  - **Off-hours count**: events where `HOUR(created_at) < 7 OR ≥ 19` (UTC).
+  - **Mass-export users (last hour)**: ≥ 5 events matching `%export%`/`%csv%`/`%download%` per user.
+  - **Top users**: top 3 by event volume in the window.
+  Routes through `aiAsk()` with `feature_class='narrative'` + `feature_key='audit.anomaly.spotter'`. Capped at 220 output tokens. Any throwable → empty summary so the UI degrades silently. Prompt instructs the model to surface observations only — never recommend account suspensions or password resets (advisory-only per AI_INTEGRATION_RULES).
+- `dashboard/src/pages/AuditLogViewer.jsx` — sky-blue advisory card above the results table:
+  - Window selector (1h / 6h / 24h / 3d / 7d).
+  - "Spot anomalies" button.
+  - AI summary paragraph (or fallback "review raw signals" line if model is unavailable).
+  - Signal chip strip (total / off-hours / spikes / mass-export users).
+  - Inline detail rows for spike list, mass-export list, and top users.
+  - Full testid coverage (`audit-anomaly-card`, `-run`, `-hours`, `-summary`, `-empty`, `-error`, `-signal-*`, `-spike-list`, `-mass-list`, `-top-users`).
+
+### Validation
+- **New** `tests/sprint6i_audit_anomaly_smoke.php` — **27/27 ✓** (admin gate, method/action whitelist, hours clamp, audit_log SQL, off-hours filter, mass-export pattern set, median-spike heuristic, AI feature_key, graceful degrade, signals envelope, full UI wiring).
+- Vite build green: 1811 modules → `index-BNq27wyF.js`. `spa-assets/index.html` + `.deploy-version` synced.
+- **Full PHP suite: 87 files, 0 failures**.
+
+### "Are we adding AI as we go?" — running tally
+7 live AI features now: AP risk explainer · Payroll anomaly narratives · People onboarding emails · Bill-PDF extract · Workflow Inbox summary (6d) · Period Close Readiness narrative (6e) · **Audit anomaly spotter (6i)**.
+
+## Recently completed (Sprint 6h — Treasury Bank Feed AI/Split + Migration runner fix, 2026-02)
+**User-reported bug-fix sprint. Fixes: cash-flow dead-end, Treasury bank feed missing AI/Intercompany affordances (only existed in Bank Rec), broken `/install.php` migration runner, missing `time_entries.person_id` column.**
+
+### What shipped
+- `core/installer_helpers.php::runMigrationsInProcess` — split SQL on `;\\s*\\R/m`, strip comment-only lines, per-statement `try/catch(\\Throwable)` recovery against an idempotency-safe pattern set (`Duplicate column name`, `Duplicate key name`, `already exists`, `Can't DROP`, `Unknown column`, `check that column/key exists`, `Multiple primary key defined`). Returns `applied`, `applied_with_skips`, `already_applied`, `unreadable`, or `failed` per file. Hard errors are `error_log`'d.
+- **New** `modules/time/migrations/007_backfill_person_id.sql` — adds `time_entries.person_id` + index, backfills from `placements.worker_id`. Idempotent (`Duplicate column name` comment + guarded ALTERs).
+- `modules/treasury/api/account_transactions.php` — new `?action=split_categorize` posts ONE balanced JE via `accountingPostJe` from N split rows, supports per-row `entity_id` (intercompany), validates sum-vs-line-amount, idempotency_key prefixed `treasury_feed_split`, marks line matched after post.
+- `modules/treasury/ui/AccountTransactions.jsx` — per-row "AI cat" + "Split / IC" buttons, `TreasuryAiResultPanel` reads nested `ai.suggestion` shape with confidence percentage, `SplitIcPanel` sums balanced check + IC entity_id picker.
+- `modules/accounting/ui/BankReconciliation.jsx::AiResultPanel` — fixed to read nested suggestion (no more raw JSON.stringify dump).
+
+### Validation
+- **New** `tests/sprint6h_treasury_ai_split_smoke.php` — **39/39 ✓**.
+- All 86 prior smoke files still green.
+
 ## Recently completed (Sprint 6g — Financial statements no-more-500 + smarter exception handler, 2026-02)
 **User reported BS / IS / TB / CF all returning "Internal Server Error" + asked for thorough module pass. This sprint extends the Sprint 6f pattern across the four core financial reports + the global exception handler.**
 

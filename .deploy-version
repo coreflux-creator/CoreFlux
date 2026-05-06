@@ -85,8 +85,11 @@ sentinels:
 - tests/plaid_account_select_and_remove_smoke.php
 - tests/hardening_pass1_smoke.php
 - tests/schema_contract_smoke.php
+- api/audit_anomaly.php
+- tests/sprint6i_audit_anomaly_smoke.php
+- modules/time/migrations/007_backfill_person_id.sql
 expected_bundle:
-- spa-assets/index-BTP3iZI4.js
+- spa-assets/index-BNq27wyF.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -226,3 +229,9 @@ last_known_features:
 - ux.financial_statements.no_more_500
 - ux.global_exception_handler.surface_sql_details
 - ux.shared_data_warning_component
+- ai.audit.anomaly_spotter
+- treasury.bank_feed.split_categorize
+- treasury.bank_feed.intercompany_split
+- treasury.bank_feed.ai_categorize_panel
+- core.installer.migration_runner_idempotent
+- time.entries.person_id_backfill
