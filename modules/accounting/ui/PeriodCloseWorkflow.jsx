@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 
 /**
  * PeriodCloseWorkflow — runs the 9-step accounting close checklist
@@ -19,7 +20,8 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
  * packet build event.
  */
 export default function PeriodCloseWorkflow() {
-  const periodsApi = useApi('/modules/accounting/api/periods.php');
+  const { activeEntityId, activeEntity, entityQuery } = useActiveEntity();
+  const periodsApi = useApi('/modules/accounting/api/periods.php' + entityQuery('?'));
   const periods = periodsApi.data?.rows ?? [];
   const [periodId, setPeriodId] = useState(null);
 
@@ -76,6 +78,11 @@ export default function PeriodCloseWorkflow() {
         <p style={{ margin: '4px 0 0', fontSize: 13, color: '#666' }}>
           Pick a period, seed the 9-step checklist, walk it task-by-task, and build the printable close packet.
         </p>
+        {activeEntity && (
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: '#1e40af' }} data-testid="close-entity-scope">
+            Scoped to entity <code>{activeEntity.code}</code>.
+          </p>
+        )}
       </header>
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>

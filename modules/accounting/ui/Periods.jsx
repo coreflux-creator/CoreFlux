@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 
 /**
  * Periods — list with status badges + close / reopen actions.
@@ -9,7 +10,9 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
  *                      → reopened (audit-required reason)
  */
 export default function Periods() {
-  const { data, loading, error, reload } = useApi('/modules/accounting/api/periods.php');
+  const { activeEntityId, activeEntity, entityQuery } = useActiveEntity();
+  const apiUrl = '/modules/accounting/api/periods.php' + entityQuery('?');
+  const { data, loading, error, reload } = useApi(apiUrl);
   const rows = data?.rows ?? [];
   const [busy, setBusy] = useState(null);
   const [err2, setErr2] = useState(null);
@@ -38,6 +41,11 @@ export default function Periods() {
         <p style={{ margin: '4px 0 0', fontSize: 13, color: '#666' }}>
           Auto-created on first post per month. Close monthly to lock the books; reopens are audit-logged with a required reason.
         </p>
+        {activeEntity && (
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: '#1e40af' }} data-testid="accounting-periods-entity-scope">
+            Scoped to entity <code>{activeEntity.code}</code> — switch entity in the header to see another set.
+          </p>
+        )}
       </header>
       {loading && <p>Loading…</p>}
       {error   && <p className="error">Error: {error.message}</p>}

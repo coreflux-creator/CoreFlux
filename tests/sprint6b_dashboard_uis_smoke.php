@@ -73,7 +73,7 @@ foreach (['dimensions-row-','dimensions-deactivate-','dimensions-values-','dimen
 
 echo "\nPeriodCloseWorkflow component\n";
 $pc = (string) file_get_contents("{$ROOT}/modules/accounting/ui/PeriodCloseWorkflow.jsx");
-$assert('GET periods list',                          stripos($pc, "useApi('/modules/accounting/api/periods.php')") !== false);
+$assert('GET periods list',                          stripos($pc, "/modules/accounting/api/periods.php") !== false);
 $assert('GET close_tasks by period',                 stripos($pc, "/modules/accounting/api/close_tasks.php?period_id=") !== false);
 $assert('POST seed checklist',                       stripos($pc, "/modules/accounting/api/close_tasks.php?action=seed") !== false);
 $assert('POST complete task',                        stripos($pc, "/modules/accounting/api/close_tasks.php?action=complete&id=") !== false);
@@ -138,7 +138,7 @@ foreach ([
 }
 
 echo "\nVite bundle synced\n";
-$bundleHash = 'index-DmiPTzYh.js';
+$bundleHash = 'index-BunRMujp.js';
 $assert('compiled JS in spa-assets',                 is_file("{$ROOT}/spa-assets/{$bundleHash}"));
 $indexHtml = (string) file_get_contents("{$ROOT}/spa-assets/index.html");
 $assert('spa-assets/index.html references new JS',   stripos($indexHtml, $bundleHash) !== false);

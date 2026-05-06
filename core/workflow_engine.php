@@ -151,11 +151,51 @@ function workflowStart(int $tenantId, string $defKey, string $subjectType, int $
         'def_key' => $defKey, 'subject_type' => $subjectType, 'subject_id' => $subjectId,
     ]);
 
-    // Fire push to step-1 approvers.
-    $step1 = $steps[0];
-    _workflowPushApprovers($tenantId, $instanceId, $subjectType, $subjectId, $step1, $payload);
+    // Fire push to step-1 approvers, unless the caller (e.g. the AP
+    // router which emits its own AI-narrated push) asks us to stay quiet.
+    if (empty($payload['suppress_push'])) {
+        $step1 = $steps[0];
+        _workflowPushApprovers($tenantId, $instanceId, $subjectType, $subjectId, $step1, $payload);
+    }
 
     return _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
+}
+
+/**
+ * Idempotent-by-shape definition upsert. Computes a stable hash of
+ * `$steps + $label` and only bumps the definition's version when the
+ * hash actually changes. Callers that know they want "one workflow
+ * definition per AP approval policy" (or any other runtime-computed
+ * chain) can call this instead of the raw `workflowDefine` to avoid
+ * orphaning a new version row on every route.
+ *
+ * @return int   definition id (existing or newly inserted)
+ */
+function workflowEnsureDefinition(int $tenantId, string $defKey, string $subjectType, string $label, array $steps, array $opts = []): int {
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No DB');
+    if (!$steps) throw new \InvalidArgumentException('steps required');
+
+    $hashInput = json_encode(['l' => $label, 's' => $steps], JSON_UNESCAPED_SLASHES);
+    $shapeHash = substr(hash('sha256', (string) $hashInput), 0, 16);
+
+    $stmt = $pdo->prepare(
+        "SELECT id, steps_json, label FROM workflow_definitions
+          WHERE tenant_id = :t AND def_key = :k AND active = 1
+          ORDER BY version DESC LIMIT 1"
+    );
+    $stmt->execute(['t' => $tenantId, 'k' => $defKey]);
+    $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($existing) {
+        $existingHash = substr(hash('sha256', (string) json_encode(
+            ['l' => $existing['label'], 's' => json_decode((string) $existing['steps_json'], true) ?: []],
+            JSON_UNESCAPED_SLASHES
+        )), 0, 16);
+        if ($existingHash === $shapeHash) return (int) $existing['id'];
+    }
+
+    $def = workflowDefine($tenantId, $defKey, $subjectType, $label, $steps, $opts);
+    return (int) $def['id'];
 }
 
 /**
@@ -198,7 +238,10 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
     ]);
 
     if ($action === 'reject') {
-        return _workflowComplete($tenantId, $instanceId, WORKFLOW_STATUS_REJECTED, $userId, $comment);
+        $result = _workflowComplete($tenantId, $instanceId, WORKFLOW_STATUS_REJECTED, $userId, $comment);
+        _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
+                             $action, $userId, WORKFLOW_STATUS_REJECTED);
+        return $result;
     }
     if ($action === 'comment') {
         $pdo->prepare("UPDATE workflow_instances SET last_activity_at = NOW() WHERE id = :id")->execute(['id' => $instanceId]);
@@ -227,13 +270,21 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
 
     if ($approved < $quorum) {
         $pdo->prepare("UPDATE workflow_instances SET last_activity_at = NOW() WHERE id = :id")->execute(['id' => $instanceId]);
+        // Sync the individual approval back to the legacy subject store
+        // (e.g. ap_bill_approvals) even when the workflow itself hasn't
+        // advanced yet, so per-approver rows flip 'pending' → 'approved'.
+        _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
+                             $action, $userId, WORKFLOW_STATUS_PENDING);
         return _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
     }
 
     // Advance to next step or complete.
     $nextIdx = $stepIdx + 1;
     if (!isset($steps[$nextIdx])) {
-        return _workflowComplete($tenantId, $instanceId, WORKFLOW_STATUS_APPROVED, $userId, $comment);
+        $result = _workflowComplete($tenantId, $instanceId, WORKFLOW_STATUS_APPROVED, $userId, $comment);
+        _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
+                             $action, $userId, WORKFLOW_STATUS_APPROVED);
+        return $result;
     }
     $nextStep = $steps[$nextIdx];
     $sla = (int) ($nextStep['sla_hours'] ?? 0);
@@ -253,7 +304,30 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
         $nextStep, json_decode((string) ($instance['payload_json'] ?? '{}'), true) ?: []
     );
 
+    // Sync the per-approver decision that caused the advance.
+    _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
+                         $action, $userId, WORKFLOW_STATUS_PENDING);
+
     return _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
+}
+
+/**
+ * Pluggable subject-sync dispatch. Currently only `ap_bill` has a
+ * legacy mirror; other subject types are no-ops. Kept at the bottom
+ * of the engine so the core stays vertical-agnostic — each vertical
+ * owns its own sync file under its module.
+ */
+function _workflowSubjectSync(int $tenantId, string $subjectType, int $subjectId, string $action, ?int $userId, string $instanceStatus): void {
+    try {
+        if ($subjectType === 'ap_bill') {
+            require_once __DIR__ . '/../modules/ap/lib/workflow_sync.php';
+            if (function_exists('apSyncFromWorkflow')) {
+                apSyncFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus);
+            }
+        }
+    } catch (\Throwable $_) {
+        // Absolutely non-fatal.
+    }
 }
 
 /**

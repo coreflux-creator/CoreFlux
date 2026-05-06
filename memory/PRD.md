@@ -470,6 +470,41 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 6c — AP → WorkflowEngine cutover + module entity scope, 2026-02)
+**Paired cutover: legacy AP bill approvals start mirroring into the generic WorkflowEngine, and the multi-entity header switcher starts actually scoping accounting queries.**
+
+### AP → WorkflowEngine cutover (dual-track, non-destructive)
+- `core/workflow_engine.php`:
+  - **New** `workflowEnsureDefinition(tenantId, defKey, subjectType, label, steps, opts)` — idempotent upsert keyed on a stable `sha256(label + steps)` shape hash so runtime-computed chains (like per-policy AP approval ladders) don't bump a new version on every route. Only bumps when the shape actually changes.
+  - `workflowStart` now honours `payload.suppress_push` so the AP router can emit its own AI-narrated push without double-notifying from the engine.
+  - **New** `_workflowSubjectSync(tenantId, subjectType, subjectId, action, userId, instanceStatus)` pluggable dispatcher — called from every `workflowAct` branch (reject, per-step advance, final approve). Requires `/modules/ap/lib/workflow_sync.php` only when `subjectType === 'ap_bill'`; other verticals no-op. Keeps the engine vertical-agnostic while giving AP a concrete mirror hook.
+- `modules/ap/lib/approval_router.php::apRouteBillForApproval` — after inserting the legacy `ap_bill_approvals` rows, now additionally:
+  1. Calls `workflowEnsureDefinition(tenantId, 'ap_bill_policy_<id>', 'ap_bill', policyName, chain)`.
+  2. Calls `workflowStart(tenantId, defKey, 'ap_bill', billId, payload, actorUserId)` with `suppress_push=true`.
+  3. Stores the resulting `workflow_instance_id` on the AP push payload + opts so the push tap deep-links to `coreflux://approvals/<workflow_instance_id>` — meaning existing AP bills now ride the Sprint 6a mobile 1-tap flow automatically.
+  4. Returns `workflow_instance_id` alongside the legacy `approval_ids` in the result. Entire block is wrapped in `try/catch(\Throwable)` so any workflow-side hiccup MUST NOT break the legacy path — legacy `ap_bill_approvals` remains the source of truth until the Phase-2 rip-out.
+- **New** `modules/ap/lib/workflow_sync.php::apSyncFromWorkflow(tenantId, billId, action, userId, instanceStatus)` — the mirror hook called from the engine. Approves/rejects the caller's `ap_bill_approvals` row (scoped to `approver_user_id` + `state='pending'`), and when the full workflow instance flips to `approved`, updates `ap_bills.status='approved'` + `approved_at=NOW()`. On reject, updates `ap_bills.status='disputed'`. Uses real column names (`decision_at`, not `decided_at`) — schema contract verified.
+
+### Module entity-scope listeners
+- **New** `dashboard/src/lib/useActiveEntity.js` — shared hook that:
+  - Loads `/api/active_entity.php` on mount.
+  - Listens for the `cf:active-entity-changed` window event that Header.jsx's multi-entity dropdown dispatches.
+  - Exposes `{ activeEntityId, activeEntity, entities, entityQuery('?'|'&'), loaded, reload }`.
+  - `entityQuery('?')` returns `?entity_id=N` (or empty when no entity active) so callers can unconditionally concatenate: `` `${baseUrl}${entityQuery('?')}` ``.
+- Wired into:
+  - `modules/accounting/ui/JournalEntries.jsx` — appends `entity_id` to the filter query string + shows an "entity" pill in the filter bar (testid `accounting-journal-filter-entity`).
+  - `modules/accounting/ui/Periods.jsx` — filters the periods list to the active entity + shows a scope notice (testid `accounting-periods-entity-scope`).
+  - `modules/accounting/ui/PeriodCloseWorkflow.jsx` — scopes the period dropdown to the active entity + shows a scope notice (testid `close-entity-scope`).
+- Switching entity in the Header now re-renders these three lists immediately without a page reload.
+
+### Validation
+- **New** `tests/sprint6c_ap_workflow_cutover_smoke.php` — **48/48 ✓**: workflow_engine extensions (ensureDefinition + suppress_push + subject sync hook wired into all 3 workflowAct branches), workflow_sync.php uses schema-correct column names (`decision_at`), approval_router calls workflowEnsureDefinition + workflowStart for `ap_bill` subject, useActiveEntity hook shape, three accounting UI components thread the active entity, ap_bill_approvals schema contract.
+- Vite build green: 1811 modules → `index-BunRMujp.js` (997 kB). `spa-assets/index.html` + `.deploy-version` synced.
+- **Full PHP suite: 81 files / 3,699 assertions ✓**, zero regressions.
+
+### Paused (user decision 2026-02)
+Per user request — pausing anything that requires user-side credentials: Resend email flip, AWS S3 storage flip, and email-intake wiring. Log drivers / LocalDriver remain safe defaults.
+
 ## Recently completed (Sprint 6b — Web Dashboard UIs, 2026-02)
 **Closes the foundation phase. Five new dashboards consume backends shipped in Sprints 2-4 + 6a, giving web users feature parity with what mobile gained in 6a.**
 

@@ -86,7 +86,7 @@ sentinels:
 - tests/hardening_pass1_smoke.php
 - tests/schema_contract_smoke.php
 expected_bundle:
-- spa-assets/index-DmiPTzYh.js
+- spa-assets/index-BunRMujp.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -203,3 +203,10 @@ last_known_features:
 - accounting.dimensions_admin_ui
 - accounting.period_close_workflow_ui
 - web.multi_entity_switcher_header
+- ap.workflow_engine_cutover
+- core.workflow.ensure_definition
+- core.workflow.subject_sync_hook
+- web.use_active_entity_hook
+- accounting.entity_scoped_journal_entries
+- accounting.entity_scoped_periods
+- accounting.entity_scoped_close_workflow

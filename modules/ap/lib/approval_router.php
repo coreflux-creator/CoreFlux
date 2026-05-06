@@ -131,6 +131,49 @@ function apRouteBillForApproval(int $tenantId, array $bill, ?int $actorUserId = 
         } catch (\Throwable $_) { /* duplicate or schema drift — non-fatal */ }
     }
 
+    // Sprint 6-cutover — also mirror the routing into the generic
+    // WorkflowEngine so the bill shows up in the cross-module `/inbox`
+    // and mobile pushes carry `coreflux://approvals/<instance_id>` deep
+    // links. Best-effort: failure here MUST NOT break the legacy
+    // ap_bill_approvals flow above, which is still the source of truth
+    // until Phase-2 rip-out.
+    $workflowInstanceId = null;
+    try {
+        require_once __DIR__ . '/../../../core/workflow_engine.php';
+        $policyId   = $eval['policy_id'] ?? 0;
+        $policyName = (string) ($eval['policy_name'] ?? 'AP bill approval');
+        $defKey     = 'ap_bill_policy_' . ($policyId ?: 'default');
+        $defId      = workflowEnsureDefinition(
+            $tenantId, $defKey, 'ap_bill', $policyName, $eval['chain']
+        );
+        $instance = workflowStart(
+            $tenantId,
+            $defKey,
+            'ap_bill',
+            $billId,
+            [
+                'title'         => 'AP bill needs approval',
+                'body'          => sprintf('Bill #%d for $%s%s. Open to review.',
+                                    $billId,
+                                    number_format((float) ($bill['total_amount'] ?? 0), 2),
+                                    $eval['risk']['level'] !== 'none' ? " ({$eval['risk']['level']} risk)" : ''),
+                'deep_link'     => '/modules/ap/bills/' . $billId,
+                // mobile_deep_link defaults to coreflux://approvals/<instance_id>
+                // which workflow_engine fills in automatically; no override needed.
+                'amount_label'  => '$' . number_format((float) ($bill['total_amount'] ?? 0), 2),
+                'risk'          => $eval['risk']['level'],
+                'policy_id'     => $policyId,
+                'bill_id'       => $billId,
+                'suppress_push' => true,  // AP router emits its own AI-narrated push below
+            ],
+            $actorUserId
+        );
+        $workflowInstanceId = (int) ($instance['id'] ?? 0);
+        unset($defId);
+    } catch (\Throwable $_) {
+        // Non-fatal — legacy ap_bill_approvals path remains the source of truth.
+    }
+
     // Fire push notifications to step-1 approvers (best-effort).
     $pushCount = 0;
     if ($apIds) {
@@ -153,6 +196,13 @@ function apRouteBillForApproval(int $tenantId, array $bill, ?int $actorUserId = 
         $opts = [
             'category'        => 'ap_bill_approval',
             'deep_link'       => '/modules/ap/bills/' . $billId,
+            // Sprint 6-cutover: if we successfully created a workflow
+            // instance, carry its mobile deep link on the AP push so
+            // tapping the notification lands directly on the single-bill
+            // approval screen in the Expo app.
+            'mobile_deep_link'=> $workflowInstanceId
+                                    ? "coreflux://approvals/{$workflowInstanceId}"
+                                    : null,
             'source_module'   => 'ap',
             'source_event'    => 'bill.routed_for_approval',
             'source_ref_type' => 'ap_bill',
@@ -160,20 +210,22 @@ function apRouteBillForApproval(int $tenantId, array $bill, ?int $actorUserId = 
         ];
         foreach ($step1['approver_user_ids'] as $uid) {
             $pushCount += pushSendToUser($tenantId, (int) $uid, $title, $body, [
-                'bill_id'     => $billId,
-                'amount'      => (float) ($bill['total_amount'] ?? 0),
-                'risk_level'  => $eval['risk']['level'],
-                'policy_id'   => $eval['policy_id'],
+                'bill_id'              => $billId,
+                'amount'               => (float) ($bill['total_amount'] ?? 0),
+                'risk_level'           => $eval['risk']['level'],
+                'policy_id'            => $eval['policy_id'],
+                'workflow_instance_id' => $workflowInstanceId,
             ], $opts);
         }
     }
 
     return [
-        'policy_id'    => $eval['policy_id'],
-        'approval_ids' => $apIds,
-        'push_count'   => $pushCount,
-        'risk'         => $eval['risk'],
-        'matched'      => true,
+        'policy_id'            => $eval['policy_id'],
+        'approval_ids'         => $apIds,
+        'workflow_instance_id' => $workflowInstanceId,
+        'push_count'           => $pushCount,
+        'risk'                 => $eval['risk'],
+        'matched'              => true,
     ];
 }
 

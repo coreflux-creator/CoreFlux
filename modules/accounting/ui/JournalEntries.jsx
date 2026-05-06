@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 
 /**
  * Journal Entries — list, detail, manual post, reverse.
@@ -19,6 +20,7 @@ export default function JournalEntries() {
 
 function List({ onOpen, onNew }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { activeEntityId, activeEntity } = useActiveEntity();
   const accountCode = searchParams.get('account_code') || '';
   const from        = searchParams.get('from')         || '';
   const to          = searchParams.get('to')           || '';
@@ -26,10 +28,11 @@ function List({ onOpen, onNew }) {
   if (accountCode) qs.set('account_code', accountCode);
   if (from)        qs.set('from', from);
   if (to)          qs.set('to', to);
+  if (activeEntityId) qs.set('entity_id', String(activeEntityId));
   const apiUrl = '/modules/accounting/api/journal_entries.php' + (qs.toString() ? `?${qs}` : '');
   const { data, loading, error } = useApi(apiUrl);
   const rows = data?.rows ?? [];
-  const filterActive = !!(accountCode || from || to);
+  const filterActive = !!(accountCode || from || to || activeEntityId);
   return (
     <div data-testid="accounting-journal-list">
       <header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -41,6 +44,7 @@ function List({ onOpen, onNew }) {
           <span>
             Filtered by{accountCode ? <> account <code>{accountCode}</code></> : null}
             {from ? <> · from {from}</> : null}{to ? <> · to {to}</> : null}
+            {activeEntity ? <> · entity <code data-testid="accounting-journal-filter-entity">{activeEntity.code}</code></> : null}
           </span>
           <button className="btn btn--ghost" data-testid="accounting-journal-filter-clear" onClick={() => setSearchParams({})} style={{ padding: '0 6px' }}>×</button>
         </div>
