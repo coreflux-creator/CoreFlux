@@ -104,7 +104,16 @@ function spaBundleStatus(string $root): array {
 
 /**
  * Apply pending migrations. Returns a per-file log:
- *   [ ['file' => 'core/migrations/...', 'status' => 'applied'|'already_applied'|'unreadable'], ... ]
+ *   [ ['file' => '...', 'status' => 'applied'|'applied_with_skips'|'already_applied'|'unreadable'|'failed',
+ *      'skipped' => N,   // idempotency skips ("column already exists", etc.)
+ *      'errors'  => [],  // any HARD errors (real failures)
+ *   ], ... ]
+ *
+ * Idempotency: catches "Duplicate column / already exists / Duplicate key"
+ * and similar safe errors at the per-statement level. A migration that
+ * has been partially applied by the runtime self-heal (e.g.
+ * `_treasuryEnsurePlaidBalanceColumns`) will now still register as
+ * applied without aborting the whole update.
  */
 function runMigrationsInProcess(): array {
     require_once __DIR__ . '/config.php';
@@ -133,6 +142,18 @@ SQL);
     $paths = array_values(array_filter($paths, fn(string $p) => !preg_match('#/modules/_[^/]+/#', $p)));
     sort($paths);
 
+    // Idempotency-safe error fragments. Hitting any of these means the
+    // statement was a no-op against an already-converged schema.
+    $safePatterns = [
+        'Duplicate column name',
+        'Duplicate key name',
+        'already exists',
+        'check that column/key exists',
+        'Multiple primary key defined',
+        "Can't DROP",                  // dropping a column / index that's already gone
+        'Unknown column',              // referencing a column we just attempted to drop
+    ];
+
     $log = [];
     $insert = $pdo->prepare('INSERT INTO coreflux_migrations (file_path, checksum_sha) VALUES (:p, :c)');
     foreach ($paths as $abs) {
@@ -140,9 +161,42 @@ SQL);
         if (isset($applied[$rel])) { $log[] = ['file' => $rel, 'status' => 'already_applied']; continue; }
         $sql = file_get_contents($abs);
         if ($sql === false) { $log[] = ['file' => $rel, 'status' => 'unreadable']; continue; }
-        $pdo->exec($sql);
-        $insert->execute(['p' => $rel, 'c' => hash('sha256', $sql)]);
-        $log[] = ['file' => $rel, 'status' => 'applied'];
+
+        // Split on ;\R so we can per-statement-recover from idempotency
+        // errors instead of aborting the whole file. Strip comment-only
+        // lines so trailing comments after the last `;` don't trigger an
+        // empty-query exec error.
+        $statements = array_filter(array_map('trim', preg_split('/;\s*\R/m', $sql)));
+        $skipped = 0;
+        $hardErrors = [];
+        foreach ($statements as $stmt) {
+            $clean = trim(preg_replace('/^\s*--.*$/m', '', $stmt));
+            if ($clean === '' || $clean === ';') continue;
+            try {
+                $pdo->exec($clean);
+            } catch (\Throwable $e) {
+                $msg = $e->getMessage();
+                $isSafe = false;
+                foreach ($safePatterns as $p) { if (stripos($msg, $p) !== false) { $isSafe = true; break; } }
+                if ($isSafe) { $skipped++; continue; }
+                $hardErrors[] = substr($msg, 0, 240);
+                error_log("[runMigrationsInProcess] {$rel}: {$msg}");
+            }
+        }
+
+        if ($hardErrors) {
+            $log[] = ['file' => $rel, 'status' => 'failed', 'skipped' => $skipped, 'errors' => $hardErrors];
+            continue;
+        }
+
+        try {
+            $insert->execute(['p' => $rel, 'c' => hash('sha256', $sql)]);
+        } catch (\Throwable $_) { /* race/dup — non-fatal */ }
+        $log[] = [
+            'file'    => $rel,
+            'status'  => $skipped ? 'applied_with_skips' : 'applied',
+            'skipped' => $skipped,
+        ];
     }
     return $log;
 }

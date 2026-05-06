@@ -26,6 +26,23 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   const [syncErr, setSyncErr] = useState(null);
   const [categorizingId, setCategorizingId] = useState(null);
   const [rowError, setRowError] = useState(null);
+  // Sprint 6h — AI cat. + Split/IC affordances now mirror Bank Rec.
+  const [aiBusyId, setAiBusyId] = useState(null);
+  const [aiPanelByLine, setAiPanelByLine] = useState({});  // { [lineId]: aiResp }
+  const [splitId, setSplitId] = useState(null);
+
+  const fetchAiCat = async (lineId) => {
+    setAiBusyId(lineId); setRowError(null);
+    try {
+      const res = await api.post('/modules/accounting/api/bank_ai.php?action=suggest_categorize', { line_id: lineId });
+      setAiPanelByLine(prev => ({ ...prev, [lineId]: { action: 'suggest_categorize', ...res } }));
+    } catch (e) {
+      setRowError(`AI suggestion failed: ${e.message}`);
+    } finally {
+      setAiBusyId(null);
+    }
+  };
+  const dismissAi = (lineId) => setAiPanelByLine(prev => { const p = { ...prev }; delete p[lineId]; return p; });
 
   const rows  = data?.rows || [];
   const count = data?.count || 0;
@@ -237,6 +254,27 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                         <button
                           type="button"
                           className="btn btn--ghost"
+                          onClick={() => fetchAiCat(r.id)}
+                          disabled={aiBusyId === r.id}
+                          data-testid={`treasury-txn-ai-cat-${r.id}`}
+                          style={{ padding: '2px 8px', fontSize: 11, marginRight: 4, color: '#0369a1' }}
+                          title="Ask AI for a category suggestion"
+                        >
+                          {aiBusyId === r.id ? '…' : '✨ AI cat.'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--ghost"
+                          onClick={() => setSplitId(splitId === r.id ? null : r.id)}
+                          data-testid={`treasury-txn-split-${r.id}`}
+                          style={{ padding: '2px 8px', fontSize: 11, marginRight: 4 }}
+                          title="Split this line across multiple accounts (intercompany supported)"
+                        >
+                          Split / IC
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--ghost"
                           onClick={() => ignoreLine(r.id)}
                           data-testid={`treasury-txn-ignore-${r.id}`}
                           style={{ padding: '2px 8px', fontSize: 11 }}
@@ -280,6 +318,43 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                     )}
                     onCancel={() => setCategorizingId(null)}
                   />
+                )}
+                {aiPanelByLine[r.id] && (
+                  <tr data-testid={`treasury-txn-ai-result-${r.id}`}>
+                    <td colSpan={type === 'liability' ? 6 : 5}
+                        style={{ background: '#f0f9ff', padding: 12, borderLeft: '3px solid #0369a1' }}>
+                      <TreasuryAiResultPanel
+                        line={r}
+                        ai={aiPanelByLine[r.id]}
+                        onDismiss={() => dismissAi(r.id)}
+                        onAccept={(accountId) => {
+                          const sug = aiPanelByLine[r.id]?.suggestion || {};
+                          dismissAi(r.id);
+                          categorizeAndPost(r.id, accountId, sug.reasoning || null, sug.suggestion_id || null);
+                        }}
+                      />
+                    </td>
+                  </tr>
+                )}
+                {splitId === r.id && (
+                  <tr data-testid={`treasury-txn-split-row-${r.id}`}>
+                    <td colSpan={type === 'liability' ? 6 : 5}
+                        style={{ background: '#fefce8', padding: 12, borderLeft: '3px solid #ca8a04' }}>
+                      <SplitIcPanel
+                        line={r}
+                        accounts={eligibleAccounts}
+                        onSubmit={async (splits) => {
+                          try {
+                            await api.post('/modules/treasury/api/account_transactions.php?action=split_categorize', {
+                              line_id: r.id, type, splits,
+                            });
+                            setSplitId(null); reload();
+                          } catch (e) { setRowError(`Split failed: ${e.message}`); }
+                        }}
+                        onCancel={() => setSplitId(null)}
+                      />
+                    </td>
+                  </tr>
                 )}
               </React.Fragment>
             ))}
@@ -441,5 +516,185 @@ function CategorizeRow({ line, type, accounts, aiSuggestion, onSave, onCancel })
         </p>
       </td>
     </tr>
+  );
+}
+
+/**
+ * Sprint 6h — AI categorization result panel (matches the Bank Rec
+ * version). Renders the structured `bank_ai.php?action=suggest_categorize`
+ * response as confidence + reasoning + Accept button instead of raw JSON.
+ */
+function TreasuryAiResultPanel({ line, ai, onDismiss, onAccept }) {
+  // bank_ai.php returns { suggestion: {...}, review_required }.
+  const sug = ai.suggestion || {};
+  const conf = Math.round(((sug.confidence ?? 0)) * 100);
+  const suggestedAccountId = sug.suggested_account_id ?? null;
+  const reasoning          = sug.reasoning ?? '';
+  const source             = sug.source    ?? 'none';
+  const noSuggest = !suggestedAccountId || conf < 1;
+  return (
+    <div data-testid={`treasury-ai-result-${line.id}`}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+        <span style={{ fontSize: 12, color: '#0369a1', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          ✨ AI category suggestion
+        </span>
+        {!noSuggest && (
+          <span data-testid={`treasury-ai-result-confidence-${line.id}`}
+                style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12,
+                         background: conf >= 80 ? '#dcfce7' : conf >= 50 ? '#fef3c7' : '#fee2e2',
+                         color: conf >= 80 ? '#166534' : conf >= 50 ? '#92400e' : '#991b1b' }}>
+            {conf}% · {source}
+          </span>
+        )}
+      </div>
+      {noSuggest ? (
+        <p data-testid={`treasury-ai-result-empty-${line.id}`} style={{ margin: '4px 0', color: '#475569', fontSize: 13 }}>
+          {reasoning || 'No confident suggestion — open the Categorize dialog to pick an account manually.'}
+        </p>
+      ) : (
+        <>
+          <p style={{ margin: '4px 0', fontSize: 13, color: '#0f172a' }}>
+            Suggested counter account: <code data-testid={`treasury-ai-result-account-${line.id}`}
+              style={{ background: '#fff', padding: '2px 6px', borderRadius: 4 }}>#{suggestedAccountId}</code>
+          </p>
+          {reasoning && <p style={{ margin: '4px 0', color: '#334155', fontSize: 12, lineHeight: 1.5 }}>{reasoning}</p>}
+        </>
+      )}
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        {!noSuggest && (
+          <button type="button" className="btn btn--primary"
+                  onClick={() => onAccept(suggestedAccountId)}
+                  data-testid={`treasury-ai-result-accept-${line.id}`}
+                  style={{ padding: '4px 12px', fontSize: 12 }}>
+            Accept &amp; post
+          </button>
+        )}
+        <button type="button" className="btn btn--ghost"
+                onClick={onDismiss}
+                data-testid={`treasury-ai-result-dismiss-${line.id}`}
+                style={{ padding: '4px 12px', fontSize: 12 }}>
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Sprint 6h — Split / Intercompany categorization. Lets the user post
+ * one bank line as a balanced JE that DRs / CRs multiple accounts. The
+ * sum of split lines must match the bank line's absolute amount.
+ *
+ * Intercompany support: each row has an optional `entity_id` so a
+ * "transfer from Entity A to Entity B" line can be posted as an
+ * intercompany JE in one shot.
+ */
+function SplitIcPanel({ line, accounts, onSubmit, onCancel }) {
+  const total = Math.abs(Number(line.amount));
+  const [rows, setRows] = useState([
+    { account_id: '', amount: total.toFixed(2), entity_id: '', memo: '' },
+  ]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState(null);
+
+  const sum = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const balanced = Math.abs(sum - total) < 0.005;
+
+  const update = (i, key, v) => setRows(rs => rs.map((r, idx) => idx === i ? { ...r, [key]: v } : r));
+  const addRow = () => setRows(rs => [...rs, { account_id: '', amount: '0.00', entity_id: '', memo: '' }]);
+  const removeRow = (i) => setRows(rs => rs.filter((_, idx) => idx !== i));
+
+  const submit = async () => {
+    setErr(null);
+    if (rows.some(r => !r.account_id)) { setErr('Pick an account on every row.'); return; }
+    if (!balanced) { setErr('Splits must sum to the line amount.'); return; }
+    setBusy(true);
+    try {
+      const splits = rows.map(r => ({
+        account_id: Number(r.account_id),
+        amount:     Number(r.amount),
+        entity_id:  r.entity_id ? Number(r.entity_id) : null,
+        memo:       r.memo || null,
+      }));
+      await onSubmit(splits);
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div data-testid={`treasury-txn-split-panel-${line.id}`}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <strong style={{ fontSize: 13 }}>Split this line</strong>
+        <span style={{ fontSize: 12, color: balanced ? '#166534' : '#92400e' }}>
+          {sum.toFixed(2)} of {total.toFixed(2)} {balanced ? '✓ balanced' : '— not balanced yet'}
+        </span>
+      </div>
+      <table style={{ width: '100%', fontSize: 12 }}>
+        <thead>
+          <tr style={{ textAlign: 'left' }}>
+            <th>Account</th><th>Entity (optional, IC)</th>
+            <th style={{ textAlign: 'right' }}>Amount</th><th>Memo</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} data-testid={`treasury-txn-split-row-input-${line.id}-${i}`}>
+              <td>
+                <select value={r.account_id} onChange={e => update(i, 'account_id', e.target.value)}
+                        data-testid={`treasury-txn-split-account-${line.id}-${i}`}
+                        style={{ width: '100%' }}>
+                  <option value="">— pick —</option>
+                  {accounts.map(a => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
+                </select>
+              </td>
+              <td>
+                <input type="number" value={r.entity_id} onChange={e => update(i, 'entity_id', e.target.value)}
+                       placeholder="entity id"
+                       data-testid={`treasury-txn-split-entity-${line.id}-${i}`}
+                       style={{ width: '100%' }} />
+              </td>
+              <td style={{ textAlign: 'right' }}>
+                <input type="number" step="0.01" value={r.amount} onChange={e => update(i, 'amount', e.target.value)}
+                       data-testid={`treasury-txn-split-amount-${line.id}-${i}`}
+                       style={{ width: 90, textAlign: 'right' }} />
+              </td>
+              <td>
+                <input type="text" value={r.memo} onChange={e => update(i, 'memo', e.target.value)}
+                       data-testid={`treasury-txn-split-memo-${line.id}-${i}`}
+                       style={{ width: '100%' }} />
+              </td>
+              <td>
+                {rows.length > 1 && (
+                  <button type="button" className="btn btn--ghost"
+                          onClick={() => removeRow(i)}
+                          data-testid={`treasury-txn-split-remove-${line.id}-${i}`}
+                          style={{ padding: '2px 6px', fontSize: 11, color: '#dc2626' }}>×</button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button type="button" className="btn btn--ghost"
+              onClick={addRow}
+              data-testid={`treasury-txn-split-addrow-${line.id}`}
+              style={{ padding: '2px 8px', fontSize: 11, marginTop: 6 }}>+ Add row</button>
+      {err && <p className="error" style={{ fontSize: 12, margin: '6px 0 0' }}>{err}</p>}
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <button type="button" className="btn btn--primary"
+                disabled={!balanced || busy}
+                onClick={submit}
+                data-testid={`treasury-txn-split-submit-${line.id}`}
+                style={{ padding: '4px 12px', fontSize: 12 }}>
+          {busy ? 'Posting…' : 'Post split JE'}
+        </button>
+        <button type="button" className="btn btn--ghost"
+                onClick={onCancel}
+                data-testid={`treasury-txn-split-cancel-${line.id}`}
+                style={{ padding: '4px 12px', fontSize: 12 }}>
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }

@@ -361,12 +361,13 @@ function BankLineRow({ line, reload, bankAccount }) {
       )}
       {aiResp && (
         <tr data-testid={`accounting-bank-ai-result-${line.id}`}>
-          <td colSpan={6} style={{ background: '#fafbff', padding: 12 }}>
-            <strong style={{ fontSize: 12 }}>AI {aiResp.action.replace('suggest_', '')}:</strong>
-            <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', margin: '4px 0' }}>{aiResp.ai_response || JSON.stringify(aiResp.candidates || aiResp, null, 2)}</pre>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn--ghost" onClick={() => setAi(null)} data-testid={`accounting-bank-ai-dismiss-${line.id}`}>Dismiss</button>
-            </div>
+          <td colSpan={6} style={{ background: '#f0f9ff', padding: 14, borderLeft: '3px solid #0369a1' }}>
+            <AiResultPanel
+              line={line}
+              ai={aiResp}
+              onDismiss={() => setAi(null)}
+              onAccepted={() => { setAi(null); reload(); }}
+            />
           </td>
         </tr>
       )}
@@ -374,6 +375,115 @@ function BankLineRow({ line, reload, bankAccount }) {
         <tr><td colSpan={6}><p className="error" data-testid={`accounting-bank-ai-error-${line.id}`}>{err}</p></td></tr>
       )}
     </>
+  );
+}
+
+function AiResultPanel({ line, ai, onDismiss, onAccepted }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState(null);
+
+  const isCategorize = ai.action === 'suggest_categorize';
+  const isMatch      = ai.action === 'suggest_match';
+  const isRule       = ai.action === 'suggest_rule';
+
+  // bank_ai.php returns suggest_categorize as { suggestion: {...}, review_required }.
+  const sug = ai.suggestion || {};
+  const suggestedAccountId = sug.suggested_account_id ?? null;
+  const confidence         = sug.confidence ?? 0;
+  const source             = sug.source     ?? 'none';
+  const reasoning          = sug.reasoning  ?? '';
+  const suggestionId       = sug.suggestion_id ?? null;
+
+  const accept = async () => {
+    setBusy(true); setErr(null);
+    try {
+      if (isCategorize && suggestedAccountId) {
+        await api.post('/modules/accounting/api/account_transactions.php?action=categorize_and_post', {
+          line_id:                line.id,
+          counterpart_account_id: suggestedAccountId,
+          type:                   'deposit',
+          memo:                   reasoning || '',
+          ai_suggestion_id:       suggestionId,
+        });
+      } else {
+        return;
+      }
+      onAccepted?.();
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  // Categorize-result rendering
+  if (isCategorize) {
+    const conf = Math.round(confidence * 100);
+    const noSuggest = !suggestedAccountId || conf < 1;
+    return (
+      <div data-testid={`ai-result-categorize-${line.id}`}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+          <span style={{ fontSize: 12, color: '#0369a1', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            ✨ AI category suggestion
+          </span>
+          {!noSuggest && (
+            <span data-testid={`ai-result-confidence-${line.id}`}
+                  style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12,
+                           background: conf >= 80 ? '#dcfce7' : conf >= 50 ? '#fef3c7' : '#fee2e2',
+                           color: conf >= 80 ? '#166534' : conf >= 50 ? '#92400e' : '#991b1b' }}>
+              {conf}% confidence · {source}
+            </span>
+          )}
+        </div>
+        {noSuggest ? (
+          <p data-testid={`ai-result-empty-${line.id}`} style={{ margin: '4px 0', color: '#475569', fontSize: 13 }}>
+            {reasoning || 'No confident suggestion — pick an account from the Categorize dropdown manually.'}
+          </p>
+        ) : (
+          <>
+            <p style={{ margin: '4px 0', fontSize: 13, color: '#0f172a' }}>
+              Post the offset of <strong>{fmtMoney(line.amount)}</strong> to&nbsp;
+              <code data-testid={`ai-result-account-${line.id}`} style={{ background: '#fff', padding: '2px 6px', borderRadius: 4 }}>
+                #{suggestedAccountId}
+              </code>.
+            </p>
+            {reasoning && <p style={{ margin: '4px 0', color: '#334155', fontSize: 12, lineHeight: 1.5 }}>{reasoning}</p>}
+          </>
+        )}
+        {err && <p className="error" style={{ marginTop: 6 }}>{err}</p>}
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          {!noSuggest && (
+            <button className="btn btn--primary" disabled={busy} onClick={accept}
+                    data-testid={`ai-result-accept-${line.id}`}>
+              {busy ? 'Posting…' : 'Accept & post'}
+            </button>
+          )}
+          <button className="btn btn--ghost" onClick={onDismiss} data-testid={`accounting-bank-ai-dismiss-${line.id}`}>Dismiss</button>
+        </div>
+      </div>
+    );
+  }
+
+  // suggest_match / suggest_rule result rendering — show top candidate(s) cleanly
+  const candidates = Array.isArray(ai.candidates) ? ai.candidates : [];
+  return (
+    <div data-testid={`ai-result-${ai.action}-${line.id}`}>
+      <div style={{ fontSize: 12, color: '#0369a1', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+        ✨ AI {isMatch ? 'match suggestion' : isRule ? 'rule suggestion' : ai.action}
+      </div>
+      {ai.ai_unavailable && (
+        <p style={{ color: '#92400e', margin: '4px 0', fontSize: 13 }}>{ai.note || 'AI is currently unavailable.'}</p>
+      )}
+      {!candidates.length && !ai.ai_unavailable && (
+        <p style={{ color: '#475569', margin: '4px 0', fontSize: 13 }}>No suggestions available for this line.</p>
+      )}
+      {candidates.slice(0, 5).map((c, i) => (
+        <div key={i} data-testid={`ai-result-candidate-${line.id}-${i}`}
+             style={{ padding: 8, background: '#fff', borderRadius: 6, marginBottom: 6, border: '1px solid #e0f2fe', fontSize: 13 }}>
+          <strong>{c.label || c.title || c.name || `Candidate ${i + 1}`}</strong>
+          {c.score !== undefined && <span style={{ marginLeft: 8, fontSize: 11, color: '#475569' }}>score: {Number(c.score).toFixed(2)}</span>}
+          {c.reasoning && <div style={{ color: '#475569', marginTop: 2 }}>{c.reasoning}</div>}
+        </div>
+      ))}
+      <button className="btn btn--ghost" onClick={onDismiss} data-testid={`accounting-bank-ai-dismiss-${line.id}`}>Dismiss</button>
+    </div>
   );
 }
 

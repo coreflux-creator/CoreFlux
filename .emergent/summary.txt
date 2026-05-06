@@ -1,62 +1,59 @@
 <analysis>**original_problem_statement**: 
 The user's goal is to refactor a monolithic PHP application, CoreFlux, into a modular architecture. Core services (auth, multi-tenancy, storage, mail) are standardized, while business functions are self-contained modules. 
-PRODUCT REQUIREMENTS (UPDATED): Stop piecemeal development and build features holistically across , , , , , and  modules based on 5 core specification documents (, , , , ). The architecture is strictly divided into CORE (vertical-agnostic ERP/Accounting/Platform features) and INDUSTRY LAYER (vertical-specific plugins like Staffing). 
+PRODUCT REQUIREMENTS: Stop piecemeal development and build features holistically across , , , , , and  modules based on 5 core specification documents. The architecture is strictly divided into CORE (vertical-agnostic ERP/Accounting/Platform features) and INDUSTRY LAYER (vertical-specific plugins like Staffing). 
 
 **User's preferred language**: English
 (INSTRUCT next agent to respond in the user's preferred language only)
 
 **what currently exists?** 
-A PHP 8 backend, a React 18 SPA frontend (Vite), and a newly scaffolded React Native/Expo SDK 55 mobile monorepo (). The system uses a strict custom PHP CLI smoke testing framework (>4,400 assertions) ensuring rigid database schema parity (). In this session, the agent completed a massive 5-sprint run covering the new Reports Module, Accounting Depth (Dimensions/Close Workflows), Staffing Industry Layer (AP Approval routing, Vendor Risk), Platform polish (Workflow Engine, PWA, JWT Auth), and scaffolded a Mobile Worker MVP using Expo.
+A PHP 8 backend, a React 18 SPA frontend (Vite), and a newly scaffolded React Native/Expo SDK 55 mobile monorepo (). The system uses a strict custom PHP CLI smoke testing framework (>4,700 assertions) ensuring rigid database schema parity (). In this session, the agent completed multiple phases of Sprint 6, implementing mobile deep-linking, UI dashboards, WorkflowEngine cutovers, and graceful 500-error handling across financial reports.
 
 **Last working item**: 
-    - Last item agent was working: Planning and scoping Sprint 6 which focuses on Mobile Deep Linking and Dashboards. The user explicitly approved adding deep linking () to the mobile Expo app so that tapping a push notification routes directly to the bill-detail screen () with 1-tap approve/reject buttons.
-    - Status: NOT STARTED (Scope approved by user, implementation pending).
-    - Agent Testing Done: Y (for completed Sprint 5).
+    - Last item agent was working: Sprint 6h — Fixing user-reported bugs: Cash Flow routing dead-end, broken migration runner (), missing  column in Time module, AI categorization SQL errors (), and bringing the AI/Intercompany split features into the Treasury Bank Feed (). The agent wrote the code fixes and created the smoke test file but ran out of context before running the tests.
+    - Status: TESTING PENDING
+    - Agent Testing Done: N
     - Which testing method agent to use? manual testing by  (DO NOT use testing subagent, custom PHP CLI suite is the source of truth).
     - User Testing Done: N
 
 **All Pending/In progress Issue list**: 
-  Issue 1: Implement Expo Deep Linking for Workflow Approvals (Sprint 6)
-     - Attempted fixes: Scaffolded  routing, but deep linking () is not yet wired to handle incoming push notification taps.
-     - Next debug checklist: Update  and  for URL scheme and deep link handling. Map the notification payload to .
-     - Why fix this issue and what will be achieved with the fix? Fulfills the user's explicit request for 1-tap mobile approval workflows directly from push notifications.
-     - Status: NOT STARTED
+  Issue 1: Test and verify Sprint 6h fixes (Treasury AI/Split, Migration runner)
+     - Attempted fixes: The agent just wrote  and modified Treasury UIs and , but did not execute the smoke test.
+     - Next debug checklist: Run . Fix any broken assertions or regressions caused by the Sprint 6h changes. Update  if frontend assets changed.
+     - Why fix this issue and what will be achieved with the fix? Verifies the user's reported bugs regarding Cash flow dead-ends and missing Treasury AI features are fully resolved.
+     - Status: TESTING PENDING
      - Is recurring issue? N
-     - Should Test frontend/backend/both after fix? Frontend (Mobile)
+     - Should Test frontend/backend/both after fix? Both (via PHP test suite)
 
 **In progress Task List**: 
-  Task 1: Execute Sprint 6 scope (Mobile Deep Linking + UI Dashboards)
-     - Where to resume: Navigate to  and implement deep link parsing. Then proceed with the web dashboard builds if required by Sprint 6 scope.
-     - What will be achieved with this? Seamless push-to-action mobile UX.
-     - Status: NOT STARTED
-     - Should Test frontend/backend/both after fix? Frontend
-     - Blocked on something: None.
+  Task 1: Execute Sprint 6h scope
+     - Where to resume: Run the newly created  and the full suite. 
+     - What will be achieved with this? Unblocks the user from running migrations and utilizing AI in the Treasury bank feed.
+     - Status: TESTING PENDING
+     - Should Test frontend/backend/both after fix? Both
+     - Blocked on something: None
 
 **Upcoming and Future Tasks**
     Upcoming Tasks:
-    - (P0) Sprint 6: Mobile Deep Linking () for direct approval routing in the Expo app.
-    - (P0) Sprint 6: UI implementations for Dashboards (Workflow Inbox UI, Dimensions Admin UI, Period Close Workflow UI, Audit Viewer UI).
-    - (P1) AP Workflow Migration: Run a cutover migration to re-point existing pending AP bills to the newly created  (Workflow Engine).
+    - (P1) Audit-log anomaly spotter: Implement an AI banner for the audit log that highlights unusual activities (spikes, off-hours actions, mass-export sessions) using the existing  plumbing. (The agent proposed this, and the user approved it right before the bug-fixing detour).
     - (P2) Period Close Receipt PDF (Phase 2): Auto-attach the executive snapshot PDF to the close packet email.
+    - (P3) Phase-2 rip-out of legacy : Finalize the deprecation after the WorkflowEngine cutover soaks.
 
 **Completed work in this session**
-- Sprint 1 (Reports Phase 1): Added  view, Reports Module shell, Staffing Overview, Exec Snapshot, Client Profitability, Rate Spread, and Overtime Watch. (DONE)
-- Sprint 2 (Accounting + Mobile Foundation): Added multi-entity switcher, tenant-configurable dimensions engine, period close workflow, JWT auth alongside session, mobile devices table, and PWA manifest. (DONE)
-- Sprint 3 (Industry Layer 1): Added  routing, AP approval policies, vendor risk rules, evidence bundles, and a push notification primitive (). (DONE)
-- Sprint 4 (Platform): Built , approval tokens primitive, AI risk explainer, Audit Log API, and swept all foreman terminology to team log. (DONE)
-- Sprint 5 (Mobile Worker MVP): Scaffolded  monorepo with Expo SDK 55, React Native 0.83.1, API client, JWT hooks, and base tab routing. (DONE)
+- Sprint 6a: Mobile Deep Linking (Expo routing to workflow approvals) (DONE)
+- Sprint 6b: Web Dashboard UIs (Workflow Inbox, Dimensions Admin, Period Close Workflow) (DONE)
+- Sprint 6c: AP → WorkflowEngine Cutover + Module Entity Scope (DONE)
+- Sprint 6d: Entity-scope rollout to AP/Billing + Workflow AI Inbox Summary (DONE)
+- Sprint 6e: Treasury Entity Scope + AP Reverse Mirror + Close Readiness AI (DONE)
+- Sprint 6f: UX cleanup pass (Reports sidebar deduplication, Bank Rec close/reopen UX) (DONE)
+- Sprint 6g: Graceful failure handling for Financial statements (BS / IS / TB / CF) replacing raw 500 errors with  UI banners. (DONE)
 
 **Earlier issues found/mentioned but not fixed**
-   - Issue 1: Real APNs/FCM credentials needed for Push Notifications
-     - Debug checklist: Currently,  uses a 'log' driver. To actually send notifications to mobile devices, the system needs an APNs  key and FCM service-account JSON.
-     - Why to solve this issue and what will be achieved with this? Unblocks actual delivery of mobile push notifications.
-     - Should Test frontend/backend/both after fix: Backend
-     - Is recurring issue? N
+   - None. The agent actively addressed all items mentioned in the user's latest message prior to context cutoff.
 
 **Known issue recurrence from previous fork**
   - Issue recurrence in previous fork: Database schema drift ( failing due to undocumented columns in PHP scripts that aren't in SQL migrations).
-  - Recurrence count: 2 (Occurred in Sprint 2 with  vs  and Sprint 3 with ).
-  - Status: RESOLVED (Fixed immediately by updating migration files/PHP). Note: The next agent MUST ensure every SQL alias referenced in PHP exists in a  migration file.
+  - Recurrence count: 3 (Occurred again when adding  to ).
+  - Status: RESOLVED. Note: The next agent MUST ensure every SQL alias referenced in PHP exists in a  migration file.
 
 **Code Architecture**
 
@@ -64,74 +61,59 @@ A PHP 8 backend, a React 18 SPA frontend (Vite), and a newly scaffolded React Na
 **Key Technical Concepts**
 - Backend: PHP 8 (Direct PDO, NO ORM, strictly typed).
 - Web Frontend: React 18, Vite, PWA Service Worker.
-- Mobile Frontend: Expo SDK 55, React Native, File-based Expo Router.
-- Auth: Hybrid Session Cookie (Web) + JWT (Mobile).
-- Testing: Custom PHP CLI scripts (). DO NOT USE TESTING SUBAGENT.
+- Mobile Frontend: Expo SDK 55, React Native.
+- Testing: Custom PHP CLI scripts (). **DO NOT USE TESTING SUBAGENT**.
 
 **key DB schema**
-  - : Tenant-configurable accounting dimensions.
-  - : Stores APNs/FCM tokens for push routing.
-  -  & : Core engine for generic multi-step approvals.
-  - : Audit log of push notifications sent.
-  - : Rules defining which bills route to which managers.
+  -  & : Core engine for approvals.
+  - : Treasury bank mapping.
+  -  & : Holds Bank Feed AI states.
 
 **changes in tech stack**
-  - Introduced **Expo SDK 55 / React Native** inside  for the worker MVP app.
-  - Introduced **JWT Authentication** () for mobile clients.
-  - Introduced **Progressive Web App (PWA)** capabilities to the web SPA.
+  - None.
 
 **All files of reference** 
-  -  (Crucial roadmap and architectural source of truth)
-  -  &  (Deep linking targets for Sprint 6)
-  -  &  (Platform primitives)
-  -  (Core database updates)
-  -  (Newest test reference)
+  -  (Needs execution)
+  -  (Added AI/Split UI panels)
+  -  (Fixed  execution)
+  -  (Always keep updated)
 
 **Areas that need refactoring**: 
-- Legacy Reports UI components (, ) still exist on disk but are unrouted. Can be cleaned up or preserved based on user preference.
+- None explicitly requested.
 
 **key api endpoints**
-  - 
-  - 
+  -  (Updated AI categorization)
   - 
 
 **Critical Info for New Agent** 
-- **ARCHITECTURE BOUNDARIES:** Adhere strictly to the CORE vs INDUSTRY LAYER separation defined in . Do not hardcode staffing logic (like  or ) into CORE components like Accounting dimensions.
-- **MOBILE DEV:** The  app is standard Expo. Navigate there and use yarn install v1.22.22
-info No lockfile found.
-[1/4] Resolving packages...
-[2/4] Fetching packages...
-[3/4] Linking dependencies...
-[4/4] Building fresh packages...
-success Saved lockfile.
-Done in 0.05s. for package management.
+- **TESTING REQUIREMENT:** You must NEVER use the testing subagent. The project relies entirely on a custom PHP CLI smoke testing suite. Always run  before finishing tasks. 
 - **FRONTEND BUILDS:** ALWAYS run yarn run v1.22.22
 $ vite build
 vite v5.4.21 building for production...
 transforming...
-✓ 1806 modules transformed.
+✓ 1811 modules transformed.
 rendering chunks...
 computing gzip size...
-dist/index.html                       0.46 kB │ gzip:   0.30 kB
-dist/spa-assets/index-Cwhpy62y.css   21.57 kB │ gzip:   4.34 kB
-dist/spa-assets/index-BgP77g8k.js   969.67 kB │ gzip: 226.15 kB
-✓ built in 6.83s
-Done in 7.30s. after changing React code and update  with the newly generated  and  hashes!
-- **SCHEMA CONTRACT:** If you query a new column in PHP, it MUST be declared in a  file, or the  suite will fail.
-- **TESTING:** ALWAYS run  to verify all 4,400+ assertions pass before finishing a task.
+dist/index.html                         0.46 kB │ gzip:   0.30 kB
+dist/spa-assets/index-Cwhpy62y.css     21.57 kB │ gzip:   4.34 kB
+dist/spa-assets/index-BTP3iZI4.js   1,023.61 kB │ gzip: 239.18 kB
+✓ built in 5.90s
+Done in 6.28s. after changing React code, and subsequently update the expected bundle JS/CSS hashes in .
+- **MIGRATIONS:** If you add database columns or tables, write a new  file in the module's  folder, or  will fail.
 
 **documents and test reports created in this job** 
-  - 
   - 
 
 **Last 10 User Messages and any pending HUMAN messages** 
  - (Agent) 
  - (User) 
- - *(Pending)*: The user gave the go-ahead for Sprint 6 (Mobile Deep Linking + Dashboards). Implement this immediately.
+ - (Agent) *Shipped Sprint 6g fixing all 500 errors gracefully*
+ - (User) 
+ - *(Pending)*: The agent fixed these specific issues in code but ran out of context right before executing the tests (). The new agent must test these fixes immediately.
 
 **Project Health Check:**
-- Broken: None (4,400+ assertions passing).
-- Mocked: Push Notification Delivery ( uses a 'log' driver mimicking delivery until APNs/FCM keys are provided).
+- Broken: Sprint 6h fixes are unverified (Testing Pending).
+- Mocked: Push Notification Delivery ( uses a 'log' driver).
 
 **3rd Party Integrations** 
  - OpenAI GPT-4o-mini (Requires User API Key)
@@ -142,11 +124,11 @@ Done in 7.30s. after changing React code and update  with the newly generated  a
 **Testing status**
   - Testing agent used after significant changes: NO (Exclusively using custom PHP CLI suite)
   - Troubleshoot agent used after agent stuck in loop: NO
-  - Test files created: 
-  - Known regressions: None
+  - Test files created: , 
+  - Known regressions: None (but Sprint 6h pending test).
 
 **Credentials to test flow:**
   - Standard test user  with  role.
 
 **What agent forgot to execute**
-The agent got approval from the user to start Sprint 6 (specifically adding Expo deep-linking to route push notifications to the new approval screens), but then used the  tool without writing the implementation. The next agent must immediately begin executing the Sprint 6 scope.</analysis>
+The agent drafted the fixes for the Cash flow route, Treasury AI panels, and the broken PHP migration runner (), and created . However, the agent ran out of context and **forgot to execute the test suite** to verify these changes. The next agent must start by running  and fixing any resultant errors before moving on to the Audit-log Anomaly Spotter feature.</analysis>
