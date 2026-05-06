@@ -21,6 +21,7 @@ import TreasuryModule from '../../modules/treasury/ui/TreasuryModule';
 import VendorPortal from './pages/VendorPortal';
 import FinanceModule from './modules/FinanceModule';
 import GenericModule from './modules/GenericModule';
+import WorkflowInbox from './pages/WorkflowInbox';
 
 // Loading screen
 const LoadingScreen = () => (
@@ -311,6 +312,8 @@ const AppContent = ({ session, usingDemo }) => {
           <Route path="/profile" element={<ProfilePage session={session} />} />
           <Route path="/settings" element={<SettingsPage session={session} />} />
           <Route path="/settings/mail" element={<MailSettingsPage session={session} />} />
+          {/* Cross-module approval inbox (Sprint 6b) */}
+          <Route path="/inbox" element={<WorkflowInbox session={session} />} />
           
           {/* Admin Module */}
           <Route path="/admin/*" element={<AdminModule session={session} />} />

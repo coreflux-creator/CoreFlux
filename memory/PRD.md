@@ -470,6 +470,35 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 6b — Web Dashboard UIs, 2026-02)
+**Closes the foundation phase. Five new dashboards consume backends shipped in Sprints 2-4 + 6a, giving web users feature parity with what mobile gained in 6a.**
+
+### New React components
+- `dashboard/src/pages/WorkflowInbox.jsx` (mounted at `/inbox`) — cross-module approval inbox. Pulls every pending `workflow_instances` step routed to the current user via `GET /api/workflow.php?path=inbox`. Approve / reject / comment in one click; SLA badge flips red when overdue; "Open in module" button uses the existing `payload.deep_link`. Same UX language as the mobile screens shipped in 6a so the muscle memory transfers.
+- `dashboard/src/pages/AuditLogViewer.jsx` (mounted at `/admin/audit-log`) — admin-gated audit-trail browser hitting `GET /api/audit_log.php`. Filters: event substring, user_id, from/to date, limit (1-5000). Inline meta-json expansion and one-click CSV export (anchor → `?format=csv` → backend sends Content-Disposition).
+- `modules/accounting/ui/DimensionsAdmin.jsx` (Accounting → Dimensions tab) — full CRUD on `accounting_dimensions` (`POST/DELETE /modules/accounting/api/dimensions.php`) including a separate "Whitelist values" modal for enum-typed dimensions (`?action=values&id=N` + `?action=add_value`).
+- `modules/accounting/ui/PeriodCloseWorkflow.jsx` (Accounting → Close workflow tab) — picks a period, seeds the 9-step default checklist (`?action=seed`), walks each task with start/complete/block actions (`?action=complete&id=N` + PATCH), live stats grid (total/done/in-progress/pending/blocked), and a "Build close packet" button that records the build event then opens the printable HTML in a new tab.
+- `dashboard/src/layout/Header.jsx` extended:
+  - **Multi-entity switcher** — Briefcase dropdown only renders when the tenant has ≥1 row in `accounting_entities`. Reads / writes `/api/active_entity.php` and dispatches a `cf:active-entity-changed` window event so module screens can soft-refresh their entity-scoped queries.
+  - **Inbox quick link** — header pin to `/inbox` so approvers don't have to dig into a module to clear their queue.
+
+### Wiring
+- `dashboard/src/App.jsx` — added `<Route path="/inbox" element={<WorkflowInbox/>} />`.
+- `dashboard/src/pages/AdminModule.jsx` — sidebar link + route + quick-action card for `Audit Log`.
+- `modules/accounting/ui/AccountingModule.jsx` — added Dimensions + Close workflow tabs + routes.
+
+### Validation
+- `tests/sprint6b_dashboard_uis_smoke.php` — **120/120 ✓** (file existence, every API endpoint URL the components emit, every static + dynamic data-testid, all router/sidebar/tab wiring across App.jsx + AdminModule + AccountingModule, Header.jsx multi-entity flow + Inbox link, Vite bundle sync + .deploy-version flags).
+- **Vite build green**: 1810 modules → `index-DmiPTzYh.js` (996 kB) + `index-Cwhpy62y.css` (21.6 kB). `spa-assets/index.html` + `.deploy-version` updated.
+- **Full PHP suite: 80 files / 3,651 assertions ✓**, zero regressions.
+
+### What's NOT yet wired (still P1)
+- Real APNs/FCM push delivery (blocked on user-provided creds).
+- AP bill-approval cutover from `ap_bill_approvals` → `workflow_instances` (so legacy approvals pop in the new Inbox automatically).
+- Period-close packet PDF generation (current Build button opens print-ready HTML; dompdf integration is the Phase-2 P2 item).
+- Active-entity actually filtering module queries — backend session is set, dropdown emits the change event, but each module needs to listen + scope its queries (incremental work as we touch each module).
+
+
 ## Recently completed (Sprint 6a — Mobile deep-linking + 1-tap approvals, 2026-02)
 **Direct continuation of Sprint 5. Push notification → bill detail with 1-tap approve/reject, fulfilling the explicit user ask.**
 

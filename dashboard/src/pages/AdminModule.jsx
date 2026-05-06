@@ -1,13 +1,14 @@
 import React from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { Building2, Users, Package, Layers, FileText, Sparkles } from 'lucide-react';
+import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText } from 'lucide-react';
 import SubTenantsAdmin from './SubTenantsAdmin';
 import ExportTemplatesAdmin from './ExportTemplatesAdmin';
 import MasterTenantsAdmin from './MasterTenantsAdmin';
 import AiAccuracyDashboard from './AiAccuracyDashboard';
 import UsersAdmin from './UsersAdmin';
 import ModuleAccessAdmin from './ModuleAccessAdmin';
+import AuditLogViewer from './AuditLogViewer';
 
 /**
  * AdminModule — administrator surface.
@@ -35,6 +36,7 @@ const AdminOverview = () => (
         <ActionCard icon={Package}   title="Module access"  description="Toggle which apps a tenant can see" href="/admin/modules" />
         <ActionCard icon={FileText}  title="Export templates" description="CSV templates for any module" href="/admin/export-templates" />
         <ActionCard icon={Sparkles}  title="AI accuracy"    description="Confidence-score moat dashboard" href="/admin/ai-accuracy" />
+        <ActionCard icon={ScrollText} title="Audit log"     description="Tenant-scoped audit trail with CSV export" href="/admin/audit-log" />
       </ActionCardsGrid>
     </Section>
   </>
@@ -50,6 +52,7 @@ const AdminSidebar = () => {
     { to: '/admin/modules',          label: 'Module access',    icon: Package },
     { to: '/admin/export-templates', label: 'Export Templates', icon: FileText },
     { to: '/admin/ai-accuracy',      label: 'AI Accuracy',      icon: Sparkles },
+    { to: '/admin/audit-log',        label: 'Audit Log',        icon: ScrollText },
   ];
   return (
     <aside className="sidebar">
@@ -88,6 +91,7 @@ const AdminModule = ({ session }) => {
           <Route path="/modules"           element={<ModuleAccessAdmin session={session} />} />
           <Route path="/export-templates"  element={<ExportTemplatesAdmin session={session} />} />
           <Route path="/ai-accuracy"       element={<AiAccuracyDashboard session={session} />} />
+          <Route path="/audit-log"         element={<AuditLogViewer session={session} />} />
         </Routes>
       </div>
     </div>

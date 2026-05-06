@@ -16,6 +16,8 @@ import IntercompanyMappings from './IntercompanyMappings';
 import EliminationWorksheet from './EliminationWorksheet';
 import Consolidation from './Consolidation';
 import Periods from './Periods';
+import DimensionsAdmin from './DimensionsAdmin';
+import PeriodCloseWorkflow from './PeriodCloseWorkflow';
 
 /**
  * Accounting Module — Phase 0 + 1 + 2 UI
@@ -38,6 +40,8 @@ export default function AccountingModule({ session }) {
         <Tab to="elimination"  label="Elimination" />
         <Tab to="consolidation" label="Consolidation" />
         <Tab to="periods"  label="Periods" />
+        <Tab to="dimensions" label="Dimensions" />
+        <Tab to="close"      label="Close workflow" />
       </nav>
       <Routes>
         <Route index           element={<Navigate to="accounts" replace />} />
@@ -59,6 +63,8 @@ export default function AccountingModule({ session }) {
         <Route path="elimination"  element={<EliminationWorksheet session={session} />} />
         <Route path="consolidation" element={<Consolidation session={session} />} />
         <Route path="periods"  element={<Periods         session={session} />} />
+        <Route path="dimensions" element={<DimensionsAdmin session={session} />} />
+        <Route path="close"      element={<PeriodCloseWorkflow session={session} />} />
       </Routes>
     </div>
   );

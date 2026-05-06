@@ -86,7 +86,7 @@ sentinels:
 - tests/hardening_pass1_smoke.php
 - tests/schema_contract_smoke.php
 expected_bundle:
-- spa-assets/index-BgP77g8k.js
+- spa-assets/index-DmiPTzYh.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -196,3 +196,10 @@ last_known_features:
 - mobile.expo_scaffold_v0_1
 - mobile.worker_mvp_screens
 - core.workflow_api
+- mobile.deep_linking_v1
+- mobile.workflow_approval_detail_screen
+- web.workflow_inbox_ui
+- web.audit_log_viewer_ui
+- accounting.dimensions_admin_ui
+- accounting.period_close_workflow_ui
+- web.multi_entity_switcher_header
