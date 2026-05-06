@@ -35,7 +35,7 @@ foreach ([
     'mobile/app/(tabs)/home.tsx',
     'mobile/app/(tabs)/time.tsx',
     'mobile/app/(tabs)/receipts.tsx',
-    'mobile/app/(tabs)/approvals.tsx',
+    'mobile/app/(tabs)/approvals/index.tsx',
     'mobile/app/(tabs)/profile.tsx',
     'mobile/src/api/client.ts',
     'mobile/src/api/storage.ts',
@@ -126,7 +126,7 @@ foreach (['receipts-screen','receipts-camera','receipts-library'] as $tid) {
     $assert("receipts testID: {$tid}", stripos($rec, "testID=\"{$tid}\"") !== false);
 }
 
-$apr = (string) file_get_contents(__DIR__ . '/../mobile/app/(tabs)/approvals.tsx');
+$apr = (string) file_get_contents(__DIR__ . '/../mobile/app/(tabs)/approvals/index.tsx');
 $assert('approvals scroll testID', stripos($apr, 'testID="approvals-scroll"') !== false);
 $assert('approvals approve/reject buttons', stripos($apr, 'approvals-approve-${i.id}') !== false
                                           && stripos($apr, 'approvals-reject-${i.id}') !== false);

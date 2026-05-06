@@ -76,9 +76,11 @@ export type WorkflowInstance = {
   started_at: string;
 };
 export const workflowInbox = () =>
-  api<{ instances: WorkflowInstance[] }>(`/api/workflow/inbox`);
+  api<{ instances: WorkflowInstance[] }>(`/api/workflow.php?path=inbox`);
+export const workflowGetInstance = (instanceId: number) =>
+  api<{ instance: WorkflowInstance }>(`/api/workflow.php?id=${instanceId}`);
 export const workflowAct = (instanceId: number, action: 'approve' | 'reject' | 'comment', comment?: string) =>
-  api(`/api/workflow/instances/${instanceId}/act`, {
+  api(`/api/workflow.php?action=act&id=${instanceId}`, {
     method: 'POST',
     body: { action, comment, via: 'app' },
   });

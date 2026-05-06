@@ -14,6 +14,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.coreflux.mobile",
+      "associatedDomains": ["applinks:app.coreflux.com"],
       "infoPlist": {
         "NSCameraUsageDescription": "CoreFlux uses the camera to capture receipts and supporting documents.",
         "NSPhotoLibraryUsageDescription": "CoreFlux needs access to your photo library to attach receipts to bills."
@@ -25,7 +26,22 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0f172a"
       },
-      "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE"]
+      "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE"],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "app.coreflux.com", "pathPrefix": "/approvals" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        },
+        {
+          "action": "VIEW",
+          "data": [{ "scheme": "coreflux" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "bundler": "metro",

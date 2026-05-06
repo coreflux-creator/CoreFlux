@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable, RefreshControl, Alert } from 'react-native';
+import { router } from 'expo-router';
 import { workflowInbox, workflowAct, type WorkflowInstance } from '@/lib/api';
 
 /**
  * Approvals inbox — pulls pending workflow_instances assigned to the
- * current user (via /api/workflow/inbox). Approve / reject inline.
+ * current user (via /api/workflow.php?path=inbox). Approve / reject
+ * inline, or tap the row to open the full detail screen.
  */
 export default function ApprovalsScreen() {
   const [items, setItems] = useState<WorkflowInstance[]>([]);
@@ -42,7 +44,12 @@ export default function ApprovalsScreen() {
         <Text style={{ color: '#64748b', padding: 16 }}>No pending approvals 🎉</Text>
       )}
       {items.map(i => (
-        <View key={i.id} style={card} testID={`approvals-item-${i.id}`}>
+        <Pressable
+          key={i.id}
+          onPress={() => router.push(`/(tabs)/approvals/${i.id}`)}
+          style={card}
+          testID={`approvals-item-${i.id}`}
+        >
           <Text style={{ color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4 }}>{i.subject_type}</Text>
           <Text style={{ fontSize: 16, fontWeight: '600', marginTop: 4 }}>{i.label}</Text>
           {!!(i.payload as { body?: string })?.body && (
@@ -59,7 +66,7 @@ export default function ApprovalsScreen() {
               <Text style={{ color: '#fff',    fontWeight: '600' }}>Approve</Text>
             </Pressable>
           </View>
-        </View>
+        </Pressable>
       ))}
     </ScrollView>
   );

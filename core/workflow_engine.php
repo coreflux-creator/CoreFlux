@@ -345,10 +345,18 @@ function _workflowPushApprovers(int $tenantId, int $instanceId, string $subjectT
     if (!$userIds) return;
     $title = (string) ($payload['title'] ?? "Approval needed: {$subjectType} #{$subjectId}");
     $body  = (string) ($payload['body']  ?? "Open to review and approve.");
-    $deepLink = (string) ($payload['deep_link'] ?? "/modules/workflow/inbox?instance={$instanceId}");
+    $deepLink       = (string) ($payload['deep_link']        ?? "/modules/workflow/inbox?instance={$instanceId}");
+    // Sprint 6 — mobile deep link routes a push tap straight to the bill /
+    // workflow detail with 1-tap approve/reject. Always set so the Expo
+    // notification handler can route without inspecting the web URL.
+    $mobileDeepLink = (string) ($payload['mobile_deep_link'] ?? "coreflux://approvals/{$instanceId}");
+    // Echo the deep links into the data payload so the mobile client sees them.
+    $payload['deep_link']        = $deepLink;
+    $payload['mobile_deep_link'] = $mobileDeepLink;
     $opts = [
         'category'        => 'workflow_approval',
         'deep_link'       => $deepLink,
+        'mobile_deep_link'=> $mobileDeepLink,
         'source_module'   => 'workflow',
         'source_event'    => 'workflow.approval_required',
         'source_ref_type' => 'workflow_instance',

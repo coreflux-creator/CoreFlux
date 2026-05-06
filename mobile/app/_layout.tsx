@@ -3,10 +3,18 @@ import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator } from 'react-native';
 import { isAuthenticated } from '@/lib/auth';
+import { registerDeepLinkHandlers, registerForPushAsync } from '@/lib/notifications';
 
 /**
  * Root layout — gates on auth status, then renders the (tabs) group
  * for authenticated users or the login stack for anonymous ones.
+ *
+ * Sprint 6 additions:
+ *   • registerDeepLinkHandlers() routes `coreflux://approvals/<id>` and
+ *     incoming push-notification taps directly to the approval detail
+ *     screen.
+ *   • registerForPushAsync() requests permission + persists the device
+ *     push token so the backend can target this device.
  */
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -17,6 +25,13 @@ export default function RootLayout() {
       if (!authed) router.replace('/login');
       setReady(true);
     })();
+  }, []);
+
+  useEffect(() => {
+    const teardown = registerDeepLinkHandlers();
+    // Best-effort permission + token register once the user lands here.
+    registerForPushAsync();
+    return teardown;
   }, []);
 
   if (!ready) {

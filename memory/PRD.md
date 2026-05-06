@@ -470,6 +470,39 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 6a — Mobile deep-linking + 1-tap approvals, 2026-02)
+**Direct continuation of Sprint 5. Push notification → bill detail with 1-tap approve/reject, fulfilling the explicit user ask.**
+
+### Mobile (`/app/mobile`)
+- `app.json` — added iOS `associatedDomains: ["applinks:app.coreflux.com"]` for universal links + Android `intentFilters` for both `https://app.coreflux.com/approvals/*` (with `autoVerify=true`) and the `coreflux://` scheme. Existing `expo.scheme = coreflux` retained.
+- Approvals route restructured from a single `approvals.tsx` to a folder:
+  - `app/(tabs)/approvals/_layout.tsx` — stack with `index` + `[id]` screens.
+  - `app/(tabs)/approvals/index.tsx` — list (existing UX, rows now navigate to detail).
+  - `app/(tabs)/approvals/[id].tsx` — single-instance detail with **big approve / reject buttons** (`testid: approval-detail-approve` / `approval-detail-reject`), payload-driven label/amount/risk/body, and `useLocalSearchParams` reading the dynamic `id`.
+- New `src/lib/notifications.ts`:
+  - Sets a foreground notification handler (banner + sound + badge).
+  - `routeFromDeepLink(url)` — pure function; matches `approvals/<digits>` against any input (URL, path, or push payload field) and routes to `(tabs)/approvals/<id>`.
+  - `registerDeepLinkHandlers()` wires four entry points: `getLastNotificationResponseAsync` (cold-start), `addNotificationResponseReceivedListener` (foreground/background tap), `Linking.addEventListener('url')` (live universal link), and `Linking.getInitialURL` (cold-start universal link). Prefers `data.mobile_deep_link`, falls back to `data.deep_link`.
+  - `registerForPushAsync()` — best-effort permission request + device push-token registration via `/api/auth/mobile_devices.php`.
+- `app/_layout.tsx` — invokes `registerDeepLinkHandlers()` and `registerForPushAsync()` once on mount with proper teardown cleanup.
+- `src/lib/api.ts` — added typed `workflowGetInstance(id)` wrapper. Updated all three workflow URLs to the explicit query-string form the PHP handler reads (`/api/workflow.php?path=inbox|?id=N|?action=act&id=N`), replacing the path-style URLs that didn't actually map to the existing `.htaccess` rules.
+
+### Backend
+- `core/workflow_engine.php::_workflowPushApprovers` — every approver push now carries both:
+  - `data.deep_link` — web-style path (existing).
+  - `data.mobile_deep_link` — defaults to `coreflux://approvals/<instance_id>` so the Expo notification handler can route without parsing the web URL.
+  Echoed into the data payload AND the opts envelope, fully back-compat (existing log/APNS/FCM driver code unchanged).
+
+### Validation
+- `tests/sprint6_mobile_deeplink_smoke.php` — **59/59 ✓** (folder layout, app.json scheme + iOS associated domains + Android intent filters for both schemes, notification module exports + listener registration + payload preference, root layout teardown, approvals/_layout stack screens, detail screen testIDs + workflowGetInstance/workflowAct calls, typed API wrapper URLs, workflow_engine emits `mobile_deep_link` + echoes into payload, deep-link regex round-trip on six inputs).
+- `tests/sprint5_mobile_scaffold_smoke.php` updated for new approvals folder path; still **89/89 ✓**.
+- **Full PHP suite: 79 files / 3,531 assertions ✓**, zero regressions.
+
+### What's NOT yet wired (P1 backlog from handoff)
+- Real APNs/FCM credentials — log driver remains default until user provides `.p8` + FCM service-account JSON.
+- AP bill approvals are still on the hand-rolled `ap_bill_approvals` table; cutover to `workflow_instances` (so AP pushes get the new mobile deep link automatically) is a P1 migration task.
+- Web Dashboard UIs (Workflow Inbox, Dimensions Admin, Period Close Workflow, Audit Viewer) — Sprint 6b.
+
 ## Recently completed (Sprint 5 — Mobile Worker MVP scaffold, 2026-02)
 **First post-foundation sprint. Backend stays at 78 PHP smoke files green; new `/app/mobile/` Expo monorepo ships alongside.**
 
