@@ -470,7 +470,106 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
-## Recently completed (Sprint 2 — Accounting depth + Mobile foundation, 2026-02)
+## Recently completed (Sprint 3 — Industry Layer 1 + Push primitive, 2026-02)
+**Sprint 3 of the holistic 4-sprint plan. CORE add-on (push) + first INDUSTRY layer (Staffing).**
+
+### Push primitive (CORE) ✅
+- `core/migrations/018_push_outbox.sql` — `tenant_push_outbox` table
+  (queue + audit log; columns: device_id, title, body, data_json, category,
+  deep_link, driver enum log/apns/fcm, status enum
+  queued/sending/delivered/failed/suppressed, attempts, source_module/event/ref).
+- `core/push_service.php` — vertical-agnostic push primitive:
+  `pushSendToUser(tenantId, userId, title, body, data, opts)` fans out to
+  every active device for that user; `pushSendToTenant` broadcasts by role;
+  `pushDispatchOutbox(limit)` worker entry point. **Driver model**:
+  pluggable log / APNs / FCM. The "log" driver is always available
+  (writes outbox row + error_log + marks delivered) so every user-facing
+  flow stays safe — push failures NEVER block the caller.
+- Real APNs/FCM dispatch is stubbed; flips on when env
+  `APNS_AUTH_KEY_PATH` / `FCM_SERVICE_ACCOUNT_JSON` is configured
+  (Sprint 5 mobile build will wire actual delivery).
+
+### C1 — Worker-class routing (Industry: Staffing) ✅
+- `modules/people/migrations/007_worker_class.sql` — adds `worker_class`
+  enum (`employee` / `w2_temp` / `contractor_1099` / `c2c` / `eor` /
+  `referral` / `vendor_backed`) + `worker_class_meta_json` + index.
+  Idempotent. Default `'employee'` keeps non-staffing tenants unaffected.
+- `modules/people/lib/worker_class.php` — pure helpers:
+  `peopleWorkerClassRouting(class)` returns `['payroll']` / `['payroll','ar']`
+  / `['ap','ar']` etc.; `peopleWorkerClassIsW2`, `peopleWorkerClassIsBillable`,
+  `peopleWorkerClassLabel`. Drives Time → AR/AP/Payroll fan-out.
+
+### C2 — Layered AP approval policies + push hookup ✅
+- `modules/ap/migrations/016_approval_policies_risk_evidence.sql` creates:
+  `ap_approval_policies` (priority + match dims: entity / vendor_type /
+  amount range / min_risk_level / gl_account_code; chain_json JSON list of
+  approver steps with quorum + label; sla_hours), `ap_approval_policy_evaluations`
+  (append-only audit of which policy matched each bill).
+- `modules/ap/lib/approval_router.php`:
+  `apEvaluateApprovalPolicy(tenantId, bill)` finds the highest-priority
+  active policy whose every non-NULL dimension matches.
+  `apRouteBillForApproval(tenantId, bill)` evaluates → writes evaluation
+  log → inserts `ap_bill_approvals` rows for step-1 approvers → **fires
+  push notifications to every step-1 approver** ("AP bill needs approval —
+  Bill #123 for $5,200.00 (medium risk). Open to review.") with deep_link
+  to the bill.
+- `modules/ap/api/approval_policies.php` — list/upsert/deactivate +
+  `?action=evaluate&bill_id=N` (preview without routing) +
+  `?action=route&bill_id=N` (route + push). Permission: `ap.bills.approve_admin`.
+
+### C3 — Vendor risk rules ✅
+- `modules/ap/lib/vendor_risk.php` — composable rule engine:
+  - `new_vendor` (created < 14d, +15)
+  - `bank_account_change` (< 7d, +25)
+  - `missing_w9` (1099-eligible w/o W-9 doc, +20)
+  - `missing_coi` (no COI or expired, +10)
+  - `high_volume` (> $50k in last 30d, +10)
+  - `sanctions_match` (stub, +50)
+  Score thresholds: 10 = low, 25 = medium, 50 = high (auto-flag
+  `requires_manual_review`). Read-through cache: re-evaluates if last
+  evaluation > 1h old.
+- `modules/ap/api/vendor_risk.php` — GET cached, POST recompute,
+  GET ?action=high_risk for a tenant-wide leaderboard.
+- **Wired into approval router**: vendor risk levels are first-class
+  policy match dimension (a "high-risk over $1k" policy can require CFO
+  sign-off automatically).
+
+### C4 — Evidence bundles on AP bills ✅
+- `modules/ap/lib/evidence_bundle.php`:
+  `apBuildEvidenceBundle(tenantId, billId)` assembles:
+  - **Source timesheet period IDs** (joins `ap_bill_lines.source_ref_id`
+    where `source_type='time'` → `time_entries.period_id`)
+  - **Placement IDs** (distinct `bl.placement_id`)
+  - **Approval trail** (every `ap_bill_approvals` row with state +
+    timestamps)
+  - **Payroll run IDs** (joins `payroll_pay_periods` + `payroll_runs`
+    overlapping the time entries' work_dates)
+  - **SHA-256 audit hash** of canonical summary
+- Persists to `ap_bill_evidence_bundles` (idempotent — rebuilds replace).
+- `modules/ap/api/bill_evidence.php` — GET (cached) + POST ?action=build.
+
+### Validation
+- `tests/sprint3_industry_layer_smoke.php` — **111/111 ✓**
+  (push migration + helpers + driver pick math, worker_class migration +
+  routing matrix, AP migrations, router + risk + evidence libs, policy
+  match logic in pure PHP, RBAC permission alignment).
+- **Schema contract caught 4 real bugs** in `evidence_bundle.php`
+  (`ap_bill_lines.tenant_id`, `bl.service_period_*`, `pr.period_*`,
+  `pay_periods` table name) — fixed before merge.
+- **Full PHP suite: 76 files passing**, zero regressions.
+- `.deploy-version` updated with 9 new feature flags.
+
+### Architecture rule honoured
+- **Push primitive**: pure CORE — `tenant_id` + `user_id` only, no
+  vertical coupling.
+- **C1–C4**: live in `/app/modules/people` and `/app/modules/ap` and use
+  the staffing-flavoured language (worker_class, 1099/C2C/EOR), but the
+  default `worker_class = 'employee'` keeps non-staffing tenants
+  unaffected. The approval policy engine itself (priority + dimension
+  match) is vertical-agnostic; the staffing layer just supplies the
+  typical rule shapes.
+
+
 **Sprint 2 of the holistic 4-sprint plan. CORE-only (zero industry-specific code).**
 
 ### B2 — Tenant-configurable dimensions engine ✅
@@ -620,18 +719,7 @@ end-to-end. Unifying thesis:
 **4-sprint sequence** (each independently testable; user-confirmed order):
 1. ✅ **Sprint 1 — Reports Phase 1**: D1+D2+D3+D4a (Staffing Overview + 4 reports) — SHIPPED.
 2. ✅ **Sprint 2 — Accounting depth + Mobile foundation**: B2 dimensions engine, B4 period close workflow + close-packet HTML artifact, M1 JWT auth, M2 device registry, M3 PWA manifest + SW — SHIPPED. (B1 multi-entity switcher deferred to Sprint 3 since the entity model already exists; the only missing piece is a UI switcher which is small and best done after we have multiple seeded entities to test with.)
-3. **Sprint 3 — Industry Layer 1 (Staffing edition) + Push primitive**: C1 worker_class on people drives
-   Time→AR/AP/Payroll routing, C2 layered admin-defined AP approval policies,
-   C3 vendor risk rules (new vendor / bank change / missing W-9), C4 evidence
-   bundles on AP bills. Reframed: this is the *first* industry plug-in over Core,
-   not "deepening" Core itself.
-   **Push primitive (CORE add-on, ratified 2026-02 by user)**: tenant-scoped
-   `pushService::sendToUser($tenantId, $userId, $title, $body, $data)` helper
-   plus `tenant_push_outbox` queue table (pluggable APNs+FCM drivers; real
-   creds wired when user provides them). Sprint 3 wires the first call site
-   in C2: AP-approval-routed → push the approver. Establishes the pattern
-   for every later approval/notify event (Time approval, period close tasks,
-   vendor risk flags, etc.).
+3. ✅ **Sprint 3 — Industry Layer 1 (Staffing) + Push primitive**: C1 worker_class on people, C2 layered AP approval policies + push notification on routing, C3 vendor risk evaluator (6 rules), C4 evidence bundles on bills, push primitive (`pushSendToUser`/`pushSendToTenant`/`pushDispatchOutbox` with log/APNs/FCM drivers) — SHIPPED.
 4. **Sprint 4 — Platform + cleanup**: A1 generic WorkflowEngine, A2 generalized
    email-only tokens (AP/Billing/journal/period close), A3 unified Audit Viewer,
    E1 "foreman → agency timesheet/team log" UI sweep.

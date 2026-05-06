@@ -179,3 +179,11 @@ last_known_features:
 - mobile.jwt_auth
 - mobile.devices_registry
 - mobile.pwa_manifest_and_sw
+- core.push_service.v1
+- core.push_outbox_table
+- people.worker_class.column
+- people.worker_class.routing_helpers
+- ap.approval_policies.layered
+- ap.approval_router.with_push
+- ap.vendor_risk.evaluator
+- ap.bill_evidence_bundle.builder
