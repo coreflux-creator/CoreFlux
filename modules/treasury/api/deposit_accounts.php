@@ -55,16 +55,15 @@ function _treasuryEnsurePlaidBalanceColumns(): void {
 switch (api_method()) {
     case 'GET': {
         _treasuryEnsurePlaidBalanceColumns();
-        // Left-join GL balance (sum of journal lines to the matching
-        // gl_account_code for posted entries) so the UI has a current
-        // ledger balance without an extra round-trip. Also surface the
-        // live Plaid balance (cached on plaid_accounts) so users see a
-        // useful number even before any reconciliation has happened.
+        // Sprint 6d — multi-entity scope.
+        $entityFilter = !empty($_GET['entity_id']) ? ' AND ba.entity_id = :eid' : '';
+        $params = [];
+        if ($entityFilter) $params['eid'] = (int) $_GET['entity_id'];
         $rows = scopedQuery(
             "SELECT
                 ba.id, ba.name, ba.gl_account_code, ba.bank_name, ba.last4,
                 ba.currency, ba.feed_provider, ba.last_feed_synced_at,
-                ba.status, ba.plaid_account_id,
+                ba.status, ba.plaid_account_id, ba.entity_id,
                 pa.current_balance_cents   AS plaid_current_cents,
                 pa.available_balance_cents AS plaid_available_cents,
                 pa.balance_as_of           AS plaid_balance_as_of,
@@ -78,9 +77,10 @@ switch (api_method()) {
                ON je.tenant_id = aa.tenant_id AND je.status = 'posted'
              LEFT JOIN accounting_journal_entry_lines jel
                ON jel.je_id = je.id AND jel.account_id = aa.id
-             WHERE ba.tenant_id = :tenant_id AND ba.status = 'active'
+             WHERE ba.tenant_id = :tenant_id AND ba.status = 'active'{$entityFilter}
              GROUP BY ba.id
-             ORDER BY ba.name"
+             ORDER BY ba.name",
+            $params
         );
         // Plaid connect URL helper — one link-token per account.
         foreach ($rows as &$r) {

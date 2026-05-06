@@ -470,6 +470,39 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 6e — Treasury entity-scope + AP legacy reverse-mirror + Period Close Readiness AI, 2026-02)
+**Closes the Sprint 6 wave. Bidirectional AP↔workflow sync now exists, treasury bank accounts honour the entity switcher, and the largest-leverage AI feature shipped: Close Readiness narrative.**
+
+### Treasury entity scope
+- **New** `modules/accounting/migrations/010_bank_accounts_entity.sql` — adds `accounting_bank_accounts.entity_id` (the column had been written by the POST handler since day-one but was never added by a migration; closing the gap).
+- `modules/treasury/api/deposit_accounts.php` — GET now accepts `?entity_id=N` and selects `ba.entity_id`. Conditional WHERE only injects when the param is present, so legacy callers stay unaffected.
+- `modules/treasury/ui/DepositAccounts.jsx` — `useActiveEntity` hook + scope notice (testid `treasury-deposits-entity-scope`). Flipping the Briefcase dropdown re-scopes deposits instantly.
+
+### AP legacy → workflow reverse mirror
+- **New** `apMirrorToWorkflow(tenantId, billId, userId, action, note)` in `modules/ap/api/bill_approvals.php` — when the legacy AP UI's approve/reject endpoint commits, looks up the latest `pending` `workflow_instances` row for `('ap_bill', billId)` and calls `workflowAct(...)` with the same action. No-ops gracefully when no instance exists (legacy bills routed before the cutover) or the instance is already terminal. Wrapped in `try/catch(\Throwable)` so the legacy flow can never break.
+- Result: a finance manager who approves on the old AP screen sees the bill **drop out** of the cross-module Workflow Inbox and the mobile inbox in real-time. Bidirectional sync now complete:
+  - **Forward**: Workflow Inbox / mobile → ap_bill_approvals (Sprint 6c).
+  - **Reverse**: legacy AP UI → workflow_instances (Sprint 6e).
+
+### Period Close Readiness AI narrative — biggest AI surface yet
+- **New** `modules/accounting/api/close_ai.php` — POST `?action=readiness&period_id=N` routes through `aiAsk()` with `feature_class='narrative'` + `feature_key='accounting.period_close.readiness'`. Builds a grounded context from system state:
+  - Period meta (number, dates, status).
+  - Close-task stats (`pending`, `in_progress`, `blocked`, `done`).
+  - Top 5 open task titles (blocked first).
+  - Count of draft `accounting_journal_entries` within the period date range.
+  - Count of `time_entries` with `status='pending_review'` (best-effort; wrapped in try/catch for tenants without the time module).
+- Returns `{ summary, signals: { open_tasks, blocked_tasks, unposted_journal_entries, pending_review_timesheets } }`.
+- Prompt: "summarise what is blocking the close in 2-4 sentences, qualitatively, in priority order." Caps at 220 output tokens. Any throwable → empty summary; UI degrades silently.
+- `modules/accounting/ui/PeriodCloseWorkflow.jsx` — adds a "✨ AI close readiness · what is blocking close?" CTA. Click expands a sky-blue card labelled "AI close readiness · advisory only" with the summary + a signals strip showing the raw counts the model saw + a Refresh button.
+
+### "Are we adding AI as we go?" — running tally
+6 live AI features now: AP risk explainer · Payroll anomaly narratives · People onboarding emails · Bill-PDF extract · Workflow Inbox summary (6d) · **Period Close Readiness narrative (6e)**.
+
+### Validation
+- **New** `tests/sprint6e_close_readiness_ai_smoke.php` — **37/37 ✓** (treasury API + UI, AP reverse mirror + invocation site, close_ai endpoint shape + prompt + graceful degrade, PeriodCloseWorkflow UI affordances, schema-contract migration 010).
+- Vite build green: 1812 modules → `index-A4FY8RIL.js`. `spa-assets/index.html` + `.deploy-version` + sprint6b smoke synced.
+- **Full PHP suite: 83 files / 4,597 assertions ✓**, zero regressions.
+
 ## Recently completed (Sprint 6d — Entity-scope rollout to AP/Billing + AI Workflow Inbox, 2026-02)
 **Continues the Sprint 6c cutover wave. Two new entity-scoped surfaces, one new AI feature, and a direct answer to the "are we adding AI as we go?" question.**
 

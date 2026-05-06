@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import { fmtMoney, fmtRelative } from '../../../dashboard/src/lib/format';
 import AccountTransactions from './AccountTransactions';
 
@@ -14,13 +15,20 @@ export default function DepositAccounts() {
 }
 
 function DepositList() {
-  const { data, loading, reload } = useApi('/modules/treasury/api/deposit_accounts.php');
+  const { activeEntityId, activeEntity, entityQuery } = useActiveEntity();
+  const { data, loading, reload } = useApi('/modules/treasury/api/deposit_accounts.php' + entityQuery('?'));
   const rows = data?.rows || [];
   const [showNew, setShowNew] = useState(false);
   const navigate = useNavigate();
 
   return (
     <section className="treasury-deposits" data-testid="treasury-deposits">
+      {activeEntity && (
+        <div data-testid="treasury-deposits-entity-scope"
+             style={{ fontSize: 12, color: '#1e40af', marginBottom: 8 }}>
+          Scoped to entity <code>{activeEntity.code}</code> — switch in the header to see another.
+        </div>
+      )}
       <header className="treasury-overview__header">
         <div>
           <h2>Deposit accounts</h2>

@@ -262,7 +262,60 @@ if ($newState === 'approved') {
 }
 
 apAudit("ap.bill.approval_{$newState}", ['bill_id' => $billId, 'step' => (int) $step['step_no']], $billId);
+
+// Reverse sync — push the same decision onto the matching workflow_instance
+// so the cross-module Inbox + mobile push surfaces stay consistent.
+apMirrorToWorkflow($tenantId, $billId, $userId, $action, $note);
+
 api_ok(['ok' => true, 'state' => $newState]);
+
+/**
+ * Reverse sync (Sprint 6d) — when an approver acts via the legacy AP UI,
+ * mirror the same action onto the matching `workflow_instances` row so
+ * the bill drops out of the cross-module Workflow Inbox + the mobile
+ * app shows the new state. Idempotent: looks up by subject_type/id and
+ * silently no-ops if no instance exists (e.g. legacy bills routed
+ * before the cutover) or the instance is already terminal.
+ *
+ * Best-effort. ALL failures are swallowed — must never block the
+ * legacy flow that already wrote `ap_bill_approvals` + `ap_bills`.
+ */
+function apMirrorToWorkflow(int $tenantId, int $billId, ?int $userId, string $action, ?string $note): void {
+    try {
+        require_once __DIR__ . '/../../../core/workflow_engine.php';
+        $pdo = getDB();
+        if (!$pdo) return;
+        $stmt = $pdo->prepare(
+            "SELECT id, status FROM workflow_instances
+              WHERE tenant_id = :t AND subject_type = 'ap_bill' AND subject_id = :s
+              ORDER BY id DESC LIMIT 1"
+        );
+        $stmt->execute(['t' => $tenantId, 's' => $billId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return;
+        if ($row['status'] !== 'pending') return;
+        // Suppress the engine's subject-sync hook — we already wrote the
+        // legacy `ap_bill_approvals` row above; recursing back into
+        // apSyncFromWorkflow would just no-op but may also fire pushes.
+        // Pass via a soft channel: workflowAct doesn't currently take a
+        // suppression flag, so the safer move is to wrap the call in a
+        // try/catch. The hook itself swallows throwables and is keyed
+        // on bill_id + state='pending', so the second update naturally
+        // does nothing.
+        workflowAct(
+            $tenantId,
+            (int) $row['id'],
+            $userId,
+            $action,             // 'approve' or 'reject'
+            $note ?: null,
+            'app',               // via
+            null,                // delegated_to
+            null                 // actor_email
+        );
+    } catch (\Throwable $_) {
+        // Truly best-effort.
+    }
+}
 
 // ─── helpers ───
 function apBillApprovalNotify(\PDO $pdo, int $tenantId, int $billId, ?array $bill, array $approvers): void

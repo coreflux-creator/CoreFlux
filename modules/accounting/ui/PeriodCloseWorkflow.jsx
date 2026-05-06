@@ -32,6 +32,21 @@ export default function PeriodCloseWorkflow() {
 
   const [busy, setBusy] = useState(null);
   const [err, setErr]   = useState(null);
+  const [readiness, setReadiness] = useState(null);
+  const [readinessBusy, setReadinessBusy] = useState(false);
+
+  const askReadiness = async () => {
+    if (!periodId) return;
+    setReadinessBusy(true);
+    try {
+      const r = await api.post(`/modules/accounting/api/close_ai.php?action=readiness&period_id=${periodId}`, {});
+      setReadiness(r);
+    } catch {
+      setReadiness({ summary: '', signals: null, _error: true });
+    } finally {
+      setReadinessBusy(false);
+    }
+  };
 
   const seed = async () => {
     if (!periodId) return;
@@ -131,6 +146,46 @@ export default function PeriodCloseWorkflow() {
           <Stat label="In progress"  value={stats.in_progress}  color="#2563eb" />
           <Stat label="Pending"      value={stats.pending}      color="#64748b" />
           <Stat label="Blocked"      value={stats.blocked}      color="#dc2626" />
+        </div>
+      )}
+
+      {!!periodId && (
+        <div data-testid="close-readiness-block" style={{ marginBottom: 12 }}>
+          {!readiness && (
+            <button className="btn btn--ghost"
+                    data-testid="close-readiness-ask"
+                    disabled={readinessBusy}
+                    onClick={askReadiness}
+                    style={{ color: '#0369a1', borderColor: '#bae6fd' }}>
+              {readinessBusy ? 'Thinking…' : '✨ AI close readiness · what is blocking close?'}
+            </button>
+          )}
+          {!!readiness && (
+            <div data-testid="close-readiness-card"
+                 style={{ padding: 14, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10 }}>
+              <div style={{ fontSize: 11, color: '#0369a1', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                AI close readiness · advisory only
+              </div>
+              {readiness.summary
+                ? <p data-testid="close-readiness-summary" style={{ margin: 0, color: '#0c4a6e', lineHeight: 1.5 }}>{readiness.summary}</p>
+                : <p style={{ margin: 0, color: '#64748b' }}>Summary unavailable right now — try again in a moment.</p>}
+              {!!readiness.signals && (
+                <div style={{ marginTop: 10, display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: '#0369a1' }}>
+                  <span data-testid="close-readiness-signal-open">Open tasks: <strong>{readiness.signals.open_tasks}</strong></span>
+                  <span>Blocked: <strong>{readiness.signals.blocked_tasks}</strong></span>
+                  <span>Draft JEs in period: <strong>{readiness.signals.unposted_journal_entries}</strong></span>
+                  <span>Pending-review timesheets: <strong>{readiness.signals.pending_review_timesheets}</strong></span>
+                </div>
+              )}
+              <button className="btn btn--ghost"
+                      data-testid="close-readiness-refresh"
+                      disabled={readinessBusy}
+                      onClick={askReadiness}
+                      style={{ marginTop: 10, fontSize: 12 }}>
+                {readinessBusy ? 'Refreshing…' : 'Refresh'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
