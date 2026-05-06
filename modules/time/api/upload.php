@@ -52,6 +52,8 @@ if ($method === 'POST' && $action === 'extract') {
     $fileName     = (string) ($body['file_name'] ?? 'timesheet.pdf');
     $mimeType     = (string) ($body['mime_type'] ?? 'application/pdf');
     $weekEnding   = $body['week_ending'] ?? null;
+    $mode         = (string) ($body['mode'] ?? 'single');
+    if (!in_array($mode, ['single', 'bulk'], true)) $mode = 'single';
 
     // Register the storage object so it lives in the audit chain.
     $storageObjectId = registerStorageObject([
@@ -78,26 +80,55 @@ if ($method === 'POST' && $action === 'extract') {
     // Run AI extraction.
     try {
         $signedUrl = \Core\StorageService::getInstance()->get_signed_url($storageKey);
-        $schema = '{"week_ending":string|null,"person_name":string|null,'
-            . '"lines":[{"work_date":string,"project":string|null,"client":string|null,'
-            . '"category":"regular_billable"|"regular_nonbillable"|"OT_billable"|"OT_nonbillable"|"holiday"|"vacation"|"sick"|"bereavement"|"unpaid_leave"|null,'
-            . '"hours":number,"description":string|null}]}';
-        $instruction = 'Extract a paper or PDF timesheet. Each row is a (date, project, hours) triple. '
-            . 'work_date MUST be ISO YYYY-MM-DD. If the timesheet shows a single week with day-of-week columns (Mon-Sun), '
-            . 'derive each work_date from the implied week. Default category to regular_billable when not labelled. '
-            . 'Round hours to two decimals. Skip rows whose hours are zero or blank.';
+
+        if ($mode === 'bulk') {
+            $schema = '{"week_ending":string|null,'
+                . '"people":[{"person_name":string,"lines":['
+                . '{"work_date":string,"project":string|null,"client":string|null,'
+                . '"category":"regular_billable"|"regular_nonbillable"|"OT_billable"|"OT_nonbillable"|"holiday"|"vacation"|"sick"|"bereavement"|"unpaid_leave"|null,'
+                . '"hours":number,"description":string|null}]}]}';
+            $instruction = 'Extract a multi-person paper or PDF timesheet (e.g. a foreman daily log, '
+                . 'crew sign-in sheet, or printed weekly grid for many workers). Group rows by person_name. '
+                . 'Each line is a (date, project, hours) triple. work_date MUST be ISO YYYY-MM-DD. '
+                . 'If the timesheet shows a single week with day-of-week columns (Mon-Sun), '
+                . 'derive each work_date from the implied week. Default category to regular_billable when not labelled. '
+                . 'Round hours to two decimals. Skip rows whose hours are zero or blank. '
+                . 'Skip totals/summary rows. Use the printed full name (do not abbreviate).';
+        } else {
+            $schema = '{"week_ending":string|null,"person_name":string|null,'
+                . '"lines":[{"work_date":string,"project":string|null,"client":string|null,'
+                . '"category":"regular_billable"|"regular_nonbillable"|"OT_billable"|"OT_nonbillable"|"holiday"|"vacation"|"sick"|"bereavement"|"unpaid_leave"|null,'
+                . '"hours":number,"description":string|null}]}';
+            $instruction = 'Extract a paper or PDF timesheet. Each row is a (date, project, hours) triple. '
+                . 'work_date MUST be ISO YYYY-MM-DD. If the timesheet shows a single week with day-of-week columns (Mon-Sun), '
+                . 'derive each work_date from the implied week. Default category to regular_billable when not labelled. '
+                . 'Round hours to two decimals. Skip rows whose hours are zero or blank.';
+        }
         if ($weekEnding) $instruction .= " The week ending date is {$weekEnding}.";
 
         $res = aiExtract([
-            'feature_key' => 'time.timesheet.from_upload',
+            'feature_key' => $mode === 'bulk' ? 'time.timesheet.from_upload_bulk' : 'time.timesheet.from_upload',
             'instruction' => $instruction,
             'schema_hint' => $schema,
             'images'      => [['url' => $signedUrl, 'mime' => $mimeType]],
         ]);
 
         $draft = $res['data'] ?? [];
-        $lines = is_array($draft['lines'] ?? null) ? $draft['lines'] : [];
-        $confidence = timeUploadConfidence($lines);
+        if ($mode === 'bulk') {
+            $people = is_array($draft['people'] ?? null) ? $draft['people'] : [];
+            $allLines = [];
+            foreach ($people as $p) {
+                if (is_array($p['lines'] ?? null)) {
+                    foreach ($p['lines'] as $ln) $allLines[] = $ln;
+                }
+            }
+            $confidence = timeUploadConfidence($allLines);
+            // Pre-resolve person matches against people_index for the UI.
+            $draft['people'] = timeUploadResolvePeople($pdo, $tenantId, $people);
+        } else {
+            $lines = is_array($draft['lines'] ?? null) ? $draft['lines'] : [];
+            $confidence = timeUploadConfidence($lines);
+        }
 
         $pdo->prepare(
             'UPDATE time_uploaded_documents
@@ -115,7 +146,9 @@ if ($method === 'POST' && $action === 'extract') {
 
         timeAudit('time.upload.extracted', [
             'document_id'    => $docId,
-            'line_count'     => count($lines),
+            'mode'           => $mode,
+            'line_count'     => isset($allLines) ? count($allLines) : (isset($lines) ? count($lines) : 0),
+            'people_count'   => $mode === 'bulk' ? count($draft['people'] ?? []) : 1,
             'confidence'     => $confidence,
             'model'          => $res['model'] ?? null,
             'interaction_id' => $res['interaction_id'] ?? null,
@@ -174,6 +207,50 @@ if ($method === 'POST' && $action === 'consume') {
 }
 
 api_error('Unknown action', 422);
+
+/**
+ * Resolve each AI-extracted person_name to a candidate row in people_index.
+ *
+ * Match strategy:
+ *   1. Exact match on `legal_name` (case-insensitive).
+ *   2. Exact match on `CONCAT(first_name, ' ', last_name)`.
+ *   3. Exact match on `preferred_name`.
+ *
+ * Each people-card returned to the UI gets `match_candidates: [{id, name}]`
+ * — typically zero or one rows. The user always confirms before save.
+ */
+function timeUploadResolvePeople(\PDO $pdo, int $tenantId, array $people): array
+{
+    if (empty($people)) return [];
+    foreach ($people as &$p) {
+        $name = trim((string) ($p['person_name'] ?? ''));
+        $p['match_candidates'] = [];
+        if ($name === '') continue;
+        $stmt = $pdo->prepare(
+            "SELECT id, first_name, last_name, preferred_name, email_primary
+               FROM people
+              WHERE tenant_id = :t
+                AND deleted_at IS NULL
+                AND (
+                       LOWER(CONCAT_WS(' ', first_name, last_name))           = LOWER(:n)
+                    OR LOWER(CONCAT_WS(' ', preferred_name, last_name))       = LOWER(:n)
+                    OR LOWER(preferred_name)                                  = LOWER(:n)
+                )
+              LIMIT 5"
+        );
+        $stmt->execute(['t' => $tenantId, 'n' => $name]);
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $display = trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? ''));
+            if ($display === '') $display = (string) ($row['preferred_name'] ?? '');
+            $p['match_candidates'][] = [
+                'id'            => (int) $row['id'],
+                'name'          => $display,
+                'email'         => $row['email_primary'] ?? null,
+            ];
+        }
+    }
+    return $people;
+}
 
 /**
  * Heuristic: fraction of extracted lines that have a parseable work_date

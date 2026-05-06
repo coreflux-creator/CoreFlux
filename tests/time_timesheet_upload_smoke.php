@@ -31,7 +31,7 @@ echo "Time upload — /api/time/upload.php\n";
 $api = file_get_contents(__DIR__ . '/../modules/time/api/upload.php');
 $assert('?action=upload_url presigned POST',               strpos($api, "action === 'upload_url'") !== false);
 $assert('uses Core\\StorageService::getInstance()',        strpos($api, '\\Core\\StorageService::getInstance()') !== false);
-$assert('?action=extract calls aiExtract',                 strpos($api, "feature_key' => 'time.timesheet.from_upload'") !== false);
+$assert('?action=extract calls aiExtract',                 strpos($api, "feature_key' => \$mode") !== false || strpos($api, "feature_key' => 'time.timesheet.from_upload") !== false);
 $assert('schema includes work_date/hours/category',        strpos($api, '"work_date":string') !== false && strpos($api, '"hours":number') !== false);
 $assert('records doc up-front (audit even on AI fail)',    strpos($api, 'INSERT INTO time_uploaded_documents') !== false);
 $assert('updates extraction_status=extracted on success',  strpos($api, '"extracted"') !== false);
@@ -64,7 +64,7 @@ $assert('Upload page testid',                              strpos($ui, 'data-tes
 $assert('File picker testid',                              strpos($ui, 'data-testid="time-upload-file"') !== false);
 $assert('Week-ending hint input',                          strpos($ui, 'data-testid="time-upload-week-ending"') !== false);
 $assert('Extract button',                                  strpos($ui, 'data-testid="time-upload-extract"') !== false);
-$assert('Review table',                                    strpos($ui, 'data-testid="time-upload-lines-table"') !== false);
+$assert('Review table renders groups',                     strpos($ui, 'time-upload-review') !== false && strpos($ui, 'GroupCard') !== false);
 $assert('Save-all button',                                 strpos($ui, 'data-testid="time-upload-save"') !== false);
 $assert('Cancel button',                                   strpos($ui, 'data-testid="time-upload-cancel"') !== false);
 $assert('uses uploadFileViaPresignedPost',                 strpos($ui, 'uploadFileViaPresignedPost') !== false);
@@ -72,8 +72,27 @@ $assert('posts to /modules/time/api/upload.php?action=extract', strpos($ui, '/mo
 $assert('saves entries via entries.php POST',              strpos($ui, "'/modules/time/api/entries.php'") !== false);
 $assert('marks doc consumed on save success',              strpos($ui, "action=consume") !== false);
 $assert('placement typeahead from active placements',      strpos($ui, "placements.php?status=active") !== false);
-$assert('source: ai_inbox stamp on saved entries',         strpos($ui, "source:       'ai_inbox'") !== false);
+$assert('source: ai_inbox stamp on saved entries',         preg_match("/source:\\s+'ai_inbox'/", $ui) === 1);
 $assert('source_ref_id stamps doc id',                     strpos($ui, "source_ref_id: docId") !== false);
+
+// Bulk mode
+$assert('UI bulk mode radio',                              strpos($ui, 'data-testid="time-upload-mode-bulk"') !== false);
+$assert('UI single mode radio',                            strpos($ui, 'data-testid="time-upload-mode-single"') !== false);
+$assert('UI sends mode to extract',                        strpos($ui, 'mode,') !== false);
+$assert('UI builds groups from draft.people',              strpos($ui, 'draft.people') !== false);
+$assert('UI renders GroupCard component',                  strpos($ui, 'function GroupCard') !== false);
+$assert('UI renders PersonPicker component',               strpos($ui, 'function PersonPicker') !== false);
+$assert('UI filters placements by selected person',        strpos($ui, 'placementsByPerson[personId]') !== false);
+$assert('UI fetches people via /modules/people/api/people.php', strpos($ui, '/modules/people/api/people.php') !== false);
+
+// Backend bulk
+$assert('API accepts mode=bulk param',                     strpos($api, "['single', 'bulk']") !== false);
+$assert('API uses bulk schema with people array',          strpos($api, '"people":[{"person_name"') !== false);
+$assert('API uses bulk feature_key',                       strpos($api, "'time.timesheet.from_upload_bulk'") !== false);
+$assert('API resolves people via timeUploadResolvePeople', strpos($api, 'timeUploadResolvePeople') !== false);
+$assert('API queries people table for matches',            strpos($api, 'FROM people') !== false && strpos($api, 'first_name') !== false);
+$assert('API attaches match_candidates to each person',    strpos($api, "'match_candidates'") !== false);
+$assert('API audit includes mode + people_count',          strpos($api, "'mode'") !== false && strpos($api, "'people_count'") !== false);
 
 $mt = file_get_contents(__DIR__ . '/../modules/time/ui/MyTime.jsx');
 $assert('MyTime header link to /upload',                   strpos($mt, 'data-testid="time-my-time-upload-link"') !== false);

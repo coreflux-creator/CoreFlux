@@ -842,7 +842,9 @@ Module tables must include `tenant_id` (NOT NULL) and be prefixed by the module 
 
 **Manifest:** new sidebar action "Upload Timesheet" route; new permission `time.entry.create` (alias for self-service); audits declared.
 
-**Tests:** new `tests/time_timesheet_upload_smoke.php` — 43 assertions across migration, API contract, manifest, all UI testids, and the source-stamping convention. Full suite now: **72 files, 4,231 / 4,231 passing.**
+**Tests:** new `tests/time_timesheet_upload_smoke.php` — 58 assertions across migration, API contract, manifest, all UI testids, source-stamping convention, and bulk-mode (people array schema, `match_candidates` resolution, GroupCard/PersonPicker components, placement filtering by selected person). Full suite now: **72 files, 4,246 / 4,246 passing.**
+
+**Bulk-people mode:** the same `TimesheetUpload` page now offers a radio toggle "Just my hours" vs "Many people (foreman log / crew sheet)". Bulk extraction uses a different AI schema (`{week_ending, people:[{person_name, lines:[...]}]}`) and the backend pre-resolves each person_name against `people` (exact match on `first_name+last_name` / `preferred_name+last_name` / `preferred_name`) so the UI can default the picker to a unique match. Per-line placement options are filtered to the chosen person's active placements. New audit metadata: `mode`, `people_count`.
 
 *2026-02 — Sprints 1-4: Login UX + admin tools rebuild + executive dashboard (this fork):*
 - **Sprint 1 — Login + tenant module filter (18 assertions ✓)**
