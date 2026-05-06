@@ -86,7 +86,7 @@ sentinels:
 - tests/hardening_pass1_smoke.php
 - tests/schema_contract_smoke.php
 expected_bundle:
-- spa-assets/index-A4FY8RIL.js
+- spa-assets/index-CYESTHsp.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -217,3 +217,9 @@ last_known_features:
 - treasury.bank_accounts.entity_id_migration
 - ap.legacy_ui_workflow_reverse_mirror
 - ai.accounting.period_close.readiness
+- ux.reports.duplicate_sidebar_removed
+- ux.reports.500_to_graceful_warning
+- ux.sidebar.icon_variety
+- ux.dashboard_cards.per_module_icon_color
+- ux.bank_rec.close_reopen_archive
+- ux.bank_rec.show_closed_toggle

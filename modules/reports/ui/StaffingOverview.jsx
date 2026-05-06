@@ -28,6 +28,12 @@ export default function StaffingOverview() {
 
       {error && <p className="error" data-testid="reports-overview-error">Failed to load: {String(error)}</p>}
       {loading && !data && <p className="empty">Loading dashboard…</p>}
+      {data && data.data_warning && (
+        <div data-testid="reports-overview-warning"
+             style={{ padding: 14, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, marginBottom: 16, color: '#92400e' }}>
+          <strong>Data not ready yet</strong> — {data.data_warning}
+        </div>
+      )}
       {data && (
         <>
           <SectionLabel testid="reports-overview-kpis-label">Period totals — {data.period.label} ({data.period.from} → {data.period.to})</SectionLabel>

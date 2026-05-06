@@ -470,6 +470,38 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 6f — UX cleanup pass: bank-rec / reports / sidebar / dashboard cards, 2026-02)
+**Course-correction sprint after user feedback that the architecture sprints were forward-looking but the day-to-day UX still had real bugs and clutter. This pass fixes 5 visible issues end-to-end, all driven by an annotated screenshot from the user.**
+
+### What was broken (before)
+- Reports → Staffing Overview returned a literal "Failed to load: Error: Internal server error" red banner because the SQL behind the `v_timesheet_day_fin` view threw — and the API didn't catch.
+- Reports module showed **two stacked sidebars** — the global left rail AND a duplicate inner `ReportsSidebar` listing the same items.
+- Standard sidebar used the same `LayoutGrid` icon for almost every route (Reports, Time, Accounting children) so the rail was a wall of identical tiles.
+- Home dashboard's module cards picked from a 3-way ternary (`accounting → DollarSign, people → Users, finance → TrendingUp, else → Building2`) so most modules showed `Building2` and `orange`.
+- Bank Reconciliation account list had no way to hide accidentally-connected Plaid accounts. Once added, every account stayed visible forever.
+
+### What shipped
+1. **Reports API resilience** — `modules/reports/api/overview.php` wraps the five staffing-metric SQL calls in `try/catch(\Throwable)`; on failure it `error_log`s the cause and returns a zeroed payload + a `data_warning` string. `StaffingOverview.jsx` renders a friendly amber banner ("Data not ready yet — Run the reports migration `v_timesheet_day_fin` and reload") instead of the angry red error. No more 500 on this page.
+2. **Removed duplicate Reports sidebar** — `modules/reports/ui/ReportsModule.jsx` no longer wraps `<ReportsSidebar>`. The global `Sidebar.jsx` already lists every Reports route via `core/modules.php`; the inner one was pure duplication.
+3. **Sidebar icon variety (90+ entries)** — `dashboard/src/layout/Sidebar.jsx` `iconMap` now covers every known route across Accounting, AP, Billing, Treasury, Reports, Time, People, Hiring, Payroll, Admin. Each route gets a deliberate lucide icon (`Gauge`, `BookOpen`, `Layers`, `Tags`, `ClipboardCheck`, `Banknote`, `Wallet`, `Briefcase`, `ScrollText`, `Sparkles`, ~40 more). Fallback is still `LayoutGrid` but every named route is mapped.
+4. **Dashboard module cards** — `dashboard/src/components/UIComponents.jsx` introduces `moduleVisuals` map (17 modules) so each tile gets its own icon + colour. Cards now also carry `data-testid="module-card-<id>"` for e2e and respect `mod.description` if present.
+5. **Bank Rec close / reopen + Show-closed toggle** —
+   - API: `modules/accounting/api/bank_accounts.php` GET defaults to non-closed accounts, accepts `?include_closed=1` and `?status=closed`, returns a `counts` block. New `?action=reopen&id=N` flips back to active. Existing `?action=close` retained.
+   - UI: `BankReconciliation.jsx::AccountsList` adds a "Show closed" checkbox, a counts subtitle ("12 active · 3 closed"), per-row Close / Reopen button with confirm dialog, dims closed rows to 55% opacity, status badges in green/red, and surfaces the `· plaid` feed marker for orphan triage.
+
+### Validation
+- **New** `tests/sprint6f_ux_cleanup_smoke.php` — **110/110 ✓** (overview try/catch + warning banner, ReportsModule no longer imports ReportsSidebar, 43 lucide imports + 23 iconMap routes asserted in Sidebar, 11 modules visualised in moduleVisuals, bank_accounts API close/reopen/filter/counts, BankReconciliation UI show-closed toggle + per-row actions + status badges).
+- Vite build green: 1813 modules → `index-CYESTHsp.js`. `spa-assets/index.html` + `.deploy-version` synced.
+- **Full PHP suite: 84 files / 4,707 assertions ✓**, zero regressions.
+
+### Honest call-out — what's still pending
+- "AI match all the screens in Time" — I checked: there's no "AI match" feature inside the Time module today (the AI match button lives in Bank Rec). Either the user means a missing Time-module AI feature they want added, or they hit a different screen-specific error. Need clarification.
+- "Various other place" — too vague to action without the user listing screens; I'll await specifics.
+- Bank Rec internal errors on **specific actions** (Apply rules, Connect Plaid, Match line, Open packet) — not yet diagnosed because the error text wasn't shared. The Reports 500 fix is a reusable pattern (try/catch + friendly fallback) we can replicate everywhere once the user names the screens.
+- Audit-log anomaly spotter (the AI surface user OK'd) — still pending; will land in 6g.
+- Bank-rec other features (Plaid re-auth UI, hide vs delete, etc.) — pending.
+
+
 ## Recently completed (Sprint 6e — Treasury entity-scope + AP legacy reverse-mirror + Period Close Readiness AI, 2026-02)
 **Closes the Sprint 6 wave. Bidirectional AP↔workflow sync now exists, treasury bank accounts honour the entity switcher, and the largest-leverage AI feature shipped: Close Readiness narrative.**
 

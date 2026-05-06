@@ -85,32 +85,94 @@ function ReconciliationsList() {
 }
 
 function AccountsList() {
-  const { data, loading, error, reload } = useApi('/modules/accounting/api/bank_accounts.php');
+  const [showClosed, setShowClosed] = useState(false);
+  const apiUrl = '/modules/accounting/api/bank_accounts.php' + (showClosed ? '?include_closed=1' : '');
+  const { data, loading, error, reload } = useApi(apiUrl);
   const [showNew, setShow] = useState(false);
+  const [busy, setBusy] = useState(null);
+  const counts = data?.counts || {};
+  const close = async (id) => {
+    if (!confirm('Close this bank account? It will be hidden from the active list (and from Treasury). You can reopen it later.')) return;
+    setBusy(id);
+    try { await api.post(`/modules/accounting/api/bank_accounts.php?action=close&id=${id}`); await reload(); }
+    catch (e) { alert('Could not close: ' + e.message); }
+    finally { setBusy(null); }
+  };
+  const reopen = async (id) => {
+    setBusy(id);
+    try { await api.post(`/modules/accounting/api/bank_accounts.php?action=reopen&id=${id}`); await reload(); }
+    catch (e) { alert('Could not reopen: ' + e.message); }
+    finally { setBusy(null); }
+  };
   return (
     <section data-testid="accounting-bank-accounts">
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0 }}>Bank Reconciliation</h2>
-        <button className="btn btn--primary" onClick={() => setShow(true)} data-testid="accounting-bank-account-new">+ Add bank account</button>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h2 style={{ margin: 0 }}>Bank Reconciliation</h2>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+            <strong>{counts.active ?? 0}</strong> active
+            {!!counts.closed && <> · <strong>{counts.closed}</strong> closed</>}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <label style={{ fontSize: 12, color: '#475569', display: 'flex', gap: 4, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={showClosed}
+              onChange={e => setShowClosed(e.target.checked)}
+              data-testid="accounting-bank-accounts-show-closed"
+            />
+            Show closed
+          </label>
+          <button className="btn btn--primary" onClick={() => setShow(true)} data-testid="accounting-bank-account-new">+ Add bank account</button>
+        </div>
       </header>
       {loading && <p>Loading…</p>}
       {error   && <p className="error">{error.message}</p>}
       {showNew && <NewAccountForm onDone={() => { setShow(false); reload(); }} onCancel={() => setShow(false)} />}
       <table className="data-table" data-testid="accounting-bank-accounts-table">
-        <thead><tr><th>Name</th><th>GL code</th><th>Bank</th><th>Last4</th><th>Feed</th><th>Last sync</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>GL code</th><th>Bank</th><th>Last4</th><th>Feed</th><th>Last sync</th><th>Status</th><th></th></tr></thead>
         <tbody>
           {(data?.rows || []).length === 0 && !loading && (
-            <tr><td colSpan={7} className="empty" data-testid="accounting-bank-accounts-empty">No bank accounts yet.</td></tr>
+            <tr><td colSpan={8} className="empty" data-testid="accounting-bank-accounts-empty">No bank accounts {showClosed ? '' : '(check "Show closed" to see archived ones)'}.</td></tr>
           )}
           {(data?.rows || []).map(a => (
-            <tr key={a.id} data-testid={`accounting-bank-account-row-${a.id}`}>
+            <tr key={a.id}
+                data-testid={`accounting-bank-account-row-${a.id}`}
+                style={{ opacity: a.status === 'closed' ? 0.55 : 1 }}>
               <td><Link to={`${a.id}`} data-testid={`accounting-bank-account-link-${a.id}`}>{a.name}</Link></td>
               <td><code>{a.gl_account_code}</code></td>
               <td>{a.bank_name || '—'}</td>
               <td>{a.last4 || '—'}</td>
-              <td>{a.feed_provider || 'manual'}</td>
+              <td>{a.feed_provider || 'manual'}{a.plaid_account_id ? ' · plaid' : ''}</td>
               <td>{a.last_feed_synced_at || '—'}</td>
-              <td><Link to={`${a.id}/rules`} data-testid={`accounting-bank-account-rules-${a.id}`}>Rules ↗</Link></td>
+              <td>
+                <span className="badge"
+                      data-testid={`accounting-bank-account-status-${a.id}`}
+                      style={a.status === 'closed' ? { background: '#fee2e2', color: '#991b1b' } : { background: '#dcfce7', color: '#166534' }}>
+                  {a.status}
+                </span>
+              </td>
+              <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <Link to={`${a.id}/rules`} data-testid={`accounting-bank-account-rules-${a.id}`} style={{ fontSize: 12 }}>Rules ↗</Link>
+                {a.status === 'active' ? (
+                  <button className="btn btn--ghost"
+                          style={{ fontSize: 12, color: '#dc2626' }}
+                          disabled={busy === a.id}
+                          onClick={() => close(a.id)}
+                          data-testid={`accounting-bank-account-close-${a.id}`}>
+                    {busy === a.id ? '…' : 'Close'}
+                  </button>
+                ) : (
+                  <button className="btn btn--ghost"
+                          style={{ fontSize: 12, color: '#0369a1' }}
+                          disabled={busy === a.id}
+                          onClick={() => reopen(a.id)}
+                          data-testid={`accounting-bank-account-reopen-${a.id}`}>
+                    {busy === a.id ? '…' : 'Reopen'}
+                  </button>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>

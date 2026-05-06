@@ -1,6 +1,11 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, RefreshCw, Users, Clock, TrendingUp, CheckCircle, DollarSign, FileText, Building2, UserPlus } from 'lucide-react';
+import {
+  ArrowRight, RefreshCw, Users, Clock, TrendingUp, CheckCircle, DollarSign,
+  FileText, Building2, UserPlus, Banknote, BookOpen, Receipt, CreditCard,
+  Briefcase, ClipboardCheck, Wallet, BarChart3, PieChart, Calendar,
+  FileSearch, ScrollText, Inbox, Sparkles, Settings, Boxes, Hourglass, Network
+} from 'lucide-react';
 
 // Icon mapping for quick overview stats
 const statIconMap = {
@@ -32,30 +37,56 @@ const colorMap = {
   'approved': 'teal',
 };
 
+// Per-module card styling — each top-level module gets its own deliberate
+// icon + colour so the Home grid reads at a glance instead of being a wall
+// of identical Building2/DollarSign tiles.
+const moduleVisuals = {
+  accounting: { Icon: BookOpen,        color: 'green'  },
+  ap:         { Icon: Receipt,         color: 'orange' },
+  billing:    { Icon: CreditCard,      color: 'blue'   },
+  people:     { Icon: Users,           color: 'purple' },
+  hiring:     { Icon: Briefcase,       color: 'pink'   },
+  payroll:    { Icon: Banknote,        color: 'teal'   },
+  time:       { Icon: Clock,           color: 'amber'  },
+  treasury:   { Icon: Wallet,          color: 'cyan'   },
+  reports:    { Icon: PieChart,        color: 'indigo' },
+  finance:    { Icon: TrendingUp,      color: 'green'  },
+  budgeting:  { Icon: BarChart3,       color: 'blue'   },
+  audit:      { Icon: ScrollText,      color: 'gray'   },
+  admin:      { Icon: Settings,        color: 'slate'  },
+  inbox:      { Icon: Inbox,           color: 'blue'   },
+  workflow:   { Icon: ClipboardCheck,  color: 'teal'   },
+  ai:         { Icon: Sparkles,        color: 'purple' },
+  consol:     { Icon: Network,         color: 'indigo' },
+};
+
+function moduleVisual(mod) {
+  // Look up by id, then by lowercased name first-token, then default.
+  if (mod.id && moduleVisuals[mod.id]) return moduleVisuals[mod.id];
+  const name = (mod.name || '').toLowerCase().split(/[\s/]+/)[0];
+  if (moduleVisuals[name]) return moduleVisuals[name];
+  return { Icon: Building2, color: 'gray' };
+}
+
 // Module Cards at top of dashboard
 export const ModuleCards = ({ modules, onModuleClick }) => (
   <div className="module-cards">
     {modules.map((mod) => {
-      const IconComponent = mod.id === 'accounting' ? DollarSign : 
-                          mod.id === 'people' ? Users : 
-                          mod.id === 'finance' ? TrendingUp : Building2;
-      const color = mod.id === 'accounting' ? 'green' : 
-                   mod.id === 'people' ? 'purple' : 
-                   mod.id === 'finance' ? 'blue' : 'orange';
-      
+      const { Icon: IconComponent, color } = moduleVisual(mod);
       return (
         <Link
           key={mod.id}
           to={`/modules/${mod.id}/overview`}
           className="module-card"
           onClick={() => onModuleClick?.(mod)}
+          data-testid={`module-card-${mod.id}`}
         >
           <div className="module-card-content">
             <div className={`module-card-icon ${color}`}>
               <IconComponent size={20} />
             </div>
             <div className="module-card-title">{mod.name}</div>
-            <div className="module-card-desc">Access {mod.name} module</div>
+            <div className="module-card-desc">{mod.description || `Access ${mod.name} module`}</div>
           </div>
           <span className="module-card-arrow"><ArrowRight size={20} /></span>
         </Link>

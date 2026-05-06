@@ -38,14 +38,45 @@ if ($method === 'GET' && !empty($_GET['id'])) {
 
 if ($method === 'GET') {
     RBAC::requirePermission($user, 'accounting.coa.view');
+    // Sprint 6f — default to active accounts only so the list isn't cluttered
+    // by accounts the user closed (or accidentally connected via Plaid and
+    // never used). Pass ?include_closed=1 to see everything, or ?status=closed
+    // to filter to the archive itself.
+    $statusFilter = (string) ($_GET['status'] ?? '');
+    $includeClosed = !empty($_GET['include_closed']);
+    $where = ['tenant_id = :tenant_id'];
+    $params = [];
+    if ($statusFilter) {
+        $where[] = 'status = :s';
+        $params['s'] = $statusFilter;
+    } elseif (!$includeClosed) {
+        $where[] = "status <> 'closed'";
+    }
     $rows = scopedQuery(
         'SELECT id, entity_id, name, gl_account_code, bank_name, last4, currency,
-                feed_provider, last_feed_synced_at, status, created_at
+                feed_provider, last_feed_synced_at, plaid_account_id, status, created_at
          FROM accounting_bank_accounts
-         WHERE tenant_id = :tenant_id
-         ORDER BY status, name'
+         WHERE ' . implode(' AND ', $where) . '
+         ORDER BY status, name',
+        $params
     );
-    api_ok(['rows' => $rows]);
+    // Surface counts so the UI can show "12 active · 3 closed".
+    $countStmt = scopedQuery(
+        'SELECT status, COUNT(*) AS c FROM accounting_bank_accounts
+          WHERE tenant_id = :tenant_id GROUP BY status'
+    );
+    $counts = [];
+    foreach ($countStmt as $r) { $counts[$r['status']] = (int) $r['c']; }
+    api_ok(['rows' => $rows, 'counts' => $counts]);
+}
+
+if ($method === 'POST' && $action === 'reopen') {
+    RBAC::requirePermission($user, 'accounting.coa.edit');
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 400);
+    scopedUpdate('accounting_bank_accounts', $id, ['status' => 'active']);
+    accountingAudit('accounting.bank_account.reopened', [], $id);
+    api_ok(['ok' => true]);
 }
 
 if ($method === 'POST' && $action === 'close') {
