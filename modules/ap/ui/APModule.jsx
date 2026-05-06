@@ -15,6 +15,7 @@ import Settings from './Settings';
 import Approvals from './Approvals';
 import RecurringBills from './RecurringBills';
 import PurchaseOrders from './PurchaseOrders';
+import VendorUploadsReview from './VendorUploadsReview';
 
 const navItems = [
   { to: '/modules/ap/bills',            label: 'Bills' },
@@ -24,6 +25,7 @@ const navItems = [
   { to: '/modules/ap/expenses',         label: 'Expenses' },
   { to: '/modules/ap/recurring',        label: 'Recurring' },
   { to: '/modules/ap/purchase-orders',  label: 'POs' },
+  { to: '/modules/ap/vendor-uploads',   label: 'Vendor uploads' },
   { to: '/modules/ap/aging',            label: 'Aging' },
   { to: '/modules/ap/1099',             label: '1099' },
   { to: '/modules/ap/export',           label: 'Export' },
@@ -69,6 +71,7 @@ export default function APModule() {
         <Route path="recurring" element={<RecurringBills />} />
         <Route path="purchase-orders" element={<PurchaseOrders />} />
         <Route path="purchase-orders/:id" element={<PurchaseOrders />} />
+        <Route path="vendor-uploads" element={<VendorUploadsReview />} />
         <Route path="aging" element={<AgingTable />} />
         <Route path="1099" element={<Ledger1099 />} />
         <Route path="export" element={<Export />} />

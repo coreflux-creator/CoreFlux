@@ -274,24 +274,194 @@ if ($method === 'POST' && $action === 'upload_document') {
         'kind'      => 'vendor_document',
     ]);
 
+    // Auto-process by document_type. Manual review is the exception, not the default.
+    [$status, $aiAction, $aiJson, $aiConf] = vendorPortalAutoProcess(
+        $pdo, (int) $sess['tenant_id'], (int) $sess['vendor_id'], $docType, $storageKey
+    );
+
     $pdo->prepare(
         'INSERT INTO ap_vendor_portal_documents
-            (tenant_id, vendor_id, document_type, file_name, storage_object_id, status, uploaded_at)
-         VALUES (:t, :v, :dt, :fn, :so, "pending_review", NOW())'
+            (tenant_id, vendor_id, document_type, file_name, storage_object_id,
+             status, ai_extracted_json, ai_confidence, ai_action, uploaded_at)
+         VALUES (:t, :v, :dt, :fn, :so, :st, :aj, :ac, :aa, NOW())'
     )->execute([
         't'  => (int) $sess['tenant_id'],
         'v'  => (int) $sess['vendor_id'],
         'dt' => $docType,
         'fn' => $fileName,
         'so' => $storageObjectId,
+        'st' => $status,
+        'aj' => $aiJson,
+        'ac' => $aiConf,
+        'aa' => $aiAction,
     ]);
     $id = (int) $pdo->lastInsertId();
     apAudit('ap.vendor.portal_document_uploaded', [
-        'vendor_id' => (int) $sess['vendor_id'],
+        'vendor_id'     => (int) $sess['vendor_id'],
         'document_type' => $docType,
-        'document_id' => $id,
+        'document_id'   => $id,
+        'auto_status'   => $status,
+        'ai_action'     => $aiAction,
     ], (int) $sess['vendor_id']);
-    api_ok(['id' => $id], 201);
+    api_ok(['id' => $id, 'status' => $status, 'ai_action' => $aiAction], 201);
+}
+
+// ───── admin: pending uploads list ─────
+if ($method === 'GET' && $action === 'admin_pending') {
+    $ctx = api_require_auth();
+    RBAC::requirePermission($ctx['user'], 'ap.vendor.portal_review');
+    $tenantId = (int) $ctx['tenant_id'];
+    $stmt = $pdo->prepare(
+        'SELECT d.*, v.vendor_name, v.vendor_type
+           FROM ap_vendor_portal_documents d
+           LEFT JOIN ap_vendors_index v ON v.id = d.vendor_id AND v.tenant_id = d.tenant_id
+          WHERE d.tenant_id = :t AND d.status = "pending_review"
+          ORDER BY d.uploaded_at DESC LIMIT 200'
+    );
+    $stmt->execute(['t' => $tenantId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as &$r) {
+        $r['ai_extracted'] = $r['ai_extracted_json'] ? json_decode((string) $r['ai_extracted_json'], true) : null;
+        unset($r['ai_extracted_json']);
+    }
+    api_ok(['rows' => $rows]);
+}
+
+// ───── admin: approve/reject a pending upload ─────
+if ($method === 'POST' && in_array($action, ['admin_approve', 'admin_reject'], true)) {
+    $ctx = api_require_auth();
+    RBAC::requirePermission($ctx['user'], 'ap.vendor.portal_review');
+    $tenantId = (int) $ctx['tenant_id'];
+    $body  = api_json_body();
+    $docId = (int) ($body['id'] ?? 0);
+    $note  = trim((string) ($body['note'] ?? ''));
+    if ($docId <= 0) api_error('id required', 422);
+
+    $newStatus = $action === 'admin_approve' ? 'approved' : 'rejected';
+    $pdo->prepare(
+        'UPDATE ap_vendor_portal_documents
+            SET status = :s, reviewed_at = NOW(), reviewed_by = :r,
+                notes = COALESCE(NULLIF(:n, ""), notes)
+          WHERE tenant_id = :t AND id = :id'
+    )->execute([
+        's' => $newStatus,
+        'r' => (int) ($ctx['user']['id'] ?? 0),
+        'n' => $note,
+        't' => $tenantId,
+        'id' => $docId,
+    ]);
+    apAudit("ap.vendor.portal_document_{$newStatus}", ['document_id' => $docId, 'note' => $note], $docId);
+    api_ok(['ok' => true, 'status' => $newStatus]);
+}
+
+/**
+ * Auto-process a vendor-uploaded document.
+ *
+ * Returns [status, ai_action, ai_extracted_json, ai_confidence].
+ *
+ *   - W-9   → AI extract; if all required fields present, auto-update vendor +
+ *             auto-approve. Otherwise flag for manual review with the draft.
+ *   - COI   → AI extract carrier + expiry; auto-approve.
+ *   - banking_form / contract / other → auto-approve (archival only).
+ */
+function vendorPortalAutoProcess(\PDO $pdo, int $tenantId, int $vendorId, string $docType, string $storageKey): array
+{
+    if (in_array($docType, ['banking_form','contract','other'], true)) {
+        return ['approved', 'auto_approved', null, null];
+    }
+
+    if ($docType === 'w9') {
+        try {
+            require_once __DIR__ . '/../../../core/StorageService.php';
+            require_once __DIR__ . '/../../../core/ai_service.php';
+            $signedUrl = \Core\StorageService::getInstance()->get_signed_url($storageKey);
+            $schema = '{"vendor_name":string|null,"business_name":string|null,'
+                . '"tax_classification":"individual"|"sole_proprietor"|"c_corp"|"s_corp"|"partnership"|"trust"|"llc"|"other"|null,'
+                . '"tax_id_last4":string|null,"vendor_type":"1099_individual"|"c2c_corp"|"w9_business"|"other",'
+                . '"requires_1099":boolean|null}';
+            $res = aiExtract([
+                'feature_key' => 'ap.vendor.from_w9',
+                'instruction' => 'Extract a US W-9 (or W-8BEN equivalent) into the JSON shape below.',
+                'schema_hint' => $schema,
+                'images'      => [['url' => $signedUrl, 'mime' => 'application/pdf']],
+            ]);
+            $draft = $res['data'] ?? [];
+            $confidence = vendorPortalW9Confidence($draft);
+
+            // Compare against existing vendor TIN — if mismatch, flag.
+            $existing = $pdo->prepare('SELECT tax_id_last4, vendor_type FROM ap_vendors_index WHERE tenant_id = :t AND id = :v');
+            $existing->execute(['t' => $tenantId, 'v' => $vendorId]);
+            $vendor = $existing->fetch(\PDO::FETCH_ASSOC) ?: [];
+            $tinMismatch = !empty($vendor['tax_id_last4'])
+                && !empty($draft['tax_id_last4'])
+                && $vendor['tax_id_last4'] !== $draft['tax_id_last4'];
+
+            $autoSafe = $confidence >= 0.80 && !$tinMismatch && !empty($draft['vendor_name']);
+
+            if ($autoSafe) {
+                // Apply to vendor record.
+                $set = [];
+                $params = ['t' => $tenantId, 'v' => $vendorId];
+                if (!empty($draft['vendor_type'])) {
+                    $set[] = 'vendor_type = :vt';
+                    $params['vt'] = $draft['vendor_type'];
+                }
+                if (!empty($draft['tax_id_last4'])) {
+                    $set[] = 'tax_id_last4 = :l4';
+                    $params['l4'] = substr((string) $draft['tax_id_last4'], -4);
+                }
+                if (isset($draft['requires_1099'])) {
+                    $set[] = 'requires_1099 = :r';
+                    $params['r'] = $draft['requires_1099'] ? 1 : 0;
+                }
+                if ($set) {
+                    $pdo->prepare('UPDATE ap_vendors_index SET ' . implode(', ', $set) . ' WHERE tenant_id = :t AND id = :v')
+                        ->execute($params);
+                }
+                return ['approved', 'auto_approved', json_encode($draft), $confidence];
+            }
+            return ['pending_review', 'flagged_for_review', json_encode($draft), $confidence];
+        } catch (\Throwable $e) {
+            error_log('[vendor_portal.w9] extract failed: ' . $e->getMessage());
+            return ['pending_review', 'flagged_for_review', json_encode(['extract_error' => $e->getMessage()]), null];
+        }
+    }
+
+    if ($docType === 'coi') {
+        try {
+            require_once __DIR__ . '/../../../core/StorageService.php';
+            require_once __DIR__ . '/../../../core/ai_service.php';
+            $signedUrl = \Core\StorageService::getInstance()->get_signed_url($storageKey);
+            $res = aiExtract([
+                'feature_key' => 'ap.vendor.from_coi',
+                'instruction' => 'Extract carrier name, policy number, effective_date (ISO YYYY-MM-DD), expiry_date (ISO), and named insured from this Certificate of Insurance.',
+                'schema_hint' => '{"carrier":string|null,"policy_number":string|null,"effective_date":string|null,"expiry_date":string|null,"named_insured":string|null}',
+                'images'      => [['url' => $signedUrl, 'mime' => 'application/pdf']],
+            ]);
+            // Auto-approve regardless; the data is informational.
+            return ['approved', 'auto_approved', json_encode($res['data'] ?? []), 0.7];
+        } catch (\Throwable $e) {
+            error_log('[vendor_portal.coi] extract failed: ' . $e->getMessage());
+            // Even if AI extract fails, COI is archival — auto-approve.
+            return ['approved', 'auto_approved', null, null];
+        }
+    }
+
+    return ['pending_review', 'none', null, null];
+}
+
+/**
+ * Heuristic confidence score on a W-9 AI extract — fraction of required
+ * fields populated. 1.0 if all critical fields are present.
+ */
+function vendorPortalW9Confidence(array $draft): float
+{
+    $required = ['vendor_name', 'tax_classification', 'tax_id_last4', 'vendor_type'];
+    $present = 0;
+    foreach ($required as $f) {
+        if (!empty($draft[$f])) $present++;
+    }
+    return round($present / count($required), 3);
 }
 
 // ───── update_banking (vendor self-service banking edit) ─────

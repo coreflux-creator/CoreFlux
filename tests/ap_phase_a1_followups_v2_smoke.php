@@ -200,8 +200,50 @@ $assert('VendorPortal documents tab option',              strpos($vpUi, "['docum
 $assert('VendorPortal banking tab option',                strpos($vpUi, "['banking','Banking']") !== false);
 $assert('VendorPortal upload posts to upload_document',   strpos($vpUi, 'action=upload_document') !== false);
 $assert('VendorPortal banking save action',               strpos($vpUi, 'action=update_banking') !== false);
-$assert('VendorPortal banking save testid',               strpos($vpUi, 'data-testid="vendor-portal-banking-save"') !== false);
+$assert('VendorPortal banking save testid',              strpos($vpUi, 'data-testid="vendor-portal-banking-save"') !== false);
 $assert('VendorPortal doc upload testid',                 strpos($vpUi, 'data-testid="vendor-portal-doc-upload"') !== false);
+
+// ─── Auto-process on upload + admin review queue ───
+echo "Phase A1 V2 — vendor upload auto-process + admin review\n";
+$vp2 = file_get_contents(__DIR__ . '/../modules/ap/api/vendor_portal.php');
+$assert('vendorPortalAutoProcess() helper present',       strpos($vp2, 'function vendorPortalAutoProcess') !== false);
+$assert('W-9 path calls aiExtract()',                     strpos($vp2, "feature_key' => 'ap.vendor.from_w9'") !== false);
+$assert('COI path calls aiExtract()',                     strpos($vp2, "feature_key' => 'ap.vendor.from_coi'") !== false);
+$assert('banking_form auto-approves',                     strpos($vp2, "['banking_form','contract','other']") !== false);
+$assert('TIN mismatch → flag',                            strpos($vp2, '$tinMismatch') !== false);
+$assert('confidence threshold 0.80',                      strpos($vp2, "confidence >= 0.80") !== false);
+$assert('vendor record updated on auto-approve',          strpos($vp2, 'UPDATE ap_vendors_index SET') !== false);
+$assert('?action=admin_pending exposed',                  strpos($vp2, "action === 'admin_pending'") !== false);
+$assert('?action=admin_approve exposed',                  strpos($vp2, "'admin_approve'") !== false);
+$assert('?action=admin_reject exposed',                   strpos($vp2, "'admin_reject'") !== false);
+$assert('admin actions gated by ap.vendor.portal_review', substr_count($vp2, "ap.vendor.portal_review") >= 2);
+$assert('upload_document records ai_action column',       strpos($vp2, ':aa') !== false && strpos($vp2, 'ai_action') !== false);
+$assert('vendorPortalW9Confidence() helper',              strpos($vp2, 'function vendorPortalW9Confidence') !== false);
+$assert('upload returns auto_status + ai_action',         strpos($vp2, "'auto_status'") !== false);
+$assert('audit ap.vendor.portal_document_approved',       strpos($vp2, 'portal_document_{$newStatus}') !== false);
+
+$mig12 = file_get_contents(__DIR__ . '/../modules/ap/migrations/012_vendor_portal_documents.sql');
+$assert('012 adds ai_extracted_json column',              strpos($mig12, 'ai_extracted_json TEXT') !== false);
+$assert('012 adds ai_confidence column',                  strpos($mig12, 'ai_confidence     DECIMAL(4,3)') !== false);
+$assert('012 adds ai_action enum',                        strpos($mig12, "ENUM('auto_approved','flagged_for_review','none')") !== false);
+
+$rev = file_get_contents(__DIR__ . '/../modules/ap/ui/VendorUploadsReview.jsx');
+$assert('Review page testid',                             strpos($rev, 'data-testid="ap-vendor-uploads-review"') !== false);
+$assert('Review page empty state',                        strpos($rev, 'data-testid="ap-vendor-uploads-empty"') !== false);
+$assert('Review page approve action',                     strpos($rev, "decide(r.id, 'approve'") !== false);
+$assert('Review page reject action',                      strpos($rev, "decide(r.id, 'reject'") !== false);
+
+$mod2 = file_get_contents(__DIR__ . '/../modules/ap/ui/APModule.jsx');
+$assert('APModule imports VendorUploadsReview',           strpos($mod2, 'import VendorUploadsReview') !== false);
+$assert('APModule routes /vendor-uploads',                strpos($mod2, 'path="vendor-uploads"') !== false);
+
+$man2 = file_get_contents(__DIR__ . '/../modules/ap/manifest.php');
+$assert('manifest action Vendor Uploads',                 strpos($man2, "'route' => 'vendor-uploads'") !== false);
+$assert('audit portal_document_approved',                 strpos($man2, 'ap.vendor.portal_document_approved') !== false);
+$assert('audit portal_document_rejected',                 strpos($man2, 'ap.vendor.portal_document_rejected') !== false);
+
+// Functional: confidence helper covered by structural assertions
+$assert('confidence helper present', strpos($vp2, 'function vendorPortalW9Confidence') !== false);
 
 echo "\nPass: {$pass}\nFail: {$fail}\n";
 exit($fail === 0 ? 0 : 1);
