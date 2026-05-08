@@ -151,8 +151,12 @@ sentinels:
 - modules/accounting/api/tax_mappings.php
 - modules/accounting/ui/TaxMappings.jsx
 - tests/sprint7f1_gl_detail_and_tax_mappings_smoke.php
+- api/tax_form_export.php
+- modules/accounting/api/tax_form_export.php
+- modules/accounting/ui/TaxExport.jsx
+- tests/sprint7f2_tax_form_export_smoke.php
 expected_bundle:
-- spa-assets/index-DYDkzhNR.js
+- spa-assets/index-BGNGqWZR.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -363,3 +367,7 @@ last_known_features:
 - accounting.tax.tax_mappings_table
 - accounting.tax.tax_mappings_admin_endpoint
 - accounting.tax.tax_mappings_ui
+- accounting.tax.form_export_endpoint
+- accounting.tax.form_export_csv_download
+- accounting.tax.form_export_unmapped_surfacing
+- ui.bookkeeping_overview.reports_tax_quick_links

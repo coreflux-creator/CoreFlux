@@ -147,6 +147,7 @@ const DEMO_SESSION = {
         { name: 'Transactions to Review', route: 'transactions-to-review' },
         { name: 'GL Detail',            route: 'gl-detail' },
         { name: 'Tax Mappings',         route: 'tax-mappings' },
+        { name: 'Tax Export',           route: 'tax-export' },
         { name: 'Posting Rules',        route: 'posting-rules' },
         { name: 'Rule Sandbox',         route: 'rule-sandbox' },
         { name: 'Accounting Events',    route: 'events' },

@@ -265,11 +265,41 @@ export default function BookkeepingOverview() {
               </div>
             </div>
           )}
+
+          {/* Quick links — reports + tax */}
+          <div data-testid="bookkeeping-overview-quick-links-card"
+               style={{ padding: 18, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}>
+            <strong style={{ fontSize: 14, display: 'block', marginBottom: 10 }}>Reports &amp; tax</strong>
+            <Link to="/modules/accounting/gl-detail" data-testid="bookkeeping-overview-gl-detail-link"
+                  style={quickLinkStyle}>
+              <FileText size={14} color="#0284c7" />
+              <span style={{ flex: 1, fontSize: 13 }}>GL Detail</span>
+              <ArrowRight size={12} color="#94a3b8" />
+            </Link>
+            <Link to="/modules/accounting/tax-mappings" data-testid="bookkeeping-overview-tax-mappings-link"
+                  style={quickLinkStyle}>
+              <FlaskConical size={14} color="#7c3aed" />
+              <span style={{ flex: 1, fontSize: 13 }}>Tax mappings</span>
+              <ArrowRight size={12} color="#94a3b8" />
+            </Link>
+            <Link to="/modules/accounting/tax-export" data-testid="bookkeeping-overview-tax-export-link"
+                  style={quickLinkStyle}>
+              <TrendingUp size={14} color="#059669" />
+              <span style={{ flex: 1, fontSize: 13 }}>Tax export (CSV)</span>
+              <ArrowRight size={12} color="#94a3b8" />
+            </Link>
+          </div>
         </div>
       </div>
     </div>
   );
 }
+
+const quickLinkStyle = {
+  display: 'flex', alignItems: 'center', gap: 8, padding: '8px 4px',
+  textDecoration: 'none', color: '#0f172a',
+  borderTop: '1px solid #f1f5f9', cursor: 'pointer',
+};
 
 const TaskRow = ({ icon: Icon, label, count, to, testId }) => {
   const isZero = count === 0;

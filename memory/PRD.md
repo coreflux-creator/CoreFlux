@@ -507,9 +507,27 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **7e.3** ✓ shipped (this fork) — Inline AI line-item account suggest cascade on bill + invoice creation (history-first → LLM fallback, restricted to expense vs revenue families)
 - **Saved-hours KPI** ✓ shipped (this fork) — Bookkeeping Overview now surfaces ai_assist count_7d × 30s as a hours-saved-this-week tile (purple Sparkles card)
 - **7f.1** ✓ shipped (this fork) — GL Detail report + Tax Mappings (CoA → tax-form-line). Reports vertical opened.
+- **7f.2 (headline)** ✓ shipped (this fork) — Tax-form CSV export with unmapped-account warning. One click hands the accountant a tidy `tax_export_US-1040-SCH-C_2026-01-01_to_2026-12-31.csv`.
 - **7e.4** — Payroll / Time settlement migrations (largely no-op: neither directly calls `accountingPostJe` today; their bundles flow into AP/Billing which are now event-layer enabled. Confirm during Time settlement closes a period.)
-- **7f (continued)** — Dimensional P&L (slice by entity / dimension), Liquidity Forecast, Tax-form export (sum per tax_mappings line), Deferred-revenue + auto-reversing accrual helpers
+- **7f (continued)** — Dimensional P&L (slice by entity / dimension), Liquidity Forecast, Deferred-revenue + auto-reversing accrual helpers
 - **7g** — AI agent suite (AI Bookkeeper, Reconciliation, Treasury Analyst, CFO, Tax + permission modes)
+
+
+## Recently completed (Sprint 7f.2 — Tax-form CSV export, 2026-02)
+**One-click tax-time deliverable. Sums every posted JE line through `accounting_tax_mappings` and emits either a JSON preview or an RFC4180 CSV the operator can hand the accountant directly.**
+
+### What shipped
+- **`api/tax_form_export.php`** — RBAC-gated GET. Required `tax_form_code` (whitelist of 5 standard US forms). Optional `start` / `end` (defaults to current calendar year), `entity_id`, `format=json|csv`. Joins `accounting_tax_mappings` → `accounting_accounts` → `accounting_journal_lines` → `accounting_journal_entries` (posted only). Per-line totals computed sign-aware via `accounting_accounts.normal_side` so revenue lands positive on credits and expense lines positive on debits.
+- **Unmapped surfacing** — endpoint also returns an `unmapped_summary` listing every revenue/expense account with activity in the window that has *no* mapping yet. The CSV emits a final `UNMAPPED` row so the accountant can't miss a $7,800 misc-expense leakage.
+- **CSV branch** — sets `Content-Type: text/csv` + `Content-Disposition: attachment; filename="tax_export_<form>_<start>_to_<end>.csv"`. RFC4180 fields: `Tax form,Line,Label,Total,Accounts,Account codes`. Account codes joined with `;`.
+- **`modules/accounting/ui/TaxExport.jsx`** — form dropdown sourced from `tax_mappings.php` `available_forms`, date range, JSON preview table with running totals, "Download CSV" button (uses `window.location.href` so the browser handles the attachment), and an amber **Unmapped accounts warning** with up to 8 account names + a "Map them now →" CTA into `/tax-mappings`.
+- **`BookkeepingOverview.jsx`** — new "Reports & tax" quick-links card (right column) with three deep-links: GL Detail, Tax mappings, Tax export.
+- **Wiring** — sub-nav tab on AccountingV1Module + sidebar action + module-namespaced `/api/accounting/tax-export` alias.
+
+### Validation
+- `tests/sprint7f2_tax_form_export_smoke.php` — **57 ✓ / 0 fail**: API contract (RBAC, GET-only, form whitelist, date validation, three-table join, posted-only filter, group-by mapping+account, normal_side total math, unmapped surfacing query, CSV headers + content-disposition, exit-after-stream), alias delegation, UI testid coverage (16 page-level + dynamic row template), AccountingV1Module + sidebar + Bookkeeping Overview wiring.
+- Full PHP suite: **105 files, 0 failures**.
+- Vite rebuilt → `index-BGNGqWZR.js`. `.deploy-version` synced (5 new feature flags + 4 new sentinels; sprint6b bundle-hash assertion bumped).
 
 
 ## Recently completed (Saved-hours KPI + Sprint 7f.1 — Reports + Tax foundation, 2026-02)

@@ -22,6 +22,7 @@ import BookkeepingOverview from '../../../dashboard/src/pages/BookkeepingOvervie
 import TransactionsToReview from '../../../dashboard/src/pages/TransactionsToReview';
 import GLDetail from './GLDetail';
 import TaxMappings from './TaxMappings';
+import TaxExport from './TaxExport';
 
 /**
  * Accounting Module — Phase 0 + 1 + 2 UI
@@ -43,6 +44,7 @@ export default function AccountingModule({ session }) {
         <Tab to="reports"   label="Reports" />
         <Tab to="gl-detail" label="GL Detail" />
         <Tab to="tax-mappings" label="Tax mappings" />
+        <Tab to="tax-export" label="Tax export" />
         <Tab to="import"    label="Import" />
         <Tab to="intercompany" label="Intercompany" />
         <Tab to="elimination"  label="Elimination" />
@@ -72,6 +74,7 @@ export default function AccountingModule({ session }) {
         <Route path="reports"  element={<StandardReports  session={session} />} />
         <Route path="gl-detail" element={<GLDetail />} />
         <Route path="tax-mappings" element={<TaxMappings />} />
+        <Route path="tax-export" element={<TaxExport />} />
         <Route path="import"   element={<AccountingImport session={session} />} />
         <Route path="intercompany" element={<IntercompanyMappings session={session} />} />
         <Route path="elimination"  element={<EliminationWorksheet session={session} />} />
