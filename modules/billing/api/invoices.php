@@ -381,6 +381,7 @@ if ($method === 'POST' && $action === 'post') {
         api_error("Cannot post from status {$row['status']}", 409);
     }
     require_once __DIR__ . '/../../accounting/lib/accounting.php';
+    require_once __DIR__ . '/../../../core/posting_engine/process.php';
 
     $subtotal = (float) $row['subtotal'];
     $taxTotal = (float) $row['tax_total'];
@@ -415,6 +416,61 @@ if ($method === 'POST' && $action === 'post') {
         $lines[] = ['account_code' => '2100', 'debit' => 0, 'credit' => $taxTotal, 'memo' => "Sales tax — {$row['invoice_number']}", 'counterparty_company_id' => $party];
     }
 
+    // Sprint 7e — preferred path: emit billing.invoice.sent into the
+    // posting engine. Falls back to the legacy direct accountingPostJe()
+    // call when no rule has been seeded for this tenant.
+    $payloadLines = [];
+    foreach ($lines as $l) {
+        $payloadLines[] = [
+            'account_code' => $l['account_code'],
+            'debit'        => (float) ($l['debit']  ?? 0),
+            'credit'       => (float) ($l['credit'] ?? 0),
+            'description'  => $l['memo'] ?? null,
+            'counterparty_company_id' => $l['counterparty_company_id'] ?? null,
+        ];
+    }
+    $eventResult = null; $eventError = null;
+    try {
+        $eventResult = accountingProcessEvent($tid, [
+            'entity_id'        => !empty($row['entity_id']) ? (int) $row['entity_id'] : 0,
+            'event_type'       => 'billing.invoice.sent',
+            'source_module'    => 'billing',
+            'source_record_id' => 'billing_invoice:' . $id,
+            'event_date'       => (string) $row['issue_date'],
+            'payload'          => [
+                'invoice_id'     => (int) $id,
+                'invoice_number' => (string) $row['invoice_number'],
+                'client_name'    => (string) $row['client_name'],
+                'client_company_id' => $party,
+                'amount'         => (float) $row['total'],
+                'currency'       => (string) $row['currency'],
+                'lines'          => $payloadLines,
+            ],
+        ], $user['id'] ?? null);
+    } catch (\Throwable $e) {
+        $eventError = $e->getMessage();
+    }
+
+    if ($eventResult && ($eventResult['status'] ?? null) === 'posted') {
+        $pdo->prepare('UPDATE billing_invoices SET journal_entry_id = :j WHERE id = :id')
+            ->execute(['j' => $eventResult['journal_entry_id'], 'id' => $id]);
+        billingAudit('billing.invoice.posted', [
+            'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
+            'journal_entry_id' => (int) $eventResult['journal_entry_id'],
+            'accounting_event_id' => (int) ($eventResult['event_id'] ?? 0),
+            'idempotent_replay' => !empty($eventResult['idempotent_replay']),
+            'via' => 'event_layer',
+        ], $id);
+        api_ok([
+            'ok' => true,
+            'journal_entry_id' => (int) $eventResult['journal_entry_id'],
+            'je_number' => $eventResult['je_number'] ?? null,
+            'idempotent_replay' => !empty($eventResult['idempotent_replay']),
+            'accounting_event_id' => (int) ($eventResult['event_id'] ?? 0),
+            'via' => 'event_layer',
+        ]);
+    }
+
     try {
         $res = accountingPostJe($tid, [
             'posting_date'    => $row['issue_date'],
@@ -427,14 +483,48 @@ if ($method === 'POST' && $action === 'post') {
             'lines'           => $lines,
         ], $user['id'] ?? null, true);
     } catch (\Throwable $e) {
-        api_error('GL post failed: ' . $e->getMessage(), 422);
+        api_error('GL post failed: ' . $e->getMessage()
+                . ($eventError ? ' | event-layer error: ' . $eventError : ''), 422);
     }
+
+    $pdo->prepare('UPDATE billing_invoices SET journal_entry_id = :j WHERE id = :id')
+        ->execute(['j' => $res['je_id'], 'id' => $id]);
+
+    // Sprint 7e fallback: write subledger_links + flip event status.
+    try {
+        $pdo->prepare(
+            'INSERT IGNORE INTO accounting_subledger_links
+                (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)
+             VALUES (:t, "billing", :sr, :je, "primary")'
+        )->execute([
+            't'  => $tid,
+            'sr' => 'billing_invoice:' . $id,
+            'je' => (int) $res['je_id'],
+        ]);
+        if ($eventResult && !empty($eventResult['event_id'])) {
+            $pdo->prepare(
+                'UPDATE accounting_events
+                    SET status = "posted", journal_entry_id = :je, posted_at = NOW(),
+                        error_message = "fallback: legacy direct post (no rule matched)"
+                  WHERE id = :id AND status IN ("ignored","failed","received","mapped")'
+            )->execute(['je' => (int) $res['je_id'], 'id' => (int) $eventResult['event_id']]);
+        }
+    } catch (\Throwable $_) { /* tables absent in pre-7b tenants — non-fatal */ }
+
     billingAudit('billing.invoice.posted', [
         'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
         'journal_entry_id' => $res['je_id'], 'je_number' => $res['je_number'],
         'idempotent_replay' => $res['idempotent_replay'],
+        'via' => 'legacy_direct',
+        'event_layer_status' => $eventResult['status'] ?? null,
     ], $id);
-    api_ok(['ok' => true, 'journal_entry_id' => $res['je_id'], 'je_number' => $res['je_number'], 'idempotent_replay' => $res['idempotent_replay']]);
+    api_ok([
+        'ok' => true,
+        'journal_entry_id' => $res['je_id'],
+        'je_number' => $res['je_number'],
+        'idempotent_replay' => $res['idempotent_replay'],
+        'via' => 'legacy_direct',
+    ]);
 }
 
 // =======================================================================

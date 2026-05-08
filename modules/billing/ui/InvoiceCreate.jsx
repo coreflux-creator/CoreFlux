@@ -113,6 +113,8 @@ export default function InvoiceCreate() {
           glLabel="Revenue GL"
           glField="gl_revenue_account_code"
           accounts={revenueAccounts}
+          aiSuggestKind="billing_invoice"
+          counterpartyName={client?.name || ''}
         />
 
         <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>

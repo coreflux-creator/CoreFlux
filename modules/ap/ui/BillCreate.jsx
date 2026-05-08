@@ -241,6 +241,8 @@ export default function BillCreate() {
           glLabel="Expense GL"
           glField="gl_expense_account_code"
           accounts={expenseAccounts}
+          aiSuggestKind="ap_bill"
+          counterpartyName={vendor?.name || ''}
         />
 
         <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>

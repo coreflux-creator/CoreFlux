@@ -102,6 +102,33 @@ export default function RuleSandbox() {
     }
   };
 
+  // Sprint 7e — historical AP bill / Billing invoice replays. Same shape
+  // as the bank-feed replay above; emits ap.bill.approved /
+  // billing.invoice.sent events back-fillable into the audit ledger.
+  const [subledgerKind, setSubledgerKind] = useState('ap_bill');
+  const [subledgerDays, setSubledgerDays] = useState(180);
+  const [subledgerDryRun, setSubledgerDryRun] = useState(true);
+  const [subledgerOnlyUnlinked, setSubledgerOnlyUnlinked] = useState(true);
+  const [subledgerBusy, setSubledgerBusy] = useState(false);
+  const [subledgerResult, setSubledgerResult] = useState(null);
+  const replaySubledger = async () => {
+    setSubledgerBusy(true); setSubledgerResult(null);
+    try {
+      const path = subledgerKind === 'ap_bill'
+        ? '/api/ap_bill_replay.php'
+        : '/api/billing_invoice_replay.php';
+      const qs = `?days=${subledgerDays}`
+              + (subledgerDryRun ? '&dry_run=1' : '')
+              + (subledgerOnlyUnlinked ? '&only_unlinked=1' : '');
+      const r = await api.post(path + qs, {});
+      setSubledgerResult(r);
+    } catch (e) {
+      setSubledgerResult({ error: e?.message || 'Replay failed' });
+    } finally {
+      setSubledgerBusy(false);
+    }
+  };
+
   const status = result?.status;
   const statusBg = {
     preview: '#ecfdf5', failed: '#fef2f2', ignored: '#fffbeb', error: '#fef2f2',
@@ -193,6 +220,65 @@ export default function RuleSandbox() {
         {replayResult?.error && (
           <span data-testid="rule-sandbox-replay-error" style={{ fontSize: 12, color: '#7f1d1d', flexBasis: '100%' }}>
             ✗ {replayResult.error}
+          </span>
+        )}
+      </div>
+
+      {/* Sprint 7e — Subledger replay (AP bills / Billing invoices).
+          Lets a tenant emit historical bills + invoices as
+          ap.bill.approved / billing.invoice.sent so accounting_events +
+          subledger_links carry the full audit trail without re-posting
+          the JEs. */}
+      <div data-testid="rule-sandbox-subledger-replay-strip"
+           style={{ padding: 12, background: '#fdf4ff', border: '1px solid #f5d0fe', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: 13, color: '#86198f' }}>Subledger audit-trail backfill</strong>
+        <span style={{ fontSize: 12, color: '#701a75' }}>
+          Replay historical AP bills / Billing invoices through the event layer so each posted JE gets an `accounting_events` + `subledger_links` row. Idempotent.
+        </span>
+        <label style={{ fontSize: 12, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+          Source
+          <select className="input" data-testid="rule-sandbox-subledger-replay-kind" value={subledgerKind}
+                  onChange={e => setSubledgerKind(e.target.value)} style={{ padding: '2px 6px', fontSize: 12 }}>
+            <option value="ap_bill">AP bills</option>
+            <option value="billing_invoice">Billing invoices</option>
+          </select>
+        </label>
+        <label style={{ fontSize: 12, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          Window
+          <select className="input" data-testid="rule-sandbox-subledger-replay-days" value={subledgerDays}
+                  onChange={e => setSubledgerDays(Number(e.target.value))} style={{ padding: '2px 6px', fontSize: 12 }}>
+            <option value={30}>30d</option>
+            <option value={90}>90d</option>
+            <option value={180}>180d</option>
+            <option value={365}>365d</option>
+            <option value={730}>2y</option>
+            <option value={1825}>5y</option>
+          </select>
+        </label>
+        <label style={{ fontSize: 12, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <input type="checkbox" data-testid="rule-sandbox-subledger-replay-only-unlinked"
+                 checked={subledgerOnlyUnlinked} onChange={e => setSubledgerOnlyUnlinked(e.target.checked)} />
+          Only unlinked
+        </label>
+        <label style={{ fontSize: 12, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <input type="checkbox" data-testid="rule-sandbox-subledger-replay-dry-run"
+                 checked={subledgerDryRun} onChange={e => setSubledgerDryRun(e.target.checked)} />
+          Dry run only
+        </label>
+        <button className="btn btn--primary" data-testid="rule-sandbox-subledger-replay-run"
+                onClick={replaySubledger} disabled={subledgerBusy} style={{ fontSize: 13 }}>
+          {subledgerBusy ? 'Replaying…' : (subledgerDryRun ? 'Preview replay' : 'Replay now')}
+        </button>
+        {subledgerResult && !subledgerResult.error && (
+          <span data-testid="rule-sandbox-subledger-replay-result" style={{ fontSize: 12, color: '#065f46', flexBasis: '100%' }}>
+            {subledgerResult.dry_run ? '(dry run)' : '✓'} scanned {subledgerResult.scanned}, replayed {subledgerResult.replayed},{' '}
+            skipped (already event) {subledgerResult.skipped_already_event}
+            {subledgerResult.failed > 0 && <span style={{ color: '#b91c1c' }}>, failed {subledgerResult.failed}</span>}
+          </span>
+        )}
+        {subledgerResult?.error && (
+          <span data-testid="rule-sandbox-subledger-replay-error" style={{ fontSize: 12, color: '#7f1d1d', flexBasis: '100%' }}>
+            ✗ {subledgerResult.error}
           </span>
         )}
       </div>

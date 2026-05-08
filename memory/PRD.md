@@ -503,8 +503,41 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 ### Next slice (per user-approved order)
 - **7e.2** ✓ shipped (this fork) — Transactions to Review queue with deep-link from BookkeepingOverview
 - **7e (AP vertical slice)** ✓ shipped (this fork) — `ap.bill.approved` event-layer migration + line_source passthrough + AP/AR seed-pack expansion
-- **7e.3** — Bill creation + invoicing UX polish
-- **7e.4** — Billing / Payroll / Time event-layer migrations (follow the AP pattern)
+- **7e (Billing migration + audit-trail backfill)** ✓ shipped (this fork) — `billing.invoice.sent` event-layer migration + AP-bill / Billing-invoice replay endpoints + Rule Sandbox UI for one-click backfill
+- **7e.3** ✓ shipped (this fork) — Inline AI line-item account suggest cascade on bill + invoice creation (history-first → LLM fallback, restricted to expense vs revenue families)
+- **7e.4** — Payroll / Time settlement migrations (largely no-op: neither Payroll nor Time directly call `accountingPostJe` today; their bundles flow into AP/Billing which are now event-layer enabled. Confirm during 7f sprint when Time settlement closes.)
+
+
+## Recently completed (Sprint 7e.3 — Inline AI line-account suggest, 2026-02)
+**Reduces bookkeeping friction at data-entry time. Every bill / invoice line now has an inline AI button that picks the best GL account from the tenant's CoA, falling through history → LLM. Closes the loop with the categorization-history moat.**
+
+### What shipped
+- **`api/line_ai_suggest.php`** — POST endpoint, RBAC-gated by `kind` (`ap.bill.create` for `ap_bill`, `billing.invoice.create` for `billing_invoice`). History-first cascade: looks up `ai_categorization_history` for the same vendor/client + description; if 2+ prior accepted hits exist, returns 0.92 confidence (`source: history`). LLM fallback: passes a candidate-restricted CoA (expense+COGS+other_expense for AP, revenue+other_income+contra_revenue for billing) into `aiAsk()` — chokepoint guarantees `ai_interactions` rows for audit. Rejects unknown account codes from the model. AIDisabled / Throwable paths return graceful `{suggestion: null, ai_unavailable: true}` so the UI can still render.
+- **`dashboard/src/components/LineItemEditor.jsx`** — new optional props `aiSuggestKind` + `counterpartyName`. When set, renders a per-line "AI" sparkles button that POSTs to the endpoint; result preview shows account code + confidence pill (green ≥80%, amber ≥50%, red below); dedicated "Accept" button stamps the suggestion onto the line's `gl_account_code`. Disabled while loading or while description is empty (no useful prompt).
+- **`modules/ap/ui/BillCreate.jsx`** — opts in (`aiSuggestKind="ap_bill"`, `counterpartyName={vendor?.name}`).
+- **`modules/billing/ui/InvoiceCreate.jsx`** — opts in (`aiSuggestKind="billing_invoice"`, `counterpartyName={client?.name}`).
+
+### Validation
+- `tests/sprint7e3_line_ai_suggest_smoke.php` — **34 ✓ / 0 fail**: POST-only contract, kind whitelist, RBAC fork, history-first cascade with hit threshold + source tagging, LLM family restriction (expense vs revenue), aiAsk() chokepoint usage, feature_key per kind, unknown-code rejection, AIDisabled + Throwable graceful paths, review_required envelope, all UI testid templates + opt-in wiring on BillCreate / InvoiceCreate.
+- Full PHP suite: **103 files, 0 failures**.
+- Vite rebuilt → `index-Cu4EXjqd.js`. `.deploy-version` synced (3 new feature flags + 2 new sentinels; sprint6b bundle-hash assertion bumped).
+
+
+## Recently completed (Sprint 7e — Billing migration + audit-trail backfill, 2026-02)
+**"Everything has a readily available audit trail." Billing invoices now post through the event layer just like AP bills, and two new admin endpoints replay historical AP bills + Billing invoices into `accounting_events` + `accounting_subledger_links` so pre-Sprint-7e history is fully linked.**
+
+### What shipped
+- **`modules/billing/api/invoices.php?action=post`** — same dual-path treatment as AP. Preferred path emits `billing.invoice.sent` (passthrough payload.lines) into `accountingProcessEvent`. On `status=posted`, stamps `journal_entry_id` + audits `via=event_layer`. Legacy fallback runs `accountingPostJe`, writes a `subledger_links` row, flips any `ignored/failed/received/mapped` event row to `posted`, audits `via=legacy_direct`.
+- **`api/ap_bill_replay.php`** — admin endpoint (RBAC `accounting.manage_posting_rules`). Walks `ap_bills` within window (1..1825 days), filtered to `status IN approved/partially_paid/paid` + `journal_entry_id IS NOT NULL`. Emits `ap.bill.approved` events with `source_module='ap_replay'` (separate namespace from live `ap` events for clean idempotency). When the engine returns `status='ignored'` (no rule seeded), inserts a stub `accounting_events` row stamped `status='posted'` pointing at the original JE + writes a `subledger_links` row — guarantees audit-trail completeness regardless of rule-seed state. Knobs: `days`, `since`, `status`, `dry_run`, `only_unlinked`.
+- **`api/billing_invoice_replay.php`** — same shape for `billing_invoices`. Source module `billing_replay`. Same stub-event fallback. Status whitelist `approved,sent,partially_paid,paid`. Reproduces the AR/Revenue/Sales-Tax JE shape from posted invoice line buckets.
+- **Module-namespaced kebab aliases** — `/api/ap/bill-replay` and `/api/billing/invoice-replay` (one-line `require` shims, Sprint 7d aliasing pattern).
+- **`dashboard/src/pages/RuleSandbox.jsx`** — new fuchsia "Subledger audit-trail backfill" strip. Source dropdown (`AP bills` / `Billing invoices`), window (30d/90d/180d/365d/2y/5y), `Only unlinked` checkbox, `Dry run` checkbox, one-click run, inline result counters with red `failed` highlight.
+- **Default seed pack** — already extended in the prior commit with `billing.invoice.sent` (passthrough), `ap.payment.cleared`, `billing.payment.received`. Replay endpoints now have rules to land into.
+
+### Validation
+- `tests/sprint7e_subledger_replay_smoke.php` — **58 ✓ / 0 fail**: AP replay (RBAC, days clamp 1..1825, since regex, status whitelist, `source_module=ap_replay`, line rebuild, passthrough+AP credit, replay flag, original JE captured, stub-event fallback both writes accounting_events + subledger_links, 50-error truncation), Billing replay (same shape + AR/Revenue/SalesTax wiring), kebab aliases, Billing invoice migration (event-layer preferred + legacy fallback + audit dual kinds), UI testid coverage.
+- Full PHP suite: **102 files, 0 failures**.
+- Vite rebuilt → `index-Dlud7PLy.js`. `.deploy-version` synced (5 new feature flags + 5 new sentinels; sprint6b bundle-hash assertion bumped).
 
 
 ## Recently completed (Sprint 7e — AP vertical slice: event-layer bill posting, 2026-02)

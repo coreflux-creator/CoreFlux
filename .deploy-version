@@ -136,8 +136,15 @@ sentinels:
 - tests/sprint7e2_transactions_to_review_smoke.php
 - modules/accounting/migrations/019_journal_template_line_source.sql
 - tests/sprint7e_ap_event_layer_smoke.php
+- api/ap_bill_replay.php
+- api/billing_invoice_replay.php
+- modules/ap/api/bill_replay.php
+- modules/billing/api/invoice_replay.php
+- tests/sprint7e_subledger_replay_smoke.php
+- api/line_ai_suggest.php
+- tests/sprint7e3_line_ai_suggest_smoke.php
 expected_bundle:
-- spa-assets/index-C7kdOlow.js
+- spa-assets/index-Cu4EXjqd.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -334,3 +341,10 @@ last_known_features:
 - accounting.posting_rules.default_pack.billing_payment_received
 - ap.bills.post.event_layer_preferred
 - ap.bills.post.legacy_direct_fallback
+- ap.bills.replay_endpoint
+- billing.invoices.post.event_layer_preferred
+- billing.invoices.post.legacy_direct_fallback
+- billing.invoices.replay_endpoint
+- ui.admin.rule_sandbox.subledger_replay_strip
+- ai.line_account_suggest_endpoint
+- ui.line_item_editor.inline_ai_suggest
