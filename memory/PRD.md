@@ -502,6 +502,7 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 
 ### Next slice (per user-approved order)
 - **7e.2** — Transactions to Review queue + AI Bookkeeper polish (auto-post-above-confidence-threshold)
+  - **🔗 PRE-WIRED REQUIREMENT (user-approved 2026-02):** When the new `TransactionsToReview` page ships, immediately update `BookkeepingOverview.jsx` so the "Transactions to review" task row links to `/modules/accounting/transactions-to-review?prefilter=oldest_first&autoload=1`. The new queue page MUST honour those query params so the deep-link lands the user on the oldest uncategorized tx with the AI suggestion already loaded — closes the "5 to review → first one ready in 2 clicks" Layer-style workflow loop. Don't ship 7e.2 without this wiring.
 - **7e.3** — Bill creation + invoicing UX polish
 - **7e.4** — Sprint 7e proper (AP/AR/Payroll/Time → event layer)
 
