@@ -502,16 +502,19 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **No write UI** — mappings are server-managed infrastructure. The new read-only endpoint below lets future entity detail pages render a "Linked external systems" panel.
 - **No webhook delta processing** — the queue table from A1 (`jobdiva_webhook_events`) drains into mappings in A3.
 
-### Read-only API (added same slice)
+### Read-only API + UI touch (added same slice)
 - **`GET /api/integrations/mappings.php`** — three actions, all RBAC-gated by `integrations.jobdiva.view`, tenant-scoped via `api_require_auth`, kebab-case action names normalised to snake:
   - `?action=list_for_internal&entity_type=company&internal_id=42` → every external system's binding for one CoreFlux record (cross-source visibility — drives the future "Linked external systems" mini-panel on Person/Company detail pages).
   - `?action=find_internal&source_system=jobdiva&entity_type=company&external_id=JD-12345` → reverse: CoreFlux record this external id points to.
   - `?action=find_external&source_system=jobdiva&entity_type=company&internal_id=42` → external id this source has for this CoreFlux record.
   - All inputs validated; unknown actions return 400. GET-only.
 
+- **JobDivaSettings.jsx — A3-forward-compat sync result card**: when the sync API returns `counts: {company, contact, placement, ...}` and `total`, the page renders a purple "Sync complete · {latency}ms" card with **N records imported from JobDiva** and per-entity chips (e.g. `12 companys · 47 contacts · 8 placements`). Zero-counts collapse to a single "already up to date" hint. Dismissible via `<X>` button. A1's placeholder sync (no `counts`) still surfaces `note` via the existing `msg` banner — so deploying A2 doesn't break the A1 UX one bit.
+
 ### Validation
-- `tests/sprint8a_a2_external_entity_mappings_smoke.php` — **73 ✓ / 0 fail**: migration shape (idempotent, agnostic VARCHAR `source_system` not enum, JSON snapshot, dual unique keys, sync/direction enums, supporting indexes, utf8mb4 collation), library surface (parses + strict_types + 7 functions exported, whitelists for direction + status, race-safe ON DUPLICATE KEY UPDATE, tenant-scoped queries everywhere), runtime hash behaviour (sha256, key-order stable, content-sensitive, list-order preserved, nested-object stable), runtime input validation (rejects all bad inputs), read-only API (3 actions, GET-only, RBAC-gated, kebab→snake action coercion, validation per action, mapping helper delegation, tenant scope, SPA-friendly id coercion).
+- `tests/sprint8a_a2_external_entity_mappings_smoke.php` — **86 ✓ / 0 fail**: migration shape, library surface, runtime hash behaviour, runtime input validation, read-only API (3 actions + tenant scope + RBAC), and the **JobDivaSettings sync-result card** (state, A3-forward-compat counts/latency parsing, all 6 testids, zero-count fallback, dismiss button, A1 backward-compat note routing).
 - Full PHP suite: **109 files, 0 failures** (108 + this new file, zero regressions).
+- Vite rebuilt → `index-yWQLlc_U.js` (1819 modules, 1129kB JS / 21.6kB CSS) and synced to `/app/spa-assets/`. `.deploy-version` updated: 5 new sentinels (migration 022, entity_mappings.php, mappings.php endpoint, A2 smoke, JobDivaSettings re-listed) + 4 new feature flags + sprint6b bundle-hash assertion bumped.
 
 ### Next slice
 - **A3** — JobDiva pull/sync logic for Companies, Contacts, Placements (NOT candidates / applicants / open positions). Uses these mapping helpers as the universal binding layer.

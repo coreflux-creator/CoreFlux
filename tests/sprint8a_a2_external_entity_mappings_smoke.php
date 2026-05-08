@@ -189,5 +189,35 @@ $assert('kebab-case action coerced to snake',    strpos($api, "str_replace('-', 
 $assert('coerces row id to int for SPA',         strpos($api, "\$r['id'] = (int) \$r['id']") !== false);
 $assert('tenant-scoped via api_require_auth',    strpos($api, "\$tid  = (int) \$ctx['tenant_id']") !== false);
 
+echo "\nUI — JobDivaSettings.jsx sync-result card (A3 forward-compat)\n";
+$jsx = (string) file_get_contents("{$ROOT}/dashboard/src/pages/JobDivaSettings.jsx");
+$assert('imports Sparkles + X icons',
+    strpos($jsx, 'Sparkles, X, XCircle') !== false);
+$assert('declares syncResult state',
+    strpos($jsx, 'const [syncResult, setSyncResult] = useState(null)') !== false);
+$assert('onSync parses counts + total forward-compatibly',
+    strpos($jsx, 'r.counts && typeof r.counts') !== false
+    && strpos($jsx, 'Object.values(counts).reduce') !== false);
+$assert('onSync captures latency from ping or top-level',
+    strpos($jsx, 'r.ping?.latency_ms ?? r.latency_ms') !== false);
+$assert('sync result card testid',
+    strpos($jsx, 'data-testid="jobdiva-settings-sync-result-card"') !== false);
+$assert('sync result dismiss button testid',
+    strpos($jsx, 'data-testid="jobdiva-settings-sync-result-dismiss"') !== false);
+$assert('sync result summary testid',
+    strpos($jsx, 'data-testid="jobdiva-settings-sync-result-summary"') !== false);
+$assert('sync result latency testid',
+    strpos($jsx, 'data-testid="jobdiva-settings-sync-result-latency"') !== false);
+$assert('sync result entity-chip dynamic testid template',
+    strpos($jsx, 'data-testid={`jobdiva-settings-sync-result-chip-${entity}`}') !== false);
+$assert('sync result zero-counts hint testid',
+    strpos($jsx, 'data-testid="jobdiva-settings-sync-result-zero"') !== false);
+$assert('chip filters out zero counts',
+    strpos($jsx, '.filter(([, n]) => Number(n) > 0)') !== false);
+$assert('A1 fallback still surfaces note via msg when counts absent',
+    strpos($jsx, "if (!counts) setMsg(r.note || 'Sync triggered.')") !== false);
+$assert('result card only renders when counts present',
+    strpos($jsx, '{syncResult && syncResult.counts && (') !== false);
+
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

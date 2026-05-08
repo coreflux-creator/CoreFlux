@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { api, useApi } from '../lib/api';
 import {
   Activity, AlertCircle, CheckCircle2, Copy, Link2,
-  PlugZap, RefreshCw, ShieldCheck, XCircle,
+  PlugZap, RefreshCw, ShieldCheck, Sparkles, X, XCircle,
 } from 'lucide-react';
 
 /**
@@ -25,6 +25,7 @@ export default function JobDivaSettings() {
   const [msg, setMsg]   = useState(null);
   const [err, setErr]   = useState(null);
   const [showPwd, setShowPwd] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
 
   const set = (k, v) => setForm(s => ({ ...s, [k]: v }));
   const clear = () => { setMsg(null); setErr(null); };
@@ -62,10 +63,23 @@ export default function JobDivaSettings() {
   };
 
   const onSync = async () => {
-    clear(); setBusy(b => ({ ...b, sync: true }));
+    clear(); setSyncResult(null); setBusy(b => ({ ...b, sync: true }));
     try {
       const r = await api.post('/api/jobdiva/sync.php?action=sync');
-      setMsg(r.note || 'Sync triggered.');
+      // A3+ returns { counts: {company, contact, placement, ...}, total, latency_ms }.
+      // A1 returns { ok, note, ping } only — fall back to the note.
+      const counts = r.counts && typeof r.counts === 'object' ? r.counts : null;
+      const total  = typeof r.total === 'number' ? r.total
+                    : (counts ? Object.values(counts).reduce((a, b) => a + (Number(b) || 0), 0) : 0);
+      setSyncResult({
+        ok: r.ok !== false,
+        counts,
+        total,
+        latency_ms: r.ping?.latency_ms ?? r.latency_ms ?? null,
+        note: r.note || null,
+        ts: new Date().toISOString(),
+      });
+      if (!counts) setMsg(r.note || 'Sync triggered.');
       reload();
     } catch (e) { setErr(e.message); }
     finally    { setBusy(b => ({ ...b, sync: false })); }
@@ -197,6 +211,57 @@ export default function JobDivaSettings() {
                 <AlertCircle size={11} style={{ marginRight: 3, verticalAlign: 'middle' }} />
                 No webhook secret set — incoming events will be rejected. Add one in the connect form.
               </span>}
+        </div>
+      )}
+
+      {/* Sync result card — shows entity counts after a successful sync.
+          A3+ populates counts; A1 leaves it null and we render note via msg. */}
+      {syncResult && syncResult.counts && (
+        <div data-testid="jobdiva-settings-sync-result-card"
+             style={{ padding: 16, background: 'linear-gradient(135deg,#f5f3ff,#ecfeff)',
+                      border: '1px solid #c4b5fd', borderRadius: 12, position: 'relative' }}>
+          <button type="button" data-testid="jobdiva-settings-sync-result-dismiss"
+                  onClick={() => setSyncResult(null)}
+                  style={{ position: 'absolute', top: 10, right: 10, border: 0, background: 'transparent',
+                           cursor: 'pointer', color: '#7c3aed' }} aria-label="Dismiss">
+            <X size={14} />
+          </button>
+          <strong style={{ fontSize: 14, color: '#5b21b6', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Sparkles size={14} /> Sync complete
+            {syncResult.latency_ms != null && (
+              <span data-testid="jobdiva-settings-sync-result-latency"
+                    style={{ fontSize: 11, color: '#7c3aed', fontWeight: 400 }}>
+                · {syncResult.latency_ms}ms
+              </span>
+            )}
+          </strong>
+          <div data-testid="jobdiva-settings-sync-result-summary"
+               style={{ marginTop: 4, fontSize: 13, color: '#1e293b' }}>
+            <strong>{syncResult.total}</strong> record{syncResult.total === 1 ? '' : 's'} imported from JobDiva
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+            {Object.entries(syncResult.counts)
+              .filter(([, n]) => Number(n) > 0)
+              .map(([entity, n]) => (
+              <span key={entity}
+                    data-testid={`jobdiva-settings-sync-result-chip-${entity}`}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4,
+                             padding: '4px 10px', borderRadius: 999, background: '#fff',
+                             border: '1px solid #c4b5fd', color: '#5b21b6',
+                             fontSize: 12, fontWeight: 600 }}>
+                <CheckCircle2 size={11} /> {n} {entity}{Number(n) === 1 ? '' : 's'}
+              </span>
+            ))}
+            {Object.values(syncResult.counts).every(n => Number(n) === 0) && (
+              <span data-testid="jobdiva-settings-sync-result-zero"
+                    style={{ fontSize: 12, color: '#64748b' }}>
+                Nothing new to import — your tenant is already up to date.
+              </span>
+            )}
+          </div>
+          {syncResult.note && (
+            <p style={{ fontSize: 11, color: '#64748b', margin: '8px 0 0' }}>{syncResult.note}</p>
+          )}
         </div>
       )}
 

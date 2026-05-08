@@ -172,8 +172,12 @@ sentinels:
 - api/jobdiva/webhook.php
 - dashboard/src/pages/JobDivaSettings.jsx
 - tests/sprint8a_jobdiva_foundation_smoke.php
+- core/migrations/022_external_entity_mappings.sql
+- core/integrations/entity_mappings.php
+- api/integrations/mappings.php
+- tests/sprint8a_a2_external_entity_mappings_smoke.php
 expected_bundle:
-- spa-assets/index-z5ikBhcm.js
+- spa-assets/index-yWQLlc_U.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -397,3 +401,7 @@ last_known_features:
 - integrations.jobdiva.webhook_receiver_hmac
 - integrations.jobdiva.sync_audit_log
 - ui.admin.jobdiva_settings_page
+- integrations.external_entity_mappings.universal_pipeline
+- integrations.external_entity_mappings.content_hash_dirty_check
+- integrations.external_entity_mappings.read_only_lookup_api
+- ui.admin.jobdiva_settings.sync_result_card_a3_forward_compat
