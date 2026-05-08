@@ -85,6 +85,23 @@ export default function RuleSandbox() {
     }
   };
 
+  const [replayDays, setReplayDays] = useState(30);
+  const [replayDryRun, setReplayDryRun] = useState(true);
+  const [replaying, setReplaying] = useState(false);
+  const [replayResult, setReplayResult] = useState(null);
+  const replayHistory = async () => {
+    setReplaying(true); setReplayResult(null);
+    try {
+      const qs = `?days=${replayDays}${replayDryRun ? '&dry_run=1' : ''}`;
+      const r = await api.post('/api/posting_rules_replay.php' + qs, {});
+      setReplayResult(r);
+    } catch (e) {
+      setReplayResult({ error: e?.message || 'Replay failed' });
+    } finally {
+      setReplaying(false);
+    }
+  };
+
   const status = result?.status;
   const statusBg = {
     preview: '#ecfdf5', failed: '#fef2f2', ignored: '#fffbeb', error: '#fef2f2',
@@ -133,6 +150,49 @@ export default function RuleSandbox() {
         {seedResult?.error && (
           <span data-testid="rule-sandbox-seed-error" style={{ fontSize: 12, color: '#7f1d1d', flexBasis: '100%' }}>
             ✗ {seedResult.error}
+          </span>
+        )}
+      </div>
+
+      {/* Replay strip */}
+      <div data-testid="rule-sandbox-replay-strip"
+           style={{ padding: 12, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: 13, color: '#1e40af' }}>Backfill audit ledger?</strong>
+        <span style={{ fontSize: 12, color: '#1e3a8a' }}>
+          Replay already-cleared bank transactions through the engine so each gets an `accounting_events` + `subledger_links` row.
+          Idempotent — re-runs skip lines that already have events.
+        </span>
+        <label style={{ fontSize: 12, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
+          Window
+          <select className="input" data-testid="rule-sandbox-replay-days" value={replayDays}
+                  onChange={e => setReplayDays(Number(e.target.value))} style={{ padding: '2px 6px', fontSize: 12 }}>
+            <option value={7}>7d</option>
+            <option value={30}>30d</option>
+            <option value={90}>90d</option>
+            <option value={180}>180d</option>
+            <option value={365}>365d</option>
+          </select>
+        </label>
+        <label style={{ fontSize: 12, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <input type="checkbox" data-testid="rule-sandbox-replay-dry-run"
+                 checked={replayDryRun} onChange={e => setReplayDryRun(e.target.checked)} />
+          Dry run only
+        </label>
+        <button className="btn btn--primary" data-testid="rule-sandbox-replay-run"
+                onClick={replayHistory} disabled={replaying} style={{ fontSize: 13 }}>
+          {replaying ? 'Replaying…' : (replayDryRun ? 'Preview replay' : 'Replay now')}
+        </button>
+        {replayResult && !replayResult.error && (
+          <span data-testid="rule-sandbox-replay-result" style={{ fontSize: 12, color: '#065f46', flexBasis: '100%' }}>
+            {replayResult.dry_run ? '(dry run)' : '✓'} scanned {replayResult.scanned}, replayed {replayResult.replayed},{' '}
+            skipped (already event) {replayResult.skipped_already_event},{' '}
+            skipped (no bank GL) {replayResult.skipped_no_bank_gl}
+            {replayResult.failed > 0 && <span style={{ color: '#b91c1c' }}>, failed {replayResult.failed}</span>}
+          </span>
+        )}
+        {replayResult?.error && (
+          <span data-testid="rule-sandbox-replay-error" style={{ fontSize: 12, color: '#7f1d1d', flexBasis: '100%' }}>
+            ✗ {replayResult.error}
           </span>
         )}
       </div>

@@ -118,8 +118,16 @@ sentinels:
 - core/posting_engine/seed_defaults.php
 - api/posting_rules_seed.php
 - tests/sprint7c1_default_rules_seed_smoke.php
+- api/posting_rules_replay.php
+- modules/accounting/api/events.php
+- modules/accounting/api/posting_rules_seed.php
+- modules/accounting/api/posting_rules_replay.php
+- modules/treasury/api/payments.php
+- modules/treasury/api/transfers.php
+- modules/treasury/api/cash_position.php
+- tests/sprint7c2_7d_replay_and_aliases_smoke.php
 expected_bundle:
-- spa-assets/index-DQ4to2Pq.js
+- spa-assets/index-BnHf5_xO.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -284,6 +292,16 @@ last_known_features:
 - treasury.payments.payload_hydrates_bank_gl
 - treasury.transfers.payload_hydrates_bank_gl
 - ui.admin.rule_sandbox_seed_button
+- accounting.posting_rules.replay_endpoint
+- ui.admin.rule_sandbox_replay_button
+- core.api_router.kebab_case_endpoints
+- core.api_router.snake_case_fallback
+- accounting.api.events_alias
+- accounting.api.posting_rules_seed_alias
+- accounting.api.posting_rules_replay_alias
+- treasury.api.payments_alias
+- treasury.api.transfers_alias
+- treasury.api.cash_position_alias
 - treasury.bank_feed.split_categorize
 - treasury.bank_feed.intercompany_split
 - treasury.bank_feed.ai_categorize_panel

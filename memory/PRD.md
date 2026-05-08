@@ -470,6 +470,42 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 7d — Spec §38 URL aliases, 2026-02)
+**Brings the HTTP surface in line with the master spec's canonical paths so external partners (mobile, the future AI agents, Apideck-style integrators) can hit the contract the spec promises. Legacy paths preserved for one release.**
+
+### What shipped
+- `core/api_router.php` enhanced:
+  - Endpoint regex relaxed from `[a-z][a-z0-9_]*` to `[a-z][a-z0-9_-]*` so kebab-case spec paths (e.g. `journal-entries`, `cash-position`, `posting-rules-seed`) parse cleanly.
+  - File resolver tries the literal filename first, then maps kebab → snake (`journal-entries` → `journal_entries.php`) so existing files are reachable from spec paths without renaming.
+  - Path-traversal + camelCase rejection still enforced.
+- 6 new module-namespaced alias files (each is a one-line `require` that delegates to the existing root-level handler — zero code duplication):
+  - `modules/accounting/api/events.php` ← `/api/accounting/events`
+  - `modules/accounting/api/posting_rules_seed.php` ← `/api/accounting/posting-rules-seed`
+  - `modules/accounting/api/posting_rules_replay.php` ← `/api/accounting/posting-rules-replay`
+  - `modules/treasury/api/payments.php` ← `/api/treasury/payments`
+  - `modules/treasury/api/transfers.php` ← `/api/treasury/transfers`
+  - `modules/treasury/api/cash_position.php` ← `/api/treasury/cash-position`
+- Old root-level `/api/accounting_events.php`, `/api/treasury_payments.php`, etc. all kept working as back-compat (legacy frontend bundle still calls them).
+
+### Out of scope (deferred to 7e/7f)
+- **Subpath wiring** — paths like `/api/accounting/journal-entries/:id/post` parse correctly into `(module=accounting, endpoint=journal-entries, subpath=[123, post])` but the existing `journal_entries.php` handler still uses query-string `?id=N&action=post`. Per-endpoint subpath handling is part of 7e (module event-layer migration touches each endpoint anyway).
+- **`/api/ai/financial/*`** alias group — needs a future "ai" module to register first; tracked in 7g.
+- **Removing legacy `/api/snake_case.php` paths** — back-compat preserved for at least one release per Sprint-7 PRD.
+
+
+## Recently completed (Sprint 7c.2 — Bank-feed Replay (audit-ledger backfill), 2026-02)
+**Lets a tenant migrating from manual posting backfill the `accounting_events` + `accounting_subledger_links` audit trail by replaying already-cleared bank transactions through the engine. Idempotent — re-runs are safe.**
+
+### What shipped
+- `api/posting_rules_replay.php` — admin endpoint (RBAC `accounting.manage_posting_rules`). Iterates `accounting_bank_statement_lines` within window, hydrates `bank_gl_account_id` from each row's bank account, emits `treasury.bank_transaction.matched` events with `source_module='treasury_replay'` + `source_record_id='bank_line:<id>'`. Idempotent via `accounting_events`'s unique key — re-runs skip lines that already have an event row. Returns `{scanned, replayed, skipped_already_event, skipped_no_bank_gl, failed, errors[]}`. Errors truncated at 50 for sanity.
+- Query knobs: `bank_account_id` (default all), `days` (clamped 1..365, default 30), `since` (YYYY-MM-DD overrides days), `dry_run` (no events written, just counts).
+- Rule Sandbox UI gains a **blue replay strip**: window dropdown (7d/30d/90d/180d/365d), dry-run checkbox (default on for safety), one-click run, inline result line with full counts breakdown.
+
+### Validation
+- `tests/sprint7c2_7d_replay_and_aliases_smoke.php` — **45 ✓ / 0 fail**: replay endpoint shape (RBAC, days clamp, since regex, source_module/event_type/source_record_id namespacing, payload hydration, idempotency check, dry-run path, response shape, errors-truncated guard); UI testids; router enhancements (kebab-case parsing, snake-case file fallback, traversal rejection, camelCase rejection); all 6 module-alias files exist and parse.
+- Full PHP suite: **98 files, 0 failures**.
+
+
 ## Recently completed (Sprint 7c.1 — Default posting-rule seed pack, 2026-02)
 **Onboarding accelerator: a single-click "Seed default rules" action that drops in the 17 system accounts + 6 default journal templates + 6 posting rules covering the most common Treasury events. New tenants can now hit "Execute" on a payment and have it post correctly without authoring templates by hand.**
 

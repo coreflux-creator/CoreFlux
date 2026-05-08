@@ -50,11 +50,12 @@ function apiRouterParse(string $pathInfo, string $requestUri): array {
     $moduleId = array_shift($segments);
     $endpoint = array_shift($segments);
 
-    $idRe = '/^[a-z][a-z0-9_]*$/';
+    $idRe       = '/^[a-z][a-z0-9_]*$/';
+    $endpointRe = '/^[a-z][a-z0-9_-]*$/';   // kebab-case allowed for spec §38 paths
     if (!preg_match($idRe, $moduleId)) {
         return ['ok' => false, 'status' => 400, 'error' => "invalid module id: {$moduleId}"];
     }
-    if (!preg_match($idRe, $endpoint)) {
+    if (!preg_match($endpointRe, $endpoint)) {
         return ['ok' => false, 'status' => 400, 'error' => "invalid endpoint name: {$endpoint}"];
     }
 
@@ -70,6 +71,10 @@ function apiRouterParse(string $pathInfo, string $requestUri): array {
  * Resolve a parsed route to an absolute file path under /modules/<id>/api/.
  * Returns null if the module isn't registered or the endpoint file is missing.
  *
+ * Tries the literal endpoint name first, then maps kebab-case to
+ * snake_case (e.g. `journal-entries` → `journal_entries.php`) so spec
+ * §38 paths line up with the existing snake_case file conventions.
+ *
  * Caller is expected to have already loaded ModuleRegistry.
  */
 function apiRouterResolveFile(string $moduleId, string $endpoint, ?string $modulesDir = null): ?string {
@@ -77,6 +82,14 @@ function apiRouterResolveFile(string $moduleId, string $endpoint, ?string $modul
     if (!$registry->hasModule($moduleId)) return null;
 
     $modulesDir = $modulesDir ?? dirname(__DIR__) . '/modules';
-    $candidate = "{$modulesDir}/{$moduleId}/api/{$endpoint}.php";
-    return file_exists($candidate) ? $candidate : null;
+    $candidates = [
+        "{$modulesDir}/{$moduleId}/api/{$endpoint}.php",
+    ];
+    if (str_contains($endpoint, '-')) {
+        $candidates[] = "{$modulesDir}/{$moduleId}/api/" . str_replace('-', '_', $endpoint) . '.php';
+    }
+    foreach ($candidates as $c) {
+        if (file_exists($c)) return $c;
+    }
+    return null;
 }
