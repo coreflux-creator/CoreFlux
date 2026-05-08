@@ -501,10 +501,30 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - Vite rebuilt → `index-BRHVBaDC.js`. `.deploy-version` synced (6 new feature flags + 4 new sentinel files).
 
 ### Next slice (per user-approved order)
-- **7e.2** — Transactions to Review queue + AI Bookkeeper polish (auto-post-above-confidence-threshold)
-  - **🔗 PRE-WIRED REQUIREMENT (user-approved 2026-02):** When the new `TransactionsToReview` page ships, immediately update `BookkeepingOverview.jsx` so the "Transactions to review" task row links to `/modules/accounting/transactions-to-review?prefilter=oldest_first&autoload=1`. The new queue page MUST honour those query params so the deep-link lands the user on the oldest uncategorized tx with the AI suggestion already loaded — closes the "5 to review → first one ready in 2 clicks" Layer-style workflow loop. Don't ship 7e.2 without this wiring.
+- **7e.2** ✓ shipped (this fork) — Transactions to Review queue with deep-link from BookkeepingOverview
 - **7e.3** — Bill creation + invoicing UX polish
 - **7e.4** — Sprint 7e proper (AP/AR/Payroll/Time → event layer)
+
+
+## Recently completed (Sprint 7e.2 — Transactions to Review queue + deep-link, 2026-02)
+**Closes the most common bookkeeping workflow loop, Layer-style: from BookkeepingOverview's "5 to review" task tile → first uncategorized line opened with AI suggestion ready in 2 clicks.**
+
+### What shipped
+- **`api/transactions_to_review.php`** — unified queue across all bank accounts. Returns `{rows, total, bank_accounts, order, limit, offset}`. Order modes: `oldest_first` (default), `newest_first`, `amount_desc`. Filter by `bank_account_id`. Limits clamped 1..200 / offset >=0. Filter is `(match_status IS NULL OR match_status='pending')`. Each row carries `bank_account_name`, `bank_gl_code`, `age_days`, plus pre-existing `ai_suggested_*` fields if a rule already drafted one.
+- **`/api/accounting/transactions-to-review`** — module alias (one-line require shim, kebab-case).
+- **`dashboard/src/pages/TransactionsToReview.jsx`** — new page:
+  - Honours `?prefilter=oldest_first|newest_first|amount_desc` and `?autoload=1` query params. With `autoload=1`, the first row auto-expands and triggers `bank_ai.php?action=suggest_categorize` so the user lands on a fully-loaded review.
+  - Per-row inline detail: AI suggestion with confidence pill, COA dropdown pre-populated by AI, Accept (calls `bank_statements.php?action=accept_ai_categorize` so the categorization-history moat learns), Skip (calls `?action=ignore`), and "Open in Bank Rec" deep-link.
+  - "Accept & next" advances focus to the next row and pre-fetches its AI suggestion. Empty state: green "you're all caught up" + back-to-overview link.
+  - Order + bank-account filter dropdowns mutate the URL via `setSearchParams` so deep-links survive page reloads.
+- **`BookkeepingOverview.jsx`** — "Transactions to review" task row now deep-links to `/modules/accounting/transactions-to-review?prefilter=oldest_first&autoload=1` (the user's explicit request from the previous session).
+- **Routing** — both `dashboard/src/modules/AccountingModule.jsx` (legacy) and `modules/accounting/ui/AccountingModule.jsx` (the module currently mounted at `/modules/accounting/*`) now route `bookkeeping` and `transactions-to-review`. The live module also gained the two sub-nav tabs.
+- **Sidebar** — App.jsx accounting actions list gains a "Transactions to Review" entry just under "Bookkeeping Overview".
+
+### Validation
+- `tests/sprint7e2_transactions_to_review_smoke.php` — **68 ✓ / 0 fail**: API contract (RBAC, GET-only, three order modes, limit/offset clamping, pending/null filter, total + bank_accounts envelope, age_days math, numeric coercion), alias delegation, page-level testid coverage (13 page-level + 11 dynamic per-row), autoload trigger pre-fetches AI on the first row, accept-then-advance flow, deep-link wiring on BookkeepingOverview (URL + prefilter + autoload), routing wired in both AccountingModules + sidebar.
+- Full PHP suite: **100 files, 0 failures**.
+- Vite rebuilt → `index-C7kdOlow.js`. `.deploy-version` synced (5 new feature flags + 4 new sentinel files; sprint6b bundle-hash assertion bumped).
 
 
 ## Recently completed (Sprint 7d — Spec §38 URL aliases, 2026-02)

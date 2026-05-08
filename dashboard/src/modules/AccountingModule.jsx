@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { ModuleHero, Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
 import { BookOpen, FileText, TrendingUp, CreditCard, Receipt, PieChart } from 'lucide-react';
 import BookkeepingOverview from '../pages/BookkeepingOverview';
+import TransactionsToReview from '../pages/TransactionsToReview';
 
 // Accounting Overview
 const AccountingOverview = () => (
@@ -127,6 +128,8 @@ const AccountingModule = ({ session }) => (
     <Route path="overview" element={<AccountingOverview />} />
     <Route path="bookkeeping" element={<BookkeepingOverview />} />
     <Route path="books-health" element={<Navigate to="../bookkeeping" replace />} />
+    <Route path="transactions-to-review" element={<TransactionsToReview />} />
+    <Route path="transactions_to_review" element={<Navigate to="../transactions-to-review" replace />} />
     <Route path="chart-of-accounts" element={<ChartOfAccounts />} />
     <Route path="chart_of_accounts" element={<Navigate to="../chart-of-accounts" replace />} />
     <Route path="journal-entries" element={<JournalEntries />} />

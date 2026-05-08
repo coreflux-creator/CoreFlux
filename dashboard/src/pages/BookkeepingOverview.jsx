@@ -179,7 +179,7 @@ export default function BookkeepingOverview() {
                style={{ padding: 18, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}>
             <strong style={{ fontSize: 14, display: 'block', marginBottom: 10 }}>Things to do</strong>
             <TaskRow icon={Receipt} label="Transactions to review" count={data.tasks?.transactions_to_review ?? 0}
-                     to="/accounting/bank-statements" testId="task-tx-review" />
+                     to="/modules/accounting/transactions-to-review?prefilter=oldest_first&autoload=1" testId="task-tx-review" />
             <TaskRow icon={FileText} label="Bills awaiting action" count={data.tasks?.bills_pending ?? 0}
                      to="/accounting/ap" testId="task-bills" />
             <TaskRow icon={Wallet}  label="Payments pending" count={data.tasks?.payments_pending ?? 0}

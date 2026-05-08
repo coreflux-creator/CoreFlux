@@ -18,6 +18,8 @@ import Consolidation from './Consolidation';
 import Periods from './Periods';
 import DimensionsAdmin from './DimensionsAdmin';
 import PeriodCloseWorkflow from './PeriodCloseWorkflow';
+import BookkeepingOverview from '../../../dashboard/src/pages/BookkeepingOverview';
+import TransactionsToReview from '../../../dashboard/src/pages/TransactionsToReview';
 
 /**
  * Accounting Module — Phase 0 + 1 + 2 UI
@@ -26,6 +28,8 @@ export default function AccountingModule({ session }) {
   return (
     <div data-testid="accounting-module">
       <nav style={{ display: 'flex', gap: 8, borderBottom: '1px solid #e5e7eb', marginBottom: '1rem', flexWrap: 'wrap' }}>
+        <Tab to="bookkeeping" label="Bookkeeping" />
+        <Tab to="transactions-to-review" label="Tx to Review" />
         <Tab to="accounts" label="Chart of Accounts" />
         <Tab to="journal"  label="Journal Entries" />
         <Tab to="trial"    label="Trial Balance" />
@@ -45,6 +49,10 @@ export default function AccountingModule({ session }) {
       </nav>
       <Routes>
         <Route index           element={<Navigate to="accounts" replace />} />
+        <Route path="bookkeeping" element={<BookkeepingOverview />} />
+        <Route path="books-health" element={<Navigate to="../bookkeeping" replace />} />
+        <Route path="transactions-to-review" element={<TransactionsToReview />} />
+        <Route path="transactions_to_review" element={<Navigate to="../transactions-to-review" replace />} />
         <Route path="accounts" element={<ChartOfAccounts session={session} />} />
         <Route path="journal"  element={<JournalEntries  session={session} />} />
         <Route path="journal/new"  element={<JournalEntryCreate session={session} />} />
