@@ -115,8 +115,11 @@ sentinels:
 - api/treasury_transfers.php
 - api/treasury_cash_position.php
 - tests/sprint7c_treasury_core_smoke.php
+- core/posting_engine/seed_defaults.php
+- api/posting_rules_seed.php
+- tests/sprint7c1_default_rules_seed_smoke.php
 expected_bundle:
-- spa-assets/index-B4c8ZuGd.js
+- spa-assets/index-DQ4to2Pq.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -276,6 +279,11 @@ last_known_features:
 - treasury.payments.execute_via_event_engine
 - treasury.transfers.intercompany_detection
 - treasury.reports.cash_position
+- accounting.posting_rules.default_seed_pack
+- accounting.posting_rules.seed_endpoint
+- treasury.payments.payload_hydrates_bank_gl
+- treasury.transfers.payload_hydrates_bank_gl
+- ui.admin.rule_sandbox_seed_button
 - treasury.bank_feed.split_categorize
 - treasury.bank_feed.intercompany_split
 - treasury.bank_feed.ai_categorize_panel

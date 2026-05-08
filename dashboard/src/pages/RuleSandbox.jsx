@@ -46,6 +46,8 @@ export default function RuleSandbox() {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
   const [parseErr, setParseErr] = useState(null);
+  const [seeding, setSeeding] = useState(false);
+  const [seedResult, setSeedResult] = useState(null);
 
   const parsed = useMemo(() => {
     try { setParseErr(null); return JSON.parse(json); }
@@ -69,6 +71,18 @@ export default function RuleSandbox() {
     const fresh = { ...s, source_record_id: 'sandbox-' + Date.now(), event_date: new Date().toISOString().slice(0, 10) };
     setJson(JSON.stringify(fresh, null, 2));
     setResult(null);
+  };
+
+  const seedDefaults = async () => {
+    setSeeding(true); setSeedResult(null);
+    try {
+      const r = await api.post('/api/posting_rules_seed.php', {});
+      setSeedResult(r);
+    } catch (e) {
+      setSeedResult({ error: e?.message || 'Seed failed' });
+    } finally {
+      setSeeding(false);
+    }
   };
 
   const status = result?.status;
@@ -97,6 +111,31 @@ export default function RuleSandbox() {
           Ideal before migrating modules (AP, AR, Payroll, Time) to the event layer in Sprint 7e.
         </p>
       </header>
+
+      {/* Seed defaults strip */}
+      <div data-testid="rule-sandbox-seed-strip"
+           style={{ padding: 12, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: 13, color: '#92400e' }}>First time on this tenant?</strong>
+        <span style={{ fontSize: 12, color: '#78350f' }}>
+          Seed the 17 spec system accounts + 6 default posting rules (bank fee, interest, payment, transfers, intercompany, uncategorized fallback).
+          Idempotent — safe to run multiple times.
+        </span>
+        <button className="btn btn--primary" data-testid="rule-sandbox-seed-defaults"
+                onClick={seedDefaults} disabled={seeding} style={{ marginLeft: 'auto', fontSize: 13 }}>
+          {seeding ? 'Seeding…' : 'Seed default rules'}
+        </button>
+        {seedResult && !seedResult.error && (
+          <span data-testid="rule-sandbox-seed-result" style={{ fontSize: 12, color: '#065f46', flexBasis: '100%' }}>
+            ✓ {seedResult.accounts?.inserted ?? 0} accounts inserted ({seedResult.accounts?.stamped ?? 0} re-stamped),{' '}
+            {seedResult.rules?.rules_inserted ?? 0} of {seedResult.rules?.pack_size ?? 6} default rules now active.
+          </span>
+        )}
+        {seedResult?.error && (
+          <span data-testid="rule-sandbox-seed-error" style={{ fontSize: 12, color: '#7f1d1d', flexBasis: '100%' }}>
+            ✗ {seedResult.error}
+          </span>
+        )}
+      </div>
 
       {/* Sample chips */}
       <div data-testid="rule-sandbox-samples" style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>

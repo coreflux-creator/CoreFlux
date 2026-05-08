@@ -470,6 +470,30 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 7c.1 — Default posting-rule seed pack, 2026-02)
+**Onboarding accelerator: a single-click "Seed default rules" action that drops in the 17 system accounts + 6 default journal templates + 6 posting rules covering the most common Treasury events. New tenants can now hit "Execute" on a payment and have it post correctly without authoring templates by hand.**
+
+### What shipped
+- **`core/posting_engine/seed_defaults.php`** — defines the 6-entry default pack:
+  | Event | Template | Posts |
+  |---|---|---|
+  | `treasury.bank_fee.detected` | Bank fee — default | Dr Bank Fees Expense / Cr bank GL |
+  | `treasury.interest.received` | Interest received — default | Dr bank GL / Cr Interest Income |
+  | `treasury.payment.executed` | Payment executed — default | Dr counterparty / Cr bank GL |
+  | `treasury.transfer.completed` | Internal transfer — default | Dr dest bank GL / Cr source bank GL |
+  | `treasury.intercompany.transfer.completed` | Intercompany (source side) | Dr Intercompany Receivable / Cr source bank GL |
+  | `treasury.bank_transaction.matched` | Uncategorized fallback | Dr Uncategorized Expense / Cr bank GL |
+  Idempotent — find-or-create on `(tenant, name)` for templates and `(tenant, event_type, name)` for rules. Pre-existing customisations are never overwritten.
+- **`api/posting_rules_seed.php`** — admin endpoint (RBAC `accounting.manage_posting_rules`) that runs `accountingSeedSystemAccounts()` + `postingRulesSeedDefaults()` together and returns counts.
+- **Treasury Payments API** — execute path now hydrates `payload.bank_gl_account_id` + `payload.bank_gl_account_code` by joining `accounting_bank_accounts → accounting_accounts`. Templates can target the bank's GL account directly without dereferencing.
+- **Treasury Transfers API** — same hydration for `source_bank_gl_account_id` + `destination_bank_gl_account_id` so internal/intercompany templates resolve correctly.
+- **Rule Sandbox UI** — amber strip with "Seed default rules" button. One-click seed; reports counts inline (`✓ X accounts inserted, Y of 6 default rules now active`).
+
+### Validation
+- `tests/sprint7c1_default_rules_seed_smoke.php` — **38 ✓ / 0 fail**: pack covers all 6 events exactly, references all required system accounts, uses payload-driven account selectors for bank GL, idempotent find-or-create on both layers, endpoint admin-gated, payload hydration verified on both Payments and Transfers, UI button + result hooks wired.
+- Full PHP suite: **97 files, 0 failures**.
+
+
 ## Recently completed (Sprint 7c — Treasury core: Payments + Transfers + Cash Position, 2026-02)
 **Stands up the central Treasury models the master spec (§15) requires + the Cash Position report (§28). Both Payments and Transfers route execution through Sprint 7b's posting engine, so every Treasury write becomes a structured event with full audit trace.**
 

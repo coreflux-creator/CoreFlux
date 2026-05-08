@@ -136,6 +136,20 @@ if ($method === 'POST' && $action === 'execute') {
         ? 'treasury.intercompany.transfer.completed'
         : 'treasury.transfer.completed';
 
+    // Hydrate src + dst bank GL accounts so templates can target them
+    // without dereferencing through accounting_bank_accounts.
+    $bankStmt = $pdo->prepare(
+        'SELECT ba.id, ba.gl_account_code, aa.id AS gl_account_id
+           FROM accounting_bank_accounts ba
+           LEFT JOIN accounting_accounts aa
+             ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
+          WHERE ba.tenant_id = :t AND ba.id = :id LIMIT 1'
+    );
+    $bankStmt->execute(['t' => $tid, 'id' => (int) $xfer['source_bank_account_id']]);
+    $srcBank = $bankStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+    $bankStmt->execute(['t' => $tid, 'id' => (int) $xfer['destination_bank_account_id']]);
+    $dstBank = $bankStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+
     $event = [
         'entity_id'        => (int) $xfer['source_entity_id'],
         'event_type'       => $eventType,
@@ -143,16 +157,20 @@ if ($method === 'POST' && $action === 'execute') {
         'source_record_id' => 'txf:' . $xfer['id'],
         'event_date'       => (string) $xfer['transfer_date'],
         'payload' => [
-            'transfer_id'                 => (int) $xfer['id'],
-            'transfer_number'             => (string) $xfer['transfer_number'],
-            'transfer_kind'               => (string) $xfer['transfer_kind'],
-            'amount'                      => (float) $xfer['amount'],
-            'currency'                    => (string) $xfer['currency'],
-            'source_bank_account_id'      => (int) $xfer['source_bank_account_id'],
-            'destination_bank_account_id' => (int) $xfer['destination_bank_account_id'],
-            'source_entity_id'            => (int) $xfer['source_entity_id'],
-            'destination_entity_id'       => (int) $xfer['destination_entity_id'],
-            'memo'                        => $xfer['memo'],
+            'transfer_id'                    => (int) $xfer['id'],
+            'transfer_number'                => (string) $xfer['transfer_number'],
+            'transfer_kind'                  => (string) $xfer['transfer_kind'],
+            'amount'                         => (float) $xfer['amount'],
+            'currency'                       => (string) $xfer['currency'],
+            'source_bank_account_id'         => (int) $xfer['source_bank_account_id'],
+            'destination_bank_account_id'    => (int) $xfer['destination_bank_account_id'],
+            'source_bank_gl_account_id'      => isset($srcBank['gl_account_id']) ? (int) $srcBank['gl_account_id'] : null,
+            'source_bank_gl_account_code'    => $srcBank['gl_account_code'] ?? null,
+            'destination_bank_gl_account_id' => isset($dstBank['gl_account_id']) ? (int) $dstBank['gl_account_id'] : null,
+            'destination_bank_gl_account_code' => $dstBank['gl_account_code'] ?? null,
+            'source_entity_id'               => (int) $xfer['source_entity_id'],
+            'destination_entity_id'          => (int) $xfer['destination_entity_id'],
+            'memo'                           => $xfer['memo'],
         ],
     ];
 

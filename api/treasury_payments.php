@@ -130,6 +130,17 @@ if ($method === 'POST' && $action === 'execute') {
         api_error("Payment must be approved before execute (current: {$payment['status']})", 409);
     }
 
+    // Hydrate the bank's GL account so posting templates can target it.
+    $bankStmt = $pdo->prepare(
+        'SELECT ba.gl_account_code, aa.id AS gl_account_id
+           FROM accounting_bank_accounts ba
+           LEFT JOIN accounting_accounts aa
+             ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
+          WHERE ba.tenant_id = :t AND ba.id = :id LIMIT 1'
+    );
+    $bankStmt->execute(['t' => $tid, 'id' => (int) $payment['bank_account_id']]);
+    $bank = $bankStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+
     $event = [
         'entity_id'        => (int) $payment['entity_id'],
         'event_type'       => 'treasury.payment.executed',
@@ -142,6 +153,8 @@ if ($method === 'POST' && $action === 'execute') {
             'amount'                 => (float) $payment['amount'],
             'currency'               => (string) $payment['currency'],
             'bank_account_id'        => (int) $payment['bank_account_id'],
+            'bank_gl_account_id'     => isset($bank['gl_account_id']) ? (int) $bank['gl_account_id'] : null,
+            'bank_gl_account_code'   => $bank['gl_account_code'] ?? null,
             'counterparty_account_id'=> $payment['counterparty_account_id'] ? (int) $payment['counterparty_account_id'] : null,
             'payee_type'             => (string) $payment['payee_type'],
             'payee_name'             => (string) $payment['payee_name'],
