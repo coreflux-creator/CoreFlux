@@ -470,6 +470,42 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 7e.1 — Layer-style Bookkeeping Overview, 2026-02)
+**First slice of the "replicate Layer for our users" track. A single-screen books snapshot at `/modules/accounting/bookkeeping` that mirrors Layer's `<BookkeepingOverview/>` widget — health score, 6-month P&L chart, tasks list, bank-connection status, recent engine activity, and a connect-a-bank CTA when no Plaid links exist.**
+
+### What shipped
+- **`api/books_health.php`** — single GET endpoint that returns the full overview payload in one call so the UI never waterfalls. Computed pieces:
+  - **Bank connections** — total / active / last_sync_at
+  - **Reconciliation** — last_reconciled_date / days_since / behind_30d / behind_60d (graceful when `accounting_reconciliations` table absent)
+  - **Uncategorized** — count of bank_statement_lines with `match_status IN (NULL, 'pending')` + oldest_days
+  - **Tasks** — transactions_to_review · bills_pending · payments_pending · transfers_pending · period_ready_to_close (each table check is `SHOW TABLES LIKE` so we never crash on pre-7c tenants)
+  - **6-month P&L** — built from posted JEs grouped by month + account_type, accommodating revenue / expense / contra_revenue / cost_of_goods_sold / other_income / other_expense
+  - **Recent engine activity** — top 10 posted `accounting_events` (gracefully empty if 7b table absent)
+  - **Health score 0-100** with a **transparent rubric** (no_active_bank −20, recon_behind_60d −15, recon_behind_30d −8, many_uncategorized −10, some_uncategorized −5, period_overdue_close −10, has_open_tasks −5; floored at 0). Returns the firing reasons inline so the UI can show "why".
+  - Label thresholds: ≥90 excellent / ≥75 good / ≥50 fair / <50 needs_attention.
+- **Module alias** at `/api/accounting/books-health` (one-line require shim).
+- **`dashboard/src/pages/BookkeepingOverview.jsx`** — Layer-look:
+  - Two-column grid (main / sidebar)
+  - Score hero with auto-color (emerald/sky/amber/rose) + reason chips
+  - 6-month P&L bar chart (revenue green, expense red, net signed-figure under each month)
+  - Recent activity table linking each posted event to its JE detail page
+  - Tasks card with click-through `<Link>`s to the right module page; zero counts shown muted
+  - Banks card + last-reconciled badge (auto-amber/rose after 30/60 days)
+  - Period card (FY · period number · date range · status)
+  - Connect-a-bank purple CTA when active=0, with primary "Connect bank" button
+- Wiring: AccountingModule mounts `/bookkeeping` (with `/books-health` redirect alias), App sidebar gains "Bookkeeping Overview" entry, Quick-actions tile linked too.
+
+### Validation
+- `tests/sprint7e1_bookkeeping_overview_smoke.php` — **56 ✓ / 0 fail**: API envelope shape, all 5 graceful `SHOW TABLES LIKE` guards, health-score floor + thresholds + reason enum, full P&L grouping spec, alias delegation, every UI testid (15 main + 5 task rows + dynamic PL bar template), App + module wiring.
+- Full PHP suite: **99 files, 0 failures**.
+- Vite rebuilt → `index-BRHVBaDC.js`. `.deploy-version` synced (6 new feature flags + 4 new sentinel files).
+
+### Next slice (per user-approved order)
+- **7e.2** — Transactions to Review queue + AI Bookkeeper polish (auto-post-above-confidence-threshold)
+- **7e.3** — Bill creation + invoicing UX polish
+- **7e.4** — Sprint 7e proper (AP/AR/Payroll/Time → event layer)
+
+
 ## Recently completed (Sprint 7d — Spec §38 URL aliases, 2026-02)
 **Brings the HTTP surface in line with the master spec's canonical paths so external partners (mobile, the future AI agents, Apideck-style integrators) can hit the contract the spec promises. Legacy paths preserved for one release.**
 

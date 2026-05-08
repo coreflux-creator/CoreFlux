@@ -126,8 +126,12 @@ sentinels:
 - modules/treasury/api/transfers.php
 - modules/treasury/api/cash_position.php
 - tests/sprint7c2_7d_replay_and_aliases_smoke.php
+- api/books_health.php
+- modules/accounting/api/books_health.php
+- dashboard/src/pages/BookkeepingOverview.jsx
+- tests/sprint7e1_bookkeeping_overview_smoke.php
 expected_bundle:
-- spa-assets/index-BnHf5_xO.js
+- spa-assets/index-BRHVBaDC.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -302,6 +306,11 @@ last_known_features:
 - treasury.api.payments_alias
 - treasury.api.transfers_alias
 - treasury.api.cash_position_alias
+- accounting.books_health_endpoint
+- accounting.books_health_alias
+- ui.accounting.bookkeeping_overview
+- ui.accounting.health_score_widget
+- ui.accounting.layer_parity_dashboard
 - treasury.bank_feed.split_categorize
 - treasury.bank_feed.intercompany_split
 - treasury.bank_feed.ai_categorize_panel

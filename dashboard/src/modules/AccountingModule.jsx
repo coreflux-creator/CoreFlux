@@ -2,6 +2,7 @@ import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { ModuleHero, Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
 import { BookOpen, FileText, TrendingUp, CreditCard, Receipt, PieChart } from 'lucide-react';
+import BookkeepingOverview from '../pages/BookkeepingOverview';
 
 // Accounting Overview
 const AccountingOverview = () => (
@@ -23,6 +24,7 @@ const AccountingOverview = () => (
 
     <Section title="Quick Actions">
       <ActionCardsGrid>
+        <ActionCard icon={TrendingUp} title="Bookkeeping overview" description="Layer-style books health snapshot" href="/modules/accounting/bookkeeping" />
         <ActionCard icon={BookOpen} title="Chart of Accounts" description="View and manage accounts" href="/modules/accounting/chart-of-accounts" />
         <ActionCard icon={FileText} title="Journal Entries" description="Create and post entries" href="/modules/accounting/journal-entries" />
         <ActionCard icon={CreditCard} title="Accounts Payable" description="Vendor invoices & payments" href="/modules/accounting/accounts-payable" />
@@ -123,6 +125,8 @@ const AccountingModule = ({ session }) => (
   <Routes>
     <Route path="/" element={<Navigate to="overview" replace />} />
     <Route path="overview" element={<AccountingOverview />} />
+    <Route path="bookkeeping" element={<BookkeepingOverview />} />
+    <Route path="books-health" element={<Navigate to="../bookkeeping" replace />} />
     <Route path="chart-of-accounts" element={<ChartOfAccounts />} />
     <Route path="chart_of_accounts" element={<Navigate to="../chart-of-accounts" replace />} />
     <Route path="journal-entries" element={<JournalEntries />} />

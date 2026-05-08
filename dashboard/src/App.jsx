@@ -143,6 +143,7 @@ const DEMO_SESSION = {
         { name: 'Intercompany',         route: 'intercompany' },
         { name: 'Consolidation',        route: 'consolidation' },
         { name: 'Financial Reports',    route: 'reports' },
+        { name: 'Bookkeeping Overview', route: 'bookkeeping' },
         { name: 'Posting Rules',        route: 'posting-rules' },
         { name: 'Rule Sandbox',         route: 'rule-sandbox' },
         { name: 'Accounting Events',    route: 'events' },
