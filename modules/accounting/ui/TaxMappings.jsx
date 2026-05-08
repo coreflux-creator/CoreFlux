@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import { Sparkles } from 'lucide-react';
 
 /**
  * Tax mappings — map each postable expense / revenue account onto a
@@ -8,7 +9,8 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
  *
  * Workflow:
  *   1. Pick a tax form from the dropdown
- *   2. For each unmapped account, set a line + (optional) label, click Save
+ *   2. Click "AI auto-map" to seed every unmapped account at once,
+ *      OR per-account: set a line + (optional) label, click Save
  *   3. Click Edit on an existing row to update or remove
  */
 export default function TaxMappings() {
@@ -19,6 +21,14 @@ export default function TaxMappings() {
   const [draft, setDraft] = useState({});       // accountId → { line, label, notes }
   const [busy, setBusy]   = useState({});
   const [errMsg, setErr]  = useState(null);
+
+  // AI auto-map state.
+  const [aiBusy, setAiBusy]               = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState([]);   // [{account_id, line, label, confidence, reasoning, ...}]
+  const [aiThreshold, setAiThreshold]     = useState(0.85);
+  const [aiSkipped, setAiSkipped]         = useState([]);
+  const [aiModel, setAiModel]             = useState(null);
+  const [bulkBusy, setBulkBusy]           = useState(false);
 
   const setField = (id, k, v) => setDraft(d => ({ ...d, [id]: { ...(d[id] || {}), [k]: v } }));
 
@@ -48,6 +58,56 @@ export default function TaxMappings() {
     } catch (e) { setErr(e.message); }
     finally    { setBusy(b => ({ ...b, [`del_${id}`]: false })); }
   };
+
+  const runAiAutomap = async () => {
+    if (!form) return;
+    setAiBusy(true); setErr(null); setAiSuggestions([]); setAiSkipped([]);
+    try {
+      const r = await api.post('/api/tax_mapping_ai_suggest.php', { tax_form_code: form });
+      setAiSuggestions(r.suggestions || []);
+      setAiSkipped(r.skipped || []);
+      setAiModel(r.model || null);
+      // Pre-populate draft with AI suggestions so the user sees them in
+      // the unmapped table even if they don't bulk-accept.
+      const d = {};
+      (r.suggestions || []).forEach(s => {
+        d[s.account_id] = { line: s.line, label: s.label, notes: '' };
+      });
+      setDraft(prev => ({ ...prev, ...d }));
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const acceptAllAi = async () => {
+    const eligible = aiSuggestions.filter(s => (s.confidence ?? 0) >= aiThreshold);
+    if (!eligible.length) return;
+    setBulkBusy(true); setErr(null);
+    try {
+      // Sequential to keep audit log readable.
+      for (const s of eligible) {
+        await api.post('/api/tax_mappings.php', {
+          account_id:     s.account_id,
+          tax_form_code:  form,
+          tax_form_line:  s.line,
+          tax_form_label: s.label || null,
+          notes:          `AI auto-mapped (${Math.round((s.confidence ?? 0) * 100)}% confidence)`,
+        });
+      }
+      const acceptedIds = new Set(eligible.map(s => s.account_id));
+      setAiSuggestions(prev => prev.filter(s => !acceptedIds.has(s.account_id)));
+      reload();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const aiByAccount = aiSuggestions.reduce((m, s) => { m[s.account_id] = s; return m; }, {});
+  const eligibleCount = aiSuggestions.filter(s => (s.confidence ?? 0) >= aiThreshold).length;
 
   const forms     = data?.available_forms || [];
   const mappings  = data?.mappings || [];
@@ -95,6 +155,55 @@ export default function TaxMappings() {
 
       {form && (
         <>
+          {/* AI auto-map strip */}
+          <div data-testid="accounting-tax-mappings-ai-strip"
+               style={{ padding: 14, background: '#faf5ff', border: '1px solid #ddd6fe', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+            <Sparkles size={18} color="#7c3aed" />
+            <div style={{ flex: 1, minWidth: 280 }}>
+              <strong style={{ fontSize: 13, color: '#5b21b6', display: 'block' }}>AI auto-map</strong>
+              <span style={{ fontSize: 12, color: '#6d28d9' }}>
+                {aiSuggestions.length === 0
+                  ? 'Let AI suggest a tax-form line for every unmapped account in one pass.'
+                  : `${aiSuggestions.length} suggestion${aiSuggestions.length === 1 ? '' : 's'} ready · ${eligibleCount} above threshold`}
+              </span>
+            </div>
+            {aiSuggestions.length > 0 && (
+              <label style={{ fontSize: 12, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                Threshold ≥
+                <select className="input" data-testid="accounting-tax-mappings-ai-threshold"
+                        value={aiThreshold} onChange={e => setAiThreshold(Number(e.target.value))}
+                        style={{ padding: '2px 6px', fontSize: 12 }}>
+                  <option value={0.7}>70%</option>
+                  <option value={0.8}>80%</option>
+                  <option value={0.85}>85%</option>
+                  <option value={0.9}>90%</option>
+                  <option value={0.95}>95%</option>
+                </select>
+              </label>
+            )}
+            <button className="btn btn--ghost"
+                    data-testid="accounting-tax-mappings-ai-run"
+                    onClick={runAiAutomap}
+                    disabled={aiBusy}
+                    style={{ fontSize: 12 }}>
+              {aiBusy ? 'Thinking…' : (aiSuggestions.length === 0 ? 'Suggest mappings' : 'Re-run AI')}
+            </button>
+            {aiSuggestions.length > 0 && (
+              <button className="btn btn--primary"
+                      data-testid="accounting-tax-mappings-ai-accept-all"
+                      onClick={acceptAllAi}
+                      disabled={bulkBusy || eligibleCount === 0}
+                      style={{ fontSize: 12 }}>
+                {bulkBusy ? 'Saving…' : `Accept ${eligibleCount} ≥ ${Math.round(aiThreshold * 100)}%`}
+              </button>
+            )}
+            {aiModel && (
+              <span data-testid="accounting-tax-mappings-ai-model" style={{ fontSize: 10, color: '#94a3b8', flexBasis: '100%' }}>
+                via {aiModel} · {aiSkipped.length > 0 && `${aiSkipped.length} skipped by AI`}
+              </span>
+            )}
+          </div>
+
           <h3 style={{ margin: '20px 0 8px', fontSize: 14, color: '#0f172a' }}>Mapped accounts ({mappings.length})</h3>
           <table className="data-table" style={{ width: '100%' }} data-testid="accounting-tax-mappings-table-mapped">
             <thead>
@@ -141,10 +250,24 @@ export default function TaxMappings() {
               )}
               {unmapped.map(a => {
                 const d = draft[a.id] || {};
+                const ai = aiByAccount[a.id];
                 return (
                   <tr key={a.id} data-testid={`accounting-tax-mappings-unmapped-row-${a.id}`}>
                     <td><code>{a.code}</code></td>
-                    <td>{a.name}</td>
+                    <td>
+                      {a.name}
+                      {ai && (
+                        <span data-testid={`accounting-tax-mappings-ai-pill-${a.id}`}
+                              title={ai.reasoning || ''}
+                              style={{ marginLeft: 6, fontSize: 10, fontWeight: 600,
+                                       padding: '1px 6px', borderRadius: 8,
+                                       background: '#ede9fe',
+                                       color: ai.confidence >= 0.9 ? '#059669'
+                                            : ai.confidence >= 0.75 ? '#d97706' : '#dc2626' }}>
+                          AI · {Math.round((ai.confidence ?? 0) * 100)}%
+                        </span>
+                      )}
+                    </td>
                     <td style={{ fontSize: 11, color: '#64748b' }}>{a.account_type}</td>
                     <td>
                       <input className="input"

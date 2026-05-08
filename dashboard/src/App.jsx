@@ -146,6 +146,7 @@ const DEMO_SESSION = {
         { name: 'Bookkeeping Overview', route: 'bookkeeping' },
         { name: 'Transactions to Review', route: 'transactions-to-review' },
         { name: 'GL Detail',            route: 'gl-detail' },
+        { name: 'Dimensional P&L',      route: 'dim-pnl' },
         { name: 'Tax Mappings',         route: 'tax-mappings' },
         { name: 'Tax Export',           route: 'tax-export' },
         { name: 'Posting Rules',        route: 'posting-rules' },

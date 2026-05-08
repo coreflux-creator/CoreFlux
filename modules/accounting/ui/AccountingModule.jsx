@@ -23,6 +23,7 @@ import TransactionsToReview from '../../../dashboard/src/pages/TransactionsToRev
 import GLDetail from './GLDetail';
 import TaxMappings from './TaxMappings';
 import TaxExport from './TaxExport';
+import DimensionalPnL from './DimensionalPnL';
 
 /**
  * Accounting Module — Phase 0 + 1 + 2 UI
@@ -43,6 +44,7 @@ export default function AccountingModule({ session }) {
         <Tab to="recurring" label="Recurring JEs" />
         <Tab to="reports"   label="Reports" />
         <Tab to="gl-detail" label="GL Detail" />
+        <Tab to="dim-pnl"   label="Dimensional P&L" />
         <Tab to="tax-mappings" label="Tax mappings" />
         <Tab to="tax-export" label="Tax export" />
         <Tab to="import"    label="Import" />
@@ -73,6 +75,7 @@ export default function AccountingModule({ session }) {
         <Route path="recurring/*" element={<RecurringJournalEntries session={session} />} />
         <Route path="reports"  element={<StandardReports  session={session} />} />
         <Route path="gl-detail" element={<GLDetail />} />
+        <Route path="dim-pnl" element={<DimensionalPnL />} />
         <Route path="tax-mappings" element={<TaxMappings />} />
         <Route path="tax-export" element={<TaxExport />} />
         <Route path="import"   element={<AccountingImport session={session} />} />

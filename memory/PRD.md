@@ -508,9 +508,29 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Saved-hours KPI** ✓ shipped (this fork) — Bookkeeping Overview now surfaces ai_assist count_7d × 30s as a hours-saved-this-week tile (purple Sparkles card)
 - **7f.1** ✓ shipped (this fork) — GL Detail report + Tax Mappings (CoA → tax-form-line). Reports vertical opened.
 - **7f.2 (headline)** ✓ shipped (this fork) — Tax-form CSV export with unmapped-account warning. One click hands the accountant a tidy `tax_export_US-1040-SCH-C_2026-01-01_to_2026-12-31.csv`.
+- **7f.2a** ✓ shipped (this fork) — AI auto-map for tax mappings. One pass through every unmapped revenue/expense account, line-restricted by the form's hard-coded line catalogue, bulk-accept-≥-threshold UI.
+- **7f.3 (Dimensional P&L)** ✓ shipped (this fork) — Pivot the income statement along any active accounting dimension. Family subtotals + net-income row.
 - **7e.4** — Payroll / Time settlement migrations (largely no-op: neither directly calls `accountingPostJe` today; their bundles flow into AP/Billing which are now event-layer enabled. Confirm during Time settlement closes a period.)
-- **7f (continued)** — Dimensional P&L (slice by entity / dimension), Liquidity Forecast, Deferred-revenue + auto-reversing accrual helpers
+- **7f.4** — Liquidity Forecast (cash projection from open AP/AR + scheduled treasury), Deferred-revenue + auto-reversing accrual helpers
 - **7g** — AI agent suite (AI Bookkeeper, Reconciliation, Treasury Analyst, CFO, Tax + permission modes)
+
+
+## Recently completed (Sprint 7f.2a + 7f.3 — AI auto-map + Dimensional P&L, 2026-02)
+
+### Sprint 7f.2a — AI auto-map for tax mappings
+- **`api/tax_mapping_ai_suggest.php`** — POST endpoint, RBAC `accounting.je.create`. Hard-coded TAX_FORM_LINES catalogue per form (Schedule C: 25 lines, 1120: 14, 1120-S: 13, 1065: 14, 990: 8) so the model has a tight allowed-line set and can't hallucinate "line 99". Single batched `aiAsk()` call returns one JSON `{suggestions:[...]}` covering all unmapped accounts. Server-side validation: rejects unknown account IDs, rejects lines not in the catalogue, dedupes duplicates, clamps confidence to [0,1], falls back to catalogue label if model omits it. Returns `interaction_id` + `model` for audit. Graceful AIDisabled (503) + Throwable (502) fallback.
+- **`TaxMappings.jsx`** — purple Sparkles "AI auto-map" strip with: Suggest button, threshold dropdown (70/80/85/90/95), bulk-accept-≥-threshold button, `via {model}` audit footer, per-row confidence pill (green ≥90% / amber ≥75% / red below) hovering each unmapped account row, draft pre-population so the user sees AI line + label inline before accepting.
+
+### Sprint 7f.3 — Dimensional P&L
+- **`api/dimensional_pnl.php`** — RBAC-gated GET. Resolves `dim_key` against `accounting_dimensions` (tenant-scoped + active only). Pivots posted JE lines along the dimension by reading `accounting_journal_lines.dimension_values` JSON. Falls through to a `(unset)` bucket when the JE didn't carry that dim. Sign-aware totals via `accounting_accounts.normal_side`. Returns rectangular per-account rows + family subtotals (revenue, COGS, expense, other_income, other_expense, contra_revenue) + net-income row computed as `(revenue + other_income - contra_revenue) - (cogs + expense + other_expense)` per dim value.
+- **`modules/accounting/ui/DimensionalPnL.jsx`** — dimension picker sourced from `dimensions.php` (active only), date range, summary band (5 stats including red net-income when negative), pivot table with family separators, italic family subtotals, green-banded NET INCOME row (red when negative). Handles wide dim-value lists with horizontal scroll.
+- Both pages wired into AccountingV1Module sub-nav + App.jsx sidebar. Module-namespaced kebab alias `/api/accounting/dimensional-pnl`.
+
+### Validation
+- `tests/sprint7f2a_tax_ai_automap_smoke.php` — **36 ✓**: API contract (POST-only, RBAC, 5-form catalogue, line whitelist with hallucination guard, account scope, aiAsk chokepoint, dedup, confidence clamp, label fallback, AIDisabled→503, Throwable→502, parseable + unparseable JSON paths), UI testid coverage (5 page-level + dynamic per-row pill), threshold logic, sequential bulk-accept POSTs.
+- `tests/sprint7f3_dimensional_pnl_smoke.php` — **48 ✓**: API contract (RBAC, dim_key required, date validation, dimension scope + 404, account_type whitelist, '(unset)' bucket, normal_side math, "(unset)" sorted last, rectangular row backfill, family subtotals + net-income formula), UI testid coverage including dynamic column / row / subtotal templates.
+- Full PHP suite: **107 files, 0 failures**.
+- Vite rebuilt → `index-fH4LBHwp.js`. `.deploy-version` synced (5 new feature flags + 8 new sentinels; sprint6b bundle-hash assertion bumped).
 
 
 ## Recently completed (Sprint 7f.2 — Tax-form CSV export, 2026-02)
