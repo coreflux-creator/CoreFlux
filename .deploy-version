@@ -161,8 +161,19 @@ sentinels:
 - modules/accounting/api/dimensional_pnl.php
 - modules/accounting/ui/DimensionalPnL.jsx
 - tests/sprint7f3_dimensional_pnl_smoke.php
+- core/migrations/021_jobdiva_connections.sql
+- core/jobdiva/client.php
+- api/jobdiva.php
+- api/jobdiva/connect.php
+- api/jobdiva/disconnect.php
+- api/jobdiva/status.php
+- api/jobdiva/ping.php
+- api/jobdiva/sync.php
+- api/jobdiva/webhook.php
+- dashboard/src/pages/JobDivaSettings.jsx
+- tests/sprint8a_jobdiva_foundation_smoke.php
 expected_bundle:
-- spa-assets/index-fH4LBHwp.js
+- spa-assets/index-z5ikBhcm.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -381,3 +392,8 @@ last_known_features:
 - accounting.tax.ai_automap_ui_strip
 - accounting.reports.dimensional_pnl_endpoint
 - accounting.reports.dimensional_pnl_ui
+- integrations.jobdiva.connection_vault
+- integrations.jobdiva.session_token_auto_refresh
+- integrations.jobdiva.webhook_receiver_hmac
+- integrations.jobdiva.sync_audit_log
+- ui.admin.jobdiva_settings_page

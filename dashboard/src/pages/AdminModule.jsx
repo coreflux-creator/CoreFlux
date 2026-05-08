@@ -1,7 +1,7 @@
 import React from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical } from 'lucide-react';
+import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap } from 'lucide-react';
 import SubTenantsAdmin from './SubTenantsAdmin';
 import ExportTemplatesAdmin from './ExportTemplatesAdmin';
 import MasterTenantsAdmin from './MasterTenantsAdmin';
@@ -10,6 +10,7 @@ import UsersAdmin from './UsersAdmin';
 import ModuleAccessAdmin from './ModuleAccessAdmin';
 import AuditLogViewer from './AuditLogViewer';
 import RuleSandbox from './RuleSandbox';
+import JobDivaSettings from './JobDivaSettings';
 
 /**
  * AdminModule — administrator surface.
@@ -39,6 +40,7 @@ const AdminOverview = () => (
         <ActionCard icon={Sparkles}  title="AI accuracy"    description="Confidence-score moat dashboard" href="/admin/ai-accuracy" />
         <ActionCard icon={ScrollText} title="Audit log"     description="Tenant-scoped audit trail with CSV export" href="/admin/audit-log" />
         <ActionCard icon={FlaskConical} title="Rule sandbox" description="Dry-run posting rules without writing to the GL" href="/admin/rule-sandbox" />
+        <ActionCard icon={PlugZap} title="JobDiva integration" description="Tenant-level JobDiva connection — webhooks + manual sync" href="/admin/integrations/jobdiva" />
       </ActionCardsGrid>
     </Section>
   </>
@@ -56,6 +58,7 @@ const AdminSidebar = () => {
     { to: '/admin/ai-accuracy',      label: 'AI Accuracy',      icon: Sparkles },
     { to: '/admin/audit-log',        label: 'Audit Log',        icon: ScrollText },
     { to: '/admin/rule-sandbox',     label: 'Rule Sandbox',     icon: FlaskConical },
+    { to: '/admin/integrations/jobdiva', label: 'JobDiva',      icon: PlugZap },
   ];
   return (
     <aside className="sidebar">
@@ -96,6 +99,7 @@ const AdminModule = ({ session }) => {
           <Route path="/ai-accuracy"       element={<AiAccuracyDashboard session={session} />} />
           <Route path="/audit-log"         element={<AuditLogViewer session={session} />} />
           <Route path="/rule-sandbox"      element={<RuleSandbox session={session} />} />
+          <Route path="/integrations/jobdiva" element={<JobDivaSettings session={session} />} />
         </Routes>
       </div>
     </div>

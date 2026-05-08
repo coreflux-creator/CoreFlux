@@ -500,7 +500,40 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - Full PHP suite: **99 files, 0 failures**.
 - Vite rebuilt → `index-BRHVBaDC.js`. `.deploy-version` synced (6 new feature flags + 4 new sentinel files).
 
-### Next slice (per user-approved order)
+### Next slice
+- **Slice A1** ✓ shipped (this fork) — JobDiva connection + webhook foundation
+- **Slice A2 (next fork)** — Companies + Contacts (bidirectional, JD-owned by default), `jobdiva_entity_mappings` table
+- **Slice A3** — Placements (submissions/hires → `placements`)
+- **Slice A4** — Timesheets with **per-entity** config picker (source of truth + direction OR off)
+
+### Pinned (will resume after JobDiva slices)
+- **7f.4** — Liquidity Forecast + Deferred-revenue + auto-reversing accrual helpers
+- **7e.4 verify** — Confirm Payroll/Time settlement bundles ride event layer
+- **7g** — AI agent suite
+
+
+## Recently completed (Sprint 8a — JobDiva integration foundation, 2026-02)
+**Tenant-level JobDiva connection vault with auto-refreshing session tokens, signature-verified webhook receiver, and an admin UI. Tenants log in once with `clientid + username + password`; the server class re-mints session tokens silently when they expire.**
+
+### What shipped
+- **Migration `021_jobdiva_connections.sql`** — three tables, all idempotent:
+  - `jobdiva_connections` (per-tenant unique, encrypted password + cached session token + optional webhook HMAC secret + JSON `field_ownership` & `sync_config` placeholders for A2+; status enum: connected/degraded/disconnected/error)
+  - `jobdiva_webhook_events` (queue, dedup on `(tenant_id, jd_event_id)`, signature-OK flag, status pipeline)
+  - `jobdiva_sync_audit` (append-only, action+entity_type+direction+items)
+- **`core/jobdiva/client.php`** — PHP client built on `core/encryption.php` AES-256-GCM helpers. `jobdivaSessionToken()` caches with 60-second slack and falls back to JWT exp parsing. `jobdivaCall()` auto-refreshes once on 401 and flips connection to `degraded` on persistent ≥400. `jobdivaPing()` round-trips the auth endpoint as the cheapest health check. `jobdivaWebhookVerify()` enforces HMAC-SHA256 with constant-time `hash_equals`.
+- **`api/jobdiva.php`** — single dispatcher; webhook path **bypasses CoreFlux auth** (signature is the auth) and queues idempotently via `ON DUPLICATE KEY UPDATE id = id`. Other actions are RBAC-gated (`integrations.jobdiva.view` for read, `integrations.jobdiva.manage` for write — master_admin's `*` covers both). Path-style aliases `/api/jobdiva/{connect,disconnect,status,ping,sync,webhook}.php` all delegate to the central handler.
+- **`dashboard/src/pages/JobDivaSettings.jsx`** — admin page mounted at `/admin/integrations/jobdiva`. Status badge with 4 palettes, status card (client_id, username, last_ping, last_sync, token_exp, last_error), purple webhook-URL panel with copy-to-clipboard, connect form (4 fields incl. show/hide password), Test/Sync/Disconnect buttons that appear only when connected, recent activity table (last 25 audit rows), recent webhook events table (last 10).
+- **AdminModule wiring** — overview action card, sidebar link, `/admin/integrations/jobdiva` route.
+
+### Slice A1 explicit non-goals (next slice picks up)
+- No entity sync yet — "Sync now" is a placeholder that just refreshes the session token + writes an audit row.
+- `field_ownership` JSON column is empty; populated in A2.
+- `sync_config` per-entity picker (which entities are JD-owned vs CF-owned, push/pull/off) is the centerpiece of A2 (companies/contacts) and A4 (timesheets).
+
+### Validation
+- `tests/sprint8a_jobdiva_foundation_smoke.php` — **101 ✓ / 0 fail**: migration shape (3 idempotent tables, encrypted blob columns, dedup keys, status enum), client surface (encryption on save, upsert, stale-token clearing on update, slack-aware caching, JWT exp fallback, auto-refresh on 401, degraded surfacing, audit shape, HMAC-SHA256 verify with hash_equals), dispatcher (webhook bypasses auth, X-JobDiva-Signature header, idempotent persist, 401 on bad sig, RBAC fork by verb, status hides password, A1 placeholder note in sync), all 6 path-style aliases, full UI testid coverage including dynamic row templates, AdminModule wiring (route + sidebar + action card).
+- Full PHP suite: **108 files, 0 failures**.
+- Vite rebuilt → `index-z5ikBhcm.js`. `.deploy-version` synced (5 new feature flags + 13 new sentinels; sprint6b bundle-hash assertion bumped).
 - **7e.2** ✓ shipped (this fork) — Transactions to Review queue with deep-link from BookkeepingOverview
 - **7e (AP vertical slice)** ✓ shipped (this fork) — `ap.bill.approved` event-layer migration + line_source passthrough + AP/AR seed-pack expansion
 - **7e (Billing migration + audit-trail backfill)** ✓ shipped (this fork) — `billing.invoice.sent` event-layer migration + AP-bill / Billing-invoice replay endpoints + Rule Sandbox UI for one-click backfill
