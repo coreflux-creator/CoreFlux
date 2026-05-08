@@ -470,6 +470,47 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 8a / Slice A2 — Integration-agnostic external entity mappings, 2026-02)
+**Universal mapping pipeline. Any 3rd-party integration (JobDiva today, Bullhorn / Greenhouse tomorrow) can bind an external record id to the matching CoreFlux internal record id WITHOUT mutating core tables. No `jobdiva_company_id` column on `companies`, no `bullhorn_contact_id` on `contacts` — the mapping table owns all of it.**
+
+### What shipped
+- **Migration `022_external_entity_mappings.sql`** — single agnostic table, idempotent `CREATE TABLE IF NOT EXISTS`, utf8mb4_unicode_ci, Cloudways MySQL 5.7+8 compatible.
+  - `source_system VARCHAR(64)` (free-form slug — adding `bullhorn` later requires zero DDL).
+  - `internal_entity_type VARCHAR(64)` (e.g. `company` / `contact` / `placement`).
+  - `external_id VARCHAR(128)` (numeric AND GUID friendly).
+  - `payload_snapshot JSON` (last raw payload for debug/replay) + `content_hash CHAR(64)` (sha256 hex for cheap dirty-check).
+  - `direction` enum (`pull`/`push`/`two_way`/`off`) — informational snapshot at last sync.
+  - `sync_status` enum (`ok`/`stale`/`error`/`deleted_in_source`) + `last_error VARCHAR(500)`.
+  - **Two UNIQUE KEYs** enforce 1:1 mapping in both directions:
+    - `uk_external (tenant, source, type, external_id)` → external→internal lookup.
+    - `uk_internal (tenant, source, type, internal_id)` → internal→external lookup.
+  - Reverse-lookup index `ix_internal_lookup` (`tenant, type, internal_id`) for "what does every source know about this internal record?".
+  - Worker-driver index `ix_source_last_sync` (`tenant, source, last_synced_at`).
+
+- **`core/integrations/entity_mappings.php`** — agnostic helpers, all tenant-scoped:
+  - `mappingHash($payload)` — sha256 hex of canonicalised JSON. Recursive `ksort` on assoc arrays, list order preserved. Identical inputs in any key order produce identical hashes.
+  - `mappingUpsert($tid, $source, $type, $externalId, $internalId, $payload?, $direction='pull')` — race-safe `ON DUPLICATE KEY UPDATE`. Bumps `last_seen_at` always; bumps `last_synced_at` + payload only when content_hash actually changed (or was previously NULL) or when internal_id moved. Returns row + `changed` boolean.
+  - `mappingFindInternal()` — external→internal (used by webhook ingress).
+  - `mappingFindExternal()` — internal→external (used when CoreFlux pushes back).
+  - `mappingMarkStatus($tid, $mappingId, $status, $error?)` — whitelist-validated, error clamped to 500 chars.
+  - `mappingDelete()` — hard delete (used when source signals hard delete).
+  - `mappingListForInternal()` — every external id any source has for an internal record (cross-source visibility for the future "Connections" panel on entity detail pages).
+  - Hard input validation: rejects tenant_id<=0, empty source/type/external_id, internal_id<=0, unknown direction.
+
+### Slice A2 explicit non-goals (next slice picks up)
+- **No JobDiva sync logic yet** — A2 is the universal pipeline layer only. Slice A3 wires `core/jobdiva/sync_companies.php` etc. on top of these helpers.
+- **No UI** — mappings are server-only infrastructure. Future "Connections" panel on entity detail pages can render `mappingListForInternal()` output.
+- **No webhook delta processing** — the queue table from A1 (`jobdiva_webhook_events`) drains into mappings in A3.
+
+### Validation
+- `tests/sprint8a_a2_external_entity_mappings_smoke.php` — **55 ✓ / 0 fail**: migration shape (idempotent, agnostic VARCHAR `source_system` not enum, JSON snapshot, dual unique keys, sync/direction enums, supporting indexes, utf8mb4 collation), library surface (parses + strict_types + 7 functions exported, whitelists for direction + status, race-safe ON DUPLICATE KEY UPDATE, tenant-scoped queries everywhere), runtime hash behaviour (sha256, key-order stable, content-sensitive, list-order preserved, nested-object stable), runtime input validation (rejects all bad inputs).
+- Full PHP suite: **109 files, 0 failures** (108 + this new file, zero regressions).
+
+### Next slice
+- **A3** — JobDiva pull/sync logic for Companies, Contacts, Placements (NOT candidates / applicants / open positions). Uses these mapping helpers as the universal binding layer.
+- **A4** — Timesheets with per-entity config picker (source of truth + direction OR off).
+
+
 ## Recently completed (Sprint 7e.1 — Layer-style Bookkeeping Overview, 2026-02)
 **First slice of the "replicate Layer for our users" track. A single-screen books snapshot at `/modules/accounting/bookkeeping` that mirrors Layer's `<BookkeepingOverview/>` widget — health score, 6-month P&L chart, tasks list, bank-connection status, recent engine activity, and a connect-a-bank CTA when no Plaid links exist.**
 
