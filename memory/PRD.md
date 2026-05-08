@@ -505,7 +505,37 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **7e (AP vertical slice)** ✓ shipped (this fork) — `ap.bill.approved` event-layer migration + line_source passthrough + AP/AR seed-pack expansion
 - **7e (Billing migration + audit-trail backfill)** ✓ shipped (this fork) — `billing.invoice.sent` event-layer migration + AP-bill / Billing-invoice replay endpoints + Rule Sandbox UI for one-click backfill
 - **7e.3** ✓ shipped (this fork) — Inline AI line-item account suggest cascade on bill + invoice creation (history-first → LLM fallback, restricted to expense vs revenue families)
-- **7e.4** — Payroll / Time settlement migrations (largely no-op: neither Payroll nor Time directly call `accountingPostJe` today; their bundles flow into AP/Billing which are now event-layer enabled. Confirm during 7f sprint when Time settlement closes.)
+- **Saved-hours KPI** ✓ shipped (this fork) — Bookkeeping Overview now surfaces ai_assist count_7d × 30s as a hours-saved-this-week tile (purple Sparkles card)
+- **7f.1** ✓ shipped (this fork) — GL Detail report + Tax Mappings (CoA → tax-form-line). Reports vertical opened.
+- **7e.4** — Payroll / Time settlement migrations (largely no-op: neither directly calls `accountingPostJe` today; their bundles flow into AP/Billing which are now event-layer enabled. Confirm during Time settlement closes a period.)
+- **7f (continued)** — Dimensional P&L (slice by entity / dimension), Liquidity Forecast, Tax-form export (sum per tax_mappings line), Deferred-revenue + auto-reversing accrual helpers
+- **7g** — AI agent suite (AI Bookkeeper, Reconciliation, Treasury Analyst, CFO, Tax + permission modes)
+
+
+## Recently completed (Saved-hours KPI + Sprint 7f.1 — Reports + Tax foundation, 2026-02)
+**The categorization-history moat is now visible to operators (purple "X.X hrs saved this week" tile on Bookkeeping Overview), and the Reports module gains its first two modular pieces: a transaction-level GL Detail report and a CoA→tax-form mapping admin.**
+
+### Saved-hours KPI
+- **`api/books_health.php`** — new `ai_assist` envelope: counts `ai_interactions` rows in last 7 days where `outcome IN ('accepted','auto_applied')` AND `feature_class IN ('classification','categorization','autoposting')`. Conservative 30 sec / assist saving math. Cumulative count too.
+- **`BookkeepingOverview.jsx`** — purple Sparkles card with hours-saved hero number + "X AI suggestions accepted · Y all-time" detail line + "See AI activity" CTA into the Audit Log filtered to AI source. Renders only when count_7d > 0 so empty tenants don't see noise.
+
+### GL Detail report
+- **`api/gl_detail.php`** — POST `account_id|account_code` + start/end + entity_id + include_unposted. Server computes opening balance from JE lines posting_date < start (sign-aware via `accounting_accounts.normal_side`), running balance through detail rows, and totals envelope (debit/credit/net/ending). Drill-down ready (every row carries `je_id` + `source_module/source_ref_id`).
+- **`modules/accounting/ui/GLDetail.jsx`** — URL-state-driven (account picker + date range + include-unposted), summary band with 6 stat tiles, table with running balance column + JE-detail link per row.
+- Module-namespaced kebab alias `/api/accounting/gl-detail`.
+
+### Tax mappings (CoA → tax-form-line)
+- **Migration `020_tax_mappings.sql`** — new `accounting_tax_mappings` table, idempotent `CREATE TABLE IF NOT EXISTS`, `UNIQUE (tenant_id, account_id, tax_form_code)` so each account maps to at most one line per form, multi-form via `tax_form_code`.
+- **`api/tax_mappings.php`** — three-verb endpoint (GET/POST/DELETE) with RBAC fork (read = `accounting.coa.view`, write = `accounting.je.create`). Hard-coded TAX_FORMS catalogue (US-1040-SCH-C, US-1120, US-1120-S, US-1065, US-990). Upsert via ON DUPLICATE KEY UPDATE so re-saving a mapping is idempotent. GET also returns `unmapped_accounts` restricted to the revenue/expense family so the UI can render side-by-side mapped/unmapped tables.
+- **`modules/accounting/ui/TaxMappings.jsx`** — Form picker → side-by-side tables (mapped + unmapped). Per-row inline edit (line, label, notes) + Save / Remove. Counts pill in header.
+- Module-namespaced kebab alias `/api/accounting/tax-mappings`.
+- Two new sub-nav tabs in AccountingV1Module + sidebar actions.
+
+### Validation
+- `tests/sprint7f1_gl_detail_and_tax_mappings_smoke.php` — **88 ✓ / 0 fail**: GL Detail (RBAC, GET-only, account requirement, date validation, normal-side opening + running, entity filter, posted-only default, totals envelope), tax_mappings.sql shape (idempotent + UNIQUE + column widths), tax_mappings.php (RBAC fork, form whitelist, ON DUPLICATE upsert, account scope check, unmapped query family filter, DELETE tenant scope), GLDetail + TaxMappings UI testid coverage, AccountingV1Module + App sidebar wiring.
+- `tests/sprint7e1_bookkeeping_overview_smoke.php` — extended to **64 ✓** with 4 new asserts on the `ai_assist` envelope + 4 new testid checks on the saved-hours card.
+- Full PHP suite: **104 files, 0 failures**.
+- Vite rebuilt → `index-DYDkzhNR.js`. `.deploy-version` synced (8 new feature flags + 9 new sentinels; sprint6b bundle-hash assertion bumped).
 
 
 ## Recently completed (Sprint 7e.3 — Inline AI line-account suggest, 2026-02)

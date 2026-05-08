@@ -143,8 +143,16 @@ sentinels:
 - tests/sprint7e_subledger_replay_smoke.php
 - api/line_ai_suggest.php
 - tests/sprint7e3_line_ai_suggest_smoke.php
+- api/gl_detail.php
+- modules/accounting/api/gl_detail.php
+- modules/accounting/ui/GLDetail.jsx
+- modules/accounting/migrations/020_tax_mappings.sql
+- api/tax_mappings.php
+- modules/accounting/api/tax_mappings.php
+- modules/accounting/ui/TaxMappings.jsx
+- tests/sprint7f1_gl_detail_and_tax_mappings_smoke.php
 expected_bundle:
-- spa-assets/index-Cu4EXjqd.js
+- spa-assets/index-DYDkzhNR.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -348,3 +356,10 @@ last_known_features:
 - ui.admin.rule_sandbox.subledger_replay_strip
 - ai.line_account_suggest_endpoint
 - ui.line_item_editor.inline_ai_suggest
+- ui.bookkeeping_overview.saved_hours_kpi_card
+- accounting.books_health.ai_assist_envelope
+- accounting.reports.gl_detail_endpoint
+- accounting.reports.gl_detail_ui
+- accounting.tax.tax_mappings_table
+- accounting.tax.tax_mappings_admin_endpoint
+- accounting.tax.tax_mappings_ui

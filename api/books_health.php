@@ -231,6 +231,41 @@ if ($pdo->query("SHOW TABLES LIKE 'accounting_events'")->fetchColumn()) {
 }
 
 // ──────────────────────────────────────────────────────────────────
+// Saved hours moat — count AI assists accepted in the last 7 days.
+// `ai_interactions` rows whose `feature_class` covers the auto-bookkeeping
+// surfaces (bank-line categorize, line-item suggest, etc.) and where the
+// user accepted (response not rejected). We bucket on a 30-second saving
+// per accepted assist — a deliberately conservative estimate.
+// ──────────────────────────────────────────────────────────────────
+$assist = ['count_7d' => 0, 'minutes_saved' => 0.0, 'hours_saved' => 0.0, 'cumulative_count' => 0];
+try {
+    $aiStmt = $pdo->prepare(
+        "SELECT COUNT(*) AS n
+           FROM ai_interactions
+          WHERE tenant_id = :t
+            AND created_at >= (NOW() - INTERVAL 7 DAY)
+            AND outcome IN ('accepted','auto_applied')
+            AND feature_class IN ('classification','categorization','autoposting')"
+    );
+    $aiStmt->execute(['t' => $tid]);
+    $n7 = (int) ($aiStmt->fetchColumn() ?: 0);
+
+    $aiCum = $pdo->prepare(
+        "SELECT COUNT(*) FROM ai_interactions
+          WHERE tenant_id = :t
+            AND outcome IN ('accepted','auto_applied')
+            AND feature_class IN ('classification','categorization','autoposting')"
+    );
+    $aiCum->execute(['t' => $tid]);
+    $cum = (int) ($aiCum->fetchColumn() ?: 0);
+
+    $assist['count_7d']        = $n7;
+    $assist['minutes_saved']   = round($n7 * 0.5, 1);     // 30s/assist
+    $assist['hours_saved']     = round($n7 * 0.5 / 60, 2);
+    $assist['cumulative_count']= $cum;
+} catch (\Throwable $_) { /* table absent on pre-AI tenants — fine */ }
+
+// ──────────────────────────────────────────────────────────────────
 // Health score
 // ──────────────────────────────────────────────────────────────────
 $score = 100;
@@ -261,6 +296,7 @@ api_ok([
     'reconciliation'   => $recon,
     'uncategorized'    => $uncat,
     'tasks'            => $tasks,
+    'ai_assist'        => $assist,
     'pl_monthly'       => array_values($plByMonth),
     'recent_events'    => $recent,
     'health_score'     => $score,

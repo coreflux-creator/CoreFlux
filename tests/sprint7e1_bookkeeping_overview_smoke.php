@@ -34,6 +34,14 @@ $assert('returns tasks envelope',                strpos($api, "'tasks'") !== fal
 $assert('returns 6-month pl_monthly array',      strpos($api, "'pl_monthly'") !== false
                                                && strpos($api, "for (\$i = 5; \$i >= 0; \$i--)") !== false);
 $assert('returns recent_events',                 strpos($api, "'recent_events'") !== false);
+$assert('returns ai_assist envelope',            strpos($api, "'ai_assist'") !== false);
+$assert('ai_assist counts last 7d outcomes accepted',
+    strpos($api, "outcome IN ('accepted','auto_applied')") !== false
+    && strpos($api, "INTERVAL 7 DAY") !== false);
+$assert('ai_assist hours_saved math (n × 30s)',
+    strpos($api, '$n7 * 0.5 / 60') !== false);
+$assert('ai_assist graceful when ai_interactions absent',
+    strpos($api, "/* table absent on pre-AI tenants — fine */") !== false);
 $assert('graceful when accounting_events absent',
     strpos($api, "SHOW TABLES LIKE 'accounting_events'") !== false);
 $assert('graceful when accounting_reconciliations absent',
@@ -78,6 +86,7 @@ $ids = [
     'tasks-card', 'banks-card', 'banks-active', 'last-reconciled',
     'period-card', 'period-status',
     'connect-bank', 'connect-bank-cta',
+    'saved-hours-card', 'saved-hours-value', 'saved-hours-detail', 'saved-hours-cta',
 ];
 foreach ($ids as $id) {
     $assert("testid: bookkeeping-overview-{$id}", strpos($jsx, "data-testid=\"bookkeeping-overview-{$id}\"") !== false);

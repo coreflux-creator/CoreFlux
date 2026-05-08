@@ -20,6 +20,8 @@ import DimensionsAdmin from './DimensionsAdmin';
 import PeriodCloseWorkflow from './PeriodCloseWorkflow';
 import BookkeepingOverview from '../../../dashboard/src/pages/BookkeepingOverview';
 import TransactionsToReview from '../../../dashboard/src/pages/TransactionsToReview';
+import GLDetail from './GLDetail';
+import TaxMappings from './TaxMappings';
 
 /**
  * Accounting Module — Phase 0 + 1 + 2 UI
@@ -39,6 +41,8 @@ export default function AccountingModule({ session }) {
         <Tab to="bank-rec"  label="Bank Rec" />
         <Tab to="recurring" label="Recurring JEs" />
         <Tab to="reports"   label="Reports" />
+        <Tab to="gl-detail" label="GL Detail" />
+        <Tab to="tax-mappings" label="Tax mappings" />
         <Tab to="import"    label="Import" />
         <Tab to="intercompany" label="Intercompany" />
         <Tab to="elimination"  label="Elimination" />
@@ -66,6 +70,8 @@ export default function AccountingModule({ session }) {
         <Route path="bank-rec/*" element={<BankReconciliation session={session} />} />
         <Route path="recurring/*" element={<RecurringJournalEntries session={session} />} />
         <Route path="reports"  element={<StandardReports  session={session} />} />
+        <Route path="gl-detail" element={<GLDetail />} />
+        <Route path="tax-mappings" element={<TaxMappings />} />
         <Route path="import"   element={<AccountingImport session={session} />} />
         <Route path="intercompany" element={<IntercompanyMappings session={session} />} />
         <Route path="elimination"  element={<EliminationWorksheet session={session} />} />

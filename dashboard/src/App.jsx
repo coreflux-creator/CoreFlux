@@ -145,6 +145,8 @@ const DEMO_SESSION = {
         { name: 'Financial Reports',    route: 'reports' },
         { name: 'Bookkeeping Overview', route: 'bookkeeping' },
         { name: 'Transactions to Review', route: 'transactions-to-review' },
+        { name: 'GL Detail',            route: 'gl-detail' },
+        { name: 'Tax Mappings',         route: 'tax-mappings' },
         { name: 'Posting Rules',        route: 'posting-rules' },
         { name: 'Rule Sandbox',         route: 'rule-sandbox' },
         { name: 'Accounting Events',    route: 'events' },

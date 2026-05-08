@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useApi } from '../lib/api';
 import {
   Activity, AlertCircle, ArrowRight, BookOpen, Building2,
-  CheckCircle2, FileText, FlaskConical, Receipt, TrendingUp, Wallet,
+  CheckCircle2, FileText, FlaskConical, Receipt, Sparkles, TrendingUp, Wallet,
 } from 'lucide-react';
 
 /**
@@ -102,6 +102,34 @@ export default function BookkeepingOverview() {
               </div>
             )}
           </div>
+
+          {/* Saved-hours KPI — counts AI assists accepted in the last 7 days
+              × 30s/assist (conservative). Displays the categorization-history
+              moat as something the operator can brag about. */}
+          {(data.ai_assist?.count_7d ?? 0) > 0 && (
+            <div data-testid="bookkeeping-overview-saved-hours-card"
+                 style={{ padding: 16, background: '#faf5ff', border: '1px solid #ddd6fe', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: '#ede9fe', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Sparkles size={22} color="#7c3aed" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                  <strong data-testid="bookkeeping-overview-saved-hours-value"
+                          style={{ fontSize: 24, fontWeight: 800, color: '#5b21b6', fontFamily: 'ui-monospace, monospace' }}>
+                    {Number(data.ai_assist.hours_saved ?? 0).toFixed(1)} hrs
+                  </strong>
+                  <span style={{ fontSize: 13, color: '#7c3aed', fontWeight: 600 }}>saved this week</span>
+                </div>
+                <div data-testid="bookkeeping-overview-saved-hours-detail" style={{ fontSize: 12, color: '#6d28d9', marginTop: 2 }}>
+                  {data.ai_assist.count_7d} AI suggestions accepted · {data.ai_assist.cumulative_count} all-time
+                </div>
+              </div>
+              <Link to="/admin/audit-log?source=ai" className="btn btn--ghost"
+                    style={{ fontSize: 11, color: '#5b21b6' }} data-testid="bookkeeping-overview-saved-hours-cta">
+                See AI activity <ArrowRight size={11} style={{ marginLeft: 3, verticalAlign: 'middle' }} />
+              </Link>
+            </div>
+          )}
 
           {/* P&L bar chart */}
           <div data-testid="bookkeeping-overview-pl-chart"
