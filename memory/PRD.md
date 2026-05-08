@@ -470,6 +470,57 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 7c — Treasury core: Payments + Transfers + Cash Position, 2026-02)
+**Stands up the central Treasury models the master spec (§15) requires + the Cash Position report (§28). Both Payments and Transfers route execution through Sprint 7b's posting engine, so every Treasury write becomes a structured event with full audit trace.**
+
+### What shipped
+- **`treasury_payments`** (migration 005) — 8-state machine: `draft → pending_approval → approved → scheduled → executed → failed → voided` (+ rejected). Columns: `payee_type` (vendor/employee/customer/tax_authority/other), `payee_id`, `amount`, `currency`, `payment_date`, `payment_method` (ach/check/wire/card/other), `bank_account_id`, `counterparty_account_id`, `workflow_instance_id`, `journal_entry_id` (set on execute), `accounting_event_id`, `external_ref` (bank rail tx id), `failure_reason`. Hot indexes on (status, date), (entity, status), (bank), (payee_type, payee_id).
+- **`treasury_transfers`** (migration 006) — same lifecycle. `transfer_kind` auto-detected at create time from src/dst bank-account entity IDs (different entities → `intercompany`, else `internal`). Holds both `source_journal_entry_id` and `destination_journal_entry_id` (intercompany only) for the mirror posting trail.
+- **`api/treasury_payments.php`** — full REST: list, create draft, approve, execute, void. Execute emits `treasury.payment.executed` event into the engine which posts the JE; payment row stamped with `journal_entry_id`/`accounting_event_id`/`status=executed`. RBAC-gated: `treasury.create_payment` / `treasury.approve_payment` / `treasury.execute_payment`. Cannot void an `executed` payment (must reverse via JE).
+- **`api/treasury_transfers.php`** — same shape. Internal transfers emit `treasury.transfer.completed`, intercompany emit `treasury.intercompany.transfer.completed`. Posting rule + journal template define the JE shape (1 JE for internal, 2 mirror JEs for intercompany — orchestrated by the engine in 7e once modules fully migrate).
+- **`api/treasury_cash_position.php`** — spec §28 report. Per-bank-account: GL balance (sum debit-credit on linked accounting account through `as_of`, posted JEs only), last reconciled date (graceful if `accounting_reconciliations` table absent), pending outflows (treasury_payments status pending/approved/scheduled within the forecast window), projected balance. Plus per-currency totals. Configurable `forecast_days` (0–60, default 7) and `entity_id` filter.
+
+### Validation
+- `tests/sprint7c_treasury_core_smoke.php` — **48 ✓ / 0 fail**: migration shapes, 8-state lifecycle assertions, RBAC gating, event emission for both kinds, intercompany detection, GL-balance SQL shape, forecast clamp, currency aggregation.
+- Full PHP suite: **96 files, 0 failures**.
+
+### Out of scope (intentional, deferred)
+- **UI screens** for Payments / Transfers list+detail — backend is ready; sidebar items already exist. UI build is part of 7e or a focused mini-sprint.
+- **Real bank-rail execution** (NACHA / Plaid Transfer / wire). Today execute emits the event + posts the JE; the actual money movement is a creds-blocked driver task.
+- **AI Liquidity Forecast** beyond the basic posted-AR/AP walk — that's the AI Treasury Analyst agent in Sprint 7g.
+- **Treasury event-rule seed templates** — tenants must create their own posting rules via `accounting_posting_rules` for now (or use the Rule Sandbox to draft them). Pre-baked seeds ship with 7e.
+
+### Next
+- **Sprint 7d — Spec-compliant URL aliases**: `/api/accounting/journal-entries/:id/post`, `/api/accounting/events`, `/api/treasury/payments`, `/api/treasury/transfers`, `/api/treasury/reports/cash-position` per spec §38. Legacy `/modules/.../api/...` paths kept as back-compat shims.
+
+
+## Recently completed (Sprint 7b — Accounting Events + Posting Rules engine, 2026-02)
+**The architectural keystone of the master spec (§12-13). Modules will stop calling `accountingPostJe()` directly and instead emit events that the engine maps → renders via posting rules + journal templates → posts. Plus the user's requested "rule sandbox" UI to build trust before flipping AP/AR/Payroll/Time over in Sprint 7e.**
+
+### What shipped
+- **4 new migrations** (idempotent):
+  - `015_accounting_events.sql` — central event ledger with `(tenant, source_module, source_record_id, event_type)` unique key for idempotency, JSON payload, `received → mapped → posted → failed → ignored → reversed` lifecycle, FK to `journal_entry_id` once posted.
+  - `016_posting_rules.sql` — `event_type` + optional `entity_id` scope, JSON `conditions` (gt/gte/lt/lte/eq/ne/in operators), `priority`, `status` (active/draft/archived).
+  - `017_journal_templates.sql` (+ `..._lines`) — multi-line balanced JE templates with per-line `account_selector`, `debit_formula`, `credit_formula`, `description_template`, `dimensions_json`. FK cascade delete on lines.
+  - `018_subledger_links.sql` — many-to-many between source records and journal entries (e.g. one bill → primary JE + payment JE + reversal JE).
+- **`core/posting_engine/formula.php`** — sandboxed arithmetic evaluator. Restricted grammar: numeric literals, `+`, `-`, `*`, `/`, `%`, parens, unary minus, dotted payload refs (`payload.x.y`). NO PHP eval, NO callables, NO string concat, NO file/shell. **60/60 ✓ smoke** including 24 malicious-input rejections (PHP tags, system() calls, `||`, `<`, `??`, etc.).
+- **`core/posting_engine/process.php`** — `accountingProcessEvent()` chokepoint. Loads highest-priority matching rule, evaluates conditions, renders the template into a balanced JE, posts via the canonical `accountingPostJe()`, stamps `accounting_events.status=posted` + `journal_entry_id`, writes `accounting_subledger_links`. Idempotent on unique-key collision (returns prior post). Account selector grammar: `system:NAME` / `code:1000` / `id:42` / `payload.account_id`. Includes `dryRun` flag for the sandbox.
+- **`api/accounting_events.php`** — REST surface: `GET ?status=&event_type=&entity_id=&from=&to=`, `POST` to create+process (with `?dry_run=1`), `POST /:id/post` to retry a failed event, `POST ?action=sandbox` for advisory-only preview. RBAC-gated (`accounting.coa.view` / `accounting.create_entry` / `accounting.manage_posting_rules`).
+- **`dashboard/src/pages/RuleSandbox.jsx`** — admin-only UI under `/admin/rule-sandbox`. Paste any event JSON → click "Run dry-run" → see (a) which rule matched, (b) the rendered JE with per-line accounts + amounts + memos, (c) totals balance check, (d) raw response in a collapsible details. Three preloaded samples: bank fee, interest received, AP bill approved. Live JSON parse-error reporting. Sky-blue / red / amber status banners.
+- **Treasury bank-feed slice** — `categorize_and_post` now stamps `accounting_subledger_links` after every successful post (non-fatal if the table doesn't exist yet for pre-7b tenants). Full event-layer reroute is Sprint 7e.
+
+### Validation
+- **3 new smoke files**: `sprint7b_formula_engine_smoke.php` (60 ✓), `sprint7b_event_layer_smoke.php` (59 ✓), `sprint7b_rule_sandbox_smoke.php` (30 ✓). **Total: 149 new assertions, 0 failures**.
+- Full PHP suite: **95 files, 0 failures**.
+- Vite rebuilt → `index-B4c8ZuGd.js`. `.deploy-version` synced (8 new feature flags + new sentinel files).
+
+### Sidebar wiring
+Accounting module sidebar gains three new sub-routes: **Posting Rules · Rule Sandbox · Accounting Events** (placeholders mounted; full CRUD pages in Sprint 7d/7e).
+
+### Next
+- **Sprint 7c — Treasury core**: `treasury_payments` (8-state machine), `treasury_transfers` (internal + intercompany mirrored JEs), Cash Position + basic Liquidity Forecast endpoints + UI.
+
+
 ## Recently completed (Sprint 7a — Foundations: spec §5–7 + §36, 2026-02)
 **Step 1 of the Sprint-7 "Up-to-Spec" PRD (`/app/memory/SPRINT7_PRD.md`). Cleanup-first sprint that lays the schema + RBAC groundwork the event layer (7b), Treasury Payments (7c), and the spec-compliant API surface (7d) all depend on.**
 

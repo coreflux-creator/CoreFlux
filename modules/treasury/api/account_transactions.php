@@ -190,6 +190,22 @@ if (api_method() === 'POST') {
                     WHERE tenant_id = :t AND id = :id")
         ->execute(['t' => $tenantId, 'id' => $lineId, 'je' => $res['je_id']]);
 
+    // Sprint 7b — exercise subledger_links. Full event-layer reroute is
+    // Sprint 7e; this gives us audit-trace on every treasury post today.
+    try {
+        $pdo->prepare(
+            'INSERT IGNORE INTO accounting_subledger_links
+                (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)
+             VALUES (:t, :sm, :sr, :je, "primary")'
+        )->execute([
+            't'  => $tenantId,
+            'sm' => 'treasury_feed',
+            'sr' => ($type === 'deposit' ? 'bank_line:' : 'liab_line:') . $lineId,
+            'je' => (int) $res['je_id'],
+        ]);
+    } catch (\Throwable $_) { /* table absent in pre-7b tenants — non-fatal */ }
+
+
     // Record AI suggestion outcome (accept-as-is vs override) for moat training.
     require_once __DIR__ . '/../../../core/ai_categorization.php';
     $aiSuggestionId = (int) ($body['ai_suggestion_id'] ?? 0) ?: null;
