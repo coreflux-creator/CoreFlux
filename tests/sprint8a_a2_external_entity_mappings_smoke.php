@@ -157,5 +157,37 @@ $assert('upsert rejects unknown direction',
 $assert('mappingMarkStatus rejects unknown status',
     $reject(fn() => mappingMarkStatus(1, 99, 'gibberish')));
 
+echo "\nAPI — api/integrations/mappings.php (read-only)\n";
+$apiPath = "{$ROOT}/api/integrations/mappings.php";
+$api = (string) file_get_contents($apiPath);
+$assert('endpoint exists',                       strlen($api) > 0);
+$assert('parses',                                $lint($apiPath));
+$assert('declares strict_types',                 strpos($api, 'declare(strict_types=1)') !== false);
+$assert('requires api_bootstrap',                strpos($api, "require_once __DIR__ . '/../../core/api_bootstrap.php'") !== false);
+$assert('requires RBAC',                         strpos($api, "require_once __DIR__ . '/../../core/RBAC.php'") !== false);
+$assert('requires entity_mappings library',      strpos($api, "require_once __DIR__ . '/../../core/integrations/entity_mappings.php'") !== false);
+$assert('GET-only',                              strpos($api, "if (api_method() !== 'GET') api_error('Method not allowed', 405)") !== false);
+$assert('RBAC integrations.jobdiva.view',        strpos($api, "RBAC::requirePermission(\$user, 'integrations.jobdiva.view')") !== false);
+$assert('default action list_for_internal',      strpos($api, "(string) (api_query('action') ?? 'list_for_internal')") !== false);
+$assert('action list_for_internal validates entity_type + internal_id',
+    strpos($api, "case 'list_for_internal'") !== false
+    && strpos($api, "if (\$entityType === '') api_error('entity_type required', 422)") !== false
+    && strpos($api, "if (\$internalId <= 0)   api_error('internal_id required', 422)") !== false);
+$assert('action list_for_internal calls mappingListForInternal',
+    strpos($api, 'mappingListForInternal($tid, $entityType, $internalId)') !== false);
+$assert('action find_internal validates all 3 inputs',
+    strpos($api, "case 'find_internal'") !== false
+    && strpos($api, "if (\$source === '')     api_error('source_system required', 422)") !== false
+    && strpos($api, "if (\$externalId === '') api_error('external_id required', 422)") !== false);
+$assert('action find_internal calls mappingFindInternal',
+    strpos($api, 'mappingFindInternal($tid, $source, $entityType, $externalId)') !== false);
+$assert('action find_external validates internal_id',
+    strpos($api, "case 'find_external'") !== false
+    && strpos($api, 'mappingFindExternal($tid, $source, $entityType, $internalId)') !== false);
+$assert('unknown action returns 400',            strpos($api, "api_error('Unknown action: ' . \$action, 400)") !== false);
+$assert('kebab-case action coerced to snake',    strpos($api, "str_replace('-', '_', (string) (api_query('action') ?? 'list_for_internal'))") !== false);
+$assert('coerces row id to int for SPA',         strpos($api, "\$r['id'] = (int) \$r['id']") !== false);
+$assert('tenant-scoped via api_require_auth',    strpos($api, "\$tid  = (int) \$ctx['tenant_id']") !== false);
+
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);
