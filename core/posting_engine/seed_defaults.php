@@ -122,6 +122,49 @@ const POSTING_RULES_DEFAULT_PACK = [
             ],
         ],
     ],
+    // ── Sprint 7e — AP / Billing module event-layer migration ──
+    [
+        'event_type'  => 'ap.bill.approved',
+        'rule_name'   => 'AP bill approved — passthrough',
+        'template'    => [
+            'name'           => 'AP bill approved — passthrough',
+            'memo_template'  => 'AP Bill {payload.internal_ref} / {payload.vendor_name}',
+            'line_source'    => 'payload',
+        ],
+    ],
+    [
+        'event_type'  => 'billing.invoice.sent',
+        'rule_name'   => 'AR invoice sent — passthrough',
+        'template'    => [
+            'name'           => 'AR invoice sent — passthrough',
+            'memo_template'  => 'Invoice {payload.invoice_number} / {payload.client_name}',
+            'line_source'    => 'payload',
+        ],
+    ],
+    [
+        'event_type'  => 'ap.payment.cleared',
+        'rule_name'   => 'AP payment cleared — default',
+        'template'    => [
+            'name'           => 'AP payment cleared — default',
+            'memo_template'  => 'AP payment {payload.payment_number} to {payload.vendor_name}',
+            'lines' => [
+                ['line_no' => 1, 'account_selector' => 'system:Accounts Payable',   'debit_formula'  => 'payload.amount', 'credit_formula' => '0', 'description_template' => 'Pay {payload.vendor_name}'],
+                ['line_no' => 2, 'account_selector' => 'payload.bank_gl_account_id','debit_formula' => '0', 'credit_formula' => 'payload.amount', 'description_template' => 'Bank disbursement'],
+            ],
+        ],
+    ],
+    [
+        'event_type'  => 'billing.payment.received',
+        'rule_name'   => 'AR payment received — default',
+        'template'    => [
+            'name'           => 'AR payment received — default',
+            'memo_template'  => 'Payment received {payload.payment_number} from {payload.client_name}',
+            'lines' => [
+                ['line_no' => 1, 'account_selector' => 'payload.bank_gl_account_id', 'debit_formula'  => 'payload.amount', 'credit_formula' => '0', 'description_template' => 'Bank receipt'],
+                ['line_no' => 2, 'account_selector' => 'system:Accounts Receivable', 'debit_formula' => '0', 'credit_formula' => 'payload.amount', 'description_template' => 'Collect from {payload.client_name}'],
+            ],
+        ],
+    ],
 ];
 
 /**
@@ -146,8 +189,8 @@ function postingRulesSeedDefaults(int $tenantId): array {
 
     $findTpl = $pdo->prepare('SELECT id FROM accounting_journal_templates WHERE tenant_id = :t AND name = :n LIMIT 1');
     $insTpl = $pdo->prepare(
-        'INSERT INTO accounting_journal_templates (tenant_id, name, memo_template, currency_source)
-         VALUES (:t, :n, :m, "payload")'
+        'INSERT INTO accounting_journal_templates (tenant_id, name, memo_template, currency_source, line_source)
+         VALUES (:t, :n, :m, "payload", :ls)'
     );
     $insLine = $pdo->prepare(
         'INSERT INTO accounting_journal_template_lines
@@ -166,27 +209,31 @@ function postingRulesSeedDefaults(int $tenantId): array {
     );
 
     foreach (POSTING_RULES_DEFAULT_PACK as $entry) {
-        $tplName = $entry['template']['name'];
+        $tplName    = $entry['template']['name'];
+        $lineSource = (string) ($entry['template']['line_source'] ?? 'template');
 
         // Template
         $findTpl->execute(['t' => $tenantId, 'n' => $tplName]);
         $tplId = (int) ($findTpl->fetchColumn() ?: 0);
         if (!$tplId) {
             $insTpl->execute([
-                't' => $tenantId,
-                'n' => $tplName,
-                'm' => $entry['template']['memo_template'],
+                't'  => $tenantId,
+                'n'  => $tplName,
+                'm'  => $entry['template']['memo_template'],
+                'ls' => $lineSource,
             ]);
             $tplId = (int) $pdo->lastInsertId();
-            foreach ($entry['template']['lines'] as $l) {
-                $insLine->execute([
-                    't' => $tenantId, 'tpl' => $tplId,
-                    'ln' => (int) $l['line_no'],
-                    'sel' => $l['account_selector'],
-                    'df' => $l['debit_formula']  ?? null,
-                    'cf' => $l['credit_formula'] ?? null,
-                    'desc' => $l['description_template'] ?? null,
-                ]);
+            if ($lineSource === 'template') {
+                foreach ($entry['template']['lines'] ?? [] as $l) {
+                    $insLine->execute([
+                        't' => $tenantId, 'tpl' => $tplId,
+                        'ln' => (int) $l['line_no'],
+                        'sel' => $l['account_selector'],
+                        'df' => $l['debit_formula']  ?? null,
+                        'cf' => $l['credit_formula'] ?? null,
+                        'desc' => $l['description_template'] ?? null,
+                    ]);
+                }
             }
             $templatesInserted++;
         }

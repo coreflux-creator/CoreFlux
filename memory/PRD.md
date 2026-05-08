@@ -502,8 +502,31 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 
 ### Next slice (per user-approved order)
 - **7e.2** ✓ shipped (this fork) — Transactions to Review queue with deep-link from BookkeepingOverview
+- **7e (AP vertical slice)** ✓ shipped (this fork) — `ap.bill.approved` event-layer migration + line_source passthrough + AP/AR seed-pack expansion
 - **7e.3** — Bill creation + invoicing UX polish
-- **7e.4** — Sprint 7e proper (AP/AR/Payroll/Time → event layer)
+- **7e.4** — Billing / Payroll / Time event-layer migrations (follow the AP pattern)
+
+
+## Recently completed (Sprint 7e — AP vertical slice: event-layer bill posting, 2026-02)
+**Architectural keystone — AP bills now post through `accountingProcessEvent('ap.bill.approved', …)` instead of calling `accountingPostJe()` directly. This is the first multi-line module to ride the event layer; the pattern unlocks Billing / Payroll / Time follow-ups.**
+
+### What shipped
+- **Migration `019_journal_template_line_source.sql`** — adds `accounting_journal_templates.line_source ENUM('template','payload') DEFAULT 'template'`. Idempotent via `information_schema` guard. BC-safe: existing seed-pack templates default to `'template'`.
+- **`core/posting_engine/process.php`** — `postingEngineRender()` now branches on `line_source`. `'payload'` mode reads `payload.lines[]` verbatim, resolving accounts via `account_id` (preferred) or `account_code`, validating per-line non-negative + Dr-XOR-Cr, and asserting balance before returning the rendered JE. Fixes the variable-N JE problem (bills/invoices have N expense/revenue lines + 1 control account).
+- **`core/posting_engine/seed_defaults.php`** — pack expanded from 6 to 10 entries:
+  - `ap.bill.approved` → passthrough template (`AP bill approved — passthrough`)
+  - `billing.invoice.sent` → passthrough template (`AR invoice sent — passthrough`)
+  - `ap.payment.cleared` → 2-line template (`Dr Accounts Payable / Cr payload.bank_gl_account_id`)
+  - `billing.payment.received` → 2-line template (`Dr payload.bank_gl_account_id / Cr Accounts Receivable`)
+  - `postingRulesSeedDefaults()` now writes `line_source` on insert and skips line-row creation for passthrough templates.
+- **`modules/ap/api/bills.php?action=post`** — preferred path: emits `ap.bill.approved` event (`source_module='ap'`, `source_record_id='ap_bill:<id>'`, payload carries `lines[]` so passthrough renders correctly). On `status=posted`, stamps `journal_entry_id`, audits with `via=event_layer`. Fallback: when the engine returns `ignored` (no rule seeded for tenant) or throws, the legacy `accountingPostJe()` path runs, writes a `subledger_links` row, flips any `ignored/failed/received/mapped` event row to `posted`, audits with `via=legacy_direct`. Pre-Sprint-7e tenants keep working unchanged.
+- Existing idempotent-replay path (when `bill.journal_entry_id` already set) preserved — short-circuits both branches.
+
+### Validation
+- `tests/sprint7e_ap_event_layer_smoke.php` — **36 ✓ / 0 fail**: migration shape, render-engine passthrough branch (account_id/code resolution, negative-amount + mixed Dr+Cr rejection, balance check, JE-shape parity), pack entries (4 new event types + AP bill template marked passthrough), seed loop handles passthrough vs template, AP bills route emits the event, preferred-path success stamping, fallback path with subledger_links + event-status flip + dual audit kinds.
+- `tests/accounting_spec_smoke.php` — restored `$acct` intermediate so the legacy contract assertion passes alongside the new event flow.
+- All upstream Treasury / event-layer smokes still green (sprint7c1 = 38, sprint7b_event_layer = 59, sprint7c2_7d_aliases = 45).
+- Full PHP suite: **101 files, 0 failures** (added 1 new file, 0 regressions).
 
 
 ## Recently completed (Sprint 7e.2 — Transactions to Review queue + deep-link, 2026-02)

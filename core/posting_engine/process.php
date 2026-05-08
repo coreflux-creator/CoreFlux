@@ -260,6 +260,55 @@ function postingEngineRender(\PDO $pdo, int $tenantId, int $templateId, array $c
     $tpl = $tplStmt->fetch(\PDO::FETCH_ASSOC);
     if (!$tpl) throw new \RuntimeException("template {$templateId} not found");
 
+    // Sprint 7e — passthrough line source. Variable-shape JEs (bills with
+    // N expense lines, invoices with N revenue lines) emit their lines on
+    // the event payload as `payload.lines[]`; the engine forwards them
+    // verbatim instead of materialising a fixed-N template. The emitter is
+    // responsible for balance.
+    $lineSource = (string) ($tpl['line_source'] ?? 'template');
+    if ($lineSource === 'payload') {
+        $payloadLines = $context['payload']['lines'] ?? null;
+        if (!is_array($payloadLines) || count($payloadLines) < 2) {
+            throw new \RuntimeException("template {$templateId} is line_source=payload but event has no payload.lines[]");
+        }
+        $lines = [];
+        $td = 0.0; $tc = 0.0;
+        foreach ($payloadLines as $i => $pl) {
+            if (!is_array($pl)) throw new \RuntimeException("payload.lines[{$i}] not an object");
+            // Resolve account: prefer account_id, fall back to account_code.
+            if (!empty($pl['account_id'])) {
+                $accountId = (int) $pl['account_id'];
+            } elseif (!empty($pl['account_code'])) {
+                $accountId = postingEngineLookupAccountByCode($pdo, $tenantId, (string) $pl['account_code']);
+            } else {
+                throw new \RuntimeException("payload.lines[{$i}] needs account_id or account_code");
+            }
+            $debit  = (float) ($pl['debit']  ?? 0);
+            $credit = (float) ($pl['credit'] ?? 0);
+            if ($debit  < 0 || $credit < 0)                  throw new \RuntimeException("payload.lines[{$i}] negative amount");
+            if ($debit  > 0 && $credit > 0)                  throw new \RuntimeException("payload.lines[{$i}] cannot have both debit and credit");
+            $td += $debit; $tc += $credit;
+            $lines[] = [
+                'account_id'  => $accountId,
+                'debit'       => round($debit, 2),
+                'credit'      => round($credit, 2),
+                'description' => isset($pl['description']) ? (string) $pl['description'] : (isset($pl['memo']) ? (string) $pl['memo'] : null),
+                'dimensions'  => isset($pl['dimensions']) && is_array($pl['dimensions']) ? $pl['dimensions'] : null,
+            ];
+        }
+        if (round($td, 2) !== round($tc, 2)) {
+            throw new \RuntimeException("payload.lines unbalanced (debit={$td}, credit={$tc})");
+        }
+        $memo = $tpl['memo_template'] ? formulaInterpolate((string) $tpl['memo_template'], $context) : null;
+        return [
+            'entity_id'    => (int) $context['event']['entity_id'],
+            'posting_date' => $eventDate,
+            'currency'     => (string) ($context['payload']['currency'] ?? 'USD'),
+            'memo'         => $memo,
+            'lines'        => $lines,
+        ];
+    }
+
     $linesStmt = $pdo->prepare(
         'SELECT * FROM accounting_journal_template_lines
           WHERE tenant_id = :t AND journal_template_id = :id

@@ -134,6 +134,8 @@ sentinels:
 - modules/accounting/api/transactions_to_review.php
 - dashboard/src/pages/TransactionsToReview.jsx
 - tests/sprint7e2_transactions_to_review_smoke.php
+- modules/accounting/migrations/019_journal_template_line_source.sql
+- tests/sprint7e_ap_event_layer_smoke.php
 expected_bundle:
 - spa-assets/index-C7kdOlow.js
 - spa-assets/index-Cwhpy62y.css
@@ -325,3 +327,10 @@ last_known_features:
 - ui.accounting.transactions_to_review_page
 - ui.accounting.transactions_to_review.deep_link_autoload
 - ui.accounting.bookkeeping_overview.tx_review_deep_link_wired
+- accounting.posting_engine.line_source_passthrough
+- accounting.posting_rules.default_pack.ap_bill_approved
+- accounting.posting_rules.default_pack.billing_invoice_sent
+- accounting.posting_rules.default_pack.ap_payment_cleared
+- accounting.posting_rules.default_pack.billing_payment_received
+- ap.bills.post.event_layer_preferred
+- ap.bills.post.legacy_direct_fallback

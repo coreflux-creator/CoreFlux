@@ -566,31 +566,87 @@ if ($method === 'POST' && $action === 'post') {
     }
 
     require_once __DIR__ . '/../../accounting/lib/accounting.php';
+    require_once __DIR__ . '/../../../core/posting_engine/process.php';
 
     $pdo = getDB();
     $linesStmt = $pdo->prepare('SELECT * FROM ap_bill_lines WHERE bill_id = :id ORDER BY line_no');
     $linesStmt->execute(['id' => $id]);
     $billLines = $linesStmt->fetchAll(\PDO::FETCH_ASSOC);
 
-    $jeLines = [];
+    // Build the JE shape — N expense lines (debits) + 1 AP credit.
+    $payloadLines = [];
     foreach ($billLines as $bl) {
         $acct = $bl['gl_expense_account_code'] ?? '5000';
-        $jeLines[] = [
+        $payloadLines[] = [
             'account_code' => $acct,
             'debit'        => (float) $bl['total'],
             'credit'       => 0,
-            'memo'         => $bl['description'],
+            'description'  => $bl['description'],
             'counterparty_company_id' => !empty($row['vendor_company_id']) ? (int) $row['vendor_company_id'] : null,
         ];
     }
-    $jeLines[] = [
+    $payloadLines[] = [
         'account_code' => '2000',
         'debit'        => 0,
         'credit'       => (float) $row['total'],
-        'memo'         => "AP " . $row['internal_ref'] . " — " . $row['vendor_name'],
+        'description'  => "AP " . $row['internal_ref'] . " — " . $row['vendor_name'],
         'counterparty_company_id' => !empty($row['vendor_company_id']) ? (int) $row['vendor_company_id'] : null,
     ];
 
+    $jeLines = $payloadLines; // reused if we have to fall back to legacy direct post
+
+    // Sprint 7e — preferred path: emit ap.bill.approved into the event
+    // layer; the engine renders + posts via the seed-pack passthrough
+    // template, writes the accounting_subledger_links row, and stamps
+    // accounting_events.posted_at.  Falls back to the legacy direct post
+    // when no rule matches (so pre-Sprint-7e tenants keep working).
+    $eventResult = null; $eventError = null;
+    try {
+        $eventResult = accountingProcessEvent($tid, [
+            'entity_id'        => !empty($row['entity_id']) ? (int) $row['entity_id'] : 0,
+            'event_type'       => 'ap.bill.approved',
+            'source_module'    => 'ap',
+            'source_record_id' => 'ap_bill:' . $id,
+            'event_date'       => (string) $row['bill_date'],
+            'payload'          => [
+                'bill_id'      => (int) $id,
+                'internal_ref' => (string) $row['internal_ref'],
+                'vendor_name'  => (string) $row['vendor_name'],
+                'vendor_company_id' => !empty($row['vendor_company_id']) ? (int) $row['vendor_company_id'] : null,
+                'amount'       => (float) $row['total'],
+                'currency'     => (string) $row['currency'],
+                'lines'        => $payloadLines,
+            ],
+        ], $user['id'] ?? null);
+    } catch (\Throwable $e) {
+        $eventError = $e->getMessage();
+    }
+
+    if ($eventResult && ($eventResult['status'] ?? null) === 'posted') {
+        $pdo->prepare('UPDATE ap_bills SET journal_entry_id = :j WHERE id = :id')
+            ->execute(['j' => $eventResult['journal_entry_id'], 'id' => $id]);
+        apAudit('ap.bill.posted', [
+            'bill_id' => $id, 'internal_ref' => $row['internal_ref'],
+            'journal_entry_id' => (int) $eventResult['journal_entry_id'],
+            'accounting_event_id' => (int) ($eventResult['event_id'] ?? 0),
+            'idempotent_replay' => !empty($eventResult['idempotent_replay']),
+            'via' => 'event_layer',
+        ], $id);
+        api_ok([
+            'ok' => true,
+            'journal_entry_id' => (int) $eventResult['journal_entry_id'],
+            'je_number' => $eventResult['je_number'] ?? null,
+            'idempotent_replay' => !empty($eventResult['idempotent_replay']),
+            'accounting_event_id' => (int) ($eventResult['event_id'] ?? 0),
+            'via' => 'event_layer',
+        ]);
+    }
+
+    // ── Fallback path: legacy direct posting ────────────────────────
+    // Triggered when (a) the engine returned 'ignored' (no rule matched
+    // for this tenant — they haven't seeded yet), or (b) it threw before
+    // resolving a rule.  Either way, we still post the JE and mark the
+    // event row so the audit trail isn't lost.
     try {
         $res = accountingPostJe($tid, [
             'posting_date'    => $row['bill_date'],
@@ -603,18 +659,49 @@ if ($method === 'POST' && $action === 'post') {
             'lines'           => $jeLines,
         ], $user['id'] ?? null, true);
     } catch (\Throwable $e) {
-        api_error('GL post failed: ' . $e->getMessage(), 422);
+        api_error('GL post failed: ' . $e->getMessage()
+                . ($eventError ? ' | event-layer error: ' . $eventError : ''), 422);
     }
 
     $pdo->prepare('UPDATE ap_bills SET journal_entry_id = :j WHERE id = :id')
         ->execute(['j' => $res['je_id'], 'id' => $id]);
 
+    // Sprint 7e fallback also writes a subledger_links row + flips any
+    // 'ignored' event to 'posted' so the audit trail is intact.
+    try {
+        $pdo->prepare(
+            'INSERT IGNORE INTO accounting_subledger_links
+                (tenant_id, source_module, source_record_id, journal_entry_id, link_kind)
+             VALUES (:t, "ap", :sr, :je, "primary")'
+        )->execute([
+            't'  => $tid,
+            'sr' => 'ap_bill:' . $id,
+            'je' => (int) $res['je_id'],
+        ]);
+        if ($eventResult && !empty($eventResult['event_id'])) {
+            $pdo->prepare(
+                'UPDATE accounting_events
+                    SET status = "posted", journal_entry_id = :je, posted_at = NOW(),
+                        error_message = "fallback: legacy direct post (no rule matched)"
+                  WHERE id = :id AND status IN ("ignored","failed","received","mapped")'
+            )->execute(['je' => (int) $res['je_id'], 'id' => (int) $eventResult['event_id']]);
+        }
+    } catch (\Throwable $_) { /* tables absent in pre-7b tenants — non-fatal */ }
+
     apAudit('ap.bill.posted', [
         'bill_id' => $id, 'internal_ref' => $row['internal_ref'],
         'journal_entry_id' => $res['je_id'], 'je_number' => $res['je_number'],
         'idempotent_replay' => $res['idempotent_replay'],
+        'via' => 'legacy_direct',
+        'event_layer_status' => $eventResult['status'] ?? null,
     ], $id);
-    api_ok(['ok' => true, 'journal_entry_id' => $res['je_id'], 'je_number' => $res['je_number'], 'idempotent_replay' => $res['idempotent_replay']]);
+    api_ok([
+        'ok' => true,
+        'journal_entry_id' => $res['je_id'],
+        'je_number' => $res['je_number'],
+        'idempotent_replay' => $res['idempotent_replay'],
+        'via' => 'legacy_direct',
+    ]);
 }
 
 // =======================================================================
