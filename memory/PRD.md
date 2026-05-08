@@ -470,6 +470,31 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 7a — Foundations: spec §5–7 + §36, 2026-02)
+**Step 1 of the Sprint-7 "Up-to-Spec" PRD (`/app/memory/SPRINT7_PRD.md`). Cleanup-first sprint that lays the schema + RBAC groundwork the event layer (7b), Treasury Payments (7c), and the spec-compliant API surface (7d) all depend on.**
+
+### What shipped
+- **Migration 011** — `accounting_periods.status` enum extended to include `locked`; new audit columns `closed_at`, `closed_by_user_id`, `locked_at`, `locked_by_user_id`. Idempotent via `information_schema` guards.
+- **Migration 012** — `accounting_accounts` extended:
+  - `account_type` enum gains `contra_revenue`, `cost_of_goods_sold`, `other_income`, `other_expense`.
+  - New columns `is_system_account` (TINYINT), `subtype` (VARCHAR), `tax_mapping_id` (BIGINT — populated in 7f), `statement_section`, `sort_order`.
+- **Migration 013** — `accounting_entities` gains `accounting_basis` (`cash`/`accrual`/`modified_cash`), `fiscal_year_start_month`, `entity_type`.
+- **Migration 014** — `accounting_journal_entries.soft_close_override_reason` (TEXT NULL) for the spec §6 audit trail when posting into a soft-closed period.
+- **New** `core/accounting/system_accounts.php` — defines the 17 spec-required system accounts (Cash, Clearing, Receivable, AP, Payroll Liability, Sales Tax Payable, Retained Earnings, Opening Balance Equity, Suspense, Uncategorized Income, Uncategorized Expense, Rounding Gain/Loss, Intercompany Receivable, Intercompany Payable, Bank Fees Expense, Interest Income, Interest Expense). Exposes `accountingSeedSystemAccounts(tenantId)` and `accountingSystemAccountId(tenantId, name)` lookup helpers. Idempotent — re-stamps `is_system_account=1` on pre-existing rows without overwriting tenant customisations.
+- **`modules/accounting/api/periods.php`** — new `lock` action (period status: `closed → locked`). Requires `accounting.period.lock` permission + reason. Reopen path now also accepts `locked` but only when the actor is `master_admin` per spec §6.
+- **`core/rbac_config.php`** — admin role gains `treasury.*`, `ai.view_recommendations`, `ai.approve_actions`, `ai.configure_agents` but explicitly NOT `ai.enable_auto_execute`. Manager role gains `treasury.view`, `accounting.coa.view`, `ai.view_recommendations` (read-only AI per spec §35).
+
+### Validation
+- **3 new smokes**: `tests/sprint7a_period_states_smoke.php` (16 ✓), `tests/sprint7a_system_accounts_smoke.php` (41 ✓), `tests/sprint7a_permissions_smoke.php` (55 ✓). **Total: 112 new assertions, 0 failures**.
+- 2 legacy smokes adjusted to reflect intentional spec-aligned changes (`accounting_phase1_smoke.php` reopen status whitelist, `rbac_smoke.php` manager grants `accounting.coa.view`).
+- Full PHP suite: **92 smoke files, 0 failures**.
+
+### Next up
+- **Sprint 7b** — Accounting Events + Posting Rules engine (`accounting_events`, `posting_rules`, `journal_templates`, `subledger_links`, sandboxed formula evaluator, `accountingProcessEvent()` chokepoint, treasury-bank-feed vertical-slice migration).
+- **Sprint 7c** — Treasury Payments + Transfers + Cash Position + basic Liquidity Forecast.
+- **Sprint 7d** — Spec-compliant `/api/accounting/*` and `/api/treasury/*` URL aliases per spec §38.
+
+
 ## Recently completed (Sprint 6k — Two production bug fixes from mobile screenshots, 2026-02)
 **User reported via 4 mobile screenshots: (1) corefluxapp.com unreachable on phone (transient — not a code issue), (2) PlacementCreate failed with `Column 'status' cannot be null` (SQLSTATE 23000), (3) Treasury Bank Feed AI cat button → "AI suggestion failed: line_id required".**
 
@@ -488,6 +513,7 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - "Can't open this page" / corefluxapp.com unreachable on iPhone Chrome — transient connectivity issue (5G, captive portal, or Cloudways outage). No code change made; user should retry, restart Chrome, or check Cloudways status if it persists.
 
 
+## Recently completed (Sprint 6j — PlacementCreate Bundle C: full SPEC §3 form, 2026-02)
 **User reported the create-placement form felt incomplete: button greyed out without explanation, unclear which fields were required, missing planned commercial fields, and no first-class workflow for "internal" hires (their own admin / recruiter / accountant employees).** This sprint closes the gap so the user can drive the people → placement → time → bill/pay loop end-to-end.
 
 ### What shipped
@@ -510,6 +536,7 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - MSA / COI / W-9 / chain-contract uploads — already supported on PlacementDetail with the StorageService presigned-POST flow. Adding multi-file pre-upload to the create form would require either juggling staged uploads before the placement_id exists, or pre-creating a draft placement just for storage_key namespacing — neither is worth the complexity vs the 1-second post-create document upload that already works.
 
 
+## Recently completed (Sprint 6i — Audit-log Anomaly Spotter, 2026-02)
 **Direct continuation of Sprint 6h. Adds the AI feature the user OK'd: an "anomaly spotter" banner on the audit-log viewer that surfaces spikes, off-hours actions, and mass-export sessions through the existing `aiAsk()` chokepoint.**
 
 ### What shipped

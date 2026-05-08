@@ -55,7 +55,8 @@ $assert("can people.timeoff.manage", RBAC::hasPermission($mgr, 'people.timeoff.m
 $assert("can payroll.runs.view",    RBAC::hasPermission($mgr, 'payroll.runs.view'));
 $assert("CANNOT people.banking.view", !RBAC::hasPermission($mgr, 'people.banking.view'));
 $assert("CANNOT payroll.runs.approve", !RBAC::hasPermission($mgr, 'payroll.runs.approve'));
-$assert("CANNOT accounting.coa.view",  !RBAC::hasPermission($mgr, 'accounting.coa.view'));
+$assert("CAN accounting.coa.view (Sprint 7a — needed for treasury+close visibility)",
+    RBAC::hasPermission($mgr, 'accounting.coa.view'));
 
 // ---------------------------------------------------------------------------
 echo "\nemployee (very limited)\n";

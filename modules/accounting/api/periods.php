@@ -5,12 +5,14 @@
  *   GET    /api/accounting/periods?entity_id=N&from=YYYY-MM-DD&to=YYYY-MM-DD
  *   POST   /api/accounting/periods?action=soft_close&id=N
  *   POST   /api/accounting/periods?action=close&id=N
+ *   POST   /api/accounting/periods?action=lock&id=N         body: {reason}
  *   POST   /api/accounting/periods?action=reopen&id=N      body: {reason}
  *
- * Lifecycle per SPEC:
- *   open → soft_closed (draftable + reportable, no posting) → closed
- *                                                             ↓
- *                                                          reopened (audit-required)
+ * Lifecycle per SPEC §6:
+ *   open → soft_closed (reportable, draftable, no posting) → closed → locked
+ *                                                             ↓        ↓
+ *                                                           reopen    reopen
+ *                                                                  (master_admin only)
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
@@ -38,8 +40,10 @@ if ($method === 'GET') {
     api_ok(['rows' => $rows]);
 }
 
-if ($method === 'POST' && in_array($action, ['soft_close','close','reopen'], true)) {
-    $perm = $action === 'reopen' ? 'accounting.period.reopen' : 'accounting.period.close';
+if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen'], true)) {
+    $perm = $action === 'reopen' ? 'accounting.period.reopen'
+          : ($action === 'lock'  ? 'accounting.period.lock'
+          : 'accounting.period.close');
     RBAC::requirePermission($user, $perm);
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
@@ -74,10 +78,28 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','reopen'], tru
         )->execute(['ts' => $now, 'u' => $user['id'] ?? null, 'id' => $id]);
         accountingAudit('accounting.period.closed', ['period_id' => $id, 'period_number' => (int) $row['period_number']], $id);
     }
+    if ($action === 'lock') {
+        if ($reason === '') api_error('reason required to lock a period', 422);
+        if ($row['status'] !== 'closed') {
+            api_error("Period must be 'closed' before lock; current: {$row['status']}", 409);
+        }
+        $pdo->prepare(
+            'UPDATE accounting_periods
+             SET status = "locked", locked_at = :ts, locked_by_user_id = :u
+             WHERE id = :id'
+        )->execute(['ts' => $now, 'u' => $user['id'] ?? null, 'id' => $id]);
+        accountingAudit('accounting.period.locked', [
+            'period_id' => $id, 'period_number' => (int) $row['period_number'], 'reason' => $reason,
+        ], $id);
+    }
     if ($action === 'reopen') {
         if ($reason === '') api_error('reason required to reopen a closed period', 422);
-        if (!in_array($row['status'], ['closed','soft_closed'], true)) {
+        if (!in_array($row['status'], ['closed','soft_closed','locked'], true)) {
             api_error("Cannot reopen from status {$row['status']}", 409);
+        }
+        // Reopening a locked period requires master_admin per spec §6.
+        if ($row['status'] === 'locked' && ($user['role'] ?? '') !== 'master_admin') {
+            api_error('Only master_admin can reopen a locked period', 403);
         }
         $pdo->prepare(
             'UPDATE accounting_periods

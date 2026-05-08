@@ -41,9 +41,13 @@ return [
     'admin' => [
         'people.*',
         'accounting.*',
+        'treasury.*',
         'finance.*',
         'payroll.*',
         'reporting.*',
+        'ai.view_recommendations',
+        'ai.approve_actions',
+        'ai.configure_agents',
     ],
 
     // ---------------------------------------------------------------------
@@ -56,6 +60,9 @@ return [
         'payroll.view',
         'payroll.runs.view',
         'reporting.view',
+        'treasury.view',
+        'accounting.coa.view',
+        'ai.view_recommendations',
     ],
 
     // ---------------------------------------------------------------------

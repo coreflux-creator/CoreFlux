@@ -86,7 +86,7 @@ $a('close action',                                 strpos($papi, "'close'") !== 
 $a('reopen requires reason',                       strpos($papi, "'reason required to reopen") !== false);
 $a('soft_close from open|reopened',                strpos($papi, "in_array(\$row['status'], ['open','reopened']") !== false);
 $a('close from open|soft_closed|reopened',         strpos($papi, "in_array(\$row['status'], ['open','soft_closed','reopened']") !== false);
-$a('reopen from closed|soft_closed only',          strpos($papi, "in_array(\$row['status'], ['closed','soft_closed']") !== false);
+$a('reopen from closed|soft_closed|locked only',   strpos($papi, "in_array(\$row['status'], ['closed','soft_closed','locked']") !== false);
 $a('audits soft_closed/closed/reopened',           strpos($papi, "'accounting.period.soft_closed'") !== false
                                                     && strpos($papi, "'accounting.period.closed'") !== false
                                                     && strpos($papi, "'accounting.period.reopened'") !== false);
