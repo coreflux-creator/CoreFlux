@@ -217,8 +217,13 @@ sentinels:
 - api/ap_bill_liquidity_impact.php
 - modules/ap/api/bill_liquidity_impact.php
 - tests/p0_ap_bill_liquidity_impact_smoke.php
+- core/treasury/liquidity_projection.php
+- api/treasury_scenario.php
+- modules/treasury/api/scenario.php
+- dashboard/src/pages/TreasuryScenario.jsx
+- tests/p3_treasury_scenario_smoke.php
 expected_bundle:
-- spa-assets/index-BmB7VVkv.js
+- spa-assets/index-BDx-69AV.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -491,3 +496,6 @@ last_known_features:
 - ap.bill.liquidity_impact_inline_projection
 - ap.bill.liquidity_impact_pay_date_picker
 - treasury.liquidity_forecast.simulated_outflow_overlay
+- treasury.scenario.what_if_event_stack
+- treasury.scenario.shared_projection_engine
+- treasury.scenario.dual_baseline_simulated_chart

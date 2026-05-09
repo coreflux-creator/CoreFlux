@@ -5,6 +5,7 @@ import DepositAccounts    from './DepositAccounts';
 import LiabilityAccounts  from './LiabilityAccounts';
 import SavedRules         from './SavedRules';
 import LiquidityForecast  from '../../../dashboard/src/pages/LiquidityForecast';
+import TreasuryScenario   from '../../../dashboard/src/pages/TreasuryScenario';
 
 export default function TreasuryModule({ session }) {
   return (
@@ -18,6 +19,7 @@ export default function TreasuryModule({ session }) {
       >
         <TreasuryTab to="overview"    label="Overview" />
         <TreasuryTab to="forecast"    label="Liquidity Forecast" />
+        <TreasuryTab to="scenario"    label="What-If Scenario" />
         <TreasuryTab to="deposits"    label="Deposit Accounts" />
         <TreasuryTab to="liabilities" label="Liability Accounts" />
         <TreasuryTab to="rules"       label="Saved Rules" />
@@ -26,6 +28,7 @@ export default function TreasuryModule({ session }) {
         <Route index                element={<Navigate to="overview" replace />} />
         <Route path="overview"      element={<TreasuryOverview session={session} />} />
         <Route path="forecast"      element={<LiquidityForecast />} />
+        <Route path="scenario"      element={<TreasuryScenario />} />
         <Route path="deposits/*"    element={<DepositAccounts session={session} />} />
         <Route path="liabilities/*" element={<LiabilityAccounts session={session} />} />
         <Route path="rules"         element={<SavedRules session={session} />} />

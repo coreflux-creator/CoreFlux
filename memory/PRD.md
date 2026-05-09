@@ -470,8 +470,8 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
-## Recently completed (Phase A.0/A.1 + bugfix + P0 AP Liquidity, 2026-02 — current fork)
-**Tax agent split into 4 honest sub-agents, AI Agents promoted to a top-level platform feature, missing placement_client_chain columns migrated, and a new inline AP "what-if" liquidity projection panel on every Bill detail page.**
+## Recently completed (Phase A.0/A.1 + bugfix + P0 AP Liquidity + What-If Scenario, 2026-02 — current fork)
+**Tax agent split into 4 honest sub-agents, AI Agents promoted to a top-level platform feature, missing placement_client_chain columns migrated, inline AP "what-if" liquidity panel on every Bill detail page, AND a brand-new multi-event Scenario Builder so finance leadership can stack hypothetical inflows/outflows and see the combined runway impact in one view.**
 
 ### Bug fix — placement_client_chain missing columns
 - Production hit `Database column 'updated_at' is missing — a migration probably needs to run.` whenever a tenant opened a placement detail page (which calls `placementChain()` in `lib/placements.php`).
@@ -503,8 +503,15 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - `tests/p0_ap_bill_liquidity_impact_smoke.php` — **42 ✓ / 0 fail**: endpoint contract (GET-only, RBAC, validation, defaults, clamps), data-source parity with `liquidity_forecast.php`, baseline/simulated/delta envelope, exclusion of simulated bill from baseline, kebab alias delegation, UI wiring (testids, conditional mount, `min={today}` past-date guard).
 
 ### Validation
-- Full PHP suite: **121 files, 0 failures** (was 118 → +3 new smoke files, zero regressions).
-- Vite rebuilt → `index-BmB7VVkv.js` / `index-Cwhpy62y.css` synced. `.deploy-version`: 5 new sentinels + 6 new feature flags.
+- Full PHP suite: **122 files, 0 failures** (was 118 → +4 new smoke files: tax split, placement chain bugfix, P0 AP liquidity, P3 treasury scenario; zero regressions).
+- Vite rebuilt → `index-BDx-69AV.js` / `index-Cwhpy62y.css` synced. `.deploy-version`: 11 new sentinels + 9 new feature flags.
+
+### Treasury What-If Scenario Builder (enhancement, same release)
+- **Shared projection engine** — `core/treasury/liquidity_projection.php` exports `liquidityBaselineDatasets`, `liquidityBucketDatasets`, `liquidityWalkProjection`. Same SQL + same vendor+amount dedup heuristic + same day-by-day walker the per-bill what-if and the main forecast use. Optional `excludeBillId` parameter so the per-bill caller can exclude its own bill from baseline outflows without forking the math.
+- **Endpoint** `api/treasury_scenario.php` (POST/GET, RBAC `treasury.payment.view`). Body `{days, events: [{kind, amount, date, label}]}`. 50-event cap, kind whitelist (`inflow`|`outflow`), positive-amount + YYYY-MM-DD date guard, dates clamped inside the forecast window. Returns full `{baseline, simulated, delta, guards}` envelope where `delta` includes `lowest_balance_shift`, `lowest_date_shift_days`, `runway_days_lost`, `crosses_zero`, `net_event_impact`, `inflow_total`, `outflow_total`. Module-namespaced kebab alias `modules/treasury/api/scenario.php`.
+- **Page** `dashboard/src/pages/TreasuryScenario.jsx` mounted at `/modules/treasury/scenario`. Auto-runs the baseline on mount so the operator sees their current trajectory immediately. Add-event composer (kind / amount / date with `min={today}` guard / optional label) → list of stacked events with per-row remove → KPI tiles (Starting / Baseline ending / Simulated ending / Lowest-balance shift / Net event impact, color-coded green/red on direction) → red runway-loss banner (with simulated runway days) OR green "✓ stays positive across the X-day horizon" affirmation → dual-bar chart (slate baseline vs purple simulated, red bars when negative). Window selector 30/60/90/180.
+- TreasuryModule — new "What-If Scenario" tab + `/scenario` route alongside the existing Liquidity Forecast.
+- `tests/p3_treasury_scenario_smoke.php` — **61 ✓ / 0 fail**: shared engine surface, endpoint contract (RBAC, POST+GET, validation, 50-event cap, date format + clamp, days clamp), full response envelope, kebab alias, every page testid (composer + per-event row template + summary tiles + chart + runway alert + safe banner + no-banks nudge), routing.
 
 
 ## Recently completed (P2 — Liquidity Forecast + Auto-reversing accruals, 2026-02)
