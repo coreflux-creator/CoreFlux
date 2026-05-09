@@ -21,7 +21,6 @@ import PeriodCloseWorkflow from './PeriodCloseWorkflow';
 import BookkeepingOverview from '../../../dashboard/src/pages/BookkeepingOverview';
 import TransactionsToReview from '../../../dashboard/src/pages/TransactionsToReview';
 import MissingDimensions from '../../../dashboard/src/pages/MissingDimensions';
-import AIAgents from '../../../dashboard/src/pages/AIAgents';
 import GLDetail from './GLDetail';
 import TaxMappings from './TaxMappings';
 import TaxExport from './TaxExport';
@@ -65,7 +64,7 @@ export default function AccountingModule({ session }) {
         <Route path="transactions-to-review" element={<TransactionsToReview />} />
         <Route path="transactions_to_review" element={<Navigate to="../transactions-to-review" replace />} />
         <Route path="missing-dimensions" element={<MissingDimensions />} />
-        <Route path="ai-agents" element={<AIAgents />} />
+        <Route path="ai-agents" element={<Navigate to="/ai-agents" replace />} />
         <Route path="accounts" element={<ChartOfAccounts session={session} />} />
         <Route path="journal"  element={<JournalEntries  session={session} />} />
         <Route path="journal/new"  element={<JournalEntryCreate session={session} />} />

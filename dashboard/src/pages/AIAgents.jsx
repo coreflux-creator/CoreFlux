@@ -1,19 +1,37 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../lib/api';
 import AISuggestion from '../components/AISuggestion';
-import { Sparkles, Bot, Building2, Wallet, BookOpen, FileText, Mail, CalendarClock } from 'lucide-react';
+import { Sparkles, Building2, Wallet, BookOpen, FileText, Mail, CalendarClock,
+         Receipt, Calculator, Coins, Users } from 'lucide-react';
 
 /**
- * AI Agents — Sprint 7g.
- * Five purpose-built advisory agents. Each runs on demand and produces a
- * narrative the operator reviews via the standard <AISuggestion /> control.
+ * AI Agents — Sprint 7g + Phase A.0/A.1.
+ * Eight purpose-built advisory agents grouped by domain. Each runs on demand
+ * and produces a narrative the operator reviews via <AISuggestion />.
+ *
+ * Phase A.1 — the legacy "Tax" agent was split into four honest sub-agents
+ * (tax_mapping, sales_tax, payroll_tax, partner_distributions) so the
+ * narrative aligns with the actual accounting domain instead of conflating
+ * unrelated tax concerns.
  */
 const AGENT_ICONS = {
-  bookkeeper:       BookOpen,
-  reconciliation:   FileText,
-  treasury_analyst: Wallet,
-  cfo:              Building2,
-  tax:              Bot,
+  bookkeeper:            BookOpen,
+  reconciliation:        FileText,
+  treasury_analyst:      Wallet,
+  cfo:                   Building2,
+  tax_mapping:           Receipt,
+  sales_tax:             Calculator,
+  payroll_tax:           Coins,
+  partner_distributions: Users,
+};
+
+const DOMAIN_LABELS = {
+  accounting: 'Accounting',
+  treasury:   'Treasury',
+  tax:        'Tax',
+  payroll:    'Payroll',
+  equity:     'Equity',
+  strategy:   'Strategy',
 };
 
 export default function AIAgents() {
@@ -102,7 +120,7 @@ export default function AIAgents() {
           <strong style={{ fontSize: 14, color: '#5b21b6' }}>Weekly digest</strong>
         </div>
         <p style={{ color: '#64748b', fontSize: 12, margin: '0 0 12px' }}>
-          One email stitching all five agents into a single narrative. Send it to yourself on demand, or schedule a weekly auto-send.
+          One email stitching all eight agents into a single narrative. Send it to yourself on demand, or schedule a weekly auto-send.
         </p>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
@@ -183,6 +201,20 @@ export default function AIAgents() {
                 <div>
                   <strong style={{ fontSize: 14 }}>{agent.label}</strong>
                   <div style={{ fontSize: 12, color: '#64748b' }}>{agent.description}</div>
+                  {Array.isArray(agent.domain) && agent.domain.length > 0 && (
+                    <div data-testid={`ai-agents-domains-${agent.key}`}
+                         style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
+                      {agent.domain.map(d => (
+                        <span key={d}
+                              style={{ fontSize: 10, padding: '2px 6px',
+                                       background: '#f5f3ff', color: '#5b21b6',
+                                       borderRadius: 999, textTransform: 'uppercase',
+                                       letterSpacing: '0.04em', fontWeight: 600 }}>
+                          {DOMAIN_LABELS[d] || d}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 

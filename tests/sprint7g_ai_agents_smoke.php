@@ -41,7 +41,11 @@ $assert('declares strict_types',                  strpos($lib, 'declare(strict_t
 $assert('requires ai_service.php (chokepoint)',   strpos($lib, "require_once __DIR__ . '/ai_service.php'") !== false);
 $assert('AI_AGENTS registry exists',              strpos($lib, 'const AI_AGENTS = [') !== false);
 
-foreach (['bookkeeper','reconciliation','treasury_analyst','cfo','tax'] as $agent) {
+// Phase A.1 — legacy 'tax' agent split into 4 honest sub-agents
+// (tax_mapping, sales_tax, payroll_tax, partner_distributions). We assert
+// the 4 base agents + 4 tax sub-agents = 8 total registry entries.
+foreach (['bookkeeper','reconciliation','treasury_analyst','cfo',
+          'tax_mapping','sales_tax','payroll_tax','partner_distributions'] as $agent) {
     $assert("registry includes '{$agent}'",
         preg_match("/'{$agent}'\\s*=>\\s*\\[/", $lib) === 1);
     $assert("'{$agent}' has feature_class=narrative",
@@ -70,12 +74,13 @@ $assert('passes feature_class + feature_key + system + context to aiAsk',
     && strpos($lib, "'context'       => \$context") !== false);
 
 echo "\nContext builders\n";
-foreach (['Bookkeeper','Reconciliation','Treasury','CFO','Tax'] as $fn) {
+foreach (['Bookkeeper','Reconciliation','Treasury','CFO',
+          'TaxMapping','SalesTax','PayrollTax','PartnerDistributions'] as $fn) {
     $assert("aiAgentContext{$fn} exists",
         strpos($lib, "function aiAgentContext{$fn}(") !== false);
 }
 $assert('all context builders use SHOW TABLES guards (graceful pre-tables)',
-    substr_count($lib, "SHOW TABLES LIKE") >= 5);
+    substr_count($lib, "SHOW TABLES LIKE") >= 8);
 $assert('CFO synthesises bookkeeper + treasury contexts',
     strpos($lib, "'books'    => aiAgentContextBookkeeper(\$tenantId)") !== false
     && strpos($lib, "'treasury' => aiAgentContextTreasury(\$tenantId)") !== false);
@@ -122,10 +127,11 @@ $assert('per-agent result testid template',       strpos($pg, 'data-testid={`ai-
 $assert('renders AISuggestion with envelope + featureKey',
     strpos($pg, '<AISuggestion envelope={runs[agent.key]}') !== false
     && strpos($pg, 'featureKey={agent.feature_key}') !== false);
-$assert('icon map covers all 5 agents',
+$assert('icon map covers all 8 agents',
     substr_count($pg, 'bookkeeper:') + substr_count($pg, 'reconciliation:')
     + substr_count($pg, 'treasury_analyst:') + substr_count($pg, 'cfo:')
-    + substr_count($pg, 'tax:') >= 5);
+    + substr_count($pg, 'tax_mapping:') + substr_count($pg, 'sales_tax:')
+    + substr_count($pg, 'payroll_tax:') + substr_count($pg, 'partner_distributions:') >= 8);
 
 echo "\nBooks-health integrations envelope (Last Sync tile)\n";
 $bh = (string) file_get_contents("{$ROOT}/api/books_health.php");
@@ -154,11 +160,16 @@ $assert('humanises hours_since to "Xh ago"/"Xd ago"',
     strpos($bo, "`\${integ.hours_since}h ago`") !== false
     && strpos($bo, "`\${Math.round(integ.hours_since / 24)}d ago`") !== false);
 
-echo "\nRouting — AccountingModule\n";
+echo "\nRouting — top-level /ai-agents (Phase A.0 promotion)\n";
+$app = (string) file_get_contents("{$ROOT}/dashboard/src/App.jsx");
+$assert('App.jsx imports AIAgents page',          strpos($app, "import AIAgents from './pages/AIAgents'") !== false);
+$assert('App.jsx mounts top-level /ai-agents',    strpos($app, '<Route path="/ai-agents"') !== false);
+
 $am = (string) file_get_contents("{$ROOT}/modules/accounting/ui/AccountingModule.jsx");
-$assert('imports AIAgents page',                  strpos($am, "import AIAgents from '../../../dashboard/src/pages/AIAgents'") !== false);
-$assert('mounts /ai-agents route',                strpos($am, '<Route path="ai-agents" element={<AIAgents />} />') !== false);
-$assert('adds AI Agents sub-nav tab',             strpos($am, '<Tab to="ai-agents" label="AI Agents" />') !== false);
+$assert('AccountingModule keeps legacy /ai-agents redirect alias',
+    strpos($am, '<Route path="ai-agents" element={<Navigate to="/ai-agents" replace />} />') !== false);
+$assert('AccountingModule still exposes "AI Agents" sub-nav tab (now redirects)',
+    strpos($am, '<Tab to="ai-agents" label="AI Agents" />') !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

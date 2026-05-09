@@ -138,7 +138,7 @@ foreach ([
 }
 
 echo "\nVite bundle synced\n";
-$bundleHash = 'index-BoFWgL5t.js';
+$bundleHash = 'index-BmB7VVkv.js';
 $assert('compiled JS in spa-assets',                 is_file("{$ROOT}/spa-assets/{$bundleHash}"));
 $indexHtml = (string) file_get_contents("{$ROOT}/spa-assets/index.html");
 $assert('spa-assets/index.html references new JS',   stripos($indexHtml, $bundleHash) !== false);

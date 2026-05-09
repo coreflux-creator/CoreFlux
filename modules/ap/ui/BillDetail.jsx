@@ -94,6 +94,12 @@ export default function BillDetail() {
         <SummaryBox label="Due"       value={`${Number(bill.amount_due).toFixed(2)}`} highlight />
       </div>
 
+      {/* P0 — Inline liquidity projection. Only shown when the bill still has
+          a balance due so the panel is meaningful. */}
+      {Number(bill.amount_due) > 0 && (
+        <LiquidityImpactPanel billId={id} amountDue={Number(bill.amount_due)} />
+      )}
+
       {bill.po_number && <ThreeWayMatchPanel billId={id} />}
       <BillApprovalThread billId={id} />
 
@@ -153,6 +159,95 @@ function SummaryBox({ label, value, highlight }) {
     </div>
   );
 }
+
+/**
+ * P0 — Inline liquidity projection panel.
+ *
+ * Reads /api/ap_bill_liquidity_impact.php with ?bill_id and a date picker
+ * defaulting to today. Surfaces the projected lowest-balance shift and any
+ * runway loss so the operator can decide whether to pay now or stretch.
+ */
+function LiquidityImpactPanel({ billId, amountDue }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [payDate, setPayDate] = useState(today);
+  const { data, loading, error } = useApi(
+    `/api/ap_bill_liquidity_impact.php?bill_id=${billId}&pay_date=${payDate}`
+  );
+
+  const fmt = (n) => `$${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  return (
+    <div data-testid="ap-bill-liquidity-impact"
+         style={{
+           padding: 14,
+           border: '1px solid #c4b5fd',
+           borderRadius: 10,
+           background: 'linear-gradient(135deg,#f5f3ff,#ecfeff)',
+           marginBottom: 'var(--cf-space-4)',
+         }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <strong style={{ fontSize: 13, color: '#5b21b6' }}>
+          Liquidity impact if paid {payDate === today ? 'today' : `on ${payDate}`}
+        </strong>
+        <label style={{ fontSize: 12, color: '#475569', display: 'flex', gap: 6, alignItems: 'center' }}>
+          Pay date
+          <input
+            type="date"
+            value={payDate}
+            min={today}
+            onChange={(e) => setPayDate(e.target.value || today)}
+            data-testid="ap-bill-liquidity-impact-date"
+            className="input"
+            style={{ fontSize: 12, padding: '2px 6px' }}
+          />
+        </label>
+      </div>
+
+      {loading && <p data-testid="ap-bill-liquidity-impact-loading" style={{ fontSize: 12, color: '#475569', margin: '8px 0 0' }}>Projecting…</p>}
+      {error && <p data-testid="ap-bill-liquidity-impact-error" className="error" style={{ fontSize: 12, margin: '8px 0 0' }}>{error.message}</p>}
+
+      {data?.note && (
+        <p data-testid="ap-bill-liquidity-impact-note" style={{ fontSize: 12, color: '#475569', margin: '8px 0 0' }}>{data.note}</p>
+      )}
+
+      {data?.baseline && data?.simulated && data?.delta && (
+        <>
+          <p style={{ fontSize: 12, color: '#1e293b', margin: '8px 0 6px' }}>
+            Paying <strong>{fmt(data.bill_amount || amountDue)}</strong> on this date shifts your projected lowest balance:
+          </p>
+          <div data-testid="ap-bill-liquidity-impact-shift"
+               style={{ fontSize: 13, fontFamily: 'system-ui', color: '#1e293b' }}>
+            <strong>{fmt(data.baseline.lowest_balance)}</strong>
+            <span style={{ margin: '0 6px', color: '#64748b' }}>→</span>
+            <strong style={{ color: data.delta.lowest_balance_shift < 0 ? '#b91c1c' : '#065f46' }}>
+              {fmt(data.simulated.lowest_balance)}
+            </strong>
+            <span style={{ marginLeft: 8, fontSize: 11, color: '#64748b' }}>
+              ({data.delta.lowest_balance_shift >= 0 ? '+' : ''}{fmt(data.delta.lowest_balance_shift)})
+            </span>
+          </div>
+
+          {data.delta.runway_days_lost > 0 && (
+            <p data-testid="ap-bill-liquidity-impact-runway"
+               style={{ fontSize: 12, color: '#b91c1c', margin: '6px 0 0' }}>
+              ⚠ Runway shortens by <strong>{data.delta.runway_days_lost} day{data.delta.runway_days_lost === 1 ? '' : 's'}</strong>
+              {data.simulated.runway_days_to_zero !== null
+                ? ` — balance projected to cross zero in ${data.simulated.runway_days_to_zero} day${data.simulated.runway_days_to_zero === 1 ? '' : 's'}.`
+                : '.'}
+            </p>
+          )}
+          {data.delta.crosses_zero === false && data.delta.runway_days_lost === 0 && (
+            <p data-testid="ap-bill-liquidity-impact-safe"
+               style={{ fontSize: 12, color: '#065f46', margin: '6px 0 0' }}>
+              ✓ Balance stays positive across the {data.days_horizon}-day horizon.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 
 function LineReceiptCell({ line }) {
   const [state, setState] = useState({ status: 'idle', filename: null, draft: null, error: null });

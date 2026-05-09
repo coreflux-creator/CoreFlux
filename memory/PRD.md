@@ -470,6 +470,43 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Phase A.0/A.1 + bugfix + P0 AP Liquidity, 2026-02 — current fork)
+**Tax agent split into 4 honest sub-agents, AI Agents promoted to a top-level platform feature, missing placement_client_chain columns migrated, and a new inline AP "what-if" liquidity projection panel on every Bill detail page.**
+
+### Bug fix — placement_client_chain missing columns
+- Production hit `Database column 'updated_at' is missing — a migration probably needs to run.` whenever a tenant opened a placement detail page (which calls `placementChain()` in `lib/placements.php`).
+- Root cause: `placementChain()` selects six columns the original `001_init.sql` never created on `placement_client_chain`: `company_id`, `submittal_id`, `vms_job_id`, `portal_credentials_ct`, `kms_key_version`, `updated_at`.
+- Fix: `modules/placements/migrations/004_chain_extensions.sql` — six idempotent `information_schema`-guarded `ADD COLUMN`s + a `idx_pcc_company` reverse-lookup index. utf8mb4_unicode_ci, Cloudways MySQL 5.7+ compatible. Picked up automatically by `deploy/run_migrations.php`.
+- `tests/bugfix_placement_chain_columns_smoke.php` — **19 ✓ / 0 fail**.
+
+### AI Agent Roadmap — Phase A.0 (metadata) + A.1 (Tax split)
+- `core/ai_agents.php` — legacy single `tax` agent **removed** from registry. Replaced with **4 honest sub-agents**:
+  - `tax_mapping` — chart-of-accounts coverage for tax forms (the original narrow scope, now truthfully named).
+  - `sales_tax` — sales/use-tax filing readiness (reads `accounting_accounts` + recent `billing_invoices` with `tax_total > 0`).
+  - `payroll_tax` — federal/state withholding + FICA/FUTA/SUTA accrual cadence (reads matching account names + posted `accounting_journal_lines` in last 30 days).
+  - `partner_distributions` — equity distribution / draw cadence from an income-tax-decision perspective (filters on `account_type='equity'` and `account_name LIKE '%distribution%' / '%draw%'`).
+  - All 4 use `aiAgentBucketCount` / `SHOW TABLES LIKE` guards so they degrade gracefully on tenants without accounting tables.
+- **Phase A.0 metadata** — every entry now declares `domain` (e.g. `['tax']`, `['tax','payroll']`, `['strategy']`) and `modules` tags. `/api/ai_agents.php?action=list` surfaces both fields so the UI can group by business surface instead of one flat 8-card grid.
+- **Top-level route promotion** — `AIAgents` page lifted from `/modules/accounting/ai-agents` to platform-level `/ai-agents` per the user's "AI applies across the platform, not particular modules" requirement. Legacy accounting sub-route kept as a `<Navigate>` redirect alias so existing bookmarks survive.
+- `dashboard/src/pages/AIAgents.jsx` — icon map covers all 8 agents (`Receipt` / `Calculator` / `Coins` / `Users` for the new tax sub-agents). Per-agent card now renders a row of domain chips (`Tax`, `Payroll`, `Equity`, `Treasury`, `Strategy`, `Accounting`).
+- `tests/sprint7gA_tax_split_smoke.php` — **49 ✓ / 0 fail**: legacy `tax` agent gone, 4 new sub-agents present with unique feature_keys, every agent has `domain` + `modules` tags, the four new context builders exist + are SHOW-TABLES-guarded + return only qualitative buckets, API list response surfaces metadata, top-level route mounted, accounting redirect alias preserved.
+
+### P0 — Inline AP Liquidity Projection Tool
+- New endpoint `api/ap_bill_liquidity_impact.php` (GET, RBAC `treasury.payment.view`).
+  - Inputs: `bill_id` (required), `pay_date` (defaults to today, format-validated, clamped to today..forecast-end), `days` (clamped 1..365, default 90).
+  - Reuses **the same data sources** as `liquidity_forecast.php`: cash from posted JEs on `accounting_bank_accounts`, AR from `billing_invoices` in window, outflow union of `treasury_payments` + `ap_bills` with the same vendor+amount dedup heuristic.
+  - **Excludes the simulated bill itself** from the baseline outflow map (otherwise a bill due in window would be double-counted on its own due_date AND on the simulated `pay_date` — math would lie).
+  - Runs the day-by-day projection **twice** (baseline / simulated) using a shared closure, returns a `{baseline, simulated, delta}` envelope with `lowest_balance`, `lowest_balance_date`, `runway_days_to_zero` on each side and `lowest_balance_shift / lowest_date_shift_days / runway_days_lost / crosses_zero` deltas.
+  - Zero-balance bills short-circuit with a `note` field; no projection wasted.
+- Module-namespaced kebab alias `modules/ap/api/bill_liquidity_impact.php`.
+- `modules/ap/ui/BillDetail.jsx` — new `<LiquidityImpactPanel />` rendered between the summary tiles and the Three-way Match panel, **only when `amount_due > 0`**. Date picker with `min={today}`, baseline → simulated currency shift line (red when balance falls), runway-loss warning when applicable, "✓ Balance stays positive across the X-day horizon" affirmation when no impact.
+- `tests/p0_ap_bill_liquidity_impact_smoke.php` — **42 ✓ / 0 fail**: endpoint contract (GET-only, RBAC, validation, defaults, clamps), data-source parity with `liquidity_forecast.php`, baseline/simulated/delta envelope, exclusion of simulated bill from baseline, kebab alias delegation, UI wiring (testids, conditional mount, `min={today}` past-date guard).
+
+### Validation
+- Full PHP suite: **121 files, 0 failures** (was 118 → +3 new smoke files, zero regressions).
+- Vite rebuilt → `index-BmB7VVkv.js` / `index-Cwhpy62y.css` synced. `.deploy-version`: 5 new sentinels + 6 new feature flags.
+
+
 ## Recently completed (P2 — Liquidity Forecast + Auto-reversing accruals, 2026-02)
 **Treasury gets a forward-looking cash projection; accounting gets one-flag-set-and-forget accrual reversal.**
 

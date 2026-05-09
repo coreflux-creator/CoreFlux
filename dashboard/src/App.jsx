@@ -22,6 +22,7 @@ import VendorPortal from './pages/VendorPortal';
 import FinanceModule from './modules/FinanceModule';
 import GenericModule from './modules/GenericModule';
 import WorkflowInbox from './pages/WorkflowInbox';
+import AIAgents from './pages/AIAgents';
 
 // Loading screen
 const LoadingScreen = () => (
@@ -323,6 +324,12 @@ const AppContent = ({ session, usingDemo }) => {
           <Route path="/settings/mail" element={<MailSettingsPage session={session} />} />
           {/* Cross-module approval inbox (Sprint 6b) */}
           <Route path="/inbox" element={<WorkflowInbox session={session} />} />
+
+          {/* AI Agents — Phase A.0 promoted from accounting sub-route to a
+              top-level platform feature. The legacy /modules/accounting/ai-agents
+              path still resolves via the AccountingModule redirect alias for
+              bookmarks. */}
+          <Route path="/ai-agents" element={<AIAgents session={session} />} />
           
           {/* Admin Module */}
           <Route path="/admin/*" element={<AdminModule session={session} />} />

@@ -34,6 +34,11 @@ if ($action === 'list') {
             'description' => $a['description'],
             'kind'        => $a['kind'],
             'feature_key' => $a['feature_key'],
+            // Phase A.0 — domain/modules metadata so the UI can group agents
+            // by business surface (accounting / treasury / tax / strategy /
+            // equity / payroll) instead of leaving them as one flat list.
+            'domain'      => $a['domain']  ?? [],
+            'modules'     => $a['modules'] ?? [],
             'mode'        => $modes[$key] ?? 'advisory',
         ];
     }
