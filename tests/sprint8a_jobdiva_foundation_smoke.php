@@ -104,8 +104,9 @@ $assert('status hides password but exposes username + client_id',
     && strpos($disp, "password_enc") === strpos($disp, "password_enc"));
 $assert('connect runs jobdivaPing immediately',
     strpos($disp, "\$ping = jobdivaPing(\$tid, \$user['id'] ?? null);") !== false);
-$assert('sync emits A1 placeholder audit',
-    strpos($disp, 'Slice A1 placeholder — entity sync arrives in A2') !== false);
+$assert('sync action upgraded to A3 entity sync (placeholder removed)',
+    strpos($disp, 'Slice A1 placeholder — entity sync arrives in A2') === false
+    && strpos($disp, 'jobdivaSyncAll($tid, $user') !== false);
 $assert('disconnect supports POST + DELETE',
     strpos($disp, "in_array(\$method, ['POST', 'DELETE'], true)") !== false);
 $assert('webhook URL helper present',             strpos($disp, 'function jobdivaWebhookUrl') !== false);

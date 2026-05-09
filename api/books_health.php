@@ -172,6 +172,72 @@ $readyStmt->execute($pp);
 $tasks['period_ready_to_close'] = (int) $readyStmt->fetchColumn();
 
 // ──────────────────────────────────────────────────────────────────
+// Missing-dimension detector (Sprint 7f.4)
+// Cheap count + first-3 sample for the BookkeepingOverview yellow CTA.
+// Uses 90-day window for the dashboard tile; the full detail page can
+// span any horizon via the dedicated /api/missing_dimensions endpoint.
+// ──────────────────────────────────────────────────────────────────
+$missingDims = ['count' => 0, 'sample_accounts' => []];
+$hasDimsTbl = $pdo->query("SHOW TABLES LIKE 'accounting_dimensions'")->fetchColumn();
+$hasJlDimsCol = false;
+if ($hasDimsTbl) {
+    $hasJlDimsCol = (bool) $pdo->query(
+        "SELECT COUNT(*) FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'accounting_journal_lines'
+            AND COLUMN_NAME = 'dimension_values'"
+    )->fetchColumn();
+}
+if ($hasDimsTbl && $hasJlDimsCol) {
+    require_once __DIR__ . '/../modules/accounting/lib/dimensions.php';
+    $dimRegistry = accountingDimensionRegistry($tid);
+    if ($dimRegistry) {
+        // Quick scan: posted lines in last 90 days.
+        $mdSince = date('Y-m-d', strtotime('-90 days'));
+        $mdSql = "SELECT jl.account_id, jl.dimension_values, a.account_code, a.account_name
+                    FROM accounting_journal_lines jl
+                    JOIN accounting_journal_entries je ON je.id = jl.journal_entry_id
+                    JOIN accounting_accounts a         ON a.id  = jl.account_id
+                   WHERE jl.tenant_id = :t AND je.status = 'posted'
+                     AND je.posting_date >= :s"
+                . ($entityId ? ' AND je.entity_id = :e' : '');
+        $mdBind = ['t' => $tid, 's' => $mdSince];
+        if ($entityId) $mdBind['e'] = $entityId;
+        $mdStmt = $pdo->prepare($mdSql);
+        $mdStmt->execute($mdBind);
+        $mdByAcct = [];
+        while ($r = $mdStmt->fetch(\PDO::FETCH_ASSOC)) {
+            $accId = (int) $r['account_id'];
+            $rules = accountingAccountDimRules($tid, $accId);
+            $values = [];
+            if (!empty($r['dimension_values'])) {
+                $decoded = json_decode((string) $r['dimension_values'], true);
+                if (is_array($decoded)) $values = $decoded;
+            }
+            $missing = false;
+            foreach ($dimRegistry as $key => $def) {
+                $req = $rules[$key] ?? ($def['required_default'] ? 'required' : 'optional');
+                if ($req !== 'required') continue;
+                $v = $values[$key] ?? null;
+                if ($v === null || $v === '') { $missing = true; break; }
+            }
+            if (!$missing) continue;
+            $missingDims['count']++;
+            if (!isset($mdByAcct[$accId])) {
+                $mdByAcct[$accId] = [
+                    'account_code' => $r['account_code'],
+                    'account_name' => $r['account_name'],
+                    'lines'        => 0,
+                ];
+            }
+            $mdByAcct[$accId]['lines']++;
+        }
+        usort($mdByAcct, static fn($a, $b) => $b['lines'] <=> $a['lines']);
+        $missingDims['sample_accounts'] = array_slice(array_values($mdByAcct), 0, 3);
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────
 // 6-month P&L (revenue / expense / net per month)
 // ──────────────────────────────────────────────────────────────────
 $plStart = date('Y-m-01', strtotime('-5 months'));
@@ -296,6 +362,7 @@ api_ok([
     'reconciliation'   => $recon,
     'uncategorized'    => $uncat,
     'tasks'            => $tasks,
+    'missing_dims'     => $missingDims,
     'ai_assist'        => $assist,
     'pl_monthly'       => array_values($plByMonth),
     'recent_events'    => $recent,

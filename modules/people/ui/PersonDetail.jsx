@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, NavLink, Routes, Route, Navigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import ConnectedSourcesBadge from '../../../dashboard/src/components/ConnectedSourcesBadge';
 
 /**
  * Person Detail — 7 tabs per SPEC §6:
@@ -47,6 +48,9 @@ export default function PersonDetail({ session }) {
             {' · '}
             <span data-testid="person-detail-email">{person.email_primary}</span>
           </p>
+          <div style={{ marginTop: 6 }}>
+            <ConnectedSourcesBadge entityType="person" internalId={person.id} />
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <a

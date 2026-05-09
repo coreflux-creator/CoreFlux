@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/api';
 import {
-  Activity, AlertCircle, ArrowRight, BookOpen, Building2,
+  Activity, AlertCircle, AlertTriangle, ArrowRight, BookOpen, Building2,
   CheckCircle2, FileText, FlaskConical, Receipt, Sparkles, TrendingUp, Wallet,
 } from 'lucide-react';
 
@@ -102,6 +102,38 @@ export default function BookkeepingOverview() {
               </div>
             )}
           </div>
+
+          {/* Missing-dimension alert — Sprint 7f.4. Yellow CTA when posted JE
+              lines are missing required dim values; deep-links to the filtered
+              review page where each row has an "Open JE" jump. */}
+          {(data.missing_dims?.count ?? 0) > 0 && (
+            <div data-testid="bookkeeping-overview-missing-dims-card"
+                 style={{ padding: 14, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>
+                <AlertTriangle size={18} color="#b45309" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+                  <strong data-testid="bookkeeping-overview-missing-dims-count"
+                          style={{ fontSize: 15, color: '#92400e' }}>
+                    {data.missing_dims.count}
+                  </strong>
+                  <span style={{ fontSize: 13, color: '#92400e' }}>posted JE line{data.missing_dims.count === 1 ? '' : 's'} missing a required dimension value</span>
+                </div>
+                {(data.missing_dims.sample_accounts?.length ?? 0) > 0 && (
+                  <div data-testid="bookkeeping-overview-missing-dims-sample"
+                       style={{ fontSize: 12, color: '#78350f', marginTop: 4 }}>
+                    Top offenders: {data.missing_dims.sample_accounts.map(a => `${a.account_code} (${a.lines})`).join(', ')}
+                  </div>
+                )}
+              </div>
+              <Link to="/modules/accounting/missing-dimensions" className="btn"
+                    data-testid="bookkeeping-overview-missing-dims-cta"
+                    style={{ fontSize: 12, background: '#f59e0b', color: '#fff', borderRadius: 8, padding: '6px 12px', whiteSpace: 'nowrap' }}>
+                Review now <ArrowRight size={12} style={{ marginLeft: 3, verticalAlign: 'middle' }} />
+              </Link>
+            </div>
+          )}
 
           {/* Saved-hours KPI — counts AI assists accepted in the last 7 days
               × 30s/assist (conservative). Displays the categorization-history

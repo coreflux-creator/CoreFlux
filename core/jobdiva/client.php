@@ -32,6 +32,79 @@ const JOBDIVA_AUTH_PATH = '/api/jobdiva/authenticate';
 // to avoid racing with our own clock skew.
 const JOBDIVA_TOKEN_SLACK_SEC = 60;
 
+// ---------------------------------------------------------------------
+// Slice A4 — per-entity sync config (source-of-truth + direction picker).
+// ---------------------------------------------------------------------
+const JOBDIVA_SYNC_ENTITIES   = ['company', 'contact', 'placement', 'time'];
+const JOBDIVA_SYNC_SOURCES    = ['jobdiva', 'coreflux'];
+const JOBDIVA_SYNC_DIRECTIONS = ['pull', 'push', 'two_way', 'off'];
+
+// Sane defaults: the 3 ATS-adjacent entities are JobDiva-owned + pulled,
+// time is OFF until the tenant explicitly opts a direction in. CoreFlux
+// is not an ATS, so candidates/applicants/open positions are never listed.
+const JOBDIVA_SYNC_DEFAULTS = [
+    'company'   => ['source' => 'jobdiva',  'direction' => 'pull'],
+    'contact'   => ['source' => 'jobdiva',  'direction' => 'pull'],
+    'placement' => ['source' => 'jobdiva',  'direction' => 'pull'],
+    'time'      => ['source' => 'coreflux', 'direction' => 'off'],
+];
+
+function jobdivaSyncConfigRead(int $tenantId): array
+{
+    $row = jobdivaConnection($tenantId);
+    $stored = [];
+    if ($row && !empty($row['sync_config'])) {
+        $decoded = json_decode((string) $row['sync_config'], true);
+        if (is_array($decoded)) $stored = $decoded;
+    }
+    $merged = [];
+    foreach (JOBDIVA_SYNC_ENTITIES as $ent) {
+        $merged[$ent] = $stored[$ent] ?? JOBDIVA_SYNC_DEFAULTS[$ent];
+    }
+    return $merged;
+}
+
+function jobdivaSyncConfigWrite(int $tenantId, array $config, ?int $userId): array
+{
+    $sanitised = [];
+    foreach (JOBDIVA_SYNC_ENTITIES as $ent) {
+        $entry = $config[$ent] ?? null;
+        if (!is_array($entry)) {
+            // Preserve whatever was there; fall back to default.
+            $sanitised[$ent] = JOBDIVA_SYNC_DEFAULTS[$ent];
+            continue;
+        }
+        $source    = (string) ($entry['source']    ?? 'jobdiva');
+        $direction = (string) ($entry['direction'] ?? 'pull');
+        if (!in_array($source, JOBDIVA_SYNC_SOURCES, true)) {
+            throw new \InvalidArgumentException("invalid source for {$ent}: {$source}");
+        }
+        if (!in_array($direction, JOBDIVA_SYNC_DIRECTIONS, true)) {
+            throw new \InvalidArgumentException("invalid direction for {$ent}: {$direction}");
+        }
+        // Belt-and-braces: when source=coreflux, direction can't be 'pull';
+        // when source=jobdiva, direction can't be 'push' (would push CoreFlux
+        // data into a system that's the source of truth — nonsensical).
+        if ($source === 'coreflux' && $direction === 'pull') {
+            throw new \InvalidArgumentException("incoherent {$ent}: source=coreflux cannot have direction=pull");
+        }
+        if ($source === 'jobdiva' && $direction === 'push') {
+            throw new \InvalidArgumentException("incoherent {$ent}: source=jobdiva cannot have direction=push");
+        }
+        $sanitised[$ent] = ['source' => $source, 'direction' => $direction];
+    }
+
+    getDB()->prepare(
+        'UPDATE jobdiva_connections SET sync_config = :c WHERE tenant_id = :t'
+    )->execute(['c' => json_encode($sanitised), 't' => $tenantId]);
+
+    jobdivaAudit($tenantId, 'sync_config_update', [
+        'actor_user_id' => $userId,
+        'detail'        => ['sync_config' => $sanitised],
+    ]);
+    return $sanitised;
+}
+
 /**
  * @return array|null normalized connection row (encrypted blobs decoded
  *                    back to plaintext only for the password/token, never

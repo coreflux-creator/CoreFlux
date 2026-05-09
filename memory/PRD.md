@@ -470,6 +470,52 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 7f.4 — Missing-dimension alerts, 2026-02)
+**Yellow CTA on Bookkeeping Overview when posted JE lines are missing required dimension values, deep-linked to a dedicated review page where each row jumps to its parent JE — closes the loop on the dimensions framework.**
+
+### What shipped
+- **`api/missing_dimensions.php`** — RBAC-gated GET (`accounting.je.view`). Reads `accounting_dimensions` registry + `accounting_account_dim_rules`, scans posted JE lines in window (1..1825 days, default 90), returns `{count, by_account: [...], rows: [...]}` sorted by missing_count desc. Empty registry → graceful early-return with explanatory note. limit clamped 1..500.
+- **`api/books_health.php` envelope** — adds `missing_dims: {count, sample_accounts}` (top-3 offenders) so the dashboard tile renders in one fetch. Guards on `accounting_dimensions` table existing AND on `accounting_journal_lines.dimension_values` column existing — pre-7f.4 tenants degrade silently.
+- **`/api/accounting/missing-dimensions`** — module-namespaced kebab alias.
+- **`dashboard/src/pages/BookkeepingOverview.jsx`** — yellow `AlertTriangle` CTA card visible only when count > 0; renders count + top-offender accounts inline + "Review now →" amber button deep-linking to the page.
+- **`dashboard/src/pages/MissingDimensions.jsx`** — full review page: by-account aggregate table + per-row table with "Open JE →" deep-link to `/modules/accounting/journal-entries/{id}`. Empty state is green.
+- **AccountingModule routing** — adds `/missing-dimensions` route.
+
+### Validation
+- `tests/sprint7f4_missing_dimensions_smoke.php` — **42 ✓ / 0 fail**: API contract (RBAC, GET-only, days/limit clamps, registry read, posted-only filter, required-only rules, by_account sort), books_health envelope (graceful guards, 90d window, top-3 truncation), kebab alias, BookkeepingOverview yellow CTA wiring (testids + count gate + deep-link + amber palette), MissingDimensions page (empty state + dynamic row testids + Open JE deep-link template + back link), AccountingModule routing.
+
+## Recently completed (Sprint 8a / Slice A4 — Per-entity sync config picker, 2026-02)
+**The tenant decides who owns each entity (JobDiva or CoreFlux) and the sync direction. Time defaults to OFF — the operator must explicitly opt in to either pull from JobDiva or push to it.**
+
+### What shipped
+- **`core/jobdiva/client.php`** — adds `JOBDIVA_SYNC_ENTITIES` (company/contact/placement/time), `JOBDIVA_SYNC_SOURCES` (jobdiva/coreflux), `JOBDIVA_SYNC_DIRECTIONS` (pull/push/two_way/off), `JOBDIVA_SYNC_DEFAULTS` (3 ATS-adjacent entities default to jobdiva+pull, time defaults to coreflux+off).
+- **`jobdivaSyncConfigRead()`** — merges stored config over defaults so missing keys still render in the UI.
+- **`jobdivaSyncConfigWrite()`** — whitelist-validated source + direction; rejects two incoherent combos: `coreflux+pull` and `jobdiva+push`. Writes `sync_config_update` audit row.
+- **API** — new `sync_config_get` (GET, view perm) and `sync_config_set` (POST, manage perm) actions on `api/jobdiva.php`. Status response now embeds `sync_config` so the page renders in one fetch.
+- **`jobdivaSyncAll`** — honors config: when `direction=off` or `source=coreflux`, the entity is skipped without an HTTP call. Returns new `skipped_by_config: [...]` envelope.
+- **JobDivaSettings.jsx picker** — table with 4 entity rows (company/contact/placement/time), per-entity Source dropdown (JobDiva ↔ CoreFlux) + Direction dropdown (Off / Pull / Push / Two-way) gated by source coherence so the user can't pick `coreflux+pull` or `jobdiva+push`. Live-saves on change. Active/No-sync hint per row.
+
+### Validation
+- `tests/sprint8a_a4_sync_config_smoke.php` — **40 ✓ / 0 fail**: constants (entities incl. time, sources, directions, defaults with time=coreflux+off), reader (merges defaults), writer (whitelists + 2 coherence-violation rejections + audit emission), API (status embeds sync_config, 2 new actions, RBAC fork, 422 on bad payload), sync orchestration honors config (jobdivaSyncAll reads it, shouldPull helper, skipped_by_config envelope), UI picker (testids + 4 rows + source-gated direction options + client-side coherence guards + auto-save).
+
+## Recently completed (Sprint 8a / Slice A3 — JobDiva sync drivers + Connected Sources badge, 2026-02)
+**Real entity sync goes live. Three drivers — Companies, Contacts, Placements — pull from JobDiva and bind via the agnostic mapping pipeline. Connected Sources badge on Person/Company detail headers gives operators instant "this record is in sync" confirmation. Per the explicit user requirement: NO candidates, applicants, or open positions.**
+
+### What shipped
+- **`core/jobdiva/sync.php`** — three drivers + orchestrator:
+  - `jobdivaSyncCompanies` — POST `/api/jobdiva/companies`, upserts to `companies` via `companiesUpsertByName()`, tags `client` role, binds via `mappingUpsert(source='jobdiva', type='company')`.
+  - `jobdivaSyncContacts` — resolves the JobDiva company id via `mappingFindInternal` first; if no mapping (the company hasn't been synced yet), the contact is gracefully skipped. Inserts to `company_contacts` (deduped by email per company), default role `other`.
+  - `jobdivaSyncPlacements` — resolves JobDiva employee → CoreFlux person via mapping. **No auto-create of people**: missing person mapping → graceful skip (CoreFlux is not an ATS). Optionally resolves end-client company. Uses `'jd:' . $extId` external_id prefix on `placements`.
+  - `jobdivaSyncAll` — orchestrates all 3, returns `{counts: {company,contact,placement}, total, latency_ms, by_entity, skipped_by_config}`. Bumps `connection.last_sync_at`. Honors A4 sync_config (skip entities flagged off / coreflux-owned).
+  - `jobdivaSyncFetchItems` — tolerates `{data:[…]}`, `{items:[…]}`, plain list responses; supports `items_override` for testing.
+- **API** — `api/jobdiva.php` `sync` action upgraded from A1 placeholder to invoke `jobdivaSyncAll`. Returns full counts/latency/by_entity envelope. 502 on Throwable. Body `{modified_since}` enables incremental delta pulls.
+- **`dashboard/src/components/ConnectedSourcesBadge.jsx`** — small reusable component reading `GET /api/integrations/mappings.php?action=list_for_internal`. Renders a chip per external system with sync_status palette (ok=green, stale=amber, error=red, deleted_in_source=grey). Hidden when zero mappings (silent for tenants without integrations). Includes JobDiva/Bullhorn/Greenhouse label map.
+- **PersonDetail.jsx + DirectoryModule.jsx (Companies)** — drop the badge into both detail-page headers.
+
+### Validation
+- `tests/sprint8a_a3_jobdiva_sync_smoke.php` — **67 ✓ / 0 fail**: drivers (parses, requires lib chain, exports 5 functions, fetch shape covers override + paginated + plain list, companies key-spelling fallbacks + 'client' role tag + mapping bind, contacts company-resolution + email dedupe + 'other' role default, placements person-mapping required + NO auto-create + 'jd:' prefix + status enum mapping + engagement_type='w2' default), orchestration (3 drivers in order, latency math, counts envelope, last_sync_at bump), API wiring (sync invokes jobdivaSyncAll, returns counts/total/latency_ms, modified_since opt, 502 on Throwable, A1 placeholder removed), badge UI (testids, encoding, palette covers all 4 statuses, JobDiva label, hidden on zero mappings, status text when not ok), PersonDetail + DirectoryDetail header wiring.
+
+
 ## Recently completed (Sprint 8a / Slice A2 — Integration-agnostic external entity mappings, 2026-02)
 **Universal mapping pipeline. Any 3rd-party integration (JobDiva today, Bullhorn / Greenhouse tomorrow) can bind an external record id to the matching CoreFlux internal record id WITHOUT mutating core tables. No `jobdiva_company_id` column on `companies`, no `bullhorn_contact_id` on `contacts` — the mapping table owns all of it.**
 

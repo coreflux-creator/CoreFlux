@@ -176,8 +176,16 @@ sentinels:
 - core/integrations/entity_mappings.php
 - api/integrations/mappings.php
 - tests/sprint8a_a2_external_entity_mappings_smoke.php
+- core/jobdiva/sync.php
+- tests/sprint8a_a3_jobdiva_sync_smoke.php
+- dashboard/src/components/ConnectedSourcesBadge.jsx
+- tests/sprint8a_a4_sync_config_smoke.php
+- api/missing_dimensions.php
+- modules/accounting/api/missing_dimensions.php
+- dashboard/src/pages/MissingDimensions.jsx
+- tests/sprint7f4_missing_dimensions_smoke.php
 expected_bundle:
-- spa-assets/index-yWQLlc_U.js
+- spa-assets/index-D3Ild-p3.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -405,3 +413,14 @@ last_known_features:
 - integrations.external_entity_mappings.content_hash_dirty_check
 - integrations.external_entity_mappings.read_only_lookup_api
 - ui.admin.jobdiva_settings.sync_result_card_a3_forward_compat
+- integrations.jobdiva.sync_drivers.companies_contacts_placements
+- integrations.jobdiva.sync.honors_per_entity_config
+- integrations.jobdiva.sync_config.api_get_set
+- ui.admin.jobdiva_settings.per_entity_sync_config_picker
+- ui.connected_sources_badge.cross_source_visibility
+- ui.people.person_detail.connected_sources_badge
+- ui.people.directory_detail.connected_sources_badge
+- accounting.missing_dimensions.detector_endpoint
+- accounting.missing_dimensions.books_health_envelope
+- ui.bookkeeping_overview.missing_dims_yellow_cta
+- ui.accounting.missing_dimensions_review_page

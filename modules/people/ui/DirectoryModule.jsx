@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Routes, Route, NavLink, Navigate, useNavigate, useParams, Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import ConnectedSourcesBadge from '../../../dashboard/src/components/ConnectedSourcesBadge';
 
 /**
  * Directory module — shared engine for Clients and Vendors views.
@@ -296,6 +297,9 @@ function DirectoryDetail({ cfg, mode }) {
         {c.city ? `${c.city}, ${c.state || c.country || ''}` : ''}
         {' · used '}{c.use_count}{' times'}
       </p>
+      <div style={{ margin: '4px 0 8px' }}>
+        <ConnectedSourcesBadge entityType="company" internalId={c.id} />
+      </div>
 
       {/* Cross-link badge: if this record also acts as the OTHER role, show a link to the other directory */}
       {(c.roles || []).some(r => cfg.crossRoles.includes(r)) && (

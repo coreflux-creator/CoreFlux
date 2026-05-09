@@ -96,6 +96,27 @@ export default function JobDivaSettings() {
     finally    { setBusy(b => ({ ...b, disconnect: false })); }
   };
 
+  const onConfigChange = async (entity, field, value) => {
+    const next = { ...(data?.sync_config || {}) };
+    next[entity] = { ...(next[entity] || { source: 'jobdiva', direction: 'pull' }), [field]: value };
+    // Coherence guards mirror the server-side validation so the UI never
+    // submits an invalid combo: source=coreflux ⇒ direction can't be pull;
+    // source=jobdiva ⇒ direction can't be push.
+    if (next[entity].source === 'coreflux' && next[entity].direction === 'pull') {
+      next[entity].direction = 'push';
+    }
+    if (next[entity].source === 'jobdiva' && next[entity].direction === 'push') {
+      next[entity].direction = 'pull';
+    }
+    clear(); setBusy(b => ({ ...b, config: true }));
+    try {
+      await api.post('/api/jobdiva.php?action=sync_config_set', { sync_config: next });
+      setMsg(`Updated ${entity} sync config.`);
+      reload();
+    } catch (e) { setErr(e.message); }
+    finally    { setBusy(b => ({ ...b, config: false })); }
+  };
+
   const copyWebhook = () => {
     if (!data?.webhook_url) return;
     navigator.clipboard?.writeText(data.webhook_url);
@@ -326,6 +347,60 @@ export default function JobDivaSettings() {
           )}
         </div>
       </form>
+
+      {/* Per-entity sync config picker (Slice A4). Tenant decides who owns
+          each entity (JobDiva or CoreFlux) + what direction the sync runs.
+          'time' defaults to OFF — the tenant must explicitly opt in. */}
+      {data?.connected && data?.sync_config && (
+        <div data-testid="jobdiva-settings-sync-config-card"
+             style={{ padding: 16, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}>
+          <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>Per-entity sync configuration</h3>
+          <p style={{ color: '#64748b', fontSize: 12, margin: '0 0 12px' }}>
+            For each entity, choose the source of truth and the direction. <strong>time</strong> defaults to off — JobDiva and CoreFlux should not both own the same timesheet.
+          </p>
+          <table className="data-table" style={{ width: '100%' }} data-testid="jobdiva-settings-sync-config-table">
+            <thead>
+              <tr><th>Entity</th><th>Source of truth</th><th>Direction</th><th></th></tr>
+            </thead>
+            <tbody>
+              {['company','contact','placement','time'].map(entity => {
+                const cfg = data.sync_config[entity] || { source: 'jobdiva', direction: 'pull' };
+                const off = cfg.direction === 'off';
+                return (
+                  <tr key={entity} data-testid={`jobdiva-settings-sync-config-row-${entity}`}>
+                    <td style={{ textTransform: 'capitalize', fontWeight: 600 }}>{entity}</td>
+                    <td>
+                      <select className="input"
+                              value={cfg.source} disabled={busy.config}
+                              onChange={e => onConfigChange(entity, 'source', e.target.value)}
+                              data-testid={`jobdiva-settings-sync-config-source-${entity}`}
+                              style={{ fontSize: 13, padding: '4px 8px' }}>
+                        <option value="jobdiva">JobDiva</option>
+                        <option value="coreflux">CoreFlux</option>
+                      </select>
+                    </td>
+                    <td>
+                      <select className="input"
+                              value={cfg.direction} disabled={busy.config}
+                              onChange={e => onConfigChange(entity, 'direction', e.target.value)}
+                              data-testid={`jobdiva-settings-sync-config-direction-${entity}`}
+                              style={{ fontSize: 13, padding: '4px 8px' }}>
+                        <option value="off">Off</option>
+                        {cfg.source === 'jobdiva' && <option value="pull">Pull (JobDiva → CoreFlux)</option>}
+                        {cfg.source === 'coreflux' && <option value="push">Push (CoreFlux → JobDiva)</option>}
+                        <option value="two_way">Two-way</option>
+                      </select>
+                    </td>
+                    <td style={{ fontSize: 11, color: off ? '#94a3b8' : '#059669' }}>
+                      {off ? 'No sync' : 'Active'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Recent audit + recent webhook events */}
       {data?.recent_audit && (

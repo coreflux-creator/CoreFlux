@@ -21,6 +21,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/jobdiva/client.php';
+require_once __DIR__ . '/../core/jobdiva/sync.php';
 
 $method = api_method();
 $action = (string) (api_query('action') ?? '');
@@ -134,6 +135,7 @@ switch ($action) {
             'last_sync_error'   => $row['last_sync_error'],
             'last_ping_at'      => $row['last_ping_at'],
             'session_token_exp' => $row['session_token_exp'],
+            'sync_config'       => jobdivaSyncConfigRead($tid),
             'webhook_url'       => jobdivaWebhookUrl($tid),
             'recent_audit'      => $auditRows,
             'recent_events'     => $whEvents->fetchAll(\PDO::FETCH_ASSOC) ?: [],
@@ -181,27 +183,58 @@ switch ($action) {
     }
 
     case 'sync': {
-        // Slice A1: manual "sync now" is a no-op that just refreshes the
-        // session token and writes an audit row. Entity sync wiring lands
-        // in A2 (companies + contacts).
+        // Slice A3: pulls Companies, Contacts, Placements via the agnostic
+        // entity-mapping pipeline. NO candidates / applicants / open positions.
         if ($method !== 'POST') api_error('Method not allowed', 405);
         RBAC::requirePermission($user, 'integrations.jobdiva.manage');
         $row = jobdivaConnection($tid);
         if (!$row) api_error('JobDiva is not connected', 404);
-        $ping = jobdivaPing($tid, $user['id'] ?? null);
-        getDB()->prepare(
-            'UPDATE jobdiva_connections SET last_sync_at = NOW() WHERE tenant_id = :t'
-        )->execute(['t' => $tid]);
-        jobdivaAudit($tid, 'sync', [
-            'actor_user_id' => $user['id'] ?? null,
-            'ok'            => $ping['ok'],
-            'detail'        => ['note' => 'Slice A1 placeholder — entity sync arrives in A2'],
-        ]);
+        $body = api_json_body();
+        $opts = [];
+        if (!empty($body['modified_since'])) $opts['modified_since'] = (string) $body['modified_since'];
+        try {
+            $result = jobdivaSyncAll($tid, $user['id'] ?? null, $opts);
+        } catch (\Throwable $e) {
+            jobdivaAudit($tid, 'sync', [
+                'ok' => false, 'actor_user_id' => $user['id'] ?? null,
+                'detail' => ['error' => substr($e->getMessage(), 0, 500)],
+            ]);
+            api_error('Sync failed: ' . $e->getMessage(), 502);
+        }
         api_ok([
-            'ok'   => $ping['ok'],
-            'note' => 'Slice A1 — manual sync is wired but entity pipelines (companies, contacts, placements, time) ship in subsequent slices.',
-            'ping' => $ping,
+            'ok'         => true,
+            'counts'     => $result['counts'],
+            'total'      => $result['total'],
+            'latency_ms' => $result['latency_ms'],
+            'by_entity'  => $result['by_entity'],
         ]);
+    }
+
+    case 'sync_config_get': {
+        // Slice A4: per-entity sync config. Returns the merged config
+        // (stored ∪ defaults) so the UI can render every entity row.
+        if ($method !== 'GET') api_error('Method not allowed', 405);
+        RBAC::requirePermission($user, 'integrations.jobdiva.view');
+        api_ok([
+            'sync_config' => jobdivaSyncConfigRead($tid),
+            'entities'    => JOBDIVA_SYNC_ENTITIES,
+            'sources'     => JOBDIVA_SYNC_SOURCES,
+            'directions'  => JOBDIVA_SYNC_DIRECTIONS,
+        ]);
+    }
+
+    case 'sync_config_set': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        RBAC::requirePermission($user, 'integrations.jobdiva.manage');
+        $body = api_json_body();
+        $config = $body['sync_config'] ?? null;
+        if (!is_array($config)) api_error('sync_config object required', 422);
+        try {
+            $merged = jobdivaSyncConfigWrite($tid, $config, $user['id'] ?? null);
+        } catch (\InvalidArgumentException $e) {
+            api_error($e->getMessage(), 422);
+        }
+        api_ok(['sync_config' => $merged]);
     }
 }
 
