@@ -250,6 +250,40 @@ export default function BookkeepingOverview() {
                      to="/accounting/periods" testId="task-period-close" />
           </div>
 
+          {/* Integration freshness — Sprint 8a follow-on. Trust-at-a-glance:
+              "Last sync · 12 hours ago" per connected source. Hidden when
+              there are no integrations configured. */}
+          {(data.integrations?.length ?? 0) > 0 && (
+            <div data-testid="bookkeeping-overview-integrations-card"
+                 style={{ padding: 18, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}>
+              <strong style={{ fontSize: 14, display: 'block', marginBottom: 10 }}>Integrations</strong>
+              {data.integrations.map(integ => {
+                const stale  = integ.hours_since != null && integ.hours_since > 168; // 7 days
+                const aging  = integ.hours_since != null && integ.hours_since > 24;
+                const color  = stale ? '#dc2626' : aging ? '#d97706' : '#059669';
+                const label  = integ.last_sync_at
+                  ? (integ.hours_since == null ? integ.last_sync_at
+                     : integ.hours_since < 1 ? 'just now'
+                     : integ.hours_since < 24 ? `${integ.hours_since}h ago`
+                     : `${Math.round(integ.hours_since / 24)}d ago`)
+                  : 'never';
+                return (
+                  <div key={integ.source}
+                       data-testid={`bookkeeping-overview-integration-row-${integ.source}`}
+                       style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, padding: '4px 0' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Activity size={12} color={color} />
+                      <strong>{integ.label}</strong>
+                      <span style={{ fontSize: 11, color: '#64748b', textTransform: 'capitalize' }}>· {integ.status}</span>
+                    </span>
+                    <span data-testid={`bookkeeping-overview-integration-last-sync-${integ.source}`}
+                          style={{ fontSize: 12, color, fontFamily: 'ui-monospace, monospace' }}>{label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Bank connections */}
           <div data-testid="bookkeeping-overview-banks-card"
                style={{ padding: 18, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}>

@@ -184,8 +184,12 @@ sentinels:
 - modules/accounting/api/missing_dimensions.php
 - dashboard/src/pages/MissingDimensions.jsx
 - tests/sprint7f4_missing_dimensions_smoke.php
+- core/ai_agents.php
+- api/ai_agents.php
+- dashboard/src/pages/AIAgents.jsx
+- tests/sprint7g_ai_agents_smoke.php
 expected_bundle:
-- spa-assets/index-D3Ild-p3.js
+- spa-assets/index-DHf0BeOb.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -424,3 +428,14 @@ last_known_features:
 - accounting.missing_dimensions.books_health_envelope
 - ui.bookkeeping_overview.missing_dims_yellow_cta
 - ui.accounting.missing_dimensions_review_page
+- accounting.books_health.integrations_envelope
+- ui.bookkeeping_overview.last_sync_tile
+- ai.agents.suite_5_agents
+- ai.agents.bookkeeper
+- ai.agents.reconciliation
+- ai.agents.treasury_analyst
+- ai.agents.cfo
+- ai.agents.tax
+- ai.agents.qualitative_buckets_no_raw_numbers
+- ai.agents.api_dispatcher
+- ui.accounting.ai_agents_page

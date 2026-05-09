@@ -21,6 +21,7 @@ import PeriodCloseWorkflow from './PeriodCloseWorkflow';
 import BookkeepingOverview from '../../../dashboard/src/pages/BookkeepingOverview';
 import TransactionsToReview from '../../../dashboard/src/pages/TransactionsToReview';
 import MissingDimensions from '../../../dashboard/src/pages/MissingDimensions';
+import AIAgents from '../../../dashboard/src/pages/AIAgents';
 import GLDetail from './GLDetail';
 import TaxMappings from './TaxMappings';
 import TaxExport from './TaxExport';
@@ -34,6 +35,7 @@ export default function AccountingModule({ session }) {
     <div data-testid="accounting-module">
       <nav style={{ display: 'flex', gap: 8, borderBottom: '1px solid #e5e7eb', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <Tab to="bookkeeping" label="Bookkeeping" />
+        <Tab to="ai-agents" label="AI Agents" />
         <Tab to="transactions-to-review" label="Tx to Review" />
         <Tab to="accounts" label="Chart of Accounts" />
         <Tab to="journal"  label="Journal Entries" />
@@ -63,6 +65,7 @@ export default function AccountingModule({ session }) {
         <Route path="transactions-to-review" element={<TransactionsToReview />} />
         <Route path="transactions_to_review" element={<Navigate to="../transactions-to-review" replace />} />
         <Route path="missing-dimensions" element={<MissingDimensions />} />
+        <Route path="ai-agents" element={<AIAgents />} />
         <Route path="accounts" element={<ChartOfAccounts session={session} />} />
         <Route path="journal"  element={<JournalEntries  session={session} />} />
         <Route path="journal/new"  element={<JournalEntryCreate session={session} />} />

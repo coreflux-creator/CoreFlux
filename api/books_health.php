@@ -172,6 +172,36 @@ $readyStmt->execute($pp);
 $tasks['period_ready_to_close'] = (int) $readyStmt->fetchColumn();
 
 // ──────────────────────────────────────────────────────────────────
+// Integration freshness — Sprint 8a follow-on. Trust-at-a-glance tile
+// on Bookkeeping Overview shows when JobDiva (and any future integration)
+// last synced. Graceful when the table doesn't exist (pre-8a tenants).
+// ──────────────────────────────────────────────────────────────────
+$integrations = [];
+if ($pdo->query("SHOW TABLES LIKE 'jobdiva_connections'")->fetchColumn()) {
+    $jdStmt = $pdo->prepare(
+        'SELECT status, last_sync_at, last_sync_error
+           FROM jobdiva_connections WHERE tenant_id = :t LIMIT 1'
+    );
+    $jdStmt->execute(['t' => $tid]);
+    $jd = $jdStmt->fetch(\PDO::FETCH_ASSOC);
+    if ($jd) {
+        $hoursSince = null;
+        if (!empty($jd['last_sync_at'])) {
+            $diff = time() - strtotime((string) $jd['last_sync_at']);
+            if ($diff >= 0) $hoursSince = (int) round($diff / 3600);
+        }
+        $integrations[] = [
+            'source'          => 'jobdiva',
+            'label'           => 'JobDiva',
+            'status'          => $jd['status'],
+            'last_sync_at'    => $jd['last_sync_at'],
+            'hours_since'     => $hoursSince,
+            'last_sync_error' => $jd['last_sync_error'],
+        ];
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────
 // Missing-dimension detector (Sprint 7f.4)
 // Cheap count + first-3 sample for the BookkeepingOverview yellow CTA.
 // Uses 90-day window for the dashboard tile; the full detail page can
@@ -362,6 +392,7 @@ api_ok([
     'reconciliation'   => $recon,
     'uncategorized'    => $uncat,
     'tasks'            => $tasks,
+    'integrations'     => $integrations,
     'missing_dims'     => $missingDims,
     'ai_assist'        => $assist,
     'pl_monthly'       => array_values($plByMonth),

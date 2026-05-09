@@ -470,6 +470,37 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 7g — AI agent suite + Last Sync tile, 2026-02)
+**Five purpose-built AI advisory agents (Bookkeeper, Reconciliation, Treasury Analyst, CFO, Tax) plus the integration-freshness tile on Bookkeeping Overview. Every agent is strictly advisory per `AI_INTEGRATION_RULES.md` — they produce qualitative narratives only, never raw numbers, never actions. The chokepoint stays `aiAsk()`.**
+
+### What shipped
+- **`core/ai_agents.php`** — `AI_AGENTS` registry of 5 agents. Each entry: `label`, `description`, `feature_class='narrative'`, unique `feature_key` (e.g. `agent.bookkeeper.health_review`), `kind` (narrative or summary), `system` prompt that explicitly forbids restating raw numbers, and a `context_fn` reference. `aiAgentRun($tid, $key)` → builds qualitative context, hands it to `aiAsk()`, returns the standard envelope (incl. `interaction_id`) for `<AISuggestion />`. Caps `max_output_tokens` at 600.
+- **Qualitative bucket helpers** — `aiAgentBucketCount()` (none/very_few/small/moderate/large/very_large) and `aiAgentBucketDays()` (within_a_week/_month/_three_months/...). Context builders emit ONLY these labels — never raw counts — to prevent the model from laundering specific numbers back into the narrative. Belt-and-braces with the existing `AI_FORBIDDEN_KEYS` enforcement in `aiAsk()`.
+- **5 context builders**, each tenant-scoped + `SHOW TABLES` guarded for graceful degradation:
+  - `aiAgentContextBookkeeper` — posted JE counts (30d) + uncategorized bank lines.
+  - `aiAgentContextReconciliation` — days since last reconciliation + uncategorized.
+  - `aiAgentContextTreasury` — payments/transfers pending + active bank count.
+  - `aiAgentContextCFO` — composite of bookkeeper + treasury (pattern recognition over fresh measurement).
+  - `aiAgentContextTax` — mapped accounts + unmapped revenue/expense accounts.
+- **`api/ai_agents.php`** — single dispatcher: `?action=list` (GET) returns the catalog, `?action=run&agent=<key>` (POST) returns `{agent, envelope}`. RBAC `accounting.je.view`. AIDisabled→503, unknown agent→404, validation→422, runtime→502. Tenant + feature gating happens inside `aiAsk()` (this endpoint never bypasses it).
+- **`dashboard/src/pages/AIAgents.jsx`** — page mounted at `/modules/accounting/ai-agents`. Renders 5 agent cards in a responsive grid. Each card has Run/Re-run button + per-agent error surface + on-success drops the envelope into `<AISuggestion />` for review/edit/accept/reject (the only AI render path per platform rules). Per-agent testids: `ai-agents-card-{key}`, `ai-agents-run-{key}`, `ai-agents-result-{key}`.
+- **AccountingModule wiring** — `<Tab to="ai-agents" label="AI Agents" />` sub-nav + `/ai-agents` route.
+
+### Last Sync tile (Sprint 8a follow-on, same release)
+- **`api/books_health.php` envelope** — adds `integrations: [{source, label, status, last_sync_at, hours_since, last_sync_error}]`. Guards on `jobdiva_connections` table existing — pre-Sprint-8a tenants degrade silently. Forward-compatible with future integrations (Bullhorn/Greenhouse) — just append a row per source.
+- **`BookkeepingOverview.jsx`** — new "Integrations" card in the right column (visible only when ≥1 integration is configured). Per-source row shows status pill + humanised "Xh ago"/"Xd ago" / "just now" / "never" label. Palette: green ≤24h, amber 24h–7d, red >7d. Per-source testids: `bookkeeping-overview-integration-row-{source}`, `bookkeeping-overview-integration-last-sync-{source}`.
+
+### Validation
+- `tests/sprint7g_ai_agents_smoke.php` — **77 ✓ / 0 fail**: registry shape (5 agents, all `narrative`, unique feature_keys, advisory-only language guards), `aiAgentRun` chokepoint usage, all 5 context builders exist + `SHOW TABLES` guarded, runtime bucket helper assertions, API contract (RBAC, GET/POST, error codes, AIDisabled→503), AIAgents.jsx page wiring (testids, AISuggestion delegation, encodeURIComponent), books_health integrations envelope, BookkeepingOverview Last Sync tile (testids + palette + humanised label), routing.
+- Full PHP suite: **113 files, 0 failures**.
+- Vite rebuilt → `index-DHf0BeOb.js` synced. `.deploy-version` updated (4 new sentinels for ai_agents.php / api / page / smoke + 11 new feature flags).
+
+### Sprint 7g — explicit non-goals (future slices)
+- **Per-agent permission modes** (advisory vs auto-apply) — current implementation is advisory-only across the board. The `ai_suggestions` review workflow already exists; future slices can add per-feature `auto_apply_threshold` rules.
+- **Cross-agent "Daily digest"** — single emailed summary stitching all 5 agents' output, deferred until sustained user demand.
+- **Agent scheduling / cron** — agents are on-demand only; daily/weekly auto-runs deferred.
+
+
 ## Recently completed (Sprint 7f.4 — Missing-dimension alerts, 2026-02)
 **Yellow CTA on Bookkeeping Overview when posted JE lines are missing required dimension values, deep-linked to a dedicated review page where each row jumps to its parent JE — closes the loop on the dimensions framework.**
 
