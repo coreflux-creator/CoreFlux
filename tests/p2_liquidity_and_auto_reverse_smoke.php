@@ -114,7 +114,7 @@ $assert('no-banks operator nudge',                 strpos($pg, 'data-testid="liq
 
 echo "\nRouting — TreasuryModule\n";
 $tm = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryModule.jsx");
-$assert('imports LiquidityForecast page',          strpos($tm, "import LiquidityForecast  from '../../../dashboard/src/pages/LiquidityForecast'") !== false);
+$assert('imports LiquidityForecast page',          strpos($tm, "import LiquidityForecast        from '../../../dashboard/src/pages/LiquidityForecast'") !== false);
 $assert('mounts /forecast route',                  strpos($tm, '<Route path="forecast"      element={<LiquidityForecast />} />') !== false);
 $assert('adds Liquidity Forecast nav tab',         strpos($tm, '<TreasuryTab to="forecast"    label="Liquidity Forecast" />') !== false);
 

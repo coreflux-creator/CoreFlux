@@ -555,8 +555,16 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - Existing P0 + P2 smoke tests rewired to assert the engine is called and to verify the SQL fingerprints in the shared library file (still strict — refactor proven by tests).
 
 ### Validation
-- Full PHP suite: **126 files, 0 failures** (was 118 → +8 new smoke files; zero behavioural regressions despite the engine refactor).
-- Vite rebuilt → `index-BC4a7TOd.js` / `index-Cwhpy62y.css` synced. `.deploy-version`: 16 new sentinels + 16 new feature flags.
+- Full PHP suite: **127 files, 0 failures** (was 118 → +9 new smoke files; zero behavioural regressions despite the engine refactor).
+- Vite rebuilt → `index-C-dQBilG.js` / `index-Cwhpy62y.css` synced. `.deploy-version`: 17 new sentinels + 19 new feature flags.
+
+### Compare Scenarios — A/B view (enhancement, same release)
+- **Endpoint** `api/treasury_scenario_compare.php` (POST, RBAC `treasury.payment.view`). Body `{days, scenario_a:{label,events}, scenario_b:{label,events}}`. Validates BOTH scenarios symmetrically (kind whitelist, positive amount, YYYY-MM-DD format, 50-event cap each, label ≤120ch, dates clamped to active forecast window). Reuses the shared `liquidity_projection.php` engine — pulls baseline datasets ONCE then runs the walker three times (baseline + scenario A overlay + scenario B overlay) so the response carries three full daily series the UI can chart with no further round-trips.
+- Returns `{baseline, scenario_a, scenario_b, deltas: {a_vs_baseline, b_vs_baseline, a_vs_b}, guards}`. Each delta envelope matches the single-scenario `delta` shape (`lowest_balance_shift`, `lowest_date_shift_days`, `runway_days_lost`, `crosses_zero`) so UI components can be reused.
+- Module-namespaced kebab alias `modules/treasury/api/scenario_compare.php`.
+- **Page** `dashboard/src/pages/TreasuryScenarioCompare.jsx` mounted at `/modules/treasury/compare`. Two-column picker fed by the saved-preset library (auto-defaults to the two most recently updated presets). Empty-state nudge when fewer than 2 saved presets exist. Self-comparison guarded with an explicit warning. Renders an inline SVG chart with three `<path>` series (baseline slate, A purple, B teal) and a dashed zero baseline. Three pairwise delta cards (A vs baseline, B vs baseline, A vs B). Side-by-side event stacks at the bottom so the operator can see which events each side proposes.
+- TreasuryModule — new "Compare Scenarios" tab + `/compare` route alongside Liquidity Forecast and What-If Scenario.
+- `tests/scenario_compare_smoke.php` — **44 ✓ / 0 fail**: endpoint contract (POST-only, RBAC, validation matrix, 50-event cap per scenario, date clamping, shared engine reuse), three-projection math, full response envelope (three series + three pairwise deltas), kebab alias, every page testid, default-pick-two-presets behaviour, self-comparison block, three-series SVG chart wiring, side-by-side event stacks, routing.
 
 
 ## Recently completed (P2 — Liquidity Forecast + Auto-reversing accruals, 2026-02)
