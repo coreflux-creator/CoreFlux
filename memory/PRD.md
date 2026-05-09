@@ -470,6 +470,37 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (Sprint 7g — Slices 2 + 3 + on-demand digest, 2026-02)
+**Per-agent mode (advisory vs auto_log), on-demand "Email me a digest now" button, and a DOW-scheduled weekly digest with idempotent cron — three follow-on slices shipped together since they share the same data + email plumbing.**
+
+### What shipped
+- **Migration `023_ai_agent_settings.sql`** — two tables, idempotent:
+  - `ai_agent_settings` (per-tenant per-agent `mode` enum: `advisory` | `auto_log`). Mode `auto_apply` deliberately NOT in the enum — none of the current 5 agents emit values the app could apply, and adding the value would prematurely sanction it. Schema-level guard against drift from `AI_INTEGRATION_RULES.md`.
+  - `ai_agent_digest_settings` (one row per tenant: `enabled`, `recipients`, `send_dow` 1..7, `last_sent_at`, `last_send_error`).
+- **`core/ai_agents.php` extensions**:
+  - `aiAgentModeRead/ReadAll/Write` — whitelist-validated, race-safe (`ON DUPLICATE KEY UPDATE`).
+  - `aiAgentRunWithMode($tid, $userId, $key)` — runs the agent and, when mode=auto_log, marks the resulting row in `ai_suggestions` as `accepted` so it flows into the passive insights feed without blocking. Auto-log is best-effort (catch Throwable) — narrative is intact either way.
+  - `aiAgentRunAll`, `aiAgentBuildDigestHtml` (XSS-safe via `htmlspecialchars`/`nl2br` on every label and body), `aiAgentDigestRead/Write/Recipients/Send`.
+  - `aiAgentDigestRecipients` falls back to tenant `master_admin` email — operator never has to configure recipients to get a digest.
+  - `aiAgentDigestSend` uses **`cf_tenant_mail_sender()`** for tenant-aware From/Reply-To (same pipeline as billing emails) and `sendEmail()`. Bumps `last_sent_at` + clears `last_send_error` on success; persists error string on failure for UI surfacing.
+- **API additions** on `api/ai_agents.php`:
+  - `list` upgraded to return `modes` catalog + `digest` config + per-agent `mode` so the page renders in one fetch.
+  - `mode_set` (POST, `ai.config.manage`).
+  - `digest_settings_set` (POST, `ai.config.manage`) — validates each recipient email via `FILTER_VALIDATE_EMAIL`, clamps DOW 1..7.
+  - `digest_send_now` (POST, `ai.config.manage`) — synchronous run-all + email; AIDisabled→503; persists `last_send_error` even on Throwable so the UI can show what went wrong.
+  - `run` upgraded to `aiAgentRunWithMode` so auto_log mode kicks in there too.
+- **`scripts/ai_agents_weekly_digest.php`** — daily cron driver. Fires only for tenants whose `send_dow` matches today's DOW (`date('N')`) AND who haven't been sent within the last 6 days (idempotency belt against duplicate sends from any clock skew). Logs per-tenant ok/fail; `exit($failed > 0 ? 1 : 0)`. Suggested cron line included in the file header.
+- **`AIAgents.jsx` page additions**:
+  - **Digest panel** at top: `Mail`-iconed purple card with "Email me a digest now" primary button + "Auto-send weekly" checkbox + DOW dropdown (Mon..Sun) + recipients input (default placeholder explains master_admin fallback) + last-sent stamp + last-error surface + transient digest-note status.
+  - **Per-agent Mode dropdown** on each agent card (Advisory / Auto-log) with explanation labels.
+  - Wired `reload` from `useApi` hook (matches `lib/api.js`).
+
+### Validation
+- `tests/sprint7g_followons_digest_smoke.php` — **60 ✓ / 0 fail**: migration shape (idempotent, mode enum tight, dow + idempotency columns), library surface (mode helpers race-safe, auto_log best-effort, runAll error capture, digest HTML escaping for XSS, recipient validation, master_admin fallback, tenant-Resend-pipeline use, last-sent bump), API contract (4 new actions, RBAC `ai.config.manage` on writes, AIDisabled→503, error persistence on Throwable), cron contract (DOW gate, 6-day idempotency, exit code), UI contract (every testid, all 7 DOW options, mode options, all 3 endpoints wired, reload binding).
+- Full PHP suite: **114 files, 0 failures**.
+- Vite rebuilt → `index-C3wY_B72.js` synced. `.deploy-version`: 3 new sentinels + 4 new feature flags.
+
+
 ## Recently completed (Sprint 7g — AI agent suite + Last Sync tile, 2026-02)
 **Five purpose-built AI advisory agents (Bookkeeper, Reconciliation, Treasury Analyst, CFO, Tax) plus the integration-freshness tile on Bookkeeping Overview. Every agent is strictly advisory per `AI_INTEGRATION_RULES.md` — they produce qualitative narratives only, never raw numbers, never actions. The chokepoint stays `aiAsk()`.**
 

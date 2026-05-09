@@ -188,8 +188,11 @@ sentinels:
 - api/ai_agents.php
 - dashboard/src/pages/AIAgents.jsx
 - tests/sprint7g_ai_agents_smoke.php
+- core/migrations/023_ai_agent_settings.sql
+- scripts/ai_agents_weekly_digest.php
+- tests/sprint7g_followons_digest_smoke.php
 expected_bundle:
-- spa-assets/index-DHf0BeOb.js
+- spa-assets/index-C3wY_B72.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -439,3 +442,7 @@ last_known_features:
 - ai.agents.qualitative_buckets_no_raw_numbers
 - ai.agents.api_dispatcher
 - ui.accounting.ai_agents_page
+- ai.agents.per_agent_mode_advisory_or_auto_log
+- ai.agents.weekly_digest_email
+- ai.agents.on_demand_digest_button
+- ai.agents.weekly_digest_cron_idempotent

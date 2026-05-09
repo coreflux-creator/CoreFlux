@@ -244,3 +244,259 @@ function aiAgentBucketDays(int $d): string
     if ($d <= 180) return 'three_to_six_months';
     return 'over_six_months';
 }
+
+// =====================================================================
+// Slice 2 — Per-agent mode (advisory | auto_log).
+// =====================================================================
+const AI_AGENT_MODES = ['advisory', 'auto_log'];
+
+function aiAgentModeRead(int $tenantId, string $agentKey): string
+{
+    if (!isset(AI_AGENTS[$agentKey])) return 'advisory';
+    $stmt = getDB()->prepare(
+        'SELECT mode FROM ai_agent_settings
+          WHERE tenant_id = :t AND agent_key = :k LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'k' => $agentKey]);
+    $m = (string) ($stmt->fetchColumn() ?: 'advisory');
+    return in_array($m, AI_AGENT_MODES, true) ? $m : 'advisory';
+}
+
+function aiAgentModeReadAll(int $tenantId): array
+{
+    $modes = [];
+    foreach (array_keys(AI_AGENTS) as $k) $modes[$k] = 'advisory';
+    $stmt = getDB()->prepare('SELECT agent_key, mode FROM ai_agent_settings WHERE tenant_id = :t');
+    $stmt->execute(['t' => $tenantId]);
+    while ($r = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+        $k = (string) $r['agent_key'];
+        if (isset($modes[$k]) && in_array((string) $r['mode'], AI_AGENT_MODES, true)) {
+            $modes[$k] = (string) $r['mode'];
+        }
+    }
+    return $modes;
+}
+
+function aiAgentModeWrite(int $tenantId, string $agentKey, string $mode): void
+{
+    if (!isset(AI_AGENTS[$agentKey])) {
+        throw new \InvalidArgumentException('Unknown agent: ' . $agentKey);
+    }
+    if (!in_array($mode, AI_AGENT_MODES, true)) {
+        throw new \InvalidArgumentException('Invalid mode: ' . $mode);
+    }
+    getDB()->prepare(
+        'INSERT INTO ai_agent_settings (tenant_id, agent_key, mode)
+         VALUES (:t, :k, :m)
+         ON DUPLICATE KEY UPDATE mode = VALUES(mode)'
+    )->execute(['t' => $tenantId, 'k' => $agentKey, 'm' => $mode]);
+}
+
+/**
+ * Run an agent honoring the tenant's per-agent mode. When mode=auto_log,
+ * the resulting suggestion is auto-marked accepted in `ai_suggestions` so it
+ * flows into the passive insights feed without blocking on human review.
+ * The narrative itself is unchanged either way; auto_log only changes the
+ * downstream review state.
+ */
+function aiAgentRunWithMode(int $tenantId, ?int $userId, string $agentKey): array
+{
+    $envelope = aiAgentRun($tenantId, $agentKey);
+    $mode = aiAgentModeRead($tenantId, $agentKey);
+    $envelope['mode'] = $mode;
+    if ($mode === 'auto_log' && !empty($envelope['interaction_id'])) {
+        try {
+            getDB()->prepare(
+                "UPDATE ai_suggestions
+                    SET review_status = 'accepted',
+                        reviewed_at   = NOW(),
+                        reviewed_by   = :u
+                  WHERE tenant_id = :t AND interaction_id = :iid"
+            )->execute([
+                'u'   => $userId,
+                't'   => $tenantId,
+                'iid' => $envelope['interaction_id'],
+            ]);
+            $envelope['auto_logged'] = true;
+        } catch (\Throwable $e) {
+            // Auto-log is best-effort; falling back to advisory display is
+            // still correct — the narrative is intact.
+            $envelope['auto_logged']       = false;
+            $envelope['auto_log_error']    = $e->getMessage();
+        }
+    }
+    return $envelope;
+}
+
+// =====================================================================
+// Slice 3 — Run-all + digest email (on-demand and scheduled).
+// =====================================================================
+
+/** Run every agent in registry order. Returns map keyed by agent. */
+function aiAgentRunAll(int $tenantId, ?int $userId): array
+{
+    $results = [];
+    foreach (array_keys(AI_AGENTS) as $key) {
+        try {
+            $results[$key] = ['ok' => true, 'envelope' => aiAgentRunWithMode($tenantId, $userId, $key)];
+        } catch (\Throwable $e) {
+            $results[$key] = ['ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+    return $results;
+}
+
+/** Build a tenant-safe HTML digest from a run-all result map. */
+function aiAgentBuildDigestHtml(array $runAllResults): array
+{
+    $sections = [];
+    $textParts = [];
+    foreach ($runAllResults as $key => $row) {
+        if (!isset(AI_AGENTS[$key])) continue;
+        $agent = AI_AGENTS[$key];
+        $title = htmlspecialchars($agent['label'], ENT_QUOTES, 'UTF-8');
+        if (!empty($row['ok']) && !empty($row['envelope']['content'])) {
+            $body = (string) $row['envelope']['content'];
+            $sections[] = "<h3 style=\"margin:24px 0 6px;font-family:system-ui;\">{$title}</h3>"
+                       . "<div style=\"font-family:system-ui;line-height:1.55;color:#1e293b;font-size:14px;\">"
+                       . nl2br(htmlspecialchars($body, ENT_QUOTES, 'UTF-8'))
+                       . "</div>";
+            $textParts[] = "## {$agent['label']}\n\n{$body}\n";
+        } else {
+            $err = htmlspecialchars((string) ($row['error'] ?? 'unknown'), ENT_QUOTES, 'UTF-8');
+            $sections[] = "<h3 style=\"margin:24px 0 6px;font-family:system-ui;color:#94a3b8;\">{$title}</h3>"
+                       . "<p style=\"color:#94a3b8;font-family:system-ui;font-size:13px;\">Skipped: {$err}</p>";
+            $textParts[] = "## {$agent['label']}\n\n(skipped: {$err})\n";
+        }
+    }
+    $html = "<div style=\"max-width:640px;margin:auto;padding:20px;\">"
+          . "<h2 style=\"font-family:system-ui;color:#5b21b6;margin:0 0 4px;\">Your weekly AI Agent digest</h2>"
+          . "<p style=\"font-family:system-ui;color:#64748b;font-size:13px;margin:0 0 16px;\">Five advisory perspectives on your books, treasury, and tax position.</p>"
+          . implode('', $sections)
+          . "<hr style=\"margin:24px 0;border:0;border-top:1px solid #e2e8f0;\" />"
+          . "<p style=\"font-family:system-ui;color:#94a3b8;font-size:11px;\">Generated by CoreFlux AI Agents. Reply to this email to reach your tenant administrator.</p>"
+          . "</div>";
+    return ['html' => $html, 'text' => implode("\n---\n", $textParts)];
+}
+
+/** Read tenant digest settings; defaults applied. */
+function aiAgentDigestRead(int $tenantId): array
+{
+    $stmt = getDB()->prepare(
+        'SELECT enabled, recipients, send_dow, last_sent_at, last_send_error
+           FROM ai_agent_digest_settings WHERE tenant_id = :t LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$row) {
+        return [
+            'enabled' => false, 'recipients' => null, 'send_dow' => 1,
+            'last_sent_at' => null, 'last_send_error' => null,
+        ];
+    }
+    return [
+        'enabled'         => (bool) (int) $row['enabled'],
+        'recipients'      => $row['recipients'] ?: null,
+        'send_dow'        => (int) $row['send_dow'],
+        'last_sent_at'    => $row['last_sent_at'],
+        'last_send_error' => $row['last_send_error'],
+    ];
+}
+
+function aiAgentDigestWrite(int $tenantId, array $patch): array
+{
+    $current = aiAgentDigestRead($tenantId);
+    $enabled    = (bool) ($patch['enabled'] ?? $current['enabled']);
+    $recipients = isset($patch['recipients']) ? (string) $patch['recipients'] : ($current['recipients'] ?? '');
+    $recipients = trim($recipients);
+    if ($recipients !== '') {
+        // Validate every comma-separated email.
+        foreach (preg_split('/\s*,\s*/', $recipients) as $email) {
+            if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                throw new \InvalidArgumentException('Invalid recipient: ' . $email);
+            }
+        }
+    }
+    $sendDow = (int) ($patch['send_dow'] ?? $current['send_dow']);
+    if ($sendDow < 1 || $sendDow > 7) {
+        throw new \InvalidArgumentException('send_dow must be 1..7 (Mon..Sun)');
+    }
+    getDB()->prepare(
+        'INSERT INTO ai_agent_digest_settings (tenant_id, enabled, recipients, send_dow)
+         VALUES (:t, :e, :r, :d)
+         ON DUPLICATE KEY UPDATE
+             enabled    = VALUES(enabled),
+             recipients = VALUES(recipients),
+             send_dow   = VALUES(send_dow)'
+    )->execute([
+        't' => $tenantId,
+        'e' => $enabled ? 1 : 0,
+        'r' => $recipients !== '' ? $recipients : null,
+        'd' => $sendDow,
+    ]);
+    return aiAgentDigestRead($tenantId);
+}
+
+function aiAgentDigestRecipients(int $tenantId): array
+{
+    $cfg = aiAgentDigestRead($tenantId);
+    if (!empty($cfg['recipients'])) {
+        $list = array_filter(array_map('trim', preg_split('/\s*,\s*/', (string) $cfg['recipients'])));
+        if ($list) return array_values($list);
+    }
+    // Fallback: tenant master_admin email.
+    $stmt = getDB()->prepare(
+        "SELECT u.email
+           FROM users u
+           JOIN user_tenants ut ON ut.user_id = u.id
+          WHERE ut.tenant_id = :t AND ut.role = 'master_admin'
+          ORDER BY u.id ASC LIMIT 1"
+    );
+    $stmt->execute(['t' => $tenantId]);
+    $email = (string) ($stmt->fetchColumn() ?: '');
+    return $email ? [$email] : [];
+}
+
+/**
+ * Send a digest email RIGHT NOW. Used by both the on-demand button and the
+ * weekly cron. Updates ai_agent_digest_settings.last_sent_at on success.
+ */
+function aiAgentDigestSend(int $tenantId, ?int $userId): array
+{
+    require_once __DIR__ . '/mailer.php';
+    require_once __DIR__ . '/tenant_mail.php';
+
+    $recipients = aiAgentDigestRecipients($tenantId);
+    if (!$recipients) {
+        throw new \RuntimeException('No digest recipients configured and no master_admin email found.');
+    }
+
+    $results = aiAgentRunAll($tenantId, $userId);
+    $rendered = aiAgentBuildDigestHtml($results);
+
+    $sender = cf_tenant_mail_sender($tenantId, 'ai_agents');
+    $resp = sendEmail([
+        'to'         => $recipients,
+        'subject'    => 'Your weekly AI Agent digest',
+        'body_html'  => $rendered['html'],
+        'body_text'  => $rendered['text'],
+        'from_email' => $sender['from']      ?? null,
+        'from_name'  => $sender['from_name'] ?? null,
+        'reply_to'   => $sender['reply_to']  ?? null,
+    ]);
+
+    getDB()->prepare(
+        'INSERT INTO ai_agent_digest_settings (tenant_id, last_sent_at, last_send_error)
+         VALUES (:t, NOW(), NULL)
+         ON DUPLICATE KEY UPDATE last_sent_at = NOW(), last_send_error = NULL'
+    )->execute(['t' => $tenantId]);
+
+    return [
+        'ok'         => true,
+        'recipients' => $recipients,
+        'message_id' => $resp['message_id'] ?? null,
+        'agent_results' => array_map(static function ($r) {
+            return ['ok' => (bool) ($r['ok'] ?? false)];
+        }, $results),
+    ];
+}
