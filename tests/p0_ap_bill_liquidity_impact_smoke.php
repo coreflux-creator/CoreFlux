@@ -57,42 +57,31 @@ $assert('pay_date clamped >= today',             strpos($api, 'if ($payDate < $t
 $assert('pay_date clamped <= forecast end',      strpos($api, 'if ($payDate > $endDate)') !== false);
 $assert('zero-balance bill short-circuits',      strpos($api, "no liquidity impact") !== false);
 
-echo "\nData sources — must match liquidity_forecast.php\n";
-$assert('starting cash from posted JEs on bank-mapped accounts',
-    strpos($api, 'FROM accounting_bank_accounts ba') !== false
-    && strpos($api, "je.status = 'posted'") !== false);
-$assert('AR pulled from billing_invoices in window',
-    strpos($api, 'FROM billing_invoices') !== false
-    && strpos($api, "status IN ('approved','sent','partially_paid')") !== false);
-$assert('treasury_payments union for outflows',
-    strpos($api, 'FROM treasury_payments') !== false);
-$assert('ap_bills union for outflows',
-    strpos($api, 'FROM ap_bills') !== false
-    && strpos($api, "status IN ('approved','partially_paid','pending_approval')") !== false);
-$assert('vendor+amount dedup heuristic between TP and AP',
-    strpos($api, '$tpKeys[strtolower((string) $r[\'payee_name\']) . \'|\' . number_format((float) $r[\'amount\'], 2, \'.\', \'\')]') !== false);
+echo "\nData sources — delegated to shared engine\n";
+$assert('imports core/treasury/liquidity_projection.php',
+    strpos($api, "require_once __DIR__ . '/../core/treasury/liquidity_projection.php'") !== false);
+$assert('calls liquidityBaselineDatasets with excludeBillId',
+    strpos($api, 'liquidityBaselineDatasets($tid, $today, $endDate, null, $billId)') !== false);
+$assert('calls liquidityBucketDatasets',
+    strpos($api, 'liquidityBucketDatasets($datasets)') !== false);
+$assert('comment explains why simulated bill is excluded from baseline',
+    strpos($api, '// Skip the bill we\'re simulating from baseline outflows') !== false);
 
-echo "\nSimulation math\n";
-$assert('excludes the simulated bill from baseline outflows',
-    strpos($api, '// Skip the bill we\'re simulating') !== false
-    && strpos($api, 'if ((int) $r[\'id\'] === $billId) continue') !== false);
-$assert('declares projection closure',           strpos($api, '$project = function (array $extraOutflowsByDate = [])') !== false);
-$assert('projection walks day-by-day',           strpos($api, 'for ($i = 0; $i <= $days; $i++)') !== false);
-$assert('tracks lowest_balance + lowest_balance_date',
-    strpos($api, 'if ($running < $lowest)') !== false);
-$assert('tracks runway_days_to_zero',            strpos($api, 'if ($runwayDay === null && $running < 0)') !== false);
-$assert('runs baseline + simulated',
-    strpos($api, '$baseline  = $project();') !== false
-    && strpos($api, '$simulated = $project([$payDate => $billAmount]);') !== false);
+echo "\nSimulation math — delegated to shared engine\n";
+$assert('runs baseline projection via shared walker',
+    strpos($api, '$baseline  = liquidityWalkProjection(') !== false);
+$assert('runs simulated projection with extra outflow on pay_date',
+    strpos($api, '$simulated = liquidityWalkProjection(') !== false
+    && strpos($api, '[$payDate => $billAmount]') !== false);
 $assert('emits delta envelope (lowest shift, runway lost, crosses_zero)',
     strpos($api, "'lowest_balance_shift'") !== false
     && strpos($api, "'lowest_date_shift_days'") !== false
     && strpos($api, "'runway_days_lost'") !== false
     && strpos($api, "'crosses_zero'") !== false);
 $assert('response includes baseline + simulated + delta keys',
-    strpos($api, "'baseline'") !== false
-    && strpos($api, "'simulated'") !== false
-    && strpos($api, "'delta'") !== false);
+    strpos($api, "'baseline'      => [") !== false
+    && strpos($api, "'simulated'     => [") !== false
+    && strpos($api, "'delta'         => [") !== false);
 
 echo "\nKebab alias — /modules/ap/api/bill_liquidity_impact.php\n";
 $alias = "{$ROOT}/modules/ap/api/bill_liquidity_impact.php";

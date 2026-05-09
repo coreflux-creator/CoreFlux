@@ -225,8 +225,13 @@ sentinels:
 - core/migrations/025_ai_digest_customization.sql
 - tests/sprint7g_a234_digest_customization_smoke.php
 - tests/scenario_presets_smoke.php
+- core/migrations/026_treasury_scenario_presets.sql
+- api/treasury_scenario_presets.php
+- modules/treasury/api/scenario_presets.php
+- tests/saved_scenarios_smoke.php
+- tests/sprint7g_a5_treasury_cfo_split_smoke.php
 expected_bundle:
-- spa-assets/index-DseVsi-A.js
+- spa-assets/index-BC4a7TOd.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -508,3 +513,9 @@ last_known_features:
 - ai.digest.intro_override_per_tenant
 - ai.digest.context_snapshot_table
 - ai.digest.week_over_week_bucket_diff
+- treasury.scenario.saved_presets_per_tenant
+- treasury.scenario.saved_preset_upsert_by_name
+- treasury.scenario.saved_preset_apply_replaces_stack
+- ai.agents.cfo_variance_split
+- ai.agents.treasury_payments_split
+- treasury.refactor.shared_liquidity_engine_for_forecast_and_what_if

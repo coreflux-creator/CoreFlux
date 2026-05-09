@@ -91,7 +91,7 @@ $assert('legacy generic Bot icon for "tax" removed',
 $assert('declares DOMAIN_LABELS map',            strpos($pg, 'const DOMAIN_LABELS = {') !== false);
 $assert('per-agent domain chip testid',          strpos($pg, 'data-testid={`ai-agents-domains-${agent.key}`}') !== false);
 $assert('iterates agent.domain to render chips', strpos($pg, 'agent.domain.map(d =>') !== false);
-$assert('digest copy says "all eight agents"',   strpos($pg, 'all eight agents') !== false);
+$assert('digest copy says "all ten agents"',     strpos($pg, 'all ten agents') !== false);
 
 echo "\nRouting — top-level /ai-agents promotion\n";
 $app = (string) file_get_contents("{$ROOT}/dashboard/src/App.jsx");

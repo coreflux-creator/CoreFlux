@@ -41,10 +41,9 @@ $assert('declares strict_types',                  strpos($lib, 'declare(strict_t
 $assert('requires ai_service.php (chokepoint)',   strpos($lib, "require_once __DIR__ . '/ai_service.php'") !== false);
 $assert('AI_AGENTS registry exists',              strpos($lib, 'const AI_AGENTS = [') !== false);
 
-// Phase A.1 — legacy 'tax' agent split into 4 honest sub-agents
-// (tax_mapping, sales_tax, payroll_tax, partner_distributions). We assert
-// the 4 base agents + 4 tax sub-agents = 8 total registry entries.
-foreach (['bookkeeper','reconciliation','treasury_analyst','cfo',
+// Phase A.1 + A.5 — 4 base agents + 4 tax sub-agents + 2 CFO/Treasury
+// splits = 10 total. We assert each is reachable from the registry.
+foreach (['bookkeeper','reconciliation','treasury_analyst','treasury_payments','cfo','cfo_variance',
           'tax_mapping','sales_tax','payroll_tax','partner_distributions'] as $agent) {
     $assert("registry includes '{$agent}'",
         preg_match("/'{$agent}'\\s*=>\\s*\\[/", $lib) === 1);
@@ -74,7 +73,7 @@ $assert('passes feature_class + feature_key + system + context to aiAsk',
     && strpos($lib, "'context'       => \$context") !== false);
 
 echo "\nContext builders\n";
-foreach (['Bookkeeper','Reconciliation','Treasury','CFO',
+foreach (['Bookkeeper','Reconciliation','Treasury','TreasuryPayments','CFO','CFOVariance',
           'TaxMapping','SalesTax','PayrollTax','PartnerDistributions'] as $fn) {
     $assert("aiAgentContext{$fn} exists",
         strpos($lib, "function aiAgentContext{$fn}(") !== false);
@@ -127,11 +126,12 @@ $assert('per-agent result testid template',       strpos($pg, 'data-testid={`ai-
 $assert('renders AISuggestion with envelope + featureKey',
     strpos($pg, '<AISuggestion envelope={runs[agent.key]}') !== false
     && strpos($pg, 'featureKey={agent.feature_key}') !== false);
-$assert('icon map covers all 8 agents',
+$assert('icon map covers all 10 agents',
     substr_count($pg, 'bookkeeper:') + substr_count($pg, 'reconciliation:')
-    + substr_count($pg, 'treasury_analyst:') + substr_count($pg, 'cfo:')
+    + substr_count($pg, 'treasury_analyst:') + substr_count($pg, 'treasury_payments:')
+    + substr_count($pg, 'cfo:') + substr_count($pg, 'cfo_variance:')
     + substr_count($pg, 'tax_mapping:') + substr_count($pg, 'sales_tax:')
-    + substr_count($pg, 'payroll_tax:') + substr_count($pg, 'partner_distributions:') >= 8);
+    + substr_count($pg, 'payroll_tax:') + substr_count($pg, 'partner_distributions:') >= 10);
 
 echo "\nBooks-health integrations envelope (Last Sync tile)\n";
 $bh = (string) file_get_contents("{$ROOT}/api/books_health.php");

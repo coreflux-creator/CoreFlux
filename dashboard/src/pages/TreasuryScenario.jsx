@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { api } from '../lib/api';
-import { Wallet, Plus, Trash2, TrendingUp, TrendingDown, AlertTriangle, FlaskConical, Wand2 } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { api, useApi } from '../lib/api';
+import { Wallet, Plus, Trash2, TrendingUp, TrendingDown, AlertTriangle, FlaskConical, Wand2, Save, Bookmark } from 'lucide-react';
 
 /**
  * Treasury What-If Scenario Builder.
@@ -101,6 +101,13 @@ export default function TreasuryScenario() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveDraft, setSaveDraft] = useState({ name: '', description: '' });
+  const [saveStatus, setSaveStatus] = useState(null); // {kind:'ok'|'error', text}
+
+  // Saved presets — tenant library, separate from the built-in catalog.
+  const savedQuery = useApi('/api/treasury_scenario_presets.php');
+  const savedPresets = savedQuery.data?.presets ?? [];
 
   const run = async (eventList = events, daysVal = days) => {
     setLoading(true); setError(null);
@@ -116,7 +123,7 @@ export default function TreasuryScenario() {
 
   // Auto-run baseline once on mount so the operator immediately sees their
   // current cash trajectory before adding any events.
-  React.useEffect(() => { run([], days); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { run([], days); /* eslint-disable-next-line */ }, []);
 
   const addEvent = () => {
     const amount = parseFloat(draft.amount);
@@ -151,6 +158,49 @@ export default function TreasuryScenario() {
   const clearAll = () => {
     setEvents([]);
     run([], days);
+  };
+
+  const saveAsPreset = async () => {
+    setSaveStatus(null);
+    if (!saveDraft.name.trim()) {
+      setSaveStatus({ kind: 'error', text: 'Name is required' });
+      return;
+    }
+    if (events.length === 0) {
+      setSaveStatus({ kind: 'error', text: 'Add at least one event before saving' });
+      return;
+    }
+    try {
+      const res = await api.post('/api/treasury_scenario_presets.php', {
+        name: saveDraft.name.trim(),
+        description: saveDraft.description.trim(),
+        events,
+      });
+      setSaveStatus({ kind: 'ok', text: `Saved "${res.preset.name}".` });
+      setSaveDraft({ name: '', description: '' });
+      setSaveOpen(false);
+      savedQuery.reload?.();
+    } catch (e) {
+      setSaveStatus({ kind: 'error', text: e.message });
+    }
+  };
+
+  const applySavedPreset = (preset) => {
+    // Replace the stack rather than append — the operator picked a
+    // specific saved scenario; layering it on top of unrelated events
+    // would dilute the comparison. They can still re-add events after.
+    setEvents(preset.events);
+    run(preset.events, days);
+  };
+
+  const deleteSavedPreset = async (preset) => {
+    if (!window.confirm(`Delete saved scenario "${preset.name}"?`)) return;
+    try {
+      await api.delete(`/api/treasury_scenario_presets.php?id=${preset.id}`);
+      savedQuery.reload?.();
+    } catch (e) {
+      setError(e);
+    }
   };
 
   const onWindowChange = (newDays) => {
@@ -204,6 +254,94 @@ export default function TreasuryScenario() {
           ⚠ No active bank accounts found — the projection starts from a $0 cash position. Connect a bank to anchor it to your real balance.
         </div>
       )}
+
+      {/* Saved scenarios — tenant library of custom what-ifs. */}
+      <div data-testid="scenario-saved-presets-bar"
+           style={{ padding: 14, border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+          <Bookmark size={14} color="#7c3aed" />
+          <strong style={{ fontSize: 12, color: '#5b21b6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Your saved scenarios
+          </strong>
+          <button data-testid="scenario-save-open"
+                  onClick={() => { setSaveOpen(!saveOpen); setSaveStatus(null); }}
+                  disabled={events.length === 0}
+                  style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 10px',
+                           background: events.length === 0 ? '#e2e8f0' : '#7c3aed',
+                           color: events.length === 0 ? '#94a3b8' : '#fff',
+                           border: 'none', borderRadius: 6,
+                           cursor: events.length === 0 ? 'not-allowed' : 'pointer',
+                           display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Save size={12} />
+            Save current as preset
+          </button>
+        </div>
+
+        {saveOpen && (
+          <div data-testid="scenario-save-form"
+               style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10,
+                        padding: 10, background: '#f5f3ff', borderRadius: 8 }}>
+            <input data-testid="scenario-save-name"
+                   type="text" placeholder="Scenario name (required)"
+                   value={saveDraft.name} maxLength={120}
+                   onChange={(e) => setSaveDraft({ ...saveDraft, name: e.target.value })}
+                   className="input" style={{ fontSize: 12, padding: '4px 8px', flex: 1, minWidth: 180 }} />
+            <input data-testid="scenario-save-description"
+                   type="text" placeholder="Description (optional)"
+                   value={saveDraft.description} maxLength={500}
+                   onChange={(e) => setSaveDraft({ ...saveDraft, description: e.target.value })}
+                   className="input" style={{ fontSize: 12, padding: '4px 8px', flex: 2, minWidth: 220 }} />
+            <button data-testid="scenario-save-submit"
+                    onClick={saveAsPreset}
+                    style={{ fontSize: 12, padding: '6px 12px', background: '#7c3aed', color: '#fff',
+                             border: 'none', borderRadius: 6, cursor: 'pointer' }}>
+              Save {events.length} event{events.length === 1 ? '' : 's'}
+            </button>
+          </div>
+        )}
+
+        {saveStatus && (
+          <p data-testid="scenario-save-status"
+             style={{ fontSize: 12, margin: '0 0 8px',
+                      color: saveStatus.kind === 'ok' ? '#065f46' : '#b91c1c' }}>
+            {saveStatus.text}
+          </p>
+        )}
+
+        {savedPresets.length === 0 ? (
+          <p data-testid="scenario-saved-empty"
+             style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>
+            No saved scenarios yet. Build a what-if you might re-run later, then click "Save current as preset".
+          </p>
+        ) : (
+          <div data-testid="scenario-saved-list"
+               style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {savedPresets.map((p) => (
+              <div key={p.id}
+                   data-testid={`scenario-saved-${p.id}`}
+                   style={{ position: 'relative', padding: '8px 12px', border: '1px solid #c4b5fd',
+                            borderRadius: 8, background: '#fff', minWidth: 220 }}>
+                <button data-testid={`scenario-saved-apply-${p.id}`}
+                        onClick={() => applySavedPreset(p)}
+                        style={{ display: 'block', textAlign: 'left', background: 'transparent',
+                                 border: 'none', cursor: 'pointer', padding: 0, paddingRight: 22, width: '100%' }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#5b21b6' }}>{p.name}</div>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                    {p.description || `${p.events.length} event${p.events.length === 1 ? '' : 's'}`}
+                  </div>
+                </button>
+                <button data-testid={`scenario-saved-delete-${p.id}`}
+                        onClick={() => deleteSavedPreset(p)}
+                        title="Delete"
+                        style={{ position: 'absolute', top: 6, right: 6, background: 'transparent',
+                                 border: 'none', color: '#cbd5e1', cursor: 'pointer' }}>
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Scenario presets — one-click templated event lists. */}
       <div data-testid="scenario-presets-bar"

@@ -535,9 +535,28 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
   - Intro override `<textarea maxLength=1000 rows=2>` with autosave-on-blur.
 - `tests/sprint7g_a234_digest_customization_smoke.php` — **51 ✓ / 0 fail**: migration shape, Phase A.2 reader/writer/runAll filter, Phase A.3 length caps + header-injection guard + intro/subject threading through send pipeline, Phase A.4 snapshot writer (best-effort), prior reader (cutoff math), `aiAgentBucketDiff` recursion, digest-send snapshot-before/snapshot-after ordering + "Changed since last week" template render, full UI testid coverage.
 
+### Saved Treasury Scenarios — operator preset library (enhancement, same release)
+- Migration `026_treasury_scenario_presets.sql` — tenant-scoped table with `UNIQUE (tenant_id, name)` so re-saving the same scenario name upserts in place. JSON event payload mirrors the live scenario endpoint contract (kind / amount / date / label).
+- Endpoint `api/treasury_scenario_presets.php` — GET / POST / DELETE. Read = `treasury.payment.view`; write = `treasury.payment.manage`. POST validates name (≤120) + description (≤500) + events array (kind whitelist, positive amount, YYYY-MM-DD format) and **does NOT clamp dates** — presets are re-applied later, often outside today's window. Edit-in-place via `id`. ON DUPLICATE KEY upsert path so saving the same name twice never errors. DELETE returns 404 when the row's missing, 422 when no id.
+- Module-namespaced kebab alias `modules/treasury/api/scenario_presets.php`.
+- `dashboard/src/pages/TreasuryScenario.jsx` — new "Your saved scenarios" bar above the built-in presets. "Save current as preset" button (disabled until events.length > 0) opens an inline form (name + optional description). Saved cards render in a horizontal stack with delete-by-icon. Applying a saved preset **replaces** the current event stack rather than appending — the operator picked a specific saved scenario, layering it onto unrelated events would dilute the comparison.
+- `tests/saved_scenarios_smoke.php` — **50 ✓ / 0 fail**: migration shape, endpoint contract (GET/POST/DELETE per RBAC tier), POST validation matrix, no-clamp guarantee, upsert + edit-in-place + 404 on missing row, kebab alias, all UI testids (save form, save status, saved-list cards, per-card apply/delete), apply-replaces-stack behaviour, delete confirms before firing.
+
+### AI Roadmap Phase A.5 — Treasury / CFO splits (additive)
+- **CFO Variance** (`cfo_variance`) — period-over-period variance voice. System prompt focuses on what HAS CHANGED versus the prior period and trend direction, in 3–5 bullets. Pairs with the Phase A.4 bucket-diff renderer for clean week-over-week commentary. Context layers on top of bookkeeper + treasury + reconciliation (richer surface than the strategic CFO agent which only stitches books + treasury).
+- **Treasury Payments** (`treasury_payments`) — pending-payment queue health voice. Reads counts in `draft` / `pending_approval` / `approved` / `scheduled` buckets + count of disputed AP bills, all bucketized. System prompt flags approval bottlenecks (lots pending_approval, few moving to approved) and disputed-bill accumulation, but never proposes specific payments to release.
+- Existing `cfo` and `treasury_analyst` agents are **retained for backwards compatibility** — Phase A.5 is additive, not destructive (unlike the Phase A.1 tax split). Tenants who already configured included_agents stay valid.
+- AIAgents.jsx icon map covers the 2 new agents (TrendingUp for variance, Send for payments). Digest copy bumped to "all ten agents".
+- `tests/sprint7g_a5_treasury_cfo_split_smoke.php` — **25 ✓ / 0 fail**: registry additivity check (legacy keys retained), domain + modules tags, kind = 'summary' (variance + queue voices are bullet-style not narrative), context builders + SHOW TABLES guards, qualitative bucket discipline, full icon-map coverage.
+
+### P3 Refactor — shared liquidity projection engine adoption
+- `api/liquidity_forecast.php` and `api/ap_bill_liquidity_impact.php` migrated onto `core/treasury/liquidity_projection.php`. Same response shapes — zero behaviour change — but each endpoint now reads as a thin RBAC-and-shape wrapper around three engine calls (`liquidityBaselineDatasets` → `liquidityBucketDatasets` → `liquidityWalkProjection`). Per-bill what-if uses the optional `excludeBillId` parameter to drop the simulated bill from baseline outflows.
+- File sizes dropped: `liquidity_forecast.php` 213 → 91 LoC (~57% smaller), `ap_bill_liquidity_impact.php` 198 → 134 LoC (~32% smaller).
+- Existing P0 + P2 smoke tests rewired to assert the engine is called and to verify the SQL fingerprints in the shared library file (still strict — refactor proven by tests).
+
 ### Validation
-- Full PHP suite: **124 files, 0 failures** (was 118 → +6 new smoke files; zero regressions).
-- Vite rebuilt → `index-DseVsi-A.js` / `index-Cwhpy62y.css` synced. `.deploy-version`: 8 new sentinels + 7 new feature flags.
+- Full PHP suite: **126 files, 0 failures** (was 118 → +8 new smoke files; zero behavioural regressions despite the engine refactor).
+- Vite rebuilt → `index-BC4a7TOd.js` / `index-Cwhpy62y.css` synced. `.deploy-version`: 16 new sentinels + 16 new feature flags.
 
 
 ## Recently completed (P2 — Liquidity Forecast + Auto-reversing accruals, 2026-02)

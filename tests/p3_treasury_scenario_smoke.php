@@ -105,7 +105,7 @@ echo "\nUI — TreasuryScenario.jsx page\n";
 $pgPath = "{$ROOT}/dashboard/src/pages/TreasuryScenario.jsx";
 $assert('page file exists',                       is_readable($pgPath));
 $pg = (string) file_get_contents($pgPath);
-$assert('imports api client',                     strpos($pg, "import { api } from '../lib/api'") !== false);
+$assert('imports api client',                     strpos($pg, "import { api, useApi } from '../lib/api'") !== false);
 $assert('posts to /api/treasury_scenario.php',    strpos($pg, "api.post('/api/treasury_scenario.php'") !== false);
 $assert('page root testid',                       strpos($pg, 'data-testid="treasury-scenario-page"') !== false);
 $assert('window selector testid',                 strpos($pg, 'data-testid="scenario-window-select"') !== false);
@@ -123,7 +123,7 @@ $assert('runway alert testid',                    strpos($pg, 'data-testid="scen
 $assert('safe banner testid',                     strpos($pg, 'data-testid="scenario-safe-banner"') !== false);
 $assert('no-banks nudge testid',                  strpos($pg, 'data-testid="scenario-no-banks-nudge"') !== false);
 $assert('error testid',                           strpos($pg, 'data-testid="scenario-error"') !== false);
-$assert('auto-runs baseline on mount',            strpos($pg, 'React.useEffect(() => { run([], days);') !== false);
+$assert('auto-runs baseline on mount',            strpos($pg, 'useEffect(() => { run([], days);') !== false);
 $assert('amount validation guards positive',      strpos($pg, '!amount || amount <= 0') !== false);
 $assert('date input min={today()}',               strpos($pg, 'min={today()}') !== false);
 $assert('formats currency via toLocaleString',    strpos($pg, 'toLocaleString') !== false);

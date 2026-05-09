@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { api, useApi } from '../lib/api';
 import AISuggestion from '../components/AISuggestion';
 import { Sparkles, Building2, Wallet, BookOpen, FileText, Mail, CalendarClock,
-         Receipt, Calculator, Coins, Users } from 'lucide-react';
+         Receipt, Calculator, Coins, Users, TrendingUp, Send } from 'lucide-react';
 
 /**
  * AI Agents — Sprint 7g + Phase A.0/A.1.
@@ -18,7 +18,9 @@ const AGENT_ICONS = {
   bookkeeper:            BookOpen,
   reconciliation:        FileText,
   treasury_analyst:      Wallet,
+  treasury_payments:     Send,
   cfo:                   Building2,
+  cfo_variance:          TrendingUp,
   tax_mapping:           Receipt,
   sales_tax:             Calculator,
   payroll_tax:           Coins,
@@ -125,7 +127,7 @@ export default function AIAgents() {
           <strong style={{ fontSize: 14, color: '#5b21b6' }}>Weekly digest</strong>
         </div>
         <p style={{ color: '#64748b', fontSize: 12, margin: '0 0 12px' }}>
-          One email stitching all eight agents into a single narrative. Send it to yourself on demand, or schedule a weekly auto-send.
+          One email stitching all ten agents into a single narrative. Send it to yourself on demand, or schedule a weekly auto-send.
         </p>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>

@@ -40,28 +40,40 @@ $assert('parses',                                  $lint($apiPath));
 $assert('GET-only',                                strpos($api, "if (api_method() !== 'GET') api_error('Method not allowed', 405)") !== false);
 $assert('RBAC treasury.payment.view',              strpos($api, "RBAC::requirePermission(\$user, 'treasury.payment.view')") !== false);
 $assert('days clamped 1..365 default 90',          strpos($api, "max(1, min(365, (int) (api_query('days') ?? 90)))") !== false);
+$assert('imports shared liquidity projection engine',
+    strpos($api, "require_once __DIR__ . '/../core/treasury/liquidity_projection.php'") !== false);
+$assert('calls liquidityBaselineDatasets',
+    strpos($api, 'liquidityBaselineDatasets($tid, $today, $endDate, $entityId)') !== false);
+$assert('calls liquidityBucketDatasets',
+    strpos($api, 'liquidityBucketDatasets($datasets)') !== false);
+$assert('runs the day-by-day projection via shared walker',
+    strpos($api, '$result   = liquidityWalkProjection(') !== false);
+
+echo "\nShared engine — core/treasury/liquidity_projection.php\n";
+$libPath = "{$ROOT}/core/treasury/liquidity_projection.php";
+$libSrc  = (string) file_get_contents($libPath);
 $assert('starting_cash sums active bank accounts via GL',
-    strpos($api, 'FROM accounting_bank_accounts ba') !== false
-    && strpos($api, "ba.status    = 'active'") !== false
-    && strpos($api, 'JOIN accounting_journal_lines') !== false);
+    strpos($libSrc, 'FROM accounting_bank_accounts ba') !== false
+    && strpos($libSrc, "ba.status = 'active'") !== false
+    && strpos($libSrc, 'JOIN accounting_journal_lines') !== false);
 $assert('only posted JEs feed starting_cash',
-    strpos($api, "je.status = 'posted'") !== false);
+    strpos($libSrc, "je.status = 'posted'") !== false);
 $assert('AR uses amount_due fallback to total - amount_paid',
-    strpos($api, 'COALESCE(amount_due, total - amount_paid)') !== false);
+    strpos($libSrc, 'COALESCE(amount_due, total - amount_paid)') !== false);
 $assert('AR status filter excludes paid/void/draft',
-    strpos($api, "status IN ('approved','sent','partially_paid')") !== false);
+    strpos($libSrc, "status IN ('approved','sent','partially_paid')") !== false);
 $assert('outflows from treasury_payments status filter',
-    strpos($api, "status IN ('draft','pending_approval','approved','scheduled')") !== false);
+    strpos($libSrc, "status IN ('draft','pending_approval','approved','scheduled')") !== false);
 $assert('AP bills due-window query',
-    strpos($api, "FROM ap_bills") !== false
-    && strpos($api, "status IN ('approved','partially_paid','pending_approval')") !== false);
+    strpos($libSrc, "FROM ap_bills") !== false
+    && strpos($libSrc, "status IN ('approved','partially_paid','pending_approval')") !== false);
 $assert('vendor+amount dedup heuristic prevents double-counting',
-    strpos($api, '$tpKeys[strtolower((string) $r[\'payee_name\']) . \'|\' . number_format((float) $r[\'amount\'], 2, \'.\', \'\')] = true') !== false
-    && strpos($api, 'if (isset($tpKeys[$key])) continue') !== false);
-$assert('day-by-day projection loop',              strpos($api, 'for ($i = 0; $i <= $days; $i++)') !== false);
+    strpos($libSrc, '$tpKeys[strtolower((string) $r[\'payee_name\']) . \'|\' . number_format((float) $r[\'amount\'], 2, \'.\', \'\')] = true') !== false
+    && strpos($libSrc, 'if (isset($tpKeys[$key])) continue') !== false);
+$assert('day-by-day projection loop',              strpos($libSrc, 'for ($i = 0; $i <= $days; $i++)') !== false);
 $assert('runway-to-zero detection (first negative day)',
-    strpos($api, 'if ($runwayDay === null && $closing < 0)') !== false);
-$assert('lowest-balance tracking',                 strpos($api, 'if ($closing < $lowest)') !== false);
+    strpos($libSrc, 'if ($runwayDay === null && $closing < 0)') !== false);
+$assert('lowest-balance tracking',                 strpos($libSrc, 'if ($closing < $lowest)') !== false);
 $assert('emits guards envelope (operator-friendly)',
     strpos($api, "'has_bank_accounts'") !== false
     && strpos($api, "'has_open_ar'") !== false

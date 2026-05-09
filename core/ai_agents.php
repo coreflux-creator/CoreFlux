@@ -67,6 +67,34 @@ const AI_AGENTS = [
         'system'       => 'You are a fractional CFO advising the operator. Synthesize the P&L trend, books-health score, and treasury cushion into a concise strategic note: where the business is improving, where there is drift, and one or two questions the operator should bring to the next leadership conversation. Do NOT restate numbers — speak in directional terms. 2–3 short paragraphs.',
         'context_fn'   => 'aiAgentContextCFO',
     ],
+    // Phase A.5 — split: CFO Variance is the period-over-period delta voice
+    // (separate from the strategic CFO above which is a snapshot voice). It
+    // calls out which qualitative buckets moved week-over-week so the
+    // operator hears variance signals first, narrative second.
+    'cfo_variance' => [
+        'label'        => 'AI CFO Variance',
+        'description'  => 'Period-over-period variance commentary across books + treasury.',
+        'feature_class'=> 'narrative',
+        'feature_key'  => 'agent.cfo_variance.review',
+        'kind'         => 'summary',
+        'domain'       => ['strategy'],
+        'modules'      => ['accounting', 'treasury'],
+        'system'       => 'You are a CFO focused on variance analysis. Given qualitative bucket signals across books health, treasury cushion, and reconciliation cadence, summarize what HAS CHANGED versus the prior period and what direction the trend is moving in 3–5 bullets. Do NOT restate numbers. Surface both improvements and regressions. If you cannot identify a meaningful delta, say so explicitly.',
+        'context_fn'   => 'aiAgentContextCFOVariance',
+    ],
+    // Phase A.5 — split: Treasury Payments is the queue-health voice
+    // (distinct from Treasury Analyst above which is a cash-position voice).
+    'treasury_payments' => [
+        'label'        => 'AI Treasury Payments',
+        'description'  => 'Reviews the pending-payment queue health and approval bottlenecks.',
+        'feature_class'=> 'narrative',
+        'feature_key'  => 'agent.treasury_payments.review',
+        'kind'         => 'summary',
+        'domain'       => ['treasury'],
+        'modules'      => ['treasury'],
+        'system'       => 'You are a treasury operations lead. Given qualitative signals about the pending-payment queue (counts in draft / pending_approval / approved / scheduled buckets) and the count of disputed AP bills, summarize queue health in 3–5 bullets. Flag approval bottlenecks (lots of pending_approval but few moving to approved) and any sign that disputed bills are accumulating. Do NOT propose specific payments to release.',
+        'context_fn'   => 'aiAgentContextTreasuryPayments',
+    ],
     // Phase A.1 — Tax split into 4 honest sub-agents. The original `tax`
     // agent's narrow scope (tax-form mapping coverage) is renamed to
     // `tax_mapping` for truth-in-advertising. Three new agents cover the
@@ -242,6 +270,54 @@ function aiAgentContextCFO(int $tenantId): array
         'books'    => aiAgentContextBookkeeper($tenantId),
         'treasury' => aiAgentContextTreasury($tenantId),
     ];
+}
+
+/**
+ * Phase A.5 — CFO Variance context. The variance voice doesn't need a new
+ * SQL surface — it leans on the same composite signals as the CFO agent,
+ * but the bucket-diff renderer in the digest pipeline does the actual
+ * variance work for it. Reconciliation is added here so the variance
+ * commentary can also call out reconciliation drift, which the strategic
+ * CFO agent does not surface directly.
+ */
+function aiAgentContextCFOVariance(int $tenantId): array
+{
+    return [
+        'books'          => aiAgentContextBookkeeper($tenantId),
+        'treasury'       => aiAgentContextTreasury($tenantId),
+        'reconciliation' => aiAgentContextReconciliation($tenantId),
+    ];
+}
+
+/**
+ * Phase A.5 — Treasury Payments context. Looks at the treasury_payments
+ * queue + disputed AP bill count for queue-health commentary. Every
+ * signal is emitted as a qualitative bucket so the agent can never
+ * launder raw counts back into the narrative.
+ */
+function aiAgentContextTreasuryPayments(int $tenantId): array
+{
+    $pdo = getDB();
+    $ctx = [];
+    if ($pdo->query("SHOW TABLES LIKE 'treasury_payments'")->fetchColumn()) {
+        foreach (['draft','pending_approval','approved','scheduled'] as $status) {
+            $stmt = $pdo->prepare(
+                "SELECT COUNT(*) FROM treasury_payments
+                  WHERE tenant_id = :t AND status = :s"
+            );
+            $stmt->execute(['t' => $tenantId, 's' => $status]);
+            $ctx[$status . '_payment_count_bucket'] = aiAgentBucketCount((int) $stmt->fetchColumn());
+        }
+    }
+    if ($pdo->query("SHOW TABLES LIKE 'ap_bills'")->fetchColumn()) {
+        $d = $pdo->prepare(
+            "SELECT COUNT(*) FROM ap_bills
+              WHERE tenant_id = :t AND status = 'disputed'"
+        );
+        $d->execute(['t' => $tenantId]);
+        $ctx['disputed_bill_count_bucket'] = aiAgentBucketCount((int) $d->fetchColumn());
+    }
+    return $ctx;
 }
 
 function aiAgentContextTaxMapping(int $tenantId): array
