@@ -153,8 +153,8 @@ if ($method === 'POST') {
     $hash = password_hash($pwd, PASSWORD_DEFAULT);
     $pdo->prepare(
         "INSERT INTO users (name, email, password, password_hash, role, is_active, created_at)
-         VALUES (:n, :e, :p, :p, :r, 1, NOW())"
-    )->execute(['n' => $name, 'e' => $email, 'p' => $hash, 'r' => $newRole]);
+         VALUES (:n, :e, :pw1, :pw2, :r, 1, NOW())"
+    )->execute(['n' => $name, 'e' => $email, 'pw1' => $hash, 'pw2' => $hash, 'r' => $newRole]);
     $newId = (int) $pdo->lastInsertId();
 
     // Default tenant assignment.
@@ -197,8 +197,8 @@ if ($method === 'PATCH' && $id) {
         if (strlen($pwd) < 8) api_error('Password must be at least 8 characters', 422);
         $hash = password_hash($pwd, PASSWORD_DEFAULT);
         $pdo->prepare(
-            "UPDATE users SET password = :p, password_hash = :p, updated_at = NOW() WHERE id = :id"
-        )->execute(['p' => $hash, 'id' => $id]);
+            "UPDATE users SET password = :pw1, password_hash = :pw2, updated_at = NOW() WHERE id = :id"
+        )->execute(['pw1' => $hash, 'pw2' => $hash, 'id' => $id]);
         subTenantAudit(0, $activeTid ?? 0, $actorId, 'user.password_reset', ['user_id' => $id]);
         api_ok(['id' => $id]);
     }
@@ -228,9 +228,9 @@ if ($method === 'PATCH' && $id) {
             _usersValidateRole($tenantRole, $role);
             $pdo->prepare(
                 "INSERT INTO user_tenants (user_id, tenant_id, role, is_default, status, created_at)
-                 VALUES (:u, :t, :r, :d, 'active', NOW())
-                 ON DUPLICATE KEY UPDATE role = :r, is_default = :d, status = 'active', updated_at = NOW()"
-            )->execute(['u' => $id, 't' => $tenantId, 'r' => $tenantRole, 'd' => $isDefault]);
+                 VALUES (:u, :t, :r1, :d1, 'active', NOW())
+                 ON DUPLICATE KEY UPDATE role = :r2, is_default = :d2, status = 'active', updated_at = NOW()"
+            )->execute(['u' => $id, 't' => $tenantId, 'r1' => $tenantRole, 'd1' => $isDefault, 'r2' => $tenantRole, 'd2' => $isDefault]);
             if ($isDefault) {
                 $pdo->prepare(
                     "UPDATE user_tenants SET is_default = 0

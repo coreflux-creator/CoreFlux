@@ -89,15 +89,15 @@ if ($method === 'GET') {
     if ($slug !== '') {
         $stmt = $pdo->prepare(
             "SELECT v.*, u.name AS owner_name,
-                    CASE WHEN v.user_id = :u THEN 1 ELSE 0 END AS _is_owner
+                    CASE WHEN v.user_id = :u_case THEN 1 ELSE 0 END AS _is_owner
                FROM exec_dashboard_views v
           LEFT JOIN users u ON u.id = v.user_id
               WHERE v.tenant_id = :t
                 AND v.slug = :s
-                AND (v.user_id = :u OR v.is_shared = 1)
+                AND (v.user_id = :u_where OR v.is_shared = 1)
               LIMIT 1"
         );
-        $stmt->execute(['t' => $tenantId, 's' => $slug, 'u' => $userId]);
+        $stmt->execute(['t' => $tenantId, 's' => $slug, 'u_case' => $userId, 'u_where' => $userId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$row) api_error('View not found', 404);
         api_ok(['view' => _execViewSerialize($row)]);
@@ -105,14 +105,14 @@ if ($method === 'GET') {
 
     $stmt = $pdo->prepare(
         "SELECT v.*, u.name AS owner_name,
-                CASE WHEN v.user_id = :u THEN 1 ELSE 0 END AS _is_owner
+                CASE WHEN v.user_id = :u_case THEN 1 ELSE 0 END AS _is_owner
            FROM exec_dashboard_views v
       LEFT JOIN users u ON u.id = v.user_id
           WHERE v.tenant_id = :t
-            AND (v.user_id = :u OR v.is_shared = 1)
+            AND (v.user_id = :u_where OR v.is_shared = 1)
        ORDER BY _is_owner DESC, v.is_default DESC, v.name ASC"
     );
-    $stmt->execute(['t' => $tenantId, 'u' => $userId]);
+    $stmt->execute(['t' => $tenantId, 'u_case' => $userId, 'u_where' => $userId]);
     $views = array_map('_execViewSerialize', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
     api_ok(['views' => $views]);
 }

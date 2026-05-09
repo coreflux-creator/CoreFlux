@@ -36,7 +36,7 @@ $a('validates relationship_type whitelist',          $c($lib, "['subsidiary','af
 $a('validates consolidation_method whitelist',       $c($lib, "['full','equity','cost','none']"));
 $a('validates ownership_pct 0..100',                 $c($lib, 'ownership_pct must be 0..100'));
 $a('descendants respect effective_from/to',
-    $c($lib, 'effective_from <= :asof') && $c($lib, '(effective_to IS NULL OR effective_to >= :asof)'));
+    $c($lib, 'effective_from <= :asof_lo') && $c($lib, '(effective_to IS NULL OR effective_to >= :asof_hi)'));
 $a('descendants drop cost + none methods',           $c($lib, "\$edge['consolidation_method'] === 'none' || \$edge['consolidation_method'] === 'cost'"));
 $a('TB aggregates per-entity (IN clause)',           $c($lib, 'je.entity_id IN (') && $c($lib, 'GROUP BY a.id'));
 $a('TB eliminations where both sides in scope',

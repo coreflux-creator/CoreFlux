@@ -41,7 +41,7 @@ _a('index for shared lookup',                    str_contains($mig, 'idx_edv_ten
 echo "\nAPI /api/exec_dashboard_views.php\n";
 _a('requires auth',                              str_contains($api, 'api_require_auth()'));
 _a('manager+ gate',                              str_contains($api, "['master_admin', 'tenant_admin', 'admin', 'manager']"));
-_a('list returns own + shared views',            str_contains($api, "(v.user_id = :u OR v.is_shared = 1)"));
+_a('list returns own + shared views',            str_contains($api, "(v.user_id = :u_where OR v.is_shared = 1)"));
 _a('GET by slug supported',                      str_contains($api, "v.slug = :s"));
 _a('POST sanitises filter keys',                 str_contains($api, '_EXEC_VIEW_FILTER_KEYS'));
 _a('POST clamps weeks 1..104',                   str_contains($api, "max(1, min(104,"));

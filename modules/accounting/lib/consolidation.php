@@ -100,10 +100,10 @@ function entityRelationshipResolveDescendants(int $tenantId, int $rootEntityId, 
         'SELECT parent_entity_id, child_entity_id, ownership_pct, consolidation_method
          FROM accounting_entity_relationships
          WHERE tenant_id = :t AND active = 1
-           AND effective_from <= :asof
-           AND (effective_to IS NULL OR effective_to >= :asof)'
+           AND effective_from <= :asof_lo
+           AND (effective_to IS NULL OR effective_to >= :asof_hi)'
     );
-    $stmt->execute(['t' => $tenantId, 'asof' => $asOf]);
+    $stmt->execute(['t' => $tenantId, 'asof_lo' => $asOf, 'asof_hi' => $asOf]);
     $edges = [];
     foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $e) {
         $edges[(int) $e['parent_entity_id']][] = $e;
@@ -147,16 +147,16 @@ function consolidateTrialBalance(int $tenantId, array $entityIds, string $asOf):
          FROM accounting_accounts a
          LEFT JOIN accounting_journal_entry_lines l ON l.account_id = a.id
          LEFT JOIN accounting_journal_entries je ON je.id = l.je_id
-         WHERE a.tenant_id = :t
+         WHERE a.tenant_id = :t_a
            AND (je.id IS NULL OR (
-                je.tenant_id = :t AND je.status = "posted"
+                je.tenant_id = :t_je AND je.status = "posted"
                 AND je.posting_date <= :asof
                 AND je.entity_id IN (' . $in . ')
            ))
          GROUP BY a.id
          ORDER BY a.code'
     );
-    $stmt->execute(['t' => $tenantId, 'asof' => $asOf]);
+    $stmt->execute(['t_a' => $tenantId, 't_je' => $tenantId, 'asof' => $asOf]);
     $raw = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
     // Compute eliminations: for every IC-tagged line where BOTH the source
@@ -244,16 +244,16 @@ function consolidateIncomeStatement(int $tenantId, array $entityIds, string $fro
          FROM accounting_accounts a
          LEFT JOIN accounting_journal_entry_lines l ON l.account_id = a.id
          LEFT JOIN accounting_journal_entries je ON je.id = l.je_id
-         WHERE a.tenant_id = :t
+         WHERE a.tenant_id = :t_a
            AND a.account_type IN ("revenue","expense")
            AND (je.id IS NULL OR (
-                je.tenant_id = :t AND je.status = "posted"
+                je.tenant_id = :t_je AND je.status = "posted"
                 AND je.posting_date >= :f AND je.posting_date <= :tx
                 AND je.entity_id IN (' . $in . ')
            ))
          GROUP BY a.id'
     );
-    $stmt->execute(['t' => $tenantId, 'f' => $from, 'tx' => $to]);
+    $stmt->execute(['t_a' => $tenantId, 't_je' => $tenantId, 'f' => $from, 'tx' => $to]);
     $raw = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
     $elimStmt = $pdo->prepare(
@@ -320,11 +320,11 @@ function consolidateBalanceSheet(int $tenantId, array $entityIds, string $asOf):
             'SELECT ownership_pct, consolidation_method
              FROM accounting_entity_relationships
              WHERE tenant_id = :t AND child_entity_id = :c AND active = 1
-               AND effective_from <= :asof
-               AND (effective_to IS NULL OR effective_to >= :asof)
+               AND effective_from <= :asof_lo
+               AND (effective_to IS NULL OR effective_to >= :asof_hi)
              ORDER BY effective_from DESC LIMIT 1'
         );
-        $edgeStmt->execute(['t' => $tenantId, 'c' => (int) $eid, 'asof' => $asOf]);
+        $edgeStmt->execute(['t' => $tenantId, 'c' => (int) $eid, 'asof_lo' => $asOf, 'asof_hi' => $asOf]);
         $edge = $edgeStmt->fetch(\PDO::FETCH_ASSOC);
         if (!$edge) continue;
         $pct = (float) $edge['ownership_pct'];

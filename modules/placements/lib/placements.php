@@ -178,14 +178,18 @@ function placementRates(int $placementId): array
 function placementCurrentRate(int $placementId, ?string $asOf = null): ?array
 {
     $asOf = $asOf ?: date('Y-m-d');
+    // Bind :asof to two distinct placeholders so PDO with
+    // ATTR_EMULATE_PREPARES=false (server-side prepares) doesn't reject
+    // the query with HY093 "Invalid parameter number". MySQL native
+    // prepares do not deduplicate repeated named placeholders.
     return scopedFind(
         'SELECT * FROM placement_rates
          WHERE tenant_id = :tenant_id AND placement_id = :pid
            AND approved_at IS NOT NULL
-           AND effective_from <= :asof
-           AND (effective_to IS NULL OR effective_to >= :asof)
+           AND effective_from <= :asof_lo
+           AND (effective_to IS NULL OR effective_to >= :asof_hi)
          ORDER BY effective_from DESC LIMIT 1',
-        ['pid' => $placementId, 'asof' => $asOf]
+        ['pid' => $placementId, 'asof_lo' => $asOf, 'asof_hi' => $asOf]
     );
 }
 

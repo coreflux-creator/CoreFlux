@@ -72,10 +72,10 @@ function accountingResolvePeriod(int $tenantId, int $entityId, string $postingDa
     $stmt = $pdo->prepare(
         'SELECT * FROM accounting_periods
          WHERE tenant_id = :t AND entity_id = :e
-           AND start_date <= :d AND end_date >= :d
+           AND start_date <= :d_lo AND end_date >= :d_hi
          LIMIT 1'
     );
-    $stmt->execute(['t' => $tenantId, 'e' => $entityId, 'd' => $postingDate]);
+    $stmt->execute(['t' => $tenantId, 'e' => $entityId, 'd_lo' => $postingDate, 'd_hi' => $postingDate]);
     $row = $stmt->fetch(\PDO::FETCH_ASSOC);
     if ($row) return $row;
 

@@ -57,19 +57,22 @@ if ($method === 'POST' && $action === 'approve') {
         // Close prior approved row covering this effective_from
         $stmt = $pdo->prepare(
             "UPDATE placement_rates
-             SET effective_to = DATE_SUB(:eff_from, INTERVAL 1 DAY),
-                 superseded_by = :new_id
+             SET effective_to = DATE_SUB(:eff_set, INTERVAL 1 DAY),
+                 superseded_by = :new_id_set
              WHERE tenant_id = :tenant_id AND placement_id = :pid
-               AND id != :new_id
+               AND id != :new_id_filter
                AND approved_at IS NOT NULL
-               AND effective_from <= :eff_from
-               AND (effective_to IS NULL OR effective_to >= :eff_from)"
+               AND effective_from <= :eff_lt
+               AND (effective_to IS NULL OR effective_to >= :eff_gt)"
         );
         $stmt->execute([
-            'eff_from' => $rate['effective_from'],
-            'new_id'   => $id,
-            'tenant_id'=> currentTenantId(),
-            'pid'      => $rate['placement_id'],
+            'eff_set'        => $rate['effective_from'],
+            'eff_lt'         => $rate['effective_from'],
+            'eff_gt'         => $rate['effective_from'],
+            'new_id_set'     => $id,
+            'new_id_filter'  => $id,
+            'tenant_id'      => currentTenantId(),
+            'pid'            => $rate['placement_id'],
         ]);
         $closed = $stmt->rowCount();
 

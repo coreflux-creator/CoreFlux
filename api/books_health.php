@@ -155,11 +155,11 @@ $periodStmt = $pdo->prepare(
     "SELECT id, period_number, fiscal_year, start_date, end_date, status
        FROM accounting_periods
       WHERE tenant_id = :t" . ($entityId ? ' AND entity_id = :e' : '') . "
-        AND start_date <= :d
-        AND end_date   >= :d
+        AND start_date <= :d_lo
+        AND end_date   >= :d_hi
       ORDER BY start_date DESC LIMIT 1"
 );
-$pp = ['t' => $tid, 'd' => $asOf]; if ($entityId) $pp['e'] = $entityId;
+$pp = ['t' => $tid, 'd_lo' => $asOf, 'd_hi' => $asOf]; if ($entityId) $pp['e'] = $entityId;
 $periodStmt->execute($pp);
 $currentPeriod = $periodStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
 

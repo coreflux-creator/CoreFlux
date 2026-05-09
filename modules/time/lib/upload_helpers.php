@@ -33,13 +33,13 @@ function timeUploadResolvePeople(\PDO $pdo, int $tenantId, array $people): array
               WHERE tenant_id = :t
                 AND deleted_at IS NULL
                 AND (
-                       LOWER(CONCAT_WS(' ', first_name, last_name))     = LOWER(:n)
-                    OR LOWER(CONCAT_WS(' ', preferred_name, last_name)) = LOWER(:n)
-                    OR LOWER(preferred_name)                            = LOWER(:n)
+                       LOWER(CONCAT_WS(' ', first_name, last_name))     = LOWER(:n1)
+                    OR LOWER(CONCAT_WS(' ', preferred_name, last_name)) = LOWER(:n2)
+                    OR LOWER(preferred_name)                            = LOWER(:n3)
                 )
               LIMIT 5"
         );
-        $stmt->execute(['t' => $tenantId, 'n' => $name]);
+        $stmt->execute(['t' => $tenantId, 'n1' => $name, 'n2' => $name, 'n3' => $name]);
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $display = trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? ''));
             if ($display === '') $display = (string) ($row['preferred_name'] ?? '');

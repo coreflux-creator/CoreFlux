@@ -55,11 +55,11 @@ function apRecurringGenerateDue(int $tenantId, ?string $asOf = null): array
         "SELECT * FROM ap_recurring_bills
           WHERE tenant_id = :t
             AND status = 'active'
-            AND next_bill_date <= :asof
-            AND (end_date IS NULL OR end_date >= :asof)
+            AND next_bill_date <= :asof_lo
+            AND (end_date IS NULL OR end_date >= :asof_hi)
           ORDER BY next_bill_date ASC, id ASC"
     );
-    $rows->execute(['t' => $tenantId, 'asof' => $asOf]);
+    $rows->execute(['t' => $tenantId, 'asof_lo' => $asOf, 'asof_hi' => $asOf]);
     $due = $rows->fetchAll(\PDO::FETCH_ASSOC);
 
     $billIds = [];
@@ -79,7 +79,7 @@ function apRecurringGenerateDue(int $tenantId, ?string $asOf = null): array
                  VALUES
                     (:t, :bn, :ir, :vn, "other",
                      :rec, :bd, :dd, "USD",
-                     :sub, 0, :tot, 0, :tot,
+                     :sub, 0, :tot1, 0, :tot2,
                      "pending_review", "recurring", :rid, :cby, :notes)'
             )->execute([
                 't' => $tenantId,
@@ -90,7 +90,8 @@ function apRecurringGenerateDue(int $tenantId, ?string $asOf = null): array
                 'bd'  => $billDate,
                 'dd'  => $dueDate,
                 'sub' => $r['amount'],
-                'tot' => $r['amount'],
+                'tot1' => $r['amount'],
+                'tot2' => $r['amount'],
                 'rid' => (int) $r['id'],
                 'cby' => $r['created_by_user_id'],
                 'notes' => 'Generated from recurring schedule #' . $r['id'] . ': ' . $r['description'],
@@ -104,13 +105,15 @@ function apRecurringGenerateDue(int $tenantId, ?string $asOf = null): array
                      gl_expense_account_code, is_1099_eligible)
                  VALUES
                     (:b, 1, "recurring", :rid, :desc,
-                     1, "fixed", :amt, :amt, :amt,
+                     1, "fixed", :amt1, :amt2, :amt3,
                      :gl, :elig)'
             )->execute([
                 'b' => $billId,
                 'rid' => (int) $r['id'],
                 'desc' => $r['description'],
-                'amt' => $r['amount'],
+                'amt1' => $r['amount'],
+                'amt2' => $r['amount'],
+                'amt3' => $r['amount'],
                 'gl' => $r['gl_expense_account_code'],
                 'elig' => (int) $r['is_1099_eligible'],
             ]);

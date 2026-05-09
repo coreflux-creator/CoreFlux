@@ -2931,3 +2931,11 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 - Billing Phase A1 (server-side PDF)
 - Gusto OAuth API adapter
 
+
+## 2026-02 — Module Migration Auto-Run + PDO Sweep Verified
+- **Bug**: Reports → Executive Snapshot was 500'ing with `Database table 'X.v_timesheet_day_fin' does not exist` for tenants whose DB had never gone through the installer. Root cause: `coreflux_run_migrations()` (called on every API request from `core/api_bootstrap.php`) only globbed `core/migrations/*.sql` — it skipped all `modules/<name>/migrations/*.sql`, including `modules/reports/migrations/001_init.sql` which creates the `v_timesheet_day_fin` view used by Executive Snapshot, Client Profitability, Rate & Spread, Overtime Watch.
+- **Fix**: Extended `coreflux_run_migrations()` in `core/migrate.php` to additionally glob `modules/*/migrations/*.sql` (skipping underscored dirs like `_template`). To prevent collisions where multiple modules ship a `001_init.sql`, module migrations are keyed in the `_migrations` ledger by their relative path (e.g. `modules/reports/migrations/001_init.sql`), while core migrations stay keyed by basename for backward compatibility with existing ledger entries. Existing per-statement idempotency safe-pattern handling already covers re-applying `CREATE TABLE` / `CREATE VIEW` over an existing object.
+- **Regression coverage**: New smoke `tests/bugfix_module_migrations_autorun_smoke.php` asserts the glob covers module migrations, the relative-path keying is in place, and the reports init migration defines `v_timesheet_day_fin`.
+- **PDO HY093 sweep verified**: Previous fork's bulk find/replace of duplicate named placeholders (`:asof` → `:asof1/:asof2`, `:u` → `:u_where/:u_case`, etc.) across `placements.php`, `consolidation.php`, `users.php`, `accounting.php`, `compensation.php`, etc. did not regress the smoke suite. Two stale assertions in `tests/sprint5_saved_views_smoke.php` and `tests/accounting_phase2_a7_smoke.php` were updated to the new placeholder names.
+- **Result**: Full smoke suite **129 / 129 ✅** (was 128, +1 new regression test).
+

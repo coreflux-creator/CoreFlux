@@ -82,8 +82,23 @@ function coreflux_run_migrations(bool $force = false): array {
         return $coreflux_migration_status;
     }
 
-    $files = glob(COREFLUX_MIGRATIONS_DIR . '/*.sql') ?: [];
-    sort($files, SORT_NATURAL);
+    // Core migrations are tracked by basename for backward compatibility with
+    // existing `_migrations` ledger entries.
+    $coreFiles = glob(COREFLUX_MIGRATIONS_DIR . '/*.sql') ?: [];
+    sort($coreFiles, SORT_NATURAL);
+
+    // Module migrations are tracked by relative path to avoid basename
+    // collisions across modules (e.g. multiple `001_init.sql`). Underscored
+    // module dirs (e.g. `_archive`) are skipped.
+    $appRoot = dirname(__DIR__);
+    $moduleFiles = glob($appRoot . '/modules/*/migrations/*.sql') ?: [];
+    $moduleFiles = array_values(array_filter(
+        $moduleFiles,
+        static fn(string $p) => !preg_match('#/modules/_[^/]+/#', $p)
+    ));
+    sort($moduleFiles, SORT_NATURAL);
+
+    $files = array_merge($coreFiles, $moduleFiles);
 
     $stmtFind = $pdo->prepare('SELECT sha256 FROM _migrations WHERE filename = :f');
     $stmtSave = $pdo->prepare(
@@ -92,7 +107,12 @@ function coreflux_run_migrations(bool $force = false): array {
     );
 
     foreach ($files as $path) {
-        $name = basename($path);
+        // Use basename for core files (legacy), relative path for module files
+        // so a module migration named `001_init.sql` doesn't collide with the
+        // core `001_init.sql` ledger entry.
+        $name = (strpos($path, $appRoot . '/modules/') === 0)
+            ? ltrim(str_replace($appRoot, '', $path), '/')
+            : basename($path);
         $sql  = (string) file_get_contents($path);
         if ($sql === '') continue;
         $hash = hash('sha256', $sql);
