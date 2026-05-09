@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { api, useApi } from '../lib/api';
-import { Wallet, GitCompare, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Wallet, GitCompare, AlertTriangle, ArrowRight, Share2, Copy, Check } from 'lucide-react';
 
 /**
  * Treasury Scenario Compare — A/B two saved scenarios on one chart.
@@ -32,6 +32,13 @@ export default function TreasuryScenarioCompare() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareLabel, setShareLabel] = useState('');
+  const [shareDays, setShareDays] = useState(7);
+  const [shareResult, setShareResult] = useState(null); // {url, expires_at}
+  const [shareError, setShareError] = useState(null);
+  const [copied, setCopied] = useState(false);
 
   const savedQuery = useApi('/api/treasury_scenario_presets.php');
   const presets = savedQuery.data?.presets ?? [];
@@ -83,6 +90,39 @@ export default function TreasuryScenarioCompare() {
     return { series, lo, hi, span, length: series[0].points.length };
   }, [data]);
 
+  const createShareLink = async () => {
+    setShareError(null);
+    if (!a || !b || a.id === b.id) {
+      setShareError(new Error('Pick two different saved scenarios first.'));
+      return;
+    }
+    try {
+      const res = await api.post('/api/treasury_scenario_share.php?action=create', {
+        kind: 'compare',
+        preset_a_id: a.id,
+        preset_b_id: b.id,
+        label: shareLabel.trim(),
+        days_horizon: days,
+        expires_in_days: shareDays,
+      });
+      setShareResult(res);
+      setCopied(false);
+    } catch (e) {
+      setShareError(e);
+    }
+  };
+
+  const copyShareUrl = async () => {
+    if (!shareResult?.url) return;
+    try {
+      await navigator.clipboard.writeText(shareResult.url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setShareError(new Error('Could not copy — select the link and copy manually.'));
+    }
+  };
+
   return (
     <section data-testid="scenario-compare-page" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
@@ -102,6 +142,15 @@ export default function TreasuryScenarioCompare() {
           <option value={90}>90 days</option>
           <option value={180}>180 days</option>
         </select>
+        {data && a && b && a.id !== b.id && (
+          <button data-testid="scenario-compare-share-open"
+                  onClick={() => { setShareOpen(!shareOpen); setShareError(null); setShareResult(null); }}
+                  style={{ fontSize: 12, padding: '6px 12px', background: '#7c3aed', color: '#fff',
+                           border: 'none', borderRadius: 6, cursor: 'pointer',
+                           display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Share2 size={12} /> Share this comparison
+          </button>
+        )}
       </header>
 
       {presets.length < 2 ? (
@@ -144,6 +193,73 @@ export default function TreasuryScenarioCompare() {
           <DeltaCard testid="scenario-compare-delta-a-vs-b"
                      title={`A vs B`}
                      accent="#475569" delta={data.deltas.a_vs_b} />
+        </div>
+      )}
+
+      {/* Share form / result panel */}
+      {shareOpen && a && b && a.id !== b.id && (
+        <div data-testid="scenario-compare-share-panel"
+             style={{ padding: 16, border: '1px solid #c4b5fd', borderRadius: 10,
+                      background: 'linear-gradient(135deg,#f5f3ff,#ecfeff)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <Share2 size={14} color="#5b21b6" />
+            <strong style={{ fontSize: 12, color: '#5b21b6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Read-only share link
+            </strong>
+            <span style={{ fontSize: 11, color: '#64748b', marginLeft: 'auto' }}>
+              Recipients see the chart + deltas + event stacks. No tenant access granted.
+            </span>
+          </div>
+          {!shareResult ? (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input data-testid="scenario-compare-share-label"
+                     type="text" placeholder="Label (e.g., Q1 board pack)"
+                     value={shareLabel} maxLength={200}
+                     onChange={(e) => setShareLabel(e.target.value)}
+                     className="input" style={{ fontSize: 12, padding: '4px 8px', flex: 1, minWidth: 200 }} />
+              <select data-testid="scenario-compare-share-expiry"
+                      value={shareDays} onChange={(e) => setShareDays(parseInt(e.target.value, 10))}
+                      className="input" style={{ fontSize: 12, padding: '4px 8px' }}>
+                <option value={1}>Expires in 1 day</option>
+                <option value={3}>Expires in 3 days</option>
+                <option value={7}>Expires in 7 days</option>
+                <option value={14}>Expires in 14 days</option>
+                <option value={30}>Expires in 30 days</option>
+              </select>
+              <button data-testid="scenario-compare-share-create"
+                      onClick={createShareLink}
+                      style={{ fontSize: 12, padding: '6px 12px', background: '#7c3aed', color: '#fff',
+                               border: 'none', borderRadius: 6, cursor: 'pointer' }}>
+                Create link
+              </button>
+            </div>
+          ) : (
+            <div data-testid="scenario-compare-share-result"
+                 style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input data-testid="scenario-compare-share-url"
+                     type="text" value={shareResult.url} readOnly
+                     onFocus={(e) => e.target.select()}
+                     style={{ fontSize: 12, padding: '6px 8px', flex: 1, minWidth: 280,
+                              fontFamily: 'monospace', background: '#fff',
+                              border: '1px solid #c4b5fd', borderRadius: 6 }} />
+              <button data-testid="scenario-compare-share-copy"
+                      onClick={copyShareUrl}
+                      style={{ fontSize: 12, padding: '6px 12px', background: copied ? '#065f46' : '#0d9488',
+                               color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer',
+                               display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                {copied ? <Check size={12} /> : <Copy size={12} />}
+                {copied ? 'Copied!' : 'Copy URL'}
+              </button>
+              <span style={{ fontSize: 11, color: '#64748b' }}>
+                Expires {new Date(shareResult.expires_at).toLocaleString()}
+              </span>
+            </div>
+          )}
+          {shareError && (
+            <p data-testid="scenario-compare-share-error" className="error" style={{ fontSize: 12, marginTop: 8 }}>
+              {shareError.message}
+            </p>
+          )}
         </div>
       )}
 

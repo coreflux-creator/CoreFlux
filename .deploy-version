@@ -234,8 +234,13 @@ sentinels:
 - modules/treasury/api/scenario_compare.php
 - dashboard/src/pages/TreasuryScenarioCompare.jsx
 - tests/scenario_compare_smoke.php
+- core/migrations/027_scenario_share_links.sql
+- api/treasury_scenario_share.php
+- modules/treasury/api/scenario_share.php
+- dashboard/src/pages/ScenarioShare.jsx
+- tests/scenario_share_smoke.php
 expected_bundle:
-- spa-assets/index-C-dQBilG.js
+- spa-assets/index-B2LVFYMg.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -526,3 +531,8 @@ last_known_features:
 - treasury.scenario.compare_a_b_three_series_chart
 - treasury.scenario.compare_pairwise_deltas
 - treasury.scenario.compare_self_compare_blocked
+- treasury.scenario.share_link_tokenized_public_view
+- treasury.scenario.share_link_audit_logged_view_count
+- treasury.scenario.share_link_sha256_at_rest
+- treasury.scenario.share_link_expires_revoke_actions
+- treasury.scenario.share_link_compare_a_b_pair

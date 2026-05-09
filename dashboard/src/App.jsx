@@ -19,6 +19,7 @@ import AccountingModule from './modules/AccountingModule';
 import AccountingV1Module from '../../modules/accounting/ui/AccountingModule';
 import TreasuryModule from '../../modules/treasury/ui/TreasuryModule';
 import VendorPortal from './pages/VendorPortal';
+import ScenarioShare from './pages/ScenarioShare';
 import FinanceModule from './modules/FinanceModule';
 import GenericModule from './modules/GenericModule';
 import WorkflowInbox from './pages/WorkflowInbox';
@@ -347,6 +348,9 @@ const AppContent = ({ session, usingDemo }) => {
           {/* Vendor self-service portal — uses its own cf_vp_sid cookie auth,
               independent of platform user session. */}
           <Route path="/vendor/portal"        element={<VendorPortal />} />
+          {/* Public share-link viewer — token-only auth, no platform-user
+              session needed. Mounts independently of any module. */}
+          <Route path="/share/scenario"       element={<ScenarioShare />} />
           {/* All other modules fall through to GenericModule
               "Coming soon" panel until Phase 4 module implementation ships. */}
           <Route path="/modules/:moduleId/*" element={<GenericModule session={session} activeModule={activeModule} />} />
