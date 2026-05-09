@@ -112,7 +112,7 @@ if ($method === 'POST' && $action === 'commit') {
             'engagement_type'  => $row['engagement_type'],
             'worksite_state'   => $row['worksite_state']  ?? null,
             'worksite_country' => $row['worksite_country']?? null,
-            'remote_policy'    => $row['remote_policy']   ?? null,
+            'remote_policy'    => placementsNormalizeRemotePolicy($row['remote_policy'] ?? null),
             'title'            => $row['title'],
             'end_client_name'  => $row['end_client_name'] ?? null,
             'notes'            => $row['notes']           ?? null,

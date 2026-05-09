@@ -10,6 +10,24 @@
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 
+/**
+ * Allowed values for the placements.remote_policy ENUM. The MySQL column is
+ * NOT NULL-able only — it accepts only these three strings or NULL. Empty
+ * string '' yields SQLSTATE[01000] 1265 "Data truncated" under strict mode
+ * (the frontend's PlacementCreate form initialises the field to '' so the
+ * operator can see "—" by default). All write paths MUST coerce via
+ * placementsNormalizeRemotePolicy() before INSERT/UPDATE.
+ */
+const PLACEMENTS_ALLOWED_REMOTE = ['onsite','hybrid','remote'];
+
+function placementsNormalizeRemotePolicy($v): ?string
+{
+    if ($v === null) return null;
+    $v = trim((string) $v);
+    if ($v === '') return null;
+    return in_array($v, PLACEMENTS_ALLOWED_REMOTE, true) ? $v : null;
+}
+
 function placementsSafeFields(string $alias = 'p'): string
 {
     $cols = ['id','tenant_id','person_id','external_id','status','start_date','end_date',

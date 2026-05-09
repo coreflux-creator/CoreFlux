@@ -22,6 +22,7 @@ $method = api_method();
 
 const ALLOWED_STATUS = ['draft','pending_start','active','on_hold','ended','cancelled'];
 const ALLOWED_ETYPE  = ['w2','1099','c2c','temp_to_perm','direct_hire','internal'];
+const ALLOWED_REMOTE = ['onsite','hybrid','remote'];
 
 if ($method === 'GET') {
     $id = (int) api_query('id', 0);
@@ -100,7 +101,7 @@ if ($method === 'POST') {
         'engagement_type'  => $body['engagement_type'],
         'worksite_state'   => $body['worksite_state']   ?? null,
         'worksite_country' => $body['worksite_country'] ?? null,
-        'remote_policy'    => $body['remote_policy']    ?? null,
+        'remote_policy'    => placementsNormalizeRemotePolicy($body['remote_policy'] ?? null),
         'title'            => $body['title'],
         'end_client_name'  => $body['end_client_name']  ?? null,
         'end_client_company_id' => !empty($body['end_client_company_id']) ? (int) $body['end_client_company_id'] : null,
@@ -159,6 +160,10 @@ if ($method === 'PATCH') {
     }
     if (isset($body['status']) && !in_array($body['status'], ALLOWED_STATUS, true)) {
         api_error('Invalid status', 422);
+    }
+    // Coerce remote_policy '' → null (ENUM rejects empty string).
+    if (array_key_exists('remote_policy', $body)) {
+        $body['remote_policy'] = placementsNormalizeRemotePolicy($body['remote_policy']);
     }
     if (!$body) api_error('No fields to update', 422);
     $rows = scopedUpdate('placements', $id, $body);

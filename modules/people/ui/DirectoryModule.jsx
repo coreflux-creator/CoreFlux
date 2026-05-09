@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Routes, Route, NavLink, Navigate, useNavigate, useParams, Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import ConnectedSourcesBadge from '../../../dashboard/src/components/ConnectedSourcesBadge';
+import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
 
 /**
  * Directory module — shared engine for Clients and Vendors views.
@@ -381,6 +382,10 @@ function DirectoryDetail({ cfg, mode }) {
           ))}
         </tbody>
       </table>
+
+      <div style={{ marginTop: 24 }}>
+        <LinkedExternalSystemsPanel entityType="company" internalId={c.id} />
+      </div>
     </div>
   );
 }

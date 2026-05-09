@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, NavLink, Routes, Route, Navigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import ConnectedSourcesBadge from '../../../dashboard/src/components/ConnectedSourcesBadge';
+import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
 
 /**
  * Person Detail — 7 tabs per SPEC §6:
@@ -29,6 +30,7 @@ export default function PersonDetail({ session }) {
     { slug: 'skills',     label: 'Skills' },
     { slug: 'pipeline',   label: 'Pipeline' },
     { slug: 'compliance', label: 'Compliance' },
+    { slug: 'connections',label: 'Connections' },
     { slug: 'custom',     label: 'Custom fields' },
     ...(canSeePII ? [{ slug: 'pii', label: 'PII' }] : []),
   ];
@@ -89,6 +91,7 @@ export default function PersonDetail({ session }) {
         <Route path="skills"    element={<SkillsTab     personId={person.id} />} />
         <Route path="pipeline"  element={<PipelineTab   personId={person.id} />} />
         <Route path="compliance"element={<ComplianceTab person={person} reload={reload} />} />
+        <Route path="connections" element={<LinkedExternalSystemsPanel entityType="person" internalId={person.id} />} />
         <Route path="custom"    element={<CustomFieldsTab personId={person.id} />} />
         {canSeePII && <Route path="pii" element={<PIITab person={person} reload={reload} />} />}
       </Routes>

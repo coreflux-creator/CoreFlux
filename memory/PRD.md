@@ -470,6 +470,37 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (P1 sweep + bugfix, 2026-02)
+**Cleared the entire P1 backlog: bug fix + Linked External Systems panel + A4 time direction wiring.**
+
+### Bug fix — placements.remote_policy '' truncation
+- Repro: `PlacementCreate` form initialises `remote_policy=''` so the dropdown shows "—". On submit, MySQL ENUM rejected '' with SQLSTATE 1265 "Data truncated for column 'remote_policy'".
+- Fix: new `placementsNormalizeRemotePolicy()` helper in `lib/placements.php` (so the CSV import path can use it without pulling the API file). Coerces '' / null / unknown / non-string → `null`; validates against `PLACEMENTS_ALLOWED_REMOTE = ['onsite','hybrid','remote']`. Wired into POST + PATCH + CSV import paths.
+- `tests/bugfix_placements_remote_policy_coercion_smoke.php` — **17 ✓ / 0 fail**.
+
+### P1 — Linked External Systems mini-panel
+- `dashboard/src/components/LinkedExternalSystemsPanel.jsx` — reusable component. Reads existing A2 endpoint `list_for_internal`. Renders one row per source (JobDiva/Bullhorn/etc.) with status palette (ok/stale/error/deleted_in_source), direction label (pull/push/two-way/off), external_id in monospace, last-synced timestamp. Empty state present so operator knows the panel rendered intentionally.
+- **PersonDetail** — new "Connections" tab in TABS array + `<Route path="connections">`.
+- **Company DirectoryDetail** — inline panel rendered below the Contacts table.
+- `tests/p1_linked_external_systems_panel_smoke.php` — **19 ✓ / 0 fail**.
+
+### P1 — Sprint 8a A4 follow-on: time direction wiring
+- New driver `core/jobdiva/sync_time.php`:
+  - `jobdivaSyncTimePull` — pulls JobDiva timesheets, resolves placement via existing mapping (NO auto-create per user requirement), joins `placements + time_periods` to derive person_id + period_id + work_date, upserts to `time_entries` (tagged source='bulk_upload' so the source enum stays untouched), binds via mapping.
+  - `jobdivaSyncTimePush` — pushes approved + non-superseded entries from last 60 days. Content-hash short-circuit so unchanged entries skip HTTP. PUT-existing / POST-new dispatch. Test transport injection via `$opts['transport']` callable.
+  - `jobdivaSyncUpsertTimeEntry` — respects approval lock (only updates draft/pending_review). New inserts default to `status='draft'`.
+  - `jobdivaMapTimeCategory` / `jobdivaUnmapTimeCategory` — bidirectional category mapping (regular ↔ regular_billable, overtime ↔ OT_billable, PTO → vacation, etc.).
+- `core/jobdiva/sync.php` orchestrator extended:
+  - New `shouldPush` helper (mirrors `shouldPull`).
+  - Time entity dispatched when EITHER `shouldPull` OR `shouldPush` matches; two_way runs both. Lazy-requires `sync_time.php` only when needed.
+  - Time count + by_entity envelope row added.
+- `tests/p1_a4_time_direction_wiring_smoke.php` — **40 ✓ / 0 fail**.
+
+### Validation
+- Full PHP suite: **117 files, 0 failures** (was 114 → +3 new smoke files, zero regressions).
+- Vite rebuilt → `index-C1dU07vD.js` synced. `.deploy-version`: 6 new sentinels + 4 new feature flags.
+
+
 ## Recently completed (Sprint 7g — Slices 2 + 3 + on-demand digest, 2026-02)
 **Per-agent mode (advisory vs auto_log), on-demand "Email me a digest now" button, and a DOW-scheduled weekly digest with idempotent cron — three follow-on slices shipped together since they share the same data + email plumbing.**
 

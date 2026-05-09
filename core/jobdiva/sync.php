@@ -239,9 +239,14 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
     $shouldPull = static function (array $cfg, string $entity): bool {
         $row = $cfg[$entity] ?? null;
         if (!$row) return false;
-        // Pull when source=jobdiva AND direction is pull or two_way.
         return ($row['source'] ?? null) === 'jobdiva'
             && in_array($row['direction'] ?? 'off', ['pull', 'two_way'], true);
+    };
+    $shouldPush = static function (array $cfg, string $entity): bool {
+        $row = $cfg[$entity] ?? null;
+        if (!$row) return false;
+        return ($row['source'] ?? null) === 'coreflux'
+            && in_array($row['direction'] ?? 'off', ['push', 'two_way'], true);
     };
 
     $skipped = []; // entity-types skipped because of config
@@ -264,10 +269,29 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
         $skipped[]  = 'placement';
     }
 
+    // Time direction wiring (Slice A4 follow-on). Pull, push, two_way honored.
+    $timeResult = ['processed' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [], 'skipped_by_config' => true];
+    if ($shouldPull($config, 'time') || $shouldPush($config, 'time')) {
+        require_once __DIR__ . '/sync_time.php';
+        $pull = $shouldPull($config, 'time') ? jobdivaSyncTimePull($tid, $userId, $opts['time'] ?? $opts) : null;
+        $push = $shouldPush($config, 'time') ? jobdivaSyncTimePush($tid, $userId, $opts['time'] ?? $opts) : null;
+        $timeResult = [
+            'processed' => ($pull['processed'] ?? 0) + ($push['processed'] ?? 0),
+            'skipped'   => ($pull['skipped']   ?? 0) + ($push['skipped']   ?? 0),
+            'failed'    => ($pull['failed']    ?? 0) + ($push['failed']    ?? 0),
+            'errors'    => array_merge($pull['errors'] ?? [], $push['errors'] ?? []),
+            'pull'      => $pull,
+            'push'      => $push,
+        ];
+    } else {
+        $skipped[] = 'time';
+    }
+
     $counts = [
         'company'   => $companies['processed'],
         'contact'   => $contacts['processed'],
         'placement' => $placements['processed'],
+        'time'      => $timeResult['processed'],
     ];
     $total      = array_sum($counts);
     $latencyMs  = (int) round((microtime(true) - $start) * 1000);
@@ -286,6 +310,7 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
             'company'   => $companies,
             'contact'   => $contacts,
             'placement' => $placements,
+            'time'      => $timeResult,
         ],
     ];
 }
