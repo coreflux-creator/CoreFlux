@@ -202,8 +202,17 @@ sentinels:
 - core/jobdiva/sync_time.php
 - core/jobdiva/sync.php
 - tests/p1_a4_time_direction_wiring_smoke.php
+- api/liquidity_forecast.php
+- modules/treasury/api/liquidity_forecast.php
+- dashboard/src/pages/LiquidityForecast.jsx
+- modules/treasury/ui/TreasuryModule.jsx
+- core/migrations/024_auto_reversing_accruals.sql
+- modules/accounting/lib/accounting.php
+- api/je_auto_reverse.php
+- scripts/auto_reverse_accruals.php
+- tests/p2_liquidity_and_auto_reverse_smoke.php
 expected_bundle:
-- spa-assets/index-C1dU07vD.js
+- spa-assets/index-BoFWgL5t.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -462,3 +471,10 @@ last_known_features:
 - ui.people.directory_detail.linked_external_systems_panel
 - integrations.jobdiva.sync_time_pull_push_two_way
 - integrations.jobdiva.sync_time_content_hash_short_circuit
+- treasury.liquidity_forecast.endpoint
+- treasury.liquidity_forecast.runway_to_zero_detection
+- treasury.liquidity_forecast.vendor_amount_dedup_heuristic
+- ui.treasury.liquidity_forecast_page
+- accounting.je.auto_reverses_on_column
+- accounting.je.auto_reverse_cron_idempotent
+- accounting.je.auto_reverse_toggle_endpoint

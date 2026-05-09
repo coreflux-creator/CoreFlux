@@ -470,6 +470,32 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
+## Recently completed (P2 — Liquidity Forecast + Auto-reversing accruals, 2026-02)
+**Treasury gets a forward-looking cash projection; accounting gets one-flag-set-and-forget accrual reversal.**
+
+### P2.A — Liquidity Forecast
+- `api/liquidity_forecast.php` — GET-only, RBAC `treasury.payment.view`, `days` clamped 1..365 (default 90).
+  - **Starting cash**: sum of GL balance for accounts mapped to active `accounting_bank_accounts`. Posted JEs only.
+  - **Inflows**: open `billing_invoices` due in window (`amount_due` with `total - amount_paid` fallback). Statuses `approved/sent/partially_paid`.
+  - **Outflows**: `treasury_payments` scheduled in window (statuses `draft/pending_approval/approved/scheduled`) UNION `ap_bills` due in window (`approved/partially_paid/pending_approval`). Vendor-name + amount dedup heuristic so an AP bill wrapped in a treasury payment isn't double-counted.
+  - **Day-by-day projection** with running balance, lowest-balance + lowest-balance-date tracking, `runway_days_to_zero` (first day balance goes negative).
+  - **`guards` envelope** — `has_bank_accounts / has_open_ar / has_open_ap / has_scheduled_payments` so the UI can render operator nudges.
+- `/api/treasury/liquidity-forecast` kebab alias.
+- `dashboard/src/pages/LiquidityForecast.jsx` — page mounted at `/modules/treasury/forecast`. 5 KPI tiles (starting / inflows / outflows / projected ending / lowest balance). Window selector (30/60/90/180 days). Daily bar viz with negative bars in red, zero-line dashed when window goes below zero. Red runway alert banner when `runway_days_to_zero` is set. Amber "no banks configured" nudge when `guards.has_bank_accounts === false`.
+- `TreasuryModule` — new "Liquidity Forecast" tab + `/forecast` route.
+
+### P2.B — Auto-reversing accruals
+- Migration `024_auto_reversing_accruals.sql` — adds `auto_reverses_on DATE`, `auto_reverse_attempted_at TIMESTAMP`, `auto_reverse_last_error VARCHAR(500)` to `accounting_journal_entries` + `idx_aje_auto_reverse (tenant, date, status)` for the cron.
+- `accountingPostJe()` — accepts `auto_reverses_on` field, validates `YYYY-MM-DD` regex, blank/empty coerced to null.
+- `api/je_auto_reverse.php` — POST-only, RBAC `accounting.je.post`. Sets/clears `auto_reverses_on` on a posted, non-reversal JE. Rejects unposted JEs, reversal-of-something JEs, and dates ≤ posting_date.
+- `scripts/auto_reverse_accruals.php` — daily cron. Finds JEs where `auto_reverses_on <= today`, status='posted', `reverses_je_id IS NULL`, AND no entry already reverses it (`NOT EXISTS` clause = idempotent). Calls existing `accountingReverseJe()` helper. Nulls `auto_reverses_on` on success; persists error to `auto_reverse_last_error` on failure. Suggested cron line: `0 6 * * * /usr/bin/php /app/scripts/auto_reverse_accruals.php`.
+
+### Validation
+- `tests/p2_liquidity_and_auto_reverse_smoke.php` — **51 ✓ / 0 fail**: full Liquidity Forecast contract (RBAC, days clamp, GL-driven starting cash, AR/treasury_payments/AP outflow union with vendor+amount dedup, day-by-day projection, runway detection, guards envelope, per-source breakdown), kebab alias, UI (5 tiles + window selector + runway banner + bar chart + no-banks nudge), routing, migration shape, accountingPostJe accepts auto_reverses_on with regex validation, je_auto_reverse endpoint contract (rejects 4 invalid states), cron contract (idempotent NOT EXISTS, helper reuse, success/failure paths).
+- Full PHP suite: **118 files, 0 failures** (was 117 → +1 new smoke file, zero regressions).
+- Vite rebuilt → `index-BoFWgL5t.js` synced. `.deploy-version`: 8 new sentinels + 6 new feature flags.
+
+
 ## Recently completed (P1 sweep + bugfix, 2026-02)
 **Cleared the entire P1 backlog: bug fix + Linked External Systems panel + A4 time direction wiring.**
 

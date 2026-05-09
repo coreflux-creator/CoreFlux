@@ -263,6 +263,15 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
             'total_debit'       => $totalDebit,
             'total_credit'      => $totalCredit,
             'memo'              => $je['memo'] ?? null,
+            // Sprint P2 — when set, the auto_reverse_accruals.php cron will
+            // generate a reversing JE on or after this date, then null it.
+            // Validated as YYYY-MM-DD or null; ignored for non-posted entries
+            // (only posted JEs reverse).
+            'auto_reverses_on'  => (function ($v) {
+                if (empty($v)) return null;
+                $v = (string) $v;
+                return preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) ? $v : null;
+            })($je['auto_reverses_on'] ?? null),
             'posted_at'         => $post ? date('Y-m-d H:i:s') : null,
             'posted_by_user_id' => $post ? $actorUserId : null,
             'created_by_user_id'=> $actorUserId,
