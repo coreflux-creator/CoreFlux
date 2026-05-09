@@ -489,11 +489,16 @@ function aiAgentRunWithMode(int $tenantId, ?int $userId, string $agentKey): arra
 // Slice 3 — Run-all + digest email (on-demand and scheduled).
 // =====================================================================
 
-/** Run every agent in registry order. Returns map keyed by agent. */
-function aiAgentRunAll(int $tenantId, ?int $userId): array
+/** Run every agent in registry order. Returns map keyed by agent.
+ *  Phase A.2 — when $onlyKeys is non-null, only those agents are run. */
+function aiAgentRunAll(int $tenantId, ?int $userId, ?array $onlyKeys = null): array
 {
     $results = [];
-    foreach (array_keys(AI_AGENTS) as $key) {
+    $keys = array_keys(AI_AGENTS);
+    if ($onlyKeys !== null) {
+        $keys = array_values(array_filter($keys, fn ($k) => in_array($k, $onlyKeys, true)));
+    }
+    foreach ($keys as $key) {
         try {
             $results[$key] = ['ok' => true, 'envelope' => aiAgentRunWithMode($tenantId, $userId, $key)];
         } catch (\Throwable $e) {
@@ -503,8 +508,91 @@ function aiAgentRunAll(int $tenantId, ?int $userId): array
     return $results;
 }
 
-/** Build a tenant-safe HTML digest from a run-all result map. */
-function aiAgentBuildDigestHtml(array $runAllResults): array
+/**
+ * Phase A.4 — persist a per-agent context snapshot so the next digest can
+ * compute "last week's bucket → this week's bucket" deltas. Best-effort —
+ * a write failure must never block the digest send.
+ */
+function aiAgentContextSnapshotWrite(int $tenantId, string $agentKey, array $context): void
+{
+    if (!isset(AI_AGENTS[$agentKey])) return;
+    try {
+        getDB()->prepare(
+            'INSERT INTO ai_agent_context_snapshots (tenant_id, agent_key, context_json)
+             VALUES (:t, :k, :c)'
+        )->execute([
+            't' => $tenantId,
+            'k' => $agentKey,
+            'c' => json_encode($context, JSON_UNESCAPED_SLASHES),
+        ]);
+    } catch (\Throwable $e) {
+        error_log('[ai_agents] snapshot write failed: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Read the most recent snapshot strictly older than $cutoff (default 6
+ * days ago to match the weekly cadence). Returns the decoded context
+ * array or null.
+ */
+function aiAgentContextSnapshotPrior(int $tenantId, string $agentKey, ?string $cutoff = null): ?array
+{
+    $cutoff = $cutoff ?: date('Y-m-d H:i:s', strtotime('-6 days'));
+    try {
+        $stmt = getDB()->prepare(
+            'SELECT context_json FROM ai_agent_context_snapshots
+              WHERE tenant_id = :t AND agent_key = :k AND snapshot_at < :c
+              ORDER BY snapshot_at DESC LIMIT 1'
+        );
+        $stmt->execute(['t' => $tenantId, 'k' => $agentKey, 'c' => $cutoff]);
+        $row = $stmt->fetchColumn();
+        if (!$row) return null;
+        $arr = json_decode((string) $row, true);
+        return is_array($arr) ? $arr : null;
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+/**
+ * Phase A.4 — flatten two qualitative-bucket context arrays into a list of
+ * "{key}: {prior bucket} → {current bucket}" diff lines. Skips identical
+ * values, recurses one level deep into nested arrays (the CFO context
+ * stitches books + treasury), and falls back to scalar comparison.
+ *
+ * @return array<int,string>
+ */
+function aiAgentBucketDiff(array $prior, array $current, string $prefix = ''): array
+{
+    $lines = [];
+    $keys  = array_unique(array_merge(array_keys($prior), array_keys($current)));
+    foreach ($keys as $k) {
+        $pv = $prior[$k]   ?? null;
+        $cv = $current[$k] ?? null;
+        $label = $prefix === '' ? (string) $k : $prefix . '.' . $k;
+        if (is_array($pv) || is_array($cv)) {
+            $lines = array_merge(
+                $lines,
+                aiAgentBucketDiff(is_array($pv) ? $pv : [], is_array($cv) ? $cv : [], $label)
+            );
+            continue;
+        }
+        if ($pv === $cv) continue;
+        $pStr = $pv === null ? '—' : (string) $pv;
+        $cStr = $cv === null ? '—' : (string) $cv;
+        $lines[] = $label . ': ' . $pStr . ' → ' . $cStr;
+    }
+    return $lines;
+}
+
+/** Build a tenant-safe HTML digest from a run-all result map.
+ *
+ *  Phase A.3 — accepts $intro override (sanitised on render).
+ *  Phase A.4 — accepts $diffsByAgent (map of agent_key → array of diff
+ *              line strings) so each section can show what's changed
+ *              versus last week before the narrative.
+ */
+function aiAgentBuildDigestHtml(array $runAllResults, ?string $intro = null, array $diffsByAgent = []): array
 {
     $sections = [];
     $textParts = [];
@@ -512,13 +600,31 @@ function aiAgentBuildDigestHtml(array $runAllResults): array
         if (!isset(AI_AGENTS[$key])) continue;
         $agent = AI_AGENTS[$key];
         $title = htmlspecialchars($agent['label'], ENT_QUOTES, 'UTF-8');
+        $diffHtml = '';
+        $diffText = '';
+        $diffs = $diffsByAgent[$key] ?? [];
+        if ($diffs) {
+            $items = '';
+            $textBullets = '';
+            foreach ($diffs as $line) {
+                $safe = htmlspecialchars((string) $line, ENT_QUOTES, 'UTF-8');
+                $items       .= "<li style=\"color:#475569;\">{$safe}</li>";
+                $textBullets .= "  - {$line}\n";
+            }
+            $diffHtml = "<div style=\"margin:6px 0 8px;padding:8px 12px;background:#f5f3ff;border-left:3px solid #7c3aed;border-radius:4px;\">"
+                      . "<div style=\"font-size:11px;color:#5b21b6;text-transform:uppercase;letter-spacing:0.04em;font-weight:600;margin-bottom:4px;\">Changed since last week</div>"
+                      . "<ul style=\"margin:0;padding-left:18px;font-size:12px;font-family:system-ui;\">{$items}</ul>"
+                      . "</div>";
+            $diffText = "Changed since last week:\n{$textBullets}\n";
+        }
         if (!empty($row['ok']) && !empty($row['envelope']['content'])) {
             $body = (string) $row['envelope']['content'];
             $sections[] = "<h3 style=\"margin:24px 0 6px;font-family:system-ui;\">{$title}</h3>"
+                       . $diffHtml
                        . "<div style=\"font-family:system-ui;line-height:1.55;color:#1e293b;font-size:14px;\">"
                        . nl2br(htmlspecialchars($body, ENT_QUOTES, 'UTF-8'))
                        . "</div>";
-            $textParts[] = "## {$agent['label']}\n\n{$body}\n";
+            $textParts[] = "## {$agent['label']}\n\n{$diffText}{$body}\n";
         } else {
             $err = htmlspecialchars((string) ($row['error'] ?? 'unknown'), ENT_QUOTES, 'UTF-8');
             $sections[] = "<h3 style=\"margin:24px 0 6px;font-family:system-ui;color:#94a3b8;\">{$title}</h3>"
@@ -526,9 +632,11 @@ function aiAgentBuildDigestHtml(array $runAllResults): array
             $textParts[] = "## {$agent['label']}\n\n(skipped: {$err})\n";
         }
     }
+    $defaultIntro = 'Five advisory perspectives on your books, treasury, and tax position.';
+    $introHtml = htmlspecialchars($intro !== null && $intro !== '' ? $intro : $defaultIntro, ENT_QUOTES, 'UTF-8');
     $html = "<div style=\"max-width:640px;margin:auto;padding:20px;\">"
           . "<h2 style=\"font-family:system-ui;color:#5b21b6;margin:0 0 4px;\">Your weekly AI Agent digest</h2>"
-          . "<p style=\"font-family:system-ui;color:#64748b;font-size:13px;margin:0 0 16px;\">Five advisory perspectives on your books, treasury, and tax position.</p>"
+          . "<p style=\"font-family:system-ui;color:#64748b;font-size:13px;margin:0 0 16px;\">" . nl2br($introHtml) . "</p>"
           . implode('', $sections)
           . "<hr style=\"margin:24px 0;border:0;border-top:1px solid #e2e8f0;\" />"
           . "<p style=\"font-family:system-ui;color:#94a3b8;font-size:11px;\">Generated by CoreFlux AI Agents. Reply to this email to reach your tenant administrator.</p>"
@@ -540,7 +648,8 @@ function aiAgentBuildDigestHtml(array $runAllResults): array
 function aiAgentDigestRead(int $tenantId): array
 {
     $stmt = getDB()->prepare(
-        'SELECT enabled, recipients, send_dow, last_sent_at, last_send_error
+        'SELECT enabled, recipients, send_dow, last_sent_at, last_send_error,
+                included_agents, subject_override, intro_override
            FROM ai_agent_digest_settings WHERE tenant_id = :t LIMIT 1'
     );
     $stmt->execute(['t' => $tenantId]);
@@ -549,14 +658,30 @@ function aiAgentDigestRead(int $tenantId): array
         return [
             'enabled' => false, 'recipients' => null, 'send_dow' => 1,
             'last_sent_at' => null, 'last_send_error' => null,
+            'included_agents'  => null,
+            'subject_override' => null,
+            'intro_override'   => null,
         ];
     }
+    $included = null;
+    if (!empty($row['included_agents'])) {
+        $decoded = json_decode((string) $row['included_agents'], true);
+        if (is_array($decoded)) {
+            // Filter to known agent keys only — defends against stale rows
+            // when an agent is removed from the registry.
+            $included = array_values(array_filter($decoded, fn ($k) => isset(AI_AGENTS[(string) $k])));
+            if (!$included) $included = null;
+        }
+    }
     return [
-        'enabled'         => (bool) (int) $row['enabled'],
-        'recipients'      => $row['recipients'] ?: null,
-        'send_dow'        => (int) $row['send_dow'],
-        'last_sent_at'    => $row['last_sent_at'],
-        'last_send_error' => $row['last_send_error'],
+        'enabled'          => (bool) (int) $row['enabled'],
+        'recipients'       => $row['recipients'] ?: null,
+        'send_dow'         => (int) $row['send_dow'],
+        'last_sent_at'     => $row['last_sent_at'],
+        'last_send_error'  => $row['last_send_error'],
+        'included_agents'  => $included,
+        'subject_override' => $row['subject_override'] ?: null,
+        'intro_override'   => $row['intro_override'] ?: null,
     ];
 }
 
@@ -578,18 +703,67 @@ function aiAgentDigestWrite(int $tenantId, array $patch): array
     if ($sendDow < 1 || $sendDow > 7) {
         throw new \InvalidArgumentException('send_dow must be 1..7 (Mon..Sun)');
     }
+
+    // Phase A.2 — included_agents whitelist. Empty/missing → null = "all".
+    $includedJson = null;
+    if (array_key_exists('included_agents', $patch)) {
+        $raw = $patch['included_agents'];
+        if ($raw === null || $raw === '' || $raw === []) {
+            $includedJson = null;
+        } else {
+            if (!is_array($raw)) throw new \InvalidArgumentException('included_agents must be an array');
+            $clean = [];
+            foreach ($raw as $k) {
+                $k = (string) $k;
+                if (!isset(AI_AGENTS[$k])) {
+                    throw new \InvalidArgumentException('Unknown agent in included_agents: ' . $k);
+                }
+                $clean[$k] = true; // dedupe
+            }
+            $clean = array_keys($clean);
+            $includedJson = $clean ? json_encode($clean, JSON_UNESCAPED_SLASHES) : null;
+        }
+    } else {
+        $includedJson = $current['included_agents'] ? json_encode($current['included_agents']) : null;
+    }
+
+    // Phase A.3 — subject + intro overrides. Trimmed, length-capped, and
+    // header-injection-guarded for the subject line.
+    $subjectOverride = array_key_exists('subject_override', $patch)
+        ? trim((string) $patch['subject_override']) : ($current['subject_override'] ?? '');
+    if ($subjectOverride !== '') {
+        if (strlen($subjectOverride) > 200) {
+            throw new \InvalidArgumentException('subject_override max 200 chars');
+        }
+        if (preg_match("/[\r\n]/", $subjectOverride)) {
+            throw new \InvalidArgumentException('subject_override cannot contain line breaks');
+        }
+    }
+    $introOverride = array_key_exists('intro_override', $patch)
+        ? trim((string) $patch['intro_override']) : ($current['intro_override'] ?? '');
+    if ($introOverride !== '' && strlen($introOverride) > 1000) {
+        throw new \InvalidArgumentException('intro_override max 1000 chars');
+    }
+
     getDB()->prepare(
-        'INSERT INTO ai_agent_digest_settings (tenant_id, enabled, recipients, send_dow)
-         VALUES (:t, :e, :r, :d)
+        'INSERT INTO ai_agent_digest_settings
+             (tenant_id, enabled, recipients, send_dow, included_agents, subject_override, intro_override)
+         VALUES (:t, :e, :r, :d, :inc, :sub, :int)
          ON DUPLICATE KEY UPDATE
-             enabled    = VALUES(enabled),
-             recipients = VALUES(recipients),
-             send_dow   = VALUES(send_dow)'
+             enabled          = VALUES(enabled),
+             recipients       = VALUES(recipients),
+             send_dow         = VALUES(send_dow),
+             included_agents  = VALUES(included_agents),
+             subject_override = VALUES(subject_override),
+             intro_override   = VALUES(intro_override)'
     )->execute([
-        't' => $tenantId,
-        'e' => $enabled ? 1 : 0,
-        'r' => $recipients !== '' ? $recipients : null,
-        'd' => $sendDow,
+        't'   => $tenantId,
+        'e'   => $enabled ? 1 : 0,
+        'r'   => $recipients !== '' ? $recipients : null,
+        'd'   => $sendDow,
+        'inc' => $includedJson,
+        'sub' => $subjectOverride !== '' ? $subjectOverride : null,
+        'int' => $introOverride   !== '' ? $introOverride   : null,
     ]);
     return aiAgentDigestRead($tenantId);
 }
@@ -617,24 +791,64 @@ function aiAgentDigestRecipients(int $tenantId): array
 /**
  * Send a digest email RIGHT NOW. Used by both the on-demand button and the
  * weekly cron. Updates ai_agent_digest_settings.last_sent_at on success.
+ *
+ * Phase A.2 — when `included_agents` is set on the digest config, only
+ *             those agents run.
+ * Phase A.3 — subject + intro can be tenant-overridden.
+ * Phase A.4 — each agent's prior-week context snapshot is loaded BEFORE
+ *             the run; after the run the new context is snapshotted and
+ *             the diff is rendered into each section.
  */
 function aiAgentDigestSend(int $tenantId, ?int $userId): array
 {
     require_once __DIR__ . '/mailer.php';
     require_once __DIR__ . '/tenant_mail.php';
 
+    $cfg = aiAgentDigestRead($tenantId);
     $recipients = aiAgentDigestRecipients($tenantId);
     if (!$recipients) {
         throw new \RuntimeException('No digest recipients configured and no master_admin email found.');
     }
 
-    $results = aiAgentRunAll($tenantId, $userId);
-    $rendered = aiAgentBuildDigestHtml($results);
+    $onlyKeys = $cfg['included_agents']; // null → run all
+    $keysToRun = $onlyKeys ?? array_keys(AI_AGENTS);
+
+    // Phase A.4 — read the prior-week snapshot for each agent BEFORE we
+    // overwrite it with this week's context.
+    $priorContexts = [];
+    foreach ($keysToRun as $k) {
+        $priorContexts[$k] = aiAgentContextSnapshotPrior($tenantId, $k) ?? [];
+    }
+
+    $results = aiAgentRunAll($tenantId, $userId, $onlyKeys);
+
+    // Snapshot this week's context AFTER the run + compute diffs for the
+    // template. Snapshot writes are best-effort and never throw.
+    $diffs = [];
+    foreach ($keysToRun as $k) {
+        if (!isset(AI_AGENTS[$k])) continue;
+        try {
+            $contextFn = AI_AGENTS[$k]['context_fn'];
+            if (function_exists($contextFn)) {
+                $current = $contextFn($tenantId);
+                aiAgentContextSnapshotWrite($tenantId, $k, $current);
+                if (!empty($priorContexts[$k])) {
+                    $diffs[$k] = aiAgentBucketDiff($priorContexts[$k], $current);
+                }
+            }
+        } catch (\Throwable $e) {
+            // Diffing is supplementary — never block the send.
+            error_log('[ai_agents] context diff failed for ' . $k . ': ' . $e->getMessage());
+        }
+    }
+
+    $rendered = aiAgentBuildDigestHtml($results, $cfg['intro_override'], $diffs);
+    $subject  = $cfg['subject_override'] ?: 'Your weekly AI Agent digest';
 
     $sender = cf_tenant_mail_sender($tenantId, 'ai_agents');
     $resp = sendEmail([
         'to'         => $recipients,
-        'subject'    => 'Your weekly AI Agent digest',
+        'subject'    => $subject,
         'body_html'  => $rendered['html'],
         'body_text'  => $rendered['text'],
         'from_email' => $sender['from']      ?? null,
@@ -651,6 +865,7 @@ function aiAgentDigestSend(int $tenantId, ?int $userId): array
     return [
         'ok'         => true,
         'recipients' => $recipients,
+        'subject'    => $subject,
         'message_id' => $resp['message_id'] ?? null,
         'agent_results' => array_map(static function ($r) {
             return ['ok' => (bool) ($r['ok'] ?? false)];

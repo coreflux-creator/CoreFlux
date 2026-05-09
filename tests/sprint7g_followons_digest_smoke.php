@@ -72,7 +72,7 @@ $assert('aiAgentRunWithMode auto-log is best-effort (catch Throwable)',
     preg_match('/auto_log.*?catch \(\\\\?Throwable/s', $lib) === 1);
 
 echo "\nDigest builder + sender\n";
-$assert('aiAgentRunAll iterates registry order',   strpos($lib, 'foreach (array_keys(AI_AGENTS) as $key) {') !== false);
+$assert('aiAgentRunAll iterates registry order',   strpos($lib, '$keys = array_keys(AI_AGENTS);') !== false);
 $assert('aiAgentRunAll captures per-agent error', strpos($lib, "'ok' => false, 'error' => \$e->getMessage()") !== false);
 $assert('aiAgentBuildDigestHtml exists',          strpos($lib, 'function aiAgentBuildDigestHtml(') !== false);
 $assert('digest HTML escapes labels with htmlspecialchars',

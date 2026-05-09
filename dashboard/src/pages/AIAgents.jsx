@@ -45,7 +45,12 @@ export default function AIAgents() {
   if (error)   return <p className="error" data-testid="ai-agents-error">{error.message}</p>;
 
   const agents = data?.agents ?? [];
-  const digest = data?.digest ?? { enabled: false, recipients: null, send_dow: 1, last_sent_at: null };
+  const digest = data?.digest ?? { enabled: false, recipients: null, send_dow: 1, last_sent_at: null,
+                                   included_agents: null, subject_override: null, intro_override: null };
+  const allAgentKeys = agents.map(a => a.key);
+  const includedSet = new Set(digest.included_agents ?? allAgentKeys);
+  const includesAll = !digest.included_agents || digest.included_agents.length === 0
+                      || allAgentKeys.every(k => includedSet.has(k));
 
   const runAgent = async (key) => {
     setBusy(b => ({ ...b, [key]: true }));
@@ -167,6 +172,77 @@ export default function AIAgents() {
                  className="input"
                  style={{ flex: 1, minWidth: 220, fontSize: 12, padding: '4px 8px' }} />
         </div>
+
+        {/* Phase A.2 — per-agent inclusion picker. Empty list = all agents
+            (existing behaviour). The "All agents" pseudo-checkbox restores
+            the default when ticked. */}
+        <div data-testid="ai-agents-digest-included-picker" style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 11, color: '#5b21b6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+            Include in digest
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <label data-testid="ai-agents-digest-include-all"
+                   style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '4px 8px',
+                            background: includesAll ? '#7c3aed' : '#fff',
+                            color: includesAll ? '#fff' : '#5b21b6',
+                            border: '1px solid #c4b5fd', borderRadius: 999, cursor: 'pointer' }}>
+              <input type="checkbox" checked={includesAll} disabled={busy.digest}
+                     onChange={() => setDigest({ included_agents: null })}
+                     style={{ display: 'none' }} />
+              All agents
+            </label>
+            {agents.map(a => {
+              const checked = !includesAll && includedSet.has(a.key);
+              return (
+                <label key={a.key}
+                       data-testid={`ai-agents-digest-include-${a.key}`}
+                       style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '4px 8px',
+                                background: checked ? '#7c3aed' : '#fff',
+                                color: checked ? '#fff' : '#5b21b6',
+                                border: '1px solid #c4b5fd', borderRadius: 999, cursor: 'pointer' }}>
+                  <input type="checkbox"
+                         checked={checked}
+                         disabled={busy.digest}
+                         onChange={() => {
+                           const baseList = includesAll ? allAgentKeys : Array.from(includedSet);
+                           const next = checked
+                             ? baseList.filter(k => k !== a.key)
+                             : Array.from(new Set([...baseList, a.key]));
+                           setDigest({ included_agents: next.length === allAgentKeys.length ? null : next });
+                         }}
+                         style={{ display: 'none' }} />
+                  {a.label}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Phase A.3 — subject + intro overrides. Empty defers to platform
+            defaults so tenants who don't care never see them. */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+          <input data-testid="ai-agents-digest-subject-override"
+                 type="text" placeholder="Subject line override (optional)"
+                 defaultValue={digest.subject_override || ''}
+                 onBlur={e => {
+                   const v = e.target.value.trim();
+                   if (v !== (digest.subject_override || '')) setDigest({ subject_override: v });
+                 }}
+                 maxLength={200}
+                 className="input"
+                 style={{ flex: 1, minWidth: 220, fontSize: 12, padding: '4px 8px' }} />
+        </div>
+        <textarea data-testid="ai-agents-digest-intro-override"
+                  placeholder="Custom intro line (optional, replaces the default lead-in)"
+                  defaultValue={digest.intro_override || ''}
+                  onBlur={e => {
+                    const v = e.target.value.trim();
+                    if (v !== (digest.intro_override || '')) setDigest({ intro_override: v });
+                  }}
+                  maxLength={1000}
+                  rows={2}
+                  className="input"
+                  style={{ width: '100%', marginTop: 8, fontSize: 12, padding: '6px 8px', resize: 'vertical' }} />
 
         {digest.last_sent_at && (
           <p data-testid="ai-agents-digest-last-sent"

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { api } from '../lib/api';
-import { Wallet, Plus, Trash2, TrendingUp, TrendingDown, AlertTriangle, FlaskConical } from 'lucide-react';
+import { Wallet, Plus, Trash2, TrendingUp, TrendingDown, AlertTriangle, FlaskConical, Wand2 } from 'lucide-react';
 
 /**
  * Treasury What-If Scenario Builder.
@@ -11,6 +11,78 @@ import { Wallet, Plus, Trash2, TrendingUp, TrendingDown, AlertTriangle, FlaskCon
  * panels use — different surface, different question.
  */
 const today = () => new Date().toISOString().slice(0, 10);
+
+// Date math helpers — return YYYY-MM-DD for "+N days" / "Nth of month +M".
+const addDays = (n) => {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+const monthAhead = (m, day = 1) => {
+  const d = new Date();
+  d.setMonth(d.getMonth() + m, day);
+  return d.toISOString().slice(0, 10);
+};
+
+/**
+ * Scenario presets — one-click templated event lists. Each preset returns
+ * a fresh array of events using relative dates so it always lands inside
+ * the active forecast window.
+ */
+const SCENARIO_PRESETS = [
+  {
+    key: 'hire_contractors',
+    label: 'Hire 3 contractors',
+    description: '$10k/mo x 3 months, paid first of month',
+    build: () => [
+      { kind: 'outflow', amount: 30000, date: monthAhead(1), label: 'Contractor payroll mo 1' },
+      { kind: 'outflow', amount: 30000, date: monthAhead(2), label: 'Contractor payroll mo 2' },
+      { kind: 'outflow', amount: 30000, date: monthAhead(3), label: 'Contractor payroll mo 3' },
+    ],
+  },
+  {
+    key: 'lose_big_customer',
+    label: 'Lose biggest customer',
+    description: 'Removes $50k/mo expected inflows for 3 months',
+    build: () => [
+      { kind: 'outflow', amount: 50000, date: monthAhead(1), label: 'Lost revenue mo 1 (was inflow)' },
+      { kind: 'outflow', amount: 50000, date: monthAhead(2), label: 'Lost revenue mo 2 (was inflow)' },
+      { kind: 'outflow', amount: 50000, date: monthAhead(3), label: 'Lost revenue mo 3 (was inflow)' },
+    ],
+  },
+  {
+    key: 'delay_ap_30',
+    label: 'Delay vendor pay 30d',
+    description: 'Defer AP by stacking +$25k outflows in months 2-4',
+    build: () => [
+      { kind: 'outflow', amount: 25000, date: monthAhead(2, 15), label: 'Deferred AP wave 1' },
+      { kind: 'outflow', amount: 25000, date: monthAhead(3, 15), label: 'Deferred AP wave 2' },
+      { kind: 'outflow', amount: 25000, date: monthAhead(4, 15), label: 'Deferred AP wave 3' },
+    ],
+  },
+  {
+    key: 'tax_payment',
+    label: 'Quarterly tax payment',
+    description: '$50k single outflow 60 days out',
+    build: () => [
+      { kind: 'outflow', amount: 50000, date: addDays(60), label: 'Estimated tax (1040-ES Q)' },
+    ],
+  },
+  {
+    key: 'term_loan',
+    label: 'Take a $250k term loan',
+    description: '+$250k now, $5k/mo for next 6 months',
+    build: () => [
+      { kind: 'inflow',  amount: 250000, date: today(),       label: 'Term loan funded' },
+      { kind: 'outflow', amount: 5000,   date: monthAhead(1), label: 'Loan payment mo 1' },
+      { kind: 'outflow', amount: 5000,   date: monthAhead(2), label: 'Loan payment mo 2' },
+      { kind: 'outflow', amount: 5000,   date: monthAhead(3), label: 'Loan payment mo 3' },
+      { kind: 'outflow', amount: 5000,   date: monthAhead(4), label: 'Loan payment mo 4' },
+      { kind: 'outflow', amount: 5000,   date: monthAhead(5), label: 'Loan payment mo 5' },
+      { kind: 'outflow', amount: 5000,   date: monthAhead(6), label: 'Loan payment mo 6' },
+    ],
+  },
+];
 
 const fmt = (n) =>
   n == null ? '—' : '$' + Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
@@ -69,6 +141,18 @@ export default function TreasuryScenario() {
     run(next, days);
   };
 
+  const applyPreset = (preset) => {
+    const built = preset.build();
+    const next = [...events, ...built];
+    setEvents(next);
+    run(next, days);
+  };
+
+  const clearAll = () => {
+    setEvents([]);
+    run([], days);
+  };
+
   const onWindowChange = (newDays) => {
     setDays(newDays);
     run(events, newDays);
@@ -120,6 +204,37 @@ export default function TreasuryScenario() {
           ⚠ No active bank accounts found — the projection starts from a $0 cash position. Connect a bank to anchor it to your real balance.
         </div>
       )}
+
+      {/* Scenario presets — one-click templated event lists. */}
+      <div data-testid="scenario-presets-bar"
+           style={{ padding: 14, border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <Wand2 size={14} color="#7c3aed" />
+          <strong style={{ fontSize: 12, color: '#5b21b6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Start from a preset
+          </strong>
+          {events.length > 0 && (
+            <button data-testid="scenario-clear-all" onClick={clearAll}
+                    style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 10px', background: 'transparent',
+                             border: '1px solid #e2e8f0', borderRadius: 6, color: '#64748b', cursor: 'pointer' }}>
+              Clear all events
+            </button>
+          )}
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {SCENARIO_PRESETS.map((p) => (
+            <button key={p.key}
+                    data-testid={`scenario-preset-${p.key}`}
+                    onClick={() => applyPreset(p)}
+                    style={{ padding: '8px 12px', border: '1px solid #c4b5fd', borderRadius: 8,
+                             background: '#fff', cursor: 'pointer', textAlign: 'left',
+                             display: 'flex', flexDirection: 'column', gap: 2, minWidth: 200 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#5b21b6' }}>{p.label}</span>
+              <span style={{ fontSize: 11, color: '#64748b' }}>{p.description}</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Add-event composer */}
       <div data-testid="scenario-event-composer"

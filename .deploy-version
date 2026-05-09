@@ -222,8 +222,11 @@ sentinels:
 - modules/treasury/api/scenario.php
 - dashboard/src/pages/TreasuryScenario.jsx
 - tests/p3_treasury_scenario_smoke.php
+- core/migrations/025_ai_digest_customization.sql
+- tests/sprint7g_a234_digest_customization_smoke.php
+- tests/scenario_presets_smoke.php
 expected_bundle:
-- spa-assets/index-BDx-69AV.js
+- spa-assets/index-DseVsi-A.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -499,3 +502,9 @@ last_known_features:
 - treasury.scenario.what_if_event_stack
 - treasury.scenario.shared_projection_engine
 - treasury.scenario.dual_baseline_simulated_chart
+- treasury.scenario.presets_one_click_templates
+- ai.digest.included_agents_per_tenant_picker
+- ai.digest.subject_override_per_tenant
+- ai.digest.intro_override_per_tenant
+- ai.digest.context_snapshot_table
+- ai.digest.week_over_week_bucket_diff

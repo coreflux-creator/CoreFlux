@@ -470,8 +470,8 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - [ ] AWS S3 setup: user follows `/app/memory/AWS_SETUP_GUIDE.md` to flip `STORAGE_DRIVER=local` → `STORAGE_DRIVER=s3` in production. Non-blocking; LocalDriver covers dev.
 - [ ] Azure AD app registered (`d5d81312-faf4-47ba-a001-d9a090415baa`, multitenant). Client secret + Mail.Read/Mail.Send/MailboxSettings.Read/offline_access permissions deferred until real M365GraphDriver is wired (Phase 3b-real, when Time module ships).
 
-## Recently completed (Phase A.0/A.1 + bugfix + P0 AP Liquidity + What-If Scenario, 2026-02 — current fork)
-**Tax agent split into 4 honest sub-agents, AI Agents promoted to a top-level platform feature, missing placement_client_chain columns migrated, inline AP "what-if" liquidity panel on every Bill detail page, AND a brand-new multi-event Scenario Builder so finance leadership can stack hypothetical inflows/outflows and see the combined runway impact in one view.**
+## Recently completed (Phase A.0/A.1 + bugfix + P0 AP Liquidity + What-If Scenario + Digest Customization, 2026-02 — current fork)
+**Tax agent split into 4 honest sub-agents, AI Agents promoted to a top-level platform feature, missing placement_client_chain columns migrated, inline AP "what-if" liquidity panel on every Bill detail page, multi-event Scenario Builder (with one-click presets) so finance leadership can stack hypothetical cash events, AND full digest customization — per-tenant agent picker, subject + intro overrides, week-over-week qualitative bucket diffs.**
 
 ### Bug fix — placement_client_chain missing columns
 - Production hit `Database column 'updated_at' is missing — a migration probably needs to run.` whenever a tenant opened a placement detail page (which calls `placementChain()` in `lib/placements.php`).
@@ -512,6 +512,32 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Page** `dashboard/src/pages/TreasuryScenario.jsx` mounted at `/modules/treasury/scenario`. Auto-runs the baseline on mount so the operator sees their current trajectory immediately. Add-event composer (kind / amount / date with `min={today}` guard / optional label) → list of stacked events with per-row remove → KPI tiles (Starting / Baseline ending / Simulated ending / Lowest-balance shift / Net event impact, color-coded green/red on direction) → red runway-loss banner (with simulated runway days) OR green "✓ stays positive across the X-day horizon" affirmation → dual-bar chart (slate baseline vs purple simulated, red bars when negative). Window selector 30/60/90/180.
 - TreasuryModule — new "What-If Scenario" tab + `/scenario` route alongside the existing Liquidity Forecast.
 - `tests/p3_treasury_scenario_smoke.php` — **61 ✓ / 0 fail**: shared engine surface, endpoint contract (RBAC, POST+GET, validation, 50-event cap, date format + clamp, days clamp), full response envelope, kebab alias, every page testid (composer + per-event row template + summary tiles + chart + runway alert + safe banner + no-banks nudge), routing.
+
+### Scenario Presets — one-click templated event lists (enhancement, same release)
+- `dashboard/src/pages/TreasuryScenario.jsx` — `SCENARIO_PRESETS` catalog with 5 turnkey scenarios:
+  - **Hire 3 contractors** — $10k/mo for 3 months from month-+1.
+  - **Lose biggest customer** — $50k outflow/mo for 3 months (representing lost AR).
+  - **Delay vendor pay 30d** — 3 deferred AP waves of $25k from month-+2 onward.
+  - **Quarterly tax payment** — single $50k outflow 60 days out.
+  - **Take a $250k term loan** — immediate $250k inflow + $5k/mo principal payments for 6 months.
+- All preset dates use relative helpers (`addDays`, `monthAhead`) so they always land inside the active forecast window — preset never goes stale.
+- `applyPreset` is **additive** (events stack on top of any prior events the operator has already added). New "Clear all events" button surfaces only when there's something to clear.
+- `tests/scenario_presets_smoke.php` — **24 ✓ / 0 fail**: catalog declaration, 5 named presets, relative-date math, additive `applyPreset`, `clearAll` reset, every preset-button + bar-root testid.
+
+### AI Digest Customization — Phase A.2 + A.3 + A.4 (same release)
+- **Migration `025_ai_digest_customization.sql`** — three idempotent ALTERs on `ai_agent_digest_settings` (`included_agents JSON`, `subject_override VARCHAR(200)`, `intro_override VARCHAR(1000)`) + a new `ai_agent_context_snapshots` table for the week-over-week diff engine.
+- **Phase A.2 — per-tenant agent picker.** `aiAgentDigestRead` decodes the JSON column and filters out stale/unknown agent keys (defends against agents being removed from the registry post-config). `aiAgentDigestWrite` validates the array, dedupes via key map, rejects unknown keys with a typed `InvalidArgumentException`. Empty array / null = "all agents" (existing behaviour preserved). `aiAgentRunAll` accepts an `?array $onlyKeys` filter; `aiAgentDigestSend` threads the picker through.
+- **Phase A.3 — subject + intro overrides.** Writer trims, length-caps (200 / 1000), rejects header injection (`\r\n`) in the subject. `aiAgentBuildDigestHtml` accepts an `?string $intro` parameter and `htmlspecialchars`-escapes it on render (no XSS). `aiAgentDigestSend` swaps the platform-default subject for the tenant override when set; the response envelope echoes the effective subject so the UI can show it.
+- **Phase A.4 — week-over-week bucket diffs.** New helpers `aiAgentContextSnapshotWrite`, `aiAgentContextSnapshotPrior` (default cutoff = 6 days ago, matching the weekly cadence), `aiAgentBucketDiff` (recurses one level deep so the CFO context's `books`/`treasury` sub-trees diff cleanly, skips identical values, surfaces "key: prior → current" lines). `aiAgentDigestSend` reads the prior-week snapshot **before** running, persists this week's snapshot **after**, then threads diffs into the template. Each digest section now opens with a purple "Changed since last week" callout (escaped) listing only the buckets that actually moved.
+- **`AIAgents.jsx` UI** — three new controls in the Digest panel:
+  - Pill-style chip picker with an "All agents" pseudo-toggle and one chip per agent. Toggling individual chips peels the tenant off the "all" default; toggling "All" restores the default. Auto-saves.
+  - Subject override `<input maxLength=200>` with autosave-on-blur.
+  - Intro override `<textarea maxLength=1000 rows=2>` with autosave-on-blur.
+- `tests/sprint7g_a234_digest_customization_smoke.php` — **51 ✓ / 0 fail**: migration shape, Phase A.2 reader/writer/runAll filter, Phase A.3 length caps + header-injection guard + intro/subject threading through send pipeline, Phase A.4 snapshot writer (best-effort), prior reader (cutoff math), `aiAgentBucketDiff` recursion, digest-send snapshot-before/snapshot-after ordering + "Changed since last week" template render, full UI testid coverage.
+
+### Validation
+- Full PHP suite: **124 files, 0 failures** (was 118 → +6 new smoke files; zero regressions).
+- Vite rebuilt → `index-DseVsi-A.js` / `index-Cwhpy62y.css` synced. `.deploy-version`: 8 new sentinels + 7 new feature flags.
 
 
 ## Recently completed (P2 — Liquidity Forecast + Auto-reversing accruals, 2026-02)
