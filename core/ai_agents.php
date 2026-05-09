@@ -29,6 +29,8 @@ const AI_AGENTS = [
         'feature_class'=> 'narrative',
         'feature_key'  => 'agent.bookkeeper.health_review',
         'kind'         => 'narrative',
+        'domain'       => ['accounting'],
+        'modules'      => ['accounting'],
         'system'       => 'You are an experienced staff accountant reviewing a small-business set of books. Speak in plain English to the operator. Highlight what looks healthy, what is behind, and what to check first. NEVER restate raw dollar amounts, balances, or formulas — refer to them only qualitatively (e.g. "your A/R aging is concentrated in the 60+ bucket"). Keep it 2–3 short paragraphs.',
         'context_fn'   => 'aiAgentContextBookkeeper',
     ],
@@ -38,6 +40,8 @@ const AI_AGENTS = [
         'feature_class'=> 'narrative',
         'feature_key'  => 'agent.reconciliation.review',
         'kind'         => 'summary',
+        'domain'       => ['accounting'],
+        'modules'      => ['accounting'],
         'system'       => 'You are a senior bookkeeper triaging reconciliation work. Given the bank-connection summary and the uncategorized-transaction queue, summarize the readiness in 3–5 short bullets. Do NOT include amounts. If the queue is large or stale, surface that as risk. Recommend an order of operations the human should follow.',
         'context_fn'   => 'aiAgentContextReconciliation',
     ],
@@ -47,6 +51,8 @@ const AI_AGENTS = [
         'feature_class'=> 'narrative',
         'feature_key'  => 'agent.treasury.review',
         'kind'         => 'narrative',
+        'domain'       => ['treasury'],
+        'modules'      => ['treasury'],
         'system'       => 'You are a treasury analyst. Given cash-position signals plus pending payments and transfers, narrate the liquidity picture and any near-term risks. Reference balances QUALITATIVELY (concentrated/thin/cushioned) — never as numbers. Two short paragraphs maximum.',
         'context_fn'   => 'aiAgentContextTreasury',
     ],
@@ -56,17 +62,59 @@ const AI_AGENTS = [
         'feature_class'=> 'narrative',
         'feature_key'  => 'agent.cfo.review',
         'kind'         => 'narrative',
+        'domain'       => ['strategy'],
+        'modules'      => ['accounting', 'treasury'],
         'system'       => 'You are a fractional CFO advising the operator. Synthesize the P&L trend, books-health score, and treasury cushion into a concise strategic note: where the business is improving, where there is drift, and one or two questions the operator should bring to the next leadership conversation. Do NOT restate numbers — speak in directional terms. 2–3 short paragraphs.',
         'context_fn'   => 'aiAgentContextCFO',
     ],
-    'tax' => [
-        'label'        => 'AI Tax',
-        'description'  => 'Reviews tax-mapping coverage and flags drift before year-end.',
+    // Phase A.1 — Tax split into 4 honest sub-agents. The original `tax`
+    // agent's narrow scope (tax-form mapping coverage) is renamed to
+    // `tax_mapping` for truth-in-advertising. Three new agents cover the
+    // domains the previous monolithic name implied: sales tax, payroll tax,
+    // and partner distributions / income-tax-perspective decisioning.
+    'tax_mapping' => [
+        'label'        => 'AI Tax Mapping',
+        'description'  => 'Reviews tax-form mapping coverage of your chart of accounts.',
         'feature_class'=> 'narrative',
-        'feature_key'  => 'agent.tax.review',
+        'feature_key'  => 'agent.tax_mapping.review',
         'kind'         => 'summary',
+        'domain'       => ['tax'],
+        'modules'      => ['accounting'],
         'system'       => 'You are a tax accountant reviewing the tenant\'s chart-of-accounts coverage for tax-form mapping. Given the count of unmapped accounts and recent posted activity in those accounts, summarize the year-end readiness in 3–5 bullets. Highlight any account types that are systematically unmapped. Do NOT propose specific form lines — that\'s a separate AI feature.',
-        'context_fn'   => 'aiAgentContextTax',
+        'context_fn'   => 'aiAgentContextTaxMapping',
+    ],
+    'sales_tax' => [
+        'label'        => 'AI Sales Tax',
+        'description'  => 'Reviews sales-tax filing readiness across the period.',
+        'feature_class'=> 'narrative',
+        'feature_key'  => 'agent.sales_tax.review',
+        'kind'         => 'summary',
+        'domain'       => ['tax'],
+        'modules'      => ['accounting', 'billing'],
+        'system'       => 'You are a sales-tax practitioner. Given qualitative signals about sales-tax-flagged invoices in the current quarter and the count of sales-tax accounts present in the chart of accounts, summarize the filing readiness in 3–5 bullets. Flag risk areas — multi-state activity, rate drift, missing nexus tracking. Do NOT propose specific dollar amounts or rates.',
+        'context_fn'   => 'aiAgentContextSalesTax',
+    ],
+    'payroll_tax' => [
+        'label'        => 'AI Payroll Tax',
+        'description'  => 'Reviews payroll-tax accrual cadence and federal/state coverage.',
+        'feature_class'=> 'narrative',
+        'feature_key'  => 'agent.payroll_tax.review',
+        'kind'         => 'summary',
+        'domain'       => ['tax', 'payroll'],
+        'modules'      => ['accounting'],
+        'system'       => 'You are a payroll-tax practitioner reviewing the bookkeeping side. Given the count of payroll-tax-flagged accounts and recent posting cadence in those accounts, summarize accrual coverage and likely deposit-schedule risk in 3–5 bullets. Highlight if any expected liability accounts (federal income tax, FICA, FUTA, SUTA) appear unposted in the current period. Do NOT propose specific deposit amounts.',
+        'context_fn'   => 'aiAgentContextPayrollTax',
+    ],
+    'partner_distributions' => [
+        'label'        => 'AI Partner Distributions',
+        'description'  => 'Reviews equity-distribution cadence from an income-tax-decision perspective.',
+        'feature_class'=> 'narrative',
+        'feature_key'  => 'agent.partner_distributions.review',
+        'kind'         => 'narrative',
+        'domain'       => ['tax', 'equity'],
+        'modules'      => ['accounting'],
+        'system'       => 'You are a tax accountant advising a partnership or S-corp owner. Given qualitative signals about distribution activity and the cadence of equity-account postings, narrate the income-tax decision picture: distribution pacing relative to expected K-1 / quarterly estimate timing, balance between owner draws and retained earnings, and red flags worth the operator\'s attention before year-end. Do NOT restate dollar amounts. 2 short paragraphs.',
+        'context_fn'   => 'aiAgentContextPartnerDistributions',
     ],
 ];
 
@@ -196,7 +244,7 @@ function aiAgentContextCFO(int $tenantId): array
     ];
 }
 
-function aiAgentContextTax(int $tenantId): array
+function aiAgentContextTaxMapping(int $tenantId): array
 {
     $pdo = getDB();
     $ctx = [];
@@ -218,6 +266,115 @@ function aiAgentContextTax(int $tenantId): array
         );
         $u->execute(['t' => $tenantId]);
         $ctx['unmapped_revenue_expense_account_count_bucket'] = aiAgentBucketCount((int) $u->fetchColumn());
+    }
+    return $ctx;
+}
+
+function aiAgentContextSalesTax(int $tenantId): array
+{
+    $pdo = getDB();
+    $ctx = [];
+    // Sales-tax-flagged accounts from the chart of accounts. Heuristic — name
+    // contains "sales tax" or account_subtype = 'sales_tax_payable'. Tenants
+    // can refine via the future per-agent context-filter feature.
+    if ($pdo->query("SHOW TABLES LIKE 'accounting_accounts'")->fetchColumn()) {
+        $a = $pdo->prepare(
+            "SELECT COUNT(*) FROM accounting_accounts
+              WHERE tenant_id = :t
+                AND (LOWER(account_name) LIKE '%sales tax%'
+                     OR LOWER(account_name) LIKE '%use tax%')"
+        );
+        $a->execute(['t' => $tenantId]);
+        $ctx['sales_tax_account_count_bucket'] = aiAgentBucketCount((int) $a->fetchColumn());
+    }
+    if ($pdo->query("SHOW TABLES LIKE 'billing_invoices'")->fetchColumn()) {
+        $i = $pdo->prepare(
+            "SELECT COUNT(*) FROM billing_invoices
+              WHERE tenant_id = :t
+                AND invoice_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+                AND tax_total > 0"
+        );
+        try {
+            $i->execute(['t' => $tenantId]);
+            $ctx['recent_taxed_invoice_count_bucket'] = aiAgentBucketCount((int) $i->fetchColumn());
+        } catch (\Throwable $e) {
+            // Column may not exist on older billing schemas; degrade silently.
+        }
+    }
+    return $ctx;
+}
+
+function aiAgentContextPayrollTax(int $tenantId): array
+{
+    $pdo = getDB();
+    $ctx = [];
+    if ($pdo->query("SHOW TABLES LIKE 'accounting_accounts'")->fetchColumn()) {
+        $a = $pdo->prepare(
+            "SELECT COUNT(*) FROM accounting_accounts
+              WHERE tenant_id = :t
+                AND (LOWER(account_name) LIKE '%payroll tax%'
+                     OR LOWER(account_name) LIKE '%fica%'
+                     OR LOWER(account_name) LIKE '%futa%'
+                     OR LOWER(account_name) LIKE '%suta%'
+                     OR LOWER(account_name) LIKE '%federal withholding%'
+                     OR LOWER(account_name) LIKE '%state withholding%')"
+        );
+        $a->execute(['t' => $tenantId]);
+        $ctx['payroll_tax_account_count_bucket'] = aiAgentBucketCount((int) $a->fetchColumn());
+    }
+    if ($pdo->query("SHOW TABLES LIKE 'accounting_journal_lines'")->fetchColumn()) {
+        $p = $pdo->prepare(
+            "SELECT COUNT(DISTINCT jl.account_id)
+               FROM accounting_journal_lines jl
+               JOIN accounting_accounts a       ON a.id = jl.account_id
+               JOIN accounting_journal_entries je ON je.id = jl.journal_entry_id
+              WHERE jl.tenant_id = :t
+                AND je.status = 'posted'
+                AND je.posting_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+                AND (LOWER(a.account_name) LIKE '%payroll tax%'
+                     OR LOWER(a.account_name) LIKE '%fica%'
+                     OR LOWER(a.account_name) LIKE '%futa%')"
+        );
+        $p->execute(['t' => $tenantId]);
+        $ctx['recently_posted_payroll_tax_account_count_bucket'] = aiAgentBucketCount((int) $p->fetchColumn());
+    }
+    return $ctx;
+}
+
+function aiAgentContextPartnerDistributions(int $tenantId): array
+{
+    $pdo = getDB();
+    $ctx = [];
+    if ($pdo->query("SHOW TABLES LIKE 'accounting_accounts'")->fetchColumn()) {
+        // Equity / distribution / draw accounts.
+        $a = $pdo->prepare(
+            "SELECT COUNT(*) FROM accounting_accounts
+              WHERE tenant_id = :t
+                AND (account_type = 'equity'
+                     OR LOWER(account_name) LIKE '%distribution%'
+                     OR LOWER(account_name) LIKE '%draw%')"
+        );
+        $a->execute(['t' => $tenantId]);
+        $ctx['equity_account_count_bucket'] = aiAgentBucketCount((int) $a->fetchColumn());
+    }
+    if ($pdo->query("SHOW TABLES LIKE 'accounting_journal_entries'")->fetchColumn()
+        && $pdo->query("SHOW TABLES LIKE 'accounting_journal_lines'")->fetchColumn()) {
+        $d = $pdo->prepare(
+            "SELECT COUNT(*) FROM accounting_journal_entries je
+              WHERE je.tenant_id = :t
+                AND je.status = 'posted'
+                AND je.posting_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+                AND EXISTS (
+                    SELECT 1 FROM accounting_journal_lines jl
+                       JOIN accounting_accounts a ON a.id = jl.account_id
+                     WHERE jl.journal_entry_id = je.id
+                       AND (a.account_type = 'equity'
+                            OR LOWER(a.account_name) LIKE '%distribution%'
+                            OR LOWER(a.account_name) LIKE '%draw%')
+                )"
+        );
+        $d->execute(['t' => $tenantId]);
+        $ctx['recent_distribution_je_count_bucket'] = aiAgentBucketCount((int) $d->fetchColumn());
     }
     return $ctx;
 }
