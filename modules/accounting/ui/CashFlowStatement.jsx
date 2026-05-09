@@ -13,7 +13,11 @@ export default function CashFlowStatement() {
   const [from, setFrom] = useState(yearStart);
   const [to, setTo]     = useState(today);
   const { data, loading, error } = useApi(`/modules/accounting/api/reports.php?type=cash_flow_indirect&from=${from}&to=${to}`);
-  const safe = data && data.sections;
+  // _safeReport returns `sections: []` (array) when the underlying SQL throws,
+  // but a valid response gives `sections: { operating, investing, financing, untagged }`.
+  // Guard against the array shape so we render the data_warning banner instead
+  // of crashing with `Cannot read properties of undefined (reading 'lines')`.
+  const safe = data && data.sections && !Array.isArray(data.sections);
 
   return (
     <section data-testid="accounting-cash-flow">

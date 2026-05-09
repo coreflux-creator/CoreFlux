@@ -240,7 +240,7 @@ sentinels:
 - dashboard/src/pages/ScenarioShare.jsx
 - tests/scenario_share_smoke.php
 expected_bundle:
-- spa-assets/index-B2LVFYMg.js
+- spa-assets/index-6zjb0kri.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
