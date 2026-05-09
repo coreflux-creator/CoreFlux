@@ -28,10 +28,10 @@ if ($type === 'expiring') {
          LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
          WHERE p.tenant_id = :tenant_id AND p.deleted_at IS NULL
            AND p.status IN ("active", "pending_start", "on_hold")
-           AND ((p.end_date  IS NOT NULL AND p.end_date  <= :cutoff)
-             OR (p.due_date  IS NOT NULL AND p.due_date  <= :cutoff))
+           AND ((p.end_date  IS NOT NULL AND p.end_date  <= :cutoff_end)
+             OR (p.due_date  IS NOT NULL AND p.due_date  <= :cutoff_due))
          ORDER BY COALESCE(p.due_date, p.end_date) ASC',
-        ['cutoff' => $cutoff]
+        ['cutoff_end' => $cutoff, 'cutoff_due' => $cutoff]
     );
     api_ok(['rows' => $rows, 'cutoff' => $cutoff, 'days' => $days]);
 }

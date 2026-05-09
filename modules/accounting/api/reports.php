@@ -98,8 +98,8 @@ api_error('Unknown report type. Use income_statement, balance_sheet, trial_balan
 function reportIncomeStatement(int $tenantId, string $from, string $to, ?int $entityId): array
 {
     $pdo = getDB();
-    $where  = ['je.tenant_id = :t', 'je.status = "posted"', 'je.posting_date >= :f', 'je.posting_date <= :tx'];
-    $params = ['t' => $tenantId, 'f' => $from, 'tx' => $to];
+    $where  = ['je.tenant_id = :t_je', 'je.status = "posted"', 'je.posting_date >= :f', 'je.posting_date <= :tx'];
+    $params = ['t_a' => $tenantId, 't_je' => $tenantId, 'f' => $from, 'tx' => $to];
     if ($entityId) { $where[] = 'je.entity_id = :e'; $params['e'] = $entityId; }
 
     $stmt = $pdo->prepare(
@@ -109,7 +109,7 @@ function reportIncomeStatement(int $tenantId, string $from, string $to, ?int $en
          FROM accounting_accounts a
          LEFT JOIN accounting_journal_entry_lines l ON l.account_id = a.id
          LEFT JOIN accounting_journal_entries je ON je.id = l.je_id
-         WHERE a.tenant_id = :t AND a.account_type IN ("revenue","expense")
+         WHERE a.tenant_id = :t_a AND a.account_type IN ("revenue","expense")
            AND (je.id IS NULL OR (' . implode(' AND ', $where) . '))
          GROUP BY a.id
          ORDER BY a.account_type DESC, a.code'
@@ -146,8 +146,8 @@ function reportIncomeStatement(int $tenantId, string $from, string $to, ?int $en
 function reportBalanceSheet(int $tenantId, string $asOf, ?int $entityId): array
 {
     $pdo = getDB();
-    $where  = ['je.tenant_id = :t', 'je.status = "posted"', 'je.posting_date <= :d'];
-    $params = ['t' => $tenantId, 'd' => $asOf];
+    $where  = ['je.tenant_id = :t_je', 'je.status = "posted"', 'je.posting_date <= :d'];
+    $params = ['t_a' => $tenantId, 't_je' => $tenantId, 'd' => $asOf];
     if ($entityId) { $where[] = 'je.entity_id = :e'; $params['e'] = $entityId; }
 
     $stmt = $pdo->prepare(
@@ -157,7 +157,7 @@ function reportBalanceSheet(int $tenantId, string $asOf, ?int $entityId): array
          FROM accounting_accounts a
          LEFT JOIN accounting_journal_entry_lines l ON l.account_id = a.id
          LEFT JOIN accounting_journal_entries je ON je.id = l.je_id
-         WHERE a.tenant_id = :t
+         WHERE a.tenant_id = :t_a
            AND (je.id IS NULL OR (' . implode(' AND ', $where) . '))
          GROUP BY a.id
          ORDER BY a.account_type, a.code'
