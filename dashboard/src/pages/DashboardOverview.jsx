@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ModuleCards, Section, ActionCardsGrid, ActionCard, HelpSection } from '../components/UIComponents';
 import { Building2, Users, DollarSign, Layers, BarChart3, ArrowRight } from 'lucide-react';
 import SubTenantSummaryCard from './SubTenantSummaryCard';
+import SetupChecklistWidget from './SetupChecklistWidget';
 import { useApi } from '../lib/api';
 import { fmtMoney } from '../lib/format';
 
@@ -28,6 +29,10 @@ const DashboardOverview = ({ session, onModuleChange }) => {
 
   return (
     <>
+      {/* First-30-days onboarding checklist — auto-hides on completion,
+          dismissal, or age > 30 days. */}
+      <SetupChecklistWidget />
+
       {/* Sub-tenant fleet view (master_admin only; renders nothing otherwise) */}
       {isAdmin && <SubTenantSummaryCard session={session} />}
 

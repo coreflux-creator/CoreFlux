@@ -114,14 +114,34 @@ export default function SubTenantWizard() {
           <h2 style={{ margin: 0 }}>Sub-tenant provisioned</h2>
         </div>
         <p>"{name}" is live. Tenant id <code>#{done.id}</code>.</p>
-        <div style={{ display: 'flex', gap: 8, marginTop: 24 }}>
-          <button className="btn btn--primary" onClick={() => navigate('/admin/sub-tenants')} data-testid="wizard-back-to-list">
+        <div style={{ display: 'flex', gap: 8, marginTop: 24, flexWrap: 'wrap' }}>
+          <button
+            className="btn btn--primary"
+            onClick={async () => {
+              try {
+                await api.post('/api/sub_tenants.php?action=switch', { tenant_id: done.id });
+                // Force a full reload so the SPA rehydrates with the new tenant
+                // session (modules, manifest, sidebar, etc).
+                window.location.href = '/';
+              } catch (e) {
+                setError(e);
+              }
+            }}
+            data-testid="wizard-switch-into"
+          >
+            Switch into {name} now <ArrowRight size={14} />
+          </button>
+          <button className="btn" onClick={() => navigate('/admin/sub-tenants')} data-testid="wizard-back-to-list">
             Back to sub-tenants
           </button>
-          <button className="btn" onClick={() => navigate('/admin/consolidated-reports')} data-testid="wizard-view-consolidated">
+          <button className="btn btn--ghost" onClick={() => navigate('/admin/consolidated-reports')} data-testid="wizard-view-consolidated">
             View consolidated reports
           </button>
         </div>
+        <p style={{ color: 'var(--cf-text-secondary)', fontSize: 12, marginTop: 16 }}>
+          Tip: switching now lets you finish setup (Chart of Accounts, approval policy, pay schedule)
+          inside the new tenant. The dashboard will guide you with a Setup Checklist for the first 30 days.
+        </p>
       </section>
     );
   }

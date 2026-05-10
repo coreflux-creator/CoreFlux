@@ -2960,4 +2960,17 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 
 **Smoke regression**: 133/133 passing. Added 4 new smoke files. Patched 3 existing smokes for the lib extraction + new bundle hash.
 
+
+## 2026-02 — Wizard "Switch into now" + 30-day Setup Checklist
+**Wizard CTA**: `SubTenantWizard` done state now has a primary button "Switch into &lt;name&gt; now" that calls `POST /api/sub_tenants.php?action=switch` with the new tenant id and full-page reloads to `/`. Master admin lands directly inside the new tenant to finish setup, no extra navigation.
+
+**Setup Checklist widget** (first 30 days):
+- New endpoint `/api/sub_tenant_setup_checklist.php` computes 8 onboarding items by inspecting actual data (logo, brand color, ≥2 active members, ≥10 CoA accounts, ≥1 bank account, ≥1 approval policy, ≥1 entity, ≥1 person). Returns `done_count`, `completion_pct`, per-item `done` + action_label/href, plus a `visible` flag.
+- Lazy `ALTER TABLE tenants ADD COLUMN setup_checklist_dismissed_at` so legacy DBs auto-heal on first hit.
+- `POST ?action=dismiss` (admin-only) hides the widget permanently.
+- Auto-hides at age &gt; 30 days, on dismiss, or at 100% complete.
+- `dashboard/src/pages/SetupChecklistWidget.jsx` renders progress bar + line-through done items + per-item "Set up / Connect / Invite" CTAs that deep-link to the right module.
+- Mounted at the top of `DashboardOverview.jsx`.
+
+**Tests**: 134/134 ✅. New smoke `sub_tenant_setup_checklist_smoke.php` (37 assertions). Vite bundle bumped to `index-BPiB4yEr.js`.
 **Vite bundle**: `index-CsM5S8MR.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated.
