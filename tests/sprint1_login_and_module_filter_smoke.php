@@ -26,7 +26,7 @@ $lh  = (string) file_get_contents(__DIR__ . '/../login.html');
 $lp  = (string) file_get_contents(__DIR__ . '/../login.php');
 
 echo "\nApp.jsx — no silent demo fallback\n";
-_a('401 from session.php redirects to /login.html', str_contains($app, "res.status === 401") && str_contains($app, "/login.html?next="));
+_a('401 from session.php redirects to /login (SPA route)', str_contains($app, "res.status === 401") && str_contains($app, "/login?next="));
 _a('demo mode gated by window.__CF_FORCE_DEMO__',  str_contains($app, '__CF_FORCE_DEMO__'));
 _a('hard-failure shows session-error screen',      str_contains($app, 'data-testid="session-error-screen"'));
 _a('error screen offers "Sign in again" link',     str_contains($app, 'data-testid="session-error-login-link"'));

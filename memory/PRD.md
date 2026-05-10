@@ -2973,4 +2973,26 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 - Mounted at the top of `DashboardOverview.jsx`.
 
 **Tests**: 134/134 ✅. New smoke `sub_tenant_setup_checklist_smoke.php` (37 assertions). Vite bundle bumped to `index-BPiB4yEr.js`.
+
+## 2026-02 — Magic-link (passwordless) login — Slice 0 of SSO roadmap
+**Why first**: staffing has many users on personal email, client-issued email, or no consistent corporate domain. Magic links work for everyone — no IdP required. Slice 0 unblocks contractor onboarding *before* corporate-IdP SSO ships.
+
+**Built**:
+- Migration `core/migrations/028_magic_link_auth.sql` — `auth_magic_links` (token_hash CHAR(64) UNIQUE, expires_at, consumed_at, optional tenant_id + user_id + redirect_path, ip/UA hash) + `auth_magic_link_attempts` (rate limit per sha256(ip||email), 5/hr → 1hr lockout).
+- `core/magic_link.php` — `magicLinkIssue()`, `magicLinkConsume()`, `magicLinkUrl()`. **256-bit `random_bytes`, base64url-encoded raw token; SHA-256 stored in DB; never logs raw**. Atomic single-use (`UPDATE … WHERE consumed_at IS NULL`). Open-redirect guard on `redirect_path`.
+- `POST /api/auth/request_magic_link.php` — generic anti-enumeration response, `Retry-After: 3600` on lockout, sends email through `Core\MailService` (`cf_mail_bootstrap`), surfaces `_dev_link` only when no mail is configured AND `display_errors` on.
+- `POST /api/auth/consume_magic_link.php` — JIT user creation, idempotent `user_tenants` attach, session handoff (`$_SESSION['user']`, `tenant_id`, `modules`, `auth_method='magic_link'`), 410 on consumed / 401 on expired/invalid.
+- `dashboard/src/pages/Login.jsx` — full rewrite. Tabbed UX: "Email me a link" (default) vs "Use password" (legacy fallback). Password tab still posts to `/login.php` so existing flow is untouched.
+- `dashboard/src/pages/MagicLinkConsume.jsx` — mounted at `/auth/m/:token`. Three states: verifying / ok / error. Distinct copy for `expired` vs `consumed` vs `invalid`. Idempotent (StrictMode double-mount safe via `useRef` guard). Full-page reload after success so `App.jsx` rehydrates the new session.
+- `dashboard/src/App.jsx` — public-route bypass: when path is `/login` or `/auth/m/*`, skip the `session.php` fetch entirely so unauthenticated users can render the login UI. The 401 redirect now goes to `/login` (SPA route) instead of `/login.html`.
+
+**Tests**: 135/135 ✅. New smoke `magic_link_auth_smoke.php` (72 assertions covering schema, lib, both endpoints, both React pages, App.jsx wiring). Patched `sprint1_login_and_module_filter_smoke.php` for the new `/login` redirect target.
+
+**Vite bundle**: `index-DR4SgGC0.js` / `index-Cwhpy62y.css`. `.deploy-version` bumped.
+
+**Next slices on the SSO roadmap**:
+- Slice 1: `tenant_sso_domains` + admin UI for tenants to register their own IdP creds + email-loop domain verification.
+- Slice 2: Generic OIDC client (one implementation, any OIDC-compliant provider — Microsoft Entra, Google Workspace, Okta, Auth0, etc.) + JIT for SSO matches.
+- Slice 3: "Sign in with Google / Microsoft" social buttons.
+- Slice 4 (deferred): Multi-email merge so one person isn't multiple users.
 **Vite bundle**: `index-CsM5S8MR.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated.

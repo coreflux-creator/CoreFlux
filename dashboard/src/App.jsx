@@ -24,6 +24,8 @@ import FinanceModule from './modules/FinanceModule';
 import GenericModule from './modules/GenericModule';
 import WorkflowInbox from './pages/WorkflowInbox';
 import AIAgents from './pages/AIAgents';
+import Login from './pages/Login';
+import MagicLinkConsume from './pages/MagicLinkConsume';
 import ErrorBoundary from './components/ErrorBoundary';
 
 // Loading screen
@@ -193,6 +195,18 @@ const useSession = () => {
   const [usingDemo, setUsingDemo] = useState(false);
 
   useEffect(() => {
+    // Allow public routes (login, magic-link consume) to render without
+    // requiring an authenticated session — otherwise the SPA's session
+    // check would redirect users away from the very page that authenticates
+    // them.
+    const path = typeof window !== 'undefined' ? window.location.pathname : '';
+    const isPublicRoute = path === '/login' || path.startsWith('/auth/m/');
+    if (isPublicRoute) {
+      setSession({ __public: true });
+      setLoading(false);
+      return;
+    }
+
     const fetchSession = async () => {
       try {
         const res = await fetch('/session.php', {
@@ -201,10 +215,9 @@ const useSession = () => {
         });
 
         if (res.status === 401) {
-          // Not authenticated → punt to login. No more silent demo fallback.
-          // Preserve where the user was trying to go via ?next=.
+          // Not authenticated → punt to the SPA login route.
           const next = encodeURIComponent(window.location.pathname + window.location.hash);
-          window.location.replace(`/login.html?next=${next}`);
+          window.location.replace(`/login?next=${next}`);
           return;
         }
         if (!res.ok) throw new Error(`session.php ${res.status}`);
@@ -368,6 +381,20 @@ const App = () => {
   const { session, loading, usingDemo } = useSession();
 
   if (loading) return <LoadingScreen />;
+
+  // Public (unauthenticated) routes — login + magic-link consume.
+  if (session?.__public) {
+    return (
+      <Router>
+        <Routes>
+          <Route path="/login"        element={<Login />} />
+          <Route path="/auth/m/:token" element={<MagicLinkConsume />} />
+          <Route path="*"              element={<Login />} />
+        </Routes>
+      </Router>
+    );
+  }
+
   if (session?.__error) {
     return (
       <div className="loading-screen" data-testid="session-error-screen">
@@ -376,7 +403,7 @@ const App = () => {
           <p style={{ color: 'var(--cf-text-secondary)', marginBottom: 20 }}>
             {session.__error}
           </p>
-          <a href="/login.html" className="btn btn--primary" data-testid="session-error-login-link">
+          <a href="/login" className="btn btn--primary" data-testid="session-error-login-link">
             Sign in again
           </a>
         </div>
