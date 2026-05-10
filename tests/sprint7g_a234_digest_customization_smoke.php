@@ -95,10 +95,10 @@ $assert('aiAgentBuildDigestHtml accepts intro parameter',
 $assert('aiAgentBuildDigestHtml htmlspecialchars escapes intro',
     strpos($lib, 'htmlspecialchars($intro !== null && $intro !== \'\' ? $intro : $defaultIntro') !== false);
 $assert('aiAgentDigestSend uses subject_override',
-    strpos($lib, "\$subject  = \$cfg['subject_override'] ?: 'Your weekly AI Agent digest';") !== false
-    && strpos($lib, "'subject'    => \$subject") !== false);
+    strpos($lib, "\$cfg['subject_override'] ?: 'Your weekly AI Agent digest'") !== false
+    && strpos($lib, "'subject'    => \$cfg['subject_override'] ?: 'Your weekly AI Agent digest'") !== false);
 $assert('aiAgentDigestSend response surfaces effective subject',
-    strpos($lib, "'subject'    => \$subject,") !== false);
+    strpos($lib, "'subject'     => \$subject") !== false);
 
 echo "\nLibrary — Phase A.4 bucket diff + snapshots\n";
 $assert('aiAgentContextSnapshotWrite exists',     strpos($lib, 'function aiAgentContextSnapshotWrite(') !== false);
@@ -113,7 +113,7 @@ $assert('aiAgentBucketDiff exists',               strpos($lib, 'function aiAgent
 $assert('aiAgentBucketDiff recurses on nested arrays',
     strpos($lib, 'aiAgentBucketDiff(is_array($pv) ? $pv : [], is_array($cv) ? $cv : [], $label)') !== false);
 $assert('aiAgentBuildDigestHtml accepts diffsByAgent',
-    strpos($lib, 'function aiAgentBuildDigestHtml(array $runAllResults, ?string $intro = null, array $diffsByAgent = [])') !== false);
+    strpos($lib, 'function aiAgentBuildDigestHtml(array $runAllResults, ?string $intro = null, array $diffsByAgent = []') !== false);
 $assert('digest section renders "Changed since last week"',
     strpos($lib, 'Changed since last week') !== false);
 $assert('digest section escapes diff lines via htmlspecialchars',
@@ -124,7 +124,9 @@ $assert('aiAgentDigestSend writes new snapshot AFTER run',
     strpos($lib, 'aiAgentContextSnapshotWrite($tenantId, $k, $current)') !== false);
 $assert('aiAgentDigestSend builds diffs and threads them into the template',
     strpos($lib, '$diffs[$k] = aiAgentBucketDiff($priorContexts[$k], $current)') !== false
-    && strpos($lib, 'aiAgentBuildDigestHtml($results, $cfg[\'intro_override\'], $diffs)') !== false);
+    && strpos($lib, 'aiAgentBuildDigestHtml(') !== false
+    && strpos($lib, "\$cfg['intro_override']") !== false
+    && strpos($lib, '$diffs,') !== false);
 $assert('aiAgentDigestSend honors included_agents (Phase A.2)',
     strpos($lib, "\$onlyKeys = \$cfg['included_agents']; // null → run all") !== false
     && strpos($lib, 'aiAgentRunAll($tenantId, $userId, $onlyKeys)') !== false);

@@ -661,15 +661,65 @@ function aiAgentBucketDiff(array $prior, array $current, string $prefix = ''): a
     return $lines;
 }
 
+/** Map agent_key → in-app deep-link path. Used for one-tap magic-link CTAs. */
+function aiAgentDeepLink(string $agentKey): string {
+    return [
+        'bookkeeper'           => '/modules/accounting',
+        'reconciliation'       => '/modules/accounting/bank-rec',
+        'treasury_analyst'     => '/modules/treasury',
+        'cfo'                  => '/modules/reports/exec',
+        'cfo_variance'         => '/modules/reports/exec',
+        'treasury_payments'    => '/modules/treasury',
+        'tax_mapping'          => '/modules/accounting/tax-mappings',
+        'sales_tax'            => '/modules/accounting',
+        'payroll_tax'          => '/modules/payroll',
+        'partner_distributions'=> '/modules/treasury',
+    ][$agentKey] ?? '/';
+}
+
 /** Build a tenant-safe HTML digest from a run-all result map.
  *
  *  Phase A.3 — accepts $intro override (sanitised on render).
  *  Phase A.4 — accepts $diffsByAgent (map of agent_key → array of diff
  *              line strings) so each section can show what's changed
  *              versus last week before the narrative.
+ *  2026-02   — accepts $ctaContext = ['tenant_id' => int, 'recipient_email' => string]
+ *              to mint per-recipient one-tap magic-link CTAs (zero-click
+ *              compliance: clicking the email both authenticates AND
+ *              deep-links to the relevant agent's module).
  */
-function aiAgentBuildDigestHtml(array $runAllResults, ?string $intro = null, array $diffsByAgent = []): array
+function aiAgentBuildDigestHtml(array $runAllResults, ?string $intro = null, array $diffsByAgent = [], ?array $ctaContext = null): array
 {
+    // Lazy-load magic_link so legacy tenants without the migration don't
+    // explode here — we just skip the CTAs.
+    $canMintLinks = false;
+    if ($ctaContext && !empty($ctaContext['tenant_id']) && !empty($ctaContext['recipient_email'])) {
+        $fn = __DIR__ . '/magic_link.php';
+        if (is_file($fn)) {
+            require_once $fn;
+            $canMintLinks = function_exists('magicLinkIssue');
+        }
+    }
+
+    $mintCta = function (string $path) use (&$canMintLinks, $ctaContext): ?string {
+        if (!$canMintLinks) return null;
+        try {
+            // 3-day TTL — recipients often read digest emails 1-3 days late.
+            $issued = magicLinkIssue(
+                (string) $ctaContext['recipient_email'],
+                (int) $ctaContext['tenant_id'],
+                $path,
+                $_SERVER['REMOTE_ADDR'] ?? null,
+                'CoreFlux/digest-cta',
+                /* ttlMinutes */ 60 * 24 * 3
+            );
+            return magicLinkUrl($issued['raw_token']);
+        } catch (\Throwable $e) {
+            error_log('[ai_agents] CTA mint failed: ' . $e->getMessage());
+            return null;
+        }
+    };
+
     $sections = [];
     $textParts = [];
     foreach ($runAllResults as $key => $row) {
@@ -695,12 +745,24 @@ function aiAgentBuildDigestHtml(array $runAllResults, ?string $intro = null, arr
         }
         if (!empty($row['ok']) && !empty($row['envelope']['content'])) {
             $body = (string) $row['envelope']['content'];
+            $ctaUrl  = $mintCta(aiAgentDeepLink($key));
+            $ctaHtml = '';
+            $ctaText = '';
+            if ($ctaUrl) {
+                $safeUrl = htmlspecialchars($ctaUrl, ENT_QUOTES, 'UTF-8');
+                $ctaHtml = "<div style=\"margin-top:10px\"><a href=\"{$safeUrl}\" "
+                         . "style=\"display:inline-block;background:#7c3aed;color:#fff;text-decoration:none;"
+                         . "padding:8px 14px;border-radius:6px;font-family:system-ui;font-size:12px;font-weight:600\">"
+                         . "Open " . $title . " in CoreFlux →</a></div>";
+                $ctaText = "\nOpen this view: {$ctaUrl}";
+            }
             $sections[] = "<h3 style=\"margin:24px 0 6px;font-family:system-ui;\">{$title}</h3>"
                        . $diffHtml
                        . "<div style=\"font-family:system-ui;line-height:1.55;color:#1e293b;font-size:14px;\">"
                        . nl2br(htmlspecialchars($body, ENT_QUOTES, 'UTF-8'))
-                       . "</div>";
-            $textParts[] = "## {$agent['label']}\n\n{$diffText}{$body}\n";
+                       . "</div>"
+                       . $ctaHtml;
+            $textParts[] = "## {$agent['label']}\n\n{$diffText}{$body}{$ctaText}\n";
         } else {
             $err = htmlspecialchars((string) ($row['error'] ?? 'unknown'), ENT_QUOTES, 'UTF-8');
             $sections[] = "<h3 style=\"margin:24px 0 6px;font-family:system-ui;color:#94a3b8;\">{$title}</h3>"
@@ -710,14 +772,31 @@ function aiAgentBuildDigestHtml(array $runAllResults, ?string $intro = null, arr
     }
     $defaultIntro = 'Five advisory perspectives on your books, treasury, and tax position.';
     $introHtml = htmlspecialchars($intro !== null && $intro !== '' ? $intro : $defaultIntro, ENT_QUOTES, 'UTF-8');
+
+    // Master one-tap CTA at the top.
+    $masterCta = '';
+    $masterCtaText = '';
+    $masterUrl = $mintCta('/dashboard');
+    if ($masterUrl) {
+        $safe = htmlspecialchars($masterUrl, ENT_QUOTES, 'UTF-8');
+        $masterCta = "<div style=\"margin:8px 0 24px\"><a href=\"{$safe}\" "
+                   . "style=\"display:inline-block;background:#0ea5e9;color:#fff;text-decoration:none;"
+                   . "padding:10px 18px;border-radius:8px;font-family:system-ui;font-size:13px;font-weight:600\">"
+                   . "Open CoreFlux Dashboard →</a></div>";
+        $masterCtaText = "\nOpen the dashboard: {$masterUrl}\n";
+    }
+
     $html = "<div style=\"max-width:640px;margin:auto;padding:20px;\">"
           . "<h2 style=\"font-family:system-ui;color:#5b21b6;margin:0 0 4px;\">Your weekly AI Agent digest</h2>"
           . "<p style=\"font-family:system-ui;color:#64748b;font-size:13px;margin:0 0 16px;\">" . nl2br($introHtml) . "</p>"
+          . $masterCta
           . implode('', $sections)
           . "<hr style=\"margin:24px 0;border:0;border-top:1px solid #e2e8f0;\" />"
-          . "<p style=\"font-family:system-ui;color:#94a3b8;font-size:11px;\">Generated by CoreFlux AI Agents. Reply to this email to reach your tenant administrator.</p>"
+          . "<p style=\"font-family:system-ui;color:#94a3b8;font-size:11px;\">Generated by CoreFlux AI Agents. Reply to this email to reach your tenant administrator.<br>"
+          . "Sign-in links are personal, single-use, and expire in 3 days.</p>"
           . "</div>";
-    return ['html' => $html, 'text' => implode("\n---\n", $textParts)];
+    $textOut = $masterCtaText . implode("\n---\n", $textParts);
+    return ['html' => $html, 'text' => $textOut];
 }
 
 /** Read tenant digest settings; defaults applied. */
@@ -918,31 +997,53 @@ function aiAgentDigestSend(int $tenantId, ?int $userId): array
         }
     }
 
-    $rendered = aiAgentBuildDigestHtml($results, $cfg['intro_override'], $diffs);
-    $subject  = $cfg['subject_override'] ?: 'Your weekly AI Agent digest';
-
-    $sender = cf_tenant_mail_sender($tenantId, 'ai_agents');
-    $resp = sendEmail([
-        'to'         => $recipients,
-        'subject'    => $subject,
-        'body_html'  => $rendered['html'],
-        'body_text'  => $rendered['text'],
-        'from_email' => $sender['from']      ?? null,
-        'from_name'  => $sender['from_name'] ?? null,
-        'reply_to'   => $sender['reply_to']  ?? null,
-    ]);
+    // Render + send PER recipient so each gets their own single-use,
+    // identity-bound magic-link CTAs. The agent results + diffs are reused
+    // (they're tenant-scoped, not per-user).
+    $sender   = cf_tenant_mail_sender($tenantId, 'ai_agents');
+    $messageIds = [];
+    $sendErrors = [];
+    foreach ($recipients as $email) {
+        $rendered = aiAgentBuildDigestHtml(
+            $results,
+            $cfg['intro_override'],
+            $diffs,
+            ['tenant_id' => $tenantId, 'recipient_email' => $email]
+        );
+        try {
+            $resp = sendEmail([
+                'to'         => [$email],
+                'subject'    => $cfg['subject_override'] ?: 'Your weekly AI Agent digest',
+                'body_html'  => $rendered['html'],
+                'body_text'  => $rendered['text'],
+                'from_email' => $sender['from']      ?? null,
+                'from_name'  => $sender['from_name'] ?? null,
+                'reply_to'   => $sender['reply_to']  ?? null,
+            ]);
+            $messageIds[$email] = $resp['message_id'] ?? null;
+        } catch (\Throwable $e) {
+            $sendErrors[$email] = $e->getMessage();
+            error_log('[ai_agents] send to ' . $email . ' failed: ' . $e->getMessage());
+        }
+    }
+    $subject = $cfg['subject_override'] ?: 'Your weekly AI Agent digest';
 
     getDB()->prepare(
         'INSERT INTO ai_agent_digest_settings (tenant_id, last_sent_at, last_send_error)
-         VALUES (:t, NOW(), NULL)
-         ON DUPLICATE KEY UPDATE last_sent_at = NOW(), last_send_error = NULL'
-    )->execute(['t' => $tenantId]);
+         VALUES (:t, NOW(), :err)
+         ON DUPLICATE KEY UPDATE last_sent_at = NOW(), last_send_error = VALUES(last_send_error)'
+    )->execute([
+        't'   => $tenantId,
+        'err' => $sendErrors ? substr(json_encode($sendErrors), 0, 500) : null,
+    ]);
 
     return [
-        'ok'         => true,
-        'recipients' => $recipients,
-        'subject'    => $subject,
-        'message_id' => $resp['message_id'] ?? null,
+        'ok'          => count($sendErrors) === 0,
+        'recipients'  => $recipients,
+        'subject'     => $subject,
+        'message_ids' => $messageIds,
+        'message_id'  => $messageIds ? array_values($messageIds)[0] : null, // back-compat
+        'send_errors' => $sendErrors ?: null,
         'agent_results' => array_map(static function ($r) {
             return ['ok' => (bool) ($r['ok'] ?? false)];
         }, $results),

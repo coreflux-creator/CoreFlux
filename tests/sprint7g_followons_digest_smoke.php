@@ -80,7 +80,8 @@ $assert('digest HTML escapes labels with htmlspecialchars',
 $assert('digest HTML escapes body content with htmlspecialchars',
     strpos($lib, "nl2br(htmlspecialchars(\$body, ENT_QUOTES, 'UTF-8'))") !== false);
 $assert('digest produces both html + text bodies',
-    strpos($lib, "return ['html' => \$html, 'text' => implode(") !== false);
+    strpos($lib, "return ['html' => \$html, 'text' => \$textOut]") !== false
+    || strpos($lib, "return ['html' => \$html, 'text' => implode(") !== false);
 $assert('aiAgentDigestRead returns sane defaults when no row',
     strpos($lib, "'enabled' => false, 'recipients' => null, 'send_dow' => 1") !== false);
 $assert('aiAgentDigestWrite validates emails via FILTER_VALIDATE_EMAIL',
@@ -90,11 +91,13 @@ $assert('aiAgentDigestWrite clamps send_dow to 1..7',
 $assert('aiAgentDigestRecipients falls back to master_admin',
     strpos($lib, "WHERE ut.tenant_id = :t AND ut.role = 'master_admin'") !== false);
 $assert('aiAgentDigestSend uses cf_tenant_mail_sender (tenant Resend pipeline)',
-    strpos($lib, "\$sender = cf_tenant_mail_sender(\$tenantId, 'ai_agents')") !== false);
+    strpos($lib, "\$sender   = cf_tenant_mail_sender(\$tenantId, 'ai_agents')") !== false
+    || strpos($lib, "\$sender = cf_tenant_mail_sender(\$tenantId, 'ai_agents')") !== false);
 $assert('aiAgentDigestSend forwards reply_to/from from sender helper',
     strpos($lib, "'reply_to'   => \$sender['reply_to']") !== false);
-$assert('aiAgentDigestSend bumps last_sent_at + clears last_send_error',
-    strpos($lib, 'last_sent_at = NOW(), last_send_error = NULL') !== false);
+$assert('aiAgentDigestSend bumps last_sent_at + records send_errors',
+    strpos($lib, 'last_sent_at = NOW(), last_send_error = VALUES(last_send_error)') !== false
+    || strpos($lib, 'last_sent_at = NOW(), last_send_error = NULL') !== false);
 $assert('aiAgentDigestSend throws when no recipients available',
     strpos($lib, 'No digest recipients configured') !== false);
 

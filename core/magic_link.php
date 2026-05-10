@@ -48,7 +48,7 @@ const COREFLUX_MAGIC_LINK_LOCK_S        = 3600;  // 1 hour cool-down
  *
  * @throws RuntimeException on rate-limit lockout.
  */
-function magicLinkIssue(string $email, ?int $tenantId = null, string $redirectPath = '/', ?string $ip = null, ?string $userAgent = null): array {
+function magicLinkIssue(string $email, ?int $tenantId = null, string $redirectPath = '/', ?string $ip = null, ?string $userAgent = null, ?int $ttlMinutes = null): array {
     $email = strtolower(trim($email));
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         throw new InvalidArgumentException('Invalid email');
@@ -62,6 +62,10 @@ function magicLinkIssue(string $email, ?int $tenantId = null, string $redirectPa
         $redirectPath = '/';
     }
 
+    $ttl = $ttlMinutes !== null && $ttlMinutes > 0
+        ? min($ttlMinutes, 60 * 24 * 14)   // hard cap 14 days
+        : COREFLUX_MAGIC_LINK_TTL_MINUTES;
+
     $pdo = getDB();
     $ip      = $ip ?? ($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0');
     $rateKey = hash('sha256', $ip . '|' . $email);
@@ -71,7 +75,7 @@ function magicLinkIssue(string $email, ?int $tenantId = null, string $redirectPa
     // 256-bit token, URL-safe.
     $rawToken  = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
     $tokenHash = hash('sha256', $rawToken);
-    $expiresAt = (new DateTimeImmutable('+' . COREFLUX_MAGIC_LINK_TTL_MINUTES . ' minutes'))->format('Y-m-d H:i:s');
+    $expiresAt = (new DateTimeImmutable('+' . $ttl . ' minutes'))->format('Y-m-d H:i:s');
 
     // Resolve user_id if known (best-effort — link works even for net-new users).
     $userId = null;

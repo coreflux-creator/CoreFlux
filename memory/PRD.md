@@ -2995,4 +2995,17 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 - Slice 2: Generic OIDC client (one implementation, any OIDC-compliant provider — Microsoft Entra, Google Workspace, Okta, Auth0, etc.) + JIT for SSO matches.
 - Slice 3: "Sign in with Google / Microsoft" social buttons.
 - Slice 4 (deferred): Multi-email merge so one person isn't multiple users.
+
+## 2026-02 — One-tap magic-link CTAs in AI Agent digest emails
+**Why**: weekly digest emails now drive zero-click compliance. Recipient clicks "Open AI CFO in CoreFlux" → authenticated + deep-linked to the right module. No password, no SSO config, no tenant picker.
+
+**Built**:
+- `magic_link.php::magicLinkIssue()` — added optional `$ttlMinutes` arg (hard cap 14 days). Workflow emails use 3-day TTL since digests are often read late.
+- `core/ai_agents.php::aiAgentDeepLink($key)` — agent → in-app path map (bookkeeper → /modules/accounting, cfo → /modules/reports/exec, treasury_payments → /modules/treasury, etc. — all 10 agent keys).
+- `aiAgentBuildDigestHtml()` — added optional `$ctaContext = ['tenant_id', 'recipient_email']` parameter. When supplied, lazy-requires `magic_link.php`, mints a per-recipient single-use link for each agent's deep-link, and renders an inline "Open <agent> in CoreFlux →" button at the end of each section + a master "Open CoreFlux Dashboard →" CTA at the top. Plain-text body includes the URLs too. CTA mint failures log + carry on (graceful degradation for legacy DBs without migration 028).
+- `aiAgentDigestSend()` — refactored to render+send PER recipient (previously batched). Each recipient gets their own personal, single-use links. Captures `send_errors` map; persists `last_send_error` on partial failures; back-compat: still returns single `message_id` (first recipient's) plus a new `message_ids` map.
+
+**Smoke**: `digest_magic_link_cta_smoke.php` — 38 assertions covering deep-link map, builder signature, lazy-load resilience, per-section + master CTA HTML/text rendering, per-recipient send loop, back-compat. Patched 2 existing digest smokes for the new builder signature + per-recipient send shape.
+
+**Test result**: 136/136 ✅. No new migrations or bundle bumps (PHP-only change).
 **Vite bundle**: `index-CsM5S8MR.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated.
