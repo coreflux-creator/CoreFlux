@@ -24,6 +24,7 @@ import FinanceModule from './modules/FinanceModule';
 import GenericModule from './modules/GenericModule';
 import WorkflowInbox from './pages/WorkflowInbox';
 import AIAgents from './pages/AIAgents';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Loading screen
 const LoadingScreen = () => (
@@ -306,7 +307,8 @@ const AppContent = ({ session, usingDemo }) => {
         onTenantChange={handleTenantChange}
         showSidebar={showSidebar}
       >
-        <Routes>
+        <ErrorBoundary>
+          <Routes>
           {/* Home: module-cards overview for everyone, with a small KPI
               snapshot strip at the top. The full executive snapshot lives
               under /modules/reports — Reports is its own module. */}
@@ -354,7 +356,8 @@ const AppContent = ({ session, usingDemo }) => {
           {/* All other modules fall through to GenericModule
               "Coming soon" panel until Phase 4 module implementation ships. */}
           <Route path="/modules/:moduleId/*" element={<GenericModule session={session} activeModule={activeModule} />} />
-        </Routes>
+          </Routes>
+        </ErrorBoundary>
       </AppLayout>
     </>
   );

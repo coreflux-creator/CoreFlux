@@ -19,6 +19,54 @@
 require_once __DIR__ . '/db.php';
 
 /**
+ * Detect the active module key from the current request URL.
+ * Pattern: `/modules/<key>/api/...` or `/modules/<key>/...`
+ * Returns null for core endpoints (`/api/...`) and CLI scripts.
+ *
+ * Used by `scopedQuery/Insert/Update/Delete` to route a sub-tenant's
+ * request to its parent (shared) or itself (isolated) based on
+ * `tenant_module_scope` policy.
+ */
+function currentModuleKey(): ?string {
+    $uri = $_SERVER['REQUEST_URI'] ?? '';
+    if (!$uri) return null;
+    if (preg_match('#/modules/([a-z][a-z0-9_-]*)/#', $uri, $m)) {
+        return strtolower($m[1]);
+    }
+    return null;
+}
+
+/**
+ * Resolve the tenant_id to bind on the current request, honouring
+ * `tenant_module_scope` when a module context is detected. Falls back to
+ * `currentTenantId()` when there's no module context (core endpoints,
+ * CLI, master tenants).
+ */
+function effectiveTenantIdForRequest(): ?int {
+    $tid = currentTenantId();
+    if (!$tid) return null;
+    $module = currentModuleKey();
+    if (!$module) return $tid;
+    // sub_tenants.php lives in core but provides effectiveTenantIdForModule.
+    // Lazy-require so this file stays usable even if sub_tenants.php is
+    // missing on a tenant that hasn't deployed the migration yet.
+    $fn = __DIR__ . '/sub_tenants.php';
+    if (is_file($fn)) {
+        require_once $fn;
+        if (function_exists('effectiveTenantIdForModule')) {
+            // Wrap in try/catch so a tenant DB that hasn't run migration 007
+            // (no `parent_id`/`tenant_type` columns on `tenants`) doesn't 500
+            // the entire request — fall back to plain `currentTenantId()`.
+            try {
+                $resolved = effectiveTenantIdForModule($module, $tid);
+                if ($resolved) return $resolved;
+            } catch (\Throwable $_) { /* legacy schema; fall through */ }
+        }
+    }
+    return $tid;
+}
+
+/**
  * Resolve the active tenant id for this request.
  * Prefers explicit session state; falls back to the first membership on the user.
  */
@@ -43,7 +91,7 @@ function currentTenantId(): ?int {
 function scopedQuery(string $sql, array $params = []): array {
     $pdo = getDB();
     if (!$pdo) return [];
-    $params['tenant_id'] = currentTenantId();
+    $params['tenant_id'] = effectiveTenantIdForRequest();
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     return $stmt->fetchAll();
@@ -66,7 +114,7 @@ function scopedInsert(string $table, array $data): int {
     $pdo = getDB();
     if (!$pdo) throw new RuntimeException('No database connection');
 
-    $data['tenant_id']  = $data['tenant_id']  ?? currentTenantId();
+    $data['tenant_id']  = $data['tenant_id']  ?? effectiveTenantIdForRequest();
     $data['created_at'] = $data['created_at'] ?? date('Y-m-d H:i:s');
 
     $table = _safeIdent($table);
@@ -102,7 +150,7 @@ function scopedUpdate(string $table, int $id, array $data): int {
 
     $sql  = "UPDATE `$table` SET " . implode(',', $sets)
           . " WHERE id = :_id AND tenant_id = :tenant_id";
-    $params = $data + ['_id' => $id, 'tenant_id' => currentTenantId()];
+    $params = $data + ['_id' => $id, 'tenant_id' => effectiveTenantIdForRequest()];
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
@@ -118,7 +166,7 @@ function scopedDelete(string $table, int $id): int {
     $table = _safeIdent($table);
 
     $stmt = $pdo->prepare("DELETE FROM `$table` WHERE id = :id AND tenant_id = :tenant_id");
-    $stmt->execute(['id' => $id, 'tenant_id' => currentTenantId()]);
+    $stmt->execute(['id' => $id, 'tenant_id' => effectiveTenantIdForRequest()]);
     return $stmt->rowCount();
 }
 

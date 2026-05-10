@@ -1,8 +1,10 @@
 import React from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap } from 'lucide-react';
+import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap, BarChart3 } from 'lucide-react';
 import SubTenantsAdmin from './SubTenantsAdmin';
+import SubTenantWizard from './SubTenantWizard';
+import SubTenantConsolidatedReports from './SubTenantConsolidatedReports';
 import ExportTemplatesAdmin from './ExportTemplatesAdmin';
 import MasterTenantsAdmin from './MasterTenantsAdmin';
 import AiAccuracyDashboard from './AiAccuracyDashboard';
@@ -34,6 +36,7 @@ const AdminOverview = () => (
       <ActionCardsGrid>
         <ActionCard icon={Building2} title="Master tenants" description="Top-level customers + branding" href="/admin/tenants" />
         <ActionCard icon={Layers}    title="Sub-tenants"    description="Provision sub-tenants & module scope" href="/admin/sub-tenants" />
+        <ActionCard icon={BarChart3} title="Consolidated reports" description="Roll-up P&L / BS / CF across all sub-tenants" href="/admin/consolidated-reports" />
         <ActionCard icon={Users}     title="Users"          description="Add users, assign roles, reset passwords" href="/admin/users" />
         <ActionCard icon={Package}   title="Module access"  description="Toggle which apps a tenant can see" href="/admin/modules" />
         <ActionCard icon={FileText}  title="Export templates" description="CSV templates for any module" href="/admin/export-templates" />
@@ -52,6 +55,7 @@ const AdminSidebar = () => {
     { to: '/admin',                  label: 'Overview',         icon: Package },
     { to: '/admin/tenants',          label: 'Master tenants',   icon: Building2 },
     { to: '/admin/sub-tenants',      label: 'Sub-Tenants',      icon: Layers },
+    { to: '/admin/consolidated-reports', label: 'Consolidated Reports', icon: BarChart3 },
     { to: '/admin/users',            label: 'Users',            icon: Users },
     { to: '/admin/modules',          label: 'Module access',    icon: Package },
     { to: '/admin/export-templates', label: 'Export Templates', icon: FileText },
@@ -93,6 +97,8 @@ const AdminModule = ({ session }) => {
           <Route path="/"                  element={<AdminOverview />} />
           <Route path="/tenants"           element={<MasterTenantsAdmin session={session} />} />
           <Route path="/sub-tenants"       element={<SubTenantsAdmin   session={session} />} />
+          <Route path="/sub-tenants/new"   element={<SubTenantWizard   session={session} />} />
+          <Route path="/consolidated-reports" element={<SubTenantConsolidatedReports session={session} />} />
           <Route path="/users"             element={<UsersAdmin        session={session} />} />
           <Route path="/modules"           element={<ModuleAccessAdmin session={session} />} />
           <Route path="/export-templates"  element={<ExportTemplatesAdmin session={session} />} />

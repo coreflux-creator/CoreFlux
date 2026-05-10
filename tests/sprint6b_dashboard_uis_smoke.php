@@ -138,10 +138,10 @@ foreach ([
 }
 
 echo "\nVite bundle synced\n";
-$bundleHash = 'index-B2LVFYMg.js';
+$bundleHash = 'index-CsM5S8MR.js';
 $assert('compiled JS in spa-assets',                 is_file("{$ROOT}/spa-assets/{$bundleHash}"));
-$indexHtml = (string) file_get_contents("{$ROOT}/spa-assets/index.html");
-$assert('spa-assets/index.html references new JS',   stripos($indexHtml, $bundleHash) !== false);
+$indexHtml = (string) file_get_contents("{$ROOT}/dashboard/dist/index.html");
+$assert('dashboard/dist/index.html references new JS', stripos($indexHtml, $bundleHash) !== false);
 $deploy = (string) file_get_contents("{$ROOT}/.deploy-version");
 $assert('.deploy-version expected_bundle updated',   stripos($deploy, $bundleHash) !== false);
 $assert('.deploy-version lists new feature flags',

@@ -49,9 +49,10 @@ $a('utf8mb4_unicode_ci collation only',
     stripos($mig, 'utf8mb4_0900_ai_ci') === false);
 
 echo "\nReports — Cash Flow Indirect\n";
-$rep = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/reports.php');
-$a('type=cash_flow_indirect dispatch',                 strpos($rep, "type === 'cash_flow_indirect'") !== false);
-$a('type=cash_flow alias',                             strpos($rep, "type === 'cash_flow'") !== false);
+$rdis = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/reports.php');
+$rep  = (string) file_get_contents(__DIR__ . '/../modules/accounting/lib/standard_reports.php');
+$a('type=cash_flow_indirect dispatch',                 strpos($rdis, "type === 'cash_flow_indirect'") !== false);
+$a('type=cash_flow alias',                             strpos($rdis, "type === 'cash_flow'") !== false);
 $a('reportCashFlowIndirect declared',                  strpos($rep, 'function reportCashFlowIndirect') !== false);
 $a('uses reportIncomeStatement for net income',        strpos($rep, "reportIncomeStatement(\$tenantId, \$from, \$to") !== false);
 $a('walks balance sheets at start vs end',

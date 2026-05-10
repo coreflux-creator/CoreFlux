@@ -40,14 +40,14 @@ const SubTenantsAdmin = ({ session }) => {
           <button onClick={reload} className="btn btn--ghost" data-testid="sub-tenants-refresh-btn">
             <RefreshCw size={16} /> Refresh
           </button>
-          <button
-            onClick={() => setShowCreate(true)}
+          <Link
+            to="/admin/sub-tenants/new"
             className="btn btn--primary"
             data-testid="sub-tenants-new-btn"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
           >
             <Plus size={16} /> New sub-tenant
-          </button>
+          </Link>
         </div>
       </div>
 

@@ -2939,3 +2939,25 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 - **PDO HY093 sweep verified**: Previous fork's bulk find/replace of duplicate named placeholders (`:asof` → `:asof1/:asof2`, `:u` → `:u_where/:u_case`, etc.) across `placements.php`, `consolidation.php`, `users.php`, `accounting.php`, `compensation.php`, etc. did not regress the smoke suite. Two stale assertions in `tests/sprint5_saved_views_smoke.php` and `tests/accounting_phase2_a7_smoke.php` were updated to the new placeholder names.
 - **Result**: Full smoke suite **129 / 129 ✅** (was 128, +1 new regression test).
 
+
+
+## 2026-02 — ErrorBoundary + Sub-Tenant Path B (consolidated reports + onboarding wizard + scope enforcement)
+**ErrorBoundary**: wrapped all module Routes in `App.jsx` with a recoverable boundary (`/app/dashboard/src/components/ErrorBoundary.jsx`). Auto-resets on route change; surfaces error message + retry/reload/home actions + collapsible component stack. Replaces the silent blank-screen failure mode for any future render-time crash.
+
+**Module scope enforcement (sub-tenant Path B / option `c`)**: `tenant_module_scope` policy was defined but **never enforced** — `effectiveTenantIdForModule()` had zero callers. Wired it through `core/tenant_scope.php` → all `scopedQuery/Insert/Update/Delete` calls now route through `effectiveTenantIdForRequest()`, which auto-detects the active module from `REQUEST_URI` (`/modules/<key>/...`) and applies shared/isolated scope. Guarded with try/catch so legacy DBs without migration 007 columns fall back cleanly.
+
+**Consolidated reports across sub-tenants (Path B / option `a`)**:
+- Extracted Income Statement / Balance Sheet / Cash Flow Indirect builders from `modules/accounting/api/reports.php` into `modules/accounting/lib/standard_reports.php` (no top-level side effects).
+- New endpoint `/api/sub_tenant_consolidated_reports.php` (master_admin or master tenant_admin only) loops every active sub-tenant of the current master, aggregates rows by COA code, and returns `consolidated` + `by_tenant` breakdown. Supports `?type=income_statement|balance_sheet|cash_flow_indirect` and `?include_master=1`.
+- React page `dashboard/src/pages/SubTenantConsolidatedReports.jsx` with KPI tiles, per-section tables, and a per-tenant breakdown grid. Linked from `Admin → Consolidated reports`.
+
+**Sub-Tenant Onboarding Wizard (Path B / option `d`)**:
+- New 4-step wizard `dashboard/src/pages/SubTenantWizard.jsx`: Identity → Modules → Defaults → Invites. Auto-slug from name; per-module enable toggle + shared/isolated scope picker covering all 11 modules; placeholder defaults pane; invite list for existing platform users.
+- `core/sub_tenants.php::subTenantProvision()` extended to accept `invites: [{email, role}]` — validates email, looks up user, idempotent `INSERT … ON DUPLICATE KEY UPDATE` into `user_tenants`, audit log captures the list.
+- `SubTenantsAdmin.jsx` "New sub-tenant" button now links to `/admin/sub-tenants/new`.
+
+**Permissions audit (option `e`)**: existing model verified — `subTenantUserHasMembership()` correctly blocks sibling sub-tenant access; master-only endpoints gated by `master_admin` role OR `tenant_admin` on the master parent.
+
+**Smoke regression**: 133/133 passing. Added 4 new smoke files. Patched 3 existing smokes for the lib extraction + new bundle hash.
+
+**Vite bundle**: `index-CsM5S8MR.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated.

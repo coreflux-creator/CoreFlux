@@ -159,9 +159,38 @@ function subTenantProvision(int $parentTenantId, array $opts, ?int $actorUserId 
             }
         }
 
+        // Optionally invite users (master tenant_admin doing onboarding).
+        // We only honour pre-existing platform users here — net-new users
+        // require email-based invitation flow which is a separate sprint.
+        // Each entry: { email, role }. Role defaults to 'user' if absent.
+        $invites = $opts['invites'] ?? [];
+        $invited = [];
+        if (is_array($invites) && $invites) {
+            $find = $pdo->prepare('SELECT id FROM users WHERE email = :e LIMIT 1');
+            $up   = $pdo->prepare(
+                "INSERT INTO user_tenants (user_id, tenant_id, role, status, created_at)
+                 VALUES (:u, :t, :r, 'active', NOW())
+                 ON DUPLICATE KEY UPDATE role = VALUES(role), status = 'active'"
+            );
+            foreach ($invites as $inv) {
+                $email = strtolower(trim((string)($inv['email'] ?? '')));
+                if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) continue;
+                $role  = (string) ($inv['role'] ?? 'user');
+                if (!in_array($role, ['user','manager','admin','tenant_admin','approver','employee'], true)) {
+                    $role = 'user';
+                }
+                $find->execute(['e' => $email]);
+                $row = $find->fetch();
+                if (!$row) continue; // skip non-existent users for v1
+                $up->execute(['u' => (int)$row['id'], 't' => $newId, 'r' => $role]);
+                $invited[] = ['email' => $email, 'user_id' => (int)$row['id'], 'role' => $role];
+            }
+        }
+
         subTenantAudit($parentTenantId, $newId, $actorUserId, 'sub_tenant.provisioned', [
             'name' => $name, 'slug' => $slug,
             'modules' => $modules, 'scope_overrides' => $overrides,
+            'invited' => $invited,
         ], $pdo);
 
         $pdo->commit();

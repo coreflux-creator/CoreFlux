@@ -94,9 +94,10 @@ $a('reopen requires accounting.period.reopen perm', strpos($papi, "'accounting.p
 $a('close requires accounting.period.close perm',   strpos($papi, "'accounting.period.close'") !== false);
 
 echo "\nAccounting Phase 1 — reports API\n";
-$rapi = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/reports.php');
-$a('income_statement type',                        strpos($rapi, "type === 'income_statement'") !== false);
-$a('balance_sheet type',                           strpos($rapi, "type === 'balance_sheet'") !== false);
+$rdis = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/reports.php');
+$rapi = (string) file_get_contents(__DIR__ . '/../modules/accounting/lib/standard_reports.php');
+$a('income_statement type',                        strpos($rdis, "type === 'income_statement'") !== false);
+$a('balance_sheet type',                           strpos($rdis, "type === 'balance_sheet'") !== false);
 $a('reportIncomeStatement filters revenue|expense', strpos($rapi, 'a.account_type IN ("revenue","expense")') !== false);
 $a('IS filters posted JEs only',                   strpos($rapi, 'je.status = "posted"') !== false);
 $a('IS computes net_income',                       strpos($rapi, "'net_income'    => round(\$revTotal - \$expTotal, 2)") !== false);
