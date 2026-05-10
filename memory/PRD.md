@@ -3024,4 +3024,12 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 **Tests**: 138/138 ✅. Two new smokes: `digest_personalization_smoke.php` (26 assertions), `approval_reminders_daily_smoke.php` (24 assertions). PHP-only change.
 
 **Operational**: schedule `php /app/scripts/approval_reminders_daily.php` daily at 09:00 UTC. Tenant-local scheduling is a follow-up.
+
+## 2026-02 — `/workflow` inbox progress badge ("X pending — finish in ~Y min")
+**Built**:
+- `GET /api/workflow/inbox_summary.php` — reuses `aiAgentDigestRecipientCounts()` for AP + workflow pending counts; counts `workflow_step_actions.acted_at` in the last 24h for `cleared_today`. Returns `{pending_total, ap_pending, workflow_pending, cleared_today, eta_minutes (1.5min × pending, capped at 120), progress_pct (cleared / cleared+pending)}`. Schema-tolerant.
+- `dashboard/src/pages/InboxProgressBadge.jsx` — three states: hidden (nothing pending and nothing cleared today), pending ("X pending · breakdown … finish in ~Y min" + animated bar + "Cleared N today · Z% done"), and inbox-zero celebration ("Inbox zero today. You cleared N approval(s)."). Uses `refreshKey` cache-bust so the parent can force a re-fetch.
+- `dashboard/src/pages/WorkflowInbox.jsx` — mounts the badge and bumps `badgeKey` whenever `act()` succeeds, so the bar advances live.
+
+**Test result**: 139/139 ✅. New smoke `inbox_progress_badge_smoke.php` (30 assertions). Vite bundle: `index-BmCDq1pQ.js`. `.deploy-version` bumped.
 **Vite bundle**: `index-CsM5S8MR.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated.

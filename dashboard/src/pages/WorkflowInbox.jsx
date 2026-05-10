@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../lib/api';
 import { Inbox, Clock, Sparkles } from 'lucide-react';
+import InboxProgressBadge from './InboxProgressBadge';
 
 /**
  * WorkflowInbox — generic approval inbox surfacing every pending
@@ -24,6 +25,8 @@ export default function WorkflowInbox() {
   const [commentText, setCommentText] = useState('');
   const [summaries, setSummaries] = useState({});     // {instanceId: text}
   const [summaryBusy, setSummaryBusy] = useState(null);
+  // Badge re-fetches itself when this changes.
+  const [badgeKey, setBadgeKey] = useState(0);
 
   const summarize = async (id) => {
     setSummaryBusy(id);
@@ -42,6 +45,7 @@ export default function WorkflowInbox() {
     try {
       await api.post(`/api/workflow.php?action=act&id=${id}`, { action, comment, via: 'app' });
       setCommenting(null); setCommentText('');
+      setBadgeKey(k => k + 1); // refresh the progress badge
       await reload();
     } catch (e) {
       setActErr(e);
@@ -61,6 +65,8 @@ export default function WorkflowInbox() {
           </p>
         </div>
       </header>
+
+      <InboxProgressBadge refreshKey={badgeKey} />
 
       {loading && <p data-testid="workflow-inbox-loading">Loading…</p>}
       {error   && <p className="error" data-testid="workflow-inbox-error">Error: {error.message}</p>}
