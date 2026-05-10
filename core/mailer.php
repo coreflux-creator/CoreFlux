@@ -67,6 +67,26 @@ function sendEmail(array $args): array {
             $mail->Body = $args['body_text'];
         }
 
+        // Attachments. Accepts:
+        //   - ['/abs/path.pdf', '/abs/path2.pdf']
+        //   - [['path' => '/abs/path.pdf', 'name' => 'invoice-123.pdf']]
+        //   - [['data' => '<binary>',     'name' => 'inline.pdf',
+        //      'type' => 'application/pdf']]
+        foreach (($args['attachments'] ?? []) as $att) {
+            if (is_string($att)) {
+                if (is_file($att)) $mail->addAttachment($att);
+                continue;
+            }
+            if (!is_array($att)) continue;
+            $name = (string) ($att['name'] ?? '');
+            $type = (string) ($att['type'] ?? '');
+            if (!empty($att['path']) && is_file($att['path'])) {
+                $mail->addAttachment($att['path'], $name, 'base64', $type ?: '');
+            } elseif (!empty($att['data'])) {
+                $mail->addStringAttachment($att['data'], $name ?: 'attachment.bin', 'base64', $type ?: 'application/octet-stream');
+            }
+        }
+
         $mail->send();
         return ['ok' => true, 'message_id' => $mail->getLastMessageID()];
     } catch (\PHPMailer\PHPMailer\Exception $e) {
