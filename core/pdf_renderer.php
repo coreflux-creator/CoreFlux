@@ -75,9 +75,13 @@ function cf_render_html_to_pdf(string $html, string $outPath, array $opts = []):
         $start = microtime(true);
         $stdout = '';
         $stderr = '';
+        $exitCode = null;
         while (true) {
             $status = proc_get_status($proc);
-            if (!$status['running']) break;
+            if (!$status['running']) {
+                $exitCode = $status['exitcode']; // grab exit code while it's still valid
+                break;
+            }
             if (microtime(true) - $start > $timeout) {
                 proc_terminate($proc, 9);
                 throw new RuntimeException("PDF renderer timed out after {$timeout}s");
@@ -90,7 +94,8 @@ function cf_render_html_to_pdf(string $html, string $outPath, array $opts = []):
         $stderr .= (string) stream_get_contents($pipes[2]);
         fclose($pipes[1]);
         fclose($pipes[2]);
-        $exit = proc_close($proc);
+        $closeExit = proc_close($proc);
+        $exit = $exitCode !== null ? $exitCode : $closeExit; // proc_close returns -1 if already reaped
 
         if ($exit !== 0 || !is_file($outPath) || filesize($outPath) === 0) {
             throw new RuntimeException("PDF renderer failed (exit={$exit}): " . substr($stderr, 0, 400));
@@ -116,11 +121,22 @@ function _cf_pdf_find_renderer(): ?string {
 }
 
 function _cf_pdf_chromium_cmd(string $bin, string $htmlPath, string $pdfPath, array $opts): string {
+    // Each invocation gets its own user-data-dir so concurrent renders can
+    // coexist without stepping on each other's profile lock.
+    $udd = sys_get_temp_dir() . '/cf-chrome-' . bin2hex(random_bytes(4));
+    @mkdir($udd, 0700, true);
     $args = [
         $bin,
-        '--headless=new',
+        '--headless',                   // legacy headless is the most portable across distro chromium builds
         '--disable-gpu',
         '--no-sandbox',                 // required for unprivileged container exec
+        '--disable-dev-shm-usage',      // /dev/shm is tiny inside most containers
+        '--disable-software-rasterizer',
+        '--disable-extensions',
+        '--disable-features=VizDisplayCompositor',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--user-data-dir=' . $udd,
         '--hide-scrollbars',
         '--no-pdf-header-footer',
         '--print-to-pdf=' . $pdfPath,

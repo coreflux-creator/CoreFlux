@@ -19,6 +19,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/mail_bootstrap.php';
 require_once __DIR__ . '/../../../core/tenant_mail.php';
 require_once __DIR__ . '/../lib/billing.php';
+require_once __DIR__ . '/../lib/invoice_pdf.php';
 require_once __DIR__ . '/../../ap/lib/ap.php';   // apNormalizeItemType() — shared item_type vocabulary
 
 $ctx    = api_require_auth();
@@ -27,7 +28,7 @@ $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
-if ($method === 'GET' && !empty($_GET['id'])) {
+if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
     RBAC::requirePermission($user, 'billing.view');
     $id = (int) $_GET['id'];
     $inv = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
@@ -284,6 +285,22 @@ if ($method === 'POST' && $action === 'send') {
     $sender = cf_tenant_mail_sender($tid, 'billing');
     $svc = cf_mail_bootstrap();
 
+    // Generate the invoice PDF and attach it. If the renderer is missing on
+    // this host we still send the email (with the view-online link) and log
+    // the failure rather than block the customer notification.
+    $attachments = [];
+    $pdfError = null;
+    try {
+        $pdfPath = invoiceRenderPdf($id);
+        $attachments[] = [
+            'filename' => 'invoice-' . preg_replace('/[^A-Za-z0-9._-]/', '_', (string) $row['invoice_number']) . '.pdf',
+            'path'     => $pdfPath,
+            'mime'     => 'application/pdf',
+        ];
+    } catch (\Throwable $e) {
+        $pdfError = $e->getMessage();
+    }
+
     $subject = sprintf('Invoice %s — %s due', $row['invoice_number'], number_format((float) $row['amount_due'], 2) . ' ' . $row['currency']);
     $textBody = sprintf(
         "Hi,\n\nPlease find your invoice %s attached.\n\nAmount due: %s %s\nDue date: %s\n\nView online: %s\n\nThank you.\n",
@@ -304,7 +321,7 @@ if ($method === 'POST' && $action === 'send') {
         htmlspecialchars($tok['url'], ENT_QUOTES, 'UTF-8')
     );
 
-    $sendRes = $svc->send($tid, 'billing', 'invoice_sent', [$to], $subject, $textBody, $htmlBody, [], [
+    $sendRes = $svc->send($tid, 'billing', 'invoice_sent', [$to], $subject, $textBody, $htmlBody, $attachments, [
         'from' => $sender['from'], 'from_name' => $sender['from_name'], 'reply_to' => $sender['reply_to'],
         'idempotency_key' => 'billing-invoice-' . $id,
     ]);
@@ -314,13 +331,43 @@ if ($method === 'POST' && $action === 'send') {
         'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
         'to' => $to, 'token_id' => $tok['token_id'],
         'email_status' => $sendRes['status'] ?? 'unknown',
+        'pdf_attached' => !empty($attachments),
+        'pdf_error'    => $pdfError,
     ], $id);
 
     api_ok([
         'ok' => true, 'token_id' => $tok['token_id'], 'url' => $tok['url'],
         'email_status' => $sendRes['status'] ?? 'unknown',
         'email_error'  => $sendRes['error'] ?? null,
+        'pdf_attached' => !empty($attachments),
+        'pdf_error'    => $pdfError,
     ]);
+}
+
+if ($method === 'GET' && $action === 'pdf' && !empty($_GET['id'])) {
+    RBAC::requirePermission($user, 'billing.view');
+    $id  = (int) $_GET['id'];
+    $row = scopedFind('SELECT id, invoice_number FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$row) api_error('Not found', 404);
+
+    try {
+        $pdfPath = invoiceRenderPdf($id);
+    } catch (\Throwable $e) {
+        api_error('PDF render failed: ' . $e->getMessage(), 500);
+    }
+
+    $fname = 'invoice-' . preg_replace('/[^A-Za-z0-9._-]/', '_', (string) $row['invoice_number']) . '.pdf';
+    $disposition = (($_GET['download'] ?? '0') === '1') ? 'attachment' : 'inline';
+
+    // Stream the bytes directly. We bypass api_ok() because this isn't JSON.
+    if (!headers_sent()) {
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: ' . $disposition . '; filename="' . $fname . '"');
+        header('Content-Length: ' . filesize($pdfPath));
+        header('Cache-Control: private, max-age=0, must-revalidate');
+    }
+    readfile($pdfPath);
+    exit;
 }
 
 if ($method === 'POST' && $action === 'void') {

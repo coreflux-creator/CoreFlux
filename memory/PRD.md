@@ -3032,4 +3032,17 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 - `dashboard/src/pages/WorkflowInbox.jsx` — mounts the badge and bumps `badgeKey` whenever `act()` succeeds, so the bar advances live.
 
 **Test result**: 139/139 ✅. New smoke `inbox_progress_badge_smoke.php` (30 assertions). Vite bundle: `index-BmCDq1pQ.js`. `.deploy-version` bumped.
+
+## 2026-02 — Invoice PDF generation + Email Attachment (Billing P0)
+**Why**: First mission-critical blocker in the full placement cycle. Clients won't pay invoices that don't arrive with a PDF attached, and operators need a one-click download for AR/dispute workflows.
+**Built**:
+- `core/pdf_renderer.php` — universal `cf_render_html_to_pdf()` builder. Prefers headless Chromium (with portable flags: `--headless` legacy, `--no-sandbox`, `--disable-dev-shm-usage`, `--disable-features=VizDisplayCompositor`, per-invocation `--user-data-dir`), falls back to `wkhtmltopdf`, throws a clear error if neither is installed. Captures exit code via `proc_get_status()` before `proc_close()` reaps it (PHP returns `-1` from `proc_close()` when the child is already done — known footgun, now handled).
+- `modules/billing/lib/invoice_pdf.php` — `invoiceRenderPdf(int $id, bool $useCache = true)` returns an absolute path. Cache key is `sha1(updated_at + amount_due)` so any invoice edit busts the cache. Output lives at `/app/storage/billing/invoices/<tenant_id>/<invoice_id>-<hash>.pdf`. HTML template renders brand colour + logo from `tenants`, bill-to block, service period, line items table, totals, and tenant notes.
+- `core/MailService.php` — already accepted `$attachments` (envelope + `mail_outbox.attachments_json`). Module-side convention is `[['filename' => '...', 'path' => '...', 'mime' => 'application/pdf']]`. Real driver implementations (M365/Gmail/Resend) will consume the path when they're wired.
+- `modules/billing/api/invoices.php`:
+  - `POST ?action=send&id=N` — now generates the invoice PDF and passes it as an attachment to `MailService::send()`. Tolerates renderer-missing hosts: still sends the email with the view-online link, logs `pdf_error`, and returns `pdf_attached: false` in the response so the UI can surface a warning.
+  - `GET ?action=pdf&id=N[&download=1]` — new endpoint. Streams `application/pdf` with `Content-Disposition: inline` (or `attachment` when `download=1`). Guarded by `billing.view`. Earlier generic GET-by-id branch now excludes `action=pdf` so it doesn't shadow.
+
+**Test result**: 36/36 ✅ on new `tests/invoice_pdf_smoke.php` (includes a live Chromium render verifying the `%PDF-` magic header). Full suite: 137/139 ✅ — the 2 failures are pre-existing `ai_platform_smoke.php` and `plaid_integration_smoke.php` which require live API keys.
+
 **Vite bundle**: `index-CsM5S8MR.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated.
