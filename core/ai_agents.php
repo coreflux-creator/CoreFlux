@@ -677,6 +677,76 @@ function aiAgentDeepLink(string $agentKey): string {
     ][$agentKey] ?? '/';
 }
 
+/**
+ * Compute per-recipient "what's new for you" queue counts so the digest can
+ * open with a personal nudge ("3 AP bills awaiting your approval, 2 timesheet
+ * approvals pending") instead of a generic header. Best-effort — any query
+ * failure returns a zeroed shape so the digest never breaks because of
+ * counts.
+ *
+ * @return array{
+ *   ap_approvals_pending: int,    // ap_bill_approvals rows where state=pending and you're the approver
+ *   workflow_pending:     int,    // pending workflow_instances where you're current-step approver
+ *   pending_total:        int,    // sum, used to short-circuit the banner
+ *   deep_link:            string, // /workflow inbox path
+ * }
+ */
+function aiAgentDigestRecipientCounts(int $tenantId, string $recipientEmail): array {
+    $zero = [
+        'ap_approvals_pending' => 0,
+        'workflow_pending'     => 0,
+        'pending_total'        => 0,
+        'deep_link'            => '/workflow',
+    ];
+    $email = strtolower(trim($recipientEmail));
+    if ($email === '') return $zero;
+
+    try {
+        $pdo = getDB();
+        if (!$pdo) return $zero;
+
+        // Resolve recipient → user_id (member of this tenant only).
+        $st = $pdo->prepare(
+            'SELECT u.id FROM users u
+               JOIN user_tenants ut ON ut.user_id = u.id
+              WHERE u.email = :e
+                AND ut.tenant_id = :t
+                AND ut.status = \'active\'
+              LIMIT 1'
+        );
+        $st->execute(['e' => $email, 't' => $tenantId]);
+        $row = $st->fetch();
+        if (!$row) return $zero;
+        $userId = (int) $row['id'];
+
+        $apCount = 0;
+        try {
+            $st = $pdo->prepare(
+                "SELECT COUNT(*) c FROM ap_bill_approvals
+                  WHERE tenant_id = :t AND approver_user_id = :u AND state = 'pending'"
+            );
+            $st->execute(['t' => $tenantId, 'u' => $userId]);
+            $apCount = (int) ($st->fetch()['c'] ?? 0);
+        } catch (\Throwable $_) { /* table may not exist on legacy tenants */ }
+
+        $wfCount = 0;
+        try {
+            if (function_exists('workflowGetPendingForUser')) {
+                $wfCount = count(workflowGetPendingForUser($tenantId, $userId));
+            }
+        } catch (\Throwable $_) { /* schema-tolerant */ }
+
+        return [
+            'ap_approvals_pending' => $apCount,
+            'workflow_pending'     => $wfCount,
+            'pending_total'        => $apCount + $wfCount,
+            'deep_link'            => '/workflow',
+        ];
+    } catch (\Throwable $_) {
+        return $zero;
+    }
+}
+
 /** Build a tenant-safe HTML digest from a run-all result map.
  *
  *  Phase A.3 — accepts $intro override (sanitised on render).
@@ -786,16 +856,53 @@ function aiAgentBuildDigestHtml(array $runAllResults, ?string $intro = null, arr
         $masterCtaText = "\nOpen the dashboard: {$masterUrl}\n";
     }
 
+    // Personalized "what's new for you" nudge — hides itself when the
+    // recipient has nothing pending, so the digest doesn't shout at people
+    // with empty queues.
+    $personalNudge = '';
+    $personalText  = '';
+    if ($ctaContext && !empty($ctaContext['tenant_id']) && !empty($ctaContext['recipient_email'])) {
+        $counts = aiAgentDigestRecipientCounts(
+            (int) $ctaContext['tenant_id'],
+            (string) $ctaContext['recipient_email']
+        );
+        if ($counts['pending_total'] > 0) {
+            $parts = [];
+            if ($counts['ap_approvals_pending'] > 0) {
+                $n = (int) $counts['ap_approvals_pending'];
+                $parts[] = "<strong>{$n}</strong> AP bill" . ($n === 1 ? '' : 's') . " awaiting your approval";
+            }
+            if ($counts['workflow_pending'] > 0) {
+                $n = (int) $counts['workflow_pending'];
+                $parts[] = "<strong>{$n}</strong> workflow task" . ($n === 1 ? '' : 's') . " in your inbox";
+            }
+            $inboxUrl = $mintCta($counts['deep_link']);
+            $linkBit = $inboxUrl
+                ? ' &nbsp;<a href="' . htmlspecialchars($inboxUrl, ENT_QUOTES, 'UTF-8') . '"'
+                  . ' style="color:#92400e;font-weight:600;text-decoration:underline">Review now →</a>'
+                : '';
+            $personalNudge = '<div style="margin:0 0 20px;padding:12px 16px;background:#fef3c7;'
+                           . 'border-left:4px solid #f59e0b;border-radius:6px;'
+                           . 'font-family:system-ui;font-size:13px;color:#78350f">'
+                           . '<strong style="color:#92400e">Pending for you:</strong> '
+                           . implode(' &middot; ', $parts) . $linkBit
+                           . '</div>';
+            $personalText = "Pending for you: " . strip_tags(implode(' · ', $parts))
+                          . ($inboxUrl ? "\nReview now: {$inboxUrl}" : '') . "\n\n";
+        }
+    }
+
     $html = "<div style=\"max-width:640px;margin:auto;padding:20px;\">"
           . "<h2 style=\"font-family:system-ui;color:#5b21b6;margin:0 0 4px;\">Your weekly AI Agent digest</h2>"
           . "<p style=\"font-family:system-ui;color:#64748b;font-size:13px;margin:0 0 16px;\">" . nl2br($introHtml) . "</p>"
+          . $personalNudge
           . $masterCta
           . implode('', $sections)
           . "<hr style=\"margin:24px 0;border:0;border-top:1px solid #e2e8f0;\" />"
           . "<p style=\"font-family:system-ui;color:#94a3b8;font-size:11px;\">Generated by CoreFlux AI Agents. Reply to this email to reach your tenant administrator.<br>"
           . "Sign-in links are personal, single-use, and expire in 3 days.</p>"
           . "</div>";
-    $textOut = $masterCtaText . implode("\n---\n", $textParts);
+    $textOut = $personalText . $masterCtaText . implode("\n---\n", $textParts);
     return ['html' => $html, 'text' => $textOut];
 }
 

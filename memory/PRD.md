@@ -3008,4 +3008,20 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 **Smoke**: `digest_magic_link_cta_smoke.php` — 38 assertions covering deep-link map, builder signature, lazy-load resilience, per-section + master CTA HTML/text rendering, per-recipient send loop, back-compat. Patched 2 existing digest smokes for the new builder signature + per-recipient send shape.
 
 **Test result**: 136/136 ✅. No new migrations or bundle bumps (PHP-only change).
+
+## 2026-02 — "Pending for you" personalization + daily approval reminders
+**Personalization in weekly digest**:
+- New `aiAgentDigestRecipientCounts(tenant_id, recipient_email)` resolves the recipient → user_id (active member of this tenant only) and counts pending AP bill approvals (`ap_bill_approvals.state='pending'` rows where `approver_user_id = user`) + pending workflow tasks (via `workflowGetPendingForUser`). Schema-tolerant (caches missing tables, returns zeros).
+- `aiAgentBuildDigestHtml()` now renders an amber "Pending for you: 3 AP bills · 2 workflow tasks &nbsp;Review now →" banner near the top, with a magic-link CTA to `/workflow`. Hides itself when `pending_total === 0` so empty queues don't get a noisy banner. Plain-text body mirrors the line.
+
+**Daily approval reminder cron** (`scripts/approval_reminders_daily.php`):
+- Walks every active tenant, every active member, calls `aiAgentDigestRecipientCounts()`. Sends a focused reminder email **only** when there's something pending (zero email = no email).
+- One email per (user, tenant) per ~20 hours max — idempotent via `tenant_provisioning_log` rows keyed on `action='approval_reminder'` + email match.
+- Mints a single-use magic link with **24-hour TTL** (shorter than digest's 72h since this is meant to be acted on today).
+- Subject: `[Tenant Name] N approvals waiting`. Body: plural-aware, HTML + text, single "Review now →" CTA.
+- Routes mail through tenant's existing `cf_tenant_mail_sender('approvals')` pipeline (Resend per-tenant).
+
+**Tests**: 138/138 ✅. Two new smokes: `digest_personalization_smoke.php` (26 assertions), `approval_reminders_daily_smoke.php` (24 assertions). PHP-only change.
+
+**Operational**: schedule `php /app/scripts/approval_reminders_daily.php` daily at 09:00 UTC. Tenant-local scheduling is a follow-up.
 **Vite bundle**: `index-CsM5S8MR.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated.
