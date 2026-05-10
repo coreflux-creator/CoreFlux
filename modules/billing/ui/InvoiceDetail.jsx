@@ -35,7 +35,17 @@ export default function InvoiceDetail() {
     const res = await api.post(`/modules/billing/api/invoices.php?action=send&id=${id}`, { to: sendTo });
     setShowSend(false);
     if (res.email_status !== 'sent') alert(`Token created but email status: ${res.email_status} (${res.email_error || 'no detail'})`);
+    if (res.pdf_attached === false && res.pdf_error) alert(`PDF could not be generated: ${res.pdf_error}\nEmail sent without attachment.`);
   });
+  const previewPdf = () => {
+    // Open the inline PDF in a new tab. The endpoint streams application/pdf
+    // so the browser's built-in viewer takes over — no JS download needed.
+    window.open(`/modules/billing/api/invoices.php?action=pdf&id=${id}`, '_blank', 'noopener');
+  };
+  const downloadPdf = () => {
+    // Force the "Save as…" flow.
+    window.location.href = `/modules/billing/api/invoices.php?action=pdf&id=${id}&download=1`;
+  };
   const voidIt  = () => {
     const reason = prompt('Void reason:');
     if (!reason) return;
@@ -53,6 +63,8 @@ export default function InvoiceDetail() {
           <span className={`badge badge--${inv.status}`}>{inv.status.replace('_',' ')}</span>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn--ghost" onClick={previewPdf} data-testid="billing-invoice-preview-pdf" title="Open PDF preview in a new tab">Preview PDF</button>
+          <button className="btn btn--ghost" onClick={downloadPdf} data-testid="billing-invoice-download-pdf" title="Download PDF">Download</button>
           {canApprove && <button className="btn btn--primary" onClick={approve} disabled={busy==='approve'} data-testid="billing-invoice-approve">{busy==='approve' ? 'Approving…' : 'Approve'}</button>}
           {canSend && <button className="btn btn--primary" onClick={() => setShowSend(true)} data-testid="billing-invoice-send-open">Send</button>}
           {canVoid && <button className="btn btn--ghost" onClick={voidIt} disabled={busy==='void'} data-testid="billing-invoice-void">{busy==='void' ? 'Voiding…' : 'Void'}</button>}

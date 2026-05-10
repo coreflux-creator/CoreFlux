@@ -21,6 +21,7 @@ require_once __DIR__ . '/../../../core/tenant_mail.php';
 require_once __DIR__ . '/../lib/billing.php';
 require_once __DIR__ . '/../lib/invoice_pdf.php';
 require_once __DIR__ . '/../../ap/lib/ap.php';   // apNormalizeItemType() — shared item_type vocabulary
+require_once __DIR__ . '/../../ap/lib/pwp.php';  // apPwpAutoLinkForArInvoice() — pay-when-paid auto-link
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -152,6 +153,19 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $e;
+    }
+
+    // After commit: opportunistically link any matching PWP AP bills (same
+    // period + placement). Failures here don't roll back the invoice creation.
+    foreach ($created as $c) {
+        try {
+            $link = apPwpAutoLinkForArInvoice($tid, (int) $c['id'], $user['id'] ?? null);
+            if (!empty($link['linked'])) {
+                $c['pwp_linked_bill_count'] = count($link['linked']);
+            }
+        } catch (\Throwable $e) {
+            error_log('[billing.invoices.from-time-bundle] PWP auto-link failed for invoice ' . $c['id'] . ': ' . $e->getMessage());
+        }
     }
     api_ok(['invoices_created' => $created], 201);
 }

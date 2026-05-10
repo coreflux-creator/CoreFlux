@@ -3045,4 +3045,40 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 
 **Test result**: 36/36 ✅ on new `tests/invoice_pdf_smoke.php` (includes a live Chromium render verifying the `%PDF-` magic header). Full suite: 137/139 ✅ — the 2 failures are pre-existing `ai_platform_smoke.php` and `plaid_integration_smoke.php` which require live API keys.
 
+
+## 2026-02 — Invoice Preview/Download PDF buttons + Pay-When-Paid AP automation
+**Why**: Two adjacent gaps in the placement cycle. (1) AR ops want to eyeball the PDF *before* they hit Send. (2) Most staffing AP bills (1099 / C2C contractors) carry "paid when paid" terms — the agency only owes the contractor once the client pays the invoice. Until now that was a manual reconciliation; now it's automated.
+
+**UI**:
+- `modules/billing/ui/InvoiceDetail.jsx` — two new buttons: `billing-invoice-preview-pdf` opens `/modules/billing/api/invoices.php?action=pdf&id=N` in a new tab; `billing-invoice-download-pdf` forces `?download=1`. The Send modal now surfaces `pdf_error` from the API response when an attachment could not be generated.
+
+**Data model** (`modules/ap/migrations/017_pay_when_paid.sql`, idempotent):
+- `ap_bills.payment_terms VARCHAR(40)` — per-bill override. Accepted values: `NET<N>`, `PWP` (immediately due once AR clears), `PWP_NET<N>` (N days *after* AR clears).
+- `ap_bills.linked_ar_invoice_id BIGINT` — the AR invoice this bill is gated on.
+- `ap_bills.pwp_status ENUM('not_pwp','awaiting_ar','triggered','partial_triggered')` — lifecycle.
+- `ap_bills.pwp_released_at DATETIME` — set when triggered.
+- `ap_vendors_index.default_pwp TINYINT(1)` — vendor-level default so all bills for that contractor inherit PWP.
+- New composite index `idx_apb_pwp_linked (linked_ar_invoice_id, pwp_status)` for the trigger query.
+
+**Library** (`modules/ap/lib/pwp.php`):
+- `apPwpParseTerms(?string $terms)` — classifier (returns `is_pwp` + `net_days`).
+- `apPwpAutoLinkForArInvoice($tenantId, $arInvoiceId, $actor)` — matches AP bills by `placement_id` ∈ AR invoice's placement lines AND `period_start/period_end` exact match. Links only when bill's terms resolve to PWP OR the vendor has `default_pwp=1`. Skips already-linked-elsewhere bills and already-triggered bills (idempotent).
+- `apPwpSetLink` / `apPwpClearLink` — manual overrides.
+- `apPwpReleaseForArInvoice($tenantId, $arInvoiceId, $actor)` — runs when the AR invoice's `amount_due` rounds to 0. For each linked `awaiting_ar` bill: sets `pwp_status='triggered'`, `pwp_released_at=NOW()`, bumps `due_date = today + N`, and transitions `inbox`/`pending_review`/`pending_approval` → `approved` (sets `approved_by_user_id` to the AR payment's actor). Wrapped in a transaction.
+
+**Automation**:
+- `billingAllocatePayment()` (`modules/billing/lib/billing.php`) — after the AR transaction commits, every invoice that just transitioned to `paid` triggers `apPwpReleaseForArInvoice()`. Failures are logged but never roll back the AR cash receipt. Response now returns `{applied, unallocated_remaining, pwp: [{ar_invoice_id, released:[…]}]}`.
+- `POST /api/billing/invoices?action=from-time-bundle` — after the AR drafts are committed, auto-links matching PWP bills via `apPwpAutoLinkForArInvoice()`. The created-list entries gain `pwp_linked_bill_count` so the UI can show "3 vendor bills are now gated on this invoice".
+
+**API** (`modules/ap/api/pwp.php`):
+- `GET ?action=preview&ar_invoice_id=N` — dry-run candidate list (read-only). `ap.bill.view`.
+- `POST ?action=auto_link` body `{ar_invoice_id}` — re-runs the matcher. `ap.bill.create`.
+- `POST ?action=link` body `{bill_id, ar_invoice_id, payment_terms?}` — manual override. `ap.bill.create`.
+- `POST ?action=unlink` body `{bill_id}` — clears the link. `ap.bill.create`.
+- `POST ?action=release_for_invoice` body `{ar_invoice_id}` — manual release fallback (e.g., AR was marked paid out-of-band). `ap.bill.approve`.
+
+**Tests**: `tests/pay_when_paid_smoke.php` (48/48 ✅, including classifier matrix, hook wiring contracts, RBAC guards, UI test-ids). Full suite: **139/141** ✅ — the 2 remaining failures are pre-existing `ai_platform_smoke.php` and `plaid_integration_smoke.php` which require live API keys.
+
+**Vite build**: `dist/spa-assets/index-DSGs7Nlv.js` + `index-Cwhpy62y.css`. `.deploy-version` bumped; sentinels added for all 9 new/changed files.
+
 **Vite bundle**: `index-CsM5S8MR.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated.

@@ -239,8 +239,17 @@ sentinels:
 - modules/treasury/api/scenario_share.php
 - dashboard/src/pages/ScenarioShare.jsx
 - tests/scenario_share_smoke.php
+- core/pdf_renderer.php
+- modules/billing/lib/invoice_pdf.php
+- modules/billing/api/invoices.php
+- tests/invoice_pdf_smoke.php
+- modules/ap/migrations/017_pay_when_paid.sql
+- modules/ap/lib/pwp.php
+- modules/ap/api/pwp.php
+- tests/pay_when_paid_smoke.php
+- modules/billing/ui/InvoiceDetail.jsx
 expected_bundle:
-- spa-assets/index-BmCDq1pQ.js
+- spa-assets/index-DSGs7Nlv.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -536,3 +545,11 @@ last_known_features:
 - treasury.scenario.share_link_sha256_at_rest
 - treasury.scenario.share_link_expires_revoke_actions
 - treasury.scenario.share_link_compare_a_b_pair
+- billing.invoices.pdf_renderer
+- billing.invoices.pdf_email_attachment
+- billing.invoices.pdf_download_endpoint
+- ui.billing.invoice_detail.preview_download_pdf_buttons
+- ap.bills.pay_when_paid_terms
+- ap.bills.pay_when_paid_auto_link_from_time_bundle
+- ap.bills.pay_when_paid_auto_release_on_ar_paid
+- ap.bills.pay_when_paid_api
