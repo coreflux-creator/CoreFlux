@@ -73,8 +73,23 @@ const AdminSidebar = () => {
     { to: '/admin/mail-branding',    label: 'Branding',         icon: Palette },
     { to: '/admin/digest-schedules', label: 'Digests',          icon: CalendarClock },
   ];
+  // Local sub-sidebar — override the global .sidebar class which is
+  // position:fixed; left:0 (intended for the app-level shell sidebar).
+  // Inside AdminModule the app-shell already shifts content right by
+  // var(--cf-sidebar-width), so this nav must flow in the flex layout.
+  const localStyle = {
+    position: 'sticky',
+    top: 'var(--cf-header-height)',
+    alignSelf: 'flex-start',
+    width: 'var(--cf-sidebar-width)',
+    flexShrink: 0,
+    maxHeight: 'calc(100vh - var(--cf-header-height))',
+    overflowY: 'auto',
+    background: 'var(--cf-surface)',
+    borderRight: '1px solid var(--cf-border)',
+  };
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" style={localStyle}>
       <div className="sidebar-header">
         <h2 className="sidebar-title">Admin</h2>
       </div>
@@ -99,9 +114,9 @@ const AdminSidebar = () => {
 
 const AdminModule = ({ session }) => {
   return (
-    <div style={{ display: 'flex', marginLeft: '-220px', minHeight: 'calc(100vh - 56px)' }}>
+    <div style={{ display: 'flex', gap: 0, minHeight: 'calc(100vh - var(--cf-header-height, 56px))' }}>
       <AdminSidebar />
-      <div style={{ flex: 1, marginLeft: '220px', padding: 'var(--cf-space-6)' }}>
+      <div style={{ flex: 1, minWidth: 0, padding: 'var(--cf-space-6)' }} data-testid="admin-main-content">
         <Routes>
           <Route path="/"                  element={<AdminOverview />} />
           <Route path="/tenants"           element={<MasterTenantsAdmin session={session} />} />
