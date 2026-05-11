@@ -86,7 +86,7 @@ if ($method === 'GET' && $action === 'list') {
         "SELECT t.id, t.person_id, t.period_start, t.period_end, t.status,
                 t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
                 p.first_name, p.last_name, p.email_primary
-           FROM timesheets t
+           FROM staffing_timesheets t
            LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = t.tenant_id
           WHERE {$whereSql}
           ORDER BY period_start DESC, t.id DESC

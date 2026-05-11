@@ -288,6 +288,15 @@ const AppContent = ({ session, usingDemo }) => {
         setActiveModule(mod);
         return;
       }
+      // Fallback: tenant doesn't have this module in their subscription yet
+      // (newly-launched modules like Staffing haven't been auto-enabled in
+      // tenant_modules). Synthesize a minimal module object from the
+      // DEMO_SESSION manifest so the sidebar still renders the right nav
+      // instead of showing the wrong module's actions.
+      if (!mod && moduleId !== activeModule?.id) {
+        const fallback = DEMO_SESSION.modules.find(m => m.id === moduleId);
+        if (fallback) { setActiveModule(fallback); return; }
+      }
     }
     
     // On dashboard/admin/profile/settings, clear module context or keep first

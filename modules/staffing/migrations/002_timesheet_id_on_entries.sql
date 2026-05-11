@@ -19,7 +19,7 @@
 
 SET @te_exists := (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'time_entries')
 ;
-SET @ts_exists := (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'timesheets')
+SET @ts_exists := (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'staffing_timesheets')
 ;
 
 -- Add timesheet_id column.
@@ -73,7 +73,7 @@ DEALLOCATE PREPARE stmt
 -- derived from existing time_entries. SUBDATE() shifts work_date back to the
 -- Monday of its ISO week (DAYOFWEEK returns 1-7 Sun-Sat; (DAYOFWEEK - 2 + 7) % 7
 -- gives days since Monday). Uses INSERT IGNORE so re-running is safe.
-SET @sql := IF(@te_exists = 1 AND @ts_exists = 1, "INSERT IGNORE INTO timesheets (tenant_id, person_id, period_start, period_end, status, total_hours) SELECT tenant_id, person_id, SUBDATE(work_date, MOD(DAYOFWEEK(work_date) - 2 + 7, 7)) AS ps, DATE_ADD(SUBDATE(work_date, MOD(DAYOFWEEK(work_date) - 2 + 7, 7)), INTERVAL 6 DAY) AS pe, CASE WHEN MIN(status) = 'approved' AND MAX(status) = 'approved' THEN 'approved' WHEN MAX(status) = 'pending_review' THEN 'submitted' WHEN MAX(status) = 'rejected' THEN 'rejected' ELSE 'draft' END AS hs, SUM(CASE WHEN status != 'superseded' THEN hours ELSE 0 END) FROM time_entries WHERE person_id IS NOT NULL GROUP BY tenant_id, person_id, ps, pe", 'DO 0')
+SET @sql := IF(@te_exists = 1 AND @ts_exists = 1, "INSERT IGNORE INTO staffing_timesheets (tenant_id, person_id, period_start, period_end, status, total_hours) SELECT tenant_id, person_id, SUBDATE(work_date, MOD(DAYOFWEEK(work_date) - 2 + 7, 7)) AS ps, DATE_ADD(SUBDATE(work_date, MOD(DAYOFWEEK(work_date) - 2 + 7, 7)), INTERVAL 6 DAY) AS pe, CASE WHEN MIN(status) = 'approved' AND MAX(status) = 'approved' THEN 'approved' WHEN MAX(status) = 'pending_review' THEN 'submitted' WHEN MAX(status) = 'rejected' THEN 'rejected' ELSE 'draft' END AS hs, SUM(CASE WHEN status != 'superseded' THEN hours ELSE 0 END) FROM time_entries WHERE person_id IS NOT NULL GROUP BY tenant_id, person_id, ps, pe", 'DO 0')
 ;
 PREPARE stmt FROM @sql
 ;
@@ -83,7 +83,7 @@ DEALLOCATE PREPARE stmt
 ;
 
 -- Link every existing time_entries row to its newly-created timesheet header.
-SET @sql := IF(@te_exists = 1 AND @ts_exists = 1, "UPDATE time_entries te JOIN timesheets t ON t.tenant_id = te.tenant_id AND t.person_id = te.person_id AND te.work_date BETWEEN t.period_start AND t.period_end SET te.timesheet_id = t.id WHERE te.timesheet_id IS NULL", 'DO 0')
+SET @sql := IF(@te_exists = 1 AND @ts_exists = 1, "UPDATE time_entries te JOIN staffing_timesheets t ON t.tenant_id = te.tenant_id AND t.person_id = te.person_id AND te.work_date BETWEEN t.period_start AND t.period_end SET te.timesheet_id = t.id WHERE te.timesheet_id IS NULL", 'DO 0')
 ;
 PREPARE stmt FROM @sql
 ;

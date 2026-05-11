@@ -3558,3 +3558,16 @@ Tests: 8 new assertions in `staffing_shell_and_weekly_timesheet_smoke.php` pinni
 
 ### Full sweep
 **158/158 ✅**, zero real failures (2 baseline external-API smokes skipped as documented).
+
+## 2026-02 — Hotfix #2: Table-name collision + Sidebar URL sync
+
+User screenshot showed two separate problems on the new `/modules/staffing/timesheets` page:
+1. **"Unknown column 'person_id' in 'WHERE'" on bulk_save.** Root cause: `/app/sql/setup.sql` has a legacy `timesheets` table (columns: `user_id`, `week_start`, `hours_worked`) that's still referenced by `/app/timesheets/*` and `/app/people/*` legacy code. My `CREATE TABLE IF NOT EXISTS timesheets` no-op'd because the table already existed → my queries hit the legacy schema → person_id missing.
+2. **Sidebar still showing "Time" module nav** even when user was on `/modules/staffing/timesheets`. Root cause: `session.modules` from prod tenant doesn't yet contain `staffing` (migration 034 enables it but on a fresh request it hasn't propagated to the in-memory session), so App.jsx's URL→module matcher fell through and kept the previous active_module.
+
+**Fixes:**
+- Renamed my new table `timesheets` → **`staffing_timesheets`** everywhere (migration 001 + 002, lib, API, smoke tests). Unique-key + indexes renamed `uq_ts_*` → `uq_sts_*` to match.
+- App.jsx: when URL is `/modules/<id>/*` and `<id>` isn't in `session.modules`, fall back to the matching `DEMO_SESSION.modules` entry so the sidebar still renders the correct module nav. Staffing now displays its own sidebar regardless of whether the tenant's `tenant_modules` row has been auto-enabled yet.
+- New regression assertions in `staffing_shell_and_weekly_timesheet_smoke.php` (4 new): pin that lib/API/migrations never reference the bare `timesheets` name again.
+
+**Tests:** 65 staffing assertions ✅. Full sweep **158/158 ✅**. SPA → `index-ChaZ7Z_l.js`.

@@ -44,19 +44,19 @@ function staffingSettings(): array {
 /** Get-or-create the timesheet header for (person, week). */
 function staffingTimesheetUpsert(int $personId, string $periodStart, string $periodEnd): array {
     $existing = scopedFind(
-        'SELECT * FROM timesheets WHERE tenant_id = :tenant_id AND person_id = :pid AND period_start = :ps LIMIT 1',
+        'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND person_id = :pid AND period_start = :ps LIMIT 1',
         ['pid' => $personId, 'ps' => $periodStart]
     );
     if ($existing) return $existing;
 
-    $id = scopedInsert('timesheets', [
+    $id = scopedInsert('staffing_timesheets', [
         'person_id'    => $personId,
         'period_start' => $periodStart,
         'period_end'   => $periodEnd,
         'status'       => 'draft',
         'total_hours'  => 0,
     ]);
-    return scopedFind('SELECT * FROM timesheets WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]) ?? [];
+    return scopedFind('SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]) ?? [];
 }
 
 /** Snapshot of a worker's week — header + grouped entries by placement × day. */
@@ -205,7 +205,7 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
               WHERE tenant_id = :tenant_id AND timesheet_id = :tid AND status != 'superseded'",
             ['tid' => $headerId]
         );
-        scopedUpdate('timesheets', $headerId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
+        scopedUpdate('staffing_timesheets', $headerId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
 
         $pdo->commit();
     } catch (\Throwable $e) {
@@ -227,7 +227,7 @@ function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart
     $pdo = getDB();
     $pdo->beginTransaction();
     try {
-        scopedUpdate('timesheets', $headerId, [
+        scopedUpdate('staffing_timesheets', $headerId, [
             'status'       => 'submitted',
             'submitted_at' => date('Y-m-d H:i:s'),
         ]);
@@ -258,7 +258,7 @@ function staffingTimesheetReject(int $userId, int $personId, string $periodStart
     $pdo = getDB();
     $pdo->beginTransaction();
     try {
-        scopedUpdate('timesheets', $headerId, [
+        scopedUpdate('staffing_timesheets', $headerId, [
             'status'              => 'rejected',
             'rejected_at'         => date('Y-m-d H:i:s'),
             'rejected_by_user_id' => $userId,
@@ -337,7 +337,7 @@ function staffingTimesheetApprove(int $userId, int $personId, string $periodStar
     $pdo = getDB();
     $pdo->beginTransaction();
     try {
-        scopedUpdate('timesheets', $headerId, [
+        scopedUpdate('staffing_timesheets', $headerId, [
             'status'              => 'approved',
             'approved_at'         => date('Y-m-d H:i:s'),
             'approved_by_user_id' => $userId,

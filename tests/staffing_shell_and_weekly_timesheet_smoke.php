@@ -22,6 +22,19 @@ $read = fn (string $p) => (string) file_get_contents($p);
 
 echo "Manifest\n";
 $m = require __DIR__ . '/../modules/staffing/manifest.php';
+
+// Regression: must not collide with the legacy `timesheets` table from
+// /app/sql/setup.sql (which has columns user_id/week_start/hours_worked and
+// is still referenced by /app/timesheets/* and /app/people/* legacy code).
+$libRaw = file_get_contents(__DIR__ . '/../modules/staffing/lib/timesheets.php');
+$apiRaw = file_get_contents(__DIR__ . '/../modules/staffing/api/timesheets.php');
+$mig1Raw = file_get_contents(__DIR__ . '/../modules/staffing/migrations/001_timesheets.sql');
+$mig2Raw = file_get_contents(__DIR__ . '/../modules/staffing/migrations/002_timesheet_id_on_entries.sql');
+$a('Regression: lib never references bare `timesheets` table',     preg_match('/\b(FROM|INTO|UPDATE|JOIN)\s+timesheets\b/i', $libRaw) === 0 && preg_match("/scopedInsert\('timesheets'/", $libRaw) === 0 && preg_match("/scopedUpdate\('timesheets'/", $libRaw) === 0);
+$a('Regression: API never references bare `timesheets` table',     preg_match('/\b(FROM|INTO|UPDATE|JOIN)\s+timesheets\b/i', $apiRaw) === 0);
+$a('Regression: migration 001 creates staffing_timesheets',        str_contains($mig1Raw, 'CREATE TABLE IF NOT EXISTS staffing_timesheets'));
+$a('Regression: migration 002 references staffing_timesheets',     str_contains($mig2Raw, 'staffing_timesheets') && preg_match('/\b(FROM|INTO|UPDATE|JOIN)\s+timesheets\b/', $mig2Raw) === 0);
+
 $a('manifest id is staffing',                    ($m['id'] ?? null) === 'staffing');
 $a('manifest name is Staffing',                  ($m['name'] ?? null) === 'Staffing');
 $a('actions include Timesheets',                 in_array('Timesheets', array_column($m['actions'] ?? [], 'name'), true));
@@ -32,8 +45,8 @@ $a('permissions list defines staffing.time.approve', isset($m['permissions']['st
 
 echo "\nMigration 001_timesheets.sql — header table contract\n";
 $mig1 = $read(__DIR__ . '/../modules/staffing/migrations/001_timesheets.sql');
-$a('creates timesheets table',                   str_contains($mig1, 'CREATE TABLE IF NOT EXISTS timesheets'));
-$a('unique on (tenant_id, person_id, period_start)', str_contains($mig1, 'uq_ts_tenant_person_week (tenant_id, person_id, period_start)'));
+$a('creates staffing_timesheets table',          str_contains($mig1, 'CREATE TABLE IF NOT EXISTS staffing_timesheets'));
+$a('unique on (tenant_id, person_id, period_start)', str_contains($mig1, 'uq_sts_tenant_person_week (tenant_id, person_id, period_start)'));
 $a('status enum includes all spec values',       str_contains($mig1, "ENUM('draft','submitted','approved','rejected','payroll_ready','billing_ready','locked')"));
 $a('creates tenant_staffing_settings table',     str_contains($mig1, 'CREATE TABLE IF NOT EXISTS tenant_staffing_settings'));
 $a('settings include week_starts_on default Mon',str_contains($mig1, 'week_starts_on TINYINT NOT NULL DEFAULT 1'));
@@ -44,7 +57,7 @@ $a('adds timesheet_id column',                   str_contains($mig2, 'ADD COLUMN
 $a('adds hour_type enum',                        str_contains($mig2, "hour_type ENUM('regular','overtime','doubletime','holiday','pto','sick','bereavement','unpaid','nonbillable')"));
 $a('adds billable + payable flags',              str_contains($mig2, 'ADD COLUMN billable TINYINT(1)') && str_contains($mig2, 'ADD COLUMN payable TINYINT(1)'));
 $a('backfills hour_type from legacy category',   str_contains($mig2, "WHEN category = 'OT_billable' OR category = 'OT_nonbillable' THEN 'overtime'"));
-$a('backfills timesheets headers from entries',  str_contains($mig2, 'INSERT IGNORE INTO timesheets'));
+$a('backfills staffing_timesheets headers from entries',  str_contains($mig2, 'INSERT IGNORE INTO staffing_timesheets'));
 $a('uses information_schema gating throughout',  substr_count($mig2, 'FROM information_schema.') >= 4);
 $a('uses one-statement-per-line PREPARE',        preg_match('/PREPARE stmt FROM @sql[^\n]*;[^\n]*EXECUTE/', $mig2) === 0);
 
@@ -52,12 +65,12 @@ echo "\nLib /modules/staffing/lib/timesheets.php\n";
 $lib = $read(__DIR__ . '/../modules/staffing/lib/timesheets.php');
 $a('STAFFING_HOUR_TYPES constant declared',      str_contains($lib, "const STAFFING_HOUR_TYPES"));
 $a('STAFFING_HOUR_TYPE_TO_CATEGORY map present', str_contains($lib, 'STAFFING_HOUR_TYPE_TO_CATEGORY'));
-$a('staffingTimesheetUpsert idempotent on (person, period_start)', str_contains($lib, 'staffingTimesheetUpsert') && str_contains($lib, 'period_start = :ps'));
+$a('staffingTimesheetUpsert idempotent on (person, period_start)', str_contains($lib, 'staffingTimesheetUpsert') && str_contains($lib, 'period_start = :ps') && str_contains($lib, 'staffing_timesheets'));
 $a('staffingTimesheetWeek joins placements + reads end_client_name', str_contains($lib, 'LEFT JOIN placements') && str_contains($lib, 'end_client_name'));
 $a('staffingTimesheetBulkSave wraps in transaction', str_contains($lib, '$pdo->beginTransaction()'));
 $a('zero hours → delete existing row',           str_contains($lib, '$hours <= 0 && !empty($r[\'id\'])') && str_contains($lib, "scopedDelete('time_entries'"));
 $a('refuses edits when status approved/locked',  str_contains($lib, "in_array(\$header['status'] ?? 'draft', ['approved','locked','payroll_ready','billing_ready']"));
-$a('submit() flips header + cascades rows',      str_contains($lib, "scopedUpdate('timesheets', \$headerId, [") && str_contains($lib, "'submitted'") && str_contains($lib, "status = 'pending_review'"));
+$a('submit() flips header + cascades rows',      str_contains($lib, "scopedUpdate('staffing_timesheets', \$headerId, [") && str_contains($lib, "'submitted'") && str_contains($lib, "status = 'pending_review'"));
 $a('approve() guards two-eye control',           str_contains($lib, 'Two-eye control'));
 $a('reject() requires reason on header',         str_contains($lib, "'rejection_reason'    => \$reason"));
 
