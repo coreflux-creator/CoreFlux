@@ -283,7 +283,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-BWtb0zXx.js
+- spa-assets/index-Byd_qeJ2.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -622,3 +622,24 @@ last_known_features:
 - ap.email_approval.note_prompt_landing_page
 - ap.email_approval.skip_note_and_approve
 - ap.email_approval.reject_requires_reason
+- billing.ar_statement.email_button_on_aging
+- billing.ar_statement.lib_bucket_render_recipients
+- billing.ar_statement.api_preview_and_send
+- billing.ar_statement.idempotency_by_tenant_client_day
+- billing.ar_statement.reuses_client_contacts_roster
+- sso.slice1.tenant_sso_domains_schema
+- sso.slice1.config_api_get_post_disable_clear
+- sso.slice1.admin_ui_with_secret_last4_confirmation
+- sso.slice1.encrypted_client_secret_at_rest
+- sso.slice2.oidc_session_state_schema
+- sso.slice2.jwks_cache_schema
+- sso.slice2.discovery_cache_schema
+- sso.slice2.start_endpoint_with_pkce_s256
+- sso.slice2.callback_endpoint_atomic_state_consume
+- sso.slice2.id_token_verification_rs256_jwks
+- sso.slice2.handrolled_jwk_to_pem_asn1
+- sso.slice2.clock_skew_300s_tolerance
+- sso.slice2.alg_confusion_rejected
+- sso.slice2.allowed_email_domains_whitelist
+- sso.slice2.jit_user_creation_by_email
+- sso.slice2.login_page_sso_tab

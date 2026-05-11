@@ -1,10 +1,38 @@
 import React, { useState } from 'react';
-import { useApi } from '../../../dashboard/src/lib/api';
+import { useApi, api } from '../../../dashboard/src/lib/api';
 
 export default function AgingTable() {
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
   const { data, loading, error } = useApi(`/modules/billing/api/aging.php?as_of=${asOf}`);
   const rows = data?.rows ?? [];
+  const [preview, setPreview] = useState(null);  // {client_name, ...} after a GET preview
+  const [sending, setSending] = useState(null);  // client_name currently being sent
+  const [toast,   setToast]   = useState(null);  // {kind:'ok'|'err', text}
+
+  const previewStatement = async (clientName) => {
+    setSending(clientName); setToast(null);
+    try {
+      const data = await api.get(`/modules/billing/api/send_statement.php?client_name=${encodeURIComponent(clientName)}&as_of=${asOf}`);
+      setPreview({ ...data, client_name: clientName });
+    } catch (e) {
+      setToast({ kind: 'err', text: e.message });
+    } finally {
+      setSending(null);
+    }
+  };
+
+  const sendStatement = async (clientName) => {
+    setSending(clientName); setToast(null);
+    try {
+      const res = await api.post('/modules/billing/api/send_statement.php', { client_name: clientName, as_of: asOf });
+      setPreview(null);
+      setToast({ kind: 'ok', text: `Statement emailed to ${res.sent_to}${res.cc?.length ? ` (cc ${res.cc.join(', ')})` : ''} — ${res.count} invoice${res.count === 1 ? '' : 's'}.` });
+    } catch (e) {
+      setToast({ kind: 'err', text: e.message });
+    } finally {
+      setSending(null);
+    }
+  };
 
   const totals = rows.reduce((acc, r) => ({
     cur: acc.cur + Number(r.bucket_current),
@@ -26,6 +54,13 @@ export default function AgingTable() {
 
       {loading && <p>Loading…</p>}
       {error && <p className="error" data-testid="billing-aging-error">Error: {error.message}</p>}
+      {toast && (
+        <p className={toast.kind === 'ok' ? 'success' : 'error'}
+           data-testid={`billing-aging-statement-${toast.kind === 'ok' ? 'sent' : 'error'}`}
+           style={{ background: toast.kind === 'ok' ? '#f0fdf4' : '#fef2f2', padding: 10, borderRadius: 6, fontSize: 13 }}>
+          {toast.text}
+        </p>
+      )}
 
       <table className="data-table" data-testid="billing-aging-table">
         <thead>
@@ -37,10 +72,11 @@ export default function AgingTable() {
             <th style={{textAlign:'right'}}>61-90</th>
             <th style={{textAlign:'right'}}>91+</th>
             <th style={{textAlign:'right'}}>Total due</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={7} className="empty" data-testid="billing-aging-empty">Nothing outstanding as of {asOf}.</td></tr>}
+          {rows.length === 0 && !loading && <tr><td colSpan={8} className="empty" data-testid="billing-aging-empty">Nothing outstanding as of {asOf}.</td></tr>}
           {rows.map((r, i) => (
             <tr key={i} data-testid={`billing-aging-row-${i}`}>
               <td>{r.client_name}</td>
@@ -50,6 +86,16 @@ export default function AgingTable() {
               <td style={{textAlign:'right', color: Number(r.bucket_61_90) > 0 ? 'var(--cf-warning, #b45309)' : undefined}}>{Number(r.bucket_61_90).toFixed(2)}</td>
               <td style={{textAlign:'right', color: Number(r.bucket_91_plus) > 0 ? 'var(--cf-danger, #b91c1c)' : undefined, fontWeight: Number(r.bucket_91_plus) > 0 ? 600 : 400}}>{Number(r.bucket_91_plus).toFixed(2)}</td>
               <td style={{textAlign:'right', fontWeight: 600}}>{Number(r.total_due).toFixed(2)}</td>
+              <td style={{textAlign:'right'}}>
+                <button
+                  className="btn btn--ghost" style={{ fontSize: 11 }}
+                  onClick={() => previewStatement(r.client_name)}
+                  disabled={sending === r.client_name}
+                  data-testid={`billing-aging-email-statement-${i}`}
+                >
+                  {sending === r.client_name ? 'Loading…' : 'Email statement'}
+                </button>
+              </td>
             </tr>
           ))}
           {rows.length > 0 && (
@@ -61,10 +107,74 @@ export default function AgingTable() {
               <td style={{textAlign:'right'}}>{totals.b3.toFixed(2)}</td>
               <td style={{textAlign:'right'}}>{totals.b4.toFixed(2)}</td>
               <td style={{textAlign:'right'}}>{totals.tot.toFixed(2)}</td>
+              <td></td>
             </tr>
           )}
         </tbody>
       </table>
+
+      {preview && (
+        <StatementPreviewModal
+          preview={preview}
+          asOf={asOf}
+          busy={sending === preview.client_name}
+          onClose={() => setPreview(null)}
+          onSend={() => sendStatement(preview.client_name)}
+        />
+      )}
     </section>
+  );
+}
+
+function StatementPreviewModal({ preview, asOf, busy, onClose, onSend }) {
+  const to  = preview?.recipients?.to;
+  const cc  = preview?.recipients?.cc || [];
+  const inv = preview?.invoices    || [];
+  const buckets = preview?.buckets || {};
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      data-testid="billing-aging-statement-modal"
+      onClick={(e) => e.target === e.currentTarget && !busy && onClose()}
+    >
+      <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 12, width: 'min(720px, 100%)', maxHeight: '90vh', overflow: 'auto', padding: 24 }}>
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 16 }}>
+          <div>
+            <h3 style={{ margin: 0 }}>Statement preview — {preview.client_name}</h3>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>As of {asOf} · {inv.length} open invoice{inv.length === 1 ? '' : 's'} · total ${Number(buckets.total || 0).toFixed(2)}</p>
+          </div>
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>×</button>
+        </header>
+
+        <div style={{ background: '#f8fafc', borderRadius: 6, padding: 12, marginBottom: 12, fontSize: 13 }}>
+          {to ? (
+            <>
+              <div data-testid="billing-aging-statement-to"><strong>To:</strong> {to}</div>
+              {cc.length > 0 && <div data-testid="billing-aging-statement-cc"><strong>CC:</strong> {cc.join(', ')}</div>}
+            </>
+          ) : (
+            <div className="error" data-testid="billing-aging-statement-no-contact">
+              No AR contact on file for this client. Add one in <strong>Client contacts</strong> first.
+            </div>
+          )}
+        </div>
+
+        <div style={{ border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 6, padding: 12, marginBottom: 12, maxHeight: 280, overflow: 'auto' }}
+             data-testid="billing-aging-statement-html"
+             dangerouslySetInnerHTML={{ __html: preview?.email?.html || '' }} />
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy} data-testid="billing-aging-statement-cancel">Cancel</button>
+          <button
+            className="btn btn--primary"
+            onClick={onSend}
+            disabled={busy || !to}
+            data-testid="billing-aging-statement-send"
+          >
+            {busy ? 'Sending…' : 'Send statement'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

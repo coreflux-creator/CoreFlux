@@ -1,7 +1,7 @@
 import React from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap, BarChart3 } from 'lucide-react';
+import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap, BarChart3, KeyRound } from 'lucide-react';
 import SubTenantsAdmin from './SubTenantsAdmin';
 import SubTenantWizard from './SubTenantWizard';
 import SubTenantConsolidatedReports from './SubTenantConsolidatedReports';
@@ -13,6 +13,7 @@ import ModuleAccessAdmin from './ModuleAccessAdmin';
 import AuditLogViewer from './AuditLogViewer';
 import RuleSandbox from './RuleSandbox';
 import JobDivaSettings from './JobDivaSettings';
+import SsoConfigAdmin from './SsoConfigAdmin';
 
 /**
  * AdminModule — administrator surface.
@@ -44,6 +45,7 @@ const AdminOverview = () => (
         <ActionCard icon={ScrollText} title="Audit log"     description="Tenant-scoped audit trail with CSV export" href="/admin/audit-log" />
         <ActionCard icon={FlaskConical} title="Rule sandbox" description="Dry-run posting rules without writing to the GL" href="/admin/rule-sandbox" />
         <ActionCard icon={PlugZap} title="JobDiva integration" description="Tenant-level JobDiva connection — webhooks + manual sync" href="/admin/integrations/jobdiva" />
+        <ActionCard icon={KeyRound} title="SSO configuration" description="Register your Okta or Microsoft Entra identity provider" href="/admin/sso" />
       </ActionCardsGrid>
     </Section>
   </>
@@ -63,6 +65,7 @@ const AdminSidebar = () => {
     { to: '/admin/audit-log',        label: 'Audit Log',        icon: ScrollText },
     { to: '/admin/rule-sandbox',     label: 'Rule Sandbox',     icon: FlaskConical },
     { to: '/admin/integrations/jobdiva', label: 'JobDiva',      icon: PlugZap },
+    { to: '/admin/sso',              label: 'SSO',              icon: KeyRound },
   ];
   return (
     <aside className="sidebar">
@@ -106,6 +109,7 @@ const AdminModule = ({ session }) => {
           <Route path="/audit-log"         element={<AuditLogViewer session={session} />} />
           <Route path="/rule-sandbox"      element={<RuleSandbox session={session} />} />
           <Route path="/integrations/jobdiva" element={<JobDivaSettings session={session} />} />
+          <Route path="/sso"               element={<SsoConfigAdmin session={session} />} />
         </Routes>
       </div>
     </div>

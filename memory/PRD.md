@@ -3295,3 +3295,78 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 **Tests**: new `tests/p2_admin_surfaces_smoke.php` — 68 assertions across all 4 features, all passing. **Full sweep: 148/148 ✅** (baseline failures for ai_platform + plaid_integration are now also green in this fork).
 
 **Vite bundle**: `dist/spa-assets/index-BWtb0zXx.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated; bundle copied to `/app/spa-assets/` so spa.php picks it up automatically (mtime-based); `tests/sprint6b_dashboard_uis_smoke.php` bundle hash bumped to match.
+
+## 2026-02 — Email AR statement (Aging table → one-click)
+**Why**: We just built `billing_client_contacts` for dunning; doubling that roster as the distribution list for on-demand AR statements means tenants get a high-leverage AR-ops surface for zero additional schema cost.
+
+**Library** (`modules/billing/lib/statement.php`, pure functions, tested):
+- `billingStatementOpenInvoices($tid, $client, $asOf)` — open invoices ordered oldest-first with `days_overdue` computed.
+- `billingStatementBucket($invoices)` — current / 1–30 / 31–60 / 61–90 / 91+ + total. Matches the Aging page math exactly.
+- `billingStatementResolveRecipients($tid, $client)` — `to = ar_primary_email`, `cc = ar_escalation_email` when present and distinct. Returns `reason` for audit.
+- `billingStatementRenderEmail($tenant, $client, $invoices, $buckets, $asOf)` — subject + HTML + text, all `htmlspecialchars`-escaped.
+
+**API** `modules/billing/api/send_statement.php`:
+- `GET ?client_name=…&as_of=…` → preview (rendered email + recipients + buckets), gated by `billing.view`.
+- `POST {client_name, as_of?, dry_run?}` → send via tenant Resend pipeline. Idempotency `statement-{tid}-{slug}-{Y-m-d}`. Audit `billing.statement.sent`. Gated by `billing.invoice.create`.
+- 409 when no open invoices, 422 when no AR contact on file.
+
+**UI** `modules/billing/ui/AgingTable.jsx`: per-row "Email statement" button → preview modal showing rendered HTML body and resolved recipients → confirm/send.
+
+**Tests** `tests/ar_statement_email_smoke.php` (53 assertions, all passing): bucket math correctness, render escaping, RBAC, idempotency key shape, UI testids + dataflow.
+
+---
+
+## 2026-02 — SSO Slice 1 (storage + admin UI)
+**Why**: Customers asked to bring their own IdP. Slice 1 lets a tenant admin stage Okta / Microsoft Entra / generic-OIDC creds today so Slice 2 (real OIDC dance) can ship immediately after with zero data migration.
+
+**Schema** `core/migrations/030_tenant_sso_domains.sql`:
+- `provider_type` enum (okta | entra | generic_oidc), `issuer_url`, `client_id`, `client_secret_enc` (VARBINARY, AES-256-GCM via `core/encryption.php`), `client_secret_last4` (display-only confirmation), `allowed_email_domains` JSON, `is_enabled`, `sso_slug` (globally unique), `notes`.
+- `UNIQUE (tenant_id)` + `UNIQUE (sso_slug)` enforce one-per-tenant + slug uniqueness.
+
+**API** `api/sso_config.php` (admin-only writes — master_admin / tenant_admin):
+- `GET` → row WITHOUT secret (only `client_secret_last4`).
+- `POST` → upsert. Validates issuer_url is https://, sso_slug regex, domain whitelist format, provider_type enum. Blank `client_secret` preserves stored value (so re-saves don't blow away the secret).
+- `POST ?action=disable` / `POST ?action=clear_secret` — defensive admin levers. All three POSTs write `audit_log` rows.
+
+**UI** `dashboard/src/pages/SsoConfigAdmin.jsx` wired at `/admin/sso` with sidebar nav + overview tile. "Secret on file: ••••cd12" confirmation pattern means the UI never round-trips the actual secret.
+
+**Tests** `tests/sso_slice1_smoke.php` — 52 assertions.
+
+---
+
+## 2026-02 — SSO Slice 2 (real OIDC redirect/callback + JIT)
+**Why**: Close the loop. With Slice 1 storage live, Slice 2 ships the actual OIDC dance against any standards-compliant IdP — no vendor SDK, no Auth0 / WorkOS.
+
+**Schema** `core/migrations/031_oidc_session_state.sql`:
+- `oidc_session_state` — one short-lived row per in-flight auth req: (tenant, slug, state, nonce, code_verifier, return_path, expires_at, consumed_at). State is UNIQUE; consume-once enforced atomically with `FOR UPDATE` + `consumed_at` set in the same TX.
+- `oidc_jwks_cache` — issuer→JWKS JSON, 1h TTL.
+- `oidc_discovery_cache` — issuer→`.well-known/openid-configuration`, 24h TTL.
+
+**Core library** `core/oidc.php` (pure, injectable HTTP fetcher → unit-testable end-to-end):
+- PKCE helpers (`oidcGenerateCodeVerifier`, `oidcGenerateCodeChallenge`, RFC 7636 S256).
+- `oidcDiscovery()` + `oidcJwks()` with DB-backed caching + force-refresh flag for key rotation handling.
+- **`oidcJwkToPem()` — hand-rolled ASN.1 / DER → PEM conversion** for RSA public keys. No phpseclib / firebase JWT dep. Built directly from RFC 7517 §9.3 + RFC 8017 A.1.1. The smoke test generates a fresh RSA keypair, builds a JWK, runs it through `oidcJwkToPem()`, loads it back into OpenSSL, and signs+verifies a real payload — round trip proves the ASN.1 is byte-correct.
+- **`oidcVerifyIdToken()`** — RS256-only (alg-confusion attack rejected). Validates `iss`, `aud` (string OR array containing client_id), `nonce` (hash_equals, replay protection), `exp` (with 5-min clock-skew window), `iat` (rejects > 5min future), and signature against JWKS-derived PEM.
+
+**Endpoints** (public — no auth required, same pattern as `approve_by_email.php`):
+- `GET /api/sso/start.php?slug={slug}[&return=/path]` — mints state+nonce+code_verifier (cryptographic random), persists in oidc_session_state with 15-min TTL, 302's to the IdP's `authorization_endpoint` with `response_type=code`, `scope=openid profile email`, `code_challenge_method=S256`.
+- `GET /api/sso/callback.php?slug=…&state=…&code=…` — atomic state consume (`FOR UPDATE` + `consumed_at`), refuses re-use; decrypts client_secret on read; PKCE-bound token exchange; ID token sig+claim verification (with automatic JWKS refresh on missing-kid); domain-whitelist gate; JIT user via `INSERT INTO users` matching the magic-link pattern; `INSERT INTO user_tenants` for tenant membership; standard PHP session handoff (same shape as magic-link / password login, `auth_method='oidc'`); open-redirect-guarded redirect to `return_path` (must start with `/`). Audit log row on success.
+
+**UI** `dashboard/src/pages/Login.jsx`: third tab **"SSO"** alongside Magic-link and Password. User enters their org slug → `window.location.href = /api/sso/start.php?slug=…`.
+
+**Tests** `tests/sso_slice2_smoke.php` — 51 assertions, including:
+- Forges a real id_token (RS256, JWK with kid) and verifies it end-to-end.
+- Confirms tamper detection: flipped signature, wrong iss, wrong aud, wrong nonce (replay), expired, future iat, alg=HS256 (confusion attack), unknown kid.
+- Confirms 5-min clock-skew window accepts a 60s-past `exp`.
+- Confirms array-form `aud` containing client_id passes.
+
+**What's NOT in Slice 2 (deferred)**:
+- Email-verification gate on JIT users.
+- IdP-initiated SSO (only SP-initiated for now).
+- ACR / MFA assurance level enforcement.
+- Refresh-token rotation (we only consume the id_token for session establishment; the IdP access token isn't held).
+
+---
+
+**Full suite**: **151/151 ✅** (P2 admin + AR statement + SSO Slice 1 + SSO Slice 2 — zero regressions).
+**Vite bundle**: `index-Byd_qeJ2.js` / `index-Cwhpy62y.css`. `.deploy-version` `expected_bundle` updated + 21 new feature flags appended; `tests/sprint6b_dashboard_uis_smoke.php` hash bumped.

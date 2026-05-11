@@ -12,7 +12,7 @@ import { api } from '../lib/api';
  */
 export default function Login() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState('magic'); // 'magic' | 'password'
+  const [mode, setMode] = useState('magic'); // 'magic' | 'password' | 'sso'
 
   // Magic link
   const [email, setEmail] = useState('');
@@ -25,6 +25,9 @@ export default function Login() {
   const [pwUsername, setPwUsername] = useState('');
   const [pwPassword, setPwPassword] = useState('');
   const [pwError, setPwError] = useState('');
+
+  // SSO
+  const [ssoSlug, setSsoSlug] = useState('');
 
   const requestMagicLink = async (e) => {
     e.preventDefault();
@@ -101,6 +104,16 @@ export default function Login() {
             style={{ ...styles.tab, ...(mode === 'password' ? styles.tabActive : {}) }}
           >
             Use password
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'sso'}
+            data-testid="login-tab-sso"
+            onClick={() => setMode('sso')}
+            style={{ ...styles.tab, ...(mode === 'sso' ? styles.tabActive : {}) }}
+          >
+            SSO
           </button>
         </div>
 
@@ -189,6 +202,39 @@ export default function Login() {
             {pwError && (
               <p data-testid="login-password-error" style={styles.errorText}>{pwError}</p>
             )}
+          </form>
+        )}
+
+        {mode === 'sso' && (
+          <form
+            data-testid="login-form-sso"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const slug = ssoSlug.trim().toLowerCase();
+              if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(slug)) return;
+              window.location.href = `/api/sso/start.php?slug=${encodeURIComponent(slug)}&return=${encodeURIComponent('/')}`;
+            }}
+          >
+            <label style={styles.label}>
+              <span>Organisation slug</span>
+              <input
+                type="text"
+                value={ssoSlug}
+                onChange={(e) => setSsoSlug(e.target.value.toLowerCase())}
+                placeholder="acme-corp"
+                autoFocus
+                required
+                pattern="^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+                data-testid="login-sso-slug"
+                style={styles.input}
+              />
+            </label>
+            <button type="submit" data-testid="login-sso-submit" style={styles.primaryBtn}>
+              Continue with SSO →
+            </button>
+            <p style={styles.helperHint}>
+              Your administrator gave you this slug. You'll be redirected to your company's identity provider (Okta or Microsoft Entra) to sign in.
+            </p>
           </form>
         )}
       </div>
