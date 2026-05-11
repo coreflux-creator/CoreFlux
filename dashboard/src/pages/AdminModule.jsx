@@ -1,7 +1,7 @@
 import React from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap, BarChart3, KeyRound, Palette, CalendarClock } from 'lucide-react';
+import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap, BarChart3, KeyRound, Palette, CalendarClock, Activity } from 'lucide-react';
 import SubTenantsAdmin from './SubTenantsAdmin';
 import SubTenantWizard from './SubTenantWizard';
 import SubTenantConsolidatedReports from './SubTenantConsolidatedReports';
@@ -16,6 +16,7 @@ import JobDivaSettings from './JobDivaSettings';
 import SsoConfigAdmin from './SsoConfigAdmin';
 import MailBrandingAdmin from './MailBrandingAdmin';
 import DigestSchedulesAdmin from './DigestSchedulesAdmin';
+import HealthcheckAdmin from './HealthcheckAdmin';
 
 /**
  * AdminModule — administrator surface.
@@ -50,6 +51,7 @@ const AdminOverview = () => (
         <ActionCard icon={KeyRound} title="SSO configuration" description="Register your Okta or Microsoft Entra identity provider" href="/admin/sso" />
         <ActionCard icon={Palette}  title="Email branding"     description="Logo, accent colour, and signature on every digest" href="/admin/mail-branding" />
         <ActionCard icon={CalendarClock} title="Digest schedules" description="When each weekly / daily email gets sent per tenant" href="/admin/digest-schedules" />
+        <ActionCard icon={Activity} title="Healthcheck"       description="One-click status of every freshly-shipped endpoint" href="/admin/healthcheck" />
       </ActionCardsGrid>
     </Section>
   </>
@@ -72,6 +74,7 @@ const AdminSidebar = () => {
     { to: '/admin/sso',              label: 'SSO',              icon: KeyRound },
     { to: '/admin/mail-branding',    label: 'Branding',         icon: Palette },
     { to: '/admin/digest-schedules', label: 'Digests',          icon: CalendarClock },
+    { to: '/admin/healthcheck',      label: 'Healthcheck',      icon: Activity },
   ];
   // Local sub-sidebar — override the global .sidebar class which is
   // position:fixed; left:0 (intended for the app-level shell sidebar).
@@ -133,6 +136,7 @@ const AdminModule = ({ session }) => {
           <Route path="/sso"               element={<SsoConfigAdmin session={session} />} />
           <Route path="/mail-branding"     element={<MailBrandingAdmin session={session} />} />
           <Route path="/digest-schedules"  element={<DigestSchedulesAdmin session={session} />} />
+          <Route path="/healthcheck"       element={<HealthcheckAdmin session={session} />} />
         </Routes>
       </div>
     </div>
