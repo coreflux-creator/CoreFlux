@@ -3081,4 +3081,46 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 
 **Vite build**: `dist/spa-assets/index-DSGs7Nlv.js` + `index-Cwhpy62y.css`. `.deploy-version` bumped; sentinels added for all 9 new/changed files.
 
+
+## 2026-02 — Weekly AP Queue + Sunday Email + One-Tap Approve + PWP NET90 carry + Digest blurb
+**Why**: Close the staffing cash-cycle loop end-to-end. AP team needed (a) a working batch view of past-due + due-this-week bills with blocker context, (b) a Sunday-night email that gets them ready for Monday, (c) one-tap approve/reject so approvers (often CFOs/managers) don't have to log in to clear their inbox, and (d) PWP terms that default to NET90 carry (not "immediate due") so contractors aren't accidentally surfaced as overdue while we wait for the client to pay.
+
+**PWP terms — NET90 carry, accelerate on AR clearance**:
+- `apBuildDraftFromBundle()` now pre-loads the vendor's `default_pwp` flag. If set, the bill stamps `payment_terms='PWP'`, `pwp_status='awaiting_ar'`, and `due_date = today + 90`. The `apPwpReleaseForArInvoice()` release routine then accelerates the due_date back to today (or today + N for `PWP_NET<N>` overrides) when the linked AR invoice clears. Tolerates missing migration columns (legacy tenants stay on NET30 default).
+
+**Weekly Queue API** (`modules/ap/lib/weekly_queue.php` + `modules/ap/api/weekly_queue.php`):
+- `GET /api/ap/weekly_queue.php[?lookahead=7]` — returns `{rows, bucketed:{past_due, due_soon}, summary}`. Each row carries a `blocker` chip and `blocker_detail`:
+  - `awaiting_client` — PWP bill, AR invoice not yet paid (surfaces "Awaiting payment of INV-001 — status:sent, due $X")
+  - `missing_hours` — source time bundle is not in `consumed` status (rare; usually a re-opened period)
+  - `needs_review` — `inbox`/`pending_review`; AP hasn't finalized
+  - `approver_pending` — already submitted; with the approver
+  - `disputed` — approver rejected
+  - `none` — ready to be finalized
+- `POST ?action=finalize` body `{bill_ids:[...]}` — for each eligible bill: resolves the active approval workflow, creates per-step rows in `ap_bill_approvals`, transitions to `pending_approval`, sends one-tap-approve email to the first step's approvers. Refuses PWP `awaiting_ar` bills (they auto-finalize when AR clears).
+- `POST ?action=send_approver_email` body `{bill_id}` — re-mints + re-sends approver email (e.g., token expired).
+
+**Sunday-night email cron** (`scripts/ap_weekly_queue_sunday.php`):
+- Schedule: `0 22 * * 0 /usr/bin/php /app/scripts/ap_weekly_queue_sunday.php`
+- For each tenant with at least one bill in scope → resolve AP user recipients via role (`ap_clerk`/`ap_manager`/`admin`/`master_admin`; falls back to `users.role` if `user_tenants` is absent) → send a personalized digest with summary tiles + past-due table + due-soon table, each row colour-coded by blocker. CTA links straight to `/modules/ap/weekly-queue`. Idempotency keyed by `(tenant, user, date)` so the cron is safe to re-run.
+
+**One-tap Approve / Reject by email** (`core/email_approval.php` + `api/ap/approve_by_email.php`):
+- `apEmailApprovalMint($t, $bill, $userId, $email)` — issues an `approval_tokens` row scoped to `subject_type='ap_bill'`, actions `['approve','reject']`, 72h TTL. Returns `{approve_url, reject_url, expires_at}` already pointing at `/api/ap/approve_by_email.php?t=…&a=…`.
+- `apEmailApprovalConsume($raw, $action, $note, $ip)` — atomic consume + writes the same `ap_bill_approvals` step decision the in-app path does. Mirrors disputed-on-reject and final-step → approved-on-bill. Same earlier-step bypass guard. Same `apAudit('ap.bill.approval_{approved|rejected}', …, via='email_approval')` event.
+- Public consume endpoint: noindex, `no-store`, validates 64-hex token format, renders an HTML receipt page (✅/🛑/⏰/ℹ️) with a one-click "Open Approvals inbox" follow-up.
+- `apEmailApprovalBodyHtml()` builds a clean HTML email with green Approve / red Reject buttons, expiry warning, and a thread-link footer for "need to comment" flows.
+- The existing `apBillApprovalNotify()` helper (the path that fires when a bill is submitted to approval) has been **rewritten** to use these tokens — no more "Open the approvals inbox →" plain link. Each approver gets their own personal one-tap pair.
+
+**Weekly Queue UI** (`modules/ap/ui/WeeklyQueue.jsx`):
+- New `/modules/ap/weekly-queue` route, added to the AP module nav.
+- Summary ribbon (past-due / due-7d / ready / blocked).
+- Sortable table with blocker chips and per-row "Resend approver email" action for `pending_approval` bills.
+- "Select all ready" + "Finalize selected → send approver email" batch button. Past-due rows tinted red.
+
+**AI Agent weekly digest — PWP-released-last-week blurb** (`core/ai_agents.php`):
+- `aiAgentPwpReleasedBlurb($tenantId)` aggregates `ap.bill.pwp.released` audit events from the last 7 days and joins them back to `ap_bills.total` + `billing_invoices.invoice_number` to produce a green-tinted blurb: *"Last week: released $X across N Pay-When-Paid contractor bill(s) because invoice(s) INV-001, INV-002 (and N other(s)) cleared."* Hidden when nothing was released. Embedded in both the HTML and plain-text digest bodies right under the master CTA.
+
+**Tests**: `tests/ap_weekly_queue_smoke.php` — 73/73 ✅ across PWP NET90 carry, email-approval lib + endpoint, weekly queue lib + API, Sunday cron, `apBillApprovalNotify` rewrite, digest blurb, and UI testids. Full suite: **140/142** ✅ (the 2 remaining failures are pre-existing `ai_platform_smoke.php` and `plaid_integration_smoke.php` which require live API keys; the stale Vite hash check in `sprint6b_dashboard_uis_smoke.php` has been bumped to the new bundle).
+
+**Vite build**: `dist/spa-assets/index-C_JS1D_-.js` + `index-Cwhpy62y.css`. `.deploy-version` bumped; 12 new sentinel paths + 9 new feature flags recorded.
+
 **Vite bundle**: `index-CsM5S8MR.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated.

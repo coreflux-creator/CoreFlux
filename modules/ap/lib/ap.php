@@ -128,6 +128,28 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
         $groups[$key][] = ['bundle' => $b, 'vendor_name' => $vendorName, 'vendor_type' => $vendorType];
     }
 
+    // Pre-load PWP flags for these vendors. Bills for vendors marked
+    // default_pwp=1 get NET90 due-dates (accelerate to "due now" when the
+    // matching AR clears — see apPwpReleaseForArInvoice()).
+    $vendorNames = array_values(array_unique(array_map(fn ($g) => $g[0]['vendor_name'], $groups)));
+    $vendorPwp = [];
+    if (!empty($vendorNames)) {
+        $vph = []; $vpparams = ['t' => $tenantId];
+        foreach ($vendorNames as $i => $vn) { $k = 'vn' . $i; $vph[] = ':' . $k; $vpparams[$k] = $vn; }
+        $vpStmt = $pdo->prepare(
+            'SELECT vendor_name, COALESCE(default_pwp, 0) AS default_pwp
+               FROM ap_vendors_index
+              WHERE tenant_id = :t AND vendor_name IN (' . implode(',', $vph) . ')'
+        );
+        try {
+            $vpStmt->execute($vpparams);
+            foreach ($vpStmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
+                $vendorPwp[(string) $r['vendor_name']] = (int) $r['default_pwp'] === 1;
+            }
+        } catch (\Throwable $_) { /* default_pwp column not migrated yet — treat as 0 */ }
+    }
+    $pwpNetDays = 90;  // standard PWP carry term; release accelerates this to "today" when AR clears
+
     $today   = date('Y-m-d');
     $dueDate = date('Y-m-d', strtotime("+{$netDays} days"));
     $bills   = [];
@@ -137,6 +159,8 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
         $vendorName = $first['vendor_name'];
         $vendorType = $first['vendor_type'];
         $is1099     = ($vendorType === '1099_individual');
+        $isPwp      = !empty($vendorPwp[$vendorName]);
+        $billDue    = $isPwp ? date('Y-m-d', strtotime("+{$pwpNetDays} days")) : $dueDate;
 
         $lines = [];
         $lineNo = 1;
@@ -187,7 +211,7 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
                 'vendor_type'   => $vendorType,
                 'received_at'   => $today,
                 'bill_date'     => $today,
-                'due_date'      => $dueDate,
+                'due_date'      => $billDue,
                 'period_start'  => $period['start_date'],
                 'period_end'    => $period['end_date'],
                 'currency'      => 'USD',
@@ -198,6 +222,8 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
                 'status'        => 'pending_approval',
                 'source'        => 'time_bundle',
                 'notes_internal'=> null,
+                'payment_terms' => $isPwp ? 'PWP' : null,
+                'pwp_status'    => $isPwp ? 'awaiting_ar' : 'not_pwp',
             ],
             'lines'      => $lines,
             'bundle_ids' => array_map(fn ($l) => $l['source_ref_id'], $lines),

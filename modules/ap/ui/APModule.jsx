@@ -16,9 +16,11 @@ import Approvals from './Approvals';
 import RecurringBills from './RecurringBills';
 import PurchaseOrders from './PurchaseOrders';
 import VendorUploadsReview from './VendorUploadsReview';
+import WeeklyQueue from './WeeklyQueue';
 
 const navItems = [
   { to: '/modules/ap/bills',            label: 'Bills' },
+  { to: '/modules/ap/weekly-queue',     label: 'Weekly Queue' },
   { to: '/modules/ap/approvals',        label: 'Approvals' },
   { to: '/modules/ap/payments',         label: 'Payments' },
   { to: '/modules/ap/vendors',          label: 'Vendors' },
@@ -63,6 +65,7 @@ export default function APModule() {
         <Route path="bills" element={<BillsList />} />
         <Route path="bills/new" element={<BillCreate />} />
         <Route path="bills/:id" element={<BillDetail />} />
+        <Route path="weekly-queue" element={<WeeklyQueue />} />
         <Route path="payments" element={<PaymentsList />} />
         <Route path="approvals" element={<Approvals />} />
         <Route path="vendors" element={<VendorsList />} />

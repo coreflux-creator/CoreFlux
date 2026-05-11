@@ -322,13 +322,16 @@ function apBillApprovalNotify(\PDO $pdo, int $tenantId, int $billId, ?array $bil
 {
     if (!$approvers) return;
     if ($bill === null) {
-        $b = $pdo->prepare('SELECT bill_number, vendor_name, total, due_date FROM ap_bills WHERE tenant_id = :t AND id = :id');
+        $b = $pdo->prepare('SELECT bill_number, vendor_name, total, due_date, payment_terms FROM ap_bills WHERE tenant_id = :t AND id = :id');
         $b->execute(['t' => $tenantId, 'id' => $billId]);
         $bill = $b->fetch(PDO::FETCH_ASSOC) ?: [];
     }
+
+    require_once __DIR__ . '/../../../core/email_approval.php';
     $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $host  = $_SERVER['HTTP_HOST'] ?? 'localhost';
-    $url   = "{$proto}://{$host}/#/modules/ap/approvals";
+    $threadUrl = "{$proto}://{$host}/#/modules/ap/bills/{$billId}";
+
     $logIns = $pdo->prepare(
         'INSERT INTO ap_bill_approval_notifications
             (tenant_id, bill_id, approval_id, approver_user_id, sent_to_email, status, error_text)
@@ -338,26 +341,21 @@ function apBillApprovalNotify(\PDO $pdo, int $tenantId, int $billId, ?array $bil
         $email = (string) ($a['email'] ?? '');
         if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) continue;
         $sent = false; $err = null;
-        if (function_exists('mailerSend')) {
-            try {
+        try {
+            $tokens = apEmailApprovalMint($tenantId, $billId, (int) ($a['id'] ?? 0), $email);
+            $html = apEmailApprovalBodyHtml($bill, (string) ($a['name'] ?? ''),
+                $tokens['approve_url'], $tokens['reject_url'], $threadUrl);
+            if (function_exists('mailerSend')) {
                 mailerSend([
-                    'to'      => $email,
+                    'to' => $email,
                     'subject' => 'Bill awaiting your approval — ' . ($bill['bill_number'] ?? '') . ' / ' . ($bill['vendor_name'] ?? ''),
-                    'body_html' => '<p>Hi ' . htmlspecialchars((string) ($a['name'] ?? '')) . ',</p>'
-                        . '<p>A bill is awaiting your approval:</p>'
-                        . '<ul>'
-                        . '<li>Vendor: ' . htmlspecialchars((string) ($bill['vendor_name'] ?? '')) . '</li>'
-                        . '<li>Bill #: ' . htmlspecialchars((string) ($bill['bill_number'] ?? '')) . '</li>'
-                        . '<li>Amount: $' . number_format((float) ($bill['total'] ?? 0), 2) . '</li>'
-                        . '<li>Due: ' . htmlspecialchars((string) ($bill['due_date'] ?? '—')) . '</li>'
-                        . '</ul>'
-                        . '<p><a href="' . $url . '">Open the approvals inbox →</a></p>',
+                    'body_html' => $html,
                 ]);
                 $sent = true;
-            } catch (\Throwable $e) { $err = $e->getMessage(); }
-        } else {
-            $err = 'mailer not configured';
-        }
+            } else {
+                $err = 'mailer not configured';
+            }
+        } catch (\Throwable $e) { $err = $e->getMessage(); }
         $logIns->execute([
             't'  => $tenantId, 'b' => $billId,
             'a'  => 0, // approval row id is per-step; we just stamp a 0 here for header-level submit nudge
