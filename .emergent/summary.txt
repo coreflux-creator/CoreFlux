@@ -1,151 +1,165 @@
 <analysis>**original_problem_statement**: 
-The user's goal is to refactor a monolithic PHP application, CoreFlux, into a modular architecture. The core application provides a standardized API, while business functions are self-contained modules. PRODUCT REQUIREMENTS: The architecture is strictly divided into CORE and INDUSTRY LAYER. The project has a highly productive custom PHP CLI smoke testing framework. In this session, the focus was completing the AI Agent expansion roadmap (Phase A), implementing an AP Liquidity Projection tool, and building a comprehensive What-If Treasury Scenario builder (with presets, A/B comparison, and sharing features).
+The user's goal is to refactor a monolithic PHP application, CoreFlux, into a modular architecture. The core application provides a standardized API, while business functions are self-contained modules strictly divided into CORE and INDUSTRY LAYER. The project relies entirely on a custom PHP CLI smoke testing framework. PRODUCT REQUIREMENTS: Strict adherence to custom PHP framework rules, PDO rules, and Vite build version tracking. Focus is on completing P2/P3 backlog features including billing modules, admin surfaces, SSO, and distribution mechanics.
 
-**User's preferred language**: **English** (INSTRUCT next agent to respond in English only)
+**User's preferred language**: English (INSTRUCT next agent to respond in English only)
 
 **what currently exists?** 
-A PHP 8 backend and a React 18 SPA frontend (Vite). The system relies entirely on a strict custom PHP CLI smoke testing framework (currently ~128 tests). The agent has successfully completed a massive suite of features: AI Agent suite split, AP inline liquidity tools, and a full Treasury Scenario suite (Scenario builder, Saving/Presets, A/B Compare, Tokenized Share Links). A massive bug fix sweep just occurred for PDO prepared statements.
+A PHP 8 backend and a React 18 SPA frontend (Vite). The system utilizes direct PDO (no ORMs) and requires explicit bundle hash management for Vite. An extensive set of features has been shipped in this session, including P2 Admin surfaces, Email AR Statements, SSO Slices 1 & 2 (OIDC), Weekly Money Movement digests, tenant email branding, unified digest schedulers, PDF exports, and an  UI.
 
 **Last working item**: 
-    - Last item agent was working: **System-wide PDO Invalid parameter number (HY093) Bug Sweep**. The user reported a DB error on . The agent discovered that because  is , reusing the same named placeholder (e.g.,  multiple times in one query) throws an exception. The agent aggressively bulk-edited ~10 files (, , , , etc.) to uniquely name duplicate placeholders (e.g., , ).
-    - Status: TESTING PENDING
-    - Agent Testing Done: N (The agent did the massive find-and-replace but did NOT run the smoke test suite afterward to verify).
-    - Which testing method agent to use? manual testing by  (DO NOT use testing subagent).
+    - Last item agent was working: **Fixing a production migration drift bug ( missing column)**. The user reported a fatal runtime error. The agent found that migration  was failing mid-run on older tenants but was incorrectly marked as applied by the migration runner, so it never retried. The agent rewrote the migration, but the runner still skipped it because its hash was previously recorded. The agent then added an aggressive **runtime self-heal mechanism** in  to catch Unknown column PDO exceptions and automatically run an  query () to fix the drift on the fly without deployment ceremony. Context ended while the agent was reviewing  logic to confirm behavior.
+    - Status: IN PROGRESS
+    - Agent Testing Done: Y (Local smoke tests passed, but user verification of the prod instance is pending)
+    - Which testing method agent to use? manual testing by . (DO NOT use the testing subagent).
     - User Testing Done: N
 
 **All Pending/In progress Issue list**: 
-  Issue 1: PDO Duplicate Named Placeholder Bug Verification (P0)
-     - Attempted fixes: Replaced duplicate named parameters with distinct names across multiple  files (, , , , , etc.).
-     - Next debug checklist: Immediately run the full PHP smoke test suite to ensure the bulk-replace didn't introduce syntax errors. Verify  (via ) loads correctly.
-     - Why fix this issue and what will be achieved with the fix? Fixes critical 500 errors across multiple views (like Placement Details) caused by strict PDO parameter binding rules.
-     - Status: TESTING PENDING
-     - Is recurring issue? N
-     - Should Test frontend/backend/both after fix? Backend (via PHP test suite).
+  Issue 1: Validate Runtime Self-Heal for Migration Drift (P0)
+     - Attempted fixes: Rewrote  to be idempotent using . Added  in  exception handler.
+     - Next debug checklist: Check if the user confirms the person_id is missing error is resolved on their end. If not, verify that  is successfully triggering and executing the  in .
+     - Why fix this issue and what will be achieved with the fix? Fixes a hard blocker/fatal error for the user's Time module.
+     - Status: USER VERIFICATION PENDING
+     - Is recurring issue? Y (Migration drift has happened before)
+     - Should Test frontend/backend/both after fix? Backend
      - Blocked on other issue: None
 
 **In progress Task List**: 
-  None actively in progress. The agent just completed a massive feature blitz and was solely focused on the PDO bug fix.
+  Task 1: Email One-Tap AP Approve/Reject Loop
+     - Where to resume: Agent suggested this as a fast follow-up prior to the bug report: Closing the loop so an AR clerk who pays an invoice via the bank can mark it Approve/Reject from the email itself without logging in.
+     - What will be achieved with this? Closes the P2 automation loop for AP workflows.
+     - Status: NOT STARTED
+     - Should Test frontend/backend/both after fix? Backend
+     - Blocked on something: Issue 1 (Migration Drift Bug)
 
 **Upcoming and Future Tasks**
-    Upcoming Tasks:
-    - (P3) Period Close Receipt PDF.
-    - (P3) Bullhorn integration reuse of .
-    
     Future Tasks:
-    - (P3) Phase-2 rip-out of legacy . (User explicitly requested to keep this in the backlog).
+    - (P3) Period Close Receipt PDF (Base API created, but full integration might need review).
+    - (P3) Bullhorn integration reuse of .
+    - (P3) SSO Slice 3: Identity provider-initiated SSO flows / Account linking (if required).
 
 **Completed work in this session**
-- Bug fix:  missing migration columns () (DONE)
-- AI Roadmap Phase A.0 & A.1: Tax Agent Split into 4 specific sub-agents (DONE)
-- P0: Inline AP Liquidity Projection Tool ( + ) (DONE)
-- Treasury What-If Scenario Builder () (DONE)
-- AI Roadmap A.2, A.3, A.4: Digest customizations + UI (DONE)
-- Scenario Presets + Save Scenario functionality ( table) (DONE)
-- AI Roadmap A.5: CFO Variance and Treasury Payments agents (DONE)
-- P3 Refactor: Migrated forecast endpoints to shared  engine (DONE)
-- Treasury Scenario A/B Compare View () (DONE)
-- Tokenized read-only Scenario Share Links (, ) (DONE)
+- P2 Admin Surfaces batch (Client contacts, AP digest schedule, Vendor PWP toggle, Approve-with-comment UI) (DONE)
+- Email AR Statement via Aging Table (DONE)
+- SSO Slice 1 (Domain table + Admin UI) & SSO Slice 2 (OIDC redirect/callback logic + JIT user creation + RS256 Sig verification) (DONE)
+- Weekly Money Movement Digest (DONE)
+- Massive Distribution Polish Sprint: Snapshot history, Tenant email branding, Unified digest scheduler, Public Money Movement share link, PDF downloads for statements/cycles, Batch statement sends, In-app digest archive, KPI annotations. (DONE)
+- Admin Sidebar CSS overlap fix (switched fixed to sticky positioning) (DONE)
+-  endpoint and UI creation (DONE)
 
 **Earlier issues found/mentioned but not fixed**
-   - None.
+   - Issue 1: Migration Hash Immutability
+   - Debug checklist:  marks migrations as applied even if they fail mid-way. Changing the file content changes the hash, but if the filename is already in the DB logs, it skips it.
+   - Why to solve this issue and what will be achieved with this? Prevents silent schema drift where migrations fail but the system assumes they succeeded.
+   - Should Test frontend/backend/both after fix: Backend
+   - Is recurring issue? Y
 
 **Known issue recurrence from previous fork**
   - Issue: **Vite Frontend Build & Version Drift**
-  - Recurrence count: 3 (High risk if forgotten).
-  - Status: RESOLVED. Note: The next agent MUST run yarn run v1.22.22
+  - Recurrence count: 5+
+  - Status: RESOLVED but keep in mind. The next agent MUST run yarn run v1.22.22
 $ vite build
 vite v5.4.21 building for production...
 transforming...
-✓ 1827 modules transformed.
+✓ 1846 modules transformed.
 rendering chunks...
 computing gzip size...
 dist/index.html                         0.46 kB │ gzip:   0.30 kB
 dist/spa-assets/index-Cwhpy62y.css     21.57 kB │ gzip:   4.34 kB
-dist/spa-assets/index-B2LVFYMg.js   1,200.81 kB │ gzip: 278.63 kB
-✓ built in 6.64s
-Done in 7.00s. after touching ANY React code AND update the expected bundle JS/CSS hashes in . You will fail smoke tests if you forget to bump the  file after a Vite build.
-  - Issue: **PDO Emulated Prepares** 
+dist/spa-assets/index-D8ZRkmWl.js   1,321.02 kB │ gzip: 306.24 kB
+✓ built in 8.47s
+Done in 8.82s. after touching ANY React code AND update the expected bundle JS/CSS hashes in . You will fail smoke tests if you forget.
+  - Issue: **PDO Emulated Prepares**
   - Recurrence count: 1
-  - Status: RESOLVED but keep in mind. You cannot reuse named placeholders in PDO queries in this app.
+  - Status: RESOLVED but keep in mind. You cannot reuse named placeholders in PDO queries.
 
 **Code Architecture**
-
+money_movement_weekly.php
 
 **Key Technical Concepts**
 - Backend: PHP 8 (Direct PDO, NO ORM, strictly typed).
 - Web Frontend: React 18, Vite.
-- AI Architecture: Thin wrappers around  using qualitative buckets.
-- Testing: Custom PHP CLI scripts (). **DO NOT USE TESTING SUBAGENT**.
+- Testing: Custom PHP CLI scripts (). 
 
 **key DB schema**
-  - : Added for user-saved projection scenarios.
-  - : Added for tokenized, expirable read-only scenario links.
-  - : Now includes , , .
+  - : newly created for WoW digest deltas.
+  -  & : newly created for SSO logic.
+  -  & : newly created for distribution settings.
 
 **changes in tech stack**
-  - None structurally. 
+  - None structurally.
 
 **All files of reference** 
-  -  (and other files heavily edited for the PDO placeholder fix).
-  -  (New shared logic engine).
-  -  (and ,  equivalents).
+  -  (Updated with runtime self-heal for missing columns)
+  -  (Core migration runner)
+  -  (Updated)
+  -  &  (Created)
+  -  (Created for SSO logic)
 
 **Areas that need refactoring**: 
-  - None immediately, though the massive PDO regex/find-replace sweep should be closely monitored for accidental string mangling.
+  -  error handling logic needs a refactor so that failed transactions do not get permanently logged into  as applied.
 
 **key api endpoints**
   - 
-  - 
-  - 
+  -  & 
   - 
 
 **Critical Info for New Agent** 
 - **TESTING REQUIREMENT:** NEVER use the testing subagent. The project relies entirely on a custom PHP CLI smoke testing suite. Run .
+- **BASELINE FAILURES:**  and  fail locally by default because they lack live API keys. This is expected.
 - **FRONTEND BUILDS:** ALWAYS run yarn run v1.22.22
 $ vite build
 vite v5.4.21 building for production...
 transforming...
-✓ 1827 modules transformed.
+✓ 1846 modules transformed.
 rendering chunks...
 computing gzip size...
 dist/index.html                         0.46 kB │ gzip:   0.30 kB
 dist/spa-assets/index-Cwhpy62y.css     21.57 kB │ gzip:   4.34 kB
-dist/spa-assets/index-B2LVFYMg.js   1,200.81 kB │ gzip: 278.63 kB
-✓ built in 6.24s
-Done in 6.61s. after changing React code, and subsequently update the expected bundle JS/CSS hashes in . 
-- **PDO CONFIG:**  is set to . This means **you cannot reuse named placeholders** in SQL queries. (e.g.,  will fail. You must use  and ).
+dist/spa-assets/index-D8ZRkmWl.js   1,321.02 kB │ gzip: 306.24 kB
+✓ built in 6.80s
+Done in 7.10s. after changing React code, and update the expected bundle JS/CSS hashes in . 
 
 **documents and test reports created in this job** 
-  -  (Updated)
+  -  (Updated, size: 3448 lines)
 
 **Last 10 User Messages and any pending HUMAN messages** 
- - (User)  (Uploaded image showing DB error HY093 on Placements page) - *Testing Pending*
- - (User)  - *Completed*
- - (User)  - *Completed*
- - (User)  - *Completed*
- - (User)  - *Completed*
- - (User)  - *Completed*
- - (User)  - *Completed*
+ - (User) 
+ - (Agent) *Proposes massive distribution polish sprint*
+ - (User) 
+ - (Agent) *Implements Snapshot history, branding, schedules, share links, PDFs, archives. Fixes CSS sidebar overlap.*
+ - (User) 
+ - (Agent) *Fixes Sidebar CSS to sticky positioning. Suggests adding an /admin/healthcheck endpoint.*
+ - (User) 
+ - (Agent) *Builds /admin/healthcheck. Tests pass.*
+ - (User) *Uploads image showing runtime error: Database column 'te.person_id' is missing.* 
+ - (Agent) *Diagnoses migration  failure. Rewrites migration and adds healthcheck row.*
+ - (User) *Uploads image showing error persists.* 
+ - (Agent) *Realizes migration runner skipped the updated file. Writes an aggressive runtime self-heal in  to run  automatically on PDO Unknown column exceptions.* (PENDING CONFIRMATION)
 
 **Project Health Check:**
-- Broken: Pending verification of the PDO fix sweep. 
+- Broken: The runtime schema drift () requires user confirmation to ensure the  self-heal fixed it in their live environment.
 - Mocked: Push Notifications.
 
 **3rd Party Integrations** 
- - OpenAI GPT-4o-mini (Requires User API Key)
- - Resend (Requires User API Key)
  - Plaid (Requires User API Keys)
  - Gusto (Requires User API Keys)
  - JobDiva (Requires User API Keys)
+ - Resend (Requires User API Key)
+ - OpenAI (Requires User API Key)
 
 **Testing status**
-  - Testing agent used after significant changes: NO (Exclusively using custom PHP CLI suite)
+  - Testing agent used after significant changes: NO (Strictly custom PHP CLI testing)
   - Troubleshoot agent used after agent stuck in loop: NO
-  - Test files created: , , , , , , .
-  - Known regressions: Need to verify backend hasn't broken from bulk PDO edits.
+  - Test files created: Dozens of new smoke tests (e.g., , , , , ).
+  - Known regressions:  and  (Expected).
 
 **Credentials to test flow:**
-  - Standard test user  with  role.
+  - Standard test user:  with  role.
 
 **What agent forgot to execute**
-- The agent aggressively bulk-edited about 10 core PHP library files to fix the PDO placeholder bug, but **finished their turn without running the PHP smoke tests to verify the syntax and logic of those replacements.** The immediate first step for the next agent is to run the smoke tests to ensure nothing was broken.</analysis>
+- The agent was looking into the core logic of  just as the context window closed, right after implementing the  hook. It is necessary to confirm with the user that the runtime fix successfully intercepted the error on their end.
+- The  file itself still inherently logs failed migrations as applied if they crash mid-way. The root cause in the migration runner remains unpatched.
+
+<TESTING METHOD>
+manual testing by . (DO NOT use the testing subagent).
+</TESTING METHOD></analysis>
