@@ -3276,3 +3276,22 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 **Vite build**: `dist/spa-assets/index-BWPApIsp.js`. `.deploy-version` bumped with 14 new sentinels + 11 new feature flags.
 
 **Vite bundle**: `index-CsM5S8MR.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated.
+## 2026-02 — P2 Admin Surfaces batch (close-out)
+**Why**: Four small, related admin toggles requested as a single batch to retire long-standing TODOs. Each one was small enough that bundling them kept the smoke-test footprint cheap and the React rebuild to a single bundle bump.
+
+**1) Client AR contacts admin** — `billing_client_contacts` table (already created in 009_dunning.sql) now has a first-class admin UI.
+- API `modules/billing/api/client_contacts.php` (GET search / POST upsert by `client_name` / POST `?action=delete`). Read=`billing.view`, write=`billing.invoice.create`. Tenant-scoped throughout.
+- UI `modules/billing/ui/ClientContacts.jsx` — search box, modal form, delete confirm. Wired at `/modules/billing/clients` via `BillingModule.jsx` nav.
+
+**2) Vendor PWP toggle** — `modules/ap/api/vendors.php` got a new `POST ?action=toggle_pwp&id=N body{default_pwp:0|1}` branch. Updates `ap_vendors_index.default_pwp`, emits `ap.vendor.default_pwp_set` audit event, returns 409 if migration 017 not yet applied. `VendorsList.jsx` already had the PWP column and row toggle wired to this endpoint.
+
+**3) Tenant-configurable AP weekly digest schedule** — migration `modules/ap/migrations/018_weekly_queue_schedule.sql` adds `weekly_queue_email_dow` (0=disabled, 1..7=Mon..Sun ISO) + `weekly_queue_email_hour` (0..23 UTC) to `ap_settings`.
+- API `modules/ap/api/weekly_queue_settings.php` GET/POST. Write gated by admin/manager role. Validates ranges.
+- `scripts/ap_weekly_queue_sunday.php` now reads per-tenant schedule, skips tenants where `dow=0`, otherwise only sends when `date('N')===dow && date('G')===hour`. Cron schedule comment updated to `0 * * * *` (hourly).
+- UI: AP Settings page (`modules/ap/ui/Settings.jsx`) now has a "Weekly AP digest schedule" fieldset with day-of-week dropdown + hour input + save button. Disabled for non-admin users.
+
+**4) Approve-with-comment email landing** — `api/ap/approve_by_email.php` now intercepts the email click with a one-page note prompt before consuming the token. Approve allows skip-note shortcut; reject requires a reason (`required` attribute). Both pass `?note=…&confirm=1` back to the same endpoint which then calls `apEmailApprovalConsume($rawToken, $action, $note, $ip)`.
+
+**Tests**: new `tests/p2_admin_surfaces_smoke.php` — 68 assertions across all 4 features, all passing. **Full sweep: 148/148 ✅** (baseline failures for ai_platform + plaid_integration are now also green in this fork).
+
+**Vite bundle**: `dist/spa-assets/index-BWtb0zXx.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated; bundle copied to `/app/spa-assets/` so spa.php picks it up automatically (mtime-based); `tests/sprint6b_dashboard_uis_smoke.php` bundle hash bumped to match.

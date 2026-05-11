@@ -17,6 +17,9 @@ export default function APSettings() {
     nacha_company_name: '',
     nacha_origin_routing: '',
   });
+  const [wq, setWq]         = useState({ dow: 7, hour: 22, can_write: false });
+  const [wqMsg, setWqMsg]   = useState(null);
+  const [wqBusy, setWqBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy]     = useState(false);
   const [msg, setMsg]       = useState(null);
@@ -27,6 +30,9 @@ export default function APSettings() {
       if (d.settings) setForm((prev) => ({ ...prev, ...d.settings, disbursement_rail: d.settings.disbursement_rail || 'nacha' }));
       setLoaded(true);
     }).catch((e) => { setError(e.message); setLoaded(true); });
+    api.get('/modules/ap/api/weekly_queue_settings.php').then((d) => {
+      setWq({ dow: Number(d.dow ?? 7), hour: Number(d.hour ?? 22), can_write: !!d.can_write });
+    }).catch(() => { /* surface in error block below if it matters */ });
   }, []);
 
   const submit = async (e) => {
@@ -36,6 +42,18 @@ export default function APSettings() {
       setMsg('Saved');
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
+  };
+
+  const saveWq = async () => {
+    setWqBusy(true); setWqMsg(null);
+    try {
+      await api.post('/modules/ap/api/weekly_queue_settings.php', {
+        weekly_queue_email_dow:  wq.dow,
+        weekly_queue_email_hour: wq.hour,
+      });
+      setWqMsg('Saved');
+    } catch (err) { setWqMsg(`Error: ${err.message}`); }
+    finally { setWqBusy(false); }
   };
 
   if (!loaded || railsLoading) return <p>Loading…</p>;
@@ -109,6 +127,56 @@ export default function APSettings() {
           {busy ? 'Saving…' : 'Save settings'}
         </button>
       </form>
+
+      <fieldset data-testid="ap-settings-weekly-queue" style={{ border: '1px solid var(--cf-border, #e5e7eb)', padding: 16, borderRadius: 8, marginTop: 24 }}>
+        <legend style={{ padding: '0 8px', fontSize: 13, fontWeight: 600 }}>Weekly AP digest schedule</legend>
+        <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)', margin: '0 0 12px' }}>
+          When the Weekly Queue email digest is sent. Pick <em>Disabled</em> to silence it for this tenant. Times are UTC; the cron must run hourly.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, alignItems: 'end' }}>
+          <label style={{ fontSize: 12 }}>
+            <span>Day of week</span>
+            <select
+              className="input"
+              value={wq.dow}
+              disabled={!wq.can_write}
+              onChange={(e) => setWq({ ...wq, dow: Number(e.target.value) })}
+              data-testid="ap-settings-weekly-queue-dow"
+              style={{ display: 'block', width: '100%', marginTop: 4 }}
+            >
+              <option value={0}>Disabled</option>
+              <option value={1}>Monday</option>
+              <option value={2}>Tuesday</option>
+              <option value={3}>Wednesday</option>
+              <option value={4}>Thursday</option>
+              <option value={5}>Friday</option>
+              <option value={6}>Saturday</option>
+              <option value={7}>Sunday (default)</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 12 }}>
+            <span>Hour (UTC, 0–23)</span>
+            <input
+              className="input" type="number" min={0} max={23}
+              value={wq.hour}
+              disabled={!wq.can_write || wq.dow === 0}
+              onChange={(e) => setWq({ ...wq, hour: Math.max(0, Math.min(23, Number(e.target.value || 0))) })}
+              data-testid="ap-settings-weekly-queue-hour"
+              style={{ display: 'block', width: '100%', marginTop: 4 }}
+            />
+          </label>
+          <button
+            type="button" className="btn btn--primary"
+            disabled={!wq.can_write || wqBusy}
+            onClick={saveWq}
+            data-testid="ap-settings-weekly-queue-save"
+          >
+            {wqBusy ? 'Saving…' : 'Save schedule'}
+          </button>
+        </div>
+        {wqMsg && <p className={wqMsg.startsWith('Error') ? 'error' : 'success'} data-testid="ap-settings-weekly-queue-msg" style={{ marginTop: 12 }}>{wqMsg}</p>}
+        {!wq.can_write && <p style={{ marginTop: 12, fontSize: 12, color: 'var(--cf-text-secondary)' }}>Admin / manager role required to change this.</p>}
+      </fieldset>
     </section>
   );
 }

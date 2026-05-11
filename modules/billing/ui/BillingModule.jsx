@@ -53,6 +53,7 @@ export default function BillingModule() {
         <Route path="aging" element={<AgingTable />} />
         <Route path="dunning" element={<DunningQueue />} />
         <Route path="contracts" element={<RecurringContracts />} />
+        <Route path="clients" element={<ClientContacts />} />
       </Routes>
     </div>
   );
