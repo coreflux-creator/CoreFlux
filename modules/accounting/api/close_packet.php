@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/pdf_renderer.php';
 require_once __DIR__ . '/../lib/close.php';
 
 $ctx      = api_require_auth();
@@ -32,6 +33,26 @@ if ($method === 'GET') {
         header('Content-Type: text/html; charset=utf-8');
         header('Content-Disposition: attachment; filename="close-packet-period-' . $periodId . '.html"');
         echo $html;
+        exit;
+    }
+
+    // ?format=pdf renders via cf_render_html_to_pdf so close packets can be
+    // dropped straight into board decks / auditor portals.
+    if ((api_query('format') ?? '') === 'pdf') {
+        $page = '<!doctype html><html><head><meta charset="utf-8"><title>Close packet — period '
+              . (int) $periodId . '</title><style>body{margin:0;background:#fff;font-family:system-ui}</style></head>'
+              . '<body>' . $html . '</body></html>';
+        $tmpDir = sys_get_temp_dir() . '/cf-pdf-close';
+        if (!is_dir($tmpDir)) @mkdir($tmpDir, 0755, true);
+        $outPath = "{$tmpDir}/close-packet-{$tenantId}-{$periodId}-" . bin2hex(random_bytes(4)) . '.pdf';
+        try { cf_render_html_to_pdf($page, $outPath, ['orientation' => 'portrait']); }
+        catch (\Throwable $e) { api_error('PDF renderer unavailable: ' . $e->getMessage(), 503); }
+        header_remove('Content-Type');
+        header('Content-Type: application/pdf');
+        header('Content-Length: ' . (string) filesize($outPath));
+        header('Content-Disposition: inline; filename="close-packet-period-' . $periodId . '.pdf"');
+        readfile($outPath);
+        @unlink($outPath);
         exit;
     }
 

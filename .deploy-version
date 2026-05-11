@@ -283,7 +283,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-Dv6bSDwE.js
+- spa-assets/index-pgZUqCzv.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -653,3 +653,24 @@ last_known_features:
 - billing.money_movement.per_recipient_idempotency
 - billing.money_movement.ui_preview_page_with_send_button
 - billing.money_movement.cash_cycle_tile_drill_in_link
+- distribution.snapshot_history_per_week
+- distribution.snapshot_history_wow_delta
+- distribution.tenant_mail_branding_logo_accent_signature
+- distribution.tenant_mail_branding_admin_ui
+- distribution.tenant_mail_branding_strips_script_tags_in_signature
+- distribution.share_link_sha256_at_rest
+- distribution.share_link_public_view_token_gated
+- distribution.share_link_view_count_and_audit
+- distribution.share_link_revoke_and_expire
+- distribution.pdf_money_movement_endpoint
+- distribution.pdf_ar_statement_endpoint
+- distribution.pdf_close_packet_format_pdf
+- distribution.unified_digest_schedules_table
+- distribution.digest_schedules_helper_should_fire
+- distribution.digest_schedules_admin_ui
+- distribution.digest_schedules_cron_money_movement
+- distribution.kpi_notes_on_money_movement_preview
+- distribution.batch_send_statements_to_past_due
+- distribution.batch_dry_run_returns_per_client_report
+- distribution.in_app_digest_archive_last_12_weeks
+- distribution.digest_archive_card_grid_ui

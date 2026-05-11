@@ -18,6 +18,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
+require_once __DIR__ . '/../../../core/tenant_branding.php';
 require_once __DIR__ . '/billing.php';
 
 /**
@@ -169,10 +170,15 @@ function moneyMovementRunway(int $tenantId, string $asOf): array
  * Tenant name + recipient name are caller-supplied (we don't reach back
  * to the DB inside the renderer — keeps it pure and unit-testable).
  */
-function moneyMovementRenderEmail(array $snapshot, string $tenantName, string $recipientName = ''): array
+function moneyMovementRenderEmail(array $snapshot, string $tenantName, string $recipientName = '', ?array $branding = null, ?array $wow = null): array
 {
     $h     = fn ($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
     $money = fn ($n) => '$' . number_format((float) $n, 0);
+    if ($branding === null) {
+        $tid = (int) ($snapshot['tenant_id'] ?? 0);
+        $branding = $tid > 0 ? cf_tenant_branding($tid) : ['logo_url' => null, 'accent_color' => '#0f172a', 'signature_html' => '', 'show_powered_by' => true];
+    }
+    $accent = (string) ($branding['accent_color'] ?? '#0f172a');
     $start = (string) $snapshot['window_start'];
     $end   = (string) $snapshot['window_end'];
     $in    = $snapshot['cash_in']['total']  ?? 0.0;
@@ -205,17 +211,32 @@ function moneyMovementRenderEmail(array $snapshot, string $tenantName, string $r
 
     $greeting = $recipientName !== '' ? "Hi {$recipientName}," : 'Money movement digest';
 
+    /* WoW delta strip (optional) */
+    $wowBlock = '';
+    if (is_array($wow) && !empty($wow['available'])) {
+        $netDelta = (float) ($wow['net']['delta'] ?? 0);
+        $netPct   = $wow['net']['pct'] ?? null;
+        $deltaCol = $netDelta >= 0 ? '#16a34a' : '#dc2626';
+        $sign     = $netDelta >= 0 ? '+' : '−';
+        $pctStr   = $netPct !== null ? sprintf(' (%s%.0f%%)', $netDelta >= 0 ? '+' : '', $netPct) : '';
+        $wowBlock = '<p style="margin:6px 0 0;font-size:13px;color:' . $deltaCol . '">'
+                  . 'WoW: ' . $sign . $h($money(abs($netDelta))) . $pctStr
+                  . '<span style="color:#94a3b8"> vs ' . $h($wow['prior_as_of'] ?? '—') . '</span></p>';
+    }
+
     $html  = '<div style="font-family:system-ui;max-width:680px;margin:0 auto;padding:24px;color:#0f172a">'
-           . '<h2 style="margin:0 0 4px">' . $h($greeting) . '</h2>'
+           . cf_branding_header_html($branding, $greeting)
            . '<p style="margin:0 0 20px;color:#64748b;font-size:13px">' . $h($tenantName) . ' &middot; ' . $h($start) . ' → ' . $h($end) . '</p>'
 
            // Big number
-           . '<div style="background:#f8fafc;border-radius:10px;padding:18px;margin-bottom:18px;text-align:center">'
+           . '<div style="background:#f8fafc;border-radius:10px;padding:18px;margin-bottom:18px;text-align:center;border-top:3px solid ' . $h($accent) . '">'
            . '<div style="font-size:13px;color:#64748b">Net movement this week</div>'
            . '<div style="font-size:28px;font-weight:700;color:' . $netCol . '">' . $arrow . ' ' . $h($money(abs($net))) . '</div>'
            . '<div style="font-size:13px;color:#64748b;margin-top:6px">'
            . 'In ' . $h($money($in)) . ' &middot; Out ' . $h($money($out))
-           . '</div></div>'
+           . '</div>'
+           . $wowBlock
+           . '</div>'
 
            // Activity grid
            . '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:18px">'
@@ -230,7 +251,7 @@ function moneyMovementRenderEmail(array $snapshot, string $tenantName, string $r
            . '</tr></table>'
 
            // Top past-due
-           . '<h3 style="margin:24px 0 8px;font-size:15px">Top past-due clients</h3>'
+           . '<h3 style="margin:24px 0 8px;font-size:15px;color:' . $h($accent) . '">Top past-due clients</h3>'
            . '<table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden">'
            . '<thead><tr style="background:#f1f5f9">'
            . '<th style="text-align:left;padding:6px 8px">Client</th>'
@@ -239,10 +260,10 @@ function moneyMovementRenderEmail(array $snapshot, string $tenantName, string $r
            . '</tr></thead><tbody>' . $pdRows . '</tbody></table>'
 
            // Runway
-           . '<h3 style="margin:24px 0 8px;font-size:15px">Runway</h3>'
+           . '<h3 style="margin:24px 0 8px;font-size:15px;color:' . $h($accent) . '">Runway</h3>'
            . $runwayBlock
 
-           . '<p style="margin-top:32px;color:#94a3b8;font-size:12px">— ' . $h($tenantName) . ' Finance Ops</p>'
+           . cf_branding_footer_html($branding, $tenantName)
            . '</div>';
 
     /* Plain-text fallback */
@@ -267,13 +288,110 @@ function moneyMovementRenderEmail(array $snapshot, string $tenantName, string $r
     return ['subject' => $subject, 'html' => $html, 'text' => $text];
 }
 
+/* ─────────────────────  Snapshot history (A1)  ───────────────────── */
+
 /**
- * Resolve CFO inbox recipients for $tenantId.
- *
- * Heuristic: anyone with role/global_role containing 'cfo', 'controller',
- * 'admin' or 'master_admin' on this tenant. Falls back to the simpler
- * users.role-only schema if user_tenants isn't present.
+ * Persist a snapshot for week-over-week comparison + share-link replay.
+ * Idempotent on (tenant_id, as_of).
  */
+function moneyMovementWriteSnapshot(array $snapshot): void
+{
+    try {
+        getDB()->prepare(
+            'INSERT INTO tenant_money_movement_snapshots
+                (tenant_id, as_of, window_start, window_end, cash_in, cash_out, net_movement, snapshot_json)
+             VALUES (:t, :a, :s, :e, :ci, :co, :nm, :j)
+             ON DUPLICATE KEY UPDATE
+                window_start  = VALUES(window_start),
+                window_end    = VALUES(window_end),
+                cash_in       = VALUES(cash_in),
+                cash_out      = VALUES(cash_out),
+                net_movement  = VALUES(net_movement),
+                snapshot_json = VALUES(snapshot_json)'
+        )->execute([
+            't'  => (int) $snapshot['tenant_id'],
+            'a'  => $snapshot['as_of'],
+            's'  => $snapshot['window_start'],
+            'e'  => $snapshot['window_end'],
+            'ci' => (float) ($snapshot['cash_in']['total']  ?? 0),
+            'co' => (float) ($snapshot['cash_out']['total'] ?? 0),
+            'nm' => (float) (($snapshot['cash_in']['total'] ?? 0) - ($snapshot['cash_out']['total'] ?? 0)),
+            'j'  => json_encode($snapshot),
+        ]);
+    } catch (\Throwable $_) { /* migration may not be applied yet */ }
+}
+
+/** Return the snapshot for the immediately preceding 7-day window, or null. */
+function moneyMovementGetPriorSnapshot(int $tenantId, string $asOf): ?array
+{
+    try {
+        $st = getDB()->prepare(
+            'SELECT snapshot_json FROM tenant_money_movement_snapshots
+              WHERE tenant_id = :t AND as_of < :a
+           ORDER BY as_of DESC LIMIT 1'
+        );
+        $st->execute(['t' => $tenantId, 'a' => $asOf]);
+        $row = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if (!$row) return null;
+        $decoded = json_decode((string) $row['snapshot_json'], true);
+        return is_array($decoded) ? $decoded : null;
+    } catch (\Throwable $_) { return null; }
+}
+
+/** List the most recent $limit snapshots for $tenantId, newest first. */
+function moneyMovementListSnapshots(int $tenantId, int $limit = 12): array
+{
+    try {
+        $st = getDB()->prepare(
+            'SELECT as_of, window_start, window_end, cash_in, cash_out, net_movement
+               FROM tenant_money_movement_snapshots
+              WHERE tenant_id = :t
+           ORDER BY as_of DESC LIMIT ' . max(1, min(52, $limit))
+        );
+        $st->execute(['t' => $tenantId]);
+        return $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $_) { return []; }
+}
+
+/** Read one snapshot by exact as_of (used by share link + archive detail). */
+function moneyMovementReadSnapshot(int $tenantId, string $asOf): ?array
+{
+    try {
+        $st = getDB()->prepare(
+            'SELECT snapshot_json FROM tenant_money_movement_snapshots
+              WHERE tenant_id = :t AND as_of = :a LIMIT 1'
+        );
+        $st->execute(['t' => $tenantId, 'a' => $asOf]);
+        $row = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if (!$row) return null;
+        $decoded = json_decode((string) $row['snapshot_json'], true);
+        return is_array($decoded) ? $decoded : null;
+    } catch (\Throwable $_) { return null; }
+}
+
+/** Compute net + cash_in + cash_out delta vs prior snapshot. */
+function moneyMovementWowDelta(array $current, ?array $prior): array
+{
+    if (!$prior) return ['available' => false];
+    $curIn  = (float) ($current['cash_in']['total']  ?? 0);
+    $prIn   = (float) ($prior['cash_in']['total']    ?? 0);
+    $curOut = (float) ($current['cash_out']['total'] ?? 0);
+    $prOut  = (float) ($prior['cash_out']['total']   ?? 0);
+    $curNet = $curIn - $curOut;
+    $prNet  = $prIn  - $prOut;
+    $pct = function (float $cur, float $pr): ?float {
+        if (abs($pr) < 0.005) return null;
+        return ($cur - $pr) / abs($pr) * 100.0;
+    };
+    return [
+        'available'   => true,
+        'prior_as_of' => $prior['as_of'] ?? null,
+        'cash_in'     => ['delta' => $curIn  - $prIn,  'pct' => $pct($curIn,  $prIn)],
+        'cash_out'    => ['delta' => $curOut - $prOut, 'pct' => $pct($curOut, $prOut)],
+        'net'         => ['delta' => $curNet - $prNet, 'pct' => $pct($curNet, $prNet)],
+    ];
+}
+
 function moneyMovementResolveRecipients(\PDO $pdo, int $tenantId): array
 {
     $cfoRoles = ['cfo', 'controller', 'admin', 'master_admin', 'tenant_admin'];

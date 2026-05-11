@@ -1,7 +1,7 @@
 import React from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap, BarChart3, KeyRound } from 'lucide-react';
+import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap, BarChart3, KeyRound, Palette, CalendarClock } from 'lucide-react';
 import SubTenantsAdmin from './SubTenantsAdmin';
 import SubTenantWizard from './SubTenantWizard';
 import SubTenantConsolidatedReports from './SubTenantConsolidatedReports';
@@ -14,6 +14,8 @@ import AuditLogViewer from './AuditLogViewer';
 import RuleSandbox from './RuleSandbox';
 import JobDivaSettings from './JobDivaSettings';
 import SsoConfigAdmin from './SsoConfigAdmin';
+import MailBrandingAdmin from './MailBrandingAdmin';
+import DigestSchedulesAdmin from './DigestSchedulesAdmin';
 
 /**
  * AdminModule — administrator surface.
@@ -46,6 +48,8 @@ const AdminOverview = () => (
         <ActionCard icon={FlaskConical} title="Rule sandbox" description="Dry-run posting rules without writing to the GL" href="/admin/rule-sandbox" />
         <ActionCard icon={PlugZap} title="JobDiva integration" description="Tenant-level JobDiva connection — webhooks + manual sync" href="/admin/integrations/jobdiva" />
         <ActionCard icon={KeyRound} title="SSO configuration" description="Register your Okta or Microsoft Entra identity provider" href="/admin/sso" />
+        <ActionCard icon={Palette}  title="Email branding"     description="Logo, accent colour, and signature on every digest" href="/admin/mail-branding" />
+        <ActionCard icon={CalendarClock} title="Digest schedules" description="When each weekly / daily email gets sent per tenant" href="/admin/digest-schedules" />
       </ActionCardsGrid>
     </Section>
   </>
@@ -66,6 +70,8 @@ const AdminSidebar = () => {
     { to: '/admin/rule-sandbox',     label: 'Rule Sandbox',     icon: FlaskConical },
     { to: '/admin/integrations/jobdiva', label: 'JobDiva',      icon: PlugZap },
     { to: '/admin/sso',              label: 'SSO',              icon: KeyRound },
+    { to: '/admin/mail-branding',    label: 'Branding',         icon: Palette },
+    { to: '/admin/digest-schedules', label: 'Digests',          icon: CalendarClock },
   ];
   return (
     <aside className="sidebar">
@@ -110,6 +116,8 @@ const AdminModule = ({ session }) => {
           <Route path="/rule-sandbox"      element={<RuleSandbox session={session} />} />
           <Route path="/integrations/jobdiva" element={<JobDivaSettings session={session} />} />
           <Route path="/sso"               element={<SsoConfigAdmin session={session} />} />
+          <Route path="/mail-branding"     element={<MailBrandingAdmin session={session} />} />
+          <Route path="/digest-schedules"  element={<DigestSchedulesAdmin session={session} />} />
         </Routes>
       </div>
     </div>

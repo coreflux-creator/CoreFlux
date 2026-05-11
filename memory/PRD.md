@@ -3401,3 +3401,48 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 
 **Full sweep**: **152/152 ✅** (previously-flaky `schema_contract_smoke.php` caught and fixed a snuck-in reference to `u.first_name`/`u.last_name`; resolver now only selects `u.name` which is in every migration).
 **Vite bundle**: `index-Dv6bSDwE.js` / `index-Cwhpy62y.css` (CSS unchanged). `/app/.deploy-version` `expected_bundle` updated + 10 new feature flags.
+
+## 2026-02 — Sprint: Finance Distribution & Polish (9 items, single batch)
+
+The CFO's pieces all existed — they just weren't talking to each other. This sprint wires them together.
+
+### A1. Snapshot history table
+`modules/billing/migrations/010_money_movement_snapshots.sql` — one row per (tenant, as_of) week. `snapshot_json` is the full denormalised payload so historical accuracy is preserved even if upstream queries change. New helpers in `lib/money_movement.php`: `moneyMovementWriteSnapshot`, `moneyMovementReadSnapshot`, `moneyMovementListSnapshots`, `moneyMovementGetPriorSnapshot`, `moneyMovementWowDelta`. The Monday cron now writes through on every run.
+
+### F1. Tenant email branding ✨
+`core/migrations/032_tenant_mail_branding.sql` — logo URL, accent colour (#rrggbb), signature HTML, "powered by" toggle. `core/tenant_branding.php` exposes `cf_tenant_branding($tid)`, `cf_branding_header_html()`, `cf_branding_footer_html()`. Both Money Movement and AR statement renderers now use the branded header/footer; accent colour bleeds into section headings + the big-number top border. Script/iframe tags stripped from signature on render (defence in depth). Admin UI at `/admin/mail-branding` with live colour swatch.
+
+### B1. Public Money Movement share link
+`modules/billing/migrations/011_money_movement_share_links.sql` mirrors the treasury `scenario_share_links` pattern: **sha256(token) at rest** (DB breach yields no usable links), `expires_at` (default +30d, clamped 1–180d), soft-revoke via `revoked_at`, `view_count` + `last_viewed_at` for visibility. Raw token returned **once** in the mint response with a copy-now warning. Public view at `api/billing/money_movement_view.php` — direct-file path that bypasses the router auth gate (same approach as `approve_by_email.php`). Renders the digest HTML in a minimal frame with an amber "this is a shared snapshot, expires X, no data collected" banner. Every view audited.
+
+### B2. PDF download
+Three endpoints using the existing `core/pdf_renderer.php` (chromium / wkhtmltopdf):
+- `modules/billing/api/money_movement_pdf.php` — `?as_of=…&disposition=inline|attachment`
+- `modules/billing/api/statement_pdf.php` — `?client_name=…&as_of=…`
+- `modules/accounting/api/close_packet.php` — adds `?format=pdf` branch (was HTML-only)
+
+PDF link button on the Money Movement preview page; Download-PDF link on the per-client statement preview modal.
+
+### C1. Unified digest scheduler
+`core/migrations/033_tenant_digest_schedules.sql` — `(tenant_id, digest_key)` composite PK. `core/digest_schedules.php` exposes `cf_digest_schedule_get/set/should_fire`. `should_fire()` honours both `weekly` (dow + hour match) and `daily` (hour match only) cadences. Money Movement cron now calls `cf_digest_schedule_should_fire(...)` and prints a `[skip]` log line for tenants that aren't scheduled for the current hour. Admin UI at `/admin/digest-schedules` shows per-tenant overrides for Money Movement / Dunning / AP Weekly Queue, with an "Using platform default" vs "Tenant override active" indicator.
+
+### C2. KPI annotations on Money Movement preview
+Imports the existing `KpiNote` component (same one used on the Cash Cycle Health home tile) and adds four annotation slots: `money_movement_net`, `money_movement_cash_in`, `money_movement_cash_out`, `money_movement_runway`. Notes stored in `tenant_kpi_notes`, gated by `kpi_notes` API permissions.
+
+### D1. Send-statements batch
+`modules/billing/api/send_statements_batch.php` — iterates `billingComputeAging()`, finds rows with >0 past-due, resolves the AR contact, sends one statement per client using the same per-client/per-day idempotency key as the singular endpoint. Returns a per-client `report` with `sent`/`skipped`/`failed`/`would_send` statuses. Aging table gets a top-right **"Email all past-due"** button → dry-run preview modal → confirm-and-send. Audited as `billing.statement.batch_sent`.
+
+### D2. In-app digest archive
+`modules/billing/api/money_movement_archive.php` — `GET` lists last 12 weeks from the A1 history table; `GET ?as_of=…` returns one historical snapshot + rendered HTML + WoW delta. `MoneyMovementArchive.jsx` page at `/modules/billing/money-movement/archive` — card grid coloured by net positive/negative, each card opens an inline read-only modal with the digest body.
+
+### E1. Period Close Receipt PDF
+`modules/accounting/api/close_packet.php` `?format=pdf` branch — wraps the existing close-packet HTML and pipes to `cf_render_html_to_pdf`. Same downloadable artefact as before, now ready for board decks / auditor portals.
+
+### Tests
+- `tests/sprint_distribution_polish_smoke.php` — **134 assertions across all 9 items**, plus regression patches to:
+  - `tests/ar_statement_email_smoke.php` (signature line moved into `cf_branding_footer_html`).
+  - `tests/sprint6b_dashboard_uis_smoke.php` (bundle hash bumped).
+- **Full sweep: 153/153 ✅**, zero failures.
+
+### Vite bundle
+`index-pgZUqCzv.js` / `index-Cwhpy62y.css`. `.deploy-version` `expected_bundle` updated + **22 new feature flags** under `distribution.*`. Bundle copied to `/app/spa-assets/`.

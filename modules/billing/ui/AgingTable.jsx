@@ -8,6 +8,29 @@ export default function AgingTable() {
   const [preview, setPreview] = useState(null);  // {client_name, ...} after a GET preview
   const [sending, setSending] = useState(null);  // client_name currently being sent
   const [toast,   setToast]   = useState(null);  // {kind:'ok'|'err', text}
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchReport, setBatchReport] = useState(null);
+
+  const batchPreview = async () => {
+    setBatchBusy(true); setToast(null);
+    try {
+      const r = await api.post('/modules/billing/api/send_statements_batch.php', { as_of: asOf, dry_run: true });
+      setBatchReport(r);
+    } catch (e) { setToast({ kind: 'err', text: e.message }); }
+    finally { setBatchBusy(false); }
+  };
+
+  const batchSend = async () => {
+    const proceed = confirm(`Send statements to ${batchReport?.sent || 0} client${batchReport?.sent === 1 ? '' : 's'} now?`);
+    if (!proceed) return;
+    setBatchBusy(true); setToast(null);
+    try {
+      const r = await api.post('/modules/billing/api/send_statements_batch.php', { as_of: asOf });
+      setBatchReport(r);
+      setToast({ kind: 'ok', text: `Batch complete — sent ${r.sent}, skipped ${r.skipped}, failed ${r.failed}.` });
+    } catch (e) { setToast({ kind: 'err', text: e.message }); }
+    finally { setBatchBusy(false); }
+  };
 
   const previewStatement = async (clientName) => {
     setSending(clientName); setToast(null);
@@ -45,11 +68,20 @@ export default function AgingTable() {
 
   return (
     <section data-testid="billing-aging">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)', gap: 12, flexWrap: 'wrap' }}>
         <h3 style={{ margin: 0 }}>AR aging</h3>
-        <label style={{ fontSize: 13 }}>
-          As of <input type="date" className="input" value={asOf} onChange={(e) => setAsOf(e.target.value)} data-testid="billing-aging-asof" style={{ marginLeft: 8 }} />
-        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            className="btn btn--ghost" style={{ fontSize: 12 }}
+            onClick={batchPreview} disabled={batchBusy}
+            data-testid="billing-aging-batch-preview"
+          >
+            {batchBusy && !batchReport ? 'Loading…' : 'Email all past-due'}
+          </button>
+          <label style={{ fontSize: 13 }}>
+            As of <input type="date" className="input" value={asOf} onChange={(e) => setAsOf(e.target.value)} data-testid="billing-aging-asof" style={{ marginLeft: 8 }} />
+          </label>
+        </div>
       </div>
 
       {loading && <p>Loading…</p>}
@@ -122,7 +154,64 @@ export default function AgingTable() {
           onSend={() => sendStatement(preview.client_name)}
         />
       )}
+
+      {batchReport && (
+        <BatchReportModal
+          report={batchReport}
+          busy={batchBusy}
+          onClose={() => setBatchReport(null)}
+          onSend={batchSend}
+          alreadySent={!!toast && toast.kind === 'ok'}
+        />
+      )}
     </section>
+  );
+}
+
+function BatchReportModal({ report, busy, onClose, onSend, alreadySent }) {
+  const isPreview = report.rows?.some((r) => r.status === 'would_send');
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      data-testid="billing-aging-batch-modal"
+      onClick={(e) => e.target === e.currentTarget && !busy && onClose()}
+    >
+      <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 12, width: 'min(720px, 100%)', maxHeight: '90vh', overflow: 'auto', padding: 24 }}>
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: 16 }}>
+          <div>
+            <h3 style={{ margin: 0 }}>{isPreview ? 'Batch statement preview' : 'Batch statement results'} ({report.as_of})</h3>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+              {isPreview
+                ? <>Will send <strong>{report.sent}</strong> · skip <strong>{report.skipped}</strong> (no contact).</>
+                : <>Sent <strong>{report.sent}</strong> · skipped <strong>{report.skipped}</strong> · failed <strong>{report.failed}</strong>.</>}
+            </p>
+          </div>
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>×</button>
+        </header>
+
+        <table className="data-table" data-testid="billing-aging-batch-rows" style={{ fontSize: 12 }}>
+          <thead><tr><th>Client</th><th>Status</th><th>Reason / recipient</th></tr></thead>
+          <tbody>
+            {report.rows.map((r, i) => (
+              <tr key={i} data-testid={`billing-aging-batch-row-${i}`}>
+                <td>{r.client_name}</td>
+                <td>{r.status}</td>
+                <td>{r.reason || r.to || r.error || ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy} data-testid="billing-aging-batch-close">Close</button>
+          {isPreview && !alreadySent && (
+            <button className="btn btn--primary" onClick={onSend} disabled={busy || report.sent === 0} data-testid="billing-aging-batch-send">
+              {busy ? 'Sending…' : `Send to ${report.sent} client${report.sent === 1 ? '' : 's'}`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -163,16 +252,26 @@ function StatementPreviewModal({ preview, asOf, busy, onClose, onSend }) {
              data-testid="billing-aging-statement-html"
              dangerouslySetInnerHTML={{ __html: preview?.email?.html || '' }} />
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button className="btn btn--ghost" onClick={onClose} disabled={busy} data-testid="billing-aging-statement-cancel">Cancel</button>
-          <button
-            className="btn btn--primary"
-            onClick={onSend}
-            disabled={busy || !to}
-            data-testid="billing-aging-statement-send"
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <a
+            className="btn btn--ghost" style={{ fontSize: 12, textDecoration: 'none' }}
+            href={`/modules/billing/api/statement_pdf.php?client_name=${encodeURIComponent(preview.client_name)}&as_of=${encodeURIComponent(asOf)}&disposition=attachment`}
+            target="_blank" rel="noopener noreferrer"
+            data-testid="billing-aging-statement-pdf"
           >
-            {busy ? 'Sending…' : 'Send statement'}
-          </button>
+            Download PDF
+          </a>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn--ghost" onClick={onClose} disabled={busy} data-testid="billing-aging-statement-cancel">Cancel</button>
+            <button
+              className="btn btn--primary"
+              onClick={onSend}
+              disabled={busy || !to}
+              data-testid="billing-aging-statement-send"
+            >
+              {busy ? 'Sending…' : 'Send statement'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -16,6 +16,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/mail_bootstrap.php';
 require_once __DIR__ . '/../core/tenant_mail.php';
+require_once __DIR__ . '/../core/digest_schedules.php';
 require_once __DIR__ . '/../modules/billing/lib/money_movement.php';
 
 $pdo = getDB();
@@ -44,7 +45,17 @@ $sent = 0; $failed = 0; $tenantsRun = 0;
 
 foreach ($tenants as $tid) {
     $tid = (int) $tid;
+
+    // Per-tenant schedule gate. Cron runs hourly; skip unless THIS hour
+    // matches the tenant's configured dow + hour for the money_movement digest.
+    $schedule = cf_digest_schedule_get($tid, 'money_movement');
+    if (!cf_digest_schedule_should_fire($schedule, time())) {
+        echo "[skip] tenant={$tid} not_scheduled_this_hour\n";
+        continue;
+    }
+
     $snapshot   = moneyMovementSnapshot($tid, $asOf);
+    moneyMovementWriteSnapshot($snapshot);
     $recipients = moneyMovementResolveRecipients($pdo, $tid);
     if (empty($recipients)) continue;
     $tenantsRun++;

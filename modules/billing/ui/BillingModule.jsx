@@ -9,6 +9,7 @@ import RecurringContracts from './RecurringContracts';
 import DunningQueue from './DunningQueue';
 import ClientContacts from './ClientContacts';
 import MoneyMovementPreview from './MoneyMovementPreview';
+import MoneyMovementArchive from './MoneyMovementArchive';
 
 const navItems = [
   { to: '/modules/billing/invoices',  label: 'Invoices' },
@@ -17,7 +18,8 @@ const navItems = [
   { to: '/modules/billing/dunning',   label: 'Dunning' },
   { to: '/modules/billing/contracts', label: 'Contracts' },
   { to: '/modules/billing/clients',   label: 'Client contacts' },
-  { to: '/modules/billing/money-movement', label: 'Money movement' },
+  { to: '/modules/billing/money-movement',         label: 'Money movement' },
+  { to: '/modules/billing/money-movement/archive', label: 'Archive' },
 ];
 
 export default function BillingModule() {
@@ -57,6 +59,7 @@ export default function BillingModule() {
         <Route path="contracts" element={<RecurringContracts />} />
         <Route path="clients" element={<ClientContacts />} />
         <Route path="money-movement" element={<MoneyMovementPreview />} />
+        <Route path="money-movement/archive" element={<MoneyMovementArchive />} />
       </Routes>
     </div>
   );

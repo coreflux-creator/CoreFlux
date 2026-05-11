@@ -13,6 +13,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/billing.php';
+require_once __DIR__ . '/../../../core/tenant_branding.php';
 
 /**
  * Pull every open invoice for $clientName, oldest first, with the
@@ -99,10 +100,15 @@ function billingStatementResolveRecipients(int $tenantId, string $clientName): a
 /**
  * Render the statement email. Returns ['subject','html','text'].
  */
-function billingStatementRenderEmail(string $tenantName, string $clientName, array $invoices, array $buckets, string $asOf): array
+function billingStatementRenderEmail(string $tenantName, string $clientName, array $invoices, array $buckets, string $asOf, ?array $branding = null, ?int $tenantId = null): array
 {
     $h = fn ($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
     $money = fn ($n) => '$' . number_format((float) $n, 2);
+    if ($branding === null) {
+        $branding = $tenantId !== null ? cf_tenant_branding($tenantId)
+            : ['logo_url' => null, 'accent_color' => '#0f172a', 'signature_html' => '', 'show_powered_by' => true];
+    }
+    $accent = (string) ($branding['accent_color'] ?? '#0f172a');
     $count = count($invoices);
     $subject = "Statement of account — {$count} open invoice" . ($count === 1 ? '' : 's')
              . ' totaling ' . $money($buckets['total']);
@@ -125,9 +131,9 @@ function billingStatementRenderEmail(string $tenantName, string $clientName, arr
     }
 
     $html  = '<div style="font-family:system-ui;max-width:640px;margin:0 auto;padding:24px;color:#0f172a">'
-           . '<h2 style="margin:0 0 4px">Statement of account</h2>'
+           . cf_branding_header_html($branding, 'Statement of account')
            . '<p style="margin:0 0 18px;color:#64748b;font-size:13px">' . $h($clientName) . ' &middot; as of ' . $h($asOf) . '</p>'
-           . '<table style="background:#f8fafc;border-radius:8px;padding:14px;font-size:13px;line-height:1.6;width:100%;margin-bottom:16px">'
+           . '<table style="background:#f8fafc;border-radius:8px;padding:14px;font-size:13px;line-height:1.6;width:100%;margin-bottom:16px;border-top:3px solid ' . $h($accent) . '">'
            . '<tr><td>Current</td><td style="text-align:right">'   . $h($money($buckets['current']))  . '</td></tr>'
            . '<tr><td>1–30 days past due</td><td style="text-align:right">'  . $h($money($buckets['1_30']))     . '</td></tr>'
            . '<tr><td>31–60 days past due</td><td style="text-align:right">' . $h($money($buckets['31_60']))    . '</td></tr>'
@@ -140,7 +146,7 @@ function billingStatementRenderEmail(string $tenantName, string $clientName, arr
            . '<tbody>' . $rowsHtml . '</tbody>'
            . '</table>'
            . '<p style="margin-top:24px;color:#64748b;font-size:13px">Reply to this email if any invoice on this statement is in dispute or has been paid recently and you need it reconciled.</p>'
-           . '<p style="margin-top:4px;color:#94a3b8;font-size:12px">— ' . $h($tenantName) . ' AR Team</p>'
+           . cf_branding_footer_html($branding, $tenantName)
            . '</div>';
 
     $text  = "Statement of account — {$clientName} (as of {$asOf})\n\n"
