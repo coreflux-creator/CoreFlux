@@ -4,6 +4,7 @@ import { ModuleCards, Section, ActionCardsGrid, ActionCard, HelpSection } from '
 import { Building2, Users, DollarSign, Layers, BarChart3, ArrowRight } from 'lucide-react';
 import SubTenantSummaryCard from './SubTenantSummaryCard';
 import SetupChecklistWidget from './SetupChecklistWidget';
+import CashCycleHealthTile from './CashCycleHealthTile';
 import { useApi } from '../lib/api';
 import { fmtMoney } from '../lib/format';
 
@@ -39,6 +40,11 @@ const DashboardOverview = ({ session, onModuleChange }) => {
       {/* KPI snapshot strip — only for managers+ who have access to the
           exec data. Quietly hides for everyone else. */}
       {isManager && <KpiSnapshotStrip />}
+
+      {/* Cash cycle health — DSO, PWP gating, last-week releases. Quietly
+          hides on error / for users without billing.view permission (the
+          endpoint returns 403 → useApi sets error → tile renders null). */}
+      {isManager && <CashCycleHealthTile />}
 
       {/* Module Access Cards */}
       <ModuleCards modules={modules} onModuleClick={onModuleChange} />

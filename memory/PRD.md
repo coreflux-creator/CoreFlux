@@ -3150,4 +3150,35 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 
 **Vite build**: `dist/spa-assets/index-DlrEq8Lj.js` + `index-Cwhpy62y.css`. `.deploy-version` bumped; 3 new sentinels + 2 new feature flags recorded.
 
+
+## 2026-02 — Cash Cycle Health home-page tile
+**Why**: With the PWP pipeline now writing real signal (releases on AR clearance, blockers on the weekly queue), the home dashboard was the obvious place to surface a 4-glance read on the agency's cash cycle. One scroll-stop on login = "is the engine humming?"
+
+**Backend** (`modules/billing/api/cash_cycle_health.php`):
+- `GET /api/billing/cash_cycle_health.php` — single envelope:
+  ```
+  {
+    dso_days, ar_outstanding_total,
+    pwp_awaiting_ar:        {count, total_amount},
+    pwp_released_last_week: {count, total_amount, ar_invoice_count},
+    weekly_queue_blocked_count
+  }
+  ```
+- **DSO**: `AVG(DATEDIFF(payments.received_at, invoices.issue_date))` over the last 90 days of fully-paid invoices.
+- **AR outstanding**: `SUM(amount_due) WHERE status IN ('sent','partially_paid','overdue')`.
+- **PWP awaiting AR**: `COUNT(*)` + `SUM(amount_due)` over `ap_bills WHERE pwp_status='awaiting_ar' AND status NOT IN ('paid','void')`.
+- **PWP released**: scans `audit_log` for `ap.bill.pwp.released` events in the last 7 days, joins back to `ap_bills.total` for the dollar sum.
+- **Blocked count**: reuses the exact same `apWeeklyQueueList()` library the weekly-queue UI calls, then counts rows where `blocker NOT IN ('none','approver_pending')`.
+- Every metric is wrapped in its own `try/catch` so a missing migration on one tenant (e.g. `pwp_status` column not present on legacy schema) never crashes the whole tile. Permission: `billing.view`.
+
+**UI** (`dashboard/src/pages/CashCycleHealthTile.jsx`):
+- Manager-only tile placed between the existing KPI snapshot strip and the module nav cards.
+- 4 stat cards: DSO (colour-coded — green ≤30d, neutral ≤45d, amber ≤60d, red >60d), AR outstanding (fmtMoney), PWP awaiting AR (count + gated $), PWP released last 7d (released $ + bill count + AR invoice count).
+- Inline amber "blocked banner" surfaces when the weekly queue has any non-approver blockers, with a one-tap drill-in.
+- Quietly hides on `loading`/`error`/`!data` so the rest of the home page never gets pushed around by it.
+
+**Tests**: `tests/cash_cycle_health_smoke.php` 36/36 ✅ (API envelope shape, DSO query structure, PWP queries, blocked-count integration, all 6 testids, render order vs the KPI strip). Full sweep: **142/144** ✅ (same `ai_platform_smoke` + `plaid_integration_smoke` pre-existing failures).
+
+**Vite build**: `dist/spa-assets/index-D18OKuIN.js` + `index-Cwhpy62y.css`. `.deploy-version` bumped; 5 new sentinels + 2 new feature flags recorded.
+
 **Vite bundle**: `index-CsM5S8MR.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated.
