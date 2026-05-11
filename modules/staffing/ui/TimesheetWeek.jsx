@@ -67,8 +67,11 @@ export default function TimesheetWeek({ session }) {
   const [grid, setGrid]       = useState({});
   const [dirty, setDirty]     = useState(false);
   const [saveState, setSave]  = useState({ saving: false, lastSavedAt: null, error: null });
+  const [prefillBanner, setPrefillBanner] = useState(null); // { rowCount, priorPeriodStart } | null
+  const [prefillTriedFor, setPrefillTriedFor] = useState(null);  // periodStart of last attempted prefill
 
   useEffect(() => {
+    if (!data) return;
     if (!entries) return;
     const next = {};
     for (const e of entries) {
@@ -81,7 +84,55 @@ export default function TimesheetWeek({ session }) {
     }
     setGrid(next);
     setDirty(false);
-  }, [data?.timesheet?.id, periodStart]);
+    setPrefillBanner(null);
+
+    // Silent auto-prefill: if this week is empty AND status is draft, fetch
+    // the prior week and use it as a ghost-template (not autosaved — the
+    // worker has to actually touch a cell to mark it dirty + persist).
+    if (!entries.length && (!data.timesheet?.status || data.timesheet.status === 'draft') && prefillTriedFor !== periodStart) {
+      setPrefillTriedFor(periodStart);
+      api.get(`/modules/staffing/api/timesheets.php?action=prefill_from_last_week&person_id=${personId}&period_start=${periodStart}&period_end=${periodEnd}`)
+        .then(tpl => {
+          if (!tpl?.rows?.length) return;
+          const ghost = {};
+          for (const r of tpl.rows) {
+            ghost[r.placement_id] = ghost[r.placement_id] || {};
+            ghost[r.placement_id][r.work_date] = ghost[r.placement_id][r.work_date] || [];
+            ghost[r.placement_id][r.work_date].push({
+              id: null, hour_type: r.hour_type, hours: r.hours, description: r.description, _ghost: true,
+            });
+          }
+          setGrid(ghost);
+          setDirty(true);  // ghost rows ARE pending — autosave will flush them
+          setPrefillBanner({ rowCount: tpl.rows.length, priorPeriodStart: tpl.prior_period_start });
+        })
+        .catch(() => { /* prefill is best-effort; silent failure is fine */ });
+    }
+  }, [data?.timesheet?.id, periodStart, entries.length]);
+
+  const copyLastWeek = async () => {
+    try {
+      const tpl = await api.get(`/modules/staffing/api/timesheets.php?action=prefill_from_last_week&person_id=${personId}&period_start=${periodStart}&period_end=${periodEnd}`);
+      if (!tpl?.rows?.length) {
+        setSave(s => ({ ...s, error: `No entries found in week of ${tpl?.prior_period_start || 'last week'} to copy.` }));
+        return;
+      }
+      // Merge into existing grid (don't overwrite cells the user already filled).
+      setGrid(prev => {
+        const next = JSON.parse(JSON.stringify(prev));
+        for (const r of tpl.rows) {
+          next[r.placement_id] = next[r.placement_id] || {};
+          if (next[r.placement_id][r.work_date]?.some(c => (c.hours || 0) > 0)) continue;
+          next[r.placement_id][r.work_date] = [{ id: null, hour_type: r.hour_type, hours: r.hours, description: r.description }];
+        }
+        return next;
+      });
+      setDirty(true);
+      setPrefillBanner({ rowCount: tpl.rows.length, priorPeriodStart: tpl.prior_period_start, fromButton: true });
+    } catch (e) {
+      setSave(s => ({ ...s, error: e.message || String(e) }));
+    }
+  };
 
   const rowKeys = useMemo(() => {
     // Union of placements with existing entries + all active placements.
@@ -223,11 +274,26 @@ export default function TimesheetWeek({ session }) {
           <button className="btn" onClick={() => setAnchor(addDays(weekStart, -7))} data-testid="ts-prev"     disabled={loading}>← Prev</button>
           <button className="btn" onClick={() => setAnchor(new Date())}             data-testid="ts-current"  disabled={loading}>This week</button>
           <button className="btn" onClick={() => setAnchor(addDays(weekStart,  7))} data-testid="ts-next"     disabled={loading}>Next →</button>
+          {!isLocked && (
+            <button className="btn" onClick={copyLastWeek} disabled={loading || saveState.saving} data-testid="ts-copy-last-week" title="Copy hours from the previous week into this week (won't overwrite cells you've already filled)">
+              ⎘ Copy last week
+            </button>
+          )}
           <button className="btn btn--primary" onClick={submitWeek} disabled={isLocked || saveState.saving} data-testid="ts-submit-week">
             {header?.status === 'rejected' ? 'Re-submit Week' : 'Submit Week'}
           </button>
         </div>
       </header>
+
+      {prefillBanner && (
+        <div data-testid="ts-prefill-banner" style={{ padding: 10, marginBottom: 'var(--cf-space-3)', background:'#eff6ff', borderLeft:'3px solid #2563eb', borderRadius: 3, fontSize:'0.9em' }}>
+          {prefillBanner.fromButton ? '✓ ' : '✨ '}
+          Pre-filled {prefillBanner.rowCount} entr{prefillBanner.rowCount === 1 ? 'y' : 'ies'} from the week of <strong>{prefillBanner.priorPeriodStart}</strong>.
+          {' '}<button className="btn-link" style={{ background:'none', border:'none', color:'#2563eb', cursor:'pointer', padding:0, textDecoration:'underline' }}
+                       onClick={() => { setGrid({}); setDirty(true); setPrefillBanner(null); }}
+                       data-testid="ts-prefill-clear">Clear and start blank</button>
+        </div>
+      )}
 
       <SaveBar saveState={saveState} dirty={dirty} isLocked={isLocked} headerStatus={header?.status} />
       {error && <p className="error" data-testid="ts-error">Error: {error.message}</p>}

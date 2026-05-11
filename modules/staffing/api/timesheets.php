@@ -96,6 +96,17 @@ if ($method === 'GET' && $action === 'list') {
     api_ok(['rows' => $rows]);
 }
 
+if ($method === 'GET' && $action === 'prefill_from_last_week') {
+    $personId    = (int) ($_GET['person_id']    ?? ($user['person_id'] ?? 0));
+    $periodStart = (string) ($_GET['period_start'] ?? '');
+    $periodEnd   = (string) ($_GET['period_end']   ?? '');
+    if ($personId <= 0)                api_error('person_id required', 422);
+    if (!$periodStart || !$periodEnd)  api_error('period_start / period_end required', 422);
+
+    $template = staffingTimesheetPriorWeekTemplate($personId, $periodStart, $periodEnd);
+    api_ok($template);
+}
+
 if ($method === 'POST' && $action === 'bulk_save') {
     $body = api_json_body();
     try {

@@ -3523,3 +3523,38 @@ Per spec §10.6 + §10.7 + the user's explicit answers (week-start configurable,
 - AI insights agent for Staffing.
 - Vendor/referral partner economics.
 - Full admin folder refactor (currently only `/api/admin/retry_migration.php` lives in the new folder as a precedent; older admin endpoints remain at their direct-file paths with shim-pattern documented).
+
+## 2026-02 — Hotfix + Pre-populated Timesheet
+
+### 🔴 Hotfix: PDO unbuffered cursor (HY000/2014) blocking every page
+Cause: my conditional migrations used `IF(..., 'real DDL', 'SELECT "..." AS note')`. The `SELECT 'note'` branch emits a result set; `PDO::exec()` doesn't consume it; cursor stayed open; next query failed.
+
+Fix:
+- All conditional migrations switched to `'DO 0'` as the no-op (no result set emitted).
+- `core/migrate.php` now uses `$pdo->query($sql)` + `$rs->closeCursor()` + `nextRowset()` drain loop instead of `exec()`, so any FUTURE migration that emits an accidental result set is still safe.
+- New test `tests/migration_cursor_drain_smoke.php` (10 assertions) pins the drain loop + DO-0 pattern so this never silently regresses.
+
+### Legacy URL redirects
+`/modules/time/`, `/modules/time/overview`, and `/modules/time/entries` all redirect to `/modules/staffing/timesheets`. Users habit-routing to the old paths land on the new weekly grid.
+
+### ✨ Pre-populated weekly timesheet (user-requested enhancement)
+Two parts:
+
+1. **Silent auto-prefill on empty week** — when the user opens a fresh week with no entries and `status === 'draft'`, the UI auto-fetches the prior week's grid and seeds the cells. Marked dirty so autosave (1.5s debounce) persists them. A friendly banner ("✨ Pre-filled 12 entries from week of 2026-02-09 · Clear and start blank") shows what happened.
+
+2. **Explicit "⎘ Copy last week" button** — manual one-click copy from any state. Merges into the current grid WITHOUT overwriting cells the user has already filled. Same banner reflects "✓ Pre-filled N entries from week of …".
+
+Backend:
+- `staffingTimesheetPriorWeekTemplate($personId, $ps, $pe)` in `modules/staffing/lib/timesheets.php` — fetches the 7 days ending the day before `period_start`, shifts each row forward by +7 days, filters rows with `hours > 0`, returns the bulk_save-shaped payload.
+- New action `GET /api/staffing/timesheets?action=prefill_from_last_week&person_id=…&period_start=…&period_end=…`.
+
+Frontend:
+- `TimesheetWeek.jsx`: `copyLastWeek()` callback + auto-prefill effect keyed on `(periodStart, entries.length)`. Non-blocking — prefill failure is silent (best-effort).
+
+Tests: 8 new assertions in `staffing_shell_and_weekly_timesheet_smoke.php` pinning the lib, API, and UI contract.
+
+### Vite bundle
+`index-CaJzcvzc.js` / `index-Cwhpy62y.css`. `.deploy-version` updated, bundle copied to `/app/spa-assets/`.
+
+### Full sweep
+**158/158 ✅**, zero real failures (2 baseline external-API smokes skipped as documented).

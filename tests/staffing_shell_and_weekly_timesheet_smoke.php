@@ -94,6 +94,16 @@ $a('TimesheetWeek Submit Week button',           str_contains($tw, 'data-testid=
 $a('TimesheetWeek shows rejection banner',       str_contains($tw, 'data-testid="ts-rejection-banner"'));
 $a('TimesheetWeek over-contracted warning',      str_contains($tw, 'over contracted'));
 $a('TimesheetWeek week-start configurable',      str_contains($tw, 'weekStartsOn'));
+$a('TimesheetWeek Copy-last-week button',         str_contains($tw, 'data-testid="ts-copy-last-week"') && str_contains($tw, 'copyLastWeek'));
+$a('TimesheetWeek auto-prefill on empty week',    str_contains($tw, 'prefill_from_last_week') && str_contains($tw, 'prefillBanner'));
+$a('TimesheetWeek prefill banner with clear btn', str_contains($tw, 'data-testid="ts-prefill-banner"') && str_contains($tw, 'data-testid="ts-prefill-clear"'));
+$a('TimesheetWeek copy doesn\'t overwrite filled cells', str_contains($tw, "(c.hours || 0) > 0)) continue"));
+
+$a('Lib has prior-week template builder',         str_contains($lib, 'staffingTimesheetPriorWeekTemplate'));
+$a('Prior-week template shifts dates +7 days',    str_contains($lib, "strtotime(\$r['work_date'] . ' +7 day')"));
+$a('Prior-week template filters out 0-hours rows', str_contains($lib, 'hours > 0'));
+
+$a('API exposes action=prefill_from_last_week',   str_contains($api, "action === 'prefill_from_last_week'"));
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

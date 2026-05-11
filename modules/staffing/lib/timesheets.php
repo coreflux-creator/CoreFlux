@@ -279,6 +279,47 @@ function staffingTimesheetReject(int $userId, int $personId, string $periodStart
     return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
 }
 
+/** Snapshot of the prior week — used by `prefill_from_last_week`. Returns
+ *  rows in the bulk_save shape (no id → all will be CREATE on save).
+ */
+function staffingTimesheetPriorWeekTemplate(int $personId, string $periodStart, string $periodEnd): array {
+    // The "prior" week is the 7 days ending the day before period_start.
+    $priorEnd   = date('Y-m-d', strtotime($periodStart . ' -1 day'));
+    $priorStart = date('Y-m-d', strtotime($priorEnd      . ' -6 day'));
+    $rows = scopedQuery(
+        "SELECT placement_id, work_date, hour_type, hours, description
+           FROM time_entries
+          WHERE tenant_id = :tenant_id
+            AND person_id = :pid
+            AND work_date BETWEEN :ps AND :pe
+            AND status != 'superseded'
+            AND hours > 0
+          ORDER BY placement_id, work_date",
+        ['pid' => $personId, 'ps' => $priorStart, 'pe' => $priorEnd]
+    );
+
+    // Day-shift each row forward by 7 days so it lands in the current week.
+    $shifted = [];
+    foreach ($rows as $r) {
+        $newDate = date('Y-m-d', strtotime($r['work_date'] . ' +7 day'));
+        // Safety: only include if it falls inside the target week.
+        if ($newDate < $periodStart || $newDate > $periodEnd) continue;
+        $shifted[] = [
+            'id'           => null,
+            'placement_id' => (int) $r['placement_id'],
+            'work_date'    => $newDate,
+            'hour_type'    => $r['hour_type'] ?: 'regular',
+            'hours'        => (float) $r['hours'],
+            'description'  => $r['description'],
+        ];
+    }
+    return [
+        'prior_period_start' => $priorStart,
+        'prior_period_end'   => $priorEnd,
+        'rows'               => $shifted,
+    ];
+}
+
 /** Approve the whole week — cascade to rows. Two-eye control. */
 function staffingTimesheetApprove(int $userId, int $personId, string $periodStart, string $periodEnd): array {
     $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd);
