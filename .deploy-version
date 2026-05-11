@@ -265,8 +265,12 @@ sentinels:
 - dashboard/src/pages/CashCycleHealthTile.jsx
 - dashboard/src/pages/DashboardOverview.jsx
 - tests/cash_cycle_health_smoke.php
+- core/migrations/029_tenant_kpi_notes.sql
+- api/kpi_notes.php
+- dashboard/src/components/KpiNote.jsx
+- tests/kpi_notes_smoke.php
 expected_bundle:
-- spa-assets/index-D18OKuIN.js
+- spa-assets/index-COqpcxkk.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -582,3 +586,5 @@ last_known_features:
 - platform.end_to_end_loop_contract_smoke
 - billing.cash_cycle_health.api
 - ui.dashboard.cash_cycle_health_tile
+- core.tenant_kpi_notes.api
+- ui.dashboard.kpi_note_inline_editor

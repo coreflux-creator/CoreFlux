@@ -3181,4 +3181,36 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 
 **Vite build**: `dist/spa-assets/index-D18OKuIN.js` + `index-Cwhpy62y.css`. `.deploy-version` bumped; 5 new sentinels + 2 new feature flags recorded.
 
+
+## 2026-02 — KPI annotations on the Cash Cycle Health tile
+**Why**: Numbers without context get misread. A 60-day DSO can be alarming or expected — depending on which clients drive it. Managers wanted a place to leave one-line operator notes alongside each KPI ("Q1 push — 60d DSO is target") so anyone glancing at the dashboard (board members, new hires) gets the *why* not just the number.
+
+**Schema** (`core/migrations/029_tenant_kpi_notes.sql`, idempotent):
+- `tenant_kpi_notes (id, tenant_id, note_key, note_text, updated_by_user_id, created_at, updated_at)`
+- `note_key VARCHAR(64)` (e.g. `cash_cycle_dso`, `cash_cycle_ar`), `note_text VARCHAR(280)` (single-line, tweet-sized).
+- Unique `(tenant_id, note_key)` so upserts are race-safe.
+- Generic enough that any future "operator annotation on a number" surface (exec reports, scenario tiles, AP weekly queue summary, etc.) reuses the same table.
+
+**API** (`api/kpi_notes.php`):
+- `GET /api/kpi_notes.php` → `{ notes: {key: {text, updated_by, updated_at}, …}, can_write }`. Permission: `billing.view`.
+- `POST /api/kpi_notes.php` body `{key, text}` — upsert via `ON DUPLICATE KEY UPDATE`. Empty text deletes (less typing for the operator). Sanitizes key to `[a-z0-9_]{1,64}`, clamps text at 280 chars.
+- `POST ?action=delete` body `{key}` — explicit delete.
+- Write requires `manager`/`admin`/`master_admin`/`tenant_admin` role → 403 for line staff.
+- `GET` tolerates the table being absent on legacy tenants (returns empty notes).
+
+**UI** (`dashboard/src/components/KpiNote.jsx`, reusable):
+- Three states:
+  - **No note + manager** → faint "✎ Add note" affordance.
+  - **No note + line staff** → renders nothing.
+  - **Has note** → yellow chip with the text + ✎ edit button (managers only).
+- Edit mode = inline input with Enter-to-save / Esc-to-cancel, 280-char hard cap.
+- Save POSTs to `/api/kpi_notes.php` and updates the parent's local cache so the page doesn't need a full reload.
+
+**Cash Cycle Health wiring**:
+- `CashCycleHealthTile.jsx` now fetches `/api/kpi_notes.php` once, hydrates `notes` + `canWriteNotes` into local state, and passes a `<KpiNote/>` under each of the 4 `Stat` cards (`cash_cycle_dso`, `cash_cycle_ar`, `cash_cycle_pwp_awaiting`, `cash_cycle_pwp_released`).
+
+**Tests**: `tests/kpi_notes_smoke.php` **36/36** ✅ (migration shape, all 3 API actions, RBAC, sanitization, all 3 component states, keyboard shortcuts, 4-stat wiring, `.deploy-version` sentinel). Full sweep: **143/145** ✅ (same `ai_platform_smoke` + `plaid_integration_smoke` baseline).
+
+**Vite build**: `dist/spa-assets/index-COqpcxkk.js`. `.deploy-version` bumped; 5 new sentinels + 2 new feature flags recorded.
+
 **Vite bundle**: `index-CsM5S8MR.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated.

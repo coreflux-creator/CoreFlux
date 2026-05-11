@@ -1,19 +1,40 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Activity } from 'lucide-react';
 import { Section } from '../components/UIComponents';
 import { useApi } from '../lib/api';
 import { fmtMoney } from '../lib/format';
+import KpiNote from '../components/KpiNote';
 
 /**
  * Cash Cycle Health tile.
  *
  * Single dashboard card pulled from /api/billing/cash_cycle_health.php.
- * Mid-density: 4 numbers + one "drill in" link. Quietly hides while
- * loading and on error so it never breaks the home page.
+ * Mid-density: 4 numbers + one "drill in" link. Each stat carries an
+ * optional one-line operator note (managers edit; line staff read-only).
+ * Quietly hides while loading and on error so it never breaks the home
+ * page.
  */
 export default function CashCycleHealthTile() {
   const { data, loading, error } = useApi('/modules/billing/api/cash_cycle_health.php');
+  const { data: notesData } = useApi('/api/kpi_notes.php');
+  const [notes, setNotes] = useState({});
+  const [canWriteNotes, setCanWriteNotes] = useState(false);
+
+  // Hydrate local notes cache once the GET returns. Memoised via React's
+  // strict-equality on the response identity from useApi.
+  React.useEffect(() => {
+    if (!notesData) return;
+    setNotes(notesData.notes || {});
+    setCanWriteNotes(Boolean(notesData.can_write));
+  }, [notesData]);
+
+  const handleNoteSaved = useCallback((key, text) => {
+    setNotes(prev => ({
+      ...prev,
+      [key]: text ? { text, updated_at: new Date().toISOString() } : undefined,
+    }));
+  }, []);
 
   // Hide the tile entirely while we wait — the rest of the dashboard
   // can render normally; we don't want to push everything down then
@@ -54,6 +75,7 @@ export default function CashCycleHealthTile() {
           sub={dso == null ? 'No paid invoices in last 90d' : 'Avg over last 90 days'}
           color={dsoColor}
           testid="cash-cycle-dso"
+          noteKey="cash_cycle_dso" note={notes['cash_cycle_dso']} canWrite={canWriteNotes} onNoteSaved={handleNoteSaved}
         />
         <Stat
           label="AR outstanding"
@@ -61,6 +83,7 @@ export default function CashCycleHealthTile() {
           sub="Sent + partially paid + overdue"
           color={arOut > 0 ? '#0f172a' : '#16a34a'}
           testid="cash-cycle-ar-outstanding"
+          noteKey="cash_cycle_ar" note={notes['cash_cycle_ar']} canWrite={canWriteNotes} onNoteSaved={handleNoteSaved}
         />
         <Stat
           label="PWP bills awaiting AR"
@@ -68,6 +91,7 @@ export default function CashCycleHealthTile() {
           sub={`${fmtMoney(awaiting.total_amount)} gated on client payment`}
           color={awaiting.count > 0 ? '#0891b2' : '#16a34a'}
           testid="cash-cycle-pwp-awaiting"
+          noteKey="cash_cycle_pwp_awaiting" note={notes['cash_cycle_pwp_awaiting']} canWrite={canWriteNotes} onNoteSaved={handleNoteSaved}
         />
         <Stat
           label="PWP released (last 7d)"
@@ -75,6 +99,7 @@ export default function CashCycleHealthTile() {
           sub={`${released.count} bill(s) freed by ${released.ar_invoice_count} client payment(s)`}
           color={released.total_amount > 0 ? '#16a34a' : '#64748b'}
           testid="cash-cycle-pwp-released"
+          noteKey="cash_cycle_pwp_released" note={notes['cash_cycle_pwp_released']} canWrite={canWriteNotes} onNoteSaved={handleNoteSaved}
         />
       </div>
       {blocked > 0 && (
@@ -95,7 +120,7 @@ export default function CashCycleHealthTile() {
   );
 }
 
-function Stat({ label, value, sub, color, testid }) {
+function Stat({ label, value, sub, color, testid, noteKey, note, canWrite, onNoteSaved }) {
   return (
     <div
       data-testid={testid}
@@ -106,6 +131,7 @@ function Stat({ label, value, sub, color, testid }) {
       </div>
       <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
       {sub && <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)', marginTop: 2 }}>{sub}</div>}
+      {noteKey && <KpiNote noteKey={noteKey} note={note} canWrite={canWrite} onSaved={onNoteSaved} />}
     </div>
   );
 }
