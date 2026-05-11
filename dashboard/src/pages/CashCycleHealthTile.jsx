@@ -60,9 +60,14 @@ export default function CashCycleHealthTile() {
     <Section
       title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Activity size={16} /> Cash cycle health</span>}
       action={
-        <Link to="/modules/ap/weekly-queue" className="btn btn--ghost" data-testid="cash-cycle-health-drill-in" style={{ fontSize: 13 }}>
-          Open AP weekly queue <ArrowRight size={14} />
-        </Link>
+        <div style={{ display: 'inline-flex', gap: 8 }}>
+          <Link to="/modules/billing/money-movement" className="btn btn--ghost" data-testid="cash-cycle-health-money-movement" style={{ fontSize: 13 }}>
+            Weekly digest <ArrowRight size={14} />
+          </Link>
+          <Link to="/modules/ap/weekly-queue" className="btn btn--ghost" data-testid="cash-cycle-health-drill-in" style={{ fontSize: 13 }}>
+            Open AP weekly queue <ArrowRight size={14} />
+          </Link>
+        </div>
       }
     >
       <div

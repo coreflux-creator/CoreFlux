@@ -3370,3 +3370,34 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 
 **Full suite**: **151/151 ✅** (P2 admin + AR statement + SSO Slice 1 + SSO Slice 2 — zero regressions).
 **Vite bundle**: `index-Byd_qeJ2.js` / `index-Cwhpy62y.css`. `.deploy-version` `expected_bundle` updated + 21 new feature flags appended; `tests/sprint6b_dashboard_uis_smoke.php` hash bumped.
+
+## 2026-02 — Weekly Money Movement digest (CFO inbox edition)
+**Why**: We already had AR-statement-by-email, dunning, and the AP digest all running on the tenant Resend pipeline. The pieces existed — they just needed assembling into a single Monday-morning email that answers the CFO's first question: *"how did we do last week?"*
+
+**Library** `modules/billing/lib/money_movement.php` — eight pure helpers (each tolerates missing tables on minimal installs):
+- `moneyMovementSnapshot($tid, $asOf)` — composes the full 7-day window snapshot.
+- `moneyMovementCashIn` — `SUM(billing_payments.amount)` over the window, by method.
+- `moneyMovementCashOut` — `SUM(ap_payments.amount)` excluding draft/void/failed, by method.
+- `moneyMovementStatementsSent` / `moneyMovementDunningSent` — counts from `audit_log` and `billing_dunning_log`.
+- `moneyMovementTopPastDue` — reduces `billingComputeAging()` to top-5 ranked by past-due total (≥1 cent floor), so the digest matches the AR Aging page exactly.
+- `moneyMovementRunway` — reads through to `core/treasury/liquidity_projection.php` for runway-to-zero days + projected zero date; graceful no-op when treasury module isn't installed.
+- `moneyMovementRenderEmail` — subject + HTML + text. Net is colour-coded green/red with an arrow. Past-due rows highlight 91+ in red. Runway warning block is its own colour-coded callout. All output `htmlspecialchars`-escaped.
+- `moneyMovementResolveRecipients` — `cfo`, `controller`, `admin`, `master_admin`, `tenant_admin` on either `user_tenants.role` or `users.role`.
+
+**API** `modules/billing/api/money_movement.php`:
+- `GET ?as_of=YYYY-MM-DD` (default today) → snapshot + rendered email preview + recipient list. Gated by `billing.view`.
+- `POST ?action=send_now {as_of?}` → per-recipient send via `cf_mail_bootstrap`, idempotency key `money-mvmt-{tid}-{userid}-{Y-m-d}` so re-runs on the same day don't double-send. Audit `billing.money_movement.sent`. Gated by admin/manager.
+
+**Cron** `scripts/money_movement_weekly.php` — runs Monday 13:00 UTC (`0 13 * * 1`). Only iterates tenants with at least one `billing_payments` OR cleared `ap_payments` row in the last 7 days, so inactive tenants don't receive `$0 in / $0 out` noise. Per-user idempotency keys mean re-runs are safe.
+
+**UI** `modules/billing/ui/MoneyMovementPreview.jsx` at `/modules/billing/money-movement` — full inline email preview + "Send now to N recipients" button. Date picker for back-dated previews. Cash Cycle Health home-page tile gets a new **"Weekly digest →"** action link.
+
+**Tests** `tests/money_movement_smoke.php` — 59 assertions:
+- Render correctness on both net-positive and net-negative weeks (subject, green/red colour, greeting with/without recipient name, escape safety, past-due empty state, runway-positive vs runway-warning).
+- Top-past-due ranking math (B=5000 beats C=3000 beats A=500; D=0 excluded).
+- API RBAC, recipient-empty 422, idempotency-key shape.
+- Cron: active-tenant filter via UNION, draft/void/failed exclusion, per-user idempotency key, non-zero exit on failures.
+- UI testids + dataflow.
+
+**Full sweep**: **152/152 ✅** (previously-flaky `schema_contract_smoke.php` caught and fixed a snuck-in reference to `u.first_name`/`u.last_name`; resolver now only selects `u.name` which is in every migration).
+**Vite bundle**: `index-Dv6bSDwE.js` / `index-Cwhpy62y.css` (CSS unchanged). `/app/.deploy-version` `expected_bundle` updated + 10 new feature flags.
