@@ -283,7 +283,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-D8ZRkmWl.js
+- spa-assets/index-CwDFnl_V.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -677,3 +677,32 @@ last_known_features:
 - admin.healthcheck_endpoint_22_checks
 - admin.healthcheck_dot_grid_ui
 - admin.healthcheck_subset_via_only_param
+- staffing.module_umbrella_shell
+- staffing.weekly_timesheet_grid_inline_editable
+- staffing.weekly_timesheet_per_cell_hour_type_split
+- staffing.weekly_timesheet_debounced_autosave
+- staffing.weekly_timesheet_submit_week_atomic
+- staffing.weekly_timesheet_full_resubmit_on_reject
+- staffing.timesheet_header_table_with_status_workflow
+- staffing.time_entries_hour_type_billable_payable_columns
+- staffing.tenant_settings_week_starts_on_contracted_hours
+- staffing.approvals_queue_two_eye_control
+- core.migrate.failed_migration_retry_sentinel_hash
+- core.migrate.no_silent_record_on_non_safe_errors
+- core.api_admin_retry_migration_endpoint
+- core.migration_007_one_statement_per_line_v3
+- modules/staffing/manifest.php
+- modules/staffing/migrations/001_timesheets.sql
+- modules/staffing/migrations/002_timesheet_id_on_entries.sql
+- modules/staffing/api/timesheets.php
+- modules/staffing/lib/timesheets.php
+- modules/staffing/ui/StaffingModule.jsx
+- modules/staffing/ui/TimesheetWeek.jsx
+- modules/staffing/ui/StaffingOverview.jsx
+- modules/staffing/ui/StaffingApprovals.jsx
+- modules/staffing/ui/StaffingSettings.jsx
+- modules/time/migrations/007_backfill_person_id.sql
+- api/admin/retry_migration.php
+- core/migrations/034_register_staffing_module.sql
+- tests/staffing_shell_and_weekly_timesheet_smoke.php
+- tests/migration_runner_retry_smoke.php

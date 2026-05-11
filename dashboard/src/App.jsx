@@ -12,6 +12,7 @@ import TenantPicker from './pages/TenantPicker';
 import PeopleModule from '../../modules/people/ui/PeopleModule';
 import PlacementsModule from '../../modules/placements/ui/PlacementsModule';
 import TimeModule from '../../modules/time/ui/TimeModule';
+import StaffingModule from '../../modules/staffing/ui/StaffingModule';
 import BillingModule from '../../modules/billing/ui/BillingModule';
 import APModule from '../../modules/ap/ui/APModule';
 import PayrollModule from '../../modules/payroll/ui/PayrollModule';
@@ -66,6 +67,24 @@ const DEMO_SESSION = {
         { name: 'Hiring Pipeline', route: 'pipeline' },
         { name: 'Document Vault',  route: 'documents' },
         { name: 'Custom Fields',   route: 'custom_fields' },
+      ]
+    },
+    {
+      id: 'staffing',
+      name: 'Staffing',
+      icon: '/assets/icons/icon-time.png',
+      description: 'Client-facing labor: placements, weekly timesheets, approvals, payroll/billing readiness, margin.',
+      actions: [
+        { name: 'Overview',           route: 'overview' },
+        { name: 'Placements',         route: 'placements' },
+        { name: 'Timesheets',         route: 'timesheets' },
+        { name: 'Approvals',          route: 'approvals' },
+        { name: 'Clients',            route: 'clients' },
+        { name: 'Jobs',               route: 'jobs' },
+        { name: 'Payroll Readiness',  route: 'payroll-readiness' },
+        { name: 'Billing Readiness',  route: 'billing-readiness' },
+        { name: 'Profitability',      route: 'profitability' },
+        { name: 'Settings',           route: 'settings' },
       ]
     },
     {
@@ -352,6 +371,9 @@ const AppContent = ({ session, usingDemo }) => {
           
           {/* Module Routes */}
           <Route path="/modules/people/*"     element={<PeopleModule     session={session} />} />
+          <Route path="/modules/staffing/*"   element={<StaffingModule   session={session} />} />
+          {/* Back-compat shims: keep old direct URLs working while sidebar nav
+              promotes the new /modules/staffing/* umbrella. Remove after Phase 2. */}
           <Route path="/modules/placements/*" element={<PlacementsModule session={session} />} />
           <Route path="/modules/time/*"       element={<TimeModule       session={session} />} />
           <Route path="/modules/billing/*"    element={<BillingModule    session={session} />} />

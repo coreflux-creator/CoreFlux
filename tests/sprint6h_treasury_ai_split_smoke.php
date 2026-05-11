@@ -37,7 +37,7 @@ $assert('migration file exists',                        strlen($be) > 0);
 $assert('adds person_id column',                        stripos($be, 'ADD COLUMN person_id') !== false);
 $assert('backfills from placements.worker_id',          stripos($be, 'placements p ON p.id = te.placement_id') !== false
                                                       && stripos($be, 'p.worker_id') !== false);
-$assert('idempotent comment present',                   stripos($be, 'Duplicate column name') !== false);
+$assert('idempotent (information_schema-gated)',        stripos($be, 'information_schema') !== false);
 $assert('adds compound index',                          stripos($be, 'idx_te_tenant_person_date') !== false);
 
 echo "\nTreasury account_transactions API — split_categorize\n";

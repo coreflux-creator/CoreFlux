@@ -23,15 +23,16 @@ $read = fn (string $p) => (string) file_get_contents($p);
 $mig = $read(__DIR__ . '/../modules/time/migrations/007_backfill_person_id.sql');
 
 echo "Migration 007 — information_schema guards\n";
-$a('uses information_schema.columns to detect person_id',  str_contains($mig, "FROM information_schema.columns") && str_contains($mig, "column_name  = 'person_id'"));
-$a('checks time_entries table exists before ADD COLUMN',   str_contains($mig, "table_name = 'time_entries'") && str_contains($mig, '@table_exists'));
+$a('uses information_schema.columns to detect person_id',  str_contains($mig, "FROM information_schema.columns") && preg_match("/column_name\s*=\s*'person_id'/", $mig) === 1);
+$a('checks time_entries table exists before ADD COLUMN',   preg_match("/table_name\s*=\s*'time_entries'/", $mig) === 1 && str_contains($mig, '@table_exists'));
 $a('ADD COLUMN guarded by both table+col checks',          str_contains($mig, '@table_exists = 1 AND @col_exists = 0'));
 $a('uses PREPARE/EXECUTE for conditional DDL',             substr_count($mig, 'PREPARE stmt FROM @sql') >= 3);
-$a('checks placements.worker_id before backfill UPDATE',   str_contains($mig, "column_name  = 'worker_id'"));
+$a('checks placements.worker_id before backfill UPDATE',   preg_match("/column_name\s*=\s*'worker_id'/", $mig) === 1);
 $a('backfill UPDATE wrapped in conditional',               str_contains($mig, '@worker_id_exists = 1'));
-$a('index creation guarded by information_schema',         str_contains($mig, "FROM information_schema.statistics") && str_contains($mig, "index_name   = 'idx_te_tenant_person_date'"));
+$a('index creation guarded by information_schema',         str_contains($mig, "FROM information_schema.statistics") && preg_match("/index_name\s*=\s*'idx_te_tenant_person_date'/", $mig) === 1);
 $a('skip-note SELECT used as no-op fallback',              substr_count($mig, 'already exists') >= 2);
 $a('no raw ALTER TABLE that could throw',                  preg_match('/^\s*ALTER TABLE/m', $mig) === 0);
+$a('v3: PREPARE/EXECUTE/DEALLOCATE each on own line',      preg_match('/PREPARE stmt FROM @sql[^\n]*;[^\n]*EXECUTE/', $mig) === 0);
 
 echo "\napi_bootstrap.php — friendly unknown-column message + self-heal\n";
 $bs = $read(__DIR__ . '/../core/api_bootstrap.php');

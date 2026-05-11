@@ -3446,3 +3446,80 @@ Imports the existing `KpiNote` component (same one used on the Cash Cycle Health
 
 ### Vite bundle
 `index-pgZUqCzv.js` / `index-Cwhpy62y.css`. `.deploy-version` `expected_bundle` updated + **22 new feature flags** under `distribution.*`. Bundle copied to `/app/spa-assets/`.
+
+## 2026-02 — Sprint: CoreStaffing Umbrella + Weekly Timesheet Rebuild + Migration P0
+
+User feedback was blunt: "fixing time module; amateur hour. weekly timesheet, but a single entry? five separate entries to complete a submission? re-evaluate what we've been building the whole time."
+
+Then handed me a CoreStaffing MVP spec (22 sections) and said "think at a higher level — time & placements belong inside staffing."
+
+This sprint is the directional pivot + the actual UX fix + the production unblock.
+
+### 🔴 P0 — Migration drift root-cause fix
+
+The real bug: `core/migrate.php` was unconditionally `REPLACE INTO _migrations` after every file, even when statements errored out. A non-safe error logged `last_error` and STILL recorded the file's content hash as "applied", so the next run skipped it forever. That's why `007_backfill_person_id.sql` never re-executed on the user's stuck tenant even after we rewrote it.
+
+Additional bug: migration 007 v2 had `PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;` on a single line. The runner splits on `;\s*\R` (semicolon + newline), so the three statements were glued into one PDO::exec() call — which fails on stock PDO (no multi-statement). Boom: every tenant's 007 was failing AND being marked applied.
+
+**Fixes:**
+- `core/migrate.php`: when `$errBlob !== null`, record the row with a **`FAIL:` sentinel hash** instead of the content hash. The hash never matches content hash → next run retries. When clean, record content hash as before.
+- `modules/time/migrations/007_backfill_person_id.sql` **v3**: every PREPARE / EXECUTE / DEALLOCATE on its own line, separated by `\n;\n`. Splitter now produces one statement per `exec()` call.
+- `api/admin/retry_migration.php`: new master_admin endpoint to clear stale ledger rows: `POST /api/admin/retry-migration` with `{file}` or `{all_failed: true}` body. Triggers `coreflux_run_migrations(force=true)` after clearing.
+
+**Smoke tests:** `tests/migration_runner_retry_smoke.php` (14 assertions) + updated `time_person_id_migration_smoke.php` (25 assertions).
+
+### 🟠 P1 — CoreStaffing umbrella shell
+
+Per the spec: Time and Placements are now SUB-AREAS of a new top-level "Staffing" module that subsumes the labor-delivery surface end-to-end.
+
+- `modules/staffing/manifest.php` — id `staffing`, 10 nav actions (Overview, Clients, Jobs, Placements, Timesheets, Approvals, Payroll Readiness, Billing Readiness, Profitability, Settings), 10 permission keys.
+- `modules/staffing/ui/StaffingModule.jsx` — route tree under `/modules/staffing/*`. Reuses **existing** PlacementsModule verbatim (no server-side merge yet). Clients/Jobs/Readiness pages are Phase-2 stubs.
+- `dashboard/src/App.jsx`:
+  - Imports + mounts `<Route path="/modules/staffing/*" element={<StaffingModule />} />`.
+  - Adds Staffing to `DEMO_SESSION.modules` ahead of Placements/Time entries.
+  - **Keeps** `/modules/time/*` and `/modules/placements/*` routes as back-compat shims so old bookmarks/emails still resolve.
+- `core/migrations/034_register_staffing_module.sql` — `INSERT IGNORE` Staffing into the platform `modules` table, then auto-enable in `tenant_modules` for every tenant that already has Time or Placements enabled.
+
+### 🟠 P1 — Weekly Timesheet rebuild (the actual UX fix)
+
+Per spec §10.6 + §10.7 + the user's explicit answers (week-start configurable, single-by-default + click-to-split per cell, full re-submit on rejection):
+
+**Schema (new + extension):**
+- `modules/staffing/migrations/001_timesheets.sql` — new `timesheets` header table (one row per worker × week). `UNIQUE (tenant_id, person_id, period_start)`. Status enum: `draft/submitted/approved/rejected/payroll_ready/billing_ready/locked`. Also creates `tenant_staffing_settings` (week_starts_on TINYINT default 1=Mon, contracted_hours_per_week DECIMAL default 40, overtime_threshold default 40).
+- `modules/staffing/migrations/002_timesheet_id_on_entries.sql` — adds `timesheet_id` FK + `hour_type` ENUM (regular/overtime/doubletime/holiday/pto/sick/bereavement/unpaid/nonbillable) + `billable`, `payable` TINYINT flags to `time_entries`. Backfills `hour_type` from legacy `category` enum. Backfills `timesheets` header rows from existing `time_entries` (one INSERT IGNORE per distinct ISO Monday-week). Links every existing entry to its newly-created header. All idempotent via `information_schema`, all single-statement-per-line.
+
+**Lib:**
+- `modules/staffing/lib/timesheets.php` — `staffingTimesheetUpsert`, `staffingTimesheetWeek`, `staffingTimesheetBulkSave` (transactional), `staffingTimesheetSubmit`, `staffingTimesheetReject`, `staffingTimesheetApprove`. Bulk save: zero-hours auto-delete, per-row hour_type validation, auto-create `time_period` if missing, recomputes header `total_hours`. Submit/approve/reject all flip header + cascade row status atomically. Two-eye control on approve.
+
+**API:**
+- `modules/staffing/api/timesheets.php`:
+  - `GET ?action=week&person_id=…&period_start=…&period_end=…` → header + entries + tenant settings
+  - `POST ?action=bulk_save` body `{person_id, period_start, period_end, rows[]}` → atomic draft save
+  - `POST ?action=submit` / `?action=approve` / `?action=reject` (header-level workflow)
+  - `GET ?action=list&status=submitted` → approvals queue rows
+  - `GET/POST ?action=settings` → tenant staffing settings CRUD
+
+**UI:**
+- `modules/staffing/ui/TimesheetWeek.jsx` — the heart of the fix. Inline-editable grid (placements × 7 days). Per-cell: hours input + hour_type dropdown. Click "+ split" to break one day into multiple hour_type rows (e.g. 8h regular + 2h overtime + 1h PTO). Debounced autosave (1.5s after last keystroke) hits `bulk_save`. **One** "Submit Week" button atomically flips the whole timesheet. Rejection banner with reason; "Re-submit Week" button on rejected state. Over-contracted-hours warning at week total. Locked once approved.
+- `modules/staffing/ui/StaffingOverview.jsx` — quick-card landing + "My Recent Timesheets" table.
+- `modules/staffing/ui/StaffingApprovals.jsx` — approver queue with inline approve / reject-with-reason.
+- `modules/staffing/ui/StaffingSettings.jsx` — week-start + contracted hours + OT threshold tenant config.
+
+**Smoke tests:** `tests/staffing_shell_and_weekly_timesheet_smoke.php` — 53 assertions covering manifest, both migrations, lib, API, App.jsx wiring, and the React UI contract. Plus regression patches to `time_person_id_migration_smoke.php` (formatting), `sprint6h_treasury_ai_split_smoke.php` (information_schema comment), `sprint6b_dashboard_uis_smoke.php` (bundle hash bump).
+
+### Vite bundle
+`index-CwDFnl_V.js` / `index-Cwhpy62y.css` (CSS unchanged). `.deploy-version` updated: new `expected_bundle` JS hash, **15 new feature flags** under `staffing.*` and `core.migrate.*`, and 16 new sentinel file references.
+
+### Full sweep
+**153/153 ✅** (baseline AI/Plaid failures expected per missing API keys).
+
+### What's deferred to next sprint (Phase 2)
+- Clients table + Client CRUD (currently `placements.end_client_name` is denormalized string).
+- Jobs / Roles entity.
+- Engagements/Projects entity (services mode per spec §5.2 + §10.5).
+- Economics: GP, GP%, spread/hr, OT%, WIP, realization calculations.
+- `v_staffing_*` reporting views.
+- Accounting event emission (`staffing.worker_hours.approved`, etc.).
+- AI insights agent for Staffing.
+- Vendor/referral partner economics.
+- Full admin folder refactor (currently only `/api/admin/retry_migration.php` lives in the new folder as a precedent; older admin endpoints remain at their direct-file paths with shim-pattern documented).

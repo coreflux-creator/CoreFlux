@@ -160,10 +160,23 @@ function coreflux_run_migrations(bool $force = false): array {
         }
         $durMs = (int) ((microtime(true) - $start) * 1000);
 
+        // CRITICAL: if non-safe errors occurred, DO NOT record the file as
+        // "applied" with the new content hash. Recording last_error against a
+        // sentinel hash so a subsequent deploy (with same or fixed content)
+        // will retry. Without this, a half-applied migration silently sticks
+        // in the ledger and the column / table remains missing forever.
         try {
-            $stmtSave->execute(['f' => $name, 'h' => $hash, 'e' => $errBlob, 'ms' => $durMs]);
+            if ($errBlob !== null) {
+                // Sentinel hash = 'FAIL:' + hash(errBlob) → guaranteed != content hash,
+                // so next run re-executes the file.
+                $sentinel = 'FAIL:' . substr(hash('sha256', (string) $errBlob), 0, 58);
+                $stmtSave->execute(['f' => $name, 'h' => $sentinel, 'e' => $errBlob, 'ms' => $durMs]);
+                $coreflux_migration_status['errors'][] = "$name: marked retry (not applied)";
+            } else {
+                $stmtSave->execute(['f' => $name, 'h' => $hash, 'e' => null, 'ms' => $durMs]);
+                $coreflux_migration_status['applied_files'][] = $name;
+            }
         } catch (\Throwable $_) { /* non-fatal */ }
-        $coreflux_migration_status['applied_files'][] = $name;
     }
 
     return $coreflux_migration_status;

@@ -1,0 +1,317 @@
+<?php
+/**
+ * CoreStaffing — Weekly Timesheet helpers.
+ *
+ * The header (`timesheets`) is the unit of submission/approval. Detail
+ * rows live in `time_entries` (extended with timesheet_id + hour_type
+ * per migration 002).
+ */
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/db.php';
+
+const STAFFING_HOUR_TYPES = [
+    'regular','overtime','doubletime','holiday','pto','sick','bereavement','unpaid','nonbillable',
+];
+
+// hour_type → legacy time_entries.category mapping (for downstream feeds that
+// still read `category`). Keeps the new model writeable without breaking
+// settlement/AR/AP modules that haven't been migrated yet.
+const STAFFING_HOUR_TYPE_TO_CATEGORY = [
+    'regular'     => 'regular_billable',
+    'overtime'    => 'OT_billable',
+    'doubletime'  => 'OT_billable',
+    'holiday'     => 'holiday',
+    'pto'         => 'vacation',
+    'sick'        => 'sick',
+    'bereavement' => 'bereavement',
+    'unpaid'      => 'unpaid_leave',
+    'nonbillable' => 'regular_nonbillable',
+];
+
+/** Resolve the staffing settings for the current tenant (with defaults). */
+function staffingSettings(): array {
+    $row = scopedFind('SELECT * FROM tenant_staffing_settings WHERE tenant_id = :tenant_id LIMIT 1');
+    return [
+        'week_starts_on'             => (int) ($row['week_starts_on'] ?? 1),  // 0=Sun, 1=Mon
+        'contracted_hours_per_week'  => (float) ($row['contracted_hours_per_week'] ?? 40.0),
+        'overtime_threshold'         => (float) ($row['overtime_threshold'] ?? 40.0),
+    ];
+}
+
+/** Get-or-create the timesheet header for (person, week). */
+function staffingTimesheetUpsert(int $personId, string $periodStart, string $periodEnd): array {
+    $existing = scopedFind(
+        'SELECT * FROM timesheets WHERE tenant_id = :tenant_id AND person_id = :pid AND period_start = :ps LIMIT 1',
+        ['pid' => $personId, 'ps' => $periodStart]
+    );
+    if ($existing) return $existing;
+
+    $id = scopedInsert('timesheets', [
+        'person_id'    => $personId,
+        'period_start' => $periodStart,
+        'period_end'   => $periodEnd,
+        'status'       => 'draft',
+        'total_hours'  => 0,
+    ]);
+    return scopedFind('SELECT * FROM timesheets WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]) ?? [];
+}
+
+/** Snapshot of a worker's week — header + grouped entries by placement × day. */
+function staffingTimesheetWeek(int $personId, string $periodStart, string $periodEnd): array {
+    $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd);
+
+    $entries = scopedQuery(
+        "SELECT te.id, te.placement_id, te.work_date, te.hour_type, te.category,
+                te.hours, te.billable, te.payable, te.description, te.status,
+                p.title AS placement_title,
+                COALESCE(p.end_client_name, '') AS client_name
+           FROM time_entries te
+           LEFT JOIN placements p ON p.id = te.placement_id AND p.tenant_id = te.tenant_id
+          WHERE te.tenant_id = :tenant_id
+            AND te.person_id = :pid
+            AND te.work_date BETWEEN :ps AND :pe
+            AND te.status != 'superseded'
+          ORDER BY te.placement_id, te.work_date, te.id",
+        ['pid' => $personId, 'ps' => $periodStart, 'pe' => $periodEnd]
+    );
+
+    return [
+        'timesheet' => $header,
+        'entries'   => $entries,
+    ];
+}
+
+/**
+ * Bulk save draft entries for a week.
+ *
+ * Input payload:
+ *   [
+ *     'period_start' => 'YYYY-MM-DD',
+ *     'period_end'   => 'YYYY-MM-DD',
+ *     'person_id'    => 123,
+ *     'rows' => [
+ *       [
+ *         'id'           => 42|null,         // null = create
+ *         'placement_id' => 7,
+ *         'work_date'    => 'YYYY-MM-DD',
+ *         'hour_type'    => 'regular'|...,
+ *         'hours'        => 8.0,
+ *         'description'  => '…' | null,
+ *         '_delete'      => true|false,
+ *       ], ...
+ *     ]
+ *   ]
+ *
+ * Returns the refreshed week snapshot.
+ */
+function staffingTimesheetBulkSave(int $userId, array $payload): array {
+    $personId    = (int) $payload['person_id'];
+    $periodStart = (string) $payload['period_start'];
+    $periodEnd   = (string) $payload['period_end'];
+    $rows        = $payload['rows'] ?? [];
+
+    if ($personId <= 0)        throw new \RuntimeException('person_id required');
+    if (!$periodStart || !$periodEnd) throw new \RuntimeException('period_start / period_end required');
+
+    $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd);
+    $headerId = (int) $header['id'];
+
+    if (in_array($header['status'] ?? 'draft', ['approved','locked','payroll_ready','billing_ready'], true)) {
+        throw new \RuntimeException("Timesheet is {$header['status']} — cannot edit");
+    }
+
+    $pdo = getDB();
+    $pdo->beginTransaction();
+    try {
+        foreach ($rows as $r) {
+            $hourType = $r['hour_type'] ?? 'regular';
+            if (!in_array($hourType, STAFFING_HOUR_TYPES, true)) {
+                throw new \RuntimeException("Invalid hour_type: {$hourType}");
+            }
+            $hours = isset($r['hours']) ? (float) $r['hours'] : 0.0;
+
+            if (!empty($r['_delete']) && !empty($r['id'])) {
+                scopedDelete('time_entries', (int) $r['id']);
+                continue;
+            }
+
+            // Allow zero-hours rows to be skipped (no need to persist empty cells).
+            if ($hours <= 0 && empty($r['id'])) continue;
+            // Zero-hours on existing row = delete.
+            if ($hours <= 0 && !empty($r['id'])) {
+                scopedDelete('time_entries', (int) $r['id']);
+                continue;
+            }
+
+            $placementId = (int) ($r['placement_id'] ?? 0);
+            $workDate    = (string) ($r['work_date'] ?? '');
+            if ($placementId <= 0 || $workDate === '') continue;
+
+            // Resolve period_id (legacy NOT-NULL column on time_entries).
+            $period = scopedFind(
+                "SELECT id FROM time_periods
+                  WHERE tenant_id = :tenant_id AND start_date <= :wd AND end_date >= :wd AND status != 'closed'
+                  ORDER BY start_date DESC LIMIT 1",
+                ['wd' => $workDate]
+            );
+            if (!$period) {
+                // Auto-create a weekly period if missing — keeps the UX flowing
+                // for tenants who haven't pre-seeded periods.
+                $pid = scopedInsert('time_periods', [
+                    'period_type' => 'weekly',
+                    'start_date'  => $periodStart,
+                    'end_date'    => $periodEnd,
+                    'label'       => "Week of {$periodStart}",
+                    'status'      => 'open',
+                ]);
+            } else {
+                $pid = (int) $period['id'];
+            }
+
+            $category = STAFFING_HOUR_TYPE_TO_CATEGORY[$hourType] ?? 'regular_billable';
+            $billable = in_array($hourType, ['regular','overtime','doubletime'], true) ? 1 : 0;
+            $payable  = in_array($hourType, ['nonbillable'], true) ? 1 : 1;
+
+            $base = [
+                'placement_id' => $placementId,
+                'person_id'    => $personId,
+                'period_id'    => $pid,
+                'timesheet_id' => $headerId,
+                'work_date'    => $workDate,
+                'hour_type'    => $hourType,
+                'category'     => $category,
+                'hours'        => $hours,
+                'billable'     => $billable,
+                'payable'      => $payable,
+                'description'  => $r['description'] ?? null,
+                'source'       => 'manual_entry',
+                'status'       => 'draft',
+            ];
+
+            if (!empty($r['id'])) {
+                scopedUpdate('time_entries', (int) $r['id'], $base);
+            } else {
+                $base['created_by_user_id'] = $userId;
+                scopedInsert('time_entries', $base);
+            }
+        }
+
+        // Recompute total_hours on the header.
+        $sum = scopedFind(
+            "SELECT COALESCE(SUM(hours), 0) AS h FROM time_entries
+              WHERE tenant_id = :tenant_id AND timesheet_id = :tid AND status != 'superseded'",
+            ['tid' => $headerId]
+        );
+        scopedUpdate('timesheets', $headerId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
+
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+
+    return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
+}
+
+/** Submit the whole week → flips header + all rows to submitted/pending_review. */
+function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart, string $periodEnd): array {
+    $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd);
+    if (!in_array($header['status'], ['draft','rejected'], true)) {
+        throw new \RuntimeException("Cannot submit a {$header['status']} timesheet");
+    }
+    $headerId = (int) $header['id'];
+
+    $pdo = getDB();
+    $pdo->beginTransaction();
+    try {
+        scopedUpdate('timesheets', $headerId, [
+            'status'       => 'submitted',
+            'submitted_at' => date('Y-m-d H:i:s'),
+        ]);
+        // Flip every non-superseded row to pending_review.
+        $upd = $pdo->prepare(
+            "UPDATE time_entries
+                SET status = 'pending_review'
+              WHERE tenant_id = :t AND timesheet_id = :tid AND status IN ('draft','rejected')"
+        );
+        $upd->execute(['t' => currentTenantId(), 'tid' => $headerId]);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+
+    return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
+}
+
+/** Reject the whole week — rows return to draft, reason captured on header. */
+function staffingTimesheetReject(int $userId, int $personId, string $periodStart, string $periodEnd, string $reason): array {
+    $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd);
+    if ($header['status'] !== 'submitted') {
+        throw new \RuntimeException("Cannot reject a {$header['status']} timesheet");
+    }
+    $headerId = (int) $header['id'];
+
+    $pdo = getDB();
+    $pdo->beginTransaction();
+    try {
+        scopedUpdate('timesheets', $headerId, [
+            'status'              => 'rejected',
+            'rejected_at'         => date('Y-m-d H:i:s'),
+            'rejected_by_user_id' => $userId,
+            'rejection_reason'    => $reason,
+        ]);
+        $upd = $pdo->prepare(
+            "UPDATE time_entries
+                SET status = 'rejected', rejected_reason = :r
+              WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'pending_review'"
+        );
+        $upd->execute(['t' => currentTenantId(), 'tid' => $headerId, 'r' => $reason]);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+
+    return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
+}
+
+/** Approve the whole week — cascade to rows. Two-eye control. */
+function staffingTimesheetApprove(int $userId, int $personId, string $periodStart, string $periodEnd): array {
+    $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd);
+    if ($header['status'] !== 'submitted') {
+        throw new \RuntimeException("Cannot approve a {$header['status']} timesheet");
+    }
+
+    // Two-eye: the user approving must not have created the timesheet's rows.
+    // Best-effort check: forbid self-approval where worker_user_id == approver.
+    if (isset($header['worker_user_id']) && (int) $header['worker_user_id'] === $userId) {
+        throw new \RuntimeException('Two-eye control: cannot approve your own timesheet');
+    }
+
+    $headerId = (int) $header['id'];
+    $pdo = getDB();
+    $pdo->beginTransaction();
+    try {
+        scopedUpdate('timesheets', $headerId, [
+            'status'              => 'approved',
+            'approved_at'         => date('Y-m-d H:i:s'),
+            'approved_by_user_id' => $userId,
+        ]);
+        $upd = $pdo->prepare(
+            "UPDATE time_entries
+                SET status = 'approved', approved_at = NOW(), approved_by_user_id = :u, approved_via = 'manual'
+              WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'pending_review'"
+        );
+        $upd->execute(['t' => currentTenantId(), 'tid' => $headerId, 'u' => $userId]);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+
+    return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
+}
