@@ -184,9 +184,20 @@ set_exception_handler(function (Throwable $e) {
         ]);
     }
     if (preg_match("/Unknown column '([^']+)'/i", $msg, $m)) {
-        api_error("Database column '{$m[1]}' is missing — a migration probably needs to run. Try reloading the page; CoreFlux runs pending migrations on every API request so this usually self-heals on the next click.", 500, [
+        $col = $m[1];
+        // Belt-and-suspenders self-heal for known schema drift. If we
+        // recognise the column, attempt to add it inline using the same
+        // information_schema-guarded DDL as the module migration, then
+        // tell the user to retry. Idempotent + tenant-safe.
+        $healed = cf_self_heal_known_column($col);
+        if ($healed) {
+            api_error("Database column '{$col}' was missing — I just added it. Please retry your action.", 503, [
+                'self_heal' => true, 'column' => $col,
+            ]);
+        }
+        api_error("Database column '{$col}' is missing — a migration probably needs to run. Try reloading the page; CoreFlux runs pending migrations on every API request so this usually self-heals on the next click.", 500, [
             'hint'   => 'If the error persists after a reload, check /admin/healthcheck for the offending column and re-run modules/<module>/migrations/*.sql manually.',
-            'column' => $m[1],
+            'column' => $col,
         ]);
     }
     if (preg_match("/SQLSTATE\\[(\\w+)\\]/i", $msg, $m)) {
@@ -202,3 +213,48 @@ set_exception_handler(function (Throwable $e) {
     // diagnosable on screen instead of a literal "Internal server error".
     api_error('Server error: ' . $msg, 500, ['kind' => 'unhandled']);
 });
+
+/**
+ * Self-heal a known schema-drift column reference. Returns true if the
+ * column was missing and has now been added (or skipped because the host
+ * table doesn't exist on this tenant). Returns false if we don't have a
+ * recipe for this column.
+ *
+ * Recipes are intentionally narrow + audited per known incident — we DO
+ * NOT do arbitrary DDL based on parsed error messages.
+ *
+ * @param string $colRef A column reference like "te.person_id" or "person_id".
+ */
+function cf_self_heal_known_column(string $colRef): bool {
+    // Recipes: [table => [column => DDL fragment]]
+    static $recipes = [
+        'time_entries' => [
+            'person_id' => 'ADD COLUMN person_id BIGINT UNSIGNED NULL AFTER placement_id',
+        ],
+    ];
+    // Resolve alias prefix (te.person_id → person_id, but we still need the table).
+    $col = $colRef;
+    if (strpos($colRef, '.') !== false) $col = substr($colRef, strpos($colRef, '.') + 1);
+
+    foreach ($recipes as $table => $cols) {
+        if (!isset($cols[$col])) continue;
+        try {
+            $pdo = getDB();
+            $ts  = $pdo->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:t");
+            $ts->execute(['t' => $table]);
+            if ((int) $ts->fetchColumn() !== 1) return true; // table not present on this tenant — nothing to heal, but we're not failing the request either
+            $cs = $pdo->prepare("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=:t AND column_name=:c");
+            $cs->execute(['t' => $table, 'c' => $col]);
+            if ((int) $cs->fetchColumn() === 1) return true; // already present (race condition between two requests) — call it a win
+            $pdo->exec("ALTER TABLE `{$table}` {$cols[$col]}");
+            // Force-rerun module migrations so any downstream backfill (UPDATEs, indexes) lands too.
+            try { if (function_exists('coreflux_run_migrations')) coreflux_run_migrations(); } catch (\Throwable $_) { /* best effort */ }
+            error_log("[cf_self_heal] added column {$table}.{$col}");
+            return true;
+        } catch (\Throwable $e) {
+            error_log("[cf_self_heal] failed to add {$table}.{$col}: " . $e->getMessage());
+            return false;
+        }
+    }
+    return false;
+}

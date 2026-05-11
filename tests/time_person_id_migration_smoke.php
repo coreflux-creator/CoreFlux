@@ -33,11 +33,19 @@ $a('index creation guarded by information_schema',         str_contains($mig, "F
 $a('skip-note SELECT used as no-op fallback',              substr_count($mig, 'already exists') >= 2);
 $a('no raw ALTER TABLE that could throw',                  preg_match('/^\s*ALTER TABLE/m', $mig) === 0);
 
-echo "\napi_bootstrap.php — friendly unknown-column message\n";
+echo "\napi_bootstrap.php — friendly unknown-column message + self-heal\n";
 $bs = $read(__DIR__ . '/../core/api_bootstrap.php');
 $a('message tells user to reload page',                    str_contains($bs, 'Try reloading the page'));
 $a('mentions self-heal via migrations-on-every-request',   str_contains($bs, 'self-heals on the next click'));
 $a('hint points to /admin/healthcheck',                    str_contains($bs, '/admin/healthcheck'));
+$a('cf_self_heal_known_column declared',                   preg_match('/function\\s+cf_self_heal_known_column\\s*\\(/', $bs) === 1);
+$a('recipes include time_entries.person_id',               str_contains($bs, "'time_entries' => [") && str_contains($bs, "'person_id' => 'ADD COLUMN person_id"));
+$a('self-heal returns 503 with self_heal flag',            str_contains($bs, "'self_heal' => true, 'column' => \$col"));
+$a('self-heal uses information_schema before ALTER',       str_contains($bs, 'FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:t')
+                                                           && str_contains($bs, 'FROM information_schema.columns'));
+$a('self-heal force-reruns coreflux_run_migrations after', str_contains($bs, 'coreflux_run_migrations()') && str_contains($bs, "if (function_exists('coreflux_run_migrations')) coreflux_run_migrations()"));
+$a('self-heal strips alias prefix (te.person_id)',         str_contains($bs, "if (strpos(\$colRef, '.') !== false) \$col = substr(\$colRef, strpos(\$colRef, '.') + 1)"));
+$a('self-heal logs to error_log',                          str_contains($bs, "error_log(\"[cf_self_heal]"));
 
 echo "\nHealthcheck — column-level drift detection\n";
 $hc = $read(__DIR__ . '/../api/admin_healthcheck.php');
