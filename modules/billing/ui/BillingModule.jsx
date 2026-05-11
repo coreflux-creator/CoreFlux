@@ -5,11 +5,15 @@ import InvoiceCreate from './InvoiceCreate';
 import InvoiceDetail from './InvoiceDetail';
 import PaymentsList from './PaymentsList';
 import AgingTable from './AgingTable';
+import RecurringContracts from './RecurringContracts';
+import DunningQueue from './DunningQueue';
 
 const navItems = [
-  { to: '/modules/billing/invoices', label: 'Invoices' },
-  { to: '/modules/billing/payments', label: 'Payments' },
-  { to: '/modules/billing/aging',    label: 'Aging' },
+  { to: '/modules/billing/invoices',  label: 'Invoices' },
+  { to: '/modules/billing/payments',  label: 'Payments' },
+  { to: '/modules/billing/aging',     label: 'Aging' },
+  { to: '/modules/billing/dunning',   label: 'Dunning' },
+  { to: '/modules/billing/contracts', label: 'Contracts' },
 ];
 
 export default function BillingModule() {
@@ -45,6 +49,8 @@ export default function BillingModule() {
         <Route path="invoices/:id" element={<InvoiceDetail />} />
         <Route path="payments" element={<PaymentsList />} />
         <Route path="aging" element={<AgingTable />} />
+        <Route path="dunning" element={<DunningQueue />} />
+        <Route path="contracts" element={<RecurringContracts />} />
       </Routes>
     </div>
   );

@@ -269,8 +269,21 @@ sentinels:
 - api/kpi_notes.php
 - dashboard/src/components/KpiNote.jsx
 - tests/kpi_notes_smoke.php
+- modules/billing/migrations/008_recurring_contracts.sql
+- modules/billing/lib/recurring.php
+- modules/billing/api/recurring_contracts.php
+- scripts/billing_recurring_generate.php
+- modules/billing/ui/RecurringContracts.jsx
+- tests/recurring_contracts_smoke.php
+- modules/billing/migrations/009_dunning.sql
+- modules/billing/lib/dunning.php
+- modules/billing/api/dunning.php
+- scripts/dunning_daily.php
+- modules/billing/ui/DunningQueue.jsx
+- modules/billing/ui/BillingModule.jsx
+- tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-COqpcxkk.js
+- spa-assets/index-BWPApIsp.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -588,3 +601,13 @@ last_known_features:
 - ui.dashboard.cash_cycle_health_tile
 - core.tenant_kpi_notes.api
 - ui.dashboard.kpi_note_inline_editor
+- billing.recurring_contracts.schema
+- billing.recurring_contracts.lib_date_math_proration
+- billing.recurring_contracts.api
+- billing.recurring_contracts.daily_generator_cron
+- billing.recurring_contracts.ui_admin
+- billing.dunning.schema_policy_log_client_contacts
+- billing.dunning.lib_stage_picker_recipient_resolver
+- billing.dunning.api_queue_send_pause_resume_aisuggest
+- billing.dunning.daily_cron_with_cadence_dnc
+- billing.dunning.ui_queue_policy_editor_ai_modal

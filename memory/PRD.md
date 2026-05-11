@@ -3213,4 +3213,66 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 
 **Vite build**: `dist/spa-assets/index-COqpcxkk.js`. `.deploy-version` bumped; 5 new sentinels + 2 new feature flags recorded.
 
+
+## 2026-02 — P1.B: Recurring invoice contracts (flat-fee MRR)
+**Why**: Managed-services / retainer / recruiter-on-demand engagements bill a flat fee on a schedule. Without automation, AR forgets and the agency leaves cash on the table.
+
+**Schema** (`modules/billing/migrations/008_recurring_contracts.sql`, idempotent):
+- `billing_invoice_contracts` — id, client_name, contract_name, description, frequency (`monthly`/`quarterly`/`annual`), `day_of_period` (1-31; auto-clamped to month-end), amount, currency, gl_account_id, start_date, end_date (NULL=open-ended), status (`active`/`paused`/`ended`), proration_policy (`full`/`prorate`/`skip_first`), bill_to_email, bill_to_json, po_number, notes_internal, last_generated_at, last_generated_invoice_id, next_due_at.
+- Adds `billing_invoices.source_contract_id` + composite index for the idempotency guard on `(source_contract_id, period_start)`.
+
+**Library** (`modules/billing/lib/recurring.php`):
+- `billingRecurringComputeNextDue($contract, $fromDate)` — pure date math; `dom=31` clamps to month-end correctly.
+- `billingRecurringComputePeriodForGeneration($contract, $dueDate)` — returns `{period_start, period_end}`.
+- `billingRecurringProrationFactor($policy, $periodStart, $periodEnd, $contractStart)` — `full`=1.0 always, `skip_first`=0.0 when mid-period (caller skips generation), `prorate`= days_active/total_days.
+- `billingRecurringGenerateInvoice($tid, $contract, $forDate, $actor)` — idempotent (existing invoice for same `(contract_id, period_start)` short-circuits), advances `last_generated_at` + `next_due_at` atomically, audits via `billing.invoice.recurring_generated`.
+- `billingRecurringEligibleContracts($tid, $asOf)` — first-run bootstrap: `next_due_at IS NULL` is treated as "due on start_date".
+- `billingRecurringPreviewNextN($contract, $n)` — non-mutating peek for the UI's "next-3 dates" column.
+
+**Cron** (`scripts/billing_recurring_generate.php`, `30 6 * * *`): iterates eligible contracts per tenant, generates drafts, dispatches a single "N recurring invoices ready to send" digest to every user with billing roles (idempotency keyed `(tenant, user, day)`).
+
+**API** (`modules/billing/api/recurring_contracts.php`): GET list (with optional `?status` filter and inline `preview_next_3`), GET detail, POST create, `?action=update|pause|resume|end|generate_now`.
+
+**UI** (`modules/billing/ui/RecurringContracts.jsx`): list view with next-3-date preview chips, status pills, per-row Generate-now / Pause / Resume / End / Edit. Modal supports both create and edit (immutable fields locked on edit: `client_name`, `start_date`). Wired into BillingModule nav as **Contracts**.
+
+**Tests**: `tests/recurring_contracts_smoke.php` **61/61** ✅ — includes live date-math + proration unit tests (dom-31 clamping, year roll-over, quarterly/annual jumps, all 3 proration policies).
+
+## 2026-02 — P1.A: Dunning (overdue invoice escalation)
+**Why**: We send invoices, but nobody systematically chases overdue ones. AR ops asked for an escalating-reminders engine with tenant-controlled cadence + max attempts + client-level escalation, plus an AI hint on when to escalate harder.
+
+**Schema** (`modules/billing/migrations/009_dunning.sql`, idempotent):
+- `tenant_dunning_policy` — `is_enabled`, `schedule_json` (default 3 stages: soft@3d/firm@14d/final@30d), `max_attempts`, `cadence_days`, `skip_weekends`, `escalate_to_client_contact_after_attempts`, `paused_until`, `do_not_contact_json`.
+- `billing_client_contacts` — per-client `ar_primary_email` + `ar_escalation_email`. Reusable: any future "AR statements to client" surface uses this.
+- `billing_invoices` columns: `dunning_stage`, `dunning_attempts`, `dunning_last_sent_at`, `dunning_paused_until` + `idx_bi_dunning` composite index.
+- `billing_dunning_log` — one row per send. Audit + ops dashboard fodder. Status `sent`/`failed`/`suppressed`.
+
+**Library** (`modules/billing/lib/dunning.php`):
+- `billingDunningDefaultPolicy()` / `Get` / `Save` — upsert via `ON DUPLICATE KEY UPDATE`.
+- `billingDunningPickStage($inv, $policy, $today)` — chooses the largest `days_overdue` stage we haven't already passed.
+- `billingDunningEligibleInvoices($tid, $today)` — overdue + open + not paused.
+- **`billingDunningResolveRecipients()` — implements the recipient model exactly as you specified**:
+  - `to` = `invoice.bill_to_json.email` → falls back to `billing_client_contacts.ar_primary_email` → otherwise the row is logged as `suppressed=no_contact` and no email is sent.
+  - `cc` = `billing_client_contacts.ar_escalation_email` is added once `attempts ≥ policy.escalate_to_client_contact_after_attempts`.
+- `billingDunningRenderEmail()` — 3 built-in templates (`soft` / `firm` / `final`) with appropriate tone + colour cues.
+- `billingDunningRecordSend()` — atomically writes the `billing_dunning_log` row AND bumps the invoice's `dunning_stage` + `dunning_attempts` + `dunning_last_sent_at`.
+- `billingDunningWithinCadence()` / `billingDunningIsWeekend()` — predicate helpers.
+- **`billingDunningAiEscalationSuggestion($tid, $client, $policy)`** — heuristic (no LLM): if a client has had 3+ invoices reach stage 2+ in the last 12 months, suggest *"escalate at stage 1 for this client"*. If they consistently pay within 5 days of stage 1, suggest *"raise threshold to 3 attempts"*. Returns `null` when there's nothing actionable.
+
+**Cron** (`scripts/dunning_daily.php`, `0 8 * * 1-5`): respects `is_enabled`, `paused_until`, `skip_weekends`, `cadence_days`, `do_not_contact`, `max_attempts`. Per-send idempotency keyed `(invoice_id, stage_no, day)`. Suppressed sends still write a log row (`status='suppressed'`) so AR ops can see *why* a row went silent.
+
+**API** (`modules/billing/api/dunning.php`): `GET ?action=queue` (rows + policy + today), `GET/POST ?action=policy`, `POST ?action=send_now&id=N`, `POST ?action=pause&id=N body{until}`, `POST ?action=resume&id=N`, `GET ?action=ai_suggest&client=X`.
+
+**UI** (`modules/billing/ui/DunningQueue.jsx`):
+- Queue table with current-stage chip + next-stage info, recipient resolution preview, status (Ready / Within cadence / No recipient / Do-not-contact / Paused-until).
+- Per-row Send-now / Pause / Resume buttons.
+- ✨ AI suggestion popover (per-client) that pulls the heuristic.
+- Modal **Policy editor** — toggle enabled, edit 3 stages inline, set cadence_days / max_attempts / escalate-after-N / skip_weekends, paste comma-separated do-not-contact list.
+- Wired into BillingModule nav as **Dunning**.
+
+**Tests**: `tests/dunning_smoke.php` **69/69** ✅ — includes live unit tests of stage-picker (5d→stage1, 15d→stage2, 35d→stage3, future→null, already-at-3→null), recipient resolution, all 3 email templates, cadence + weekend predicates.
+
+**Full sweep**: **145/147** ✅ (same `ai_platform_smoke` + `plaid_integration_smoke` baseline).
+
+**Vite build**: `dist/spa-assets/index-BWPApIsp.js`. `.deploy-version` bumped with 14 new sentinels + 11 new feature flags.
+
 **Vite bundle**: `index-CsM5S8MR.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated.
