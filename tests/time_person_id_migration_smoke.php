@@ -30,7 +30,7 @@ $a('uses PREPARE/EXECUTE for conditional DDL',             substr_count($mig, 'P
 $a('checks placements.worker_id before backfill UPDATE',   preg_match("/column_name\s*=\s*'worker_id'/", $mig) === 1);
 $a('backfill UPDATE wrapped in conditional',               str_contains($mig, '@worker_id_exists = 1'));
 $a('index creation guarded by information_schema',         str_contains($mig, "FROM information_schema.statistics") && preg_match("/index_name\s*=\s*'idx_te_tenant_person_date'/", $mig) === 1);
-$a('skip-note SELECT used as no-op fallback',              substr_count($mig, 'already exists') >= 2);
+$a('DO 0 used as no-op fallback (no result set leak)', substr_count($mig, "'DO 0'") >= 2);
 $a('no raw ALTER TABLE that could throw',                  preg_match('/^\s*ALTER TABLE/m', $mig) === 0);
 $a('v3: PREPARE/EXECUTE/DEALLOCATE each on own line',      preg_match('/PREPARE stmt FROM @sql[^\n]*;[^\n]*EXECUTE/', $mig) === 0);
 

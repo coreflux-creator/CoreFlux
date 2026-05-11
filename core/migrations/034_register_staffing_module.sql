@@ -8,7 +8,7 @@
 
 SET @modules_exists := (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'modules')
 ;
-SET @sql := IF(@modules_exists = 1, "INSERT IGNORE INTO modules (name, link, is_active) VALUES ('Staffing', '/modules/staffing', 1)", 'SELECT "modules table not present — skipping Staffing registration" AS note')
+SET @sql := IF(@modules_exists = 1, "INSERT IGNORE INTO modules (name, link, is_active) VALUES ('Staffing', '/modules/staffing', 1)", 'DO 0')
 ;
 PREPARE stmt FROM @sql
 ;
@@ -22,7 +22,7 @@ DEALLOCATE PREPARE stmt
 -- transparent.
 SET @tm_exists := (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'tenant_modules')
 ;
-SET @sql := IF(@modules_exists = 1 AND @tm_exists = 1, "INSERT IGNORE INTO tenant_modules (tenant_id, module_key, is_enabled, enabled_at) SELECT DISTINCT tenant_id, 'staffing', 1, NOW() FROM tenant_modules WHERE module_key IN ('time','placements') AND is_enabled = 1", 'SELECT "skip Staffing auto-enable" AS note')
+SET @sql := IF(@modules_exists = 1 AND @tm_exists = 1, "INSERT IGNORE INTO tenant_modules (tenant_id, module_key, is_enabled, enabled_at) SELECT DISTINCT tenant_id, 'staffing', 1, NOW() FROM tenant_modules WHERE module_key IN ('time','placements') AND is_enabled = 1", 'DO 0')
 ;
 PREPARE stmt FROM @sql
 ;

@@ -1,6 +1,5 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import MyTime from './MyTime';
 import ReviewQueue from './ReviewQueue';
 import Periods from './Periods';
 import Reports from './Reports';
@@ -18,9 +17,9 @@ export default function TimeModule({ session }) {
   return (
     <div data-testid="time-module">
       <Routes>
-        <Route index            element={<Navigate to="entries" replace />} />
-        <Route path="overview"  element={<Navigate to="../entries" replace />} />
-        <Route path="entries"   element={<MyTime session={session} />} />
+        <Route index            element={<Navigate to="/modules/staffing/timesheets" replace />} />
+        <Route path="overview"  element={<Navigate to="/modules/staffing/timesheets" replace />} />
+        <Route path="entries"   element={<Navigate to="/modules/staffing/timesheets" replace />} />
         <Route path="upload"    element={<TimesheetUpload />} />
         <Route path="intake"    element={<IntakeQueue />} />
         <Route path="review"    element={<ReviewQueue session={session} />} />

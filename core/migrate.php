@@ -135,7 +135,18 @@ function coreflux_run_migrations(bool $force = false): array {
             $clean = trim(preg_replace('/^\s*--.*$/m', '', $stmt));
             if ($clean === '' || $clean === ';') continue;
             try {
-                $pdo->exec($clean);
+                // Use query() (not exec()) so we can drain any unexpected
+                // result set the statement may emit — critical for
+                // `EXECUTE stmt` where the prepared SQL is a no-op fallback
+                // like SELECT 1. Without draining, the next PDO call dies
+                // with "SQLSTATE[HY000]: 2014 unbuffered queries active".
+                $rs = $pdo->query($clean);
+                if ($rs) {
+                    try {
+                        $rs->closeCursor();
+                        while ($rs->nextRowset()) { /* drain multi-rowset */ }
+                    } catch (\Throwable $_) { /* nextRowset is unsupported on some drivers */ }
+                }
             } catch (\Throwable $e) {
                 $msg = $e->getMessage();
                 // Idempotency safeguards — when a prior run already added
