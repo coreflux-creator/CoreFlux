@@ -1,18 +1,19 @@
 <?php
 /**
- * Sunday-night AP Weekly Queue email.
+ * Weekly AP Queue email cron.
  *
  * For every tenant with AP users, build a per-recipient digest listing
  * past-due + due-next-week AP bills with blockers. Sent via the standard
  * tenant Resend pipeline.
  *
- * Schedule (cron):
- *   0 22 * * 0  /usr/bin/php /app/scripts/ap_weekly_queue_sunday.php
+ * Schedule (cron — run hourly so tenant-level day/hour overrides work):
+ *   0 * * * *   /usr/bin/php /app/scripts/ap_weekly_queue_sunday.php
  *
- * (Sunday 22:00 UTC ≈ Sunday evening US-East / Monday early US-West.)
- *
- * Tenant overrides (future, P1): `tenants.ap_queue_email_dow` to let each
- * tenant pick which day-of-week the digest ships. Skipped for v1.
+ * Each tenant's `ap_settings.weekly_queue_email_dow` (1..7 ISO; 0=disabled,
+ * default 7=Sunday) + `weekly_queue_email_hour` (0..23 UTC, default 22) is
+ * checked against `date('N')` / `date('G')`; tenants that don't match the
+ * current slot are skipped. Idempotency by (tenant, user, date) prevents
+ * accidental double-sends if the cron is invoked twice in the same hour.
  */
 declare(strict_types=1);
 
@@ -33,6 +34,22 @@ $tenants = $pdo->query(
       WHERE status NOT IN ('paid','void')
         AND (due_date < CURDATE() OR due_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY))"
 )->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+
+// Filter to tenants whose schedule matches "now". Default day=7 (Sun),
+// hour=22 keeps legacy behavior intact for tenants who haven't customised.
+$nowDow  = (int) date('N');    // 1..7 (Mon..Sun)
+$nowHour = (int) date('G');    // 0..23
+$tenants = array_values(array_filter($tenants, function ($tid) use ($pdo, $nowDow, $nowHour) {
+    try {
+        $st = $pdo->prepare('SELECT weekly_queue_email_dow, weekly_queue_email_hour FROM ap_settings WHERE tenant_id = :t');
+        $st->execute(['t' => (int) $tid]);
+        $row = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+    } catch (\Throwable $_) { $row = null; }
+    $dow  = (int) ($row['weekly_queue_email_dow']  ?? 7);
+    $hour = (int) ($row['weekly_queue_email_hour'] ?? 22);
+    if ($dow === 0) return false;          // explicit opt-out
+    return $dow === $nowDow && $hour === $nowHour;
+}));
 
 $totalRecipients = 0; $totalTenants = 0; $errors = 0;
 $svc = cf_mail_bootstrap();

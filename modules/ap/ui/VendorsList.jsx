@@ -19,14 +19,15 @@ export default function VendorsList() {
       {error && <p className="error">Error: {error.message}</p>}
 
       <table className="data-table" data-testid="ap-vendors-table">
-        <thead><tr><th>Name</th><th>Type</th><th>Terms</th><th>Tax ID</th><th>1099?</th><th>Last bill</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Type</th><th>Terms</th><th>PWP?</th><th>Tax ID</th><th>1099?</th><th>Last bill</th><th></th></tr></thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={7} className="empty" data-testid="ap-vendors-empty">No vendors yet.</td></tr>}
+          {rows.length === 0 && !loading && <tr><td colSpan={8} className="empty" data-testid="ap-vendors-empty">No vendors yet.</td></tr>}
           {rows.map(v => (
             <tr key={v.id} data-testid={`ap-vendor-row-${v.id}`}>
               <td>{v.vendor_name}</td>
               <td><span className="badge">{v.vendor_type}</span></td>
               <td>{v.default_terms}</td>
+              <td><VendorPwpToggle vendor={v} onChanged={reload} /></td>
               <td>{v.tax_id_last4 ? `••${v.tax_id_last4}` : '—'}</td>
               <td>{Number(v.requires_1099) ? 'Yes' : 'No'}</td>
               <td>{v.last_bill_at || '—'}</td>
@@ -40,6 +41,33 @@ export default function VendorsList() {
 
       {showCreate && <VendorCreateModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); reload(); }} />}
     </section>
+  );
+}
+
+function VendorPwpToggle({ vendor, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const isOn = Number(vendor.default_pwp) === 1;
+  const flip = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/modules/ap/api/vendors.php?action=toggle_pwp&id=${vendor.id}`, { default_pwp: isOn ? 0 : 1 });
+      onChanged?.();
+    } catch (e) { alert(`Could not update: ${e.message}`); }
+    finally { setBusy(false); }
+  };
+  return (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: busy ? 'wait' : 'pointer' }} title="When ON, new bills for this vendor default to Pay-When-Paid (NET90, accelerates when AR clears)">
+      <input
+        type="checkbox"
+        checked={isOn}
+        disabled={busy}
+        onChange={flip}
+        data-testid={`ap-vendor-pwp-${vendor.id}`}
+      />
+      <span style={{ fontSize: 11, color: isOn ? '#0891b2' : 'var(--cf-text-secondary)', fontWeight: isOn ? 600 : 400 }}>
+        {isOn ? 'PWP' : '—'}
+      </span>
+    </label>
   );
 }
 

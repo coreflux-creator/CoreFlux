@@ -24,6 +24,7 @@ header('Cache-Control: no-store, no-cache, must-revalidate, private');
 $rawToken = (string) ($_GET['t'] ?? '');
 $action   = (string) ($_GET['a'] ?? '');
 $note     = isset($_GET['note']) ? trim((string) $_GET['note']) : null;
+$confirm  = (string) ($_GET['confirm'] ?? '');  // 1 = caller acknowledged note step
 
 if ($rawToken === '' || !preg_match('/^[a-f0-9]{64}$/', $rawToken)) {
     echo cf_email_approval_render('error', null, 'Invalid or missing approval link.');
@@ -31,6 +32,15 @@ if ($rawToken === '' || !preg_match('/^[a-f0-9]{64}$/', $rawToken)) {
 }
 if (!in_array($action, ['approve', 'reject'], true)) {
     echo cf_email_approval_render('error', null, "Invalid action: {$action}.");
+    exit;
+}
+
+// Step 1: GET without ?confirm=1 → show a 1-page "add note?" form so the
+// approver can attach a one-line comment before the action is finalised.
+// Step 2: GET with ?confirm=1 → consume the token + record the action.
+// Rejections ALWAYS pass through the note step (we want a reason on file).
+if ($confirm !== '1' && ($action === 'reject' || ($action === 'approve' && $note === null))) {
+    echo cf_email_approval_render_note_prompt($rawToken, $action);
     exit;
 }
 
@@ -45,6 +55,42 @@ try {
 
 echo cf_email_approval_render($res['state'], $res, $res['message']);
 exit;
+
+function cf_email_approval_render_note_prompt(string $rawToken, string $action): string {
+    $h = fn ($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
+    [$title, $color, $btn, $btnBg, $hint] = $action === 'approve'
+        ? ['Approve with a note?',     '#16a34a', 'Approve',          '#16a34a', 'Optional. Skip and just approve, or add context for AP / your team.']
+        : ['Reject — please add a reason', '#dc2626', 'Reject with reason', '#dc2626', 'Required. AP needs to know what to fix so the bill can be resubmitted.'];
+    return '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+         . '<meta name="viewport" content="width=device-width,initial-scale=1">'
+         . '<title>' . $h($title) . ' — CoreFlux</title>'
+         . '<style>body{font-family:system-ui;background:#f8fafc;color:#0f172a;margin:0;padding:40px 16px}'
+         . '.card{max-width:480px;margin:auto;background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(15,23,42,.06);padding:28px}'
+         . 'h1{color:' . $h($color) . ';margin:0 0 12px;font-size:22px}'
+         . '.hint{color:#64748b;font-size:13px;margin:0 0 16px}'
+         . 'textarea{width:100%;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:8px;padding:10px;font-family:system-ui;font-size:14px;min-height:90px;resize:vertical}'
+         . '.row{display:flex;gap:8px;margin-top:16px}'
+         . '.btn{display:inline-block;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;font-size:13px;border:0;cursor:pointer}'
+         . '.btn--primary{background:' . $h($btnBg) . '}'
+         . '.btn--ghost{background:#e5e7eb;color:#0f172a}'
+         . '</style></head><body><div class="card" data-testid="ap-email-approval-note-prompt">'
+         . '<h1>' . $h($title) . '</h1>'
+         . '<p class="hint">' . $h($hint) . '</p>'
+         . '<form method="get" action="/api/ap/approve_by_email.php">'
+         . '<input type="hidden" name="t" value="' . $h($rawToken) . '">'
+         . '<input type="hidden" name="a" value="' . $h($action) . '">'
+         . '<input type="hidden" name="confirm" value="1">'
+         . '<textarea name="note" placeholder="One-line comment…" maxlength="500" '
+         . ($action === 'reject' ? 'required' : '') . ' data-testid="ap-email-approval-note-input"></textarea>'
+         . '<div class="row">'
+         . '<button class="btn btn--primary" type="submit" data-testid="ap-email-approval-note-submit">' . $h($btn) . '</button>'
+         . ($action === 'approve'
+            ? '<a class="btn btn--ghost" href="/api/ap/approve_by_email.php?t=' . $h($rawToken) . '&a=approve&confirm=1" data-testid="ap-email-approval-skip-note">Skip note &amp; approve</a>'
+            : '')
+         . '</div></form>'
+         . '<p style="margin-top:18px;color:#94a3b8;font-size:11px">Your decision is recorded the moment you submit. Links expire 72h after issue.</p>'
+         . '</div></body></html>';
+}
 
 function cf_email_approval_render(string $state, ?array $res, string $message): string {
     $h = fn ($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');

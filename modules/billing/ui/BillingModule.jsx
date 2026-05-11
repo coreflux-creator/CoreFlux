@@ -7,6 +7,7 @@ import PaymentsList from './PaymentsList';
 import AgingTable from './AgingTable';
 import RecurringContracts from './RecurringContracts';
 import DunningQueue from './DunningQueue';
+import ClientContacts from './ClientContacts';
 
 const navItems = [
   { to: '/modules/billing/invoices',  label: 'Invoices' },
@@ -14,6 +15,7 @@ const navItems = [
   { to: '/modules/billing/aging',     label: 'Aging' },
   { to: '/modules/billing/dunning',   label: 'Dunning' },
   { to: '/modules/billing/contracts', label: 'Contracts' },
+  { to: '/modules/billing/clients',   label: 'Client contacts' },
 ];
 
 export default function BillingModule() {

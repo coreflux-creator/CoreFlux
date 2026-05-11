@@ -103,13 +103,31 @@ if ($method === 'GET') {
     $rows = scopedQuery(
         'SELECT v.id, v.vendor_name, v.company_id, c.name AS company_name,
                 v.vendor_type, v.vendor_category, v.payment_method, v.remit_to_email,
-                v.tax_id_last4, v.payment_account_last4, v.requires_1099, v.default_terms, v.last_bill_at
+                v.tax_id_last4, v.payment_account_last4, v.requires_1099, v.default_terms,
+                COALESCE(v.default_pwp, 0) AS default_pwp, v.last_bill_at
          FROM ap_vendors_index v
          LEFT JOIN companies c ON c.id = v.company_id AND c.tenant_id = v.tenant_id AND c.deleted_at IS NULL
          WHERE ' . implode(' AND ', $where) . ' ORDER BY v.vendor_name ASC LIMIT 200',
         $params
     );
     api_ok(['rows' => $rows]);
+}
+
+if ($method === 'POST' && ($_GET['action'] ?? '') === 'toggle_pwp') {
+    RBAC::requirePermission($user, 'ap.bill.create');
+    $id   = (int) ($_GET['id'] ?? 0);
+    $body = api_json_body();
+    $on   = !empty($body['default_pwp']) ? 1 : 0;
+    $pdo  = getDB();
+    try {
+        $pdo->prepare('UPDATE ap_vendors_index SET default_pwp = :p WHERE tenant_id = :t AND id = :id')
+            ->execute(['p' => $on, 't' => $tid, 'id' => $id]);
+    } catch (\Throwable $e) {
+        // default_pwp column missing → migration 017_pay_when_paid.sql hasn't run yet.
+        api_error('Pay-When-Paid not enabled for this tenant — run the AP module migration first.', 409);
+    }
+    apAudit('ap.vendor.default_pwp_set', ['vendor_id' => $id, 'on' => $on], $id);
+    api_ok(['ok' => true, 'default_pwp' => $on]);
 }
 
 if ($method === 'POST') {
