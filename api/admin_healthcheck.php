@@ -43,6 +43,8 @@ $checks = [
     ['sso_domains_table',       'Tenant SSO domains (SSO Slice 1)','admin_hc_table_exists','tenant_sso_domains'],
     ['client_contacts_table',   'Billing client contacts',         'admin_hc_table_exists','billing_client_contacts'],
     ['dunning_log_table',       'Dunning log table',               'admin_hc_table_exists','billing_dunning_log'],
+    ['time_entries_person_id',  'time_entries.person_id column (Time module)', 'admin_hc_column_exists', ['time_entries', 'person_id']],
+    ['time_entries_placement',  'time_entries.placement_id column','admin_hc_column_exists', ['time_entries', 'placement_id']],
     ['mail_branding_endpoint',  'Mail branding API responds',      'admin_hc_branding_endpoint'],
     ['digest_schedule_helper',  'Digest schedule helper resolves', 'admin_hc_digest_helper'],
     ['snapshot_renders',        'Money Movement snapshot renders', 'admin_hc_snapshot_renders'],
@@ -97,6 +99,31 @@ function admin_hc_table_exists(int $tid, string $table): array {
     if ((int) $st->fetchColumn() !== 1) return ['status' => 'fail', 'detail' => "table {$table} does not exist (run migrations)"];
     $rc = (int) getDB()->query("SELECT COUNT(*) FROM `{$table}`")->fetchColumn();
     return ['status' => $rc === 0 ? 'warn' : 'ok', 'detail' => "rows: {$rc}"];
+}
+
+/**
+ * Verify a specific (table, column) pair exists. Catches schema drift where
+ * the migration runner recorded a migration as applied but the column never
+ * actually got added (lazy-created tables, partial failures, etc).
+ *
+ * @param array{0:string,1:string} $args [$table, $column]
+ */
+function admin_hc_column_exists(int $tid, array $args): array {
+    [$table, $col] = $args;
+    $st = getDB()->prepare(
+        "SELECT COUNT(*) FROM information_schema.columns
+          WHERE table_schema = DATABASE()
+            AND table_name   = :t AND column_name = :c"
+    );
+    $st->execute(['t' => $table, 'c' => $col]);
+    if ((int) $st->fetchColumn() === 1) return ['status' => 'ok', 'detail' => "{$table}.{$col} present"];
+    // Distinguish "table is missing" from "column is missing on existing table"
+    $ts = getDB()->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:t");
+    $ts->execute(['t' => $table]);
+    if ((int) $ts->fetchColumn() === 0) {
+        return ['status' => 'skipped', 'detail' => "{$table} table not present on this tenant"];
+    }
+    return ['status' => 'fail', 'detail' => "{$table} exists but missing column {$col} — re-run module migration"];
 }
 
 function admin_hc_branding_endpoint(int $tid): array {

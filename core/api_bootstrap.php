@@ -184,8 +184,8 @@ set_exception_handler(function (Throwable $e) {
         ]);
     }
     if (preg_match("/Unknown column '([^']+)'/i", $msg, $m)) {
-        api_error("Database column '{$m[1]}' is missing — a migration probably needs to run.", 500, [
-            'hint'   => 'Run the relevant migration in modules/*/migrations/*.sql then retry.',
+        api_error("Database column '{$m[1]}' is missing — a migration probably needs to run. Try reloading the page; CoreFlux runs pending migrations on every API request so this usually self-heals on the next click.", 500, [
+            'hint'   => 'If the error persists after a reload, check /admin/healthcheck for the offending column and re-run modules/<module>/migrations/*.sql manually.',
             'column' => $m[1],
         ]);
     }
