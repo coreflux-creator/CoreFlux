@@ -8,6 +8,19 @@ export default function PaymentsList() {
   const rows = data?.rows ?? [];
   const [showRecord, setShowRecord] = useState(false);
   const [allocFor, setAllocFor] = useState(null);
+  const [pwpToast, setPwpToast] = useState(null);
+
+  const handleAllocResult = (res) => {
+    // The /allocate (and /payments auto_allocate) responses now carry a
+    // `pwp` array: [{ar_invoice_id, released:[{bill_id,prev_status,new_status,new_due_date}]}].
+    // Surface this so AR ops sees "client paid → vendor bills released".
+    const groups = res?.pwp || res?.auto_allocation?.pwp || [];
+    const totalReleased = groups.reduce((s, g) => s + (g.released?.length || 0), 0);
+    if (totalReleased > 0) setPwpToast({ groups, totalReleased });
+    setAllocFor(null);
+    setShowRecord(false);
+    reload();
+  };
 
   return (
     <section data-testid="billing-payments-list">
@@ -15,6 +28,32 @@ export default function PaymentsList() {
         <h3 style={{ margin: 0 }}>Payments received</h3>
         <button className="btn btn--primary" onClick={() => setShowRecord(true)} data-testid="billing-record-payment">Record payment</button>
       </div>
+
+      {pwpToast && (
+        <div data-testid="billing-pwp-toast" role="status"
+             style={{ margin: '0 0 16px', padding: '12px 16px', background: '#ecfdf5', borderLeft: '4px solid #10b981', borderRadius: 6, fontSize: 13, color: '#065f46' }}>
+          <strong>Pay-When-Paid released:</strong>{' '}
+          {pwpToast.totalReleased} vendor bill{pwpToast.totalReleased === 1 ? '' : 's'} freed for payment because the client invoice cleared.
+          <details style={{ marginTop: 6 }}>
+            <summary style={{ cursor: 'pointer' }}>See details</summary>
+            <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+              {pwpToast.groups.map(g => (
+                <li key={g.ar_invoice_id} style={{ marginBottom: 4 }}>
+                  AR invoice #{g.ar_invoice_id}: released {g.released.length} bill(s)
+                  <ul style={{ paddingLeft: 16, marginTop: 2 }}>
+                    {g.released.map(r => (
+                      <li key={r.bill_id} data-testid={`billing-pwp-released-${r.bill_id}`}>
+                        Bill #{r.bill_id} — was <em>{r.prev_status}</em>, now <strong>{r.new_status}</strong>, due {r.new_due_date}
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          </details>
+          <button onClick={() => setPwpToast(null)} style={{ marginTop: 6, background: 'transparent', border: 0, color: '#065f46', cursor: 'pointer', fontSize: 12, padding: 0 }} data-testid="billing-pwp-toast-dismiss">Dismiss</button>
+        </div>
+      )}
 
       {loading && <p>Loading…</p>}
       {error && <p className="error" data-testid="billing-payments-error">Error: {error.message}</p>}
@@ -41,8 +80,8 @@ export default function PaymentsList() {
         </tbody>
       </table>
 
-      {showRecord && <RecordPaymentModal onClose={() => setShowRecord(false)} onSaved={() => { setShowRecord(false); reload(); }} />}
-      {allocFor && <AllocateModal payment={allocFor} onClose={() => setAllocFor(null)} onSaved={() => { setAllocFor(null); reload(); }} />}
+      {showRecord && <RecordPaymentModal onClose={() => setShowRecord(false)} onSaved={handleAllocResult} />}
+      {allocFor && <AllocateModal payment={allocFor} onClose={() => setAllocFor(null)} onSaved={handleAllocResult} />}
     </section>
   );
 }
@@ -59,8 +98,8 @@ function RecordPaymentModal({ onClose, onSaved }) {
   const submit = async () => {
     setBusy(true); setError(null);
     try {
-      await api.post('/modules/billing/api/payments.php', { ...form, amount: Number(form.amount) });
-      onSaved?.();
+      const res = await api.post('/modules/billing/api/payments.php', { ...form, amount: Number(form.amount) });
+      onSaved?.(res);
     } catch (e) { setError(e); }
     finally { setBusy(false); }
   };
@@ -103,7 +142,10 @@ function AllocateModal({ payment, onClose, onSaved }) {
 
   const autoFifo = async () => {
     setBusy(true); setError(null);
-    try { await api.post(`/modules/billing/api/payments.php?action=allocate&id=${payment.id}`, { auto: 'fifo' }); onSaved?.(); }
+    try {
+      const res = await api.post(`/modules/billing/api/payments.php?action=allocate&id=${payment.id}`, { auto: 'fifo' });
+      onSaved?.(res);
+    }
     catch (e) { setError(e); }
     finally { setBusy(false); }
   };
@@ -115,8 +157,8 @@ function AllocateModal({ payment, onClose, onSaved }) {
         .filter(([_, v]) => Number(v) > 0)
         .map(([invoice_id, amount]) => ({ invoice_id: Number(invoice_id), amount: Number(amount) }));
       if (allocations.length === 0) { setError(new Error('Enter at least one allocation amount.')); setBusy(false); return; }
-      await api.post(`/modules/billing/api/payments.php?action=allocate&id=${payment.id}`, { allocations });
-      onSaved?.();
+      const res = await api.post(`/modules/billing/api/payments.php?action=allocate&id=${payment.id}`, { allocations });
+      onSaved?.(res);
     } catch (e) { setError(e); }
     finally { setBusy(false); }
   };

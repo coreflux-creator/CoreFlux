@@ -3123,4 +3123,31 @@ Smoke `tests/hardening_pass1_smoke.php` (46 ✅) + `tests/schema_contract_smoke.
 
 **Vite build**: `dist/spa-assets/index-C_JS1D_-.js` + `index-Cwhpy62y.css`. `.deploy-version` bumped; 12 new sentinel paths + 9 new feature flags recorded.
 
+
+## 2026-02 — Cash-application PWP toast + End-to-end loop smoke (P0 closures)
+**Why**: Two P0 items from the last finish summary. (1) AR ops applies a customer payment and the system silently releases vendor bills via the Pay-When-Paid trigger — but until now the UI gave no feedback. (2) We needed a contract-level smoke that proves the entire People → Placement → Time → Billing → AR → AP → Payroll loop is wired correctly after the recent PWP / Weekly Queue work.
+
+**Cash-application PWP toast** (`modules/billing/ui/PaymentsList.jsx`):
+- `RecordPaymentModal.submit()` and `AllocateModal.{autoFifo, submit}` now thread the API response back through `onSaved(res)`.
+- `PaymentsList.handleAllocResult()` extracts `res.pwp` (or `res.auto_allocation.pwp` for the record-and-allocate path) and renders a dismissible green toast: *"Pay-When-Paid released: N vendor bill(s) freed for payment because the client invoice cleared."* Expanding the toast details lists each released bill (#, prev_status → new_status, new_due_date), grouped by AR invoice.
+- The toast has `data-testid="billing-pwp-toast"` and per-bill `billing-pwp-released-<bill_id>` testids so e2e tests can assert the wiring.
+
+**End-to-end loop smoke** (`tests/end_to_end_loop_smoke.php`):
+- Static contract test (no DB) that walks all 10 stages of the staffing cash cycle:
+  1. People → Placement (placement_id pivot)
+  2. Placement → Time entries
+  3. Time → `time_downstream_feed` (the AR/AP bundle split)
+  4. Feed → Billing AR invoices (`from-time-bundle` action wired, marks bundle consumed, triggers PWP auto-link)
+  5. Feed → AP bills (1099/c2c classification, PWP stamping when vendor default, +90 day carry)
+  6. AR cash → PWP release → AP bill 'approved' (lib path, response shape, `amount_due ≈ 0` guard)
+  7. Payments UI surfaces PWP results (toast wiring)
+  8. AP bill 'approved' → AP payment (allocations table, `partially_paid`/`paid` transition)
+  9. AP payment → Payroll 1099 ledger (joins `ap_payments` → `ap_payment_allocations` → `ap_bills`, filtered by `vendor_type='1099_individual'`)
+  10. Weekly Queue closes the loop (all 4 blocker types tied to upstream/downstream stages)
+- 47/47 ✅ — a permanent regression net against the next time someone refactors any stage in the chain.
+
+**Tests**: `end_to_end_loop_smoke` 47/47 ✅; `pay_when_paid_smoke` extended to 52/52 ✅ (new toast assertions). Full sweep: **141/143** ✅ (the 2 remaining failures continue to be pre-existing `ai_platform_smoke` + `plaid_integration_smoke` which need live API keys).
+
+**Vite build**: `dist/spa-assets/index-DlrEq8Lj.js` + `index-Cwhpy62y.css`. `.deploy-version` bumped; 3 new sentinels + 2 new feature flags recorded.
+
 **Vite bundle**: `index-CsM5S8MR.js` / `index-Cwhpy62y.css`. `/app/.deploy-version` `expected_bundle` updated.

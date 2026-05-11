@@ -95,5 +95,12 @@ $a('preview opens new tab',                     str_contains($jsxSrc, "window.op
 $a('download forces ?download=1',               str_contains($jsxSrc, "action=pdf&id=\${id}&download=1"));
 $a('send-modal warns on pdf_attached=false',    str_contains($jsxSrc, 'res.pdf_attached === false'));
 
+echo "\nReact: PaymentsList.jsx surfaces PWP toast after allocation\n";
+$payJsx = (string) file_get_contents(__DIR__ . '/../modules/billing/ui/PaymentsList.jsx');
+$a('PaymentsList captures pwp array from API',       str_contains($payJsx, 'res?.pwp') && str_contains($payJsx, 'auto_allocation?.pwp'));
+$a('renders dismissible billing-pwp-toast',          str_contains($payJsx, 'data-testid="billing-pwp-toast"') && str_contains($payJsx, 'billing-pwp-toast-dismiss'));
+$a('toast lists per-bill release details',          str_contains($payJsx, 'billing-pwp-released-${r.bill_id}'));
+$a('AllocateModal returns API result',              substr_count($payJsx, 'onSaved?.(res)') >= 2);
+
 echo "\nTotal: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

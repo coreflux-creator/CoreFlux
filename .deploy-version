@@ -259,8 +259,10 @@ sentinels:
 - modules/ap/api/bill_approvals.php
 - modules/ap/lib/ap.php
 - tests/ap_weekly_queue_smoke.php
+- modules/billing/ui/PaymentsList.jsx
+- tests/end_to_end_loop_smoke.php
 expected_bundle:
-- spa-assets/index-C_JS1D_-.js
+- spa-assets/index-DlrEq8Lj.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -572,3 +574,5 @@ last_known_features:
 - ap.weekly_queue.blocker_detection_pwp_hours_review
 - ap.bill_approvals.email_one_tap_approve_reject
 - core.email_approval.generic_token_consume
+- billing.payments.ui_pwp_release_toast
+- platform.end_to_end_loop_contract_smoke
