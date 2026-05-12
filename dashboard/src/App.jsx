@@ -244,6 +244,16 @@ const useSession = () => {
         const data = await res.json();
         if (!data.user || data.error) throw new Error(data.error || 'Invalid session');
 
+        // Merge in SPA-side modules that aren't yet enabled in tenant_modules
+        // for this tenant. Lets newly-launched modules (Staffing during its
+        // rollout, etc.) appear in the module switcher and sidebar before
+        // every tenant's DB row has caught up. Once tenant_modules has the
+        // row, the DB-sourced entry wins (dedup by id).
+        const dbModules = Array.isArray(data.modules) ? data.modules : [];
+        const dbIds = new Set(dbModules.map(m => m.id));
+        const spaOnly = DEMO_SESSION.modules.filter(m => !dbIds.has(m.id) && ['staffing'].includes(m.id));
+        data.modules = [...dbModules, ...spaOnly];
+
         console.log('Connected to PHP backend:', data.user.email);
         setSession(data);
         setUsingDemo(false);
