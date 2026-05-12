@@ -40,7 +40,7 @@ $a('message tells user to reload page',                    str_contains($bs, 'Tr
 $a('mentions self-heal via migrations-on-every-request',   str_contains($bs, 'self-heals on the next click'));
 $a('hint points to /admin/healthcheck',                    str_contains($bs, '/admin/healthcheck'));
 $a('cf_self_heal_known_column declared',                   preg_match('/function\\s+cf_self_heal_known_column\\s*\\(/', $bs) === 1);
-$a('recipes include time_entries.person_id',               str_contains($bs, "'time_entries' => [") && str_contains($bs, "'person_id' => 'ADD COLUMN person_id"));
+$a('recipes include time_entries.person_id',               str_contains($bs, "'time_entries' => [") && preg_match("/'person_id'\s*=>\s*'ADD COLUMN person_id/", $bs) === 1);
 $a('self-heal returns 503 with self_heal flag',            str_contains($bs, "'self_heal' => true, 'column' => \$col"));
 $a('self-heal uses information_schema before ALTER',       str_contains($bs, 'FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:t')
                                                            && str_contains($bs, 'FROM information_schema.columns'));

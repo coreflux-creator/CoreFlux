@@ -3571,3 +3571,25 @@ User screenshot showed two separate problems on the new `/modules/staffing/times
 - New regression assertions in `staffing_shell_and_weekly_timesheet_smoke.php` (4 new): pin that lib/API/migrations never reference the bare `timesheets` name again.
 
 **Tests:** 65 staffing assertions ✅. Full sweep **158/158 ✅**. SPA → `index-ChaZ7Z_l.js`.
+
+## 2026-02 — Hotfix #3: Deep `time_entries` schema repair + Reports view auto-rebuild
+
+Screenshots from the user showed two MORE migration-related errors after the first round shipped:
+
+1. **`Database column 'te.placement_id' is missing`** on the Staffing weekly timesheet bulk_save. The original column from `modules/time/migrations/001_init.sql` was missing on the tenant. Same root cause as the legacy `timesheets` collision — `time_entries` got created at some point with a stripped-down schema, and `CREATE TABLE IF NOT EXISTS` no-op'd, so canonical columns like `placement_id` / `period_id` / `category` etc. never landed.
+
+2. **`Reports data view not yet built — v_timesheet_day_fin`** on the Reports / Staffing Overview page. The view depends on `time_entries.placement_id`. Its original CREATE failed at the time `modules/reports/migrations/001_init.sql` first ran (because the column was missing); pre-fix migrate.php silently marked it applied; never retried.
+
+### Fix 1 — Defensive schema repair
+- **New `modules/time/migrations/008_ensure_columns.sql`** — defensively re-adds every canonical column of `time_entries` if missing. 23 columns covered (placement_id, period_id, work_date, category, hours, status, source, description, approved_at, approved_via, rejected_reason, rate_snapshot_id, etc.). Each guard uses `information_schema` + `'DO 0'` fallback, one PREPARE/EXECUTE/DEALLOCATE statement per line so PDO::query() handles each individually.
+
+### Fix 2 — Expanded self-heal recipes
+- **`core/api_bootstrap.php`** — `cf_self_heal_known_column()` recipe list expanded from 1 → 19 columns. If a runtime query still hits a missing column before migration 008 runs, the exception handler now auto-adds it on-the-fly: placement_id, person_id, period_id, work_date, hours, category, status, source, description, created_by_user_id, approved_*, rejected_reason, rate_snapshot_id, timesheet_id, hour_type, billable, payable.
+
+### Fix 3 — Reports view auto-rebuild
+- **New `modules/time/migrations/009_recreate_reports_views.sql`** — lives in the time module (NOT reports) so it runs AFTER 008 in the migration runner's natural-sort order. Conditional on both `time_entries.placement_id` and `placement_rates` existing. `DROP VIEW IF EXISTS` + `CREATE VIEW`. The view body is identical to `modules/reports/migrations/001_init.sql`. Idempotent — safe on every deploy.
+
+### Smoke tests
+- **`tests/time_entries_defensive_repair_smoke.php`** — 26 assertions covering migration 008's column coverage + self-heal recipe completeness.
+- Updated `tests/time_person_id_migration_smoke.php` regex to handle whitespace-aligned PHP array entries.
+- **159/159 smoke tests pass.**

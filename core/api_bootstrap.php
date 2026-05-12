@@ -227,9 +227,30 @@ set_exception_handler(function (Throwable $e) {
  */
 function cf_self_heal_known_column(string $colRef): bool {
     // Recipes: [table => [column => DDL fragment]]
+    // Audited list of known schema-drift columns. Each fragment is the
+    // bare `ADD COLUMN ...` clause — `cf_self_heal_known_column` prepends
+    // the ALTER TABLE. Order matches what runtime code expects to read.
     static $recipes = [
         'time_entries' => [
-            'person_id' => 'ADD COLUMN person_id BIGINT UNSIGNED NULL AFTER placement_id',
+            'placement_id'          => 'ADD COLUMN placement_id BIGINT UNSIGNED NULL',
+            'person_id'             => 'ADD COLUMN person_id BIGINT UNSIGNED NULL AFTER placement_id',
+            'period_id'             => 'ADD COLUMN period_id BIGINT UNSIGNED NULL',
+            'work_date'             => 'ADD COLUMN work_date DATE NULL',
+            'hours'                 => 'ADD COLUMN hours DECIMAL(6,2) NOT NULL DEFAULT 0',
+            'category'              => "ADD COLUMN category ENUM('regular_billable','regular_nonbillable','OT_billable','OT_nonbillable','holiday','vacation','sick','bereavement','unpaid_leave','custom') NOT NULL DEFAULT 'regular_billable'",
+            'status'                => "ADD COLUMN status ENUM('draft','pending_review','approved','rejected','superseded') NOT NULL DEFAULT 'draft'",
+            'source'                => "ADD COLUMN source ENUM('ai_inbox','bulk_upload','manual_entry','client_portal_paste') NOT NULL DEFAULT 'manual_entry'",
+            'description'           => 'ADD COLUMN description VARCHAR(500) NULL',
+            'created_by_user_id'    => 'ADD COLUMN created_by_user_id BIGINT UNSIGNED NULL',
+            'approved_by_user_id'   => 'ADD COLUMN approved_by_user_id BIGINT UNSIGNED NULL',
+            'approved_at'           => 'ADD COLUMN approved_at DATETIME NULL',
+            'approved_via'          => "ADD COLUMN approved_via ENUM('manual','tokenized_client_email','bulk_pre_approved') NULL",
+            'rejected_reason'       => 'ADD COLUMN rejected_reason VARCHAR(500) NULL',
+            'rate_snapshot_id'      => 'ADD COLUMN rate_snapshot_id BIGINT UNSIGNED NULL',
+            'timesheet_id'          => 'ADD COLUMN timesheet_id BIGINT UNSIGNED NULL',
+            'hour_type'             => "ADD COLUMN hour_type ENUM('regular','overtime','doubletime','holiday','pto','sick','bereavement','unpaid','nonbillable') NOT NULL DEFAULT 'regular'",
+            'billable'              => 'ADD COLUMN billable TINYINT(1) NOT NULL DEFAULT 1',
+            'payable'               => 'ADD COLUMN payable TINYINT(1) NOT NULL DEFAULT 1',
         ],
     ];
     // Resolve alias prefix (te.person_id → person_id, but we still need the table).
