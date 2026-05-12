@@ -3662,3 +3662,63 @@ Per user direction "wire reports like that":
 - Jobs / Roles entity (vacant client-side slots).
 - Per-row inline economics in the weekly grid (currently we ship week totals).
 - Posting rule templates for `staffing.worker_hours.approved` (event emits but won't post a JE until a tenant configures a rule).
+
+## 2026-02 — Hotfix: Accounting event now books both legs (revenue AND expense)
+
+User's catch: the `staffing.worker_hours.approved` event was emitting `revenue` and `cost` in the payload, but without classification it can't know whether the offsetting credit lands in **Accrued Payroll** (W2) or **Accrued AP** (1099/C2C). Fix:
+
+### Event payload refactor
+- `staffingEmitWorkerHoursApprovedEvent()` now groups time entries by `placements.engagement_type` and **emits one event per (timesheet × engagement_type)** combination. Each event payload includes:
+  - `engagement_type` (w2 / 1099 / c2c / temp_to_perm / direct_hire / internal)
+  - Convenience boolean flags: `is_w2`, `is_1099_or_c2c`, `is_internal`
+  - Per-classification `hours`, `revenue`, `cost`, `gross_profit`
+- `source_record_id` = `"{timesheet_id}:{engagement_type}"` so duplicate-detection still works.
+
+### System accounts added
+`/app/core/accounting/system_accounts.php` extended with the six accounts the staffing JE needs:
+- `1150 Unbilled Receivable` (asset)
+- `2050 Accrued AP` (liability)
+- `2150 Accrued Payroll` (liability)
+- `4000 Service Revenue` (revenue)
+- `5000 Direct Labor Expense` (cogs)
+- `5010 Subcontractor Expense` (cogs)
+
+### Posting-rule seeder
+`modules/staffing/lib/posting_rules_seed.php` — installs three default journal templates + three rules:
+
+**W2 hours (rule conditions: `payload.is_w2 = 1`):**
+```
+DR  5000 Direct Labor Expense   payload.cost
+CR  2150 Accrued Payroll        payload.cost
+DR  1150 Unbilled Receivable    payload.revenue
+CR  4000 Service Revenue        payload.revenue
+```
+
+**1099 / C2C hours (`payload.is_1099_or_c2c = 1`):**
+```
+DR  5010 Subcontractor Expense  payload.cost
+CR  2050 Accrued AP             payload.cost
+DR  1150 Unbilled Receivable    payload.revenue
+CR  4000 Service Revenue        payload.revenue
+```
+
+**Internal salaried hours (`payload.is_internal = 1`) — NO revenue leg:**
+```
+DR  5000 Direct Labor Expense   payload.cost
+CR  2150 Accrued Payroll        payload.cost
+```
+
+### Admin endpoint
+`POST /api/staffing/seed_posting_rules` (master_admin only) — runs the seeder for the current tenant. Idempotent.
+
+### Workflow once seeded
+1. Worker submits weekly timesheet → manager approves.
+2. Event `staffing.worker_hours.approved` fires (one per engagement_type bucket).
+3. Posting engine matches against the seeded rule by condition.
+4. Auto-books a balanced JE that captures BOTH the **expense accrual** (DR labor / CR accrued payroll or AP) AND the **revenue accrual** (DR unbilled AR / CR service revenue).
+5. When the AR invoice fires later → DR AR / CR Unbilled AR clears the accrual.
+6. When payroll runs / AP bill posts → debits the accrual and credits cash/AP.
+
+### Tests
+- `tests/staffing_je_auto_booking_smoke.php` — 25 assertions covering payload shape, system accounts, seeder logic, admin endpoint.
+- **162/162 total smoke tests pass.**

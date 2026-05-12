@@ -361,46 +361,66 @@ function staffingTimesheetApprove(int $userId, int $personId, string $periodStar
     return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
 }
 
-/** Emit `staffing.worker_hours.approved` event to the accounting posting
- *  engine. Best-effort: failures don't roll back the approval. */
+/** Emit `staffing.worker_hours.approved` events to the accounting posting
+ *  engine. One event PER (timesheet × engagement_type) combo so posting
+ *  rules can route W2 hours to Accrued Payroll and 1099/C2C hours to
+ *  Accrued AP. Best-effort: failures don't roll back the approval. */
 function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): void {
     try {
         require_once __DIR__ . '/../../../core/posting_engine/process.php';
         $pdo = getDB();
 
-        $h = $pdo->prepare("SELECT t.id, t.person_id, t.period_start, t.period_end, t.total_hours,
-                                   COALESCE(SUM(te.hours * COALESCE(pr.bill_rate, 0)), 0) AS revenue,
-                                   COALESCE(SUM(te.hours * COALESCE(pr.pay_rate, 0)),  0) AS cost
-                              FROM staffing_timesheets t
-                              LEFT JOIN time_entries te ON te.timesheet_id = t.id AND te.tenant_id = t.tenant_id AND te.status != 'superseded'
-                              LEFT JOIN placement_rates pr ON pr.id = te.rate_snapshot_id
-                             WHERE t.tenant_id = :t AND t.id = :id GROUP BY t.id");
-        $h->execute(['t' => $tenantId, 'id' => $headerId]);
-        $hdr = $h->fetch(\PDO::FETCH_ASSOC);
-        if (!$hdr) return;
+        // Group hours/revenue/cost by engagement_type (w2/1099/c2c/etc.) on
+        // the placement so each tax classification books to the right
+        // liability account.
+        $stmt = $pdo->prepare(
+            "SELECT t.id, t.person_id, t.period_start, t.period_end,
+                    COALESCE(pl.engagement_type, 'w2') AS engagement_type,
+                    SUM(te.hours)                                    AS hours,
+                    SUM(te.hours * COALESCE(pr.bill_rate, 0))        AS revenue,
+                    SUM(te.hours * COALESCE(pr.pay_rate,  0))        AS cost
+               FROM staffing_timesheets t
+               JOIN time_entries te ON te.timesheet_id = t.id AND te.tenant_id = t.tenant_id AND te.status != 'superseded'
+               LEFT JOIN placements pl     ON pl.id = te.placement_id AND pl.tenant_id = t.tenant_id
+               LEFT JOIN placement_rates pr ON pr.id = te.rate_snapshot_id
+              WHERE t.tenant_id = :t AND t.id = :id
+              GROUP BY t.id, engagement_type"
+        );
+        $stmt->execute(['t' => $tenantId, 'id' => $headerId]);
+        $groups = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        if (!$groups) return;
 
         $ent = $pdo->prepare("SELECT id FROM accounting_entities WHERE tenant_id = :t LIMIT 1");
         $ent->execute(['t' => $tenantId]);
         $entityId = (int) ($ent->fetchColumn() ?: 0);
-        if (!$entityId) return; // accounting not configured — silently skip
+        if (!$entityId) return;
 
-        accountingProcessEvent($tenantId, [
-            'entity_id'        => $entityId,
-            'event_type'       => 'staffing.worker_hours.approved',
-            'source_module'    => 'staffing',
-            'source_record_id' => (string) $hdr['id'],
-            'event_date'       => (string) $hdr['period_end'],
-            'payload'          => [
-                'timesheet_id' => (int) $hdr['id'],
-                'person_id'    => (int) $hdr['person_id'],
-                'period_start' => $hdr['period_start'],
-                'period_end'   => $hdr['period_end'],
-                'hours'        => (float) $hdr['total_hours'],
-                'revenue'      => (float) $hdr['revenue'],
-                'cost'         => (float) $hdr['cost'],
-                'gross_profit' => (float) ($hdr['revenue'] - $hdr['cost']),
-            ],
-        ], null);
+        foreach ($groups as $g) {
+            $rev  = (float) $g['revenue'];
+            $cost = (float) $g['cost'];
+            accountingProcessEvent($tenantId, [
+                'entity_id'        => $entityId,
+                'event_type'       => 'staffing.worker_hours.approved',
+                'source_module'    => 'staffing',
+                'source_record_id' => (string) $g['id'] . ':' . $g['engagement_type'],
+                'event_date'       => (string) $g['period_end'],
+                'payload'          => [
+                    'timesheet_id'    => (int) $g['id'],
+                    'person_id'       => (int) $g['person_id'],
+                    'period_start'    => $g['period_start'],
+                    'period_end'      => $g['period_end'],
+                    'engagement_type' => (string) $g['engagement_type'],
+                    'hours'           => (float) $g['hours'],
+                    'revenue'         => $rev,
+                    'cost'            => $cost,
+                    'gross_profit'    => $rev - $cost,
+                    // Convenience flags for posting-rule `conditions` matching.
+                    'is_w2'           => $g['engagement_type'] === 'w2' ? 1 : 0,
+                    'is_1099_or_c2c'  => in_array($g['engagement_type'], ['1099','c2c'], true) ? 1 : 0,
+                    'is_internal'     => $g['engagement_type'] === 'internal' ? 1 : 0,
+                ],
+            ], null);
+        }
     } catch (\Throwable $e) {
         error_log("[staffing] accounting event emit failed for ts #{$headerId}: " . $e->getMessage());
     }

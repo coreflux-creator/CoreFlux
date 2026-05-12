@@ -24,20 +24,26 @@ const ACCOUNTING_SYSTEM_ACCOUNTS = [
     ['code' => '1000', 'name' => 'Cash',                       'type' => 'asset',     'side' => 'debit',  'subtype' => 'current_asset',     'section' => 'current_assets',     'sort' => 100],
     ['code' => '1010', 'name' => 'Clearing Accounts',          'type' => 'asset',     'side' => 'debit',  'subtype' => 'current_asset',     'section' => 'current_assets',     'sort' => 110],
     ['code' => '1100', 'name' => 'Accounts Receivable',        'type' => 'asset',     'side' => 'debit',  'subtype' => 'current_asset',     'section' => 'current_assets',     'sort' => 200],
+    ['code' => '1150', 'name' => 'Unbilled Receivable',        'type' => 'asset',     'side' => 'debit',  'subtype' => 'current_asset',     'section' => 'current_assets',     'sort' => 250],
     ['code' => '1500', 'name' => 'Intercompany Receivable',    'type' => 'asset',     'side' => 'debit',  'subtype' => 'current_asset',     'section' => 'current_assets',     'sort' => 500],
     ['code' => '1900', 'name' => 'Suspense',                   'type' => 'asset',     'side' => 'debit',  'subtype' => 'current_asset',     'section' => 'current_assets',     'sort' => 900],
     // Liabilities
     ['code' => '2000', 'name' => 'Accounts Payable',           'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 100],
+    ['code' => '2050', 'name' => 'Accrued AP',                 'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 150],
     ['code' => '2100', 'name' => 'Payroll Liability',          'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 200],
+    ['code' => '2150', 'name' => 'Accrued Payroll',            'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 250],
     ['code' => '2200', 'name' => 'Sales Tax Payable',          'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 300],
     ['code' => '2500', 'name' => 'Intercompany Payable',       'type' => 'liability','side' => 'credit', 'subtype' => 'current_liability', 'section' => 'current_liabilities','sort' => 500],
     // Equity
     ['code' => '3000', 'name' => 'Opening Balance Equity',     'type' => 'equity',    'side' => 'credit', 'subtype' => 'equity',            'section' => 'equity',             'sort' => 100],
     ['code' => '3900', 'name' => 'Retained Earnings',          'type' => 'equity',    'side' => 'credit', 'subtype' => 'equity',            'section' => 'equity',             'sort' => 900],
     // Revenue / other income / uncategorized
+    ['code' => '4000', 'name' => 'Service Revenue',            'type' => 'revenue',   'side' => 'credit', 'subtype' => 'operating_revenue', 'section' => 'revenue',            'sort' => 100],
     ['code' => '4990', 'name' => 'Uncategorized Income',       'type' => 'revenue',   'side' => 'credit', 'subtype' => 'operating_revenue', 'section' => 'revenue',            'sort' => 990],
     ['code' => '7100', 'name' => 'Interest Income',            'type' => 'other_income','side' => 'credit','subtype' => 'other_income',     'section' => 'other_income',       'sort' => 100],
     // Expense / COGS / other expense / rounding
+    ['code' => '5000', 'name' => 'Direct Labor Expense',       'type' => 'expense',   'side' => 'debit',  'subtype' => 'cogs',              'section' => 'cogs',               'sort' => 100],
+    ['code' => '5010', 'name' => 'Subcontractor Expense',      'type' => 'expense',   'side' => 'debit',  'subtype' => 'cogs',              'section' => 'cogs',               'sort' => 110],
     ['code' => '6100', 'name' => 'Bank Fees Expense',          'type' => 'expense',   'side' => 'debit',  'subtype' => 'operating_expense', 'section' => 'operating_expenses', 'sort' => 100],
     ['code' => '6990', 'name' => 'Uncategorized Expense',      'type' => 'expense',   'side' => 'debit',  'subtype' => 'operating_expense', 'section' => 'operating_expenses', 'sort' => 990],
     ['code' => '9100', 'name' => 'Interest Expense',           'type' => 'other_expense','side' => 'debit','subtype' => 'other_expense',    'section' => 'other_expense',      'sort' => 100],
