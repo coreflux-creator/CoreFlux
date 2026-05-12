@@ -3722,3 +3722,28 @@ CR  2150 Accrued Payroll        payload.cost
 ### Tests
 - `tests/staffing_je_auto_booking_smoke.php` — 25 assertions covering payload shape, system accounts, seeder logic, admin endpoint.
 - **162/162 total smoke tests pass.**
+
+---
+
+## 2026-02 — Worker Classification Mix Dashboard + One-tap External Approver Email Flow
+
+### Worker Mix dashboard (tab 6 under Staffing → Profitability)
+- **API** `GET /api/staffing/classification_mix.php?weeks=N` returns weekly pivot of W2 / 1099 / C2C / internal / other split by hours **and** cost, plus a list of workers whose `placements.engagement_type` flipped during the window (potential reclassification triggers / W2↔1099 year-end re-issues).
+- **UI** `modules/staffing/ui/WorkerMix.jsx` — pure-SVG stacked bars, metric toggle (cost vs hours), 4/8/12/26/52-week windows, mix legend with $ + %, change-flag table.
+- **Wired** as the 6th sub-tab in `StaffingProfitability.jsx`.
+- **Schema-contract:** uses `placements.person_id` (correct column) — caught and fixed during regression.
+- **Test:** `tests/staffing_worker_mix_smoke.php` (24 assertions).
+
+### Staffing one-tap external approver email flow
+- **Helper** `core/staffing_email_approval.php` — `staffingEmailApprovalMint()` / `staffingEmailApprovalConsume()` / `staffingEmailApprovalBodyHtml()`. Mirrors the AP-bill pattern (72h TTL, sha256-hashed at rest, single-use, approve+reject pair on one row).
+- **Public endpoint** `GET /api/staffing/approve_timesheet_by_email.php?t=…&a=approve|reject` — no session required; two-step UX (note prompt → confirm) with HTML receipt. Reject always requires a reason on file.
+- **Admin endpoint** `POST /api/staffing/timesheet_email_approver.php` — issues token + emails the approver via `mailerSend()` (falls back to surfacing the approve_url for manual share when mailer is offline locally).
+- **Schema** `modules/staffing/migrations/004_external_approver_columns.sql` adds `approved_via`, `external_approver_email`, `external_approver_name`, `approval_note` to `staffing_timesheets`. `api_bootstrap.php` mirrors these as self-heal recipes so prod tenants missing the migration get them auto-added at request time.
+- **UI** `StaffingApprovals.jsx` exposes an "Email approver" button next to each submitted timesheet; inline form captures recipient email + name; result strip shows sent/expiry or fallback URL.
+- **Accounting** — on email approval, `staffingEmitWorkerHoursApprovedEvent()` still fires so the W2/1099/C2C journal entries route through the posting engine identically to the in-app path.
+- **Test:** `tests/staffing_email_approval_smoke.php` (50 assertions).
+
+### Build + regression
+- New Vite bundle hash: `index-D38hBIYY.js` (CSS: `index-Cwhpy62y.css`).
+- `.deploy-version` + `tests/sprint6b_dashboard_uis_smoke.php` updated.
+- Full suite: **163/165 pass.** Only `ai_platform_smoke.php` + `plaid_integration_smoke.php` fail (expected — no live API keys locally).

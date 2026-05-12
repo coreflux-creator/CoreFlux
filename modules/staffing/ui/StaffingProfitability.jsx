@@ -9,6 +9,7 @@ import ExecutiveSnapshot      from '../../reports/ui/ExecutiveSnapshot';
 import ClientProfitability    from '../../reports/ui/ClientProfitability';
 import RateSpreadMonitor      from '../../reports/ui/RateSpreadMonitor';
 import OvertimeWatch          from '../../reports/ui/OvertimeWatch';
+import WorkerMix              from './WorkerMix';
 
 const SUB_TABS = [
   { slug: 'overview',           label: 'Staffing Overview' },
@@ -16,6 +17,7 @@ const SUB_TABS = [
   { slug: 'client_profitability', label: 'Client Profitability' },
   { slug: 'rate_spread',        label: 'Rate & Spread' },
   { slug: 'overtime_watch',     label: 'Overtime Watch' },
+  { slug: 'worker_mix',         label: 'Worker Mix' },
 ];
 
 /**
@@ -56,6 +58,7 @@ export default function StaffingProfitability({ session }) {
         <Route path="client_profitability" element={<ClientProfitability    session={session} />} />
         <Route path="rate_spread"          element={<RateSpreadMonitor      session={session} />} />
         <Route path="overtime_watch"       element={<OvertimeWatch          session={session} />} />
+        <Route path="worker_mix"           element={<WorkerMix              session={session} />} />
       </Routes>
     </div>
   );

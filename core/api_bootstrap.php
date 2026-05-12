@@ -252,6 +252,12 @@ function cf_self_heal_known_column(string $colRef): bool {
             'billable'              => 'ADD COLUMN billable TINYINT(1) NOT NULL DEFAULT 1',
             'payable'               => 'ADD COLUMN payable TINYINT(1) NOT NULL DEFAULT 1',
         ],
+        'staffing_timesheets' => [
+            'approved_via'            => "ADD COLUMN approved_via VARCHAR(32) NOT NULL DEFAULT 'internal_app'",
+            'external_approver_email' => 'ADD COLUMN external_approver_email VARCHAR(255) NULL',
+            'external_approver_name'  => 'ADD COLUMN external_approver_name VARCHAR(255) NULL',
+            'approval_note'           => 'ADD COLUMN approval_note VARCHAR(1000) NULL',
+        ],
     ];
     // Resolve alias prefix (te.person_id → person_id, but we still need the table).
     $col = $colRef;

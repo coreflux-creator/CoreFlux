@@ -12,6 +12,10 @@ export default function StaffingApprovals({ session }) {
   const [busyId, setBusyId] = useState(null);
   const [rejecting, setRejecting] = useState(null);
   const [reason, setReason] = useState('');
+  const [emailing, setEmailing] = useState(null);   // row id currently showing the email form
+  const [approverEmail, setApproverEmail] = useState('');
+  const [approverName, setApproverName]   = useState('');
+  const [emailResult, setEmailResult]     = useState(null); // {row_id, sent, approve_url, error}
 
   const act = async (action, row, extra = {}) => {
     setBusyId(row.id);
@@ -24,6 +28,25 @@ export default function StaffingApprovals({ session }) {
       setRejecting(null); setReason('');
     } catch (e) {
       alert(e.message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const sendApproverEmail = async (row) => {
+    if (!approverEmail.trim()) return;
+    setBusyId(row.id);
+    setEmailResult(null);
+    try {
+      const res = await api.post('/modules/staffing/api/timesheet_email_approver.php', {
+        timesheet_id:   row.id,
+        approver_email: approverEmail.trim(),
+        approver_name:  approverName.trim() || undefined,
+      });
+      setEmailResult({ row_id: row.id, ...res });
+      setEmailing(null); setApproverEmail(''); setApproverName('');
+    } catch (e) {
+      setEmailResult({ row_id: row.id, sent: false, error: e.message });
     } finally {
       setBusyId(null);
     }
@@ -71,13 +94,59 @@ export default function StaffingApprovals({ session }) {
                               data-testid={`staffing-reject-cancel-${r.id}`}>×</button>
                     </div>
                   ) : (
-                    <div style={{ display:'flex', gap:6 }}>
-                      <button className="btn btn--primary" disabled={busyId === r.id}
-                              onClick={() => act('approve', r)}
-                              data-testid={`staffing-approve-${r.id}`}>{busyId === r.id ? '…' : 'Approve'}</button>
-                      <button className="btn" disabled={busyId === r.id}
-                              onClick={() => setRejecting(r.id)}
-                              data-testid={`staffing-reject-${r.id}`}>Reject</button>
+                    <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                      <div style={{ display:'flex', gap:6 }}>
+                        <button className="btn btn--primary" disabled={busyId === r.id}
+                                onClick={() => act('approve', r)}
+                                data-testid={`staffing-approve-${r.id}`}>{busyId === r.id ? '…' : 'Approve'}</button>
+                        <button className="btn" disabled={busyId === r.id}
+                                onClick={() => setRejecting(r.id)}
+                                data-testid={`staffing-reject-${r.id}`}>Reject</button>
+                        <button className="btn" disabled={busyId === r.id}
+                                onClick={() => { setEmailing(r.id); setApproverEmail(''); setApproverName(''); }}
+                                title="Send a one-tap approval link to an external manager"
+                                data-testid={`staffing-email-approver-${r.id}`}>Email approver</button>
+                      </div>
+                      {emailing === r.id && (
+                        <div style={{ display:'flex', flexDirection:'column', gap:4, padding:'6px', background:'var(--cf-surface-subtle, #f9fafb)', borderRadius:4 }}
+                             data-testid={`staffing-email-approver-form-${r.id}`}>
+                          <input
+                            value={approverEmail} onChange={e => setApproverEmail(e.target.value)}
+                            placeholder="approver@client.com" type="email" autoFocus
+                            data-testid={`staffing-email-approver-email-${r.id}`}
+                            style={{ fontSize:'0.85em', padding:'4px 6px', border:'1px solid var(--cf-border, #e5e7eb)', borderRadius: 3 }}
+                          />
+                          <input
+                            value={approverName} onChange={e => setApproverName(e.target.value)}
+                            placeholder="Approver name (optional)"
+                            data-testid={`staffing-email-approver-name-${r.id}`}
+                            style={{ fontSize:'0.85em', padding:'4px 6px', border:'1px solid var(--cf-border, #e5e7eb)', borderRadius: 3 }}
+                          />
+                          <div style={{ display:'flex', gap:4 }}>
+                            <button className="btn btn--primary" disabled={busyId === r.id || !approverEmail.trim()}
+                                    onClick={() => sendApproverEmail(r)}
+                                    data-testid={`staffing-email-approver-send-${r.id}`}>{busyId === r.id ? 'Sending…' : 'Send link'}</button>
+                            <button className="btn"
+                                    onClick={() => { setEmailing(null); setApproverEmail(''); setApproverName(''); }}
+                                    data-testid={`staffing-email-approver-cancel-${r.id}`}>Cancel</button>
+                          </div>
+                        </div>
+                      )}
+                      {emailResult?.row_id === r.id && (
+                        <div style={{ fontSize:'0.8em', padding:'4px 6px', borderRadius:3, background: emailResult.sent ? '#dcfce7' : '#fee2e2', color: emailResult.sent ? '#166534' : '#7f1d1d' }}
+                             data-testid={`staffing-email-approver-result-${r.id}`}>
+                          {emailResult.sent
+                            ? `Link sent to ${emailResult.approver_email}, expires ${emailResult.expires_at}.`
+                            : `Mailer offline — share this link manually: `}
+                          {!emailResult.sent && emailResult.approve_url && (
+                            <a href={emailResult.approve_url} target="_blank" rel="noopener noreferrer"
+                               data-testid={`staffing-email-approver-fallback-${r.id}`}>Approve link</a>
+                          )}
+                          {emailResult.error && !emailResult.sent && !emailResult.approve_url && (
+                            <span> {emailResult.error}</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </td>
