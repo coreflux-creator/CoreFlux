@@ -74,12 +74,12 @@ if ($method === 'GET' && $action === 'week') {
 }
 
 if ($method === 'GET' && $action === 'list') {
-    $where  = ['tenant_id = :tenant_id'];
+    $where  = ['t.tenant_id = :tenant_id'];
     $params = [];
-    if (!empty($_GET['status']))        { $where[] = 'status = :s';            $params['s']  = $_GET['status']; }
-    if (!empty($_GET['period_start']))  { $where[] = 'period_start >= :ps';    $params['ps'] = $_GET['period_start']; }
-    if (!empty($_GET['period_end']))    { $where[] = 'period_end <= :pe';      $params['pe'] = $_GET['period_end']; }
-    if (!empty($_GET['person_id']))     { $where[] = 'person_id = :pid';       $params['pid']= (int) $_GET['person_id']; }
+    if (!empty($_GET['status']))        { $where[] = 't.status = :s';            $params['s']  = $_GET['status']; }
+    if (!empty($_GET['period_start']))  { $where[] = 't.period_start >= :ps';    $params['ps'] = $_GET['period_start']; }
+    if (!empty($_GET['period_end']))    { $where[] = 't.period_end <= :pe';      $params['pe'] = $_GET['period_end']; }
+    if (!empty($_GET['person_id']))     { $where[] = 't.person_id = :pid';       $params['pid']= (int) $_GET['person_id']; }
     $whereSql = implode(' AND ', $where);
 
     $rows = scopedQuery(
@@ -89,7 +89,7 @@ if ($method === 'GET' && $action === 'list') {
            FROM staffing_timesheets t
            LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = t.tenant_id
           WHERE {$whereSql}
-          ORDER BY period_start DESC, t.id DESC
+          ORDER BY t.period_start DESC, t.id DESC
           LIMIT 200",
         $params
     );

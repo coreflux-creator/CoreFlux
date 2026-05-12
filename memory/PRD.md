@@ -3747,3 +3747,9 @@ CR  2150 Accrued Payroll        payload.cost
 - New Vite bundle hash: `index-D38hBIYY.js` (CSS: `index-Cwhpy62y.css`).
 - `.deploy-version` + `tests/sprint6b_dashboard_uis_smoke.php` updated.
 - Full suite: **163/165 pass.** Only `ai_platform_smoke.php` + `plaid_integration_smoke.php` fail (expected — no live API keys locally).
+
+### Hotfix — Staffing approvals queue `tenant_id` ambiguity (2026-02)
+- **Reported in prod:** `SQLSTATE[23000] 1052 Column 'tenant_id' in WHERE is ambiguous` on the Staffing → Approvals page.
+- **Cause:** `modules/staffing/api/timesheets.php` `?action=list` query JOINs `people` (which also has `tenant_id`) but its WHERE filters used bare `tenant_id`, `status`, `period_start`, `period_end`, `person_id`. MySQL couldn't tell which table's `tenant_id` the auto-injected binding was for.
+- **Fix:** qualified every WHERE-clause column with `t.` (header table), and updated `ORDER BY` to `t.period_start, t.id`.
+- **Test:** `tests/bugfix_staffing_approvals_list_ambiguous_tenant_id_smoke.php` — 8/8.
