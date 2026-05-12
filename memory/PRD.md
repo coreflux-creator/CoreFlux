@@ -3625,3 +3625,40 @@ Per user direction "wire reports like that":
 - Payroll Readiness queue + Billing Readiness queue (currently Coming-Soon stubs in Staffing sidebar).
 - AI insights agent for Staffing (margin explanation, weekly ops memo draft).
 - Accounting event emission (`staffing.worker_hours.approved`, etc.).
+
+## 2026-02 — Phase 2 Wave 2: Per-counterparty payment terms + Readiness queues + AI memo + Accounting events
+
+### Per-client AR payment terms
+- `modules/billing/api/invoices.php` — invoice creation now looks up `staffing_clients.payment_terms_days` by client name first. Uses that as `netDays` if present; otherwise falls back to the tenant-wide `billing_invoice_terms` config (default NET30). Tolerant of missing `staffing_clients` table (fresh installs).
+
+### Per-vendor AP payment terms
+- `modules/people/migrations/005_companies_payment_terms.sql` — adds nullable `payment_terms_days` column to the unified `companies` table (used for AP vendors and legacy AR clients). `DO 0` no-op fallback when table is missing.
+- `modules/ap/api/bills.php` — bill creation looks up `companies.payment_terms_days` by `vendor_company_id` first, falls back to vendor name match. Per-vendor override → tenant-wide `ap_default_terms` fallback.
+
+### Payroll & Billing Readiness queues
+- `modules/staffing/api/readiness.php`:
+  - `GET ?action=payroll` — approved timesheets grouped by worker (hours + periods + timesheet_ids).
+  - `GET ?action=billing` — approved hours grouped by client (revenue + hours + placement_ids), reads from `v_timesheet_day_fin` with graceful fallback when the view isn't built.
+  - `POST ?action=mark_payroll_pushed` body `{timesheet_ids}` → flips header status to `payroll_ready`.
+  - `POST ?action=mark_billing_invoiced` body `{timesheet_ids}` → flips to `billing_ready`.
+- `modules/staffing/ui/StaffingReadiness.jsx` — single component, two modes (`payroll` / `billing`). Multi-select rows + bulk "mark as pushed/invoiced". Summary bar with totals.
+- Routes wired into StaffingModule (replaces Coming-Soon stubs).
+
+### AI Weekly Memo (Phase 2 P1)
+- `modules/staffing/api/ai_insights.php?action=weekly_memo` — gathers last week's hours, revenue, cost, GP, GP%, timesheet status counts, top-5 clients by revenue. Feeds via `aiAsk()` to OpenAI with a tight system prompt: "Output exactly 5 bullets: headline number, notable client win/risk, margin call-out, workflow bottleneck, recommended action for next week." Returns `{memo, stats, top_clients, period}`.
+- `WeeklyMemoCard` on the Staffing Overview page — Generate / Regenerate button, renders 5 bullets + bottom strip of hours/revenue/GP. Graceful error when AI is disabled for tenant.
+
+### Accounting event emission
+- `staffingEmitWorkerHoursApprovedEvent($tenantId, $headerId)` in `modules/staffing/lib/timesheets.php`. Called at the END of `staffingTimesheetApprove()` AFTER the transaction commits. Emits a `staffing.worker_hours.approved` event to `accountingProcessEvent()` with payload `{timesheet_id, person_id, period_*, hours, revenue, cost, gross_profit}`. Best-effort (catch + `error_log`); failures don't roll back the approval. Skipped silently when no `accounting_entities` row exists for the tenant.
+
+### Tests
+- `tests/staffing_phase2_wave2_smoke.php` — 30 assertions covering all five items above. **161/161 total smoke tests pass.**
+
+### Bundle
+`index-CSAQf4rI.js`. `.deploy-version` updated.
+
+### Phase 2 backlog remaining
+- Engagements / Projects entity (services delivery mode — fixed-fee + milestones).
+- Jobs / Roles entity (vacant client-side slots).
+- Per-row inline economics in the weekly grid (currently we ship week totals).
+- Posting rule templates for `staffing.worker_hours.approved` (event emits but won't post a JE until a tenant configures a rule).

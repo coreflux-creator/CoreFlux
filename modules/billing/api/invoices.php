@@ -183,6 +183,20 @@ if ($method === 'POST' && $action === '') {
     $taxPct = (float) ($cfg['billing_tax_rate_pct'] ?? 0);
     $netDays = preg_match('/^NET(\d+)$/i', (string) ($cfg['billing_invoice_terms'] ?? 'NET30'), $m) ? (int) $m[1] : 30;
 
+    // Per-client override: if a staffing_clients row exists with a non-null
+    // payment_terms_days, use that instead of the tenant-wide default.
+    try {
+        $clientTerms = $pdo->prepare(
+            "SELECT payment_terms_days FROM staffing_clients
+              WHERE tenant_id = :t AND name = :n AND payment_terms_days IS NOT NULL LIMIT 1"
+        );
+        $clientTerms->execute(['t' => $tid, 'n' => (string) ($body['client_name'] ?? '')]);
+        $perClient = $clientTerms->fetchColumn();
+        if ($perClient !== false && $perClient !== null && (int) $perClient > 0) {
+            $netDays = (int) $perClient;
+        }
+    } catch (\Throwable $_) { /* staffing_clients may not exist yet — fall through */ }
+
     $computed = billingComputeTax($body['lines'], $taxPct);
 
     $pdo->beginTransaction();

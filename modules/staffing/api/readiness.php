@@ -1,0 +1,137 @@
+<?php
+/**
+ * /api/staffing/readiness — Payroll & Billing readiness queues.
+ *
+ * Approved hours that haven't been pushed downstream yet, broken down by
+ * worker (for Payroll) or by client (for Billing). Used by the
+ * /modules/staffing/payroll-readiness and /billing-readiness pages.
+ *
+ *   GET ?action=payroll&period_start=&period_end=
+ *       → { groups: [{ person_id, name, hours, cost, timesheet_ids[], status }] }
+ *
+ *   GET ?action=billing&period_start=&period_end=
+ *       → { groups: [{ client_id, client_name, hours, revenue, placement_ids[], timesheet_ids[] }] }
+ *
+ *   POST ?action=mark_payroll_pushed   body: { timesheet_ids: [] }
+ *   POST ?action=mark_billing_invoiced body: { timesheet_ids: [], invoice_id }
+ */
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/../../../core/api_bootstrap.php';
+
+$ctx    = api_require_auth();
+$user   = $ctx['user'];
+$method = api_method();
+$action = $_GET['action'] ?? '';
+
+if ($method === 'GET' && $action === 'payroll') {
+    $ps = (string) ($_GET['period_start'] ?? date('Y-m-d', strtotime('-14 days')));
+    $pe = (string) ($_GET['period_end']   ?? date('Y-m-d'));
+
+    // Approved timesheet headers in the window that haven't been flipped
+    // to payroll_ready / locked yet.
+    $rows = scopedQuery(
+        "SELECT t.id, t.person_id, t.period_start, t.period_end, t.total_hours, t.status,
+                p.first_name, p.last_name, p.email_primary
+           FROM staffing_timesheets t
+           LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = t.tenant_id
+          WHERE t.tenant_id = :tenant_id
+            AND t.status = 'approved'
+            AND t.period_start BETWEEN :ps AND :pe
+          ORDER BY t.period_start DESC, p.last_name, p.first_name",
+        ['ps' => $ps, 'pe' => $pe]
+    );
+
+    // Group by person for the readiness view.
+    $byPerson = [];
+    foreach ($rows as $r) {
+        $pid = (int) $r['person_id'];
+        if (!isset($byPerson[$pid])) {
+            $byPerson[$pid] = [
+                'person_id'      => $pid,
+                'name'           => trim(($r['first_name'] ?? '') . ' ' . ($r['last_name'] ?? '')) ?: ('Person #' . $pid),
+                'email'          => $r['email_primary'],
+                'hours'          => 0.0,
+                'timesheet_ids'  => [],
+                'periods'        => [],
+            ];
+        }
+        $byPerson[$pid]['hours']         += (float) $r['total_hours'];
+        $byPerson[$pid]['timesheet_ids'][] = (int) $r['id'];
+        $byPerson[$pid]['periods'][]      = $r['period_start'] . '→' . $r['period_end'];
+    }
+    api_ok(['groups' => array_values($byPerson), 'period_start' => $ps, 'period_end' => $pe]);
+}
+
+if ($method === 'GET' && $action === 'billing') {
+    $ps = (string) ($_GET['period_start'] ?? date('Y-m-d', strtotime('-14 days')));
+    $pe = (string) ($_GET['period_end']   ?? date('Y-m-d'));
+
+    // Approved hours grouped by client. Reads revenue from the staffing
+    // reports view when available; falls back to hours-only when missing.
+    try {
+        $rows = scopedQuery(
+            "SELECT pl.client_id, c.name AS client_name,
+                    SUM(v.hours)   AS hours,
+                    SUM(v.revenue) AS revenue,
+                    COUNT(DISTINCT t.id) AS timesheet_count,
+                    GROUP_CONCAT(DISTINCT t.id) AS timesheet_ids,
+                    GROUP_CONCAT(DISTINCT pl.id) AS placement_ids
+               FROM staffing_timesheets t
+               JOIN time_entries te ON te.timesheet_id = t.id
+               JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = t.tenant_id
+               LEFT JOIN staffing_clients c ON c.id = pl.client_id AND c.tenant_id = t.tenant_id
+               LEFT JOIN v_timesheet_day_fin v ON v.entry_id = te.id
+              WHERE t.tenant_id = :tenant_id
+                AND t.status = 'approved'
+                AND t.period_start BETWEEN :ps AND :pe
+              GROUP BY pl.client_id, c.name
+              ORDER BY revenue DESC, hours DESC",
+            ['ps' => $ps, 'pe' => $pe]
+        );
+    } catch (\Throwable $_) {
+        // v_timesheet_day_fin missing — fall back without revenue.
+        $rows = scopedQuery(
+            "SELECT pl.client_id, c.name AS client_name,
+                    SUM(te.hours)   AS hours,
+                    0 AS revenue,
+                    COUNT(DISTINCT t.id) AS timesheet_count,
+                    GROUP_CONCAT(DISTINCT t.id) AS timesheet_ids,
+                    GROUP_CONCAT(DISTINCT pl.id) AS placement_ids
+               FROM staffing_timesheets t
+               JOIN time_entries te ON te.timesheet_id = t.id
+               JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = t.tenant_id
+               LEFT JOIN staffing_clients c ON c.id = pl.client_id AND c.tenant_id = t.tenant_id
+              WHERE t.tenant_id = :tenant_id
+                AND t.status = 'approved'
+                AND t.period_start BETWEEN :ps AND :pe
+              GROUP BY pl.client_id, c.name
+              ORDER BY hours DESC",
+            ['ps' => $ps, 'pe' => $pe]
+        );
+    }
+
+    foreach ($rows as &$r) {
+        $r['hours']          = (float) ($r['hours'] ?? 0);
+        $r['revenue']        = (float) ($r['revenue'] ?? 0);
+        $r['timesheet_ids']  = array_map('intval', array_filter(explode(',', (string) $r['timesheet_ids'])));
+        $r['placement_ids']  = array_map('intval', array_filter(explode(',', (string) $r['placement_ids'])));
+    }
+    api_ok(['groups' => $rows, 'period_start' => $ps, 'period_end' => $pe]);
+}
+
+if ($method === 'POST' && in_array($action, ['mark_payroll_pushed','mark_billing_invoiced'], true)) {
+    $b   = api_json_body();
+    $ids = array_map('intval', $b['timesheet_ids'] ?? []);
+    if (!$ids) api_error('timesheet_ids required', 422);
+    $target = $action === 'mark_payroll_pushed' ? 'payroll_ready' : 'billing_ready';
+
+    $pdo = getDB();
+    $in  = implode(',', array_fill(0, count($ids), '?'));
+    $upd = $pdo->prepare("UPDATE staffing_timesheets SET status = ? WHERE tenant_id = ? AND status = 'approved' AND id IN ($in)");
+    $upd->execute(array_merge([$target, currentTenantId()], $ids));
+    api_ok(['ok' => true, 'updated' => $upd->rowCount(), 'target' => $target]);
+}
+
+api_error('Unknown action', 404);

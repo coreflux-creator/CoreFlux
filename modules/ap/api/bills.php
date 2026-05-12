@@ -376,6 +376,25 @@ if ($method === 'POST' && $action === '') {
     $taxStmt->execute(['id' => $tid]);
     $cfg = $taxStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
     $netDays = preg_match('/^NET(\d+)$/i', (string) ($cfg['ap_default_terms'] ?? 'NET30'), $m) ? (int) $m[1] : 30;
+
+    // Per-vendor override: if the companies row (or ap_vendors_index) has
+    // a non-null payment_terms_days, use that. Look up by vendor_company_id
+    // first; fall back to name match.
+    try {
+        $vc = !empty($body['vendor_company_id']) ? (int) $body['vendor_company_id'] : 0;
+        if ($vc > 0) {
+            $vt = $pdo->prepare("SELECT payment_terms_days FROM companies WHERE tenant_id = :t AND id = :id AND payment_terms_days IS NOT NULL LIMIT 1");
+            $vt->execute(['t' => $tid, 'id' => $vc]);
+            $perVendor = $vt->fetchColumn();
+        } else {
+            $vt = $pdo->prepare("SELECT payment_terms_days FROM companies WHERE tenant_id = :t AND name = :n AND payment_terms_days IS NOT NULL LIMIT 1");
+            $vt->execute(['t' => $tid, 'n' => (string) $body['vendor_name']]);
+            $perVendor = $vt->fetchColumn();
+        }
+        if ($perVendor !== false && $perVendor !== null && (int) $perVendor > 0) {
+            $netDays = (int) $perVendor;
+        }
+    } catch (\Throwable $_) { /* companies.payment_terms_days may not exist yet — fall through */ }
     $taxPct  = (float) ($body['tax_rate_pct'] ?? 0);
 
     $computed = apComputeTotals($body['lines'], $taxPct);

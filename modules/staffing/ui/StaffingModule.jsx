@@ -6,6 +6,7 @@ import StaffingApprovals from './StaffingApprovals';
 import StaffingSettings from './StaffingSettings';
 import StaffingProfitability from './StaffingProfitability';
 import Clients from './Clients';
+import StaffingReadiness from './StaffingReadiness';
 
 // Reuse existing module pages — they already exist and work; we're just
 // re-homing them under the Staffing umbrella per the CoreStaffing spec.
@@ -33,8 +34,8 @@ export default function StaffingModule({ session }) {
         <Route path="clients"      element={<Clients />} />
         <Route path="jobs"         element={<ComingSoon title="Jobs / Roles"      phase="2" />} />
         <Route path="profitability/*"  element={<StaffingProfitability session={session} />} />
-        <Route path="payroll-readiness" element={<ComingSoon title="Payroll Readiness" phase="2" />} />
-        <Route path="billing-readiness" element={<ComingSoon title="Billing Readiness" phase="2" />} />
+        <Route path="payroll-readiness" element={<StaffingReadiness mode="payroll" />} />
+        <Route path="billing-readiness" element={<StaffingReadiness mode="billing" />} />
       </Routes>
     </div>
   );

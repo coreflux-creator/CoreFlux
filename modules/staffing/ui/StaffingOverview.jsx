@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useApi } from '../../../dashboard/src/lib/api';
+import { api, useApi } from '../../../dashboard/src/lib/api';
 
 /**
  * Staffing Overview — quick links + week-at-a-glance.
@@ -27,6 +27,8 @@ export default function StaffingOverview({ session }) {
         <QuickCard to="/modules/staffing/approvals"  title="Approvals Queue"     subtitle="Review submitted timesheets" testId="staffing-card-approvals" />
         <QuickCard to="/modules/staffing/settings"   title="Settings"            subtitle="Week start, contracted hours" testId="staffing-card-settings" />
       </div>
+
+      <WeeklyMemoCard />
 
       <h3 style={{ marginBottom: 'var(--cf-space-2)' }}>My Recent Timesheets</h3>
       {list.loading && <p>Loading…</p>}
@@ -58,5 +60,53 @@ function QuickCard({ to, title, subtitle, testId }) {
       <div style={{ fontWeight: 600, marginBottom: 4 }}>{title}</div>
       <div style={{ fontSize:'0.85em', color:'var(--cf-text-secondary)' }}>{subtitle}</div>
     </Link>
+  );
+}
+
+function WeeklyMemoCard() {
+  const [memo, setMemo]       = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr]         = useState(null);
+
+  const generate = async () => {
+    setLoading(true); setErr(null);
+    try {
+      const res = await api.get('/modules/staffing/api/ai_insights.php?action=weekly_memo');
+      setMemo(res);
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <section style={{ marginBottom: 'var(--cf-space-4)', padding: 16, border:'1px solid var(--cf-border, #e5e7eb)', borderRadius: 8 }} data-testid="staffing-weekly-memo">
+      <header style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 'var(--cf-space-2)' }}>
+        <h3 style={{ margin: 0 }}>✨ AI Weekly Memo</h3>
+        <button className="btn btn--primary" onClick={generate} disabled={loading} data-testid="staffing-memo-generate">
+          {loading ? 'Generating…' : memo ? 'Regenerate' : 'Generate'}
+        </button>
+      </header>
+      {!memo && !loading && !err && (
+        <p style={{ color:'var(--cf-text-muted)', fontSize:'0.9em' }}>
+          Click Generate to get a 5-bullet ops memo from last week — headline numbers, top clients, margin call-outs, workflow bottlenecks, and a recommended action for next week.
+        </p>
+      )}
+      {err && <div style={{ color:'#dc2626', fontSize:'0.9em' }} data-testid="staffing-memo-error">{err}</div>}
+      {memo && (
+        <div data-testid="staffing-memo-content">
+          <div style={{ fontSize:'0.8em', color:'var(--cf-text-muted)', marginBottom: 8 }}>
+            Week {memo.period?.start} → {memo.period?.end}
+          </div>
+          <div style={{ whiteSpace:'pre-wrap', lineHeight: 1.6 }}>{memo.memo}</div>
+          {memo.stats?.revenue > 0 && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--cf-border, #e5e7eb)', display:'flex', gap: 16, fontSize:'0.85em', color:'var(--cf-text-muted)', flexWrap:'wrap' }}>
+              <span>Hours: <strong>{parseFloat(memo.stats.hours).toFixed(1)}</strong></span>
+              <span>Revenue: <strong>${parseFloat(memo.stats.revenue).toLocaleString(undefined,{maximumFractionDigits:0})}</strong></span>
+              <span>GP: <strong>${parseFloat(memo.stats.gp).toLocaleString(undefined,{maximumFractionDigits:0})}</strong></span>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }

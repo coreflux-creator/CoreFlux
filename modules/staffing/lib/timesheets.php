@@ -354,5 +354,54 @@ function staffingTimesheetApprove(int $userId, int $personId, string $periodStar
         throw $e;
     }
 
+    // Best-effort: emit the accounting event so the GL gets the staffing
+    // labor revenue / cost / GP journal. Failures don't roll back approval.
+    staffingEmitWorkerHoursApprovedEvent(currentTenantId(), $headerId);
+
     return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
+}
+
+/** Emit `staffing.worker_hours.approved` event to the accounting posting
+ *  engine. Best-effort: failures don't roll back the approval. */
+function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): void {
+    try {
+        require_once __DIR__ . '/../../../core/posting_engine/process.php';
+        $pdo = getDB();
+
+        $h = $pdo->prepare("SELECT t.id, t.person_id, t.period_start, t.period_end, t.total_hours,
+                                   COALESCE(SUM(te.hours * COALESCE(pr.bill_rate, 0)), 0) AS revenue,
+                                   COALESCE(SUM(te.hours * COALESCE(pr.pay_rate, 0)),  0) AS cost
+                              FROM staffing_timesheets t
+                              LEFT JOIN time_entries te ON te.timesheet_id = t.id AND te.tenant_id = t.tenant_id AND te.status != 'superseded'
+                              LEFT JOIN placement_rates pr ON pr.id = te.rate_snapshot_id
+                             WHERE t.tenant_id = :t AND t.id = :id GROUP BY t.id");
+        $h->execute(['t' => $tenantId, 'id' => $headerId]);
+        $hdr = $h->fetch(\PDO::FETCH_ASSOC);
+        if (!$hdr) return;
+
+        $ent = $pdo->prepare("SELECT id FROM accounting_entities WHERE tenant_id = :t LIMIT 1");
+        $ent->execute(['t' => $tenantId]);
+        $entityId = (int) ($ent->fetchColumn() ?: 0);
+        if (!$entityId) return; // accounting not configured — silently skip
+
+        accountingProcessEvent($tenantId, [
+            'entity_id'        => $entityId,
+            'event_type'       => 'staffing.worker_hours.approved',
+            'source_module'    => 'staffing',
+            'source_record_id' => (string) $hdr['id'],
+            'event_date'       => (string) $hdr['period_end'],
+            'payload'          => [
+                'timesheet_id' => (int) $hdr['id'],
+                'person_id'    => (int) $hdr['person_id'],
+                'period_start' => $hdr['period_start'],
+                'period_end'   => $hdr['period_end'],
+                'hours'        => (float) $hdr['total_hours'],
+                'revenue'      => (float) $hdr['revenue'],
+                'cost'         => (float) $hdr['cost'],
+                'gross_profit' => (float) ($hdr['revenue'] - $hdr['cost']),
+            ],
+        ], null);
+    } catch (\Throwable $e) {
+        error_log("[staffing] accounting event emit failed for ts #{$headerId}: " . $e->getMessage());
+    }
 }
