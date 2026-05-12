@@ -107,6 +107,45 @@ if ($method === 'GET' && $action === 'prefill_from_last_week') {
     api_ok($template);
 }
 
+if ($method === 'GET' && $action === 'week_economics') {
+    $personId    = (int) ($_GET['person_id']    ?? ($user['person_id'] ?? 0));
+    $periodStart = (string) ($_GET['period_start'] ?? '');
+    $periodEnd   = (string) ($_GET['period_end']   ?? '');
+    if ($personId <= 0)                api_error('person_id required', 422);
+    if (!$periodStart || !$periodEnd)  api_error('period_start / period_end required', 422);
+
+    // Read from the staffing reports view if present — gives accurate
+    // revenue / cost / GP per row with bill/pay rates joined.
+    try {
+        $rows = scopedQuery(
+            "SELECT v.placement_id,
+                    SUM(v.hours)        AS hours,
+                    SUM(v.revenue)      AS revenue,
+                    SUM(v.cost)         AS cost,
+                    SUM(v.gross_profit) AS gp
+               FROM v_timesheet_day_fin v
+              WHERE v.tenant_id = :tenant_id
+                AND v.employee_id = :pid
+                AND v.work_date BETWEEN :ps AND :pe
+                AND v.entry_status != 'superseded'
+              GROUP BY v.placement_id",
+            ['pid' => $personId, 'ps' => $periodStart, 'pe' => $periodEnd]
+        );
+    } catch (\Throwable $_) {
+        // View not built yet — return empty economics.
+        $rows = [];
+    }
+    $total = ['revenue' => 0.0, 'cost' => 0.0, 'gp' => 0.0, 'hours' => 0.0];
+    foreach ($rows as $r) {
+        $total['revenue'] += (float) $r['revenue'];
+        $total['cost']    += (float) $r['cost'];
+        $total['gp']      += (float) $r['gp'];
+        $total['hours']   += (float) $r['hours'];
+    }
+    $total['gp_pct'] = $total['revenue'] > 0 ? round($total['gp'] / $total['revenue'] * 100, 1) : 0;
+    api_ok(['rows' => $rows, 'total' => $total]);
+}
+
 if ($method === 'POST' && $action === 'bulk_save') {
     $body = api_json_body();
     try {

@@ -3593,3 +3593,35 @@ Screenshots from the user showed two MORE migration-related errors after the fir
 - **`tests/time_entries_defensive_repair_smoke.php`** — 26 assertions covering migration 008's column coverage + self-heal recipe completeness.
 - Updated `tests/time_person_id_migration_smoke.php` regex to handle whitespace-aligned PHP array entries.
 - **159/159 smoke tests pass.**
+
+## 2026-02 — Phase 2 Wave 1: Profitability inside Staffing + Clients + Weekly Economics
+
+### Profitability mirror under Staffing umbrella
+Per user direction "wire reports like that":
+- `modules/staffing/ui/StaffingProfitability.jsx` — new tabbed surface inside the Staffing umbrella. Five tabs (Staffing Overview / Executive Snapshot / Client Profitability / Rate & Spread / Overtime Watch) that REUSE the existing Reports module pages (no duplication). Routes mounted at `/modules/staffing/profitability/*`.
+- `StaffingModule.jsx` Profitability route now mounts the real surface (was a Coming-Soon stub).
+
+### Clients entity (Phase 2 P0)
+- **`modules/staffing/migrations/003_clients.sql`** — new `staffing_clients` table (id, tenant_id, name UNIQUE, legal_name, industry, primary_contact_*, billing_*, payment_terms_days, status enum, msa_*, notes). Adds `placements.client_id` FK column. Backfills clients from distinct `end_client_name` strings on placements. Links every placement to its new client.
+- **`modules/staffing/api/clients.php`** — `list` (with search + status filter + active_placements rollup), `get`, `create` (duplicate-name guard), `update` (allow-listed fields), `delete` (soft = status=closed, preserves history), `stats` (active_placements + MTD revenue from `v_timesheet_day_fin`, falls back to null when view missing).
+- **`modules/staffing/ui/Clients.jsx`** — table + search + status filter + right-side drawer for create/edit (display name, legal name, industry, primary contact, billing city/state/country, payment terms, notes). Soft-close button with confirmation.
+- Routes wired at `/modules/staffing/clients`.
+
+### Weekly Timesheet inline economics
+- **`/api/staffing/timesheets?action=week_economics`** — per-placement + week-total revenue / cost / gross profit / GP% computed from `v_timesheet_day_fin`. Falls back to empty payload when the view isn't built yet.
+- **`TimesheetWeek.jsx`** — fetches econ totals on every week-change, renders a four-cell footer below the grid: Revenue / Cost / Gross Profit / GP%. Color-coded (green > 25% GP, amber positive, red <0). Hidden when there's no revenue (avoids 0/0 noise on empty weeks).
+
+### Tests
+- **`tests/staffing_phase2_clients_econ_smoke.php`** (29 assertions) — pins migration, API, UI, route wiring, economics action.
+- **160/160 total smoke tests pass.**
+
+### Bundle
+`index-CowEZEAh.js` / `index-Cwhpy62y.css`. `.deploy-version` updated.
+
+### What's left for Phase 2
+- Engagements / Projects entity (services delivery mode, spec §10.5).
+- Jobs/Roles entity (separate from placements; vacant slots for client-side hiring).
+- Per-row economics in the grid (currently weekly totals; per-row hover/inline column needs a placement_rates effective-dated lookup per cell).
+- Payroll Readiness queue + Billing Readiness queue (currently Coming-Soon stubs in Staffing sidebar).
+- AI insights agent for Staffing (margin explanation, weekly ops memo draft).
+- Accounting event emission (`staffing.worker_hours.approved`, etc.).

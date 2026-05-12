@@ -59,6 +59,11 @@ export default function TimesheetWeek({ session }) {
   const placementsApi = useApi('/modules/placements/api/placements.php?status=active&per_page=200');
   const activePlacements = placementsApi.data?.rows ?? [];
 
+  // Economics — best-effort. Falls back to nulls if the reports view isn't built yet.
+  const econPath = `/modules/staffing/api/timesheets.php?action=week_economics&person_id=${personId}&period_start=${periodStart}&period_end=${periodEnd}`;
+  const econApi  = useApi(econPath, [econPath, data?.timesheet?.id]);
+  const econTotal = econApi.data?.total;
+
   const header  = data?.timesheet;
   const entries = data?.entries ?? [];
 
@@ -383,12 +388,31 @@ export default function TimesheetWeek({ session }) {
       </table>
       </div>
 
+      {econTotal && (econTotal.revenue > 0 || econTotal.cost > 0) && (
+        <div data-testid="ts-week-economics" style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'var(--cf-space-2)', marginTop:'var(--cf-space-3)', padding: 12, background:'var(--cf-surface-subtle, #f9fafb)', borderRadius: 6 }}>
+          <EconCell label="Revenue"     value={`$${econTotal.revenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} testId="ts-econ-revenue" />
+          <EconCell label="Cost"        value={`$${econTotal.cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}    testId="ts-econ-cost" />
+          <EconCell label="Gross Profit" value={`$${econTotal.gp.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}     testId="ts-econ-gp" emphasis={econTotal.gp > 0 ? 'good' : 'warn'} />
+          <EconCell label="GP %"        value={`${econTotal.gp_pct}%`} testId="ts-econ-gp-pct" emphasis={econTotal.gp_pct >= 25 ? 'good' : econTotal.gp_pct > 0 ? 'warn' : 'bad'} />
+        </div>
+      )}
+
       {header?.status === 'rejected' && header.rejection_reason && (
         <div className="alert" style={{ marginTop: 'var(--cf-space-3)', padding: 12, borderLeft: '3px solid var(--cf-error, #dc2626)', background: '#fef2f2' }} data-testid="ts-rejection-banner">
           <strong>Rejected:</strong> {header.rejection_reason}
         </div>
       )}
     </section>
+  );
+}
+
+function EconCell({ label, value, testId, emphasis }) {
+  const color = emphasis === 'good' ? '#059669' : emphasis === 'warn' ? '#d97706' : emphasis === 'bad' ? '#dc2626' : 'inherit';
+  return (
+    <div data-testid={testId}>
+      <div style={{ fontSize:'0.7em', textTransform:'uppercase', color:'var(--cf-text-muted)', letterSpacing: '0.05em' }}>{label}</div>
+      <div style={{ fontSize:'1.25em', fontWeight: 600, color }}>{value}</div>
+    </div>
   );
 }
 
