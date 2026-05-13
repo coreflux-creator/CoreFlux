@@ -39,7 +39,7 @@ export default function JeTracePane({ jeId }) {
 }
 
 function TraceBody({ trace }) {
-  const { source_event: src, ancestors = [], descendants = [], interpretations = {} } = trace || {};
+  const { source_event: src, ancestors = [], descendants = [], interpretations = {}, exceptions = {}, evidence = {} } = trace || {};
   if (!src) {
     return <p style={{ marginTop: 12, color: '#94a3b8' }} data-testid="je-trace-no-source">
       No originating event found. This may be a manual or pre-rails journal entry.
@@ -51,21 +51,29 @@ function TraceBody({ trace }) {
   return (
     <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }} data-testid="je-trace-body">
       {ancRev.map(node => (
-        <EventNode key={`anc-${node.related_event_id}`} node={node} interpretations={interpretations[node.related_event_id]} kind="ancestor"/>
+        <EventNode key={`anc-${node.related_event_id}`} node={node}
+                   interpretations={interpretations[node.related_event_id]}
+                   exceptions={exceptions[node.related_event_id]}
+                   evidence={evidence[node.related_event_id]}
+                   kind="ancestor"/>
       ))}
       <EventNode node={{
         related_event_id: src.id, event_type: src.event_type, source_module: src.source_module,
         source_record_id: src.source_record_id, event_date: src.event_date, status: src.status,
         journal_entry_id: src.journal_entry_id, payload: src.payload, depth: 0,
-      }} interpretations={interpretations[src.id]} kind="source"/>
+      }} interpretations={interpretations[src.id]} exceptions={exceptions[src.id]} evidence={evidence[src.id]} kind="source"/>
       {descendants.map(node => (
-        <EventNode key={`dsc-${node.related_event_id}`} node={node} interpretations={interpretations[node.related_event_id]} kind="descendant"/>
+        <EventNode key={`dsc-${node.related_event_id}`} node={node}
+                   interpretations={interpretations[node.related_event_id]}
+                   exceptions={exceptions[node.related_event_id]}
+                   evidence={evidence[node.related_event_id]}
+                   kind="descendant"/>
       ))}
     </div>
   );
 }
 
-function EventNode({ node, interpretations = [], kind }) {
+function EventNode({ node, interpretations = [], exceptions = [], evidence = [], kind }) {
   const isSource    = kind === 'source';
   const color       = isSource ? '#2563eb' : (kind === 'ancestor' ? '#0891b2' : '#7c3aed');
   const accepted    = interpretations.find(i => i.status === 'accepted');
@@ -96,6 +104,70 @@ function EventNode({ node, interpretations = [], kind }) {
           {accepted && <InterpretationRow row={accepted} highlight />}
           {proposed.map(r => <InterpretationRow key={r.id} row={r}/>)}
           {overridden.map(r => <InterpretationRow key={r.id} row={r}/>)}
+        </div>
+      )}
+      {exceptions.length > 0 && (
+        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}
+             data-testid={`je-trace-exceptions-${node.related_event_id}`}>
+          {exceptions.map(ex => <ExceptionRow key={ex.id} row={ex}/>)}
+        </div>
+      )}
+      {evidence.length > 0 && (
+        <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}
+             data-testid={`je-trace-evidence-${node.related_event_id}`}>
+          {evidence.map(ev => <EvidenceChip key={ev.id} row={ev}/>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EvidenceChip({ row }) {
+  return (
+    <span data-testid={`je-trace-evidence-chip-${row.id}`}
+          title={[row.document_type, row.content_type, row.size_bytes ? `${row.size_bytes} bytes` : null].filter(Boolean).join(' · ')}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            padding: '3px 8px', borderRadius: 12, background: '#f1f5f9',
+            border: '1px solid #cbd5e1', fontSize: 11, color: '#0f172a',
+          }}>
+      <FileText size={11}/>
+      <strong style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.04em', color: '#64748b' }}>
+        {row.document_type}
+      </strong>
+      {row.label && <span>{row.label}</span>}
+      {row.source && <em style={{ color: '#94a3b8', fontSize: 10 }}>· {row.source}</em>}
+    </span>
+  );
+}
+
+function ExceptionRow({ row }) {
+  const sevColor = {
+    critical: '#7f1d1d', high: '#dc2626', warn: '#ca8a04', info: '#64748b',
+  }[row.severity] || '#64748b';
+  const statusColor = {
+    open: '#dc2626', snoozed: '#ca8a04', resolved: '#16a34a', dismissed: '#94a3b8',
+  }[row.status] || '#64748b';
+  return (
+    <div data-testid={`je-trace-exception-${row.id}`}
+         style={{
+           padding: '6px 8px', borderRadius: 4, fontSize: 11,
+           background: '#fef3c7', border: `1px solid ${sevColor}`,
+         }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <strong style={{ color: sevColor, textTransform: 'uppercase', fontSize: 10 }}>
+          ⚠ {row.severity} · {row.source}
+        </strong>
+        <span style={{ color: statusColor, fontWeight: 600, textTransform: 'uppercase', fontSize: 10 }}>{row.status}</span>
+        <span style={{ color: '#94a3b8' }}>{row.opened_at}</span>
+        {row.resolved_at && <span style={{ color: '#94a3b8' }}>resolved {row.resolved_at}</span>}
+        {row.assigned_user_id && <span style={{ color: '#94a3b8' }}>assigned to user #{row.assigned_user_id}</span>}
+      </div>
+      <div style={{ marginTop: 3, color: '#0f172a' }}>{row.title}</div>
+      {row.resolution_note && (
+        <div style={{ marginTop: 4, padding: '4px 6px', background: '#fff', borderLeft: `2px solid ${statusColor}`, borderRadius: 2 }}>
+          <strong style={{ fontSize: 10, color: statusColor }}>Resolution:</strong>{' '}
+          <span style={{ color: '#0f172a' }}>{row.resolution_note}</span>
         </div>
       )}
     </div>

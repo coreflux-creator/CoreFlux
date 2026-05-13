@@ -22,6 +22,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../core/event_lineage.php';
 require_once __DIR__ . '/../../core/ai_interpretation.php';
+require_once __DIR__ . '/../../core/evidence_attachments.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) (currentTenantId() ?? 0);
@@ -76,6 +77,7 @@ foreach ($descendants as $d) $eventIds[] = (int) $d['related_event_id'];
 $eventIds = array_values(array_unique($eventIds));
 
 $interpretations = [];
+$exceptions = [];
 if ($eventIds) {
     try {
         $placeholders = implode(',', array_fill(0, count($eventIds), '?'));
@@ -98,6 +100,31 @@ if ($eventIds) {
             $interpretations[$eid][] = $r;
         }
     } catch (\Throwable $_) { /* interpretations table optional */ }
+
+    // Phase 1d → JE Trace integration: surface exception_queue rows for each
+    // event in the chain so the trace pane shows the FULL story —
+    // event → AI proposal → human override → resolution rationale.
+    try {
+        $placeholders = implode(',', array_fill(0, count($eventIds), '?'));
+        $params       = array_merge([$tenantId], $eventIds);
+        $stmt = $pdo->prepare(
+            "SELECT id, source, severity, subject_id AS event_id, title,
+                    payload, status, opened_at, opened_by_user_id,
+                    assigned_user_id, snoozed_until,
+                    resolved_at, resolved_by_user_id, resolution_note
+               FROM exception_queue
+              WHERE tenant_id = ?
+                AND subject_type = 'accounting_event'
+                AND subject_id IN ({$placeholders})
+              ORDER BY subject_id ASC, opened_at DESC, id DESC"
+        );
+        $stmt->execute($params);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $r) {
+            $eid = (int) $r['event_id'];
+            $r['payload'] = json_decode((string) ($r['payload'] ?? '{}'), true) ?: [];
+            $exceptions[$eid][] = $r;
+        }
+    } catch (\Throwable $_) { /* exception_queue table optional */ }
 }
 
 // 5) Decode source_event payload for display.
@@ -111,4 +138,6 @@ api_ok([
     'ancestors'       => $ancestors,
     'descendants'     => $descendants,
     'interpretations' => $interpretations,
+    'exceptions'      => $exceptions,
+    'evidence'        => evidenceListForEvents($tenantId, $eventIds),
 ]);
