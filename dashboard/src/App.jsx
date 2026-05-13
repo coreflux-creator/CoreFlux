@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'r
 import AppLayout from './layout/AppLayout';
 import DashboardOverview from './pages/DashboardOverview';
 import ExecutiveDashboard from './pages/ExecutiveDashboard';
+import CFODashboard from './pages/CFODashboard';
 import ReportsModule from '../../modules/reports/ui/ReportsModule';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
@@ -368,6 +369,9 @@ const AppContent = ({ session, usingDemo }) => {
           {/* Backwards-compat: the old /exec route now bounces into the
               Reports module so anyone still hitting it lands correctly. */}
           <Route path="/exec"      element={<Navigate to="/modules/reports/exec" replace />} />
+          {/* CFO Dashboard — high-level KPI surface with custom views, AI
+              annotations, per-section notes, and on-demand report email. */}
+          <Route path="/cfo"       element={<CFODashboard session={session} />} />
           
           {/* Tenant picker */}
           <Route path="/select-tenant" element={<TenantPicker session={session} />} />

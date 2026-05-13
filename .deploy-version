@@ -283,7 +283,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-D38hBIYY.js
+- spa-assets/index-Cpv3lqE7.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -695,6 +695,14 @@ last_known_features:
 - staffing.profitability.worker_mix.mixed_classification_change_flags
 - staffing.timesheet.external_approver_email_one_tap_flow
 - staffing.timesheet.external_approver_columns_self_heal
+- cfo.dashboard.kpi_grid_dso_dpo_unapplied_cash
+- cfo.dashboard.upcoming_starts_terms_30d
+- cfo.dashboard.prior_period_comparison_scalars
+- cfo.dashboard.per_widget_ai_annotation
+- cfo.dashboard.per_widget_user_notes
+- cfo.dashboard.custom_formula_widgets_a_op_b
+- cfo.dashboard.saved_view_widget_config
+- cfo.dashboard.on_demand_email_report
 - modules/staffing/manifest.php
 - modules/staffing/migrations/001_timesheets.sql
 - modules/staffing/migrations/002_timesheet_id_on_entries.sql

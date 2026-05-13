@@ -86,10 +86,20 @@ if (!$customRange) {
 
 // Prior-year comparison: when ?compare=prior_year is set, every trended
 // metric also returns a `prev_period` series shifted exactly 52 weeks earlier.
+// When ?compare=prior_period is set, the prev window is the same length
+// window immediately preceding the current one (CFO use case).
 $compare = (string) api_query('compare', '');
-$compareEnabled = $compare === 'prior_year';
-$prevFrom = $from->modify('-52 weeks');
-$prevTo   = $to->modify('-52 weeks');
+$compareEnabled    = in_array($compare, ['prior_year', 'prior_period'], true);
+$comparePriorYear  = $compare === 'prior_year';
+$windowDays = max(1, (int) ceil(($to->getTimestamp() - $from->getTimestamp()) / 86400) + 1);
+if ($comparePriorYear) {
+    $prevFrom = $from->modify('-52 weeks');
+    $prevTo   = $to->modify('-52 weeks');
+} else {
+    // prior_period (or default) — immediately preceding same-length window.
+    $prevTo   = $from->modify('-1 day');
+    $prevFrom = $prevTo->modify('-' . ($windowDays - 1) . ' days');
+}
 
 $clientId       = (int) api_query('client_id', 0);
 $recruiterId    = (int) api_query('recruiter_id', 0);
@@ -164,6 +174,13 @@ $finance = [
     'ar_aging' => ['current' => 0, 'd30' => 0, 'd60' => 0, 'd90' => 0, 'd90_plus' => 0, 'total' => 0],
     'ap_aging' => ['current' => 0, 'd30' => 0, 'd60' => 0, 'd90' => 0, 'd90_plus' => 0, 'total' => 0],
     'payroll'  => ['mtd' => 0, 'qtd' => 0, 'ytd' => 0, 'last_run_total' => 0],
+    // CFO-specific working-capital metrics (2026-02).
+    // dso  = days sales outstanding   ≈ AR / (revenue_last_90 / 90)
+    // dpo  = days payable outstanding ≈ AP / (cogs_last_90    / 90)
+    // unapplied_cash = customer payments received but not yet applied to any invoice.
+    'dso'            => null,
+    'dpo'            => null,
+    'unapplied_cash' => 0,
 ];
 
 $bucketDates = [
@@ -411,6 +428,140 @@ if (_execRowsExist($pdo, 'time_entries')) {
     $staffing['billable_hours']['period'] = round(array_sum(array_column($hoursRows, 'v')), 2);
 }
 
+/* ---------- CFO EXTRAS: DSO / DPO / unapplied cash / upcoming hires + terms ---------- */
+$last90 = $today->modify('-90 days')->format('Y-m-d');
+
+// DSO — AR balance ÷ (revenue last 90 / 90). Skip when revenue is 0.
+if ($finance['ar_aging']['total'] > 0 && _execRowsExist($pdo, 'billing_invoices')) {
+    $rev90 = _execSafeFetch($pdo,
+        "SELECT COALESCE(SUM(total),0) AS v FROM billing_invoices
+          WHERE tenant_id = :t AND status IN ('sent','partially_paid','paid')
+            AND issue_date >= :s",
+        ['t' => $tenantId, 's' => $last90]
+    );
+    $rev90v = (float) ($rev90[0]['v'] ?? 0);
+    if ($rev90v > 0) {
+        $finance['dso'] = round($finance['ar_aging']['total'] / ($rev90v / 90), 1);
+    }
+}
+
+// DPO — AP balance ÷ (bill volume last 90 / 90).
+if ($finance['ap_aging']['total'] > 0 && _execRowsExist($pdo, 'ap_bills')) {
+    $bill90 = _execSafeFetch($pdo,
+        "SELECT COALESCE(SUM(total),0) AS v FROM ap_bills
+          WHERE tenant_id = :t AND status IN ('approved','partially_paid','paid')
+            AND bill_date >= :s",
+        ['t' => $tenantId, 's' => $last90]
+    );
+    $bill90v = (float) ($bill90[0]['v'] ?? 0);
+    if ($bill90v > 0) {
+        $finance['dpo'] = round($finance['ap_aging']['total'] / ($bill90v / 90), 1);
+    }
+}
+
+// Unapplied cash — customer payments not yet applied to an invoice.
+// billing_payments has an `unallocated_amount` column maintained inline
+// by the billing module's allocation flow — fastest source of truth.
+if (_execRowsExist($pdo, 'billing_payments')) {
+    $rows = _execSafeFetch($pdo,
+        "SELECT COALESCE(SUM(unallocated_amount), 0) AS v
+           FROM billing_payments
+          WHERE tenant_id = :t",
+        ['t' => $tenantId]
+    );
+    $finance['unapplied_cash'] = round(max(0, (float) ($rows[0]['v'] ?? 0)), 2);
+}
+
+// Upcoming starts (hire_date in next 30 days) + upcoming terms (termination_date in next 30 days).
+if (_execRowsExist($pdo, 'people')) {
+    $soon = $today->modify('+30 days')->format('Y-m-d');
+    $upStarts = _execSafeFetch($pdo,
+        "SELECT COUNT(*) AS c FROM people
+          WHERE tenant_id = :t AND status = 'active'
+            AND hire_date BETWEEN :a AND :b",
+        ['t' => $tenantId, 'a' => $today->format('Y-m-d'), 'b' => $soon]
+    );
+    $staffing['upcoming_starts'] = (int) ($upStarts[0]['c'] ?? 0);
+
+    $upTerms = _execSafeFetch($pdo,
+        "SELECT COUNT(*) AS c FROM people
+          WHERE tenant_id = :t
+            AND termination_date BETWEEN :a AND :b",
+        ['t' => $tenantId, 'a' => $today->format('Y-m-d'), 'b' => $soon]
+    );
+    $staffing['upcoming_terminations'] = (int) ($upTerms[0]['c'] ?? 0);
+} else {
+    $staffing['upcoming_starts']       = 0;
+    $staffing['upcoming_terminations'] = 0;
+}
+
+/* ---------- PRIOR-PERIOD COMPARISON SCALARS ---------- */
+$prevScalars = null;
+if ($compareEnabled) {
+    $prevScalars = [
+        'window_from'      => $prevFrom->format('Y-m-d'),
+        'window_to'        => $prevTo->format('Y-m-d'),
+        'revenue'          => 0.0,
+        'margin'           => 0.0,
+        'payroll'          => 0.0,
+        'billable_hours'   => 0.0,
+        'new_starts'       => 0,
+        'terminations'     => 0,
+        'new_placements'   => 0,
+    ];
+    if (_execRowsExist($pdo, 'billing_invoices')) {
+        $r = _execSafeFetch($pdo,
+            "SELECT COALESCE(SUM(total),0) AS v FROM billing_invoices
+              WHERE tenant_id = :t AND status IN ('sent','partially_paid','paid')
+                AND issue_date BETWEEN :a AND :b",
+            ['t' => $tenantId, 'a' => $prevFrom->format('Y-m-d'), 'b' => $prevTo->format('Y-m-d')]
+        );
+        $prevScalars['revenue'] = round((float) ($r[0]['v'] ?? 0), 2);
+    }
+    if (_execRowsExist($pdo, 'payroll_runs')) {
+        $r = _execSafeFetch($pdo,
+            "SELECT COALESCE(SUM(total_gross_cents),0)/100 AS v FROM payroll_runs
+              WHERE tenant_id = :t AND status IN ('approved','paid')
+                AND created_at BETWEEN :a AND :b",
+            ['t' => $tenantId, 'a' => $prevFrom->format('Y-m-d'), 'b' => $prevTo->format('Y-m-d')]
+        );
+        $prevScalars['payroll'] = round((float) ($r[0]['v'] ?? 0), 2);
+    }
+    if (_execRowsExist($pdo, 'people')) {
+        $r = _execSafeFetch($pdo,
+            "SELECT COUNT(*) AS c FROM people
+              WHERE tenant_id = :t AND hire_date BETWEEN :a AND :b",
+            ['t' => $tenantId, 'a' => $prevFrom->format('Y-m-d'), 'b' => $prevTo->format('Y-m-d')]
+        );
+        $prevScalars['new_starts'] = (int) ($r[0]['c'] ?? 0);
+        $r = _execSafeFetch($pdo,
+            "SELECT COUNT(*) AS c FROM people
+              WHERE tenant_id = :t AND termination_date BETWEEN :a AND :b",
+            ['t' => $tenantId, 'a' => $prevFrom->format('Y-m-d'), 'b' => $prevTo->format('Y-m-d')]
+        );
+        $prevScalars['terminations'] = (int) ($r[0]['c'] ?? 0);
+    }
+    if (_execRowsExist($pdo, 'placements')) {
+        $r = _execSafeFetch($pdo,
+            "SELECT COUNT(*) AS c FROM placements p WHERE $placementWhereSql
+                AND p.start_date BETWEEN :a AND :b",
+            array_merge($pwParams, ['a' => $prevFrom->format('Y-m-d'), 'b' => $prevTo->format('Y-m-d')])
+        );
+        $prevScalars['new_placements'] = (int) ($r[0]['c'] ?? 0);
+    }
+    if (_execRowsExist($pdo, 'time_entries')) {
+        $r = _execSafeFetch($pdo,
+            "SELECT COALESCE(SUM(te.hours),0) AS v FROM time_entries te
+              WHERE te.tenant_id = :t AND te.status = 'approved'
+                AND te.category IN ('regular_billable','OT_billable')
+                AND te.work_date BETWEEN :a AND :b
+                AND te.placement_id IN (SELECT p.id FROM placements p WHERE $placementWhereSql)",
+            array_merge($pwParams, ['a' => $prevFrom->format('Y-m-d'), 'b' => $prevTo->format('Y-m-d')])
+        );
+        $prevScalars['billable_hours'] = round((float) ($r[0]['v'] ?? 0), 2);
+    }
+}
+
 api_ok([
     'range'   => [
         'from'  => $from->format('Y-m-d'),
@@ -419,9 +570,10 @@ api_ok([
         'custom' => $customRange,
     ],
     'compare' => $compareEnabled ? [
-        'mode'      => 'prior_year',
+        'mode'      => $compare,
         'prev_from' => $prevFrom->format('Y-m-d'),
         'prev_to'   => $prevTo->format('Y-m-d'),
+        'scalars'   => $prevScalars,
     ] : null,
     'filters' => [
         'client_id'      => $clientId ?: null,

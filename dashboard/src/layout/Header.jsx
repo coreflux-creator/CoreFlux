@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ChevronDown, LayoutDashboard, Shield, Building2, Inbox, Briefcase } from 'lucide-react';
+import { ChevronDown, LayoutDashboard, Shield, Building2, Inbox, Briefcase, TrendingUp } from 'lucide-react';
 import { api } from '../lib/api';
 
 const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, onTenantChange }) => {
@@ -56,6 +56,7 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
 
   const isOnDashboard = location.pathname === '/' || location.pathname === '/dashboard';
   const isOnInbox = location.pathname === '/inbox';
+  const isOnCfo   = location.pathname.startsWith('/cfo');
   const activeEntity = entities.find(e => e.id === activeEntityId);
 
   return (
@@ -80,6 +81,11 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
         <Link to="/" className={`header-btn ${isOnDashboard ? 'active' : ''}`}>
           <LayoutDashboard size={18} className="header-btn-icon" />
           <span>Dashboard</span>
+        </Link>
+
+        <Link to="/cfo" className={`header-btn ${isOnCfo ? 'active' : ''}`} data-testid="header-cfo-link">
+          <TrendingUp size={18} className="header-btn-icon" />
+          <span>CFO</span>
         </Link>
         
         {modules && modules.length > 0 && (

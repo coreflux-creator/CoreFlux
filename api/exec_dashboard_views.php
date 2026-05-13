@@ -71,17 +71,29 @@ function _execViewCanModify(array $row, int $userId, string $role): bool {
 
 function _execViewSerialize(array $row): array {
     $filters = json_decode((string) ($row['filters_json'] ?? '{}'), true) ?: [];
+    $widgets = json_decode((string) ($row['widget_config_json'] ?? 'null'), true);
     return [
-        'id'         => (int) $row['id'],
-        'name'       => (string) $row['name'],
-        'slug'       => (string) $row['slug'],
-        'filters'    => $filters,
-        'is_default' => (int) ($row['is_default'] ?? 0) === 1,
-        'is_shared'  => (int) ($row['is_shared']  ?? 0) === 1,
-        'is_owner'   => (int) ($row['_is_owner']  ?? 0) === 1,
-        'owner_name' => $row['owner_name'] ?? null,
-        'updated_at' => $row['updated_at'] ?? null,
+        'id'            => (int) $row['id'],
+        'name'          => (string) $row['name'],
+        'slug'          => (string) $row['slug'],
+        'filters'       => $filters,
+        'widget_config' => is_array($widgets) ? $widgets : null,
+        'is_default'    => (int) ($row['is_default'] ?? 0) === 1,
+        'is_shared'     => (int) ($row['is_shared']  ?? 0) === 1,
+        'is_owner'      => (int) ($row['_is_owner']  ?? 0) === 1,
+        'owner_name'    => $row['owner_name'] ?? null,
+        'updated_at'    => $row['updated_at'] ?? null,
     ];
+}
+
+/** Widget config is free-form per-view JSON (visibility / order / per-widget
+ * time-window overrides). We just lightly cap the size to prevent abuse. */
+function _execViewSanitiseWidgetConfig($raw): ?string {
+    if (!is_array($raw)) return null;
+    $json = json_encode($raw);
+    if ($json === false) return null;
+    if (strlen($json) > 32768) return null;   // 32 KB hard ceiling
+    return $json;
 }
 
 /* ---------- GET ---------- */
@@ -127,6 +139,7 @@ if ($method === 'POST') {
     if (mb_strlen($name) > 120) api_error('name too long (max 120)', 422);
 
     $filters  = is_array($body['filters']) ? _execViewSanitiseFilters($body['filters']) : [];
+    $widgets  = array_key_exists('widget_config', $body) ? _execViewSanitiseWidgetConfig($body['widget_config']) : null;
     $shared   = (int) (bool) ($body['is_shared']  ?? 0);
     $default  = (int) (bool) ($body['is_default'] ?? 0);
 
@@ -152,12 +165,13 @@ if ($method === 'POST') {
         }
         $pdo->prepare(
             "INSERT INTO exec_dashboard_views
-                (tenant_id, user_id, name, slug, filters_json, is_default, is_shared)
-             VALUES (:t, :u, :n, :s, :f, :d, :sh)"
+                (tenant_id, user_id, name, slug, filters_json, widget_config_json, is_default, is_shared)
+             VALUES (:t, :u, :n, :s, :f, :w, :d, :sh)"
         )->execute([
             't' => $tenantId, 'u' => $userId,
             'n' => $name, 's' => $slug,
             'f' => json_encode($filters),
+            'w' => $widgets,
             'd' => $default, 'sh' => $shared,
         ]);
         $newId = (int) $pdo->lastInsertId();
@@ -191,6 +205,10 @@ if ($method === 'PATCH' && $id) {
     if (array_key_exists('filters', $body) && is_array($body['filters'])) {
         $sets[] = 'filters_json = :f';
         $params['f'] = json_encode(_execViewSanitiseFilters($body['filters']));
+    }
+    if (array_key_exists('widget_config', $body)) {
+        $sets[] = 'widget_config_json = :w';
+        $params['w'] = _execViewSanitiseWidgetConfig($body['widget_config']);
     }
     if (array_key_exists('is_shared', $body)) {
         $sets[] = 'is_shared = :sh'; $params['sh'] = (int) (bool) $body['is_shared'];

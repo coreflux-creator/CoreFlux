@@ -3753,3 +3753,36 @@ CR  2150 Accrued Payroll        payload.cost
 - **Cause:** `modules/staffing/api/timesheets.php` `?action=list` query JOINs `people` (which also has `tenant_id`) but its WHERE filters used bare `tenant_id`, `status`, `period_start`, `period_end`, `person_id`. MySQL couldn't tell which table's `tenant_id` the auto-injected binding was for.
 - **Fix:** qualified every WHERE-clause column with `t.` (header table), and updated `ORDER BY` to `t.period_start, t.id`.
 - **Test:** `tests/bugfix_staffing_approvals_list_ambiguous_tenant_id_smoke.php` — 8/8.
+
+---
+
+## 2026-02-13 — CFO Dashboard (Phase 1)
+
+User pivoted off the Live Books Rails architecture for one feature: a CFO-grade dashboard surface.
+
+### Backend
+- **`api/exec_dashboard.php` extended** with:
+  - `finance.dso` (AR ÷ revenue-last-90/90), `finance.dpo` (AP ÷ bills-last-90/90), `finance.unapplied_cash` (sum of `billing_payments.unallocated_amount`).
+  - `staffing.upcoming_starts`, `staffing.upcoming_terminations` (next 30 days).
+  - `?compare=prior_period` (preceding same-length window) **OR** `prior_year` (-52 weeks). Returns `compare.scalars` with prev-window revenue / payroll / hires / terms / placements / billable hours for delta badges everywhere.
+- **`api/exec_dashboard_views.php` extended** with `widget_config_json` (visibility + order + per-widget time-window overrides; 32 KB cap).
+- **`api/cfo_notes.php`** — per-user widget annotations (CRUD).
+- **`api/cfo_annotate.php`** — AI suggestion per widget via `aiAsk()` with widget-specific system prompts (DSO/DPO/unapplied-cash benchmarks baked in). Graceful when AI is disabled.
+- **`api/cfo_send_report.php`** — on-demand email of the current view to up to 25 recipients. Includes the AI annotation + user note for each widget. Returns `preview_html` for QA fallback. Audit-logs `cfo.report_sent`.
+- **`api/cfo_formulas.php`** — user-defined "A op B" KPI widgets. Operand-key whitelist (NO PHP runtime evaluator), divide-by-zero guards, share-with-tenant flag, `?action=evaluate` for live computation against the current dashboard snapshot.
+- Migration **`035_cfo_dashboard_extras.sql`** — adds `widget_config_json` + creates `cfo_section_notes`, `cfo_custom_formulas`.
+
+### Frontend
+- New page **`dashboard/src/pages/CFODashboard.jsx`** wired at `/cfo` + nav button in the header (`data-testid="header-cfo-link"`).
+- 13 default widgets (revenue, margin, AR aging, AP aging, DSO, DPO, unapplied cash, payroll, headcount, upcoming starts/terms, new starts, terminations, placements).
+- Period-over-period delta badges on every scalar widget.
+- Per-widget AI annotation button (`<Sparkles>` glyph) + per-widget pinned user note (`<StickyNote>` glyph).
+- Edit mode: ↑/↓ reorder, eye-toggle visibility per widget.
+- "Save view" modal: name + set-as-default + share-with-tenant.
+- "Send report" modal: recipients (comma/newline-separated), subject, intro, dispatches via `mailerSend` with HTML preview fallback.
+- "Custom KPI" modal: pick whitelisted metric A + operator + metric B + display format; appears as a dashed-border tile in the grid.
+
+### Test status
+- **Test:** `tests/cfo_dashboard_smoke.php` — 60/60 assertions.
+- Full suite: **164/164 in-scope pass.** Only `ai_platform_smoke.php` + `plaid_integration_smoke.php` fail (expected — no live API keys locally).
+- New Vite bundle: `index-Cpv3lqE7.js` (CSS unchanged: `index-Cwhpy62y.css`).

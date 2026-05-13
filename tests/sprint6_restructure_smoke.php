@@ -74,7 +74,7 @@ _a('reads ?from=, ?to=',                          str_contains($api, "api_query(
 _a('falls back to weeks if invalid range',        str_contains($api, '$customRange = false'));
 _a('compare=prior_year shifts -52 weeks',         str_contains($api, "modify('-52 weeks')"));
 _a('revenue.prev_period emitted when compare on', str_contains($api, "'prev_period'") || str_contains($api, "['prev_period']"));
-_a('compare metadata in response',                str_contains($api, "'mode'      => 'prior_year'"));
+_a('compare metadata in response',                str_contains($api, "'mode'      => \$compare"));
 _a('range.custom flag echoed',                    str_contains($api, "'custom' => \$customRange"));
 
 echo "\ncore/modules.php — Reports registered\n";

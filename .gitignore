@@ -28,7 +28,70 @@ vendor/
 
 # Emergent internal
 .emergent/cache/
+
+# Local-only backup snapshots (NEVER commit — they exceed GitHub's 100 MB
+# per-file limit and re-pushing them costs minutes per `git push`).
+# Restore tarballs live on disk in /app/memory/backups/ but the MANIFEST.md
+# tracking metadata IS committed so we have a paper trail in the repo.
+memory/backups/*
+!memory/backups/MANIFEST.md
+!memory/backups/.gitkeep
+*.tar.gz
 config.local.php
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
 -e 
 # Environment and credential files
 .env
