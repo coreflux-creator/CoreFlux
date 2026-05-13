@@ -36,6 +36,16 @@ if ($method === 'GET' && $action === 'template') {
     exit;
 }
 
+if ($method === 'GET' && $action === 'sample') {
+    RBAC::requirePermission($user, 'time.bulk_upload');
+    $samples = require __DIR__ . '/../../../core/csv_samples.php';
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="time_sample.csv"');
+    header('Cache-Control: no-store');
+    echo CsvImportService::buildSample('time', $samples['time'] ?? []);
+    exit;
+}
+
 if ($method === 'POST' && $action === 'dry_run') {
     RBAC::requirePermission($user, 'time.bulk_upload');
     $csv = CsvImportService::readRequestCsv();

@@ -61,6 +61,16 @@ if ($method === 'GET' && $action === 'template') {
     exit;
 }
 
+if ($method === 'GET' && $action === 'sample') {
+    RBAC::requirePermission($user, 'billing.invoice.draft');
+    $samples = require __DIR__ . '/../../../core/csv_samples.php';
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="invoices_sample.csv"');
+    header('Cache-Control: no-store');
+    echo CsvImportService::buildSample('billing_invoices', $samples['billing_invoices'] ?? []);
+    exit;
+}
+
 if ($method === 'POST' && $action === 'dry_run') {
     RBAC::requirePermission($user, 'billing.invoice.draft');
     $csv = CsvImportService::readRequestCsv();

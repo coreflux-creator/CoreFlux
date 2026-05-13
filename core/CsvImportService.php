@@ -78,6 +78,40 @@ class CsvImportService
     }
 
     /**
+     * Generate a CSV sample for a module: header row + the provided example
+     * rows. Each row is an associative array keyed by FIELD KEY (not label).
+     * Missing keys become empty cells. Extra keys are ignored.
+     *
+     * Used by `?action=sample` endpoints on every csv_import to ship realistic
+     * onboarding data that tenants can load in one click.
+     */
+    public static function buildSample(string $module, array $sampleRows): string
+    {
+        $schema = self::getSchema($module);
+        if (!$schema) throw new \InvalidArgumentException("No CSV schema registered for module '{$module}'");
+        $fieldKeys = array_keys($schema['fields']);
+        $headers   = array_map(fn($k) => $schema['fields'][$k]['label'] ?? $k, $fieldKeys);
+
+        $fp = fopen('php://temp', 'w+');
+        fputcsv($fp, $headers);
+        foreach ($sampleRows as $row) {
+            $cells = [];
+            foreach ($fieldKeys as $k) {
+                $v = $row[$k] ?? '';
+                if (is_bool($v))      $v = $v ? 1 : 0;
+                elseif (is_array($v)) $v = json_encode($v);
+                elseif ($v === null)  $v = '';
+                $cells[] = $v;
+            }
+            fputcsv($fp, $cells);
+        }
+        rewind($fp);
+        $csv = stream_get_contents($fp);
+        fclose($fp);
+        return $csv;
+    }
+
+    /**
      * Parse CSV into structured rows. Returns:
      *   ['rows' => array<int, array<field => value>>, 'errors' => array<int, list<string>>,
      *    'header_map' => array, 'row_count' => int]

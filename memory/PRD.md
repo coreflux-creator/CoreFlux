@@ -4066,3 +4066,43 @@ gaps for tenant data onboarding.
 - "Mapping memory" so the wizard remembers user-picked entity overrides
   across sessions
 
+
+## 2026-02-14 — CSV Sample Pack (Onboarding)
+
+### Why
+Tenants who land on the Bulk CSV Import wizard with empty templates can't
+visualise what the platform will look like populated. Shipping a coherent
+sample dataset lets them load 5+5+5+5+5+2+2 rows in 30 seconds and see
+the whole loop (people → placements → time → bills/invoices) light up
+before importing their real books.
+
+### Built
+- `core/csv_samples.php` — single source of truth for sample rows per
+  entity. Data is fictional and **FK-coherent** across files (placement
+  emails match people, bills' vendor_name matches vendors, etc.) so the
+  bulk-importer runs cleanly with no warnings.
+- `CsvImportService::buildSample($module, $rows)` — header row + N data
+  rows; missing keys serialise to empty cells; booleans → 0/1.
+- `?action=sample` added to all 7 csv_import endpoints (people,
+  placements, time, ap_vendors, staffing_clients, ap_bills, billing_invoices).
+- Shared `CsvImportPage.jsx` now shows a **"Download sample with example
+  rows"** button next to "Download template".
+- Bulk Import wizard has a collapsible **"New to CoreFlux? Download our
+  sample CSV pack →"** disclosure with one link per entity.
+
+### Honest gap (raised by user, not yet built)
+- **Interactive column mapping is NOT implemented.** Today the importer
+  auto-matches headers by label or raw field key (case-insensitive) and
+  silently drops unrecognised columns. If a customer's old system uses
+  "FName" instead of "First name", that column won't import unless they
+  rename it in the CSV first.
+- Planned for the next round: `?action=inspect` returns detected headers
+  + suggested mapping; `dry_run`/`commit` accept an optional `column_map`
+  override; UI shows a mapping table between source columns and target
+  fields with a dropdown for any unmatched header.
+
+### Test status
+- `tests/csv_sample_pack_smoke.php`: **49/49** ✅
+- Full suite: **174/174** ✅
+- New Vite bundle: `index-rMpc_kFG.js`
+

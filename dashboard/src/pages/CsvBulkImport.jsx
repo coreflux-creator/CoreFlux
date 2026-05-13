@@ -62,9 +62,7 @@ const ENTITY_CONFIG = {
     endpoint: '/modules/billing/api/csv_import.php',
     signature: ['Invoice #','Client name','Issue date','Line description'],
   },
-};
-
-function detectEntity(headerLine) {
+};function detectEntity(headerLine) {
   const hdr = (headerLine || '').toLowerCase();
   let best = null;
   let bestScore = 0;
@@ -184,6 +182,33 @@ export default function CsvBulkImport() {
       </header>
 
       <div style={{ background: 'var(--cf-surface)', padding: 'var(--cf-space-6)', borderRadius: 'var(--cf-radius-lg)', border: '1px solid var(--cf-border)' }}>
+        {/* Sample CSV pack — onboarding-friendly. Each link downloads a
+            template + 5 realistic example rows so a new tenant can load a
+            full working dataset before importing their real books. */}
+        <details style={{ marginBottom: 'var(--cf-space-4)' }} data-testid="csv-bulk-sample-pack">
+          <summary style={{ cursor: 'pointer', color: 'var(--cf-text-secondary)', fontSize: 13 }}>
+            New to CoreFlux? Download our sample CSV pack →
+          </summary>
+          <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {ENTITY_ORDER.map(k => (
+              <a
+                key={k}
+                className="btn btn--ghost"
+                href={`${ENTITY_CONFIG[k].endpoint}?action=sample`}
+                data-testid={`csv-bulk-sample-${k}`}
+                style={{ fontSize: 12 }}
+              >
+                {ENTITY_CONFIG[k].label} sample
+              </a>
+            ))}
+          </div>
+          <p style={{ marginTop: 8, fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+            All samples are FK-coherent — emails, vendor names and placement IDs
+            line up across files so you can load them in order and see the
+            full platform populated in 30 seconds.
+          </p>
+        </details>
+
         <div style={{ display: 'flex', gap: 'var(--cf-space-3)', flexWrap: 'wrap', marginBottom: 'var(--cf-space-4)', alignItems: 'center' }}>
           <input
             ref={fileRef}

@@ -103,6 +103,13 @@ export default function CsvImportPage({
           >
             Download template
           </a>
+          <a
+            className="btn btn--ghost"
+            href={`${endpoint}?action=sample`}
+            data-testid={`${testidPrefix}-download-sample`}
+          >
+            Download sample with example rows
+          </a>
           <input
             ref={fileRef}
             type="file"
