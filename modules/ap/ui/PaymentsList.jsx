@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useBulkSelection } from '../../../dashboard/src/lib/useBulkSelection';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
@@ -67,6 +68,7 @@ export default function PaymentsList() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <Link to="csv_import" className="btn" data-testid="ap-payments-import-csv">Import CSV</Link>
           <a className="btn" href="/modules/ap/api/payments_csv_export.php" data-testid="ap-payments-export-all-csv">Export all (CSV)</a>
           <button className="btn btn--primary" onClick={() => setShowRecord(true)} data-testid="ap-record-payment">Record payment</button>
         </div>

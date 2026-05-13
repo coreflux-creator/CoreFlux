@@ -5,6 +5,7 @@ import InvoiceCreate from './InvoiceCreate';
 import InvoiceDetail from './InvoiceDetail';
 import InvoicesCsvImport from './InvoicesCsvImport';
 import PaymentsList from './PaymentsList';
+import PaymentsCsvImport from './PaymentsCsvImport';
 import AgingTable from './AgingTable';
 import RecurringContracts from './RecurringContracts';
 import DunningQueue from './DunningQueue';
@@ -56,6 +57,7 @@ export default function BillingModule() {
         <Route path="invoices/new" element={<InvoiceCreate />} />
         <Route path="invoices/:id" element={<InvoiceDetail />} />
         <Route path="payments" element={<PaymentsList />} />
+        <Route path="payments/csv_import" element={<PaymentsCsvImport />} />
         <Route path="aging" element={<AgingTable />} />
         <Route path="dunning" element={<DunningQueue />} />
         <Route path="contracts" element={<RecurringContracts />} />

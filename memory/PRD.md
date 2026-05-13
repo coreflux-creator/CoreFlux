@@ -4230,3 +4230,94 @@ mapping in one click. The human still confirms before any data lands.
 - **Phase 2 — Live Books Rails**: AI competing/proposing + Unified
   Financial State Cache.
 
+
+## 2026-02-14 — CSV Phase E (Saved Presets + Payments + Update-existing + Bulk wizard mapping)
+
+Closes out the full CSV import/export backlog.
+
+### Built — Saved mapping presets
+- Migration `041_csv_mapping_presets.sql` — `csv_mapping_presets` table
+  scoped by `(tenant_id, entity, name)` unique; `header_signature` =
+  SHA-256 of lowercased + sorted headers for cross-rerun recognition.
+- New API: `/api/admin/csv_mapping_presets`
+  - `GET ?entity=…[&signature=…]` list / filter
+  - `POST` create or upsert by name
+  - `POST ?action=use&id=…` bump used_count + last_used_at
+  - `DELETE ?id=…` remove
+- Shared `CsvImportPage` now:
+  - On file pick, looks up presets matching the header signature →
+    surfaces "Saved mapping match: '<name>' [Apply]"
+  - If no exact match but other presets exist, shows them as inline
+    apply-buttons ("QuickBooks vendors", "ADP payroll", etc.)
+  - "Save this mapping as…" panel below the mapping table — saves the
+    current `column_map` + headers as a named preset
+- Bulk Import Wizard auto-applies the matching preset on file pick (no
+  click needed). Surfaces a green `preset: <name>` chip in the file row.
+  Used-count bumps server-side so most-used presets surface first next time.
+
+### Built — AP + Billing payments CSV import
+- `/api/ap/payments_csv_import.php` and
+  `/api/billing/payments_csv_import.php`. Full action set per HARD_RULES:
+  template, sample (3 realistic rows), inspect, dry_run, commit,
+  ai_suggest_map. Bill/invoice **allocations** stay out of scope —
+  imported payments start fully unallocated; the user reconciles via the
+  existing Payment Detail UI.
+- New UI pages `PaymentsCsvImport.jsx` for both modules, wired into the
+  respective module routers; "Import CSV" button added to both Payments
+  list pages.
+- Bulk wizard's ENTITY_ORDER extended: `…ap_bills → billing_invoices →
+  ap_payments → billing_payments`.
+
+### Built — Update-existing mode on placements + time
+- Placements (`?update_existing=1`): matches by `external_id` first
+  (tenant-unique), falls back to `(person_id, title, start_date)`. On
+  update, preserves existing rates + client chain rows.
+- Time (`?update_existing=1`): dedupe on `(placement_id, person_id,
+  work_date, category)`. **Refuses to update approved entries** — those
+  belong to audit-locked time bundles and must be voided explicitly.
+- Both audit-log the `update_existing` flag so admins can see whether an
+  import was insert-only or upsert.
+- Shared `CsvImportPage` adds a checkbox toggle next to skip-invalid:
+  *"Update existing rows on match (else: skip duplicates)"*.
+
+### Built — Legacy migration
+- `modules/people/ui/CsvImport.jsx` and
+  `modules/placements/ui/CsvImport.jsx` rewritten as 1-screen wrappers
+  over the shared `CsvImportPage`. They now inherit AI mapping +
+  interactive mapping + saved presets automatically.
+- Time module's legacy `CsvImport.jsx` left untouched for this round
+  because it carries the `pre_approved` toggle that doesn't fit the
+  shared component cleanly. Backlog item: extend the shared component
+  with a `commitToggles` slot, then migrate time.
+
+### Test status
+- `tests/csv_phase_e_smoke.php`: **82/82** ✅
+- Full suite: **177/177** ✅
+- New Vite bundle: `index-DFfmtGC5.js`
+
+### Final CSV import/export feature surface (everything now working)
+| Entity            | Template | Sample | Inspect | Dry-run | Commit | AI map | Update | Presets | Export |
+|-------------------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| People            | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Placements        | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Time entries      | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | (✗ legacy UI) | ✓ |
+| Vendors (AP)      | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | (upsert by name) | ✓ | ✓ |
+| Clients (Staffing)| ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| AP Bills          | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | (skip dup #) | ✓ | ✓ |
+| AR Invoices       | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | (skip dup #) | ✓ | ✓ |
+| AP Payments       | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ |
+| Billing Payments  | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ |
+
+Plus the **Bulk CSV Import Wizard** at `/data/bulk-import` for drop-many-CSVs
+tenant onboarding (auto-detect entity, auto-apply saved presets,
+FK-respecting commit order).
+
+### Next up
+- Extend shared CsvImportPage with a `commitToggles` slot so the time
+  module's `pre_approved` toggle can move off the legacy page.
+- Wire the per-file mapping table into the Bulk Import Wizard (today
+  the wizard auto-applies presets but doesn't expose an interactive
+  override per file; user falls back to per-entity import page if needed).
+- **Phase 2 — Live Books Rails**: AI competing/proposing against rules
+  + Unified Financial State Cache.
+

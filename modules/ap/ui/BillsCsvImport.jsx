@@ -16,6 +16,7 @@ export default function BillsCsvImport() {
       backTo="../bills"
       backLabel="← Bills"
       testidPrefix="ap-bills-csv-import"
+      presetEntity="ap_bills"
       previewColumns={[
         { key: 'bill_number',      label: 'Bill #' },
         { key: 'vendor_name',      label: 'Vendor' },

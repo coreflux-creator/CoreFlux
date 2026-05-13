@@ -34,6 +34,12 @@ export default function CsvImportPage({
   backTo = '..',
   backLabel = '← Back',
   testidPrefix = 'csv-import',
+  /**
+   * presetEntity: short identifier (e.g. 'people', 'ap_vendors') used to
+   * look up saved mapping presets via /api/admin/csv_mapping_presets.
+   * When set, the UI exposes "Apply preset" + "Save mapping" controls.
+   */
+  presetEntity = null,
 }) {
   const fileRef = useRef(null);
   const [csvText, setCsvText]         = useState('');
@@ -48,6 +54,7 @@ export default function CsvImportPage({
   const [error, setError]             = useState(null);
   const [committed, setCommitted]     = useState(null);
   const [skipInvalid, setSkipInvalid] = useState(false);
+  const [updateExisting, setUpdateExisting] = useState(false);
 
   const onFile = async (e) => {
     const f = e.target.files?.[0];
@@ -67,6 +74,8 @@ export default function CsvImportPage({
         const seed = {};
         (res.headers || []).forEach((h, i) => { seed[h] = (res.auto_map || [])[i] ?? null; });
         setColumnMap(seed);
+        // Surface saved presets that match this header set.
+        loadPresetsForHeaders(res.headers || []);
       } catch (err) { setError(err); }
       finally       { setInspecting(false); }
     };
@@ -85,6 +94,62 @@ export default function CsvImportPage({
   const [aiRunning, setAiRunning]   = useState(false);
   const [aiReasoning, setAiReason]  = useState(null);
   const [aiError, setAiError]       = useState(null);
+
+  // Saved mapping presets (per tenant + entity). After ?action=inspect we
+  // hash the header set and look for a matching preset; if found, we
+  // surface a one-click "Apply" button. After a successful commit we
+  // expose "Save this mapping as…" so the next rerun is zero-AI.
+  const [presets, setPresets]       = useState([]);
+  const [presetMatch, setPresetMatch] = useState(null);   // exact-header-match preset
+  const [presetName, setPresetName] = useState('');
+  const [savingPreset, setSavingPreset] = useState(false);
+  const [presetSaved, setPresetSaved]   = useState(null);
+
+  // Quick header-signature hash that matches the backend's csvPresetSignature():
+  // sha256(lowercased, sorted, comma-joined headers).
+  const computeHeaderSignature = async (headers) => {
+    const norm = headers.map(h => String(h || '').trim().toLowerCase()).sort();
+    const buf  = new TextEncoder().encode(norm.join(','));
+    const hash = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+
+  const loadPresetsForHeaders = async (headers) => {
+    if (!presetEntity) return;
+    try {
+      const sig = await computeHeaderSignature(headers);
+      const all = await api.get(`/api/admin/csv_mapping_presets?entity=${presetEntity}`);
+      const rows = all?.rows || [];
+      setPresets(rows);
+      const exact = rows.find(p => p.header_signature === sig);
+      if (exact) setPresetMatch(exact);
+    } catch {
+      // Presets are a nicety — never break the import flow if the lookup
+      // fails (e.g. migration not yet run on this tenant).
+    }
+  };
+
+  const applyPreset = async (p) => {
+    setColumnMap(prev => ({ ...(prev || {}), ...(p.column_map || {}) }));
+    setPreview(null);
+    try { await api.post(`/api/admin/csv_mapping_presets?action=use&id=${p.id}`); } catch { /* non-fatal */ }
+  };
+
+  const savePreset = async () => {
+    if (!presetEntity || !inspect || !columnMap || !presetName.trim()) return;
+    setSavingPreset(true);
+    try {
+      const res = await api.post('/api/admin/csv_mapping_presets', {
+        entity: presetEntity,
+        name: presetName.trim(),
+        column_map: columnMap,
+        source_headers: inspect.headers,
+      });
+      setPresetSaved(res);
+      setPresetName('');
+    } catch (err) { setError(err); }
+    finally       { setSavingPreset(false); }
+  };
 
   const aiSuggest = async () => {
     if (!csvText || !inspect) return;
@@ -122,7 +187,10 @@ export default function CsvImportPage({
     if (!csvText) return;
     setRunning(true); setError(null);
     try {
-      const path = `${endpoint}?action=commit${skipInvalid ? '&skip_invalid=1' : ''}`;
+      const params = [];
+      if (skipInvalid)    params.push('skip_invalid=1');
+      if (updateExisting) params.push('update_existing=1');
+      const path = `${endpoint}?action=commit${params.length ? '&' + params.join('&') : ''}`;
       const body = { csv: csvText };
       if (columnMap) body.column_map = columnMap;
       const res = await api.post(path, body);
@@ -229,6 +297,35 @@ export default function CsvImportPage({
                 <strong>AI:</strong> {aiReasoning}
               </p>
             )}
+            {/* Saved-preset surfaces — exact-match-on-headers and ALL
+                presets for this entity (so user can apply any). */}
+            {presetEntity && presets.length > 0 && (
+              <div data-testid={`${testidPrefix}-presets`} style={{ background: 'rgba(34,197,94,0.06)', padding: 8, borderRadius: 6, fontSize: 13, marginBottom: 8 }}>
+                {presetMatch ? (
+                  <p style={{ margin: 0 }} data-testid={`${testidPrefix}-preset-match`}>
+                    <strong>Saved mapping match:</strong> &ldquo;{presetMatch.name}&rdquo;.{' '}
+                    <button className="btn btn--ghost" onClick={() => applyPreset(presetMatch)} data-testid={`${testidPrefix}-preset-apply-match`} style={{ marginLeft: 6 }}>
+                      Apply
+                    </button>
+                  </p>
+                ) : (
+                  <p style={{ margin: 0 }}>
+                    <strong>Saved mappings for {entityLabel}:</strong>{' '}
+                    {presets.slice(0, 5).map((p, i) => (
+                      <button
+                        key={p.id}
+                        className="btn btn--ghost"
+                        onClick={() => applyPreset(p)}
+                        data-testid={`${testidPrefix}-preset-apply-${i}`}
+                        style={{ marginLeft: i === 0 ? 6 : 4 }}
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                  </p>
+                )}
+              </div>
+            )}
             <table className="data-table" data-testid={`${testidPrefix}-mapping-table`}>
               <thead>
                 <tr>
@@ -276,6 +373,33 @@ export default function CsvImportPage({
                 </p>
               );
             })()}
+            {/* Save mapping panel — turns the next rerun of the same CSV
+                format into a zero-AI, one-click apply. */}
+            {presetEntity && (
+              <div data-testid={`${testidPrefix}-preset-save`} style={{ marginTop: 12, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  className="input"
+                  placeholder="Save this mapping as… (e.g. QuickBooks vendors)"
+                  value={presetName}
+                  onChange={e => setPresetName(e.target.value)}
+                  data-testid={`${testidPrefix}-preset-save-name`}
+                  style={{ flex: '1 1 240px', maxWidth: 360 }}
+                />
+                <button
+                  className="btn"
+                  onClick={savePreset}
+                  disabled={!presetName.trim() || savingPreset}
+                  data-testid={`${testidPrefix}-preset-save-btn`}
+                >
+                  {savingPreset ? 'Saving…' : 'Save mapping'}
+                </button>
+                {presetSaved && (
+                  <span data-testid={`${testidPrefix}-preset-saved`} style={{ color: 'var(--cf-green, #047857)', fontSize: 13 }}>
+                    ✓ Saved · re-applies automatically next time
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -296,6 +420,15 @@ export default function CsvImportPage({
                   Skip invalid rows and import the rest
                 </label>
               )}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--cf-space-2)' }}>
+                <input
+                  type="checkbox"
+                  checked={updateExisting}
+                  onChange={e => setUpdateExisting(e.target.checked)}
+                  data-testid={`${testidPrefix}-update-existing`}
+                />
+                Update existing rows on match (else: skip duplicates)
+              </label>
               <button
                 className="btn btn--primary"
                 onClick={commit}

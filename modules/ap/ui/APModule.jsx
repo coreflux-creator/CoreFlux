@@ -5,6 +5,7 @@ import BillCreate from './BillCreate';
 import BillDetail from './BillDetail';
 import BillFromTimeBundleModal from './BillFromTimeBundleModal'; // eslint-disable-line no-unused-vars
 import PaymentsList from './PaymentsList';
+import PaymentsCsvImport from './PaymentsCsvImport';
 import VendorsList from './VendorsList';
 import ExpensesList from './ExpensesList';
 import ExpenseCreate from './ExpenseCreate';
@@ -70,6 +71,7 @@ export default function APModule() {
         <Route path="bills/:id" element={<BillDetail />} />
         <Route path="weekly-queue" element={<WeeklyQueue />} />
         <Route path="payments" element={<PaymentsList />} />
+        <Route path="payments/csv_import" element={<PaymentsCsvImport />} />
         <Route path="approvals" element={<Approvals />} />
         <Route path="vendors" element={<VendorsList />} />
         <Route path="vendors/csv_import" element={<VendorsCsvImport />} />

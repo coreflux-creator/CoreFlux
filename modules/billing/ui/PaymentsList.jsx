@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 
 const METHODS = ['ach','wire','check','card','cash','other'];
@@ -27,6 +28,7 @@ export default function PaymentsList() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)' }}>
         <h3 style={{ margin: 0 }}>Payments received</h3>
         <div style={{ display: 'flex', gap: 8 }}>
+          <Link to="csv_import" className="btn" data-testid="billing-payments-import-csv">Import CSV</Link>
           <a className="btn" href="/modules/billing/api/payments_csv_export.php" data-testid="billing-payments-export-csv">Export CSV</a>
           <button className="btn btn--primary" onClick={() => setShowRecord(true)} data-testid="billing-record-payment">Record payment</button>
         </div>

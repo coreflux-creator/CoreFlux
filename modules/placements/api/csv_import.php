@@ -150,10 +150,11 @@ if ($method === 'POST' && $action === 'commit') {
     RBAC::requirePermission($user, 'placements.financials.manage');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
-    $columnMap = CsvImportService::readRequestColumnMap();
-    $skipInvalid = !empty($_GET['skip_invalid']);
+    $columnMap      = CsvImportService::readRequestColumnMap();
+    $skipInvalid    = !empty($_GET['skip_invalid']);
+    $updateExisting = !empty($_GET['update_existing']);
 
-    $result = CsvImportService::commit('placements', $csv, function (array $row) use ($user) {
+    $result = CsvImportService::commit('placements', $csv, function (array $row) use ($user, $updateExisting) {
         // Resolve person_id by tenant + email
         $person = scopedFind(
             'SELECT id FROM people WHERE tenant_id = :tenant_id AND LOWER(email_primary) = LOWER(:email) AND deleted_at IS NULL',
@@ -161,10 +162,29 @@ if ($method === 'POST' && $action === 'commit') {
         );
         if (!$person) throw new \RuntimeException("person_email not found: {$row['person_email']}");
 
-        $pid = scopedInsert('placements', [
+        // Update-existing mode: match by external_id (tenant-unique identifier
+        // when present), then by (person_id + title + start_date).
+        $existing = null;
+        if ($updateExisting) {
+            if (!empty($row['external_id'])) {
+                $existing = scopedFind(
+                    'SELECT id FROM placements WHERE tenant_id = :tenant_id AND external_id = :x AND deleted_at IS NULL',
+                    ['x' => $row['external_id']]
+                );
+            }
+            if (!$existing) {
+                $existing = scopedFind(
+                    'SELECT id FROM placements
+                      WHERE tenant_id = :tenant_id AND person_id = :p AND title = :t AND start_date = :s
+                            AND deleted_at IS NULL',
+                    ['p' => (int) $person['id'], 't' => $row['title'], 's' => $row['start_date']]
+                );
+            }
+        }
+
+        $payload = [
             'person_id'        => (int) $person['id'],
             'external_id'      => $row['external_id']     ?? null,
-            'status'           => 'draft',
             'start_date'       => $row['start_date'],
             'end_date'         => $row['end_date']        ?? null,
             'due_date'         => $row['due_date']        ?? null,
@@ -175,23 +195,35 @@ if ($method === 'POST' && $action === 'commit') {
             'title'            => $row['title'],
             'end_client_name'  => $row['end_client_name'] ?? null,
             'notes'            => $row['notes']           ?? null,
-            'created_by_user_id' => $user['id'] ?? null,
-        ]);
+        ];
 
-        // First rate row (drafted, not approved — approval is a deliberate human step)
-        if (!empty($row['bill_rate']) && !empty($row['pay_rate'])) {
-            scopedInsert('placement_rates', [
-                'placement_id'        => $pid,
-                'effective_from'      => $row['start_date'],
-                'bill_rate'           => (float) $row['bill_rate'],
-                'pay_rate'            => (float) $row['pay_rate'],
-                'currency'            => 'USD',
-                'created_by_user_id'  => $user['id'] ?? null,
-            ]);
+        if ($existing) {
+            scopedUpdate('placements', (int) $existing['id'], $payload);
+            $pid = (int) $existing['id'];
+        } else {
+            $payload['status']             = 'draft';
+            $payload['created_by_user_id'] = $user['id'] ?? null;
+            $pid = scopedInsert('placements', $payload);
         }
 
-        // Chain[0] = end client (string)
-        if (!empty($row['end_client_name'])) {
+        // First rate row (drafted, not approved — approval is a deliberate human step).
+        // In update-existing mode, only insert if no rate has been recorded yet.
+        if (!empty($row['bill_rate']) && !empty($row['pay_rate'])) {
+            $hasRate = $existing ? scopedFind('SELECT id FROM placement_rates WHERE placement_id = :p LIMIT 1', ['p' => $pid]) : null;
+            if (!$hasRate) {
+                scopedInsert('placement_rates', [
+                    'placement_id'        => $pid,
+                    'effective_from'      => $row['start_date'],
+                    'bill_rate'           => (float) $row['bill_rate'],
+                    'pay_rate'            => (float) $row['pay_rate'],
+                    'currency'            => 'USD',
+                    'created_by_user_id'  => $user['id'] ?? null,
+                ]);
+            }
+        }
+
+        // Chain[0] = end client (string). Only insert for new placements.
+        if (!$existing && !empty($row['end_client_name'])) {
             scopedInsert('placement_client_chain', [
                 'placement_id' => $pid,
                 'position'     => 0,
@@ -204,8 +236,9 @@ if ($method === 'POST' && $action === 'commit') {
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
 
     placementsAudit('placement.csv_imported', [
-        'imported' => $result['imported_count'],
-        'skipped'  => $result['skipped_count'],
+        'imported'        => $result['imported_count'],
+        'skipped'         => $result['skipped_count'],
+        'update_existing' => $updateExisting,
     ]);
     api_ok($result);
 }

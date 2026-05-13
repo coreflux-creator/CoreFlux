@@ -132,9 +132,10 @@ if ($method === 'POST' && $action === 'commit') {
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
     $columnMap = CsvImportService::readRequestColumnMap();
-    $skipInvalid = !empty($_GET['skip_invalid']);
+    $skipInvalid    = !empty($_GET['skip_invalid']);
+    $updateExisting = !empty($_GET['update_existing']);
 
-    $result = CsvImportService::commit('time', $csv, function (array $row) use ($user, $preApproved) {
+    $result = CsvImportService::commit('time', $csv, function (array $row) use ($user, $preApproved, $updateExisting) {
         $pl = scopedFind('SELECT id, person_id FROM placements WHERE tenant_id = :tenant_id AND external_id = :ext AND deleted_at IS NULL',
             ['ext' => $row['placement_external_id']]);
         if (!$pl) throw new \RuntimeException("placement not found: {$row['placement_external_id']}");
@@ -147,7 +148,30 @@ if ($method === 'POST' && $action === 'commit') {
         );
         if (!$period) throw new \RuntimeException("No open period covers work_date {$row['work_date']}");
 
-        $insert = [
+        // Update-existing: dedupe on (placement, person, work_date, category).
+        // Only allow updating entries that are NOT yet approved — once approved
+        // the entry is part of an audit-locked time bundle and must be voided
+        // explicitly, not silently overwritten.
+        $existing = null;
+        if ($updateExisting) {
+            $existing = scopedFind(
+                'SELECT id, status FROM time_entries
+                  WHERE tenant_id = :tenant_id
+                    AND placement_id = :pl AND person_id = :p
+                    AND work_date = :wd AND category = :cat',
+                [
+                    'pl'  => (int) $pl['id'],
+                    'p'   => (int) $pl['person_id'],
+                    'wd'  => $row['work_date'],
+                    'cat' => $row['category'],
+                ]
+            );
+            if ($existing && $existing['status'] === 'approved') {
+                throw new \RuntimeException("entry already approved — cannot update; void first");
+            }
+        }
+
+        $payload = [
             'placement_id' => (int) $pl['id'],
             'person_id'    => (int) $pl['person_id'],
             'period_id'    => (int) $period['id'],
@@ -157,24 +181,30 @@ if ($method === 'POST' && $action === 'commit') {
             'description'  => $row['description'] ?? null,
             'source'       => 'bulk_upload',
             'status'       => $preApproved ? 'approved' : 'pending_review',
-            'created_by_user_id' => $user['id'] ?? null,
         ];
 
         if ($preApproved) {
             $snap = timeResolveRateSnapshot((int) $pl['id'], $row['work_date']);
             if (!$snap) throw new \RuntimeException("No approved rate covers {$row['work_date']} for this placement");
-            $insert['rate_snapshot_id']    = (int) $snap['id'];
-            $insert['approved_by_user_id'] = $user['id'] ?? null;
-            $insert['approved_at']         = date('Y-m-d H:i:s');
-            $insert['approved_via']        = 'bulk_pre_approved';
+            $payload['rate_snapshot_id']    = (int) $snap['id'];
+            $payload['approved_by_user_id'] = $user['id'] ?? null;
+            $payload['approved_at']         = date('Y-m-d H:i:s');
+            $payload['approved_via']        = 'bulk_pre_approved';
         }
-        return scopedInsert('time_entries', $insert);
+
+        if ($existing) {
+            scopedUpdate('time_entries', (int) $existing['id'], $payload);
+            return (int) $existing['id'];
+        }
+        $payload['created_by_user_id'] = $user['id'] ?? null;
+        return scopedInsert('time_entries', $payload);
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
 
     timeAudit('time.bulk.uploaded', [
-        'entries_count' => $result['imported_count'],
-        'skipped'       => $result['skipped_count'],
-        'pre_approved'  => $preApproved,
+        'entries_count'   => $result['imported_count'],
+        'skipped'         => $result['skipped_count'],
+        'pre_approved'    => $preApproved,
+        'update_existing' => $updateExisting,
     ]);
     api_ok($result);
 }

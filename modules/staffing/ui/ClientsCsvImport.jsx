@@ -15,6 +15,7 @@ export default function ClientsCsvImport() {
       backTo="../clients"
       backLabel="← Clients"
       testidPrefix="staffing-clients-csv-import"
+      presetEntity="staffing_clients"
       previewColumns={[
         { key: 'name',                  label: 'Client name' },
         { key: 'legal_name',            label: 'Legal name' },

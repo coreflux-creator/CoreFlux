@@ -15,6 +15,7 @@ export default function VendorsCsvImport() {
       backTo="../vendors"
       backLabel="← Vendors"
       testidPrefix="ap-vendors-csv-import"
+      presetEntity="ap_vendors"
       previewColumns={[
         { key: 'vendor_name',     label: 'Name' },
         { key: 'vendor_type',     label: 'Type' },

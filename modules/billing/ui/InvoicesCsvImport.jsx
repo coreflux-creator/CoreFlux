@@ -16,6 +16,7 @@ export default function InvoicesCsvImport() {
       backTo="../invoices"
       backLabel="← Invoices"
       testidPrefix="billing-invoices-csv-import"
+      presetEntity="billing_invoices"
       previewColumns={[
         { key: 'invoice_number',   label: 'Invoice #' },
         { key: 'client_name',      label: 'Client' },

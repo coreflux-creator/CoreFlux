@@ -24,6 +24,7 @@ import { api } from '../lib/api';
 const ENTITY_ORDER = [
   'people', 'ap_vendors', 'staffing_clients',
   'placements', 'time', 'ap_bills', 'billing_invoices',
+  'ap_payments', 'billing_payments',
 ];
 
 const ENTITY_CONFIG = {
@@ -62,6 +63,16 @@ const ENTITY_CONFIG = {
     endpoint: '/modules/billing/api/csv_import.php',
     signature: ['Invoice #','Client name','Issue date','Line description'],
   },
+  ap_payments: {
+    label: 'AP Payments',
+    endpoint: '/modules/ap/api/payments_csv_import.php',
+    signature: ['Vendor name','Pay date','Method','Amount'],
+  },
+  billing_payments: {
+    label: 'Billing Payments',
+    endpoint: '/modules/billing/api/payments_csv_import.php',
+    signature: ['Client name','Received at','Method','Amount'],
+  },
 };function detectEntity(headerLine) {
   const hdr = (headerLine || '').toLowerCase();
   let best = null;
@@ -85,10 +96,33 @@ function readFile(f) {
 
 export default function CsvBulkImport() {
   const fileRef = useRef(null);
-  // files: { fileName, entity, csv, preview, committed, error }
+  // files: { fileName, entity, csv, preview, committed, error, columnMap, presetName }
   const [files, setFiles] = useState([]);
   const [skipInvalid, setSkipInvalid] = useState(true);
   const [busy, setBusy] = useState(false);
+
+  // Compute the same header signature the backend uses (sha256 of
+  // comma-joined, lowercased, sorted headers). Lets us auto-apply saved
+  // mapping presets without hitting the AI on rerun.
+  const signatureFor = async (headers) => {
+    const norm = headers.map(h => String(h || '').trim().toLowerCase()).sort();
+    const buf  = new TextEncoder().encode(norm.join(','));
+    const hash = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+
+  const tryApplyPreset = async (entity, headers) => {
+    try {
+      const sig = await signatureFor(headers);
+      const res = await api.get(`/api/admin/csv_mapping_presets?entity=${entity}&signature=${sig}`);
+      const match = (res?.rows || [])[0];
+      if (match) {
+        await api.post(`/api/admin/csv_mapping_presets?action=use&id=${match.id}`).catch(() => null);
+        return { columnMap: match.column_map || {}, presetName: match.name };
+      }
+    } catch { /* presets are a nicety; never block the flow */ }
+    return { columnMap: null, presetName: null };
+  };
 
   const onPick = async (e) => {
     const picked = Array.from(e.target.files || []);
@@ -99,9 +133,18 @@ export default function CsvBulkImport() {
         const csv = await readFile(f);
         const firstLine = csv.split(/\r?\n/, 1)[0] || '';
         const entity = detectEntity(firstLine);
-        next.push({ fileName: f.name, entity, csv, preview: null, committed: null, error: null });
+        let columnMap = null, presetName = null;
+        if (entity) {
+          // Parse the header row out of the first line; cheap enough since
+          // CSV first-row escaping is rarely complex.
+          const headers = firstLine.split(',').map(h => h.replace(/^"|"$/g, '').trim());
+          const applied = await tryApplyPreset(entity, headers);
+          columnMap = applied.columnMap;
+          presetName = applied.presetName;
+        }
+        next.push({ fileName: f.name, entity, csv, preview: null, committed: null, error: null, columnMap, presetName });
       } catch (err) {
-        next.push({ fileName: f.name, entity: null, csv: '', preview: null, committed: null, error: err });
+        next.push({ fileName: f.name, entity: null, csv: '', preview: null, committed: null, error: err, columnMap: null, presetName: null });
       }
     }
     setFiles(prev => [...prev, ...next]);
@@ -109,7 +152,7 @@ export default function CsvBulkImport() {
   };
 
   const setEntity = (idx, entity) => {
-    setFiles(prev => prev.map((f, i) => i === idx ? { ...f, entity, preview: null, committed: null } : f));
+    setFiles(prev => prev.map((f, i) => i === idx ? { ...f, entity, preview: null, committed: null, columnMap: null, presetName: null } : f));
   };
 
   const removeFile = (idx) => {
@@ -125,7 +168,9 @@ export default function CsvBulkImport() {
         if (!f.entity || !f.csv) continue;
         const cfg = ENTITY_CONFIG[f.entity];
         try {
-          const res = await api.post(`${cfg.endpoint}?action=dry_run`, { csv: f.csv });
+          const body = { csv: f.csv };
+          if (f.columnMap) body.column_map = f.columnMap;
+          const res = await api.post(`${cfg.endpoint}?action=dry_run`, body);
           next[i] = { ...f, preview: res, error: null };
         } catch (err) {
           next[i] = { ...f, preview: null, error: err };
@@ -149,7 +194,9 @@ export default function CsvBulkImport() {
         const cfg = ENTITY_CONFIG[f.entity];
         const path = `${cfg.endpoint}?action=commit${skipInvalid ? '&skip_invalid=1' : ''}`;
         try {
-          const res = await api.post(path, { csv: f.csv });
+          const body = { csv: f.csv };
+          if (f.columnMap) body.column_map = f.columnMap;
+          const res = await api.post(path, body);
           next[idx] = { ...f, committed: res, error: null };
         } catch (err) {
           next[idx] = { ...f, committed: null, error: err };
@@ -263,7 +310,14 @@ export default function CsvBulkImport() {
             <tbody>
               {files.map((f, idx) => (
                 <tr key={idx} data-testid={`csv-bulk-row-${idx}`}>
-                  <td data-testid={`csv-bulk-row-${idx}-filename`}>{f.fileName}</td>
+                  <td data-testid={`csv-bulk-row-${idx}-filename`}>
+                    {f.fileName}
+                    {f.presetName && (
+                      <span data-testid={`csv-bulk-row-${idx}-preset`} style={{ marginLeft: 6, fontSize: 11, padding: '1px 6px', borderRadius: 3, background: 'rgba(34,197,94,0.15)', color: '#047857' }}>
+                        preset: {f.presetName}
+                      </span>
+                    )}
+                  </td>
                   <td>
                     <select
                       value={f.entity || ''}
