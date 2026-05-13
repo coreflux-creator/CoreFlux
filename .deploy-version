@@ -283,7 +283,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-BhfZCi_o.js
+- spa-assets/index-Bsh2LeQT.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -724,6 +724,17 @@ last_known_features:
 - csv.export.billing_invoices
 - csv.ui.shared_import_page_component
 - csv.ui.export_buttons_on_list_pages
+- csv.phase_b.ap_bills_multiline_import
+- csv.phase_b.billing_invoices_multiline_import
+- csv.phase_b.ap_payments_export
+- csv.phase_b.billing_payments_export
+- csv.phase_b.update_existing_mode_people
+- csv.phase_b.update_existing_mode_clients
+- csv.phase_b.bulk_import_wizard
+- csv.phase_b.entity_auto_detect_by_header
+- csv.phase_b.fk_respecting_commit_order
+- ui.dashboard.bulk_csv_import_quick_action
+- ui.action_card.spa_link_and_testid
 - modules/staffing/manifest.php
 - modules/staffing/migrations/001_timesheets.sql
 - modules/staffing/migrations/002_timesheet_id_on_entries.sql

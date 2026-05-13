@@ -26,7 +26,10 @@ export default function PaymentsList() {
     <section data-testid="billing-payments-list">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)' }}>
         <h3 style={{ margin: 0 }}>Payments received</h3>
-        <button className="btn btn--primary" onClick={() => setShowRecord(true)} data-testid="billing-record-payment">Record payment</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <a className="btn" href="/modules/billing/api/payments_csv_export.php" data-testid="billing-payments-export-csv">Export CSV</a>
+          <button className="btn btn--primary" onClick={() => setShowRecord(true)} data-testid="billing-record-payment">Record payment</button>
+        </div>
       </div>
 
       {pwpToast && (

@@ -17,6 +17,7 @@ import RecurringBills from './RecurringBills';
 import PurchaseOrders from './PurchaseOrders';
 import VendorUploadsReview from './VendorUploadsReview';
 import VendorsCsvImport from './VendorsCsvImport';
+import BillsCsvImport from './BillsCsvImport';
 import WeeklyQueue from './WeeklyQueue';
 
 const navItems = [
@@ -64,6 +65,7 @@ export default function APModule() {
       <Routes>
         <Route index element={<Navigate to="bills" replace />} />
         <Route path="bills" element={<BillsList />} />
+        <Route path="bills/csv_import" element={<BillsCsvImport />} />
         <Route path="bills/new" element={<BillCreate />} />
         <Route path="bills/:id" element={<BillDetail />} />
         <Route path="weekly-queue" element={<WeeklyQueue />} />

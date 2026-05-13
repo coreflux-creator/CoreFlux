@@ -149,7 +149,7 @@ export const ActionCardsGrid = ({ children }) => (
 );
 
 // Individual Action Card
-export const ActionCard = ({ icon: Icon, title, description, href, onClick }) => {
+export const ActionCard = ({ icon: Icon, title, description, href, onClick, 'data-testid': testId }) => {
   const content = (
     <>
       <div className="action-card-icon">
@@ -161,14 +161,15 @@ export const ActionCard = ({ icon: Icon, title, description, href, onClick }) =>
   );
 
   if (href) {
-    if (href.startsWith('/modules/')) {
-      return <Link to={href} className="action-card">{content}</Link>;
+    // Use Link for any in-app SPA route so we don't trigger a full page reload.
+    if (href.startsWith('/')) {
+      return <Link to={href} className="action-card" data-testid={testId}>{content}</Link>;
     }
-    return <a href={href} className="action-card">{content}</a>;
+    return <a href={href} className="action-card" data-testid={testId}>{content}</a>;
   }
 
   return (
-    <div className="action-card" onClick={onClick} role="button" tabIndex={0}>
+    <div className="action-card" onClick={onClick} role="button" tabIndex={0} data-testid={testId}>
       {content}
     </div>
   );

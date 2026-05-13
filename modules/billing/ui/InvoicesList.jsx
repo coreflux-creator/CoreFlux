@@ -46,6 +46,7 @@ export default function InvoicesList() {
           <button className="btn btn--ghost" onClick={() => setShowCreate(true)} data-testid="billing-new-from-time-bundle">
             New from time bundle
           </button>
+          <Link to="csv_import" className="btn" data-testid="billing-invoices-import-csv">Import CSV</Link>
           <a className="btn" href={`/modules/billing/api/csv_export.php${status !== 'all' ? `?status=${status}` : ''}`} data-testid="billing-invoices-export-csv">Export CSV</a>
         </div>
       </div>

@@ -99,19 +99,20 @@ if ($method === 'POST' && $action === 'commit') {
     RBAC::requirePermission($user, 'people.manage');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
-    $skipInvalid = !empty($_GET['skip_invalid']);
+    $skipInvalid    = !empty($_GET['skip_invalid']);
+    $updateExisting = !empty($_GET['update_existing']);
 
-    $result = CsvImportService::commit('people', $csv, function (array $row) use ($user) {
+    $result = CsvImportService::commit('people', $csv, function (array $row) use ($user, $updateExisting) {
         // Tenant uniqueness check (against existing records)
         $existing = scopedFind(
             'SELECT id FROM people WHERE tenant_id = :tenant_id AND LOWER(email_primary) = LOWER(:email) AND deleted_at IS NULL',
             ['email' => $row['email_primary']]
         );
-        if ($existing) {
+        if ($existing && !$updateExisting) {
             throw new \RuntimeException("email_primary already exists for this tenant (id={$existing['id']})");
         }
 
-        $insert = [
+        $payload = [
             'first_name'           => $row['first_name'],
             'middle_name'          => $row['middle_name']     ?? null,
             'last_name'            => $row['last_name'],
@@ -129,15 +130,20 @@ if ($method === 'POST' && $action === 'commit') {
             'source'               => $row['source']          ?? null,
             'external_id'          => $row['external_id']     ?? null,
             'recruiter_notes'      => $row['recruiter_notes'] ?? null,
-            'created_by_user_id'   => $user['id']             ?? null,
         ];
-        return scopedInsert('people', $insert);
+        if ($existing && $updateExisting) {
+            scopedUpdate('people', (int) $existing['id'], $payload);
+            return (int) $existing['id'];
+        }
+        $payload['created_by_user_id'] = $user['id'] ?? null;
+        return scopedInsert('people', $payload);
     }, ['skip_invalid' => $skipInvalid]);
 
     peopleAudit('people.csv_imported', [
-        'imported' => $result['imported_count'],
-        'skipped'  => $result['skipped_count'],
-        'errors'   => count($result['errors']),
+        'imported'        => $result['imported_count'],
+        'skipped'         => $result['skipped_count'],
+        'errors'          => count($result['errors']),
+        'update_existing' => $updateExisting,
     ]);
     api_ok($result);
 }

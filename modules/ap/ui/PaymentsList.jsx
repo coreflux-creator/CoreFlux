@@ -66,7 +66,10 @@ export default function PaymentsList() {
               : <span data-testid="ap-plaid-disabled-notice">Plaid Transfer not configured — manual payment methods only (set PLAID_CLIENT_ID / PLAID_SECRET_SANDBOX to enable).</span>}
           </p>
         </div>
-        <button className="btn btn--primary" onClick={() => setShowRecord(true)} data-testid="ap-record-payment">Record payment</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <a className="btn" href="/modules/ap/api/payments_csv_export.php" data-testid="ap-payments-export-all-csv">Export all (CSV)</a>
+          <button className="btn btn--primary" onClick={() => setShowRecord(true)} data-testid="ap-record-payment">Record payment</button>
+        </div>
       </div>
 
       {/* Bulk-actions toolbar — appears whenever any row is checked */}

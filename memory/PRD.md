@@ -4008,3 +4008,61 @@ HARD_RULES: every primary-entity module MUST expose CSV import + export.
 - CSV export for AP payments + billing payments
 - "Update if exists" mode on imports (today only people/placements/time
   accept new rows; vendors uses upsert; clients rejects existing).
+
+## 2026-02-14 — CSV Phase B (Multi-line imports + Bulk wizard)
+
+Building on Phase A's universal CSV plumbing, Phase B closes the last
+gaps for tenant data onboarding.
+
+### Built — Multi-line CSV imports
+- `POST /api/ap/bills_csv_import` — bills + line items in ONE CSV.
+  Header (vendor_name, bill_date, due_date) read from the first row of
+  each `bill_number` group; subsequent rows only need `line_*` columns.
+  Totals are auto-summed from lines. Skips existing bill numbers
+  (idempotent). Wraps lines in a transaction (all-or-nothing per bill).
+- `POST /api/billing/csv_import` — invoices + lines in ONE CSV (same
+  pattern, grouped by `invoice_number`). Imports as `status='draft'` —
+  approval/send stays a deliberate human action.
+
+### Built — Payments CSV export
+- `GET /api/ap/payments_csv_export` — AP vendor payments (status/date/vendor filters)
+- `GET /api/billing/payments_csv_export` — AR client payments (date/client/method filters)
+
+### Built — Update-if-exists mode
+- `POST /api/people/csv_import?update_existing=1` — on duplicate email,
+  UPDATE instead of throw. Audit log captures the mode.
+- `POST /api/staffing/csv_import?update_existing=1` — on duplicate name,
+  UPDATE instead of throw.
+
+### Built — Bulk CSV Import Wizard (drop multiple at once)
+- New page: `/data/bulk-import` (`dashboard/src/pages/CsvBulkImport.jsx`)
+- Drag/select multiple CSVs at once. Each file's entity is auto-detected
+  by matching header labels against a per-entity `signature` array
+  (requires ≥2 matches; user can override via dropdown).
+- "Validate all" runs every per-entity dry-run; UI shows row counts +
+  error counts per file in a table.
+- "Commit all" persists files in **FK-respecting order**: people →
+  ap_vendors → staffing_clients → placements → time → ap_bills →
+  billing_invoices. Skip-invalid toggle propagates to each commit.
+- Linked from Dashboard's Admin Quick Actions card (`Upload` icon).
+
+### Built — UI polish
+- BillsList: `Import CSV` button + multi-line import route
+- InvoicesList: `Import CSV` button + multi-line import route
+- AP PaymentsList: `Export all (CSV)` button
+- Billing PaymentsList: `Export CSV` button
+- `ActionCard` now passes `data-testid` and uses SPA `<Link>` for any
+  in-app route (previously full-page-reloaded for non-`/modules/` hrefs).
+
+### Test status
+- `tests/csv_phase_b_smoke.php`: **74/74** ✅
+- Full suite: **173/173** ✅
+- New Vite bundle: `index-Bsh2LeQT.js`
+
+### Next up
+- **Phase 2 — Live Books Rails**: AI competing/proposing + Unified Financial State Cache
+- CSV import for AP payments + billing payments (currently exports only)
+- "Update if exists" mode for placements/time (currently only people + clients)
+- "Mapping memory" so the wizard remembers user-picked entity overrides
+  across sessions
+

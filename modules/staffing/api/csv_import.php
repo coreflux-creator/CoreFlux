@@ -92,17 +92,18 @@ if ($method === 'POST' && $action === 'commit') {
     RBAC::requirePermission($user, 'staffing.view');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
-    $skipInvalid = !empty($_GET['skip_invalid']);
+    $skipInvalid    = !empty($_GET['skip_invalid']);
+    $updateExisting = !empty($_GET['update_existing']);
 
-    $result = CsvImportService::commit('staffing_clients', $csv, function (array $row) {
+    $result = CsvImportService::commit('staffing_clients', $csv, function (array $row) use ($updateExisting) {
         $existing = scopedFind(
             'SELECT id FROM staffing_clients WHERE tenant_id = :tenant_id AND name = :n',
             ['n' => $row['name']]
         );
-        if ($existing) {
+        if ($existing && !$updateExisting) {
             throw new \RuntimeException("Client '{$row['name']}' already exists (id={$existing['id']}) — skipped");
         }
-        return scopedInsert('staffing_clients', [
+        $payload = [
             'name'                  => $row['name'],
             'legal_name'            => $row['legal_name']            ?? null,
             'industry'              => $row['industry']              ?? null,
@@ -118,7 +119,12 @@ if ($method === 'POST' && $action === 'commit') {
             'payment_terms_days'    => isset($row['payment_terms_days']) ? (int) $row['payment_terms_days'] : 30,
             'status'                => $row['status']                ?? 'active',
             'notes'                 => $row['notes']                 ?? null,
-        ]);
+        ];
+        if ($existing && $updateExisting) {
+            scopedUpdate('staffing_clients', (int) $existing['id'], $payload);
+            return (int) $existing['id'];
+        }
+        return scopedInsert('staffing_clients', $payload);
     }, ['skip_invalid' => $skipInvalid]);
 
     api_ok($result);

@@ -26,6 +26,7 @@ import FinanceModule from './modules/FinanceModule';
 import GenericModule from './modules/GenericModule';
 import WorkflowInbox from './pages/WorkflowInbox';
 import AIAgents from './pages/AIAgents';
+import CsvBulkImport from './pages/CsvBulkImport';
 import Login from './pages/Login';
 import MagicLinkConsume from './pages/MagicLinkConsume';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -388,6 +389,12 @@ const AppContent = ({ session, usingDemo }) => {
               path still resolves via the AccountingModule redirect alias for
               bookmarks. */}
           <Route path="/ai-agents" element={<AIAgents session={session} />} />
+
+          {/* Bulk CSV importer — drop multiple CSVs at once for tenant
+              data onboarding (people, vendors, clients, placements, time,
+              bills, invoices). Auto-detects entity from header signature,
+              dry-runs all files, commits them in FK-respecting order. */}
+          <Route path="/data/bulk-import" element={<CsvBulkImport />} />
           
           {/* Admin Module */}
           <Route path="/admin/*" element={<AdminModule session={session} />} />
