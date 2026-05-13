@@ -46,7 +46,7 @@ function eventRegistrySeedRows(): array {
             'AR invoice has been sent to the customer (the GL recognition event).',
             $req(['invoice_id','invoice_number','total','currency','lines','due_date']),
             ['client_company_id','client_name','po_reference'],
-            'customer', ['accounting','treasury','collections'], ['ar.invoice.drafted','sales.contract.signed'],
+            'customer', ['accounting','treasury','collections'], ['ar.invoice.drafted'],
             'Dr AR / Cr revenue (per-line revenue account).'],
         ['ar.payment.received', 'ar',
             'Customer payment arrived (cash side); applications may follow.',

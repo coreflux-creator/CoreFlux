@@ -206,6 +206,29 @@ function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId =
         'je' => (int) $posted['je_id'], 'ev' => $eventId,
     ]);
 
+    // 7b) Phase 1c — auto-link lineage if the emit dict declared parents.
+    // Accepts either parent_event_id (singular) or parent_event_ids[] for
+    // fan-in cases (e.g. one payment applies to many invoices).
+    $parentIds = [];
+    if (!empty($event['parent_event_id'])) {
+        $parentIds[] = (int) $event['parent_event_id'];
+    }
+    if (!empty($event['parent_event_ids']) && is_array($event['parent_event_ids'])) {
+        foreach ($event['parent_event_ids'] as $pid) $parentIds[] = (int) $pid;
+    }
+    $parentIds = array_values(array_unique(array_filter($parentIds, fn ($x) => $x > 0)));
+    if ($parentIds) {
+        try {
+            require_once __DIR__ . '/../event_lineage.php';
+            $relationship = (string) ($event['lineage_relationship'] ?? 'spawned_by');
+            foreach ($parentIds as $pid) {
+                eventLineageLink($tenantId, $pid, $eventId, $relationship, $actorUserId);
+            }
+        } catch (\Throwable $e) {
+            error_log('[event-lineage] link failed: ' . $e->getMessage());
+        }
+    }
+
     // 8) Phase 1b — record a deterministic AI interpretation row so every
     // posted event has a traceable "this is the JE we proposed and why".
     // Rule-derived interpretations get confidence=1.0 and are auto-accepted

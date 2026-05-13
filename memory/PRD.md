@@ -3847,3 +3847,38 @@ User-approved scope (51 events in v1; subscriptions/equity-grants/inventory defe
 - **Phase 1d** — `unified_exception_queue` view + UI.
 - **Phase 1e** — `evidence_attachments` canonical pivot.
 - **Phase 1f** — Migrate emit sites to canonical event names + retire deprecated aliases.
+
+---
+
+## 2026-02-14 — Phase 1c: Event Lineage
+
+### Built
+- **Migration** `core/migrations/038_event_lineage.sql` — `event_lineage` table (many-to-many parent_event_id × child_event_id × relationship_type). Supports:
+  - `spawned_by` (default — child arose because parent existed)
+  - `reverses` (child reverses parent)
+  - `corrects` (child corrects parent)
+  - `applies_to` (one payment applies to many invoices)
+  - `fulfills` (PO → bill)
+  - `split_of` (one parent → many sibling children)
+  - any custom string.
+- **Helper library** `core/event_lineage.php`:
+  - `eventLineageLink()` — idempotent INSERT IGNORE; rejects self-loops.
+  - `eventLineageGetParents/Children()` — direct edges.
+  - `eventLineageGetAncestors/Descendants()` — BFS, cycle-safe, depth-bounded (default 10, max 32).
+  - `eventLineageGetRoot()` — deepest ancestor (the originating event).
+  - `eventLineageValidateParentType()` — checks against `event_registry.parent_event_types`.
+- **Posting engine wire-in** — `accountingProcessEvent()` auto-links lineage from `event.parent_event_id` (singular) OR `event.parent_event_ids[]` (fan-in). Custom relationship via `event.lineage_relationship`. Try/catch wrapped so missing table doesn't break emits.
+- **API endpoint** `api/accounting/event_lineage.php`:
+  - GET `?event_id=N&direction=both|ancestors|descendants&max_depth=10`
+  - GET `?event_id=N&root=1`
+  - POST `{ parent_event_id, child_event_id, relationship_type? }` — manual link (used by AI agents OR humans correcting missed lineage). Registry validation warns but never blocks.
+- **Seed fix** — dropped `sales.contract.signed` from `ar.invoice.issued`'s parent list (since contracts were deferred in v1 scope). Smoke test now enforces: every declared parent_event_type IS a registered event.
+
+### Test
+- Phase 1c smoke: 31/31 ✅
+- Full suite: **167/167** in-scope ✅
+
+### Next up (Phase 1 d→f)
+- **Phase 1d** — `unified_exception_queue` view (single inbox over low-confidence AI proposals, missing docs, unusual amounts, duplicate risk, new vendors, period-locked attempts).
+- **Phase 1e** — `evidence_attachments` canonical pivot.
+- **Phase 1f** — migrate emit sites to canonical event names + retire deprecated aliases.
