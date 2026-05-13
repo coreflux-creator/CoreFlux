@@ -283,7 +283,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-C8nfjHo6.js
+- spa-assets/index-BhfZCi_o.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -709,6 +709,21 @@ last_known_features:
 - liveBooks.phase_1c.event_lineage
 - liveBooks.phase_1d.unified_exception_queue
 - liveBooks.phase_1d.je_trace_pane
+- liveBooks.phase_1e.evidence_attachments
+- liveBooks.phase_1e.je_trace_evidence_chips
+- liveBooks.phase_1e.je_trace_exception_inline
+- csv.core.export_service
+- csv.import.ap_vendors
+- csv.import.staffing_clients
+- csv.export.people
+- csv.export.placements
+- csv.export.ap_vendors
+- csv.export.staffing_clients
+- csv.export.time_entries
+- csv.export.ap_bills
+- csv.export.billing_invoices
+- csv.ui.shared_import_page_component
+- csv.ui.export_buttons_on_list_pages
 - modules/staffing/manifest.php
 - modules/staffing/migrations/001_timesheets.sql
 - modules/staffing/migrations/002_timesheet_id_on_entries.sql

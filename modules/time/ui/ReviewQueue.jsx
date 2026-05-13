@@ -69,8 +69,13 @@ export default function ReviewQueue() {
 
   return (
     <section className="people-directory" data-testid="time-review-queue">
-      <h2>Review Queue</h2>
-      <p style={{ color: 'var(--cf-text-secondary)' }}>Pending entries grouped by source. Two-eye control: you cannot approve your own entries.</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h2>Review Queue</h2>
+          <p style={{ color: 'var(--cf-text-secondary)' }}>Pending entries grouped by source. Two-eye control: you cannot approve your own entries.</p>
+        </div>
+        <a className="btn" href="/modules/time/api/csv_export.php?status=pending_review" data-testid="time-review-export-csv">Export CSV</a>
+      </div>
 
       {selected.size > 0 && (
         <div

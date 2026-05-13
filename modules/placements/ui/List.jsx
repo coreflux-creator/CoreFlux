@@ -35,6 +35,7 @@ export default function List() {
         </div>
         <div style={{ display: 'flex', gap: 'var(--cf-space-2)' }}>
           <Link to="../csv_import" className="btn" data-testid="placements-csv-btn">Import CSV</Link>
+          <a href="/modules/placements/api/csv_export.php" className="btn" data-testid="placements-csv-export-btn">Export CSV</a>
           <Link to="../new"        className="btn btn--primary" data-testid="placements-new-btn">+ New Placement</Link>
         </div>
       </header>

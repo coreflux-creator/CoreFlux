@@ -3922,3 +3922,89 @@ User-approved scope (51 events in v1; subscriptions/equity-grants/inventory defe
 - **Phase 1e** — `evidence_attachments` canonical pivot (replaces ad-hoc bill_documents, ap_attachments, etc.).
 - **Phase 1f** — migrate emit sites to canonical event names + retire the 3 deprecated aliases.
 - Surfacing the exception queue inbox on the CFO Dashboard (next-natural UI consumer).
+
+
+## 2026-02-14 — Phase 1e: Evidence Attachments (Live Books Rails) — CLOSED
+
+### Built
+- Migration `040_evidence_attachments.sql`: polymorphic pivot
+  (`subject_type`/`subject_id`) for receipts, PDFs, screenshots, payloads.
+  Includes versioning (`superseded_by_id`), soft-delete (`deleted_at`),
+  sha256 dedupe lookup, and JSON `payload` slot for non-file evidence.
+- `core/evidence_attachments.php` helper: `evidenceAttach`,
+  `evidenceListFor`, `evidenceListForEvents`, `evidenceSupersede`,
+  `evidenceSoftDelete`. Hash-based dedupe returns existing IDs instead of
+  creating duplicates. Gracefully returns `[]` when migration not yet run.
+- `api/accounting/evidence.php`: GET/POST/PATCH/DELETE wired with RBAC.
+- `api/accounting/je_trace.php`: now returns `evidence[]` AND
+  `exceptions[]` per event_id so JE Trace Pane can render inline.
+- `JeTracePane.jsx`: inline `<EvidenceChip />` per event +
+  `<ExceptionRow />` (severity-colored, shows resolution note).
+
+### Test status
+- Phase 1e smoke: **40/40** ✅
+- Full suite: **172/172** in-scope ✅ (incl. updated sprint6b)
+- New Vite bundle: `index-Bu2fQzVK.js` (built before CSV batch)
+
+## 2026-02-14 — Universal CSV Import / Export (HARD_RULES)
+
+### Why
+Tenants need to bring their existing book of business INTO the platform
+(initial migration) and OUT (audit, sync to external systems). Before
+this batch CSV import existed only for people, placements, time entries.
+HARD_RULES: every primary-entity module MUST expose CSV import + export.
+
+### Built — Core primitives
+- `core/CsvExportService.php` — streaming CSV writer with column map,
+  bool→0/1, array→JSON, null→'' serialisation. `toString()` for small
+  exports, `stream($rows, $filename)` for downloads via php://output.
+- `dashboard/src/components/CsvImportPage.jsx` — shared React component
+  that drives the 3-step flow (template → dry-run → commit) for any
+  module. Parameterised by `endpoint`, `entityLabel`, `previewColumns`,
+  `testidPrefix`. Replaces what used to be 170-line per-entity copies.
+
+### Built — New endpoints
+**Imports** (CsvImportService):
+- `POST /api/ap/csv_import`            — vendors (ap_vendors_index, upserts by name)
+- `POST /api/staffing/csv_import`      — clients (staffing_clients)
+
+**Exports** (CsvExportService):
+- `GET  /api/people/csv_export`        — people directory (status/classification filters)
+- `GET  /api/placements/csv_export`    — placements (incl. latest bill/pay rate)
+- `GET  /api/ap/csv_export`            — vendors (PII redacted to last-4)
+- `GET  /api/ap/bills_csv_export`      — AP bills (header-level)
+- `GET  /api/staffing/csv_export`      — clients
+- `GET  /api/time/csv_export`          — time entries (round-trips with import)
+- `GET  /api/billing/csv_export`       — billing invoices
+
+### Built — UI wiring
+- VendorsList → `Import CSV` + `Export CSV` buttons
+- Clients (Staffing) → `Import CSV` + `Export CSV` buttons
+- People Directory → `Export CSV` button added (Import already existed)
+- Placements List → `Export CSV` button added (Import already existed)
+- BillsList → `Export all (CSV)` button
+- InvoicesList → `Export CSV` button
+- Time ReviewQueue → `Export CSV` button
+- APModule routes: `/modules/ap/vendors/csv_import`
+- StaffingModule routes: `/modules/staffing/clients/csv_import`
+
+### Test status
+- `tests/csv_universal_import_export_smoke.php`: **103/103** ✅
+- Full suite: **172/172** in-scope ✅
+- New Vite bundle: `index-BhfZCi_o.js`
+
+### Next up (Phase 2 — Live Books Rails)
+- AI competing/proposing against deterministic rules (per-event)
+- Unified Financial State Cache
+- Wire `mailerSend()` to Resend driver (CFO + approver emails)
+- CFO Dashboard role/access gating
+- Engagements module (Fixed-fee project accounting)
+- AI Digest Scheduler (Sunday cron → Weekly Ops Memo)
+- External Auditor tokenized read-only CFO view
+
+### Backlog — CSV
+- CSV import for AP bills (multi-line: header + line items in same file)
+- CSV import for billing invoices (same pattern)
+- CSV export for AP payments + billing payments
+- "Update if exists" mode on imports (today only people/placements/time
+  accept new rows; vendors uses upsert; clients rejects existing).

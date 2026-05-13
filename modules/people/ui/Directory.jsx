@@ -41,6 +41,9 @@ export default function Directory() {
           <Link to="../csv_import" className="btn" data-testid="people-csv-import-btn">
             Import CSV
           </Link>
+          <a href="/modules/people/api/csv_export.php" className="btn" data-testid="people-csv-export-btn">
+            Export CSV
+          </a>
           <Link to="../new" className="btn btn--primary" data-testid="people-add-btn">
             + Add person
           </Link>

@@ -6,6 +6,7 @@ import StaffingApprovals from './StaffingApprovals';
 import StaffingSettings from './StaffingSettings';
 import StaffingProfitability from './StaffingProfitability';
 import Clients from './Clients';
+import ClientsCsvImport from './ClientsCsvImport';
 import StaffingReadiness from './StaffingReadiness';
 
 // Reuse existing module pages — they already exist and work; we're just
@@ -32,6 +33,7 @@ export default function StaffingModule({ session }) {
         <Route path="placements/*" element={<PlacementsModule session={session} />} />
         <Route path="settings"     element={<StaffingSettings session={session} />} />
         <Route path="clients"      element={<Clients />} />
+        <Route path="clients/csv_import" element={<ClientsCsvImport />} />
         <Route path="jobs"         element={<ComingSoon title="Jobs / Roles"      phase="2" />} />
         <Route path="profitability/*"  element={<StaffingProfitability session={session} />} />
         <Route path="payroll-readiness" element={<StaffingReadiness mode="payroll" />} />

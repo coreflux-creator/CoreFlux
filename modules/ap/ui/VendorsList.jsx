@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 
 export default function VendorsList() {
@@ -10,9 +11,13 @@ export default function VendorsList() {
 
   return (
     <section data-testid="ap-vendors-list">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)', gap: 8, flexWrap: 'wrap' }}>
         <input className="input" placeholder="Search vendors…" value={q} onChange={(e) => setQ(e.target.value)} data-testid="ap-vendors-search" style={{ maxWidth: 320 }} />
-        <button className="btn btn--primary" onClick={() => setShowCreate(true)} data-testid="ap-vendor-new">New vendor</button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Link to="csv_import" className="btn" data-testid="ap-vendors-import-csv">Import CSV</Link>
+          <a className="btn" href="/modules/ap/api/csv_export.php" data-testid="ap-vendors-export-csv">Export CSV</a>
+          <button className="btn btn--primary" onClick={() => setShowCreate(true)} data-testid="ap-vendor-new">New vendor</button>
+        </div>
       </div>
 
       {loading && <p>Loading…</p>}

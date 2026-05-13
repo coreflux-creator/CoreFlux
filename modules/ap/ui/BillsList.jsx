@@ -56,6 +56,7 @@ export default function BillsList() {
           <button className="btn btn--ghost" onClick={() => setShowFromBundle(true)} data-testid="ap-new-from-time-bundle">
             New from time bundle
           </button>
+          <a className="btn" href={`/modules/ap/api/bills_csv_export.php${status ? `?status=${status}` : ''}`} data-testid="ap-bills-export-all-csv">Export all (CSV)</a>
         </div>
       </div>
 
