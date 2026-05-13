@@ -3882,3 +3882,43 @@ User-approved scope (51 events in v1; subscriptions/equity-grants/inventory defe
 - **Phase 1d** — `unified_exception_queue` view (single inbox over low-confidence AI proposals, missing docs, unusual amounts, duplicate risk, new vendors, period-locked attempts).
 - **Phase 1e** — `evidence_attachments` canonical pivot.
 - **Phase 1f** — migrate emit sites to canonical event names + retire deprecated aliases.
+
+---
+
+## 2026-02-14 — Phase 1d: Unified Exception Queue + JE Trace Pane
+
+### JE Trace Pane (per yesterday's smart-suggestion)
+- **Backend** `api/accounting/je_trace.php` — given a `je_id`, returns:
+  1. JE header
+  2. Source `accounting_events` row (via `accounting_subledger_links`)
+  3. Full lineage tree (ancestors + descendants from `event_lineage`)
+  4. Every `accounting_ai_interpretations` row for every event in the chain
+- **Frontend** `modules/accounting/ui/JeTracePane.jsx` — collapsible pane mounted at the bottom of `JournalEntryDetail.jsx`. Renders the chain with:
+  - Source event highlighted in blue, ancestors in cyan, descendants in purple
+  - Each interpretation row shows proposer (AI/rule/human icon), confidence %, status color, registry Dr/Cr hint, reasoning text, reviewer disposition, and the proposed JE lines as a Dr/Cr table.
+- **Answer:** "Why was this amount booked to that account?" → one click.
+
+### Phase 1d — Unified Exception Queue
+- **Migration** `core/migrations/039_unified_exception_queue.sql`:
+  - `exception_queue` table — open/snoozed/resolved/dismissed lifecycle, severity (info/warn/high/critical), polymorphic subject pointer, payload JSON, assignment, snooze-until, resolution trail.
+  - `v_unified_exception_queue` SQL view — fans in 3 feeds:
+    - `queue` — explicit `exception_queue` rows (open/snoozed)
+    - `ai_interpretation` — `accounting_ai_interpretations` with `requires_review=1 AND status='proposed'`. Severity computed from confidence (`<0.50→high`, `<0.75→warn`, else `info`).
+    - `event_error` — `accounting_events` with `status='failed'`
+  - Single `unified_id` column lets the UI key rows across feeds.
+- **Helper library** `core/exception_queue.php`:
+  - `exceptionOpen()` — module-callable; severity-sanitized; graceful no-op when table missing.
+  - `exceptionList()` / `exceptionSummary()` — read from the view; severity-ordered.
+  - `exceptionResolve` / `exceptionSnooze` / `exceptionDismiss` / `exceptionAssign` — lifecycle ops, all best-effort.
+- **Posting engine wire-in** — on posting failure, `accountingProcessEvent()` auto-opens an `event.error` exception with the rule id + error message in the payload. Wrapped best-effort so the exception write never breaks the upstream rollback.
+- **API** `api/accounting/exceptions.php` — GET (filter by source/severity/subject/feed + `?summary=1`); POST open + lifecycle actions.
+
+### Tests
+- Phase 1d + JE trace smoke: 46/46 ✅
+- Full suite: **168/168** in-scope ✅
+- New Vite bundle: `index-C8nfjHo6.js`
+
+### Next up (Phase 1e-f)
+- **Phase 1e** — `evidence_attachments` canonical pivot (replaces ad-hoc bill_documents, ap_attachments, etc.).
+- **Phase 1f** — migrate emit sites to canonical event names + retire the 3 deprecated aliases.
+- Surfacing the exception queue inbox on the CFO Dashboard (next-natural UI consumer).

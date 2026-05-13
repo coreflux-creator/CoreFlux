@@ -180,6 +180,26 @@ function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId =
     } catch (\Throwable $e) {
         $pdo->prepare('UPDATE accounting_events SET status="failed", error_message=:m WHERE id = :id')
             ->execute(['m' => $e->getMessage(), 'id' => $eventId]);
+
+        // Phase 1d — surface the failure on the unified exception queue
+        // so it shows up in the operator's inbox.
+        try {
+            require_once __DIR__ . '/../exception_queue.php';
+            exceptionOpen($tenantId, 'event.error', [
+                'severity'         => 'high',
+                'title'            => "Posting failed: {$event['event_type']} ({$event['source_module']}:{$event['source_record_id']})",
+                'subject_type'     => 'accounting_event',
+                'subject_id'       => $eventId,
+                'opened_by_user_id'=> $actorUserId,
+                'payload'          => [
+                    'event_type'    => $event['event_type'],
+                    'source_module' => $event['source_module'],
+                    'error_message' => $e->getMessage(),
+                    'rule_id'       => (int) $rule['id'],
+                ],
+            ]);
+        } catch (\Throwable $_) { /* best-effort */ }
+
         return [
             'status' => 'failed',
             'event_id' => $eventId,

@@ -283,7 +283,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-Cpv3lqE7.js
+- spa-assets/index-C8nfjHo6.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -703,6 +703,12 @@ last_known_features:
 - cfo.dashboard.custom_formula_widgets_a_op_b
 - cfo.dashboard.saved_view_widget_config
 - cfo.dashboard.on_demand_email_report
+- liveBooks.phase_1a.event_registry
+- liveBooks.phase_1b.ai_interpretations
+- liveBooks.phase_1b.cfo_registry_hints
+- liveBooks.phase_1c.event_lineage
+- liveBooks.phase_1d.unified_exception_queue
+- liveBooks.phase_1d.je_trace_pane
 - modules/staffing/manifest.php
 - modules/staffing/migrations/001_timesheets.sql
 - modules/staffing/migrations/002_timesheet_id_on_entries.sql

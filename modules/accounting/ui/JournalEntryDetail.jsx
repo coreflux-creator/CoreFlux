@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import JeTracePane from './JeTracePane';
 
 /**
  * Journal Entry detail.
@@ -71,6 +72,8 @@ export default function JournalEntryDetail() {
         </div>
       )}
       {actionErr && <p className="error" data-testid="accounting-je-detail-error">{actionErr}</p>}
+
+      <JeTracePane jeId={entry.id} />
     </section>
   );
 }
