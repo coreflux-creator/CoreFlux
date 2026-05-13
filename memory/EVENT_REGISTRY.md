@@ -1,7 +1,13 @@
-# CoreFlux Canonical Event Registry — Draft v1
+# CoreFlux Canonical Event Registry — v1 (APPROVED 2026-02-14)
 
-**Status:** DRAFT — awaiting user sign-off before any code is written.
-**Authority:** This document IS the contract for Phase 1 of the Live Books Rails architecture (NORTH_STAR.md). Every module emits ONLY events listed here. The `event_registry` table will be seeded from this doc. Mismatches between code and this doc fail at emit time.
+**Status:** APPROVED — scope locked by user 2026-02-14. Phase 1a begins.
+**Authority:** This document IS the contract for Phase 1 of the Live Books Rails architecture (NORTH_STAR.md). Every module emits ONLY events listed here. The `event_registry` table is seeded from this doc. Mismatches between code and this doc fail at emit time.
+
+**Scope decisions baked in:**
+- **Defer:** Subscriptions/MSAs (2.1, 2.2), equity grants (1.3), buybacks (1.4), notes payable (1.5), inventory (7.1, 7.2).
+- **Keep:** Capital contributions + distributions, full AP/AR cycles, full treasury (incl. FX + uncategorized cash), formal POs, fixed assets + depreciation, full payroll + staffing, tax, period/close, reversals.
+- **Rename legacy emits:** `billing.invoice.sent` → `ar.invoice.issued`, `billing.payment.received` → `ar.payment.received`, `treasury.payment.executed` → `ap.payment.executed`. Old names kept as deprecated aliases for one release cycle.
+- **Total events in v1:** 51.
 
 ---
 
@@ -53,28 +59,27 @@ Every event has a `schema_version` integer (default 1). Breaking payload changes
 
 ---
 
-## 1. Capital / Equity
+## 1. Capital / Equity (2 events)
 
 | # | Event | Required payload | Counterparty | Triggers | Already emit? | Accounting hint |
 |---|-------|-----------------|--------------|----------|---------------|-----------------|
 | 1.1 | `capital.contribution.received` | `{ amount, currency, contribution_type: cash\|in_kind\|note, equity_account_id }` | investor | Owner/investor injects capital | N | Dr cash / Cr equity (members' capital) |
 | 1.2 | `capital.distribution.paid` | `{ amount, currency, distribution_type, equity_account_id }` | investor | Owner takes a distribution | N | Dr equity / Cr cash |
-| 1.3 | `capital.equity_grant.issued` | `{ amount, vesting_start, vesting_end, instrument_type }` | employee | Employee equity grant issued | N | memo (no GL until exercise) |
-| 1.4 | `capital.equity.repurchased` | `{ amount, currency, shares_or_units }` | investor | Treasury stock / buyback | N | Dr treasury stock / Cr cash |
-| 1.5 | `capital.note.issued` | `{ principal, rate, term_months, lender_party_id }` | lender | Company issues a note payable to a lender | N | Dr cash / Cr notes payable |
 
-## 2. Sales / AR Cycle
+> _Deferred (not in v1):_ `capital.equity_grant.issued`, `capital.equity.repurchased`, `capital.note.issued`.
+
+## 2. Sales / AR Cycle (6 events)
 
 | # | Event | Required payload | Counterparty | Triggers | Already emit? | Accounting hint |
 |---|-------|-----------------|--------------|----------|---------------|-----------------|
-| 2.1 | `sales.contract.signed` | `{ contract_id, total_value, currency, billing_schedule, term_start, term_end }` | customer | Master service agreement / SOW countersigned | N | memo (kicks off lineage) |
-| 2.2 | `sales.subscription.activated` | `{ subscription_id, mrr, currency, term, customer_id }` | customer | Recurring subscription goes live | N | memo + spawns recurring `ar.invoice.issued` |
 | 2.3 | `ar.invoice.drafted` | `{ invoice_id, total, currency, lines[] }` | customer | Invoice created but not sent | N | none yet |
 | 2.4 | `ar.invoice.issued` ⟵ (renamed from `billing.invoice.sent`) | `{ invoice_id, invoice_number, total, currency, lines[], due_date }` | customer | Invoice sent to customer | **Y** (as `billing.invoice.sent`) | Dr AR / Cr revenue (per-line) |
 | 2.5 | `ar.payment.received` ⟵ (was `billing.payment.received`) | `{ payment_id, amount, currency, method, invoice_ids[] }` | customer | Customer pays | **Y** | Dr cash / Cr AR |
 | 2.6 | `ar.cash.applied` | `{ payment_id, application_id, amount, invoice_id }` | customer | Payment applied to specific invoice | N (handled inline) | application-level (no GL) |
 | 2.7 | `ar.credit_memo.issued` | `{ memo_id, amount, currency, lines[], reason }` | customer | Credit memo issued | N | Dr revenue / Cr AR |
 | 2.8 | `ar.writeoff.recorded` | `{ invoice_id, amount, currency, reason }` | customer | Invoice written off as bad debt | N | Dr bad debt / Cr AR |
+
+> _Deferred:_ `sales.contract.signed`, `sales.subscription.activated`.
 
 ## 3. Procurement / AP Cycle
 
@@ -127,14 +132,14 @@ Every event has a `schema_version` integer (default 1). Breaking payload changes
 | 6.4 | `staffing.placement.ended` | `{ placement_id, person_id, end_date, reason }` | customer + worker | Placement closes | N | memo |
 | 6.5 | `staffing.worker.classification_changed` | `{ person_id, from_type, to_type, effective_date }` | worker | W2 ↔ 1099 / C2C reclass | N | memo — flag year-end re-issue |
 
-## 7. Inventory / Fixed Assets
+## 7. Fixed Assets (2 events)
 
 | # | Event | Required payload | Counterparty | Triggers | Already emit? | Accounting hint |
 |---|-------|-----------------|--------------|----------|---------------|-----------------|
-| 7.1 | `inventory.received` | `{ po_id, sku, qty, unit_cost, currency }` | vendor | Goods received | N | Dr inventory / Cr GR/IR |
-| 7.2 | `inventory.consumed` | `{ sku, qty, project_id?, cost_center? }` | system | Sale or production draw | N | Dr COGS / Cr inventory |
 | 7.3 | `fixed_asset.acquired` | `{ asset_id, cost, currency, useful_life_months, in_service_date }` | vendor | Asset placed in service | N | Dr fixed asset / Cr cash or AP |
 | 7.4 | `fixed_asset.depreciation.recorded` | `{ asset_id, period, amount, method }` | system | Monthly depreciation | N | Dr deprec exp / Cr accum deprec |
+
+> _Deferred:_ `inventory.received`, `inventory.consumed`.
 
 ## 8. Tax
 
@@ -163,20 +168,20 @@ Every event has a `schema_version` integer (default 1). Breaking payload changes
 
 ---
 
-## Event count summary
-- Capital/Equity: 5
-- Sales/AR: 8
+## Event count summary (v1)
+- Capital/Equity: 2 (deferred 3)
+- Sales/AR: 6 (deferred 2)
 - Procurement/AP: 8
 - Treasury: 10
 - Payroll: 8
 - Staffing: 5
-- Inventory/Assets: 4
+- Fixed Assets: 2 (inventory deferred)
 - Tax: 3
 - Period/Close: 4
 - Reversals/Adjustments: 3
 
-**Total: 58 canonical events.**
-**Today CoreFlux emits 7** (2.4, 2.5, 3.3, 3.6, 4.1, 4.2, 4.3, 4.5, 4.6, 6.3 — though 4.1 and 4.2 are partially overlapping).
+**Total: 51 canonical events in v1.**
+**Today CoreFlux emits 7** that map to these registry types.
 
 ---
 
@@ -226,24 +231,19 @@ A new smoke test, `event_registry_contract_smoke.php`, asserts:
 
 ---
 
-## OPEN QUESTIONS FOR USER
+## Scope decisions (user-approved 2026-02-14)
 
-1. **Subscription / contract events (2.1, 2.2)** — Do you do MSAs / SOWs / subscriptions today, or is everything single-PO/single-bill? If no, we can defer these.
-
-2. **Equity events (1.x)** — Are owner contributions/distributions a real flow for you, or a backlog item? Today CoreFlux has no equity module.
-
-3. **Inventory (7.1-2)** — Staffing firms typically don't carry inventory. Skip entirely?
-
-4. **Fixed assets (7.3-4)** — Do you book depreciation, or is everything expensed? If expensed, defer.
-
-5. **FX (4.9)** — Do you transact in any non-USD currencies?
-
-6. **PO-driven AP (3.1)** — Do you issue formal POs, or just receive bills?
-
-7. **Naming check** — I renamed `billing.invoice.sent` → `ar.invoice.issued` to bring it in line with the doc's domain convention. Comfortable with that, or keep current legacy names? (Doesn't affect prod data — only the event_type string going forward.)
-
-8. **Should I add anything else** that's specific to your business that isn't in the canonical 58?
+| Question | User answer |
+|----------|-------------|
+| Subscriptions / MSAs | Defer (1b) |
+| Equity events | Keep contributions + distributions; defer grants/buybacks/notes (2c) |
+| Inventory | Skip — staffing firm (3a) |
+| Fixed assets / depreciation | Keep — book depreciation (4b) |
+| FX revaluation | Keep — multi-currency (5b) |
+| Formal POs | Keep — issue POs (6a) |
+| Rename legacy events | Yes, with deprecated aliases for one release (7a) |
+| Anything additional | No (8) |
 
 ---
 
-**Next step after sign-off:** Build Phase 1a (event_registry table + seed from this doc) and the `event_registry_contract_smoke.php` enforcement test.
+**Next step:** Phase 1a — build `event_registry` table + seed from this doc + `event_registry_contract_smoke.php`. STARTING NOW.

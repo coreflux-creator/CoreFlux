@@ -3786,3 +3786,30 @@ User pivoted off the Live Books Rails architecture for one feature: a CFO-grade 
 - **Test:** `tests/cfo_dashboard_smoke.php` — 60/60 assertions.
 - Full suite: **164/164 in-scope pass.** Only `ai_platform_smoke.php` + `plaid_integration_smoke.php` fail (expected — no live API keys locally).
 - New Vite bundle: `index-Cpv3lqE7.js` (CSS unchanged: `index-Cwhpy62y.css`).
+
+---
+
+## 2026-02-14 — Live Books Rails Phase 1a: Canonical Event Registry
+
+User-approved scope (51 events in v1; subscriptions/equity-grants/inventory deferred).
+
+### Doc
+- `/app/memory/EVENT_REGISTRY.md` — APPROVED v1. The contract.
+
+### Built
+- **Migration** `core/migrations/036_event_registry.sql` — `event_registry` table with `(event_type, schema_version)` PK and `deprecated_alias_for` pointer for legacy event names.
+- **Seed** `core/seeds/event_registry_seed.php` — 51 canonical events + 3 deprecated aliases (`billing.invoice.sent`, `billing.payment.received`, `treasury.payment.executed`). Idempotent `ON DUPLICATE KEY UPDATE`. Auto-runs on first read when the table is empty (no manual step needed).
+- **Helper library** `core/event_registry.php` — `eventRegistryGet`, `eventRegistryAll`, `eventRegistryValidate`. Resolves aliases transparently. Degrades to warn-only when the registry table is missing (backwards-compat for tenants who haven't run migration 036 yet).
+- **Validation wire-in** — `accountingProcessEvent()` now rejects events whose `event_type` is not registered OR whose payload is missing required keys. Deprecated aliases pass validation but emit a warn-log so emit sites can be migrated.
+- **Test** `tests/event_registry_contract_smoke.php` — 54 assertions, including a coverage scan over every `accountingProcessEvent(['event_type' => '...'])` call site in the codebase. Each existing emit (`ap.bill.approved`, `billing.invoice.sent`, `staffing.worker_hours.approved`, `treasury.payment.executed`) is verified to be registry-valid.
+
+### Test status
+- Phase 1a smoke: **54/54** ✅
+- Full suite: **165/165** in-scope (only `ai_platform` + `plaid_integration` fail — expected, no live API keys locally).
+
+### Next up (Phase 1b-f)
+- **Phase 1b** — `accounting_ai_interpretations` table (1:1 with each event; proposed JE + confidence + evidence + reviewer disposition).
+- **Phase 1c** — `event_lineage` (parent/child causal chain).
+- **Phase 1d** — `unified_exception_queue` view.
+- **Phase 1e** — `evidence_attachments` canonical pivot.
+- **Phase 1f** — migrate existing emit sites to canonical names (drop deprecated aliases). Lightweight per user's directive: no parallel emit paths.

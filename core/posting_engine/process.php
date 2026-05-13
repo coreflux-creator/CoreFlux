@@ -52,6 +52,28 @@ function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId =
         }
     }
     $payload = is_array($event['payload']) ? $event['payload'] : [];
+
+    // Phase 1a — Event Registry validation (Live Books Rails, 2026-02-14).
+    // Validates the event_type + required payload keys against the canonical
+    // catalog in `event_registry`. Degrades to warn-only when the registry
+    // table is missing (tenants that haven't run migration 036 yet).
+    require_once __DIR__ . '/../event_registry.php';
+    $validation = eventRegistryValidate(
+        (string) $event['event_type'],
+        $payload,
+        (int) ($event['schema_version'] ?? 1)
+    );
+    if (!$validation['ok']) {
+        throw new \InvalidArgumentException(
+            "Event rejected by registry: " . implode('; ', $validation['errors'])
+        );
+    }
+    if (!empty($validation['warnings'])) {
+        foreach ($validation['warnings'] as $w) {
+            error_log("[event-registry] tenant={$tenantId} type={$event['event_type']} src={$event['source_module']}:{$event['source_record_id']} :: {$w}");
+        }
+    }
+
     $context = ['payload' => $payload, 'event' => $event];
 
     $pdo = getDB();
