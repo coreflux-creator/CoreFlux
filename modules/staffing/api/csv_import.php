@@ -67,11 +67,19 @@ if ($method === 'GET' && $action === 'sample') {
     exit;
 }
 
+
+if ($method === 'POST' && $action === 'inspect') {
+    RBAC::requirePermission($user, 'staffing.view');
+    $csv = CsvImportService::readRequestCsv();
+    if (!$csv) api_error('No CSV body received', 400);
+    api_ok(CsvImportService::inspect('staffing_clients', $csv));
+}
 if ($method === 'POST' && $action === 'dry_run') {
     RBAC::requirePermission($user, 'staffing.view');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
-    $result = CsvImportService::dryRun('staffing_clients', $csv);
+    $columnMap = CsvImportService::readRequestColumnMap();
+    $result = CsvImportService::dryRun('staffing_clients', $csv, $columnMap);
 
     // Flag collisions with existing client name rows in this tenant.
     if ($result['rows']) {
@@ -102,6 +110,7 @@ if ($method === 'POST' && $action === 'commit') {
     RBAC::requirePermission($user, 'staffing.view');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
+    $columnMap = CsvImportService::readRequestColumnMap();
     $skipInvalid    = !empty($_GET['skip_invalid']);
     $updateExisting = !empty($_GET['update_existing']);
 
@@ -135,7 +144,7 @@ if ($method === 'POST' && $action === 'commit') {
             return (int) $existing['id'];
         }
         return scopedInsert('staffing_clients', $payload);
-    }, ['skip_invalid' => $skipInvalid]);
+    }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
 
     api_ok($result);
 }

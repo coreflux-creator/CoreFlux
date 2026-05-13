@@ -71,11 +71,19 @@ if ($method === 'GET' && $action === 'sample') {
     exit;
 }
 
+
+if ($method === 'POST' && $action === 'inspect') {
+    RBAC::requirePermission($user, 'billing.invoice.draft');
+    $csv = CsvImportService::readRequestCsv();
+    if (!$csv) api_error('No CSV body received', 400);
+    api_ok(CsvImportService::inspect('billing_invoices', $csv));
+}
 if ($method === 'POST' && $action === 'dry_run') {
     RBAC::requirePermission($user, 'billing.invoice.draft');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
-    $result = CsvImportService::dryRun('billing_invoices', $csv);
+    $columnMap = CsvImportService::readRequestColumnMap();
+    $result = CsvImportService::dryRun('billing_invoices', $csv, $columnMap);
 
     $groups = [];
     foreach ($result['rows'] as $rn => $row) {
@@ -102,9 +110,10 @@ if ($method === 'POST' && $action === 'commit') {
     RBAC::requirePermission($user, 'billing.invoice.draft');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
+    $columnMap = CsvImportService::readRequestColumnMap();
     $skipInvalid = !empty($_GET['skip_invalid']);
 
-    $dry = CsvImportService::dryRun('billing_invoices', $csv);
+    $dry = CsvImportService::dryRun('billing_invoices', $csv, $columnMap);
     if (!$skipInvalid && $dry['error_count'] > 0) {
         api_ok([
             'imported_count' => 0, 'skipped_count' => count($dry['rows']),

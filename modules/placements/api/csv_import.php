@@ -64,11 +64,19 @@ if ($method === 'GET' && $action === 'sample') {
     exit;
 }
 
+
+if ($method === 'POST' && $action === 'inspect') {
+    RBAC::requirePermission($user, 'placements.manage');
+    $csv = CsvImportService::readRequestCsv();
+    if (!$csv) api_error('No CSV body received', 400);
+    api_ok(CsvImportService::inspect('placements', $csv));
+}
 if ($method === 'POST' && $action === 'dry_run') {
     RBAC::requirePermission($user, 'placements.manage');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
-    $result = CsvImportService::dryRun('placements', $csv);
+    $columnMap = CsvImportService::readRequestColumnMap();
+    $result = CsvImportService::dryRun('placements', $csv, $columnMap);
 
     // Validate person_email exists in tenant
     if ($result['rows']) {
@@ -102,6 +110,7 @@ if ($method === 'POST' && $action === 'commit') {
     RBAC::requirePermission($user, 'placements.financials.manage');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
+    $columnMap = CsvImportService::readRequestColumnMap();
     $skipInvalid = !empty($_GET['skip_invalid']);
 
     $result = CsvImportService::commit('placements', $csv, function (array $row) use ($user) {
@@ -152,7 +161,7 @@ if ($method === 'POST' && $action === 'commit') {
         }
 
         return $pid;
-    }, ['skip_invalid' => $skipInvalid]);
+    }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
 
     placementsAudit('placement.csv_imported', [
         'imported' => $result['imported_count'],

@@ -4106,3 +4106,67 @@ before importing their real books.
 - Full suite: **174/174** ✅
 - New Vite bundle: `index-rMpc_kFG.js`
 
+
+## 2026-02-14 — Interactive Column Mapping (CSV Phase C)
+
+### Why
+Customers exporting from QuickBooks / BambooHR / Bullhorn / Excel rarely
+have headers that match our template labels. Before this round, mismatched
+columns were silently dropped (e.g. "FName" wouldn't map to "First name").
+Now the importer presents a mapping table after file pick so the user
+explicitly pairs each source column with a target field.
+
+### Built — Core service
+- `CsvImportService::inspect($module, $csv)` returns:
+  - `headers`: list of column names as found in the file
+  - `auto_map`: suggested header→field_key per index (case-insensitive
+    match against label OR raw key; null when ambiguous)
+  - `fields`: schema metadata (key, label, required, type, enum) so the
+    UI can build the target dropdown without a second round-trip.
+- `CsvImportService::dryRun()` and `commit()` now accept an optional
+  `column_map` override (both header-name-keyed and index-keyed shapes
+  supported; invalid field_keys silently dropped).
+- New `readRequestColumnMap()` helper for endpoints.
+- New `resolveHeaderMap()` private helper unifies the path through which
+  mapping is computed.
+
+### Built — Endpoints
+- `POST ?action=inspect` added to all 7 csv_import endpoints (people,
+  placements, time, ap_vendors, staffing_clients, ap_bills, billing_invoices).
+- `dry_run` and `commit` on all 7 endpoints read `column_map` from the
+  request body and forward it to the service.
+
+### Built — UI (shared CsvImportPage)
+- On file pick, auto-calls `?action=inspect` and renders an inline
+  **mapping table** (source column ↔ target field dropdown). Auto-mapped
+  columns are pre-selected; user can change any of them or pick
+  "— skip this column —".
+- Live warning when required fields are not yet mapped:
+  > Required fields not yet mapped: First name, Last name.
+- Mapping changes invalidate any prior dry-run so the user re-validates.
+- `dry_run` and `commit` requests include the chosen `column_map`.
+
+### Test status
+- `tests/csv_interactive_mapping_smoke.php`: **48/48** ✅
+- Full suite: **175/175** ✅
+- New Vite bundle: `index-Cq_91YC8.js`
+
+### How to use it
+1. Click **Import CSV** on any list page (or open `/data/bulk-import`).
+2. Click **Download sample with example rows** to see the canonical shape, OR
+   just pick your own CSV from your old system.
+3. The Mapping table appears immediately. Adjust the dropdowns so each
+   source column points to the right CoreFlux field. Leave junk columns
+   on "— skip this column —".
+4. Click **Validate (dry run)** to see per-row errors with your mapping.
+5. Tick **Skip invalid rows** if some rows have errors, then **Commit**.
+
+### Next up
+- "Save mapping" — remember the user's chosen header→field map per
+  tenant + entity so the next import from the same system is one-click.
+- Wire interactive mapping into the **Bulk CSV Import Wizard** (currently
+  it only uses auto-detection; the per-entity page is where the mapping
+  table lives today).
+- CSV import for AP/billing payments; update-existing mode on placements/time.
+- **Phase 2 — Live Books Rails**: AI competing/proposing + Unified Financial State Cache.
+

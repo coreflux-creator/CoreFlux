@@ -72,11 +72,19 @@ if ($method === 'GET' && $action === 'sample') {
     exit;
 }
 
+if ($method === 'POST' && $action === 'inspect') {
+    RBAC::requirePermission($user, 'people.manage');
+    $csv = CsvImportService::readRequestCsv();
+    if (!$csv) api_error('No CSV body received', 400);
+    api_ok(CsvImportService::inspect('people', $csv));
+}
+
 if ($method === 'POST' && $action === 'dry_run') {
     RBAC::requirePermission($user, 'people.manage');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
-    $result = CsvImportService::dryRun('people', $csv);
+    $columnMap = CsvImportService::readRequestColumnMap();
+    $result = CsvImportService::dryRun('people', $csv, $columnMap);
 
     // Also flag email collisions with EXISTING records in the tenant.
     $existingEmails = [];
@@ -147,7 +155,7 @@ if ($method === 'POST' && $action === 'commit') {
         }
         $payload['created_by_user_id'] = $user['id'] ?? null;
         return scopedInsert('people', $payload);
-    }, ['skip_invalid' => $skipInvalid]);
+    }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
 
     peopleAudit('people.csv_imported', [
         'imported'        => $result['imported_count'],

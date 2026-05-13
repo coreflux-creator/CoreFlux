@@ -283,7 +283,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-rMpc_kFG.js
+- spa-assets/index-Cq_91YC8.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -739,6 +739,10 @@ last_known_features:
 - csv.sample_pack.fk_coherent_seed_data
 - csv.sample_pack.per_entity_endpoint
 - csv.sample_pack.bulk_wizard_disclosure
+- csv.mapping.inspect_endpoint
+- csv.mapping.column_map_override_in_service
+- csv.mapping.interactive_ui_table
+- csv.mapping.missing_required_warning
 - modules/staffing/manifest.php
 - modules/staffing/migrations/001_timesheets.sql
 - modules/staffing/migrations/002_timesheet_id_on_entries.sql

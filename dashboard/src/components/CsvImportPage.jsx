@@ -38,26 +38,54 @@ export default function CsvImportPage({
   const fileRef = useRef(null);
   const [csvText, setCsvText]         = useState('');
   const [fileName, setFileName]       = useState('');
+  // Interactive column mapping state
+  const [inspecting, setInspecting]   = useState(false);
+  const [inspect, setInspectResult]   = useState(null);  // { headers, auto_map, fields }
+  const [columnMap, setColumnMap]     = useState(null);  // { headerName: field_key | null }
+  // Preview / commit state
   const [preview, setPreview]         = useState(null);
   const [running, setRunning]         = useState(false);
   const [error, setError]             = useState(null);
   const [committed, setCommitted]     = useState(null);
   const [skipInvalid, setSkipInvalid] = useState(false);
 
-  const onFile = (e) => {
+  const onFile = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
     setFileName(f.name);
     const reader = new FileReader();
-    reader.onload = () => setCsvText(String(reader.result || ''));
+    reader.onload = async () => {
+      const text = String(reader.result || '');
+      setCsvText(text);
+      setPreview(null); setCommitted(null); setError(null);
+      // Auto-inspect on file pick so the mapping table appears immediately.
+      setInspecting(true);
+      try {
+        const res = await api.post(`${endpoint}?action=inspect`, { csv: text });
+        setInspectResult(res);
+        // Seed columnMap from auto_map
+        const seed = {};
+        (res.headers || []).forEach((h, i) => { seed[h] = (res.auto_map || [])[i] ?? null; });
+        setColumnMap(seed);
+      } catch (err) { setError(err); }
+      finally       { setInspecting(false); }
+    };
     reader.readAsText(f);
+  };
+
+  const setMapForHeader = (header, fieldKey) => {
+    setColumnMap(prev => ({ ...prev, [header]: fieldKey || null }));
+    // Mapping changed — invalidate any prior preview.
+    setPreview(null);
   };
 
   const dryRun = async () => {
     if (!csvText) return;
     setRunning(true); setError(null); setCommitted(null);
     try {
-      const res = await api.post(`${endpoint}?action=dry_run`, { csv: csvText });
+      const body = { csv: csvText };
+      if (columnMap) body.column_map = columnMap;
+      const res = await api.post(`${endpoint}?action=dry_run`, body);
       setPreview(res);
     } catch (e) { setError(e); }
     finally     { setRunning(false); }
@@ -68,7 +96,9 @@ export default function CsvImportPage({
     setRunning(true); setError(null);
     try {
       const path = `${endpoint}?action=commit${skipInvalid ? '&skip_invalid=1' : ''}`;
-      const res = await api.post(path, { csv: csvText });
+      const body = { csv: csvText };
+      if (columnMap) body.column_map = columnMap;
+      const res = await api.post(path, body);
       setCommitted(res);
     } catch (e) { setError(e); }
     finally     { setRunning(false); }
@@ -76,6 +106,7 @@ export default function CsvImportPage({
 
   const reset = () => {
     setCsvText(''); setFileName(''); setPreview(null); setCommitted(null); setError(null);
+    setInspectResult(null); setColumnMap(null);
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -133,6 +164,73 @@ export default function CsvImportPage({
         </div>
 
         {error && <p className="error" data-testid={`${testidPrefix}-error`}>Error: {error.message}</p>}
+
+        {inspecting && (
+          <p data-testid={`${testidPrefix}-inspecting`} style={{ color: 'var(--cf-text-secondary)' }}>
+            Inspecting columns…
+          </p>
+        )}
+
+        {/* Interactive column mapping table — appears after a file is
+            picked and ?action=inspect returns. User can pick the target
+            field for each source column, or leave it "— skip this column —".
+            Required schema fields that have no mapped header are flagged. */}
+        {inspect && !committed && (
+          <div data-testid={`${testidPrefix}-mapping`} style={{ marginBottom: 'var(--cf-space-4)' }}>
+            <h3 style={{ marginTop: 0 }}>Map your columns</h3>
+            <p style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>
+              We auto-matched what we could. Adjust any mismatched columns or
+              set unmatched ones to <em>— skip this column —</em>.
+            </p>
+            <table className="data-table" data-testid={`${testidPrefix}-mapping-table`}>
+              <thead>
+                <tr>
+                  <th style={{ width: '40%' }}>Source column (your CSV)</th>
+                  <th>Target field</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(inspect.headers || []).map((h, i) => {
+                  const mapped = columnMap?.[h] ?? null;
+                  return (
+                    <tr key={i} data-testid={`${testidPrefix}-mapping-row-${i}`}>
+                      <td>
+                        <code>{h}</code>
+                        {mapped === null && <span style={{ marginLeft: 8, color: 'var(--cf-text-muted, #9ca3af)', fontSize: 12 }}>(will be ignored)</span>}
+                      </td>
+                      <td>
+                        <select
+                          value={mapped || ''}
+                          onChange={(e) => setMapForHeader(h, e.target.value || null)}
+                          data-testid={`${testidPrefix}-mapping-select-${i}`}
+                          style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--cf-border, #e5e7eb)', minWidth: 240 }}
+                        >
+                          <option value="">— skip this column —</option>
+                          {(inspect.fields || []).map(f => (
+                            <option key={f.key} value={f.key}>
+                              {f.label}{f.required ? ' *' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {(() => {
+              const mappedKeys = new Set(Object.values(columnMap || {}).filter(Boolean));
+              const missingRequired = (inspect.fields || []).filter(f => f.required && !mappedKeys.has(f.key));
+              if (missingRequired.length === 0) return null;
+              return (
+                <p data-testid={`${testidPrefix}-missing-required`} style={{ color: '#c0392b', fontSize: 13, marginTop: 8 }}>
+                  Required fields not yet mapped: <strong>{missingRequired.map(f => f.label).join(', ')}</strong>.
+                  Dry-run will surface row-level errors for these.
+                </p>
+              );
+            })()}
+          </div>
+        )}
 
         {preview && !committed && (
           <>

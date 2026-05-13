@@ -46,11 +46,19 @@ if ($method === 'GET' && $action === 'sample') {
     exit;
 }
 
+
+if ($method === 'POST' && $action === 'inspect') {
+    RBAC::requirePermission($user, 'time.bulk_upload');
+    $csv = CsvImportService::readRequestCsv();
+    if (!$csv) api_error('No CSV body received', 400);
+    api_ok(CsvImportService::inspect('time', $csv));
+}
 if ($method === 'POST' && $action === 'dry_run') {
     RBAC::requirePermission($user, 'time.bulk_upload');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
-    $result = CsvImportService::dryRun('time', $csv);
+    $columnMap = CsvImportService::readRequestColumnMap();
+    $result = CsvImportService::dryRun('time', $csv, $columnMap);
 
     // Resolve placement_external_id → placement_id in current tenant
     if ($result['rows']) {
@@ -83,6 +91,7 @@ if ($method === 'POST' && $action === 'commit') {
 
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
+    $columnMap = CsvImportService::readRequestColumnMap();
     $skipInvalid = !empty($_GET['skip_invalid']);
 
     $result = CsvImportService::commit('time', $csv, function (array $row) use ($user, $preApproved) {
@@ -120,7 +129,7 @@ if ($method === 'POST' && $action === 'commit') {
             $insert['approved_via']        = 'bulk_pre_approved';
         }
         return scopedInsert('time_entries', $insert);
-    }, ['skip_invalid' => $skipInvalid]);
+    }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
 
     timeAudit('time.bulk.uploaded', [
         'entries_count' => $result['imported_count'],

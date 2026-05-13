@@ -112,9 +112,73 @@ class CsvImportService
     }
 
     /**
+     * Inspect a raw CSV without doing full validation: returns the headers
+     * found, an auto-suggested header→field mapping, and the schema fields
+     * available as mapping targets. Used by the interactive column-mapping
+     * UI before dry_run/commit.
+     *
+     * Returns:
+     *   [
+     *     'headers'  => ['First name','Email','Hire date',...],
+     *     'auto_map' => [0 => 'first_name', 1 => null, 2 => 'work_auth_expiry'],
+     *     'fields'   => [
+     *        ['key'=>'first_name','label'=>'First name','required'=>true,
+     *         'type'=>'text','enum'=>null],
+     *        ...
+     *     ],
+     *   ]
+     */
+    public static function inspect(string $module, string $rawCsv): array
+    {
+        $schema = self::getSchema($module);
+        if (!$schema) throw new \InvalidArgumentException("No CSV schema registered for module '{$module}'");
+
+        $stream = fopen('php://temp', 'w+');
+        fwrite($stream, $rawCsv);
+        rewind($stream);
+        $headers = fgetcsv($stream) ?: [];
+        fclose($stream);
+
+        // Auto-suggest a mapping using the same case-insensitive label/key
+        // lookup that dryRun uses.
+        $labelToKey = [];
+        foreach ($schema['fields'] as $key => $def) {
+            $labelToKey[strtolower(trim($def['label'] ?? $key))] = $key;
+            $labelToKey[strtolower($key)] = $key;
+        }
+        $autoMap = [];
+        foreach ($headers as $i => $h) {
+            $hk = strtolower(trim((string) $h));
+            $autoMap[$i] = $labelToKey[$hk] ?? null;
+        }
+
+        $fields = [];
+        foreach ($schema['fields'] as $key => $def) {
+            $fields[] = [
+                'key'      => $key,
+                'label'    => $def['label']    ?? $key,
+                'required' => !empty($def['required']),
+                'type'     => $def['type']     ?? 'text',
+                'enum'     => $def['enum']     ?? null,
+            ];
+        }
+
+        return [
+            'headers'  => array_map(fn($h) => (string) $h, $headers),
+            'auto_map' => $autoMap,
+            'fields'   => $fields,
+        ];
+    }
+
+    /**
      * Parse CSV into structured rows. Returns:
      *   ['rows' => array<int, array<field => value>>, 'errors' => array<int, list<string>>,
      *    'header_map' => array, 'row_count' => int]
+     *
+     * Optional $columnMap overrides auto-detected header→field mapping. The
+     * map is keyed by column INDEX (0-based) → field_key, mirroring the
+     * structure returned by ::inspect()'s `auto_map`. Pass `null` to skip a
+     * column. Any field_key not present in the schema is silently ignored.
      *
      * Validation runs:
      *   - required fields present
@@ -122,7 +186,7 @@ class CsvImportService
      *   - email / date / number coercion
      *   - cross-row uniqueness (within the file) for declared keys
      */
-    public static function dryRun(string $module, string $rawCsv): array
+    public static function dryRun(string $module, string $rawCsv, ?array $columnMap = null): array
     {
         $schema = self::getSchema($module);
         if (!$schema) throw new \InvalidArgumentException("No CSV schema registered for module '{$module}'");
@@ -135,17 +199,7 @@ class CsvImportService
         if (!$headers) {
             return ['rows' => [], 'errors' => [0 => ['CSV is empty or unreadable']], 'header_map' => [], 'row_count' => 0];
         }
-        // Map header label → field_key (case-insensitive).
-        $labelToKey = [];
-        foreach ($schema['fields'] as $key => $def) {
-            $labelToKey[strtolower(trim($def['label'] ?? $key))] = $key;
-            $labelToKey[strtolower($key)] = $key; // tolerate raw key as header
-        }
-        $headerMap = [];
-        foreach ($headers as $i => $h) {
-            $hk = strtolower(trim((string) $h));
-            if (isset($labelToKey[$hk])) $headerMap[$i] = $labelToKey[$hk];
-        }
+        $headerMap = self::resolveHeaderMap($schema, $headers, $columnMap);
 
         $rows   = [];
         $errors = [];
@@ -229,12 +283,16 @@ class CsvImportService
      * Commit imports row-by-row. Re-runs dryRun first; aborts if any row has errors
      * UNLESS $opts['skip_invalid'] is true (then invalid rows are skipped, valid ones inserted).
      *
+     * $opts['column_map'] is forwarded to dryRun() to override auto-detected
+     * header mapping — same shape as ::inspect()'s `auto_map`.
+     *
      * @param callable $onRow  fn(array $row): int  — module's writer; returns inserted id, or throws
      * @return array {imported_count, skipped_count, errors, ids}
      */
     public static function commit(string $module, string $rawCsv, callable $onRow, array $opts = []): array
     {
-        $dry = self::dryRun($module, $rawCsv);
+        $columnMap = $opts['column_map'] ?? null;
+        $dry = self::dryRun($module, $rawCsv, $columnMap);
 
         $skipInvalid = !empty($opts['skip_invalid']);
         if (!$skipInvalid && $dry['error_count'] > 0) {
@@ -285,5 +343,70 @@ class CsvImportService
         $data = json_decode($raw, true);
         if (is_array($data) && isset($data['csv'])) return (string) $data['csv'];
         return $raw; // raw text/csv body
+    }
+
+    /**
+     * Helper for endpoints: extract optional column_map override from a JSON
+     * body. Accepts either index-keyed ({0:"first_name", 1:null}) OR
+     * header-name-keyed ({"FName":"first_name","Mail":"email_primary"}).
+     * Returns null if not provided.
+     */
+    public static function readRequestColumnMap(): ?array
+    {
+        $raw = file_get_contents('php://input');
+        if (!$raw) return null;
+        $data = json_decode($raw, true);
+        if (!is_array($data) || !isset($data['column_map']) || !is_array($data['column_map'])) return null;
+        return $data['column_map'];
+    }
+
+    /**
+     * Resolve a column index → field_key map. If $columnMap is provided, it
+     * overrides auto-detection. Two shapes are supported:
+     *   1. Index-keyed: [0 => 'first_name', 1 => null, 2 => 'email_primary']
+     *   2. Header-name-keyed: ['FName' => 'first_name', 'Mail' => 'email_primary']
+     */
+    private static function resolveHeaderMap(array $schema, array $headers, ?array $columnMap): array
+    {
+        // Build label/key index for auto-detection or validation
+        $labelToKey = [];
+        foreach ($schema['fields'] as $key => $def) {
+            $labelToKey[strtolower(trim($def['label'] ?? $key))] = $key;
+            $labelToKey[strtolower($key)] = $key;
+        }
+        $validKeys = array_keys($schema['fields']);
+
+        $resolved = [];
+        if (is_array($columnMap) && !empty($columnMap)) {
+            // Detect shape: are keys integers (index-keyed) or strings (header-name-keyed)?
+            $isIndexKeyed = array_keys($columnMap) === array_keys(array_filter(array_keys($columnMap), 'is_int'));
+            if ($isIndexKeyed) {
+                foreach ($columnMap as $i => $field) {
+                    if ($field !== null && in_array($field, $validKeys, true)) {
+                        $resolved[(int) $i] = $field;
+                    }
+                }
+            } else {
+                // Header-name-keyed: map header strings (case-insensitive) → column index → field
+                $headerIndex = [];
+                foreach ($headers as $i => $h) {
+                    $headerIndex[strtolower(trim((string) $h))] = $i;
+                }
+                foreach ($columnMap as $hdr => $field) {
+                    $hk = strtolower(trim((string) $hdr));
+                    if (!isset($headerIndex[$hk])) continue;
+                    if ($field !== null && in_array($field, $validKeys, true)) {
+                        $resolved[$headerIndex[$hk]] = $field;
+                    }
+                }
+            }
+            return $resolved;
+        }
+        // Auto-detect by label/key match
+        foreach ($headers as $i => $h) {
+            $hk = strtolower(trim((string) $h));
+            if (isset($labelToKey[$hk])) $resolved[$i] = $labelToKey[$hk];
+        }
+        return $resolved;
     }
 }

@@ -65,11 +65,19 @@ if ($method === 'GET' && $action === 'sample') {
     exit;
 }
 
+
+if ($method === 'POST' && $action === 'inspect') {
+    RBAC::requirePermission($user, 'ap.bill.create');
+    $csv = CsvImportService::readRequestCsv();
+    if (!$csv) api_error('No CSV body received', 400);
+    api_ok(CsvImportService::inspect('ap_vendors', $csv));
+}
 if ($method === 'POST' && $action === 'dry_run') {
     RBAC::requirePermission($user, 'ap.bill.create');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
-    $result = CsvImportService::dryRun('ap_vendors', $csv);
+    $columnMap = CsvImportService::readRequestColumnMap();
+    $result = CsvImportService::dryRun('ap_vendors', $csv, $columnMap);
 
     // Surface collisions with existing vendor_name rows in this tenant.
     if ($result['rows']) {
@@ -100,9 +108,10 @@ if ($method === 'POST' && $action === 'commit') {
     RBAC::requirePermission($user, 'ap.bill.create');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
+    $columnMap = CsvImportService::readRequestColumnMap();
     $skipInvalid = !empty($_GET['skip_invalid']);
     // CSV existing-row errors are warnings (we upsert), so don't block commit on them.
-    $opts = ['skip_invalid' => true];
+    $opts = ['skip_invalid' => true, 'column_map' => $columnMap];
 
     $result = CsvImportService::commit('ap_vendors', $csv, function (array $row) use ($tid, $user) {
         $vendorType = (string) ($row['vendor_type'] ?? 'other');
