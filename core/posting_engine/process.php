@@ -206,6 +206,42 @@ function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId =
         'je' => (int) $posted['je_id'], 'ev' => $eventId,
     ]);
 
+    // 8) Phase 1b — record a deterministic AI interpretation row so every
+    // posted event has a traceable "this is the JE we proposed and why".
+    // Rule-derived interpretations get confidence=1.0 and are auto-accepted
+    // (no human review required). Phase 2's actual AI proposes will compete
+    // with these for events where no rule matches.
+    try {
+        require_once __DIR__ . '/../ai_interpretation.php';
+        require_once __DIR__ . '/../event_registry.php';
+        $hintRow = eventRegistryGet((string) $event['event_type']);
+        aiInterpretationRecord($tenantId, $eventId, [
+            'proposed_by'       => 'posting_rule:' . (int) $rule['id'],
+            'confidence'        => 1.000,
+            'proposed_je_lines' => array_map(static function ($l) {
+                return [
+                    'account_code' => $l['account_code'] ?? null,
+                    'debit'        => (float) ($l['debit']  ?? 0),
+                    'credit'       => (float) ($l['credit'] ?? 0),
+                    'memo'         => $l['description'] ?? $l['memo'] ?? null,
+                    'dims'         => $l['dims'] ?? null,
+                ];
+            }, $rendered['lines'] ?? []),
+            'reasoning'         => sprintf(
+                'Deterministic posting via rule "%s" (id=%d) → template id=%d.',
+                (string) $rule['name'], (int) $rule['id'], (int) $rule['journal_template_id']
+            ),
+            'typical_accounting_hint' => $hintRow['typical_accounting'] ?? null,
+            'status'            => 'accepted',
+            'requires_review'   => false,
+            'journal_entry_id'  => (int) $posted['je_id'],
+            'je_number'         => $posted['je_number'] ?? null,
+        ]);
+    } catch (\Throwable $e) {
+        // Best-effort — Phase 1b table may not exist yet on older tenants.
+        error_log('[ai-interpretation] record failed: ' . $e->getMessage());
+    }
+
     return [
         'status' => 'posted',
         'event_id' => $eventId,

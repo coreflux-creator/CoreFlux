@@ -3813,3 +3813,37 @@ User-approved scope (51 events in v1; subscriptions/equity-grants/inventory defe
 - **Phase 1d** — `unified_exception_queue` view.
 - **Phase 1e** — `evidence_attachments` canonical pivot.
 - **Phase 1f** — migrate existing emit sites to canonical names (drop deprecated aliases). Lightweight per user's directive: no parallel emit paths.
+
+---
+
+## 2026-02-14 — Phase 1b: AI Interpretation Records + CFO hint surfacing
+
+### Phase 1b — `accounting_ai_interpretations`
+- **Migration** `core/migrations/037_accounting_ai_interpretations.sql` — 1-to-many with `accounting_events`. Stores proposer (AI agent id OR `posting_rule:<id>` OR `human:<uid>`), model, confidence (clamped 0..1), proposed JE JSON, evidence pointers, reasoning narrative, typical_accounting_hint (snapshot from `event_registry` at propose time), reviewer disposition.
+- **Helper library** `core/ai_interpretation.php`:
+  - `aiInterpretationRecord()` — insert a proposal.
+  - `aiInterpretationLatestForEvent()` — latest row per event for the "explain this entry" surface.
+  - `aiInterpretationAccept()` — supersedes prior accepted rows for the same event.
+  - `aiInterpretationOverride()` — reviewer corrects the AI.
+  - `aiInterpretationReject()` — reviewer rejects with a reason.
+  - `aiInterpretationListPendingReview()` — exception queue feed.
+  - All functions degrade gracefully when migration 037 hasn't run.
+- **Posting engine wire-in** — `accountingProcessEvent()` now automatically records an `accepted` interpretation row for every rule-derived posting (confidence=1.000, `proposed_by='posting_rule:<id>'`). This gives every posted event a traceable "we proposed THIS JE because rule X matched" record from day 1, before Phase 2's actual AI is built.
+- **API endpoint** `api/accounting/ai_interpretations.php` — GET by event_id (full history) OR `?latest=1` OR `?pending_review=1`; POST `?action=accept|override|reject` with reviewer note/reason.
+- **Test:** `tests/phase_1b_ai_interpretations_smoke.php` — 36/36 ✅.
+
+### CFO Dashboard hint surfacing (per yesterday's smart-suggestion)
+- `api/cfo_annotate.php` now maps each widget → relevant canonical event types (e.g. `finance.ar_aging` → `[ar.invoice.issued, ar.payment.received, ar.cash.applied, ar.writeoff.recorded]`).
+- For each mapped event type, pulls `typical_accounting` from `event_registry` and injects it into the AI prompt's `context.registry_hints[]`. Adds a conditional system-prompt line: "Ground any accounting language in the typical Dr/Cr hints supplied".
+- Surfaces the same hints in the API response (`registry_hints`) so the front end can display them as a chip under the AI annotation.
+- AI annotations on CFO widgets are now grounded in the actual event registry instead of guessing.
+
+### Test status
+- Phase 1b smoke: 36/36 ✅
+- Full suite: **166/166** in-scope ✅ (only `ai_platform` + `plaid_integration` fail — no live API keys locally).
+
+### Next up (Phase 1c-f)
+- **Phase 1c** — `event_lineage` (parent/child causal chain table + auto-populate on emit when `parent_event_id` is set).
+- **Phase 1d** — `unified_exception_queue` view + UI.
+- **Phase 1e** — `evidence_attachments` canonical pivot.
+- **Phase 1f** — Migrate emit sites to canonical event names + retire deprecated aliases.

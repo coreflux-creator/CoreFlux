@@ -16,6 +16,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/ai_service.php';
+require_once __DIR__ . '/../core/event_registry.php';
 
 $ctx    = api_require_auth();
 $method = api_method();
@@ -27,6 +28,34 @@ $snapshot   = $body['snapshot']   ?? null;
 $comparison = $body['comparison'] ?? null;
 if ($widgetKey === '') api_error('widget_key required', 422);
 if (!is_array($snapshot) && !is_scalar($snapshot)) api_error('snapshot required', 422);
+
+// Widget → relevant canonical event_types. Used to ground the AI in the
+// actual Dr/Cr hints the registry knows about for each metric.
+$widgetEventMap = [
+    'finance.revenue'        => ['ar.invoice.issued', 'ar.credit_memo.issued'],
+    'finance.margin'         => ['ar.invoice.issued', 'staffing.worker_hours.approved'],
+    'finance.ar_aging'       => ['ar.invoice.issued', 'ar.payment.received', 'ar.cash.applied', 'ar.writeoff.recorded'],
+    'finance.ap_aging'       => ['ap.bill.approved', 'ap.payment.executed', 'ap.payment.cleared'],
+    'finance.dso'            => ['ar.invoice.issued', 'ar.payment.received'],
+    'finance.dpo'            => ['ap.bill.approved', 'ap.payment.executed'],
+    'finance.unapplied_cash' => ['ar.payment.received', 'ar.cash.applied'],
+    'finance.payroll'        => ['payroll.run.approved', 'payroll.cash.disbursed', 'payroll.tax_liability.paid'],
+    'staffing.headcount'     => ['staffing.worker.placed', 'staffing.placement.ended'],
+    'staffing.new_starts'    => ['staffing.worker.placed'],
+    'staffing.terminations'  => ['staffing.placement.ended'],
+    'staffing.upcoming'      => ['staffing.worker.placed', 'staffing.placement.ended'],
+    'staffing.placements'    => ['staffing.worker.placed', 'staffing.placement.ended', 'staffing.worker_hours.approved'],
+];
+$registryHints = [];
+foreach ($widgetEventMap[$widgetKey] ?? [] as $et) {
+    $row = eventRegistryGet($et);
+    if ($row && !empty($row['typical_accounting'])) {
+        $registryHints[] = [
+            'event_type'         => $row['event_type'],
+            'typical_accounting' => $row['typical_accounting'],
+        ];
+    }
+}
 
 // Per-widget system prompt — keeps the AI grounded on what each tile means.
 $systemHints = [
@@ -54,14 +83,18 @@ try {
         'system'        => $systemHint
                           . "\nOutput format: ONE paragraph, 2-4 sentences, plain English."
                           . "\nDo NOT restate raw numbers verbatim — interpret them."
+                          . (count($registryHints) > 0
+                              ? "\nGround any accounting language in the typical Dr/Cr hints supplied in 'registry_hints' — these come from the canonical event registry and you can reference them naturally if relevant."
+                              : "")
                           . "\nEnd with one suggested action the CFO should consider this week.",
         'prompt'        => "Analyze the snapshot below for widget '{$widgetKey}'. "
                           . ($comparison ? "Compare against the comparison block to call out movement direction and magnitude. " : "")
                           . "Be concise.",
         'context'       => array_filter([
-            'widget_key' => $widgetKey,
-            'current'    => $snapshot,
-            'comparison' => $comparison,
+            'widget_key'     => $widgetKey,
+            'current'        => $snapshot,
+            'comparison'     => $comparison,
+            'registry_hints' => $registryHints ?: null,
         ], fn ($v) => $v !== null),
         'max_output_tokens' => 320,
     ]);
@@ -70,6 +103,7 @@ try {
         'confidence' => (float)  ($res['confidence'] ?? 0),
         'model'      => $res['model'] ?? null,
         'requires_review' => (bool) ($res['requires_human_review'] ?? false),
+        'registry_hints'  => $registryHints,
     ]);
 } catch (\AIDisabledException $e) {
     api_ok([
