@@ -186,6 +186,7 @@ export default function CsvImportPage({
   const commit = async () => {
     if (!csvText) return;
     setRunning(true); setError(null);
+    const startedAt = Date.now();
     try {
       const params = [];
       if (skipInvalid)    params.push('skip_invalid=1');
@@ -195,6 +196,28 @@ export default function CsvImportPage({
       if (columnMap) body.column_map = columnMap;
       const res = await api.post(path, body);
       setCommitted(res);
+
+      // Audit-write to CSV Import History. Never throw — the import has
+      // already succeeded; a failed history write is a nicety to lose.
+      if (presetEntity) {
+        try {
+          await api.post('/api/admin/csv_import_history.php', {
+            entity:          presetEntity,
+            file_name:       fileName || null,
+            bytes_processed: csvText.length,
+            rows_total:      (res?.imported_count || 0) + (res?.skipped_count || 0),
+            rows_imported:   res?.imported_count || 0,
+            rows_skipped:    res?.skipped_count  || 0,
+            errors:          res?.errors        || {},
+            skip_invalid:    skipInvalid,
+            update_existing: updateExisting,
+            ai_used:         !!aiReasoning,
+            preset_id:       presetMatch?.id || null,
+            column_map:      columnMap || null,
+            duration_ms:     Date.now() - startedAt,
+          });
+        } catch { /* non-fatal */ }
+      }
     } catch (e) { setError(e); }
     finally     { setRunning(false); }
   };

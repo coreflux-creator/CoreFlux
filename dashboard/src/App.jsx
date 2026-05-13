@@ -27,6 +27,7 @@ import GenericModule from './modules/GenericModule';
 import WorkflowInbox from './pages/WorkflowInbox';
 import AIAgents from './pages/AIAgents';
 import CsvBulkImport from './pages/CsvBulkImport';
+import CsvImportHistory from './pages/CsvImportHistory';
 import Login from './pages/Login';
 import MagicLinkConsume from './pages/MagicLinkConsume';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -395,6 +396,8 @@ const AppContent = ({ session, usingDemo }) => {
               bills, invoices). Auto-detects entity from header signature,
               dry-runs all files, commits them in FK-respecting order. */}
           <Route path="/data/bulk-import" element={<CsvBulkImport />} />
+          {/* Auditor + CFO view of every CSV import committed. */}
+          <Route path="/data/import-history" element={<CsvImportHistory />} />
           
           {/* Admin Module */}
           <Route path="/admin/*" element={<AdminModule session={session} />} />

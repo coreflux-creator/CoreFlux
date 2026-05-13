@@ -1,43 +1,32 @@
 <analysis>**original_problem_statement**: 
-The user wants to refactor the monolithic PHP CoreFlux application into an AI-native Live Books architecture (data graph, event-driven accounting). PRODUCT REQUIREMENTS: Strict adherence to custom PHP framework rules, direct PDO usage (no ORMs), Vite build version tracking, and relying strictly on PHP CLI smoke tests (). Alongside this architectural shift, the user requested a CFO Dashboard with high-level metrics (DSO, DPO, Unapplied cash), custom views, and AI annotations.
+Refactor a monolithic PHP application, CoreFlux, into an AI-native Live Books architecture (data graph, event-driven accounting). Requires a CFO Dashboard with high-level metrics. **PRODUCT REQUIREMENTS:** Strict adherence to custom PHP framework rules, direct PDO usage (no ORMs), Vite build version tracking, and relying strictly on PHP CLI smoke tests (). Recently added requirements: Universal CSV Import/Export for all primary entities (vendors, clients, timesheets, bills, invoices, payments) including a drag-and-drop multi-file bulk wizard, AI-assisted interactive column mapping, saved mapping presets, and an audit trail (CSV Import History).
 
 **User's preferred language**: English (INSTRUCT next agent to respond in English only)
 
 **what currently exists?** 
-A PHP 8 backend + React 18 SPA (Vite) utilizing direct PDO. The agent completed a massive amount of foundational work for the new Live Books Rails architecture. We now have a CFO Dashboard with AI annotations and custom formulas. For the architecture shift, the agent built Phase 1a (Canonical Event Registry), Phase 1b (AI Interpretation Records), Phase 1c (Event Lineage), and Phase 1d (Unified Exception Queue + JE Trace Pane). Currently, Phase 1e (Evidence Attachments) has been coded and wired into the UI, but testing and frontend builds are pending.
+A PHP 8 backend + React 18 SPA (Vite) utilizing direct PDO. Live Books Rails architecture (Phases 1a-1e) is complete. The agent also completed a massive Universal CSV epic: CSV export/import endpoints exist for all major entities, featuring a drag-and-drop bulk import wizard, AI-assisted column mapping, and saved mapping presets. Currently, the agent just began working on a CSV Import History feature (audit trail for CFOs) but got stuck in a bash/python transport timeout loop while trying to mass-update backend endpoints. 
 
 **Last working item**: 
-    - Last item agent was working: Finishing **Phase 1e (Evidence Attachments)** and integrating exception queue resolution notes into the JE Trace Pane (). The agent just created the smoke test () when the context window closed.
+    - Last item agent was working: Building the **CSV Import History** audit trail. The DB migration () and backend endpoint () are created. The agent was attempting to wire the history recording into every backend commit handler using a python script, which caused endless transport timeouts. The agent correctly decided to pivot to having the React frontend ( and ) make a single POST to  after a successful commit, but the context window ended before implementation.
     - Status: IN PROGRESS
     - Agent Testing Done: N
     - Which testing method agent to use? manual testing by . (DO NOT use the testing subagent).
     - User Testing Done: N
 
 **All Pending/In progress Issue list**: 
-  Issue 1: Pending Phase 1e Test and Vite Rebuild (P0)
-     - Attempted fixes: Code is fully written, but the smoke test hasn't been executed.
-     - Next debug checklist: Run . If it passes, run the full suite (). Then run yarn run v1.22.22
-$ vite build
-vite v5.4.21 building for production...
-transforming...
-✓ 1856 modules transformed.
-rendering chunks...
-computing gzip size...
-dist/index.html                         0.46 kB │ gzip:   0.30 kB
-dist/spa-assets/index-Cwhpy62y.css     21.57 kB │ gzip:   4.34 kB
-dist/spa-assets/index-Bu2fQzVK.js   1,406.65 kB │ gzip: 326.65 kB
-✓ built in 4.92s
-Done in 5.36s. and update the bundle hashes in  and . 
-     - Why fix this issue and what will be achieved with the fix? Finalizes Phase 1e and ensures the app won't crash in CI/CD due to hash mismatches.
-     - Status: TESTING PENDING
+  Issue 1: Wire CSV Import History recording via Frontend (P0)
+     - Attempted fixes: Agent tried using a python script () to auto-edit 9 backend PHP files, but hit Bad Gateway and transport timeouts repeatedly.
+     - Next debug checklist: Abandon the backend-injection approach. Delete . Instead, modify the frontend components ( and ). Inside their  logic, after a successful import, execute .
+     - Why fix this issue and what will be achieved with the fix? It bypasses the tool glitch and cleanly records the audit trail, unlocking the completion of the CSV epic.
+     - Status: IN PROGRESS
      - Is recurring issue? N
      - Should Test frontend/backend/both after fix? Both
      - Blocked on other issue: None
 
 **In progress Task List**: 
-  Task 1: Complete Live Books Rails Phase 1e
-     - Where to resume: You just created . Run it, fix any failing assertions, run the Vite build, update the hashes, and update  to officially close out Phase 1.
-     - What will be achieved with this? Gives the accounting system a canonical pivot for evidence attachments (receipts, PDFs) tied directly to accounting events, visible in the JE Trace Pane.
+  Task 1: Complete CSV Import History Feature (P0)
+     - Where to resume: Implement the frontend POST logic described in Issue 1. Then, create the Import History UI page to list these records (filterable by entity), add a sidebar link or dashboard link, create a smoke test (), and run the full Vite build + smoke suite.
+     - What will be achieved with this? Gives CFOs and auditors a clean audit trail of every bulk data movement (who, when, file name, rows imported/skipped, errors).
      - Status: IN PROGRESS
      - Should Test frontend/backend/both after fix? Both
      - Blocked on something: None
@@ -50,33 +39,36 @@ Done in 5.36s. and update the bundle hashes in  and .
     - (P2) Engagements module (Fixed-fee project accounting).
     - (P3) AI Digest Scheduler: Auto-email Weekly Ops Memo via Sunday night cron.
     - (P3) External Auditor view (tokenized URL for CFO Dashboard read-only snapshot).
+    - (P4) Module emission discipline — Staffing/Billing/AP emit events only, never write GL directly.
 
 **Completed work in this session**
-- Large git push blockage resolved (squashed git history to remove a 468MB backup tarball). (DONE)
-- CFO Dashboard with DSO, DPO, unapplied cash, custom formulas, and AI annotations (). (DONE)
-- Live Books Phase 1a: Canonical Event Registry (, seed, validation). (DONE)
-- Live Books Phase 1b: AI Interpretation Records + CFO AI hints (). (DONE)
-- Live Books Phase 1c: Event Lineage ( parent/child causal chains). (DONE)
-- Live Books Phase 1d: Unified Exception Queue + JE Trace Pane React Component. (DONE)
+- Phase 1e (Evidence Attachments) tests executed, bundle updated, and officially closed (DONE)
+- Universal CSV Export endpoints/buttons for all primary entities (DONE)
+- Multi-CSV drag-and-drop importer wizard () (DONE)
+- CSV sample pack generator for tenant onboarding (DONE)
+- Interactive CSV Column Mapping with  validation (DONE)
+- AI-assisted Column Mapping () (DONE)
+- CSV Mapping Presets (SHA-256 header signatures for one-click re-imports) (DONE)
 
 **Earlier issues found/mentioned but not fixed**
    - None
 
 **Known issue recurrence from previous fork**
-  - Issue: **Vite Frontend Build & Version Drift**
+  - Issue: Vite Frontend Build & Version Drift
   - Recurrence count: Ongoing
-  - Status: RESOLVED but keep in mind. **CRITICAL**: The next agent MUST run yarn run v1.22.22
+  - Status: RESOLVED but requires vigilance. 
+  - Note: **CRITICAL**: You MUST run yarn run v1.22.22
 $ vite build
 vite v5.4.21 building for production...
 transforming...
-✓ 1856 modules transformed.
+✓ 1864 modules transformed.
 rendering chunks...
 computing gzip size...
 dist/index.html                         0.46 kB │ gzip:   0.30 kB
 dist/spa-assets/index-Cwhpy62y.css     21.57 kB │ gzip:   4.34 kB
-dist/spa-assets/index-Bu2fQzVK.js   1,406.65 kB │ gzip: 326.65 kB
-✓ built in 3.35s
-Done in 3.65s. after touching ANY React code AND update the expected bundle JS/CSS hashes in  and . You will fail smoke tests if you forget.
+dist/spa-assets/index-DFfmtGC5.js   1,423.67 kB │ gzip: 332.28 kB
+✓ built in 4.65s
+Done in 5.05s. after touching ANY React code AND update the expected bundle JS/CSS hashes in  and . Smoke tests will fail if you forget.
 
 **Code Architecture**
 
@@ -87,29 +79,24 @@ Done in 3.65s. after touching ANY React code AND update the expected bundle JS/C
 - Testing: Custom PHP CLI scripts (). NO testing agents allowed.
 
 **key DB schema**
-  - : Canonical event registry (Phase 1a).
-  - : AI proposals for events (Phase 1b).
-  - : Parent/child causal chains (Phase 1c).
-  - : Posting failures (Phase 1d).
-  - : Source files/docs (Phase 1e).
+  - : , , , , .
+  - : , , , , , , , .
 
 **changes in tech stack**
   - None structurally.
 
 **All files of reference** 
-  -  (created, needs executing).
-  -  &  (Phase 1e logic).
-  -  (Updated to display exceptions and evidence).
-  -  &  (Crucial documentation for the new Live Books Rails architecture).
+  -  (Created for current task)
+  -  (Created for current task)
+  -  (Created for current task)
+  -  (Needs UI wiring to post history)
+  -  (Needs UI wiring to post history)
+  -  (Junk script created by agent loop, safe to delete)
 
 **Areas that need refactoring**: 
-  - Module emission discipline: Legacy modules (Staffing, Billing, AP) eventually need refactoring to *only* emit events and never write GL directly (Phase 4 of Live Books Rails).
+  - N/A.
 
 **key api endpoints**
-  -  (Extended with CFO metrics)
-  -  (Powers the new JE Trace Pane)
-  - 
-  - 
   - 
   - 
 
@@ -119,53 +106,51 @@ Done in 3.65s. after touching ANY React code AND update the expected bundle JS/C
 $ vite build
 vite v5.4.21 building for production...
 transforming...
-✓ 1856 modules transformed.
+✓ 1864 modules transformed.
 rendering chunks...
 computing gzip size...
 dist/index.html                         0.46 kB │ gzip:   0.30 kB
 dist/spa-assets/index-Cwhpy62y.css     21.57 kB │ gzip:   4.34 kB
-dist/spa-assets/index-Bu2fQzVK.js   1,406.65 kB │ gzip: 326.65 kB
-✓ built in 3.34s
-Done in 3.60s. after changing React code, and update the expected bundle JS/CSS hashes in  and .
-- **GIT LARGE FILES:** Never commit large tarballs or backup files into git. If you create backups, ensure they are placed in a  path (like ).
-- **ARCHITECTURE:** We are executing the Live Books Rails phase. Follow  strictly when dealing with accounting events.
+dist/spa-assets/index-DFfmtGC5.js   1,423.67 kB │ gzip: 332.28 kB
+✓ built in 3.62s
+Done in 3.89s. after changing React code, and update the expected bundle JS/CSS hashes in  and .
+- **TOOL LOOP AVOIDANCE:** Do not try to run python/bash scripts to do multi-file text replacements if they begin timing out. Do it manually via  or rethink the architecture (like shifting the history POST to the frontend).
 
 **documents and test reports created in this job** 
-  -  (Architecture vision)
-  -  (Canonical event definitions)
   -  (Updated)
 
 **Last 10 User Messages and any pending HUMAN messages** 
  - (User) 
- - (Agent) *Builds Phase 1a (Event Registry)*
+ - (Agent) *Builds sample pack, explains manual mapping.*
  - (User) 
- - (Agent) *Builds Phase 1b (Interpretations)*
+ - (Agent) *Builds interactive UI mapping table + dry run override.*
  - (User) 
- - (Agent) *Builds Phase 1c (Lineage). Suggests Trace Pane.*
+ - (Agent) *Hooks UI to  to auto-suggest column matches.*
  - (User) 
- - (Agent) *Builds 1d (Exception Queue + Trace Pane). Suggests adding exception notes to Trace Pane.*
+ - (Agent) *Builds saved presets, payments imports, bulk wizard integrations.*
  - (User) 
- - (Agent) *Wires exception notes, creates 1e evidence tables/APIs/smoke test. (PENDING execution of smoke test and frontend build).*
+ - (Agent) *Gets stuck in a bad gateway/transport loop trying to run python script to edit 9 backend controllers.*
+ - (User)  ...  ... 
+ - (Agent) *Apologizes, suggests pivoting to a frontend-POST approach for the history record. Stops before implementation.*
 
 **Project Health Check:**
-- Broken: None known. Phase 1e test needs executing.
-- Mocked:  (Emails are mocked locally).
+- Broken: Python bash script looping glitch (environment tool issue, codebase is fine).
+- Mocked: 
 
 **3rd Party Integrations** 
  - OpenAI (Uses User API Key defined in  via  - NO emergent subagent used here due to custom legacy integration framework).
- - Plaid, Gusto, JobDiva, Resend.
 
 **Testing status**
   - Testing agent used after significant changes: NO (Strictly custom PHP CLI testing)
-  - Troubleshoot agent used after agent stuck in loop: NO (Support agent used once for GitHub push limit error).
-  - Test files created: , , , , .
-  - Known regressions:  and  fail locally by default because they lack live API keys. This is expected and safe to ignore.
+  - Troubleshoot agent used after agent stuck in loop: NO
+  - Test files created: , , , , , .
+  - Known regressions:  and  fail locally by default because they lack live API keys. This is expected.
 
 **Credentials to test flow:**
   - Standard test user:  with  role.
 
 **What agent forgot to execute**
-- The agent successfully wrote all code and the smoke test for Phase 1e (), but ran out of context before it could run the PHP CLI tests, rebuild the Vite frontend, update asset hashes, and complete the  call.
+- The agent was unable to execute the actual wiring of the CSV Import History to the application because of a transport tool loop. It needs to be wired into the frontend React components to POST the history log, and a UI page needs to be created to view it.
 
 <TESTING METHOD>
 manual testing by . (DO NOT use the testing subagent).

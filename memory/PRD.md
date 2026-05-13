@@ -4321,3 +4321,68 @@ FK-respecting commit order).
 - **Phase 2 — Live Books Rails**: AI competing/proposing against rules
   + Unified Financial State Cache.
 
+
+## CSV Import History — Audit trail (2026-02-XX) ✅
+
+CFOs and auditors now have a queryable trail of every bulk CSV movement.
+Closes out the Universal CSV epic.
+
+### Schema (migration `042_csv_import_history.sql`)
+- `csv_import_history`: tenant_id, entity, file_name, bytes_processed,
+  rows_total, rows_imported, rows_skipped, errors_count, skip_invalid,
+  update_existing, ai_used, preset_id (soft-FK to csv_mapping_presets),
+  column_map (JSON), error_summary (JSON, first 50 rows), status
+  ENUM('success','partial','failed'), duration_ms, created_by_user_id,
+  created_at + 3 composite indexes.
+
+### Recorder helper (`/app/core/csv_import_history.php`)
+- `csvImportHistoryRecord($args)` — never throws; classifies status from
+  imported/skipped/errors counts; truncates error_summary to 50 rows.
+  Designed to swallow failures so the audit-write never breaks a working
+  import.
+
+### Endpoint (`/api/admin/csv_import_history.php`)
+- `GET` — filterable by `?entity=`, `?status=`, `?from=`, `?to=`,
+  `?limit=`; LEFT JOINs `users` (created_by_email) and
+  `csv_mapping_presets` (preset_name); decodes JSON columns; returns
+  `{ rows: [], migration_pending: true }` when the table isn't
+  provisioned yet.
+- `POST` — body `{ entity, file_name, rows_imported, rows_skipped,
+  errors, … }`; persists via `csvImportHistoryRecord()`. This is the
+  chokepoint the SPA calls after a successful commit (vs. wiring 9
+  PHP controllers).
+
+### SPA wiring
+- `dashboard/src/components/CsvImportPage.jsx` — every shared CSV
+  importer (people, vendors, clients, placements, time, bills,
+  invoices, payments) POSTs a history row after a successful commit
+  (entity, file_name, counts, errors, skip_invalid, update_existing,
+  ai_used flag, preset_id, column_map, duration_ms).
+- `dashboard/src/pages/CsvBulkImport.jsx` — the bulk wizard POSTs one
+  history row per file that committed successfully (FK-respecting order
+  preserved).
+- New page `dashboard/src/pages/CsvImportHistory.jsx` at
+  `/data/import-history` — KPI strip (imports, rows imported, rows
+  skipped, failed imports), entity/status/date filters, status pills,
+  expandable row showing the column map used + the per-row error list.
+- Dashboard quick action card `"CSV Import History"` (admin only).
+
+### Tests
+- `tests/csv_import_history_smoke.php`: **70/70** ✅
+- Full suite: **176/178** (the 2 fails are the pre-existing
+  `ai_platform_smoke` + `plaid_integration_smoke` that need live API
+  keys — expected & documented as not in scope).
+- New Vite bundle: `index-0xj-_mZ6.js` / `index-Cwhpy62y.css`.
+
+### Next up
+- **Phase 2 — Live Books Rails**: AI competing/proposing against rules +
+  Unified Financial State Cache.
+- (P2) Wire `mailerSend()` to a Resend driver so CFO digest/timesheet
+  approver emails deliver externally (currently mocked locally).
+- (P2) CFO Dashboard role/access gating.
+- (P2) Engagements module (Fixed-fee project accounting).
+- (P3) AI Digest Scheduler — Sunday cron for Weekly Ops Memo.
+- (P3) External Auditor tokenized read-only view.
+- (P4) Module emission discipline — Staffing/Billing/AP emit events only,
+  never write GL directly.
+

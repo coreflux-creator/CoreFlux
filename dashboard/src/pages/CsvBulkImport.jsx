@@ -193,11 +193,30 @@ export default function CsvBulkImport() {
       for (const { f, idx } of ordered) {
         const cfg = ENTITY_CONFIG[f.entity];
         const path = `${cfg.endpoint}?action=commit${skipInvalid ? '&skip_invalid=1' : ''}`;
+        const startedAt = Date.now();
         try {
           const body = { csv: f.csv };
           if (f.columnMap) body.column_map = f.columnMap;
           const res = await api.post(path, body);
           next[idx] = { ...f, committed: res, error: null };
+          // Audit-write each successful commit to the import history.
+          try {
+            await api.post('/api/admin/csv_import_history.php', {
+              entity:          f.entity,
+              file_name:       f.fileName || null,
+              bytes_processed: f.csv.length,
+              rows_total:      (res?.imported_count || 0) + (res?.skipped_count || 0),
+              rows_imported:   res?.imported_count || 0,
+              rows_skipped:    res?.skipped_count  || 0,
+              errors:          res?.errors        || {},
+              skip_invalid:    skipInvalid,
+              update_existing: false,
+              ai_used:         false,
+              preset_id:       null,
+              column_map:      f.columnMap || null,
+              duration_ms:     Date.now() - startedAt,
+            });
+          } catch { /* non-fatal */ }
         } catch (err) {
           next[idx] = { ...f, committed: null, error: err };
         }
