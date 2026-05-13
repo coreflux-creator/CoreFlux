@@ -78,6 +78,46 @@ if ($method === 'POST' && $action === 'inspect') {
     if (!$csv) api_error('No CSV body received', 400);
     api_ok(CsvImportService::inspect('billing_invoices', $csv));
 }
+
+if ($method === 'POST' && $action === 'ai_suggest_map') {
+    RBAC::requirePermission($user, 'billing.invoice.draft');
+    require_once __DIR__ . '/../../../core/ai_csv_mapper.php';
+    $csv = CsvImportService::readRequestCsv();
+    if (!$csv) api_error('No CSV body received', 400);
+
+    // Read up to 3 sample rows alongside the header.
+    $stream = fopen('php://temp', 'w+');
+    fwrite($stream, $csv);
+    rewind($stream);
+    $headers = fgetcsv($stream) ?: [];
+    $samples = [];
+    for ($i = 0; $i < 3; $i++) {
+        $row = fgetcsv($stream);
+        if ($row === false) break;
+        $samples[] = $row;
+    }
+    fclose($stream);
+
+    $body         = json_decode((string) file_get_contents('php://input'), true) ?: [];
+    $alreadyMap   = is_array($body['already_mapped'] ?? null) ? $body['already_mapped'] : [];
+
+    $ins = CsvImportService::inspect('billing_invoices', $csv);
+    try {
+        $result = aiSuggestColumnMap([
+            'feature_key'    => 'csv.mapping.billing_invoices',
+            'entity_label'   => 'AR Invoices',
+            'schema_fields'  => $ins['fields'],
+            'headers'        => $headers,
+            'sample_rows'    => $samples,
+            'already_mapped' => $alreadyMap,
+        ]);
+    } catch (AIDisabledException $e) {
+        api_error('AI is not enabled for this tenant: ' . $e->getMessage(), 503);
+    } catch (\Throwable $e) {
+        api_error('AI suggestion failed: ' . $e->getMessage(), 502);
+    }
+    api_ok($result);
+}
 if ($method === 'POST' && $action === 'dry_run') {
     RBAC::requirePermission($user, 'billing.invoice.draft');
     $csv = CsvImportService::readRequestCsv();

@@ -4170,3 +4170,63 @@ explicitly pairs each source column with a target field.
 - CSV import for AP/billing payments; update-existing mode on placements/time.
 - **Phase 2 — Live Books Rails**: AI competing/proposing + Unified Financial State Cache.
 
+
+## 2026-02-14 — AI-Assisted Column Mapping (CSV Phase D)
+
+### Why
+Even with the interactive mapping table, customers with hundreds of
+columns from a legacy ATS/payroll system shouldn't have to hunt through
+dropdowns. The LLM can read column names + 3 sample values and propose a
+mapping in one click. The human still confirms before any data lands.
+
+### Built — Core helper
+- `core/ai_csv_mapper.php::aiSuggestColumnMap()` — single chokepoint for
+  AI mapping. Inputs: schema field metadata, source headers, sample rows,
+  optional `already_mapped` pairs that must be preserved.
+- Routes through existing `aiCallOpenAI()` so the tenant + per-feature
+  gate (`classification`), audit log, model fallback, and `OPENAI_API_KEY`
+  config are all reused. No new integration plumbing.
+- Uses `AI_MODEL_CLASSIFICATION` (defaults to gpt-5.4-mini) with
+  `response_format=json_object` for deterministic JSON output.
+- Output sanitisation:
+  - rejects any field key not in the schema (silently → null)
+  - coerces empty string / false / missing → null
+  - force-preserves user-locked `already_mapped` pairs
+- Audit-writes each call (success or non-JSON failure) to `ai_interactions`.
+
+### Built — Endpoints
+- `POST ?action=ai_suggest_map` added to all 7 csv_import endpoints
+  (people, placements, time, ap_vendors, staffing_clients, ap_bills,
+  billing_invoices). Each:
+  - Re-uses module's existing RBAC permission
+  - Reads up to 3 sample rows from the uploaded CSV
+  - Forwards `already_mapped` so user-locked pairs aren't overwritten
+  - Passes a module-specific `feature_key` (e.g. `csv.mapping.people`) so
+    audit logs are queryable per entity
+  - Surfaces `AIDisabledException` as HTTP 503 with a clear message
+
+### Built — UI
+- New **"✨ Auto-map with AI"** button on the mapping table header
+  (purple→blue gradient so it reads as the magic button it is).
+- Pre-fills only un-locked columns; columns the user has already mapped
+  by hand are preserved.
+- Displays the model's one-sentence reasoning in a purple-tinted callout
+  below the button (`<strong>AI:</strong> FName clearly maps to first_name…`).
+- AI errors surface separately from validation errors so the user can
+  still validate manually if AI is unavailable.
+
+### Test status
+- `tests/csv_ai_assisted_mapping_smoke.php`: **77/77** ✅
+- Full suite: **176/176** ✅
+- New Vite bundle: `index-Cq9FthE0.js`
+- Live OpenAI call NOT tested in CI (no API key) — exercised on the
+  customer-tenant stack where `OPENAI_API_KEY` is configured.
+
+### Next up
+- "Save mapping" — persist tenant + entity + AI-confirmed map so the
+  next import from the same system is one-click (no AI call needed).
+- Wire interactive mapping + AI into the **Bulk CSV Import Wizard**.
+- CSV import for AP/billing payments; update-existing on placements/time.
+- **Phase 2 — Live Books Rails**: AI competing/proposing + Unified
+  Financial State Cache.
+

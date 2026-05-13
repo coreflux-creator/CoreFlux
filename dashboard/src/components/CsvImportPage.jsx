@@ -79,6 +79,33 @@ export default function CsvImportPage({
     setPreview(null);
   };
 
+  // AI-assisted mapping: post the CSV + already-mapped pairs to the
+  // module's ai_suggest_map endpoint; merge the suggestions into our
+  // local columnMap. The user still sees the result and can override.
+  const [aiRunning, setAiRunning]   = useState(false);
+  const [aiReasoning, setAiReason]  = useState(null);
+  const [aiError, setAiError]       = useState(null);
+
+  const aiSuggest = async () => {
+    if (!csvText || !inspect) return;
+    setAiRunning(true); setAiError(null); setAiReason(null);
+    try {
+      // Only forward already-mapped (non-null) pairs as locks.
+      const already = Object.fromEntries(
+        Object.entries(columnMap || {}).filter(([, v]) => v)
+      );
+      const res = await api.post(`${endpoint}?action=ai_suggest_map`, {
+        csv: csvText,
+        already_mapped: already,
+      });
+      const sugg = res.suggestions || {};
+      setColumnMap(prev => ({ ...(prev || {}), ...sugg }));
+      setAiReason(res.reasoning || 'AI suggestion applied. Review before validating.');
+      setPreview(null);
+    } catch (err) { setAiError(err); }
+    finally       { setAiRunning(false); }
+  };
+
   const dryRun = async () => {
     if (!csvText) return;
     setRunning(true); setError(null); setCommitted(null);
@@ -177,11 +204,31 @@ export default function CsvImportPage({
             Required schema fields that have no mapped header are flagged. */}
         {inspect && !committed && (
           <div data-testid={`${testidPrefix}-mapping`} style={{ marginBottom: 'var(--cf-space-4)' }}>
-            <h3 style={{ marginTop: 0 }}>Map your columns</h3>
-            <p style={{ color: 'var(--cf-text-secondary)', fontSize: 13 }}>
-              We auto-matched what we could. Adjust any mismatched columns or
-              set unmatched ones to <em>— skip this column —</em>.
-            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+              <div>
+                <h3 style={{ marginTop: 0, marginBottom: 4 }}>Map your columns</h3>
+                <p style={{ color: 'var(--cf-text-secondary)', fontSize: 13, margin: 0 }}>
+                  We auto-matched what we could. Adjust any mismatched columns or
+                  set unmatched ones to <em>— skip this column —</em>.
+                </p>
+              </div>
+              <button
+                className="btn"
+                onClick={aiSuggest}
+                disabled={aiRunning}
+                data-testid={`${testidPrefix}-ai-suggest`}
+                style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb)', color: 'white', border: 0 }}
+                title="Use AI to suggest mappings for any columns we couldn't match"
+              >
+                {aiRunning ? 'AI mapping…' : '✨ Auto-map with AI'}
+              </button>
+            </div>
+            {aiError && <p className="error" data-testid={`${testidPrefix}-ai-error`}>AI: {aiError.message}</p>}
+            {aiReasoning && (
+              <p data-testid={`${testidPrefix}-ai-reasoning`} style={{ background: 'rgba(124,58,237,0.08)', padding: 8, borderRadius: 6, fontSize: 13, color: '#4c1d95' }}>
+                <strong>AI:</strong> {aiReasoning}
+              </p>
+            )}
             <table className="data-table" data-testid={`${testidPrefix}-mapping-table`}>
               <thead>
                 <tr>
