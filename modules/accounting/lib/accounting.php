@@ -19,6 +19,7 @@
  */
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/financial_state_cache.php';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Numbering — atomic JE number allocation
@@ -304,6 +305,21 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
         throw $e;
     }
 
+    // Phase 2 — mark the affected period dirty in the Financial State Cache
+    // so the next CFO Dashboard / AI read auto-rebuilds. Best-effort; never
+    // blocks the JE post if the cache table doesn't exist or write fails.
+    if ($post && isset($period['id'])) {
+        try {
+            fscMarkDirty(
+                $tenantId,
+                FSC_SCOPE_PERIOD,
+                (string) $period['id'],
+                'je_posted',
+                $actorUserId
+            );
+        } catch (\Throwable $_) { /* never block the post */ }
+    }
+
     return [
         'je_id'             => $jeId,
         'je_number'         => $jeNumber,
@@ -369,6 +385,19 @@ function accountingReverseJe(int $tenantId, int $jeId, string $reason, ?int $act
     )->execute(['rid' => $rev['je_id'], 'id' => $jeId]);
     $pdo->prepare('UPDATE accounting_journal_entries SET reverses_je_id = :orig WHERE id = :rid')
         ->execute(['orig' => $jeId, 'rid' => $rev['je_id']]);
+
+    // Phase 2 — the ORIGINAL period now has one fewer posted JE (status
+    // flipped to 'reversed'). The reversal's period was auto-marked dirty
+    // by the recursive accountingPostJe() call above.
+    try {
+        fscMarkDirty(
+            $tenantId,
+            FSC_SCOPE_PERIOD,
+            (string) $je['period_id'],
+            'je_reversed',
+            $actorUserId
+        );
+    } catch (\Throwable $_) { /* never block the reversal */ }
 
     return $rev;
 }

@@ -10,6 +10,46 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (Phase 2 — Unified Financial State Cache, 2026-02)
+**Phase 2 keystone: fast-read projection layer on top of the now-strictly-clean event-driven ledger. Read path for CFO Dashboard, the upcoming Phase 2 AI rule competition, period-close materialized views, and the External Auditor view (P3).**
+
+### Schema — migration `045_financial_state_cache.sql`
+- Two new tables, both idempotent (`IF NOT EXISTS`), Cloudways MySQL 5.7+ compatible:
+  - **`financial_state_cache`** — generic `(tenant_id, scope_key, scope_value, metric_key) → numeric_value DECIMAL(18,4) + json_value JSON + source_hash CHAR(64) + computed_at + computed_ms`. UNIQUE on the full scope+metric quadruple so writes upsert in place. Indexed for scope-reads and metric-reads.
+  - **`financial_state_cache_dirty`** — append-only invalidation log keyed by `(tenant_id, scope_key, scope_value)` with `reason`, `marked_by_user_id`, `marked_at`.
+- Generic shape avoids per-metric schema migrations. Scopes used today: `period_id`, `tenant`, `entity_id`. Metric keys are namespaced strings (`account_balance.{id}`, `revenue.posted`, `net_income`, etc.).
+
+### Library — `core/financial_state_cache.php`
+- **Read**: `fscRead($tid, $scopeKey, $scopeValue, $metricKey = null)` — single-metric or all-for-scope. **Auto-rebuilds if scope is dirty** (lazy-on-read invalidation). Degrades gracefully when migration 045 hasn't run yet (returns empty/null) — same pattern as `event_registry.php`.
+- **Write**: `fscWrite(...)` — `ON DUPLICATE KEY UPDATE` upsert. Called by builders; not normally called directly.
+- **Invalidation**: `fscMarkDirty(...)` — append a dirty-log entry. Cheap (single INSERT, no SELECT). Safe to spam from event handlers; rebuilder collapses duplicates. Wrapped in try/catch so missing tables never break callers.
+- **Rebuild**: `fscRebuild($tid, $scopeKey, $scopeValue)` — dispatches by `scope_key`, then atomically clears the dirty log **only on successful rebuild** (throws → dirty entries preserved so the next read retries). Returns `{metrics_written, ms}` for SLO tracking.
+- **Concrete builders**:
+  - `fscBuildPeriodAccountBalances($tid, $periodId)` — reads `accounting_journal_entry_lines` joined to `accounting_journal_entries` (`status='posted'` only — drafts + reversed entries excluded; reversal partners cancel mathematically), groups by `account_id`, computes directional balance via the account's `normal_side`, writes one row per account with `metric_key = "account_balance.{id}"` and a sha256 source_hash over (account_id, je_count, debit, credit, last_je_updated).
+  - `fscBuildPeriodKpis($tid, $periodId)` — reads from cache rows just written, rolls up by `account_type`, writes `revenue.posted`, `expense.posted`, `net_income = revenue - expense`, `asset_balance`, `liability_balance`, `equity_balance`.
+
+### API — `api/financial_state.php`
+- `GET ?scope_key=period_id&scope_value=42` → `{scope, was_dirty, dirty_now, count, metrics: {metric_key: row, ...}}`. Auto-rebuilds dirty scopes.
+- `GET ?scope_key=...&scope_value=...&metric_key=revenue.posted` → single-metric read with 404 on miss.
+- `POST {action: "mark_dirty", scope_key, scope_value, reason?}` → manual invalidation (also called by event listeners).
+- `POST {action: "rebuild", scope_key, scope_value}` → force rebuild.
+- Standard `api_require_auth()` session/JWT gate. No fine-grained RBAC — the data is the same numbers `exec_dashboard.php` already exposes.
+
+### Event hook integration — `modules/accounting/lib/accounting.php`
+- `accountingPostJe()` now calls `fscMarkDirty($tid, FSC_SCOPE_PERIOD, $period['id'], 'je_posted', $actorUserId)` **after the commit** (only when `$post === true`). Wrapped in try/catch — never blocks the JE post if the cache is unavailable.
+- `accountingReverseJe()` marks the **original** period dirty with `'je_reversed'` (the reversal's period is auto-marked by the recursive `accountingPostJe()` call).
+
+### Validation
+- `tests/financial_state_cache_smoke.php` — **64 assertions** covering: migration shape (table existence, columns, UNIQUE constraints, indexes, utf8mb4, no MySQL-8-only features), library surface (3 scope constants + 7 functions, fscRead auto-rebuild + graceful degradation, fscWrite upsert, fscMarkDirty silent-survive, fscRebuild dispatch + dirty-log clear-AFTER-success, account-balance builder reads posted-only + directional math + sha256 hash, KPI builder revenue/expense/net_income math), API contract (auth, GET/POST shapes, 4 actions, error codes), event hook integration (postJe + reverseJe call fscMarkDirty inside try/catch with the right reason strings and period_id sources).
+- Smoke test routed to the **`core`** lane via the default classifier (this is core engine infrastructure).
+- No frontend touched in this phase — pure backend foundation. CFO Dashboard read-path migration is a follow-up so the cache can be validated in production without affecting the current dashboard payload.
+
+### Why this unlocks Phase 2 AI
+- Phase 2 AI evaluates rule proposals by comparing outcomes "with rule X" vs "without rule X". That comparison reads the financial state hundreds of times per evaluation. The cache makes that read sub-millisecond instead of "replay the full event log per query." Without it, the AI loop is too slow to be useful.
+- The cache also underpins the External Auditor view (P3) — point a tokenized URL at the cache and you have a deterministic read-only snapshot without ever exposing the raw event log.
+
+
+
 ## Recently completed (CI bundle-sync automation + CI status badge, 2026-02)
 **Killed an entire class of recurring "I forgot to update X" CI failures, and gave the CFO Dashboard a live deploy-gate health indicator.**
 
