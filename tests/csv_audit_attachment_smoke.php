@@ -56,16 +56,29 @@ $helperPath = "{$ROOT}/dashboard/src/lib/csvAuditAttach.js";
 $h = (string) file_get_contents($helperPath);
 $a('csvAuditAttach.js exists',                       is_file($helperPath));
 $a('exports attachCsvToImportRun()',                 str_contains($h, 'export async function attachCsvToImportRun'));
+$a('helper signature accepts columnMap',             str_contains($h, '{ importRunId, csvText, fileName, entity, columnMap }'));
 $a('bails when importRunId or csvText missing',      str_contains($h, 'if (!importRunId || !csvText) return null'));
-$a('POSTs /api/evidence_upload_url.php with subject_type=csv_import_run',
-    str_contains($h, "subject_type: 'csv_import_run'"));
-$a('uses content_type text/csv',                     str_contains($h, "content_type: 'text/csv'"));
-$a('creates Blob from csv text',                     str_contains($h, "new Blob([csvText], { type: 'text/csv' })"));
+$a('shared upload helper _uploadEvidence defined',   str_contains($h, 'async function _uploadEvidence'));
+$a('POSTs /api/evidence_upload_url.php',             str_contains($h, "'/api/evidence_upload_url.php'"));
+$a('passes subject_type=csv_import_run',             str_contains($h, "subject_type: 'csv_import_run'"));
+$a('uploads CSV branch sets contentType text/csv',   str_contains($h, "contentType:   'text/csv'"));
+$a('uploads CSV branch documentType=csv_source',     str_contains($h, "documentType:  'csv_source'"));
+$a('uploads JSON branch when columnMap provided',
+    str_contains($h, 'if (columnMap && Object.keys(columnMap).length > 0)'));
+$a('uploads JSON branch sets contentType application/json',
+    str_contains($h, "contentType:   'application/json'"));
+$a('uploads JSON branch documentType=column_map',    str_contains($h, "documentType:  'column_map'"));
+$a('JSON branch filename ends with .mapping.json',   str_contains($h, "'.mapping.json'"));
+$a('JSON payload includes import_run_id',            str_contains($h, 'import_run_id: importRunId'));
+$a('JSON payload includes captured_at ISO timestamp',str_contains($h, 'captured_at:   new Date().toISOString()'));
+$a('shared _uploadEvidence creates Blob with passed contentType',
+    str_contains($h, 'new Blob([bytes], { type: contentType })'));
 $a('handles LocalDriver path (no upload.url)',       str_contains($h, 'if (presign.upload?.url)'));
-$a('registers metadata document_type=csv_source',    str_contains($h, "document_type: 'csv_source'"));
+$a('registers metadata via /api/accounting/evidence.php',
+    str_contains($h, "'/api/accounting/evidence.php'"));
 $a('uses source=csv_import_auto_attach',             str_contains($h, "source:        'csv_import_auto_attach'"));
-$a('never throws (try/catch around all)',            str_contains($h, 'try {') && str_contains($h, '} catch (e) {'));
-$a('returns null on error',                          str_contains($h, '} catch (e) {') && str_contains($h, 'return null;'));
+$a('never throws (csv branch wrapped in try/catch)', str_contains($h, '[csv-audit-attach:csv]'));
+$a('never throws (map branch wrapped in try/catch)', str_contains($h, '[csv-audit-attach:map]'));
 
 // ── Frontend: CsvImportPage auto-attach ─────────────────────────────
 echo "\nCsvImportPage.jsx auto-attaches source CSV\n";

@@ -113,7 +113,9 @@ $a('requires ai_rule_competition',                   str_contains($ep, "require_
 $a('api_require_auth',                               str_contains($ep, 'api_require_auth()'));
 $a('GET by id is tenant-scoped',
     str_contains($ep, 'FROM rule_proposals WHERE tenant_id = :t AND id = :id'));
-$a('GET list filters status + rule_type',            str_contains($ep, "'s' => (string) \$s") && str_contains($ep, "'rt' => (string) \$rt"));
+$a('GET list filters status + rule_type',
+    str_contains($ep, "\$params['s']") && str_contains($ep, "\$params['rt']") &&
+    str_contains($ep, "(string) \$s") && str_contains($ep, "(string) \$rt"));
 $a('GET list caps limit at 200',                     str_contains($ep, 'min(200, (int) api_query'));
 $a('POST action=propose route',                      str_contains($ep, "action === 'propose'"));
 $a('POST action=compete route',                      str_contains($ep, "action === 'compete'"));

@@ -65,7 +65,7 @@ echo "\nShared CsvImportPage records history after commit\n";
 $cmp = $read(__DIR__ . '/../dashboard/src/components/CsvImportPage.jsx');
 $a('CsvImportPage posts to history endpoint',
     str_contains($cmp, "api.post('/api/admin/csv_import_history.php'"));
-$a('CsvImportPage gates on presetEntity',   preg_match('/if \(presetEntity\)\s*\{\s*try \{\s*await api\.post\(\'\/api\/admin\/csv_import_history\.php\'/', $cmp) === 1);
+$a('CsvImportPage gates on presetEntity',   preg_match('/if \(presetEntity\)\s*\{\s*try \{\s*(?:const \w+ =\s*)?await api\.post\(\'\/api\/admin\/csv_import_history\.php\'/', $cmp) === 1);
 $a('CsvImportPage forwards file_name',      str_contains($cmp, 'file_name:'));
 $a('CsvImportPage forwards rows_imported',  str_contains($cmp, 'rows_imported:'));
 $a('CsvImportPage forwards rows_skipped',   str_contains($cmp, 'rows_skipped:'));

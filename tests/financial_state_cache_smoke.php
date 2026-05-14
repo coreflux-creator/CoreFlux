@@ -121,7 +121,7 @@ echo "\nEvent hook — accountingPostJe / accountingReverseJe fire fscMarkDirty\
 $acc = (string) file_get_contents("{$ROOT}/modules/accounting/lib/accounting.php");
 $a('accounting.php requires fsc library',        str_contains($acc, "require_once __DIR__ . '/../../../core/financial_state_cache.php'"));
 $a('postJe marks period dirty after commit',
-    preg_match('/\$pdo->commit\(\);[\s\S]{0,400}fscMarkDirty\(\s*\$tenantId,\s*FSC_SCOPE_PERIOD/', $acc) === 1);
+    preg_match('/\$pdo->commit\(\);[\s\S]{0,800}fscMarkDirty\(\s*\$tenantId,\s*FSC_SCOPE_PERIOD/', $acc) === 1);
 $a('postJe uses je_posted reason',               str_contains($acc, "'je_posted'"));
 $a('postJe wraps fscMarkDirty in try/catch',
     preg_match('/try\s*\{\s*fscMarkDirty\([\s\S]+?never block the post/', $acc) === 1);

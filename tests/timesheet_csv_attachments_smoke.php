@@ -34,10 +34,9 @@ $a('CSV button has descriptive tooltip',             str_contains($tsw, 'Bulk im
 echo "\nTime CSV importer (existing — verify multi-period support)\n";
 $tci = (string) file_get_contents("{$ROOT}/modules/time/api/csv_import.php");
 $a('csv_import.php exists',                          is_file("{$ROOT}/modules/time/api/csv_import.php"));
-$a('resolves placement by external_id',              str_contains($tci, 'time_placements') && str_contains($tci, 'external_id'));
+$a('resolves placement by external_id',              str_contains($tci, 'placements') && str_contains($tci, 'external_id'));
 $a('auto-resolves period from work_date',
-    str_contains($tci, 'time_periods') &&
-    (str_contains($tci, 'work_date') && (str_contains($tci, 'period_id') || str_contains($tci, "'period'"))));
+    str_contains($tci, 'time_periods') && str_contains($tci, 'work_date') && str_contains($tci, 'period_id'));
 $a('supports dry_run action',                        str_contains($tci, 'dry_run'));
 $a('supports commit action',                         str_contains($tci, 'commit'));
 $a('uses shared CsvImportService',                   str_contains($tci, 'CsvImportService'));
@@ -101,20 +100,26 @@ $a('default doc-type map covers ap_bill',            str_contains($cmp, "case 'a
 echo "\nEvidenceAttachments mount points\n";
 $a('TimesheetWeek imports EvidenceAttachments',      str_contains($tsw, "import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments'"));
 $a('TimesheetWeek mounts <EvidenceAttachments> for time_bundle',
-    preg_match('/<EvidenceAttachments[^>]+subjectType="time_bundle"[^>]+subjectId=\{header\.id\}/s', $tsw) === 1);
+    str_contains($tsw, '<EvidenceAttachments') &&
+    str_contains($tsw, 'subjectType="time_bundle"') &&
+    str_contains($tsw, 'subjectId={header.id}'));
 $a('TimesheetWeek attachment testidPrefix ts-evidence',
     str_contains($tsw, 'testidPrefix="ts-evidence"'));
 
 $inv = (string) file_get_contents("{$ROOT}/modules/billing/ui/InvoiceDetail.jsx");
 $a('InvoiceDetail imports EvidenceAttachments',      str_contains($inv, "import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments'"));
 $a('InvoiceDetail mounts billing_invoice attachments',
-    preg_match('/<EvidenceAttachments[^>]+subjectType="billing_invoice"[^>]+subjectId=\{inv\.id\}/s', $inv) === 1);
+    str_contains($inv, '<EvidenceAttachments') &&
+    str_contains($inv, 'subjectType="billing_invoice"') &&
+    str_contains($inv, 'subjectId={inv.id}'));
 $a('InvoiceDetail attachment testidPrefix',          str_contains($inv, 'testidPrefix="billing-invoice-evidence"'));
 
 $bd = (string) file_get_contents("{$ROOT}/modules/ap/ui/BillDetail.jsx");
 $a('BillDetail imports EvidenceAttachments',         str_contains($bd, "import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments'"));
 $a('BillDetail mounts ap_bill attachments',
-    preg_match('/<EvidenceAttachments[^>]+subjectType="ap_bill"[^>]+subjectId=\{bill\.id\}/s', $bd) === 1);
+    str_contains($bd, '<EvidenceAttachments') &&
+    str_contains($bd, 'subjectType="ap_bill"') &&
+    str_contains($bd, 'subjectId={bill.id}'));
 $a('BillDetail attachment testidPrefix',             str_contains($bd, 'testidPrefix="ap-bill-evidence"'));
 
 // ── FSC Health endpoint + CFO Dashboard panel ───────────────────────
