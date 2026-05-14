@@ -208,6 +208,7 @@ export default function CsvImportHistory() {
                           </span>
                         ) : null}
                         <DownloadOriginalCsv importRunId={r.id} fallbackName={r.file_name}/>
+                        <DownloadColumnMap   importRunId={r.id}/>
                       </td>
                       <td style={{ textAlign: 'right' }} data-testid={`csv-history-row-${r.id}-imported`}>{r.rows_imported}</td>
                       <td style={{ textAlign: 'right' }}>{r.rows_skipped}</td>
@@ -299,6 +300,35 @@ function Field({ label, children }) {
  * download icon button that fetches a fresh signed URL per click.
  */
 function DownloadOriginalCsv({ importRunId, fallbackName }) {
+  return <DownloadEvidenceByType
+    importRunId={importRunId}
+    documentType="csv_source"
+    extensionFallback={/\.csv$/i}
+    label="CSV"
+    title={`Download original CSV${fallbackName ? `: ${fallbackName}` : ''}`}
+    testid={`csv-history-row-${importRunId}-download-original`}
+  />;
+}
+
+function DownloadColumnMap({ importRunId }) {
+  return <DownloadEvidenceByType
+    importRunId={importRunId}
+    documentType="column_map"
+    extensionFallback={/\.mapping\.json$/i}
+    label="JSON"
+    title="Download column-mapping snapshot (auditor JSON)"
+    testid={`csv-history-row-${importRunId}-download-mapping`}
+  />;
+}
+
+/**
+ * Generic lazy-fetch + signed-url download button for any single
+ * evidence_attachments record belonging to a csv_import_run. Looks up
+ * attachments on mount; renders nothing when no match exists (older runs,
+ * or runs that didn't capture a mapping); renders a tiny per-click signed
+ * URL download button when one is found.
+ */
+function DownloadEvidenceByType({ importRunId, documentType, extensionFallback, label, title, testid }) {
   const [attachment, setAttachment] = useState(null);
   const [loading, setLoading]       = useState(true);
 
@@ -310,9 +340,10 @@ function DownloadOriginalCsv({ importRunId, fallbackName }) {
           `/api/accounting/evidence.php?subject_type=csv_import_run&subject_id=${importRunId}`
         );
         if (cancelled) return;
-        const csvRow = (r?.rows || []).find(row =>
-          (row.document_type === 'csv_source') || /\.csv$/i.test(row.label || ''));
-        setAttachment(csvRow || null);
+        const match = (r?.rows || []).find(row =>
+          row.document_type === documentType ||
+          (extensionFallback && extensionFallback.test(row.label || '')));
+        setAttachment(match || null);
       } catch {
         if (!cancelled) setAttachment(null);
       } finally {
@@ -320,7 +351,7 @@ function DownloadOriginalCsv({ importRunId, fallbackName }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [importRunId]);
+  }, [importRunId, documentType]);
 
   if (loading || !attachment) return null;
 
@@ -335,15 +366,15 @@ function DownloadOriginalCsv({ importRunId, fallbackName }) {
   return (
     <button
       onClick={onClick}
-      data-testid={`csv-history-row-${importRunId}-download-original`}
+      data-testid={testid}
       className="btn btn--ghost"
-      title={`Download original CSV: ${attachment.label || fallbackName || ''}`}
+      title={title}
       style={{
         marginLeft: 6, padding: '1px 6px', fontSize: 11,
         display: 'inline-flex', alignItems: 'center', gap: 3,
         color: '#0369a1', verticalAlign: 'middle',
       }}>
-      <Download size={11}/> CSV
+      <Download size={11}/> {label}
     </button>
   );
 }

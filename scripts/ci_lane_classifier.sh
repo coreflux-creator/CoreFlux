@@ -30,6 +30,7 @@ ci_classify_lane() {
         sim_harness_*|module_emission_discipline_smoke.php|phase_2a_event_discipline_smoke.php|\
         phase_1b_*|phase_1c_*|phase_1d_*|phase_1e_*|\
         event_registry_contract_*|accounting_bank_rule_learning_*|\
+        ai_rule_competition_*|\
         sprint7b_event_layer_*|sprint7b_formula_engine_*|sprint7b_rule_sandbox_*|\
         sprint7c1_default_rules_seed_*|sprint7c2_7d_replay_and_aliases_*|\
         sprint7e_ap_event_layer_*|sprint7e_subledger_replay_*)

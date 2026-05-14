@@ -255,6 +255,7 @@ export default function CsvImportPage({
               csvText,
               fileName,
               entity: presetEntity,
+              columnMap: columnMap || null,
             });
           }
         } catch { /* non-fatal */ }

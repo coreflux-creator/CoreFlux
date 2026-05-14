@@ -29,6 +29,7 @@ import AIAgents from './pages/AIAgents';
 import CsvBulkImport from './pages/CsvBulkImport';
 import CsvImportHistory from './pages/CsvImportHistory';
 import SimulationDashboard from './pages/SimulationDashboard';
+import RuleProposals from './pages/RuleProposals';
 import Login from './pages/Login';
 import MagicLinkConsume from './pages/MagicLinkConsume';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -404,6 +405,7 @@ const AppContent = ({ session, usingDemo }) => {
               Runs are CLI-driven; this page is the read-only auditor
               view (runs, scenarios, discipline log, replay drill-in). */}
           <Route path="/sim" element={<SimulationDashboard />} />
+          <Route path="/ai/rule-proposals" element={<RuleProposals />} />
           
           {/* Admin Module */}
           <Route path="/admin/*" element={<AdminModule session={session} />} />

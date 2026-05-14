@@ -10,6 +10,60 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (Phase 2 AI v1 — rule-competing AI, 2026-02)
+**P1 keystone: AI proposes business-rule tweaks, the system replays recent events through both rules deterministically, and operators review the diff before accepting.** Built on the simulation harness + Phase 2a clean event layer + the Financial State Cache, all of which were prerequisites.
+
+### Schema — migration `046_rule_proposals.sql`
+- `rule_proposals` table — generic `(tenant_id, rule_type, current_rule_json, proposed_rule_json, rationale, comparison_json, score, events_compared, events_changed, dollars_changed, status, reviewed_*, created_*)`. Status ENUM: `proposed | competed | accepted | rejected | applied | error`. Two indexes: `(tenant_id, status, created_at)` and `(tenant_id, rule_type, status)`. Cloudways MySQL 5.7+ compatible.
+
+### Library — `core/ai_rule_competition.php`
+- **`rcRegisterReplay(string $ruleType, callable $fn)`** — global registry. Each rule_type registers a replay function that takes `(tenantId, rule, sampleSize)` and returns a vector of per-event outcomes (`event_key, dollars, outcome_value, raw`). Adding a new rule type is a 1-function patch, no schema change.
+- **v1 ships ONE rule type: `ap_expense_category_map`** — AP bill line category → expense account code. Replay reads the last N posted `ap_bill_lines` joined to `ap_bills` (filtered on `tenant_id` + `status IN ('approved','paid','partially_paid','posted')`), applies the rule's category lookup with `default` fallback.
+- **`aiRuleCompete(int $proposalId, int $sampleSize = 50)`** — loads proposal, calls `rcReplayRule` twice (current + proposed), diffs by `event_key`, computes `events_changed`, `dollars_changed`, and a 0..1 score using `1 - abs(changeRatio - 0.15) * 2` so wholly-identical AND wholly-different proposals both score low (operators want measured changes). Persists `comparison_json` capped at 200 diff rows. Idempotent — running twice on the same proposal overwrites the comparison. Preserves accepted/rejected/applied terminal statuses on re-run. Catches builder exceptions → `status='error'` with `status_reason` for forensics.
+
+### Library — `core/ai_rule_proposer.php`
+- **`rpCurrentRule(int $tenantId, string $ruleType)`** — reads `accounting_account_mapping_rules` (module='ap'); falls back to a sensible baseline (`consulting→6000, software→6100, travel→6200, ...`) when the tenant has no customizations so the AI always has something to propose against.
+- **`rpRecentActivity(int $tenantId, string $ruleType, int $contextSize)`** — aggregates the last N AP-line categories with `n_lines + total_amount + most_recent` so the LLM gets signal without leaking sensitive vendor names.
+- **`aiProposeRule(int $tenantId, string $ruleType, ?int $userId, int $contextSize = 30)`** — calls `aiAsk(['feature_class' => 'rule_proposal', 'kind' => 'json', ...])` with system + prompt asking for `{proposed_rule, rationale}`. Routes automatically through `simShouldMockIfLoaded('openai')` so sim tenants get deterministic answers. Persists the proposal row (status='proposed' on success, 'error' on AI failure), then **auto-competes immediately** so operators see a populated diff on first load. Always returns the inserted id — even AI failures get a row for audit.
+
+### API — `api/admin/rule_proposals.php`
+- `GET ?id=N` → single row (json-decoded)
+- `GET [?status=...&rule_type=...&limit=50]` → list (capped at 200)
+- `POST {action:'propose', rule_type, context_size?}` → kicks off proposal + auto-competes
+- `POST {action:'compete', id, sample_size?}` → re-replays (tenant ownership checked before delegate)
+- `POST {action:'review', id, decision:'accept'|'reject', notes?}` → terminal status
+- Standard auth. RBAC tier left wide for v1 (Phase 2.1 will narrow).
+
+### UI — `dashboard/src/pages/RuleProposals.jsx` at `/ai/rule-proposals`
+- Header with one trigger card per rule type ("Propose tweak" button on `ap_expense_category_map`).
+- Refresh button (testid `rule-proposals-refresh`) with spinning loader.
+- Empty state (testid `rule-proposals-empty`).
+- One collapsible card per proposal (testid `rule-proposals-card-{id}`):
+  - Status pill (proposed/competed/accepted/rejected/applied/error) with color-coded background.
+  - Header summary: events changed / events compared, dollars changed, score.
+  - Rationale blockquote (testid `rule-proposals-rationale-{id}`).
+  - Side-by-side `<RuleJsonBox>` panels (current vs proposed).
+  - Diff table preview (first 5 of N changes) with event_key, category, $, from→to.
+  - "Re-replay" button (recompete), "Reject" / "Accept" with inline notes field.
+  - Reviewed-timestamp footer when terminal.
+- Mounted in `App.jsx` Routes.
+
+### Validation
+- `tests/ai_rule_competition_smoke.php` — 75+ static contract assertions covering migration shape, library function exports + behaviors (registry, replay query shape, scoring formula, error path, dirty preservation), proposer (aiAsk wiring, JSON contract, graceful no-structured-response, error path, auto-compete after propose, returns id), API endpoint (auth, tenant scoping on every read/write, all 3 POST actions, decision validation, json-decode of rule columns, method allowlist), React UI (page testid, useApi target, propose POST, card testid map, accept/reject/recompete buttons, diff table, empty state), App.jsx route.
+- Routed to the **`harness`** lane via `ai_rule_competition_*` pattern (sits next to sim harness + invariants).
+- All JSX lint clean.
+- Vite rebuilt via the postbuild hook → `index-B8Q8nMJm.js`. All sync points consistent. sprint6b expected hash updated.
+
+### What's deliberately deferred to Phase 2.1
+- **Auto-apply accepted rules**: For v1, accepted proposals stay in DB with `status='accepted'` but don't write back to `accounting_account_mapping_rules`. Phase 2.1 will add per-rule_type appliers that promote accepted proposals into production rules atomically.
+- **Additional rule types**: only `ap_expense_category_map` ships in v1. Adding more is a 1-function patch (`rcRegisterReplay` + `rpCurrentRule` switch arm) — no migration needed thanks to the generic schema.
+- **RBAC tier narrowing**: any authenticated user can drive the queue today.
+
+### Column-map JSON attachment (also shipped this session)
+- The `attachCsvToImportRun()` helper now also uploads the column_map as `.mapping.json` (`document_type='column_map'`) so auditors can see "input bytes AND the interpretation we applied" side-by-side. CsvImportHistory page now renders two lazy download buttons per row: "↓ CSV" (testid `csv-history-row-{id}-download-original`) and "↓ JSON" (testid `csv-history-row-{id}-download-mapping`). Both buttons render nothing for older runs without the attachment, so the UI stays clean for legacy rows.
+
+
+
 ## Recently completed (Max auditability — CSV runs carry their source bytes, 2026-02)
 Closing the auditability loop: every CSV import run now stores its **exact input bytes** as an evidence_attachments record, not just the metadata about what was imported. Auditors can download the original CSV that produced any batch of rows, on any line in the CSV Import History.
 

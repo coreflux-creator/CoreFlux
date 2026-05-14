@@ -75,8 +75,9 @@ $a('CsvImportPage imports attachCsvToImportRun',
 $a('captures history POST response as `hist`',       str_contains($cip, 'const hist = await api.post('));
 $a('calls attachCsvToImportRun when hist.id set',
     preg_match('/if\s*\(\s*hist\?\.id\s*\)\s*\{\s*await attachCsvToImportRun\(/', $cip) === 1);
-$a('passes csvText, fileName, entity to helper',
-    str_contains($cip, 'csvText,') && str_contains($cip, 'fileName,') && str_contains($cip, 'entity: presetEntity'));
+$a('passes csvText, fileName, entity, columnMap to helper',
+    str_contains($cip, 'csvText,') && str_contains($cip, 'fileName,') &&
+    str_contains($cip, 'entity: presetEntity') && str_contains($cip, 'columnMap: columnMap || null'));
 
 // ── Frontend: CsvBulkImport auto-attach ─────────────────────────────
 echo "\nCsvBulkImport.jsx auto-attaches source CSV\n";
@@ -86,26 +87,33 @@ $a('CsvBulkImport imports attachCsvToImportRun',
 $a('captures history POST response as `hist`',       str_contains($cbi, 'const hist = await api.post(\'/api/admin/csv_import_history.php\''));
 $a('calls attachCsvToImportRun for each file',
     preg_match('/if\s*\(\s*hist\?\.id\s*\)\s*\{\s*await attachCsvToImportRun\(/', $cbi) === 1);
-$a('passes f.csv, f.fileName, f.entity to helper',
-    str_contains($cbi, 'csvText:     f.csv') && str_contains($cbi, 'fileName:    f.fileName') && str_contains($cbi, 'entity:      f.entity'));
+$a('passes f.csv, f.fileName, f.entity, f.columnMap to helper',
+    str_contains($cbi, 'csvText:     f.csv') && str_contains($cbi, 'fileName:    f.fileName') &&
+    str_contains($cbi, 'entity:      f.entity') && str_contains($cbi, 'columnMap:   f.columnMap || null'));
 
 // ── Frontend: CsvImportHistory download link ────────────────────────
-echo "\nCsvImportHistory.jsx — Download original CSV button\n";
+echo "\nCsvImportHistory.jsx — Download original CSV + Mapping JSON buttons\n";
 $ch = (string) file_get_contents("{$ROOT}/dashboard/src/pages/CsvImportHistory.jsx");
 $a('CsvImportHistory imports Download icon',         str_contains($ch, "import { Download } from 'lucide-react'"));
-$a('renders <DownloadOriginalCsv importRunId={r.id}>',
+$a('renders <DownloadOriginalCsv> for each row',
     str_contains($ch, '<DownloadOriginalCsv importRunId={r.id} fallbackName={r.file_name}/>'));
-$a('DownloadOriginalCsv component defined',          str_contains($ch, 'function DownloadOriginalCsv({ importRunId, fallbackName })'));
-$a('fetches evidence list on mount',
+$a('renders <DownloadColumnMap> for each row',
+    str_contains($ch, '<DownloadColumnMap   importRunId={r.id}/>'));
+$a('DownloadOriginalCsv defined',                    str_contains($ch, 'function DownloadOriginalCsv({ importRunId, fallbackName })'));
+$a('DownloadColumnMap defined',                      str_contains($ch, 'function DownloadColumnMap({ importRunId })'));
+$a('shared DownloadEvidenceByType generic',          str_contains($ch, 'function DownloadEvidenceByType('));
+$a('CSV button filters document_type=csv_source',    str_contains($ch, 'documentType="csv_source"'));
+$a('JSON button filters document_type=column_map',   str_contains($ch, 'documentType="column_map"'));
+$a('CSV fallback extension regex',                   str_contains($ch, 'extensionFallback={/\\.csv$/i}'));
+$a('JSON fallback extension regex .mapping.json',    str_contains($ch, 'extensionFallback={/\\.mapping\\.json$/i}'));
+$a('generic component fetches list on mount',
     str_contains($ch, "/api/accounting/evidence.php?subject_type=csv_import_run&subject_id="));
-$a('filters for document_type=csv_source or .csv label',
-    str_contains($ch, "row.document_type === 'csv_source'") && str_contains($ch, '/\\.csv$/i.test'));
-$a('renders nothing when no attachment',             str_contains($ch, 'if (loading || !attachment) return null'));
-$a('fetches fresh signed_url per click',
+$a('generic component renders nothing on miss',      str_contains($ch, 'if (loading || !attachment) return null'));
+$a('fresh signed_url per click',
     str_contains($ch, '/api/accounting/evidence.php?action=signed_url&id='));
 $a('opens in new tab with noopener',                 str_contains($ch, "window.open(r.signed_url, '_blank', 'noopener')"));
-$a('button has data-testid csv-history-row-{id}-download-original',
-    str_contains($ch, 'data-testid={`csv-history-row-${importRunId}-download-original`}'));
+$a('CSV button testid',                              str_contains($ch, 'csv-history-row-${importRunId}-download-original'));
+$a('JSON button testid',                             str_contains($ch, 'csv-history-row-${importRunId}-download-mapping'));
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

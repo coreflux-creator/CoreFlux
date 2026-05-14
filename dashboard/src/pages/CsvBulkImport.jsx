@@ -224,6 +224,7 @@ export default function CsvBulkImport() {
                 csvText:     f.csv,
                 fileName:    f.fileName,
                 entity:      f.entity,
+                columnMap:   f.columnMap || null,
               });
             }
           } catch { /* non-fatal */ }
