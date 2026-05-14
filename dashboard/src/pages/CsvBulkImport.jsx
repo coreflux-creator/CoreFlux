@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
+import { attachCsvToImportRun } from '../lib/csvAuditAttach';
 
 /**
  * Tenant Onboarding — Bulk CSV Import Wizard.
@@ -199,9 +200,10 @@ export default function CsvBulkImport() {
           if (f.columnMap) body.column_map = f.columnMap;
           const res = await api.post(path, body);
           next[idx] = { ...f, committed: res, error: null };
-          // Audit-write each successful commit to the import history.
+          // Audit-write each successful commit to the import history,
+          // then attach the original CSV bytes for full auditor download.
           try {
-            await api.post('/api/admin/csv_import_history.php', {
+            const hist = await api.post('/api/admin/csv_import_history.php', {
               entity:          f.entity,
               file_name:       f.fileName || null,
               bytes_processed: f.csv.length,
@@ -216,6 +218,14 @@ export default function CsvBulkImport() {
               column_map:      f.columnMap || null,
               duration_ms:     Date.now() - startedAt,
             });
+            if (hist?.id) {
+              await attachCsvToImportRun({
+                importRunId: hist.id,
+                csvText:     f.csv,
+                fileName:    f.fileName,
+                entity:      f.entity,
+              });
+            }
           } catch { /* non-fatal */ }
         } catch (err) {
           next[idx] = { ...f, committed: null, error: err };

@@ -31,7 +31,7 @@ if ($method === 'POST') {
     $entity = (string) ($body['entity'] ?? '');
     if ($entity === '') api_error('entity is required', 400);
 
-    csvImportHistoryRecord([
+    $newId = csvImportHistoryRecord([
         'entity'          => $entity,
         'file_name'       => $body['file_name']       ?? null,
         'bytes_processed' => (int) ($body['bytes_processed'] ?? 0),
@@ -46,7 +46,7 @@ if ($method === 'POST') {
         'column_map'      => is_array($body['column_map'] ?? null) ? $body['column_map'] : null,
         'duration_ms'     => isset($body['duration_ms']) ? (int) $body['duration_ms'] : null,
     ]);
-    api_ok(['recorded' => true]);
+    api_ok(['recorded' => true, 'id' => $newId]);
 }
 
 if ($method !== 'GET') api_error('Method not allowed', 405);

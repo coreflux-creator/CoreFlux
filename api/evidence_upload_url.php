@@ -54,6 +54,7 @@ $ALLOWED_SUBJECTS = [
     'billing_invoice', 'ap_bill', 'ap_bill_line',
     'placement', 'person', 'company',
     'accounting_event', 'journal_entry',
+    'csv_import_run',
 ];
 if (!in_array($subjectType, $ALLOWED_SUBJECTS, true)) {
     api_error('subject_type not in allowlist', 422, ['allowed' => $ALLOWED_SUBJECTS]);
@@ -75,6 +76,7 @@ $MODULE_FOR = [
     'company'                 => 'companies',
     'accounting_event'        => 'accounting',
     'journal_entry'           => 'accounting',
+    'csv_import_run'          => 'csv_imports',
 ];
 $module = $MODULE_FOR[$subjectType] ?? 'evidence';
 

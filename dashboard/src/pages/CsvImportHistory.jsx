@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Download } from 'lucide-react';
 import { api } from '../lib/api';
 
 /**
@@ -206,6 +207,7 @@ export default function CsvImportHistory() {
                             AI
                           </span>
                         ) : null}
+                        <DownloadOriginalCsv importRunId={r.id} fallbackName={r.file_name}/>
                       </td>
                       <td style={{ textAlign: 'right' }} data-testid={`csv-history-row-${r.id}-imported`}>{r.rows_imported}</td>
                       <td style={{ textAlign: 'right' }}>{r.rows_skipped}</td>
@@ -286,5 +288,62 @@ function Field({ label, children }) {
       {label}
       {children}
     </label>
+  );
+}
+
+
+/**
+ * Lazy "Download original CSV" link for a history row. Looks up attachments
+ * for subject_type=csv_import_run on mount; if zero attachments exist,
+ * renders nothing (older runs won't have one). If found, renders a tiny
+ * download icon button that fetches a fresh signed URL per click.
+ */
+function DownloadOriginalCsv({ importRunId, fallbackName }) {
+  const [attachment, setAttachment] = useState(null);
+  const [loading, setLoading]       = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await api.get(
+          `/api/accounting/evidence.php?subject_type=csv_import_run&subject_id=${importRunId}`
+        );
+        if (cancelled) return;
+        const csvRow = (r?.rows || []).find(row =>
+          (row.document_type === 'csv_source') || /\.csv$/i.test(row.label || ''));
+        setAttachment(csvRow || null);
+      } catch {
+        if (!cancelled) setAttachment(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [importRunId]);
+
+  if (loading || !attachment) return null;
+
+  const onClick = async (e) => {
+    e.preventDefault(); e.stopPropagation();
+    try {
+      const r = await api.get(`/api/accounting/evidence.php?action=signed_url&id=${attachment.id}`);
+      if (r?.signed_url) window.open(r.signed_url, '_blank', 'noopener');
+    } catch { /* silent */ }
+  };
+
+  return (
+    <button
+      onClick={onClick}
+      data-testid={`csv-history-row-${importRunId}-download-original`}
+      className="btn btn--ghost"
+      title={`Download original CSV: ${attachment.label || fallbackName || ''}`}
+      style={{
+        marginLeft: 6, padding: '1px 6px', fontSize: 11,
+        display: 'inline-flex', alignItems: 'center', gap: 3,
+        color: '#0369a1', verticalAlign: 'middle',
+      }}>
+      <Download size={11}/> CSV
+    </button>
   );
 }

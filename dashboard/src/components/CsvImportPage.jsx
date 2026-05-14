@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
+import { attachCsvToImportRun } from '../../../dashboard/src/lib/csvAuditAttach';
 
 /**
  * Shared CSV Import flow — built on Core\CsvImportService.
@@ -225,7 +226,7 @@ export default function CsvImportPage({
       // already succeeded; a failed history write is a nicety to lose.
       if (presetEntity) {
         try {
-          await api.post('/api/admin/csv_import_history.php', {
+          const hist = await api.post('/api/admin/csv_import_history.php', {
             entity:          presetEntity,
             file_name:       fileName || null,
             bytes_processed: csvText.length,
@@ -246,6 +247,16 @@ export default function CsvImportPage({
                 ? { extra_flags: extraToggleValues }
                 : {}),
           });
+          // Attach the original CSV bytes to the history row so auditors
+          // can download the exact input that produced this batch.
+          if (hist?.id) {
+            await attachCsvToImportRun({
+              importRunId: hist.id,
+              csvText,
+              fileName,
+              entity: presetEntity,
+            });
+          }
         } catch { /* non-fatal */ }
       }
     } catch (e) { setError(e); }

@@ -10,6 +10,35 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (Max auditability — CSV runs carry their source bytes, 2026-02)
+Closing the auditability loop: every CSV import run now stores its **exact input bytes** as an evidence_attachments record, not just the metadata about what was imported. Auditors can download the original CSV that produced any batch of rows, on any line in the CSV Import History.
+
+### Backend changes
+- **`core/csv_import_history.php`** — `csvImportHistoryRecord()` signature changed from `void` to `?int`. Returns `(int) $pdo->lastInsertId()` on success, `null` on missing DB / migration not run / exception. Never throws (matches existing audit-write-is-a-nicety semantics).
+- **`api/admin/csv_import_history.php`** — POST captures the returned id and returns `{ recorded: true, id: N }` (was `{ recorded: true }`).
+- **`api/evidence_upload_url.php`** — Added `'csv_import_run'` to `$ALLOWED_SUBJECTS` whitelist and `'csv_import_run' => 'csv_imports'` to the module bucket map. Files land at `csv_imports/{tenant}/csv_import_run/{id}/{filename}`.
+
+### Frontend changes
+- **`dashboard/src/lib/csvAuditAttach.js`** (new, 60 lines) — Shared helper `attachCsvToImportRun({ importRunId, csvText, fileName, entity })`. Implements the standard 3-step evidence upload (presign → S3 multipart → metadata register) with `document_type='csv_source'`, `source='csv_import_auto_attach'`. Never throws — audit-write is a nicety.
+- **`dashboard/src/components/CsvImportPage.jsx`** (shared single-entity importer) — After the existing history POST, captures `hist.id` and calls `attachCsvToImportRun(...)` to upload the original `csvText` as a `Blob`. Both wrapped in the same try/catch as the history POST.
+- **`dashboard/src/pages/CsvBulkImport.jsx`** (multi-file wizard) — Same patch but per-file inside the FK-ordered commit loop. Each file in a 7-file bulk import becomes its own attachment under its own `csv_import_run` row.
+- **`dashboard/src/pages/CsvImportHistory.jsx`** — New `<DownloadOriginalCsv importRunId={r.id} />` component renders next to the file_name cell. On mount it lazy-fetches the evidence list for `subject_type=csv_import_run&subject_id=r.id`; if no `csv_source` attachment exists (older runs), renders nothing. If one exists, shows a tiny "↓ CSV" button that fetches a fresh signed URL per click. Per-click fresh signing avoids leaking long-lived URLs to logs / browser history. Testid: `csv-history-row-{id}-download-original`.
+
+### Audit trail flow (end-to-end)
+1. Operator drops `people_jan_2026.csv` on the bulk-import wizard.
+2. Wizard commits → `csv_import_history` row N created with metadata.
+3. Wizard then calls `attachCsvToImportRun({ importRunId: N, csvText, fileName, entity })` → file uploaded to `csv_imports/{tenant}/csv_import_run/N/people_jan_2026.csv` → `evidence_attachments(subject_type='csv_import_run', subject_id=N, document_type='csv_source')` row inserted.
+4. Auditor opens CSV Import History → sees row N → clicks "↓ CSV" → fresh signed URL → downloads the EXACT bytes that produced the batch.
+5. Cross-tenant isolation guaranteed by `tenant_id` foreign key on `evidence_attachments`.
+
+### Validation
+- **`tests/csv_audit_attachment_smoke.php`** — 30+ assertions covering: history record returns id, POST endpoint passes it through, evidence whitelist + bucket map for csv_import_run, shared helper contract (signature, presign + upload + register + never-throws), both CSV pages capture `hist.id` and call the helper, history page renders the lazy download button with all the testid + selector + signed-url-per-click requirements.
+- Routed to the **`ui`** lane (caught by existing `csv_*` pattern, no classifier change needed).
+- All 4 JSX files lint clean.
+- Vite rebuilt via the postbuild hook → `index-NrsuH9IR.js`. All three sync points consistent. sprint6b expected hash updated.
+
+
+
 ## Recently completed (Timesheet CSV discoverability + universal evidence attachments + CFO Cache Health, 2026-02)
 Three connected improvements landed together: CSV import is now discoverable from the timesheets page; **any** subject in the system can now have file attachments via one drop-in component; the CFO Dashboard gets a collapsible "Cache Health" footer section so it doesn't get overwhelmed.
 

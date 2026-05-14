@@ -24,11 +24,11 @@
  *   ]);
  */
 
-function csvImportHistoryRecord(array $args): void
+function csvImportHistoryRecord(array $args): ?int
 {
     try {
         $pdo  = getDB();
-        if (!$pdo) return;
+        if (!$pdo) return null;
 
         $errors      = is_array($args['errors'] ?? null) ? $args['errors'] : [];
         $errorsCount = count($errors);
@@ -71,8 +71,10 @@ function csvImportHistoryRecord(array $args): void
             'dur' => isset($args['duration_ms']) ? (int) $args['duration_ms'] : null,
             'uid' => $_SESSION['user']['id'] ?? null,
         ]);
+        return (int) $pdo->lastInsertId() ?: null;
     } catch (\Throwable $e) {
         // Swallow — never break a working import for a missing audit row.
         error_log('csvImportHistoryRecord failed: ' . $e->getMessage());
+        return null;
     }
 }
