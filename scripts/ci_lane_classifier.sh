@@ -36,7 +36,7 @@ ci_classify_lane() {
             echo "harness"; return 0 ;;
 
         # ── ui (~45 tests) — dashboards, SPA pages, CSV, scenarios, digests ──
-        csv_*|cfo_dashboard*|error_boundary*|inbox_progress_badge*|kpi_notes*|\
+        csv_*|cfo_dashboard*|ci_status_*|error_boundary*|inbox_progress_badge*|kpi_notes*|\
         saved_scenarios*|scenario_compare*|scenario_presets*|scenario_share*|\
         magic_link_auth*|digest_*|export_templates*|admin_healthcheck*|\
         sprint1_login_*|sprint4_executive_*|sprint5_mobile_*|sprint5_saved_views*|\

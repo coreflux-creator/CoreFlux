@@ -727,6 +727,12 @@ a:hover {
     to { transform: rotate(360deg); }
 }
 
+/* Reusable spin utility for inline loaders (lucide icons etc.) */
+.cf-spin {
+    animation: spin 1s linear infinite;
+    transform-origin: center;
+}
+
 .loading-text {
     margin-top: var(--cf-space-4);
     color: var(--cf-text-secondary);

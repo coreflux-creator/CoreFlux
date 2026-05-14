@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../lib/api';
 import { fmtMoney } from '../lib/format';
 import Sparkline from '../components/Sparkline';
+import CIStatusBadge from '../components/CIStatusBadge';
 import {
   TrendingUp, TrendingDown, Calendar, Save, Send, Sparkles, StickyNote, X,
   Eye, EyeOff, ArrowUpDown, Plus, Trash2, Loader2, FileText,
@@ -143,7 +144,10 @@ export default function CFODashboard({ session }) {
     <div className="cfo-dashboard" data-testid="cfo-dashboard" style={{ padding:'var(--cf-space-4, 24px)' }}>
       <header style={{ display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:'var(--cf-space-3)' }}>
         <div>
-          <h1 style={{ margin:0, fontSize:'1.6rem' }}>CFO Dashboard</h1>
+          <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+            <h1 style={{ margin:0, fontSize:'1.6rem' }}>CFO Dashboard</h1>
+            <CIStatusBadge />
+          </div>
           <p style={{ margin:'4px 0 0', color:'var(--cf-text-secondary, #64748b)', fontSize:14 }}>
             Window: <strong>{data.range?.from} → {data.range?.to}</strong>
             {data.compare && <> &nbsp;·&nbsp; {COMPARE_LABELS[data.compare.mode]} ({data.compare.prev_from} → {data.compare.prev_to})</>}

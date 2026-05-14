@@ -9,6 +9,90 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Architecture:** Modular monolith; modules developed in-repo under `/modules/<name>/`, extracted to subtree repos later
 - **Hosting:** Cloudways
 
+
+## Recently completed (CI bundle-sync automation + CI status badge, 2026-02)
+**Killed an entire class of recurring "I forgot to update X" CI failures, and gave the CFO Dashboard a live deploy-gate health indicator.**
+
+### `scripts/sync_bundle.sh` — single source of truth for Vite hash propagation
+- After every `yarn --cwd dashboard build`, three files have to agree on the
+  new bundle hashes: `dashboard/dist/index.html` (Vite writes this),
+  `spa-assets/index-XXX.{js,css}` (must be copied from `dist/spa-assets`),
+  and `.deploy-version` `expected_bundle:` block (must be hand-patched).
+  Missing any one of these has been the recurring CI breaker every few
+  sessions.
+- New `scripts/sync_bundle.sh` (bash + awk, **no PHP dependency** so it
+  runs identically on CI hosts and local dev): reads the freshly-built
+  `dashboard/dist/index.html` to discover the new hashes, mirrors
+  `dist/spa-assets/*` → top-level `spa-assets/`, then rewrites only the
+  two lines under `expected_bundle:` in `.deploy-version`, leaving every
+  other line untouched. Idempotent — running it twice in a row is a no-op.
+- `dashboard/package.json` now has a `postbuild` npm hook that runs
+  `bash ../scripts/sync_bundle.sh` automatically. So `yarn build`
+  unconditionally produces a fully-synced state.
+
+### `api/ci_status.php` + `<CIStatusBadge />` — live CI deploy gate on CFO Dashboard
+- New `api/ci_status.php` — fetches the latest GitHub Actions workflow
+  run via `GET /repos/{owner}/{repo}/actions/runs?per_page=1`. **Cached
+  server-side for 5 minutes** under `sys_get_temp_dir()` so a CFO
+  dashboard full of operators doesn't hammer the GitHub API. Config via
+  `GITHUB_REPO=owner/repo` env var (required) and `GITHUB_TOKEN` env
+  var (optional, only needed for private repos). Public repos work
+  unauthenticated. Returns `{configured, conclusion, status, html_url,
+  branch, workflow_name, commit_sha, commit_msg, cached_at, ttl_seconds}`.
+  Graceful degradation: missing env returns `configured: false` with a
+  reason; HTTP 4xx returns `configured: true, error, hint` so the UI
+  can render a muted "CI unreachable" badge without crashing. Gated by
+  `api_require_auth()` (data is non-sensitive but no point exposing it
+  publicly).
+- New `dashboard/src/components/CIStatusBadge.jsx` — small pill-shaped
+  badge mounted in the CFO Dashboard header next to the H1. Four
+  states: **CI green** (success), **CI failing** (failure/cancelled/
+  timed_out), **CI running** (in_progress/queued, with spinning Loader2
+  icon), **CI not configured** (env var missing). Clicking opens the
+  GitHub Actions run in a new tab. Re-polls every 5 minutes to match
+  server cache TTL. Silent fail on error — never breaks the dashboard.
+  Includes branch chip showing the head branch.
+- `dashboard/src/styles.css` — added reusable `.cf-spin` animation
+  utility (the existing `@keyframes spin` was defined but had no
+  reusable class wrapper; CFODashboard.jsx line 438 had been
+  referencing `cf-spin` without a definition).
+
+### Validation
+- `tests/ci_status_badge_smoke.php` — **57 assertions ✓** covering:
+  endpoint contract (GET-only, auth, env-var fallback to constants,
+  5-min cache, 5s curl timeout, Bearer token wiring, all response
+  fields), JSX component contract (4 state branches, 5-min repoll,
+  interval cleanup, all data-testids, new-tab click-through, silent
+  fail), CFODashboard wiring, `.cf-spin` CSS utility,
+  `scripts/sync_bundle.sh` contract (executable, strict mode, hash
+  discovery, dist→top mirror, awk-based `.deploy-version` patch with
+  no PHP dependency, failure messages), `dashboard/package.json`
+  postbuild hook.
+- Added `ci_status_*` pattern to `scripts/ci_lane_classifier.sh` ui lane.
+- Vite rebuilt via the new automated hook → `index-D92kcI6h.js` /
+  `index-BC5g6YJu.css`. All three sync points (dist/index.html,
+  spa-assets/, .deploy-version) consistent. Updated
+  `tests/sprint6b_dashboard_uis_smoke.php` expected hash.
+
+### CI portability fix (same release)
+- Removed all hardcoded `/app/...` paths from 6 smoke tests
+  (`billing_spec_smoke.php`, `people_spec_smoke.php`,
+  `placements_spec_smoke.php`, `time_spec_smoke.php`,
+  `time_approval_tokens_smoke.php`, `invoice_pdf_smoke.php`). Replaced
+  with `__DIR__ . '/../...'` so tests work on GitHub Actions runners
+  (where the repo lives at `/home/runner/work/...`, not `/app/`).
+- `invoice_pdf_smoke.php` live-render block now skips on CI
+  (`CI=true` / `GITHUB_ACTIONS=true`) and degrades chromium failures
+  to a skip rather than a fail — host-environment quirks no longer
+  block deploy gate.
+
+### Deploy notes
+- Set `GITHUB_REPO=youruser/coreflux` (and optionally `GITHUB_TOKEN`
+  for private repos) on the Cloudways host to activate the badge.
+  Without these env vars the badge renders muted as "CI not
+  configured" and never errors.
+
+
 ## Core Platform — Completed
 - [x] Multi-tenant dashboard with dynamic tenant/module loading
 - [x] MySQL on Cloudways wired through `core/db.php`
