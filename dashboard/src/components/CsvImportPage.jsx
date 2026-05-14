@@ -40,6 +40,19 @@ export default function CsvImportPage({
    * When set, the UI exposes "Apply preset" + "Save mapping" controls.
    */
   presetEntity = null,
+
+  /**
+   * extraToggles: per-entity boolean toggles that get rendered alongside
+   * skip_invalid / update_existing and appended to the commit URL. Used
+   * for module-specific options (e.g. Time's "already_approved"). Shape:
+   *   [{ key: 'already_approved',
+   *      label: 'Pre-approved (skip review queue)',
+   *      commitParam: 'already_approved=1',
+   *      default: false }, ...]
+   * The toggle's current value is also forwarded to the history log
+   * under `extra_flags` so audits show which options were checked.
+   */
+  extraToggles = [],
 }) {
   const fileRef = useRef(null);
   const [csvText, setCsvText]         = useState('');
@@ -55,6 +68,13 @@ export default function CsvImportPage({
   const [committed, setCommitted]     = useState(null);
   const [skipInvalid, setSkipInvalid] = useState(false);
   const [updateExisting, setUpdateExisting] = useState(false);
+  // Per-entity extra toggles (e.g. Time's "already_approved"). Stored as
+  // a single object keyed by toggle.key so adding a new toggle is just
+  // a prop change, no React state surgery.
+  const [extraToggleValues, setExtraToggleValues] = useState(
+    () => Object.fromEntries((extraToggles || []).map(t => [t.key, !!t.default]))
+  );
+  const setExtraToggle = (key, val) => setExtraToggleValues(prev => ({ ...prev, [key]: !!val }));
 
   const onFile = async (e) => {
     const f = e.target.files?.[0];
@@ -191,6 +211,10 @@ export default function CsvImportPage({
       const params = [];
       if (skipInvalid)    params.push('skip_invalid=1');
       if (updateExisting) params.push('update_existing=1');
+      // Per-entity extras (e.g. ?already_approved=1 for Time).
+      (extraToggles || []).forEach(t => {
+        if (extraToggleValues[t.key] && t.commitParam) params.push(t.commitParam);
+      });
       const path = `${endpoint}?action=commit${params.length ? '&' + params.join('&') : ''}`;
       const body = { csv: csvText };
       if (columnMap) body.column_map = columnMap;
@@ -215,6 +239,12 @@ export default function CsvImportPage({
             preset_id:       presetMatch?.id || null,
             column_map:      columnMap || null,
             duration_ms:     Date.now() - startedAt,
+            // Per-entity extras (e.g. {already_approved: true}) — purely
+            // for audit visibility; the engine already received them via
+            // the URL.
+            ...(Object.keys(extraToggleValues).length
+                ? { extra_flags: extraToggleValues }
+                : {}),
           });
         } catch { /* non-fatal */ }
       }
@@ -456,6 +486,17 @@ export default function CsvImportPage({
                 />
                 Update existing rows on match (else: skip duplicates)
               </label>
+              {(extraToggles || []).map(t => (
+                <label key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 'var(--cf-space-2)' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!extraToggleValues[t.key]}
+                    onChange={e => setExtraToggle(t.key, e.target.checked)}
+                    data-testid={`${testidPrefix}-toggle-${t.key}`}
+                  />
+                  {t.label}
+                </label>
+              ))}
               <button
                 className="btn btn--primary"
                 onClick={commit}

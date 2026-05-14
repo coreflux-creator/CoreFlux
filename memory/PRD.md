@@ -4714,3 +4714,54 @@ revealed:
 ### New Vite bundle: `index-BKzlxs3M.js` / `index-Cwhpy62y.css`
 
 
+## CSV Time Importer — folded onto the shared component (2026-02-XX) ✅
+
+The Time module's CSV importer had been a 100-line one-off that
+predated the shared `CsvImportPage`. As of today's audit, the Time
+importer now uses the shared component, picking up all the enhanced
+import features for free.
+
+### Shared `CsvImportPage` — new `extraToggles` prop
+Per-entity boolean toggles render alongside the existing
+`skip_invalid` / `update_existing` checkboxes. Shape:
+
+```js
+extraToggles={[
+  { key:         'already_approved',
+    label:       'Mark as pre-approved (skip review queue)',
+    commitParam: 'already_approved=1',
+    default:     false },
+]}
+```
+
+When checked, `commitParam` is appended to the `?action=commit` URL
+(same wire format the entity's existing csv_import.php already
+expects). The toggle's value is also forwarded to the history log
+under `extra_flags` so audits show which options were checked.
+
+### Time module refactor
+`/app/modules/time/ui/CsvImport.jsx` is now 47 lines (was 135), a thin
+wrapper around `CsvImportPage` that passes:
+- `endpoint: '/modules/time/api/csv_import.php'`
+- `presetEntity: 'time'` (enables saved mapping presets + history POST)
+- `extraToggles` for the existing `already_approved` flag
+
+The Time `csv_import.php` API already supported all 6 standard actions
+(`template`, `sample`, `inspect`, `ai_suggest_map`, `dry_run`, `commit`),
+so the refactor unlocked these features without any backend changes:
+- ✅ Interactive column mapping (auto-detect + manual overrides)
+- ✅ AI-assisted column mapping suggestions
+- ✅ Saved mapping presets (header signature → one-click re-import)
+- ✅ Audit-trail recording into `csv_import_history`
+- ✅ Header cross-links to Bulk Import + Import History
+- ✅ Post-commit success state with "View Import History" CTA
+
+### Tests
+- `tests/csv_import_history_smoke.php`: **80/80 ✅** (was 77 — 8 new
+  shared-component assertions added; 5 old Time-one-off assertions
+  retired as the implementation no longer exists).
+- Full PHP suite: **184/184 ✅**.
+
+### New Vite bundle: `index-nhrxDOrA.js` / `index-Cwhpy62y.css`
+
+

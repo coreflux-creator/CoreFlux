@@ -95,13 +95,23 @@ $a('Bulk wizard summary has View History CTA',
     str_contains($bulk, 'data-testid="csv-bulk-summary-view-history"')
     && str_contains($bulk, 'audit trail (who, when, file, rows, errors)'));
 
-echo "\nLegacy Time CSV (one-off, not on shared component) also wired\n";
+echo "\nTime CSV now uses the shared component (refactored)\n";
 $time = $read(__DIR__ . '/../modules/time/ui/CsvImport.jsx');
-$a('Time CSV header has Bulk Import link',  str_contains($time, 'data-testid="time-csv-bulk-link"') && str_contains($time, 'to="/data/bulk-import"'));
-$a('Time CSV header has Import History link', str_contains($time, 'data-testid="time-csv-history-link"') && str_contains($time, 'to="/data/import-history"'));
-$a('Time CSV records to history on commit', str_contains($time, "api.post('/api/admin/csv_import_history.php'") && str_contains($time, "entity:          'time'"));
-$a('Time CSV history POST non-fatal',       str_contains($time, '/* non-fatal */'));
-$a('Time CSV success has View History CTA', str_contains($time, 'data-testid="time-csv-view-history"'));
+$a('Time CSV imports shared CsvImportPage', str_contains($time, "import CsvImportPage from '../../../dashboard/src/components/CsvImportPage'"));
+$a('Time CSV passes presetEntity="time"',   str_contains($time, "presetEntity=\"time\""));
+$a('Time CSV passes already_approved extra toggle',
+    str_contains($time, "key:         'already_approved'")
+    && str_contains($time, "commitParam: 'already_approved=1'"));
+$a('Time CSV testidPrefix preserved',       str_contains($time, "testidPrefix=\"time-csv-import\""));
+
+$shared = $read(__DIR__ . '/../dashboard/src/components/CsvImportPage.jsx');
+$a('shared component declares extraToggles prop', str_contains($shared, 'extraToggles = [],'));
+$a('shared component appends extra commitParams',
+    preg_match('/\(extraToggles \|\| \[\]\)\.forEach.*?commitParam.*?params\.push/s', $shared) === 1);
+$a('shared component forwards extra_flags to history',
+    str_contains($shared, "extra_flags: extraToggleValues"));
+$a('shared component renders extra toggles in commit panel',
+    str_contains($shared, '`${testidPrefix}-toggle-${t.key}`'));
 
 echo "\nNew CsvImportHistory page + routing\n";
 $hp = $read(__DIR__ . '/../dashboard/src/pages/CsvImportHistory.jsx');

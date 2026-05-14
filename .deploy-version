@@ -283,7 +283,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-BKzlxs3M.js
+- spa-assets/index-nhrxDOrA.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -809,6 +809,9 @@ last_known_features:
 - csv.history.bulk_wizard_summary_view_history_cta
 - csv.history.time_module_legacy_csv_page_wired
 - csv.history.time_my_time_import_csv_button
+- csv.shared_component.extra_toggles_prop
+- csv.shared_component.time_module_refactored_onto_shared
+- csv.shared_component.time_module_gets_ai_mapping_presets_inspect
 - modules/staffing/manifest.php
 - modules/staffing/migrations/001_timesheets.sql
 - modules/staffing/migrations/002_timesheet_id_on_entries.sql
