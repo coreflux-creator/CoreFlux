@@ -28,6 +28,7 @@ import WorkflowInbox from './pages/WorkflowInbox';
 import AIAgents from './pages/AIAgents';
 import CsvBulkImport from './pages/CsvBulkImport';
 import CsvImportHistory from './pages/CsvImportHistory';
+import SimulationDashboard from './pages/SimulationDashboard';
 import Login from './pages/Login';
 import MagicLinkConsume from './pages/MagicLinkConsume';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -398,6 +399,11 @@ const AppContent = ({ session, usingDemo }) => {
           <Route path="/data/bulk-import" element={<CsvBulkImport />} />
           {/* Auditor + CFO view of every CSV import committed. */}
           <Route path="/data/import-history" element={<CsvImportHistory />} />
+
+          {/* Simulation Harness — deterministic financial wind tunnel.
+              Runs are CLI-driven; this page is the read-only auditor
+              view (runs, scenarios, discipline log, replay drill-in). */}
+          <Route path="/sim" element={<SimulationDashboard />} />
           
           {/* Admin Module */}
           <Route path="/admin/*" element={<AdminModule session={session} />} />

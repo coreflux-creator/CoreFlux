@@ -1,0 +1,53 @@
+{
+  "name": "ap_payment_lifecycle",
+  "description": "Full AP lifecycle: bill approved → payment cleared. Verifies AP ↔ GL parity drops to zero after payment clears (DR AP / CR Bank). Validates harness spec §16 (balance engine).",
+  "default_seed": 202,
+  "expected": { "events_emitted": 2, "je_posted": 2, "assertions_failed": 0 },
+  "invariants": [
+    "debits_equal_credits",
+    "no_orphan_events",
+    "no_direct_gl",
+    "ap_module_matches_gl"
+  ],
+  "steps": [
+    {
+      "action": "emit_event",
+      "event_type": "ap.bill.approved",
+      "source_module": "ap",
+      "source_record_id": "sim:lifecycle:bill:0001",
+      "entity_id": 1,
+      "payload": {
+        "bill_id": 9101,
+        "internal_ref": "SIM-LC-BILL-0001",
+        "vendor_name": "Initech Logistics",
+        "amount": 2400.00,
+        "currency": "USD",
+        "lines": [
+          { "account_code": "6500", "debit": 2400.00, "credit": 0,       "description": "Logistics services" },
+          { "account_code": "2010", "debit": 0,       "credit": 2400.00, "description": "AP payable" }
+        ]
+      }
+    },
+    {
+      "action": "advance_clock",
+      "by": "+15 days"
+    },
+    {
+      "action": "emit_event",
+      "event_type": "ap.payment.cleared",
+      "source_module": "ap",
+      "source_record_id": "sim:lifecycle:pay:0001",
+      "entity_id": 1,
+      "payload": {
+        "payment_id": 7001,
+        "payment_number": "SIM-LC-PAY-0001",
+        "vendor_name": "Initech Logistics",
+        "amount": 2400.00,
+        "currency": "USD",
+        "bank_gl_account_id": 1010,
+        "bank_gl_account_code": "1010",
+        "bill_id": 9101
+      }
+    }
+  ]
+}

@@ -4450,3 +4450,72 @@ diagnostic. Both ship together because Phase 2a is the first real
   and remove `legacy_direct_fallback` flags.
 - Then Phase 2 (Unified Financial State Cache) builds on a clean log.
 
+## Simulation Harness — Phase H2 (2026-02-XX) ✅
+
+H2 builds on the H1 foundation with deterministic external-integration
+mocks, an SPA dashboard for auditors, and 2 more scenarios that
+exercise replay + idempotency.
+
+### Mock layer (`/app/sim/mocks/`)
+- **manager.php**: `simShouldMock()`, `simMockEnable()`,
+  `simMockSetFault()`, `simMockCalls()`. Activation: explicit enable
+  OR env `SIM_MODE=1`. Faults are one-shot (rate_limit, timeout,
+  server_error, malformed, partial) so scenarios can assert resilience.
+- **plaid.php**: deterministic `simMockPlaidGetAccounts`,
+  `simMockPlaidSyncTransactions`, `simMockPlaidGetItem`,
+  `simMockPlaidExchange`, `simMockPlaidWebhook`. 4 synthetic accounts;
+  txns seeded by `simRandPick` over a merchant + category library.
+- **openai.php**: `simMockAiAsk` returns canned narratives keyed by
+  feature_class; `simMockAiExtract` returns structured bill/receipt
+  payloads. Both flag `meta.sim = true` and carry an advisory disclaimer.
+- **email.php**: `simMockSendEmail` captures-not-sends; assertions can
+  inspect subject/body hashes via `simMockEmailsBySubject`.
+- All mocks record into a process-global call log (`simMockCalls`)
+  so scenarios can assert "exactly N calls to service X".
+
+### Activation (intentionally non-invasive)
+- Production service files (`core/plaid_service.php`, `ai_service.php`,
+  `mailer.php`) are NOT modified in H2. The mocks are standalone
+  testable units; H2.5 will route production callers through them via
+  an opt-in check (`if (simShouldMock('plaid')) return simMockPlaid…`).
+  This keeps H2 verifiable without risking production posting paths.
+
+### New scenarios
+- **duplicate_webhook_idempotent**: emits the same `ap.bill.approved`
+  event twice with identical `source_record_id`. Asserts the posting
+  engine dedupes (1 JE, not 2). Validates harness spec §14 (exactly-once
+  consumers).
+- **ap_payment_lifecycle**: full AP bill → 15-day clock advance →
+  payment cleared. Asserts AP↔GL parity drops to zero after payment.
+  Validates harness spec §16 (balance engine).
+
+### SPA dashboard (`/sim`)
+- 3 tabs: **Runs** (filterable by scenario/status, with KPI strip),
+  **Scenarios** (what's available from `/app/sim/scenarios`), **Discipline log**
+  (every Phase-2a fallback fire).
+- Drill-in panel per run: assertions table, failure list, replay log
+  (event_index, payload_hash, je_hash truncated).
+- **"Replay" button** copies the exact `php /app/sim/runner.php …`
+  command to clipboard — runs stay CLI-driven per harness spec §10.
+- Reads from new `/api/admin/simulation_runs.php` (GET-only):
+  list, detail, scenarios, discipline.
+
+### Tests
+- `tests/sim_harness_h2_smoke.php`: **53/53 ✅**
+- Full suite: **182/182 ✅** (regression-clean).
+
+### Next up
+- **H2.5 — Production wiring of mocks**: route Plaid/OpenAI/Email
+  production callers through `simShouldMock()` so sim-flagged tenants
+  never hit real APIs.
+- **H3 — CI hook**: lightweight on commit (`smoke + dry-run scenarios`),
+  full suite nightly (full execution against a sim tenant), failing
+  invariants block deploy.
+- **Phase 2a step 5** (kill-switch): 1 week of zero discipline-log
+  fires → fallback paths hard-error → remove `legacy_direct_fallback`
+  flags.
+- **Phase 2 (Unified Financial State Cache)**: builds on clean event log.
+
+### New Vite bundle: `index-DFh-lnvh.js` / `index-Cwhpy62y.css`
+
+

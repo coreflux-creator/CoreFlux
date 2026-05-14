@@ -1,0 +1,50 @@
+{
+  "name": "duplicate_webhook_idempotent",
+  "description": "Same ap.bill.approved event emitted twice with identical source_record_id — engine must dedupe (1 JE, not 2). Validates exactly-once consumer semantics per harness spec §14.",
+  "default_seed": 101,
+  "expected": { "events_emitted": 2, "je_posted": 1, "assertions_failed": 0 },
+  "invariants": [
+    "debits_equal_credits",
+    "no_orphan_events",
+    "no_direct_gl",
+    "replay_reproducible"
+  ],
+  "steps": [
+    {
+      "action": "emit_event",
+      "event_type": "ap.bill.approved",
+      "source_module": "ap",
+      "source_record_id": "sim:dup_test:0001",
+      "entity_id": 1,
+      "payload": {
+        "bill_id": 9001,
+        "internal_ref": "SIM-DUP-0001",
+        "vendor_name": "Globex LLC",
+        "amount": 750.00,
+        "currency": "USD",
+        "lines": [
+          { "account_code": "6000", "debit": 750.00, "credit": 0,      "description": "Office supplies" },
+          { "account_code": "2010", "debit": 0,      "credit": 750.00, "description": "AP payable" }
+        ]
+      }
+    },
+    {
+      "action": "emit_event",
+      "event_type": "ap.bill.approved",
+      "source_module": "ap",
+      "source_record_id": "sim:dup_test:0001",
+      "entity_id": 1,
+      "payload": {
+        "bill_id": 9001,
+        "internal_ref": "SIM-DUP-0001",
+        "vendor_name": "Globex LLC",
+        "amount": 750.00,
+        "currency": "USD",
+        "lines": [
+          { "account_code": "6000", "debit": 750.00, "credit": 0,      "description": "Office supplies (replay)" },
+          { "account_code": "2010", "debit": 0,      "credit": 750.00, "description": "AP payable (replay)" }
+        ]
+      }
+    }
+  ]
+}

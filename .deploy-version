@@ -283,7 +283,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-0xj-_mZ6.js
+- spa-assets/index-DFh-lnvh.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -776,6 +776,16 @@ last_known_features:
 - phase2a.treasury.feed_split_through_event_engine
 - phase2a.ap.bill_fallback_logged
 - phase2a.billing.invoice_fallback_logged
+- harness.h2.mock_manager_enable_disable_faults
+- harness.h2.mock_plaid_deterministic
+- harness.h2.mock_openai_deterministic
+- harness.h2.mock_email_captures
+- harness.h2.scenario_duplicate_webhook_idempotent
+- harness.h2.scenario_ap_payment_lifecycle
+- harness.h2.admin_api_runs_scenarios_discipline
+- ui.sim.dashboard_runs_scenarios_discipline_tabs
+- ui.sim.dashboard_replay_copy_command
+- ui.dashboard.simulation_harness_quick_action
 - modules/staffing/manifest.php
 - modules/staffing/migrations/001_timesheets.sql
 - modules/staffing/migrations/002_timesheet_id_on_entries.sql

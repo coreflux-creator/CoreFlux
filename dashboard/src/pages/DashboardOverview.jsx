@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ModuleCards, Section, ActionCardsGrid, ActionCard, HelpSection } from '../components/UIComponents';
-import { Building2, Users, DollarSign, Layers, BarChart3, ArrowRight, Upload, History } from 'lucide-react';
+import { Building2, Users, DollarSign, Layers, BarChart3, ArrowRight, Upload, History, FlaskConical } from 'lucide-react';
 import SubTenantSummaryCard from './SubTenantSummaryCard';
 import SetupChecklistWidget from './SetupChecklistWidget';
 import CashCycleHealthTile from './CashCycleHealthTile';
@@ -59,6 +59,7 @@ const DashboardOverview = ({ session, onModuleChange }) => {
             <ActionCard icon={Layers}    title="Sub-Tenants"     description="Provision sub-tenants & module scope" href="/admin/sub-tenants" />
             <ActionCard icon={Upload}    title="Bulk CSV Import" description="Drop multiple CSVs at once — people, vendors, clients, placements, time, bills, invoices" href="/data/bulk-import" data-testid="dashboard-bulk-csv-import" />
             <ActionCard icon={History}   title="CSV Import History" description="Audit trail of every bulk import — who, when, rows imported/skipped, errors" href="/data/import-history" data-testid="dashboard-csv-import-history" />
+            <ActionCard icon={FlaskConical} title="Simulation Harness" description="Deterministic financial wind tunnel — replay scenarios, ledger invariants, discipline telemetry" href="/sim" data-testid="dashboard-sim-harness" />
           </ActionCardsGrid>
         </Section>
       )}
