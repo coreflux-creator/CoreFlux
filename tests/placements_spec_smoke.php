@@ -111,7 +111,7 @@ $assert('adjusted = 100 * 0.94 = 94.00',                       abs($m2['adjusted
 $assert('net = 94 - 50 = 44.00',                               abs($m2['net_to_vendor']        - 44.00) < 1e-4);
 
 echo "\nLegacy preserved\n";
-$leg = glob('/app/legacy/placements_pre_spec_*');
+$leg = glob(__DIR__ . '/../legacy/placements_pre_spec_*');
 $assert('legacy copy exists',                                  is_array($leg) && count($leg) >= 1);
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";

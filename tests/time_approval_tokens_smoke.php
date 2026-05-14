@@ -99,7 +99,7 @@ foreach (['approval_tokens.php'] as $f) {
     $o = []; $rc = 0; @exec('php -l ' . escapeshellarg($p) . ' 2>&1', $o, $rc);
     $assert("api/{$f} parses", $rc === 0);
 }
-$pub = '/app/time_approve.php';
+$pub = __DIR__ . '/../time_approve.php';
 $assert('time_approve.php exists',              is_file($pub));
 $o = []; $rc = 0; @exec('php -l ' . escapeshellarg($pub) . ' 2>&1', $o, $rc);
 $assert('time_approve.php parses',              $rc === 0);
@@ -109,20 +109,20 @@ $assert('public page posts JSON to respond',    strpos($pubSrc, 'action=respond'
 $assert('public page has noindex',              strpos($pubSrc, 'noindex') !== false);
 
 echo "\nUI components wired\n";
-$rq = (string) file_get_contents('/app/modules/time/ui/ReviewQueue.jsx');
+$rq = (string) file_get_contents(__DIR__ . '/../modules/time/ui/ReviewQueue.jsx');
 $assert('ReviewQueue imports TokenIssueModal',  strpos($rq, "import TokenIssueModal from './TokenIssueModal'") !== false);
 $assert('ReviewQueue has selection UI',         strpos($rq, 'time-review-request-client-approval') !== false);
-$tim = (string) file_get_contents('/app/modules/time/ui/TokenIssueModal.jsx');
+$tim = (string) file_get_contents(__DIR__ . '/../modules/time/ui/TokenIssueModal.jsx');
 $assert('Modal posts to issue endpoint',        strpos($tim, 'approval_tokens.php?action=issue') !== false);
 $assert('Modal collects ttl_days',              strpos($tim, 'ttl_days') !== false);
 
 echo "\nMail bootstrap\n";
-$boot = (string) file_get_contents('/app/core/mail_bootstrap.php');
+$boot = (string) file_get_contents(__DIR__ . '/../core/mail_bootstrap.php');
 $assert('bootstrap registers Resend when key set', strpos($boot, 'RESEND_API_KEY') !== false);
 $assert('bootstrap installs outbox writer',     strpos($boot, 'mail_outbox') !== false);
 
 echo "\nManifest references tokenized perms\n";
-$manifest = (string) file_get_contents('/app/modules/time/manifest.php');
+$manifest = (string) file_get_contents(__DIR__ . '/../modules/time/manifest.php');
 $assert('perm time.tokenized_email.issue',      strpos($manifest, 'time.tokenized_email.issue') !== false);
 $assert('perm time.tokenized_email.revoke',     strpos($manifest, 'time.tokenized_email.revoke') !== false);
 

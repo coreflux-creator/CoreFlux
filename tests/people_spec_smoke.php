@@ -130,7 +130,7 @@ $assert("PII fields include home_address_line1",  strpos($pii, 'home_address_lin
 
 // ─── Legacy preservation (HARD_RULES R1) ───
 echo "\nLegacy preserved (R1)\n";
-$legacy = glob('/app/legacy/people_pre_spec_*');
+$legacy = glob(__DIR__ . '/../legacy/people_pre_spec_*');
 $assert("legacy copy exists",  is_array($legacy) && count($legacy) >= 1);
 if ($legacy) {
     $assert("legacy api/employees.php preserved",

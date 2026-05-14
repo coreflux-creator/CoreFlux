@@ -69,7 +69,7 @@ foreach (['invoices.php','payments.php','aging.php'] as $f) {
     $o = []; $rc = 0; @exec('php -l ' . escapeshellarg($p) . ' 2>&1', $o, $rc);
     $assert("api/{$f} parses",                  $rc === 0);
 }
-$pub = '/app/billing/invoice.php';
+$pub = __DIR__ . '/../billing/invoice.php';
 $assert('public view page exists',             is_file($pub));
 $o = []; $rc = 0; @exec('php -l ' . escapeshellarg($pub) . ' 2>&1', $o, $rc);
 $assert('public view page parses',             $rc === 0);

@@ -97,7 +97,7 @@ echo "\nStandard categories count = 9 (+ custom)\n";
 $assert('TIME_CATEGORIES has exactly 10 entries', count(TIME_CATEGORIES) === 10);
 
 echo "\nLegacy preserved\n";
-$leg = glob('/app/legacy/time_pre_spec_*');
+$leg = glob(__DIR__ . '/../legacy/time_pre_spec_*');
 $assert('legacy copy exists', is_array($leg) && count($leg) >= 1);
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";
