@@ -123,11 +123,3 @@ $a('Dashboard imports History icon',        str_contains($dash, 'History }') || 
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);
-outes /data/import-history',       str_contains($app, 'path="/data/import-history"') && str_contains($app, '<CsvImportHistory />'));
-
-$dash = $read(__DIR__ . '/../dashboard/src/pages/DashboardOverview.jsx');
-$a('Dashboard surfaces CSV history card',   str_contains($dash, 'data-testid="dashboard-csv-import-history"') && str_contains($dash, '/data/import-history'));
-$a('Dashboard imports History icon',        str_contains($dash, 'History }') || str_contains($dash, ', History,') || str_contains($dash, 'History,'));
-
-echo "\n--- {$pass} passed, {$fail} failed ---\n";
-exit($fail === 0 ? 0 : 1);

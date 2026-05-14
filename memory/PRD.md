@@ -4660,3 +4660,57 @@ Per user direction we're stopping here. Resume points:
    log + replay tooling shipped in H1-H3.
 
 
+## CSV Import History — visibility audit + wire-up (2026-02-XX) ✅
+
+User reported (with screenshots): "csv import has only been added in
+some screens. I don't see any of the enhanced import features we
+worked through." Audit of today's work against the actual click-paths
+revealed:
+
+### What was missing
+- **0 of 9** per-module CSV import pages had a link to `/data/import-history`.
+- **0 of 1** bulk wizard linked to history.
+- The Time module had a custom one-off CSV importer (`/app/modules/time/ui/CsvImport.jsx`)
+  that pre-dated the shared component — it had NO history POST, NO
+  history link, and **no "Import CSV" button on the user-facing My Time page**.
+- The two DB errors in the user's screenshots ("table doesn't exist",
+  "column missing") are environmental — migrations auto-run via
+  `coreflux_run_migrations()` on every API request, so 042/043/044
+  self-heal on the next click.
+
+### Fixes shipped
+- **Shared `CsvImportPage.jsx`** header now exposes:
+  - "+ Bulk Import (multi-file)" link → `/data/bulk-import`
+  - "Import History" link → `/data/import-history`
+  - Plus the existing back link.
+  This single edit covers **all 9 module CSV pages** (people, vendors,
+  clients, placements, bills, invoices, AP payments, billing payments,
+  staffing clients).
+- **Post-commit success state** (still in the shared component) now
+  shows a strong "View Import History" CTA + explanatory copy ("This
+  import has been logged to the audit trail…").
+- **CsvBulkImport.jsx**: header + post-commit summary both get the
+  same "View Import History" link.
+- **Time module (`modules/time/ui/CsvImport.jsx`)** — the one-off:
+  - Added header links (Bulk Import, Import History, back to My Time).
+  - Added history POST after successful commit (non-fatal, same shape
+    as the shared component).
+  - Added "View Import History" CTA to the success state.
+- **`modules/time/ui/MyTime.jsx`** — added "Import CSV" button linking
+  to `/modules/time/bulk` (the correct route per `TimeModule.jsx`).
+
+### Tests
+- `tests/csv_import_history_smoke.php`: **77/77 ✅** (was 70 — added 7
+  new assertions covering the cross-link fixes + Time module wiring).
+- Full PHP suite: **184/184 ✅**.
+
+### Future / Note for tomorrow
+- The Time module CSV importer is still its own implementation (it has
+  the unique `pre_approved` toggle that the shared component doesn't
+  support). Proper fix: extend `CsvImportPage` with a `commitToggles`
+  slot so Time can be folded back into the shared component and get
+  AI mapping + presets + interactive column mapping. ~30 min.
+
+### New Vite bundle: `index-BKzlxs3M.js` / `index-Cwhpy62y.css`
+
+

@@ -74,8 +74,9 @@ export default function MyTime() {
             Week of {from} → {to}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 'var(--cf-space-2)' }}>
-          <Link to="/modules/time/upload" className="btn" data-testid="time-my-time-upload-link">↑ Upload timesheet</Link>
+        <div style={{ display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
+          <Link to="/modules/time/upload"     className="btn" data-testid="time-my-time-upload-link">↑ Upload timesheet</Link>
+          <Link to="/modules/time/bulk"       className="btn" data-testid="time-my-time-csv-import-link">Import CSV</Link>
           <button className="btn" onClick={() => setMonday(addDays(monday, -7))} data-testid="time-week-prev">← Prev</button>
           <button className="btn" onClick={() => setMonday(startOfWeek(new Date()))} data-testid="time-week-this">This week</button>
           <button className="btn" onClick={() => setMonday(addDays(monday,  7))} data-testid="time-week-next">Next →</button>
