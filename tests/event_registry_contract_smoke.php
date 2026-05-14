@@ -4,7 +4,7 @@
  *
  * Pins:
  *   • Migration 036_event_registry.sql creates the right shape.
- *   • Seed defines 51 canonical events + 3 deprecated aliases.
+ *   • Seed defines 52 canonical events + 3 deprecated aliases.
  *   • Helper library exposes the public surface we depend on.
  *   • posting_engine/process.php validates every emit against the registry.
  *   • Every event_type referenced by an existing emit site in the codebase
@@ -32,7 +32,7 @@ echo "\nSeed file\n";
 require_once __DIR__ . '/../core/seeds/event_registry_seed.php';
 $rows    = eventRegistrySeedRows();
 $aliases = eventRegistryAliasRows();
-$a('seed defines exactly 51 canonical events', count($rows) === 51);
+$a('seed defines exactly 52 canonical events', count($rows) === 52);
 $a('seed defines exactly 3 deprecated aliases', count($aliases) === 3);
 $a('every seed row is a 9-tuple', (function () use ($rows) {
     foreach ($rows as $r) if (count($r) !== 9) return false; return true;

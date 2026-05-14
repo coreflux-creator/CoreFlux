@@ -3,7 +3,7 @@
  * Sprint 7c.1 smoke — Default posting-rule + journal-template seed pack.
  *
  * Verifies:
- *   - core/posting_engine/seed_defaults.php exposes 6 entries covering
+ *   - core/posting_engine/seed_defaults.php exposes 7 entries covering
  *     the spec's most common Treasury events
  *   - api/posting_rules_seed.php is admin-gated and calls both seeds
  *   - Treasury Payments / Transfers hydrate bank GL info into payload
@@ -43,7 +43,7 @@ $expected = [
 foreach ($expected as $et) {
     $assert("event_type covered: {$et}",   strpos($seed, "'event_type'  => '{$et}'") !== false);
 }
-$assert('exactly 6 entries',                substr_count($seed, "'event_type'  => 'treasury.") === 6);
+$assert('exactly 7 entries',                substr_count($seed, "'event_type'  => 'treasury.") === 7);
 
 echo "\nDefault pack — uses system accounts + payload refs\n";
 $assert('Bank Fees Expense referenced',    strpos($seed, "'system:Bank Fees Expense'") !== false);

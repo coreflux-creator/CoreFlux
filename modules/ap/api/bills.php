@@ -666,6 +666,12 @@ if ($method === 'POST' && $action === 'post') {
     // for this tenant — they haven't seeded yet), or (b) it threw before
     // resolving a rule.  Either way, we still post the JE and mark the
     // event row so the audit trail isn't lost.
+    require_once __DIR__ . '/../../../core/module_emission_discipline.php';
+    moduleEmissionDisciplineLog('ap', 'ap.bill.approved', [
+        'bill_id'      => (int) $id,
+        'event_error'  => $eventError,
+        'event_status' => $eventResult['status'] ?? null,
+    ]);
     try {
         $res = accountingPostJe($tid, [
             'posting_date'    => $row['bill_date'],

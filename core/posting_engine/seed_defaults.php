@@ -122,6 +122,21 @@ const POSTING_RULES_DEFAULT_PACK = [
             ],
         ],
     ],
+    // ── Phase 2a — Treasury feed categorize/split passthrough ──
+    // Emitted by /modules/treasury/api/account_transactions.php whenever a
+    // user explicitly categorizes (single account) or splits (multi-account)
+    // a bank statement line. The payload carries the fully rendered, balanced
+    // JE lines so the engine just persists them — same pattern as
+    // ap.bill.approved + billing.invoice.sent.
+    [
+        'event_type'  => 'treasury.bank_transaction.categorized',
+        'rule_name'   => 'Bank tx categorized — passthrough',
+        'template'    => [
+            'name'           => 'Bank tx categorized — passthrough',
+            'memo_template'  => '{payload.memo}',
+            'line_source'    => 'payload',
+        ],
+    ],
     // ── Sprint 7e — AP / Billing module event-layer migration ──
     [
         'event_type'  => 'ap.bill.approved',

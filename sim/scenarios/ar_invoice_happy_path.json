@@ -1,0 +1,31 @@
+{
+  "name": "ar_invoice_happy_path",
+  "description": "Billing invoice sent via event engine — verifies posting rule for billing.invoice.sent + AR side balance.",
+  "default_seed": 7,
+  "expected": { "events_emitted": 1, "je_posted": 1, "assertions_failed": 0 },
+  "invariants": [
+    "debits_equal_credits",
+    "no_orphan_events",
+    "no_direct_gl"
+  ],
+  "steps": [
+    {
+      "action": "emit_event",
+      "event_type": "billing.invoice.sent",
+      "source_module": "billing",
+      "source_record_id": "sim:invoice:0001",
+      "entity_id": 1,
+      "payload": {
+        "invoice_id": 1,
+        "invoice_number": "SIM-INV-0001",
+        "client_name": "Globex LLC",
+        "amount": 2500.00,
+        "currency": "USD",
+        "lines": [
+          { "account_code": "1200", "debit": 2500.00, "credit": 0,       "description": "AR — Globex" },
+          { "account_code": "4000", "debit": 0,       "credit": 2500.00, "description": "Service revenue" }
+        ]
+      }
+    }
+  ]
+}

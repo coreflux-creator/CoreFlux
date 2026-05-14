@@ -1,0 +1,37 @@
+{
+  "name": "ap_bill_happy_path",
+  "description": "AP bill emitted via the event engine — verifies posting rules, debits=credits, no direct-GL bypass.",
+  "default_seed": 42,
+  "expected": { "events_emitted": 1, "je_posted": 1, "assertions_failed": 0 },
+  "invariants": [
+    "debits_equal_credits",
+    "no_orphan_events",
+    "no_direct_gl",
+    "ap_module_matches_gl",
+    "replay_reproducible"
+  ],
+  "steps": [
+    {
+      "action": "advance_clock",
+      "by": "+1 day"
+    },
+    {
+      "action": "emit_event",
+      "event_type": "ap.bill.approved",
+      "source_module": "ap",
+      "source_record_id": "sim:ap_bill:0001",
+      "entity_id": 1,
+      "payload": {
+        "bill_id": 1,
+        "internal_ref": "SIM-BILL-0001",
+        "vendor_name": "Acme Industrial",
+        "amount": 1500.00,
+        "currency": "USD",
+        "lines": [
+          { "account_code": "6000", "debit": 1500.00, "credit": 0,       "description": "Office supplies" },
+          { "account_code": "2010", "debit": 0,       "credit": 1500.00, "description": "AP payable" }
+        ]
+      }
+    }
+  ]
+}

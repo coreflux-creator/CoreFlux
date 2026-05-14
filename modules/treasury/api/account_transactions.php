@@ -109,6 +109,7 @@ if (api_method() === 'POST') {
     // can be traced back to the statement line. Idempotency-keyed so
     // double-clicks don't double-post.
     require_once __DIR__ . '/../../accounting/lib/accounting.php';
+    require_once __DIR__ . '/../../../core/module_emission_discipline.php';
 
     $counterId = (int) ($body['counterpart_account_id'] ?? 0);
     if ($counterId <= 0) api_error('counterpart_account_id required', 422);
@@ -167,22 +168,74 @@ if (api_method() === 'POST') {
         if ($memo === '') $memo = 'Treasury feed posting';
     }
 
+    // Phase 2a — preferred path: emit treasury.bank_transaction.categorized
+    // into the event engine so this categorize action flows through the same
+    // posting_rules + accounting_events trail as AP/Billing. Falls back to
+    // the legacy direct accountingPostJe() call when the engine returns
+    // 'ignored' (no rule seeded) or throws — same pattern as ap.bill.approved.
+    require_once __DIR__ . '/../../../core/posting_engine/process.php';
+    $payloadLines = [
+        ['account_id' => $debitId,  'debit' => $abs, 'credit' => 0,    'description' => $memo],
+        ['account_id' => $creditId, 'debit' => 0,    'credit' => $abs, 'description' => $memo],
+    ];
+    $eventResult = null; $eventError = null;
     try {
-        $res = accountingPostJe($tenantId, [
-            'posting_date'   => (string) $line['posted_date'],
-            'memo'           => $memo,
-            'currency'       => 'USD',
-            'source_module'  => 'treasury_feed',
-            'source_ref_type'=> $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line',
-            'source_ref_id'  => $lineId,
-            'idempotency_key'=> "treasury_feed:{$type}:{$lineId}",
-            'lines' => [
-                ['account_id' => $debitId,  'debit'  => $abs, 'credit' => 0,    'memo' => $memo],
-                ['account_id' => $creditId, 'debit'  => 0,    'credit' => $abs, 'memo' => $memo],
+        $eventResult = accountingProcessEvent($tenantId, [
+            'entity_id'        => 0,
+            'event_type'       => 'treasury.bank_transaction.categorized',
+            'source_module'    => 'treasury_feed',
+            'source_record_id' => ($type === 'deposit' ? 'bank_line:' : 'liab_line:') . $lineId,
+            'event_date'       => (string) $line['posted_date'],
+            'payload'          => [
+                'bank_txn_id'             => (int) $lineId,
+                'amount'                  => $abs,
+                'currency'                => 'USD',
+                'direction'               => $amt < 0 ? 'outflow' : 'inflow',
+                'memo'                    => $memo,
+                'counterpart_account_id'  => $counterId,
+                'split_count'             => 1,
+                'lines'                   => $payloadLines,
             ],
-        ], (int) ($ctx['user']['id'] ?? 0), true);
+        ], (int) ($ctx['user']['id'] ?? 0));
     } catch (\Throwable $e) {
-        api_error('Could not post journal entry: ' . $e->getMessage(), 422);
+        $eventError = $e->getMessage();
+    }
+
+    if ($eventResult && ($eventResult['status'] ?? null) === 'posted') {
+        $res = [
+            'je_id'     => (int) $eventResult['journal_entry_id'],
+            'je_number' => $eventResult['je_number'] ?? null,
+        ];
+    } else {
+        // ── Phase-2a Fallback: legacy direct posting ──
+        // Fires when (a) no rule seeded yet, or (b) engine threw. We post
+        // the JE so the books still balance, but record a discipline
+        // violation so Phase-2a step-5 (kill-switch) can prove zero
+        // fallback fires in production before we hard-error this path.
+        try {
+            $res = accountingPostJe($tenantId, [
+                'posting_date'   => (string) $line['posted_date'],
+                'memo'           => $memo,
+                'currency'       => 'USD',
+                'source_module'  => 'treasury_feed',
+                'source_ref_type'=> $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line',
+                'source_ref_id'  => $lineId,
+                'idempotency_key'=> "treasury_feed:{$type}:{$lineId}",
+                'lines'          => [
+                    ['account_id' => $debitId,  'debit'  => $abs, 'credit' => 0,    'memo' => $memo],
+                    ['account_id' => $creditId, 'debit'  => 0,    'credit' => $abs, 'memo' => $memo],
+                ],
+            ], (int) ($ctx['user']['id'] ?? 0), true);
+        } catch (\Throwable $e) {
+            api_error('Could not post journal entry: ' . $e->getMessage()
+                    . ($eventError ? ' | event-layer error: ' . $eventError : ''), 422);
+        }
+        moduleEmissionDisciplineLog('treasury_feed', 'treasury.bank_transaction.categorized', [
+            'line_id'      => $lineId, 'type' => $type,
+            'je_id'        => (int) $res['je_id'],
+            'event_error'  => $eventError,
+            'event_status' => $eventResult['status'] ?? null,
+        ]);
     }
 
     $pdo->prepare("UPDATE {$table}
@@ -253,6 +306,7 @@ if (api_method() === 'POST') {
 //     split row hits the chosen counter account for its own portion.
 if ($method === 'POST' && $action === 'split_categorize') {
     require_once __DIR__ . '/../../accounting/lib/accounting.php';
+    require_once __DIR__ . '/../../../core/module_emission_discipline.php';
     $lineId = (int) ($body['line_id'] ?? 0);
     if ($lineId <= 0) api_error('line_id required', 422);
     $type = (string) ($body['type'] ?? '');
@@ -313,19 +367,71 @@ if ($method === 'POST' && $action === 'split_categorize') {
         ];
     }
 
+    // Phase 2a — preferred path: emit treasury.bank_transaction.categorized
+    // (with split_count > 1) into the event engine. Same passthrough rule
+    // handles single- and multi-line categorization since payload carries
+    // the rendered JE lines.
+    require_once __DIR__ . '/../../../core/posting_engine/process.php';
+    $payloadLines = array_map(static function ($l) {
+        return [
+            'account_id'  => (int) $l['account_id'],
+            'debit'       => (float) ($l['debit']  ?? 0),
+            'credit'      => (float) ($l['credit'] ?? 0),
+            'description' => (string) ($l['memo']  ?? ''),
+            'entity_id'   => $l['entity_id'] ?? null,
+        ];
+    }, $jeLines);
+
+    $eventResult = null; $eventError = null;
     try {
-        $res = accountingPostJe($tenantId, [
-            'posting_date'   => (string) $line['posted_date'],
-            'memo'           => 'split categorize · ' . ($line['description'] ?? ''),
-            'currency'       => 'USD',
-            'source_module'  => 'treasury_feed',
-            'source_ref_type'=> $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line',
-            'source_ref_id'  => $lineId,
-            'idempotency_key'=> "treasury_feed_split:{$type}:{$lineId}",
-            'lines'          => $jeLines,
-        ], (int) ($ctx['user']['id'] ?? 0), true);
+        $eventResult = accountingProcessEvent($tenantId, [
+            'entity_id'        => 0,
+            'event_type'       => 'treasury.bank_transaction.categorized',
+            'source_module'    => 'treasury_feed',
+            'source_record_id' => ($type === 'deposit' ? 'bank_line:split:' : 'liab_line:split:') . $lineId,
+            'event_date'       => (string) $line['posted_date'],
+            'payload'          => [
+                'bank_txn_id' => (int) $lineId,
+                'amount'      => $abs,
+                'currency'    => 'USD',
+                'direction'   => $isOutflow ? 'outflow' : 'inflow',
+                'memo'        => 'split categorize · ' . ($line['description'] ?? ''),
+                'split_count' => count($splits),
+                'lines'       => $payloadLines,
+            ],
+        ], (int) ($ctx['user']['id'] ?? 0));
     } catch (\Throwable $e) {
-        api_error('Could not post split JE: ' . $e->getMessage(), 422);
+        $eventError = $e->getMessage();
+    }
+
+    if ($eventResult && ($eventResult['status'] ?? null) === 'posted') {
+        $res = [
+            'je_id'     => (int) $eventResult['journal_entry_id'],
+            'je_number' => $eventResult['je_number'] ?? null,
+        ];
+    } else {
+        // ── Phase-2a Fallback: legacy direct posting for split ──
+        try {
+            $res = accountingPostJe($tenantId, [
+                'posting_date'   => (string) $line['posted_date'],
+                'memo'           => 'split categorize · ' . ($line['description'] ?? ''),
+                'currency'       => 'USD',
+                'source_module'  => 'treasury_feed',
+                'source_ref_type'=> $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line',
+                'source_ref_id'  => $lineId,
+                'idempotency_key'=> "treasury_feed_split:{$type}:{$lineId}",
+                'lines'          => $jeLines,
+            ], (int) ($ctx['user']['id'] ?? 0), true);
+        } catch (\Throwable $e) {
+            api_error('Could not post split JE: ' . $e->getMessage()
+                    . ($eventError ? ' | event-layer error: ' . $eventError : ''), 422);
+        }
+        moduleEmissionDisciplineLog('treasury_feed', 'treasury.bank_transaction.categorized', [
+            'line_id'      => $lineId, 'type' => $type, 'split_count' => count($splits),
+            'je_id'        => (int) $res['je_id'],
+            'event_error'  => $eventError,
+            'event_status' => $eventResult['status'] ?? null,
+        ]);
     }
 
     $pdo->prepare("UPDATE {$table} SET match_status = 'matched', matched_je_id = :je

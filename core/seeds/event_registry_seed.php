@@ -184,6 +184,12 @@ function eventRegistrySeedRows(): array {
             [],
             'unknown', ['accounting'], [],
             'Suspense — Dr cash / Cr suspense.'],
+        ['treasury.bank_transaction.categorized', 'treasury',
+            'Bank line categorized by a user (single category) OR split across multiple categories. Carries a fully-rendered balanced JE in payload.lines so the posting engine can passthrough-post.',
+            $req(['bank_txn_id','amount','currency','direction','lines']),
+            ['memo','ai_suggestion_id','split_count','counterpart_account_id'],
+            'bank', ['accounting'], ['treasury.bank_transaction.matched'],
+            'Passthrough: payload.lines is the rendered JE (Dr <category(s)> / Cr <bank>, or reverse for inflow).'],
 
         /* ---------- 5. Payroll (8) ------------------------------------------- */
         ['payroll.run.calculated', 'payroll',

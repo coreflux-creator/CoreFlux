@@ -562,6 +562,16 @@ if ($method === 'POST' && $action === 'post') {
                 . ($eventError ? ' | event-layer error: ' . $eventError : ''), 422);
     }
 
+    // Phase-2a: record that the legacy fallback fired — telemetry feeds
+    // the discipline dashboard so we can prove zero fallback fires before
+    // hard-erroring this path.
+    require_once __DIR__ . '/../../../core/module_emission_discipline.php';
+    moduleEmissionDisciplineLog('billing', 'billing.invoice.sent', [
+        'invoice_id'   => (int) $id,
+        'event_error'  => $eventError,
+        'event_status' => $eventResult['status'] ?? null,
+    ]);
+
     $pdo->prepare('UPDATE billing_invoices SET journal_entry_id = :j WHERE id = :id')
         ->execute(['j' => $res['je_id'], 'id' => $id]);
 

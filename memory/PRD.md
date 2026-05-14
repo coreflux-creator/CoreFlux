@@ -4386,3 +4386,67 @@ Closes out the Universal CSV epic.
 - (P4) Module emission discipline — Staffing/Billing/AP emit events only,
   never write GL directly.
 
+
+## Simulation Harness — Phase H1 + Phase 2a (2026-02-XX) ✅
+
+Phase H1 stands up the deterministic financial wind tunnel; Phase 2a
+closes the module emission discipline gap discovered in the H0
+diagnostic. Both ship together because Phase 2a is the first real
+*use* of the harness.
+
+### Phase H1 — Harness foundation
+- **Migration 043_simulation_harness.sql**:
+  - Adds `tenants.is_simulation` flag (runner refuses non-sim tenants).
+  - Tables: `simulation_runs`, `simulation_assertions`,
+    `simulation_failures`, `replay_logs` (with `payload_hash` +
+    `je_hash` for byte-identical replay diffing per harness spec §18).
+- **/app/sim/lib/seed.php**: deterministic seeded RNG + seeded clock.
+- **/app/sim/lib/scenario.php**: JSON scenario loader + list.
+- **/app/sim/lib/invariants.php**: 5 invariant functions —
+  debits=credits, no orphan events, no direct-GL bypass, replay
+  reproducible, AP module ↔ GL parity.
+- **/app/sim/runner.php**: CLI runner (`--scenario --seed --tenant
+  --dry-run --list`). Reuses production `accountingProcessEvent()` —
+  zero special-case logic. Persists assertions + replay log.
+- **3 starter scenarios**: `ap_bill_happy_path`, `ar_invoice_happy_path`,
+  `treasury_bank_feed_categorize`.
+
+### Phase 2a — Module emission discipline
+- **Diagnostic (H0):** 4 direct-`accountingPostJe()` bypass sites
+  outside the accounting module — AP/Billing fallbacks + treasury
+  feed categorize/split (pure bypass).
+- **Deliverables:**
+  - New event_registry entry `treasury.bank_transaction.categorized`
+    (52 total events now).
+  - New posting-rules seed entry — passthrough rule
+    (`line_source: payload`) so engine just persists supplied lines.
+  - Treasury refactor: categorize + split both try
+    `accountingProcessEvent` first; fall back to direct only on engine
+    `ignored`/throw — same pattern as AP/Billing.
+  - `module_emission_discipline_log` table + helper. Every fallback
+    fire persists a telemetry row.
+  - AP bills + Billing invoices fallback paths now log discipline
+    violations.
+- **Contract smoke** (`module_emission_discipline_smoke.php`): fails CI
+  if a new module file adds a direct GL call. Allowlist tracks the 3
+  known legacy sites.
+
+### Tests
+- `sim_harness_smoke.php`: **49/49 ✅**
+- `module_emission_discipline_smoke.php`: **12/12 ✅**
+- `phase_2a_event_discipline_smoke.php`: **39/39 ✅**
+- Full suite: **181/181 ✅**
+
+### Next up (H2)
+- Mock layer for Plaid / Gusto / OpenAI / Resend (deterministic by seed).
+- `/sim` SPA dashboard.
+- 5 more scenarios (ACH return, duplicate webhook, partial settlement,
+  month-end close, reconciliation break).
+- CI hook (lightweight on commit, full suite nightly).
+
+### Then Phase 2 (Unified Financial State Cache)
+- Once the discipline log shows zero fallback fires for 1 week, flip
+  the fallback paths to a hard `api_error('Event layer required', 500)`
+  and remove `legacy_direct_fallback` flags.
+- Then Phase 2 (Unified Financial State Cache) builds on a clean log.
+
