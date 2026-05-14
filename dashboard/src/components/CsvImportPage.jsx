@@ -233,14 +233,18 @@ export default function CsvImportPage({
 
   return (
     <section data-testid={testidPrefix}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
         <div>
           <h2>CSV Import — {entityLabel}</h2>
           <p style={{ color: 'var(--cf-text-secondary)' }}>
             Bulk-create {entityLabel.toLowerCase()}. Template-driven; dry-run before commit.
           </p>
         </div>
-        <Link to={backTo} className="btn btn--ghost" data-testid={`${testidPrefix}-back`}>{backLabel}</Link>
+        <div style={{ display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
+          <Link to="/data/bulk-import"   className="btn btn--ghost" data-testid={`${testidPrefix}-bulk-link`}>+ Bulk Import (multi-file)</Link>
+          <Link to="/data/import-history" className="btn btn--ghost" data-testid={`${testidPrefix}-history-link`}>Import History</Link>
+          <Link to={backTo}              className="btn btn--ghost" data-testid={`${testidPrefix}-back`}>{backLabel}</Link>
+        </div>
       </header>
 
       <div style={{ background: 'var(--cf-surface)', padding: 'var(--cf-space-6)', borderRadius: 'var(--cf-radius-lg)', border: '1px solid var(--cf-border)' }}>
@@ -502,7 +506,13 @@ export default function CsvImportPage({
               <strong data-testid={`${testidPrefix}-result-imported`}>{committed.imported_count}</strong> imported,{' '}
               <strong data-testid={`${testidPrefix}-result-skipped`}>{committed.skipped_count}</strong> skipped.
             </p>
-            <Link to={backTo} className="btn btn--primary" data-testid={`${testidPrefix}-result-back`}>Done</Link>
+            <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)', margin: '4px 0 12px' }}>
+              This import has been logged to the audit trail (who, when, file, rows, errors).
+            </p>
+            <div style={{ display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
+              <Link to={backTo}              className="btn btn--primary" data-testid={`${testidPrefix}-result-back`}>Done</Link>
+              <Link to="/data/import-history" className="btn btn--ghost"   data-testid={`${testidPrefix}-result-view-history`}>View Import History</Link>
+            </div>
           </div>
         )}
       </div>

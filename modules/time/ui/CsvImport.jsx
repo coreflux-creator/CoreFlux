@@ -21,12 +21,35 @@ export default function CsvImport() {
   };
   const commit = async () => {
     setRunning(true); setError(null);
+    const startedAt = Date.now();
     try {
       const q = [];
       if (skipInvalid) q.push('skip_invalid=1');
       if (preApproved) q.push('already_approved=1');
       const path = `/modules/time/api/csv_import.php?action=commit${q.length ? '&' + q.join('&') : ''}`;
-      setCommitted(await api.post(path, { csv: csvText }));
+      const res = await api.post(path, { csv: csvText });
+      setCommitted(res);
+
+      // Audit-write to CSV Import History (non-fatal — same pattern as
+      // CsvImportPage.jsx). Until this module is folded into the shared
+      // component, we record the same shape directly.
+      try {
+        await api.post('/api/admin/csv_import_history.php', {
+          entity:          'time',
+          file_name:       fileName || null,
+          bytes_processed: csvText.length,
+          rows_total:      (res?.imported_count || 0) + (res?.skipped_count || 0),
+          rows_imported:   res?.imported_count || 0,
+          rows_skipped:    res?.skipped_count  || 0,
+          errors:          res?.errors        || {},
+          skip_invalid:    skipInvalid,
+          update_existing: false,
+          ai_used:         false,
+          preset_id:       null,
+          column_map:      null,
+          duration_ms:     Date.now() - startedAt,
+        });
+      } catch { /* non-fatal */ }
     } catch (e) { setError(e); } finally { setRunning(false); }
   };
   const reset = () => { setCsvText(''); setFileName(''); setPreview(null); setCommitted(null); setError(null); if (fileRef.current) fileRef.current.value = ''; };
@@ -36,12 +59,16 @@ export default function CsvImport() {
 
   return (
     <section data-testid="time-csv-import">
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
         <div>
           <h2>Bulk Upload — Time Entries</h2>
           <p style={{ color: 'var(--cf-text-secondary)' }}>Columns: placement_external_id, work_date, category, hours, description.</p>
         </div>
-        <Link to="../entries" className="btn btn--ghost" data-testid="time-csv-back">← My Time</Link>
+        <div style={{ display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
+          <Link to="/data/bulk-import"    className="btn btn--ghost" data-testid="time-csv-bulk-link">+ Bulk Import (multi-file)</Link>
+          <Link to="/data/import-history" className="btn btn--ghost" data-testid="time-csv-history-link">Import History</Link>
+          <Link to="../entries"           className="btn btn--ghost" data-testid="time-csv-back">← My Time</Link>
+        </div>
       </header>
 
       <div style={{ background: 'var(--cf-surface)', padding: 'var(--cf-space-6)', borderRadius: 'var(--cf-radius-lg)', border: '1px solid var(--cf-border)' }}>
@@ -98,7 +125,13 @@ export default function CsvImport() {
           <div data-testid="time-csv-result" style={{ marginTop: 'var(--cf-space-4)' }}>
             <h3>Import complete</h3>
             <p><strong data-testid="time-csv-imported">{committed.imported_count}</strong> imported, <strong data-testid="time-csv-skipped">{committed.skipped_count}</strong> skipped.</p>
-            <Link to="../review" className="btn btn--primary" data-testid="time-csv-goto-review">Review queue →</Link>
+            <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)', margin: '4px 0 12px' }}>
+              This import has been logged to the audit trail (who, when, file, rows, errors).
+            </p>
+            <div style={{ display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
+              <Link to="../review" className="btn btn--primary" data-testid="time-csv-goto-review">Review queue →</Link>
+              <Link to="/data/import-history" className="btn btn--ghost" data-testid="time-csv-view-history">View Import History</Link>
+            </div>
           </div>
         )}
       </div>

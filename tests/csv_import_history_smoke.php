@@ -88,6 +88,20 @@ $a('Bulk wizard records per successful file',
 $a('Bulk wizard forwards entity',           str_contains($bulk, 'entity:          f.entity'));
 $a('Bulk wizard forwards file_name',        str_contains($bulk, 'file_name:       f.fileName || null'));
 $a('Bulk wizard forwards column_map',       str_contains($bulk, 'column_map:      f.columnMap || null'));
+$a('Bulk wizard header has Import History link',
+    str_contains($bulk, 'data-testid="csv-bulk-history-link"')
+    && str_contains($bulk, 'to="/data/import-history"'));
+$a('Bulk wizard summary has View History CTA',
+    str_contains($bulk, 'data-testid="csv-bulk-summary-view-history"')
+    && str_contains($bulk, 'audit trail (who, when, file, rows, errors)'));
+
+echo "\nLegacy Time CSV (one-off, not on shared component) also wired\n";
+$time = $read(__DIR__ . '/../modules/time/ui/CsvImport.jsx');
+$a('Time CSV header has Bulk Import link',  str_contains($time, 'data-testid="time-csv-bulk-link"') && str_contains($time, 'to="/data/bulk-import"'));
+$a('Time CSV header has Import History link', str_contains($time, 'data-testid="time-csv-history-link"') && str_contains($time, 'to="/data/import-history"'));
+$a('Time CSV records to history on commit', str_contains($time, "api.post('/api/admin/csv_import_history.php'") && str_contains($time, "entity:          'time'"));
+$a('Time CSV history POST non-fatal',       str_contains($time, '/* non-fatal */'));
+$a('Time CSV success has View History CTA', str_contains($time, 'data-testid="time-csv-view-history"'));
 
 echo "\nNew CsvImportHistory page + routing\n";
 $hp = $read(__DIR__ . '/../dashboard/src/pages/CsvImportHistory.jsx');
@@ -102,6 +116,14 @@ $a('page expands row to show map + errs',   str_contains($hp, 'csv-history-row-$
 $app = $read(__DIR__ . '/../dashboard/src/App.jsx');
 $a('SPA imports CsvImportHistory',          str_contains($app, "import CsvImportHistory from './pages/CsvImportHistory'"));
 $a('SPA routes /data/import-history',       str_contains($app, 'path="/data/import-history"') && str_contains($app, '<CsvImportHistory />'));
+
+$dash = $read(__DIR__ . '/../dashboard/src/pages/DashboardOverview.jsx');
+$a('Dashboard surfaces CSV history card',   str_contains($dash, 'data-testid="dashboard-csv-import-history"') && str_contains($dash, '/data/import-history'));
+$a('Dashboard imports History icon',        str_contains($dash, 'History }') || str_contains($dash, ', History,') || str_contains($dash, 'History,'));
+
+echo "\n--- {$pass} passed, {$fail} failed ---\n";
+exit($fail === 0 ? 0 : 1);
+outes /data/import-history',       str_contains($app, 'path="/data/import-history"') && str_contains($app, '<CsvImportHistory />'));
 
 $dash = $read(__DIR__ . '/../dashboard/src/pages/DashboardOverview.jsx');
 $a('Dashboard surfaces CSV history card',   str_contains($dash, 'data-testid="dashboard-csv-import-history"') && str_contains($dash, '/data/import-history'));

@@ -244,7 +244,10 @@ export default function CsvBulkImport() {
             (People → Vendors → Clients → Placements → Time → Bills → Invoices).
           </p>
         </div>
-        <Link to="/" className="btn btn--ghost" data-testid="csv-bulk-back">← Dashboard</Link>
+        <div style={{ display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
+          <Link to="/data/import-history" className="btn btn--ghost" data-testid="csv-bulk-history-link">Import History</Link>
+          <Link to="/" className="btn btn--ghost" data-testid="csv-bulk-back">← Dashboard</Link>
+        </div>
       </header>
 
       <div style={{ background: 'var(--cf-surface)', padding: 'var(--cf-space-6)', borderRadius: 'var(--cf-radius-lg)', border: '1px solid var(--cf-border)' }}>
@@ -385,6 +388,10 @@ export default function CsvBulkImport() {
                 </li>
               ))}
             </ul>
+            <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+              Every committed file above has been logged to the audit trail (who, when, file, rows, errors).
+            </p>
+            <Link to="/data/import-history" className="btn btn--primary" data-testid="csv-bulk-summary-view-history">View Import History</Link>
           </div>
         )}
       </div>
