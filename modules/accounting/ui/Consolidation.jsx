@@ -144,6 +144,16 @@ function ConsolidatedReport() {
 
   const { data, loading, error } = useApi(qs ? `/modules/accounting/api/reports.php?${qs}` : null);
 
+  // Lock & publish state (was previously referenced but never declared,
+  // crashing the page with "runsApi is not defined" / "setLockBusy is
+  // not defined" the moment a user clicked Consolidation).
+  const runsApi = useApi(
+    qs ? `/modules/accounting/api/consolidation_runs.php?report_type=${reportType}` : null
+  );
+  const [lockBusy, setLockBusy] = useState(false);
+  const [lockErr,  setLockErr]  = useState(null);
+  const [lockedId, setLockedId] = useState(null);
+
   const toggleEntity = (id) => {
     setEntityIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
