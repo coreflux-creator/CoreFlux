@@ -25,6 +25,23 @@ if (!$tenantId) api_error('No active tenant', 400);
 $method = api_method();
 $action = (string) api_query('action', '');
 
+// Re-sign a download URL on demand. Checked BEFORE the generic GET list
+// handler since the list handler exits via api_ok().
+if ($method === 'GET' && $action === 'signed_url') {
+    require_once __DIR__ . '/../../core/StorageService.php';
+    $id  = (int) api_query('id', 0);
+    if (!$id) api_error('id required', 422);
+    $stmt = getDB()->prepare(
+        'SELECT storage_key, label FROM evidence_attachments
+          WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $id]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$row || empty($row['storage_key'])) api_error('not found or no file', 404);
+    $url = \Core\StorageService::getInstance()->get_signed_url($row['storage_key']);
+    api_ok(['signed_url' => $url, 'filename' => $row['label']]);
+}
+
 if ($method === 'GET') {
     $subjectType = (string) api_query('subject_type', '');
     $subjectId   = (int) api_query('subject_id', 0);

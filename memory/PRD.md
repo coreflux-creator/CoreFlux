@@ -10,6 +10,47 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (Timesheet CSV discoverability + universal evidence attachments + CFO Cache Health, 2026-02)
+Three connected improvements landed together: CSV import is now discoverable from the timesheets page; **any** subject in the system can now have file attachments via one drop-in component; the CFO Dashboard gets a collapsible "Cache Health" footer section so it doesn't get overwhelmed.
+
+### Timesheet CSV import discoverability
+- `modules/staffing/ui/TimesheetWeek.jsx` — Added "CSV Import" CTA (testid `ts-csv-import-link`) and "History" link (testid `ts-csv-history-link`) directly in the page header. CSV button links to `/modules/time/bulk` where the shared **CsvImportPage** component already handles drag-drop multi-file uploads, dynamic column mapping, AI-assisted suggestions, saved mapping presets, and dry-run validation.
+- **Multi-period spanning was already supported** — `modules/time/api/csv_import.php` auto-resolves the `time_period` from each row's `work_date`, so a single CSV can legitimately cover historical + ongoing weeks across multiple placements. No backend change required, just discoverability.
+
+### Universal Evidence Attachments
+**Problem**: Vendor invoices (AP) had a custom per-bill attachment column; timesheets had nothing; billing invoices had nothing. No forward traceability from "approved time" → "appears on invoice X" → "supported by signed timesheet PDF".
+
+**Solution**: One drop-in React component + one presigned-upload endpoint that everything reuses, backed by the existing polymorphic `evidence_attachments` pivot from Phase 1e.
+
+- **`api/evidence_upload_url.php`** (new) — Returns a presigned S3 POST URL for an evidence attachment in two steps (presign → multipart upload → metadata register). Subject-type allowlist (11 types: `time_entry`, `time_bundle`, `time_uploaded_document`, `billing_invoice`, `ap_bill`, `ap_bill_line`, `placement`, `person`, `company`, `accounting_event`, `journal_entry`) guards against arbitrary insertion. Module bucket map routes files into sensible namespaces (`time/`, `billing/`, `ap/`, etc.).
+- **`api/accounting/evidence.php`** (modified) — Added `GET ?action=signed_url&id=N` to re-sign download URLs per-click (signed URLs leak in logs / browser history, so the list endpoint deliberately omits them).
+- **`dashboard/src/components/EvidenceAttachments.jsx`** (new, 195 lines) — Drop-in `<EvidenceAttachments subjectType="..." subjectId={...} />`. Three-step upload flow (presign → S3 → metadata), per-click signed download, soft-delete, full data-testid coverage (`{prefix}-panel`, `-upload-btn`, `-list`, `-row-{id}`, `-download-{id}`, `-delete-{id}`). Per-subject-type default document_type ('signed_timesheet', 'vendor_invoice', 'supporting_doc', etc.).
+- **Mount points** (3 new locations):
+  - `modules/staffing/ui/TimesheetWeek.jsx` → `subjectType="time_bundle"`, `subjectId={header.id}`. **Now the approved-time record can be traced forward to the rest of the workflow** with the signed timesheet attached directly to the week record.
+  - `modules/billing/ui/InvoiceDetail.jsx` → `subjectType="billing_invoice"`. Customers' invoice PDF can have its supporting time bundle bundled with it.
+  - `modules/ap/ui/BillDetail.jsx` → `subjectType="ap_bill"`. Adds the polymorphic pivot alongside the existing single-attachment column for richer multi-doc support.
+
+### CFO Cache Health section (separate, collapsible)
+- **`api/admin/fsc_health.php`** (new) — Reads the Financial State Cache health: rows cached, scopes covered, pending dirty count, oldest pending age, last rebuild time, per-scope avg/max runtime, top dirty reasons in last 24h. Graceful degradation when migration 045 hasn't run.
+- **`dashboard/src/components/FscHealthPanel.jsx`** (new) — Collapsible panel mounted in the CFO Dashboard **footer** (below the main grid, in its own section, **not part of the primary grid**) so it doesn't overwhelm the headline KPIs. Collapsed by default, only opens on operator click. Shows tiles (rows / scopes / pending / last rebuild / oldest pending), a per-scope runtime table, and a 24h dirty-reasons histogram.
+- Header chip turns amber ("N pending") when there's a dirty queue, green ("all fresh") when not — operators can see at a glance whether to expand.
+
+### Validation
+- `tests/timesheet_csv_attachments_smoke.php` — **80+ assertions** covering: TimesheetWeek link wiring, csv_import.php multi-period contract, evidence_upload_url.php (allowlist, module routing, response shape, StorageService integration), evidence.php signed_url GET action, EvidenceAttachments JSX (props, 3-step upload flow, per-click signed download, testid coverage, default doc-type map), all three mount points (TimesheetWeek/InvoiceDetail/BillDetail), fsc_health.php (auth, GET-only, graceful degradation, all 7 response fields, tenant scoping), FscHealthPanel JSX (collapsed-by-default, lazy-load on open, testid coverage), CFODashboard wiring.
+- Routed to the **`ui`** lane via `timesheet_csv_attachments*` pattern.
+- Vite rebuilt via the postbuild hook → `index-DGiGZYY5.js`. All three sync points (dist/index.html, spa-assets/, .deploy-version) consistent. sprint6b expected hash updated.
+- All 6 modified/new JSX files lint clean.
+
+### Audit-trail benefit (the user's stated goal)
+"The record always shows approved time that can be traced forward to the rest of the workflow." Today:
+1. Operator uploads a signed paper timesheet PDF on the TimesheetWeek page → `evidence_attachments(subject_type='time_bundle', subject_id=42, document_type='signed_timesheet')`
+2. Time bundle gets billed → invoice 100 created
+3. CFO opens invoice 100 → can attach the same time bundle PDF as `subject_type='billing_invoice'` supporting doc
+4. Vendor invoice for sub-contractor comes in → AP bill → `subject_type='ap_bill'` with vendor invoice attached
+5. All evidence rows share `tenant_id` and survive deletion via `deleted_at` soft-delete
+
+
+
 ## Recently completed (Phase 2 — Unified Financial State Cache, 2026-02)
 **Phase 2 keystone: fast-read projection layer on top of the now-strictly-clean event-driven ledger. Read path for CFO Dashboard, the upcoming Phase 2 AI rule competition, period-close materialized views, and the External Auditor view (P3).**
 

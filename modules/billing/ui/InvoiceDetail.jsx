@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 
 export default function InvoiceDetail() {
   const { id } = useParams();
@@ -149,6 +150,16 @@ export default function InvoiceDetail() {
           </div>
         </div>
       )}
+
+      <div style={{ marginTop: 16 }}>
+        <EvidenceAttachments
+          subjectType="billing_invoice"
+          subjectId={inv.id}
+          label="Supporting docs (timesheet bundles, customer PO, contracts)"
+          documentType="supporting_doc"
+          testidPrefix="billing-invoice-evidence"
+        />
+      </div>
     </section>
   );
 }

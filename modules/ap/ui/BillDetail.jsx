@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
+import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 import ThreeWayMatchPanel from './ThreeWayMatchPanel';
 import BillApprovalThread from './BillApprovalThread';
 
@@ -144,6 +145,16 @@ export default function BillDetail() {
           </tbody>
         </table>
       )}
+
+      <div style={{ marginTop: 16 }}>
+        <EvidenceAttachments
+          subjectType="ap_bill"
+          subjectId={bill.id}
+          label="Vendor invoice & supporting docs"
+          documentType="vendor_invoice"
+          testidPrefix="ap-bill-evidence"
+        />
+      </div>
     </section>
   );
 }

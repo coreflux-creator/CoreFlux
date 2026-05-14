@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Upload, History } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 
 /**
  * Weekly Timesheet — inline-editable grid.
@@ -276,6 +279,20 @@ export default function TimesheetWeek({ session }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 'var(--cf-space-2)', flexWrap:'wrap', alignItems:'center' }}>
+          <Link to="/modules/time/bulk"
+                data-testid="ts-csv-import-link"
+                className="btn"
+                style={{ display:'inline-flex', alignItems:'center', gap:6, textDecoration:'none' }}
+                title="Bulk import historical or ongoing timesheets via CSV. Dynamic column mapping; one CSV can span multiple placements and periods.">
+            <Upload size={14}/> CSV Import
+          </Link>
+          <Link to="/data/import-history"
+                data-testid="ts-csv-history-link"
+                className="btn btn--ghost"
+                style={{ display:'inline-flex', alignItems:'center', gap:6, textDecoration:'none', fontSize:12 }}
+                title="View prior CSV imports">
+            <History size={12}/> History
+          </Link>
           <button className="btn" onClick={() => setAnchor(addDays(weekStart, -7))} data-testid="ts-prev"     disabled={loading}>← Prev</button>
           <button className="btn" onClick={() => setAnchor(new Date())}             data-testid="ts-current"  disabled={loading}>This week</button>
           <button className="btn" onClick={() => setAnchor(addDays(weekStart,  7))} data-testid="ts-next"     disabled={loading}>Next →</button>
@@ -400,6 +417,18 @@ export default function TimesheetWeek({ session }) {
       {header?.status === 'rejected' && header.rejection_reason && (
         <div className="alert" style={{ marginTop: 'var(--cf-space-3)', padding: 12, borderLeft: '3px solid var(--cf-error, #dc2626)', background: '#fef2f2' }} data-testid="ts-rejection-banner">
           <strong>Rejected:</strong> {header.rejection_reason}
+        </div>
+      )}
+
+      {header?.id && (
+        <div style={{ marginTop: 'var(--cf-space-3)' }}>
+          <EvidenceAttachments
+            subjectType="time_bundle"
+            subjectId={header.id}
+            label="Signed timesheet / supporting docs"
+            documentType="signed_timesheet"
+            testidPrefix="ts-evidence"
+          />
         </div>
       )}
     </section>
