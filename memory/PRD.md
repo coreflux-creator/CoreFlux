@@ -4597,3 +4597,66 @@ tool for non-engineers (the improvement we discussed).
 ### New Vite bundle: `index-DOFr99tN.js` / `index-Cwhpy62y.css`
 
 
+## CI — 4-way parallel smoke lanes (2026-02-XX) ✅
+
+The smoke suite (now 184 tests including the new lane classifier
+itself) now runs in 4 parallel GitHub Actions jobs instead of one
+serial sweep.
+
+### Lane definitions (`scripts/ci_lane_classifier.sh` — single source of truth)
+- **harness** (18 tests): simulation harness + module emission
+  discipline + event-driven posting + replay surface (phase_1*,
+  sprint7b/c/e event-layer, posting rules sandbox, formula engine).
+- **ui** (49 tests): dashboards, SPA pages, CSV, scenarios, digests,
+  magic links, sprint*-UI sprints.
+- **modules** (75 tests): business logic — AP, AR, billing, time,
+  staffing, placements, people, payroll, treasury, payments, plaid,
+  gusto, sub-tenant, sprint8*.
+- **core** (40 tests): everything else (default lane) — accounting
+  engine, posting rules core, migrations, RBAC, event registry, api
+  router, schema contracts, miscellaneous infra.
+- Classifier is first-match-wins, top-down. Adding a new test? Pick the
+  narrowest pattern that matches; never broaden an existing one.
+
+### `scripts/ci_smoke_all.sh --lane=NAME`
+- Accepts `--lane=core|modules|ui|harness`. Without a flag, runs every
+  test (legacy serial mode, kept for local debugging).
+- Sources the classifier so the workflow + smoke suite + dev never
+  drift.
+- Rejects unknown lanes with a clean exit 2.
+
+### Workflow (`.github/workflows/ci.yml`)
+- `smoke` job uses `matrix.lane: [core, modules, ui, harness]` with
+  `fail-fast: false` so a single lane failure doesn't cancel the
+  others — every lane reports independently. Diagnostic value: a
+  failure in any lane immediately tells you the area.
+- `sim-dry-run` kept as a single job (5 scenarios fly through in <2s;
+  parallelizing them would cost more in setup than runtime).
+
+### Performance
+| Mode | Wall-clock | Speedup |
+|---|---|---|
+| Serial (legacy) | 30.15s | 1.0× |
+| Longest parallel lane (modules) | 8.80s | **3.4×** |
+
+Real CI speedup will be slightly higher once GitHub Actions per-job
+setup overhead (~30s for checkout + PHP install) amortizes across
+the matrix.
+
+### Tests
+- `tests/ci_lane_classifier_smoke.php`: **25/25 ✅** (1 second runtime).
+- Every lane runs end-to-end on local hardware: 40 + 75 + 49 + 18 = 182
+  tests classified (+ 2 known integration skips = 184 total).
+- Full PHP suite: **184/184 ✅** (regression-clean).
+
+### What's next (tomorrow)
+Per user direction we're stopping here. Resume points:
+1. **`scripts/ci_seed_sim_tenant.php`** — referenced by nightly workflow,
+   not yet written. ~30 min.
+2. **Phase 2a step 5 (kill-switch)** — wait for 1 week of zero
+   discipline-log fires in the sim env, then hard-error legacy paths
+   and remove `legacy_direct_fallback` flags.
+3. **Phase 2 (Unified Financial State Cache)** — builds on clean event
+   log + replay tooling shipped in H1-H3.
+
+

@@ -7,9 +7,19 @@ on:
     branches: [main, master, develop]
 
 jobs:
-  smoke-and-sim-dry-run:
+  # ─────────────────────────────────────────────────────────────────
+  # Smoke suite — 4-way parallel lanes (core / modules / ui / harness).
+  # Same test code path; --lane=NAME filters by scripts/ci_lane_classifier.sh.
+  # A failure in any lane fails the whole check; lane names tell you
+  # where to look at a glance.
+  # ─────────────────────────────────────────────────────────────────
+  smoke:
     runs-on: ubuntu-latest
-    name: Smoke suite + Sim scenario dry-runs
+    name: Smoke (${{ matrix.lane }})
+    strategy:
+      fail-fast: false        # let all 4 lanes finish; report all failures
+      matrix:
+        lane: [core, modules, ui, harness]
 
     steps:
       - uses: actions/checkout@v4
@@ -21,14 +31,32 @@ jobs:
           extensions: mbstring, pdo_mysql, curl, json, openssl
           coverage: none
 
-      - name: Verify PHP version
-        run: php -v
+      - name: Make CI scripts executable
+        run: chmod +x scripts/ci_smoke_all.sh scripts/ci_sim_scenarios.sh scripts/ci_lane_classifier.sh
+
+      - name: Smoke suite — lane ${{ matrix.lane }}
+        run: bash scripts/ci_smoke_all.sh --lane=${{ matrix.lane }}
+
+  # ─────────────────────────────────────────────────────────────────
+  # Sim scenario dry-runs — single fast job (~2s total). No reason to
+  # parallelize 5 scenarios; they're cheap.
+  # ─────────────────────────────────────────────────────────────────
+  sim-dry-run:
+    runs-on: ubuntu-latest
+    name: Sim scenario dry-runs (determinism)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, curl, json, openssl
+          coverage: none
 
       - name: Make CI scripts executable
-        run: chmod +x scripts/ci_smoke_all.sh scripts/ci_sim_scenarios.sh
-
-      - name: Run smoke suite
-        run: bash scripts/ci_smoke_all.sh
+        run: chmod +x scripts/ci_sim_scenarios.sh
 
       - name: Run sim scenario dry-runs (determinism check)
         run: bash scripts/ci_sim_scenarios.sh

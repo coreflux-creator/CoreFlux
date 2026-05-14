@@ -799,6 +799,10 @@ last_known_features:
 - harness.run_from_web.sim_tenant_guard
 - ui.sim.run_button_per_scenario
 - ui.sim.run_again_button_per_run
+- harness.h3_1.ci_lane_classifier_single_source_of_truth
+- harness.h3_1.ci_smoke_lane_flag
+- harness.h3_1.github_actions_4_way_matrix
+- harness.h3_1.parallel_smoke_3_4x_wall_clock_speedup
 - modules/staffing/manifest.php
 - modules/staffing/migrations/001_timesheets.sql
 - modules/staffing/migrations/002_timesheet_id_on_entries.sql
