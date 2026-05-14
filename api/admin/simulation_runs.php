@@ -27,9 +27,84 @@ $ctx  = api_require_auth();
 $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
-if (api_method() !== 'GET') api_error('Method not allowed', 405);
-
+$method = api_method();
 $action = $_GET['action'] ?? null;
+
+// ── POST ?action=run — spawn the runner against the sim tenant ──────
+// Synchronous up to 60s. Returns { run_id, status, summary }.
+// Refuses non-sim tenants (the runner itself also refuses, but checking
+// here lets us return a clean 422 vs the runner's exit code 4).
+if ($method === 'POST' && $action === 'run') {
+    $body         = api_json_body();
+    $scenarioName = (string) ($body['scenario'] ?? '');
+    $seed         = isset($body['seed']) ? (int) $body['seed'] : null;
+    $runTenantId  = isset($body['tenant_id']) ? (int) $body['tenant_id'] : $tid;
+
+    if ($scenarioName === '' || !preg_match('/^[a-z0-9_]+$/', $scenarioName)) {
+        api_error('Invalid scenario name', 422);
+    }
+    try {
+        $pdo = getDB();
+        $st  = $pdo->prepare('SELECT is_simulation FROM tenants WHERE id = :id');
+        $st->execute(['id' => $runTenantId]);
+        if ((int) $st->fetchColumn() !== 1) {
+            api_error('Target tenant is not flagged is_simulation=1', 422);
+        }
+    } catch (\Throwable $e) {
+        api_error('Cannot verify sim tenant: ' . $e->getMessage(), 500);
+    }
+
+    // Build + spawn (synchronous). Cap at 60s — any scenario longer
+    // than that should be CLI-driven.
+    $cmd = sprintf(
+        'php %s --scenario=%s%s --tenant=%d 2>&1',
+        escapeshellarg(realpath(__DIR__ . '/../../sim/runner.php')),
+        escapeshellarg($scenarioName),
+        $seed !== null ? ' --seed=' . (int) $seed : '',
+        $runTenantId
+    );
+
+    $startedAt = microtime(true);
+    @set_time_limit(75);
+    $output = (string) shell_exec($cmd);
+    $durationMs = (int) ((microtime(true) - $startedAt) * 1000);
+
+    // Parse run_id from stdout ("run_id=N").
+    $runId = null;
+    if (preg_match('/run_id=(\d+)/', $output, $m)) $runId = (int) $m[1];
+
+    // Find the just-inserted run for this (tenant, scenario) — falls
+    // back to the most recent row if stdout didn't surface the id.
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT id, status, events_emitted, je_posted,
+                    assertions_run, assertions_failed, duration_ms, summary
+               FROM simulation_runs
+              WHERE tenant_id = :t AND scenario_name = :s
+                ' . ($runId ? 'AND id = :rid' : '') . '
+              ORDER BY started_at DESC, id DESC LIMIT 1'
+        );
+        $stmt->execute(array_merge(
+            ['t' => $runTenantId, 's' => $scenarioName],
+            $runId ? ['rid' => $runId] : []
+        ));
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    } catch (\Throwable $e) {
+        $row = null;
+    }
+
+    if ($row) {
+        $row['summary'] = is_string($row['summary']) ? json_decode($row['summary'], true) : $row['summary'];
+    }
+    api_ok([
+        'run_id'      => $runId ?? ($row['id'] ?? null),
+        'run'         => $row,
+        'spawned_ms'  => $durationMs,
+        'stdout_tail' => substr($output, -1500),
+    ]);
+}
+
+if ($method !== 'GET') api_error('Method not allowed', 405);
 
 // ── List scenarios from disk (no DB) ─────────────────────────────────
 if ($action === 'scenarios') {

@@ -21,6 +21,7 @@
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/tenant_scope.php';
+require_once __DIR__ . '/sim_mock_bridge.php';
 
 // Load host-only secrets
 $_localConfig = __DIR__ . '/config.local.php';
@@ -98,6 +99,26 @@ function aiAsk(array $args): array {
 
     if ($prompt === '') throw new InvalidArgumentException('aiAsk: prompt is required');
     if (!isset(AI_KIND_HINTS[$kind])) throw new InvalidArgumentException("aiAsk: invalid kind '$kind'");
+
+    // Sim-mock short-circuit. Sim tenants OR env SIM_MODE=1 route every
+    // aiAsk to the deterministic narrative library — no real OpenAI call.
+    if (simShouldMockIfLoaded('openai')) {
+        require_once __DIR__ . '/../sim/mocks/openai.php';
+        $r = simMockAiAsk(['feature_class' => $feature_class, 'model' => 'sim', 'prompt' => $prompt, 'payload' => $context]);
+        return [
+            'kind'                  => $kind,
+            'content'               => $r['narrative'],
+            'confidence'            => 0.85,
+            'citations'             => [],
+            'requires_human_review' => true,
+            'model'                 => 'sim',
+            'latency_ms'            => 0,
+            'prompt_hash'           => hash('sha256', $prompt),
+            'response_hash'         => hash('sha256', $r['narrative']),
+            'interaction_id'        => 0,
+            'sim'                   => true,
+        ];
+    }
 
     $tenantId = currentTenantId();
     $userId   = $_SESSION['user']['id'] ?? null;

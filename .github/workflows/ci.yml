@@ -1,0 +1,76 @@
+name: CoreFlux CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  smoke-and-sim-dry-run:
+    runs-on: ubuntu-latest
+    name: Smoke suite + Sim scenario dry-runs
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, curl, json, openssl
+          coverage: none
+
+      - name: Verify PHP version
+        run: php -v
+
+      - name: Make CI scripts executable
+        run: chmod +x scripts/ci_smoke_all.sh scripts/ci_sim_scenarios.sh
+
+      - name: Run smoke suite
+        run: bash scripts/ci_smoke_all.sh
+
+      - name: Run sim scenario dry-runs (determinism check)
+        run: bash scripts/ci_sim_scenarios.sh
+
+  nightly-full-sim:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    name: Nightly — full sim execution against sim tenant
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: coreflux_sim
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      SIM_TENANT_ID: 999
+      SIM_MODE: 1
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASS: root
+      DB_NAME: coreflux_sim
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, curl, json, openssl
+
+      - name: Run all migrations + seed sim tenant
+        run: php scripts/ci_seed_sim_tenant.php
+
+      - name: Run full sim execution
+        run: bash scripts/ci_sim_full.sh

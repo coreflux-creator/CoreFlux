@@ -28,6 +28,7 @@ if (file_exists($_plaidLocalConfig)) require_once $_plaidLocalConfig;
 unset($_plaidLocalConfig);
 
 require_once __DIR__ . '/encryption.php';
+require_once __DIR__ . '/sim_mock_bridge.php';
 
 // ---------------------------------------------------------------- config
 
@@ -255,12 +256,21 @@ function plaidPost(string $endpoint, array $body, int $timeoutSec = 25): array
 
 function plaidExchangePublicToken(string $publicToken): array
 {
+    if (simShouldMockIfLoaded('plaid')) {
+        require_once __DIR__ . '/../sim/mocks/plaid.php';
+        $r = simMockPlaidExchange($publicToken);
+        return ['access_token' => (string) $r['access_token'], 'item_id' => (string) $r['item_id']];
+    }
     $r = plaidPost('/item/public_token/exchange', ['public_token' => $publicToken]);
     return ['access_token' => (string) $r['access_token'], 'item_id' => (string) $r['item_id']];
 }
 
 function plaidGetAccounts(string $accessToken): array
 {
+    if (simShouldMockIfLoaded('plaid')) {
+        require_once __DIR__ . '/../sim/mocks/plaid.php';
+        return simMockPlaidGetAccounts($accessToken);
+    }
     return plaidPost('/accounts/get', ['access_token' => $accessToken]);
 }
 
@@ -271,6 +281,10 @@ function plaidGetAuth(string $accessToken): array
 
 function plaidGetItem(string $accessToken): array
 {
+    if (simShouldMockIfLoaded('plaid')) {
+        require_once __DIR__ . '/../sim/mocks/plaid.php';
+        return simMockPlaidGetItem($accessToken);
+    }
     return plaidPost('/item/get', ['access_token' => $accessToken]);
 }
 
@@ -288,6 +302,10 @@ function plaidGetInstitution(string $institutionId): ?array
 
 function plaidSyncTransactions(string $accessToken, ?string $cursor, int $count = 250): array
 {
+    if (simShouldMockIfLoaded('plaid')) {
+        require_once __DIR__ . '/../sim/mocks/plaid.php';
+        return simMockPlaidSyncTransactions($accessToken, $cursor, $count);
+    }
     $body = ['access_token' => $accessToken, 'count' => $count];
     if ($cursor !== null && $cursor !== '') $body['cursor'] = $cursor;
     return plaidPost('/transactions/sync', $body);

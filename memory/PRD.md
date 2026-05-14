@@ -4519,3 +4519,81 @@ exercise replay + idempotency.
 ### New Vite bundle: `index-DFh-lnvh.js` / `index-Cwhpy62y.css`
 
 
+## Simulation Harness — H2.5 (production wiring) + H3 (CI) + Run-from-web (2026-02-XX) ✅
+
+H2.5 wires the H2 mocks into production service files so sim-flagged
+tenants never hit real APIs. H3 ships the CI scripts + GitHub Actions
+workflow. Run-from-web turns the harness into a one-click regression
+tool for non-engineers (the improvement we discussed).
+
+### H2.5 — Mock bridge into production
+- **`/app/core/sim_mock_bridge.php`** — `simShouldMockIfLoaded()`. The
+  contract: check the call-site env (`SIM_MODE`, `SIM_MOCK_<svc>`),
+  fall through to a per-tenant `tenants.is_simulation` lookup (cached
+  static), lazy-load the sim manager only when needed. Production
+  code paths that haven't loaded the sim tree return `false`
+  immediately — zero behavior change in prod.
+- **`core/plaid_service.php`**: opt-in guards on
+  `plaidExchangePublicToken`, `plaidGetAccounts`, `plaidGetItem`,
+  `plaidSyncTransactions` → `simMockPlaid*` short-circuits.
+- **`core/ai_service.php`**: `aiAsk()` short-circuits to
+  `simMockAiAsk()`, preserving the standard envelope shape
+  (`kind`, `content`, `confidence`, `citations`, `requires_human_review`,
+  `model`, `latency_ms`, `prompt_hash`, `response_hash`, `interaction_id`,
+  `sim:true`).
+- **`core/mailer.php`**: `sendEmail()` captures into `simMockSendEmail()`
+  before the SMTP connection opens. Validates inputs first so errors
+  still surface in tests.
+
+### H3 — CI scripts + GitHub Actions
+- **`scripts/ci_smoke_all.sh`**: runs every `tests/*_smoke.php`, skips
+  the 2 documented live-API integration tests, exits non-zero on any
+  failure.
+- **`scripts/ci_sim_scenarios.sh`**: dry-runs every scenario twice with
+  the same seed; asserts byte-identical normalized output (strips
+  `run_id` + `duration_ms`). 5 scenarios → **5/5 ✅** locally.
+- **`scripts/ci_sim_full.sh`**: nightly job — requires
+  `SIM_TENANT_ID` env, sets `SIM_MODE=1`, runs every scenario against
+  the sim tenant with full invariant checks.
+- **`.github/workflows/ci.yml`**: triggers on push/PR; PHP 8.2 via
+  `shivammathur/setup-php`; runs smoke + sim dry-run on every commit;
+  nightly job provisions MySQL 8.0 service container, applies
+  migrations, seeds sim tenant (`ci_seed_sim_tenant.php` — placeholder
+  scaffold for the seed script).
+
+### Run-from-web (one-click regression for non-engineers)
+- **`POST /api/admin/simulation_runs.php?action=run`** with body
+  `{scenario, seed?, tenant_id?}`:
+  - Validates scenario name against `^[a-z0-9_]+$` regex.
+  - Refuses non-sim-flagged target tenants (clean 422).
+  - Spawns the runner via `shell_exec` (synchronous, max 75s).
+  - Parses `run_id` from stdout; returns `{run_id, run, spawned_ms,
+    stdout_tail}` for the SPA.
+  - `escapeshellarg` on user-supplied scenario name; `realpath` on the
+    runner path (no shell injection surface).
+- **SPA `/sim`**:
+  - "Run" button per scenario (Scenarios tab) → POSTs → refreshes
+    runs list → opens the new run's detail panel.
+  - "Run again" button per row (Runs tab) → same scenario + same seed.
+  - "Copy CLI" button (renamed from Replay) preserves the original
+    CLI-copy behaviour for terminal users.
+  - All three buttons disabled while spawning to prevent dup-fire.
+
+### Tests
+- `tests/sim_harness_h2_5_h3_smoke.php`: **57/57 ✅**
+- `tests/sim_harness_h2_smoke.php`: **53/53 ✅** (updated for POST support)
+- `bash scripts/ci_smoke_all.sh`: **181 passed, 0 failed, 2 skipped** ✅
+- `bash scripts/ci_sim_scenarios.sh`: **5/5 scenarios, determinism-clean** ✅
+- Full PHP suite: **183/183 ✅**
+
+### Next up
+- **Phase 2a step 5 (kill-switch)**: 1 week of zero discipline-log fires
+  → fallback paths hard-error → remove `legacy_direct_fallback` flags.
+- **Phase 2 (Unified Financial State Cache)**: builds on clean event
+  log + reliable replay tooling that H1-H3 just delivered.
+- (Optional H4) AI-agent simulation per harness spec §22.
+- (Optional H5) Scale ramp to 100k/1M synthetic transactions per spec §19.
+
+### New Vite bundle: `index-DOFr99tN.js` / `index-Cwhpy62y.css`
+
+

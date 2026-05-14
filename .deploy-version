@@ -283,7 +283,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-DFh-lnvh.js
+- spa-assets/index-DOFr99tN.js
 - spa-assets/index-Cwhpy62y.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -786,6 +786,19 @@ last_known_features:
 - ui.sim.dashboard_runs_scenarios_discipline_tabs
 - ui.sim.dashboard_replay_copy_command
 - ui.dashboard.simulation_harness_quick_action
+- harness.h2_5.bridge_simShouldMockIfLoaded
+- harness.h2_5.plaid_service_4_guards
+- harness.h2_5.ai_service_aiAsk_short_circuit
+- harness.h2_5.mailer_sendEmail_short_circuit
+- harness.h2_5.per_tenant_is_simulation_cache
+- harness.h3.ci_smoke_all_script
+- harness.h3.ci_sim_scenarios_determinism_check
+- harness.h3.ci_sim_full_nightly_script
+- harness.h3.github_actions_workflow
+- harness.run_from_web.post_action_run_endpoint
+- harness.run_from_web.sim_tenant_guard
+- ui.sim.run_button_per_scenario
+- ui.sim.run_again_button_per_run
 - modules/staffing/manifest.php
 - modules/staffing/migrations/001_timesheets.sql
 - modules/staffing/migrations/002_timesheet_id_on_entries.sql

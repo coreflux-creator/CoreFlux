@@ -21,11 +21,24 @@
  */
 
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/sim_mock_bridge.php';
 
 function sendEmail(array $args): array {
     if (empty($args['to']))       throw new InvalidArgumentException('sendEmail: to is required');
     if (empty($args['subject']))  throw new InvalidArgumentException('sendEmail: subject is required');
     if (empty($args['body_text']))throw new InvalidArgumentException('sendEmail: body_text is required');
+
+    // Sim-mock short-circuit. Sim tenants OR env SIM_MODE=1 capture into
+    // the mock log instead of opening an SMTP connection.
+    if (simShouldMockIfLoaded('resend') || simShouldMockIfLoaded('email')) {
+        require_once __DIR__ . '/../sim/mocks/email.php';
+        return simMockSendEmail([
+            'to'      => is_array($args['to']) ? $args['to'] : [$args['to']],
+            'subject' => $args['subject'],
+            'html'    => $args['body_html'] ?? '',
+            'text'    => $args['body_text'] ?? '',
+        ]);
+    }
 
     // Lazy-load PHPMailer from the vendored copy
     $base = __DIR__ . '/../lib/PHPMailer/src';

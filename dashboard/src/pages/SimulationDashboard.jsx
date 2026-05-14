@@ -56,6 +56,7 @@ export default function SimulationDashboard() {
 
   const [selectedId, setSelectedId] = useState(null);
   const [detail,     setDetail]     = useState(null);
+  const [spawning,   setSpawning]   = useState(null); // scenario name being spawned
 
   // Filters (Runs tab)
   const [filterScenario, setFilterScenario] = useState('');
@@ -94,6 +95,23 @@ export default function SimulationDashboard() {
   const copyReplay = (run) => {
     const cmd = `php /app/sim/runner.php --scenario=${run.scenario_name} --seed=${run.seed} --tenant=${run.tenant_id || '<sim-tenant-id>'}`;
     try { navigator.clipboard.writeText(cmd); } catch { /* clipboard may be blocked */ }
+  };
+
+  // Run-from-web — synchronous POST to spawn the runner against the sim
+  // tenant. Up to 60s wait, then refresh the runs list so the new row
+  // shows up. Same code path the CLI uses (the endpoint just shell_execs
+  // /app/sim/runner.php).
+  const runScenario = async (scenarioName, seed = null) => {
+    setSpawning(scenarioName);
+    try {
+      const res = await api.post('/api/admin/simulation_runs.php?action=run', {
+        scenario: scenarioName,
+        ...(seed !== null ? { seed } : {}),
+      });
+      await load();
+      if (res?.run_id) openDetail(res.run_id);
+    } catch (e) { setError(e); }
+    finally     { setSpawning(null); }
   };
 
   const Tab = ({ id, label, count, testid }) => (
@@ -190,8 +208,11 @@ export default function SimulationDashboard() {
                     <td><StatusPill status={r.status} /></td>
                     <td>{r.duration_ms ? `${r.duration_ms}ms` : '—'}</td>
                     <td>
+                      <button className="btn btn--primary" data-testid={`sim-run-${r.id}-rerun`} onClick={() => runScenario(r.scenario_name, r.seed)} disabled={spawning === r.scenario_name}>
+                        {spawning === r.scenario_name ? 'Running…' : 'Run again'}
+                      </button>
                       <button className="btn btn--ghost" data-testid={`sim-run-${r.id}-detail`} onClick={() => openDetail(r.id)}>Details</button>
-                      <button className="btn btn--ghost" data-testid={`sim-run-${r.id}-replay`} onClick={() => copyReplay(r)} title="Copy reproduce-this-run command">Replay</button>
+                      <button className="btn btn--ghost" data-testid={`sim-run-${r.id}-replay`} onClick={() => copyReplay(r)} title="Copy reproduce-this-run command">Copy CLI</button>
                     </td>
                   </tr>
                 ))}
@@ -208,7 +229,7 @@ export default function SimulationDashboard() {
           ) : (
             <table className="data-table" data-testid="sim-scenarios-table">
               <thead>
-                <tr><th>Name</th><th>Description</th><th>Default seed</th><th style={{ textAlign: 'right' }}>Steps</th><th>Invariants</th></tr>
+                <tr><th>Name</th><th>Description</th><th>Default seed</th><th style={{ textAlign: 'right' }}>Steps</th><th>Invariants</th><th></th></tr>
               </thead>
               <tbody>
                 {scenarios.map(s => (
@@ -221,6 +242,16 @@ export default function SimulationDashboard() {
                       {(s.invariants || []).map(i => (
                         <span key={i} style={{ display: 'inline-block', padding: '1px 6px', marginRight: 4, marginBottom: 2, borderRadius: 4, background: 'rgba(99,102,241,0.12)', color: '#4338ca' }}>{i}</span>
                       ))}
+                    </td>
+                    <td>
+                      <button
+                        className="btn btn--primary"
+                        data-testid={`sim-scenario-${s.name}-run`}
+                        onClick={() => runScenario(s.name)}
+                        disabled={spawning === s.name}
+                      >
+                        {spawning === s.name ? 'Running…' : 'Run'}
+                      </button>
                     </td>
                   </tr>
                 ))}

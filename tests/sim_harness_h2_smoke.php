@@ -111,7 +111,7 @@ echo "\nAdmin API — /api/admin/simulation_runs.php\n";
 $ep = $read(__DIR__ . '/../api/admin/simulation_runs.php');
 $a('endpoint exists',                      $ep !== '');
 $a('requires auth',                        str_contains($ep, 'api_require_auth'));
-$a('GET-only',                             str_contains($ep, "api_method() !== 'GET'"));
+$a('GET + POST?action=run supported',      str_contains($ep, "\$method !== 'GET'") && str_contains($ep, "\$method === 'POST'"));
 $a('action=scenarios returns list',        str_contains($ep, "action === 'scenarios'") && str_contains($ep, 'simListScenarios'));
 $a('action=discipline returns recent fires', str_contains($ep, "action === 'discipline'") && str_contains($ep, 'module_emission_discipline_log'));
 $a('?id&detail returns run + assertions + replay',
