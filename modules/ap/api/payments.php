@@ -74,7 +74,23 @@ if ($method === 'GET') {
         'SELECT * FROM ap_payments WHERE ' . implode(' AND ', $where) . ' ORDER BY pay_date DESC, id DESC LIMIT 200',
         $params
     );
-    api_ok(['rows' => $rows, 'plaid_enabled' => apPlaidConfigured()]);
+    // Plaid Transfer link status — UI uses this to render an inline "Connect
+    // funding source" CTA when env is configured but the tenant hasn't linked.
+    $plaidLinked = false;
+    try {
+        $rail = scopedFind(
+            "SELECT status FROM tenant_payment_rails WHERE tenant_id = :tenant_id AND rail = 'plaid_transfer' LIMIT 1",
+            []
+        );
+        $plaidLinked = $rail && ($rail['status'] ?? '') === 'linked';
+    } catch (\Throwable $e) {
+        $plaidLinked = false;
+    }
+    api_ok([
+        'rows'                  => $rows,
+        'plaid_enabled'         => apPlaidConfigured(),
+        'plaid_transfer_linked' => $plaidLinked,
+    ]);
 }
 
 if ($method === 'POST' && $action === '') {

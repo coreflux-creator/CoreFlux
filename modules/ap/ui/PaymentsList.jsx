@@ -8,6 +8,7 @@ export default function PaymentsList() {
   const { data, loading, error, reload } = useApi('/modules/ap/api/payments.php');
   const rows = data?.rows ?? [];
   const plaidEnabled = !!data?.plaid_enabled;
+  const plaidTransferLinked = !!data?.plaid_transfer_linked;
   const [showRecord, setShowRecord] = useState(false);
   const [showAllocate, setShowAllocate] = useState(null); // payment row
   const [batching, setBatching]   = useState(false);
@@ -63,7 +64,20 @@ export default function PaymentsList() {
           <h3 style={{ margin: 0, fontSize: 16 }}>Vendor payments</h3>
           <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
             {plaidEnabled
-              ? <><span className="badge badge--success">Plaid Transfer ready</span> — ACH rail available.</>
+              ? (plaidTransferLinked
+                  ? <><span className="badge badge--success">Plaid Transfer ready</span> — ACH rail available.</>
+                  : (
+                      <span data-testid="ap-plaid-link-cta">
+                        <span className="badge" style={{ background: 'var(--cf-amber-bg, #fef3c7)', color: 'var(--cf-amber, #92400e)', padding: '2px 8px', borderRadius: 4 }}>
+                          Plaid configured — funding source not linked
+                        </span>
+                        {' '}
+                        <Link to="/modules/treasury/payout-rails" data-testid="ap-plaid-link-cta-link" style={{ marginLeft: 6 }}>
+                          Connect funding source →
+                        </Link>
+                      </span>
+                    )
+                )
               : <span data-testid="ap-plaid-disabled-notice">Plaid Transfer not configured — manual payment methods only (set PLAID_CLIENT_ID / PLAID_SECRET_SANDBOX to enable).</span>}
           </p>
         </div>

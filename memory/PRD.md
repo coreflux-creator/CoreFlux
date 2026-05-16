@@ -10,6 +10,48 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (Plaid Transfer AP pay-outs — Phase B wire-up complete, 2026-02 — this fork)
+**Closes the AP → bank-rail loop.** Backend webhook + event-sync cursor + driver were already in place; this session shipped the missing tenant-facing UI, the link-status API, and the comprehensive smoke test. AP bills can now be paid via Plaid Transfer ACH/RTP from end to end.
+
+### API contract additions — `api/plaid_transfer_link.php`
+- `GET ?action=status` — env-gated UI probe. Returns `{ configured, linked, rail: {status, item_id, account_id, linked_at} | null }`. Degrades gracefully when migration 005 hasn't been applied (returns `linked=false`, `rail=null`). RBAC: `accounting.bank.manage`. **No Plaid API call** — pure DB read so the settings page renders instantly.
+- `POST ?action=disconnect` — soft-revokes the rail row (`status='revoked'`) so the tenant can re-link cleanly. Preserves the row for audit. Emits `payment_rails.plaid.disconnected` audit event.
+- Existing actions preserved: `POST` (link_token), `POST ?action=exchange` (public_token + account_id → tenant_payment_rails upsert with encrypted access_token, emits `payment_rails.plaid.linked`).
+
+### API contract additions — `modules/ap/api/payments.php`
+- `GET` now returns `plaid_transfer_linked: boolean` alongside `plaid_enabled`. UI uses this to render an inline "Connect funding source" CTA when env is configured but the tenant hasn't linked.
+- Try/catch around the rail lookup so tenants without migration 005 applied don't see an API error.
+
+### Frontend — `dashboard/src/components/PlaidTransferLinkButton.jsx` (new, ~140 lines)
+- Lazy-loads `https://cdn.plaid.com/link/v2/stable/link-initialize.js` (shared module-level promise so multiple mounts share one script tag).
+- Pre-fetches the link_token on mount → "Connect funding source" is instant on click.
+- State machine: `idle → loading → ready → linking → exchanging → done | error`.
+- `onSuccess` extracts `metadata.accounts[0].id` (Plaid Link returns it when the user picks the funding account) and POSTs `{public_token, account_id}` to `?action=exchange`.
+- Distinct from the generic `<PlaidLinkButton />` because the funding-source flow uses `/api/plaid_transfer_link.php` (writes to `tenant_payment_rails`, gated by `accounting.bank.manage`) instead of `/api/plaid_link_token` + `/api/plaid_exchange` (writes to `plaid_items`, bank-feed scope).
+
+### Frontend — `modules/treasury/ui/PlaidTransferSettings.jsx` (new, ~150 lines)
+- New "Pay-out Rails" tab in TreasuryModule (`/modules/treasury/payout-rails`).
+- Three render branches keyed off `?action=status`:
+  - **Not configured** → muted notice instructing pod operator to set `PLAID_CLIENT_ID` + `PLAID_SECRET_*`.
+  - **Configured + not linked** → amber "Not linked" badge + `<PlaidTransferLinkButton />`.
+  - **Configured + linked** → green "✓ Linked" badge + Plaid item / funding account / linked-at metadata + Disconnect CTA (with `window.confirm` guard).
+- Testids: `plaid-transfer-settings`, `plaid-transfer-not-configured`, `plaid-transfer-not-linked`, `plaid-transfer-linked`, `plaid-transfer-disconnect-btn`, `plaid-transfer-item-id`, `plaid-transfer-account-id`, `plaid-transfer-flash-success`, `plaid-transfer-flash-error`.
+
+### Frontend — `modules/ap/ui/PaymentsList.jsx` inline CTA
+- Amber "Plaid configured — funding source not linked" pill rendered next to the Vendor payments header, with a deep link to `/modules/treasury/payout-rails`. Only shows when `plaid_enabled=true && plaid_transfer_linked=false`. Testids `ap-plaid-link-cta` + `ap-plaid-link-cta-link`. Preserves existing "ready" badge and "disabled" notice branches.
+
+### Validation
+- `tests/plaid_transfer_smoke.php` — **103 ✓ / 0 fail** covering: migration 047 shape + idempotency UNIQUEs + utf8mb4_unicode_ci, `plaidTransferMapEventStatus` mapping (8 event types), `plaidTransferSync` contract (cursor read/upsert, pagination via after_id + has_more, INSERT IGNORE event persistence, ap_payments update by rail_external_ref filtered to disbursement_rail='plaid_transfer', envelope shape, all 3 error branches), webhook (JWT verify, raw-payload persistence, 200-on-signature-fail no-retry-storm, multi-tenant fan-out on TRANSFER_EVENTS_UPDATE, processed_at marker), link API (RBAC, all 4 actions, encryption, audit events, graceful degradation, 503 gate, method allowlist), driver contract (name, isConfigured env probe, originate guard, two-step authorization+transfer, idempotency_key), all UI JSX (lazy CDN, exchange POST, state machine, all testids, default exports), TreasuryModule wiring, PaymentsList inline CTA, payments.php API flag, plus `php -l` syntax sanity on 3 backend files.
+- Full PHP smoke suite green: **190 smoke files, 0 unexpected failures.**
+- Vite rebuilt via postbuild hook → `index-Cq3sNZKg.js` / `index-BC5g6YJu.css`. `.deploy-version` + `spa-assets/` + `sprint6b_dashboard_uis_smoke.php` expected hash all in sync.
+
+### Deploy notes
+- Cloudways host needs `PLAID_CLIENT_ID` + `PLAID_SECRET_SANDBOX` (and `PLAID_SECRET_PRODUCTION` when going live). Without these, the Pay-out Rails tab renders the muted "Not configured" branch and never errors.
+- Webhook URL in the Plaid Dashboard "Transfer" section: `https://<host>/api/plaid_transfer_webhook.php`. Distinct from the generic `/api/plaid_webhook.php` for items/transactions so transfer-event traffic doesn't co-mingle.
+- Migration `047_plaid_transfer_cursor.sql` and `005_payment_rails.sql` both need to be applied; `deploy/run_migrations.php` picks them up automatically.
+
+
+
 ## Backlog (2026-02 additions)
 - **P3 Smoke-test defensive helpers** — Add `tests/_smoke_helpers.php` with an `assertAllPresent($text, [...])` helper to standardize compound substring checks. Migrate fragile multi-needle `preg_match` patterns in the smoke suite over to compound `str_contains` calls so they survive code refactors without false fails. (Triggered by 5 stale-pattern failures during the Phase 2 AI rollout.)
 

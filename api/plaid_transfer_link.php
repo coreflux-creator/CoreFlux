@@ -2,15 +2,18 @@
 /**
  * Plaid Transfer — funding-source link + exchange endpoints (tenant-scoped).
  *
- * Two-step flow per Plaid playbook:
- *   1. POST /api/plaid_transfer_link.php           → creates a Link token
- *   2. POST /api/plaid_transfer_link.php?action=exchange
- *      body: { public_token, account_id }         → persists in tenant_payment_rails
+ * Three-step flow per Plaid playbook:
+ *   GET  /api/plaid_transfer_link.php?action=status        → { configured, linked, rail }
+ *   POST /api/plaid_transfer_link.php                      → creates a Link token
+ *   POST /api/plaid_transfer_link.php?action=exchange
+ *      body: { public_token, account_id }                  → persists in tenant_payment_rails
+ *   POST /api/plaid_transfer_link.php?action=disconnect    → soft-revokes the rail
  *
- * After step 2, PlaidTransferDriver::originate() can disburse from the
+ * After exchange, PlaidTransferDriver::originate() can disburse from the
  * stored funding account_id without further user interaction.
  *
- * Permission: `accounting.bank.manage`. Audit: payment_rails.plaid.linked.
+ * Permission: `accounting.bank.manage`. Audit: payment_rails.plaid.linked /
+ * payment_rails.plaid.disconnected.
  */
 declare(strict_types=1);
 
@@ -23,12 +26,61 @@ $user = $ctx['user'];
 $tenantId = (int) $ctx['tenant_id'];
 RBAC::requirePermission($user, 'accounting.bank.manage');
 
-if (api_method() !== 'POST') api_error('Method not allowed', 405);
+$action = (string) ($_GET['action'] ?? 'link_token');
+$method = api_method();
+
+// GET ?action=status — UI probe (no Plaid call, no env-gate; reveals whether
+// config + link are both done so the UI can render the right CTA).
+if ($method === 'GET' && $action === 'status') {
+    $configured = plaidConfigured();
+    $row = null;
+    try {
+        $pdo  = getDB();
+        $stmt = $pdo->prepare(
+            "SELECT item_id, account_id, status, created_at, updated_at
+               FROM tenant_payment_rails
+              WHERE tenant_id = :t AND rail = 'plaid_transfer' LIMIT 1"
+        );
+        $stmt->execute(['t' => $tenantId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+    } catch (\Throwable $e) {
+        // Migration 005 may not be run yet — degrade gracefully.
+        $row = null;
+    }
+    api_ok([
+        'configured' => $configured,
+        'linked'     => $row && ($row['status'] ?? '') === 'linked',
+        'rail'       => $row ? [
+            'status'     => $row['status'],
+            'item_id'    => $row['item_id'],
+            'account_id' => $row['account_id'],
+            'linked_at'  => $row['updated_at'] ?: $row['created_at'],
+        ] : null,
+    ]);
+}
+
+if ($method !== 'POST') api_error('Method not allowed', 405);
+
+// POST ?action=disconnect — soft-revoke the linked funding source so the
+// tenant can re-link cleanly. Keeps the row for audit, flips status='revoked'.
+if ($action === 'disconnect') {
+    try {
+        $pdo = getDB();
+        $pdo->prepare(
+            "UPDATE tenant_payment_rails
+                SET status = 'revoked', updated_at = NOW()
+              WHERE tenant_id = :t AND rail = 'plaid_transfer'"
+        )->execute(['t' => $tenantId]);
+    } catch (\Throwable $e) {
+        api_error('Disconnect failed: ' . $e->getMessage(), 500);
+    }
+    plaidAudit('payment_rails.plaid.disconnected', ['tenant_id' => $tenantId], null);
+    api_ok(['ok' => true, 'status' => 'revoked']);
+}
+
 if (!plaidConfigured()) {
     api_error('Plaid not configured (PLAID_CLIENT_ID / PLAID_SECRET_*)', 503);
 }
-
-$action = (string) ($_GET['action'] ?? 'link_token');
 
 if ($action === 'link_token') {
     // Create a Link token scoped to Transfer authorization.
