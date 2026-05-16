@@ -10,6 +10,11 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Backlog (2026-02 additions)
+- **P3 Smoke-test defensive helpers** — Add `tests/_smoke_helpers.php` with an `assertAllPresent($text, [...])` helper to standardize compound substring checks. Migrate fragile multi-needle `preg_match` patterns in the smoke suite over to compound `str_contains` calls so they survive code refactors without false fails. (Triggered by 5 stale-pattern failures during the Phase 2 AI rollout.)
+
+
+
 ## Recently completed (Phase 2 AI v1 — rule-competing AI, 2026-02)
 **P1 keystone: AI proposes business-rule tweaks, the system replays recent events through both rules deterministically, and operators review the diff before accepting.** Built on the simulation harness + Phase 2a clean event layer + the Financial State Cache, all of which were prerequisites.
 
