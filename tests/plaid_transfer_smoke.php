@@ -239,11 +239,39 @@ $a('still surfaces ready badge when linked',
     $c($pl, 'Plaid Transfer ready'));
 $a('still surfaces disabled notice when not configured',
     $c($pl, 'data-testid="ap-plaid-disabled-notice"'));
+$a('plaidEligible() guard requires linked + method=plaid + status=sent + no rail_ref',
+    $c($pl, 'plaidTransferLinked &&') &&
+    $c($pl, "p.method === 'plaid'") &&
+    $c($pl, "p.status === 'sent'") &&
+    $c($pl, '!p.rail_external_ref'));
+$a('per-row "Send via Plaid" button testid',
+    $c($pl, 'data-testid={`ap-send-via-plaid-${p.id}`}'));
+$a('per-row Send-via-Plaid POSTs originate?rail=plaid_transfer',
+    $c($pl, "?action=originate&id=") && $c($pl, "&rail=plaid_transfer"));
+$a('per-row error/success affordances rendered',
+    $c($pl, 'ap-send-via-plaid-error-') && $c($pl, 'ap-send-via-plaid-ok-'));
+
+// ----------------------------------------------------------------- API: originate accepts rail override
+echo "\nAPI — originate rail override\n";
+$apPath = __DIR__ . '/../modules/ap/api/payments.php';
+$ap = (string) file_get_contents($apPath);
+$a('originate action accepts ?rail= query param',
+    $c($ap, "(string) (\$_GET['rail'] ?? '')"));
+$a('rail override allowlist (nacha / plaid_transfer)',
+    $c($ap, "['nacha', 'plaid_transfer']"));
+$a('rail override mutates row.disbursement_rail before dispatch',
+    $c($ap, "\$row['disbursement_rail'] = \$railOverride"));
+
+// ----------------------------------------------------------------- dispatch passes tenant_id
+echo "\ncore/payment_rails/originate_helpers.php — tenant_id passthrough\n";
+$oh = (string) file_get_contents(__DIR__ . '/../core/payment_rails/originate_helpers.php');
+$a("dispatch opts['tenant_id'] populated for driver",
+    $c($oh, "'tenant_id'       => isset(\$sourceRow['tenant_id'])"));
+$a('falls back to currentTenantContext when missing',
+    $c($oh, 'currentTenantContext'));
 
 // ----------------------------------------------------------------- API: payments.php returns flag
 echo "\nAPI — modules/ap/api/payments.php\n";
-$apPath = __DIR__ . '/../modules/ap/api/payments.php';
-$ap = (string) file_get_contents($apPath);
 $a('returns plaid_transfer_linked in GET response',
     $c($ap, "'plaid_transfer_linked' => \$plaidLinked"));
 $a('reads tenant_payment_rails row before returning',

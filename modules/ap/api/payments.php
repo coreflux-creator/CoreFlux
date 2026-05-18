@@ -321,6 +321,18 @@ if ($method === 'POST' && $action === 'originate') {
     if (!in_array($row['method'], ['ach','plaid'], true)) api_error('Originate only supports ach/plaid methods', 422);
     if (!empty($row['rail_external_ref']))      api_error('Already originated on rail ' . $row['disbursement_rail'], 409);
 
+    // Optional per-call rail override (?rail=plaid_transfer). Used by the
+    // PaymentsList "Send via Plaid" per-row button so the UI can pick the rail
+    // explicitly instead of relying on the tenant's default ap_settings rail.
+    $railOverride = trim((string) ($_GET['rail'] ?? ''));
+    if ($railOverride !== '') {
+        $allowedRails = ['nacha', 'plaid_transfer'];
+        if (!in_array($railOverride, $allowedRails, true)) {
+            api_error("rail override must be one of: " . implode(', ', $allowedRails), 422);
+        }
+        $row['disbursement_rail'] = $railOverride;
+    }
+
     // Pull vendor banking + tenant settings.
     $vendor = scopedFind(
         'SELECT id, vendor_name, vendor_type, vendor_category, payment_routing_ct,

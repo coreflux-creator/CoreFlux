@@ -17,6 +17,28 @@ export default function PaymentsList() {
 
   const sel = useBulkSelection(rows.map(r => r.id));
 
+  // Per-row Plaid Transfer origination state (id → 'busy' | { error } | { ok })
+  const [plaidRow, setPlaidRow] = useState({});
+
+  const sendViaPlaid = async (p) => {
+    setPlaidRow(s => ({ ...s, [p.id]: 'busy' }));
+    try {
+      const res = await api.post(`/modules/ap/api/payments.php?action=originate&id=${p.id}&rail=plaid_transfer`, {});
+      setPlaidRow(s => ({ ...s, [p.id]: { ok: true, ref: res.rail_external_ref || res.batch_id } }));
+      reload();
+    } catch (e) {
+      setPlaidRow(s => ({ ...s, [p.id]: { error: e.message || String(e) } }));
+    }
+  };
+  // Eligibility for the per-row "Send via Plaid" button — must be a sent
+  // payment with method=plaid that hasn't been originated yet, and the
+  // tenant must have linked a funding source.
+  const plaidEligible = (p) =>
+    plaidTransferLinked &&
+    p.method === 'plaid' &&
+    p.status === 'sent' &&
+    !p.rail_external_ref;
+
   // Eligibility for NACHA batch: ach|plaid method, status draft|queued|sent (without rail_external_ref).
   const isOriginatable = (p) =>
     ['ach','plaid'].includes(p.method) &&
@@ -163,6 +185,28 @@ export default function PaymentsList() {
               <td>
                 {Number(p.unallocated_amount) > 0 && (
                   <button className="btn btn--ghost" data-testid={`ap-allocate-open-${p.id}`} onClick={() => setShowAllocate(p)}>Allocate</button>
+                )}
+                {plaidEligible(p) && (
+                  <button
+                    className="btn btn--primary"
+                    style={{ marginLeft: 6 }}
+                    onClick={() => sendViaPlaid(p)}
+                    disabled={plaidRow[p.id] === 'busy'}
+                    data-testid={`ap-send-via-plaid-${p.id}`}
+                    title="Originate this payment as a Plaid Transfer ACH"
+                  >
+                    {plaidRow[p.id] === 'busy' ? 'Sending…' : 'Send via Plaid'}
+                  </button>
+                )}
+                {plaidRow[p.id] && plaidRow[p.id].error && (
+                  <div data-testid={`ap-send-via-plaid-error-${p.id}`} style={{ fontSize: 11, color: 'var(--cf-red, #b91c1c)', marginTop: 4 }}>
+                    {plaidRow[p.id].error}
+                  </div>
+                )}
+                {plaidRow[p.id] && plaidRow[p.id].ok && (
+                  <div data-testid={`ap-send-via-plaid-ok-${p.id}`} style={{ fontSize: 11, color: 'var(--cf-green, #047857)', marginTop: 4 }}>
+                    ✓ Originated ({plaidRow[p.id].ref})
+                  </div>
                 )}
               </td>
             </tr>

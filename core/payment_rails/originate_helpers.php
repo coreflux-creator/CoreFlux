@@ -101,6 +101,9 @@ function paymentRailsDispatch(string $module, array $sourceRow, array $settings,
         'origin_routing'  => (string) ($settings['nacha_origin_routing']  ?? ''),
         'service_class'   => 'credits_only',
         'effective_date'  => (string) ($sourceRow['effective_date'] ?? date('Y-m-d', strtotime('+1 day'))),
+        'tenant_id'       => isset($sourceRow['tenant_id']) ? (int) $sourceRow['tenant_id']
+                              : (isset($settings['tenant_id']) ? (int) $settings['tenant_id']
+                              : (function_exists('currentTenantContext') ? (int) (currentTenantContext()['tenant_id'] ?? 0) : 0)),
     ];
     $res = $driver->originate($items, $opts);
     $res['rail'] = $rail;
