@@ -10,6 +10,83 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (Mercury Bank — Slice 3: Payment Engine + State Machine, 2026-02 — this fork)
+**The gated payments workflow is now executable end-to-end.** This is the slice the user explicitly described: debit external funding account → credit Mercury operating → verify clearance → only then push ACH to vendor.
+
+### Schema — migration `050_mercury_payments.sql`
+- `payment_instructions` — ONE row tracks BOTH legs of the gated workflow. State `ENUM` covers all 10 states: `Draft`, `PendingApproval`, `Approved`, `Funding`, `Submitted`, `Settled`, `Reconciled`, `Failed`, `Returned`, `Cancelled`.
+- Two parallel column families on the same row: funding leg (`funding_recipient_id`, `funding_mercury_txn_id`, `funding_mercury_status`, `funding_initiated_at`, `funding_settled_at`, `funding_last_polled_at`) + payout leg (`operating_mercury_account_id`, `payout_mercury_txn_id`, `payout_mercury_status`, `payout_initiated_at`, `payout_settled_at`, `payout_last_polled_at`).
+- `idempotency_key VARCHAR(80)` + `UNIQUE (tenant_id, idempotency_key)` — every workflow row gets a deterministic key, propagated as `pi:{key}:funding` and `pi:{key}:payout` to Mercury so retries are safe.
+- `source_module` / `source_ref` columns ready for Slice 3.5 AP-module bill auto-enrollment.
+- `payment_instruction_audit` — every state transition writes a row here PLUS a `mercury.payment.transition` event into `audit_log` (best-effort).
+
+### State machine — `core/mercury_payments.php::mpTransitionAllowed()`
+Codified matrix that **refuses** illegal jumps. The unit-test functional block in the smoke validates 17 specific transition rules including:
+- `Draft → Approved` REFUSED (must go through PendingApproval)
+- `Approved → Submitted` REFUSED (must go through Funding first — this is THE workflow gate)
+- `Funding → Settled` REFUSED (must go through Submitted)
+- `Submitted → Cancelled` REFUSED (too late to cancel a wire that's been sent)
+- All four terminal states locked: `Failed`, `Returned`, `Cancelled`, `Reconciled` allow zero outbound transitions.
+
+### Transition primitive — `mpTransition()`
+- Wraps every state change in a transaction with `SELECT … FOR UPDATE` so concurrent workers can't race the same row.
+- Idempotent on same-state writes (returns false, no rollback noise).
+- Allowlists the `patch` column names against `/^[a-z0-9_]+$/` so dynamic SQL can't be poisoned.
+- Writes to `payment_instruction_audit` AND emits a cross-module `audit_log` event in one shot.
+
+### Workflow orchestrator — `mpAdvance()`
+The single worker entry point. Drives ONE row one step:
+- **`Approved → Funding`** (`mpOriginateFunding`): looks up `mercury_connections.default_funding_recipient_id` + `default_mercury_account_id`, refuses if either is unset, looks up the `external_account` mapping for the funding recipient, refuses if that's unset (with explicit error message pointing the operator at the right Mercury UI step). Calls `mercuryCreatePayment` with the `:funding` idempotency key. On `MercuryApiException` → `Failed` with the error message persisted.
+- **`Funding → Submitted`** (`mpVerifyAndOriginatePayout`): polls Mercury for the funding txn status. Treats `settled`/`posted`/`sent` as cleared. On `failed`/`cancelled` → `Failed`; on `returned` → `Returned`; on still-pending → bumps `funding_last_polled_at` and stays in Funding. Once cleared, marks `funding_settled_at`, looks up the vendor `counterparty` mapping (refuses if not yet pushed), then calls `mercuryCreatePayment` again with the `:payout` idempotency key to debit operating → credit vendor.
+- **`Submitted → Settled`** (`mpPollPayoutStatus`): polls the payout txn. `settled`/`posted` → `Settled`; `failed`/`cancelled` → `Failed`; `returned` → `Returned`; pending → stays in Submitted.
+- Transient adapter exceptions in either poll stage are caught and treated as "try again next tick" — the row never gets stuck.
+
+### Adapter additions — `core/mercury_adapter.php`
+- `mercuryCreatePayment($token, $accountId, $payload)` → `POST /account/{id}/transactions`. Used for **both** funding pulls (recipientId = `external_account` id) and vendor payouts (recipientId = `counterparty` id). Validates `recipientId`, `amount`, `paymentMethod`, `idempotencyKey` are all present.
+- `mercuryGetPaymentStatus($token, $accountId, $txnId)` → `GET /account/{id}/transaction/{id}`. Drives both poll stages.
+
+### CRUD + user actions — `core/mercury_payments.php`
+- `mpCreate` — validates `recipient_id` exists with `kind=vendor` AND `status=active`, refuses `amount_cents <= 0`, auto-generates an `idempotency_key` when blank (`pi_YYYYmmdd-HHiiss_<6 random bytes>`).
+- `mpSubmitForApproval` — `Draft → PendingApproval`.
+- `mpApprove` — `PendingApproval → Approved`, **enforces Segregation of Duties** by refusing self-approval (creator ≠ approver) at the service layer (not just the UI).
+- `mpRejectToDraft`, `mpCancel`.
+- `mpList(tenant, {state?})`, `mpGet(tenant, id)`.
+
+### API — `/api/mercury_payments.php`
+7 routes:
+- `GET ?id=N` returns the row + eager-loaded `payment_instruction_audit` trail.
+- `GET ?state=Approved` filters.
+- `POST` (no action) creates a Draft.
+- `POST ?action=submit|approve|reject|cancel|advance&id=N`.
+- RBAC: writes need `accounting.bank.manage`; reads accept either `accounting.bank.view` or `accounting.bank.manage`. SoD enforced at the service layer.
+
+### Worker — `cron/mercury_payment_worker.php`
+- Selects every row in `Approved | Funding | Submitted` across all tenants, ordered by `state_changed_at ASC` (oldest first → fairness). Caps `$MAX_PER_TENANT = 50` per run so one busy tenant can't starve others.
+- Calls `mpAdvance()` per row. Per-row try/catch — one bad row never aborts the rest. Suggested cron: `*/5 * * * *`.
+
+### UI — `modules/treasury/ui/MercuryPayments.jsx`
+- New top-level tab "Mercury Payments" in TreasuryModule (`/modules/treasury/mercury-payments`). Distinct from the Pay-out Rails settings tab.
+- Header explains the gated workflow in plain English so operators understand the state pill they're looking at.
+- Color-coded state pills for all 10 states. Per-row action buttons rendered only for legal transitions:
+  - Draft → Submit
+  - PendingApproval → Approve / Reject (Reject opens a `window.prompt` for the reason)
+  - Approved/Funding/Submitted → "Run worker" (manual trigger; cron does this every 5 min)
+  - Draft/PendingApproval/Approved → Cancel (with `window.confirm`)
+- "Audit" CTA opens a modal showing the full state-transition history + raw row JSON for debugging.
+- Create modal: recipient picker (`?kind=vendor` only), USD amount, description (≤ 50 chars, shown on bank statement), internal notes. Amount → cents conversion in JS.
+- Testids cover every actionable element: `mercury-payments`, `mercury-payment-{create-btn,save-btn,recipient,amount,description}`, per-row `mercury-payment-{state,submit,approve,reject,advance,cancel,detail}-{id}`, modals `mercury-payment-{create-modal,detail-modal,audit-table}`.
+
+### Validation
+- `tests/mercury_payments_smoke.php` — **134 ✓ / 0 fail.** Covers migration shape + ENUM + UNIQUE + both column families, adapter additions (URL + idempotency requirement + path encoding), state machine matrix (17 functional transition assertions including all the critical refusals), service contract (SoD enforcement, all CRUD + action helpers, illegal-transition refusal, SELECT-FOR-UPDATE lock, anti-injection allowlist, transactional rollback), orchestrator (all 3 stages + every error branch), API contract (7 routes, RBAC split, validation), worker contract (state filter, fairness ordering, per-tenant cap, exit-code semantics), UI JSX (every testid, state color map for all 10 states, conditional CTAs by state, cents conversion, debit→verify→submit docstring), TreasuryModule wiring, **functional adapter round-trip via injected stub** (createPayment URL shape, idempotencyKey body propagation, status response parsing, 3 validation rejection paths), and `php -l` syntax sanity on 4 backend files.
+- Full PHP smoke suite — **193 smoke files, 0 failures.** Vite bundle `index-Belgdvhg.js`; `.deploy-version` + `spa-assets/` + sprint6b expected hash all in sync via postbuild hook.
+
+### What this unlocks for Slice 4 (Reconciliation)
+- `payment_instructions.payout_mercury_txn_id` provides the join key that Slice 4's `ReconciliationService` will use to match `mercury_transactions` rows back to the originating payment.
+- `state=Settled` is the trigger; `state=Reconciled` is the target. The matrix is already wired (`Settled → Reconciled` is the only allowed transition).
+- Slice 4 will also add `funding_transfers` as an optional ledger view if the operator wants per-funding-event analytics, but the gated workflow itself is fully functional today.
+
+
+
 ## Recently completed (Mercury Bank — Slice 2: Recipient Vault + Funding-Source Designation, 2026-02 — this fork)
 **Slice 2 of the Mercury MVP per the user-clarified payments workflow.** Models BOTH outgoing payment recipients (vendors → Mercury counterparties) AND tenant-owned external funding accounts (Mercury debits this to pre-fund operating before pushing ACH to a vendor). The spec'd flow that Slice 3 will implement:
 1. AP approves payment with a vendor recipient.

@@ -7,6 +7,7 @@ import SavedRules         from './SavedRules';
 import PlaidTransferSettings from './PlaidTransferSettings';
 import MercurySettings from './MercurySettings';
 import MercuryRecipients from './MercuryRecipients';
+import MercuryPayments from './MercuryPayments';
 import LiquidityForecast        from '../../../dashboard/src/pages/LiquidityForecast';
 import TreasuryScenario         from '../../../dashboard/src/pages/TreasuryScenario';
 import TreasuryScenarioCompare  from '../../../dashboard/src/pages/TreasuryScenarioCompare';
@@ -29,6 +30,7 @@ export default function TreasuryModule({ session }) {
         <TreasuryTab to="liabilities" label="Liability Accounts" />
         <TreasuryTab to="rules"       label="Saved Rules" />
         <TreasuryTab to="payout-rails" label="Pay-out Rails" />
+        <TreasuryTab to="mercury-payments" label="Mercury Payments" />
       </nav>
       <Routes>
         <Route index                element={<Navigate to="overview" replace />} />
@@ -40,6 +42,7 @@ export default function TreasuryModule({ session }) {
         <Route path="liabilities/*" element={<LiabilityAccounts session={session} />} />
         <Route path="rules"         element={<SavedRules session={session} />} />
         <Route path="payout-rails"  element={<><PlaidTransferSettings /><MercurySettings /><MercuryRecipients /></>} />
+        <Route path="mercury-payments" element={<MercuryPayments />} />
         <Route path="*"             element={<Navigate to="overview" replace />} />
       </Routes>
     </div>

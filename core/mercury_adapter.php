@@ -192,3 +192,47 @@ function mercuryListCounterparties(string $apiToken, array $opts = []): array
  * passed will be the external_account id of the tenant's funding source,
  * not a vendor counterparty.
  */
+
+// ============================================================================
+// Slice 3: Payment origination + status polling
+// ============================================================================
+
+/**
+ * POST /account/{accountId}/transactions — originate a transaction.
+ *
+ * Used for BOTH directions:
+ *   - Funding pull: $payload.recipientId = external_account id (funding_source mapping)
+ *   - Vendor payout: $payload.recipientId = counterparty id (vendor mapping)
+ *
+ * Mercury's response shape includes `id` (transaction id) + `status`
+ * (typically 'pending' on creation). Caller persists both into the
+ * appropriate payment_instructions columns.
+ *
+ * Idempotency: caller passes a unique `idempotencyKey` in the payload;
+ * Mercury short-circuits duplicate POSTs by returning the existing txn.
+ */
+function mercuryCreatePayment(string $apiToken, string $accountId, array $payload): array
+{
+    if ($accountId === '') {
+        throw new MercuryApiException('mercuryCreatePayment: accountId required');
+    }
+    foreach (['recipientId', 'amount', 'paymentMethod', 'idempotencyKey'] as $k) {
+        if (empty($payload[$k])) {
+            throw new MercuryApiException("mercuryCreatePayment: payload.{$k} required");
+        }
+    }
+    return mercuryCall($apiToken, 'POST', '/account/' . rawurlencode($accountId) . '/transactions', $payload);
+}
+
+/**
+ * GET /account/{accountId}/transaction/{txnId} — poll a single transaction.
+ * Returns Mercury's body; the `status` field drives the state machine.
+ */
+function mercuryGetPaymentStatus(string $apiToken, string $accountId, string $txnId): array
+{
+    if ($accountId === '' || $txnId === '') {
+        throw new MercuryApiException('mercuryGetPaymentStatus: accountId + txnId required');
+    }
+    return mercuryCall($apiToken, 'GET',
+        '/account/' . rawurlencode($accountId) . '/transaction/' . rawurlencode($txnId));
+}
