@@ -142,3 +142,53 @@ function mercuryListTransactions(string $apiToken, string $accountId, array $opt
     if ($qs) $path .= '?' . http_build_query($qs);
     return mercuryCall($apiToken, 'GET', $path);
 }
+
+// ============================================================================
+// Slice 2: Recipients (counterparties) + External funding accounts
+// ============================================================================
+
+/**
+ * POST /recipients — create a Mercury counterparty (vendor) the operating
+ * account can pay via ACH/wire/check.
+ *
+ * Mercury's `/recipients` endpoint expects:
+ *   { name, emails: [], paymentMethod: 'ach', defaultPaymentMethod: 'ach',
+ *     electronicRoutingInfo: { electronicAccountType, routingNumber, accountNumber, ... } }
+ *
+ * Callers shape $payload to match. Returns raw Mercury body.
+ */
+function mercuryCreateCounterparty(string $apiToken, array $payload): array
+{
+    if (!is_array($payload) || empty($payload['name'])) {
+        throw new MercuryApiException('mercuryCreateCounterparty: payload.name required');
+    }
+    return mercuryCall($apiToken, 'POST', '/recipients', $payload);
+}
+
+/** GET /recipients — list Mercury counterparties. */
+function mercuryListCounterparties(string $apiToken, array $opts = []): array
+{
+    $qs = [];
+    foreach (['limit', 'offset', 'search'] as $k) {
+        if (isset($opts[$k]) && $opts[$k] !== '') $qs[$k] = (string) $opts[$k];
+    }
+    $path = '/recipients';
+    if ($qs) $path .= '?' . http_build_query($qs);
+    return mercuryCall($apiToken, 'GET', $path);
+}
+
+/**
+ * Slice 2 NOTE on external funding accounts:
+ *
+ * Mercury's API does not expose a public endpoint to programmatically
+ * register a tenant's external bank account as a fundable source — that
+ * still happens manually inside the Mercury web UI (per current Mercury
+ * docs). The mercury_recipient_mappings row for a `kind=funding_source`
+ * therefore stores the EXISTING external_account id the operator copies
+ * out of Mercury, rather than one CoreFlux creates over the wire.
+ *
+ * Slice 3 will originate the funding pull via the same `/account/{id}/
+ * transactions` POST that originates outbound ACH — the recipient id
+ * passed will be the external_account id of the tenant's funding source,
+ * not a vendor counterparty.
+ */

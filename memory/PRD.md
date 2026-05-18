@@ -10,6 +10,59 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (Mercury Bank — Slice 2: Recipient Vault + Funding-Source Designation, 2026-02 — this fork)
+**Slice 2 of the Mercury MVP per the user-clarified payments workflow.** Models BOTH outgoing payment recipients (vendors → Mercury counterparties) AND tenant-owned external funding accounts (Mercury debits this to pre-fund operating before pushing ACH to a vendor). The spec'd flow that Slice 3 will implement:
+1. AP approves payment with a vendor recipient.
+2. Mercury DEBITs the tenant's designated `default_funding_recipient` (kind=`funding_source`) and CREDITs the Mercury operating account (`default_mercury_account_id`).
+3. Poll Mercury transactions until that specific funding transfer is `settled` / cleared.
+4. ONLY then originate the outbound ACH from Mercury → vendor counterparty.
+
+### Schema — migration `049_mercury_recipients.sql`
+- `mercury_recipients` — `kind` ENUM `vendor|funding_source`, `payment_method` ENUM `ach|wire|check`, `status` ENUM `draft|active|revoked`, soft-delete via `deleted_at`.
+- `mercury_recipient_bank_methods` — `routing_number_ct` + `account_number_ct` `VARBINARY(512)` (AES-256-GCM), `account_number_last4` for UI masking, `account_type` ENUM `checking|savings`, `is_default` flag per-recipient.
+- `mercury_recipient_mappings` — `mercury_kind` ENUM `counterparty|external_account` discriminator + UNIQUE `(tenant, recipient, mercury_kind)` so re-pushes are idempotent. The same local recipient *could* have both mapping kinds (rare but modeled).
+- `mercury_connections` extended via `information_schema`-guarded ALTERs: `default_funding_recipient_id INT UNSIGNED NULL` + `default_mercury_account_id VARCHAR(80) NULL`. Slice 3 reads both at payment-approval time.
+
+### Adapter additions — `core/mercury_adapter.php`
+- `mercuryCreateCounterparty($token, $payload)` → POST `/recipients`. Validates `payload.name`. Returns Mercury's raw body so callers can pluck the `id` for the mapping row.
+- `mercuryListCounterparties($token, $opts)` → GET `/recipients?search=&limit=&offset=` for in-app search/typeahead.
+- Inline note documenting **why** external funding accounts are NOT registered via API: Mercury doesn't expose a public endpoint for that — the operator pastes the existing `external_account` id from the Mercury web UI when designating the funding default.
+
+### Service — `core/mercury_recipients.php`
+Public surface (8 helpers):
+- `mercuryRecipientCreate($tenantId, $data, $userId)` — transactional INSERT into both tables. Strict validation: routing must be 9 digits, account 4–17 chars, `kind` allowlist. Returns the hydrated row.
+- `mercuryRecipientUpdate`, `mercuryRecipientList(kind?)`, `mercuryRecipientGet(id)` (eager-loads bank_method-last4-only + mercury_mappings), `mercuryRecipientRevoke` (soft-delete).
+- `mercuryRecipientPushToMercury($tenantId, $id)` — JIT-decrypts bank details, calls `mercuryCreateCounterparty`, persists mapping via `ON DUPLICATE KEY UPDATE`, **immediately drops plaintext from memory** (`$routing = null; $account = null`). Refuses `funding_source` recipients with a clear error pointing at the Mercury UI flow.
+- `mercuryRecipientSetFundingDefault($tenantId, $recipientId, $mercuryAcctId)` — validates that the recipient is `kind=funding_source` AND that the Mercury account is in `mercury_accounts` for the tenant (forces "Refresh accounts" first). Atomically updates the two new columns on `mercury_connections`.
+- `mercuryRecipientGetFundingDefault($tenantId)` — read-back used by both UI and Slice 3.
+
+### API — `/api/mercury_recipients.php`
+- `GET` — list (filter by `kind`), single via `?id=N`, or `?action=funding_default`.
+- `POST` — create (default action), `?action=push` (push vendor to Mercury), `?action=set_funding_default` (body: `{recipient_id, mercury_account_id}`).
+- `PATCH ?id=N` / `DELETE ?id=N` — update / soft-revoke.
+- RBAC: writes gated by `accounting.bank.manage`. Reads accept `accounting.bank.view` OR `accounting.bank.manage` (matches Slice 1 convention).
+- Audit events: `mercury.recipient.created` / `.pushed` / `.updated` / `.revoked` / `mercury.funding_default.set`. `MercuryApiException` → HTTP 502 with `http_status` echoed in the response.
+
+### UI — `modules/treasury/ui/MercuryRecipients.jsx`
+- Mounted as the third stacked panel under Treasury → Pay-out Rails (after `<PlaidTransferSettings />` + `<MercurySettings />`). Three react-data hooks (list, accounts, funding_default).
+- Top **funding-default summary card** — green when set (renders `recipient.name → Mercury acct ID`), amber "Not configured" otherwise. Explains the gating in plain English so operators understand WHY this is required.
+- Per-row actions:
+  - **Vendor** + not-yet-pushed → "Push to Mercury" button (`mercury-recipient-push-{id}`).
+  - **Funding source** + active → "Set as funding default" CTA (`mercury-set-funding-default-{id}`), **disabled** when no Mercury accounts are synced yet (with tooltip pointing at the Refresh-accounts button).
+  - Always: "Revoke" with `window.confirm` guard.
+- Create modal collects bank details (routing pattern-validated `[0-9]{9}`, account_number, account_type). Set-funding-default modal lists synced Mercury accounts as the credit-target dropdown.
+- Testids: `mercury-recipients`, `mercury-funding-default[-set|-unset]`, `mercury-recipient-create-modal`, `mercury-recipient-{kind,name,routing,account,save-btn}`, `mercury-recipient-row-{id}`, `mercury-recipient-push-{id}` / `-revoke-{id}`, `mercury-set-funding-default-{id}`, `mercury-set-funding-default-modal`, `mercury-funding-default-account`, `mercury-set-funding-default-save`.
+
+### Validation
+- `tests/mercury_recipients_smoke.php` — **97 ✓ / 0 fail.** Covers migration shape (3 new tables + idempotent ALTERs via `information_schema`), adapter additions (URL + opts + name-validation), service contract (all 8 helpers, kind/routing/account validation, transactional insert, encryption round-trip, push refuses funding_source, JIT-decrypt + drop plaintext, mapping idempotency, funding-default validation against `mercury_accounts`, graceful degrade), API contract (RBAC split, all 7 routes, audit events, MercuryApiException → 502), UI JSX (all testids, conditional CTAs, confirm-before-revoke, debit→verify→push docstring), TreasuryModule wiring, functional adapter round-trip via injected stub (POST /recipients body shape with `electronicRoutingInfo`, Bearer header propagation, search+limit query string), validation throws for empty payloads, `php -l` syntax sanity on 3 backend files.
+- Full PHP smoke suite — **192 smoke files, 0 failures.** Vite bundle `index-oHQFdWNo.js`; `.deploy-version` + `spa-assets/` + sprint6b expected hash all in sync via postbuild hook.
+
+### What this unlocks for Slice 3 (Payment Engine)
+- Slice 3's `payment_instructions` state machine will read `mercury_connections.default_funding_recipient_id` + `default_mercury_account_id` at approval time to know **which external account to debit** and **which Mercury account to credit**.
+- The two `mercury_recipient_mappings.mercury_kind` values let Slice 3 issue **two different Mercury API calls**: a funding-pull against the `external_account` mapping, then a payout against the `counterparty` mapping — without any further schema changes.
+
+
+
 ## Recently completed (Mercury Bank — Slice 1: Foundation, 2026-02 — this fork)
 **First slice of the Mercury MVP integration per `CoreFlux_Mercury_MVP_Technical_Spec.docx`.** Tenant-owned API tokens (CoreFlux is NOT a Mercury partner — each tenant pastes their own token from `app.mercury.com/settings/tokens`). Slice 1 ships the connection lifecycle, account listing, and transaction sync; Slices 2–4 (Recipient Vault, Payment Engine, Funding + Reconciliation) layer on top.
 
