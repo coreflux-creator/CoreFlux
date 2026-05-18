@@ -10,6 +10,75 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (Mercury Bank — Slice 1: Foundation, 2026-02 — this fork)
+**First slice of the Mercury MVP integration per `CoreFlux_Mercury_MVP_Technical_Spec.docx`.** Tenant-owned API tokens (CoreFlux is NOT a Mercury partner — each tenant pastes their own token from `app.mercury.com/settings/tokens`). Slice 1 ships the connection lifecycle, account listing, and transaction sync; Slices 2–4 (Recipient Vault, Payment Engine, Funding + Reconciliation) layer on top.
+
+### Schema — migration `048_mercury_foundation.sql`
+- `mercury_connections` — one row per tenant. `api_token_ct VARBINARY(512)` (AES-256-GCM via `encryptField()`), `api_token_last4 VARCHAR(8)` for masked UI display. Status ENUM `active|revoked|error`. UNIQUE `(tenant_id)` so MVP allows one connection per tenant.
+- `mercury_accounts` — denormalized cache of `/accounts`. UNIQUE `(tenant_id, mercury_account_id)`. Balances stored as `BIGINT` cents (never floats). Routing number stored as plaintext (public ABA), account number only as `last4`.
+- `mercury_transactions` — append-only ledger mirror. UNIQUE `(tenant_id, mercury_txn_id)` for idempotent INSERT IGNORE. `amount_cents BIGINT` (signed; negative = outflow). `payload_json JSON` preserves raw Mercury body for forensics.
+- All three idempotent (`IF NOT EXISTS`), Cloudways MySQL 5.7+ compatible, `utf8mb4_unicode_ci`.
+
+### Adapter — `core/mercury_adapter.php`
+- Bare-metal cURL adapter, **no SDK dependency**. `MercuryApiException` exposes `httpStatus`, `errorCode`, `raw`.
+- `mercuryApiBase()` env-routed: `MERCURY_ENV=sandbox` → `https://api.sandbox.mercury.com/api/v1` (private beta), default → `https://api.mercury.com/api/v1`. `MERCURY_API_BASE` env override for local/staging proxies.
+- `mercuryCall($token, $method, $path, $body, $timeoutSec=25)` — single chokepoint with Bearer auth, `User-Agent: CoreFlux/1.0`, SSL verifypeer on. **Test transport seam** via `$GLOBALS['__mercury_transport']` so smoke tests can inject stubbed responses without hitting live HTTP.
+- Slice 1 exports: `mercuryListAccounts`, `mercuryGetAccount`, `mercuryListTransactions` (passes through `limit/offset/start/end/order/status` opts). Slices 2–4 will add `mercuryCreateRecipient`, `mercuryCreatePayment`, `mercuryGetPaymentStatus`, `mercuryCreateFundingTransfer` on the same adapter surface.
+
+### Service — `core/mercury_service.php`
+- Stateful layer between the adapter and the REST API:
+  - `mercuryGetConnection($tenantId)` — reads row, decrypts token, returns `{id, label, api_token, api_token_last4, status, workspace_name, last_probe_*}`.
+  - `mercuryStoreConnection($tenantId, $apiToken, $label, $userId)` — **probes via `/accounts` BEFORE persisting** so bad tokens never enter active state. On success encrypts + upserts, sets `workspace_name` from the first account row's `name`, eagerly hydrates `mercury_accounts` cache.
+  - `mercuryRevokeConnection` — soft-revoke (`status='revoked'`), audit trail preserved.
+  - `mercuryFlagConnectionError` — best-effort flip to `status='error'` with `last_probe_error` when adapter throws.
+  - `mercurySyncAccounts` — refresh `/accounts` → upsert via `ON DUPLICATE KEY UPDATE`. Throws `MercuryApiException` + flags connection error on failure.
+  - `mercurySyncAccountTransactions($tenantId, $accountPk, $opts)` — pull `/account/{id}/transactions`, `INSERT IGNORE` against UNIQUE `(tenant, mercury_txn_id)` so re-runs collapse cleanly. Converts `$` floats → `cents BIGINT` via `(int) round($x * 100)`.
+- All read helpers wrap their DB calls in try/catch and degrade gracefully when migration 048 hasn't been applied (`return null` / `return []`) — matches the project pattern (`event_registry.php`, `financial_state_cache.php`).
+
+### API endpoints
+- `GET  /api/mercury_connection.php?action=status` → `{connected, status, label, api_token_last4, workspace_name, last_probe_at, last_probe_error}`.
+- `POST /api/mercury_connection.php` body `{api_token, label?}` → probe + upsert. Validates token length ≥ 16. Returns `{ok, workspace_name, accounts_count}`. Audit `mercury.connection.connected`. On probe failure: 422 with `http_status` + audit `mercury.connection.probe_failed`.
+- `POST /api/mercury_connection.php?action=disconnect` → soft-revoke + audit `mercury.connection.disconnected`.
+- `GET  /api/mercury_accounts.php` → cached rows.
+- `POST /api/mercury_accounts.php?action=sync` → call Mercury + upsert.
+- `GET  /api/mercury_transactions.php?account_pk=N&limit=50&offset=0` → cached rows ordered by `COALESCE(posted_at, received_at) DESC`. Limit capped at 200.
+- `POST /api/mercury_transactions.php?action=sync` body `{account_pk, limit?, start?, end?, order?, status?}`.
+- RBAC: writes gated by `accounting.bank.manage`. Reads accept `accounting.bank.view` **or** `accounting.bank.manage` (per the user's "reuse existing perms" decision — new Mercury-specific TreasuryAdmin/Operator roles deferred).
+
+### Cron — `cron/mercury_transactions_sync.php`
+- Iterates every tenant with `mercury_connections.status='active'`. For each: refresh accounts cache, then pull up to 200 transactions per account. Per-tenant try/catch so one bad token never aborts the whole cron. Exit code reflects per-tenant failure count. Suggested schedule: `0 3 * * *`.
+
+### UI — `modules/treasury/ui/MercurySettings.jsx`
+- Mounted alongside `<PlaidTransferSettings />` inside the Treasury → "Pay-out Rails" tab (`/modules/treasury/payout-rails`). Two cards stack vertically; the unified page is the operator's one-stop AP rail configuration.
+- Two branches:
+  - **Not connected** → password-typed token input + optional label + "Connect Mercury" button. External link to `https://app.mercury.com/settings/tokens` so operators can grab the token in-flow. `data-testid="mercury-connect-form"`.
+  - **Connected** → workspace name, label, masked token last-4, last probe timestamp, "Refresh accounts" + "Disconnect" CTAs. `data-testid="mercury-connected"`. Renders `last_probe_error` inline when present.
+- Cached accounts table (`mercury-accounts-table`) with nickname / kind / account-last4 / routing / available / current / status / last-sync columns. Empty state with explicit "Click Refresh accounts" prompt.
+- Testids: `mercury-settings`, `mercury-token-input`, `mercury-connect-btn`, `mercury-disconnect-btn`, `mercury-sync-accounts-btn`, `mercury-workspace-name`, `mercury-token-last4`, `mercury-account-row-{id}`, `mercury-accounts-empty`, `mercury-probe-error`, `mercury-flash-success`/`-error`.
+
+### Plaid per-row "Send via Plaid" affordance (also shipped this release)
+- `modules/ap/api/payments.php` `action=originate` now accepts an optional `?rail=plaid_transfer` (or `nacha`) query param. When present, mutates `$row['disbursement_rail']` before dispatch so the rail picks bypass the tenant's default `ap_settings.disbursement_rail`. Allowlisted.
+- `core/payment_rails/originate_helpers.php` `paymentRailsDispatch()` now threads `tenant_id` into the driver opts (falling back to `currentTenantContext()`) so `PlaidTransferDriver::originate()` can look up the funding source. Previously the batch path was implicitly broken for Plaid.
+- `modules/ap/ui/PaymentsList.jsx` — adds per-row "Send via Plaid" button (`ap-send-via-plaid-{id}`) when `method='plaid' && status='sent' && !rail_external_ref && plaidTransferLinked`. Inline error/success affordances per-row.
+
+### Validation
+- `tests/mercury_foundation_smoke.php` — **113 ✓ / 0 fail.** Covers migration shape + UNIQUE keys, adapter contract (env routing, transport seam, Bearer header, 3 list/get functions, exception class), service contract (5 stateful helpers, encryption-on-store + probe-before-persist, soft-revoke + error-flag, idempotent upserts, $ → cents conversion, graceful migration-missing degrade), all 3 API endpoints (RBAC, GET/POST routing, validation, audit events), cron contract (per-tenant try/catch, exit code), UI JSX (both branches, all testids, masked token display, external Mercury link), TreasuryModule wiring (`MercurySettings` rendered alongside `PlaidTransferSettings`), **functional adapter round-trip** via injected stub (Bearer header capture, /accounts + /transactions URL shape, query-string knob passthrough, 401 → MercuryApiException, malformed-JSON → MercuryApiException), and `php -l` syntax on all 6 backend files.
+- `tests/plaid_transfer_smoke.php` extended to 112 ✓ for the per-row "Send via Plaid" wiring + `paymentRailsDispatch` tenant_id passthrough.
+- Full PHP smoke suite — **191 smoke files, 0 unexpected failures.** Vite bundle rebuilt to `index-Dei6Q22N.js`; postbuild `sync_bundle.sh` updated `.deploy-version` + `spa-assets/`; sprint6b expected hash refreshed.
+
+### Deploy notes
+- Apply migration 048 via `deploy/run_migrations.php`.
+- No new env vars required for production Mercury (default base URL ships). Optional: `MERCURY_ENV=sandbox` or `MERCURY_API_BASE=<override>` for staging.
+- Schedule cron: `0 3 * * * php /home/master/applications/<app>/public_html/cron/mercury_transactions_sync.php`.
+- Tenants self-onboard: Treasury → Pay-out Rails → Mercury Bank card → paste token from `app.mercury.com/settings/tokens`. The probe will reject bad tokens before persisting.
+
+### Deliberately deferred (Slices 2–4)
+- **Slice 2**: Recipient Vault — `recipients`, `recipient_bank_methods`, `mercury_recipient_mappings`, `mercuryCreateRecipient` adapter call, recipient management UI.
+- **Slice 3**: Payment Engine — `payment_instructions` table + 7-state machine (Draft → PendingApproval → Approved → Funding → Submitted → Settled → Reconciled/Failed/Returned), dual-approval RBAC, `mercuryCreatePayment` / `getPaymentStatus`, submission worker + status polling worker.
+- **Slice 4**: Funding Engine + Reconciliation — `funding_transfers`, funding requirement algorithm, `mercuryCreateFundingTransfer`, ReconciliationService that matches `mercury_transactions` to `payment_instructions`.
+
+
+
 ## Recently completed (Plaid Transfer AP pay-outs — Phase B wire-up complete, 2026-02 — this fork)
 **Closes the AP → bank-rail loop.** Backend webhook + event-sync cursor + driver were already in place; this session shipped the missing tenant-facing UI, the link-status API, and the comprehensive smoke test. AP bills can now be paid via Plaid Transfer ACH/RTP from end to end.
 

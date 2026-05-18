@@ -5,6 +5,7 @@ import DepositAccounts    from './DepositAccounts';
 import LiabilityAccounts  from './LiabilityAccounts';
 import SavedRules         from './SavedRules';
 import PlaidTransferSettings from './PlaidTransferSettings';
+import MercurySettings from './MercurySettings';
 import LiquidityForecast        from '../../../dashboard/src/pages/LiquidityForecast';
 import TreasuryScenario         from '../../../dashboard/src/pages/TreasuryScenario';
 import TreasuryScenarioCompare  from '../../../dashboard/src/pages/TreasuryScenarioCompare';
@@ -37,7 +38,7 @@ export default function TreasuryModule({ session }) {
         <Route path="deposits/*"    element={<DepositAccounts session={session} />} />
         <Route path="liabilities/*" element={<LiabilityAccounts session={session} />} />
         <Route path="rules"         element={<SavedRules session={session} />} />
-        <Route path="payout-rails"  element={<PlaidTransferSettings />} />
+        <Route path="payout-rails"  element={<><PlaidTransferSettings /><MercurySettings /></>} />
         <Route path="*"             element={<Navigate to="overview" replace />} />
       </Routes>
     </div>
