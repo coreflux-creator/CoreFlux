@@ -174,12 +174,12 @@ $a('explains debit → verify → push flow',
     $c($ui, 'debit') && $c($ui, 'clearance') && $c($ui, 'push'));
 
 // ----------------------------------------------------------------- TreasuryModule wiring
-echo "\nUI — TreasuryModule.jsx wiring\n";
+echo "\nUI — TreasuryModule.jsx wiring (recipients tab)\n";
 $tm = (string) file_get_contents(__DIR__ . '/../modules/treasury/ui/TreasuryModule.jsx');
 $a('imports MercuryRecipients',                  $c($tm, "import MercuryRecipients from './MercuryRecipients'"));
-$a('mounted inside payout-rails route',
+$a('mounted inside recipients route',
     $c($tm, '<MercuryRecipients />') &&
-    $c($tm, '<PlaidTransferSettings /><MercurySettings /><MercuryRecipients />'));
+    $c($tm, '<Route path="recipients"'));
 
 // ----------------------------------------------------------------- Functional adapter via stub
 echo "\nFunctional — counterparty round-trip via injected transport\n";

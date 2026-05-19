@@ -199,13 +199,14 @@ $a('Mercury app token URL linked',
     $c($ms, 'https://app.mercury.com/settings/tokens'));
 $a('shows last_probe_error when set',            $c($ms, 'data-testid="mercury-probe-error"'));
 
-// ----------------------------------------------------------------- UI: TreasuryModule wiring
-echo "\nUI — TreasuryModule.jsx wiring\n";
-$tmPath = __DIR__ . '/../modules/treasury/ui/TreasuryModule.jsx';
+// ----------------------------------------------------------------- UI: AdminModule wiring
+echo "\nUI — AdminModule wiring (Mercury under /admin/integrations)\n";
+$tmPath = __DIR__ . '/../dashboard/src/pages/AdminModule.jsx';
 $tm = (string) file_get_contents($tmPath);
-$a('imports MercurySettings',                    $c($tm, "import MercurySettings from './MercurySettings'"));
-$a('mounted inside payout-rails route alongside Plaid',
-    $c($tm, '<MercurySettings />') && $c($tm, '<PlaidTransferSettings />'));
+$a('imports MercurySettings from treasury ui',
+    $c($tm, "import MercurySettings from '../../../modules/treasury/ui/MercurySettings'"));
+$a('mounted under /admin/integrations/mercury',
+    $c($tm, '<Route path="/integrations/mercury"  element={<MercurySettings session={session} />} />'));
 
 // ----------------------------------------------------------------- functional adapter round-trip via stub
 echo "\nFunctional — adapter via injected transport stub\n";

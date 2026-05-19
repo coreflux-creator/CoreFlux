@@ -114,7 +114,7 @@ export default function PaymentsList() {
                           Plaid configured — funding source not linked
                         </span>
                         {' '}
-                        <Link to="/modules/treasury/payout-rails" data-testid="ap-plaid-link-cta-link" style={{ marginLeft: 6 }}>
+                        <Link to="/admin/integrations/plaid" data-testid="ap-plaid-link-cta-link" style={{ marginLeft: 6 }}>
                           Connect funding source →
                         </Link>
                       </span>

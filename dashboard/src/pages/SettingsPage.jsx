@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Section, Card } from '../components/UIComponents';
-import { Bell, Moon, Globe, Lock, Mail, ChevronRight } from 'lucide-react';
+import { Bell, Moon, Globe, Lock, Mail, ChevronRight, PlugZap } from 'lucide-react';
 
 const SettingsPage = ({ session }) => {
   return (
@@ -12,6 +12,24 @@ const SettingsPage = ({ session }) => {
       </div>
 
       <div style={{ display: 'grid', gap: 'var(--cf-space-5)', maxWidth: '600px' }}>
+        {/* Integrations — single pane of glass for all external connectors */}
+        <Link to="/admin/integrations" style={{ textDecoration: 'none', color: 'inherit' }} data-testid="settings-integrations-link">
+          <Card>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--cf-space-4)' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--cf-blue-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--cf-blue)' }}>
+                  <PlugZap size={20} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 500 }}>Integrations</div>
+                  <div style={{ fontSize: 'var(--cf-text-sm)', color: 'var(--cf-text-secondary)' }}>Plaid Transfer, Mercury Bank, JobDiva and other external connectors</div>
+                </div>
+              </div>
+              <ChevronRight size={18} style={{ color: 'var(--cf-text-secondary)' }} />
+            </div>
+          </Card>
+        </Link>
+
         {/* Email delivery — tenant self-service mail settings */}
         <Link to="/settings/mail" style={{ textDecoration: 'none', color: 'inherit' }} data-testid="settings-mail-link">
           <Card>

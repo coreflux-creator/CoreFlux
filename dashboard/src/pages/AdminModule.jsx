@@ -17,6 +17,9 @@ import SsoConfigAdmin from './SsoConfigAdmin';
 import MailBrandingAdmin from './MailBrandingAdmin';
 import DigestSchedulesAdmin from './DigestSchedulesAdmin';
 import HealthcheckAdmin from './HealthcheckAdmin';
+import IntegrationsHub from './IntegrationsHub';
+import PlaidTransferSettings from '../../../modules/treasury/ui/PlaidTransferSettings';
+import MercurySettings from '../../../modules/treasury/ui/MercurySettings';
 
 /**
  * AdminModule — administrator surface.
@@ -47,7 +50,7 @@ const AdminOverview = () => (
         <ActionCard icon={Sparkles}  title="AI accuracy"    description="Confidence-score moat dashboard" href="/admin/ai-accuracy" />
         <ActionCard icon={ScrollText} title="Audit log"     description="Tenant-scoped audit trail with CSV export" href="/admin/audit-log" />
         <ActionCard icon={FlaskConical} title="Rule sandbox" description="Dry-run posting rules without writing to the GL" href="/admin/rule-sandbox" />
-        <ActionCard icon={PlugZap} title="JobDiva integration" description="Tenant-level JobDiva connection — webhooks + manual sync" href="/admin/integrations/jobdiva" />
+        <ActionCard icon={PlugZap} title="Integrations" description="Connect Plaid, Mercury, JobDiva and other external systems" href="/admin/integrations" />
         <ActionCard icon={KeyRound} title="SSO configuration" description="Register your Okta or Microsoft Entra identity provider" href="/admin/sso" />
         <ActionCard icon={Palette}  title="Email branding"     description="Logo, accent colour, and signature on every digest" href="/admin/mail-branding" />
         <ActionCard icon={CalendarClock} title="Digest schedules" description="When each weekly / daily email gets sent per tenant" href="/admin/digest-schedules" />
@@ -70,7 +73,7 @@ const AdminSidebar = () => {
     { to: '/admin/ai-accuracy',      label: 'AI Accuracy',      icon: Sparkles },
     { to: '/admin/audit-log',        label: 'Audit Log',        icon: ScrollText },
     { to: '/admin/rule-sandbox',     label: 'Rule Sandbox',     icon: FlaskConical },
-    { to: '/admin/integrations/jobdiva', label: 'JobDiva',      icon: PlugZap },
+    { to: '/admin/integrations',     label: 'Integrations',     icon: PlugZap },
     { to: '/admin/sso',              label: 'SSO',              icon: KeyRound },
     { to: '/admin/mail-branding',    label: 'Branding',         icon: Palette },
     { to: '/admin/digest-schedules', label: 'Digests',          icon: CalendarClock },
@@ -132,6 +135,9 @@ const AdminModule = ({ session }) => {
           <Route path="/ai-accuracy"       element={<AiAccuracyDashboard session={session} />} />
           <Route path="/audit-log"         element={<AuditLogViewer session={session} />} />
           <Route path="/rule-sandbox"      element={<RuleSandbox session={session} />} />
+          <Route path="/integrations"          element={<IntegrationsHub session={session} />} />
+          <Route path="/integrations/plaid"    element={<PlaidTransferSettings session={session} />} />
+          <Route path="/integrations/mercury"  element={<MercurySettings session={session} />} />
           <Route path="/integrations/jobdiva" element={<JobDivaSettings session={session} />} />
           <Route path="/sso"               element={<SsoConfigAdmin session={session} />} />
           <Route path="/mail-branding"     element={<MailBrandingAdmin session={session} />} />

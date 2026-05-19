@@ -214,15 +214,15 @@ $a('shows item_id and account_id metadata',
 $a('reload after link/disconnect',               substr_count($set, 'reload()') >= 2);
 $a('confirm dialog before disconnect',           $c($set, 'window.confirm'));
 
-// ----------------------------------------------------------------- UI: TreasuryModule wiring
-echo "\nUI — TreasuryModule wiring\n";
-$tmPath = __DIR__ . '/../modules/treasury/ui/TreasuryModule.jsx';
+// ----------------------------------------------------------------- UI: AdminModule wiring
+echo "\nUI — AdminModule wiring (centralized Integrations)\n";
+$tmPath = __DIR__ . '/../dashboard/src/pages/AdminModule.jsx';
 $tm = (string) file_get_contents($tmPath);
 $a('imports PlaidTransferSettings',
-    $c($tm, "import PlaidTransferSettings from './PlaidTransferSettings'"));
-$a('payout-rails tab in nav',                    $c($tm, 'TreasuryTab to="payout-rails"'));
-$a('payout-rails route mounted',
-    $c($tm, '<Route path="payout-rails"  element={<PlaidTransferSettings />} />'));
+    $c($tm, "import PlaidTransferSettings from '../../../modules/treasury/ui/PlaidTransferSettings'"));
+$a('integrations hub route mounted',             $c($tm, 'path="/integrations"'));
+$a('plaid route mounted under /admin/integrations',
+    $c($tm, '<Route path="/integrations/plaid"    element={<PlaidTransferSettings session={session} />} />'));
 
 // ----------------------------------------------------------------- UI: PaymentsList inline CTA
 echo "\nUI — PaymentsList inline CTA\n";
@@ -232,8 +232,8 @@ $a('reads plaid_transfer_linked from API',
     $c($pl, 'plaidTransferLinked = !!data?.plaid_transfer_linked'));
 $a('renders inline link-CTA testid when configured but unlinked',
     $c($pl, 'data-testid="ap-plaid-link-cta"'));
-$a('CTA links to /modules/treasury/payout-rails',
-    $c($pl, 'to="/modules/treasury/payout-rails"'));
+$a('CTA links to /admin/integrations/plaid',
+    $c($pl, 'to="/admin/integrations/plaid"'));
 $a('CTA Link has its own testid',                $c($pl, 'data-testid="ap-plaid-link-cta-link"'));
 $a('still surfaces ready badge when linked',
     $c($pl, 'Plaid Transfer ready'));

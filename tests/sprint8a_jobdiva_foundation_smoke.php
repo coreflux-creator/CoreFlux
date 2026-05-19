@@ -150,10 +150,12 @@ $ad = (string) file_get_contents("{$ROOT}/dashboard/src/pages/AdminModule.jsx");
 $assert('imports JobDivaSettings',                strpos($ad, "import JobDivaSettings from './JobDivaSettings'") !== false);
 $assert('mounts /integrations/jobdiva route',
     strpos($ad, 'path="/integrations/jobdiva" element={<JobDivaSettings session={session} />}') !== false);
-$assert('sidebar link',
-    strpos($ad, "to: '/admin/integrations/jobdiva'") !== false
-    && strpos($ad, "label: 'JobDiva'") !== false);
-$assert('overview action card',                   strpos($ad, '<ActionCard icon={PlugZap} title="JobDiva integration"') !== false);
+$assert('integrations hub sidebar link',
+    strpos($ad, "to: '/admin/integrations'") !== false
+    && strpos($ad, "label: 'Integrations'") !== false);
+$assert('overview action card routes to integrations hub',
+    strpos($ad, '<ActionCard icon={PlugZap} title="Integrations"') !== false
+    && strpos($ad, 'href="/admin/integrations"') !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

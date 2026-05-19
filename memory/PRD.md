@@ -10,6 +10,27 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (Centralized Integrations Hub, 2026-02 — this fork)
+**Single pane of glass for tenant-admin-managed external integrations.** Plaid Transfer and Mercury Bank connection settings were buried in `/modules/treasury/payout-rails` alongside operational recipient management; admins had no consolidated place to see/manage all external connectors. JobDiva lived in its own admin sub-route.
+
+### Changes
+- New `IntegrationsHub` page (`/admin/integrations`) renders status-aware cards for **Plaid Transfer**, **Mercury Bank**, and **JobDiva**. Each card hits the integration's `?action=status` endpoint and shows a live `Connected / Not linked / Not configured` badge.
+- `AdminModule.jsx` mounts three routes under the hub:
+  - `/admin/integrations/plaid`   → existing `PlaidTransferSettings` (re-routed, not rewritten)
+  - `/admin/integrations/mercury` → existing `MercurySettings` (re-routed, not rewritten)
+  - `/admin/integrations/jobdiva` → existing `JobDivaSettings` (already lived here)
+- Admin sidebar collapses the per-integration link into a single "Integrations" entry pointing at the hub. Admin overview action card retitled `"Integrations"`.
+- `TreasuryModule` tab `payout-rails` retired. Replaced by a `recipients` tab (operational Mercury vendor / funding-source vault stays in Treasury) with an inline banner pointing to Admin → Integrations. A back-compat redirect (`payout-rails` → `/admin/integrations`) preserves any bookmarked URLs.
+- AP `PaymentsList` "Connect funding source →" CTA now deep-links to `/admin/integrations/plaid` instead of the old Treasury tab.
+- `SettingsPage` gains an "Integrations" tile linking to the hub so non-admin paths to settings can still discover the page.
+
+### Validation
+- Affected smoke tests (`plaid_transfer_smoke.php`, `mercury_foundation_smoke.php`, `mercury_recipients_smoke.php`, `sprint8a_jobdiva_foundation_smoke.php`) updated to assert the new Admin routing and recipients tab — all green.
+- Full PHP smoke suite — **193/195 passing**. The two failures (`ai_platform_smoke`, `plaid_integration_smoke`) are the pre-existing `curl_init`/no-API-key regressions documented in handoff; unchanged by this refactor.
+- Vite bundle rebuilt + `scripts/sync_bundle.sh` synced (`index-RMPOVq63.js` / `index-BC5g6YJu.css`). `sprint6b_dashboard_uis_smoke.php` updated with the new JS hash.
+
+
+
 ## Recently completed (Mercury — Slice 3.6 SoD hardening: role-based approval + CFO out-of-band notice, 2026-02 — this fork)
 **Hardens the Slice 3 payment-approval flow against two specific real-world attack vectors** the user prioritized after reviewing the controls landscape:
 - **Role-based SoD** — two AP clerks with the same role could previously cover for each other's approvals (the original user-id check only requires "different humans", not "different roles").
