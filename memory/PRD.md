@@ -10,6 +10,40 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (P0 bug fixes from screenshots, 2026-02 — this fork)
+**Four blocking bugs reported via screenshots fixed before starting the RBAC rebuild.**
+
+1. **`users.created_at` missing** — `api/users.php` selects `u.created_at` but migration 013 declared the column inside `CREATE TABLE IF NOT EXISTS users(...)`, so any installation that had a users table BEFORE migration 013 ran never picked up the column. New migration `054_users_timestamps_safe.sql` uses an `information_schema`-driven prepared statement to idempotently `ALTER TABLE users ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP` (and `updated_at`). Safe to re-run.
+
+2. **`Forbidden — master_admin only`** on `/admin/tenants` while logged in as Kunal — root cause: the session-baked role reflected login-time `users.role`, not the per-tenant role in `user_tenants`. So a user who was master_admin on tenant A but tenant_admin on tenant B kept their login role regardless of which tenant they were viewing. Fix in `core/api_bootstrap.php::api_require_auth()`: when the request has an active tenant, override the session role with `user_tenants.role` for that tenant. Mirrors the resolved role back to `$_SESSION['user']['role']` for legacy callers. Falls through silently on DB hiccups.
+
+3. **Module access dropdown empty** — same root cause as #2 (the list-tenants endpoint refused Kunal because his session role was stale). Auto-resolves with the bootstrap fix.
+
+4. **Healthcheck false-fails** — three cron-script checks failed because `exec()` is disabled on Cloudways PHP-FPM, and the PDF renderer check was marked `fail` for the sandbox preview where Chromium isn't installed. Both downgraded:
+   - cron script: when `exec()` is in `disable_functions`, fall back to a tokenizer-based syntax probe (`token_get_all($src, TOKEN_PARSE)`) that catches `ParseError`. Returns `ok` with a "(tokenizer; exec() disabled on host)" note when the syntax is valid.
+   - PDF binary: `warn` (host configuration) instead of `fail` (broken integration).
+
+### Additional fix
+- `/api/sub_tenants.php?action=switch` now re-derives the effective role from `user_tenants` and updates both `$_SESSION['user']['role']` and `$_SESSION['modules']`. The endpoint's response payload now includes the resolved `role` so the SPA can refresh navigation immediately without a separate `/me` round-trip.
+
+### Validation
+- `tests/p0_fixes_smoke.php` — **21 ✓ / 0 ✗**. Full suite **199/201 passing** (same 2 pre-existing `curl_init`/no-API-key regressions).
+- `.deploy-version` feature flags appended.
+
+### Pending — RBAC re-architecture (per user direction)
+The user confirmed:
+- `global_admin` is **CoreFlux platform staff** (cross-tenant ops/support role).
+- Permission grid must scope **per-module AND per-sub-tenant** (both dimensions, fully orthogonal).
+- Tenant admin is the primary controller for their assignees.
+Plan (multi-iteration build):
+- **B1** — Schema foundation: `users` (tenant-agnostic), `tenant_memberships` (many-per-user with persona labels), `membership_module_access` (per-module read/write/admin/none + per-sub-tenant scope JSON), `membership_personas` (admin+employee+client+vendor+contractor in same tenant). Migration 055.
+- **B2** — Permission resolver + session refactor: `RBAC::can($user, $tenantId, $personaId, $module, $action)`; tenant + persona switcher writes active context into session; backfill existing `user_tenants` rows into `tenant_memberships`.
+- **B3** — Admin UI: Users → per-user membership editor (add tenant, pick modules, set read-only, scope to sub-tenants); Tenants → invite-by-email flow; header persona toggle.
+- **B4** — Onboarding flows: "invite client/vendor/employee/contractor as user" creating a membership tied to the existing staffing_clients / ap_vendors_index / people row.
+- **B5** — Migrate all existing role-gates from `$ctx['role'] === '...'` checks to `RBAC::can()` calls.
+
+
+
 ## Recently completed (QBO Slice 4b + Slice 5 + Health Alerts, 2026-02 — this fork)
 **Slice 4 finished + Slice 5 conflict rules + status-flip email alerts** — the QBO integration is now feature-complete for the MVP scope: Journal Entries, Customers, Vendors, Chart of Accounts, Items, Bills, Invoices, BillPayments all flow in their configured direction, two_way customer pulls now detect divergence, and CFOs get auto-notified when sync health flips colours.
 

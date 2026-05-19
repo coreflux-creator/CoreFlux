@@ -920,3 +920,10 @@ e.php
 - ui.admin.qbo_settings.push_invoices_button
 - ui.admin.qbo_settings.push_payments_button
 - ui.admin.qbo_settings.pull_items_button
+- core/migrations/054_users_timestamps_safe.sql
+- tests/p0_fixes_smoke.php
+- bugfix.users_created_at_back_fill
+- bugfix.effective_role_from_user_tenants
+- bugfix.sub_tenants_switch_refreshes_role
+- bugfix.healthcheck_graceful_exec_disabled
+- bugfix.healthcheck_pdf_binary_warn_not_fail

@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/sub_tenants.php';
+require_once __DIR__ . '/../core/modules.php';
 require_once __DIR__ . '/../core/data.php';
 
 $ctx       = api_require_auth(false);
@@ -44,8 +45,28 @@ if ($action === 'switch' && $method === 'POST') {
     $t = subTenantLookup($targetId);
     $_SESSION['tenant'] = $t['name'] ?? null;
 
+    // Refresh the effective role from user_tenants for the new active tenant.
+    // Without this, a user who's master_admin on tenant A but tenant_admin on
+    // tenant B keeps the role they had at login regardless of which tenant
+    // they're currently viewing — the exact bug behind the "Forbidden —
+    // master_admin only" report.
+    try {
+        $rs = getDB()->prepare('SELECT role FROM user_tenants WHERE user_id = :u AND tenant_id = :t AND status = "active" LIMIT 1');
+        $rs->execute(['u' => $userId, 't' => $targetId]);
+        $newRole = $rs->fetchColumn();
+        if ($newRole && isset($_SESSION['user']) && is_array($_SESSION['user'])) {
+            $_SESSION['user']['role'] = (string) $newRole;
+            // Refresh available module list to match the new role.
+            $_SESSION['modules'] = getUserModules((string) $newRole);
+        }
+    } catch (\Throwable $_) { /* keep prior role */ }
+
     subTenantTouchLastActive($userId, $targetId);
-    api_ok(['tenant_id' => $targetId, 'tenant' => $t['name'] ?? null]);
+    api_ok([
+        'tenant_id' => $targetId,
+        'tenant'    => $t['name'] ?? null,
+        'role'      => $_SESSION['user']['role'] ?? $role,
+    ]);
 }
 
 // All remaining endpoints need a parent (master) tenant context.

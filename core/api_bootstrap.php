@@ -148,10 +148,37 @@ function api_require_auth(bool $requireTenant = true): array {
         api_error('No tenant context', 400);
     }
 
+    // Effective role resolution. The session-baked role on the user reflects
+    // login state at *that* tenant; switching tenants without refreshing the
+    // session would leave a tenant_admin acting like a tenant_admin when they
+    // should be master_admin (and vice-versa). Re-derive from user_tenants
+    // for the active tenant. Falls through silently on DB hiccups so unrelated
+    // endpoints don't 500 on this path.
+    $effectiveRole = $user['role'] ?? 'employee';
+    if ($user && $tenantId) {
+        try {
+            $st = getDB()->prepare(
+                'SELECT role FROM user_tenants
+                  WHERE user_id = :u AND tenant_id = :t AND status = "active"
+                  LIMIT 1'
+            );
+            $st->execute(['u' => (int) ($user['id'] ?? 0), 't' => (int) $tenantId]);
+            $r = $st->fetchColumn();
+            if ($r !== false && $r !== null && $r !== '') {
+                $effectiveRole = (string) $r;
+                // Mirror back to the session so downstream code that reads
+                // $_SESSION['user']['role'] directly sees the active value.
+                if (isset($_SESSION['user']) && is_array($_SESSION['user'])) {
+                    $_SESSION['user']['role'] = $effectiveRole;
+                }
+            }
+        } catch (\Throwable $_) { /* keep session role */ }
+    }
+
     return [
         'user'      => $user,
         'tenant_id' => $tenantId,
-        'role'      => $user['role'] ?? 'employee',
+        'role'      => $effectiveRole,
     ];
 }
 

@@ -162,7 +162,7 @@ function admin_hc_pdf_binary(int $tid): array {
     require_once __DIR__ . '/../core/pdf_renderer.php';
     if (!function_exists('_cf_pdf_find_renderer')) return ['status' => 'warn', 'detail' => 'renderer module loaded but finder helper missing'];
     $bin = _cf_pdf_find_renderer();
-    if ($bin === null) return ['status' => 'fail', 'detail' => 'no chromium/wkhtmltopdf on host — PDF endpoints will 503'];
+    if ($bin === null) return ['status' => 'warn', 'detail' => 'no chromium/wkhtmltopdf on host — PDF endpoints will 503 (install on production host)'];
     return ['status' => 'ok', 'detail' => basename((string) $bin)];
 }
 
@@ -183,6 +183,21 @@ function admin_hc_emergent_key(int $tid): array {
 function admin_hc_cron_script(int $tid, string $relPath): array {
     $abs = __DIR__ . '/../' . $relPath;
     if (!is_file($abs)) return ['status' => 'fail', 'detail' => "missing: {$relPath}"];
+    // If exec() is disabled on this host (Cloudways often disables it for
+    // PHP-FPM) we can't shell out a `php -l` check; degrade to a cheap
+    // tokenizer-based syntax probe so the healthcheck stays meaningful.
+    $disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
+    if (in_array('exec', $disabled, true) || !function_exists('exec')) {
+        $src = @file_get_contents($abs);
+        if ($src === false) return ['status' => 'fail', 'detail' => 'unreadable'];
+        // Tokenize — any parse error throws ParseError.
+        try {
+            @token_get_all($src, TOKEN_PARSE);
+            return ['status' => 'ok', 'detail' => 'syntax ok (tokenizer; exec() disabled on host)'];
+        } catch (\ParseError $e) {
+            return ['status' => 'fail', 'detail' => 'parse error: ' . $e->getMessage()];
+        }
+    }
     $out = []; $rc = 0; @exec('php -l ' . escapeshellarg($abs) . ' 2>&1', $out, $rc);
     return ['status' => $rc === 0 ? 'ok' : 'fail', 'detail' => $rc === 0 ? 'syntax ok' : implode(' ', $out)];
 }
