@@ -138,9 +138,18 @@ foreach ([
 }
 
 echo "\nVite bundle synced\n";
-$bundleHash = 'index-CXw_2HmS.js';
-$assert('compiled JS in spa-assets',                 is_file("{$ROOT}/spa-assets/{$bundleHash}"));
+// Discover the freshly-built JS hash from dashboard/dist/index.html so
+// this smoke stays correct across rebuilds (sync_bundle.sh mirrors the
+// hash into spa-assets/ + .deploy-version on every yarn build).
 $indexHtml = (string) file_get_contents("{$ROOT}/dashboard/dist/index.html");
+if (!preg_match('/index-[A-Za-z0-9_-]+\.js/', $indexHtml, $m)) {
+    $assert('discover JS bundle hash from dist/index.html', false);
+    $bundleHash = 'index-NOT-FOUND.js';
+} else {
+    $bundleHash = $m[0];
+    $assert('discover JS bundle hash from dist/index.html', true);
+}
+$assert('compiled JS in spa-assets',                 is_file("{$ROOT}/spa-assets/{$bundleHash}"));
 $assert('dashboard/dist/index.html references new JS', stripos($indexHtml, $bundleHash) !== false);
 $deploy = (string) file_get_contents("{$ROOT}/.deploy-version");
 $assert('.deploy-version expected_bundle updated',   stripos($deploy, $bundleHash) !== false);

@@ -10,6 +10,45 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (RBAC B3 — Admin UI + Audit Receipt, 2026-02 — current fork, after B2)
+**Tenant admins now have full UI control over the new RBAC grid.**  All audited.  204/204 smoke tests passing.
+
+### New backend endpoints
+- **`/api/admin/memberships.php`** (`GET / POST / PATCH / DELETE`) — full CRUD for `tenant_memberships`. List joins `users.name`, includes a `modules_count` sub-select, supports `?user_id=N` filter and `?include_inactive=1`. POST upserts on the `(user_id, tenant_id, persona_label)` unique key. PATCH enforces single-`is_primary` per `(user, tenant)`. DELETE is soft (`status='revoked'`). Every write is audited via `RBACResolver::auditMembership()`.
+- **`/api/admin/membership_access.php`** (`GET / POST`) — per-module access grid. POST takes `op: grant | revoke | copy`:
+  - `grant`: `{ membership_id, module_key, access_level, sub_tenant_scope?: int[] }` → `RBACResolver::grantModule()`
+  - `revoke`: `{ membership_id, module_key }` → `RBACResolver::revokeModule()`
+  - `copy`: `{ from_membership_id, to_membership_id }` → `RBACResolver::copyPermissions()`. Both memberships must be in the active tenant.
+- **`/api/admin/membership_audit.php`** (`GET`) — feeds the "Recent access changes" panel. Returns last N (default 10, max 100) rows from `membership_audit` for the active tenant. LEFT JOINs `users` twice (actor + target) and `tenant_memberships` (persona context) so the UI doesn't need extra round-trips. Handles the migration-not-applied case with `{ configured: false }`.
+
+All three endpoints gate on `master_admin / tenant_admin / is_global_admin` and use `RBACResolver` (not the legacy `RBAC` class).
+
+### New React surface — `/admin/memberships`
+- **`RbacMembershipsAdmin.jsx`** — main page. Two-column layout: memberships table on the left (filter, "Show inactive" toggle, refresh, "New membership" button), Recent Access Changes + tips card on the right.
+  - Inline `MembershipForm` (drawer-style under the table) for create/edit with persona label / persona type / status / is_primary fields.
+  - Inline `AccessGrid` that opens when a row's "modules" button is clicked — renders a per-module `select` (none/read/write/admin) plus a **"Copy permissions from…"** dropdown listing every other active membership in the tenant (with grant counts).
+- **`RecentAccessChangesPanel.jsx`** — reusable feed component. Renders the last 10 audit entries with action-coloured left borders, actor → action → target sentence framing, and detail-aware sub-lines (e.g. `"granted module access — Accounting: admin"`).  Also embedded on the AdminModule overview page so SoD reviewers get an instant compliance receipt from the landing.
+- **`AdminModule.jsx`** — new sidebar link "Memberships & access" (Shield icon), new ActionCard on the overview, route `/admin/memberships`, and the audit panel embedded below the quick actions.
+
+Every interactive element carries a `data-testid` (`rbac-memberships-admin`, `membership-row-{id}`, `open-access-grid-{id}`, `access-level-{module}`, `access-copy-from-select`, `access-copy-btn`, `recent-access-changes`, `recent-access-row-{id}`, etc.) for E2E coverage in B4.
+
+### Smoke coverage
+- **`/app/tests/rbac_b3_smoke.php`** — 61 assertions covering: endpoint files exist, syntax clean, admin-gate, query shape (tenant-scoped, joins users via `u.name`, modules_count), method routing, persona/status/access-level whitelists, audit calls, `_ma_membership_in_tenant` cross-tenant guard, sub-tenant-scope handling, React imports, route registration, and panel testids.
+- **`/app/tests/sprint6b_dashboard_uis_smoke.php`** — made the Vite-bundle hash check self-healing: now discovers the hash from `dashboard/dist/index.html` instead of hard-coding it. Future rebuilds no longer require manually editing this test.
+
+### Files touched this slice
+- `/app/api/admin/membership_audit.php` *(new)*
+- `/app/api/admin/memberships.php` *(new)*
+- `/app/api/admin/membership_access.php` *(new)*
+- `/app/dashboard/src/pages/RbacMembershipsAdmin.jsx` *(new)*
+- `/app/dashboard/src/pages/RecentAccessChangesPanel.jsx` *(new)*
+- `/app/dashboard/src/pages/AdminModule.jsx` *(extended)*
+- `/app/tests/rbac_b3_smoke.php` *(new — 61 assertions)*
+- `/app/tests/sprint6b_dashboard_uis_smoke.php` *(self-healing bundle-hash discovery)*
+- Bundle rebuilt + `sync_bundle.sh` ran cleanly: `spa-assets/index-B7nJ6dXK.js` / `index-BC5g6YJu.css`, `.deploy-version` updated.
+
+
+
 ## Recently completed (RBAC B2 — Runtime Resolver + Session Wiring, 2026-02 — current fork)
 **Second slice of the RBAC re-architecture.** The new resolver class is in production alongside the legacy `RBAC` class — both load in the same process, no fatal collision. Every endpoint that goes through `api_require_auth()` now gets membership-aware context for free.
 

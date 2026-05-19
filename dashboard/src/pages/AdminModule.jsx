@@ -1,7 +1,7 @@
 import React from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap, BarChart3, KeyRound, Palette, CalendarClock, Activity } from 'lucide-react';
+import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap, BarChart3, KeyRound, Palette, CalendarClock, Activity, Shield } from 'lucide-react';
 import SubTenantsAdmin from './SubTenantsAdmin';
 import SubTenantWizard from './SubTenantWizard';
 import SubTenantConsolidatedReports from './SubTenantConsolidatedReports';
@@ -18,6 +18,8 @@ import MailBrandingAdmin from './MailBrandingAdmin';
 import DigestSchedulesAdmin from './DigestSchedulesAdmin';
 import HealthcheckAdmin from './HealthcheckAdmin';
 import IntegrationsHub from './IntegrationsHub';
+import RbacMembershipsAdmin from './RbacMembershipsAdmin';
+import RecentAccessChangesPanel from './RecentAccessChangesPanel';
 import PlaidTransferSettings from '../../../modules/treasury/ui/PlaidTransferSettings';
 import MercurySettings from '../../../modules/treasury/ui/MercurySettings';
 import QboSettings from './QboSettings';
@@ -46,6 +48,7 @@ const AdminOverview = () => (
         <ActionCard icon={Layers}    title="Sub-tenants"    description="Provision sub-tenants & module scope" href="/admin/sub-tenants" />
         <ActionCard icon={BarChart3} title="Consolidated reports" description="Roll-up P&L / BS / CF across all sub-tenants" href="/admin/consolidated-reports" />
         <ActionCard icon={Users}     title="Users"          description="Add users, assign roles, reset passwords" href="/admin/users" />
+        <ActionCard icon={Shield}    title="Memberships & access" description="Granular per-tenant RBAC — personas, modules, copy permissions" href="/admin/memberships" />
         <ActionCard icon={Package}   title="Module access"  description="Toggle which apps a tenant can see" href="/admin/modules" />
         <ActionCard icon={FileText}  title="Export templates" description="CSV templates for any module" href="/admin/export-templates" />
         <ActionCard icon={Sparkles}  title="AI accuracy"    description="Confidence-score moat dashboard" href="/admin/ai-accuracy" />
@@ -58,6 +61,10 @@ const AdminOverview = () => (
         <ActionCard icon={Activity} title="Healthcheck"       description="One-click status of every freshly-shipped endpoint" href="/admin/healthcheck" />
       </ActionCardsGrid>
     </Section>
+
+    <div style={{ marginTop: 'var(--cf-space-6)' }}>
+      <RecentAccessChangesPanel limit={8} />
+    </div>
   </>
 );
 
@@ -69,6 +76,7 @@ const AdminSidebar = () => {
     { to: '/admin/sub-tenants',      label: 'Sub-Tenants',      icon: Layers },
     { to: '/admin/consolidated-reports', label: 'Consolidated Reports', icon: BarChart3 },
     { to: '/admin/users',            label: 'Users',            icon: Users },
+    { to: '/admin/memberships',      label: 'Memberships & access', icon: Shield },
     { to: '/admin/modules',          label: 'Module access',    icon: Package },
     { to: '/admin/export-templates', label: 'Export Templates', icon: FileText },
     { to: '/admin/ai-accuracy',      label: 'AI Accuracy',      icon: Sparkles },
@@ -131,6 +139,7 @@ const AdminModule = ({ session }) => {
           <Route path="/sub-tenants/new"   element={<SubTenantWizard   session={session} />} />
           <Route path="/consolidated-reports" element={<SubTenantConsolidatedReports session={session} />} />
           <Route path="/users"             element={<UsersAdmin        session={session} />} />
+          <Route path="/memberships"       element={<RbacMembershipsAdmin session={session} />} />
           <Route path="/modules"           element={<ModuleAccessAdmin session={session} />} />
           <Route path="/export-templates"  element={<ExportTemplatesAdmin session={session} />} />
           <Route path="/ai-accuracy"       element={<AiAccuracyDashboard session={session} />} />
