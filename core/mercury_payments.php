@@ -26,6 +26,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/RBAC.php';
 require_once __DIR__ . '/mercury_adapter.php';
 require_once __DIR__ . '/mercury_service.php';
 require_once __DIR__ . '/mercury_recipients.php';
@@ -212,17 +213,148 @@ function mpSubmitForApproval(int $tenantId, int $id, ?int $userId): bool
     ]);
 }
 
-/** Two-eye approval: refuses self-approval. */
-function mpApprove(int $tenantId, int $id, ?int $approverId, ?string $note = null): bool
+/** Two-eye approval: refuses self-approval + requires a distinct approver role. */
+function mpApprove(int $tenantId, int $id, $approver, ?string $note = null): bool
 {
+    // Accept either a full user array (preferred — enables permission check) or
+    // just an int user id (legacy callers). Wrap so the existing $approverId
+    // code below keeps working.
+    if (is_array($approver)) {
+        $approverId   = (int) ($approver['id']   ?? 0) ?: null;
+        $approverUser = $approver;
+    } else {
+        $approverId   = $approver !== null ? (int) $approver : null;
+        $approverUser = null;
+    }
+
+    // Role-based SoD enforcement (Slice 3.6 hardening). The approver MUST hold
+    // `treasury.payment.approve` — a permission deliberately distinct from the
+    // `accounting.bank.manage` perm AP clerks use to create instructions.
+    // Without this check, two clerks with the same role could cover for each
+    // other. Service-layer enforcement so curl-bypass attempts also fail.
+    if ($approverUser !== null && !RBAC::hasPermission($approverUser, 'treasury.payment.approve')) {
+        throw new \RuntimeException(
+            'Role separation: approver must hold the treasury.payment.approve permission'
+        );
+    }
+
     $row = mpGet($tenantId, $id);
     if ((int) ($row['created_by_user_id'] ?? 0) === (int) ($approverId ?? -1)) {
         throw new \RuntimeException('Segregation of duties: creator cannot approve their own payment');
     }
-    return mpTransition($tenantId, $id, 'Approved', $note ?: 'approver_ok', $approverId, [
+    $ok = mpTransition($tenantId, $id, 'Approved', $note ?: 'approver_ok', $approverId, [
         'approved_by_user_id' => $approverId,
         'approved_at'         => date('Y-m-d H:i:s'),
     ]);
+
+    // Out-of-band CFO notification (Slice 3.6 hardening). Best-effort — never
+    // throws, so a flaky mailer can't roll back the approval. Audit log
+    // captures success/failure either way.
+    if ($ok) {
+        try {
+            mercuryNotifyCfoOfApproval($tenantId, $id, $approverUser);
+        } catch (\Throwable $e) {
+            error_log('[mercury.payment.cfo_notify] failed: ' . $e->getMessage());
+        }
+    }
+    return $ok;
+}
+
+/**
+ * Send an out-of-band approval notice to CFO users in this tenant so a
+ * compromised approval is visible to the C-suite within minutes instead of
+ * waiting for the next reconciliation review. Falls back to master_admin
+ * recipients when no `role=cfo` user exists. Best-effort — every failure
+ * mode is swallowed so the caller stays atomic.
+ */
+function mercuryNotifyCfoOfApproval(int $tenantId, int $instructionId, ?array $approverUser): void
+{
+    try {
+        $pdo = getDB();
+        $stmt = $pdo->prepare(
+            'SELECT u.email, u.name
+               FROM users u
+               JOIN user_tenants ut ON ut.user_id = u.id
+              WHERE ut.tenant_id = :t AND ut.role = "cfo"
+              ORDER BY u.id ASC LIMIT 10'
+        );
+        $stmt->execute(['t' => $tenantId]);
+        $recipients = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+        if (!$recipients) {
+            // No CFO tagged → fall back to master_admin recipients so the
+            // notice still lands somewhere a human will see. Tenants without
+            // either tagged role: the email is skipped (audit logs the gap).
+            $stmt = $pdo->prepare(
+                'SELECT u.email, u.name
+                   FROM users u
+                   JOIN user_tenants ut ON ut.user_id = u.id
+                  WHERE ut.tenant_id = :t AND ut.role = "master_admin"
+                  ORDER BY u.id ASC LIMIT 5'
+            );
+            $stmt->execute(['t' => $tenantId]);
+            $recipients = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        }
+        if (!$recipients) return;
+
+        $row = mpGet($tenantId, $instructionId);
+        $vendor = '';
+        try {
+            $v = $pdo->prepare('SELECT name FROM mercury_recipients WHERE tenant_id = :t AND id = :id LIMIT 1');
+            $v->execute(['t' => $tenantId, 'id' => (int) $row['recipient_id']]);
+            $vendor = (string) ($v->fetchColumn() ?: '');
+        } catch (\Throwable $e) {}
+
+        $amount   = number_format(((int) $row['amount_cents']) / 100, 2);
+        $approver = trim((string) (($approverUser['name'] ?? '') ?: ($approverUser['email'] ?? 'unknown approver')));
+        $subj = "[CFO notice] Mercury payment approved: \${$amount} → {$vendor}";
+        $html =
+              "<p>A Mercury payment instruction was just approved for outbound funding.</p>"
+            . "<table style='font-size:13px;border-collapse:collapse'>"
+            . "<tr><td><b>Instruction #</b></td><td>{$instructionId}</td></tr>"
+            . "<tr><td><b>Vendor</b></td><td>" . htmlspecialchars($vendor) . "</td></tr>"
+            . "<tr><td><b>Amount</b></td><td>\${$amount} " . htmlspecialchars((string) $row['currency']) . "</td></tr>"
+            . "<tr><td><b>Approved by</b></td><td>" . htmlspecialchars($approver) . "</td></tr>"
+            . "<tr><td><b>When</b></td><td>" . date('Y-m-d H:i:s') . " UTC</td></tr>"
+            . "</table>"
+            . "<p style='font-size:12px;color:#64748b'>This is a CFO-only out-of-band notice. "
+            . "If you did NOT expect this approval, sign in to CoreFlux → Treasury → Mercury Payments and cancel the instruction before the worker funds it.</p>";
+
+        $sent = 0; $failed = 0;
+        if (function_exists('mailerSend')) {
+            foreach ($recipients as $r) {
+                try {
+                    mailerSend([
+                        'to'        => $r['email'],
+                        'subject'   => $subj,
+                        'body_html' => $html,
+                    ]);
+                    $sent++;
+                } catch (\Throwable $e) { $failed++; }
+            }
+        }
+        // Audit the notification attempt regardless of send outcome so the
+        // CFO can later verify "did I get pinged on instruction #X?".
+        try {
+            $pdo->prepare(
+                'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
+                 VALUES (:t, :u, "mercury.payment.cfo_notified", :id, :m, NOW())'
+            )->execute([
+                't'  => $tenantId,
+                'u'  => $approverUser['id'] ?? null,
+                'id' => $instructionId,
+                'm'  => json_encode([
+                    'recipients_count' => count($recipients),
+                    'sent'             => $sent,
+                    'failed'           => $failed,
+                    'mailer_present'   => function_exists('mailerSend'),
+                ]),
+            ]);
+        } catch (\Throwable $e) {}
+    } catch (\Throwable $e) {
+        // Whole function is best-effort — the approval transition itself
+        // already succeeded, no need to escalate notification failures.
+    }
 }
 
 function mpRejectToDraft(int $tenantId, int $id, ?int $userId, string $reason): bool

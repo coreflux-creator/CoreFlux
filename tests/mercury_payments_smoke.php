@@ -95,6 +95,31 @@ $a('mpSubmitForApproval transitions to PendingApproval',
     $c($svc, "mpTransition(\$tenantId, \$id, 'PendingApproval'"));
 $a('mpApprove enforces SoD (creator ≠ approver)',
     $c($svc, 'Segregation of duties: creator cannot approve their own payment'));
+$a('mpApprove enforces role-based SoD (treasury.payment.approve)',
+    $c($svc, "RBAC::hasPermission(\$approverUser, 'treasury.payment.approve')")
+    && $c($svc, 'Role separation: approver must hold the treasury.payment.approve permission'));
+$a('mpApprove accepts either user array OR int (backward-compat)',
+    $c($svc, 'if (is_array($approver))'));
+$a('mpApprove triggers CFO notification on success (best-effort)',
+    $c($svc, 'mercuryNotifyCfoOfApproval($tenantId, $id, $approverUser)') &&
+    $c($svc, '} catch (\Throwable $e) {'));
+$a('mercuryNotifyCfoOfApproval() exported',      $c($svc, 'function mercuryNotifyCfoOfApproval'));
+$a('CFO lookup by role=cfo',                     $c($svc, "ut.role = \"cfo\""));
+$a('falls back to role=master_admin when no CFO tagged',
+    $c($svc, "ut.role = \"master_admin\""));
+$a('email subject includes [CFO notice] prefix',  $c($svc, '[CFO notice] Mercury payment approved'));
+$a('email body warns to cancel if unexpected',   $c($svc, 'cancel the instruction before the worker funds it'));
+$a('mailerSend present-check (no hard dep)',     $c($svc, "function_exists('mailerSend')"));
+$a('htmlspecialchars on vendor + approver (XSS-safe email body)',
+    $c($svc, 'htmlspecialchars($vendor)') && $c($svc, 'htmlspecialchars($approver)'));
+$a('CFO notification audit row (mercury.payment.cfo_notified)',
+    $c($svc, 'mercury.payment.cfo_notified'));
+$a('audit captures sent/failed/mailer_present',
+    $c($svc, "'sent'             => \$sent") &&
+    $c($svc, "'failed'           => \$failed") &&
+    $c($svc, "'mailer_present'   => function_exists('mailerSend')"));
+$a('whole notification path is best-effort (never throws)',
+    $c($svc, '// Whole function is best-effort'));
 $a('mpCancel transitions to Cancelled',          $c($svc, "mpTransition(\$tenantId, \$id, 'Cancelled'"));
 $a('mpRejectToDraft route present',              $c($svc, 'function mpRejectToDraft'));
 
@@ -187,7 +212,8 @@ $a('RBAC split: bank.view OR bank.manage for reads',
     && $c($apiF, "hasPermission(\$user, 'accounting.bank.manage')"));
 $a('POST default creates payment',               $c($apiF, "mpCreate(\$tenantId, \$body"));
 $a('POST ?action=submit',                        $c($apiF, "case 'submit':"));
-$a('POST ?action=approve',                       $c($apiF, "case 'approve':"));
+$a('POST ?action=approve passes full $user (role check)',
+    $c($apiF, "mpApprove(\$tenantId, \$id, \$user,"));
 $a('POST ?action=reject requires reason',
     $c($apiF, "case 'reject':") && $c($apiF, "'reason required'"));
 $a('POST ?action=cancel',                        $c($apiF, "case 'cancel':"));

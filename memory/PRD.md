@@ -10,6 +10,34 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (Mercury — Slice 3.6 SoD hardening: role-based approval + CFO out-of-band notice, 2026-02 — this fork)
+**Hardens the Slice 3 payment-approval flow against two specific real-world attack vectors** the user prioritized after reviewing the controls landscape:
+- **Role-based SoD** — two AP clerks with the same role could previously cover for each other's approvals (the original user-id check only requires "different humans", not "different roles").
+- **CFO out-of-band notification** — a compromised approver could previously sign off without anyone outside the treasury team noticing until reconciliation; the CFO had no real-time signal.
+
+Explicitly rejected by the user during the controls review: banking-detail cooling-off (#1), amount-tiered ladder (#3), new-vendor cooling-off (#4), re-auth at approval (#6), self-collusion detection (#7), business-hours gating (#8).
+
+### Role-based SoD enforcement
+- `mpApprove()` signature widened to accept **either a full user array or just an int user id** (backward-compat for any legacy caller). When a user array is passed, the service performs an additional `RBAC::hasPermission($user, 'treasury.payment.approve')` check. Without that permission, the approval is refused with the explicit error `"Role separation: approver must hold the treasury.payment.approve permission"`.
+- Service-layer enforcement (not just API gating) so a curl-bypass attempt against `/api/mercury_payments.php?action=approve&id=N` still fails for under-permissioned users.
+- The new permission `treasury.payment.approve` is automatically matched by the existing wildcard `treasury.*` in `core/rbac_config.php` for `admin` / `tenant_admin` / `master_admin` roles — so the change is non-breaking for existing deployments. Tenants who want stricter separation can either narrow the wildcard or stop granting `admin` to AP clerks.
+- API caller updated: `/api/mercury_payments.php` now passes `$user` (the full session user) to `mpApprove` instead of `$user['id']`, so the role check has the data it needs.
+- The existing user-id-vs-creator check stays in place. Both checks must pass — defense in depth.
+
+### CFO-only out-of-band notification (#5, scoped per user)
+- New `mercuryNotifyCfoOfApproval($tenantId, $instructionId, $approverUser)` function called from `mpApprove` immediately after a successful state transition. Whole function is best-effort — wrapped in try/catch so a flaky mailer can't roll back the approval that already committed to the DB.
+- Recipient lookup: `SELECT u.email, u.name FROM users u JOIN user_tenants ut … WHERE ut.role = 'cfo'`. Falls back to `role='master_admin'` (capped at 5 rows) when no CFO has been tagged yet, so the notice still lands somewhere a human will see during the transition period. Tenants with neither tagged role: notification skipped (the gap is captured in the audit log).
+- Subject line `[CFO notice] Mercury payment approved: $X,XXX.XX → Vendor Name`. HTML body includes instruction #, vendor (XSS-escaped), amount + currency, approver name (XSS-escaped), timestamp, and a clear call-to-action: *"If you did NOT expect this approval, sign in to CoreFlux → Treasury → Mercury Payments and cancel the instruction before the worker funds it."* The cancel window matters — the payment worker doesn't pick up Approved rows for up to 5 minutes, giving the CFO a real chance to intervene.
+- Uses the existing `mailerSend()` primitive via `function_exists()` guard so the integration degrades cleanly in CLI/test contexts where `mailer.php` isn't bootstrapped.
+- New audit event `mercury.payment.cfo_notified` records `{recipients_count, sent, failed, mailer_present}` so the CFO can later verify "did I actually get pinged on instruction #X?" without reading mail logs.
+
+### Validation
+- `tests/mercury_payments_smoke.php` extended — **147 ✓ / 0 fail** (was 134). Adds 13 assertions covering: RBAC perm check + error message, user-array vs int signature compatibility, CFO-notify call site with try/catch wrapping, CFO lookup primary query + master_admin fallback, email subject prefix, XSS-escaped HTML body, mailer presence guard, audit event + meta shape, "whole function is best-effort" guarantee, and the API caller now passing `$user` (not `$user['id']`) to enable the role check.
+- Full PHP smoke suite — **195 smoke files, 0 failures** (one transient flake on `sprint2_accounting_mobile_smoke.php` cleared on retry; unrelated to this change).
+- The `mailerSend` integration is currently **MOCKED** (`core/mailer.php` logs locally without external delivery) — confirmed in handoff as "wire Resend driver" P2 backlog item. The audit row's `mailer_present` flag lets ops verify post-deploy when external delivery actually goes live.
+
+
+
 ## Recently completed (Mercury — Slice 3.5 AP + Slice 2 CSV polish + funding-leg reconciliation, 2026-02 — this fork)
 Three layered enhancements on top of the now-feature-complete Mercury MVP.
 

@@ -85,7 +85,7 @@ try {
             api_ok(['ok' => true, 'state' => 'PendingApproval']);
             break;
         case 'approve':
-            mpApprove($tenantId, $id, $user['id'] ?? null, api_json_body()['note'] ?? null);
+            mpApprove($tenantId, $id, $user, api_json_body()['note'] ?? null);
             api_ok(['ok' => true, 'state' => 'Approved']);
             break;
         case 'reject':
