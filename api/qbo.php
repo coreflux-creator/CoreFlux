@@ -19,6 +19,13 @@
  *                                 account, returning code + name + count
  *                                 + recent JE numbers so a controller can
  *                                 fix the root cause in one click.
+ *   POST   sync_customers      — Slice 3: pull QBO Customers → staffing_clients
+ *   POST   sync_vendors        — Slice 3: pull QBO Vendors → ap_vendors_index
+ *   POST   sync_accounts       — Slice 4a: pull QBO Account list and
+ *                                 populate external_entity_mappings so the
+ *                                 Slice 2 JE pusher hits the mapping cache.
+ *   GET    sync_health         — Slice 4a: roll-up for CFO Dashboard tile
+ *                                 ({status, blocked_jes_7d, failed_runs_24h, ...})
  *
  * RBAC: read = `integrations.qbo.view`, write = `integrations.qbo.manage`.
  * Wildcard `integrations.*` from rbac_config covers both for tenant_admin.
@@ -30,6 +37,7 @@ require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/qbo/client.php';
 require_once __DIR__ . '/../core/qbo/sync_je.php';
 require_once __DIR__ . '/../core/qbo/sync_in.php';
+require_once __DIR__ . '/../core/qbo/sync_accounts.php';
 
 $method = api_method();
 $action = (string) (api_query('action') ?? '');
@@ -228,6 +236,124 @@ switch ($action) {
             api_error(ucfirst(substr($action, 5)) . ' sync failed: ' . $e->getMessage(), 502);
         }
         api_ok($res);
+    }
+
+    case 'sync_accounts': {
+        // Slice 4a — pull QBO Chart of Accounts and populate the
+        // external_entity_mappings table so the Slice 2 JE pusher hits
+        // the cache instead of doing an ad-hoc query per line.
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        RBAC::requirePermission($user, 'integrations.qbo.manage');
+        $body = api_json_body();
+        $opts = [];
+        if (isset($body['limit']))     $opts['limit']     = (int) $body['limit'];
+        if (isset($body['max_pages'])) $opts['max_pages'] = (int) $body['max_pages'];
+        try {
+            $res = qboSyncAccounts($tid, $user['id'] ?? null, $opts);
+        } catch (\RuntimeException $e) {
+            api_error($e->getMessage(), 409);
+        } catch (\Throwable $e) {
+            api_error('COA sync failed: ' . $e->getMessage(), 502);
+        }
+        api_ok($res);
+    }
+
+    case 'sync_health': {
+        // Slice 4a — Sync health roll-up for CFO Dashboard tile.
+        // Status:
+        //   - 'not_connected': no connection row or status != active
+        //   - 'red':    last_probe_age > 24h, or recent failed audits,
+        //               or > 20 blocked JEs in 7d
+        //   - 'yellow': last_probe_age > 2h, or 1–20 blocked JEs in 7d,
+        //               or any unmapped accounts surfaced in last pull
+        //   - 'green':  otherwise
+        if ($method !== 'GET') api_error('Method not allowed', 405);
+        RBAC::requirePermission($user, 'integrations.qbo.view');
+        $pdo = getDB();
+        $row = qboConnection($tid);
+        if (!$row || $row['status'] !== 'active') {
+            api_ok([
+                'status'        => 'not_connected',
+                'connected'     => false,
+                'company_name'  => null,
+                'message'       => $row && $row['status'] === 'error'
+                    ? ('Connection in error state: ' . ($row['last_probe_error'] ?? 'unknown'))
+                    : 'Connect QuickBooks under Admin → Integrations → QuickBooks Online to start syncing.',
+            ]);
+        }
+        $probeAt  = $row['last_probe_at'] ? strtotime((string) $row['last_probe_at']) : 0;
+        $probeAge = $probeAt ? max(0, time() - $probeAt) : null;
+
+        // Blocked JEs in the last 7 days.
+        $stmt = $pdo->prepare(
+            "SELECT COUNT(*) FROM qbo_sync_audit
+              WHERE tenant_id = :t AND action = 'sync_je_skip'
+                AND occurred_at >= (NOW() - INTERVAL 7 DAY)"
+        );
+        $stmt->execute(['t' => $tid]);
+        $blocked7d = (int) $stmt->fetchColumn();
+
+        // Last failed audit in the last 24 hours.
+        $stmt = $pdo->prepare(
+            "SELECT COUNT(*) FROM qbo_sync_audit
+              WHERE tenant_id = :t AND ok = 0
+                AND occurred_at >= (NOW() - INTERVAL 24 HOUR)"
+        );
+        $stmt->execute(['t' => $tid]);
+        $recentFailures = (int) $stmt->fetchColumn();
+
+        // Most-recent successful sync per entity.
+        $stmt = $pdo->prepare(
+            "SELECT entity_type, MAX(occurred_at) AS last_at
+               FROM qbo_sync_audit
+              WHERE tenant_id = :t AND ok = 1
+                AND entity_type IS NOT NULL
+                AND action NOT LIKE '%_skip'
+                AND action NOT LIKE '%_error'
+           GROUP BY entity_type"
+        );
+        $stmt->execute(['t' => $tid]);
+        $lastByEntity = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $r) {
+            $lastByEntity[(string) $r['entity_type']] = (string) $r['last_at'];
+        }
+
+        // Decision tree.
+        $status = 'green';
+        $reasons = [];
+        if ($probeAge === null || $probeAge > 24 * 3600) {
+            $status = 'red';
+            $reasons[] = $probeAge === null ? 'never probed' : 'probe stale > 24h';
+        } elseif ($probeAge > 2 * 3600) {
+            if ($status === 'green') $status = 'yellow';
+            $reasons[] = 'probe stale > 2h';
+        }
+        if ($recentFailures > 0) {
+            $status = 'red';
+            $reasons[] = $recentFailures . ' failed run(s) in last 24h';
+        }
+        if ($blocked7d > 20) {
+            $status = 'red';
+            $reasons[] = $blocked7d . ' JEs blocked on unmapped accounts (7d)';
+        } elseif ($blocked7d > 0) {
+            if ($status === 'green') $status = 'yellow';
+            $reasons[] = $blocked7d . ' JE(s) blocked on unmapped accounts (7d)';
+        }
+
+        api_ok([
+            'status'           => $status,
+            'connected'        => true,
+            'company_name'     => $row['company_name'],
+            'realm_id'         => $row['realm_id'],
+            'environment'      => $row['environment'],
+            'last_probe_at'    => $row['last_probe_at'],
+            'last_probe_error' => $row['last_probe_error'],
+            'probe_age_seconds'=> $probeAge,
+            'blocked_jes_7d'   => $blocked7d,
+            'failed_runs_24h'  => $recentFailures,
+            'last_sync_by_entity' => $lastByEntity,
+            'reasons'          => $reasons,
+        ]);
     }
 
     case 'skipped_jes': {

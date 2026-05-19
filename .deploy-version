@@ -283,7 +283,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-6Y1JYaHg.js
+- spa-assets/index-DtumF8qJ.js
 - spa-assets/index-BC5g6YJu.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -877,3 +877,15 @@ e.php
 - ui.admin.qbo_settings.pull_customers_button
 - ui.admin.qbo_settings.pull_vendors_button
 - ui.admin.qbo_settings.unified_manual_sync_card
+- core/qbo/sync_accounts.php
+- api/qbo/sync_accounts.php
+- api/qbo/sync_health.php
+- dashboard/src/components/QboSyncHealthTile.jsx
+- tests/qbo_slice4a_smoke.php
+- integrations.qbo.slice4a.coa_mirror_pull
+- integrations.qbo.slice4a.coa_three_tier_match
+- integrations.qbo.slice4a.unmapped_qbo_account_audit
+- integrations.qbo.slice4a.sync_health_endpoint
+- integrations.qbo.slice4a.sync_health_decision_tree
+- ui.cfo_dashboard.qbo_sync_health_tile
+- ui.admin.qbo_settings.pull_chart_of_accounts_button

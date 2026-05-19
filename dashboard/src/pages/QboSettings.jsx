@@ -100,10 +100,10 @@ export default function QboSettings() {
     setBusy(true); setFlash(null);
     try {
       const r = await api.post(`/api/qbo/sync_${entity}.php?action=sync_${entity}`, { limit: 1000 });
-      setFlash({
-        kind: r.failed > 0 ? 'error' : 'success',
-        msg: `Pulled ${entity}: ${r.created} created · ${r.updated} updated · ${r.unchanged} unchanged · ${r.failed} failed (${r.pulled} from ${r.pages} page${r.pages === 1 ? '' : 's'}, ${r.latency_ms}ms)`,
-      });
+      const msg = entity === 'accounts'
+        ? `Pulled COA: ${r.matched} matched · ${r.newly_mapped} newly mapped · ${r.unmapped_in_qbo} unmapped in QBO (${r.pulled} from ${r.pages} page${r.pages === 1 ? '' : 's'}, ${r.latency_ms}ms)`
+        : `Pulled ${entity}: ${r.created} created · ${r.updated} updated · ${r.unchanged} unchanged · ${r.failed} failed (${r.pulled} from ${r.pages} page${r.pages === 1 ? '' : 's'}, ${r.latency_ms}ms)`;
+      setFlash({ kind: (r.failed || 0) > 0 ? 'error' : 'success', msg });
       status.reload();
     } catch (e) {
       setFlash({ kind: 'error', msg: e.message || String(e) });
@@ -249,6 +249,7 @@ export default function QboSettings() {
             onDryRunJe={() => handleSyncJe(true)}
             onPullCustomers={() => handlePullMaster('customers')}
             onPullVendors={() => handlePullMaster('vendors')}
+            onPullAccounts={() => handlePullMaster('accounts')}
           />
 
           {/* Skipped JE inbox — surfaces JEs the cron has had to skip
@@ -368,14 +369,16 @@ function parseFlashFromUrl() {
   return null;
 }
 
-function ManualSyncCard({ config, busy, onPushJe, onDryRunJe, onPullCustomers, onPullVendors }) {
+function ManualSyncCard({ config, busy, onPushJe, onDryRunJe, onPullCustomers, onPullVendors, onPullAccounts }) {
   const jeDir   = config.journal_entries;
   const custDir = config.customers;
   const vendDir = config.vendors;
+  const coaDir  = config.chart_of_accounts;
   const showJe   = ['push', 'two_way'].includes(jeDir);
   const showCust = ['pull', 'two_way'].includes(custDir);
   const showVend = ['pull', 'two_way'].includes(vendDir);
-  if (!showJe && !showCust && !showVend) return null;
+  const showCoa  = ['pull', 'two_way'].includes(coaDir);
+  if (!showJe && !showCust && !showVend && !showCoa) return null;
   return (
     <div
       data-testid="qbo-sync-actions"
@@ -435,6 +438,18 @@ function ManualSyncCard({ config, busy, onPushJe, onDryRunJe, onPullCustomers, o
           >
             <ArrowLeft size={14} style={{ marginRight: 6 }} />
             Pull vendors
+          </button>
+        )}
+        {showCoa && (
+          <button
+            type="button"
+            className="btn"
+            onClick={onPullAccounts}
+            disabled={busy}
+            data-testid="qbo-sync-accounts-btn"
+          >
+            <ArrowLeft size={14} style={{ marginRight: 6 }} />
+            Pull chart of accounts
           </button>
         )}
       </div>

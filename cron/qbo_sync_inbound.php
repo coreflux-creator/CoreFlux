@@ -18,6 +18,7 @@ require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/encryption.php';
 require_once __DIR__ . '/../core/qbo/client.php';
 require_once __DIR__ . '/../core/qbo/sync_in.php';
+require_once __DIR__ . '/../core/qbo/sync_accounts.php';
 
 $LIMIT_PER_TENANT = 2000;
 
@@ -42,6 +43,14 @@ foreach ($tenants as $tid) {
     try {
         $cfg = qboSyncConfigRead($tid);
 
+        if (in_array($cfg['chart_of_accounts'] ?? 'off', ['pull', 'two_way'], true)) {
+            $res = qboSyncAccounts($tid, null, ['limit' => $LIMIT_PER_TENANT]);
+            $grand['failed'] += 0;
+            fwrite(STDOUT, sprintf(
+                "tenant %d accounts: matched=%d newly_mapped=%d unmapped_in_qbo=%d (%dms)\n",
+                $tid, $res['matched'], $res['newly_mapped'], $res['unmapped_in_qbo'], $res['latency_ms']
+            ));
+        }
         if (in_array($cfg['customers'] ?? 'off', ['pull', 'two_way'], true)) {
             $res = qboSyncCustomers($tid, null, ['limit' => $LIMIT_PER_TENANT]);
             $grand['customers'] += ($res['created'] + $res['updated']);

@@ -10,6 +10,54 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (QBO — Slice 4a: COA mirror + Sync Health tile, 2026-02 — this fork)
+**Two foundational pieces of Slice 4** shipped together:
+1. **Canonical COA mirror (pull)** — replaces the fragile Slice 2 AcctNum auto-discovery with a single bulk-pull pass that populates `external_entity_mappings` for every QBO Account. After one run, the JE pusher hits the mapping cache instead of doing an ad-hoc QBO query per line.
+2. **Sync Health tile on CFO Dashboard** — green/yellow/red status with blocked-JE counts, failed-runs counter, last-probe age, and a per-entity last-sync drilldown. CFOs can spot a stale or wedged QBO connection at a glance.
+
+### COA mirror — `core/qbo/sync_accounts.php`
+- `qboSyncAccounts()` — paginated QBO Account pull. Match strategy:
+  1. existing mapping by QBO Id (refresh payload snapshot, no-op if unchanged)
+  2. AcctNum match against `accounting_accounts.code` → upsert mapping
+  3. No match → audit row `unmapped_qbo_accounts` with up to 20 sample `{qbo_id, name, acct_num}` entries so a controller can decide whether to create the CoreFlux account
+- Refuses with `RuntimeException` when `sync_config.chart_of_accounts ∉ {pull, two_way}`.
+- Run summary written to `qbo_sync_audit` (`sync_accounts`) with `matched_total / newly_mapped / unchanged / unmapped_in_qbo / pulled / pages / latency_ms`.
+- Does **not** auto-insert into `accounting_accounts` — COA structure is the controller's call, not the sync's.
+
+### API
+- `POST /api/qbo/sync_accounts` (RBAC: `integrations.qbo.manage`; 409 on direction mismatch). Body: `{ limit?, max_pages? }`.
+- `GET  /api/qbo/sync_health` (RBAC: `integrations.qbo.view`). Returns `{ status: green|yellow|red|not_connected, connected, company_name, environment, last_probe_at, last_probe_error, probe_age_seconds, blocked_jes_7d, failed_runs_24h, last_sync_by_entity, reasons[] }`.
+- Health decision tree:
+  - **red**: probe age > 24h, OR any `ok=0` audit row in last 24h, OR > 20 blocked JEs in 7 days
+  - **yellow**: probe age > 2h, OR 1–20 blocked JEs in 7 days
+  - **green**: otherwise
+  - **not_connected**: no row or `status != 'active'`
+
+### Cron
+- `cron/qbo_sync_inbound.php` extended with a COA pass guarded on `sync_config.chart_of_accounts ∈ {pull, two_way}`. Runs once per tenant per nightly invocation, before the customer/vendor passes.
+
+### UI
+- **CFO Dashboard** (`/dashboard/src/components/QboSyncHealthTile.jsx`, mounted on `CFODashboard.jsx` next to `FscHealthPanel`):
+  - Left-border accent colour reflects status; icon + badge + summary + Manage CTA in the header
+  - Stat cards: `Blocked JEs (7d)`, `Failed runs (24h)`, `Last probe` (humanised age) — each toned green/yellow/red by its own threshold
+  - "Reasons" bullet list explains a non-green status verbatim
+  - Collapsible "Last successful sync per entity" details disclosure
+  - Silently hides itself on API error so CFOs never see a 5xx for an optional tile
+- **QboSettings**: ManualSyncCard gains a "Pull chart of accounts" button gated on `chart_of_accounts ∈ {pull, two_way}`.
+
+### Validation
+- `tests/qbo_slice4a_smoke.php` — **44 ✓ / 0 ✗**. Covers COA driver three-tier match, audit signal types, API dispatch + decision tree, cron COA pass, tile testids + CFO Dashboard wiring, COA button conditional rendering, and php -l syntax.
+- Full PHP smoke suite — **197/199 passing**. Same 2 pre-existing `curl_init`/no-API-key regressions. Nothing else broken.
+- Vite bundle rebuilt (`index-DtumF8qJ.js`), `.deploy-version` updated.
+
+### Pending (next QBO slices — Slice 4b)
+- **Invoice push** — CoreFlux `billing_invoices` → QBO `Invoice`. **Blocker**: QBO `Invoice.Line[].SalesItemLineDetail.ItemRef.value` requires an Item mapping, not just an account. Need a QBO Item pull + a default-item-per-tenant fallback before this can ship.
+- **Bill push** — `ap_bills` → QBO `Bill`. Bills accept `AccountBasedExpenseLineDetail` which only needs an AccountRef — much closer to JE push. **This is the lowest-friction invoice-adjacent feature** and should ship first in 4b.
+- **Payment push** — `ap_payments` → QBO `BillPayment`. Requires a Bill mapping to land first.
+- **Slice 5** — Conflict rules for `two_way` entities (last-write-wins by `updated_at` + `qbo_conflict_log`).
+
+
+
 ## Recently completed (QBO — Slice 2.5: Skipped JE Inbox + Slice 3: Customer/Vendor pull, 2026-02 — this fork)
 **Two complementary improvements to QBO orchestration:**
 1. **Skipped JE inbox** — operational visibility into JEs the cron has had to skip because their account isn't mapped in QBO. Surfaces blocked accounts so controllers can fix the root cause in one click.
