@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApi, api } from '../lib/api';
-import { CheckCircle2, ExternalLink, RefreshCw, XCircle, ArrowRight, ArrowLeft, ArrowLeftRight, MinusCircle } from 'lucide-react';
+import { CheckCircle2, ExternalLink, RefreshCw, XCircle, ArrowRight, ArrowLeft, ArrowLeftRight, MinusCircle, Send } from 'lucide-react';
 
 /**
  * QboSettings — QuickBooks Online connection + per-entity sync direction
@@ -71,6 +71,22 @@ export default function QboSettings() {
       status.reload();
       // Also surface what was saved so the user sees the merged config.
       if (r.sync_config) status.reload();
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSyncJe = async (dryRun = false) => {
+    setBusy(true); setFlash(null);
+    try {
+      const r = await api.post('/api/qbo/sync_je.php?action=sync_je', { dry_run: dryRun, limit: 50 });
+      setFlash({
+        kind: r.failed > 0 ? 'error' : 'success',
+        msg: `${dryRun ? 'Dry-run' : 'Sync'}: ${r.pushed} pushed · ${r.skipped_unmapped} skipped (unmapped accounts) · ${r.failed} failed (${r.considered} considered, ${r.latency_ms}ms)`,
+      });
+      status.reload();
     } catch (e) {
       setFlash({ kind: 'error', msg: e.message || String(e) });
     } finally {
@@ -204,6 +220,46 @@ export default function QboSettings() {
             dirty={dirty}
             busy={busy}
           />
+
+          {/* Manual JE push trigger — only shown when the tenant has opted
+              journal_entries into push or two_way. The cron worker covers
+              the scheduled path. */}
+          {['push', 'two_way'].includes(data.sync_config?.journal_entries) && (
+            <div
+              data-testid="qbo-sync-actions"
+              className="card"
+              style={{ marginTop: 24, padding: 16, border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8 }}
+            >
+              <header style={{ marginBottom: 12 }}>
+                <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Manual sync</h4>
+                <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+                  The QBO outbound cron runs every 15 minutes. Use these buttons to push immediately
+                  or preview which journal entries would ship without actually calling QBO.
+                </p>
+              </header>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={() => handleSyncJe(false)}
+                  disabled={busy}
+                  data-testid="qbo-sync-je-btn"
+                >
+                  <Send size={14} style={{ marginRight: 6 }} />
+                  {busy ? 'Pushing…' : 'Push journal entries now'}
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => handleSyncJe(true)}
+                  disabled={busy}
+                  data-testid="qbo-sync-je-dry-run-btn"
+                >
+                  Dry run (preview)
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
     </section>

@@ -11,6 +11,8 @@
  *   POST   ping                — auth round-trip via /companyinfo
  *   GET    sync_config_get     — per-entity direction map
  *   POST   sync_config_set     — body: { sync_config: {entity: direction} }
+ *   POST   sync_je             — Slice 2: push posted JEs to QBO. Opts:
+ *                                 { limit?: int, dry_run?: bool, je_ids?: int[] }
  *
  * RBAC: read = `integrations.qbo.view`, write = `integrations.qbo.manage`.
  * Wildcard `integrations.*` from rbac_config covers both for tenant_admin.
@@ -20,6 +22,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/qbo/client.php';
+require_once __DIR__ . '/../core/qbo/sync_je.php';
 
 $method = api_method();
 $action = (string) (api_query('action') ?? '');
@@ -176,6 +179,26 @@ switch ($action) {
             api_error($e->getMessage(), 409);
         }
         api_ok(['sync_config' => $merged]);
+    }
+
+    case 'sync_je': {
+        // Slice 2 — push posted CoreFlux JEs into QBO. Requires
+        // sync_config.journal_entries in ('push','two_way').
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        RBAC::requirePermission($user, 'integrations.qbo.manage');
+        $body = api_json_body();
+        $opts = [];
+        if (isset($body['limit']))   $opts['limit']   = (int) $body['limit'];
+        if (isset($body['dry_run'])) $opts['dry_run'] = (bool) $body['dry_run'];
+        if (isset($body['je_ids']) && is_array($body['je_ids'])) $opts['je_ids'] = $body['je_ids'];
+        try {
+            $res = qboSyncJournalEntries($tid, $user['id'] ?? null, $opts);
+        } catch (\RuntimeException $e) {
+            api_error($e->getMessage(), 409);
+        } catch (\Throwable $e) {
+            api_error('JE sync failed: ' . $e->getMessage(), 502);
+        }
+        api_ok($res);
     }
 }
 

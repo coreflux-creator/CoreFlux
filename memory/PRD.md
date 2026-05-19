@@ -10,6 +10,42 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (QBO — Slice 2: Journal Entry push, 2026-02 — this fork)
+**Posted CoreFlux journal entries now push to QuickBooks Online** with idempotency via `external_entity_mappings`, opportunistic chart-of-accounts auto-discovery, dry-run preview, and a 15-minute cron worker. Tenants control participation via the per-entity direction picker shipped in Slice 1.
+
+### Driver — `core/qbo/sync_je.php`
+- `qboSyncJournalEntries(int $tid, ?int $userId, array $opts=[])` — main entry point. Refuses when the connection is inactive or `sync_config.journal_entries` isn't in `['push','two_way']`.
+- Eligible-JE query uses a `LEFT JOIN external_entity_mappings ... WHERE m.id IS NULL` so already-shipped JEs are excluded at the SELECT layer (no double-posting even if cron runs every minute). Restrictable via `je_ids` opt.
+- `qboBuildJournalEntryPayload($je, $lines, $resolveAccount)` — pure function (no DB). Constructs a QBO-spec JournalEntry: `TxnDate`, `DocNumber`, `PrivateNote`, `Line[]` with `DetailType=JournalEntryLineDetail`, correct `PostingType` (Debit/Credit), and `AccountRef`. Lines with an unresolved account return a `_unresolved_account_id` sentinel — the caller treats any sentinel as a hard skip and audits the JE under `items_skipped` rather than shipping a half-mapped entry.
+- `qboResolveAccountRef(int $tid, int $accountId)` — auto-discovery bridge until the Slice 4 COA mirror ships. Looks up an existing mapping, otherwise queries QBO `Account WHERE AcctNum = '<CoreFlux code>'`, persists the match via `mappingUpsert`, returns the AccountRef. No match → null → JE skipped.
+- Every push lands a `qbo_sync_audit` row; the run-level summary writes `items_processed / skipped / failed / latency_ms / considered / dry_run`.
+- `dry_run=true` builds payloads but skips the POST — returns each preview payload so CFOs/auditors can validate before a single transaction crosses the wire.
+
+### API
+- New action `POST /api/qbo/sync_je` (+ shim `api/qbo/sync_je.php`). Body: `{ limit?:int, dry_run?:bool, je_ids?:int[] }`. RBAC: `integrations.qbo.manage`. Returns `{ pushed, skipped_unmapped, failed, considered, latency_ms, dry_run, results[] }`.
+- 409 surfaces "Journal entries direction is not push/two_way" so the UI degrades cleanly when a tenant flips a direction back to `off`.
+
+### Cron — `cron/qbo_sync_outbound.php`
+- Suggested schedule: every 15 minutes (`H/15 * * * *`). Iterates `qbo_connections WHERE status='active'`, runs `qboSyncJournalEntries` per tenant with `limit=100`, continues on per-tenant failure. Migration-not-applied bail-out logs to STDERR and exits 0 (no false-positive cron alerts).
+
+### UI — `QboSettings.jsx`
+- "Manual sync" card appears only when `sync_config.journal_entries ∈ {push, two_way}`. Two buttons:
+  - **Push journal entries now** — fires the real run.
+  - **Dry run (preview)** — fires `dry_run:true`.
+- Flash banner summarises `{pushed} pushed · {skipped} skipped (unmapped accounts) · {failed} failed ({considered} considered, {ms}ms)`.
+
+### Validation
+- `tests/qbo_je_push_smoke.php` — **45 ✓ / 0 ✗**. Covers driver surface, payload shape (TxnDate / DocNumber / PrivateNote / Debit & Credit lines / AccountRef / Amount rounding), unresolved-account sentinel, API dispatch + RBAC, cron iteration + skip rules, UI buttons + conditional rendering, and syntax validity.
+- Full PHP smoke suite — **195/197 passing**. Two failures remain the pre-existing `curl_init`/no-API-key regressions; unchanged by this slice.
+- Vite bundle rebuilt (`index-DWsXrRxW.js`), `.deploy-version` updated.
+
+### Pending (next QBO slices)
+- **Slice 3 — Customer / Vendor pull** from QBO into CoreFlux (`clients` / `vendors` upsert via `external_entity_mappings`).
+- **Slice 4 — Invoice / Bill / Payment sync** + full COA mirror.
+- **Slice 5 — Conflict rules** for `two_way` entities + `qbo_conflict_log`.
+
+
+
 ## Recently completed (QuickBooks Online — Slice 1: Foundation, 2026-02 — this fork)
 **Per-tenant OAuth 2.0 connection vault for Intuit QuickBooks Online**, slotted under the new centralized Integrations Hub. Lays the groundwork for journal entry push, customer/vendor pull, and bidirectional sync (Slices 2+).
 
