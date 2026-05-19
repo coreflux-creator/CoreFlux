@@ -10,6 +10,55 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (RBAC B1 — Schema Foundation, 2026-02 — this fork)
+**First slice of the RBAC re-architecture.** Schema-only this iteration — the runtime resolver, session refactor, and admin UI ship in B2-B5. Designed to land *alongside* the legacy `user_tenants` table so nothing breaks during the cut-over.
+
+### Migration 055 — `core/migrations/055_rbac_memberships.sql`
+- **`tenant_memberships`** (one row per user × tenant × persona) supersedes the single-role `user_tenants` pairing. Same user can have multiple personas in the same tenant (e.g. "Admin" + "Employee") and the SPA tenant/persona toggle picks one.
+  - `persona_label` (display name in toggle) + `persona_type` enum: `master_admin / tenant_admin / admin / manager / employee / contractor / client / vendor / platform_staff / custom`
+  - Optional `linked_entity_type` + `linked_entity_id` → tie the persona to a `people` / `staffing_clients` / `ap_vendors_index` row so a "Client portal" persona only sees that client's own data
+  - `is_primary` for default-on-login; `status` enum `active / pending / suspended / revoked`; `invited_by_user_id / invited_at / accepted_at` for the invite flow that lands in B3
+  - UNIQUE `(user_id, tenant_id, persona_label)` so two personas-per-tenant is supported but each label is once
+- **`membership_module_access`** — per-module access grid.
+  - `access_level` enum `none / read / write / admin`
+  - `sub_tenant_scope` JSON: `NULL` means "all sub-tenants under the membership's tenant"; an array of sub_tenant IDs scopes the grant. **Per-module AND per-sub-tenant**, both dimensions orthogonal, per your spec.
+  - UNIQUE `(membership_id, module_key)`
+- **`users.is_global_admin`** — cross-tenant CoreFlux platform-staff flag (added idempotently via `information_schema` probe). A `global_admin=1` user can traverse any tenant without a membership row, but still picks a persona when acting inside one.
+- **`membership_audit`** — append-only log of `created / invited / accepted / suspended / module_grant / module_revoke / persona_switched` events with actor + target user IDs and JSON detail. Compliance review surface.
+
+### Backfill — `scripts/backfill_memberships.php`
+Idempotent migration script. For each existing `user_tenants` row:
+1. Upserts a `tenant_memberships` row with `persona_label='Primary'`, `persona_type` mapped from the legacy role (manager → manager, employee/contractor → respective, etc.), `is_primary=1` when the legacy `is_default=1`.
+2. Enumerates accessible modules via `getUserModules($role)` (the current source of truth) and upserts a `membership_module_access` row per module with:
+   - `access_level=admin` for master_admin/tenant_admin/admin
+   - `access_level=write` for manager
+   - `access_level=read` for employee/contractor
+   - `sub_tenant_scope=NULL` (all sub-tenants) so cut-over preserves current behaviour
+3. Maps legacy `status='inactive'` → new `'suspended'` enum value.
+
+Flags: `--dry-run` (no writes, prints planned mapping), `--tenant=N` (scope to one tenant). Refuses to run with exit code 2 if migration 055 hasn't been applied yet (sanity probe on `tenant_memberships`).
+
+### Validation
+- `tests/rbac_b1_smoke.php` — **27 ✓ / 0 ✗**. Asserts schema shape, idempotency markers, backfill role/access mappings, and script syntax.
+- Full PHP smoke suite — **200/202 passing**. Same 2 pre-existing `curl_init` / no-API-key regressions; nothing else broken.
+- `.deploy-version` feature flags appended.
+
+### ⚠️ Action required on your end
+After deploying:
+1. Apply migration 055.
+2. Run `php scripts/backfill_memberships.php --dry-run` first → review the planned mapping per tenant.
+3. Run `php scripts/backfill_memberships.php` for real (no flags = all tenants).
+4. Promote any CoreFlux platform staff to global admin: `UPDATE users SET is_global_admin = 1 WHERE email = 'you@coreflux.app';`.
+5. **Do NOT drop `user_tenants` yet** — B2 will run on the new tables but the bootstrap effective-role resolver shipped in the previous iteration still reads from `user_tenants`. After B2 lands (resolver consults `tenant_memberships`), `user_tenants` can be retired.
+
+### Pending — RBAC B2-B5
+- **B2** (next iteration): `core/rbac/permissions.php` with `RBAC::can($user, $tenantId, $personaId, $module, $action)`; tenant + persona switcher in header writes active context into session; `api_require_auth()` rewires to consult `tenant_memberships`. Bonus: rewrite the temporary effective-role-from-user_tenants shim to read from the new model.
+- **B3**: Admin UI — per-user membership editor with module grid + sub-tenant scope picker; invite-by-email; header persona toggle dropdown.
+- **B4**: Onboarding flows — "invite as client/vendor/employee/contractor" tied to existing entity rows.
+- **B5**: Migrate all `$ctx['role'] === ...` gates across the codebase to `RBAC::can()`.
+
+
+
 ## Recently completed (P0 bug fixes from screenshots, 2026-02 — this fork)
 **Four blocking bugs reported via screenshots fixed before starting the RBAC rebuild.**
 

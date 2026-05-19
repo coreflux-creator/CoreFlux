@@ -927,3 +927,11 @@ e.php
 - bugfix.sub_tenants_switch_refreshes_role
 - bugfix.healthcheck_graceful_exec_disabled
 - bugfix.healthcheck_pdf_binary_warn_not_fail
+- core/migrations/055_rbac_memberships.sql
+- scripts/backfill_memberships.php
+- tests/rbac_b1_smoke.php
+- rbac.b1.tenant_memberships_table
+- rbac.b1.membership_module_access_grid
+- rbac.b1.users_is_global_admin_flag
+- rbac.b1.membership_audit_log
+- rbac.b1.backfill_idempotent_legacy_user_tenants
