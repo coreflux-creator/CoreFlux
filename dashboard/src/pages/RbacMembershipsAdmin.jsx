@@ -396,7 +396,7 @@ export default function RbacMembershipsAdmin() {
         </Card>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--cf-space-4)' }}>
-          <RecentAccessChangesPanel limit={10} />
+          <RecentAccessChangesPanel limit={10} showSubTenantFilter={true} />
           <Card data-testid="memberships-help">
             <strong style={{ display: 'block', marginBottom: 6 }}>
               <Users size={14} style={{ verticalAlign: 'middle' }} /> Tips

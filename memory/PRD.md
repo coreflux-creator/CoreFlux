@@ -10,6 +10,50 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (RBAC B5 — Header Persona Toggle + Sub-Tenant Audit Filter, 2026-02 — current fork)
+**The user-facing piece of the RBAC story.** A user holding multiple personas in a single tenant (e.g. Admin in their consulting practice + Employee in their client work) can now flip between them from the header dropdown — no re-login, no re-context-switch. Plus the SoD audit panel can now answer "what changed inside sub-tenant Acme this week?".
+
+### Sub-tenant audit filter
+- **`/api/admin/membership_audit.php`** — added `?sub_tenant=N` query param. Filters entries whose `detail.sub_tenant_scope` JSON array contains N (`JSON_CONTAINS` on the JSON column), *plus* tenant-wide module changes (sub_tenant_scope absent/null) which implicitly affect every sub-tenant. Bounded to module_grant/revoke/permissions_copied/created/updated/revoked actions so unrelated noise doesn't leak through.
+- **`RecentAccessChangesPanel.jsx`** — new `showSubTenantFilter` prop. When `true`, the panel lazy-loads `/api/sub_tenants.php` and renders an "All sub-tenants ▾" dropdown next to the refresh button. Reloads the feed on selection change.
+- **`RbacMembershipsAdmin.jsx`** — passes `showSubTenantFilter={true}`. The AdminOverview embed keeps it off to stay compact.
+
+### RBAC Phase B5 — header persona toggle
+- **`/api/active_persona.php`** *(new)*. Three methods:
+  - **`GET`** → `{ active_persona_id, personas: [{ id, persona_label, persona_type, is_primary, status, last_active_at }] }`. Lists every active/pending membership for `(current user, current tenant)` via `RBACResolver::memberships()`. If no explicit persona is set in the session, falls back to the resolver's default pick (primary → most-recent → first) so the header dropdown always renders a current selection.
+  - **`POST { persona_id }`** — calls `setActivePersona()` (verifies the persona belongs to the current user + tenant and is `status='active'`). Audits the switch as `persona_switched` in `membership_audit`. Resets the resolver's per-request cache so subsequent `can()` calls reflect the new persona immediately. Returns the hydrated row.
+  - **`DELETE`** — clears `$_SESSION['active_persona_id']`. `api_require_auth()` re-derives the default on the next request.
+  - No admin gate — every authenticated user can pick their own persona.
+
+- **`Header.jsx`** — new persona switcher dropdown next to the entity switcher. Mirrors the existing multi-entity pattern:
+  - Uses a `UserCog` icon and shows the current persona's `persona_label`.
+  - **Only renders when the user holds ≥2 personas in the current tenant** — single-persona users (the common case) see no extra chrome.
+  - Fetches `/api/active_persona.php` on tenant change. On selection, POSTs the new `persona_id` and dispatches a `cf:active-persona-changed` window event so the rest of the SPA can soft-refresh permission-gated views.
+  - Click-outside closes the dropdown. PRIMARY badge on the user's default persona. Every interactive element carries a `data-testid` (`header-persona-switcher`, `header-persona-button`, `header-persona-option-{id}`).
+
+### Smoke coverage
+- **`/app/tests/rbac_b5_smoke.php`** *(new — 31 assertions)* — endpoint contract (GET/POST/DELETE, audit + cache reset, 404 on invalid persona), `auth.php` helper presence, Header.jsx wiring (UserCog import, state/refs, click-outside, GET/POST/event dispatch, `personas.length > 1` gate, PRIMARY badge, testids), `api_bootstrap.php` still picks up `$_SESSION['active_persona_id']`.
+- **`/app/tests/rbac_b3_smoke.php`** *(extended)* — sub-tenant filter param + `JSON_CONTAINS` SQL + action whitelist + Panel prop + memberships page wiring (+6 assertions, total 67).
+- Vite bundle rebuilt: `spa-assets/index-qAQonk4T.js`. `.deploy-version` updated. **Full suite: 205/205 smoke tests passing.**
+
+### Files touched this slice
+- `/app/api/active_persona.php` *(new)*
+- `/app/api/admin/membership_audit.php` *(extended — sub_tenant param)*
+- `/app/dashboard/src/layout/Header.jsx` *(persona dropdown wired in)*
+- `/app/dashboard/src/pages/RecentAccessChangesPanel.jsx` *(showSubTenantFilter prop + sub-tenant select)*
+- `/app/dashboard/src/pages/RbacMembershipsAdmin.jsx` *(enables filter)*
+- `/app/tests/rbac_b5_smoke.php` *(new — 31 assertions)*
+- `/app/tests/rbac_b3_smoke.php` *(extended)*
+
+### What's now possible end-to-end
+1. **Tenant admin** opens `/admin/memberships`, creates a second persona for an existing user (e.g. "Recruiter") with a different persona_type.
+2. Grants module access (read/write/admin/none per module) — or just clicks **"Copy permissions from…"** to clone another user's grants in one shot.
+3. **End user** loads the SPA, sees a "Persona" dropdown in the header with both of their memberships.
+4. Picks the new persona. `api_require_auth()` immediately hydrates `$ctx['membership_id']`, `$ctx['persona_type']`, and any subsequent `api_can()` check answers against the new grid.
+5. **SoD reviewer** opens the audit panel, optionally filters by sub-tenant, and sees the persona switch + every grant/revoke for that sub-tenant in chronological order.
+
+
+
 ## Recently completed (RBAC B3 — Admin UI + Audit Receipt, 2026-02 — current fork, after B2)
 **Tenant admins now have full UI control over the new RBAC grid.**  All audited.  204/204 smoke tests passing.
 

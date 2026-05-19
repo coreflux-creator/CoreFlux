@@ -11,6 +11,10 @@
  *   GET /api/admin/membership_audit.php
  *     ?limit=10            (default 10, max 100)
  *     &membership_id=N     (optional — filter to one membership)
+ *     &sub_tenant=N        (optional — show entries that touched sub_tenant N:
+ *                            module_grant/revoke/copy with N in sub_tenant_scope,
+ *                            or tenant-wide module changes which apply to every
+ *                            sub-tenant including N)
  *
  * Auth: tenant_admin, master_admin, or platform global admin.
  * Read-only.
@@ -42,6 +46,7 @@ try {
 
 $limit = max(1, min(100, (int) (api_query('limit') ?? 10)));
 $membershipId = api_query('membership_id') !== null ? (int) api_query('membership_id') : null;
+$subTenantId  = api_query('sub_tenant')    !== null ? (int) api_query('sub_tenant')    : null;
 
 $sql = 'SELECT ma.id, ma.tenant_id, ma.membership_id, ma.action,
                ma.actor_user_id, ma.target_user_id, ma.detail, ma.occurred_at,
@@ -57,6 +62,22 @@ $bind = ['t' => $tenantId];
 if ($membershipId !== null) {
     $sql .= ' AND ma.membership_id = :m';
     $bind['m'] = $membershipId;
+}
+if ($subTenantId !== null) {
+    // Sub-tenant filter: match entries whose JSON detail explicitly lists
+    // this sub_tenant in sub_tenant_scope, OR tenant-wide module changes
+    // (sub_tenant_scope absent/null) which implicitly affect every
+    // sub-tenant including this one.  Bounded to module_* actions and
+    // permissions_copied so we don't surface unrelated noise.
+    $sql .= " AND ma.action IN ('module_grant','module_revoke','permissions_copied','created','updated','revoked')
+              AND (
+                    JSON_CONTAINS(
+                        IFNULL(JSON_EXTRACT(ma.detail, '$.sub_tenant_scope'), JSON_ARRAY()),
+                        CAST(:st AS JSON)
+                    ) = 1
+                 OR JSON_EXTRACT(ma.detail, '$.sub_tenant_scope') IS NULL
+              )";
+    $bind['st'] = (string) $subTenantId;
 }
 $sql .= ' ORDER BY ma.occurred_at DESC, ma.id DESC LIMIT ' . $limit;
 

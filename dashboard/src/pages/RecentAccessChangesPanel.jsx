@@ -66,15 +66,19 @@ function fmtTime(iso) {
   return d.toLocaleString();
 }
 
-export default function RecentAccessChangesPanel({ limit = 10, compact = false }) {
+export default function RecentAccessChangesPanel({ limit = 10, compact = false, showSubTenantFilter = false }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
+  const [subTenants, setSubTenants] = useState([]);
+  const [subTenantId, setSubTenantId] = useState('');
 
   const load = async () => {
     setLoading(true); setError(null);
     try {
-      const res = await api.get(`/api/admin/membership_audit.php?limit=${limit}`);
+      const qs = new URLSearchParams({ limit: String(limit) });
+      if (subTenantId) qs.set('sub_tenant', subTenantId);
+      const res = await api.get(`/api/admin/membership_audit.php?${qs.toString()}`);
       setEntries(res?.entries || []);
     } catch (e) {
       setError(e.message || 'Failed to load access changes');
@@ -83,24 +87,48 @@ export default function RecentAccessChangesPanel({ limit = 10, compact = false }
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [limit]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [limit, subTenantId]);
+
+  // Lazy-load sub-tenants the first time the filter is shown.
+  useEffect(() => {
+    if (!showSubTenantFilter || subTenants.length) return;
+    api.get('/api/sub_tenants.php')
+      .then((r) => setSubTenants(r?.sub_tenants || r?.tenants || []))
+      .catch(() => { /* silent — filter just stays empty */ });
+  }, [showSubTenantFilter, subTenants.length]);
 
   return (
     <Card data-testid="recent-access-changes">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--cf-space-3)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--cf-space-3)', gap: 8, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <History size={16} />
           <strong style={{ fontSize: 14 }}>Recent access changes</strong>
         </div>
-        <button
-          onClick={load}
-          className="btn btn--ghost btn--sm"
-          aria-label="Refresh"
-          data-testid="recent-access-refresh"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
-        >
-          <RefreshCw size={14} /> Refresh
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {showSubTenantFilter && subTenants.length > 0 && (
+            <select
+              value={subTenantId}
+              onChange={(e) => setSubTenantId(e.target.value)}
+              data-testid="recent-access-subtenant-filter"
+              style={{ fontSize: 12, maxWidth: 180 }}
+              aria-label="Filter by sub-tenant"
+            >
+              <option value="">All sub-tenants</option>
+              {subTenants.map((st) => (
+                <option key={st.id} value={st.id}>{st.name}</option>
+              ))}
+            </select>
+          )}
+          <button
+            onClick={load}
+            className="btn btn--ghost btn--sm"
+            aria-label="Refresh"
+            data-testid="recent-access-refresh"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+          >
+            <RefreshCw size={14} /> Refresh
+          </button>
+        </div>
       </div>
 
       {loading && <div style={{ color: 'var(--cf-text-secondary)' }}>Loading…</div>}

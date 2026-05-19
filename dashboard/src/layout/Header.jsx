@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ChevronDown, LayoutDashboard, Shield, Building2, Inbox, Briefcase, TrendingUp } from 'lucide-react';
+import { ChevronDown, LayoutDashboard, Shield, Building2, Inbox, Briefcase, TrendingUp, UserCog } from 'lucide-react';
 import { api } from '../lib/api';
 
 const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, onTenantChange }) => {
@@ -10,12 +10,16 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
   const [entityOpen, setEntityOpen] = useState(false);
   const [entities, setEntities] = useState([]);
   const [activeEntityId, setActiveEntityId] = useState(null);
+  const [personaOpen, setPersonaOpen] = useState(false);
+  const [personas, setPersonas] = useState([]);
+  const [activePersonaId, setActivePersonaId] = useState(null);
   const location = useLocation();
 
   const moduleRef = useRef(null);
   const tenantRef = useRef(null);
   const userRef = useRef(null);
   const entityRef = useRef(null);
+  const personaRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -23,6 +27,7 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
       if (tenantRef.current && !tenantRef.current.contains(e.target)) setTenantOpen(false);
       if (userRef.current && !userRef.current.contains(e.target)) setUserOpen(false);
       if (entityRef.current && !entityRef.current.contains(e.target)) setEntityOpen(false);
+      if (personaRef.current && !personaRef.current.contains(e.target)) setPersonaOpen(false);
     };
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
@@ -54,10 +59,39 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
     }
   };
 
+  // RBAC B5 — Persona switcher.
+  // Only renders when the current user holds ≥2 active memberships in
+  // the current tenant. Single-persona users (the common case) see no
+  // extra chrome. Switching writes $_SESSION['active_persona_id'] so
+  // RBACResolver picks the chosen membership for every can() check.
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/api/active_persona.php').then(r => {
+      if (cancelled) return;
+      setPersonas(r?.personas ?? []);
+      setActivePersonaId(r?.active_persona_id ?? null);
+    }).catch(() => { /* silent */ });
+    return () => { cancelled = true; };
+  }, [tenant]);
+
+  const onPersonaChange = async (personaId) => {
+    try {
+      const r = await api.post('/api/active_persona.php', { persona_id: personaId });
+      setActivePersonaId(r?.active_persona_id ?? personaId);
+      setPersonaOpen(false);
+      // Soft refresh so permission-gated UI re-renders against the new persona.
+      window.dispatchEvent(new CustomEvent('cf:active-persona-changed', { detail: { persona_id: personaId } }));
+    } catch (e) {
+      console.error('persona switch failed', e);
+      alert(e.message || 'Persona switch failed');
+    }
+  };
+
   const isOnDashboard = location.pathname === '/' || location.pathname === '/dashboard';
   const isOnInbox = location.pathname === '/inbox';
   const isOnCfo   = location.pathname.startsWith('/cfo');
-  const activeEntity = entities.find(e => e.id === activeEntityId);
+  const activeEntity  = entities.find(e => e.id === activeEntityId);
+  const activePersona = personas.find(p => p.id === activePersonaId);
 
   return (
     <header className="header">
@@ -126,6 +160,41 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
           <Inbox size={18} className="header-btn-icon" />
           <span>Inbox</span>
         </Link>
+
+        {/* RBAC B5 — Persona switcher (only renders when user has ≥2 personas in current tenant) */}
+        {personas.length > 1 && (
+          <div className={`dropdown ${personaOpen ? 'open' : ''}`} ref={personaRef} data-testid="header-persona-switcher">
+            <button className="header-btn"
+                    data-testid="header-persona-button"
+                    onClick={(e) => { e.stopPropagation(); setPersonaOpen(!personaOpen); }}>
+              <UserCog size={18} className="header-btn-icon" />
+              <span>{activePersona ? activePersona.persona_label : 'Persona'}</span>
+              <ChevronDown size={14} className="caret" />
+            </button>
+            {personaOpen && (
+              <div className="dropdown-menu dropdown-menu-right">
+                {personas.map(p => (
+                  <div key={p.id}
+                       className={`dropdown-item ${p.id === activePersonaId ? 'active' : ''}`}
+                       data-testid={`header-persona-option-${p.id}`}
+                       onClick={() => onPersonaChange(p.id)}>
+                    <strong>{p.persona_label}</strong>
+                    {p.is_primary && (
+                      <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 600,
+                                     background: '#2f7a3b22', color: '#2f7a3b',
+                                     padding: '1px 5px', borderRadius: 8, verticalAlign: 'middle' }}>
+                        PRIMARY
+                      </span>
+                    )}
+                    <span style={{ color: '#64748b', marginLeft: 8, fontSize: 12 }}>
+                      {p.persona_type}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Sprint 6b — Multi-entity switcher (only renders if tenant has ≥1 entity) */}
         {entities.length > 0 && (

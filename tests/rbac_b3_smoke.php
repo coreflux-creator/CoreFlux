@@ -56,6 +56,10 @@ $a('orders DESC by occurred_at',                 $c($audit, 'ORDER BY ma.occurre
 $a('limit clamped 1..100',                       $c($audit, 'max(1, min(100,'));
 $a('returns entries[] payload',                  $c($audit, "'entries'    => \$entries"));
 $a('handles missing migration (configured:false)', $c($audit, "'configured' => false"));
+$a('supports sub_tenant filter param',           $c($audit, "api_query('sub_tenant')"));
+$a('sub_tenant filter uses JSON_CONTAINS',       $c($audit, 'JSON_CONTAINS'));
+$a('sub_tenant filter scopes to membership actions',
+    $c($audit, "ma.action IN ('module_grant','module_revoke','permissions_copied'"));
 
 // ----------------------------------------------------------------- memberships.php
 echo "\nmemberships.php contract\n";
@@ -123,6 +127,9 @@ $a('Panel calls /api/admin/membership_audit.php',
     $c($panel, '/api/admin/membership_audit.php'));
 $a('Panel has data-testid root',                 $c($panel, 'data-testid="recent-access-changes"'));
 $a('Panel renders empty state',                  $c($panel, 'data-testid="recent-access-empty"'));
+$a('Panel supports sub-tenant filter prop',      $c($panel, 'showSubTenantFilter'));
+$a('Panel exposes sub-tenant filter testid',     $c($panel, 'recent-access-subtenant-filter'));
+$a('Membership page enables sub-tenant filter',  $c($rbacPage, 'showSubTenantFilter={true}'));
 
 // ----------------------------------------------------------------- summary
 echo "\n=========================================\n";
