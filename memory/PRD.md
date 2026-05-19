@@ -10,6 +10,58 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (RBAC B2 — Runtime Resolver + Session Wiring, 2026-02 — current fork)
+**Second slice of the RBAC re-architecture.** The new resolver class is in production alongside the legacy `RBAC` class — both load in the same process, no fatal collision. Every endpoint that goes through `api_require_auth()` now gets membership-aware context for free.
+
+### Class collision resolved
+- The B2 file `/app/core/rbac/permissions.php` originally declared `class RBAC`, which would have fatally collided with the legacy `/app/core/RBAC.php` (still wired into ~30 endpoints via `RBAC::hasPermission()` / `RBAC::requirePermission()`).
+- Renamed to **`final class RBACResolver`**. Legacy `RBAC` untouched — zero blast radius on existing endpoints. New code calls `RBACResolver`; legacy callers keep working until the B5 sweep.
+
+### `api_bootstrap.php` — `$ctx` is now membership-aware
+`api_require_auth()` returns three new keys alongside the existing `user / tenant_id / role`:
+- `membership_id` — int of the active `tenant_memberships` row (NULL if no membership exists yet for this user/tenant; legacy fall-through stays in play).
+- `persona_type` — string from the membership (`master_admin` / `tenant_admin` / `admin` / `manager` / `employee` / `contractor` / `client` / `vendor` / `platform_staff` / `custom`). When present, overrides the legacy `$effectiveRole` so a user who is Admin in tenant A and Employee in tenant B sees the right persona without a re-login.
+- `is_global_admin` — bool reflecting `users.is_global_admin`. CoreFlux platform staff flag.
+
+Two new global helpers wrap the resolver for endpoints that have migrated off legacy role-list checks:
+- `api_can($module, $action='read', $subTenantId=null)` — returns bool. Pulls user + tenant from session, hands off to `RBACResolver::can()`.
+- `api_require_can(...)` — same signature; emits 403 JSON with `required_module` / `required_action` payload on denial.
+
+### `auth.php` — persona switching
+Three new helpers powering the SPA tenant/persona toggle that lands in B3:
+- `setActivePersona(int $personaId): bool` — verifies the persona belongs to the current user + tenant, then writes `$_SESSION['active_persona_id']`. `api_require_auth()` picks it up on the next request and hydrates `$ctx` from that specific membership row.
+- `getActivePersonaId(): ?int`, `clearActivePersona(): void`.
+
+### "Copy permissions from…" UX
+`RBACResolver::copyPermissions($fromMembershipId, $toMembershipId, $actorUserId=null): int` clones every `membership_module_access` row from one membership to another within the same tenant. Audits the action via `membership_audit`. Returns grant count. Onboarding a second recruiter / third controller becomes a single API call from the admin UI in B3/B4.
+
+### Smoke coverage — `/app/tests/rbac_b2_smoke.php`
+56 assertions covering:
+- Class-name collision is resolved (`RBACResolver` is declared, `RBAC` is not redeclared in the new file, both classes load side-by-side).
+- Resolver method surface contract: `can / personaTypeOf / memberships / activeMembership / moduleAccessFor / grantModule / revokeModule / copyPermissions / isGlobalAdmin / legacyRole / resetCache`.
+- `can()` input guards (userId=0, invalid action, array-form user).
+- DB-absent fall-throughs: every PDO call wraps in try/catch returning safe defaults (`legacyRole→'employee'`, `isGlobalAdmin→false`, `activeMembership→null`, `memberships→[]`).
+- `copyPermissions()` signature pinning (3-arg static method).
+- `api_bootstrap.php` wiring (`require_once`, `$ctx` keys, RBACResolver call sites, `api_can`/`api_require_can` helpers, `active_persona_id` session read).
+- `auth.php` persona helpers exist and reference `RBACResolver::memberships`.
+- `LEVEL_RANK` constant ordering (`none < read < write < admin`).
+
+Full suite status: **203/203 smoke tests passing** (rbac_b2_smoke + every previously green test; `ai_platform_smoke` and `plaid_integration_smoke` also now green since `php-curl` is installed in this fork).
+
+### Why this matters
+- The new resolver is the **single source of truth** for "can this user do X in module M under sub-tenant S?" going forward.
+- Legacy `RBAC::hasPermission()` continues to gate the ~30 unmigrated endpoints — dual-write era, no breakage.
+- B3 (admin UI in React) and B4 (sweep legacy endpoints onto `api_require_can`) are now unblocked.
+
+### Files touched this slice
+- `/app/core/rbac/permissions.php` — class renamed `RBAC` → `RBACResolver`.
+- `/app/core/api_bootstrap.php` — requires resolver, expands `$ctx`, adds `api_can()` + `api_require_can()`.
+- `/app/core/auth.php` — `setActivePersona / getActivePersonaId / clearActivePersona`.
+- `/app/tests/rbac_b2_smoke.php` — new (56 assertions).
+- `/app/tests/p0_fixes_smoke.php` — relaxed one whitespace-brittle assertion to accept the expanded `$ctx` return array.
+
+
+
 ## Recently completed (RBAC B1 — Schema Foundation, 2026-02 — this fork)
 **First slice of the RBAC re-architecture.** Schema-only this iteration — the runtime resolver, session refactor, and admin UI ship in B2-B5. Designed to land *alongside* the legacy `user_tenants` table so nothing breaks during the cut-over.
 

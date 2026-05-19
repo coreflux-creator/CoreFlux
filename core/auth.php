@@ -132,3 +132,42 @@ function logout(): void {
     initSession();
     session_destroy();
 }
+
+/**
+ * RBAC B2 — persona switching for the tenant/role toggle.
+ *
+ * The SPA header lets a user with multiple memberships in the same
+ * tenant flip between them (e.g. "Admin" vs "Employee" persona).
+ * Storing the chosen persona id in the session means api_require_auth()
+ * will hydrate $ctx['membership_id'] / $ctx['persona_type'] from that
+ * specific membership row on subsequent requests.
+ *
+ * Returns true when the persona belongs to the current user + tenant.
+ */
+function setActivePersona(int $personaId): bool {
+    initSession();
+    if (!class_exists('RBACResolver')) {
+        require_once __DIR__ . '/rbac/permissions.php';
+    }
+    $user     = getCurrentUser();
+    $tenantId = $_SESSION['tenant_id'] ?? null;
+    if (!$user || !$tenantId) return false;
+    $memberships = RBACResolver::memberships((int) ($user['id'] ?? 0), (int) $tenantId);
+    foreach ($memberships as $m) {
+        if ((int) $m['id'] === $personaId && ($m['status'] ?? 'active') === 'active') {
+            $_SESSION['active_persona_id'] = $personaId;
+            return true;
+        }
+    }
+    return false;
+}
+
+function getActivePersonaId(): ?int {
+    initSession();
+    return isset($_SESSION['active_persona_id']) ? (int) $_SESSION['active_persona_id'] : null;
+}
+
+function clearActivePersona(): void {
+    initSession();
+    unset($_SESSION['active_persona_id']);
+}

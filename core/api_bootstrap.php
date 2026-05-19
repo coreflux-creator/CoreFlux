@@ -27,6 +27,11 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/tenant_scope.php';
+// RBAC B2 resolver — new tenant_memberships grid. Loaded alongside the
+// legacy /core/RBAC.php (different class name on purpose; see header in
+// /core/rbac/permissions.php). Safe to require at bootstrap so $ctx can
+// carry membership-aware data for every endpoint.
+require_once __DIR__ . '/rbac/permissions.php';
 
 // ---------------------------------------------------------------------------
 // Session + headers
@@ -175,11 +180,74 @@ function api_require_auth(bool $requireTenant = true): array {
         } catch (\Throwable $_) { /* keep session role */ }
     }
 
+    // -----------------------------------------------------------------
+    // RBAC B2 — hydrate the active membership for the new resolver.
+    // -----------------------------------------------------------------
+    // Independent of legacy user_tenants: we look up tenant_memberships
+    // via RBACResolver so $ctx callers can ask `can()` directly. When
+    // the membership exists, its persona_type overrides the legacy role
+    // string (a single user can be Admin in tenant A and Employee in
+    // tenant B without a re-login).  When it doesn't, we fall through
+    // and leave the legacy $effectiveRole as-is.
+    $membershipId    = null;
+    $personaType     = null;
+    $isGlobalAdmin   = false;
+    if ($user && $tenantId && class_exists('RBACResolver')) {
+        try {
+            $isGlobalAdmin = RBACResolver::isGlobalAdmin((int) ($user['id'] ?? 0));
+            $personaId     = isset($_SESSION['active_persona_id']) ? (int) $_SESSION['active_persona_id'] : null;
+            $membership    = RBACResolver::activeMembership(
+                (int) ($user['id'] ?? 0),
+                (int) $tenantId,
+                $personaId
+            );
+            if ($membership) {
+                $membershipId = (int) $membership['id'];
+                $personaType  = (string) ($membership['persona_type'] ?? '');
+                if ($personaType !== '') {
+                    $effectiveRole = $personaType;
+                    if (isset($_SESSION['user']) && is_array($_SESSION['user'])) {
+                        $_SESSION['user']['role'] = $effectiveRole;
+                    }
+                }
+            }
+        } catch (\Throwable $_) { /* legacy fall-through */ }
+    }
+
     return [
-        'user'      => $user,
-        'tenant_id' => $tenantId,
-        'role'      => $effectiveRole,
+        'user'           => $user,
+        'tenant_id'      => $tenantId,
+        'role'           => $effectiveRole,
+        'membership_id'  => $membershipId,
+        'persona_type'   => $personaType,
+        'is_global_admin'=> $isGlobalAdmin,
     ];
+}
+
+/**
+ * Permission check using the new RBACResolver (B2). Wraps the resolver so
+ * endpoints don't have to import it directly. Returns false if no auth
+ * context is present rather than throwing — callers decide whether to
+ * 401/403 themselves.
+ */
+function api_can(string $module, string $action = 'read', ?int $subTenantId = null): bool {
+    $user     = getCurrentUser();
+    $tenantId = currentTenantId();
+    if (!$user || !$tenantId || !class_exists('RBACResolver')) return false;
+    $personaId = isset($_SESSION['active_persona_id']) ? (int) $_SESSION['active_persona_id'] : null;
+    return RBACResolver::can((int) ($user['id'] ?? 0), (int) $tenantId, $module, $action, $subTenantId, $personaId);
+}
+
+/**
+ * Enforce a permission via RBACResolver. Emits 403 if denied. Use this in
+ * endpoints that have migrated off the legacy role-list checks.
+ */
+function api_require_can(string $module, string $action = 'read', ?int $subTenantId = null): void {
+    if (api_can($module, $action, $subTenantId)) return;
+    api_error('Forbidden', 403, [
+        'required_module' => $module,
+        'required_action' => $action,
+    ]);
 }
 
 /**

@@ -1,10 +1,18 @@
 <?php
 /**
- * RBAC — runtime permission resolver (B2).
+ * RBACResolver — runtime permission resolver (B2).
  *
  * Reads the new tenant_memberships + membership_module_access grid that
  * B1 stood up. Provides the single source of truth for "can this user do
  * X in module M under sub-tenant S?".
+ *
+ * IMPORTANT — class naming:
+ *   The legacy `class RBAC` in /app/core/RBAC.php is still wired into
+ *   ~30 endpoints (RBAC::hasPermission(), RBAC::requirePermission()).
+ *   We deliberately use a different class name here so both can be
+ *   loaded in the same process without a PHP redeclaration fatal.
+ *   New code should call `RBACResolver`; legacy callers keep using
+ *   `RBAC` until the B5 sweep retires them.
  *
  * Strategy:
  *   1. Resolve the *active membership* for (user, tenant, persona):
@@ -18,18 +26,18 @@
  *   5. users.is_global_admin = 1 short-circuits to TRUE for any check.
  *
  * Backward compat:
- *   - `RBAC::personaTypeOf()` mirrors the membership's persona_type back
- *     so legacy `$ctx['role'] === '...'` gates still work during the B5
- *     sweep.
+ *   - `RBACResolver::personaTypeOf()` mirrors the membership's persona_type
+ *     back so legacy `$ctx['role'] === '...'` gates still work during the
+ *     B5 sweep.
  *   - When NO membership exists for (user, tenant) we fall through to
- *     the legacy `user_tenants.role` check via `RBAC::legacyRole()` so
- *     untouched tenants keep operating until the backfill script runs.
+ *     the legacy `user_tenants.role` check via `RBACResolver::legacyRole()`
+ *     so untouched tenants keep operating until the backfill runs.
  */
 declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
 
-final class RBAC
+final class RBACResolver
 {
     /** read < write < admin. 'none' satisfies nothing. */
     private const LEVEL_RANK = ['none' => 0, 'read' => 1, 'write' => 2, 'admin' => 3];

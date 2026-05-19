@@ -35,7 +35,7 @@ $ab = (string) file_get_contents($ROOT . '/core/api_bootstrap.php');
 $a('queries user_tenants for active tenant',  $c($ab, "FROM user_tenants\n                  WHERE user_id = :u AND tenant_id = :t AND status = \"active\""));
 $a('mirrors role back to session',            $c($ab, "\$_SESSION['user']['role'] = \$effectiveRole"));
 $a('falls through silently on DB hiccup',     $c($ab, "/* keep session role */"));
-$a('returns effective role in context',       $c($ab, "'role'      => \$effectiveRole"));
+$a('returns effective role in context',       (bool) preg_match("/'role'\s+=>\s+\\\$effectiveRole/", $ab));
 
 // ----------------------------------------------------------------- 3) sub_tenants switch
 echo "\nsub_tenants switch — role refresh on tenant change\n";
