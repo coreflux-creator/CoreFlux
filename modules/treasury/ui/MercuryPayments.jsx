@@ -32,12 +32,33 @@ const fmtAmount = (cents, cur = 'USD') =>
 export default function MercuryPayments() {
   const list = useApi('/api/mercury_payments.php');
   const recipients = useApi('/api/mercury_recipients.php?kind=vendor');
+  const reconStats = useApi('/api/mercury_reconciliation.php?action=stats');
   const [showCreate, setShowCreate] = useState(false);
   const [flash, setFlash] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [showDetail, setShowDetail] = useState(null);  // payment id
+  const [reconBusy, setReconBusy] = useState(false);
 
   const rows = list.data?.rows ?? [];
+  const stats = reconStats.data?.stats || null;
+
+  const runReconciliation = async () => {
+    setReconBusy(true);
+    setFlash(null);
+    try {
+      const res = await api.post('/api/mercury_reconciliation.php?action=run', {});
+      setFlash({
+        kind: 'success',
+        msg: `Reconciliation done: scanned=${res.scanned} matched=${res.matched} discrepancies=${res.discrepancies} missing=${res.missing}`,
+      });
+      list.reload();
+      reconStats.reload();
+    } catch (err) {
+      setFlash({ kind: 'error', msg: err.message || String(err) });
+    } finally {
+      setReconBusy(false);
+    }
+  };
 
   const act = async (id, action, body = {}) => {
     setBusyId(id);
@@ -84,6 +105,50 @@ export default function MercuryPayments() {
           }}
         >
           {flash.msg}
+        </div>
+      )}
+
+      {/* Reconciliation tile — Slice 4 */}
+      {stats && (
+        <div
+          data-testid="mercury-reconciliation-tile"
+          style={{
+            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr) auto', gap: 12,
+            padding: 12, marginBottom: 16, borderRadius: 8,
+            border: '1px solid var(--cf-border, #e5e7eb)', background: '#f9fafb',
+            alignItems: 'center', fontSize: 13,
+          }}
+        >
+          <ReconKpi label="Settled, awaiting reconciliation"
+                    value={stats.settled_unreconciled}
+                    testid="recon-kpi-pending"
+                    accent={stats.settled_unreconciled > 0 ? '#92400e' : '#374151'} />
+          <ReconKpi label="Reconciled (total)"
+                    value={stats.reconciled_total}
+                    testid="recon-kpi-reconciled"
+                    accent="#047857" />
+          <ReconKpi label="Open discrepancies"
+                    value={stats.discrepancies_open}
+                    testid="recon-kpi-discrepancies"
+                    accent={stats.discrepancies_open > 0 ? '#991b1b' : '#374151'} />
+          <ReconKpi label="Mercury txn missing"
+                    value={stats.missing_mercury_txn}
+                    testid="recon-kpi-missing"
+                    accent={stats.missing_mercury_txn > 0 ? '#92400e' : '#374151'} />
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={runReconciliation}
+            disabled={reconBusy}
+            data-testid="mercury-reconciliation-run-btn"
+          >
+            {reconBusy ? 'Running…' : 'Reconcile now'}
+          </button>
+          {stats.oldest_unreconciled && (
+            <div data-testid="mercury-reconciliation-lag" style={{ gridColumn: '1 / -1', fontSize: 11, color: '#64748b' }}>
+              Oldest unreconciled Settled payment: {stats.oldest_unreconciled}
+            </div>
+          )}
         </div>
       )}
 
@@ -302,8 +367,7 @@ function CreatePaymentModal({ recipients, onClose, onCreated }) {
   );
 }
 
-function PaymentDetailModal({ id, onClose }) {
-  const detail = useApi(`/api/mercury_payments.php?id=${id}`);
+function PaymentDetailModal({ id, onClose }) {  const detail = useApi(`/api/mercury_payments.php?id=${id}`);
   return (
     <div data-testid="mercury-payment-detail-modal" style={modalOverlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div style={{ ...modalCard, maxWidth: 720 }}>
@@ -348,3 +412,12 @@ const modalCard = {
   background: '#fff', padding: 20, borderRadius: 8, width: '100%', maxWidth: 480,
   maxHeight: '90vh', overflowY: 'auto',
 };
+
+function ReconKpi({ label, value, testid, accent }) {
+  return (
+    <div data-testid={testid} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</span>
+      <strong style={{ fontSize: 18, color: accent || '#0f172a' }}>{value}</strong>
+    </div>
+  );
+}

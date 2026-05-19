@@ -9,6 +9,7 @@ export default function PaymentsList() {
   const rows = data?.rows ?? [];
   const plaidEnabled = !!data?.plaid_enabled;
   const plaidTransferLinked = !!data?.plaid_transfer_linked;
+  const mercuryConnected = !!data?.mercury_connected;
   const [showRecord, setShowRecord] = useState(false);
   const [showAllocate, setShowAllocate] = useState(null); // payment row
   const [batching, setBatching]   = useState(false);
@@ -38,6 +39,25 @@ export default function PaymentsList() {
     p.method === 'plaid' &&
     p.status === 'sent' &&
     !p.rail_external_ref;
+
+  // Eligibility for "Send via Mercury" — sent + not yet attached to any rail
+  // + Mercury is connected. Recipient mapping is validated server-side.
+  const mercuryEligible = (p) =>
+    mercuryConnected &&
+    p.status === 'sent' &&
+    !p.rail_external_ref;
+
+  const [mercuryRow, setMercuryRow] = useState({});
+  const sendViaMercury = async (p) => {
+    setMercuryRow(s => ({ ...s, [p.id]: 'busy' }));
+    try {
+      const res = await api.post(`/modules/ap/api/payments.php?action=send_via_mercury&id=${p.id}`, {});
+      setMercuryRow(s => ({ ...s, [p.id]: { ok: true, ref: `pi:${res.instruction_id}` } }));
+      reload();
+    } catch (e) {
+      setMercuryRow(s => ({ ...s, [p.id]: { error: e.message || String(e) } }));
+    }
+  };
 
   // Eligibility for NACHA batch: ach|plaid method, status draft|queued|sent (without rail_external_ref).
   const isOriginatable = (p) =>
@@ -206,6 +226,28 @@ export default function PaymentsList() {
                 {plaidRow[p.id] && plaidRow[p.id].ok && (
                   <div data-testid={`ap-send-via-plaid-ok-${p.id}`} style={{ fontSize: 11, color: 'var(--cf-green, #047857)', marginTop: 4 }}>
                     ✓ Originated ({plaidRow[p.id].ref})
+                  </div>
+                )}
+                {mercuryEligible(p) && (
+                  <button
+                    className="btn btn--primary"
+                    style={{ marginLeft: 6 }}
+                    onClick={() => sendViaMercury(p)}
+                    disabled={mercuryRow[p.id] === 'busy'}
+                    data-testid={`ap-send-via-mercury-${p.id}`}
+                    title="Create a Mercury payment_instruction (Draft) — treasury ops approves before money moves"
+                  >
+                    {mercuryRow[p.id] === 'busy' ? 'Sending…' : 'Send via Mercury'}
+                  </button>
+                )}
+                {mercuryRow[p.id] && mercuryRow[p.id].error && (
+                  <div data-testid={`ap-send-via-mercury-error-${p.id}`} style={{ fontSize: 11, color: 'var(--cf-red, #b91c1c)', marginTop: 4 }}>
+                    {mercuryRow[p.id].error}
+                  </div>
+                )}
+                {mercuryRow[p.id] && mercuryRow[p.id].ok && (
+                  <div data-testid={`ap-send-via-mercury-ok-${p.id}`} style={{ fontSize: 11, color: 'var(--cf-green, #047857)', marginTop: 4 }}>
+                    ✓ Queued as {mercuryRow[p.id].ref}
                   </div>
                 )}
               </td>

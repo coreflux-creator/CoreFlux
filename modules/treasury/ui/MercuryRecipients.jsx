@@ -109,14 +109,66 @@ export default function MercuryRecipients() {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Recipients ({rows.length})</h4>
-        <button
-          type="button"
-          className="btn btn--primary"
-          onClick={() => setShowCreate(true)}
-          data-testid="mercury-recipient-create-btn"
-        >
-          + New recipient
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <a
+            href="/api/mercury_recipients_csv_import.php?action=template"
+            className="btn btn--ghost"
+            data-testid="mercury-recipients-csv-template-btn"
+            title="Download CSV template for bulk vendor import"
+          >
+            CSV template
+          </a>
+          <label
+            className="btn btn--ghost"
+            data-testid="mercury-recipients-csv-import-btn"
+            style={{ cursor: 'pointer' }}
+            title="Import vendor recipients from a CSV"
+          >
+            Import CSV
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: 'none' }}
+              data-testid="mercury-recipients-csv-input"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                e.target.value = '';
+                const text = await file.text();
+                const postCsv = async (url) => {
+                  const res = await fetch(url, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'text/csv', Accept: 'application/json' },
+                    body: text,
+                  });
+                  const body = await res.json().catch(() => ({}));
+                  if (!res.ok) throw new Error(body.error || res.statusText);
+                  return body;
+                };
+                try {
+                  const dry = await postCsv('/api/mercury_recipients_csv_import.php?action=dry_run');
+                  if ((dry.error_count ?? 0) > 0) {
+                    if (!window.confirm(`CSV has ${dry.error_count} invalid row(s). Skip them and import the rest?`)) return;
+                  }
+                  const out = await postCsv('/api/mercury_recipients_csv_import.php?action=commit&skip_invalid=1');
+                  setFlash({ kind: 'success', msg: `Imported ${out.inserted ?? out.committed ?? 0} recipient(s).` });
+                  list.reload();
+                } catch (err) {
+                  setFlash({ kind: 'error', msg: err.message || String(err) });
+                }
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => setShowCreate(true)}
+            data-testid="mercury-recipient-create-btn"
+          >
+            + New recipient
+          </button>
+        </div>
       </div>
 
       {list.loading && <p>Loading…</p>}

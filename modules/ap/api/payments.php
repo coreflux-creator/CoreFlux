@@ -16,7 +16,6 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/payment_rails.php';
 require_once __DIR__ . '/../../../core/payment_rails/originate_helpers.php';
 require_once __DIR__ . '/../lib/ap.php';
-
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
@@ -86,10 +85,23 @@ if ($method === 'GET') {
     } catch (\Throwable $e) {
         $plaidLinked = false;
     }
+    // Mercury connection status — UI uses this to render "Send via Mercury"
+    // per-row buttons. Same graceful-degrade pattern as Plaid above.
+    $mercuryConnected = false;
+    try {
+        $merc = scopedFind(
+            "SELECT status FROM mercury_connections WHERE tenant_id = :tenant_id LIMIT 1",
+            []
+        );
+        $mercuryConnected = $merc && ($merc['status'] ?? '') === 'active';
+    } catch (\Throwable $e) {
+        $mercuryConnected = false;
+    }
     api_ok([
         'rows'                  => $rows,
         'plaid_enabled'         => apPlaidConfigured(),
         'plaid_transfer_linked' => $plaidLinked,
+        'mercury_connected'     => $mercuryConnected,
     ]);
 }
 
@@ -311,6 +323,23 @@ if ($method === 'POST' && $action === 'originate_batch') {
     }
     api_ok($resp);
 }
+
+// Slice 3.5 — Send this ap_payment via Mercury Bank by creating a
+// Draft payment_instruction with source_module='ap'. Treasury ops then
+// Submits + Approves in the Mercury Payments dashboard (SoD preserved).
+if ($method === 'POST' && $action === 'send_via_mercury') {
+    RBAC::requirePermission($user, 'ap.payment.send');
+    require_once __DIR__ . '/../../../core/mercury_payments.php';
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 422);
+    try {
+        $instr = mpCreateFromApPayment($tid, $id, $user['id'] ?? null);
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 422);
+    }
+    api_ok(['ok' => true, 'instruction_id' => (int) $instr['id'], 'state' => $instr['state'] ?? 'Draft']);
+}
+
 
 if ($method === 'POST' && $action === 'originate') {
     RBAC::requirePermission($user, 'ap.payment.send');

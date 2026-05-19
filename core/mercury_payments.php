@@ -235,6 +235,90 @@ function mpCancel(int $tenantId, int $id, ?int $userId, ?string $reason = null):
     return mpTransition($tenantId, $id, 'Cancelled', $reason ?: 'cancelled_by_user', $userId);
 }
 
+/**
+ * Slice 3.5 — AP integration. Create a Draft payment_instruction from an
+ * existing ap_payments row. Used by the AP PaymentsList "Send via Mercury"
+ * per-row button.
+ *
+ * Looks up the matching mercury_recipients (kind=vendor) by name. Refuses
+ * if no match (operator must add the vendor to the recipient vault first).
+ * Refuses if a live (non-Cancelled/Failed) instruction already exists for
+ * this ap_payment.
+ *
+ * SoD is preserved because the resulting instruction starts in `Draft` —
+ * treasury ops still has to Submit + Approve before money moves.
+ */
+function mpCreateFromApPayment(int $tenantId, int $apPaymentId, ?int $userId = null): array
+{
+    if ($apPaymentId <= 0) throw new \InvalidArgumentException('ap_payment_id required');
+    $pdo = getDB();
+
+    // Re-use scopedFind / scopedQuery so we follow the codebase convention,
+    // but fall back to raw PDO for portability with the rest of this file.
+    $ap = $pdo->prepare(
+        'SELECT id, vendor_name, amount, status, method, rail_external_ref
+           FROM ap_payments WHERE tenant_id = :t AND id = :id LIMIT 1'
+    );
+    $ap->execute(['t' => $tenantId, 'id' => $apPaymentId]);
+    $row = $ap->fetch(\PDO::FETCH_ASSOC);
+    if (!$row) throw new \RuntimeException('ap_payment not found');
+    if ($row['status'] !== 'sent') throw new \RuntimeException('ap_payment must be in status=sent');
+    if (!empty($row['rail_external_ref'])) {
+        throw new \RuntimeException('ap_payment is already attached to rail ' . $row['rail_external_ref']);
+    }
+
+    // Refuse duplicate instructions per ap_payment unless prior one was terminal.
+    $dup = $pdo->prepare(
+        'SELECT id, state FROM payment_instructions
+          WHERE tenant_id = :t AND source_module = "ap" AND source_ref = :r
+            AND state NOT IN ("Cancelled","Failed","Returned")
+          LIMIT 1'
+    );
+    $dup->execute(['t' => $tenantId, 'r' => (string) $apPaymentId]);
+    if ($e = $dup->fetch(\PDO::FETCH_ASSOC)) {
+        throw new \RuntimeException("payment_instruction #{$e['id']} already exists for this ap_payment ({$e['state']})");
+    }
+
+    // Find the mercury_recipient by vendor name (case-insensitive).
+    $rec = $pdo->prepare(
+        'SELECT id FROM mercury_recipients
+          WHERE tenant_id = :t AND kind = "vendor" AND status = "active"
+            AND deleted_at IS NULL
+            AND LOWER(name) = LOWER(:n) LIMIT 1'
+    );
+    $rec->execute(['t' => $tenantId, 'n' => (string) $row['vendor_name']]);
+    $recipientId = (int) ($rec->fetchColumn() ?: 0);
+    if ($recipientId === 0) {
+        throw new \RuntimeException("no Mercury recipient found for vendor '{$row['vendor_name']}'; add them under Treasury → Pay-out Rails → Recipients first");
+    }
+
+    $amountCents = (int) round(((float) $row['amount']) * 100);
+    $instruction = mpCreate($tenantId, [
+        'recipient_id'   => $recipientId,
+        'amount_cents'   => $amountCents,
+        'currency'       => 'USD',
+        'description'    => 'AP #' . $apPaymentId . ' / ' . substr((string) $row['vendor_name'], 0, 35),
+        'notes'          => 'Auto-created from ap_payments #' . $apPaymentId,
+        'source_module'  => 'ap',
+        'source_ref'     => (string) $apPaymentId,
+        'idempotency_key' => 'ap:' . $apPaymentId . ':' . substr(bin2hex(random_bytes(3)), 0, 6),
+    ], $userId);
+
+    // Stamp the ap_payment so the UI hides the "Send via Mercury" button
+    // and the reverse link is discoverable.
+    $pdo->prepare(
+        'UPDATE ap_payments
+            SET rail_external_ref = :ref, disbursement_rail = "mercury"
+          WHERE tenant_id = :t AND id = :id'
+    )->execute([
+        'ref' => 'pi:' . $instruction['id'],
+        't'   => $tenantId,
+        'id'  => $apPaymentId,
+    ]);
+
+    return $instruction;
+}
+
 // ----------------------------------------------------------------- workflow orchestrator
 
 /**

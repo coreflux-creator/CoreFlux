@@ -10,6 +10,103 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (Mercury — Slice 3.5 AP + Slice 2 CSV polish + funding-leg reconciliation, 2026-02 — this fork)
+Three layered enhancements on top of the now-feature-complete Mercury MVP.
+
+### Slice 3.5 — AP module ↔ Mercury Payment Engine integration
+**Allows AP-approved bills to flow into the Mercury payment workflow without re-keying.** The "Send via Mercury" button on AP PaymentsList now creates a Draft `payment_instruction` linked back to the AP row via the existing `source_module`/`source_ref` columns. SoD is preserved — treasury ops still has to Submit + Approve the instruction before money moves.
+
+- New service helper `mpCreateFromApPayment(int $tenantId, int $apPaymentId, ?int $userId)` in `core/mercury_payments.php`:
+  - Validates the AP row exists, is in `status=sent`, and is not already attached to a rail.
+  - Refuses if a non-terminal `payment_instructions` row already exists for this `(source_module='ap', source_ref=apPaymentId)` so the button is safely retryable.
+  - Looks up the matching `mercury_recipients` row by case-insensitive `vendor_name`. Refuses if no match, with an actionable error pointing the operator at the Recipients page.
+  - Converts the AP `$` amount → `cents` BIGINT, generates a deterministic idempotency key `ap:{ap_payment_id}:{rand6}`, calls `mpCreate` (so all the recipient + amount validation stays in one place).
+  - Stamps `ap_payments.rail_external_ref='pi:{id}'` + `disbursement_rail='mercury'` so the AP UI's existing "already-on-a-rail" guard hides the button on subsequent renders.
+- New AP API route `POST /modules/ap/api/payments.php?action=send_via_mercury&id=N` gated by `ap.payment.send`. Returns `{instruction_id, state}`. All failure modes from `mpCreateFromApPayment` surface as 422 with the human-readable reason.
+- AP GET response gained `mercury_connected: bool` (gracefully degrades when migration 048 missing), so the UI knows whether to render the button before clicking.
+- AP `PaymentsList.jsx` per-row "Send via Mercury" button (`ap-send-via-mercury-{id}`) renders when `mercury_connected && status='sent' && !rail_external_ref`. Inline per-row error/success affordances mirror the existing Plaid pattern.
+
+### Slice 2 polish — CSV bulk import for vendor recipients
+Operators onboarding tenants with 50+ existing vendors no longer have to click through the modal 50 times. Built on the existing `Core\CsvImportService` per the project HARD_RULES (every primary-entity module must expose a CSV flow via the shared primitive).
+
+- `api/mercury_recipients_csv_import.php` — 3-action endpoint (`template`, `dry_run`, `commit`) matching the staffing/people/accounting CSV pattern.
+- Registered schema `mercury_vendor_recipients` with 8 fields: `name` (required), `email`, `payment_method` enum `ach|wire|check`, `routing_number` (required, 9 digits via the field validator), `account_number` (required), `account_type` enum `checking|savings`, `nickname`, `notes`. `unique_within_batch: ['name']` blocks duplicate rows in the same CSV.
+- `dry_run` walks the rows through the schema validator AND cross-checks against existing `mercury_recipients` rows (case-insensitive) so operators see "already exists" warnings before commit.
+- `commit` invokes `mercuryRecipientCreate` per row — same entry point as the modal form, so all the existing validation (routing 9 digits, account 4–17 chars, AES-256-GCM encryption, transactional INSERT into the bank-method table) runs unchanged. `skip_invalid` flag short-circuits to "import the rest".
+- RBAC: writes need `accounting.bank.manage`, template-download accepts `accounting.bank.view` OR `.manage`.
+- Funding_source recipients deliberately NOT supported via CSV — they require pasting the existing Mercury external_account id (per the Slice 2 doc), which is a manual operator step.
+- UI buttons added to `MercuryRecipients.jsx`:
+  - **CSV template** (`mercury-recipients-csv-template-btn`) — link to the `?action=template` download.
+  - **Import CSV** (`mercury-recipients-csv-import-btn`) — `<label>` wrapping a hidden `<input type="file" accept=".csv,text/csv">`. Reads file as text, posts to dry_run, prompts on errors > 0, posts commit with `skip_invalid=1`. Direct `fetch()` calls (not `api.post`) because `api.js` JSON-stringifies bodies unconditionally — bypassing for the `Content-Type: text/csv` path is cleaner than poisoning the shared client.
+
+### Funding-leg reconciliation
+**Extends Slice 4 to record the funding-pull leg in `reconciliation_matches` for parity with payouts.** The `reconciliation_matches.leg` ENUM already had `funding` reserved; this slice activates it.
+
+- New service function `mercuryReconcileFundingLeg(int $tenantId)` in `core/mercury_reconciliation.php` — walks every `payment_instructions` row with a non-empty `funding_mercury_txn_id` (regardless of high-level state), joins to `mercury_transactions`, records the three-way verdict (`matched | discrepancy | missing_mercury_txn`) with `leg='funding'`.
+- **Does NOT drive state transitions** — the payout leg owns the lifecycle (`Settled → Reconciled`). The funding pass is pure audit + treasury-ops visibility for analytics like "how long does Mercury actually take to pull from External A vs External B?". Verified via grep-absence assertion in the smoke that the funding code path never calls `mpApprove` or `mpTransition(..., 'Approved'...)`.
+- `mercuryReconcileTenant()` now fans out to the funding-leg pass after the payout pass and returns three extra counters: `funding_matched`, `funding_discrepancies`, `funding_missing`. The existing 4 counters (`scanned`, `matched`, `discrepancies`, `missing`) are unchanged so any caller relying on the old shape stays compatible.
+- Same idempotency guarantee via the existing `reconciliation_matches` UNIQUE on `(tenant, instruction, leg, outcome, mercury_txn_pk)` — re-running collapses duplicates cleanly.
+
+### Validation
+- New `tests/mercury_ap_and_csv_smoke.php` — **52 ✓ / 0 fail.** Covers `mpCreateFromApPayment` contract (state validation, dup refusal, case-insensitive vendor match, RBAC pointer error, $ → cents conversion, source_module/ref persistence, ap_payments rail-ref stamping, SoD-preserved grep-absence assertion), new AP API route (RBAC + payload + audit), AP UI (`mercury_connected` flag wiring, eligibility guard, per-row testids), CSV API (schema registration, all 3 actions, duplicate name detection, RBAC split, action allowlist, dry_run-before-commit pattern), CSV UI (template link, file picker, dry-run-then-commit workflow, raw text/csv POST).
+- Extended `tests/mercury_reconciliation_smoke.php` — **69 ✓ / 0 fail** (was 61). Adds 8 funding-leg assertions including pure-audit verification.
+- Full PHP smoke suite — **195 smoke files, 0 failures.** Vite bundle `index-DPhSClAM.js`; `.deploy-version` + `spa-assets/` + sprint6b expected hash synced via postbuild hook.
+
+
+
+## Recently completed (Mercury Bank — Slice 4: Reconciliation, 2026-02 — this fork)
+**Closes the Mercury MVP loop.** Reconciliation now matches `mercury_transactions` (Slice 1) ↔ `payment_instructions.payout_mercury_txn_id` (Slice 3), advances cleared payments to the terminal `Reconciled` state, and surfaces a treasury-ops dashboard with discrepancy counts. The Mercury MVP per the attached spec is now feature-complete across Slices 1–4.
+
+### Schema — migration `051_mercury_reconciliation.sql`
+- `reconciliation_matches` — append-only-with-upsert audit of every match attempt. `outcome` ENUM `matched | discrepancy | missing_mercury_txn`. `leg` ENUM `funding | payout` (Slice 4 ships only payout-side reconciliation; funding-leg reconciliation is the future enhancement). `expected_amount_cents` + `observed_amount_cents` + `discrepancy_reason` make root-cause analysis a single SELECT. UNIQUE on `(tenant, instruction, leg, outcome, mercury_txn_pk)` for idempotent re-runs.
+- `funding_transfers` — optional denormalized ledger view of each funding pull. Populated as a side-effect of reconciliation. Useful for treasury-ops reporting (per-funding analytics) without joining the wider `payment_instructions` row. UNIQUE on `(tenant, instruction)`.
+- Idempotent `information_schema`-guarded `ALTER` adds `payment_instructions.reconciled_at` so dashboards can compute lag/throughput without scanning the full audit table.
+
+### Service — `core/mercury_reconciliation.php`
+- `mercuryReconcileTenant($tenantId)` — engine entry. Walks every `state=Settled AND reconciled_at IS NULL` row (LIMIT 500, ordered by `payout_settled_at ASC` for fairness), calls `mercuryReconcileOne` per row, returns `{scanned, matched, discrepancies, missing}` counters.
+- `mercuryReconcileOne($tenantId, $row)` — three-way verdict:
+  - **matched**: payout_mercury_txn_id exists in `mercury_transactions`, amount + currency align. Records the match AND calls `mpTransition` (from Slice 3) to advance the row to `Reconciled` with `reconciled_at` stamped. Transition failures are absorbed so reconciliation can keep walking.
+  - **discrepancy**: candidate found but amount or currency mismatches. Records the row with `expected_amount_cents` / `observed_amount_cents` / human-readable `discrepancy_reason`. Payment stays in `Settled` for human inspection.
+  - **missing_mercury_txn**: payout_mercury_txn_id set but no `mercury_transactions` row yet (sync cron lag). Records the gap so the worker can re-attempt next tick without duplicating audit rows (UNIQUE upsert).
+- **NEVER hits Mercury** — pure local-DB work. The doc + the `mercuryCall` grep-absence verify this in the smoke test, so reconciliation can run on a tight `*/15` cron without rate-limit concerns.
+- `mercuryUpsertFundingTransfer` — sidecar that keeps the optional `funding_transfers` ledger view in sync per-instruction. Best-effort (failures swallowed).
+- `mercuryReconciliationStats($tenantId)` — single query returning the 4 KPIs the UI tile renders: `settled_unreconciled`, `reconciled_total`, `discrepancies_open`, `missing_mercury_txn`, plus `oldest_unreconciled` for lag visibility.
+- `mercuryReconciliationMatches($tenantId, $instructionId?, $outcome?)` — paginated audit list with `outcome` allowlist filtering for the discrepancies-only view.
+- Three graceful-degrade `try/catch` blocks so missing migration 051 doesn't crash anything that imports the service.
+
+### API — `/api/mercury_reconciliation.php`
+- `GET ?action=stats` → KPI tile data.
+- `GET ?action=matches[&outcome=discrepancy][&instruction_id=N]` → audit list / drill-in.
+- `POST ?action=run` → manual engine trigger (also emits `mercury.reconciliation.run` audit). Returns `{scanned, matched, discrepancies, missing}` so the UI flash can confirm what happened.
+- RBAC split: reads `accounting.bank.view` OR `.manage`; run-now needs `.manage`.
+
+### Worker — `cron/mercury_reconciliation.php`
+- Selects only tenants with at least one `state=Settled AND reconciled_at IS NULL` row — skips idle tenants entirely. Per-tenant try/catch, exit-code reflects failure count. Suggested cron: `*/15 * * * *` (4× faster than the payment worker because the work is local-only).
+
+### UI — extension to `MercuryPayments.jsx`
+- New reconciliation KPI tile pinned at the top of the Mercury Payments page above the payments table:
+  - Four KPI columns: "Settled, awaiting reconciliation" (amber when > 0), "Reconciled (total)" (always green), "Open discrepancies" (red when > 0), "Mercury txn missing" (amber when > 0).
+  - "Reconcile now" CTA button that POSTs to `?action=run`, then refreshes both the list and the stats. Flash banner reports the verdict counters.
+  - Optional "Oldest unreconciled" lag display below the KPIs when there's a backlog.
+- Testids: `mercury-reconciliation-tile`, `recon-kpi-pending/reconciled/discrepancies/missing`, `mercury-reconciliation-run-btn`, `mercury-reconciliation-lag`.
+- Small `<ReconKpi>` helper component keeps the tile JSX readable.
+
+### Validation
+- `tests/mercury_reconciliation_smoke.php` — **61 ✓ / 0 fail.** Covers migration shape (UNIQUEs, ENUMs, idempotent ALTER), service contract (all 6 helpers, three-verdict branches, ABS-on-signed-mercury-amounts, currency case-insensitive compare, reconciled_at stamping, transition-failure recovery, NEVER-hits-Mercury guarantee verified via both doc match AND `mercuryCall` grep-absence), API (3 routes, RBAC split, audit emission), worker (skip-idle-tenants optimization, per-tenant try/catch, exit-code semantics), UI (KPI tile testids, run button, stats reload after run, ReconKpi helper present), and `php -l` syntax sanity on 3 backend files.
+- Full PHP smoke suite — **194 smoke files, 0 failures.** Vite bundle `index-DVngaXI3.js`; `.deploy-version` + `spa-assets/` + sprint6b expected hash synced via postbuild hook.
+
+### Mercury MVP — feature-complete summary
+With Slice 4 landed, the four slices together deliver the full payments lifecycle per the attached `CoreFlux_Mercury_MVP_Technical_Spec.docx`:
+- **Slice 1** — tenant-owned API token, account sync, transaction sync, paste-token UI.
+- **Slice 2** — vendor + funding-source recipient vault, bank-method encryption, funding default designation.
+- **Slice 3** — payment_instructions 10-state machine with the gated debit→verify→payout workflow.
+- **Slice 4** — reconciliation engine matching `mercury_transactions` ↔ `payment_instructions`.
+
+### Deliberately queued for later (per user direction)
+- **Mercury webhooks** — current `Submitted → Settled` poll cadence is every 5 min (worker). Webhooks would make it real-time, mirroring the Plaid Transfer webhook pattern. **Queued for after Slice 4.**
+
+
+
 ## Recently completed (Mercury Bank — Slice 3: Payment Engine + State Machine, 2026-02 — this fork)
 **The gated payments workflow is now executable end-to-end.** This is the slice the user explicitly described: debit external funding account → credit Mercury operating → verify clearance → only then push ACH to vendor.
 
