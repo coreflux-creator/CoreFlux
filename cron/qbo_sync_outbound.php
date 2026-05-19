@@ -20,6 +20,9 @@ require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/encryption.php';
 require_once __DIR__ . '/../core/qbo/client.php';
 require_once __DIR__ . '/../core/qbo/sync_je.php';
+require_once __DIR__ . '/../core/qbo/sync_bills.php';
+require_once __DIR__ . '/../core/qbo/sync_invoices.php';
+require_once __DIR__ . '/../core/qbo/sync_payments.php';
 
 $LIMIT_PER_TENANT = 100;
 
@@ -57,6 +60,28 @@ foreach ($tenants as $tid) {
             "tenant %d: pushed=%d skipped=%d failed=%d considered=%d (%dms)\n",
             $tid, $res['pushed'], $res['skipped_unmapped'], $res['failed'], $res['considered'], $res['latency_ms']
         ));
+
+        // Bills / Invoices / Payments — run each when direction allows.
+        foreach ([
+            'bills'    => 'qboSyncBills',
+            'invoices' => 'qboSyncInvoices',
+            'payments' => 'qboSyncBillPayments',
+        ] as $entity => $fn) {
+            $dir2 = $cfg[$entity] ?? 'off';
+            if (!in_array($dir2, ['push', 'two_way'], true)) continue;
+            try {
+                $r2 = $fn($tid, null, ['limit' => $LIMIT_PER_TENANT]);
+                $totalPushed  += $r2['pushed'];
+                $totalSkipped += $r2['skipped'];
+                $totalFailed  += $r2['failed'];
+                fwrite(STDOUT, sprintf(
+                    "tenant %d %s: pushed=%d skipped=%d failed=%d considered=%d (%dms)\n",
+                    $tid, $entity, $r2['pushed'], $r2['skipped'], $r2['failed'], $r2['considered'], $r2['latency_ms']
+                ));
+            } catch (\Throwable $e) {
+                fwrite(STDERR, "tenant {$tid} {$entity} failed: " . $e->getMessage() . "\n");
+            }
+        }
     } catch (\Throwable $e) {
         $tenantsErr++;
         fwrite(STDERR, "tenant {$tid} failed: " . $e->getMessage() . "\n");

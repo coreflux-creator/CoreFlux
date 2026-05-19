@@ -112,6 +112,22 @@ export default function QboSettings() {
     }
   };
 
+  const handleGenericSync = async (action, label) => {
+    setBusy(true); setFlash(null);
+    try {
+      const r = await api.post(`/api/qbo/${action}.php?action=${action}`, { limit: 50 });
+      const msg = action === 'sync_items'
+        ? `Items: ${r.newly_mapped} newly mapped · ${r.unchanged} unchanged · ${r.services} services (${r.pulled} pulled, ${r.latency_ms}ms)`
+        : `${label}: ${r.pushed} pushed · ${r.skipped} skipped · ${r.failed} failed (${r.considered} considered, ${r.latency_ms}ms)`;
+      setFlash({ kind: (r.failed || 0) > 0 ? 'error' : 'success', msg });
+      status.reload();
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (status.loading) return <div data-testid="qbo-settings-loading">Loading…</div>;
 
   return (
@@ -250,6 +266,10 @@ export default function QboSettings() {
             onPullCustomers={() => handlePullMaster('customers')}
             onPullVendors={() => handlePullMaster('vendors')}
             onPullAccounts={() => handlePullMaster('accounts')}
+            onPullItems={() => handleGenericSync('sync_items', 'Items', false)}
+            onPushBills={() => handleGenericSync('sync_bills', 'Bills', false)}
+            onPushInvoices={() => handleGenericSync('sync_invoices', 'Invoices', false)}
+            onPushPayments={() => handleGenericSync('sync_payments', 'Payments', false)}
           />
 
           {/* Skipped JE inbox — surfaces JEs the cron has had to skip
@@ -369,16 +389,22 @@ function parseFlashFromUrl() {
   return null;
 }
 
-function ManualSyncCard({ config, busy, onPushJe, onDryRunJe, onPullCustomers, onPullVendors, onPullAccounts }) {
+function ManualSyncCard({ config, busy, onPushJe, onDryRunJe, onPullCustomers, onPullVendors, onPullAccounts, onPullItems, onPushBills, onPushInvoices, onPushPayments }) {
   const jeDir   = config.journal_entries;
   const custDir = config.customers;
   const vendDir = config.vendors;
   const coaDir  = config.chart_of_accounts;
+  const billDir = config.bills;
+  const invDir  = config.invoices;
+  const payDir  = config.payments;
   const showJe   = ['push', 'two_way'].includes(jeDir);
   const showCust = ['pull', 'two_way'].includes(custDir);
   const showVend = ['pull', 'two_way'].includes(vendDir);
   const showCoa  = ['pull', 'two_way'].includes(coaDir);
-  if (!showJe && !showCust && !showVend && !showCoa) return null;
+  const showBill = ['push', 'two_way'].includes(billDir);
+  const showInv  = ['push', 'two_way'].includes(invDir);
+  const showPay  = ['push', 'two_way'].includes(payDir);
+  if (!showJe && !showCust && !showVend && !showCoa && !showBill && !showInv && !showPay) return null;
   return (
     <div
       data-testid="qbo-sync-actions"
@@ -450,6 +476,30 @@ function ManualSyncCard({ config, busy, onPushJe, onDryRunJe, onPullCustomers, o
           >
             <ArrowLeft size={14} style={{ marginRight: 6 }} />
             Pull chart of accounts
+          </button>
+        )}
+        {showInv && (
+          <button type="button" className="btn" onClick={onPullItems} disabled={busy} data-testid="qbo-sync-items-btn">
+            <ArrowLeft size={14} style={{ marginRight: 6 }} />
+            Pull QBO items
+          </button>
+        )}
+        {showBill && (
+          <button type="button" className="btn btn--primary" onClick={onPushBills} disabled={busy} data-testid="qbo-sync-bills-btn">
+            <Send size={14} style={{ marginRight: 6 }} />
+            Push bills
+          </button>
+        )}
+        {showInv && (
+          <button type="button" className="btn btn--primary" onClick={onPushInvoices} disabled={busy} data-testid="qbo-sync-invoices-btn">
+            <Send size={14} style={{ marginRight: 6 }} />
+            Push invoices
+          </button>
+        )}
+        {showPay && (
+          <button type="button" className="btn btn--primary" onClick={onPushPayments} disabled={busy} data-testid="qbo-sync-payments-btn">
+            <Send size={14} style={{ marginRight: 6 }} />
+            Push bill payments
           </button>
         )}
       </div>

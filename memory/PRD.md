@@ -10,6 +10,46 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (QBO Slice 4b + Slice 5 + Health Alerts, 2026-02 — this fork)
+**Slice 4 finished + Slice 5 conflict rules + status-flip email alerts** — the QBO integration is now feature-complete for the MVP scope: Journal Entries, Customers, Vendors, Chart of Accounts, Items, Bills, Invoices, BillPayments all flow in their configured direction, two_way customer pulls now detect divergence, and CFOs get auto-notified when sync health flips colours.
+
+### Migration 053 — `qbo_conflict_log` + `qbo_health_alerts`
+- `qbo_conflict_log`: per-row record of every detected two_way conflict — winner enum (`coreflux`/`quickbooks`/`tie`), both sides' updated_at + snapshot JSON, applied rule. Indexed for time and entity lookup.
+- `qbo_health_alerts`: dedupe table — one row per status transition (e.g. green→yellow). Recipient email + send error captured for forensics.
+
+### Slice 4b drivers
+- **`core/qbo/sync_bills.php`** — `qboSyncBills()` + `qboBuildBillPayload()`. Pushes posted `ap_bills` → QBO Bill using `AccountBasedExpenseLineDetail` (no Item mapping needed). VendorRef resolved via mapping or auto-discovered by `DisplayName` query. Skip reasons: `vendor_unmapped`, `unresolved_account_id`, `missing_account_code`. DocNumber capped at QBO's 21-char limit.
+- **`core/qbo/sync_items.php`** — `qboSyncItems()` mirror + `qboDefaultItemRef()` picker. Uses sentinel `internal_entity_id=0` for items (no CoreFlux counterpart). `qboDefaultItemRef()` prefers Service+Active items, memoised per tenant per request. `qboItemRefForPlacement()` provides per-placement override.
+- **`core/qbo/sync_invoices.php`** — `qboSyncInvoices()` + `qboBuildInvoicePayload()`. Pushes `billing_invoices` → QBO Invoice using `SalesItemLineDetail` with ItemRef resolved per placement. CustomerRef via Slice 3 mapping (skip `customer_unmapped`), missing item skip `no_default_item`.
+- **`core/qbo/sync_payments.php`** — `qboSyncBillPayments()` pushes `ap_payments` → QBO BillPayment. FIFO allocates the payment amount across mapped bills with `amount_due > 0`. Skip `no_mapped_bills_with_balance` when none qualify.
+
+### Slice 5 — Conflict rules (`core/qbo/conflict_rules.php`)
+- `qboDetectConflict()` short-circuits unless the entity's direction is `two_way`. Compares QBO `MetaData.LastUpdatedTime` against the last-seen snapshot AND the CoreFlux `updated_at` against the mapping's `last_synced_at`.
+- Cases: both unchanged / only one side changed → no conflict; both changed → CONFLICT logged with rule `last_write_wins`. Winner persisted to `qbo_conflict_log` with both snapshots so a controller can replay or undo.
+- Wired into Slice 3 customer pull: when CoreFlux wins, the pull update is suppressed and the row tagged `conflict_coreflux_wins` in the results.
+
+### Sync health alerts (`core/qbo/health_alerts.php` + `cron/qbo_health_alerts.php`)
+- `qboHealthEvaluate()` replicates the `/sync_health` decision tree without an HTTP hop.
+- `qboHealthMaybeAlert()` compares against the most-recent `qbo_health_alerts` row for the tenant. Same status → no-op. Status change → dispatch `sendEmail()` (works through both the live mailer and the sim-mock log) and persist the dedupe row. Recipient discovery: master_admin > tenant_admin > connection owner.
+- Cron suggested at `H/15 * * * *`. Recovery transitions fire a one-shot "recovered" email so on-call doesn't have to verify manually.
+- Email format: subject `[CoreFlux] QuickBooks sync degraded — green → red`, body has reasons + link to `/admin/integrations/qbo`.
+
+### API + Cron + UI
+- New API actions on `POST /api/qbo/`: `sync_bills`, `sync_invoices`, `sync_payments`, `sync_items`. RBAC: `integrations.qbo.manage`; 409 on direction conflicts; 502 on QBO API failure. PHP 8 `match()` used for the unified push dispatcher.
+- `cron/qbo_sync_outbound.php` extended: after JE push, iterates `bills` → `invoices` → `payments` per direction config, accumulating counts. Per-entity failures don't break the loop.
+- `cron/qbo_sync_inbound.php` extended: COA pass now also pulls Items when `invoices ∈ {push, two_way}` (Items are a pre-req for invoice push).
+- `QboSettings.jsx` ManualSyncCard adds: **Pull QBO items**, **Push bills**, **Push invoices**, **Push bill payments**. All conditional on the relevant direction.
+
+### Validation
+- `tests/qbo_slice4b_5_smoke.php` — **85 ✓ / 0 ✗**. Covers all 6 new core files' public surface + specific payload contracts (AccountBasedExpense vs SalesItemLineDetail, LinkedTxn for payments, FIFO allocation), conflict detection wired into customer upsert, alert dedupe + sendEmail invocation + recipient resolution, API dispatch + match() pattern, cron iteration, and UI button testids/conditional rendering.
+- Full PHP smoke suite — **198/200 passing**. Same two `curl_init`/no-API-key pre-existing regressions; nothing else broken.
+- Vite bundle rebuilt (`index-CXw_2HmS.js`), `.deploy-version` feature flags appended.
+
+### MOCKED
+- `mailerSend()` still local — but the alert path now uses `sendEmail()` from `core/mailer.php` which respects sim_mock_bridge for sim tenants and falls through to PHPMailer SMTP otherwise. When you wire Resend in (the P2 item), the alert cron is one of the consumers that immediately benefits.
+
+
+
 ## Recently completed (QBO — Slice 4a: COA mirror + Sync Health tile, 2026-02 — this fork)
 **Two foundational pieces of Slice 4** shipped together:
 1. **Canonical COA mirror (pull)** — replaces the fragile Slice 2 AcctNum auto-discovery with a single bulk-pull pass that populates `external_entity_mappings` for every QBO Account. After one run, the JE pusher hits the mapping cache instead of doing an ad-hoc QBO query per line.

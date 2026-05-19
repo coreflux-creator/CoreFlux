@@ -32,6 +32,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
+require_once __DIR__ . '/conflict_rules.php';
 
 const QBO_PAGE_SIZE = 100;
 
@@ -230,11 +231,17 @@ function qboUpsertCustomer(int $tenantId, array $qbo): array
         $internalId = (int) $pdo->lastInsertId();
         $action = 'created';
     } else {
-        // Content-hash dirty check via mappingUpsert handles "did anything
-        // actually change?"; if so we issue the UPDATE.
-        $existing = $pdo->prepare('SELECT * FROM staffing_clients WHERE id = :id AND tenant_id = :t LIMIT 1');
+        // Slice 5 — conflict detection for two_way customers.
+        $existing = $pdo->prepare('SELECT *, updated_at FROM staffing_clients WHERE id = :id AND tenant_id = :t LIMIT 1');
         $existing->execute(['id' => $internalId, 't' => $tenantId]);
         $cur = $existing->fetch(\PDO::FETCH_ASSOC) ?: [];
+        $conflict = qboDetectConflict($tenantId, 'customer', $internalId, $qboId, $qbo, $cur['updated_at'] ?? null);
+        if ($conflict['winner'] === 'coreflux') {
+            // CoreFlux side wins → don't overwrite locally; pretend no change.
+            return ['internal_id' => $internalId, 'action' => 'conflict_coreflux_wins'];
+        }
+        // Content-hash dirty check via mappingUpsert handles "did anything
+        // actually change?"; if so we issue the UPDATE.
         $changed = false;
         foreach ($payload as $k => $v) {
             if ((string) ($cur[$k] ?? '') !== (string) ($v ?? '')) { $changed = true; break; }

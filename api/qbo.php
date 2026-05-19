@@ -38,6 +38,10 @@ require_once __DIR__ . '/../core/qbo/client.php';
 require_once __DIR__ . '/../core/qbo/sync_je.php';
 require_once __DIR__ . '/../core/qbo/sync_in.php';
 require_once __DIR__ . '/../core/qbo/sync_accounts.php';
+require_once __DIR__ . '/../core/qbo/sync_bills.php';
+require_once __DIR__ . '/../core/qbo/sync_items.php';
+require_once __DIR__ . '/../core/qbo/sync_invoices.php';
+require_once __DIR__ . '/../core/qbo/sync_payments.php';
 
 $method = api_method();
 $action = (string) (api_query('action') ?? '');
@@ -254,6 +258,46 @@ switch ($action) {
             api_error($e->getMessage(), 409);
         } catch (\Throwable $e) {
             api_error('COA sync failed: ' . $e->getMessage(), 502);
+        }
+        api_ok($res);
+    }
+
+    case 'sync_items': {
+        // Slice 4b — pull QBO Item list (required for Invoice push).
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        RBAC::requirePermission($user, 'integrations.qbo.manage');
+        $body = api_json_body();
+        try {
+            $res = qboSyncItems($tid, $user['id'] ?? null, [
+                'limit'     => (int) ($body['limit']     ?? 1000),
+                'max_pages' => (int) ($body['max_pages'] ?? 10),
+            ]);
+        } catch (\Throwable $e) {
+            api_error('Item sync failed: ' . $e->getMessage(), 502);
+        }
+        api_ok($res);
+    }
+
+    case 'sync_bills':
+    case 'sync_invoices':
+    case 'sync_payments': {
+        // Slice 4b — push CoreFlux Bills / Invoices / BillPayments to QBO.
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        RBAC::requirePermission($user, 'integrations.qbo.manage');
+        $body = api_json_body();
+        $opts = [];
+        if (isset($body['limit']))   $opts['limit']   = (int) $body['limit'];
+        if (isset($body['dry_run'])) $opts['dry_run'] = (bool) $body['dry_run'];
+        try {
+            $res = match ($action) {
+                'sync_bills'    => qboSyncBills($tid, $user['id'] ?? null, $opts),
+                'sync_invoices' => qboSyncInvoices($tid, $user['id'] ?? null, $opts),
+                'sync_payments' => qboSyncBillPayments($tid, $user['id'] ?? null, $opts),
+            };
+        } catch (\RuntimeException $e) {
+            api_error($e->getMessage(), 409);
+        } catch (\Throwable $e) {
+            api_error(ucfirst(substr($action, 5)) . ' sync failed: ' . $e->getMessage(), 502);
         }
         api_ok($res);
     }

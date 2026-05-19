@@ -19,6 +19,7 @@ require_once __DIR__ . '/../core/encryption.php';
 require_once __DIR__ . '/../core/qbo/client.php';
 require_once __DIR__ . '/../core/qbo/sync_in.php';
 require_once __DIR__ . '/../core/qbo/sync_accounts.php';
+require_once __DIR__ . '/../core/qbo/sync_items.php';
 
 $LIMIT_PER_TENANT = 2000;
 
@@ -50,6 +51,20 @@ foreach ($tenants as $tid) {
                 "tenant %d accounts: matched=%d newly_mapped=%d unmapped_in_qbo=%d (%dms)\n",
                 $tid, $res['matched'], $res['newly_mapped'], $res['unmapped_in_qbo'], $res['latency_ms']
             ));
+        }
+        // QBO Items mirror — runs whenever invoices direction allows push
+        // OR a tenant explicitly opted chart_of_accounts in. Items are an
+        // implementation detail of invoice push.
+        if (in_array($cfg['invoices'] ?? 'off', ['push', 'two_way'], true)) {
+            try {
+                $res = qboSyncItems($tid, null, ['limit' => 1000]);
+                fwrite(STDOUT, sprintf(
+                    "tenant %d items: pulled=%d newly_mapped=%d services=%d (%dms)\n",
+                    $tid, $res['pulled'], $res['newly_mapped'], $res['services'], $res['latency_ms']
+                ));
+            } catch (\Throwable $e) {
+                fwrite(STDERR, "tenant {$tid} items failed: " . $e->getMessage() . "\n");
+            }
         }
         if (in_array($cfg['customers'] ?? 'off', ['pull', 'two_way'], true)) {
             $res = qboSyncCustomers($tid, null, ['limit' => $LIMIT_PER_TENANT]);

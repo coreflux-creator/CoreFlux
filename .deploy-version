@@ -283,7 +283,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-DtumF8qJ.js
+- spa-assets/index-CXw_2HmS.js
 - spa-assets/index-BC5g6YJu.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -889,3 +889,34 @@ e.php
 - integrations.qbo.slice4a.sync_health_decision_tree
 - ui.cfo_dashboard.qbo_sync_health_tile
 - ui.admin.qbo_settings.pull_chart_of_accounts_button
+- core/migrations/053_qbo_conflict_and_alerts.sql
+- core/qbo/sync_bills.php
+- core/qbo/sync_items.php
+- core/qbo/sync_invoices.php
+- core/qbo/sync_payments.php
+- core/qbo/conflict_rules.php
+- core/qbo/health_alerts.php
+- api/qbo/sync_bills.php
+- api/qbo/sync_invoices.php
+- api/qbo/sync_payments.php
+- api/qbo/sync_items.php
+- cron/qbo_health_alerts.php
+- tests/qbo_slice4b_5_smoke.php
+- integrations.qbo.slice4b.bill_push_account_based_expense_lines
+- integrations.qbo.slice4b.vendor_auto_discovery_by_display_name
+- integrations.qbo.slice4b.item_mirror_pull
+- integrations.qbo.slice4b.default_item_picker_service_first
+- integrations.qbo.slice4b.invoice_push_sales_item_line
+- integrations.qbo.slice4b.payment_push_billpayment_fifo_allocation
+- integrations.qbo.slice5.conflict_rules_two_way_only
+- integrations.qbo.slice5.conflict_log_table
+- integrations.qbo.slice5.last_write_wins_rule
+- integrations.qbo.slice5.customer_upsert_conflict_aware
+- integrations.qbo.alerts.health_evaluate_function
+- integrations.qbo.alerts.status_flip_dedupe
+- integrations.qbo.alerts.tenant_admin_recipient_resolution
+- integrations.qbo.alerts.recovery_email_on_improvement
+- ui.admin.qbo_settings.push_bills_button
+- ui.admin.qbo_settings.push_invoices_button
+- ui.admin.qbo_settings.push_payments_button
+- ui.admin.qbo_settings.pull_items_button
