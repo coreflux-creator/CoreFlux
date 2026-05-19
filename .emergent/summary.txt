@@ -1,74 +1,89 @@
 <analysis>**original_problem_statement**: 
-Refactor a monolithic PHP application, CoreFlux, into an AI-native Live Books architecture (data graph, event-driven accounting). Requires a CFO Dashboard with high-level metrics. **PRODUCT REQUIREMENTS:** Strict adherence to custom PHP framework rules, direct PDO usage (no ORMs), Vite build version tracking, and relying strictly on PHP CLI smoke tests (). Recently added requirements: Universal CSV Import/Export for all primary entities (vendors, clients, timesheets, bills, invoices, payments) including a drag-and-drop multi-file bulk wizard, AI-assisted interactive column mapping, saved mapping presets, and an audit trail (CSV Import History).
+Refactor a monolithic PHP application, CoreFlux, into an AI-native Live Books architecture. Strict adherence to custom PHP framework rules, direct PDO usage (no ORMs), Vite build version tracking, and relying strictly on custom PHP CLI smoke tests ().
+**PRODUCT REQUIREMENTS:** Ensure Segregation of Duties (SoD), tenant-level API keys for integrations, direct SQL schema management, and UI built with React 18/Vite. The application requires a centralized Integration Settings UI, full QuickBooks Online (QBO) MVP integration (bidirectional sync), and a major RBAC (Role-Based Access Control) overhaul to support complex tenant/sub-tenant/global roles and granular module access.
 
 **User's preferred language**: English (INSTRUCT next agent to respond in English only)
 
 **what currently exists?** 
-A PHP 8 backend + React 18 SPA (Vite) utilizing direct PDO. Live Books Rails architecture (Phases 1a-1e) is complete. The agent also completed a massive Universal CSV epic: CSV export/import endpoints exist for all major entities, featuring a drag-and-drop bulk import wizard, AI-assisted column mapping, and saved mapping presets. Currently, the agent just began working on a CSV Import History feature (audit trail for CFOs) but got stuck in a bash/python transport timeout loop while trying to mass-update backend endpoints. 
+A PHP 8 backend + React 18 SPA (Vite) utilizing direct PDO. The centralized Integrations Hub and QBO integration (Slices 1-5) are complete. The RBAC system is undergoing a major overhaul. Phase B1 (Schema Foundation: ,  & backfill) is deployed.
 
 **Last working item**: 
-    - Last item agent was working: Building the **CSV Import History** audit trail. The DB migration () and backend endpoint () are created. The agent was attempting to wire the history recording into every backend commit handler using a python script, which caused endless transport timeouts. The agent correctly decided to pivot to having the React frontend ( and ) make a single POST to  after a successful commit, but the context window ended before implementation.
-    - Status: IN PROGRESS
+    - Last item agent was working: Phase B2 of the RBAC rebuild: The agent discovered a critical class naming collision while preparing to implement the permission resolution logic in . This new file declares  which directly conflicts with the legacy  file currently used in over 30 API endpoints. The agent has paused and submitted an  plan to resolve this collision before wiring the resolver into  and .
+    - Status: BLOCKED (Waiting for user response to the  proposal)
     - Agent Testing Done: N
     - Which testing method agent to use? manual testing by . (DO NOT use the testing subagent).
     - User Testing Done: N
 
 **All Pending/In progress Issue list**: 
-  Issue 1: Wire CSV Import History recording via Frontend (P0)
-     - Attempted fixes: Agent tried using a python script () to auto-edit 9 backend PHP files, but hit Bad Gateway and transport timeouts repeatedly.
-     - Next debug checklist: Abandon the backend-injection approach. Delete . Instead, modify the frontend components ( and ). Inside their  logic, after a successful import, execute .
-     - Why fix this issue and what will be achieved with the fix? It bypasses the tool glitch and cleanly records the audit trail, unlocking the completion of the CSV epic.
-     - Status: IN PROGRESS
+  Issue 1: Fix  collision & Implement RBAC Phase B2 (Resolver & Session Integration) (P0)
+     - Attempted fixes: Agent investigated codebase and identified the collision between  and . Submitted  for permission to refactor/rename safely.
+     - Next debug checklist: 
+        1. Wait for user input or safely rename the new class in  (e.g.,  or ).
+        2. Implement the permission resolution logic to read from  and . 
+        3. Refactor  and  to utilize this new resolver instead of legacy  logic. 
+        4. Include a copy permissions function to clone  rows from an existing user to another.
+     - Why fix this issue and what will be achieved with the fix? Fixes a fatal PHP error risk (loading duplicate class names) and fulfills the request for granular tenant/admin access controls.
+     - Status: BLOCKED (Pending user confirmation)
      - Is recurring issue? N
      - Should Test frontend/backend/both after fix? Both
      - Blocked on other issue: None
 
 **In progress Task List**: 
-  Task 1: Complete CSV Import History Feature (P0)
-     - Where to resume: Implement the frontend POST logic described in Issue 1. Then, create the Import History UI page to list these records (filterable by entity), add a sidebar link or dashboard link, create a smoke test (), and run the full Vite build + smoke suite.
-     - What will be achieved with this? Gives CFOs and auditors a clean audit trail of every bulk data movement (who, when, file name, rows imported/skipped, errors).
-     - Status: IN PROGRESS
+  Task 1: RBAC Phase B3/B4 (UI and Admin Management) (P1)
+     - Where to resume: After Issue 1 (B2) is complete, build out the React UI in the Admin module to assign users to tenants/modules, set access levels, and expose the copy permissions functionality.
+     - What will be achieved with this? Gives tenant admins full, flexible UI control over the newly built RBAC backend schema.
+     - Status: NOT STARTED
      - Should Test frontend/backend/both after fix? Both
-     - Blocked on something: None
+     - Blocked on something: Issue 1 (RBAC B2 implementation)
 
 **Upcoming and Future Tasks**
-    Future Tasks:
-    - (P1) Live Books Rails Phase 2: AI competing/proposing against rules, and Unified Financial State Cache.
+    Upcoming Tasks:
+    - (P1) Mercury Webhooks Integration.
     - (P2) Wire  to a Resend driver so CFO reports and timesheet approver emails deliver externally (currently mocked locally).
-    - (P2) CFO Dashboard role/access gating.
+    
+    Future Tasks:
     - (P2) Engagements module (Fixed-fee project accounting).
+    - (P2) CFO Dashboard role/access gating (will integrate with the new RBAC).
     - (P3) AI Digest Scheduler: Auto-email Weekly Ops Memo via Sunday night cron.
-    - (P3) External Auditor view (tokenized URL for CFO Dashboard read-only snapshot).
-    - (P4) Module emission discipline — Staffing/Billing/AP emit events only, never write GL directly.
+    - (P3) External Auditor view (tokenized read-only URL).
 
 **Completed work in this session**
-- Phase 1e (Evidence Attachments) tests executed, bundle updated, and officially closed (DONE)
-- Universal CSV Export endpoints/buttons for all primary entities (DONE)
-- Multi-CSV drag-and-drop importer wizard () (DONE)
-- CSV sample pack generator for tenant onboarding (DONE)
-- Interactive CSV Column Mapping with  validation (DONE)
-- AI-assisted Column Mapping () (DONE)
-- CSV Mapping Presets (SHA-256 header signatures for one-click re-imports) (DONE)
+- Investigated the RBAC codebase and identified a major architectural collision ( declared twice) before it could cause a fatal production error.
+- (Carried over from previous session) RBAC Rebuild Phase B1: Schema foundation & backfill script (DONE).
+- (Carried over from previous session) QuickBooks Online (QBO) Slices 1-5 (DONE).
 
 **Earlier issues found/mentioned but not fixed**
-   - None
+   Issue 1: RBAC Class Naming Collision Risk
+   - Debug checklist: Compare  and . Rename the new class or gracefully deprecate the old one. Check  for instantiation.
+   - Why to solve this issue and what will be achieved with this? Loading both classes concurrently will trigger a PHP fatal error, completely breaking the backend API.
+   - Should Test frontend/backend/both after fix: backend
+   - Is recurring issue? N
 
 **Known issue recurrence from previous fork**
-  - Issue: Vite Frontend Build & Version Drift
+  - Issue recurrence in previous fork: Vite Frontend Build & Version Drift
   - Recurrence count: Ongoing
-  - Status: RESOLVED but requires vigilance. 
+  - Status: RESOLVED (requires vigilance)
   - Note: **CRITICAL**: You MUST run yarn run v1.22.22
 $ vite build
 vite v5.4.21 building for production...
 transforming...
-✓ 1864 modules transformed.
+✓ 1879 modules transformed.
 rendering chunks...
 computing gzip size...
 dist/index.html                         0.46 kB │ gzip:   0.30 kB
-dist/spa-assets/index-Cwhpy62y.css     21.57 kB │ gzip:   4.34 kB
-dist/spa-assets/index-DFfmtGC5.js   1,423.67 kB │ gzip: 332.28 kB
-✓ built in 4.65s
-Done in 5.05s. after touching ANY React code AND update the expected bundle JS/CSS hashes in  and . Smoke tests will fail if you forget.
+dist/spa-assets/index-BC5g6YJu.css     21.64 kB │ gzip:   4.36 kB
+dist/spa-assets/index-CXw_2HmS.js   1,539.99 kB │ gzip: 359.53 kB
+✓ built in 4.60s
+$ bash ../scripts/sync_bundle.sh
+▶ Detected new bundle:
+    JS : index-CXw_2HmS.js
+    CSS: index-BC5g6YJu.css
+✓ spa-assets/ synced
+✓ .deploy-version expected_bundle: updated
+✓ dashboard/dist/index.html already points at new hashes (Vite wrote them)
+
+All three sync points are now consistent. Commit and push.
+Done in 4.94s. after touching ANY React code AND ensure the postbuild  script executes successfully to update expected hashes in  and smoke tests.
 
 **Code Architecture**
 
@@ -76,27 +91,29 @@ Done in 5.05s. after touching ANY React code AND update the expected bundle JS/C
 **Key Technical Concepts**
 - Backend: PHP 8 (Direct PDO, NO ORM).
 - Web Frontend: React 18, Vite.
+- Controls: RBAC (Role-Based Access Control), SoD (Segregation of Duties).
 - Testing: Custom PHP CLI scripts (). NO testing agents allowed.
 
 **key DB schema**
-  - : , , , , .
-  - : , , , , , , , .
+  - : , , , 
+  - : , , 
+  - QBO Tables: , ,  
 
 **changes in tech stack**
   - None structurally.
 
 **All files of reference** 
-  -  (Created for current task)
-  -  (Created for current task)
-  -  (Created for current task)
-  -  (Needs UI wiring to post history)
-  -  (Needs UI wiring to post history)
-  -  (Junk script created by agent loop, safe to delete)
+  -  (Target file for B2; contains conflicting )
+  -  (Legacy RBAC class utilized by ~30 endpoints)
+  -  (Schema reference)
+  -  and  (Need updating for B2 integration)
 
 **Areas that need refactoring**: 
-  - N/A.
+  - The newly created  needs to be safely renamed to avoid colliding with .
+  - Legacy  database logic needs to be completely phased out in favor of the new  (RBAC Phase B2).
 
 **key api endpoints**
+  - 
   - 
   - 
 
@@ -106,52 +123,65 @@ Done in 5.05s. after touching ANY React code AND update the expected bundle JS/C
 $ vite build
 vite v5.4.21 building for production...
 transforming...
-✓ 1864 modules transformed.
+✓ 1879 modules transformed.
 rendering chunks...
 computing gzip size...
 dist/index.html                         0.46 kB │ gzip:   0.30 kB
-dist/spa-assets/index-Cwhpy62y.css     21.57 kB │ gzip:   4.34 kB
-dist/spa-assets/index-DFfmtGC5.js   1,423.67 kB │ gzip: 332.28 kB
-✓ built in 3.62s
-Done in 3.89s. after changing React code, and update the expected bundle JS/CSS hashes in  and .
-- **TOOL LOOP AVOIDANCE:** Do not try to run python/bash scripts to do multi-file text replacements if they begin timing out. Do it manually via  or rethink the architecture (like shifting the history POST to the frontend).
+dist/spa-assets/index-BC5g6YJu.css     21.64 kB │ gzip:   4.36 kB
+dist/spa-assets/index-CXw_2HmS.js   1,539.99 kB │ gzip: 359.53 kB
+✓ built in 4.70s
+$ bash ../scripts/sync_bundle.sh
+▶ Detected new bundle:
+    JS : index-CXw_2HmS.js
+    CSS: index-BC5g6YJu.css
+✓ spa-assets/ synced
+✓ .deploy-version expected_bundle: updated
+✓ dashboard/dist/index.html already points at new hashes (Vite wrote them)
+
+All three sync points are now consistent. Commit and push.
+Done in 5.03s. after changing React code to ensure bundle hashes stay synchronized.
+- **INTEGRATION WARNING:** CoreFlux uses custom legacy implementations for QBO, Plaid, and Mercury. **DO NOT** use emergent integration subagents for these services, as it will break the existing deeply nested architecture.
+- **RBAC COLLISION ALERT:** The previous agent stopped intentionally. Do not simply write logic into  as-is, because  is already declared in . Fix the naming collision first.
 
 **documents and test reports created in this job** 
-  -  (Updated)
+  - 
 
 **Last 10 User Messages and any pending HUMAN messages** 
- - (User) 
- - (Agent) *Builds sample pack, explains manual mapping.*
- - (User) 
- - (Agent) *Builds interactive UI mapping table + dry run override.*
- - (User) 
- - (Agent) *Hooks UI to  to auto-suggest column matches.*
- - (User) 
- - (Agent) *Builds saved presets, payments imports, bulk wizard integrations.*
- - (User) 
- - (Agent) *Gets stuck in a bad gateway/transport loop trying to run python script to edit 9 backend controllers.*
- - (User)  ...  ... 
- - (Agent) *Apologizes, suggests pivoting to a frontend-POST approach for the history record. Stops before implementation.*
+ - (User) keep going, and yes add copy permissions -> Directed agent to start RBAC Phase B2 implementation.
+ - (Agent) *Uses bash and view tools to inspect B1 files, , and .*
+ - (Agent) *Identifies that  declares , which will fatally collide with the legacy  used in over 30 API endpoints.*
+ - (Agent) *Triggers  tool proposing a plan to resolve the collision before proceeding.*
+ - **PENDING HUMAN MESSAGE**: You are currently waiting for the user to respond to the  prompt regarding the proposed plan to resolve the  name collision and proceed with RBAC Phase B2.
 
 **Project Health Check:**
-- Broken: Python bash script looping glitch (environment tool issue, codebase is fine).
-- Mocked: 
+- Broken: None structurally, but an unhandled fatal error risk was caught before implementation.
+- Mocked:  logs emails locally without hitting an external SMTP driver.
 
 **3rd Party Integrations** 
- - OpenAI (Uses User API Key defined in  via  - NO emergent subagent used here due to custom legacy integration framework).
+ - Plaid (User API Keys, custom implementation - DO NOT use integration expert)
+ - Mercury (User API Keys, custom implementation - DO NOT use integration expert)
+ - QuickBooks Online (User OAuth via Intuit AppCenter, custom implementation - DO NOT use integration expert)
+ - OpenAI (Uses User API Key defined in config - NOT handled via emergent integration subagent).
 
 **Testing status**
   - Testing agent used after significant changes: NO (Strictly custom PHP CLI testing)
   - Troubleshoot agent used after agent stuck in loop: NO
-  - Test files created: , , , , , .
-  - Known regressions:  and  fail locally by default because they lack live API keys. This is expected.
+  - Test files created: None this session.
+  - Known regressions:  and  expectedly fail due to lacking live curl extensions/keys in the sandbox. Total pass: 200/202.
 
 **Credentials to test flow:**
   - Standard test user:  with  role.
 
 **What agent forgot to execute**
-- The agent was unable to execute the actual wiring of the CSV Import History to the application because of a transport tool loop. It needs to be wired into the frontend React components to POST the history log, and a UI page needs to be created to view it.
+- The agent properly halted execution to prevent breaking the application via a class name collision. Phase B2 logic and auth file wiring remain unexecuted pending user approval.
 
-<TESTING METHOD>
-manual testing by . (DO NOT use the testing subagent).
-</TESTING METHOD></analysis>
+**Debugging checklist for current issue**
+    Issue: RBAC Class Naming Collision ( declared twice)
+  
+    Backend files to check: 
+    -  (New B2 resolver)
+    -  (Legacy framework class)
+    -  (Line ~134)
+    -  (Line ~314)
+   
+    </analysis>
