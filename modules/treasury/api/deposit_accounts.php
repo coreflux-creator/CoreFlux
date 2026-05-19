@@ -94,7 +94,7 @@ switch (api_method()) {
     }
 
     case 'POST': {
-        RBAC::requirePermission($ctx['user'], 'treasury.deposit.manage');
+        rbac_legacy_require($ctx['user'], 'treasury.deposit.manage');
         $body = api_json_body();
         api_require_fields($body, ['name', 'gl_account_code']);
 
@@ -124,7 +124,7 @@ switch (api_method()) {
     }
 
     case 'DELETE': {
-        RBAC::requirePermission($ctx['user'], 'treasury.deposit.manage');
+        rbac_legacy_require($ctx['user'], 'treasury.deposit.manage');
         $id   = (int) ($_GET['id'] ?? 0);
         $mode = (string) ($_GET['mode'] ?? 'hide');
         if ($id <= 0) api_error('id required', 400);

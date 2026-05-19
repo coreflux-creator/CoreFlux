@@ -91,13 +91,13 @@ foreach ($apiPaths as $rel) {
 }
 
 $dimApi = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/dimensions.php');
-$assert('dimensions API guards dimensions.view',  stripos($dimApi, "RBAC::requirePermission(\$user, 'accounting.dimensions.view')") !== false);
-$assert('dimensions API guards dimensions.manage',stripos($dimApi, "RBAC::requirePermission(\$user, 'accounting.dimensions.manage')") !== false);
+$assert('dimensions API guards dimensions.view',  stripos($dimApi, "rbac_legacy_require(\$user, 'accounting.dimensions.view')") !== false);
+$assert('dimensions API guards dimensions.manage',stripos($dimApi, "rbac_legacy_require(\$user, 'accounting.dimensions.manage')") !== false);
 $assert('dimensions API supports set_account_rule', stripos($dimApi, 'set_account_rule') !== false);
 
 $closeApi = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/close_tasks.php');
-$assert('close_tasks API guards close_workflow.manage',  stripos($closeApi, "RBAC::requirePermission(\$user, 'accounting.close_workflow.manage')") !== false);
-$assert('close_tasks API guards close_task.complete',    stripos($closeApi, "RBAC::requirePermission(\$user, 'accounting.close_task.complete')") !== false);
+$assert('close_tasks API guards close_workflow.manage',  stripos($closeApi, "rbac_legacy_require(\$user, 'accounting.close_workflow.manage')") !== false);
+$assert('close_tasks API guards close_task.complete',    stripos($closeApi, "rbac_legacy_require(\$user, 'accounting.close_task.complete')") !== false);
 
 $pktApi = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/close_packet.php');
 $assert('close_packet API exposes html download', stripos($pktApi, "Content-Disposition: attachment; filename=\"close-packet-period-") !== false);

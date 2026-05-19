@@ -25,8 +25,8 @@ echo "1) Client AR contacts admin\n";
 $apiPath = __DIR__ . '/../modules/billing/api/client_contacts.php';
 $apiSrc  = (string) file_get_contents($apiPath);
 $a('API file parses',                                  $parses($apiPath));
-$a('GET requires billing.view',                        str_contains($apiSrc, "RBAC::requirePermission(\$user, 'billing.view')"));
-$a('write requires billing.invoice.create',            str_contains($apiSrc, "RBAC::requirePermission(\$user, 'billing.invoice.create')"));
+$a('GET requires billing.view',                        str_contains($apiSrc, "rbac_legacy_require(\$user, 'billing.view')"));
+$a('write requires billing.invoice.create',            str_contains($apiSrc, "rbac_legacy_require(\$user, 'billing.invoice.create')"));
 $a('GET returns rows array',                           str_contains($apiSrc, "api_ok(['rows' => \$rows])"));
 $a('GET supports search (?q)',                         str_contains($apiSrc, "client_name LIKE :q"));
 $a('POST upserts ON DUPLICATE KEY UPDATE',             str_contains($apiSrc, 'ON DUPLICATE KEY UPDATE'));
@@ -66,7 +66,7 @@ $vPath = __DIR__ . '/../modules/ap/api/vendors.php';
 $v     = (string) file_get_contents($vPath);
 $a('vendors.php parses',                               $parses($vPath));
 $a("POST ?action=toggle_pwp branch present",           str_contains($v, "\$method === 'POST' && (\$_GET['action'] ?? '') === 'toggle_pwp'"));
-$a('toggle_pwp requires ap.bill.create',               preg_match('/toggle_pwp.*?RBAC::requirePermission\(\$user, \'ap\.bill\.create\'\)/s', $v) === 1);
+$a('toggle_pwp requires ap.bill.create',               preg_match('/toggle_pwp.*?rbac_legacy_require\(\$user, \'ap\.bill\.create\'\)/s', $v) === 1);
 $a('toggle_pwp updates default_pwp column',            str_contains($v, "UPDATE ap_vendors_index SET default_pwp = :p"));
 $a('toggle_pwp tenant-scoped',                         str_contains($v, "WHERE tenant_id = :t AND id = :id"));
 $a('toggle_pwp surfaces 409 if migration missing',     str_contains($v, "Pay-When-Paid not enabled for this tenant — run the AP module migration first.")
@@ -93,7 +93,7 @@ $a('idempotent via information_schema',                substr_count($mig, 'infor
 $sPath = __DIR__ . '/../modules/ap/api/weekly_queue_settings.php';
 $s     = (string) file_get_contents($sPath);
 $a('settings API parses',                              $parses($sPath));
-$a('GET requires ap.bill.view',                        str_contains($s, "RBAC::requirePermission(\$user, 'ap.bill.view')"));
+$a('GET requires ap.bill.view',                        str_contains($s, "rbac_legacy_require(\$user, 'ap.bill.view')"));
 $a('GET returns dow + hour + can_write',               str_contains($s, "'dow'") && str_contains($s, "'hour'") && str_contains($s, "'can_write'"));
 $a('GET tolerates missing migration (try/catch)',      str_contains($s, '/* migration not applied yet */'));
 $a('POST gates by admin/manager role',                 str_contains($s, "Admin/manager role required"));

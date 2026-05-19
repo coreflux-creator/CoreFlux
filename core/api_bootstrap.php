@@ -32,6 +32,9 @@ require_once __DIR__ . '/tenant_scope.php';
 // /core/rbac/permissions.php). Safe to require at bootstrap so $ctx can
 // carry membership-aware data for every endpoint.
 require_once __DIR__ . '/rbac/permissions.php';
+// RBAC B4 bridge — legacy permission string → (module, action) translator.
+// Exposes rbac_legacy_can() / rbac_legacy_require() for the sweep.
+require_once __DIR__ . '/rbac/legacy_map.php';
 
 // ---------------------------------------------------------------------------
 // Session + headers

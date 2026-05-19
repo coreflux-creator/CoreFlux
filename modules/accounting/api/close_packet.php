@@ -24,7 +24,7 @@ $periodId = (int) (api_query('period_id') ?? 0);
 if (!$periodId) api_error('period_id required', 422);
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'accounting.period.view');
+    rbac_legacy_require($user, 'accounting.period.view');
     $html = accountingBuildClosePacketHtml($tenantId, $periodId);
 
     // Allow ?format=html to download as a real HTML file.
@@ -60,7 +60,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && (api_query('action') ?? '') === 'record') {
-    RBAC::requirePermission($user, 'accounting.close_workflow.manage');
+    rbac_legacy_require($user, 'accounting.close_workflow.manage');
     $id = scopedInsert('accounting_close_packets', [
         'period_id'         => $periodId,
         'storage_object_id' => null,

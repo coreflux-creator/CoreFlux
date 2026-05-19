@@ -37,7 +37,7 @@ $pdo    = getDB();
 $method = api_method();
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'accounting.coa.view');
+    rbac_legacy_require($user, 'accounting.coa.view');
 
     $form = trim((string) (api_query('tax_form_code') ?? ''));
     $availableForms = [];
@@ -111,7 +111,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $body = api_json_body();
     $accountId = (int) ($body['account_id']    ?? 0);
     $form      = trim((string) ($body['tax_form_code'] ?? ''));
@@ -155,7 +155,7 @@ if ($method === 'POST') {
 }
 
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $id = (int) (api_query('id') ?? 0);
     if ($id <= 0) api_error('id required', 422);
     $del = $pdo->prepare('DELETE FROM accounting_tax_mappings WHERE tenant_id = :t AND id = :id');

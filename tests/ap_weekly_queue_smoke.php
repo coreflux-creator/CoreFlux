@@ -74,7 +74,7 @@ echo "\nmodules/ap/api/weekly_queue.php\n";
 $apiPath = __DIR__ . '/../modules/ap/api/weekly_queue.php';
 $apiSrc  = (string) file_get_contents($apiPath);
 $a('api file exists + parses',                      is_file($apiPath) && (int) shell_exec('php -l ' . escapeshellarg($apiPath) . ' >/dev/null 2>&1; echo $?') === 0);
-$a("GET requires ap.bill.view",                     preg_match("/\\\$method === 'GET'[\s\S]{0,200}RBAC::requirePermission\(\\\$user, 'ap\.bill\.view'\)/", $apiSrc) === 1);
+$a("GET requires ap.bill.view",                     preg_match("/\\\$method === 'GET'[\s\S]{0,200}rbac_legacy_require\(\\\$user, 'ap\.bill\.view'\)/", $apiSrc) === 1);
 $a("POST ?action=finalize",                         str_contains($apiSrc, "\$method === 'POST' && \$action === 'finalize'"));
 $a("POST ?action=send_approver_email",              str_contains($apiSrc, "\$method === 'POST' && \$action === 'send_approver_email'"));
 $a('finalize refuses PWP awaiting_ar bills',        str_contains($apiSrc, "Awaiting client payment (PWP) — auto-finalizes when AR clears"));

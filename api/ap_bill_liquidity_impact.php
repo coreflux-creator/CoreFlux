@@ -37,7 +37,7 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'treasury.payment.view');
+rbac_legacy_require($user, 'treasury.payment.view');
 
 $billId   = (int) (api_query('bill_id') ?? 0);
 if ($billId <= 0) api_error('bill_id required', 422);

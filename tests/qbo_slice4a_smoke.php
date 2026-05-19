@@ -44,7 +44,7 @@ $api = (string) file_get_contents($ROOT . '/api/qbo.php');
 $a('requires sync_accounts.php',                 $c($api, "require_once __DIR__ . '/../core/qbo/sync_accounts.php'"));
 $a('handles sync_accounts',                      $c($api, "case 'sync_accounts'"));
 $a('handles sync_health',                        $c($api, "case 'sync_health'"));
-$a('sync_health requires view RBAC',             $c($api, "RBAC::requirePermission(\$user, 'integrations.qbo.view')"));
+$a('sync_health requires view RBAC',             $c($api, "rbac_legacy_require(\$user, 'integrations.qbo.view')"));
 $a('sync_health: not_connected branch',          $c($api, "'not_connected'"));
 $a('sync_health: counts blocked_jes_7d',         $c($api, "action = 'sync_je_skip'") && $c($api, 'INTERVAL 7 DAY'));
 $a('sync_health: counts failed_runs_24h',        $c($api, 'INTERVAL 24 HOUR'));

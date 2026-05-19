@@ -20,7 +20,7 @@ $ctx      = api_require_auth();
 $tenantId = (int) ($ctx['tenant_id'] ?? 0);
 if (!$tenantId) api_error('No active tenant', 400);
 
-RBAC::requirePermission($ctx, 'billing.invoices.view');
+rbac_legacy_require($ctx, 'billing.invoices.view');
 
 $id = (int) ($_GET['id'] ?? 0);
 if ($id <= 0) api_error('id required', 422);

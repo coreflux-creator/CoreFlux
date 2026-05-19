@@ -71,7 +71,7 @@ echo "\napi/posting_rules_seed.php — endpoint\n";
 $ep = (string) file_get_contents("{$ROOT}/api/posting_rules_seed.php");
 $assert('parses',                          $lint("{$ROOT}/api/posting_rules_seed.php"));
 $assert('requires accounting.manage_posting_rules',
-    strpos($ep, "RBAC::requirePermission(\$ctx['user'], 'accounting.manage_posting_rules')") !== false);
+    strpos($ep, "rbac_legacy_require(\$ctx['user'], 'accounting.manage_posting_rules')") !== false);
 $assert('POST-only',                       strpos($ep, "if (api_method() !== 'POST')") !== false);
 $assert('seeds system accounts',           strpos($ep, 'accountingSeedSystemAccounts($tid)') !== false);
 $assert('seeds default rules',             strpos($ep, 'postingRulesSeedDefaults($tid)') !== false);

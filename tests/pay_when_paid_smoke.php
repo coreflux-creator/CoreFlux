@@ -77,7 +77,7 @@ $apiSrc  = (string) file_get_contents($apiPath);
 $a('pwp.php exists',                            is_file($apiPath));
 $a('pwp.php parses',                            (int) shell_exec('php -l ' . escapeshellarg($apiPath) . ' >/dev/null 2>&1; echo $?') === 0);
 $a('uses api_bootstrap',                        str_contains($apiSrc, "require_once __DIR__ . '/../../../core/api_bootstrap.php'"));
-$a('uses RBAC',                                 str_contains($apiSrc, "RBAC::requirePermission"));
+$a('uses RBAC',                                 str_contains($apiSrc, "rbac_legacy_require"));
 $a("GET ?action=preview",                       str_contains($apiSrc, "\$method === 'GET' && \$action === 'preview'"));
 $a("POST ?action=auto_link",                    str_contains($apiSrc, "\$method === 'POST' && \$action === 'auto_link'"));
 $a("POST ?action=link",                         str_contains($apiSrc, "\$method === 'POST' && \$action === 'link'"));

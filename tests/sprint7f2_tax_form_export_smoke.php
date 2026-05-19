@@ -29,7 +29,7 @@ $ep = (string) file_get_contents("{$ROOT}/api/tax_form_export.php");
 $assert('endpoint exists',                       strlen($ep) > 0);
 $assert('parses',                                $lint("{$ROOT}/api/tax_form_export.php"));
 $assert('GET-only',                              strpos($ep, "if (api_method() !== 'GET')") !== false);
-$assert('RBAC accounting.coa.view',              strpos($ep, "RBAC::requirePermission(\$user, 'accounting.coa.view')") !== false);
+$assert('RBAC accounting.coa.view',              strpos($ep, "rbac_legacy_require(\$user, 'accounting.coa.view')") !== false);
 $assert('TAX_FORMS whitelist (5 forms)',
     strpos($ep, "'US-1040-SCH-C'") !== false
     && strpos($ep, "'US-1120'")    !== false

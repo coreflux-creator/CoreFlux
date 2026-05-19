@@ -49,7 +49,7 @@ $pdo    = getDB();
 if ($method === 'POST' && $action === 'invite') {
     $ctx      = api_require_auth();
     $tenantId = (int) $ctx['tenant_id'];
-    RBAC::requirePermission($ctx['user'], 'ap.bill.create');
+    rbac_legacy_require($ctx['user'], 'ap.bill.create');
     $body     = api_json_body();
     $vendorId = (int) ($body['vendor_id'] ?? 0);
     if ($vendorId <= 0) api_error('vendor_id required', 422);
@@ -309,7 +309,7 @@ if ($method === 'POST' && $action === 'upload_document') {
 // ───── admin: pending uploads list ─────
 if ($method === 'GET' && $action === 'admin_pending') {
     $ctx = api_require_auth();
-    RBAC::requirePermission($ctx['user'], 'ap.vendor.portal_review');
+    rbac_legacy_require($ctx['user'], 'ap.vendor.portal_review');
     $tenantId = (int) $ctx['tenant_id'];
     $stmt = $pdo->prepare(
         'SELECT d.*, v.vendor_name, v.vendor_type
@@ -330,7 +330,7 @@ if ($method === 'GET' && $action === 'admin_pending') {
 // ───── admin: approve/reject a pending upload ─────
 if ($method === 'POST' && in_array($action, ['admin_approve', 'admin_reject'], true)) {
     $ctx = api_require_auth();
-    RBAC::requirePermission($ctx['user'], 'ap.vendor.portal_review');
+    rbac_legacy_require($ctx['user'], 'ap.vendor.portal_review');
     $tenantId = (int) $ctx['tenant_id'];
     $body  = api_json_body();
     $docId = (int) ($body['id'] ?? 0);

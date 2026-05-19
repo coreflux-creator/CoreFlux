@@ -35,7 +35,7 @@ $a('GET reveal_portal route',                        strpos($api, "GET' && \$act
 $a('reveal requires placements.portal_credentials.view', strpos($api, "'placements.portal_credentials.view'") !== false);
 $a('reveal audits placement.chain.portal.viewed',    strpos($api, "'placement.chain.portal.viewed'") !== false);
 $a('POST set_portal route',                          strpos($api, "POST' && \$action === 'set_portal'") !== false);
-$a('set requires placements.manage',                 strpos($api, "RBAC::requirePermission(\$user, 'placements.manage')") !== false);
+$a('set requires placements.manage',                 strpos($api, "rbac_legacy_require(\$user, 'placements.manage')") !== false);
 $a('set audit lists field NAMES only (no plaintext)', strpos($api, "'fields'       => array_keys(\$clean)") !== false);
 $a('POST clear_portal route',                        strpos($api, "POST' && \$action === 'clear_portal'") !== false);
 $a('clear audits placement.chain.portal.cleared',    strpos($api, "'placement.chain.portal.cleared'") !== false);

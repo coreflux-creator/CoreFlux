@@ -106,7 +106,7 @@ $a('persists sha256 only',                               str_contains($api, "has
 $a('clamps ttl to 1..180 days',                          str_contains($api, 'max(1, min(180, (int) ($body[\'ttl_days\'] ?? 30)))'));
 $a('returns public_url + raw_token in mint response',    str_contains($api, "'raw_token'") && str_contains($api, "'public_url'"));
 $a('?action=revoke flips revoked_at',                    str_contains($api, "SET revoked_at = NOW()"));
-$a('mint write gated by billing.invoice.create',         str_contains($api, "RBAC::requirePermission(\$user, 'billing.invoice.create')"));
+$a('mint write gated by billing.invoice.create',         str_contains($api, "rbac_legacy_require(\$user, 'billing.invoice.create')"));
 
 $viewPath = __DIR__ . '/../api/billing/money_movement_view.php';
 $view     = $read($viewPath);

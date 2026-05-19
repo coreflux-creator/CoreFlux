@@ -32,7 +32,7 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'treasury.payment.view');
+rbac_legacy_require($user, 'treasury.payment.view');
 
 $body = api_json_body();
 $days = max(1, min(365, (int) ($body['days'] ?? 90)));

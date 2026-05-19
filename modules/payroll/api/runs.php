@@ -243,7 +243,7 @@ switch (api_method()) {
         // originated. Emits audit `payroll.run.originated`.
         // ----------------------------------------------------------------
         if ($action === 'originate') {
-            RBAC::requirePermission($ctx['user'], 'payroll.run.disburse');
+            rbac_legacy_require($ctx['user'], 'payroll.run.disburse');
             if ($run['status'] !== 'approved') api_error('Originate requires status=approved', 409);
             if (!empty($run['rail_external_ref'])) {
                 api_error('Already originated on rail ' . $run['disbursement_rail'], 409);

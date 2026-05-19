@@ -51,7 +51,7 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'accounting.coa.view');
+rbac_legacy_require($user, 'accounting.coa.view');
 
 $form     = trim((string) (api_query('tax_form_code') ?? ''));
 $start    = (string) (api_query('start') ?? date('Y-01-01'));

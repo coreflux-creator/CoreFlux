@@ -32,7 +32,7 @@ $action = (string) (api_query('action') ?? '');
 // GET — list with filters
 // ──────────────────────────────────────────────────────────────────
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'treasury.view_bank_balances');
+    rbac_legacy_require($user, 'treasury.view_bank_balances');
     $where = ['tenant_id = :t']; $p = ['t' => $tid];
     foreach (['status' => 'status', 'entity_id' => 'entity_id',
               'bank_account_id' => 'bank_account_id'] as $q => $col) {
@@ -63,7 +63,7 @@ if ($method === 'GET') {
 // POST without action — create draft
 // ──────────────────────────────────────────────────────────────────
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'treasury.create_payment');
+    rbac_legacy_require($user, 'treasury.create_payment');
     $body = api_json_body();
     api_require_fields($body, ['entity_id', 'payee_name', 'amount', 'payment_date', 'bank_account_id']);
 
@@ -109,7 +109,7 @@ if (!$payment) api_error('Payment not found', 404);
 // approve
 // ──────────────────────────────────────────────────────────────────
 if ($method === 'POST' && $action === 'approve') {
-    RBAC::requirePermission($user, 'treasury.approve_payment');
+    rbac_legacy_require($user, 'treasury.approve_payment');
     if (!in_array($payment['status'], ['draft', 'pending_approval'], true)) {
         api_error("Cannot approve from status {$payment['status']}", 409);
     }
@@ -125,7 +125,7 @@ if ($method === 'POST' && $action === 'approve') {
 // execute → emits accounting event → engine posts JE
 // ──────────────────────────────────────────────────────────────────
 if ($method === 'POST' && $action === 'execute') {
-    RBAC::requirePermission($user, 'treasury.execute_payment');
+    rbac_legacy_require($user, 'treasury.execute_payment');
     if (!in_array($payment['status'], ['approved', 'scheduled'], true)) {
         api_error("Payment must be approved before execute (current: {$payment['status']})", 409);
     }
@@ -197,7 +197,7 @@ if ($method === 'POST' && $action === 'execute') {
 // void
 // ──────────────────────────────────────────────────────────────────
 if ($method === 'POST' && $action === 'void') {
-    RBAC::requirePermission($user, 'treasury.execute_payment');
+    rbac_legacy_require($user, 'treasury.execute_payment');
     if ($payment['status'] === 'executed') {
         api_error('Cannot void an executed payment — issue a reversal instead', 409);
     }

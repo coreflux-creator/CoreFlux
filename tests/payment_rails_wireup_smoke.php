@@ -41,7 +41,7 @@ $a('Dispatch surfaces config error (no NACHA fall-back per 2026-02)',
 echo "\nAP — payments.php?action=originate\n";
 $ap = (string) file_get_contents(__DIR__ . '/../modules/ap/api/payments.php');
 $a('originate action handler present',         $c($ap, "\$action === 'originate'"));
-$a('requires ap.payment.send permission',      $c($ap, "RBAC::requirePermission(\$user, 'ap.payment.send')"));
+$a('requires ap.payment.send permission',      $c($ap, "rbac_legacy_require(\$user, 'ap.payment.send')"));
 $a('refuses unless status=sent',               $c($ap, 'Originate requires status=sent'));
 $a('refuses non-ach/plaid methods',            $c($ap, 'Originate only supports ach/plaid methods'));
 $a('idempotent (refuses if already originated)', $c($ap, 'Already originated on rail'));
@@ -60,7 +60,7 @@ $a('AP — payments.php?action=originate, returns NACHA file b64 when rail=nacha
 echo "\nPayroll — runs?action=originate\n";
 $pr = (string) file_get_contents(__DIR__ . '/../modules/payroll/api/runs.php');
 $a('originate action handler present',         $c($pr, "\$action === 'originate'"));
-$a('requires payroll.run.disburse',            $c($pr, "RBAC::requirePermission(\$ctx['user'], 'payroll.run.disburse')"));
+$a('requires payroll.run.disburse',            $c($pr, "rbac_legacy_require(\$ctx['user'], 'payroll.run.disburse')"));
 $a('refuses unless status=approved',           $c($pr, 'Originate requires status=approved'));
 $a('idempotent (refuses if already originated)', $c($pr, 'Already originated on rail'));
 $a('joins people_employees + people_bank_accounts',

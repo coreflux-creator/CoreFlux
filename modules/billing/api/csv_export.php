@@ -19,7 +19,7 @@ use Core\CsvExportService;
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
-RBAC::requirePermission($user, 'billing.view');
+rbac_legacy_require($user, 'billing.view');
 
 $where  = ['tenant_id = :tenant_id'];
 $params = [];

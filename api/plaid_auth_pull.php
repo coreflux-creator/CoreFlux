@@ -46,7 +46,7 @@ $perm = match ($item['purpose']) {
     'tenant_funding'   => 'ap.payment.create',
     default            => 'ap.payment.create',
 };
-RBAC::requirePermission($user, $perm);
+rbac_legacy_require($user, $perm);
 
 $accessToken = plaidDecryptAccessToken($item['access_token_ct']);
 if (!$accessToken) api_error('Could not decrypt access token', 500);

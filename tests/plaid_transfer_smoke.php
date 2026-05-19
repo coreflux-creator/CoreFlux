@@ -126,7 +126,7 @@ $linkPath = __DIR__ . '/../api/plaid_transfer_link.php';
 $a('link API file exists', is_file($linkPath));
 $link = (string) file_get_contents($linkPath);
 $a('RBAC gate: accounting.bank.manage',
-    $c($link, "RBAC::requirePermission(\$user, 'accounting.bank.manage')"));
+    $c($link, "rbac_legacy_require(\$user, 'accounting.bank.manage')"));
 $a('GET ?action=status branch',                  $c($link, "\$method === 'GET' && \$action === 'status'"));
 $a('status returns configured + linked + rail',
     $c($link, "'configured' =>") && $c($link, "'linked'") && $c($link, "'rail'"));

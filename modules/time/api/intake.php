@@ -141,7 +141,7 @@ $pdo       = getDB();
 
 // ─── List intake events ───
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'time.review');
+    rbac_legacy_require($user, 'time.review');
     $where  = ['tenant_id = :t'];
     $params = ['t' => $tenantId];
     if (!empty($_GET['status'])) { $where[] = 'status = :s'; $params['s'] = (string) $_GET['status']; }
@@ -164,7 +164,7 @@ if ($method === 'GET') {
 
 // ─── Poll: pulls metadata from M365 / Gmail folder via MailService ───
 if ($method === 'POST' && $action === 'poll') {
-    RBAC::requirePermission($user, 'time.review');
+    rbac_legacy_require($user, 'time.review');
     $folderRow = $pdo->prepare(
         "SELECT mf.id AS folder_id, mf.connection_id, mc.provider
            FROM tenant_mail_folders mf
@@ -235,7 +235,7 @@ if ($method === 'POST' && $action === 'poll') {
 
 // ─── Process a single intake row (re-fetch + AI extract) ───
 if ($method === 'POST' && $action === 'process') {
-    RBAC::requirePermission($user, 'time.review');
+    rbac_legacy_require($user, 'time.review');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
     $row = $pdo->prepare('SELECT * FROM time_intake_events WHERE tenant_id = :t AND id = :id LIMIT 1');
@@ -263,7 +263,7 @@ if ($method === 'POST' && $action === 'process') {
 
 // ─── Dismiss an intake row ───
 if ($method === 'POST' && $action === 'dismiss') {
-    RBAC::requirePermission($user, 'time.review');
+    rbac_legacy_require($user, 'time.review');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
     $pdo->prepare(
@@ -280,7 +280,7 @@ if ($method === 'POST' && $action === 'dismiss') {
 // document, so next time the same email address arrives we auto-resolve.
 //   POST body: { document_id, person_id }
 if ($method === 'POST' && $action === 'record_alias') {
-    RBAC::requirePermission($user, 'time.entry.create');
+    rbac_legacy_require($user, 'time.entry.create');
     $body     = api_json_body();
     $docId    = (int) ($body['document_id'] ?? 0);
     $personId = (int) ($body['person_id']   ?? 0);

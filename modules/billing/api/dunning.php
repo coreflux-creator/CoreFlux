@@ -27,12 +27,12 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 
 if ($method === 'GET' && $action === 'policy') {
-    RBAC::requirePermission($user, 'billing.view');
+    rbac_legacy_require($user, 'billing.view');
     api_ok(['policy' => billingDunningGetPolicy($tid)]);
 }
 
 if ($method === 'POST' && $action === 'policy') {
-    RBAC::requirePermission($user, 'billing.invoice.create');
+    rbac_legacy_require($user, 'billing.invoice.create');
     $body = api_json_body();
     api_require_fields($body, ['schedule']);
     billingDunningSavePolicy($tid, $body, $user['id'] ?? null);
@@ -40,7 +40,7 @@ if ($method === 'POST' && $action === 'policy') {
 }
 
 if ($method === 'GET' && $action === 'queue') {
-    RBAC::requirePermission($user, 'billing.view');
+    rbac_legacy_require($user, 'billing.view');
     $today = date('Y-m-d');
     $policy = billingDunningGetPolicy($tid);
     $rows = billingDunningEligibleInvoices($tid, $today);
@@ -75,7 +75,7 @@ if ($method === 'GET' && $action === 'queue') {
 }
 
 if ($method === 'POST' && $action === 'send_now') {
-    RBAC::requirePermission($user, 'billing.invoice.create');
+    rbac_legacy_require($user, 'billing.invoice.create');
     $id  = (int) ($_GET['id'] ?? 0);
     $inv = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$inv) api_error('Not found', 404);
@@ -115,7 +115,7 @@ if ($method === 'POST' && $action === 'send_now') {
 }
 
 if ($method === 'POST' && $action === 'pause') {
-    RBAC::requirePermission($user, 'billing.invoice.create');
+    rbac_legacy_require($user, 'billing.invoice.create');
     $id    = (int) ($_GET['id'] ?? 0);
     $body  = api_json_body();
     $until = (string) ($body['until'] ?? date('Y-m-d', strtotime('+7 days')));
@@ -125,7 +125,7 @@ if ($method === 'POST' && $action === 'pause') {
 }
 
 if ($method === 'POST' && $action === 'resume') {
-    RBAC::requirePermission($user, 'billing.invoice.create');
+    rbac_legacy_require($user, 'billing.invoice.create');
     $id = (int) ($_GET['id'] ?? 0);
     getDB()->prepare('UPDATE billing_invoices SET dunning_paused_until = NULL WHERE tenant_id = :t AND id = :id')
            ->execute(['t' => $tid, 'id' => $id]);
@@ -133,7 +133,7 @@ if ($method === 'POST' && $action === 'resume') {
 }
 
 if ($method === 'GET' && $action === 'ai_suggest') {
-    RBAC::requirePermission($user, 'billing.view');
+    rbac_legacy_require($user, 'billing.view');
     $client = trim((string) ($_GET['client'] ?? ''));
     if ($client === '') api_error('client required', 422);
     $policy = billingDunningGetPolicy($tid);

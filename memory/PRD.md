@@ -10,6 +10,68 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (RBAC B4 — Legacy Sweep + Bridge, 2026-02 — current fork)
+**170 production endpoints migrated off `RBAC::hasPermission()/requirePermission()` onto a translation bridge in a single sweep. Zero behavioural change at default settings.** Plus the persona-switch UX touch — flipping personas in the header now triggers a soft reload so the new role's sidebar, modules, and gated UI render immediately.
+
+### B4-prep — Per-endpoint mapping doc + bridge
+- **`/app/memory/RBAC_B4_PERMISSION_MAPPING.md`** — authoritative doc inventorying every legacy permission string (108 unique across 130+ callsites). Defines:
+  - Translation rules: first segment → `module_key`, terminal verb → `action` (none/read/write/admin).
+  - Bucketing convention: `view/audit.view/consume/self` → `read`; `create/edit/manage/draft/submit/...` → `write`; `approve/post/void/reverse/execute/PII/...` → `admin`.
+  - Full per-permission table grouped by module (accounting, ai, ap, billing, integrations, payroll, people, placements, reports, staffing, time, treasury).
+  - PARK list: `tenant.manage` stays on legacy until `platform_admin` capability is modelled separately.
+  - Sweep execution order, backfill alignment notes, two new module keys to seed (`integrations`, `ai`), open questions for review.
+
+- **`/app/core/rbac/legacy_map.php`** *(new)* — `RbacLegacyMap::resolve(string $perm): [module, action]` returns the canonical tuple for any of the 108 strings; unknown strings fall through to `(<first_segment>, write)` so a missed permission still gates conservatively rather than failing open.
+  - **`rbac_legacy_can(array $user, string $perm): bool`** — drop-in replacement for `RBAC::hasPermission()`. Runs in **dual-check mode** by default: returns `true` only when *both* the legacy `RBAC::hasPermission()` AND the new `api_can($module, $action)` grant access. The more-restrictive layer always wins — meaning the sweep can route every callsite through the bridge without widening anybody's access.
+  - **`rbac_legacy_require()`** — same shape, 403 on denial with `{required, required_module, required_action}` payload.
+  - Bridge mode is toggleable via env / constant `CF_RBAC_BRIDGE_MODE`: `dual` (default), `new` (resolver-only — for after backfill is tightened), `legacy` (fail-safe).
+  - PARKED strings always defer to legacy regardless of mode.
+
+- **`/app/core/api_bootstrap.php`** — `require_once`s the bridge so `rbac_legacy_can/require` are available globally to every endpoint.
+
+### B4 — Sweep execution
+- **170 production files patched** via single sed pass (`RBAC::hasPermission(` → `rbac_legacy_can(`, `RBAC::requirePermission(` → `rbac_legacy_require(`). Coverage spans /api (all root + admin + integrations) and every module's /api directory (ap, billing, people, placements, payroll, time, treasury, accounting, reports, staffing).
+- **65 string-grep contract smoke tests** updated to match the new function names. Excluded: `tests/rbac_smoke.php` and `tests/sprint7a_permissions_smoke.php` — these test the legacy `RBAC` class directly and must keep referencing it.
+- `/app/core/RBAC.php` itself is untouched and **stays loaded** alongside `RBACResolver` and the bridge throughout B4. Retirement happens in a separate, post-sweep slice once dual-check has shipped for one full release cycle.
+
+### Bridge smoke — `/app/tests/rbac_b4_bridge_smoke.php` *(new, 122 assertions)*
+Locks the 108-row mapping table against the doc:
+- One assertion per permission string verifying `RbacLegacyMap::resolve()` returns the documented tuple.
+- Unknown-permission fall-through (`(<segment>, write)`).
+- PARK behaviour (`tenant.manage` → `_platform`).
+- `api_bootstrap.php` wiring.
+- Doc parity check: every mapped permission must be cited in the markdown table by exact name.
+
+If the doc and the code ever drift, this test fails — preventing silent permission widening / narrowing.
+
+### Persona-switch UX touch (App.jsx listener)
+- **`/app/dashboard/src/App.jsx`** — added a window-level `cf:active-persona-changed` listener inside the session hook. On persona switch the listener calls `window.location.reload()` so the SPA reboots against the new `$_SESSION['active_persona_id']`.
+- **`/app/api/active_persona.php`** — POST handler now mirrors the new persona's `persona_type` back into `$_SESSION['user']['role']` immediately, so the post-switch `/session.php` call renders the new persona's sidebar + module list without waiting for any other `/api/*` round-trip. Tiny session write, big "feels instant" UX win.
+
+### Coverage
+- New B4 bridge smoke: **122 assertions, all green.**
+- B5 smoke extended (+4 assertions for the listener + role mirror): 35 total.
+- Bundle rebuilt cleanly (`spa-assets/index-qAQonk4T.js`).
+- **Full suite: 206/206 smoke tests passing.**
+
+### Files touched this slice
+- `/app/memory/RBAC_B4_PERMISSION_MAPPING.md` *(new)*
+- `/app/core/rbac/legacy_map.php` *(new — bridge + mapping)*
+- `/app/core/api_bootstrap.php` *(loads bridge)*
+- `/app/api/active_persona.php` *(role mirror)*
+- `/app/dashboard/src/App.jsx` *(persona-changed listener)*
+- `/app/tests/rbac_b4_bridge_smoke.php` *(new — 122 assertions)*
+- `/app/tests/rbac_b5_smoke.php` *(+4 assertions)*
+- 170 production endpoints (across /api + /modules) — callsite rename only
+- 65 test files — string-grep contract updates
+
+### What this unlocks
+- Every callsite is now routed through a single translation point. The legacy `RBAC` class will retire in a follow-up slice once `CF_RBAC_BRIDGE_MODE=new` ships and the membership backfill is tightened to match `rbac_config.php` grants exactly.
+- New module gates (`integrations`, `ai`) are mapped and ready — once we seed them into `membership_module_access` rows via migration 056 (sketched in the doc), `CF_RBAC_BRIDGE_MODE=new` becomes safe.
+- Tenant admins can now manage RBAC end-to-end from the SPA — create persona → grant modules → user flips persona in header → permissions take effect immediately → auditor sees the trail.
+
+
+
 ## Recently completed (RBAC B5 — Header Persona Toggle + Sub-Tenant Audit Filter, 2026-02 — current fork)
 **The user-facing piece of the RBAC story.** A user holding multiple personas in a single tenant (e.g. Admin in their consulting practice + Employee in their client work) can now flip between them from the header dropdown — no re-login, no re-context-switch. Plus the SoD audit panel can now answer "what changed inside sub-tenant Acme this week?".
 

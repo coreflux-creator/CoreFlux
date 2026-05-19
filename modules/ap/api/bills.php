@@ -33,7 +33,7 @@ if ($method === 'POST' && $action === 'extract_receipt') {
     // AI-assist for a single bill line — read the uploaded receipt image/PDF
     // and return suggested fields (item_type, qty, unit, unit_price, GL guess).
     // The user must accept each value; the response is suggestion, not authoritative.
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     require_once __DIR__ . '/../../../core/ai_service.php';
     $lineId = (int) ($_GET['line_id'] ?? 0);
     if ($lineId <= 0) api_error('line_id required', 400);
@@ -80,7 +80,7 @@ if ($method === 'POST' && $action === 'extract_from_pdf') {
     // a structured draft the BillCreate form can pre-fill. The user remains
     // responsible for reviewing every field — the response is suggestion,
     // not authoritative data.
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     require_once __DIR__ . '/../../../core/ai_service.php';
     $body = api_json_body();
     api_require_fields($body, ['storage_key']);
@@ -152,7 +152,7 @@ if ($method === 'GET' && $action === 'upload_url') {
     // Generate a presigned S3 POST for a bill or bill-line attachment.
     //   ?id=N            → bill-level (vendor invoice PDF)
     //   ?line_id=N       → per-line (e.g. expense receipt)
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $billId = (int) ($_GET['id'] ?? 0);
     $lineId = (int) ($_GET['line_id'] ?? 0);
     if ($billId <= 0 && $lineId <= 0) api_error('id or line_id required', 400);
@@ -166,7 +166,7 @@ if ($method === 'GET' && $action === 'upload_url') {
 
 if ($method === 'POST' && $action === 'attach') {
     // Register an uploaded vendor invoice PDF on the bill header.
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $row = scopedFind('SELECT id FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
@@ -187,7 +187,7 @@ if ($method === 'POST' && $action === 'attach') {
 
 if ($method === 'POST' && $action === 'attach_line') {
     // Attach a receipt to a single ap_bill_lines row (expense / reimbursement / materials).
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $lineId = (int) ($_GET['line_id'] ?? 0);
     if ($lineId <= 0) api_error('line_id required', 400);
     $line = getDB()->prepare(
@@ -214,7 +214,7 @@ if ($method === 'POST' && $action === 'attach_line') {
 
 if ($method === 'GET' && $action === 'attachment_url') {
     // Sign + return a download URL for the bill or bill-line attachment.
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     $sid = (int) ($_GET['storage_object_id'] ?? 0);
     if ($sid <= 0) api_error('storage_object_id required', 400);
     $obj = scopedFind('SELECT s3_key, filename FROM storage_objects WHERE id = :id AND tenant_id = :tenant_id', ['id' => $sid]);
@@ -224,7 +224,7 @@ if ($method === 'GET' && $action === 'attachment_url') {
 }
 
 if ($method === 'GET' && !empty($_GET['id'])) {
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     $id = (int) $_GET['id'];
     $bill = scopedFind('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$bill) api_error('Not found', 404);
@@ -244,7 +244,7 @@ if ($method === 'GET' && !empty($_GET['id'])) {
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['vendor_name'])) { $where[] = 'vendor_name = :vn';  $params['vn'] = $_GET['vendor_name']; }
@@ -270,7 +270,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'from-time-bundle') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $body = api_json_body();
     api_require_fields($body, ['period_id', 'placement_ids']);
     $periodId     = (int) $body['period_id'];
@@ -366,7 +366,7 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
 }
 
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $body = api_json_body();
     api_require_fields($body, ['vendor_name', 'lines']);
     if (empty($body['lines']) || !is_array($body['lines'])) api_error('lines must be a non-empty array', 422);
@@ -470,7 +470,7 @@ if ($method === 'POST' && $action === '') {
 }
 
 if ($method === 'PATCH') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $id = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -494,7 +494,7 @@ if ($method === 'PATCH') {
 }
 
 if ($method === 'POST' && $action === 'approve') {
-    RBAC::requirePermission($user, 'ap.bill.approve');
+    rbac_legacy_require($user, 'ap.bill.approve');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -515,7 +515,7 @@ if ($method === 'POST' && $action === 'approve') {
 }
 
 if ($method === 'POST' && $action === 'void') {
-    RBAC::requirePermission($user, 'ap.bill.void');
+    rbac_legacy_require($user, 'ap.bill.void');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -558,7 +558,7 @@ if ($method === 'POST' && $action === 'void') {
 }
 
 if ($method === 'POST' && $action === 'dispute') {
-    RBAC::requirePermission($user, 'ap.bill.approve');
+    rbac_legacy_require($user, 'ap.bill.approve');
     $id = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -573,7 +573,7 @@ if ($method === 'POST' && $action === 'dispute') {
 }
 
 if ($method === 'POST' && $action === 'post') {
-    RBAC::requirePermission($user, 'ap.bill.post');
+    rbac_legacy_require($user, 'ap.bill.post');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -747,8 +747,8 @@ if ($method === 'POST' && $action === 'post') {
 // can't accidentally double-post the same bill one way and the other).
 // =======================================================================
 if ($method === 'POST' && $action === 'post_with_ic_split') {
-    RBAC::requirePermission($user, 'ap.bill.post');
-    RBAC::requirePermission($user, 'accounting.je.post');
+    rbac_legacy_require($user, 'ap.bill.post');
+    rbac_legacy_require($user, 'accounting.je.post');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_bills WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);

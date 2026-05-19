@@ -27,7 +27,7 @@ $personId = (int) api_query('person_id', 0);
 if ($personId <= 0) api_error('person_id required', 400);
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'people.banking.view');
+    rbac_legacy_require($user, 'people.banking.view');
     $row = scopedFind(
         'SELECT person_id, account_holder_name_last4, routing_number_last4, account_number_last4, account_type, updated_at, updated_by_user_id
          FROM people_banking
@@ -40,7 +40,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'PUT' || $method === 'POST') {
-    RBAC::requirePermission($user, 'people.banking.manage');
+    rbac_legacy_require($user, 'people.banking.manage');
     $body = api_json_body();
     api_require_fields($body, ['account_holder_name', 'routing_number', 'account_number', 'account_type']);
     if (!in_array($body['account_type'], ['checking', 'savings'], true)) {

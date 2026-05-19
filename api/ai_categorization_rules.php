@@ -27,7 +27,7 @@ require_once __DIR__ . '/../core/ai_categorization.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];
-RBAC::requirePermission($ctx['user'], 'accounting.je.create');
+rbac_legacy_require($ctx['user'], 'accounting.je.create');
 $pdo    = getDB();
 $method = api_method();
 

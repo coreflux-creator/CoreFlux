@@ -31,7 +31,7 @@ echo "\nAPI: /api/kpi_notes.php\n";
 $apiPath = __DIR__ . '/../api/kpi_notes.php';
 $apiSrc  = (string) file_get_contents($apiPath);
 $a('api file exists + parses',                         is_file($apiPath) && (int) shell_exec('php -l ' . escapeshellarg($apiPath) . ' >/dev/null 2>&1; echo $?') === 0);
-$a('read permission billing.view',                     str_contains($apiSrc, "RBAC::requirePermission(\$user, 'billing.view')"));
+$a('read permission billing.view',                     str_contains($apiSrc, "rbac_legacy_require(\$user, 'billing.view')"));
 $a('canWrite() requires manager/admin role',           str_contains($apiSrc, "in_array(\$role, ['admin', 'manager']"));
 $a("GET returns notes + can_write",                    str_contains($apiSrc, "'notes' => \$notes, 'can_write' => \$canWrite(\$user)"));
 $a('POST upsert via ON DUPLICATE KEY UPDATE',          str_contains($apiSrc, 'ON DUPLICATE KEY UPDATE note_text = VALUES(note_text)'));

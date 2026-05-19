@@ -26,7 +26,7 @@ $pdo      = getDB();
 $method   = api_method();
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     $stmt = $pdo->prepare(
         'SELECT id, name, is_active, is_default, created_at
            FROM ap_approval_workflows
@@ -61,7 +61,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' || $method === 'PATCH') {
-    RBAC::requirePermission($user, 'ap.bills.approve_admin');
+    rbac_legacy_require($user, 'ap.bills.approve_admin');
     $body  = api_json_body();
     $name  = trim((string) ($body['name'] ?? ''));
     if ($method === 'POST' && $name === '') api_error('name required', 422);
@@ -136,7 +136,7 @@ if ($method === 'POST' || $method === 'PATCH') {
 }
 
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'ap.bill.approve');
+    rbac_legacy_require($user, 'ap.bill.approve');
     $wfId = (int) ($_GET['id'] ?? 0);
     if ($wfId <= 0) api_error('id required', 422);
     $pdo->prepare(

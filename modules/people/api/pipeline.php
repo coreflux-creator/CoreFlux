@@ -31,7 +31,7 @@ const PIPELINE_STAGES = [
 // ─── Substages CRUD ───
 if ($action === 'substage') {
     if ($method === 'POST') {
-        RBAC::requirePermission($user, 'people.pipeline.substages.manage');
+        rbac_legacy_require($user, 'people.pipeline.substages.manage');
         $body = api_json_body();
         api_require_fields($body, ['parent_stage', 'label']);
         if (!in_array($body['parent_stage'], PIPELINE_STAGES, true)) {
@@ -49,7 +49,7 @@ if ($action === 'substage') {
         api_ok(['id' => $id], 201);
     }
     if ($method === 'PATCH') {
-        RBAC::requirePermission($user, 'people.pipeline.substages.manage');
+        rbac_legacy_require($user, 'people.pipeline.substages.manage');
         $id = (int) api_query('id', 0);
         if ($id <= 0) api_error('id required', 400);
         $body = api_json_body();
@@ -61,7 +61,7 @@ if ($action === 'substage') {
         api_ok(['ok' => true]);
     }
     if ($method === 'DELETE') {
-        RBAC::requirePermission($user, 'people.pipeline.substages.manage');
+        rbac_legacy_require($user, 'people.pipeline.substages.manage');
         $id = (int) api_query('id', 0);
         if ($id <= 0) api_error('id required', 400);
         $rows = scopedUpdate('tenant_pipeline_substages', $id, ['active' => 0]);
@@ -73,7 +73,7 @@ if ($action === 'substage') {
 
 if ($method === 'GET') {
     if (!empty($_GET['substages'])) {
-        RBAC::requirePermission($user, 'people.view');
+        rbac_legacy_require($user, 'people.view');
         $rows = scopedQuery(
             'SELECT * FROM tenant_pipeline_substages
              WHERE tenant_id = :tenant_id AND active = 1
@@ -82,7 +82,7 @@ if ($method === 'GET') {
         api_ok(['substages' => $rows]);
     }
     if (!empty($_GET['summary'])) {
-        RBAC::requirePermission($user, 'people.view');
+        rbac_legacy_require($user, 'people.view');
         // Latest stage per person → bucketed
         $rows = scopedQuery(
             "SELECT stage, COUNT(*) AS c FROM (
@@ -100,14 +100,14 @@ if ($method === 'GET') {
         foreach ($rows as $r) $byStage[$r['stage']] = (int) $r['c'];
         api_ok(['summary' => $byStage]);
     }
-    RBAC::requirePermission($user, 'people.view');
+    rbac_legacy_require($user, 'people.view');
     $personId = (int) api_query('person_id', 0);
     if ($personId <= 0) api_error('person_id required', 400);
     api_ok(['stages' => peoplePipelineHistory($personId)]);
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $personId = (int) api_query('person_id', 0);
     if ($personId <= 0) api_error('person_id required', 400);
     $body = api_json_body();

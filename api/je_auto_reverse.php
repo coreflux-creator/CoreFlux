@@ -21,7 +21,7 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'accounting.je.post');
+rbac_legacy_require($user, 'accounting.je.post');
 
 $body  = api_json_body();
 $jeId  = (int) ($body['je_id'] ?? 0);

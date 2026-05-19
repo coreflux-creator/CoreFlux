@@ -77,8 +77,8 @@ foreach (['status', 'oauth_start', 'oauth_callback', 'disconnect', 'ping', 'sync
 }
 $a('oauth_callback consumes state nonce',        $c($api, 'qboConsumeOAuthState'));
 $a('oauth_callback exchanges code',              $c($api, 'qboExchangeCode'));
-$a('requires integrations.qbo.view for status',  $c($api, "RBAC::requirePermission(\$user, 'integrations.qbo.view')"));
-$a('requires integrations.qbo.manage for write', $c($api, "RBAC::requirePermission(\$user, 'integrations.qbo.manage')"));
+$a('requires integrations.qbo.view for status',  $c($api, "rbac_legacy_require(\$user, 'integrations.qbo.view')"));
+$a('requires integrations.qbo.manage for write', $c($api, "rbac_legacy_require(\$user, 'integrations.qbo.manage')"));
 $a('returns configured + environment',           $c($api, "'configured'") && $c($api, "'environment'"));
 
 // shim files exist

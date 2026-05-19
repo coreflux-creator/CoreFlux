@@ -117,7 +117,7 @@ switch (api_method()) {
     }
 
     case 'POST': {
-        RBAC::requirePermission($ctx['user'], 'treasury.liability.manage');
+        rbac_legacy_require($ctx['user'], 'treasury.liability.manage');
         $body = api_json_body();
         api_require_fields($body, ['code', 'name', 'subtype']);
         $allowedSubtypes = ['credit_card', 'loan', 'line_of_credit', 'other_liability'];
@@ -162,7 +162,7 @@ switch (api_method()) {
     }
 
     case 'DELETE': {
-        RBAC::requirePermission($ctx['user'], 'treasury.liability.manage');
+        rbac_legacy_require($ctx['user'], 'treasury.liability.manage');
         $id   = (int) ($_GET['id'] ?? 0);
         $mode = (string) ($_GET['mode'] ?? 'hide');
         if ($id <= 0) api_error('id required', 400);

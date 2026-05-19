@@ -23,7 +23,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET' && $action === 'contract_upload_url') {
-    RBAC::requirePermission($user, 'placements.manage');
+    rbac_legacy_require($user, 'placements.manage');
     require_once __DIR__ . '/../../../core/StorageService.php';
     $cid = (int) ($_GET['id'] ?? 0);
     if ($cid <= 0) api_error('id required', 400);
@@ -37,7 +37,7 @@ if ($method === 'GET' && $action === 'contract_upload_url') {
 if ($method === 'POST' && $action === 'extract_contract') {
     // AI-assist — read an MSA / SOW / vendor contract PDF and surface key
     // commercial terms for the chain row. Suggestion only; nothing auto-applied.
-    RBAC::requirePermission($user, 'placements.manage');
+    rbac_legacy_require($user, 'placements.manage');
     require_once __DIR__ . '/../../../core/StorageService.php';
     require_once __DIR__ . '/../../../core/ai_service.php';
     $cid = (int) ($_GET['id'] ?? 0);
@@ -89,7 +89,7 @@ JSON;
 }
 
 if ($method === 'GET' && $action === 'reveal_portal') {
-    RBAC::requirePermission($user, 'placements.portal_credentials.view');
+    rbac_legacy_require($user, 'placements.portal_credentials.view');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     // Tenant-scope check (lib bypasses it for the read).
@@ -101,14 +101,14 @@ if ($method === 'GET' && $action === 'reveal_portal') {
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'placements.view');
+    rbac_legacy_require($user, 'placements.view');
     $pid = (int) api_query('placement_id', 0);
     if ($pid <= 0) api_error('placement_id required', 400);
     api_ok(['chain' => placementChain($pid)]);
 }
 
 if ($method === 'POST' && $action === 'set_portal') {
-    RBAC::requirePermission($user, 'placements.manage');
+    rbac_legacy_require($user, 'placements.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $row = scopedFind('SELECT id, placement_id FROM placement_client_chain WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
@@ -129,7 +129,7 @@ if ($method === 'POST' && $action === 'set_portal') {
 }
 
 if ($method === 'POST' && $action === 'clear_portal') {
-    RBAC::requirePermission($user, 'placements.manage');
+    rbac_legacy_require($user, 'placements.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $row = scopedFind('SELECT id, placement_id FROM placement_client_chain WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
@@ -143,7 +143,7 @@ if ($method === 'POST' && $action === 'clear_portal') {
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'placements.manage');
+    rbac_legacy_require($user, 'placements.manage');
     $pid = (int) api_query('placement_id', 0);
     if ($pid <= 0) api_error('placement_id required', 400);
     $body = api_json_body();
@@ -194,7 +194,7 @@ if ($method === 'POST') {
 }
 
 if ($method === 'PATCH') {
-    RBAC::requirePermission($user, 'placements.manage');
+    rbac_legacy_require($user, 'placements.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();
@@ -210,7 +210,7 @@ if ($method === 'PATCH') {
 }
 
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'placements.manage');
+    rbac_legacy_require($user, 'placements.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $rows = scopedDelete('placement_client_chain', $id);

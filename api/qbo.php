@@ -107,7 +107,7 @@ $tid  = (int) $ctx['tenant_id'];
 switch ($action) {
     case 'status': {
         if ($method !== 'GET') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.qbo.view');
+        rbac_legacy_require($user, 'integrations.qbo.view');
         $row = qboConnection($tid);
         $audit = getDB()->prepare(
             'SELECT id, action, entity_type, direction, ok,
@@ -150,7 +150,7 @@ switch ($action) {
 
     case 'oauth_start': {
         if ($method !== 'GET') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.qbo.manage');
+        rbac_legacy_require($user, 'integrations.qbo.manage');
         if (!qboConfigured()) api_error('QuickBooks is not configured on this pod.', 503);
         try {
             $res = qboBuildAuthorizeUrl($tid, $user['id'] ?? null);
@@ -162,21 +162,21 @@ switch ($action) {
 
     case 'disconnect': {
         if (!in_array($method, ['POST', 'DELETE'], true)) api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.qbo.manage');
+        rbac_legacy_require($user, 'integrations.qbo.manage');
         qboDisconnect($tid, $user['id'] ?? null);
         api_ok(['ok' => true]);
     }
 
     case 'ping': {
         if ($method !== 'POST') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.qbo.manage');
+        rbac_legacy_require($user, 'integrations.qbo.manage');
         if (!qboConnection($tid)) api_error('QuickBooks is not connected', 404);
         api_ok(qboPing($tid, $user['id'] ?? null));
     }
 
     case 'sync_config_get': {
         if ($method !== 'GET') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.qbo.view');
+        rbac_legacy_require($user, 'integrations.qbo.view');
         api_ok([
             'sync_config' => qboSyncConfigRead($tid),
             'entities'    => QBO_SYNC_ENTITIES,
@@ -186,7 +186,7 @@ switch ($action) {
 
     case 'sync_config_set': {
         if ($method !== 'POST') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.qbo.manage');
+        rbac_legacy_require($user, 'integrations.qbo.manage');
         $body   = api_json_body();
         $config = $body['sync_config'] ?? null;
         if (!is_array($config)) api_error('sync_config object required', 422);
@@ -204,7 +204,7 @@ switch ($action) {
         // Slice 2 — push posted CoreFlux JEs into QBO. Requires
         // sync_config.journal_entries in ('push','two_way').
         if ($method !== 'POST') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.qbo.manage');
+        rbac_legacy_require($user, 'integrations.qbo.manage');
         $body = api_json_body();
         $opts = [];
         if (isset($body['limit']))   $opts['limit']   = (int) $body['limit'];
@@ -225,7 +225,7 @@ switch ($action) {
         // Slice 3 — pull Customer / Vendor masters from QBO. Requires
         // sync_config.{entity} in ('pull','two_way').
         if ($method !== 'POST') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.qbo.manage');
+        rbac_legacy_require($user, 'integrations.qbo.manage');
         $body = api_json_body();
         $opts = [];
         if (isset($body['limit']))     $opts['limit']     = (int) $body['limit'];
@@ -247,7 +247,7 @@ switch ($action) {
         // external_entity_mappings table so the Slice 2 JE pusher hits
         // the cache instead of doing an ad-hoc query per line.
         if ($method !== 'POST') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.qbo.manage');
+        rbac_legacy_require($user, 'integrations.qbo.manage');
         $body = api_json_body();
         $opts = [];
         if (isset($body['limit']))     $opts['limit']     = (int) $body['limit'];
@@ -265,7 +265,7 @@ switch ($action) {
     case 'sync_items': {
         // Slice 4b — pull QBO Item list (required for Invoice push).
         if ($method !== 'POST') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.qbo.manage');
+        rbac_legacy_require($user, 'integrations.qbo.manage');
         $body = api_json_body();
         try {
             $res = qboSyncItems($tid, $user['id'] ?? null, [
@@ -283,7 +283,7 @@ switch ($action) {
     case 'sync_payments': {
         // Slice 4b — push CoreFlux Bills / Invoices / BillPayments to QBO.
         if ($method !== 'POST') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.qbo.manage');
+        rbac_legacy_require($user, 'integrations.qbo.manage');
         $body = api_json_body();
         $opts = [];
         if (isset($body['limit']))   $opts['limit']   = (int) $body['limit'];
@@ -312,7 +312,7 @@ switch ($action) {
         //               or any unmapped accounts surfaced in last pull
         //   - 'green':  otherwise
         if ($method !== 'GET') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.qbo.view');
+        rbac_legacy_require($user, 'integrations.qbo.view');
         $pdo = getDB();
         $row = qboConnection($tid);
         if (!$row || $row['status'] !== 'active') {
@@ -406,7 +406,7 @@ switch ($action) {
         // unresolved account id surfaced in detail.unresolved_account_ids,
         // joins accounting_accounts for code+name, returns actionable rows.
         if ($method !== 'GET') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.qbo.view');
+        rbac_legacy_require($user, 'integrations.qbo.view');
         $pdo = getDB();
         $stmt = $pdo->prepare(
             "SELECT id, detail, occurred_at

@@ -20,7 +20,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET' && !empty($_GET['id'])) {
-    RBAC::requirePermission($user, 'accounting.coa.view');
+    rbac_legacy_require($user, 'accounting.coa.view');
     $id  = (int) $_GET['id'];
     $row = scopedFind(
         'SELECT * FROM accounting_bank_accounts WHERE tenant_id = :tenant_id AND id = :id',
@@ -37,7 +37,7 @@ if ($method === 'GET' && !empty($_GET['id'])) {
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'accounting.coa.view');
+    rbac_legacy_require($user, 'accounting.coa.view');
     // Sprint 6f — default to active accounts only so the list isn't cluttered
     // by accounts the user closed (or accidentally connected via Plaid and
     // never used). Pass ?include_closed=1 to see everything, or ?status=closed
@@ -71,7 +71,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'reopen') {
-    RBAC::requirePermission($user, 'accounting.coa.edit');
+    rbac_legacy_require($user, 'accounting.coa.edit');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     scopedUpdate('accounting_bank_accounts', $id, ['status' => 'active']);
@@ -80,7 +80,7 @@ if ($method === 'POST' && $action === 'reopen') {
 }
 
 if ($method === 'POST' && $action === 'close') {
-    RBAC::requirePermission($user, 'accounting.coa.edit');
+    rbac_legacy_require($user, 'accounting.coa.edit');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     scopedUpdate('accounting_bank_accounts', $id, ['status' => 'closed']);
@@ -89,7 +89,7 @@ if ($method === 'POST' && $action === 'close') {
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'accounting.coa.edit');
+    rbac_legacy_require($user, 'accounting.coa.edit');
     $body = api_json_body();
     api_require_fields($body, ['name', 'gl_account_code']);
     $id = scopedInsert('accounting_bank_accounts', [
@@ -108,7 +108,7 @@ if ($method === 'POST') {
 }
 
 if ($method === 'PUT') {
-    RBAC::requirePermission($user, 'accounting.coa.edit');
+    rbac_legacy_require($user, 'accounting.coa.edit');
     $id   = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();

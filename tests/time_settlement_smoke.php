@@ -181,7 +181,7 @@ $a('gracefully handles unparseable AI output',     $c($ai, 'unparseable'));
 echo "\napi — auto_extract + ai_suggest actions\n";
 $api2 = (string) file_get_contents(__DIR__ . '/../modules/time/api/settlement.php');
 $a('auto_extract action handler',                  $c($api2, "\$action === 'auto_extract'"));
-$a('auto_extract gates extract permission',         $c($api2, "RBAC::requirePermission(\$user, \"time.settlement.extract.\$target\")"));
+$a('auto_extract gates extract permission',         $c($api2, "rbac_legacy_require(\$user, \"time.settlement.extract.\$target\")"));
 $a('auto_extract accepts target=payroll',           $c($api2, "auto_extract supports billing|ap|payroll only"));
 $a('ai_suggest action handler',                    $c($api2, "\$action === 'ai_suggest'"));
 $a('ai_suggest builds blocks server-side if FE omitted',

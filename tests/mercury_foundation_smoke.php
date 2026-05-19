@@ -110,7 +110,7 @@ $cnPath = __DIR__ . '/../api/mercury_connection.php';
 $a('connection API exists', is_file($cnPath));
 $cn = (string) file_get_contents($cnPath);
 $a('RBAC: accounting.bank.manage',
-    $c($cn, "RBAC::requirePermission(\$user, 'accounting.bank.manage')"));
+    $c($cn, "rbac_legacy_require(\$user, 'accounting.bank.manage')"));
 $a('GET ?action=status returns connected flag',
     $c($cn, "api_ok(['connected' => false])") && $c($cn, "'connected'        => \$row['status'] === 'active'"));
 $a('POST default action probes + persists',
@@ -133,10 +133,10 @@ $a('GET reads cached mercury_accounts',
 $a('POST ?action=sync calls mercurySyncAccounts',
     $c($ac, "\$action === 'sync'") && $c($ac, 'mercurySyncAccounts($tenantId)'));
 $a('GET RBAC accepts bank.view OR bank.manage',
-    $c($ac, "hasPermission(\$user, 'accounting.bank.view')") &&
-    $c($ac, "hasPermission(\$user, 'accounting.bank.manage')"));
+    $c($ac, "rbac_legacy_can(\$user, 'accounting.bank.view')") &&
+    $c($ac, "rbac_legacy_can(\$user, 'accounting.bank.manage')"));
 $a('POST RBAC: accounting.bank.manage',
-    $c($ac, "RBAC::requirePermission(\$user, 'accounting.bank.manage')"));
+    $c($ac, "rbac_legacy_require(\$user, 'accounting.bank.manage')"));
 $a('graceful degrade when migration missing',
     $c($ac, '$rows = []'));
 

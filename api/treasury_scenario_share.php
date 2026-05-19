@@ -190,7 +190,7 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
 if ($action === 'create' && $method === 'POST') {
-    RBAC::requirePermission($user, 'treasury.payment.manage');
+    rbac_legacy_require($user, 'treasury.payment.manage');
     $body = api_json_body();
     $kind = (string) ($body['kind'] ?? '');
     if (!in_array($kind, ['single', 'compare'], true)) api_error("kind must be 'single' or 'compare'", 422);
@@ -254,7 +254,7 @@ if ($action === 'create' && $method === 'POST') {
 }
 
 if ($action === 'list' && $method === 'GET') {
-    RBAC::requirePermission($user, 'treasury.payment.manage');
+    rbac_legacy_require($user, 'treasury.payment.manage');
     $stmt = $pdo->prepare(
         "SELECT id, kind, preset_a_id, preset_b_id, label, days_horizon,
                 created_at, expires_at, revoked_at, view_count, last_viewed_at,
@@ -272,7 +272,7 @@ if ($action === 'list' && $method === 'GET') {
 }
 
 if ($action === 'revoke' && $method === 'POST') {
-    RBAC::requirePermission($user, 'treasury.payment.manage');
+    rbac_legacy_require($user, 'treasury.payment.manage');
     $body = api_json_body();
     $id   = (int) ($body['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);

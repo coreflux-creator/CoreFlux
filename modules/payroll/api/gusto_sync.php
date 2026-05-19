@@ -19,7 +19,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/gusto_track_b.php';
 
 $ctx = api_require_auth();
-RBAC::requirePermission($ctx['user'], 'payroll.run.disburse');
+rbac_legacy_require($ctx['user'], 'payroll.run.disburse');
 
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
 

@@ -18,7 +18,7 @@ require_once __DIR__ . '/../core/posting_engine/seed_defaults.php';
 
 $ctx = api_require_auth();
 $tid = (int) $ctx['tenant_id'];
-RBAC::requirePermission($ctx['user'], 'accounting.manage_posting_rules');
+rbac_legacy_require($ctx['user'], 'accounting.manage_posting_rules');
 
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
 

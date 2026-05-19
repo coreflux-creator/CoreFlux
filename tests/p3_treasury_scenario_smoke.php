@@ -64,7 +64,7 @@ $assert('endpoint exists',                        is_readable($apiPath));
 $assert('parses',                                 $lint($apiPath));
 $api = (string) file_get_contents($apiPath);
 $assert('requires shared projection lib',         strpos($api, "require_once __DIR__ . '/../core/treasury/liquidity_projection.php'") !== false);
-$assert('RBAC: treasury.payment.view',            strpos($api, "RBAC::requirePermission(\$user, 'treasury.payment.view')") !== false);
+$assert('RBAC: treasury.payment.view',            strpos($api, "rbac_legacy_require(\$user, 'treasury.payment.view')") !== false);
 $assert('accepts POST + GET',                     strpos($api, "in_array(api_method(), ['POST', 'GET'], true)") !== false);
 
 echo "\nValidation — events array\n";

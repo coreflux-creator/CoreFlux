@@ -167,7 +167,7 @@ $assert('requires api_bootstrap',                strpos($api, "require_once __DI
 $assert('requires RBAC',                         strpos($api, "require_once __DIR__ . '/../../core/RBAC.php'") !== false);
 $assert('requires entity_mappings library',      strpos($api, "require_once __DIR__ . '/../../core/integrations/entity_mappings.php'") !== false);
 $assert('GET-only',                              strpos($api, "if (api_method() !== 'GET') api_error('Method not allowed', 405)") !== false);
-$assert('RBAC integrations.jobdiva.view',        strpos($api, "RBAC::requirePermission(\$user, 'integrations.jobdiva.view')") !== false);
+$assert('RBAC integrations.jobdiva.view',        strpos($api, "rbac_legacy_require(\$user, 'integrations.jobdiva.view')") !== false);
 $assert('default action list_for_internal',      strpos($api, "(string) (api_query('action') ?? 'list_for_internal')") !== false);
 $assert('action list_for_internal validates entity_type + internal_id',
     strpos($api, "case 'list_for_internal'") !== false

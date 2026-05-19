@@ -42,7 +42,7 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'accounting.coa.view');
+rbac_legacy_require($user, 'accounting.coa.view');
 
 $dimKey   = trim((string) (api_query('dim_key') ?? ''));
 $start    = (string) (api_query('start') ?? date('Y-01-01'));

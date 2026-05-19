@@ -232,7 +232,7 @@ function mpApprove(int $tenantId, int $id, $approver, ?string $note = null): boo
     // `accounting.bank.manage` perm AP clerks use to create instructions.
     // Without this check, two clerks with the same role could cover for each
     // other. Service-layer enforcement so curl-bypass attempts also fail.
-    if ($approverUser !== null && !RBAC::hasPermission($approverUser, 'treasury.payment.approve')) {
+    if ($approverUser !== null && !rbac_legacy_can($approverUser, 'treasury.payment.approve')) {
         throw new \RuntimeException(
             'Role separation: approver must hold the treasury.payment.approve permission'
         );

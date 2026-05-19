@@ -283,6 +283,24 @@ const useSession = () => {
     fetchSession();
   }, []);
 
+  // RBAC B5 — react to persona switches from the header dropdown.
+  // Header.jsx fires `cf:active-persona-changed` after a successful POST
+  // to /api/active_persona.php.  The session-baked role, modules sidebar,
+  // and every gated button were derived from $ctx['role'] at login time,
+  // so re-fetch /session.php to pick up the new persona's effective role,
+  // then trigger a soft reload so module-level guards see it too.
+  useEffect(() => {
+    const onPersonaChanged = () => {
+      // Soft refresh: reload the page so the SPA reboots against the new
+      // $_SESSION['active_persona_id']. Lower blast-radius than wiring
+      // every gated component to a context subscription, and the API
+      // round-trip cost is one /session.php call.
+      window.location.reload();
+    };
+    window.addEventListener('cf:active-persona-changed', onPersonaChanged);
+    return () => window.removeEventListener('cf:active-persona-changed', onPersonaChanged);
+  }, []);
+
   return { session, loading, usingDemo };
 };
 

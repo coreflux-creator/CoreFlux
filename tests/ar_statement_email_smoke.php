@@ -67,7 +67,7 @@ echo "\nAPI: modules/billing/api/send_statement.php\n";
 $apiPath = __DIR__ . '/../modules/billing/api/send_statement.php';
 $api     = (string) file_get_contents($apiPath);
 $a('parses',                                          $parses($apiPath));
-$a('GET preview: requires billing.view',              str_contains($api, "RBAC::requirePermission(\$user, \$dryRun ? \$RBAC_PREVIEW : \$RBAC_SEND)"));
+$a('GET preview: requires billing.view',              str_contains($api, "rbac_legacy_require(\$user, \$dryRun ? \$RBAC_PREVIEW : \$RBAC_SEND)"));
 $a('preview perm constant is billing.view',           str_contains($api, "\$RBAC_PREVIEW = 'billing.view'"));
 $a('send perm constant is billing.invoice.create',    str_contains($api, "\$RBAC_SEND    = 'billing.invoice.create'"));
 $a('GET treated as dry-run',                          str_contains($api, "\$dryRun     = \$method === 'GET' || !empty(\$body['dry_run'])"));

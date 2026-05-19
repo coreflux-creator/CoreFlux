@@ -136,7 +136,7 @@ $api2 = file_get_contents(__DIR__ . '/../modules/time/api/intake.php');
 $assert('?action=record_alias endpoint',                strpos($api2, "action === 'record_alias'") !== false);
 $assert('record_alias resolves doc → from_address',     strpos($api2, "FROM time_uploaded_documents d") !== false && strpos($api2, "JOIN time_intake_events e") !== false);
 $assert('record_alias returns recorded:false when no intake', strpos($api2, "'recorded' => false") !== false);
-$assert('record_alias gated by time.entry.create',      strpos($api2, "RBAC::requirePermission(\$user, 'time.entry.create')") !== false);
+$assert('record_alias gated by time.entry.create',      strpos($api2, "rbac_legacy_require(\$user, 'time.entry.create')") !== false);
 
 $man3 = file_get_contents(__DIR__ . '/../modules/time/manifest.php');
 $assert('audit sender_alias_recorded declared',         strpos($man3, 'time.intake.sender_alias_recorded') !== false);

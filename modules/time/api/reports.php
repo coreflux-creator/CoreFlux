@@ -12,7 +12,7 @@ require_once __DIR__ . '/../lib/time.php';
 $ctx = api_require_auth();
 $user = $ctx['user'];
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'time.view');
+rbac_legacy_require($user, 'time.view');
 
 $type = $_GET['type'] ?? '';
 $periodId = (int) ($_GET['period_id'] ?? 0);

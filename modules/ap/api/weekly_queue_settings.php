@@ -28,7 +28,7 @@ $canWrite = function (array $u): bool {
 };
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'ap.bill.view');
+    rbac_legacy_require($user, 'ap.bill.view');
     $pdo = getDB();
     $row = null;
     try {

@@ -26,7 +26,7 @@ $api = (string) file_get_contents("{$ROOT}/api/books_health.php");
 $assert('endpoint exists',                       strlen($api) > 0);
 $assert('parses',                                $lint("{$ROOT}/api/books_health.php"));
 $assert('GET-only',                              strpos($api, "if (api_method() !== 'GET')") !== false);
-$assert('RBAC accounting.coa.view',              strpos($api, "RBAC::requirePermission(\$user, 'accounting.coa.view')") !== false);
+$assert('RBAC accounting.coa.view',              strpos($api, "rbac_legacy_require(\$user, 'accounting.coa.view')") !== false);
 $assert('returns bank_connections envelope',     strpos($api, "'bank_connections'") !== false);
 $assert('returns reconciliation envelope',       strpos($api, "'reconciliation'") !== false);
 $assert('returns uncategorized envelope',        strpos($api, "'uncategorized'") !== false);

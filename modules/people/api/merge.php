@@ -33,7 +33,7 @@ $ctx = api_require_auth();
 $user = $ctx['user'];
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
 
-RBAC::requirePermission($user, 'people.merge');
+rbac_legacy_require($user, 'people.merge');
 
 $body = api_json_body();
 api_require_fields($body, ['primary_person_id', 'duplicate_person_id']);

@@ -23,7 +23,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET' && $action === 'export_template') {
-    RBAC::requirePermission($user, 'ap.payment.send');
+    rbac_legacy_require($user, 'ap.payment.send');
     require_once __DIR__ . '/../../../core/export_templates.php';
     require_once __DIR__ . '/../../../core/export_datasets.php';
 
@@ -62,7 +62,7 @@ if ($method === 'GET' && $action === 'export_template') {
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['vendor_name'])) { $where[] = 'vendor_name = :vn'; $params['vn'] = $_GET['vendor_name']; }
@@ -106,7 +106,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'ap.payment.create');
+    rbac_legacy_require($user, 'ap.payment.create');
     $body = api_json_body();
     api_require_fields($body, ['vendor_name', 'pay_date', 'method', 'amount']);
     $amount = round((float) $body['amount'], 2);
@@ -142,7 +142,7 @@ if ($method === 'POST' && $action === '') {
 }
 
 if ($method === 'POST' && $action === 'allocate') {
-    RBAC::requirePermission($user, 'ap.payment.allocate');
+    rbac_legacy_require($user, 'ap.payment.allocate');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $row = scopedFind('SELECT id FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
@@ -155,7 +155,7 @@ if ($method === 'POST' && $action === 'allocate') {
 }
 
 if ($method === 'POST' && $action === 'send') {
-    RBAC::requirePermission($user, 'ap.payment.send');
+    rbac_legacy_require($user, 'ap.payment.send');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -189,7 +189,7 @@ if ($method === 'POST' && $action === 'send') {
 }
 
 if ($method === 'POST' && $action === 'originate_batch') {
-    RBAC::requirePermission($user, 'ap.payment.send');
+    rbac_legacy_require($user, 'ap.payment.send');
     $body = api_json_body();
     $ids  = array_values(array_unique(array_filter(array_map('intval', (array) ($body['ids'] ?? [])))));
     if (!$ids)               api_error('ids[] required', 422);
@@ -328,7 +328,7 @@ if ($method === 'POST' && $action === 'originate_batch') {
 // Draft payment_instruction with source_module='ap'. Treasury ops then
 // Submits + Approves in the Mercury Payments dashboard (SoD preserved).
 if ($method === 'POST' && $action === 'send_via_mercury') {
-    RBAC::requirePermission($user, 'ap.payment.send');
+    rbac_legacy_require($user, 'ap.payment.send');
     require_once __DIR__ . '/../../../core/mercury_payments.php';
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
@@ -342,7 +342,7 @@ if ($method === 'POST' && $action === 'send_via_mercury') {
 
 
 if ($method === 'POST' && $action === 'originate') {
-    RBAC::requirePermission($user, 'ap.payment.send');
+    rbac_legacy_require($user, 'ap.payment.send');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -430,7 +430,7 @@ if ($method === 'POST' && $action === 'originate') {
 }
 
 if ($method === 'POST' && $action === 'clear') {
-    RBAC::requirePermission($user, 'ap.payment.send');
+    rbac_legacy_require($user, 'ap.payment.send');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -443,7 +443,7 @@ if ($method === 'POST' && $action === 'clear') {
 }
 
 if ($method === 'POST' && $action === 'void') {
-    RBAC::requirePermission($user, 'ap.payment.send');
+    rbac_legacy_require($user, 'ap.payment.send');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);

@@ -15,7 +15,7 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
 if (api_method() === 'GET') {
-    RBAC::requirePermission($user, 'billing.view');
+    rbac_legacy_require($user, 'billing.view');
     $asOf = (string) ($_GET['as_of'] ?? date('Y-m-d'));
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $asOf)) api_error('as_of must be YYYY-MM-DD', 422);
     api_ok(['as_of' => $asOf, 'rows' => billingComputeAging($tid, $asOf)]);

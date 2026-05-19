@@ -41,7 +41,7 @@ $body      = api_json_body();
 $itemIdExt = trim((string) ($body['item_id'] ?? ''));
 if ($itemIdExt === '') api_error('item_id required', 422);
 
-RBAC::requirePermission($user, 'accounting.bank.manage');
+rbac_legacy_require($user, 'accounting.bank.manage');
 
 $item = scopedFind(
     'SELECT * FROM plaid_items WHERE tenant_id = :tenant_id AND item_id = :iid',

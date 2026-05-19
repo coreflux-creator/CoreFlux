@@ -17,7 +17,7 @@ require_once __DIR__ . '/../lib/statement.php';
 $ctx  = api_require_auth();
 $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
-RBAC::requirePermission($user, 'billing.view');
+rbac_legacy_require($user, 'billing.view');
 
 $clientName = trim((string) ($_GET['client_name'] ?? ''));
 $asOf       = (string) ($_GET['as_of'] ?? date('Y-m-d'));

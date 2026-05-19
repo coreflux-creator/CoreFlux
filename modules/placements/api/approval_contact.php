@@ -19,7 +19,7 @@ $pid = (int) api_query('placement_id', 0);
 if ($pid <= 0) api_error('placement_id required', 400);
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'placements.view');
+    rbac_legacy_require($user, 'placements.view');
     $row = scopedFind(
         'SELECT id AS placement_id, client_approver_name, client_approver_email,
                 tokenized_email_approval_enabled, bulk_uploads_can_be_pre_approved
@@ -31,7 +31,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'PUT' || $method === 'POST') {
-    RBAC::requirePermission($user, 'placements.manage');
+    rbac_legacy_require($user, 'placements.manage');
     $body = api_json_body();
     if (!empty($body['client_approver_email']) && !filter_var($body['client_approver_email'], FILTER_VALIDATE_EMAIL)) {
         api_error('Invalid client_approver_email', 422);

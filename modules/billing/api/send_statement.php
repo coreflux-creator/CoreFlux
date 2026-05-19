@@ -37,7 +37,7 @@ $dryRun     = $method === 'GET' || !empty($body['dry_run']);
 if ($clientName === '') api_error('client_name required', 422);
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $asOf)) api_error('as_of must be YYYY-MM-DD', 422);
 
-RBAC::requirePermission($user, $dryRun ? $RBAC_PREVIEW : $RBAC_SEND);
+rbac_legacy_require($user, $dryRun ? $RBAC_PREVIEW : $RBAC_SEND);
 
 $invoices = billingStatementOpenInvoices($tid, $clientName, $asOf);
 if (empty($invoices)) {

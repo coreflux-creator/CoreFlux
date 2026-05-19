@@ -21,7 +21,7 @@ $a('api file exists',                            is_file($apiPath));
 $a('api parses',                                 (int) shell_exec('php -l ' . escapeshellarg($apiPath) . ' >/dev/null 2>&1; echo $?') === 0);
 $a('requires api_bootstrap',                     str_contains($apiSrc, "require_once __DIR__ . '/../../../core/api_bootstrap.php'"));
 $a('requires weekly_queue lib',                  str_contains($apiSrc, "require_once __DIR__ . '/../../ap/lib/weekly_queue.php'"));
-$a("permission: billing.view",                   str_contains($apiSrc, "RBAC::requirePermission(\$user, 'billing.view')"));
+$a("permission: billing.view",                   str_contains($apiSrc, "rbac_legacy_require(\$user, 'billing.view')"));
 
 echo "\nResponse envelope shape\n";
 $a('returns dso_days',                           str_contains($apiSrc, "'dso_days'"));

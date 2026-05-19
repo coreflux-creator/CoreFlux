@@ -38,7 +38,7 @@ if ($method === 'GET') {
     if (!in_array($target, TIME_SETTLEMENT_TARGETS, true)) {
         api_error('target must be one of: billing|ap|payroll', 422);
     }
-    RBAC::requirePermission($user, "time.settlement.view.$target");
+    rbac_legacy_require($user, "time.settlement.view.$target");
 
     $filters = array_filter([
         'placement_id' => isset($_GET['placement_id']) ? (int) $_GET['placement_id'] : null,
@@ -100,7 +100,7 @@ if (!in_array($target, TIME_SETTLEMENT_TARGETS, true)) {
 }
 
 if ($action === 'extract') {
-    RBAC::requirePermission($user, "time.settlement.extract.$target");
+    rbac_legacy_require($user, "time.settlement.extract.$target");
     $ids       = $body['entry_ids'] ?? [];
     $targetRef = (int) ($body['target_ref'] ?? 0);
     if (!is_array($ids) || !$ids) api_error('entry_ids[] required', 422);
@@ -115,7 +115,7 @@ if ($action === 'extract') {
 }
 
 if ($action === 'unextract') {
-    RBAC::requirePermission($user, "time.settlement.unextract.$target");
+    rbac_legacy_require($user, "time.settlement.unextract.$target");
     $ids    = $body['entry_ids'] ?? [];
     $reason = trim((string) ($body['reason'] ?? ''));
     if (!is_array($ids) || !$ids) api_error('entry_ids[] required', 422);
@@ -134,7 +134,7 @@ if ($action === 'unextract') {
 // placement, emits per-day lines from time data, stamps every entry with
 // the new ref. Atomic. Permission: time.settlement.extract.<target>.
 if ($action === 'auto_extract') {
-    RBAC::requirePermission($user, "time.settlement.extract.$target");
+    rbac_legacy_require($user, "time.settlement.extract.$target");
     if (!in_array($target, ['billing','ap','payroll'], true)) {
         api_error('auto_extract supports billing|ap|payroll only', 422);
     }
@@ -155,7 +155,7 @@ if ($action === 'auto_extract') {
 // Sends the current ready blocks to GPT-4o-mini for batch grouping.
 // Falls back to rules-based grouping if AI is unavailable.
 if ($action === 'ai_suggest') {
-    RBAC::requirePermission($user, "time.settlement.view.$target");
+    rbac_legacy_require($user, "time.settlement.view.$target");
     $blocks = $body['blocks'] ?? null;
     if (!is_array($blocks)) {
         // Build server-side from the same query so the FE doesn't have to send all data.

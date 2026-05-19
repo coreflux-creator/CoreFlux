@@ -40,7 +40,7 @@ $perm = match ($purpose) {
     'employee_banking' => 'payroll.profiles.banking.manage',
     'tenant_funding'   => 'ap.payment.create',
 };
-RBAC::requirePermission($user, $perm);
+rbac_legacy_require($user, $perm);
 
 // 1) exchange
 try {

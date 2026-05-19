@@ -40,7 +40,7 @@ $api = (string) file_get_contents($apiPath);
 $assert('declares strict_types',                 strpos($api, 'declare(strict_types=1)') !== false);
 $assert('POST-only — 405 on others',
     strpos($api, "if (api_method() !== 'POST') api_error('Method not allowed', 405)") !== false);
-$assert('RBAC: treasury.payment.view',           strpos($api, "RBAC::requirePermission(\$user, 'treasury.payment.view')") !== false);
+$assert('RBAC: treasury.payment.view',           strpos($api, "rbac_legacy_require(\$user, 'treasury.payment.view')") !== false);
 $assert('reuses shared engine (zero new SQL)',
     strpos($api, "require_once __DIR__ . '/../core/treasury/liquidity_projection.php'") !== false);
 

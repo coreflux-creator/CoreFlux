@@ -26,7 +26,7 @@ $db = getDB();
 
 // ── GET list ──────────────────────────────────────────────────────────────
 if ($method === 'GET' && $action === '' && empty($_GET['id'])) {
-    RBAC::requirePermission($user, 'accounting.bank.reconcile');
+    rbac_legacy_require($user, 'accounting.bank.reconcile');
     $where  = ['tenant_id = :t']; $params = ['t' => $tid];
     if (!empty($_GET['bank_account_id'])) {
         $where[] = 'bank_account_id = :b';
@@ -46,7 +46,7 @@ if ($method === 'GET' && $action === '' && empty($_GET['id'])) {
 
 // ── GET detail ────────────────────────────────────────────────────────────
 if ($method === 'GET' && $action === '' && !empty($_GET['id'])) {
-    RBAC::requirePermission($user, 'accounting.bank.reconcile');
+    rbac_legacy_require($user, 'accounting.bank.reconcile');
     $id  = (int) $_GET['id'];
     $row = scopedFind('SELECT * FROM accounting_reconciliations WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -55,7 +55,7 @@ if ($method === 'GET' && $action === '' && !empty($_GET['id'])) {
 
 // ── action=packet ─────────────────────────────────────────────────────────
 if ($method === 'GET' && $action === 'packet') {
-    RBAC::requirePermission($user, 'accounting.bank.reconcile');
+    rbac_legacy_require($user, 'accounting.bank.reconcile');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     try {
@@ -73,7 +73,7 @@ if ($method === 'GET' && $action === 'packet') {
 
 // ── action=open ───────────────────────────────────────────────────────────
 if ($method === 'POST' && $action === 'open') {
-    RBAC::requirePermission($user, 'accounting.bank.reconcile');
+    rbac_legacy_require($user, 'accounting.bank.reconcile');
     $body = api_json_body();
     api_require_fields($body, ['bank_account_id','period_end']);
     $now  = date('Y-m-d H:i:s');
@@ -104,7 +104,7 @@ if ($method === 'POST' && $action === 'open') {
 
 // ── action=close ──────────────────────────────────────────────────────────
 if ($method === 'POST' && $action === 'close') {
-    RBAC::requirePermission($user, 'accounting.bank.reconcile');
+    rbac_legacy_require($user, 'accounting.bank.reconcile');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $row = scopedFind('SELECT * FROM accounting_reconciliations WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
@@ -130,7 +130,7 @@ if ($method === 'POST' && $action === 'close') {
 
 // ── action=reopen ─────────────────────────────────────────────────────────
 if ($method === 'POST' && $action === 'reopen') {
-    RBAC::requirePermission($user, 'accounting.bank.reconcile');
+    rbac_legacy_require($user, 'accounting.bank.reconcile');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();
@@ -150,7 +150,7 @@ if ($method === 'POST' && $action === 'reopen') {
 
 // ── action=generate_ai_narrative ─────────────────────────────────────────
 if ($method === 'POST' && $action === 'generate_ai_narrative') {
-    RBAC::requirePermission($user, 'accounting.bank.reconcile');
+    rbac_legacy_require($user, 'accounting.bank.reconcile');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     try {
@@ -166,7 +166,7 @@ if ($method === 'POST' && $action === 'generate_ai_narrative') {
 // Persists the human-accepted narrative text (called by <AISuggestion />
 // onAccepted callback — nothing persists until the user accepts).
 if ($method === 'POST' && $action === 'save_ai_narrative') {
-    RBAC::requirePermission($user, 'accounting.bank.reconcile');
+    rbac_legacy_require($user, 'accounting.bank.reconcile');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();

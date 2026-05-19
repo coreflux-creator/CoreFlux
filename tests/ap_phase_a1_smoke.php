@@ -36,7 +36,7 @@ echo "\nAP export.php — CSV streaming\n";
 $expp = __DIR__ . '/../modules/ap/api/export.php';
 $a('export.php exists', file_exists($expp));
 $exc = (string) file_get_contents($expp);
-$a('requires ap.export.run',                  strpos($exc, "RBAC::requirePermission(\$user, 'ap.export.run')") !== false);
+$a('requires ap.export.run',                  strpos($exc, "rbac_legacy_require(\$user, 'ap.export.run')") !== false);
 $a('emits text/csv content-type',             strpos($exc, "text/csv") !== false);
 $a('emits Content-Disposition attachment',    strpos($exc, 'Content-Disposition: attachment') !== false);
 $a('handles type=bills',                      strpos($exc, "\$type === 'bills'") !== false);

@@ -23,9 +23,9 @@ $tenantId = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = (string) ($_GET['action'] ?? 'stats');
 
-$canView   = RBAC::hasPermission($user, 'accounting.bank.view')
-          || RBAC::hasPermission($user, 'accounting.bank.manage');
-$canManage = RBAC::hasPermission($user, 'accounting.bank.manage');
+$canView   = rbac_legacy_can($user, 'accounting.bank.view')
+          || rbac_legacy_can($user, 'accounting.bank.manage');
+$canManage = rbac_legacy_can($user, 'accounting.bank.manage');
 
 if ($method === 'GET' && $action === 'stats') {
     if (!$canView) api_error('Permission denied', 403);

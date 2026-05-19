@@ -32,9 +32,9 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 $id     = (int) ($_GET['id'] ?? 0);
 
-$canView   = RBAC::hasPermission($user, 'accounting.bank.view')
-          || RBAC::hasPermission($user, 'accounting.bank.manage');
-$canManage = RBAC::hasPermission($user, 'accounting.bank.manage');
+$canView   = rbac_legacy_can($user, 'accounting.bank.view')
+          || rbac_legacy_can($user, 'accounting.bank.manage');
+$canManage = rbac_legacy_can($user, 'accounting.bank.manage');
 
 // ----------------------------------------------------------------- GET
 if ($method === 'GET') {

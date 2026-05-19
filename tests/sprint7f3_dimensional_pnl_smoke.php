@@ -28,7 +28,7 @@ $ep = (string) file_get_contents("{$ROOT}/api/dimensional_pnl.php");
 $assert('endpoint exists',                       strlen($ep) > 0);
 $assert('parses',                                $lint("{$ROOT}/api/dimensional_pnl.php"));
 $assert('GET-only',                              strpos($ep, "if (api_method() !== 'GET')") !== false);
-$assert('RBAC accounting.coa.view',              strpos($ep, "RBAC::requirePermission(\$user, 'accounting.coa.view')") !== false);
+$assert('RBAC accounting.coa.view',              strpos($ep, "rbac_legacy_require(\$user, 'accounting.coa.view')") !== false);
 $assert('dim_key required',                      strpos($ep, "dim_key required") !== false);
 $assert('YYYY-MM-DD start/end',                  strpos($ep, "preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', \$start)") !== false);
 $assert('rejects start > end',                   strpos($ep, '$start > $end') !== false);

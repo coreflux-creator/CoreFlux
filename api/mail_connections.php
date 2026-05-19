@@ -44,7 +44,7 @@ function _m365_check_env(): void {
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'tenant.manage');
+    rbac_legacy_require($user, 'tenant.manage');
     $pdo = getDB();
     $cs = $pdo->prepare(
         'SELECT id, provider, purpose, display_name, account_address, oauth_expires_at, status, error_message, created_at
@@ -68,7 +68,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'oauth_start') {
-    RBAC::requirePermission($user, 'tenant.manage');
+    rbac_legacy_require($user, 'tenant.manage');
     $provider = $_GET['provider'] ?? 'm365';
     if ($provider !== 'm365') api_error('Only m365 supported in this drop', 400);
     _m365_check_env();
@@ -89,7 +89,7 @@ if ($method === 'POST' && $action === 'oauth_start') {
 }
 
 if ($method === 'POST' && $action === 'list_folders') {
-    RBAC::requirePermission($user, 'tenant.manage');
+    rbac_legacy_require($user, 'tenant.manage');
     $cid = (int) ($_GET['connection_id'] ?? 0);
     if ($cid <= 0) api_error('connection_id required', 400);
     $row = scopedFind('SELECT id FROM tenant_mail_connections WHERE tenant_id = :tenant_id AND id = :id', ['id' => $cid]);
@@ -101,7 +101,7 @@ if ($method === 'POST' && $action === 'list_folders') {
 }
 
 if ($method === 'POST' && $action === 'watch_folder') {
-    RBAC::requirePermission($user, 'tenant.manage');
+    rbac_legacy_require($user, 'tenant.manage');
     $body = api_json_body();
     api_require_fields($body, ['connection_id', 'folder_id_at_provider', 'folder_path', 'module']);
     $cid = (int) $body['connection_id'];
@@ -133,7 +133,7 @@ if ($method === 'POST' && $action === 'watch_folder') {
 }
 
 if ($method === 'POST' && $action === 'poll_now') {
-    RBAC::requirePermission($user, 'tenant.manage');
+    rbac_legacy_require($user, 'tenant.manage');
     $fid = (int) ($_GET['folder_id'] ?? 0);
     if ($fid <= 0) api_error('folder_id required', 400);
     $row = scopedFind('SELECT id FROM tenant_mail_folders WHERE tenant_id = :tenant_id AND id = :id', ['id' => $fid]);
@@ -150,7 +150,7 @@ if ($method === 'POST' && $action === 'poll_now') {
 }
 
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'tenant.manage');
+    rbac_legacy_require($user, 'tenant.manage');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $row = scopedFind('SELECT id FROM tenant_mail_connections WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);

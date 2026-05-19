@@ -65,7 +65,7 @@ _a('DELETE revokes via /item/remove',                       str_contains($items,
 _a('DELETE cascade-hides deposits',                         str_contains($items, 'cascadedDeposits'));
 _a('DELETE cascade-deactivates liabilities',                str_contains($items, 'cascadedLiabilities'));
 _a('DELETE marks plaid_item disconnected',                  str_contains($items, "'status'             => 'disconnected'"));
-_a('DELETE permission gated on accounting.bank.manage',     str_contains($items, "RBAC::requirePermission(\$user, 'accounting.bank.manage')"));
+_a('DELETE permission gated on accounting.bank.manage',     str_contains($items, "rbac_legacy_require(\$user, 'accounting.bank.manage')"));
 
 echo "\nDeposit row UI — Sync / Hide / Delete (no shared Reconnect/Sync)\n";
 $depUI = (string) file_get_contents(__DIR__ . '/../modules/treasury/ui/DepositAccounts.jsx');
@@ -146,7 +146,7 @@ _a('GET previews deposit clusters',                         str_contains($dedupe
 _a('GET previews liability clusters',                       str_contains($dedupe, 'liability_clusters'));
 _a('POST?action=run hides extras + lifts plaid_account_id', str_contains($dedupe, "?action=run") || str_contains($dedupe, "'run'"));
 _a('dedupe scoped to active rows only',                     str_contains($dedupe, "status = 'active'"));
-_a('dedupe permission gated on accounting.bank.manage',     str_contains($dedupe, "RBAC::requirePermission(\$ctx['user'], 'accounting.bank.manage')"));
+_a('dedupe permission gated on accounting.bank.manage',     str_contains($dedupe, "rbac_legacy_require(\$ctx['user'], 'accounting.bank.manage')"));
 
 echo "\nHuman formatting (dates + currency)\n";
 $fmt = (string) file_get_contents(__DIR__ . '/../dashboard/src/lib/format.js');

@@ -21,7 +21,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'ap.1099.view');
+    rbac_legacy_require($user, 'ap.1099.view');
     $year = (int) ($_GET['tax_year'] ?? date('Y'));
     if ($year < 2000 || $year > 2100) api_error('invalid tax_year', 422);
     $rows = scopedQuery(
@@ -41,7 +41,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'GET' && $action === 'readiness') {
-    RBAC::requirePermission($user, 'ap.1099.view');
+    rbac_legacy_require($user, 'ap.1099.view');
     $year = (int) ($_GET['tax_year'] ?? date('Y'));
     if ($year < 2000 || $year > 2100) api_error('invalid tax_year', 422);
     $pdo = getDB();
@@ -115,7 +115,7 @@ if ($method === 'GET' && $action === 'readiness') {
 }
 
 if ($method === 'POST' && $action === 'rebuild') {
-    RBAC::requirePermission($user, 'ap.1099.generate');
+    rbac_legacy_require($user, 'ap.1099.generate');
     $year = (int) ($_GET['tax_year'] ?? date('Y'));
     if ($year < 2000 || $year > 2100) api_error('invalid tax_year', 422);
     $summary = apBuild1099Ledger($tid, $year);
@@ -127,7 +127,7 @@ if ($method === 'GET' && $action === 'print') {
     // Render a print-ready HTML 1099-NEC for browser → PDF. No server-side
     // PDF library needed; the browser's print dialog produces an archival
     // copy. Phase B can swap this for actual PDF generation + IRS e-file.
-    RBAC::requirePermission($user, 'ap.1099.view');
+    rbac_legacy_require($user, 'ap.1099.view');
     $year = (int) ($_GET['tax_year'] ?? date('Y'));
     $vendorIds = isset($_GET['vendor_ids']) ? array_filter(array_map('intval', explode(',', $_GET['vendor_ids']))) : [];
 

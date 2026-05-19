@@ -16,13 +16,13 @@ $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'accounting.entities.view');
+    rbac_legacy_require($user, 'accounting.entities.view');
     $rows = scopedQuery('SELECT id, code, legal_name, country, base_currency, parent_entity_id, active FROM accounting_entities WHERE tenant_id = :tenant_id ORDER BY code', []);
     api_ok(['rows' => $rows]);
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'accounting.entities.manage');
+    rbac_legacy_require($user, 'accounting.entities.manage');
     $body = api_json_body();
     api_require_fields($body, ['code','legal_name']);
     $id = scopedInsert('accounting_entities', [
@@ -39,7 +39,7 @@ if ($method === 'POST') {
 }
 
 if ($method === 'PATCH') {
-    RBAC::requirePermission($user, 'accounting.entities.manage');
+    rbac_legacy_require($user, 'accounting.entities.manage');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();

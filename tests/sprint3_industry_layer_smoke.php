@@ -133,9 +133,9 @@ $assert('evidence stores audit_hash',            stripos($ev, "hash('sha256'") !
 
 echo "\nAPI endpoints\n";
 $apis = [
-    'modules/ap/api/approval_policies.php' => "RBAC::requirePermission(\$user, 'ap.bills.approve_admin')",
-    'modules/ap/api/vendor_risk.php'       => "RBAC::requirePermission(\$user, 'ap.view')",
-    'modules/ap/api/bill_evidence.php'     => "RBAC::requirePermission(\$user, 'ap.view')",
+    'modules/ap/api/approval_policies.php' => "rbac_legacy_require(\$user, 'ap.bills.approve_admin')",
+    'modules/ap/api/vendor_risk.php'       => "rbac_legacy_require(\$user, 'ap.view')",
+    'modules/ap/api/bill_evidence.php'     => "rbac_legacy_require(\$user, 'ap.view')",
 ];
 foreach ($apis as $rel => $expectedGuard) {
     $p = __DIR__ . '/../' . $rel;

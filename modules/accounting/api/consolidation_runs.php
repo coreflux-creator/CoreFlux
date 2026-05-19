@@ -20,18 +20,18 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 
 if ($method === 'GET' && !empty($_GET['id'])) {
-    RBAC::requirePermission($user, 'accounting.reports.view');
+    rbac_legacy_require($user, 'accounting.reports.view');
     $row = consolidationGetRun($tid, (int) $_GET['id']);
     if (!$row) api_error('Not found', 404);
     api_ok(['run' => $row]);
 }
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'accounting.reports.view');
+    rbac_legacy_require($user, 'accounting.reports.view');
     api_ok(['rows' => consolidationListRuns($tid, $_GET['report_type'] ?? null)]);
 }
 
 if ($method === 'POST' && $action === 'lock') {
-    RBAC::requirePermission($user, 'accounting.reports.export');
+    rbac_legacy_require($user, 'accounting.reports.export');
     $body = api_json_body();
     try { $res = consolidationLockRun($tid, $body, $uid); }
     catch (\Throwable $e) { api_error($e->getMessage(), 422); }
@@ -39,7 +39,7 @@ if ($method === 'POST' && $action === 'lock') {
 }
 
 if ($method === 'POST' && $action === 'reverse') {
-    RBAC::requirePermission($user, 'accounting.reports.export');
+    rbac_legacy_require($user, 'accounting.reports.export');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $body   = api_json_body();

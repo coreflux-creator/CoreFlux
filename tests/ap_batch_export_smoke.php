@@ -20,7 +20,7 @@ $c = fn (string $h, string $n): bool => strpos($h, $n) !== false;
 echo "ap/api/payments.php — originate_batch action\n";
 $ap = (string) file_get_contents(__DIR__ . '/../modules/ap/api/payments.php');
 $a('originate_batch action handler present',          $c($ap, "\$action === 'originate_batch'"));
-$a('requires ap.payment.send permission',             $c($ap, "RBAC::requirePermission(\$user, 'ap.payment.send')"));
+$a('requires ap.payment.send permission',             $c($ap, "rbac_legacy_require(\$user, 'ap.payment.send')"));
 $a('refuses empty ids[]',                             $c($ap, 'ids[] required'));
 $a('caps batch at 500 entries',                       $c($ap, 'Batch limited to 500 payments'));
 $a('refuses ids missing from this tenant',            $c($ap, 'Some ids not found in this tenant'));

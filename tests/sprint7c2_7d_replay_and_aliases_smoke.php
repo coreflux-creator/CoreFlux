@@ -27,7 +27,7 @@ echo "Sprint 7c.2 — Bank-feed replay endpoint\n";
 $rep = (string) file_get_contents("{$ROOT}/api/posting_rules_replay.php");
 $assert('replay endpoint exists',                strlen($rep) > 0);
 $assert('parses',                                $lint("{$ROOT}/api/posting_rules_replay.php"));
-$assert('admin-gated (manage_posting_rules)',    strpos($rep, "RBAC::requirePermission(\$ctx['user'], 'accounting.manage_posting_rules')") !== false);
+$assert('admin-gated (manage_posting_rules)',    strpos($rep, "rbac_legacy_require(\$ctx['user'], 'accounting.manage_posting_rules')") !== false);
 $assert('POST-only',                             strpos($rep, "if (api_method() !== 'POST')") !== false);
 $assert('days clamped 1..365',                   strpos($rep, 'min(365, (int) (api_query') !== false);
 $assert('since YYYY-MM-DD validated',            strpos($rep, "/^\\d{4}-\\d{2}-\\d{2}\$/") !== false);

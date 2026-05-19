@@ -13,7 +13,7 @@ require_once __DIR__ . '/../lib/placements.php';
 $ctx = api_require_auth();
 $user = $ctx['user'];
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'placements.view');
+rbac_legacy_require($user, 'placements.view');
 
 $type = $_GET['type'] ?? '';
 

@@ -22,7 +22,7 @@ $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 
 if ($method !== 'GET') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'accounting.reports.view');
+rbac_legacy_require($user, 'accounting.reports.view');
 
 $type = (string) ($_GET['type'] ?? '');
 $from = $_GET['from']   ?? null;
@@ -87,7 +87,7 @@ if ($type === 'approval_queue') {
 }
 
 if ($type === 'audit_log') {
-    RBAC::requirePermission($user, 'accounting.audit.view');
+    rbac_legacy_require($user, 'accounting.audit.view');
     $where  = ['tenant_id = :t', "event LIKE 'accounting.%'"];
     $params = ['t' => $tid];
     if ($from) { $where[] = 'created_at >= :f';   $params['f']   = $from . ' 00:00:00'; }

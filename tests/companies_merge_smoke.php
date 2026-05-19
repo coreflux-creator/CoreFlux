@@ -46,7 +46,7 @@ echo "\ncompanies API endpoints\n";
 $api = (string) file_get_contents(__DIR__ . '/../modules/people/api/companies.php');
 $a('GET ?action=duplicates route',             strpos($api, "GET' && \$action === 'duplicates'") !== false);
 $a('POST ?action=merge route',                 strpos($api, "POST' && \$action === 'merge'") !== false);
-$a('merge requires people.manage',             strpos($api, "RBAC::requirePermission(\$user, 'people.manage')") !== false);
+$a('merge requires people.manage',             strpos($api, "rbac_legacy_require(\$user, 'people.manage')") !== false);
 $a('merge validates both ids',                 strpos($api, 'survivor id (query) and victim_id (body) required') !== false);
 $a('merge returns 409 on error',               strpos($api, "api_error(\$e->getMessage(), 409)") !== false);
 

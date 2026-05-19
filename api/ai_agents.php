@@ -21,7 +21,7 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 $action = strtolower(str_replace('-', '_', (string) (api_query('action') ?? 'list')));
 
-RBAC::requirePermission($user, 'accounting.je.view');
+rbac_legacy_require($user, 'accounting.je.view');
 
 if ($action === 'list') {
     if (api_method() !== 'GET') api_error('Method not allowed', 405);
@@ -71,7 +71,7 @@ if ($action === 'run') {
 
 if ($action === 'mode_set') {
     if (api_method() !== 'POST') api_error('Method not allowed', 405);
-    RBAC::requirePermission($user, 'ai.config.manage');
+    rbac_legacy_require($user, 'ai.config.manage');
     $body = api_json_body();
     $agentKey = (string) ($body['agent'] ?? '');
     $mode     = (string) ($body['mode']  ?? '');
@@ -85,7 +85,7 @@ if ($action === 'mode_set') {
 
 if ($action === 'digest_settings_set') {
     if (api_method() !== 'POST') api_error('Method not allowed', 405);
-    RBAC::requirePermission($user, 'ai.config.manage');
+    rbac_legacy_require($user, 'ai.config.manage');
     $body = api_json_body();
     try {
         $cfg = aiAgentDigestWrite($tid, $body);
@@ -97,7 +97,7 @@ if ($action === 'digest_settings_set') {
 
 if ($action === 'digest_send_now') {
     if (api_method() !== 'POST') api_error('Method not allowed', 405);
-    RBAC::requirePermission($user, 'ai.config.manage');
+    rbac_legacy_require($user, 'ai.config.manage');
     try {
         $r = aiAgentDigestSend($tid, $user['id'] ?? null);
     } catch (\AIDisabledException $e) {

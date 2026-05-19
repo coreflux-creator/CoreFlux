@@ -61,9 +61,9 @@ function mrAudit(string $event, array $meta, int $tenantId, ?int $userId): void
     } catch (\Throwable $e) { /* best-effort */ }
 }
 
-$canView   = RBAC::hasPermission($user, 'accounting.bank.view')
-          || RBAC::hasPermission($user, 'accounting.bank.manage');
-$canManage = RBAC::hasPermission($user, 'accounting.bank.manage');
+$canView   = rbac_legacy_can($user, 'accounting.bank.view')
+          || rbac_legacy_can($user, 'accounting.bank.manage');
+$canManage = rbac_legacy_can($user, 'accounting.bank.manage');
 
 // ----------------------------------------------------------------- GET funding_default
 if ($method === 'GET' && $action === 'funding_default') {

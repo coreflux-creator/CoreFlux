@@ -24,7 +24,7 @@ $action = (string) ($_GET['action'] ?? '');
 
 // ── GET: list mappings ───────────────────────────────────────────────────
 if ($method === 'GET' && $action === '') {
-    RBAC::requirePermission($user, 'accounting.intercompany.manage');
+    rbac_legacy_require($user, 'accounting.intercompany.manage');
     if (!empty($_GET['from_entity']) && !empty($_GET['to_entity'])) {
         $m = intercompanyGetMapping($tid, (int) $_GET['from_entity'], (int) $_GET['to_entity']);
         api_ok(['mapping' => $m]);
@@ -42,7 +42,7 @@ if ($method === 'GET' && $action === '') {
 
 // ── GET: list JEs in a group ─────────────────────────────────────────────
 if ($method === 'GET' && $action === 'group') {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $g = (string) ($_GET['group_id'] ?? '');
     if ($g === '') api_error('group_id required', 400);
     $rows = scopedQuery(
@@ -57,7 +57,7 @@ if ($method === 'GET' && $action === 'group') {
 
 // ── POST: upsert mapping ─────────────────────────────────────────────────
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'accounting.intercompany.manage');
+    rbac_legacy_require($user, 'accounting.intercompany.manage');
     $body = api_json_body();
     api_require_fields($body, ['from_entity_id','to_entity_id','due_from_account_code','due_to_account_code']);
     try {
@@ -68,7 +68,7 @@ if ($method === 'POST' && $action === '') {
 
 // ── DELETE: deactivate mapping ───────────────────────────────────────────
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'accounting.intercompany.manage');
+    rbac_legacy_require($user, 'accounting.intercompany.manage');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     scopedUpdate('accounting_intercompany_mappings', $id, ['active' => 0]);
@@ -82,7 +82,7 @@ if ($method === 'POST' && $action === 'post_split') {
     api_require_fields($body, ['source','splits']);
     // Cross-entity permission check (choice 3b): require accounting.je.post
     // in every target entity. Tenant-wide 'accounting.*' already grants it.
-    RBAC::requirePermission($user, 'accounting.je.post');
+    rbac_legacy_require($user, 'accounting.je.post');
     try {
         $res = intercompanyPostSplit($tid, $body, $uid);
     } catch (\Throwable $e) { api_error($e->getMessage(), 422); }
@@ -90,7 +90,7 @@ if ($method === 'POST' && $action === 'post_split') {
 }
 
 // ── POST: reverse group ──────────────────────────────────────────────────
-if ($method === 'POST' && $action === 'reverse_group') {    RBAC::requirePermission($user, 'accounting.je.reverse');
+if ($method === 'POST' && $action === 'reverse_group') {    rbac_legacy_require($user, 'accounting.je.reverse');
     $body = api_json_body();
     $gid    = trim((string) ($body['group_id'] ?? ''));
     $reason = trim((string) ($body['reason']   ?? ''));
@@ -104,7 +104,7 @@ if ($method === 'POST' && $action === 'reverse_group') {    RBAC::requirePermiss
 
 // ── GET action=elimination_worksheet ─────────────────────────────────────
 if ($method === 'GET' && $action === 'elimination_worksheet') {
-    RBAC::requirePermission($user, 'accounting.reports.view');
+    rbac_legacy_require($user, 'accounting.reports.view');
     $from = $_GET['from'] ?? null;
     $to   = $_GET['to']   ?? null;
     $res  = intercompanyEliminationWorksheet($tid, $from, $to);
@@ -118,7 +118,7 @@ if ($method === 'GET' && $action === 'elimination_worksheet') {
 
 // ── POST action=narrate_elimination — AI narrative on the worksheet ──────
 if ($method === 'POST' && $action === 'narrate_elimination') {
-    RBAC::requirePermission($user, 'accounting.reports.view');
+    rbac_legacy_require($user, 'accounting.reports.view');
     require_once __DIR__ . '/../../../core/ai_service.php';
     $body = api_json_body();
     $from = $body['from'] ?? null;

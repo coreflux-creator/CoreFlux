@@ -27,7 +27,7 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'billing.view');
+    rbac_legacy_require($user, 'billing.view');
     $st = getDB()->prepare(
         'SELECT id, as_of, label, created_at, expires_at, revoked_at, view_count, last_viewed_at
            FROM billing_money_movement_share_links
@@ -39,7 +39,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'billing.invoice.create');
+    rbac_legacy_require($user, 'billing.invoice.create');
     $body = api_json_body();
     $asOf = (string) ($body['as_of'] ?? date('Y-m-d'));
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $asOf)) api_error('as_of must be YYYY-MM-DD', 422);
@@ -71,7 +71,7 @@ if ($method === 'POST' && $action === '') {
 }
 
 if ($method === 'POST' && $action === 'revoke') {
-    RBAC::requirePermission($user, 'billing.invoice.create');
+    rbac_legacy_require($user, 'billing.invoice.create');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
     getDB()->prepare(

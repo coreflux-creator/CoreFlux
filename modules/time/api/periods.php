@@ -21,7 +21,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET' && $action === 'preview_close') {
-    RBAC::requirePermission($user, 'time.period.close');
+    rbac_legacy_require($user, 'time.period.close');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $period = scopedFind('SELECT id, status FROM time_periods WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
@@ -31,7 +31,7 @@ if ($method === 'GET' && $action === 'preview_close') {
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'time.view');
+    rbac_legacy_require($user, 'time.view');
     $where = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['status'])) { $where[] = 'status = :status'; $params['status'] = $_GET['status']; }
@@ -43,7 +43,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'close') {
-    RBAC::requirePermission($user, 'time.period.close');
+    rbac_legacy_require($user, 'time.period.close');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
 
@@ -72,7 +72,7 @@ if ($method === 'POST' && $action === 'close') {
 }
 
 if ($method === 'POST' && $action === 'reopen') {
-    RBAC::requirePermission($user, 'time.period.close');
+    rbac_legacy_require($user, 'time.period.close');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
 
@@ -90,7 +90,7 @@ if ($method === 'POST' && $action === 'reopen') {
 }
 
 if ($method === 'POST' && $action === 'generate') {
-    RBAC::requirePermission($user, 'time.period.close');
+    rbac_legacy_require($user, 'time.period.close');
     $weeks = max(1, min(52, (int) ($_GET['weeks'] ?? 8)));
     // Generate weekly periods starting from the Monday of the current week.
     $today = new DateTime();
@@ -122,7 +122,7 @@ if ($method === 'POST' && $action === 'generate') {
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'time.period.close');
+    rbac_legacy_require($user, 'time.period.close');
     $body = api_json_body();
     api_require_fields($body, ['start_date','end_date','label']);
     $id = scopedInsert('time_periods', [

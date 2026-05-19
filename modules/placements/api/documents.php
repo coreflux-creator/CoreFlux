@@ -16,7 +16,7 @@ $action = $_GET['action'] ?? '';
 $pid    = (int) api_query('placement_id', 0);
 
 if ($method === 'GET' && $action === 'upload_url') {
-    RBAC::requirePermission($user, 'placements.docs.manage');
+    rbac_legacy_require($user, 'placements.docs.manage');
     if ($pid <= 0) api_error('placement_id required', 400);
     $fileName = (string) api_query('file_name', 'document');
     $key  = StorageService::getInstance()->build_key('placements', (int) $ctx['tenant_id'], 'document', $pid, $fileName);
@@ -25,13 +25,13 @@ if ($method === 'GET' && $action === 'upload_url') {
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'placements.docs.view');
+    rbac_legacy_require($user, 'placements.docs.view');
     if ($pid <= 0) api_error('placement_id required', 400);
     api_ok(['documents' => placementDocuments($pid)]);
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'placements.docs.manage');
+    rbac_legacy_require($user, 'placements.docs.manage');
     if ($pid <= 0) api_error('placement_id required', 400);
     $body = api_json_body();
     api_require_fields($body, ['storage_object_id', 'doc_type']);
@@ -53,7 +53,7 @@ if ($method === 'POST') {
 }
 
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'placements.docs.manage');
+    rbac_legacy_require($user, 'placements.docs.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $rows = scopedUpdate('placement_documents', $id, ['deleted_at' => date('Y-m-d H:i:s')]);

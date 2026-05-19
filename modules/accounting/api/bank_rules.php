@@ -27,7 +27,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'accounting.coa.view');
+    rbac_legacy_require($user, 'accounting.coa.view');
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['bank_account_id'])) {
@@ -45,7 +45,7 @@ if ($method === 'GET') {
 if ($method === 'POST' && $action === 'learn') {
     // Walk recent accepted AI categorizations, find common substrings per
     // (target_account_code) cluster, draft new rules with is_approved=0.
-    RBAC::requirePermission($user, 'accounting.coa.edit');
+    rbac_legacy_require($user, 'accounting.coa.edit');
     require_once __DIR__ . '/../lib/bank_rec.php';
     $minOccurrences = max(2, (int) ($_GET['min_occurrences'] ?? 3));
     $res = bankRecLearnRulesFromAccepts((int) $ctx['tenant_id'], $minOccurrences, $user['id'] ?? null);
@@ -55,7 +55,7 @@ if ($method === 'POST' && $action === 'learn') {
 }
 
 if ($method === 'POST' && in_array($action, ['approve','pause','archive'], true)) {
-    RBAC::requirePermission($user, 'accounting.coa.edit');
+    rbac_legacy_require($user, 'accounting.coa.edit');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $update = match ($action) {
@@ -69,7 +69,7 @@ if ($method === 'POST' && in_array($action, ['approve','pause','archive'], true)
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'accounting.coa.edit');
+    rbac_legacy_require($user, 'accounting.coa.edit');
     $body = api_json_body();
     api_require_fields($body, ['name','pattern','target_account_code']);
     $kind = (string) ($body['pattern_kind'] ?? 'contains');
@@ -105,7 +105,7 @@ if ($method === 'POST') {
 }
 
 if ($method === 'PUT') {
-    RBAC::requirePermission($user, 'accounting.coa.edit');
+    rbac_legacy_require($user, 'accounting.coa.edit');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();

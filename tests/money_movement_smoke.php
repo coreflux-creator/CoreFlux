@@ -107,7 +107,7 @@ echo "\n2) API modules/billing/api/money_movement.php\n";
 $apiPath = __DIR__ . '/../modules/billing/api/money_movement.php';
 $api     = (string) file_get_contents($apiPath);
 $a('parses',                                  $parses($apiPath));
-$a('GET requires billing.view',               str_contains($api, "RBAC::requirePermission(\$user, 'billing.view')"));
+$a('GET requires billing.view',               str_contains($api, "rbac_legacy_require(\$user, 'billing.view')"));
 $a('GET validates as_of YYYY-MM-DD',          str_contains($api, "preg_match('/^\\d{4}-\\d{2}-\\d{2}\$/', \$asOf)"));
 $a('GET returns snapshot+email+recipients',   str_contains($api, "'snapshot'   => \$snapshot")
                                               && str_contains($api, "'email'      => \$email")

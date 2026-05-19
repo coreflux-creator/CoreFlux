@@ -47,8 +47,8 @@ $method   = api_method();
 $action   = (string) ($_GET['action'] ?? '');
 
 if ($method === 'GET' && $action === 'template') {
-    if (!RBAC::hasPermission($user, 'accounting.bank.view')
-        && !RBAC::hasPermission($user, 'accounting.bank.manage')) {
+    if (!rbac_legacy_can($user, 'accounting.bank.view')
+        && !rbac_legacy_can($user, 'accounting.bank.manage')) {
         api_error('Permission denied', 403);
     }
     header('Content-Type: text/csv; charset=utf-8');
@@ -59,7 +59,7 @@ if ($method === 'GET' && $action === 'template') {
 }
 
 if ($method === 'POST' && $action === 'dry_run') {
-    RBAC::requirePermission($user, 'accounting.bank.manage');
+    rbac_legacy_require($user, 'accounting.bank.manage');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
     $columnMap = CsvImportService::readRequestColumnMap();
@@ -93,7 +93,7 @@ if ($method === 'POST' && $action === 'dry_run') {
 }
 
 if ($method === 'POST' && $action === 'commit') {
-    RBAC::requirePermission($user, 'accounting.bank.manage');
+    rbac_legacy_require($user, 'accounting.bank.manage');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
     $columnMap   = CsvImportService::readRequestColumnMap();

@@ -12,7 +12,7 @@ require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/gusto_service.php';
 
 $ctx = api_require_auth();
-RBAC::requirePermission($ctx['user'], 'payroll.run.disburse');
+rbac_legacy_require($ctx['user'], 'payroll.run.disburse');
 
 if (!gustoConfigured()) {
     api_error('Gusto integration not configured on this host. Set GUSTO_CLIENT_ID, GUSTO_CLIENT_SECRET, and GUSTO_REDIRECT_URI in core/config.local.php.', 503);

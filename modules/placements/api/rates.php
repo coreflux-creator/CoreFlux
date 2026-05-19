@@ -24,7 +24,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'placements.financials.view');
+    rbac_legacy_require($user, 'placements.financials.view');
     $pid = (int) api_query('placement_id', 0);
     if ($pid <= 0) api_error('placement_id required', 400);
     placementsAudit('placement.financials.viewed', ['placement_id' => $pid], $pid);
@@ -32,7 +32,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'approve') {
-    RBAC::requirePermission($user, 'placements.financials.approve');
+    rbac_legacy_require($user, 'placements.financials.approve');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
 
@@ -125,7 +125,7 @@ if ($method === 'POST' && $action === 'approve') {
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'placements.financials.manage');
+    rbac_legacy_require($user, 'placements.financials.manage');
     $pid = (int) api_query('placement_id', 0);
     if ($pid <= 0) api_error('placement_id required', 400);
     $body = api_json_body();

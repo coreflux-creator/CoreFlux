@@ -38,7 +38,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET' && $action === 'preview') {
-    RBAC::requirePermission($user, 'ap.bill.view');
+    rbac_legacy_require($user, 'ap.bill.view');
     $arId = (int) ($_GET['ar_invoice_id'] ?? 0);
     if ($arId <= 0) api_error('ar_invoice_id required', 400);
 
@@ -98,7 +98,7 @@ if ($method === 'GET' && $action === 'preview') {
 }
 
 if ($method === 'POST' && $action === 'auto_link') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $body = api_json_body();
     api_require_fields($body, ['ar_invoice_id']);
     $arId = (int) $body['ar_invoice_id'];
@@ -111,7 +111,7 @@ if ($method === 'POST' && $action === 'auto_link') {
 }
 
 if ($method === 'POST' && $action === 'link') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $body = api_json_body();
     api_require_fields($body, ['bill_id', 'ar_invoice_id']);
     try {
@@ -129,7 +129,7 @@ if ($method === 'POST' && $action === 'link') {
 }
 
 if ($method === 'POST' && $action === 'unlink') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $body = api_json_body();
     api_require_fields($body, ['bill_id']);
     try {
@@ -141,7 +141,7 @@ if ($method === 'POST' && $action === 'unlink') {
 }
 
 if ($method === 'POST' && $action === 'release_for_invoice') {
-    RBAC::requirePermission($user, 'ap.bill.approve');
+    rbac_legacy_require($user, 'ap.bill.approve');
     $body = api_json_body();
     api_require_fields($body, ['ar_invoice_id']);
     try {

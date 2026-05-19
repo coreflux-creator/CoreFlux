@@ -37,7 +37,7 @@ if ($method === 'POST' && $action !== '') {
     }
 
     if ($action === 'approve') {
-        RBAC::requirePermission($user, 'time.approve');
+        rbac_legacy_require($user, 'time.approve');
         // SPEC §4: two-eye control — approver MUST NOT be the entry's creator/submitter.
         if ($entry['created_by_user_id'] && (int) $entry['created_by_user_id'] === (int) ($user['id'] ?? 0)) {
             api_error('Two-eye control: you cannot approve your own entry', 403);
@@ -63,7 +63,7 @@ if ($method === 'POST' && $action !== '') {
     }
 
     if ($action === 'reject') {
-        RBAC::requirePermission($user, 'time.reject');
+        rbac_legacy_require($user, 'time.reject');
         if ($entry['status'] !== 'pending_review') api_error('Only pending_review entries can be rejected', 409);
         $body = api_json_body();
         api_require_fields($body, ['reason']);
@@ -73,7 +73,7 @@ if ($method === 'POST' && $action !== '') {
     }
 
     if ($action === 'correct') {
-        RBAC::requirePermission($user, 'time.entry.manage');
+        rbac_legacy_require($user, 'time.entry.manage');
         if ($entry['status'] !== 'approved') api_error('Only approved entries can be corrected (supersede)', 409);
         $body = api_json_body();
         api_require_fields($body, ['correction_reason']);
@@ -110,7 +110,7 @@ if ($method === 'POST' && $action !== '') {
 
 // ─── GET ───
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'time.view');
+    rbac_legacy_require($user, 'time.view');
     $id = (int) api_query('id', 0);
     if ($id > 0) {
         $row = timeEntryGet($id);
@@ -160,9 +160,9 @@ if ($method === 'POST') {
     // Enforce self vs. behalf-of
     $isSelf = (int) $placement['person_id'] === (int) ($user['person_id'] ?? 0);
     if ($isSelf) {
-        RBAC::requirePermission($user, 'time.entry.self');
+        rbac_legacy_require($user, 'time.entry.self');
     } else {
-        RBAC::requirePermission($user, 'time.entry.manage');
+        rbac_legacy_require($user, 'time.entry.manage');
     }
 
     // Resolve or create period
@@ -214,7 +214,7 @@ if ($method === 'PATCH') {
     if (!in_array($entry['status'], ['draft','pending_review','rejected'], true)) {
         api_error('Only draft/pending_review/rejected entries can be edited. Approved entries require correction.', 409, ['status' => $entry['status']]);
     }
-    RBAC::requirePermission($user, 'time.entry.manage');
+    rbac_legacy_require($user, 'time.entry.manage');
 
     $body = api_json_body();
     foreach (['id','tenant_id','placement_id','person_id','period_id',

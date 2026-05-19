@@ -29,7 +29,7 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     if (!empty($_GET['count_pending'])) {
         $stmt = $pdo->prepare(
             "SELECT COUNT(*) FROM ap_bill_approvals
@@ -92,7 +92,7 @@ $bill = $bill->fetch(PDO::FETCH_ASSOC);
 if (!$bill) api_error('Bill not found', 404);
 
 if ($action === 'comment') {
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     $body2 = $body['body'] ?? '';
     $body2 = trim((string) $body2);
     if ($body2 === '') api_error('body required', 422);
@@ -105,7 +105,7 @@ if ($action === 'comment') {
 }
 
 if ($action === 'submit') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $exists = $pdo->prepare('SELECT 1 FROM ap_bill_approvals WHERE tenant_id = :t AND bill_id = :b LIMIT 1');
     $exists->execute(['t' => $tenantId, 'b' => $billId]);
     if ($exists->fetchColumn()) {

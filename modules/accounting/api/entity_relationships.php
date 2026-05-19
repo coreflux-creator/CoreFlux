@@ -19,18 +19,18 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 
 if ($method === 'GET' && $action === 'descendants') {
-    RBAC::requirePermission($user, 'accounting.entities.view');
+    rbac_legacy_require($user, 'accounting.entities.view');
     $root = (int) ($_GET['root_entity_id'] ?? 0);
     if ($root <= 0) api_error('root_entity_id required', 400);
     $asOf = (string) ($_GET['as_of'] ?? date('Y-m-d'));
     api_ok(['root' => $root, 'as_of' => $asOf, 'descendants' => entityRelationshipResolveDescendants($tid, $root, $asOf)]);
 }
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'accounting.entities.view');
+    rbac_legacy_require($user, 'accounting.entities.view');
     api_ok(['rows' => entityRelationshipList($tid)]);
 }
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'accounting.entities.manage');
+    rbac_legacy_require($user, 'accounting.entities.manage');
     $body = api_json_body();
     api_require_fields($body, ['parent_entity_id','child_entity_id']);
     try {
@@ -39,7 +39,7 @@ if ($method === 'POST') {
     api_ok(['id' => $id], 201);
 }
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'accounting.entities.manage');
+    rbac_legacy_require($user, 'accounting.entities.manage');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     scopedUpdate('accounting_entity_relationships', $id, ['active' => 0]);

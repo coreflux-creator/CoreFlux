@@ -25,14 +25,14 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET' && !empty($_GET['id'])) {
-    RBAC::requirePermission($user, 'people.view');
+    rbac_legacy_require($user, 'people.view');
     $row = companiesGet((int) $_GET['id']);
     if (!$row) api_error('Not found', 404);
     api_ok(['company' => $row]);
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'people.view');
+    rbac_legacy_require($user, 'people.view');
     $res = companiesList([
         'q'        => $_GET['q']        ?? null,
         'role'     => $_GET['role']     ?? null,
@@ -43,12 +43,12 @@ if ($method === 'GET') {
 }
 
 if ($method === 'GET' && $action === 'duplicates') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     api_ok(['groups' => companiesDuplicateCandidates($tid)]);
 }
 
 if ($method === 'POST' && $action === 'merge') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $survivorId = (int) ($_GET['id'] ?? 0);
     $body = api_json_body();
     $victimId = (int) ($body['victim_id'] ?? 0);
@@ -62,7 +62,7 @@ if ($method === 'POST' && $action === 'merge') {
 }
 
 if ($method === 'POST' && $action === 'upsert') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $body = api_json_body();
     api_require_fields($body, ['name']);
     $roles = (array) ($body['roles'] ?? []);
@@ -79,7 +79,7 @@ if ($method === 'POST' && $action === 'upsert') {
 }
 
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $body = api_json_body();
     api_require_fields($body, ['name']);
     $name = trim((string) $body['name']);
@@ -120,7 +120,7 @@ if ($method === 'POST' && $action === '') {
 }
 
 if ($method === 'PATCH') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();
@@ -156,7 +156,7 @@ if ($method === 'PATCH') {
 }
 
 if ($method === 'POST' && $action === 'add-role') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $id = (int) ($_GET['id'] ?? 0);
     $body = api_json_body();
     api_require_fields($body, ['role']);
@@ -165,7 +165,7 @@ if ($method === 'POST' && $action === 'add-role') {
 }
 
 if ($method === 'POST' && $action === 'remove-role') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $id = (int) ($_GET['id'] ?? 0);
     $body = api_json_body();
     api_require_fields($body, ['role']);
@@ -174,7 +174,7 @@ if ($method === 'POST' && $action === 'remove-role') {
 }
 
 if ($method === 'POST' && $action === 'add-contact') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $id = (int) ($_GET['id'] ?? 0);
     $body = api_json_body();
     api_require_fields($body, ['name']);
@@ -198,7 +198,7 @@ if ($method === 'POST' && $action === 'add-contact') {
 }
 
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     getDB()->prepare('UPDATE companies SET deleted_at = NOW() WHERE id = :id AND tenant_id = :t')
@@ -208,7 +208,7 @@ if ($method === 'DELETE') {
 }
 
 if ($method === 'POST' && $action === 'add-address') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $id = (int) ($_GET['id'] ?? 0);
     $body = api_json_body();
     api_require_fields($body, ['line1','city']);
@@ -242,7 +242,7 @@ if ($method === 'POST' && $action === 'add-address') {
 }
 
 if ($method === 'PATCH' && $action === 'address') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $aid = (int) ($_GET['id'] ?? 0);
     $body = api_json_body();
     foreach (['id','tenant_id','company_id','created_at'] as $k) unset($body[$k]);
@@ -253,7 +253,7 @@ if ($method === 'PATCH' && $action === 'address') {
 }
 
 if ($method === 'DELETE' && $action === 'address') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $aid = (int) ($_GET['id'] ?? 0);
     $rows = scopedDelete('company_addresses', $aid);
     if ($rows === 0) api_error('Not found', 404);

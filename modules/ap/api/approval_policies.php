@@ -21,7 +21,7 @@ $method    = api_method();
 $action    = (string) (api_query('action') ?? '');
 
 if ($method === 'GET' && $action === '') {
-    RBAC::requirePermission($user, 'ap.bills.approve_admin');
+    rbac_legacy_require($user, 'ap.bills.approve_admin');
     $rows = scopedQuery(
         "SELECT *
            FROM ap_approval_policies
@@ -32,7 +32,7 @@ if ($method === 'GET' && $action === '') {
 }
 
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'ap.bills.approve_admin');
+    rbac_legacy_require($user, 'ap.bills.approve_admin');
     $body = api_json_body();
     api_require_fields($body, ['name', 'chain']);
     $chain = is_array($body['chain']) ? $body['chain'] : [];
@@ -63,7 +63,7 @@ if ($method === 'POST' && $action === '') {
 }
 
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'ap.bills.approve_admin');
+    rbac_legacy_require($user, 'ap.bills.approve_admin');
     $id = (int) (api_query('id') ?? 0);
     if (!$id) api_error('id required', 422);
     scopedUpdate('ap_approval_policies', $id, ['active' => 0]);
@@ -71,7 +71,7 @@ if ($method === 'DELETE') {
 }
 
 if ($method === 'GET' && $action === 'evaluate') {
-    RBAC::requirePermission($user, 'ap.bills.approve_admin');
+    rbac_legacy_require($user, 'ap.bills.approve_admin');
     $billId = (int) (api_query('bill_id') ?? 0);
     if (!$billId) api_error('bill_id required', 422);
     $bill = _apFetchBillForRouting($tenantId, $billId);
@@ -81,7 +81,7 @@ if ($method === 'GET' && $action === 'evaluate') {
 }
 
 if ($method === 'POST' && $action === 'route') {
-    RBAC::requirePermission($user, 'ap.bills.approve_admin');
+    rbac_legacy_require($user, 'ap.bills.approve_admin');
     $billId = (int) (api_query('bill_id') ?? 0);
     if (!$billId) api_error('bill_id required', 422);
     $bill = _apFetchBillForRouting($tenantId, $billId);

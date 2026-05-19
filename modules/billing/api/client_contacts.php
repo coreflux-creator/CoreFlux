@@ -21,7 +21,7 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'billing.view');
+    rbac_legacy_require($user, 'billing.view');
     $where = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['q'])) {
@@ -37,7 +37,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'billing.invoice.create');
+    rbac_legacy_require($user, 'billing.invoice.create');
     $body = api_json_body();
     api_require_fields($body, ['client_name']);
     $name = trim((string) $body['client_name']);
@@ -68,7 +68,7 @@ if ($method === 'POST' && $action === '') {
 }
 
 if ($method === 'POST' && $action === 'delete') {
-    RBAC::requirePermission($user, 'billing.invoice.create');
+    rbac_legacy_require($user, 'billing.invoice.create');
     $id = (int) ($_GET['id'] ?? 0);
     getDB()->prepare('DELETE FROM billing_client_contacts WHERE tenant_id = :t AND id = :id')
            ->execute(['t' => $tid, 'id' => $id]);

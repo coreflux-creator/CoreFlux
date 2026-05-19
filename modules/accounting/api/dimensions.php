@@ -23,7 +23,7 @@ $method    = api_method();
 $action    = (string) (api_query('action') ?? '');
 
 if ($method === 'GET' && $action === '') {
-    RBAC::requirePermission($user, 'accounting.dimensions.view');
+    rbac_legacy_require($user, 'accounting.dimensions.view');
     $rows = scopedQuery(
         "SELECT id, dim_key, label, data_type, reference_table, required_default, sort_order, active
            FROM accounting_dimensions
@@ -34,7 +34,7 @@ if ($method === 'GET' && $action === '') {
 }
 
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'accounting.dimensions.manage');
+    rbac_legacy_require($user, 'accounting.dimensions.manage');
     $body = api_json_body();
     api_require_fields($body, ['dim_key', 'label']);
     $key = strtolower(preg_replace('/[^a-z0-9_]/', '_', (string) $body['dim_key']));
@@ -68,7 +68,7 @@ if ($method === 'POST' && $action === '') {
 }
 
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'accounting.dimensions.manage');
+    rbac_legacy_require($user, 'accounting.dimensions.manage');
     $id = (int) (api_query('id') ?? 0);
     if (!$id) api_error('id required', 422);
     scopedUpdate('accounting_dimensions', $id, ['active' => 0]);
@@ -76,7 +76,7 @@ if ($method === 'DELETE') {
 }
 
 if ($method === 'GET' && $action === 'values') {
-    RBAC::requirePermission($user, 'accounting.dimensions.view');
+    rbac_legacy_require($user, 'accounting.dimensions.view');
     $dimId = (int) (api_query('id') ?? 0);
     if (!$dimId) api_error('id required', 422);
     $rows = scopedQuery(
@@ -90,7 +90,7 @@ if ($method === 'GET' && $action === 'values') {
 }
 
 if ($method === 'POST' && $action === 'add_value') {
-    RBAC::requirePermission($user, 'accounting.dimensions.manage');
+    rbac_legacy_require($user, 'accounting.dimensions.manage');
     $body = api_json_body();
     api_require_fields($body, ['dimension_id', 'value_code', 'value_label']);
     $id = scopedInsert('accounting_dimension_values', [
@@ -103,7 +103,7 @@ if ($method === 'POST' && $action === 'add_value') {
 }
 
 if ($method === 'GET' && $action === 'account_rules') {
-    RBAC::requirePermission($user, 'accounting.dimensions.view');
+    rbac_legacy_require($user, 'accounting.dimensions.view');
     $accountId = (int) (api_query('account_id') ?? 0);
     if (!$accountId) api_error('account_id required', 422);
     $rules = accountingAccountDimRules($tenantId, $accountId);
@@ -111,7 +111,7 @@ if ($method === 'GET' && $action === 'account_rules') {
 }
 
 if ($method === 'POST' && $action === 'set_account_rule') {
-    RBAC::requirePermission($user, 'accounting.dimensions.manage');
+    rbac_legacy_require($user, 'accounting.dimensions.manage');
     $body = api_json_body();
     api_require_fields($body, ['account_id', 'dimension_id', 'requirement']);
     $req = (string) $body['requirement'];

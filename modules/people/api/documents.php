@@ -28,7 +28,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET' && $action === 'upload_url') {
-    RBAC::requirePermission($user, 'people.docs.manage');
+    rbac_legacy_require($user, 'people.docs.manage');
     $personId = (int) api_query('person_id', 0);
     $docType  = (string) api_query('doc_type', 'other');
     $fileName = (string) api_query('file_name', 'document');
@@ -47,7 +47,7 @@ if ($method === 'GET' && $action === 'upload_url') {
 
 if ($method === 'GET') {
     if ($id = (int) api_query('id', 0)) {
-        RBAC::requirePermission($user, 'people.docs.view');
+        rbac_legacy_require($user, 'people.docs.view');
         $row = scopedFind(
             'SELECT * FROM people_documents
              WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL',
@@ -70,14 +70,14 @@ if ($method === 'GET') {
         api_ok(['document' => $row, 'signed_url' => $signed]);
     }
 
-    RBAC::requirePermission($user, 'people.docs.view');
+    rbac_legacy_require($user, 'people.docs.view');
     $personId = (int) api_query('person_id', 0);
     if ($personId <= 0) api_error('person_id required', 400);
     api_ok(['documents' => peopleDocuments($personId)]);
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'people.docs.manage');
+    rbac_legacy_require($user, 'people.docs.manage');
     $personId = (int) api_query('person_id', 0);
     if ($personId <= 0) api_error('person_id required', 400);
     $body = api_json_body();
@@ -113,7 +113,7 @@ if ($method === 'POST') {
 }
 
 if ($method === 'PATCH') {
-    RBAC::requirePermission($user, 'people.docs.manage');
+    rbac_legacy_require($user, 'people.docs.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();
@@ -125,7 +125,7 @@ if ($method === 'PATCH') {
 }
 
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'people.docs.manage');
+    rbac_legacy_require($user, 'people.docs.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $rows = scopedUpdate('people_documents', $id, ['deleted_at' => date('Y-m-d H:i:s')]);

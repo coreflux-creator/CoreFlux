@@ -25,7 +25,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'accounting.coa.view');
+    rbac_legacy_require($user, 'accounting.coa.view');
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['entity_id'])) { $where[] = 'entity_id = :e'; $params['e'] = (int) $_GET['entity_id']; }
@@ -44,7 +44,7 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
     $perm = $action === 'reopen' ? 'accounting.period.reopen'
           : ($action === 'lock'  ? 'accounting.period.lock'
           : 'accounting.period.close');
-    RBAC::requirePermission($user, $perm);
+    rbac_legacy_require($user, $perm);
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $row = scopedFind('SELECT * FROM accounting_periods WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);

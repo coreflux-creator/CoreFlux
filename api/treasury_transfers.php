@@ -32,7 +32,7 @@ $method = api_method();
 $action = (string) (api_query('action') ?? '');
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'treasury.view_bank_balances');
+    rbac_legacy_require($user, 'treasury.view_bank_balances');
     $where = ['tenant_id = :t']; $p = ['t' => $tid];
     foreach (['status' => 'status', 'kind' => 'transfer_kind'] as $q => $col) {
         $v = api_query($q);
@@ -58,7 +58,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'treasury.create_transfer');
+    rbac_legacy_require($user, 'treasury.create_transfer');
     $body = api_json_body();
     api_require_fields($body, ['source_bank_account_id', 'destination_bank_account_id', 'amount', 'transfer_date']);
 
@@ -117,7 +117,7 @@ $xfer = $rowStmt->fetch(\PDO::FETCH_ASSOC);
 if (!$xfer) api_error('Transfer not found', 404);
 
 if ($method === 'POST' && $action === 'approve') {
-    RBAC::requirePermission($user, 'treasury.approve_transfer');
+    rbac_legacy_require($user, 'treasury.approve_transfer');
     if (!in_array($xfer['status'], ['draft', 'pending_approval'], true)) {
         api_error("Cannot approve from status {$xfer['status']}", 409);
     }
@@ -127,7 +127,7 @@ if ($method === 'POST' && $action === 'approve') {
 }
 
 if ($method === 'POST' && $action === 'execute') {
-    RBAC::requirePermission($user, 'treasury.execute_payment'); // execute_payment perm covers transfers too
+    rbac_legacy_require($user, 'treasury.execute_payment'); // execute_payment perm covers transfers too
     if (!in_array($xfer['status'], ['approved', 'scheduled'], true)) {
         api_error("Transfer must be approved before execute (current: {$xfer['status']})", 409);
     }

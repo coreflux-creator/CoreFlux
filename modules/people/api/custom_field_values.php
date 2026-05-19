@@ -21,14 +21,14 @@ $user = $ctx['user'];
 $method = api_method();
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'people.view');
+    rbac_legacy_require($user, 'people.view');
     $personId = (int) api_query('person_id', 0);
     if ($personId <= 0) api_error('person_id required', 400);
     api_ok(['values' => peopleCustomFieldValues($personId)]);
 }
 
 if ($method === 'PUT' || $method === 'POST') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $personId = (int) api_query('person_id', 0);
     if ($personId <= 0) api_error('person_id required', 400);
     $body = api_json_body();
@@ -47,7 +47,7 @@ if ($method === 'PUT' || $method === 'POST') {
     foreach ($body['values'] as $key => $value) {
         $def = $byKey[$key] ?? null;
         if (!$def) continue; // ignore unknown keys silently
-        if ($def['pii']) RBAC::requirePermission($user, 'people.pii.manage');
+        if ($def['pii']) rbac_legacy_require($user, 'people.pii.manage');
 
         $col = match ($def['field_type']) {
             'number'        => 'value_number',

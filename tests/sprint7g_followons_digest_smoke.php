@@ -111,13 +111,13 @@ $assert('list returns modes catalog + digest config',
     && strpos($api, "'mode'        => \$modes[\$key]") !== false);
 $assert('mode_set action POST + ai.config.manage perm',
     strpos($api, "if (\$action === 'mode_set')") !== false
-    && preg_match('/mode_set.*?RBAC::requirePermission\\(\\$user, .ai\\.config\\.manage.\\)/s', $api) === 1);
+    && preg_match('/mode_set.*?rbac_legacy_require\\(\\$user, .ai\\.config\\.manage.\\)/s', $api) === 1);
 $assert('digest_settings_set action POST + ai.config.manage perm',
     strpos($api, "if (\$action === 'digest_settings_set')") !== false
-    && preg_match('/digest_settings_set.*?RBAC::requirePermission\\(\\$user, .ai\\.config\\.manage.\\)/s', $api) === 1);
+    && preg_match('/digest_settings_set.*?rbac_legacy_require\\(\\$user, .ai\\.config\\.manage.\\)/s', $api) === 1);
 $assert('digest_send_now action POST + ai.config.manage perm',
     strpos($api, "if (\$action === 'digest_send_now')") !== false
-    && preg_match('/digest_send_now.*?RBAC::requirePermission\\(\\$user, .ai\\.config\\.manage.\\)/s', $api) === 1);
+    && preg_match('/digest_send_now.*?rbac_legacy_require\\(\\$user, .ai\\.config\\.manage.\\)/s', $api) === 1);
 $assert('digest_send_now persists last_send_error on failure',
     strpos($api, 'INSERT INTO ai_agent_digest_settings (tenant_id, last_send_error)') !== false);
 $assert('digest_send_now AIDisabled→503',         preg_match('/digest_send_now.*?AIDisabledException.*?api_error\\(\\$e->getMessage\\(\\), 503\\)/s', $api) === 1);

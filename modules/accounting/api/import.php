@@ -26,7 +26,7 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 $type   = (string) ($_GET['type']   ?? '');
 
-RBAC::requirePermission($user, 'accounting.coa.manage');
+rbac_legacy_require($user, 'accounting.coa.manage');
 
 // ── Register accounting import schemas (one per type) ────────────────────
 CsvImportService::registerSchema('accounting_coa', [

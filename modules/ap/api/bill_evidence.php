@@ -20,14 +20,14 @@ $billId    = (int) (api_query('bill_id') ?? 0);
 if (!$billId) api_error('bill_id required', 422);
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     $row = apGetEvidenceBundle($tenantId, $billId);
     if (!$row) api_error('Bundle not built yet — POST ?action=build first', 404);
     api_ok(['bill_id' => $billId, 'evidence' => $row]);
 }
 
 if ($method === 'POST' && $action === 'build') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $row = apBuildEvidenceBundle($tenantId, $billId, (int) ($user['id'] ?? 0));
     if (!$row) api_error('Bill not found', 404);
     api_ok(['bill_id' => $billId, 'evidence' => $row]);

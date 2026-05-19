@@ -45,7 +45,7 @@ $assert('declares strict_types',                 strpos($api, 'declare(strict_ty
 $assert('requires api_bootstrap',                strpos($api, "require_once __DIR__ . '/../core/api_bootstrap.php'") !== false);
 $assert('requires RBAC',                         strpos($api, "require_once __DIR__ . '/../core/RBAC.php'") !== false);
 $assert('GET only — 405 on other verbs',         strpos($api, "if (api_method() !== 'GET') api_error('Method not allowed', 405)") !== false);
-$assert('RBAC: treasury.payment.view',           strpos($api, "RBAC::requirePermission(\$user, 'treasury.payment.view')") !== false);
+$assert('RBAC: treasury.payment.view',           strpos($api, "rbac_legacy_require(\$user, 'treasury.payment.view')") !== false);
 
 echo "\nValidation\n";
 $assert('bill_id required (422)',                strpos($api, "api_error('bill_id required', 422)") !== false);

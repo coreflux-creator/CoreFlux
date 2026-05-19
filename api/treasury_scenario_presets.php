@@ -30,7 +30,7 @@ $method = api_method();
 $pdo  = getDB();
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'treasury.payment.view');
+    rbac_legacy_require($user, 'treasury.payment.view');
     $stmt = $pdo->prepare(
         'SELECT id, name, description, events_json, created_by_user_id, created_at, updated_at
            FROM treasury_scenario_presets
@@ -55,7 +55,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'treasury.payment.manage');
+    rbac_legacy_require($user, 'treasury.payment.manage');
     $body  = api_json_body();
     $id    = (int) ($body['id'] ?? 0) ?: null;
     $name  = trim((string) ($body['name'] ?? ''));
@@ -143,7 +143,7 @@ if ($method === 'POST') {
 }
 
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'treasury.payment.manage');
+    rbac_legacy_require($user, 'treasury.payment.manage');
     $id = (int) (api_query('id') ?? 0);
     if ($id <= 0) api_error('id required', 422);
     $stmt = $pdo->prepare(

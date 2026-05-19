@@ -26,7 +26,7 @@ $method = api_method();
 $type   = (string) ($_GET['type'] ?? '');
 
 if ($method !== 'GET') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'ap.export.run');
+rbac_legacy_require($user, 'ap.export.run');
 
 $from   = $_GET['from'] ?? null;
 $to     = $_GET['to']   ?? null;

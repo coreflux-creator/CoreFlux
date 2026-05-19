@@ -21,7 +21,7 @@ $personId = (int) api_query('person_id', 0);
 if ($personId <= 0) api_error('person_id required', 400);
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'people.tax.view');
+    rbac_legacy_require($user, 'people.tax.view');
     $row = scopedFind(
         'SELECT person_id, filing_status, dependents, additional_withholding, state, w4_doc_id, updated_at
          FROM people_tax
@@ -33,7 +33,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'PUT' || $method === 'POST') {
-    RBAC::requirePermission($user, 'people.tax.manage');
+    rbac_legacy_require($user, 'people.tax.manage');
     $body = api_json_body();
 
     $allowedFiling = ['single','mfj','mfs','hoh','qw'];

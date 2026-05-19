@@ -20,7 +20,7 @@ $user = $ctx['user'];
 
 switch (api_method()) {
     case 'GET': {
-        RBAC::requirePermission($user, 'ap.view');
+        rbac_legacy_require($user, 'ap.view');
         $row = scopedFind(
             'SELECT id, tenant_id, disbursement_rail, nacha_company_id,
                     nacha_company_name, nacha_origin_routing,
@@ -32,7 +32,7 @@ switch (api_method()) {
 
     case 'PUT':
     case 'POST': {
-        RBAC::requirePermission($user, 'ap.payment.create');
+        rbac_legacy_require($user, 'ap.payment.create');
         $body = api_json_body();
 
         if (isset($body['disbursement_rail']) && $body['disbursement_rail'] !== null

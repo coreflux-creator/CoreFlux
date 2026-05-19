@@ -109,11 +109,11 @@ echo "\napi/accounting_events.php — HTTP surface\n";
 $api = (string) file_get_contents("{$ROOT}/api/accounting_events.php");
 $assert('parses',                          $lint("{$ROOT}/api/accounting_events.php"));
 $assert('GET requires accounting.coa.view',
-    strpos($api, "RBAC::requirePermission(\$user, 'accounting.coa.view')") !== false);
+    strpos($api, "rbac_legacy_require(\$user, 'accounting.coa.view')") !== false);
 $assert('POST requires accounting.create_entry',
-    strpos($api, "RBAC::requirePermission(\$user, 'accounting.create_entry')") !== false);
+    strpos($api, "rbac_legacy_require(\$user, 'accounting.create_entry')") !== false);
 $assert('sandbox requires accounting.manage_posting_rules',
-    strpos($api, "RBAC::requirePermission(\$user, 'accounting.manage_posting_rules')") !== false);
+    strpos($api, "rbac_legacy_require(\$user, 'accounting.manage_posting_rules')") !== false);
 $assert('GET filters: status/event_type/entity_id/from/to',
     strpos($api, "api_query('status')") !== false
     && strpos($api, "api_query('event_type')") !== false

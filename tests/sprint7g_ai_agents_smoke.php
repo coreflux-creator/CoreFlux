@@ -102,7 +102,7 @@ $assert('parses',                                 $lint($apiPath));
 $assert('list action (GET)',                      strpos($api, "if (\$action === 'list') {") !== false
                                                  && strpos($api, "if (api_method() !== 'GET') api_error('Method not allowed', 405)") !== false);
 $assert('run action (POST)',                      strpos($api, "if (\$action === 'run') {") !== false);
-$assert('RBAC accounting.je.view',                strpos($api, "RBAC::requirePermission(\$user, 'accounting.je.view')") !== false);
+$assert('RBAC accounting.je.view',                strpos($api, "rbac_legacy_require(\$user, 'accounting.je.view')") !== false);
 $assert('agent param required (422 when empty)',  strpos($api, "api_error('agent required', 422)") !== false);
 $assert('unknown agent → 404',                    strpos($api, "api_error('Unknown agent: '") !== false);
 $assert('AIDisabledException → 503',              strpos($api, "catch (\\AIDisabledException \$e)") !== false

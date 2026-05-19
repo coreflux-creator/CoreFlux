@@ -44,7 +44,7 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
 if (!in_array(api_method(), ['POST', 'GET'], true)) api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'treasury.payment.view');
+rbac_legacy_require($user, 'treasury.payment.view');
 
 $body = api_method() === 'POST' ? api_json_body() : [];
 

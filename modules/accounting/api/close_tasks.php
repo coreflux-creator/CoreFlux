@@ -20,7 +20,7 @@ $method   = api_method();
 $action   = (string) (api_query('action') ?? '');
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'accounting.period.view');
+    rbac_legacy_require($user, 'accounting.period.view');
     $periodId = (int) (api_query('period_id') ?? 0);
     if (!$periodId) api_error('period_id required', 422);
     $rows = scopedQuery(
@@ -45,7 +45,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'seed') {
-    RBAC::requirePermission($user, 'accounting.close_workflow.manage');
+    rbac_legacy_require($user, 'accounting.close_workflow.manage');
     $body = api_json_body();
     api_require_fields($body, ['period_id']);
     $added = accountingSeedCloseChecklist($tenantId, (int) $body['period_id'], (int) ($user['id'] ?? 0));
@@ -53,7 +53,7 @@ if ($method === 'POST' && $action === 'seed') {
 }
 
 if ($method === 'POST' && $action === 'complete') {
-    RBAC::requirePermission($user, 'accounting.close_task.complete');
+    rbac_legacy_require($user, 'accounting.close_task.complete');
     $id = (int) (api_query('id') ?? 0);
     if (!$id) api_error('id required', 422);
     $body = api_json_body();
@@ -62,7 +62,7 @@ if ($method === 'POST' && $action === 'complete') {
 }
 
 if ($method === 'PATCH') {
-    RBAC::requirePermission($user, 'accounting.close_task.assign');
+    rbac_legacy_require($user, 'accounting.close_task.assign');
     $body = api_json_body();
     api_require_fields($body, ['id']);
     $update = [];

@@ -65,7 +65,7 @@ $endpoints = [
 foreach ($endpoints as $name => $rel) {
     $body = $read(__DIR__ . $rel);
     $a("{$name} exposes ?action=ai_suggest_map", str_contains($body, "action === 'ai_suggest_map'"));
-    $a("{$name} requires RBAC permission",       str_contains($body, "ai_suggest_map'") && preg_match('/ai_suggest_map.*?RBAC::requirePermission/s', $body));
+    $a("{$name} requires RBAC permission",       str_contains($body, "ai_suggest_map'") && preg_match('/ai_suggest_map.*?rbac_legacy_require/s', $body));
     $a("{$name} requires ai_csv_mapper.php",     str_contains($body, "require_once __DIR__ . '/../../../core/ai_csv_mapper.php'"));
     $a("{$name} forwards already_mapped",        str_contains($body, "already_mapped"));
     $a("{$name} reads up to 3 sample rows",      str_contains($body, "\$i < 3"));

@@ -76,6 +76,17 @@ if ($method === 'POST') {
         api_error('Persona not found or not active for current user/tenant', 404);
     }
 
+    // Mirror the new persona's persona_type back onto $_SESSION['user']['role']
+    // *immediately*. session.php reads $_SESSION['user']['role'] directly
+    // (not through api_require_auth()), so without this the post-switch
+    // reload would render the previous persona's sidebar + module list
+    // until the user clicked some other /api/* endpoint. Tiny session
+    // write, big "feels instant" UX win.
+    $row = RBACResolver::activeMembership($userId, $tenantId, $personaId);
+    if ($row && isset($row['persona_type']) && isset($_SESSION['user']) && is_array($_SESSION['user'])) {
+        $_SESSION['user']['role'] = (string) $row['persona_type'];
+    }
+
     // Audit the persona switch so the SoD log captures it.
     RBACResolver::auditMembership($personaId, 'persona_switched', $userId, [
         'tenant_id' => $tenantId,
@@ -85,7 +96,6 @@ if ($method === 'POST') {
     // future requests already pick it up from the session).
     RBACResolver::resetCache();
 
-    $row = RBACResolver::activeMembership($userId, $tenantId, $personaId);
     api_ok([
         'active_persona_id' => $personaId,
         'persona'           => $row ? [

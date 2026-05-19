@@ -26,7 +26,7 @@ $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
 
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'treasury.view_bank_balances');
+rbac_legacy_require($user, 'treasury.view_bank_balances');
 
 $asOf  = (string) (api_query('as_of') ?? date('Y-m-d'));
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $asOf)) api_error('as_of must be YYYY-MM-DD', 400);

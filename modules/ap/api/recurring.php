@@ -28,7 +28,7 @@ $action   = (string) ($_GET['action'] ?? '');
 $id       = (int) ($_GET['id'] ?? 0);
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     $where = ['tenant_id = :t'];
     $params = ['t' => $tenantId];
     if (!empty($_GET['status'])) {
@@ -45,7 +45,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'generate_due') {
-    RBAC::requirePermission($user, 'ap.recurring.manage');
+    rbac_legacy_require($user, 'ap.recurring.manage');
     $asOf = (string) ($_GET['as_of'] ?? date('Y-m-d'));
     $res = apRecurringGenerateDue($tenantId, $asOf);
     apAudit('ap.recurring.batch_generated', ['as_of' => $asOf, 'generated' => $res['generated']]);
@@ -53,7 +53,7 @@ if ($method === 'POST' && $action === 'generate_due') {
 }
 
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'ap.recurring.manage');
+    rbac_legacy_require($user, 'ap.recurring.manage');
     $body = api_json_body();
     api_require_fields($body, ['vendor_name', 'description', 'amount', 'frequency', 'next_bill_date']);
     $freq = (string) $body['frequency'];
@@ -95,7 +95,7 @@ if ($method === 'POST' && $action === '') {
 if ($id <= 0) api_error('id required', 422);
 
 if ($method === 'PATCH') {
-    RBAC::requirePermission($user, 'ap.recurring.manage');
+    rbac_legacy_require($user, 'ap.recurring.manage');
     $body = api_json_body();
     $allowed = ['vendor_name','description','amount','frequency','day_of_period',
                 'next_bill_date','end_date','gl_expense_account_code',
@@ -118,7 +118,7 @@ if ($method === 'PATCH') {
 }
 
 if ($method === 'POST' && in_array($action, ['pause','resume','end'], true)) {
-    RBAC::requirePermission($user, 'ap.recurring.manage');
+    rbac_legacy_require($user, 'ap.recurring.manage');
     $newStatus = $action === 'pause' ? 'paused' : ($action === 'resume' ? 'active' : 'ended');
     $pdo->prepare('UPDATE ap_recurring_bills SET status = :s WHERE tenant_id = :t AND id = :id')
         ->execute(['s' => $newStatus, 't' => $tenantId, 'id' => $id]);

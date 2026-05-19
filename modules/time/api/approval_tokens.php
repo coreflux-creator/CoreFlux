@@ -183,7 +183,7 @@ $ctx  = api_require_auth();
 $user = $ctx['user'];
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'time.view');
+    rbac_legacy_require($user, 'time.view');
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['placement_id'])) { $where[] = 'placement_id = :plid'; $params['plid'] = (int) $_GET['placement_id']; }
@@ -199,7 +199,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'issue') {
-    RBAC::requirePermission($user, 'time.tokenized_email.issue');
+    rbac_legacy_require($user, 'time.tokenized_email.issue');
     $body = api_json_body();
     api_require_fields($body, ['placement_id', 'period_id', 'entry_ids']);
 
@@ -323,7 +323,7 @@ if ($method === 'POST' && $action === 'issue') {
 }
 
 if ($method === 'POST' && $action === 'revoke') {
-    RBAC::requirePermission($user, 'time.tokenized_email.revoke');
+    rbac_legacy_require($user, 'time.tokenized_email.revoke');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $row = scopedFind('SELECT id, response FROM time_approval_tokens WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);

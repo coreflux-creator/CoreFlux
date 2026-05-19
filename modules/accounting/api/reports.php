@@ -18,7 +18,7 @@ $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
-RBAC::requirePermission($user, 'accounting.coa.view');
+rbac_legacy_require($user, 'accounting.coa.view');
 
 if ($method !== 'GET') api_error('Method not allowed', 405);
 $type = (string) ($_GET['type'] ?? '');

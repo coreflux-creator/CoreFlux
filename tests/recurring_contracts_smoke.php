@@ -80,7 +80,7 @@ $a("?action=pause/resume/end/update",                  str_contains($apiSrc, "in
 $a('?action=generate_now',                             str_contains($apiSrc, "\$action === 'generate_now'"));
 $a('generate_now refuses non-active status',           str_contains($apiSrc, "Cannot generate from status"));
 $a('day_of_period clamped 1..31',                      str_contains($apiSrc, 'max(1, min(31, (int)'));
-$a('write requires billing.invoice.create',            substr_count($apiSrc, "RBAC::requirePermission(\$user, 'billing.invoice.create')") >= 3);
+$a('write requires billing.invoice.create',            substr_count($apiSrc, "rbac_legacy_require(\$user, 'billing.invoice.create')") >= 3);
 
 echo "\nCron: scripts/billing_recurring_generate.php\n";
 $cronSrc = (string) file_get_contents(__DIR__ . '/../scripts/billing_recurring_generate.php');

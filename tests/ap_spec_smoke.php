@@ -132,7 +132,7 @@ $assert('payments has action=send',            strpos($pay, "action === 'send'")
 $assert('payments has action=clear',           strpos($pay, "action === 'clear'") !== false);
 $assert('payments has action=void',            strpos($pay, "action === 'void'") !== false);
 $assert('payments auto-allocate',              strpos($pay, 'auto_allocate') !== false);
-$assert('send requires ap.payment.send',       strpos($pay, "requirePermission(\$user, 'ap.payment.send')") !== false);
+$assert('send requires ap.payment.send',       strpos($pay, "rbac_legacy_require(\$user, 'ap.payment.send')") !== false);
 $assert('send SoD guard',                      strpos($pay, 'cannot release your own payment') !== false);
 $assert('send refuses disputed bills',         strpos($pay, 'disputed","void"') !== false || strpos($pay, "disputed\",\"void") !== false);
 $assert('void reverses allocations',           strpos($pay, 'ap_bills b') !== false && strpos($pay, 'amount_paid = COALESCE') !== false);

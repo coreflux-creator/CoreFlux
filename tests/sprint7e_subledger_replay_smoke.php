@@ -32,7 +32,7 @@ $apr = (string) file_get_contents("{$ROOT}/api/ap_bill_replay.php");
 $assert('endpoint exists',                       strlen($apr) > 0);
 $assert('parses',                                $lint("{$ROOT}/api/ap_bill_replay.php"));
 $assert('POST-only',                             strpos($apr, "if (api_method() !== 'POST')") !== false);
-$assert('RBAC accounting.manage_posting_rules',  strpos($apr, "RBAC::requirePermission(\$user, 'accounting.manage_posting_rules')") !== false);
+$assert('RBAC accounting.manage_posting_rules',  strpos($apr, "rbac_legacy_require(\$user, 'accounting.manage_posting_rules')") !== false);
 $assert('days clamp 1..1825',                    strpos($apr, "max(1, min(1825,") !== false);
 $assert('since regex YYYY-MM-DD',                strpos($apr, "preg_match('/^\\d{4}-\\d{2}-\\d{2}$/'") !== false);
 $assert('status filter whitelist',               strpos($apr, "['approved','partially_paid','paid']") !== false);
@@ -70,7 +70,7 @@ $bir = (string) file_get_contents("{$ROOT}/api/billing_invoice_replay.php");
 $assert('endpoint exists',                       strlen($bir) > 0);
 $assert('parses',                                $lint("{$ROOT}/api/billing_invoice_replay.php"));
 $assert('POST-only',                             strpos($bir, "if (api_method() !== 'POST')") !== false);
-$assert('RBAC accounting.manage_posting_rules',  strpos($bir, "RBAC::requirePermission(\$user, 'accounting.manage_posting_rules')") !== false);
+$assert('RBAC accounting.manage_posting_rules',  strpos($bir, "rbac_legacy_require(\$user, 'accounting.manage_posting_rules')") !== false);
 $assert('source_module=billing_replay',          strpos($bir, "'source_module'    => 'billing_replay'") !== false);
 $assert('event_type=billing.invoice.sent',       strpos($bir, "'event_type'       => 'billing.invoice.sent'") !== false);
 $assert('status filter whitelist',

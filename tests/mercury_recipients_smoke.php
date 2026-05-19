@@ -115,8 +115,8 @@ $apiPath = __DIR__ . '/../api/mercury_recipients.php';
 $a('API file exists', is_file($apiPath));
 $apiF = (string) file_get_contents($apiPath);
 $a('RBAC split: view vs manage',
-    $c($apiF, "hasPermission(\$user, 'accounting.bank.view')") &&
-    $c($apiF, "hasPermission(\$user, 'accounting.bank.manage')"));
+    $c($apiF, "rbac_legacy_can(\$user, 'accounting.bank.view')") &&
+    $c($apiF, "rbac_legacy_can(\$user, 'accounting.bank.manage')"));
 $a('writes require manage permission',           $c($apiF, "All POST/PATCH/DELETE require manage"));
 $a('GET ?action=funding_default route',          $c($apiF, "action === 'funding_default'"));
 $a('GET ?id=N single-record route',              $c($apiF, '$id > 0'));

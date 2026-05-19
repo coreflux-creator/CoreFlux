@@ -35,7 +35,7 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'ap.bill.view');
+    rbac_legacy_require($user, 'ap.bill.view');
     $look = max(1, min(30, (int) ($_GET['lookahead'] ?? 7)));
     $rows = apWeeklyQueueList($tid, $look);
     $bucketed = apWeeklyQueueBucket($rows);
@@ -49,7 +49,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'finalize') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $body = api_json_body();
     $ids  = array_values(array_filter(array_map('intval', (array) ($body['bill_ids'] ?? []))));
     if (empty($ids)) api_error('bill_ids required', 422);
@@ -67,7 +67,7 @@ if ($method === 'POST' && $action === 'finalize') {
 }
 
 if ($method === 'POST' && $action === 'send_approver_email') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $body = api_json_body();
     $billId = (int) ($body['bill_id'] ?? 0);
     if ($billId <= 0) api_error('bill_id required', 422);

@@ -22,7 +22,7 @@ require_once __DIR__ . '/../lib/periods.php';
 $ctx  = api_require_auth();
 $user = $ctx['user'];
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'reports.view');
+rbac_legacy_require($user, 'reports.view');
 
 $period = reportsResolvePeriod(
     (string) (api_query('period') ?? '4w'),

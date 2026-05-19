@@ -33,7 +33,7 @@ $action    = (string) ($_GET['action'] ?? '');
 
 // ─── presigned S3 POST ───
 if ($method === 'GET' && $action === 'upload_url') {
-    RBAC::requirePermission($user, 'time.entry.create');
+    rbac_legacy_require($user, 'time.entry.create');
     require_once __DIR__ . '/../../../core/StorageService.php';
     $fileName = (string) ($_GET['file_name'] ?? 'timesheet.pdf');
     $svc = \Core\StorageService::getInstance();
@@ -44,7 +44,7 @@ if ($method === 'GET' && $action === 'upload_url') {
 
 // ─── extract ───
 if ($method === 'POST' && $action === 'extract') {
-    RBAC::requirePermission($user, 'time.entry.create');
+    rbac_legacy_require($user, 'time.entry.create');
     require_once __DIR__ . '/../../../core/StorageService.php';
     require_once __DIR__ . '/../../../core/storage_register.php';
     require_once __DIR__ . '/../../../core/ai_service.php';
@@ -185,7 +185,7 @@ if ($method === 'POST' && $action === 'extract') {
 
 // ─── re-fetch ───
 if ($method === 'GET' && (int) ($_GET['id'] ?? 0) > 0) {
-    RBAC::requirePermission($user, 'time.entry.create');
+    rbac_legacy_require($user, 'time.entry.create');
     $id = (int) $_GET['id'];
     $stmt = $pdo->prepare(
         'SELECT * FROM time_uploaded_documents
@@ -201,7 +201,7 @@ if ($method === 'GET' && (int) ($_GET['id'] ?? 0) > 0) {
 
 // ─── consume ───
 if ($method === 'POST' && $action === 'consume') {
-    RBAC::requirePermission($user, 'time.entry.create');
+    rbac_legacy_require($user, 'time.entry.create');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
     $body = api_json_body();

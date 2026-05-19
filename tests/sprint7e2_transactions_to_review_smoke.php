@@ -30,7 +30,7 @@ $assert('endpoint exists',                    strlen($api) > 0);
 $assert('parses',                             $lint("{$ROOT}/api/transactions_to_review.php"));
 $assert('GET-only',                           strpos($api, "if (api_method() !== 'GET')") !== false);
 $assert('RBAC accounting.coa.view',
-    strpos($api, "RBAC::requirePermission(\$user, 'accounting.coa.view')") !== false);
+    strpos($api, "rbac_legacy_require(\$user, 'accounting.coa.view')") !== false);
 $assert('order param honoured',               strpos($api, "api_query('order')") !== false);
 $assert('limit clamp 1..200',
     strpos($api, "max(1, min(200, (int) (api_query('limit')")  !== false);

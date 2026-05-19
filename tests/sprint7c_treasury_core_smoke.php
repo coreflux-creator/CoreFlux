@@ -54,13 +54,13 @@ echo "\napi/treasury_payments.php\n";
 $tp = (string) file_get_contents("{$ROOT}/api/treasury_payments.php");
 $assert('parses',                             $lint("{$ROOT}/api/treasury_payments.php"));
 $assert('GET requires treasury.view_bank_balances',
-    strpos($tp, "RBAC::requirePermission(\$user, 'treasury.view_bank_balances')") !== false);
+    strpos($tp, "rbac_legacy_require(\$user, 'treasury.view_bank_balances')") !== false);
 $assert('create requires treasury.create_payment',
-    strpos($tp, "RBAC::requirePermission(\$user, 'treasury.create_payment')") !== false);
+    strpos($tp, "rbac_legacy_require(\$user, 'treasury.create_payment')") !== false);
 $assert('approve requires treasury.approve_payment',
-    strpos($tp, "RBAC::requirePermission(\$user, 'treasury.approve_payment')") !== false);
+    strpos($tp, "rbac_legacy_require(\$user, 'treasury.approve_payment')") !== false);
 $assert('execute requires treasury.execute_payment',
-    strpos($tp, "RBAC::requirePermission(\$user, 'treasury.execute_payment')") !== false);
+    strpos($tp, "rbac_legacy_require(\$user, 'treasury.execute_payment')") !== false);
 $assert('execute emits treasury.payment.executed event',
     strpos($tp, "'event_type'       => 'treasury.payment.executed'") !== false);
 $assert('execute calls accountingProcessEvent',
@@ -89,9 +89,9 @@ $assert('execute internal emits treasury.transfer.completed',
 $assert('execute intercompany emits treasury.intercompany.transfer.completed',
     strpos($tt, "'treasury.intercompany.transfer.completed'") !== false);
 $assert('approve requires treasury.approve_transfer',
-    strpos($tt, "RBAC::requirePermission(\$user, 'treasury.approve_transfer')") !== false);
+    strpos($tt, "rbac_legacy_require(\$user, 'treasury.approve_transfer')") !== false);
 $assert('create requires treasury.create_transfer',
-    strpos($tt, "RBAC::requirePermission(\$user, 'treasury.create_transfer')") !== false);
+    strpos($tt, "rbac_legacy_require(\$user, 'treasury.create_transfer')") !== false);
 $assert('payload carries both bank account ids',
     strpos($tt, "'source_bank_account_id'") !== false
     && strpos($tt, "'destination_bank_account_id'") !== false);
@@ -104,7 +104,7 @@ $cp = (string) file_get_contents("{$ROOT}/api/treasury_cash_position.php");
 $assert('parses',                             $lint("{$ROOT}/api/treasury_cash_position.php"));
 $assert('GET-only',                           strpos($cp, "if (api_method() !== 'GET')") !== false);
 $assert('requires treasury.view_bank_balances',
-    strpos($cp, "RBAC::requirePermission(\$user, 'treasury.view_bank_balances')") !== false);
+    strpos($cp, "rbac_legacy_require(\$user, 'treasury.view_bank_balances')") !== false);
 $assert('as_of validation',                   strpos($cp, "/^\\d{4}-\\d{2}-\\d{2}\$/") !== false);
 $assert('GL balance from posted JEs only',
     strpos($cp, "AND je.status   = 'posted'") !== false

@@ -25,7 +25,7 @@ require_once __DIR__ . '/../core/mercury_service.php';
 $ctx = api_require_auth();
 $user = $ctx['user'];
 $tenantId = (int) $ctx['tenant_id'];
-RBAC::requirePermission($user, 'accounting.bank.manage');
+rbac_legacy_require($user, 'accounting.bank.manage');
 
 $method = api_method();
 $action = (string) ($_GET['action'] ?? '');

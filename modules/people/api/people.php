@@ -24,10 +24,10 @@ $method = api_method();
 if ($method === 'GET') {
     $id = (int) api_query('id', 0);
     if ($id > 0) {
-        RBAC::requirePermission($user, 'people.view');
+        rbac_legacy_require($user, 'people.view');
         $includePII = !empty($_GET['include_pii']);
         if ($includePII) {
-            RBAC::requirePermission($user, 'people.pii.view');
+            rbac_legacy_require($user, 'people.pii.view');
             peopleLogPIIAccess(
                 (int) ($user['id'] ?? 0),
                 $id,
@@ -43,7 +43,7 @@ if ($method === 'GET') {
         api_ok(['person' => $row]);
     }
 
-    RBAC::requirePermission($user, 'people.view');
+    rbac_legacy_require($user, 'people.view');
     $filters = [
         'q'                       => $_GET['q']                       ?? null,
         'classification'          => $_GET['classification']          ?? null,
@@ -63,7 +63,7 @@ if ($method === 'POST') {
     if ($action === 'terminate') {
         $id = (int) api_query('id', 0);
         if ($id <= 0) api_error('id required', 400);
-        RBAC::requirePermission($user, 'people.terminate');
+        rbac_legacy_require($user, 'people.terminate');
         $body = api_json_body();
         api_require_fields($body, ['reason']);
         $newStatus = in_array(($body['status'] ?? 'inactive'), ['inactive', 'do_not_rehire'], true)
@@ -77,7 +77,7 @@ if ($method === 'POST') {
     }
 
     // Default POST = create
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $body = api_json_body();
     api_require_fields($body, ['first_name', 'last_name', 'email_primary', 'classification']);
 
@@ -138,7 +138,7 @@ if ($method === 'POST') {
         }
     }
     if ($piiTouched) {
-        RBAC::requirePermission($user, 'people.pii.manage');
+        rbac_legacy_require($user, 'people.pii.manage');
     }
     if (array_key_exists('referred_by_person_id', $body) && $body['referred_by_person_id']) {
         $insert['referred_by_person_id'] = (int) $body['referred_by_person_id'];
@@ -161,7 +161,7 @@ if ($method === 'POST') {
 if ($method === 'PATCH') {
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $body = api_json_body();
 
     // Strip fields not allowed via PATCH on this endpoint.
@@ -176,7 +176,7 @@ if ($method === 'PATCH') {
     $touchingPII = false;
     foreach ($piiKeys as $k) if (array_key_exists($k, $body)) $touchingPII = true;
     if ($touchingPII) {
-        RBAC::requirePermission($user, 'people.pii.manage');
+        rbac_legacy_require($user, 'people.pii.manage');
         peopleLogPIIAccess(
             (int) ($user['id'] ?? 0), $id, 'pii.viewed',
             ['fields' => array_values(array_intersect(array_keys($body), $piiKeys)), 'on' => 'update']

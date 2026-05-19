@@ -22,7 +22,7 @@ $action = $_GET['action'] ?? '';
 
 if ($method === 'GET' && $action === 'upload_url') {
     // Presigned S3 POST for staging a W-9 / W-8BEN PDF before extraction.
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     require_once __DIR__ . '/../../../core/StorageService.php';
     $fileName = (string) ($_GET['file_name'] ?? 'w9.pdf');
     $svc = Core\StorageService::getInstance();
@@ -34,7 +34,7 @@ if ($method === 'GET' && $action === 'upload_url') {
 if ($method === 'POST' && $action === 'extract_w9') {
     // AI-assist for vendor onboarding — read a W-9 / W-8BEN form and return
     // a suggested vendor draft. User reviews + saves via normal POST.
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     require_once __DIR__ . '/../../../core/StorageService.php';
     require_once __DIR__ . '/../../../core/ai_service.php';
     $body = api_json_body();
@@ -70,7 +70,7 @@ JSON;
 }
 
 if ($method === 'GET' && !empty($_GET['id'])) {
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     $id = (int) $_GET['id'];
     $row = scopedFind(
         'SELECT v.*, c.name AS company_name, c.legal_name AS company_legal_name
@@ -81,7 +81,7 @@ if ($method === 'GET' && !empty($_GET['id'])) {
     );
     if (!$row) api_error('Not found', 404);
     if (!empty($_GET['reveal_pii']) && !empty($row['tax_id_full_ct'])) {
-        RBAC::requirePermission($user, 'ap.vendor.view_pii');
+        rbac_legacy_require($user, 'ap.vendor.view_pii');
         $row['tax_id_full'] = decryptField($row['tax_id_full_ct']);
         apAudit('ap.vendor.tax_id_viewed', ['vendor_id' => $id, 'vendor_name' => $row['vendor_name']], $id);
     }
@@ -90,7 +90,7 @@ if ($method === 'GET' && !empty($_GET['id'])) {
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     $where = ['v.tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['q'])) {
@@ -114,7 +114,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && ($_GET['action'] ?? '') === 'toggle_pwp') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $id   = (int) ($_GET['id'] ?? 0);
     $body = api_json_body();
     $on   = !empty($body['default_pwp']) ? 1 : 0;
@@ -131,7 +131,7 @@ if ($method === 'POST' && ($_GET['action'] ?? '') === 'toggle_pwp') {
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $body = api_json_body();
     api_require_fields($body, ['vendor_name']);
     $taxIdFull = isset($body['tax_id_full']) ? (string) $body['tax_id_full'] : null;

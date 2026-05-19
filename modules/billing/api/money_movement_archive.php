@@ -17,7 +17,7 @@ require_once __DIR__ . '/../lib/money_movement.php';
 $ctx  = api_require_auth();
 $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
-RBAC::requirePermission($user, 'billing.view');
+rbac_legacy_require($user, 'billing.view');
 
 $asOf = isset($_GET['as_of']) ? (string) $_GET['as_of'] : null;
 

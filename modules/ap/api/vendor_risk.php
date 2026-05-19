@@ -19,7 +19,7 @@ $method    = api_method();
 $action    = (string) (api_query('action') ?? '');
 
 if ($method === 'GET' && $action === 'high_risk') {
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     $rows = scopedQuery(
         "SELECT vr.*, v.name AS vendor_name
            FROM ap_vendor_risk vr
@@ -31,7 +31,7 @@ if ($method === 'GET' && $action === 'high_risk') {
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     $vendorId = (int) (api_query('vendor_id') ?? 0);
     if (!$vendorId) api_error('vendor_id required', 422);
     $risk = apVendorRiskFor($tenantId, $vendorId);
@@ -39,7 +39,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'recompute') {
-    RBAC::requirePermission($user, 'ap.bills.approve_admin');
+    rbac_legacy_require($user, 'ap.bills.approve_admin');
     $vendorId = (int) (api_query('vendor_id') ?? 0);
     if (!$vendorId) api_error('vendor_id required', 422);
     $risk = apVendorRiskRecompute($tenantId, $vendorId);

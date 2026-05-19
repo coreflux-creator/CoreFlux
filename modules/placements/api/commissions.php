@@ -12,14 +12,14 @@ $user = $ctx['user'];
 $method = api_method();
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'placements.commissions.view');
+    rbac_legacy_require($user, 'placements.commissions.view');
     $pid = (int) api_query('placement_id', 0);
     if ($pid <= 0) api_error('placement_id required', 400);
     api_ok(['commissions' => placementCommissions($pid)]);
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'placements.commissions.manage');
+    rbac_legacy_require($user, 'placements.commissions.manage');
     $pid = (int) api_query('placement_id', 0);
     if ($pid <= 0) api_error('placement_id required', 400);
     $body = api_json_body();
@@ -44,7 +44,7 @@ if ($method === 'POST') {
 }
 
 if ($method === 'PATCH') {
-    RBAC::requirePermission($user, 'placements.commissions.manage');
+    rbac_legacy_require($user, 'placements.commissions.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();
@@ -57,7 +57,7 @@ if ($method === 'PATCH') {
 }
 
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'placements.commissions.manage');
+    rbac_legacy_require($user, 'placements.commissions.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $rows = scopedDelete('placement_commissions', $id);

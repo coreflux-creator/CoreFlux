@@ -15,7 +15,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'time.view');
+    rbac_legacy_require($user, 'time.view');
     $where  = ['tdf.tenant_id = :tenant_id', 'tdf.status = "ready"'];
     $params = [];
     if (!empty($_GET['bundle_type'])) { $where[] = 'tdf.bundle_type = :bt'; $params['bt'] = $_GET['bundle_type']; }
@@ -32,7 +32,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'consume') {
-    RBAC::requirePermission($user, 'time.feed.consume');
+    rbac_legacy_require($user, 'time.feed.consume');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();

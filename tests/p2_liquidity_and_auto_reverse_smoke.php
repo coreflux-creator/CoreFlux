@@ -38,7 +38,7 @@ $apiPath = "{$ROOT}/api/liquidity_forecast.php";
 $api = (string) file_get_contents($apiPath);
 $assert('parses',                                  $lint($apiPath));
 $assert('GET-only',                                strpos($api, "if (api_method() !== 'GET') api_error('Method not allowed', 405)") !== false);
-$assert('RBAC treasury.payment.view',              strpos($api, "RBAC::requirePermission(\$user, 'treasury.payment.view')") !== false);
+$assert('RBAC treasury.payment.view',              strpos($api, "rbac_legacy_require(\$user, 'treasury.payment.view')") !== false);
 $assert('days clamped 1..365 default 90',          strpos($api, "max(1, min(365, (int) (api_query('days') ?? 90)))") !== false);
 $assert('imports shared liquidity projection engine',
     strpos($api, "require_once __DIR__ . '/../core/treasury/liquidity_projection.php'") !== false);
@@ -139,7 +139,7 @@ $arApi = "{$ROOT}/api/je_auto_reverse.php";
 $arSrc = (string) file_get_contents($arApi);
 $assert('parses',                                  $lint($arApi));
 $assert('POST-only',                               strpos($arSrc, "if (api_method() !== 'POST') api_error('Method not allowed', 405)") !== false);
-$assert('RBAC accounting.je.post',                 strpos($arSrc, "RBAC::requirePermission(\$user, 'accounting.je.post')") !== false);
+$assert('RBAC accounting.je.post',                 strpos($arSrc, "rbac_legacy_require(\$user, 'accounting.je.post')") !== false);
 $assert('validates JE exists + tenant-scoped',     strpos($arSrc, 'WHERE id = :id AND tenant_id = :t LIMIT 1') !== false);
 $assert("rejects when status !== 'posted'",        strpos($arSrc, "if (\$je['status'] !== 'posted') api_error('JE must be posted', 422)") !== false);
 $assert('rejects when JE itself is a reversal',    strpos($arSrc, "if (\$je['reverses_je_id'] !== null) api_error('JE is itself a reversal', 422)") !== false);

@@ -47,7 +47,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET' && $action === 'template') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="vendors_template.csv"');
     header('Cache-Control: no-store');
@@ -56,7 +56,7 @@ if ($method === 'GET' && $action === 'template') {
 }
 
 if ($method === 'GET' && $action === 'sample') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $samples = require __DIR__ . '/../../../core/csv_samples.php';
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="vendors_sample.csv"');
@@ -67,14 +67,14 @@ if ($method === 'GET' && $action === 'sample') {
 
 
 if ($method === 'POST' && $action === 'inspect') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
     api_ok(CsvImportService::inspect('ap_vendors', $csv));
 }
 
 if ($method === 'POST' && $action === 'ai_suggest_map') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     require_once __DIR__ . '/../../../core/ai_csv_mapper.php';
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
@@ -113,7 +113,7 @@ if ($method === 'POST' && $action === 'ai_suggest_map') {
     api_ok($result);
 }
 if ($method === 'POST' && $action === 'dry_run') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
     $columnMap = CsvImportService::readRequestColumnMap();
@@ -145,7 +145,7 @@ if ($method === 'POST' && $action === 'dry_run') {
 }
 
 if ($method === 'POST' && $action === 'commit') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
     $columnMap = CsvImportService::readRequestColumnMap();

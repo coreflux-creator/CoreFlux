@@ -21,7 +21,7 @@ const ACCT_TYPES = ['asset','liability','equity','revenue','expense'];
 const NORMAL_DEFAULT = ['asset' => 'debit','expense' => 'debit','liability' => 'credit','equity' => 'credit','revenue' => 'credit'];
 
 if ($method === 'POST' && (string) ($_GET['action'] ?? '') === 'auto_group_plaid') {
-    RBAC::requirePermission($user, 'accounting.coa.manage');
+    rbac_legacy_require($user, 'accounting.coa.manage');
     require_once __DIR__ . '/../../../core/plaid_service.php';
 
     $pdo = getDB();
@@ -72,7 +72,7 @@ if ($method === 'POST' && (string) ($_GET['action'] ?? '') === 'auto_group_plaid
 }
 
 if ($method === 'GET' && (string) ($_GET['action'] ?? '') === 'tree') {
-    RBAC::requirePermission($user, 'accounting.coa.view');
+    rbac_legacy_require($user, 'accounting.coa.view');
     $type = $_GET['type'] ?? null;
     $where  = ['tenant_id = :tenant_id', 'active = 1'];
     $params = [];
@@ -90,14 +90,14 @@ if ($method === 'GET' && (string) ($_GET['action'] ?? '') === 'tree') {
 }
 
 if ($method === 'GET' && !empty($_GET['id'])) {
-    RBAC::requirePermission($user, 'accounting.coa.view');
+    rbac_legacy_require($user, 'accounting.coa.view');
     $row = scopedFind('SELECT * FROM accounting_accounts WHERE tenant_id = :tenant_id AND id = :id', ['id' => (int) $_GET['id']]);
     if (!$row) api_error('Not found', 404);
     api_ok(['account' => $row]);
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'accounting.coa.view');
+    rbac_legacy_require($user, 'accounting.coa.view');
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['type']))   { $where[] = 'account_type = :t'; $params['t'] = $_GET['type']; }
@@ -112,7 +112,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'accounting.coa.manage');
+    rbac_legacy_require($user, 'accounting.coa.manage');
     $body = api_json_body();
     api_require_fields($body, ['code','name','account_type']);
     if (!in_array($body['account_type'], ACCT_TYPES, true)) {
@@ -138,7 +138,7 @@ if ($method === 'POST') {
 }
 
 if ($method === 'PATCH') {
-    RBAC::requirePermission($user, 'accounting.coa.manage');
+    rbac_legacy_require($user, 'accounting.coa.manage');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();
@@ -154,7 +154,7 @@ if ($method === 'PATCH') {
 }
 
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'accounting.coa.manage');
+    rbac_legacy_require($user, 'accounting.coa.manage');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $rows = scopedUpdate('accounting_accounts', $id, ['active' => 0]);

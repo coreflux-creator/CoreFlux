@@ -44,7 +44,7 @@ require_once __DIR__ . '/../../core/RBAC.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];
-RBAC::requirePermission($ctx['user'], 'payroll.run.create');
+rbac_legacy_require($ctx['user'], 'payroll.run.create');
 
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
 

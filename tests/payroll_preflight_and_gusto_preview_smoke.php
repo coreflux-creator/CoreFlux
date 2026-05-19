@@ -29,7 +29,7 @@ _p('checks state tax setup',                               str_contains($pf, "'i
 _p('checks active placement with approved rate',           str_contains($pf, 'pr.approved_at IS NOT NULL'));
 _p('checks pay_rate > 0',                                  str_contains($pf, "'id' => 'pay_rate'"));
 _p('returns ready_to_run summary flag',                    str_contains($pf, 'ready_to_run'));
-_p('permission gated on payroll.run.create',               str_contains($pf, "RBAC::requirePermission(\$ctx['user'], 'payroll.run.create')"));
+_p('permission gated on payroll.run.create',               str_contains($pf, "rbac_legacy_require(\$ctx['user'], 'payroll.run.create')"));
 
 echo "\nGusto preview endpoint\n";
 $gp = (string) file_get_contents(__DIR__ . '/../modules/payroll/api/gusto_preview.php');
@@ -40,7 +40,7 @@ _p('builds per-employee diff array',                       str_contains($gp, "'d
 _p('reports unmatched_in_coreflux',                        str_contains($gp, 'unmatched_in_coreflux'));
 _p('reports unmatched_in_gusto',                           str_contains($gp, 'unmatched_in_gusto'));
 _p('summary.safe_to_submit flag',                          str_contains($gp, 'safe_to_submit'));
-_p('permission gated on payroll.run.disburse',             str_contains($gp, "RBAC::requirePermission(\$ctx['user'], 'payroll.run.disburse')"));
+_p('permission gated on payroll.run.disburse',             str_contains($gp, "rbac_legacy_require(\$ctx['user'], 'payroll.run.disburse')"));
 
 echo "\nMigration 012 — payroll profile alignment\n";
 $mig = (string) file_get_contents(__DIR__ . '/../core/migrations/012_payroll_profile_alignment.sql');

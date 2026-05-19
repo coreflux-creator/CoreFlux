@@ -8,7 +8,7 @@
  *
  * IMPORTANT — class naming:
  *   The legacy `class RBAC` in /app/core/RBAC.php is still wired into
- *   ~30 endpoints (RBAC::hasPermission(), RBAC::requirePermission()).
+ *   ~30 endpoints (rbac_legacy_can(), rbac_legacy_require()).
  *   We deliberately use a different class name here so both can be
  *   loaded in the same process without a PHP redeclaration fatal.
  *   New code should call `RBACResolver`; legacy callers keep using

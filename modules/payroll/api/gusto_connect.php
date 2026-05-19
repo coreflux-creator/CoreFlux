@@ -45,7 +45,7 @@ switch (api_method()) {
         // refresh tokens already issued for our app — no OAuth dance needed).
         // This path requires payroll.run.disburse so a non-admin can't drop
         // arbitrary tokens into the connection table.
-        RBAC::requirePermission($ctx['user'], 'payroll.run.disburse');
+        rbac_legacy_require($ctx['user'], 'payroll.run.disburse');
         $body = api_json_body();
         api_require_fields($body, ['company_uuid', 'access_token', 'refresh_token']);
 
@@ -78,7 +78,7 @@ switch (api_method()) {
     }
 
     case 'DELETE': {
-        RBAC::requirePermission($ctx['user'], 'payroll.run.disburse');
+        rbac_legacy_require($ctx['user'], 'payroll.run.disburse');
         $conn = gustoActiveConnection((int) $ctx['tenant_id']);
         if (!$conn) api_error('No active Gusto connection', 404);
         scopedUpdate('tenant_gusto_connections', (int) $conn['id'], ['status' => 'revoked']);

@@ -96,7 +96,7 @@ $a('mpSubmitForApproval transitions to PendingApproval',
 $a('mpApprove enforces SoD (creator ≠ approver)',
     $c($svc, 'Segregation of duties: creator cannot approve their own payment'));
 $a('mpApprove enforces role-based SoD (treasury.payment.approve)',
-    $c($svc, "RBAC::hasPermission(\$approverUser, 'treasury.payment.approve')")
+    $c($svc, "rbac_legacy_can(\$approverUser, 'treasury.payment.approve')")
     && $c($svc, 'Role separation: approver must hold the treasury.payment.approve permission'));
 $a('mpApprove accepts either user array OR int (backward-compat)',
     $c($svc, 'if (is_array($approver))'));
@@ -208,8 +208,8 @@ $a('GET list/single via useApi',
     $c($apiF, "if (\$method === 'GET')"));
 $a('GET single eager-loads audit trail',         $c($apiF, 'FROM payment_instruction_audit'));
 $a('RBAC split: bank.view OR bank.manage for reads',
-    $c($apiF, "hasPermission(\$user, 'accounting.bank.view')")
-    && $c($apiF, "hasPermission(\$user, 'accounting.bank.manage')"));
+    $c($apiF, "rbac_legacy_can(\$user, 'accounting.bank.view')")
+    && $c($apiF, "rbac_legacy_can(\$user, 'accounting.bank.manage')"));
 $a('POST default creates payment',               $c($apiF, "mpCreate(\$tenantId, \$body"));
 $a('POST ?action=submit',                        $c($apiF, "case 'submit':"));
 $a('POST ?action=approve passes full $user (role check)',

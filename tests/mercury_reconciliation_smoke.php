@@ -110,8 +110,8 @@ $a('GET ?action=matches with outcome/instruction filter',
 $a('POST ?action=run gated by manage perm',
     $c($api, "\$action === 'run'") && $c($api, '!$canManage'));
 $a('reads accept view OR manage perm',
-    $c($api, "hasPermission(\$user, 'accounting.bank.view')") &&
-    $c($api, "hasPermission(\$user, 'accounting.bank.manage')"));
+    $c($api, "rbac_legacy_can(\$user, 'accounting.bank.view')") &&
+    $c($api, "rbac_legacy_can(\$user, 'accounting.bank.manage')"));
 $a('run emits mercury.reconciliation.run audit',  $c($api, 'mercury.reconciliation.run'));
 $a('rejects other methods/actions',              $c($api, "Method/action not allowed"));
 

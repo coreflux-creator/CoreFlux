@@ -28,7 +28,7 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'accounting.manage_posting_rules');
+rbac_legacy_require($user, 'accounting.manage_posting_rules');
 
 $days        = max(1, min(1825, (int) (api_query('days') ?? 180)));
 $since       = (string) (api_query('since') ?? date('Y-m-d', strtotime("-{$days} days")));

@@ -31,7 +31,7 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'integrations.jobdiva.view');
+rbac_legacy_require($user, 'integrations.jobdiva.view');
 
 $action = strtolower(str_replace('-', '_', (string) (api_query('action') ?? 'list_for_internal')));
 

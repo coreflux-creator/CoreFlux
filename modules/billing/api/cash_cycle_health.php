@@ -29,7 +29,7 @@ require_once __DIR__ . '/../../ap/lib/weekly_queue.php';
 $ctx  = api_require_auth();
 $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
-RBAC::requirePermission($user, 'billing.view');
+rbac_legacy_require($user, 'billing.view');
 
 $pdo = getDB();
 

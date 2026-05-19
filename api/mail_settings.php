@@ -28,7 +28,7 @@ $tid  = (int) $ctx['tenant_id'];
 $method = api_method();
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'tenant.manage');
+    rbac_legacy_require($user, 'tenant.manage');
     $pdo = getDB();
     $stmt = $pdo->prepare('SELECT mail_reply_to, mail_from_name_override FROM tenants WHERE id = :id LIMIT 1');
     $stmt->execute(['id' => $tid]);
@@ -50,7 +50,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'PUT' || $method === 'POST') {
-    RBAC::requirePermission($user, 'tenant.manage');
+    rbac_legacy_require($user, 'tenant.manage');
     $body = api_json_body();
 
     $update = [];

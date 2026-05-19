@@ -26,14 +26,14 @@ $action   = (string) ($_GET['action'] ?? '');
 $id       = (int) ($_GET['id'] ?? 0);
 
 if ($method === 'GET' && $action === 'match') {
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     $billId = (int) ($_GET['bill_id'] ?? 0);
     if ($billId <= 0) api_error('bill_id required', 422);
     api_ok(apThreeWayMatch($tenantId, $billId));
 }
 
 if ($method === 'GET' && $id > 0) {
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     $po = $pdo->prepare('SELECT * FROM ap_purchase_orders WHERE tenant_id = :t AND id = :id');
     $po->execute(['t' => $tenantId, 'id' => $id]);
     $po = $po->fetch(\PDO::FETCH_ASSOC);
@@ -56,7 +56,7 @@ if ($method === 'GET' && $id > 0) {
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'ap.view');
+    rbac_legacy_require($user, 'ap.view');
     $where = ['tenant_id = :t']; $params = ['t' => $tenantId];
     if (!empty($_GET['status']))      { $where[] = 'status = :s'; $params['s'] = (string) $_GET['status']; }
     if (!empty($_GET['vendor_name'])) { $where[] = 'vendor_name = :vn'; $params['vn'] = (string) $_GET['vendor_name']; }
@@ -71,7 +71,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $body = api_json_body();
     api_require_fields($body, ['po_number', 'vendor_name', 'issue_date']);
     $lines = is_array($body['lines'] ?? null) ? $body['lines'] : [];
@@ -138,7 +138,7 @@ if ($method === 'POST' && $action === '') {
 if ($id <= 0) api_error('id required', 422);
 
 if ($method === 'PATCH') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $body = api_json_body();
     $allowed = ['po_number','vendor_name','vendor_id','issue_date','expected_date','currency','subtotal','tax_total','total','notes','status'];
     $set = [];
@@ -154,7 +154,7 @@ if ($method === 'PATCH') {
 }
 
 if ($method === 'POST' && $action === 'receive') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $body = api_json_body();
     $rd   = (string) ($body['received_date'] ?? date('Y-m-d'));
     $note = (string) ($body['note'] ?? '');
@@ -199,7 +199,7 @@ if ($method === 'POST' && $action === 'receive') {
 }
 
 if ($method === 'POST' && $action === 'close') {
-    RBAC::requirePermission($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ap.bill.create');
     $pdo->prepare('UPDATE ap_purchase_orders SET status = "closed" WHERE tenant_id = :t AND id = :id')
         ->execute(['t' => $tenantId, 'id' => $id]);
     apAudit('ap.po.closed', ['po_id' => $id], $id);

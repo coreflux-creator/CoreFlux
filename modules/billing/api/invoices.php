@@ -30,7 +30,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
-    RBAC::requirePermission($user, 'billing.view');
+    rbac_legacy_require($user, 'billing.view');
     $id = (int) $_GET['id'];
     $inv = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$inv) api_error('Not found', 404);
@@ -61,7 +61,7 @@ if ($method === 'GET' && !empty($_GET['id']) && $action !== 'pdf') {
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'billing.view');
+    rbac_legacy_require($user, 'billing.view');
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['client_name'])) { $where[] = 'client_name = :cn';   $params['cn'] = $_GET['client_name']; }
@@ -88,7 +88,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'from-time-bundle') {
-    RBAC::requirePermission($user, 'billing.invoice.draft');
+    rbac_legacy_require($user, 'billing.invoice.draft');
     $body = api_json_body();
     api_require_fields($body, ['period_id', 'placement_ids']);
     $periodId  = (int) $body['period_id'];
@@ -171,7 +171,7 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
 }
 
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'billing.invoice.draft');
+    rbac_legacy_require($user, 'billing.invoice.draft');
     $body = api_json_body();
     api_require_fields($body, ['client_name', 'lines']);
     if (empty($body['lines']) || !is_array($body['lines'])) api_error('lines must be a non-empty array', 422);
@@ -262,7 +262,7 @@ if ($method === 'POST' && $action === '') {
 }
 
 if ($method === 'PATCH') {
-    RBAC::requirePermission($user, 'billing.invoice.draft');
+    rbac_legacy_require($user, 'billing.invoice.draft');
     $id = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -284,7 +284,7 @@ if ($method === 'PATCH') {
 }
 
 if ($method === 'POST' && $action === 'approve') {
-    RBAC::requirePermission($user, 'billing.invoice.approve');
+    rbac_legacy_require($user, 'billing.invoice.approve');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -299,7 +299,7 @@ if ($method === 'POST' && $action === 'approve') {
 }
 
 if ($method === 'POST' && $action === 'send') {
-    RBAC::requirePermission($user, 'billing.invoice.send');
+    rbac_legacy_require($user, 'billing.invoice.send');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -373,7 +373,7 @@ if ($method === 'POST' && $action === 'send') {
 }
 
 if ($method === 'GET' && $action === 'pdf' && !empty($_GET['id'])) {
-    RBAC::requirePermission($user, 'billing.view');
+    rbac_legacy_require($user, 'billing.view');
     $id  = (int) $_GET['id'];
     $row = scopedFind('SELECT id, invoice_number FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -399,7 +399,7 @@ if ($method === 'GET' && $action === 'pdf' && !empty($_GET['id'])) {
 }
 
 if ($method === 'POST' && $action === 'void') {
-    RBAC::requirePermission($user, 'billing.invoice.void');
+    rbac_legacy_require($user, 'billing.invoice.void');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -448,7 +448,7 @@ if ($method === 'POST' && $action === 'post') {
     //   Cr  Revenue             (4000)
     //   Cr  Sales Tax Payable   (2100)   [only if tax_total > 0]
     // Idempotent on billing:invoice:<id>:post.
-    RBAC::requirePermission($user, 'billing.invoice.approve');
+    rbac_legacy_require($user, 'billing.invoice.approve');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -618,8 +618,8 @@ if ($method === 'POST' && $action === 'post') {
 // Idempotency: ic:invoice:<id>
 // =======================================================================
 if ($method === 'POST' && $action === 'post_with_ic_split') {
-    RBAC::requirePermission($user, 'billing.invoice.approve');
-    RBAC::requirePermission($user, 'accounting.je.post');
+    rbac_legacy_require($user, 'billing.invoice.approve');
+    rbac_legacy_require($user, 'accounting.je.post');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);

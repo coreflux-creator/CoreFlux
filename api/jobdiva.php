@@ -83,7 +83,7 @@ $tid  = (int) $ctx['tenant_id'];
 switch ($action) {
     case 'status': {
         if ($method !== 'GET') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.jobdiva.view');
+        rbac_legacy_require($user, 'integrations.jobdiva.view');
         $row = jobdivaConnection($tid);
         if (!$row) {
             api_ok([
@@ -144,7 +144,7 @@ switch ($action) {
 
     case 'connect': {
         if ($method !== 'POST') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.jobdiva.manage');
+        rbac_legacy_require($user, 'integrations.jobdiva.manage');
         $body = api_json_body();
         try {
             $res = jobdivaSaveConnection($tid, [
@@ -169,14 +169,14 @@ switch ($action) {
 
     case 'disconnect': {
         if (!in_array($method, ['POST', 'DELETE'], true)) api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.jobdiva.manage');
+        rbac_legacy_require($user, 'integrations.jobdiva.manage');
         jobdivaDisconnect($tid, $user['id'] ?? null);
         api_ok(['ok' => true]);
     }
 
     case 'ping': {
         if ($method !== 'POST') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.jobdiva.manage');
+        rbac_legacy_require($user, 'integrations.jobdiva.manage');
         $row = jobdivaConnection($tid);
         if (!$row) api_error('JobDiva is not connected', 404);
         api_ok(jobdivaPing($tid, $user['id'] ?? null));
@@ -186,7 +186,7 @@ switch ($action) {
         // Slice A3: pulls Companies, Contacts, Placements via the agnostic
         // entity-mapping pipeline. NO candidates / applicants / open positions.
         if ($method !== 'POST') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.jobdiva.manage');
+        rbac_legacy_require($user, 'integrations.jobdiva.manage');
         $row = jobdivaConnection($tid);
         if (!$row) api_error('JobDiva is not connected', 404);
         $body = api_json_body();
@@ -214,7 +214,7 @@ switch ($action) {
         // Slice A4: per-entity sync config. Returns the merged config
         // (stored ∪ defaults) so the UI can render every entity row.
         if ($method !== 'GET') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.jobdiva.view');
+        rbac_legacy_require($user, 'integrations.jobdiva.view');
         api_ok([
             'sync_config' => jobdivaSyncConfigRead($tid),
             'entities'    => JOBDIVA_SYNC_ENTITIES,
@@ -225,7 +225,7 @@ switch ($action) {
 
     case 'sync_config_set': {
         if ($method !== 'POST') api_error('Method not allowed', 405);
-        RBAC::requirePermission($user, 'integrations.jobdiva.manage');
+        rbac_legacy_require($user, 'integrations.jobdiva.manage');
         $body = api_json_body();
         $config = $body['sync_config'] ?? null;
         if (!is_array($config)) api_error('sync_config object required', 422);

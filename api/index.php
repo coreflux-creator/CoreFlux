@@ -56,9 +56,9 @@ $authCtx = api_require_auth();
 // Module-level RBAC gate. The user must hold at least the base
 // '<module>.view' permission to reach any endpoint inside that module.
 // Per-endpoint permissions remain the module's responsibility (it can call
-// RBAC::requirePermission($authCtx['user'], 'foo.bar.action') itself).
+// rbac_legacy_require($authCtx['user'], 'foo.bar.action') itself).
 $baseModulePerm = $parsed['module_id'] . '.view';
-RBAC::requirePermission($authCtx['user'], $baseModulePerm);
+rbac_legacy_require($authCtx['user'], $baseModulePerm);
 
 // Stash router context for the included module file
 $GLOBALS['CF_API_REQUEST_ID'] = $requestId;

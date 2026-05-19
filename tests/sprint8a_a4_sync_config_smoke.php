@@ -73,7 +73,7 @@ $assert('sync_config_get returns entities/sources/directions for picker',
 $assert("sync_config_set action POST-only",
     strpos($api, "case 'sync_config_set'") !== false);
 $assert('sync_config_set requires manage perm',
-    strpos($api, "RBAC::requirePermission(\$user, 'integrations.jobdiva.manage');\n        \$body = api_json_body();\n        \$config = \$body['sync_config']") !== false);
+    strpos($api, "rbac_legacy_require(\$user, 'integrations.jobdiva.manage');\n        \$body = api_json_body();\n        \$config = \$body['sync_config']") !== false);
 $assert('sync_config_set 422 on invalid payload',
     strpos($api, 'is_array($config))') !== false
     && strpos($api, "api_error('sync_config object required', 422)") !== false);

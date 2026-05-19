@@ -22,8 +22,8 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 
 if ($method === 'GET') {
-    if (!RBAC::hasPermission($user, 'accounting.bank.view')
-        && !RBAC::hasPermission($user, 'accounting.bank.manage')) {
+    if (!rbac_legacy_can($user, 'accounting.bank.view')
+        && !rbac_legacy_can($user, 'accounting.bank.manage')) {
         api_error('Permission denied', 403);
     }
     $accountPk = (int) ($_GET['account_pk'] ?? 0);
@@ -52,7 +52,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'sync') {
-    RBAC::requirePermission($user, 'accounting.bank.manage');
+    rbac_legacy_require($user, 'accounting.bank.manage');
     $body = api_json_body();
     $accountPk = (int) ($body['account_pk'] ?? 0);
     if ($accountPk <= 0) api_error('account_pk required', 422);

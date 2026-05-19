@@ -25,7 +25,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'accounting.coa.view');
+    rbac_legacy_require($user, 'accounting.coa.view');
     $bid = (int) ($_GET['bank_account_id'] ?? 0);
     if ($bid <= 0) api_error('bank_account_id required', 400);
     $where  = ['tenant_id = :tenant_id', 'bank_account_id = :b'];
@@ -47,7 +47,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'import_csv') {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $bid = (int) ($_GET['bank_account_id'] ?? 0);
     if ($bid <= 0) api_error('bank_account_id required', 400);
     $bank = scopedFind('SELECT id FROM accounting_bank_accounts WHERE tenant_id = :tenant_id AND id = :id', ['id' => $bid]);
@@ -64,7 +64,7 @@ if ($method === 'POST' && $action === 'import_csv') {
 }
 
 if ($method === 'POST' && $action === 'match') {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $lid = (int) ($_GET['line_id'] ?? 0);
     if ($lid <= 0) api_error('line_id required', 400);
     $body = api_json_body();
@@ -76,7 +76,7 @@ if ($method === 'POST' && $action === 'match') {
 }
 
 if ($method === 'POST' && $action === 'unmatch') {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $lid = (int) ($_GET['line_id'] ?? 0);
     if ($lid <= 0) api_error('line_id required', 400);
     $res = bankRecUnmatchLine((int) $ctx['tenant_id'], $lid);
@@ -85,7 +85,7 @@ if ($method === 'POST' && $action === 'unmatch') {
 }
 
 if ($method === 'POST' && $action === 'ignore') {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $lid = (int) ($_GET['line_id'] ?? 0);
     if ($lid <= 0) api_error('line_id required', 400);
     scopedUpdate('accounting_bank_statement_lines', $lid, ['match_status' => 'ignored']);
@@ -94,7 +94,7 @@ if ($method === 'POST' && $action === 'ignore') {
 }
 
 if ($method === 'POST' && $action === 'apply_rules') {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $bid = (int) ($_GET['bank_account_id'] ?? 0);
     if ($bid <= 0) api_error('bank_account_id required', 400);
     $res = bankRecApplyRules((int) $ctx['tenant_id'], $bid, $user['id'] ?? null);
@@ -107,7 +107,7 @@ if ($method === 'POST' && $action === 'accept_ai_categorize') {
     // Stamp the user-accepted COA code onto the bank line + record the
     // accept/override into ai_categorization_history so future predictions
     // for the same merchant get a high-confidence history hit.
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $lid  = (int) ($_GET['line_id'] ?? 0);
     if ($lid <= 0) api_error('line_id required', 400);
     $body = api_json_body();

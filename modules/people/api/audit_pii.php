@@ -17,7 +17,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 $ctx = api_require_auth();
 $user = $ctx['user'];
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'people.pii.audit.view');
+rbac_legacy_require($user, 'people.pii.audit.view');
 
 $where = ['tenant_id = :tenant_id'];
 $params = [];

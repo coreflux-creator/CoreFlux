@@ -87,7 +87,7 @@ foreach (['overview.php','executive_snapshot.php','client_profitability.php','ra
         $o = []; $rc = 0; @exec('php -l ' . escapeshellarg($p) . ' 2>&1', $o, $rc);
         $assert("api/{$f} parses", $rc === 0, $rc !== 0 ? trim(implode("\n", $o)) : null);
         $src = (string) file_get_contents($p);
-        $assert("api/{$f} guards reports.view", stripos($src, "RBAC::requirePermission(\$user, 'reports.view')") !== false);
+        $assert("api/{$f} guards reports.view", stripos($src, "rbac_legacy_require(\$user, 'reports.view')") !== false);
         $assert("api/{$f} accepts ?period",     stripos($src, "api_query('period')") !== false);
         $assert("api/{$f} restricts to GET",    stripos($src, "api_method() !== 'GET'") !== false);
     }

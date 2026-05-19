@@ -96,7 +96,7 @@ $a('send transitions invoice to "sent"',       str_contains($apiSrc, 'status = "
 
 // --- GET ?action=pdf must stream a PDF file -----------------------------
 $a("GET has action='pdf' branch",              str_contains($apiSrc, "\$method === 'GET' && \$action === 'pdf'"));
-$a('pdf branch requires billing.view perm',    preg_match("/action === 'pdf'[\s\S]{0,400}RBAC::requirePermission\(\\\$user, 'billing\.view'\)/", $apiSrc) === 1);
+$a('pdf branch requires billing.view perm',    preg_match("/action === 'pdf'[\s\S]{0,400}rbac_legacy_require\(\\\$user, 'billing\.view'\)/", $apiSrc) === 1);
 $a('pdf branch calls invoiceRenderPdf()',      preg_match("/action === 'pdf'[\s\S]{0,800}invoiceRenderPdf\(\\\$id\)/", $apiSrc) === 1);
 $a('pdf branch sets Content-Type pdf',         str_contains($apiSrc, "header('Content-Type: application/pdf')"));
 $a('pdf branch sets Content-Disposition',      str_contains($apiSrc, "header('Content-Disposition: ' . \$disposition"));

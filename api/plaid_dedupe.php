@@ -28,7 +28,7 @@ require_once __DIR__ . '/../core/plaid_service.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];
-RBAC::requirePermission($ctx['user'], 'accounting.bank.manage');
+rbac_legacy_require($ctx['user'], 'accounting.bank.manage');
 $pdo = getDB();
 
 $method = api_method();

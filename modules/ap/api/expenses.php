@@ -28,7 +28,7 @@ $action = $_GET['action'] ?? '';
 $uid    = (int) ($user['id'] ?? 0);
 
 if ($method === 'GET' && $action === 'export_selected') {
-    RBAC::requirePermission($user, 'ap.expense.submit');
+    rbac_legacy_require($user, 'ap.expense.submit');
     $idsRaw = (string) ($_GET['ids'] ?? '');
     $ids = array_values(array_filter(array_map('intval', explode(',', $idsRaw)), fn ($x) => $x > 0));
     if (!$ids) api_error('ids required', 400);
@@ -102,7 +102,7 @@ if ($method === 'GET' && $action === 'export_selected') {
 
 if ($method === 'GET' && $action === 'upload_url') {
     // Presigned S3 POST for an expense-line receipt.
-    RBAC::requirePermission($user, 'ap.expense.submit');
+    rbac_legacy_require($user, 'ap.expense.submit');
     $lineId = (int) ($_GET['line_id'] ?? 0);
     if ($lineId <= 0) api_error('line_id required', 400);
     $fileName = (string) ($_GET['file_name'] ?? 'receipt');
@@ -113,7 +113,7 @@ if ($method === 'GET' && $action === 'upload_url') {
 
 if ($method === 'POST' && $action === 'attach_line') {
     // Register an uploaded receipt onto a single ap_expense_report_lines row.
-    RBAC::requirePermission($user, 'ap.expense.submit');
+    rbac_legacy_require($user, 'ap.expense.submit');
     $lineId = (int) ($_GET['line_id'] ?? 0);
     if ($lineId <= 0) api_error('line_id required', 400);
     $line = getDB()->prepare(
@@ -146,7 +146,7 @@ if ($method === 'POST' && $action === 'attach_line') {
 if ($method === 'POST' && $action === 'extract_receipt') {
     // AI-assist for an expense-line receipt — same shape as ap.bill.line.from_receipt
     // but maps onto the expense-line schema (date / category / merchant / amount).
-    RBAC::requirePermission($user, 'ap.expense.submit');
+    rbac_legacy_require($user, 'ap.expense.submit');
     require_once __DIR__ . '/../../../core/ai_service.php';
     $body = api_json_body();
     api_require_fields($body, ['storage_key']);
@@ -185,11 +185,11 @@ JSON;
 }
 
 if ($method === 'GET' && !empty($_GET['id'])) {
-    RBAC::requirePermission($user, 'ap.expense.submit');
+    rbac_legacy_require($user, 'ap.expense.submit');
     $id = (int) $_GET['id'];
     $row = scopedFind('SELECT * FROM ap_expense_reports WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
-    $canApprove = RBAC::hasPermission($user, 'ap.expense.approve');
+    $canApprove = rbac_legacy_can($user, 'ap.expense.approve');
     if (!$canApprove && (int) $row['submitter_user_id'] !== $uid) api_error('Forbidden', 403);
     $linesStmt = getDB()->prepare('SELECT * FROM ap_expense_report_lines WHERE expense_report_id = :id ORDER BY line_no');
     $linesStmt->execute(['id' => $id]);
@@ -197,8 +197,8 @@ if ($method === 'GET' && !empty($_GET['id'])) {
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'ap.expense.submit');
-    $canApprove = RBAC::hasPermission($user, 'ap.expense.approve');
+    rbac_legacy_require($user, 'ap.expense.submit');
+    $canApprove = rbac_legacy_can($user, 'ap.expense.approve');
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!$canApprove) {
@@ -217,7 +217,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'ap.expense.submit');
+    rbac_legacy_require($user, 'ap.expense.submit');
     $body = api_json_body();
     api_require_fields($body, ['period_label', 'lines']);
     if (empty($body['lines']) || !is_array($body['lines'])) api_error('lines must be a non-empty array', 422);
@@ -270,7 +270,7 @@ if ($method === 'POST' && $action === '') {
 }
 
 if ($method === 'POST' && $action === 'submit') {
-    RBAC::requirePermission($user, 'ap.expense.submit');
+    rbac_legacy_require($user, 'ap.expense.submit');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_expense_reports WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -283,7 +283,7 @@ if ($method === 'POST' && $action === 'submit') {
 }
 
 if ($method === 'POST' && $action === 'approve') {
-    RBAC::requirePermission($user, 'ap.expense.approve');
+    rbac_legacy_require($user, 'ap.expense.approve');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_expense_reports WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -364,7 +364,7 @@ if ($method === 'POST' && $action === 'approve') {
 }
 
 if ($method === 'POST' && $action === 'reject') {
-    RBAC::requirePermission($user, 'ap.expense.approve');
+    rbac_legacy_require($user, 'ap.expense.approve');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM ap_expense_reports WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);

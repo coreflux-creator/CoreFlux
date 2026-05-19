@@ -27,7 +27,7 @@ $ep = (string) file_get_contents("{$ROOT}/api/tax_mapping_ai_suggest.php");
 $assert('endpoint exists',                       strlen($ep) > 0);
 $assert('parses',                                $lint("{$ROOT}/api/tax_mapping_ai_suggest.php"));
 $assert('POST-only',                             strpos($ep, "if (api_method() !== 'POST')") !== false);
-$assert('RBAC accounting.je.create',             strpos($ep, "RBAC::requirePermission(\$user, 'accounting.je.create')") !== false);
+$assert('RBAC accounting.je.create',             strpos($ep, "rbac_legacy_require(\$user, 'accounting.je.create')") !== false);
 $assert('rejects unknown tax_form_code',         strpos($ep, "Unknown tax_form_code") !== false);
 $assert('TAX_FORM_LINES catalogue (5 forms)',
     strpos($ep, "'US-1040-SCH-C' => [") !== false

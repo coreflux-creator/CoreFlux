@@ -11,13 +11,13 @@ $user = $ctx['user'];
 $method = api_method();
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'time.view');
+    rbac_legacy_require($user, 'time.view');
     $rows = scopedQuery('SELECT * FROM tenant_time_categories WHERE tenant_id = :tenant_id ORDER BY parent_bucket, label');
     api_ok(['rows' => $rows]);
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'time.categories.manage');
+    rbac_legacy_require($user, 'time.categories.manage');
     $body = api_json_body();
     api_require_fields($body, ['code','label','parent_bucket']);
     if (!preg_match('/^[a-z][a-z0-9_]{0,39}$/', $body['code'])) api_error('code must be snake_case', 422);
@@ -32,7 +32,7 @@ if ($method === 'POST') {
 }
 
 if ($method === 'PATCH') {
-    RBAC::requirePermission($user, 'time.categories.manage');
+    rbac_legacy_require($user, 'time.categories.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();
@@ -45,7 +45,7 @@ if ($method === 'PATCH') {
 }
 
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'time.categories.manage');
+    rbac_legacy_require($user, 'time.categories.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $rows = scopedUpdate('tenant_time_categories', $id, ['active' => 0]);

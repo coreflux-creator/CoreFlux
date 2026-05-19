@@ -31,7 +31,7 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'accounting.je.view');
+rbac_legacy_require($user, 'accounting.je.view');
 
 $days     = max(1, min(1825, (int) (api_query('days') ?? 90)));
 $entityId = (int) (api_query('entity_id') ?? 0);

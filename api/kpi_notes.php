@@ -28,7 +28,7 @@ $tid  = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 
-RBAC::requirePermission($user, 'billing.view');
+rbac_legacy_require($user, 'billing.view');
 
 $canWrite = function (array $u): bool {
     $role = (string) ($u['role'] ?? '');

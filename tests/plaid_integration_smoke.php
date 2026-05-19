@@ -130,7 +130,7 @@ $a('link_token still allows body override',             $c($lt2, "\$body['webhoo
 $lt = (string) file_get_contents(__DIR__ . '/../api/plaid_link_token.php');
 $a('POST guard',                              $c($lt, "if (api_method() !== 'POST')"));
 $a('purpose enum guard',                      $c($lt, "['bank_feed','vendor_banking','employee_banking','tenant_funding']"));
-$a('per-purpose RBAC gate',                   $c($lt, 'RBAC::requirePermission'));
+$a('per-purpose RBAC gate',                   $c($lt, 'rbac_legacy_require'));
 $a('purpose-aware product defaults (auth-only for vendor/employee)',
     $c($lt, "'bank_feed'        => ['transactions']") &&
     $c($lt, "required_if_supported_products") &&

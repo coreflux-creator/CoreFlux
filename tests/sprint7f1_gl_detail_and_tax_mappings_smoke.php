@@ -32,7 +32,7 @@ $gl = (string) file_get_contents("{$ROOT}/api/gl_detail.php");
 $assert('endpoint exists',                       strlen($gl) > 0);
 $assert('parses',                                $lint("{$ROOT}/api/gl_detail.php"));
 $assert('GET-only',                              strpos($gl, "if (api_method() !== 'GET')") !== false);
-$assert('RBAC accounting.coa.view',              strpos($gl, "RBAC::requirePermission(\$user, 'accounting.coa.view')") !== false);
+$assert('RBAC accounting.coa.view',              strpos($gl, "rbac_legacy_require(\$user, 'accounting.coa.view')") !== false);
 $assert('requires account_id or account_code',
     strpos($gl, '!$accountId && $accountCode === \'\'') !== false);
 $assert('start/end YYYY-MM-DD validation',
@@ -78,8 +78,8 @@ echo "\nBackend — api/tax_mappings.php\n";
 $tm = (string) file_get_contents("{$ROOT}/api/tax_mappings.php");
 $assert('endpoint exists',                       strlen($tm) > 0);
 $assert('parses',                                $lint("{$ROOT}/api/tax_mappings.php"));
-$assert('GET RBAC accounting.coa.view',          strpos($tm, "RBAC::requirePermission(\$user, 'accounting.coa.view')") !== false);
-$assert('POST/DELETE RBAC accounting.je.create', strpos($tm, "RBAC::requirePermission(\$user, 'accounting.je.create')") !== false);
+$assert('GET RBAC accounting.coa.view',          strpos($tm, "rbac_legacy_require(\$user, 'accounting.coa.view')") !== false);
+$assert('POST/DELETE RBAC accounting.je.create', strpos($tm, "rbac_legacy_require(\$user, 'accounting.je.create')") !== false);
 $assert('TAX_FORMS whitelist',                   strpos($tm, "'US-1040-SCH-C'") !== false
                                               && strpos($tm, "'US-1120-S'")     !== false);
 $assert('rejects unknown tax_form_code',         strpos($tm, "Unknown tax_form_code") !== false);

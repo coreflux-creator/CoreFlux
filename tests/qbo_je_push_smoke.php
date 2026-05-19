@@ -54,7 +54,7 @@ echo "\napi/qbo.php — sync_je dispatch\n";
 $api = (string) file_get_contents($ROOT . '/api/qbo.php');
 $a('requires sync_je.php',                       $c($api, "require_once __DIR__ . '/../core/qbo/sync_je.php'"));
 $a('dispatches case sync_je',                    $c($api, "case 'sync_je'"));
-$a('requires manage permission on sync_je',      $c($api, "RBAC::requirePermission(\$user, 'integrations.qbo.manage')"));
+$a('requires manage permission on sync_je',      $c($api, "rbac_legacy_require(\$user, 'integrations.qbo.manage')"));
 $a('forwards dry_run + limit + je_ids',          $c($api, 'dry_run') && $c($api, 'je_ids') && $c($api, "'limit'"));
 $a('shim file present',                          file_exists($ROOT . '/api/qbo/sync_je.php'));
 

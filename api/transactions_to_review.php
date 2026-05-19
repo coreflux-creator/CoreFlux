@@ -44,7 +44,7 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'accounting.coa.view');
+rbac_legacy_require($user, 'accounting.coa.view');
 
 $bid    = (int) (api_query('bank_account_id') ?? 0);
 $order  = (string) (api_query('order') ?? 'oldest_first');

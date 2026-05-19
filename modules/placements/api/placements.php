@@ -27,7 +27,7 @@ const ALLOWED_REMOTE = ['onsite','hybrid','remote'];
 if ($method === 'GET') {
     $id = (int) api_query('id', 0);
     if ($id > 0) {
-        RBAC::requirePermission($user, 'placements.view');
+        rbac_legacy_require($user, 'placements.view');
         $row = placementGet($id);
         if (!$row) api_error('Not found', 404);
         api_ok([
@@ -40,7 +40,7 @@ if ($method === 'GET') {
             'documents'   => placementDocuments($id),
         ]);
     }
-    RBAC::requirePermission($user, 'placements.view');
+    rbac_legacy_require($user, 'placements.view');
     api_ok(placementsList([
         'q'               => $_GET['q']               ?? null,
         'status'          => $_GET['status']          ?? null,
@@ -61,7 +61,7 @@ if ($method === 'POST') {
     if ($action === 'end') {
         $id = (int) api_query('id', 0);
         if ($id <= 0) api_error('id required', 400);
-        RBAC::requirePermission($user, 'placements.terminate');
+        rbac_legacy_require($user, 'placements.terminate');
         $body = api_json_body();
         $newStatus = in_array(($body['status'] ?? 'ended'), ['ended', 'cancelled'], true)
                    ? $body['status'] : 'ended';
@@ -75,7 +75,7 @@ if ($method === 'POST') {
     }
 
     // Default POST = create
-    RBAC::requirePermission($user, 'placements.manage');
+    rbac_legacy_require($user, 'placements.manage');
     $body = api_json_body();
     api_require_fields($body, ['person_id', 'title', 'start_date', 'engagement_type']);
     if (!in_array($body['engagement_type'], ALLOWED_ETYPE, true)) {
@@ -152,7 +152,7 @@ if ($method === 'POST') {
 if ($method === 'PATCH') {
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
-    RBAC::requirePermission($user, 'placements.manage');
+    rbac_legacy_require($user, 'placements.manage');
     $body = api_json_body();
     foreach (['id','tenant_id','created_at','created_by_user_id','deleted_at'] as $k) unset($body[$k]);
     if (isset($body['engagement_type']) && !in_array($body['engagement_type'], ALLOWED_ETYPE, true)) {

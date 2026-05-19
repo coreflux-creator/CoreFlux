@@ -20,7 +20,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET' && $action === 'trial_balance') {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $asOf = (string) ($_GET['as_of'] ?? date('Y-m-d'));
     $eid  = !empty($_GET['entity_id']) ? (int) $_GET['entity_id'] : null;
     try {
@@ -32,7 +32,7 @@ if ($method === 'GET' && $action === 'trial_balance') {
 }
 
 if ($method === 'GET' && !empty($_GET['id'])) {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $id = (int) $_GET['id'];
     $je = scopedFind('SELECT * FROM accounting_journal_entries WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$je) api_error('Not found', 404);
@@ -48,7 +48,7 @@ if ($method === 'GET' && !empty($_GET['id'])) {
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $where  = ['je.tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['status']))        { $where[] = 'je.status = :s';            $params['s']   = $_GET['status']; }
@@ -82,7 +82,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === 'reverse') {
-    RBAC::requirePermission($user, 'accounting.je.reverse');
+    rbac_legacy_require($user, 'accounting.je.reverse');
     $id = (int) ($_GET['id'] ?? 0);
     $body = api_json_body();
     $reason = trim((string) ($body['reason'] ?? ''));
@@ -95,7 +95,7 @@ if ($method === 'POST' && $action === 'reverse') {
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'accounting.je.post');
+    rbac_legacy_require($user, 'accounting.je.post');
     $body = api_json_body();
     api_require_fields($body, ['posting_date','lines']);
     $body['source_module'] = $body['source_module'] ?? 'manual';

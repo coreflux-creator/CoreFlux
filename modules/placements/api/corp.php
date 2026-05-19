@@ -17,7 +17,7 @@ $pid = (int) api_query('placement_id', 0);
 if ($pid <= 0) api_error('placement_id required', 400);
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'placements.corp.view');
+    rbac_legacy_require($user, 'placements.corp.view');
     $row = scopedFind(
         'SELECT placement_id, tenant_id, corp_legal_name, corp_ein_last4,
                 corp_address_line1, corp_address_line2, corp_city, corp_state, corp_postal_code, corp_country,
@@ -32,7 +32,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'PUT' || $method === 'POST') {
-    RBAC::requirePermission($user, 'placements.corp.manage');
+    rbac_legacy_require($user, 'placements.corp.manage');
     $body = api_json_body();
     api_require_fields($body, ['corp_legal_name']);
 

@@ -18,7 +18,7 @@ $user = $ctx['user'];
 $method = api_method();
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'people.view');
+    rbac_legacy_require($user, 'people.view');
     $personId = (int) api_query('person_id', 0);
     if ($personId <= 0) api_error('person_id required', 400);
     $rows = scopedQuery(
@@ -31,7 +31,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $personId = (int) api_query('person_id', 0);
     if ($personId <= 0) api_error('person_id required', 400);
     $body = api_json_body();
@@ -47,7 +47,7 @@ if ($method === 'POST') {
 }
 
 if ($method === 'PATCH') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();
@@ -59,7 +59,7 @@ if ($method === 'PATCH') {
 }
 
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'people.manage');
+    rbac_legacy_require($user, 'people.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $rows = scopedDelete('people_emergency_contacts', $id);

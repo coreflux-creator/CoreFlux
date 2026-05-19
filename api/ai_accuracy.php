@@ -20,7 +20,7 @@ require_once __DIR__ . '/../../core/ai_categorization.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];
-RBAC::requirePermission($ctx['user'], 'accounting.coa.view');
+rbac_legacy_require($ctx['user'], 'accounting.coa.view');
 $pdo = getDB();
 
 if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'rollup') {

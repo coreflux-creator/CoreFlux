@@ -26,7 +26,7 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 
 if ($method === 'GET' && empty($_GET['id'])) {
-    RBAC::requirePermission($user, 'billing.view');
+    rbac_legacy_require($user, 'billing.view');
     $where = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['status'])) {
@@ -47,7 +47,7 @@ if ($method === 'GET' && empty($_GET['id'])) {
 }
 
 if ($method === 'GET' && !empty($_GET['id'])) {
-    RBAC::requirePermission($user, 'billing.view');
+    rbac_legacy_require($user, 'billing.view');
     $row = scopedFind('SELECT * FROM billing_invoice_contracts WHERE tenant_id = :tenant_id AND id = :id', ['id' => (int) $_GET['id']]);
     if (!$row) api_error('Not found', 404);
     $row['preview_next_3'] = billingRecurringPreviewNextN($row, 3);
@@ -55,7 +55,7 @@ if ($method === 'GET' && !empty($_GET['id'])) {
 }
 
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'billing.invoice.create');
+    rbac_legacy_require($user, 'billing.invoice.create');
     $body = api_json_body();
     api_require_fields($body, ['client_name', 'contract_name', 'frequency', 'amount', 'start_date']);
     if (!in_array($body['frequency'], ['monthly','quarterly','annual'], true)) api_error('invalid frequency', 422);
@@ -93,7 +93,7 @@ if ($method === 'POST' && $action === '') {
 }
 
 if ($method === 'POST' && in_array($action, ['update','pause','resume','end'], true)) {
-    RBAC::requirePermission($user, 'billing.invoice.create');
+    rbac_legacy_require($user, 'billing.invoice.create');
     $id = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM billing_invoice_contracts WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -120,7 +120,7 @@ if ($method === 'POST' && in_array($action, ['update','pause','resume','end'], t
 }
 
 if ($method === 'POST' && $action === 'generate_now') {
-    RBAC::requirePermission($user, 'billing.invoice.create');
+    rbac_legacy_require($user, 'billing.invoice.create');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM billing_invoice_contracts WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);

@@ -27,7 +27,7 @@ $action = $_GET['action'] ?? '';
 $tid    = (int) $ctx['tenant_id'];
 
 if ($method === 'GET' && !empty($_GET['id'])) {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $id  = (int) $_GET['id'];
     $row = scopedFind('SELECT * FROM accounting_recurring_journal_entries WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -40,7 +40,7 @@ if ($method === 'GET' && !empty($_GET['id'])) {
 }
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $where = ['tenant_id = :tenant_id']; $params = [];
     if (!empty($_GET['status'])) { $where[] = 'status = :s'; $params['s'] = (string) $_GET['status']; }
     $rows = scopedQuery(
@@ -54,7 +54,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $body = api_json_body();
     api_require_fields($body, ['name', 'cadence', 'next_run_date', 'lines']);
     if (!in_array($body['cadence'], ['weekly','biweekly','monthly','quarterly','yearly'], true)) {
@@ -101,7 +101,7 @@ if ($method === 'POST' && $action === '') {
 }
 
 if ($method === 'POST' && $action === 'replace_lines') {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();
@@ -132,7 +132,7 @@ if ($method === 'POST' && $action === 'replace_lines') {
 }
 
 if ($method === 'POST' && in_array($action, ['pause','resume','end'], true)) {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $newStatus = match ($action) {
@@ -146,7 +146,7 @@ if ($method === 'POST' && in_array($action, ['pause','resume','end'], true)) {
 }
 
 if ($method === 'POST' && $action === 'run_now') {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();
@@ -161,13 +161,13 @@ if ($method === 'POST' && $action === 'run_now') {
 if ($method === 'POST' && $action === 'run_due') {
     // Cron entrypoint. Master-admin or scoped tenant-admin can hit it
     // (use accounting.coa.edit as a coarse "settings-level" perm).
-    RBAC::requirePermission($user, 'accounting.coa.edit');
+    rbac_legacy_require($user, 'accounting.coa.edit');
     $r = recurringJeRunDueForTenant($tid, $user['id'] ?? null);
     api_ok($r);
 }
 
 if ($method === 'PUT') {
-    RBAC::requirePermission($user, 'accounting.je.create');
+    rbac_legacy_require($user, 'accounting.je.create');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $body    = api_json_body();

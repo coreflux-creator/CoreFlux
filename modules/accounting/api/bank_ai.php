@@ -29,7 +29,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method !== 'POST') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'accounting.je.create');
+rbac_legacy_require($user, 'accounting.je.create');
 
 $lineId = (int) ($_GET['line_id'] ?? 0);
 if ($lineId <= 0) api_error('line_id required', 400);

@@ -33,7 +33,7 @@ $apiPath = "{$ROOT}/api/missing_dimensions.php";
 $api = (string) file_get_contents($apiPath);
 $assert('parses',                                 $lint($apiPath));
 $assert('GET-only',                               strpos($api, "if (api_method() !== 'GET') api_error('Method not allowed', 405)") !== false);
-$assert('RBAC accounting.je.view',                strpos($api, "RBAC::requirePermission(\$user, 'accounting.je.view')") !== false);
+$assert('RBAC accounting.je.view',                strpos($api, "rbac_legacy_require(\$user, 'accounting.je.view')") !== false);
 $assert('days clamped 1..1825',                   strpos($api, "max(1, min(1825, (int) (api_query('days') ?? 90)))") !== false);
 $assert('limit clamped 1..500',                   strpos($api, "max(1, min(500, (int) (api_query('limit') ?? 100)))") !== false);
 $assert('reads accounting_dimensions registry',   strpos($api, "FROM accounting_dimensions\n      WHERE tenant_id = :t AND active = 1") !== false);

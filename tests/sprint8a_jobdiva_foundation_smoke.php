@@ -92,9 +92,9 @@ $assert('webhook persists with ON DUPLICATE KEY id=id (idempotent)',
     strpos($disp, 'ON DUPLICATE KEY UPDATE id = id') !== false);
 $assert('webhook returns 401 on bad signature',   strpos($disp, "api_error('Invalid signature', 401)") !== false);
 $assert('connect RBAC integrations.jobdiva.manage',
-    strpos($disp, "RBAC::requirePermission(\$user, 'integrations.jobdiva.manage')") !== false);
+    strpos($disp, "rbac_legacy_require(\$user, 'integrations.jobdiva.manage')") !== false);
 $assert('status RBAC integrations.jobdiva.view',
-    strpos($disp, "RBAC::requirePermission(\$user, 'integrations.jobdiva.view')") !== false);
+    strpos($disp, "rbac_legacy_require(\$user, 'integrations.jobdiva.view')") !== false);
 $assert('status returns recent_audit + recent_events',
     strpos($disp, "'recent_audit'") !== false
     && strpos($disp, "'recent_events'") !== false);

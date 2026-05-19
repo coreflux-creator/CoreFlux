@@ -47,7 +47,7 @@ function peopleGet(int $personId): ?array
 
 /**
  * Get a person WITH PII. Caller MUST have already checked
- * RBAC::hasPermission($user, 'people.pii.view') AND have written a
+ * rbac_legacy_can($user, 'people.pii.view') AND have written a
  * `people_pii_access_log` entry via peopleLogPIIAccess().
  */
 function peopleGetWithPII(int $personId): ?array

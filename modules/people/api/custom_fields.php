@@ -22,12 +22,12 @@ $method = api_method();
 const ALLOWED_FIELD_TYPES = ['text','number','date','boolean','select','multiselect'];
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'people.view');
+    rbac_legacy_require($user, 'people.view');
     api_ok(['fields' => peopleCustomFieldDefs()]);
 }
 
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'people.custom_fields.manage');
+    rbac_legacy_require($user, 'people.custom_fields.manage');
     $body = api_json_body();
     api_require_fields($body, ['field_key', 'field_label', 'field_type']);
 
@@ -51,7 +51,7 @@ if ($method === 'POST') {
 }
 
 if ($method === 'PATCH') {
-    RBAC::requirePermission($user, 'people.custom_fields.manage');
+    rbac_legacy_require($user, 'people.custom_fields.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $body = api_json_body();
@@ -70,7 +70,7 @@ if ($method === 'PATCH') {
 }
 
 if ($method === 'DELETE') {
-    RBAC::requirePermission($user, 'people.custom_fields.manage');
+    rbac_legacy_require($user, 'people.custom_fields.manage');
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 400);
     $rows = scopedUpdate('people_custom_field_defs', $id, ['deleted_at' => date('Y-m-d H:i:s')]);

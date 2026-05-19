@@ -124,7 +124,7 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
-RBAC::requirePermission($user, 'accounting.je.create');
+rbac_legacy_require($user, 'accounting.je.create');
 
 $body = api_json_body();
 $form = trim((string) ($body['tax_form_code'] ?? ''));

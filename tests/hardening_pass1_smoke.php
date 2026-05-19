@@ -70,7 +70,7 @@ _h('GET joins accounting_accounts for display',         str_contains($rules, 'JO
 _h('GET decorates auto_apply_eligible flag',            str_contains($rules, 'auto_apply_eligible'));
 _h('PATCH handles disable/enable',                      str_contains($rules, "if (\$method === 'PATCH'"));
 _h('DELETE forgets a rule',                             str_contains($rules, "if (\$method === 'DELETE')"));
-_h('permission gated on accounting.je.create',          str_contains($rules, "RBAC::requirePermission(\$ctx['user'], 'accounting.je.create')"));
+_h('permission gated on accounting.je.create',          str_contains($rules, "rbac_legacy_require(\$ctx['user'], 'accounting.je.create')"));
 
 echo "\nSavedRules UI page wired into Treasury module\n";
 $tm = (string) file_get_contents(__DIR__ . '/../modules/treasury/ui/TreasuryModule.jsx');

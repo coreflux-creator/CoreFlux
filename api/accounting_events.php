@@ -45,7 +45,7 @@ $action = (string) (api_query('action') ?? $pathAction ?? '');
 // GET /api/accounting/events
 // ──────────────────────────────────────────────────────────────────
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'accounting.coa.view');
+    rbac_legacy_require($user, 'accounting.coa.view');
 
     $where  = ['tenant_id = :t'];
     $params = ['t' => $tid];
@@ -89,7 +89,7 @@ if ($method === 'GET') {
 // POST /api/accounting/events/sandbox  (rule sandbox preview)
 // ──────────────────────────────────────────────────────────────────
 if ($method === 'POST' && ($action === 'sandbox' || $pathAction === 'sandbox')) {
-    RBAC::requirePermission($user, 'accounting.manage_posting_rules');
+    rbac_legacy_require($user, 'accounting.manage_posting_rules');
     $body = api_json_body();
     api_require_fields($body, ['entity_id', 'event_type', 'event_date', 'payload']);
 
@@ -116,7 +116,7 @@ if ($method === 'POST' && ($action === 'sandbox' || $pathAction === 'sandbox')) 
 // POST /api/accounting/events/:id/post   (re-process a failed event)
 // ──────────────────────────────────────────────────────────────────
 if ($method === 'POST' && $pathId && $pathAction === 'post') {
-    RBAC::requirePermission($user, 'accounting.create_entry');
+    rbac_legacy_require($user, 'accounting.create_entry');
     $pdo = getDB();
     $sel = $pdo->prepare('SELECT * FROM accounting_events WHERE tenant_id = :t AND id = :id');
     $sel->execute(['t' => $tid, 'id' => $pathId]);
@@ -146,7 +146,7 @@ if ($method === 'POST' && $pathId && $pathAction === 'post') {
 // POST /api/accounting/events  (create + auto-process)
 // ──────────────────────────────────────────────────────────────────
 if ($method === 'POST') {
-    RBAC::requirePermission($user, 'accounting.create_entry');
+    rbac_legacy_require($user, 'accounting.create_entry');
     $body = api_json_body();
     api_require_fields($body, ['entity_id', 'event_type', 'source_module', 'source_record_id', 'event_date', 'payload']);
 

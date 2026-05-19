@@ -33,6 +33,8 @@ $a('POST takes persona_id',                       $c($ep, "api_require_fields(\$
 $a('POST calls setActivePersona helper',          $c($ep, 'setActivePersona($personaId)'));
 $a('POST audits persona_switched',                $c($ep, "'persona_switched'") && $c($ep, 'RBACResolver::auditMembership'));
 $a('POST resets resolver cache',                  $c($ep, 'RBACResolver::resetCache'));
+$a('POST mirrors persona_type into $_SESSION[user][role]',
+    $c($ep, "\$_SESSION['user']['role'] = (string) \$row['persona_type']"));
 $a('DELETE clears active persona',                $c($ep, 'clearActivePersona') && $c($ep, "'cleared' => true"));
 $a('rejects when persona invalid (404)',          $c($ep, "api_error('Persona not found"));
 
@@ -59,6 +61,16 @@ $a('has data-testid="header-persona-switcher"',   $c($h, 'data-testid="header-pe
 $a('has data-testid="header-persona-button"',     $c($h, 'data-testid="header-persona-button"'));
 $a('renders per-persona option testids',          $c($h, 'header-persona-option-'));
 $a('shows PRIMARY badge on primary persona',      $c($h, 'is_primary &&'));
+
+// ----------------------------------------------------------------- App.jsx listener
+echo "\nApp.jsx persona-changed listener\n";
+$app = (string) file_get_contents($ROOT . '/dashboard/src/App.jsx');
+$a('App.jsx listens to cf:active-persona-changed',
+    $c($app, "addEventListener('cf:active-persona-changed'"));
+$a('App.jsx soft-reloads on persona change',
+    $c($app, 'window.location.reload()'));
+$a('App.jsx removes listener on cleanup',
+    $c($app, "removeEventListener('cf:active-persona-changed'"));
 
 // ----------------------------------------------------------------- $ctx integration sanity
 echo "\napi_bootstrap.php still reads active_persona_id\n";

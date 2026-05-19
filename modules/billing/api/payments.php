@@ -20,7 +20,7 @@ $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET') {
-    RBAC::requirePermission($user, 'billing.view');
+    rbac_legacy_require($user, 'billing.view');
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['client_name'])) { $where[] = 'client_name = :cn';   $params['cn'] = $_GET['client_name']; }
@@ -34,7 +34,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST' && $action === '') {
-    RBAC::requirePermission($user, 'billing.payments.record');
+    rbac_legacy_require($user, 'billing.payments.record');
     $body = api_json_body();
     api_require_fields($body, ['client_name', 'received_at', 'method', 'amount']);
     $amount = round((float) $body['amount'], 2);
@@ -72,7 +72,7 @@ if ($method === 'POST' && $action === '') {
 }
 
 if ($method === 'POST' && $action === 'allocate') {
-    RBAC::requirePermission($user, 'billing.payments.record');
+    rbac_legacy_require($user, 'billing.payments.record');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     $row = scopedFind('SELECT id FROM billing_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);

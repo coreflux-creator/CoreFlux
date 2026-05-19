@@ -56,8 +56,8 @@ $ap = (string) file_get_contents(__DIR__ . '/../modules/ap/api/payments.php');
 $a('new POST ?action=send_via_mercury route',
     $c($ap, "\$method === 'POST' && \$action === 'send_via_mercury'"));
 $a('action requires ap.payment.send RBAC',
-    $c($ap, "RBAC::requirePermission(\$user, 'ap.payment.send')") &&
-    preg_match('/send_via_mercury.*requirePermission/s', $ap));
+    $c($ap, "rbac_legacy_require(\$user, 'ap.payment.send')") &&
+    preg_match('/send_via_mercury.*rbac_legacy_require/s', $ap));
 $a('action calls mpCreateFromApPayment',         $c($ap, 'mpCreateFromApPayment($tid, $id'));
 $a('returns instruction_id in response',         $c($ap, "'instruction_id' =>"));
 $a('GET response now includes mercury_connected flag',
@@ -109,9 +109,9 @@ $a('POST ?action=commit invokes mercuryRecipientCreate',
     $c($csv, 'mercuryRecipientCreate($tenantId, ['));
 $a('commit always sets kind=vendor',             $c($csv, "'kind'           => 'vendor'"));
 $a('commit threads through skip_invalid',        $c($csv, "['skip_invalid' => \$skipInvalid"));
-$a('RBAC: writes need bank.manage',              $c($csv, "RBAC::requirePermission(\$user, 'accounting.bank.manage')"));
+$a('RBAC: writes need bank.manage',              $c($csv, "rbac_legacy_require(\$user, 'accounting.bank.manage')"));
 $a('RBAC: template read accepts bank.view OR manage',
-    $c($csv, "hasPermission(\$user, 'accounting.bank.view')"));
+    $c($csv, "rbac_legacy_can(\$user, 'accounting.bank.view')"));
 $a('rejects unknown actions',                    $c($csv, "Unknown action. Use ?action=template|dry_run|commit"));
 
 // ----------------------------------------------------------------- CSV UI

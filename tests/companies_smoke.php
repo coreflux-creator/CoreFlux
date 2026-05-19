@@ -61,7 +61,7 @@ foreach (['upsert','add-role','remove-role','add-contact'] as $a) {
 $assert('GET typeahead by q+role',             strpos($apiSrc, "\$_GET['q']") !== false && strpos($apiSrc, "\$_GET['role']") !== false);
 $assert('PATCH allows role rewrite',           strpos($apiSrc, "DELETE FROM company_roles") !== false);
 $assert('DELETE soft-deletes (deleted_at)',    strpos($apiSrc, 'SET deleted_at = NOW()') !== false);
-$assert('DELETE requires people.manage',       strpos($apiSrc, "RBAC::requirePermission(\$user, 'people.manage')") !== false);
+$assert('DELETE requires people.manage',       strpos($apiSrc, "rbac_legacy_require(\$user, 'people.manage')") !== false);
 
 echo "\nPlacements integration\n";
 $placeApi = (string) file_get_contents(__DIR__ . '/../modules/placements/api/placements.php');

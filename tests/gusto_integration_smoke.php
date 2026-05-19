@@ -116,7 +116,7 @@ $a('state mismatch raises GustoAuthException',    $mismatch === false);
 
 echo "\napi/gusto_oauth_start.php — start endpoint\n";
 $start = (string) file_get_contents(__DIR__ . '/../api/gusto_oauth_start.php');
-$a('requires payroll.run.disburse',              strpos($start, "RBAC::requirePermission(\$ctx['user'], 'payroll.run.disburse')") !== false);
+$a('requires payroll.run.disburse',              strpos($start, "rbac_legacy_require(\$ctx['user'], 'payroll.run.disburse')") !== false);
 $a('returns 503 if not configured',              strpos($start, ', 503') !== false);
 $a('302-redirects to authorization URL',         strpos($start, "header('Location: ' . \$url, true, 302)") !== false);
 $a('JSON variant for SPA callers',               strpos($start, "['authorize_url' => \$url]") !== false);
@@ -151,12 +151,12 @@ $a('GET never returns raw tokens',
     strpos($con, "'access_token_ct'") === false &&
     strpos($con, "'refresh_token_ct'") === false);
 $a('DELETE soft-revokes connection',             strpos($con, "['status' => 'revoked']") !== false);
-$a('DELETE requires payroll.run.disburse',       strpos($con, "RBAC::requirePermission(\$ctx['user'], 'payroll.run.disburse')") !== false);
+$a('DELETE requires payroll.run.disburse',       strpos($con, "rbac_legacy_require(\$ctx['user'], 'payroll.run.disburse')") !== false);
 $a('audits payroll.gusto.disconnected',          strpos($con, "'payroll.gusto.disconnected'") !== false);
 
 echo "\nmodules/payroll/api/gusto_submit.php\n";
 $sub = (string) file_get_contents(__DIR__ . '/../modules/payroll/api/gusto_submit.php');
-$a('requires payroll.run.disburse',              strpos($sub, "RBAC::requirePermission(\$ctx['user'], 'payroll.run.disburse')") !== false);
+$a('requires payroll.run.disburse',              strpos($sub, "rbac_legacy_require(\$ctx['user'], 'payroll.run.disburse')") !== false);
 $a('rejects unapproved runs',                    strpos($sub, "'Run must be approved before submitting to Gusto") !== false);
 $a('returns 412 if not connected',               strpos($sub, ', 412') !== false);
 $a('list_unprocessed action',                    strpos($sub, "if (\$action === 'list_unprocessed')") !== false);
