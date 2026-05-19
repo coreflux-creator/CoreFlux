@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/api';
 import { Section, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { PlugZap, Building2, Banknote, ChevronRight } from 'lucide-react';
+import { PlugZap, Building2, Banknote, BookOpen, ChevronRight } from 'lucide-react';
 
 /**
  * IntegrationsHub — tenant admin "single pane of glass" for every external
@@ -18,6 +18,7 @@ export default function IntegrationsHub() {
   const plaid    = useApi('/api/plaid_transfer_link.php?action=status');
   const mercury  = useApi('/api/mercury_connection.php?action=status');
   const jobdiva  = useApi('/api/jobdiva/status.php?action=status');
+  const qbo      = useApi('/api/qbo/status.php?action=status');
 
   const plaidStatus = plaid.loading
     ? 'loading'
@@ -34,6 +35,14 @@ export default function IntegrationsHub() {
   const jobdivaStatus = jobdiva.loading
     ? 'loading'
     : jobdiva.data?.connected ? 'connected' : 'not_connected';
+
+  const qboStatus = qbo.loading
+    ? 'loading'
+    : qbo.data?.connected
+      ? 'connected'
+      : qbo.data?.configured
+        ? 'not_connected'
+        : 'not_configured';
 
   return (
     <div data-testid="integrations-hub">
@@ -77,6 +86,19 @@ export default function IntegrationsHub() {
             description="Sync companies, contacts, placements, and time entries with your JobDiva ATS."
             href="/admin/integrations/jobdiva"
             status={jobdivaStatus}
+          />
+        </ActionCardsGrid>
+      </Section>
+
+      <Section title="Accounting">
+        <ActionCardsGrid>
+          <IntegrationCard
+            testid="integration-card-qbo"
+            icon={BookOpen}
+            title="QuickBooks Online"
+            description="OAuth connection to your Intuit QuickBooks company. Per-entity push / pull / two-way controls for journal entries, customers, vendors, invoices, bills, payments, and the chart of accounts."
+            href="/admin/integrations/qbo"
+            status={qboStatus}
           />
         </ActionCardsGrid>
       </Section>

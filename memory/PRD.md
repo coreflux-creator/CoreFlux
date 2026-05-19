@@ -10,6 +10,55 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (QuickBooks Online — Slice 1: Foundation, 2026-02 — this fork)
+**Per-tenant OAuth 2.0 connection vault for Intuit QuickBooks Online**, slotted under the new centralized Integrations Hub. Lays the groundwork for journal entry push, customer/vendor pull, and bidirectional sync (Slices 2+).
+
+### Schema (migration 052)
+- `qbo_connections` — one row per tenant. `realm_id`, `environment` (sandbox/production), `access_token_ct` + `refresh_token_ct` (AES-256-GCM via existing `encryptField()`), `access_token_exp`, `refresh_token_exp` (rolling 100-day), `scope`, `status`, `sync_config` (JSON: per-entity direction map), `last_probe_at`, `last_probe_error`.
+- `qbo_oauth_state` — single-use, 30-minute-bound CSRF nonces for the authorize → callback round-trip. Unique key on `state_token` prevents replay.
+- `qbo_sync_audit` — every connect / disconnect / refresh / ping / sync_config_update / future sync rows lands a row. Mirrors `jobdiva_sync_audit` so UI rendering can be shared.
+
+### Adapter (`core/qbo/client.php`)
+- OAuth helpers: `qboBuildAuthorizeUrl()` (mints state nonce + builds Intuit URL), `qboExchangeCode()` (authorization-code → access+refresh tokens, probes `/companyinfo` for company name), `qboRefreshAccessToken()` (auto-refresh with 60s slack), `qboDisconnect()` (best-effort upstream revoke + local status=revoked).
+- API helpers: `qboCall()` retries once on 401 after refresh; surfaces non-2xx as `RuntimeException` AND writes `status=error` + `last_probe_error` on the connection row so the UI exposes degraded state.
+- Sync config: `qboSyncConfigRead()` merges stored config with defaults so the UI always renders every entity row; `qboSyncConfigWrite()` validates direction values + audits the change.
+- Test transport hook: `$GLOBALS['__qbo_transport']` callable injection mirrors the Mercury / JobDiva pattern — smoke tests can stub HTTP without curl.
+- Defaults: every entity (`journal_entries`, `customers`, `vendors`, `invoices`, `bills`, `payments`, `chart_of_accounts`) starts at `off`. Tenants must explicitly opt direction in.
+
+### API surface (`api/qbo.php` + shims under `api/qbo/`)
+- `GET  /api/qbo/status`            → configured / connected / realm_id / company / sync_config / recent_audit (no secrets)
+- `GET  /api/qbo/oauth_start`       → returns Intuit authorize URL + state nonce (UI does the redirect)
+- `GET  /api/qbo/oauth_callback`    → Intuit redirect target. Verifies state, exchanges code, redirects to `/admin/integrations/qbo?connected=1`
+- `POST /api/qbo/disconnect`
+- `POST /api/qbo/ping`              → refresh + probe `/companyinfo`
+- `GET  /api/qbo/sync_config_get`   / `POST /api/qbo/sync_config_set`
+- RBAC: `integrations.qbo.view` (read) + `integrations.qbo.manage` (write); tenant_admin's `*` covers both.
+
+### UI (`dashboard/src/pages/QboSettings.jsx`, routed at `/admin/integrations/qbo`)
+- Three render branches: pod-not-configured, configured-but-not-connected (Connect CTA), connected (company info + Test connection + Disconnect + sync direction table).
+- Direction picker per entity with Push / Pull / Two-way / Off (icons + behaviour blurb). Save / Discard buttons only enable when the draft differs from saved state.
+- Reads `?connected=1` / `?error=...` query params from the OAuth callback to surface success / failure flashes, then cleans the URL.
+- Hub `IntegrationsHub.jsx` now shows a QBO card under a new "Accounting" section with live connected / not_connected / not_configured badge.
+
+### Validation
+- `tests/qbo_foundation_smoke.php` — **91 ✓ / 0 ✗**. Covers migration shape, adapter public surface, API dispatch + RBAC checks, UI testids + endpoint wiring, AdminModule + IntegrationsHub integration, and a functional adapter call via the injected transport stub.
+- Full PHP smoke suite — **194/196 passing**. Two failures (`ai_platform`, `plaid_integration`) are the documented `curl_init` / no-API-key regressions — unchanged by this slice.
+- Vite bundle rebuilt + `scripts/sync_bundle.sh` synced (`index-Cm9doPwM.js`).
+- `.deploy-version` feature flags appended for traceability.
+
+### Required pod config (before live testing)
+- `QBO_CLIENT_ID` and `QBO_CLIENT_SECRET` from https://developer.intuit.com app keys
+- `QBO_REDIRECT_URI` registered at Intuit (e.g. `https://coreflux.app/api/qbo/oauth_callback.php`)
+- `QBO_ENV` = `sandbox` (default) or `production`
+
+### Pending (next QBO slices)
+- **Slice 2 — Journal Entry push**: posted CoreFlux JEs → QBO JournalEntry endpoint, with `external_entity_mappings` for idempotency and a cron worker (`cron/qbo_sync_outbound.php`).
+- **Slice 3 — Customer / Vendor pull**: pulls QBO Customer + Vendor lists into CoreFlux `clients` / `vendors`, upserting via `external_entity_mappings`.
+- **Slice 4 — Invoice / Bill / Payment sync** + COA mirror.
+- **Slice 5 — Conflict rules** for `two_way` entities (updated_at comparison + `qbo_conflict_log`).
+
+
+
 ## Recently completed (Centralized Integrations Hub, 2026-02 — this fork)
 **Single pane of glass for tenant-admin-managed external integrations.** Plaid Transfer and Mercury Bank connection settings were buried in `/modules/treasury/payout-rails` alongside operational recipient management; admins had no consolidated place to see/manage all external connectors. JobDiva lived in its own admin sub-route.
 

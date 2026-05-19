@@ -20,6 +20,7 @@ import HealthcheckAdmin from './HealthcheckAdmin';
 import IntegrationsHub from './IntegrationsHub';
 import PlaidTransferSettings from '../../../modules/treasury/ui/PlaidTransferSettings';
 import MercurySettings from '../../../modules/treasury/ui/MercurySettings';
+import QboSettings from './QboSettings';
 
 /**
  * AdminModule — administrator surface.
@@ -138,6 +139,7 @@ const AdminModule = ({ session }) => {
           <Route path="/integrations"          element={<IntegrationsHub session={session} />} />
           <Route path="/integrations/plaid"    element={<PlaidTransferSettings session={session} />} />
           <Route path="/integrations/mercury"  element={<MercurySettings session={session} />} />
+          <Route path="/integrations/qbo"      element={<QboSettings session={session} />} />
           <Route path="/integrations/jobdiva" element={<JobDivaSettings session={session} />} />
           <Route path="/sso"               element={<SsoConfigAdmin session={session} />} />
           <Route path="/mail-branding"     element={<MailBrandingAdmin session={session} />} />
