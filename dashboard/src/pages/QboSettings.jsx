@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApi, api } from '../lib/api';
-import { CheckCircle2, ExternalLink, RefreshCw, XCircle, ArrowRight, ArrowLeft, ArrowLeftRight, MinusCircle, Send } from 'lucide-react';
+import { CheckCircle2, ExternalLink, RefreshCw, XCircle, ArrowRight, ArrowLeft, ArrowLeftRight, MinusCircle, Send, AlertTriangle } from 'lucide-react';
 
 /**
  * QboSettings — QuickBooks Online connection + per-entity sync direction
@@ -14,6 +14,7 @@ import { CheckCircle2, ExternalLink, RefreshCw, XCircle, ArrowRight, ArrowLeft, 
  */
 export default function QboSettings() {
   const status = useApi('/api/qbo/status.php?action=status');
+  const skipped = useApi('/api/qbo/skipped_jes.php?action=skipped_jes');
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState(parseFlashFromUrl());
   const [draft, setDraft] = useState(null); // editable sync_config
@@ -85,6 +86,23 @@ export default function QboSettings() {
       setFlash({
         kind: r.failed > 0 ? 'error' : 'success',
         msg: `${dryRun ? 'Dry-run' : 'Sync'}: ${r.pushed} pushed · ${r.skipped_unmapped} skipped (unmapped accounts) · ${r.failed} failed (${r.considered} considered, ${r.latency_ms}ms)`,
+      });
+      status.reload();
+      skipped.reload();
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handlePullMaster = async (entity) => {
+    setBusy(true); setFlash(null);
+    try {
+      const r = await api.post(`/api/qbo/sync_${entity}.php?action=sync_${entity}`, { limit: 1000 });
+      setFlash({
+        kind: r.failed > 0 ? 'error' : 'success',
+        msg: `Pulled ${entity}: ${r.created} created · ${r.updated} updated · ${r.unchanged} unchanged · ${r.failed} failed (${r.pulled} from ${r.pages} page${r.pages === 1 ? '' : 's'}, ${r.latency_ms}ms)`,
       });
       status.reload();
     } catch (e) {
@@ -221,45 +239,22 @@ export default function QboSettings() {
             busy={busy}
           />
 
-          {/* Manual JE push trigger — only shown when the tenant has opted
-              journal_entries into push or two_way. The cron worker covers
-              the scheduled path. */}
-          {['push', 'two_way'].includes(data.sync_config?.journal_entries) && (
-            <div
-              data-testid="qbo-sync-actions"
-              className="card"
-              style={{ marginTop: 24, padding: 16, border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8 }}
-            >
-              <header style={{ marginBottom: 12 }}>
-                <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Manual sync</h4>
-                <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
-                  The QBO outbound cron runs every 15 minutes. Use these buttons to push immediately
-                  or preview which journal entries would ship without actually calling QBO.
-                </p>
-              </header>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="btn btn--primary"
-                  onClick={() => handleSyncJe(false)}
-                  disabled={busy}
-                  data-testid="qbo-sync-je-btn"
-                >
-                  <Send size={14} style={{ marginRight: 6 }} />
-                  {busy ? 'Pushing…' : 'Push journal entries now'}
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => handleSyncJe(true)}
-                  disabled={busy}
-                  data-testid="qbo-sync-je-dry-run-btn"
-                >
-                  Dry run (preview)
-                </button>
-              </div>
-            </div>
-          )}
+          {/* Manual sync triggers — buttons appear per-entity based on
+              its sync direction. Cron workers cover the scheduled paths;
+              these are for on-demand pushes/pulls. */}
+          <ManualSyncCard
+            config={data.sync_config || {}}
+            busy={busy}
+            onPushJe={() => handleSyncJe(false)}
+            onDryRunJe={() => handleSyncJe(true)}
+            onPullCustomers={() => handlePullMaster('customers')}
+            onPullVendors={() => handlePullMaster('vendors')}
+          />
+
+          {/* Skipped JE inbox — surfaces JEs the cron has had to skip
+              because their account has no QBO mapping yet. One row per
+              blocking account with the count + recent JE numbers. */}
+          <SkippedJeInbox data={skipped.data} loading={skipped.loading} />
         </>
       )}
     </section>
@@ -371,4 +366,140 @@ function parseFlashFromUrl() {
     return { kind: 'error', msg: 'QuickBooks reported: ' + err };
   }
   return null;
+}
+
+function ManualSyncCard({ config, busy, onPushJe, onDryRunJe, onPullCustomers, onPullVendors }) {
+  const jeDir   = config.journal_entries;
+  const custDir = config.customers;
+  const vendDir = config.vendors;
+  const showJe   = ['push', 'two_way'].includes(jeDir);
+  const showCust = ['pull', 'two_way'].includes(custDir);
+  const showVend = ['pull', 'two_way'].includes(vendDir);
+  if (!showJe && !showCust && !showVend) return null;
+  return (
+    <div
+      data-testid="qbo-sync-actions"
+      className="card"
+      style={{ marginTop: 24, padding: 16, border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8 }}
+    >
+      <header style={{ marginBottom: 12 }}>
+        <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Manual sync</h4>
+        <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+          QBO sync runs on a schedule (outbound every 15 minutes; inbound nightly).
+          Use these buttons to push or pull immediately.
+        </p>
+      </header>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {showJe && (
+          <>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={onPushJe}
+              disabled={busy}
+              data-testid="qbo-sync-je-btn"
+            >
+              <Send size={14} style={{ marginRight: 6 }} />
+              {busy ? 'Working…' : 'Push journal entries now'}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={onDryRunJe}
+              disabled={busy}
+              data-testid="qbo-sync-je-dry-run-btn"
+            >
+              Dry run (preview)
+            </button>
+          </>
+        )}
+        {showCust && (
+          <button
+            type="button"
+            className="btn"
+            onClick={onPullCustomers}
+            disabled={busy}
+            data-testid="qbo-sync-customers-btn"
+          >
+            <ArrowLeft size={14} style={{ marginRight: 6 }} />
+            Pull customers
+          </button>
+        )}
+        {showVend && (
+          <button
+            type="button"
+            className="btn"
+            onClick={onPullVendors}
+            disabled={busy}
+            data-testid="qbo-sync-vendors-btn"
+          >
+            <ArrowLeft size={14} style={{ marginRight: 6 }} />
+            Pull vendors
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SkippedJeInbox({ data, loading }) {
+  const blockers = data?.blockers || [];
+  if (loading) return null;
+  if (blockers.length === 0) return null;
+  const totalBlocked = blockers.reduce((s, b) => s + (b.blocked_je_count || 0), 0);
+  return (
+    <div
+      data-testid="qbo-skipped-je-inbox"
+      className="card"
+      style={{ marginTop: 24, padding: 16, border: '1px solid var(--cf-amber, #f59e0b)44', borderRadius: 8, background: '#fffbeb' }}
+    >
+      <header style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <AlertTriangle size={18} style={{ color: 'var(--cf-amber, #92400e)' }} />
+        <div>
+          <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600 }} data-testid="qbo-skipped-je-inbox-title">
+            {totalBlocked} skipped journal {totalBlocked === 1 ? 'entry' : 'entries'} —
+            {' '}{blockers.length} unmapped {blockers.length === 1 ? 'account' : 'accounts'}
+          </h4>
+          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+            Within the last {data?.window_days ?? 30} days. Map these accounts in QuickBooks (use the same <code>AcctNum</code> as the CoreFlux account code) and the next sync will pick them up automatically.
+          </p>
+        </div>
+      </header>
+      <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ textAlign: 'left', color: 'var(--cf-text-secondary)', borderBottom: '1px solid var(--cf-border)' }}>
+            <th style={{ padding: '6px 4px' }}>Account</th>
+            <th style={{ padding: '6px 4px', textAlign: 'right' }}>Blocked JEs</th>
+            <th style={{ padding: '6px 4px' }}>Recent</th>
+            <th style={{ padding: '6px 4px' }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {blockers.map((b) => (
+            <tr key={b.account_id} data-testid={`qbo-skipped-row-${b.account_id}`} style={{ borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)' }}>
+              <td style={{ padding: '8px 4px' }}>
+                <div style={{ fontWeight: 500 }}>{b.account_code || `#${b.account_id}`} — {b.account_name || '(unknown)'}</div>
+              </td>
+              <td style={{ padding: '8px 4px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }} data-testid={`qbo-skipped-count-${b.account_id}`}>
+                {b.blocked_je_count}
+              </td>
+              <td style={{ padding: '8px 4px', color: 'var(--cf-text-secondary)', fontFamily: 'var(--cf-mono, ui-monospace)', fontSize: 12 }}>
+                {(b.recent_je_numbers || []).join(', ')}
+              </td>
+              <td style={{ padding: '8px 4px' }}>
+                <a
+                  href={`/modules/accounting/coa?focus=${b.account_id}`}
+                  className="btn"
+                  data-testid={`qbo-skipped-map-link-${b.account_id}`}
+                  style={{ fontSize: 12, padding: '4px 10px' }}
+                >
+                  Map account →
+                </a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }

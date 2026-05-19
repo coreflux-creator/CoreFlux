@@ -283,7 +283,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-DWsXrRxW.js
+- spa-assets/index-6Y1JYaHg.js
 - spa-assets/index-BC5g6YJu.css
 last_known_features:
 - master_tenants.crud_in_spa
@@ -858,3 +858,22 @@ e.php
 - integrations.qbo.slice2.cron_outbound_15min
 - integrations.qbo.slice2.left_join_mapping_idempotency
 - ui.admin.qbo_settings.manual_sync_actions
+- core/qbo/sync_in.php
+- api/qbo/sync_customers.php
+- api/qbo/sync_vendors.php
+- api/qbo/skipped_jes.php
+- cron/qbo_sync_inbound.php
+- tests/qbo_slice3_smoke.php
+- integrations.qbo.slice2_5.skipped_je_inbox_endpoint
+- integrations.qbo.slice2_5.skipped_je_inbox_ui_card
+- integrations.qbo.slice2_5.unmapped_account_aggregation
+- integrations.qbo.slice3.customer_pull
+- integrations.qbo.slice3.vendor_pull
+- integrations.qbo.slice3.startposition_pagination
+- integrations.qbo.slice3.name_fallback_auto_link
+- integrations.qbo.slice3.content_hash_dirty_check
+- integrations.qbo.slice3.cron_inbound_nightly
+- integrations.qbo.slice3.vendor_1099_flag_translation
+- ui.admin.qbo_settings.pull_customers_button
+- ui.admin.qbo_settings.pull_vendors_button
+- ui.admin.qbo_settings.unified_manual_sync_card

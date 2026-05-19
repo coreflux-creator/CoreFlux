@@ -13,6 +13,12 @@
  *   POST   sync_config_set     — body: { sync_config: {entity: direction} }
  *   POST   sync_je             — Slice 2: push posted JEs to QBO. Opts:
  *                                 { limit?: int, dry_run?: bool, je_ids?: int[] }
+ *   GET    skipped_jes         — Slice 2.5: aggregated view of JEs that
+ *                                 sync_je skipped because their account
+ *                                 had no QBO mapping. Groups by unresolved
+ *                                 account, returning code + name + count
+ *                                 + recent JE numbers so a controller can
+ *                                 fix the root cause in one click.
  *
  * RBAC: read = `integrations.qbo.view`, write = `integrations.qbo.manage`.
  * Wildcard `integrations.*` from rbac_config covers both for tenant_admin.
@@ -23,6 +29,7 @@ require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/qbo/client.php';
 require_once __DIR__ . '/../core/qbo/sync_je.php';
+require_once __DIR__ . '/../core/qbo/sync_in.php';
 
 $method = api_method();
 $action = (string) (api_query('action') ?? '');
@@ -199,6 +206,114 @@ switch ($action) {
             api_error('JE sync failed: ' . $e->getMessage(), 502);
         }
         api_ok($res);
+    }
+
+    case 'sync_customers':
+    case 'sync_vendors': {
+        // Slice 3 — pull Customer / Vendor masters from QBO. Requires
+        // sync_config.{entity} in ('pull','two_way').
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        RBAC::requirePermission($user, 'integrations.qbo.manage');
+        $body = api_json_body();
+        $opts = [];
+        if (isset($body['limit']))     $opts['limit']     = (int) $body['limit'];
+        if (isset($body['max_pages'])) $opts['max_pages'] = (int) $body['max_pages'];
+        try {
+            $res = $action === 'sync_customers'
+                ? qboSyncCustomers($tid, $user['id'] ?? null, $opts)
+                : qboSyncVendors($tid, $user['id'] ?? null, $opts);
+        } catch (\RuntimeException $e) {
+            api_error($e->getMessage(), 409);
+        } catch (\Throwable $e) {
+            api_error(ucfirst(substr($action, 5)) . ' sync failed: ' . $e->getMessage(), 502);
+        }
+        api_ok($res);
+    }
+
+    case 'skipped_jes': {
+        // Slice 2.5 — Skipped JE inbox. Aggregates audit rows with
+        // action='sync_je_skip' over the last 30 days, groups by the
+        // unresolved account id surfaced in detail.unresolved_account_ids,
+        // joins accounting_accounts for code+name, returns actionable rows.
+        if ($method !== 'GET') api_error('Method not allowed', 405);
+        RBAC::requirePermission($user, 'integrations.qbo.view');
+        $pdo = getDB();
+        $stmt = $pdo->prepare(
+            "SELECT id, detail, occurred_at
+               FROM qbo_sync_audit
+              WHERE tenant_id = :t
+                AND action = 'sync_je_skip'
+                AND occurred_at >= (NOW() - INTERVAL 30 DAY)
+           ORDER BY occurred_at DESC
+              LIMIT 500"
+        );
+        $stmt->execute(['t' => $tid]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+        $blockers = []; // account_id => { ids:Set<je_id>, jes:[{je_id, last_seen}] }
+        $jeNumbers = []; // je_id => je_number (looked up in batch below)
+        foreach ($rows as $r) {
+            $d = $r['detail'] ? json_decode((string) $r['detail'], true) : null;
+            if (!is_array($d)) continue;
+            $jeId = (int) ($d['je_id'] ?? 0);
+            $unresolved = $d['unresolved_account_ids'] ?? [];
+            if (!is_array($unresolved)) continue;
+            foreach ($unresolved as $acctId) {
+                $acctId = (int) $acctId;
+                if ($acctId <= 0) continue;
+                if (!isset($blockers[$acctId])) $blockers[$acctId] = ['je_ids' => [], 'most_recent_at' => $r['occurred_at']];
+                if (!in_array($jeId, $blockers[$acctId]['je_ids'], true)) {
+                    $blockers[$acctId]['je_ids'][] = $jeId;
+                }
+            }
+        }
+        if ($blockers) {
+            // Resolve JE numbers in one query.
+            $allJeIds = [];
+            foreach ($blockers as $b) foreach ($b['je_ids'] as $id) $allJeIds[$id] = true;
+            if ($allJeIds) {
+                $ph = implode(',', array_fill(0, count($allJeIds), '?'));
+                $jstmt = $pdo->prepare("SELECT id, je_number FROM accounting_journal_entries WHERE id IN ($ph) AND tenant_id = ?");
+                $bind = array_keys($allJeIds);
+                $bind[] = $tid;
+                $jstmt->execute($bind);
+                foreach ($jstmt->fetchAll(\PDO::FETCH_ASSOC) as $j) {
+                    $jeNumbers[(int) $j['id']] = (string) $j['je_number'];
+                }
+            }
+            // Resolve account code+name.
+            $ph = implode(',', array_fill(0, count($blockers), '?'));
+            $astmt = $pdo->prepare("SELECT id, code, name FROM accounting_accounts WHERE id IN ($ph) AND tenant_id = ?");
+            $bind = array_keys($blockers); $bind[] = $tid;
+            $astmt->execute($bind);
+            $acctMeta = [];
+            foreach ($astmt->fetchAll(\PDO::FETCH_ASSOC) as $aRow) {
+                $acctMeta[(int) $aRow['id']] = ['code' => (string) $aRow['code'], 'name' => (string) $aRow['name']];
+            }
+        }
+        $out = [];
+        foreach ($blockers as $acctId => $b) {
+            $meta = $acctMeta[$acctId] ?? ['code' => null, 'name' => null];
+            $jeShortlist = array_slice($b['je_ids'], 0, 5);
+            $out[] = [
+                'account_id'        => $acctId,
+                'account_code'      => $meta['code'],
+                'account_name'      => $meta['name'],
+                'blocked_je_count'  => count($b['je_ids']),
+                'recent_je_numbers' => array_map(fn($id) => $jeNumbers[$id] ?? ('#' . $id), $jeShortlist),
+                'most_recent_at'    => $b['most_recent_at'],
+            ];
+        }
+        // Sort: most-blocked first, then most-recent.
+        usort($out, function ($a, $b) {
+            return ($b['blocked_je_count'] <=> $a['blocked_je_count'])
+                ?: strcmp((string) $b['most_recent_at'], (string) $a['most_recent_at']);
+        });
+        api_ok([
+            'blockers'      => $out,
+            'window_days'   => 30,
+            'total_skipped' => count($rows),
+        ]);
     }
 }
 

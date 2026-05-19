@@ -75,7 +75,7 @@ $a('push-now button testid',                     $c($ui, 'data-testid="qbo-sync-
 $a('dry-run button testid',                      $c($ui, 'data-testid="qbo-sync-je-dry-run-btn"'));
 $a('sync actions container testid',              $c($ui, 'data-testid="qbo-sync-actions"'));
 $a('only renders when direction in push/two_way',
-    $c($ui, "['push', 'two_way'].includes(data.sync_config?.journal_entries)"));
+    $c($ui, "['push', 'two_way'].includes(jeDir)"));
 $a('endpoint POST to sync_je',                   $c($ui, '/api/qbo/sync_je.php?action=sync_je'));
 
 // ----------------------------------------------------------------- Functional — payload shape

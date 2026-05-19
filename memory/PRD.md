@@ -10,6 +10,50 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (QBO — Slice 2.5: Skipped JE Inbox + Slice 3: Customer/Vendor pull, 2026-02 — this fork)
+**Two complementary improvements to QBO orchestration:**
+1. **Skipped JE inbox** — operational visibility into JEs the cron has had to skip because their account isn't mapped in QBO. Surfaces blocked accounts so controllers can fix the root cause in one click.
+2. **Slice 3 inbound pulls** — QBO Customer + Vendor masters now flow into CoreFlux with idempotent mapping, content-hash dirty checks, paginated query, name-fallback auto-link to existing manually-created rows, and a nightly cron worker.
+
+### Slice 2.5 — Skipped JE inbox
+- `GET /api/qbo/skipped_jes` aggregates `qbo_sync_audit` rows where `action='sync_je_skip'` over the last 30 days. Returns one row per blocking account with `{account_id, account_code, account_name, blocked_je_count, recent_je_numbers[], most_recent_at}`. Joins `accounting_accounts` for code+name in a single batched query.
+- Sort: most-blocked first, then most-recent.
+- UI: `SkippedJeInbox` card on QboSettings auto-hides when zero blockers. Each row shows `<code> — <name>`, the blocked-JE count, the 5 most-recent JE numbers, and a "Map account →" CTA that deep-links to `/modules/accounting/coa?focus={accountId}`.
+
+### Slice 3 — Customer / Vendor pull (`core/qbo/sync_in.php`)
+- `qboSyncCustomers()` / `qboSyncVendors()` thin wrappers over `_qboSyncMasterEntity()` — shared pagination, audit, and direction-guard logic.
+- QBO Query API pagination via `STARTPOSITION` + `MAXRESULTS=100` per page, with `limit` and `max_pages` opts for safety.
+- Upsert match strategy (in order):
+  1. existing mapping for `(source='quickbooks_online', entity_type, external_id=QBO Id)`
+  2. UNIQUE name-key match (`staffing_clients.name` / `ap_vendors_index.vendor_name`) — auto-links existing manually-created rows
+  3. INSERT a new row
+- Content-hash dirty check on customer fields (legal_name, email, phone, billing address, status); on vendors (vendor_type, requires_1099) — `action` is one of `created` / `updated` / `unchanged`.
+- Vendor1099 flag translates to `requires_1099 = 1` + `vendor_type = '1099_individual'`.
+- Audits every page run with `qbo_sync_audit` (action=`sync_customer` / `sync_vendor`), reporting `created / updated / unchanged / failed / pulled / pages / latency_ms`.
+
+### API + Cron
+- New actions `sync_customers`, `sync_vendors` on `POST /api/qbo/{action}` (RBAC: `integrations.qbo.manage`, 409 on direction-not-pull/two_way).
+- New nightly cron `cron/qbo_sync_inbound.php` (suggested schedule `0 2 * * *`). Iterates active connections, runs each entity if its direction is pull/two_way, continues on per-tenant failure.
+
+### UI
+- Replaced the JE-only "Manual sync" card with a unified `ManualSyncCard` that conditionally renders:
+  - **Push journal entries now** + **Dry run** (when journal_entries ∈ {push, two_way})
+  - **Pull customers** (when customers ∈ {pull, two_way})
+  - **Pull vendors** (when vendors ∈ {pull, two_way})
+- Card hides entirely when no entity has an applicable direction.
+
+### Validation
+- `tests/qbo_slice3_smoke.php` — **46 ✓ / 0 ✗**. Covers `sync_in` public surface, pagination, name-fallback match, table-specific upsert SQL, Vendor1099 translation, API dispatch + 409 conflict path, cron iteration + direction filters, shim files, UI testids + conditional rendering.
+- `tests/qbo_je_push_smoke.php` updated for refactored `ManualSyncCard` component (45 ✓ / 0 ✗).
+- Full PHP smoke suite — **196/198 passing**. Same two `curl_init`/no-API-key pre-existing regressions; nothing else broken.
+- Vite bundle rebuilt (`index-6Y1JYaHg.js`), `.deploy-version` feature flags appended.
+
+### Pending (next QBO slices)
+- **Slice 4** — Invoice / Bill / Payment sync + full COA mirror (replaces the AcctNum auto-discovery shortcut from Slice 2 with a canonical mirror).
+- **Slice 5** — Conflict rules for `two_way` entities (last-write-wins by `updated_at` + `qbo_conflict_log`).
+
+
+
 ## Recently completed (QBO — Slice 2: Journal Entry push, 2026-02 — this fork)
 **Posted CoreFlux journal entries now push to QuickBooks Online** with idempotency via `external_entity_mappings`, opportunistic chart-of-accounts auto-discovery, dry-run preview, and a 15-minute cron worker. Tenants control participation via the per-entity direction picker shipped in Slice 1.
 
