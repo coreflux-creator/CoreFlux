@@ -957,3 +957,6 @@ e.php
 - core/mercury_service.php
 - tests/mercury_connect_lastinsertid_smoke.php
 - bugfix.mercury_connect_lastinsertid_bool_typeerror
+- api/plaid_bank_link.php
+- tests/plaid_bank_link_hy093_smoke.php
+- bugfix.plaid_bank_link_duplicate_named_placeholder_hy093

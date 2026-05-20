@@ -244,15 +244,23 @@ if ($action === 'exchange') {
                 //    historical JEs keep their references intact.
                 $instLabel = (string) ($institution['name'] ?? '');
                 if ($mask) {
-                    $stmt = $pdo->prepare(
-                        'SELECT id FROM accounting_bank_accounts
-                          WHERE tenant_id = :t
-                            AND last4     = :l4
-                            AND (bank_name = :bk OR :bk = "")
-                          ORDER BY (status = "active") DESC, updated_at DESC, id DESC
-                          LIMIT 1'
-                    );
-                    $stmt->execute(['t' => $tenantId, 'l4' => $mask, 'bk' => $instLabel]);
+                    // The "bank_name OR institution unknown" filter used to be
+                    // expressed as a single-statement `OR :bk` duplicate (same
+                    // placeholder referenced twice) — but PDO with EMULATE_PREPARES=false (set in core/db.php) refuses
+                    // to reference the same named placeholder twice and aborts
+                    // with HY093 "Invalid parameter number". Branch the SQL so
+                    // each placeholder is bound exactly once.
+                    $hasInst = $instLabel !== '';
+                    $sql = 'SELECT id FROM accounting_bank_accounts
+                              WHERE tenant_id = :t
+                                AND last4     = :l4'
+                        . ($hasInst ? ' AND bank_name = :bk' : '')
+                        . ' ORDER BY (status = "active") DESC, updated_at DESC, id DESC
+                            LIMIT 1';
+                    $stmt   = $pdo->prepare($sql);
+                    $params = ['t' => $tenantId, 'l4' => $mask];
+                    if ($hasInst) $params['bk'] = $instLabel;
+                    $stmt->execute($params);
                     $adoptId = (int) $stmt->fetchColumn();
                     if ($adoptId > 0) {
                         $pdo->prepare(
@@ -320,15 +328,20 @@ if ($action === 'exchange') {
                 //    the existing row instead of spawning a duplicate card.
                 $instLabelRaw = (string) ($institution['name'] ?? '');
                 if ($mask) {
-                    $stmt = $pdo->prepare(
-                        'SELECT tla.id, tla.account_id FROM treasury_liability_accounts tla
-                          WHERE tla.tenant_id = :t
-                            AND tla.last4     = :l4
-                            AND (tla.institution_name = :inst OR :inst = "")
-                          ORDER BY tla.updated_at DESC, tla.id DESC
-                          LIMIT 1'
-                    );
-                    $stmt->execute(['t' => $tenantId, 'l4' => $mask, 'inst' => $instLabelRaw]);
+                    // Same HY093 fix as the depository branch above —
+                    // EMULATE_PREPARES=false won't accept the duplicated
+                    // `:inst` placeholder. Branch the SQL instead.
+                    $hasInst = $instLabelRaw !== '';
+                    $sql = 'SELECT tla.id, tla.account_id FROM treasury_liability_accounts tla
+                              WHERE tla.tenant_id = :t
+                                AND tla.last4     = :l4'
+                        . ($hasInst ? ' AND tla.institution_name = :inst' : '')
+                        . ' ORDER BY tla.updated_at DESC, tla.id DESC
+                            LIMIT 1';
+                    $stmt   = $pdo->prepare($sql);
+                    $params = ['t' => $tenantId, 'l4' => $mask];
+                    if ($hasInst) $params['inst'] = $instLabelRaw;
+                    $stmt->execute($params);
                     $adopt = $stmt->fetch(PDO::FETCH_ASSOC);
                     if ($adopt) {
                         $pdo->prepare(
