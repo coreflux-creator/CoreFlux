@@ -44,7 +44,7 @@ _a('payroll mtd/qtd/ytd + last_run_total', str_contains($api, "'last_run_total'"
 
 echo "\nStaffing shape\n";
 _a('headcount split w2/c2c/1099/perm', str_contains($api, "contractors_w2") && str_contains($api, "contractors_c2c") && str_contains($api, "contractors_1099") && str_contains($api, "'perm'"));
-_a('new_starts pulled from people.hire_date',     str_contains($api, "WHERE tenant_id = :t AND hire_date >= :s"));
+_a('new_starts pulled from people.hire_date',     str_contains($api, "WHERE tenant_id = :ct AND hire_date >= :s"));
 _a('terminations from people.termination_date',   str_contains($api, "termination_date >= :s"));
 _a('net_change = starts − terminations',          str_contains($api, "\$staffing['new_starts']['period'] - \$staffing['terminations']['period']"));
 _a('active_placements respects filters',          str_contains($api, "p.status = 'active'") && str_contains($api, "\$placementWhereSql"));

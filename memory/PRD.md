@@ -10,6 +10,44 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (P0 sub-tenant scope + P1 intercompany + P2 legacy retirement, 2026-02 — current fork)
+
+### 🔴 P0 — Sub-tenant URL-flat shared-scope (FIXED)
+Sub-tenants in `shared` mode for the staffing module were seeing empty CFO / staffing reports because `currentTenantId()` returned the sub-tenant's id, never falling through to the master parent's catalogs. Root cause: `effectiveTenantIdForRequest()` only resolved to the parent when the URL carried a `/modules/<key>/api/` prefix — core report endpoints under `/api/*` never hit the resolver.
+
+Approach: **request-scoped module override** (no URL changes, no frontend churn). Added `setRequestModuleScope($key)` / `clearRequestModuleScope()` in `core/tenant_scope.php`; the resolver now consults that override first, falling back to URL-prefix detection. Core endpoints declare their module scope in one line:
+
+- `api/reports_staffing.php`, `api/reports_ai_explain.php`, `api/exec_filters.php` — pure-staffing reports: `setRequestModuleScope('staffing')` + `$tenantId = effectiveTenantIdForRequest()`. The whole endpoint now resolves to parent for sub-tenants in shared mode.
+- `api/exec_dashboard.php` — mixed-module CFO dashboard. Carries two distinct placeholders: `:t` (bound to `$tenantId` = the active sub-tenant's id, used for ISOLATED tables: billing_invoices, ap_bills, billing_payments, payroll_runs, time_entries) and `:ct` (bound to `$catalogTid` = resolved via `effectiveTenantIdForModule('staffing')`, used for SHARED catalog tables: placements, people, placement_rates, placement_commissions, tenant_end_clients). Time-entries queries that join to placements carry BOTH via `array_merge($pwParams, ['t' => $tenantId, ...])`. Financial figures stay tenant-local while catalog joins resolve against the master's shared catalog.
+
+Covered by `tests/subtenant_url_flat_scope_smoke.php` (21 assertions, all green).
+
+### 🟡 P1 — Cross-tenant intercompany gaps (FIXED)
+Reworked `modules/accounting/lib/cross_tenant_intercompany.php` end-to-end. All four gaps from the prior audit closed:
+
+1. **FX support** — `from_currency`, `to_currency`, `fx_rate` options. To-leg amount = `amount × fx_rate` rounded to cents. Rejects `fx_rate ≤ 0` on cross-currency pairs; forces 1.0 on same-currency. FX rate gets embedded into the JE description (`[FX USD→EUR @ 0.920000]`) so the audit trail is self-documenting.
+2. **Symmetric audit** — both `cross_tenant.intercompany.posted` (out, on from-master) AND `.received` (in, on to-master) fire. Reconciliation is now a single SELECT.
+3. **Compensating reversal on to-leg failure** — if the to-leg post throws, the from-leg gets auto-reversed via `accountingReverseJe()` so the books never carry a half-posted IC pair. The original error is re-thrown after compensating.
+4. **Reversal helper** — new `accountingReverseCrossTenantIntercompany($ref, $reason, $actorUserId)`. Fetches both legs by their shared `intercompany_group_id` (now stamped on both JEs during post via `_cxIcStampGroupId()`), reverses each, stamps the reversal JEs with the same group id so the reconciliation worksheet groups them, and emits a `cross_tenant.intercompany.reversed` audit event.
+
+Bonus: `intercompany_ref` is now regex-validated (`/^[A-Za-z0-9_-]{4,64}$/`) on both post and reverse.
+
+Covered by `tests/cross_tenant_intercompany_smoke.php` (21 assertions, all green).
+
+### 🟡 P2 — Legacy `user_tenants` retirement (PARTIAL — READS DONE)
+Retired the read-side of the legacy `user_tenants` table everywhere it was safe to do so. Files refactored:
+
+- `core/data.php` (3 reads) — `getUserTenants()`, `getAllTenants()`, `getAllUsers()` now read from `tenant_memberships`. COUNT changed to `COUNT(DISTINCT user_id)` to handle multi-persona users correctly.
+- `core/push_service.php` (1 read) — `pushSendToTenant()` role filter now uses `persona_type`.
+- `api/tenants.php` (1 read), `api/sub_tenant_analytics.php` (2 reads), `api/sub_tenant_consolidated_reports.php` (1 read), `api/tenant_modules.php` (1 read), `api/sub_tenant_setup_checklist.php` (1 read), `api/sub_tenants.php` (4 reads), `switch_tenant.php` (2 reads) — all role/membership lookups now query `tenant_memberships`. Mapping: `role` → `persona_type AS role` (preserving caller-facing column name); `is_default` → `is_primary`; `last_active_at` → unchanged (same column on the new table).
+
+**New sentry: `tests/user_tenants_read_sentry_smoke.php`** — fails the smoke suite on any new `FROM user_tenants` SELECT outside an explicit allow-list (8 documented exemptions: 5 legitimate forever-uses + 3 pending dual-write refactor). Synthetic offender self-test catches a fake addition.
+
+**Deferred to follow-up (P2 next):** 3 write-heavy files (`api/users.php`, `core/views/admin/user_edit.php`, `people/includes/people_helper.php`) plus `api/auth/consume_magic_link.php` and `api/sso/callback.php` (write-only). These need a `provisionMembership()` dual-write helper to land safely — direct rewrites would risk drift between the two tables until every writer migrates atomically. Each is allow-listed with reason.
+
+Full suite status: **221/221 smoke tests passing** (was 218 at session start; +3 new sentries/tests).
+
+
 ## Recently completed (Broad audit sweep — sentries + findings, 2026-02 — current fork)
 **Two new codebase-wide sentries shipped and at zero offenders.** A systematic sweep was kicked off to harden the platform against silent cross-tenant data leaks and privilege-escalation surfaces. Every offender uncovered is either fixed or documented with an inline `tenant-leak-allow:` justification so the sentry has a permanent zero-tolerance baseline.
 

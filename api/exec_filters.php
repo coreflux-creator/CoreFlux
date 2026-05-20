@@ -12,7 +12,11 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/api_bootstrap.php';
 
 $ctx      = api_require_auth();
-$tenantId = (int) (currentTenantId() ?? 0);
+// Sub-tenant scope: filter dropdowns read from staffing catalogs (placements,
+// tenant_end_clients, placement_commissions). Pin module scope so a shared-mode
+// sub-tenant sees the parent's catalog options, not an empty list.
+setRequestModuleScope('staffing');
+$tenantId = (int) (effectiveTenantIdForRequest() ?? 0);
 if (!$tenantId) api_error('No active tenant', 400);
 
 $pdo = getDB();

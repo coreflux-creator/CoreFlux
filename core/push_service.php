@@ -112,10 +112,10 @@ function pushSendToTenant(int $tenantId, string $title, string $body, array $dat
         if ($roleList) {
             $in = [];
             foreach ($roleList as $i => $r) { $k = "r{$i}"; $in[] = ":{$k}"; $params[$k] = $r; }
-            $where .= " AND ut.role IN (" . implode(',', $in) . ")";
+            $where .= " AND ut.persona_type IN (" . implode(',', $in) . ")";
         }
     }
-    $stmt = $pdo->prepare("SELECT DISTINCT user_id FROM user_tenants ut WHERE $where");
+    $stmt = $pdo->prepare("SELECT DISTINCT user_id FROM tenant_memberships ut WHERE $where");
     $stmt->execute($params);
     $userIds = array_map('intval', array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'user_id'));
     $count = 0;

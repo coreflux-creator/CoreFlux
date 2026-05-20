@@ -23,7 +23,11 @@ require_once __DIR__ . '/../core/ai_service.php';
 
 $ctx     = api_require_auth();
 $role    = $ctx['role'] ?? 'employee';
-$tenantId = (int) (currentTenantId() ?? 0);
+// Sub-tenant scope: this endpoint reads placements/people/recruiters which
+// are SHARED catalogs. Pin module scope so effectiveTenantIdForRequest()
+// resolves to the master parent when the active user is on a shared-mode sub.
+setRequestModuleScope('staffing');
+$tenantId = (int) (effectiveTenantIdForRequest() ?? 0);
 if (!$tenantId) api_error('No active tenant', 400);
 if (!in_array($role, ['master_admin','tenant_admin','admin','manager'], true)) {
     api_error('Forbidden — manager+ required', 403);

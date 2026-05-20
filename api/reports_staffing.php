@@ -21,7 +21,12 @@ require_once __DIR__ . '/../core/api_bootstrap.php';
 $ctx       = api_require_auth();
 $user      = $ctx['user'];
 $role      = $ctx['role'] ?? 'employee';
-$tenantId  = (int) (currentTenantId() ?? 0);
+// Sub-tenant scope: this report reads from the staffing catalogs (placements,
+// people, placement_rates, placement_commissions) which are SHARED with the
+// master tenant. Pin the module scope so effectiveTenantIdForRequest() returns
+// the parent's id when the active user is on a shared-mode sub-tenant.
+setRequestModuleScope('staffing');
+$tenantId  = (int) (effectiveTenantIdForRequest() ?? 0);
 if (!$tenantId) api_error('No active tenant', 400);
 
 if (!in_array($role, ['master_admin', 'tenant_admin', 'admin', 'manager'], true)) {

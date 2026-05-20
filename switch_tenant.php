@@ -67,7 +67,7 @@ function _subTenantSwitchAllowed(int $userId, int $targetId, string $role): bool
 
     // Direct membership wins.
     $stmt = $pdo->prepare(
-        "SELECT 1 FROM user_tenants
+        "SELECT 1 FROM tenant_memberships
           WHERE user_id = :u AND tenant_id = :t AND status = 'active' LIMIT 1"
     );
     $stmt->execute(['u' => $userId, 't' => $targetId]);
@@ -77,7 +77,7 @@ function _subTenantSwitchAllowed(int $userId, int $targetId, string $role): bool
     $t = subTenantLookup($targetId);
     if ($t && !empty($t['parent_id'])) {
         $stmt = $pdo->prepare(
-            "SELECT role FROM user_tenants
+            "SELECT persona_type AS role FROM tenant_memberships
               WHERE user_id = :u AND tenant_id = :t AND status = 'active' LIMIT 1"
         );
         $stmt->execute(['u' => $userId, 't' => (int)$t['parent_id']]);

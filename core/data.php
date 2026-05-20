@@ -15,11 +15,14 @@ function getUserTenants(int $userId): array {
     if (!$pdo) return [];
     
     $stmt = $pdo->prepare("
-        SELECT t.id, t.name, t.logo_url, t.subdomain, t.parent_id, ut.role, ut.is_default
-        FROM user_tenants ut
-        JOIN tenants t ON ut.tenant_id = t.id
-        WHERE ut.user_id = ? AND ut.status = 'active'
-        ORDER BY ut.is_default DESC, t.name ASC
+        SELECT t.id, t.name, t.logo_url, t.subdomain, t.parent_id,
+               MIN(tm.persona_type) AS role,
+               MAX(tm.is_primary)   AS is_default
+        FROM tenant_memberships tm
+        JOIN tenants t ON tm.tenant_id = t.id
+        WHERE tm.user_id = ? AND tm.status = 'active'
+        GROUP BY t.id, t.name, t.logo_url, t.subdomain, t.parent_id
+        ORDER BY is_default DESC, t.name ASC
     ");
     $stmt->execute([$userId]);
     return $stmt->fetchAll();
@@ -291,7 +294,7 @@ function getAllTenants(): array {
     
     $stmt = $pdo->query("
         SELECT t.*, 
-               (SELECT COUNT(*) FROM user_tenants ut WHERE ut.tenant_id = t.id) as user_count,
+               (SELECT COUNT(DISTINCT tm.user_id) FROM tenant_memberships tm WHERE tm.tenant_id = t.id AND tm.status = 'active') as user_count,
                (SELECT COUNT(*) FROM tenants sub WHERE sub.parent_id = t.id) as sub_tenant_count
         FROM tenants t
         ORDER BY t.parent_id IS NULL DESC, t.name ASC
@@ -310,8 +313,8 @@ function getAllUsers(): array {
         SELECT u.*, 
                GROUP_CONCAT(DISTINCT t.name SEPARATOR ', ') as tenant_names
         FROM users u
-        LEFT JOIN user_tenants ut ON u.id = ut.user_id
-        LEFT JOIN tenants t ON ut.tenant_id = t.id
+        LEFT JOIN tenant_memberships tm ON u.id = tm.user_id AND tm.status = 'active'
+        LEFT JOIN tenants t ON tm.tenant_id = t.id
         GROUP BY u.id
         ORDER BY u.name
     ");

@@ -21,7 +21,7 @@ $src = file_get_contents(__DIR__ . '/../api/tenants.php');
 $assert('endpoint exists',                    is_string($src) && strlen($src) > 200);
 $assert('master_admin gate at top',           strpos($src, "if (\$role !== 'master_admin')") !== false);
 $assert('GET list query',                     strpos($src, 'parent_id IS NULL OR t.tenant_type') !== false);
-$assert('GET list joins user_count',          strpos($src, "FROM user_tenants ut") !== false
+$assert('GET list joins user_count',          strpos($src, "FROM tenant_memberships ut") !== false
                                              && strpos($src, "ut.status = 'active'") !== false);
 $assert('GET list joins sub_count',           strpos($src, "tenant_type = 'sub'") !== false);
 $assert('POST create',                        strpos($src, "if (\$method === 'POST')") !== false);

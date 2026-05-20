@@ -28,12 +28,41 @@ require_once __DIR__ . '/db.php';
  * `tenant_module_scope` policy.
  */
 function currentModuleKey(): ?string {
+    // Explicit override — non-module URL endpoints can declare which module's
+    // scope rules they read against by calling setRequestModuleScope('foo')
+    // before issuing any scopedQuery / scopedFind / etc. Crucial for the
+    // core /api/reports_* endpoints which are URL-flat but logically belong
+    // to a module (staffing, accounting, etc.).
+    if (!empty($GLOBALS['__cf_request_module_scope'])) {
+        return (string) $GLOBALS['__cf_request_module_scope'];
+    }
     $uri = $_SERVER['REQUEST_URI'] ?? '';
     if (!$uri) return null;
     if (preg_match('#/modules/([a-z][a-z0-9_-]*)/#', $uri, $m)) {
         return strtolower($m[1]);
     }
     return null;
+}
+
+/**
+ * Pin this request's module scope so subsequent scopedQuery/Insert/Update/
+ * Delete calls resolve tenant_id using `effectiveTenantIdForModule($key)`.
+ * Must be called BEFORE any scoped* helper. Idempotent — calling twice is
+ * fine; the second call wins. The override is process-local + request-scoped
+ * (lives in $GLOBALS), so it can't bleed across requests in fpm/cli.
+ */
+function setRequestModuleScope(string $moduleKey): void {
+    if (!preg_match('/^[a-z][a-z0-9_-]*$/', $moduleKey)) {
+        throw new InvalidArgumentException("Invalid module key: {$moduleKey}");
+    }
+    $GLOBALS['__cf_request_module_scope'] = $moduleKey;
+}
+
+/**
+ * Clear a request-scoped module override (test cleanup).
+ */
+function clearRequestModuleScope(): void {
+    unset($GLOBALS['__cf_request_module_scope']);
 }
 
 /**

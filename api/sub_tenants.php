@@ -45,13 +45,13 @@ if ($action === 'switch' && $method === 'POST') {
     $t = subTenantLookup($targetId);
     $_SESSION['tenant'] = $t['name'] ?? null;
 
-    // Refresh the effective role from user_tenants for the new active tenant.
+    // Refresh the effective role from tenant_memberships for the new active tenant.
     // Without this, a user who's master_admin on tenant A but tenant_admin on
     // tenant B keeps the role they had at login regardless of which tenant
     // they're currently viewing — the exact bug behind the "Forbidden —
     // master_admin only" report.
     try {
-        $rs = getDB()->prepare('SELECT role FROM user_tenants WHERE user_id = :u AND tenant_id = :t AND status = "active" LIMIT 1');
+        $rs = getDB()->prepare('SELECT persona_type AS role FROM tenant_memberships WHERE user_id = :u AND tenant_id = :t AND status = "active" LIMIT 1');
         $rs->execute(['u' => $userId, 't' => $targetId]);
         $newRole = $rs->fetchColumn();
         if ($newRole && isset($_SESSION['user']) && is_array($_SESSION['user'])) {
@@ -181,7 +181,7 @@ function subTenantUserCanManageParent(int $userId, int $parentId, string $role):
     $pdo = getDB();
     if (!$pdo) return false;
     $stmt = $pdo->prepare(
-        "SELECT role FROM user_tenants
+        "SELECT persona_type AS role FROM tenant_memberships
           WHERE user_id = :u AND tenant_id = :t AND status = 'active' LIMIT 1"
     );
     $stmt->execute(['u' => $userId, 't' => $parentId]);
@@ -196,7 +196,7 @@ function subTenantUserHasMembership(int $userId, int $targetTenantId, string $gl
 
     // Direct membership
     $stmt = $pdo->prepare(
-        "SELECT 1 FROM user_tenants
+        "SELECT 1 FROM tenant_memberships
           WHERE user_id = :u AND tenant_id = :t AND status = 'active' LIMIT 1"
     );
     $stmt->execute(['u' => $userId, 't' => $targetTenantId]);
@@ -206,7 +206,7 @@ function subTenantUserHasMembership(int $userId, int $targetTenantId, string $gl
     $tenant = subTenantLookup($targetTenantId);
     if ($tenant && !empty($tenant['parent_id'])) {
         $stmt = $pdo->prepare(
-            "SELECT role FROM user_tenants
+            "SELECT persona_type AS role FROM tenant_memberships
               WHERE user_id = :u AND tenant_id = :t AND status = 'active' LIMIT 1"
         );
         $stmt->execute(['u' => $userId, 't' => (int)$tenant['parent_id']]);
