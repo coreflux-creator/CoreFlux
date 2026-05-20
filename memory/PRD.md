@@ -10,6 +10,27 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (AI settings UI + CLI — opt-in default preserved, 2026-02 — current fork)
+
+**Root cause of the "AI is off — adjust in settings" with nowhere to go:** `tenants.ai_enabled` defaulted to `0` (per migration `002_ai_platform.sql` — opt-in by design), but no admin UI or API endpoint ever existed to flip it. `aiGateForTenant()` in `core/ai_service.php:274` correctly gated every feature on the flag — there was just no way to turn it on. Simulation was a separate misunderstanding: the Simulation Dashboard at `/admin/simulation-runs` is the deterministic test harness for engineers/auditors, not a tenant feature toggle.
+
+### Shipped in this pass
+1. **CLI tool — `scripts/ai_toggle.php`** — engineer-side immediate-unblock. Resolves tenant by id OR subdomain. Subcommands:
+   - `on` / `off` — flips master `ai_enabled`
+   - `status [tenant]` — lists state across one or all tenants
+   - `full-content-logging on|off <tenant>` — opt into prompt+response logging (compliance-heavy)
+   - `feature <class> on|off <tenant>` — flips a single feature_class row in `ai_tenant_features` (`classification | extraction | summary | narrative | draft | deep_reasoning`)
+2. **Backend — `api/admin/ai_settings.php`** — `GET ?tenant_id=NN` returns full payload (master flag + every known feature class with current enable state + `known_feature_classes` list). `POST` accepts partial updates (`ai_enabled`, `ai_full_content_logging`, `features: { classification: true, … }`). Transactional. Audits via `admin.ai_settings.updated`. Auth: `master_admin` may target any tenant; `tenant_admin` constrained to their own.
+3. **SPA — `pages/AiSettingsAdmin.jsx`** — master toggle, full-content-logging toggle (disabled when master is off), and 6 per-feature checkboxes with copy explaining what each class controls. Dirty-state save button with "Saved at" indicator. Tenant selector visible to global admins on multi-tenant accounts.
+4. **AdminModule.jsx wiring** — new ActionCard ("AI settings — Per-tenant master switch + per-feature toggles (off by default)") + sidebar nav entry + `<Route path="/ai-settings" />`.
+
+**Opt-in default preserved.** Migration `002_ai_platform.sql` is untouched — new tenants still arrive with `ai_enabled = 0`. The new UI is the explicit path to turn it on, not a behaviour change.
+
+**SPA bundle rebuilt + `scripts/sync_bundle.sh` ran successfully.** Hash drift would have failed the `.deploy-version` smoke; it didn't.
+
+Full suite status: **222/222 smoke tests passing** (+1 `ai_settings_admin_smoke.php` covering CLI subcommands, endpoint shape + auth, SPA test IDs, sentry cleanliness).
+
+
 ## Recently completed (P0 sub-tenant scope + P1 intercompany + P2 legacy retirement, 2026-02 — current fork)
 
 ### 🔴 P0 — Sub-tenant URL-flat shared-scope (FIXED)

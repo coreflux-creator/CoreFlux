@@ -8,6 +8,7 @@ import SubTenantConsolidatedReports from './SubTenantConsolidatedReports';
 import ExportTemplatesAdmin from './ExportTemplatesAdmin';
 import MasterTenantsAdmin from './MasterTenantsAdmin';
 import AiAccuracyDashboard from './AiAccuracyDashboard';
+import AiSettingsAdmin from './AiSettingsAdmin';
 import UsersAdmin from './UsersAdmin';
 import ModuleAccessAdmin from './ModuleAccessAdmin';
 import AuditLogViewer from './AuditLogViewer';
@@ -54,6 +55,7 @@ const AdminOverview = () => (
         <ActionCard icon={ScrollText} title="Roles reference" description="What each persona_type grants — quick lookup before assigning a role" href="/admin/roles" />
         <ActionCard icon={Package}   title="Module access"  description="Toggle which apps a tenant can see" href="/admin/modules" />
         <ActionCard icon={FileText}  title="Export templates" description="CSV templates for any module" href="/admin/export-templates" />
+        <ActionCard icon={Sparkles}  title="AI settings"     description="Per-tenant master switch + per-feature toggles (off by default)" href="/admin/ai-settings" />
         <ActionCard icon={Sparkles}  title="AI accuracy"    description="Confidence-score moat dashboard" href="/admin/ai-accuracy" />
         <ActionCard icon={ScrollText} title="Audit log"     description="Tenant-scoped audit trail with CSV export" href="/admin/audit-log" />
         <ActionCard icon={FlaskConical} title="Rule sandbox" description="Dry-run posting rules without writing to the GL" href="/admin/rule-sandbox" />
@@ -84,6 +86,7 @@ const AdminSidebar = () => {
     { to: '/admin/roles',            label: 'Roles reference',  icon: ScrollText },
     { to: '/admin/modules',          label: 'Module access',    icon: Package },
     { to: '/admin/export-templates', label: 'Export Templates', icon: FileText },
+    { to: '/admin/ai-settings',      label: 'AI Settings',      icon: Sparkles },
     { to: '/admin/ai-accuracy',      label: 'AI Accuracy',      icon: Sparkles },
     { to: '/admin/audit-log',        label: 'Audit Log',        icon: ScrollText },
     { to: '/admin/rule-sandbox',     label: 'Rule Sandbox',     icon: FlaskConical },
@@ -148,6 +151,7 @@ const AdminModule = ({ session }) => {
           <Route path="/roles"             element={<RolesReference session={session} />} />
           <Route path="/modules"           element={<ModuleAccessAdmin session={session} />} />
           <Route path="/export-templates"  element={<ExportTemplatesAdmin session={session} />} />
+          <Route path="/ai-settings"       element={<AiSettingsAdmin session={session} />} />
           <Route path="/ai-accuracy"       element={<AiAccuracyDashboard session={session} />} />
           <Route path="/audit-log"         element={<AuditLogViewer session={session} />} />
           <Route path="/rule-sandbox"      element={<RuleSandbox session={session} />} />
