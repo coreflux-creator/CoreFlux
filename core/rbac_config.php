@@ -36,18 +36,36 @@ return [
     // ---------------------------------------------------------------------
     // admin — second-tier admin (e.g., HR director, accounting controller).
     // Manage everything in regular operational modules. Excluded from
-    // platform-level controls (tenant settings, billing — when those exist).
+    // tenant-level platform controls (`tenant.*`) — that's tenant_admin /
+    // master_admin only.
+    //
+    // The wildcard list below intentionally mirrors every module_key the
+    // B4 bridge mapping uses (see /app/memory/RBAC_B4_PERMISSION_MAPPING.md)
+    // so the legacy half of the dual-check bridge can't silently deny an
+    // admin user on a module their new-side membership grants.
     // ---------------------------------------------------------------------
     'admin' => [
         'people.*',
+        'placements.*',
+        'time.*',
+        'billing.*',
+        'ap.*',
         'accounting.*',
-        'treasury.*',
-        'finance.*',
         'payroll.*',
-        'reporting.*',
+        'treasury.*',
+        'reports.*',         // new mapping naming
+        'reporting.*',       // legacy naming kept for back-compat
+        'finance.*',
+        'staffing.*',
+        'integrations.*',
+        // ai: explicit list — DO NOT widen to a catch-all wildcard. The
+        // ai.enable_auto_execute (autonomy on/off) permission is
+        // intentionally tenant_admin / master_admin only.
         'ai.view_recommendations',
         'ai.approve_actions',
         'ai.configure_agents',
+        'ai.config.manage',
+        'ai.low_confidence',
     ],
 
     // ---------------------------------------------------------------------

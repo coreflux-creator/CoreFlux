@@ -62,6 +62,83 @@ function _usersValidateRole(string $r, string $callerRole): void {
     }
 }
 
+/**
+ * Bootstrap a freshly-created user onto the new tenant_memberships +
+ * membership_module_access grid so the dual-check bridge can satisfy
+ * `api_can()` calls for them immediately.
+ *
+ * Without this, /api/users.php POST would leave the new user "orphaned"
+ * on the new RBAC model — they'd be able to log in but the new resolver
+ * would deny every gated action because there's no membership row, and
+ * the dual-check bridge (legacy AND new) would silently lock them out.
+ *
+ * Best-effort: every step is wrapped in try/catch so creation succeeds
+ * even if migration 055/058 hasn't been applied yet on this instance.
+ *
+ * @param \PDO     $pdo
+ * @param int      $userId      newly-inserted user id
+ * @param int      $tenantId    tenant the user was assigned to
+ * @param string   $role        legacy role string (matches persona_type vocab)
+ * @param int|null $actorUserId who created them — recorded on grants for audit
+ */
+function _usersBootstrapMembership(\PDO $pdo, int $userId, int $tenantId, string $role, ?int $actorUserId): void {
+    // Map legacy role → persona_type + default access level on every
+    // canonical module.  Mirrors the rules used by scripts/backfill_memberships.php
+    // so newly-created users land in the exact same shape as backfilled ones.
+    $level = match ($role) {
+        'master_admin', 'tenant_admin', 'admin' => 'admin',
+        'manager'                               => 'write',
+        'employee', 'contractor'                => 'read',
+        default                                 => 'read',
+    };
+    $synthRead = $level === 'admin' ? 'admin' : ($level === 'write' ? 'read' : 'none');
+
+    try {
+        $pdo->prepare(
+            'INSERT IGNORE INTO tenant_memberships
+                (user_id, tenant_id, persona_label, persona_type,
+                 is_primary, status, invited_by_user_id, accepted_at)
+             VALUES (:u, :t, "Primary", :pt, 1, "active", :ib, NOW())'
+        )->execute([
+            'u'  => $userId,
+            't'  => $tenantId,
+            'pt' => $role,
+            'ib' => $actorUserId,
+        ]);
+    } catch (\Throwable $_) { return; /* migration 055 missing — skip */ }
+
+    // Resolve the membership id (covers both the new INSERT and the
+    // already-exists-by-unique-key case).
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT id FROM tenant_memberships
+              WHERE user_id = :u AND tenant_id = :t AND persona_label = "Primary" LIMIT 1'
+        );
+        $stmt->execute(['u' => $userId, 't' => $tenantId]);
+        $membershipId = (int) $stmt->fetchColumn();
+        if (!$membershipId) return;
+    } catch (\Throwable $_) { return; }
+
+    // Operational modules — mirror canonical module list from /core/modules.php.
+    $modules = ['people','placements','time','billing','ap','accounting','payroll','treasury','reports'];
+    // Synthetic modules — match migration 058 levels.
+    $synthetic = ['integrations' => $synthRead, 'ai' => ($level === 'admin' ? 'admin' : 'none'), 'staffing' => ($level === 'none' ? 'none' : 'read')];
+
+    try {
+        $ins = $pdo->prepare(
+            'INSERT IGNORE INTO membership_module_access
+                (membership_id, module_key, access_level, granted_by_user_id)
+             VALUES (:m, :k, :l, :ab)'
+        );
+        foreach ($modules as $m) {
+            $ins->execute(['m' => $membershipId, 'k' => $m, 'l' => $level, 'ab' => $actorUserId]);
+        }
+        foreach ($synthetic as $m => $l) {
+            $ins->execute(['m' => $membershipId, 'k' => $m, 'l' => $l, 'ab' => $actorUserId]);
+        }
+    } catch (\Throwable $_) { /* skip — migration missing or DB hiccup */ }
+}
+
 $action = api_query('action', '');
 $id     = (int) api_query('id', 0);
 
@@ -162,6 +239,23 @@ if ($method === 'POST') {
         "INSERT INTO user_tenants (user_id, tenant_id, role, is_default, status, created_at)
          VALUES (:u, :t, :r, 1, 'active', NOW())"
     )->execute(['u' => $newId, 't' => $tenantId, 'r' => $tenantRole]);
+
+    // RBAC B-fix-up — also create a tenant_memberships row + default module
+    // access so the new resolver doesn't immediately deny everything for a
+    // freshly-created user. Without this the user can log in but fails every
+    // dual-check (legacy grants, new resolver denies because no membership
+    // row exists). Best-effort: never blocks the user creation flow.
+    _usersBootstrapMembership($pdo, $newId, $tenantId, $tenantRole, $actorId);
+
+    // Optional caller-provided global-admin flag. Only honored when the
+    // caller is themselves a master_admin / is_global_admin — prevents
+    // privilege escalation by lower-tier admins.
+    if (!empty($body['is_global_admin']) && $role === 'master_admin') {
+        try {
+            $pdo->prepare('UPDATE users SET is_global_admin = 1 WHERE id = :id')
+                ->execute(['id' => $newId]);
+        } catch (\Throwable $_) { /* column may not exist yet; safe to skip */ }
+    }
 
     subTenantAudit(0, $tenantId, $actorId, 'user.created', [
         'user_id' => $newId, 'email' => $email, 'role' => $newRole,
