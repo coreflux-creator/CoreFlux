@@ -256,6 +256,9 @@ function Toolbar({ weeks, setWeeks, compare, setCompare, editMode, setEditMode, 
               style={{ display:'inline-flex', alignItems:'center', gap:6 }}><Plus size={14}/>Custom KPI</button>
       <button onClick={onSave} data-testid="cfo-save-view" className="btn"
               style={{ display:'inline-flex', alignItems:'center', gap:6 }}><Save size={14}/>Save view</button>
+      <Link to="/cfo/audit-snapshot"
+            data-testid="cfo-audit-snapshot-btn" className="btn"
+            style={{ display:'inline-flex', alignItems:'center', gap:6, textDecoration:'none' }}><FileText size={14}/>Audit snapshot</Link>
       <button onClick={onSend} data-testid="cfo-send-report" className="btn btn--primary"
               style={{ display:'inline-flex', alignItems:'center', gap:6 }}><Send size={14}/>Send report</button>
     </div>

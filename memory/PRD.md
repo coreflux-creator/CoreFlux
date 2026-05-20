@@ -9,6 +9,40 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Architecture:** Modular monolith; modules developed in-repo under `/modules/<name>/`, extracted to subtree repos later
 - **Hosting:** Cloudways
 
+## Audit Snapshot — one-page printable summary (2026-02 — current fork)
+
+Polished follow-up to the External Auditor feature. Auditors (and any CFO/admin) now land on a clean, branded one-pager they can print or save as PDF for their workpapers.
+
+### Backend
+- **New endpoint `/api/cfo_audit_snapshot.php`** — gated via `api_require_cfo()`. Returns tenant header (id, name, logo_url, slug), period (`from`/`to`/`label`), `prepared.at/by`, `auditor_scope` (is_auditor/modules/expires_at), and 6 KPI totals:
+  - `revenue_total` — sum of `billing_invoices.total_amount` in window
+  - `collected_total` — sum of `billing_invoice_payments.amount` in window
+  - `ap_total` — sum of `ap_bills.amount` in window
+  - `ar_open` — open invoice balance now
+  - `ap_open` — open bill balance now
+  - `net_margin_pct` — derived from revenue − ap
+- Every total query wrapped in `try/catch` so a missing module table renders as "—" instead of 500-ing the snapshot. Every query filters by `tenant_id`.
+- Bad `from`/`to` date format returns 422 (defensive).
+- **CFOGuard + `api_require_cfo()` now permit `role='auditor'`** and any session with `auditor_mode=true`. Read-only enforcement still happens at the bootstrap layer.
+
+### Frontend
+- **New page `AuditSnapshot.jsx`** at `/cfo/audit-snapshot`:
+  - Branded header: tenant name + logo + period band + amber "External Auditor View" chip when applicable.
+  - 6-tile responsive KPI grid (`Intl.NumberFormat` currency, tabular-nums).
+  - Auditor scope explainer block (orange callout) summarising read-only modules + expiry + audit logging.
+  - Notes block — dashed-border free-space for auditors to annotate on the printed PDF.
+  - Footer with `prepared at / by` and tenant + period reprint.
+  - Inline `@media print` stylesheet hides every other DOM node (sidebar/header/banner/non-print buttons), forces US-letter portrait + 0.5" margins, so File→Print→Save as PDF produces a true one-pager.
+  - From/To date pickers re-fetch the endpoint on change.
+- **CFODashboard toolbar** has a new "Audit snapshot" link button (`cfo-audit-snapshot-btn`) right between Save view and Send report.
+- **`/auditor.php`** now lands every redeemed auditor session directly on `/cfo/audit-snapshot` (was `/cfo` before). They see value within 1 second of clicking the link.
+
+### Tested
+- New smoke `tests/audit_snapshot_smoke.php` — **28 ✓** covers endpoint shape, auth gate, date validation, tenant header, 6 KPIs, try/catch coverage, frontend wiring (testids, print CSS, banner hide, scope explainer), CFODashboard link, /auditor.php landing, role='auditor' permitted everywhere needed, PHP `php -l` sanity.
+- Vite bundle rebuilt + `.deploy-version` synced.
+- **Smoke suite total: 231 ✓ / 0 ✗.**
+
+
 ## CFO Dashboard gating + External Auditor mode + Recently-viewed strip (2026-02 — current fork)
 
 ### 🟢 Recently viewed tenants

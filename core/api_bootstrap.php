@@ -356,6 +356,10 @@ function api_require_cfo(): array {
     if ($globalRole === 'master_admin' || $isGlobalAdm) return $ctx;
     // Tenant admins / admins of the active tenant always allowed.
     if (in_array($role, ['tenant_admin', 'admin'], true)) return $ctx;
+    // External auditor (token-redeemed session) is read-only and explicitly
+    // permitted on CFO surfaces — the read-only enforcement happens at the
+    // bootstrap layer (every non-GET 403s).
+    if ($role === 'auditor' || !empty($_SESSION['auditor_mode'])) return $ctx;
 
     // Explicit per-membership grant of the synthetic 'cfo' module.
     $membershipId = (int) ($ctx['membership_id'] ?? 0);

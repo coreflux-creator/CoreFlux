@@ -5,6 +5,7 @@ import DashboardOverview from './pages/DashboardOverview';
 import ExecutiveDashboard from './pages/ExecutiveDashboard';
 import CFODashboard from './pages/CFODashboard';
 import CFOGuard from './pages/CFOGuard';
+import AuditSnapshot from './pages/AuditSnapshot';
 import ReportsModule from '../../modules/reports/ui/ReportsModule';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
@@ -429,6 +430,7 @@ const AppContent = ({ session, usingDemo }) => {
               annotations, per-section notes, and on-demand report email.
               Gated client-side; backend mirror is api_require_cfo(). */}
           <Route path="/cfo"       element={<CFOGuard session={session}><CFODashboard session={session} /></CFOGuard>} />
+          <Route path="/cfo/audit-snapshot" element={<CFOGuard session={session}><AuditSnapshot session={session} /></CFOGuard>} />
           
           {/* Tenant picker */}
           <Route path="/select-tenant" element={<TenantPicker session={session} />} />

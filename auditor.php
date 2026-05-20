@@ -39,9 +39,10 @@ if (!$ok) {
     exit;
 }
 
-// Default landing is the CFO dashboard — the headline read-only surface.
-// Auditors can navigate into reports/accounting/etc from the sidebar.
-$next = '/spa.php#/cfo';
+// Default landing is the printable Audit Snapshot — the one-page summary
+// that's actually useful to the auditor. They can navigate into the full
+// CFO dashboard or other modules from there.
+$next = '/spa.php#/cfo/audit-snapshot';
 header('Location: ' . $next);
 exit;
 

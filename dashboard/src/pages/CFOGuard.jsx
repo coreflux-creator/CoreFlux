@@ -21,7 +21,7 @@ export default function CFOGuard({ session, children }) {
 
   const allowed = globalRole === 'master_admin'
               || isGlobalAdm
-              || ['tenant_admin', 'admin'].includes(role);
+              || ['tenant_admin', 'admin', 'auditor'].includes(role);
 
   if (allowed) return children;
 
