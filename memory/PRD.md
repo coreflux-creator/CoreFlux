@@ -10,6 +10,20 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (AI usage panel — closes the loop, 2026-02 — current fork)
+
+Now that AI is self-serve on/off (prior change), the obvious next question is "what is AI actually doing for me?". Shipped the `AiUsagePanel` under `/admin/ai-accuracy` so the same page that answers "is AI right?" also answers "how much, how fast, where".
+
+### Shipped
+- **Backend — `api/admin/ai_usage.php`** — aggregates `ai_interactions` rows for the active tenant (or any tenant if you're a master_admin) for the last 1–90 days. Returns: `totals` (calls / ok / error / disabled / success_rate / p50 / p95 latency), `by_feature_class` (same metrics per class + distinct feature_keys), and `top_feature_keys` (top 10 by volume + last_call_at). Auth: master_admin or tenant_admin (constrained to own tenant). Days param clamped 1..90. Percentiles computed in PHP from a single ordered fetch — no MySQL window-function dependency.
+- **Frontend — `AiUsagePanel` in `pages/AiAccuracyDashboard.jsx`** — mounted at the top of the existing AI Accuracy page. 4 KPI stat cards (calls / success rate / p50 / p95), a per-class table, and a top-feature-keys table. Empty-state copy links straight to `/admin/ai-settings` so an empty panel is a one-click problem to solve. Window respects the page-level day selector but caps at 30 days to keep the panel fast.
+- **Cost intentionally omitted.** `ai_interactions` doesn't track tokens or provider cost, so a fake estimate would mislead more than help. The endpoint docstring documents how to extend the panel cleanly once a `token_count` + `cost_cents` column lands.
+- **New smoke — `ai_usage_panel_smoke.php`** — 24 assertions covering endpoint shape + auth + percentile math + scoping, plus React test IDs and the empty-state link. All 3 codebase-wide sentries (HY093 / tenant-leak / auth-gate) verified still green.
+- **SPA bundle rebuilt** via `yarn --cwd /app/dashboard build && bash scripts/sync_bundle.sh`.
+
+Full suite status: **223/223 smoke tests passing** (+1 `ai_usage_panel_smoke.php`).
+
+
 ## Recently completed (AI settings UI + CLI — opt-in default preserved, 2026-02 — current fork)
 
 **Root cause of the "AI is off — adjust in settings" with nowhere to go:** `tenants.ai_enabled` defaulted to `0` (per migration `002_ai_platform.sql` — opt-in by design), but no admin UI or API endpoint ever existed to flip it. `aiGateForTenant()` in `core/ai_service.php:274` correctly gated every feature on the flag — there was just no way to turn it on. Simulation was a separate misunderstanding: the Simulation Dashboard at `/admin/simulation-runs` is the deterministic test harness for engineers/auditors, not a tenant feature toggle.

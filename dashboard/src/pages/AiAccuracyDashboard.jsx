@@ -3,6 +3,7 @@ import { useApi } from '../lib/api';
 
 const fmtPct = (n) => n === null || n === undefined ? '—' : `${Math.round(n * 100)}%`;
 const fmtConf = (n) => n === null || n === undefined ? '—' : `${(Math.round(n * 1000) / 10).toFixed(1)}%`;
+const fmtMs   = (n) => n === null || n === undefined ? '—' : `${n.toLocaleString()} ms`;
 
 /**
  * Tenant-admin AI Accuracy Dashboard.
@@ -59,6 +60,7 @@ export default function AiAccuracyDashboard() {
 
       {!loading && !error && (
         <>
+          <AiUsagePanel days={Math.min(days, 30)} />
           <div style={{
             display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
             gap: 12, marginBottom: 24,
@@ -227,5 +229,115 @@ function Stat({ label, value, hint, big }) {
       <div style={{ fontSize: big ? 28 : 22, fontWeight: 600, marginTop: 2 }}>{value}</div>
       {hint && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{hint}</div>}
     </div>
+  );
+}
+
+/**
+ * AiUsagePanel — last-N-day call volume + success rate + p50/p95 latency
+ * pulled from /api/admin/ai_usage.php. Lives at the top of /admin/ai-accuracy
+ * so the same page that explains "is AI right?" also answers "how much is AI
+ * actually being used?".
+ *
+ * Cost is intentionally omitted — `ai_interactions` doesn't track tokens or
+ * provider cost, so a fake estimate would mislead more than help.
+ */
+function AiUsagePanel({ days = 7 }) {
+  const { data, loading, error } = useApi(`/api/admin/ai_usage.php?days=${days}`);
+  if (loading) return <p data-testid="ai-usage-loading">Loading usage…</p>;
+  if (error)   return <p className="error" data-testid="ai-usage-error">{error.message}</p>;
+  if (!data)   return null;
+
+  const totals = data.totals || {};
+  const byClass = data.by_feature_class || [];
+  const topKeys = data.top_feature_keys || [];
+
+  return (
+    <section data-testid="ai-usage-panel" style={{ marginBottom: 28, padding: 16, background: 'var(--cf-surface, #f8fafc)', border: '1px solid var(--cf-border)', borderRadius: 8 }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+        <div>
+          <h2 style={{ fontSize: 16, margin: 0 }}>Usage (last {data.window_days} days)</h2>
+          <p className="muted" style={{ fontSize: 12, margin: '2px 0 0' }}>
+            Call volume, success rate, and latency. Pulled live from <code>ai_interactions</code>.
+          </p>
+        </div>
+      </header>
+
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+        gap: 10, marginBottom: 16,
+      }}>
+        <Stat label="Total calls"   value={totals.calls || 0} big />
+        <Stat label="Success rate"
+              value={fmtPct(totals.success_rate)}
+              hint={`${totals.ok_count || 0} ok / ${totals.error_count || 0} error / ${totals.disabled_count || 0} disabled`}
+        />
+        <Stat label="p50 latency"   value={fmtMs(totals.p50_latency_ms)} />
+        <Stat label="p95 latency"   value={fmtMs(totals.p95_latency_ms)} />
+      </div>
+
+      {byClass.length === 0 ? (
+        <p className="muted" data-testid="ai-usage-empty" style={{ fontSize: 13 }}>
+          No AI calls in this window yet. Flip AI on at <a href="/admin/ai-settings">/admin/ai-settings</a> if a tenant hasn't been enabled, or pick a feature that uses AI (e.g. Treasury → categorize a transaction) to populate.
+        </p>
+      ) : (
+        <>
+          <h3 style={{ fontSize: 13, margin: '0 0 6px', color: '#475569' }}>By feature class</h3>
+          <table className="data-table" data-testid="ai-usage-by-class" style={{ fontSize: 13, marginBottom: 16 }}>
+            <thead>
+              <tr>
+                <th>Class</th>
+                <th style={{ textAlign: 'right' }}>Calls</th>
+                <th style={{ textAlign: 'right' }}>Success</th>
+                <th style={{ textAlign: 'right' }}>p50</th>
+                <th style={{ textAlign: 'right' }}>p95</th>
+                <th style={{ textAlign: 'right' }}>Distinct features</th>
+              </tr>
+            </thead>
+            <tbody>
+              {byClass.map((c) => (
+                <tr key={c.feature_class} data-testid={`ai-usage-class-${c.feature_class}`}>
+                  <td><code style={{ fontSize: 12 }}>{c.feature_class}</code></td>
+                  <td style={{ textAlign: 'right' }}>{c.calls}</td>
+                  <td style={{
+                    textAlign: 'right',
+                    color: c.success_rate >= 0.95 ? '#065f46' : c.success_rate >= 0.8 ? '#b45309' : '#b91c1c',
+                    fontWeight: 600,
+                  }}>{fmtPct(c.success_rate)}</td>
+                  <td style={{ textAlign: 'right' }}>{fmtMs(c.p50_latency_ms)}</td>
+                  <td style={{ textAlign: 'right' }}>{fmtMs(c.p95_latency_ms)}</td>
+                  <td style={{ textAlign: 'right' }}>{c.distinct_features}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {topKeys.length > 0 && (
+            <>
+              <h3 style={{ fontSize: 13, margin: '0 0 6px', color: '#475569' }}>Top feature keys (by volume)</h3>
+              <table className="data-table" data-testid="ai-usage-top-keys" style={{ fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th>Feature key</th>
+                    <th>Class</th>
+                    <th style={{ textAlign: 'right' }}>Calls</th>
+                    <th>Last call</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topKeys.map((k) => (
+                    <tr key={k.feature_key} data-testid={`ai-usage-key-${k.feature_key.replace(/\./g, '-')}`}>
+                      <td><code style={{ fontSize: 11 }}>{k.feature_key}</code></td>
+                      <td className="muted">{k.feature_class}</td>
+                      <td style={{ textAlign: 'right' }}>{k.calls}</td>
+                      <td className="muted" style={{ fontSize: 11 }}>{k.last_call_at}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </>
+      )}
+    </section>
   );
 }
