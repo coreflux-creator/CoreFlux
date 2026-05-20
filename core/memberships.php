@@ -24,6 +24,122 @@ declare(strict_types=1);
 require_once __DIR__ . '/db.php';
 
 /**
+ * Read-side UNION shim. While the platform finishes the user_tenants →
+ * tenant_memberships migration, every read of "what tenants does a user
+ * belong to / which users belong to a tenant" must look at BOTH tables —
+ * production may not be fully backfilled yet, and a memberships-only read
+ * silently strands every legacy row (= empty UI).
+ *
+ * Returns a SQL fragment (intended to be wrapped in `( ... ) AS alias`)
+ * that yields a normalised, de-duplicated row set with these columns:
+ *
+ *   user_id, tenant_id, persona_type, is_primary, status, last_active_at
+ *
+ * Rows from `tenant_memberships` win when both tables hold the same
+ * (user_id, tenant_id) pair. Legacy `user_tenants.status='inactive'` is
+ * mapped to the new vocabulary 'suspended' on the fly.
+ *
+ * Centralising the SELECT here keeps `core/data.php`, `api/users.php`,
+ * etc. free of direct user_tenants reads — preserving the read-sentry
+ * (memberships.php is on its allow-list).
+ *
+ * tenant-leak-allow: returns a fragment used only inside tenant-scoped
+ * queries; the caller is responsible for adding tenant_id / user_id
+ * predicates.
+ */
+function membershipReadSourceSql(): string {
+    return "(
+        SELECT user_id, tenant_id, persona_type, is_primary, status, last_active_at
+          FROM tenant_memberships
+         WHERE status = 'active'
+        UNION
+        SELECT ut.user_id,
+               ut.tenant_id,
+               ut.role        AS persona_type,
+               ut.is_default  AS is_primary,
+               CASE WHEN ut.status = 'inactive' THEN 'suspended' ELSE ut.status END AS status,
+               ut.last_active_at
+          FROM user_tenants ut
+         WHERE COALESCE(ut.status, 'active') = 'active'
+           AND NOT EXISTS (
+               SELECT 1 FROM tenant_memberships tm
+                WHERE tm.user_id   = ut.user_id
+                  AND tm.tenant_id = ut.tenant_id
+           )
+    )";
+}
+
+/**
+ * Convenience: count distinct active tenants a user is a member of, across
+ * both tables. Used by the master-admin user list to show a "tenants"
+ * column even before the backfill runs.
+ */
+function membershipTenantCountForUser(int $userId): int {
+    $pdo = getDB();
+    if (!$pdo) return 0;
+    $sql = 'SELECT COUNT(DISTINCT tenant_id) FROM ' . membershipReadSourceSql() . ' src WHERE src.user_id = :u';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute(['u' => $userId]);
+    return (int) $stmt->fetchColumn();
+}
+
+/**
+ * Self-healing backfill: when a user logs in, any rows that only exist in
+ * legacy `user_tenants` (= not yet migrated) are dual-written via
+ * provisionMembership() so the new RBAC resolver starts seeing them.
+ *
+ * Best-effort, idempotent, and silent — login must succeed even if a
+ * single membership write trips. Returns the number of rows healed.
+ *
+ * tenant-leak-allow: heals every tenant the user already legitimately
+ * belongs to in the legacy table; tenant scope is the user's own data.
+ */
+function healMembershipsForUser(int $userId): int {
+    if ($userId <= 0) return 0;
+    $pdo = getDB();
+    if (!$pdo) return 0;
+
+    try {
+        $stmt = $pdo->prepare(
+            "SELECT ut.tenant_id, ut.role, ut.is_default
+               FROM user_tenants ut
+              WHERE ut.user_id = :u
+                AND COALESCE(ut.status,'active') = 'active'
+                AND NOT EXISTS (
+                    SELECT 1 FROM tenant_memberships tm
+                     WHERE tm.user_id = ut.user_id
+                       AND tm.tenant_id = ut.tenant_id
+                )"
+        );
+        $stmt->execute(['u' => $userId]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $e) {
+        // Table missing / migration not applied — nothing to heal.
+        return 0;
+    }
+
+    $healed = 0;
+    foreach ($rows as $r) {
+        try {
+            provisionMembership(
+                $userId,
+                (int) $r['tenant_id'],
+                (string) ($r['role'] ?? 'employee'),
+                [
+                    'is_primary'    => (int) ($r['is_default'] ?? 0) === 1,
+                    'persona_label' => 'Primary',
+                    'status'        => 'active',
+                ]
+            );
+            $healed++;
+        } catch (\Throwable $e) {
+            error_log('[memberships.heal] ' . $e->getMessage());
+        }
+    }
+    return $healed;
+}
+
+/**
  * tenant_memberships.persona_type is an ENUM. Map legacy role strings to a
  * value the new column will accept. Unknown / custom roles become 'custom'.
  */

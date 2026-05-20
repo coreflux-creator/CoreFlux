@@ -46,8 +46,8 @@ function _usersScopeWhere(string $role, ?int $activeTid): array {
     if ($role === 'master_admin') return ['', []];
     if (!$activeTid) return ['1=0', []];
     return [
-        "u.id IN (SELECT DISTINCT ut.user_id FROM tenant_memberships ut
-                   WHERE ut.tenant_id = :scope_t AND ut.status = 'active')",
+        "u.id IN (SELECT DISTINCT ut.user_id FROM " . membershipReadSourceSql() . " ut
+                   WHERE ut.tenant_id = :scope_t)",
         ['scope_t' => $activeTid],
     ];
 }
@@ -151,8 +151,8 @@ if ($method === 'GET' && !$id) {
     $whereSql = $where ? "WHERE $where" : '';
 
     $sql = "SELECT u.id, u.name, u.email, u.role, u.is_active, u.created_at,
-                   (SELECT COUNT(DISTINCT ut2.tenant_id) FROM tenant_memberships ut2
-                     WHERE ut2.user_id = u.id AND ut2.status = 'active') AS tenant_count
+                   (SELECT COUNT(DISTINCT ut2.tenant_id) FROM " . membershipReadSourceSql() . " ut2
+                     WHERE ut2.user_id = u.id) AS tenant_count
               FROM users u
               $whereSql
           ORDER BY u.is_active DESC, u.name ASC
@@ -174,8 +174,8 @@ if ($method === 'GET' && $id) {
     // Scope check for tenant_admin: must share at least one tenant with target.
     if ($role !== 'master_admin') {
         $stmt = $pdo->prepare(
-            "SELECT 1 FROM tenant_memberships
-              WHERE user_id = :u AND tenant_id = :t AND status = 'active' LIMIT 1"
+            "SELECT 1 FROM " . membershipReadSourceSql() . " src
+              WHERE src.user_id = :u AND src.tenant_id = :t LIMIT 1"
         );
         $stmt->execute(['u' => $id, 't' => $activeTid]);
         if (!$stmt->fetchColumn()) api_error('Forbidden', 403);
@@ -187,7 +187,7 @@ if ($method === 'GET' && $id) {
                 MAX(ut.is_primary)   AS is_default,
                 MIN(ut.status)       AS status,
                 MAX(ut.last_active_at) AS last_active_at
-           FROM tenant_memberships ut
+           FROM " . membershipReadSourceSql() . " ut
            JOIN tenants t ON ut.tenant_id = t.id
           WHERE ut.user_id = :u
        GROUP BY ut.tenant_id, t.name
@@ -272,8 +272,8 @@ if ($method === 'PATCH' && $id) {
     if ($role !== 'master_admin') {
         // Same-tenant scope guard.
         $stmt = $pdo->prepare(
-            "SELECT 1 FROM tenant_memberships
-              WHERE user_id = :u AND tenant_id = :t AND status = 'active' LIMIT 1"
+            "SELECT 1 FROM " . membershipReadSourceSql() . " src
+              WHERE src.user_id = :u AND src.tenant_id = :t LIMIT 1"
         );
         $stmt->execute(['u' => $id, 't' => $activeTid]);
         if (!$stmt->fetchColumn()) api_error('Forbidden', 403);

@@ -9,6 +9,26 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Architecture:** Modular monolith; modules developed in-repo under `/modules/<name>/`, extracted to subtree repos later
 - **Hosting:** Cloudways
 
+## P0 fix — Tenant read-fallback (UNION shim + login self-heal, 2026-02 — current fork)
+
+After the prior session swapped every membership read from `user_tenants` to `tenant_memberships`, the production UI broke because `tenant_memberships` is not yet backfilled in prod (users saw zero tenants, master_admin lost global access, modules disappeared). Resolved without a DB migration:
+
+- **`core/memberships.php` extended:**
+  - `membershipReadSourceSql()` — returns a parenthesised SQL fragment that UNIONs `tenant_memberships` with the de-duped (NOT EXISTS) tail of `user_tenants`, normalised to `(user_id, tenant_id, persona_type, is_primary, status, last_active_at)`. Memberships rows win on conflict; legacy `'inactive'` is mapped to the new `'suspended'` vocabulary on the fly.
+  - `membershipTenantCountForUser($userId)` — convenience count using the shim.
+  - `healMembershipsForUser($userId)` — opportunistic self-heal: any `user_tenants` row this user has that isn't yet in `tenant_memberships` is dual-written via `provisionMembership()`. Best-effort, idempotent, never blocks login.
+- **Read sites refactored** to call `membershipReadSourceSql()` instead of typing `FROM tenant_memberships` directly:
+  - `core/data.php` — `getUserTenants()`, `getAllTenants()` (user_count subquery), `getAllUsers()` (left join).
+  - `api/users.php` — `_usersScopeWhere()` for tenant_admin scoping, list query's `tenant_count` subquery, single-user GET (scope-check + per-tenant memberships listing), PATCH same-tenant scope guard. The bootstrap helper still reads back its own freshly-inserted membership row by id (legitimate, allowed by the smoke test).
+- **`login.php`** — calls `healMembershipsForUser()` before `getUserTenants()` so each successful login quietly migrates that user's legacy rows. Production data heals itself with traffic; no separate ops step required (though `php scripts/backfill_memberships.php` is still recommended for the next prod deploy window to migrate dormant accounts).
+- **No new direct `FROM user_tenants` reads escape `core/memberships.php`** (which is on the read-sentry allow-list). All four `*_sentry_smoke.php` tests stay green.
+- **New smoke `tests/tenant_read_fallback_smoke.php`** — 19 assertions: helper presence, fragment shape, de-dup clause, status filtering, status mapping, call-site adoption in `data.php`/`users.php`, login wiring, and a live DB exec when a connection is available.
+- **Smoke suite total:** 227 ✓ / 0 ✗ (was 226; +1 from the new test).
+
+### Known follow-up for prod
+- Run `php scripts/backfill_memberships.php` once on the next deploy to migrate accounts that haven't logged in (so they show up in admin lists ahead of their first login self-heal).
+
+
 
 ## Recently completed (AI cost tracking + provisionMembership dual-write helper, 2026-02 — current fork)
 

@@ -6,6 +6,7 @@
 require_once __DIR__ . '/core/config.php';
 require_once __DIR__ . '/core/auth.php';
 require_once __DIR__ . '/core/data.php';
+require_once __DIR__ . '/core/memberships.php';
 
 initSession();
 
@@ -60,6 +61,13 @@ if (isset($dbUser['is_active']) && (int)$dbUser['is_active'] !== 1) {
 
 // Get user's global role (from users table)
 $globalRole = $dbUser['role'] ?? 'employee';
+
+// Self-healing backfill — quietly migrate any legacy `user_tenants` rows
+// for this user into `tenant_memberships` before we hand off to the rest
+// of the request. Best-effort: any failure is logged, never blocks login.
+try { healMembershipsForUser((int) $dbUser['id']); } catch (\Throwable $e) {
+    error_log('[login] healMembershipsForUser failed: ' . $e->getMessage());
+}
 
 // Get user's tenants
 $tenants = getUserTenants($dbUser['id']);

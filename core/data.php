@@ -6,21 +6,26 @@
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/memberships.php';
 
 /**
  * Get user's tenants from database
+ *
+ * Read-fallback: uses membershipReadSourceSql() which UNIONs
+ * tenant_memberships + (de-duped) user_tenants so users still see their
+ * tenants while the production backfill catches up.
  */
 function getUserTenants(int $userId): array {
     $pdo = getDB();
     if (!$pdo) return [];
-    
+
     $stmt = $pdo->prepare("
         SELECT t.id, t.name, t.logo_url, t.subdomain, t.parent_id,
                MIN(tm.persona_type) AS role,
                MAX(tm.is_primary)   AS is_default
-        FROM tenant_memberships tm
+        FROM " . membershipReadSourceSql() . " tm
         JOIN tenants t ON tm.tenant_id = t.id
-        WHERE tm.user_id = ? AND tm.status = 'active'
+        WHERE tm.user_id = ?
         GROUP BY t.id, t.name, t.logo_url, t.subdomain, t.parent_id
         ORDER BY is_default DESC, t.name ASC
     ");
@@ -294,7 +299,7 @@ function getAllTenants(): array {
     
     $stmt = $pdo->query("
         SELECT t.*, 
-               (SELECT COUNT(DISTINCT tm.user_id) FROM tenant_memberships tm WHERE tm.tenant_id = t.id AND tm.status = 'active') as user_count,
+               (SELECT COUNT(DISTINCT src.user_id) FROM " . membershipReadSourceSql() . " src WHERE src.tenant_id = t.id) as user_count,
                (SELECT COUNT(*) FROM tenants sub WHERE sub.parent_id = t.id) as sub_tenant_count
         FROM tenants t
         ORDER BY t.parent_id IS NULL DESC, t.name ASC
@@ -313,7 +318,7 @@ function getAllUsers(): array {
         SELECT u.*, 
                GROUP_CONCAT(DISTINCT t.name SEPARATOR ', ') as tenant_names
         FROM users u
-        LEFT JOIN tenant_memberships tm ON u.id = tm.user_id AND tm.status = 'active'
+        LEFT JOIN " . membershipReadSourceSql() . " tm ON u.id = tm.user_id
         LEFT JOIN tenants t ON tm.tenant_id = t.id
         GROUP BY u.id
         ORDER BY u.name
