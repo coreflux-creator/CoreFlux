@@ -110,6 +110,10 @@ $assert('sync action upgraded to A3 entity sync (placeholder removed)',
 $assert('disconnect supports POST + DELETE',
     strpos($disp, "in_array(\$method, ['POST', 'DELETE'], true)") !== false);
 $assert('webhook URL helper present',             strpos($disp, 'function jobdivaWebhookUrl') !== false);
+$assert('webhook URL helper derives absolute URL from request',
+    strpos($disp, "HTTP_X_FORWARDED_HOST") !== false
+    && strpos($disp, "HTTP_X_FORWARDED_PROTO") !== false
+    && strpos($disp, "HTTP_HOST") !== false);
 
 echo "\nPath-style aliases\n";
 foreach (['connect','disconnect','status','ping','sync','webhook'] as $v) {

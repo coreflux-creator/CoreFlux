@@ -246,8 +246,23 @@ api_error('Unknown action: ' . $action, 400);
 
 function jobdivaWebhookUrl(int $tenantId): string
 {
+    // Prefer the explicit constant / env if the operator set one.
     $base = (defined('CF_PUBLIC_BASE_URL') ? CF_PUBLIC_BASE_URL
                                             : (getenv('CF_PUBLIC_BASE_URL') ?: ''));
-    if ($base === '') return "/api/jobdiva/webhook.php?tenant_id={$tenantId}";
-    return rtrim($base, '/') . "/api/jobdiva/webhook.php?tenant_id={$tenantId}";
+
+    // Otherwise derive the absolute origin from the current request so the
+    // URL pasted into JobDiva is something JobDiva can actually call.
+    // Returning a relative path here used to leak `/api/jobdiva/webhook.php?...`
+    // into the tenant UI, which JobDiva would reject on save.
+    if ($base === '') {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                  || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')
+                  || (($_SERVER['SERVER_PORT'] ?? '') === '443')
+                ? 'https' : 'http';
+        $host = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '';
+        if ($host !== '') $base = $scheme . '://' . $host;
+    }
+
+    $path = "/api/jobdiva/webhook.php?tenant_id={$tenantId}";
+    return $base === '' ? $path : rtrim($base, '/') . $path;
 }
