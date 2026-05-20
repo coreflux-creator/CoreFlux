@@ -388,16 +388,60 @@ function jobdivaPing(int $tenantId, ?int $userId): array
 }
 
 /**
- * HMAC-SHA256 webhook signature verification.
- * Header format expected (configurable in JobDiva dashboard):
- *   X-JobDiva-Signature: sha256=<hex digest>
+ * Webhook signature verification.
+ *
+ * JobDiva's "Manage API Webhook" dialog sends an `X-Hub-Signature` header
+ * computed as HmacSHA1 over the raw request body using the shared secret
+ * the operator entered as "Webhook Signature". The value is either a raw
+ * hex digest, or prefixed with the algorithm (`sha1=<hex>` for X-Hub style,
+ * `sha256=<hex>` for newer integrations).
+ *
+ * We accept all three shapes plus our own historic `X-JobDiva-Signature`
+ * (kept for backwards compatibility with already-registered webhooks).
+ * Comparison is constant-time via hash_equals().
+ *
+ * Headers checked in order:
+ *   1. X-Hub-Signature        (JobDiva's UI default — primary)
+ *   2. X-Hub-Signature-256    (newer JobDiva tenants)
+ *   3. X-JobDiva-Signature    (CoreFlux legacy)
+ *
+ * Algorithm picked from the header prefix; falls back to SHA1 when no
+ * prefix is present (matches JobDiva's bare-hex variant).
  */
-function jobdivaWebhookVerify(int $tenantId, string $rawBody, string $sigHeader): bool
+function jobdivaWebhookVerify(int $tenantId, string $rawBody, string $sigHeader = '', array $allHeaders = []): bool
 {
     $row = jobdivaConnection($tenantId);
     if (!$row || empty($row['webhook_secret_enc'])) return false;
     $secret = decryptField((string) $row['webhook_secret_enc']);
     if (!$secret) return false;
-    $expected = 'sha256=' . hash_hmac('sha256', $rawBody, $secret);
-    return hash_equals($expected, $sigHeader);
+
+    // Aggregate every signature-bearing header so callers can either pass
+    // them explicitly (preferred — controller passes $_SERVER once) or rely
+    // on $_SERVER fall-through here.  Lower-cased keys for predictable lookups.
+    $sources = [];
+    foreach ([
+        'HTTP_X_HUB_SIGNATURE'         => 'x-hub-signature',
+        'HTTP_X_HUB_SIGNATURE_256'     => 'x-hub-signature-256',
+        'HTTP_X_JOBDIVA_SIGNATURE'     => 'x-jobdiva-signature',
+    ] as $serverKey => $headerKey) {
+        if (isset($allHeaders[$headerKey])) $sources[$headerKey] = (string) $allHeaders[$headerKey];
+        elseif (isset($_SERVER[$serverKey])) $sources[$serverKey] = (string) $_SERVER[$serverKey];
+    }
+    // The classic single-string $sigHeader arg (back-compat) is checked first.
+    if ($sigHeader !== '') array_unshift($sources, $sigHeader);
+
+    foreach ($sources as $candidate) {
+        $candidate = trim((string) $candidate);
+        if ($candidate === '') continue;
+        // Algorithm + digest.
+        $algo   = 'sha1';
+        $digest = $candidate;
+        if (stripos($candidate, 'sha256=') === 0) { $algo = 'sha256'; $digest = substr($candidate, 7); }
+        elseif (stripos($candidate, 'sha1=') === 0) { $algo = 'sha1';   $digest = substr($candidate, 5); }
+        $expected = hash_hmac($algo, $rawBody, $secret);
+        // Match the bare digest *or* the algo-prefixed variant for symmetry.
+        if (hash_equals($expected, $digest)) return true;
+        if (hash_equals($algo . '=' . $expected, $candidate)) return true;
+    }
+    return false;
 }

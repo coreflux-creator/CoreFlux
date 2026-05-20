@@ -42,7 +42,13 @@ if ($action === 'webhook') {
     $tid = (int) (api_query('tenant_id') ?? 0);   // tenant identifies itself in URL
     if ($tid <= 0) api_error('tenant_id required', 400);
     $raw = (string) file_get_contents('php://input');
-    $sig = (string) ($_SERVER['HTTP_X_JOBDIVA_SIGNATURE'] ?? '');
+    // Backwards-compatible primary header; the verifier itself looks at
+    // X-Hub-Signature (JobDiva's actual default), X-Hub-Signature-256, and
+    // the legacy X-JobDiva-Signature, so passing any one — or none — works.
+    $sig = (string) ($_SERVER['HTTP_X_HUB_SIGNATURE']
+                  ?? $_SERVER['HTTP_X_HUB_SIGNATURE_256']
+                  ?? $_SERVER['HTTP_X_JOBDIVA_SIGNATURE']
+                  ?? '');
     $ok  = jobdivaWebhookVerify($tid, $raw, $sig);
     $payload = json_decode($raw, true);
     if (!is_array($payload)) $payload = ['_raw' => $raw];

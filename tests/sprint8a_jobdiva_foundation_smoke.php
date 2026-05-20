@@ -71,8 +71,11 @@ $assert('jobdivaCall surfaces degraded on >=400',
 $assert('Bearer header on authenticated calls',   strpos($cli, "Authorization: Bearer ' . \$token") !== false);
 $assert('jobdivaPing emits ping audit row',
     strpos($cli, "jobdivaAudit(\$tenantId, 'ping'") !== false);
-$assert('jobdivaWebhookVerify uses HMAC-SHA256',
-    strpos($cli, "hash_hmac('sha256', \$rawBody, \$secret)") !== false
+$assert('jobdivaWebhookVerify accepts JobDiva X-Hub-Signature (SHA1) + SHA256 + legacy',
+    strpos($cli, "hash_hmac(\$algo, \$rawBody, \$secret)") !== false
+    && strpos($cli, 'HTTP_X_HUB_SIGNATURE') !== false
+    && strpos($cli, 'HTTP_X_HUB_SIGNATURE_256') !== false
+    && strpos($cli, 'HTTP_X_JOBDIVA_SIGNATURE') !== false
     && strpos($cli, 'hash_equals') !== false);
 $assert('jobdivaAudit shape (action+direction+ok)',
     strpos($cli, 'INSERT INTO jobdiva_sync_audit') !== false
