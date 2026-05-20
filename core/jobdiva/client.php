@@ -259,29 +259,58 @@ function jobdivaSessionToken(int $tenantId): string
 
     $token = jobdivaExtractToken($resp);
     if ($token === '') {
-        // JobDiva's Spring Security layer returns this exact phrase when the
-        // request reached their server but no authentication context was
-        // accepted. This almost always means the JobDiva tenant doesn't yet
-        // have API access provisioned — NOT a CoreFlux bug. Surface the
-        // remediation steps directly so operators don't have to grep logs.
+        // Always capture the real JobDiva response so the operator can see
+        // *what* JobDiva actually said, not just our generic remediation.
+        // Some 401s mean "tenant not provisioned" (the original case below),
+        // others mean "API user exists but the password is wrong" or
+        // "permission flag set but role membership missing" — each requires
+        // a different fix.
         $bodyText = is_string($resp['body'])
             ? $resp['body']
             : (string) json_encode($resp['body']);
-        if ($resp['status'] === 401
-            || stripos($bodyText, 'Full authentication is required') !== false) {
+        $jdMsg = '';
+        if (is_array($resp['body']) && isset($resp['body']['message'])) {
+            $jdMsg = (string) $resp['body']['message'];
+        }
+        $liUuid = $resp['headers']['x-li-uuid'] ?? '';
+
+        // Persist raw response + headers to the audit row so support tickets
+        // can quote JobDiva's correlation id.
+        jobdivaAudit($tenantId, 'authenticate_failed', [
+            'ok'     => false,
+            'detail' => [
+                'http_status' => $resp['status'],
+                'jd_message'  => $jdMsg,
+                'body'        => substr($bodyText, 0, 500),
+                'li_uuid'     => $liUuid,
+            ],
+        ]);
+
+        if (stripos($bodyText, 'Full authentication is required') !== false) {
             throw new \RuntimeException(
-                'JobDiva rejected authenticate with HTTP 401. This is a tenant-side '
-              . 'provisioning issue, not a credential typo. Email JobDiva Support and ask them to: '
-              . '(1) issue a Client ID for API use, '
+                'JobDiva returned HTTP ' . $resp['status'] . ' "Full authentication is required". '
+              . 'This means the tenant is not provisioned for API access yet. '
+              . 'Email JobDiva Support and ask them to: '
+              . '(1) issue an API Client ID, '
               . '(2) create a dedicated API user (not a normal UI login), and '
               . '(3) enable the "Only allow to access JobDiva API Calls" permission on that user. '
-              . 'See /app/memory/JOBDIVA_API_ACCESS.md for the full template.'
+              . 'See /app/memory/JOBDIVA_API_ACCESS.md for the full template. '
+              . ($liUuid ? "JobDiva correlation id (li-uuid): {$liUuid}." : '')
             );
         }
-        $snippet = is_string($resp['body'])
-            ? substr($resp['body'], 0, 200)
-            : substr((string) json_encode($resp['body']), 0, 200);
-        throw new \RuntimeException('JobDiva authenticate response missing token: ' . $snippet);
+
+        // Any other 401/4xx — surface JobDiva's actual message so we can
+        // diagnose. Common shapes seen in the wild:
+        //   - "Bad credentials"                  → API password wrong
+        //   - "Access is denied"                 → user lacks API permission
+        //   - "User account is locked"           → JobDiva auto-locked the user
+        //   - "Invalid client"                   → Client ID typo / mismatch
+        throw new \RuntimeException(
+            'JobDiva authenticate failed: HTTP ' . $resp['status']
+          . ($jdMsg !== '' ? " — JobDiva says: \"{$jdMsg}\"" : '')
+          . ($liUuid ? " (li-uuid: {$liUuid})" : '')
+          . '. Raw body: ' . substr($bodyText, 0, 300)
+        );
     }
 
     // expires_in may be in the body (JSON) or — when the body is a raw
