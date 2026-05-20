@@ -173,12 +173,8 @@ function subTenantProvision(int $parentTenantId, array $opts, ?int $actorUserId 
         $invites = $opts['invites'] ?? [];
         $invited = [];
         if (is_array($invites) && $invites) {
+            require_once __DIR__ . '/memberships.php';
             $find = $pdo->prepare('SELECT id FROM users WHERE email = :e LIMIT 1');
-            $up   = $pdo->prepare(
-                "INSERT INTO user_tenants (user_id, tenant_id, role, status, created_at)
-                 VALUES (:u, :t, :r, 'active', NOW())
-                 ON DUPLICATE KEY UPDATE role = VALUES(role), status = 'active'"
-            );
             foreach ($invites as $inv) {
                 $email = strtolower(trim((string)($inv['email'] ?? '')));
                 if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) continue;
@@ -189,7 +185,10 @@ function subTenantProvision(int $parentTenantId, array $opts, ?int $actorUserId 
                 $find->execute(['e' => $email]);
                 $row = $find->fetch();
                 if (!$row) continue; // skip non-existent users for v1
-                $up->execute(['u' => (int)$row['id'], 't' => $newId, 'r' => $role]);
+                provisionMembership((int) $row['id'], (int) $newId, $role, [
+                    'persona_label' => 'Primary',
+                    'status'        => 'active',
+                ]);
                 $invited[] = ['email' => $email, 'user_id' => (int)$row['id'], 'role' => $role];
             }
         }
@@ -280,10 +279,19 @@ function subTenantScopeMap(int $tenantId): array {
 function subTenantTouchLastActive(int $userId, int $tenantId): void {
     $pdo = getDB();
     if (!$pdo) return;
+    // Touch both tables: the legacy bridge still resolves last-active off
+    // user_tenants on some code paths, but tenant_memberships has its own
+    // last_active_at column and should also stay current.
     $pdo->prepare(
         'UPDATE user_tenants SET last_active_at = NOW()
           WHERE user_id = :u AND tenant_id = :t'
     )->execute(['u' => $userId, 't' => $tenantId]);
+    try {
+        $pdo->prepare(
+            'UPDATE tenant_memberships SET last_active_at = NOW()
+              WHERE user_id = :u AND tenant_id = :t'
+        )->execute(['u' => $userId, 't' => $tenantId]);
+    } catch (\Throwable $_) { /* migration 055 missing — skip */ }
 }
 
 /**

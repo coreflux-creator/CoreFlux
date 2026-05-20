@@ -62,15 +62,15 @@ $user = $st->fetch();
 if (!$user) api_error('User not found after JIT', 500);
 if (($user['status'] ?? 'active') === 'disabled') api_error('Account disabled', 403);
 
-// If link bound to a tenant, ensure user_tenants row exists (idempotent).
+// If link bound to a tenant, ensure membership rows exist (idempotent).
+// provisionMembership() dual-writes both user_tenants + tenant_memberships.
 if ($tenantId) {
     try {
-        $ut = $pdo->prepare(
-            "INSERT INTO user_tenants (user_id, tenant_id, role, status, created_at)
-             VALUES (:u, :t, :r, 'active', NOW())
-             ON DUPLICATE KEY UPDATE status = 'active'"
-        );
-        $ut->execute(['u' => $userId, 't' => $tenantId, 'r' => $user['role'] ?: 'user']);
+        require_once __DIR__ . '/../../core/memberships.php';
+        provisionMembership((int) $userId, (int) $tenantId, (string) ($user['role'] ?: 'user'), [
+            'persona_label' => 'Primary',
+            'status'        => 'active',
+        ]);
     } catch (\Throwable $_) { /* link still valid even if attach fails */ }
 }
 

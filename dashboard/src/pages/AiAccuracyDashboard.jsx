@@ -4,6 +4,13 @@ import { useApi } from '../lib/api';
 const fmtPct = (n) => n === null || n === undefined ? '—' : `${Math.round(n * 100)}%`;
 const fmtConf = (n) => n === null || n === undefined ? '—' : `${(Math.round(n * 1000) / 10).toFixed(1)}%`;
 const fmtMs   = (n) => n === null || n === undefined ? '—' : `${n.toLocaleString()} ms`;
+const fmtCost = (cents) => {
+  if (cents === null || cents === undefined) return '—';
+  if (cents === 0) return '$0.00';
+  if (cents < 100) return `$${(cents / 100).toFixed(2)}`;
+  return `$${(cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+const fmtTok = (n) => n === null || n === undefined ? '—' : n.toLocaleString();
 
 /**
  * Tenant-admin AI Accuracy Dashboard.
@@ -273,6 +280,13 @@ function AiUsagePanel({ days = 7 }) {
         />
         <Stat label="p50 latency"   value={fmtMs(totals.p50_latency_ms)} />
         <Stat label="p95 latency"   value={fmtMs(totals.p95_latency_ms)} />
+        <Stat label="Spend"
+              value={fmtCost(totals.cost_cents)}
+              hint={totals.cost_cents === null
+                ? 'no rows priced yet'
+                : `${fmtTok(totals.prompt_tokens)} → ${fmtTok(totals.response_tokens)} tokens`}
+              big={totals.cost_cents !== null}
+        />
       </div>
 
       {byClass.length === 0 ? (
@@ -290,6 +304,7 @@ function AiUsagePanel({ days = 7 }) {
                 <th style={{ textAlign: 'right' }}>Success</th>
                 <th style={{ textAlign: 'right' }}>p50</th>
                 <th style={{ textAlign: 'right' }}>p95</th>
+                <th style={{ textAlign: 'right' }}>Spend</th>
                 <th style={{ textAlign: 'right' }}>Distinct features</th>
               </tr>
             </thead>
@@ -305,6 +320,7 @@ function AiUsagePanel({ days = 7 }) {
                   }}>{fmtPct(c.success_rate)}</td>
                   <td style={{ textAlign: 'right' }}>{fmtMs(c.p50_latency_ms)}</td>
                   <td style={{ textAlign: 'right' }}>{fmtMs(c.p95_latency_ms)}</td>
+                  <td style={{ textAlign: 'right' }}>{fmtCost(c.cost_cents)}</td>
                   <td style={{ textAlign: 'right' }}>{c.distinct_features}</td>
                 </tr>
               ))}

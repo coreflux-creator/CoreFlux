@@ -297,13 +297,69 @@ function aiGateForTenant(?int $tenantId, string $featureClass): array {
 
 
 /**
+ * Per-model rate card in cents per 1,000 tokens (prompt → response).
+ * Conservative numbers; refresh from provider pricing pages quarterly.
+ * Unknown models silently return null cost so the row still saves cleanly.
+ */
+function aiModelRateCardCentsPer1k(string $model): ?array {
+    $key = strtolower($model);
+    static $card = [
+        // OpenAI
+        'gpt-4o-mini'          => ['prompt' => 0.015,  'response' => 0.06],
+        'gpt-4o'               => ['prompt' => 0.5,    'response' => 1.5],
+        'gpt-4-turbo'          => ['prompt' => 1.0,    'response' => 3.0],
+        // Anthropic
+        'claude-haiku-4.5'     => ['prompt' => 0.08,   'response' => 0.4],
+        'claude-sonnet-4.5'    => ['prompt' => 0.3,    'response' => 1.5],
+        'claude-opus-4.5'      => ['prompt' => 1.5,    'response' => 7.5],
+        // Gemini
+        'gemini-3-flash'       => ['prompt' => 0.0075, 'response' => 0.03],
+        'gemini-3-pro'         => ['prompt' => 0.125,  'response' => 0.5],
+    ];
+    foreach ($card as $k => $rate) {
+        if (str_starts_with($key, $k)) return $rate;
+    }
+    return null;
+}
+
+/**
+ * Compute integer cents from token counts + model. Returns null when either
+ * the model is unknown or token counts weren't supplied — keeps the column
+ * honest (null = "we don't know" not zero = "free").
+ */
+function aiComputeCostCents(?string $model, ?int $promptTokens, ?int $responseTokens): ?int {
+    if (!$model || ($promptTokens === null && $responseTokens === null)) return null;
+    $rate = aiModelRateCardCentsPer1k($model);
+    if (!$rate) return null;
+    $cents = (($promptTokens ?? 0) / 1000) * $rate['prompt']
+           + (($responseTokens ?? 0) / 1000) * $rate['response'];
+    return (int) ceil($cents);
+}
+
+/**
  * Audit row. Returns inserted id (0 if DB unavailable).
+ *
+ * Accepts (optional) `token_count_prompt`, `token_count_response`, and
+ * `model` — when both tokens + a known model are present, `cost_cents` is
+ * computed automatically (caller may also pass `cost_cents` explicitly to
+ * override, e.g. for self-hosted models with custom pricing).
  */
 function aiAuditWrite(array $data): int {
     $pdo = getDB();
     if (!$pdo) return 0;
+    // Auto-compute cost when the caller supplied tokens + a known model
+    // and didn't already pin cost_cents themselves.
+    if (!isset($data['cost_cents'])
+        && (isset($data['token_count_prompt']) || isset($data['token_count_response']))) {
+        $data['cost_cents'] = aiComputeCostCents(
+            $data['model'] ?? null,
+            isset($data['token_count_prompt'])   ? (int) $data['token_count_prompt']   : null,
+            isset($data['token_count_response']) ? (int) $data['token_count_response'] : null
+        );
+    }
     $cols = ['tenant_id','user_id','feature_class','feature_key','kind','status',
              'http_status','model','latency_ms','prompt_hash','response_hash',
+             'token_count_prompt','token_count_response','cost_cents',
              'prompt','response','error','created_at'];
     $data['created_at'] = date('Y-m-d H:i:s');
     $placeholders = [];

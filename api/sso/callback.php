@@ -220,12 +220,14 @@ function ssoFindOrCreateUser(\PDO $pdo, string $email, array $claims): int {
 }
 
 function ssoEnsureTenantMembership(\PDO $pdo, int $userId, int $tenantId): void {
+    // provisionMembership() dual-writes both user_tenants + tenant_memberships
+    // so the legacy bridge keeps working until user_tenants is fully retired.
     try {
-        $pdo->prepare(
-            "INSERT INTO user_tenants (user_id, tenant_id, role, status, created_at)
-             VALUES (:u, :t, 'user', 'active', NOW())
-             ON DUPLICATE KEY UPDATE status = 'active'"
-        )->execute(['u' => $userId, 't' => $tenantId]);
+        require_once __DIR__ . '/../../core/memberships.php';
+        provisionMembership($userId, $tenantId, 'user', [
+            'persona_label' => 'Primary',
+            'status'        => 'active',
+        ]);
     } catch (\Throwable $_) { /* table may not exist on minimal installs */ }
 }
 

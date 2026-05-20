@@ -18,7 +18,7 @@ if (!$isNew) {
     }
     
     // Get user's current tenant assignments
-    $stmt = $pdo->prepare("SELECT tenant_id, role, is_default FROM user_tenants WHERE user_id = ?");
+    $stmt = $pdo->prepare("SELECT tenant_id, MIN(persona_type) AS role, MAX(is_primary) AS is_default FROM tenant_memberships WHERE user_id = ? AND status = 'active' GROUP BY tenant_id");
     $stmt->execute([$userId]);
     $userTenants = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $userTenantMap = [];
@@ -99,20 +99,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        // Update tenant assignments
-        // First, remove all existing assignments
-        // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
-        $stmt = $pdo->prepare("DELETE FROM user_tenants WHERE user_id = ?");
-        $stmt->execute([$userId]);
-        
-        // Add new assignments
+        // Update tenant assignments — purge then re-provision via the central helper.
+        // The helper dual-writes both user_tenants + tenant_memberships so the
+        // legacy bridge stays in sync.
+        require_once __DIR__ . '/../../memberships.php';
+        purgeMembershipsForUser($userId);
+
         foreach ($tenantAssignments as $tenantId => $assignment) {
             if (!empty($assignment['enabled'])) {
                 $tenantRole = $assignment['role'] ?? 'employee';
-                $isDefault = !empty($assignment['default']) ? 1 : 0;
-                
-                $stmt = $pdo->prepare("INSERT INTO user_tenants (user_id, tenant_id, role, is_default, status, created_at) VALUES (?, ?, ?, ?, 'active', NOW())");
-                $stmt->execute([$userId, $tenantId, $tenantRole, $isDefault]);
+                $isDefault = !empty($assignment['default']);
+                provisionMembership((int) $userId, (int) $tenantId, (string) $tenantRole, [
+                    'is_primary'    => $isDefault,
+                    'persona_label' => 'Primary',
+                    'status'        => 'active',
+                ]);
             }
         }
         
@@ -127,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([$userId]);
         $editUser = $stmt->fetch();
         
-        $stmt = $pdo->prepare("SELECT tenant_id, role, is_default FROM user_tenants WHERE user_id = ?");
+        $stmt = $pdo->prepare("SELECT tenant_id, MIN(persona_type) AS role, MAX(is_primary) AS is_default FROM tenant_memberships WHERE user_id = ? AND status = 'active' GROUP BY tenant_id");
         $stmt->execute([$userId]);
         $userTenants = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $userTenantMap = [];

@@ -79,7 +79,7 @@ $a('POST only',                                str_contains($con, "api_method() 
 $a('reads token from body',                    str_contains($con, "\$body['token']"));
 $a('410 on consumed',                          str_contains($con, "\$result['reason'] === 'consumed' ? 410 : 401"));
 $a('JIT user create',                          str_contains($con, 'INSERT INTO users'));
-$a('idempotent user_tenants attach',           str_contains($con, 'ON DUPLICATE KEY UPDATE'));
+$a('idempotent membership attach via provisionMembership', str_contains($con, 'provisionMembership('));
 $a('writes session user',                      str_contains($con, "\$_SESSION['user']"));
 $a('writes session tenant_id',                 str_contains($con, "\$_SESSION['tenant_id']"));
 $a('writes auth_method=magic_link',            str_contains($con, "'auth_method'   => 'magic_link'") || str_contains($con, "'magic_link'"));

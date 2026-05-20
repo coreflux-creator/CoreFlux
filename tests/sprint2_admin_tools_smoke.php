@@ -34,9 +34,9 @@ _a('requires auth via api_require_auth',       str_contains($users, 'api_require
 _a('blocks employee/manager from admin',       str_contains($users, "['master_admin', 'tenant_admin', 'admin']"));
 _a('GET list returns tenant_count',            str_contains($users, 'tenant_count'));
 _a('POST creates with bcrypt password_hash',   str_contains($users, 'password_hash($pwd, PASSWORD_DEFAULT)'));
-_a('POST seeds user_tenants assignment',       str_contains($users, 'INSERT INTO user_tenants'));
+_a('POST seeds membership via provisionMembership',    str_contains($users, '_usersBootstrapMembership(') && str_contains($users, 'memberships.php'));
 _a('PATCH password action gated to ≥ 8 chars', str_contains($users, "action === 'password'") && str_contains($users, 'strlen($pwd) < 8'));
-_a('PATCH tenant assignment upsert (ON DUP)',  str_contains($users, 'ON DUPLICATE KEY UPDATE') && str_contains($users, "action === 'tenant'"));
+_a('PATCH tenant assignment upsert via provisionMembership',  str_contains($users, 'provisionMembership(') && str_contains($users, "action === 'tenant'"));
 _a('master_admin role gate enforced',          str_contains($users, "Only master_admin can assign master_admin role"));
 _a('tenant_admin scoped to active tenant',     str_contains($users, "WHERE ut.tenant_id = :scope_t"));
 _a('cannot deactivate self',                   str_contains($users, 'Cannot deactivate yourself'));

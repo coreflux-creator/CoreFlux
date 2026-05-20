@@ -20,9 +20,12 @@
  *       success_rate:    float (0..1, null if calls=0),
  *       p50_latency_ms:  int|null,
  *       p95_latency_ms:  int|null,
+ *       cost_cents:      int|null,   // sum of cost_cents across the window (null when no row carried a cost)
+ *       prompt_tokens:   int|null,   // sum of token_count_prompt
+ *       response_tokens: int|null,   // sum of token_count_response
  *     },
  *     by_feature_class: [
- *       { feature_class, calls, ok_count, error_count, success_rate, p50_latency_ms, p95_latency_ms, distinct_features },
+ *       { feature_class, calls, ok_count, error_count, success_rate, p50_latency_ms, p95_latency_ms, distinct_features, cost_cents },
  *       …
  *     ],
  *     top_feature_keys: [
@@ -35,10 +38,11 @@
  * realistic use) rather than relying on MySQL window functions which aren't
  * uniformly available.
  *
- * NOTE: cost ($) is intentionally omitted — `ai_interactions` doesn't track
- * tokens or provider cost. Surfacing a fake estimate would be worse than not
- * surfacing one. When/if we add a `token_count` + `cost_cents` column, this
- * endpoint can extend cleanly.
+ * Cost is summed from `cost_cents` (populated by `aiAuditWrite()` from the
+ * per-model rate card in `aiComputeCostCents()`). Rows that pre-date migration
+ * `060_ai_interactions_cost_tracking.sql` — or were written without token
+ * counts — contribute null and therefore don't double-count or zero-out the
+ * window. If every row in the window has null cost, totals.cost_cents is null.
  */
 declare(strict_types=1);
 
@@ -82,7 +86,10 @@ $stmt = $pdo->prepare(
             status,
             latency_ms,
             feature_key,
-            created_at
+            created_at,
+            cost_cents,
+            token_count_prompt,
+            token_count_response
        FROM ai_interactions
       WHERE tenant_id = :t AND created_at >= :since
       ORDER BY created_at DESC"
@@ -94,25 +101,35 @@ $totals = ['calls' => 0, 'ok_count' => 0, 'error_count' => 0, 'disabled_count' =
 $allLatencies = [];
 $perClass = [];            // class => row aggregator
 $perFeatureKey = [];       // feature_key => row aggregator
+$costRows = 0; $costSum = 0;
+$promptTokRows = 0; $promptTokSum = 0;
+$respTokRows = 0;  $respTokSum  = 0;
 foreach ($rows as $r) {
     $cls = (string) ($r['feature_class'] ?? '');
     $status = (string) ($r['status'] ?? '');
     $lat = $r['latency_ms'] === null ? null : (int) $r['latency_ms'];
+    $cost = $r['cost_cents'] === null ? null : (int) $r['cost_cents'];
+    $ptok = $r['token_count_prompt'] === null ? null : (int) $r['token_count_prompt'];
+    $rtok = $r['token_count_response'] === null ? null : (int) $r['token_count_response'];
     $totals['calls']++;
     if ($status === 'ok')        $totals['ok_count']++;
     elseif ($status === 'error') $totals['error_count']++;
     elseif ($status === 'disabled') $totals['disabled_count']++;
 
     if ($lat !== null) $allLatencies[] = $lat;
+    if ($cost !== null) { $costRows++; $costSum += $cost; }
+    if ($ptok !== null) { $promptTokRows++; $promptTokSum += $ptok; }
+    if ($rtok !== null) { $respTokRows++;   $respTokSum  += $rtok; }
 
     if (!isset($perClass[$cls])) {
         $perClass[$cls] = ['feature_class' => $cls, 'calls' => 0, 'ok_count' => 0, 'error_count' => 0,
-                           'latencies' => [], 'features' => []];
+                           'latencies' => [], 'features' => [], 'cost_rows' => 0, 'cost_sum' => 0];
     }
     $perClass[$cls]['calls']++;
     if ($status === 'ok')        $perClass[$cls]['ok_count']++;
     if ($status === 'error')     $perClass[$cls]['error_count']++;
     if ($lat !== null) $perClass[$cls]['latencies'][] = $lat;
+    if ($cost !== null) { $perClass[$cls]['cost_rows']++; $perClass[$cls]['cost_sum'] += $cost; }
     $perClass[$cls]['features'][(string) $r['feature_key']] = true;
 
     $fk = (string) ($r['feature_key'] ?? '');
@@ -125,9 +142,12 @@ foreach ($rows as $r) {
 }
 
 sort($allLatencies);
-$totals['success_rate']   = $totals['calls'] ? round($totals['ok_count'] / $totals['calls'], 4) : null;
-$totals['p50_latency_ms'] = _aiUsagePercentile($allLatencies, 0.50);
-$totals['p95_latency_ms'] = _aiUsagePercentile($allLatencies, 0.95);
+$totals['success_rate']    = $totals['calls'] ? round($totals['ok_count'] / $totals['calls'], 4) : null;
+$totals['p50_latency_ms']  = _aiUsagePercentile($allLatencies, 0.50);
+$totals['p95_latency_ms']  = _aiUsagePercentile($allLatencies, 0.95);
+$totals['cost_cents']      = $costRows > 0 ? $costSum : null;
+$totals['prompt_tokens']   = $promptTokRows > 0 ? $promptTokSum : null;
+$totals['response_tokens'] = $respTokRows > 0 ? $respTokSum : null;
 
 $byClass = [];
 foreach ($perClass as $cls => $agg) {
@@ -141,6 +161,7 @@ foreach ($perClass as $cls => $agg) {
         'p50_latency_ms'     => _aiUsagePercentile($agg['latencies'], 0.50),
         'p95_latency_ms'     => _aiUsagePercentile($agg['latencies'], 0.95),
         'distinct_features'  => count($agg['features']),
+        'cost_cents'         => $agg['cost_rows'] > 0 ? $agg['cost_sum'] : null,
     ];
 }
 // Sort by call volume desc so the heaviest classes show first.

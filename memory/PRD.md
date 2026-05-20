@@ -10,6 +10,40 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (AI cost tracking + provisionMembership dual-write helper, 2026-02 — current fork)
+
+### 💰 AI cost tracking — closes the loop on the usage panel
+- **Migration `060_ai_interactions_cost_tracking.sql`** — adds `token_count_prompt`, `token_count_response`, `cost_cents` to `ai_interactions` (all `INT UNSIGNED NULL`; `cost_cents` deliberately integer to avoid float drift on SUM aggregations; `IF NOT EXISTS` so the migration is idempotent).
+- **`aiModelRateCardCentsPer1k($model)`** — per-model rate card in cents per 1,000 tokens (prompt → response) covering OpenAI gpt-4o-mini / gpt-4o / gpt-4-turbo, Anthropic claude-haiku-4.5 / sonnet-4.5 / opus-4.5, Gemini gemini-3-flash / gemini-3-pro. Unknown models silently return null so the row still saves (honest "we don't know" beats fake zero).
+- **`aiComputeCostCents()`** — clamps to integer cents via `ceil()` (never under-bills), returns null when model unknown OR no tokens.
+- **`aiAuditWrite()` extended** — auto-computes cost_cents when caller supplies tokens + a known model, but respects an explicit `cost_cents` override (for self-hosted models with custom pricing).
+- **`/api/admin/ai_usage.php` extended** — totals now include `cost_cents`, `prompt_tokens`, `response_tokens` (null when no row in the window carried that data, never a misleading zero). Each by-class row also carries its own `cost_cents`.
+- **`AiUsagePanel` extended** — 5th KPI tile "Spend" with token-count hint underneath. New "Spend" column in the by-class table.
+- **Honest documentation** — comments in the endpoint explicitly note that rows pre-dating migration 060 contribute null, so historical windows show null until backfill / new traffic populates the column.
+- Covered by new `tests/ai_cost_tracking_smoke.php` (24 assertions covering migration shape, rate card, helper math/edge cases, aiAuditWrite wiring) + updated assertions in `ai_usage_panel_smoke.php`.
+
+### 🔁 provisionMembership() — single dual-write helper retires every direct user_tenants write
+The legacy `user_tenants` table was still being written by 6 sites (5 listed in prior session + `core/sub_tenants.php`'s `subTenantCreate` invite flow). Today's pass:
+- **New file `core/memberships.php`** — owns every membership write. Four functions:
+  - `provisionMembership($userId, $tenantId, $role, $opts)` — idempotent upsert across `tenant_memberships` AND `user_tenants` (dual-write). When `is_primary => true`, demotes sibling rows so exactly one default remains in both tables. Best-effort audit row to `membership_audit`. Nestable inside an existing transaction (detects via `inTransaction()`).
+  - `deactivateMembership($userId, $tenantId)` — flips status to `revoked` (new table) / `inactive` (legacy).
+  - `setPrimaryMembership($userId, $tenantId)` — pivot of is_primary across all user's memberships.
+  - `purgeMembershipsForUser($userId)` — hard delete from both tables (admin "purge user").
+- **`_membershipPersonaTypeForRole($role)`** — maps legacy role strings to the new ENUM with aliases (`owner` → `tenant_admin`, `consultant` → `contractor`, unknowns → `custom`, null → `employee`).
+- **Refactored writers (6 files):**
+  - `api/users.php` — `_usersBootstrapMembership()` now delegates the membership upsert to `provisionMembership()` and keeps doing the module-access seeding. PATCH tenant assignment uses the helper. Removal path uses `deactivateMembership()`. Reads also migrated to `tenant_memberships`.
+  - `core/views/admin/user_edit.php` — full-replace via `purgeMembershipsForUser()` + per-tenant `provisionMembership()` calls. Reads migrated.
+  - `people/includes/people_helper.php` — single insert + 3 reads, all migrated.
+  - `api/auth/consume_magic_link.php` — JIT attach migrated to `provisionMembership()`.
+  - `api/sso/callback.php` — `ssoEnsureTenantMembership()` migrated.
+  - `core/sub_tenants.php` — `subTenantCreate()` invite loop migrated to `provisionMembership()`. `subTenantTouchLastActive()` now dual-touches both tables for the heartbeat field.
+- **New sentry `user_tenants_write_sentry_smoke.php`** — fails the suite on any direct `INSERT/UPDATE/DELETE FROM user_tenants` outside an explicit allow-list (currently 3 entries: `memberships.php` itself, the backfill script, the heartbeat-touch). Synthetic offender self-test catches a fake addition.
+- **Read-sentry trimmed** — the 3 "pending refactor" allow-list entries from the prior session are gone now that the writes go through the helper. Only legitimate forever-uses remain.
+- Covered by `provision_membership_smoke.php` (30+ assertions: helper shape, persona mapping, consumer wiring, both sentries green).
+
+Full suite status: **226/226 smoke tests passing** (was 223 at session start; +3 new tests: `ai_cost_tracking_smoke`, `provision_membership_smoke`, `user_tenants_write_sentry_smoke`).
+
+
 ## Recently completed (AI usage panel — closes the loop, 2026-02 — current fork)
 
 Now that AI is self-serve on/off (prior change), the obvious next question is "what is AI actually doing for me?". Shipped the `AiUsagePanel` under `/admin/ai-accuracy` so the same page that answers "is AI right?" also answers "how much, how fast, where".

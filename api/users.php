@@ -21,6 +21,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/sub_tenants.php';
+require_once __DIR__ . '/../core/memberships.php';
 
 $ctx       = api_require_auth();
 $user      = $ctx['user'];
@@ -45,7 +46,7 @@ function _usersScopeWhere(string $role, ?int $activeTid): array {
     if ($role === 'master_admin') return ['', []];
     if (!$activeTid) return ['1=0', []];
     return [
-        "u.id IN (SELECT ut.user_id FROM user_tenants ut
+        "u.id IN (SELECT DISTINCT ut.user_id FROM tenant_memberships ut
                    WHERE ut.tenant_id = :scope_t AND ut.status = 'active')",
         ['scope_t' => $activeTid],
     ];
@@ -82,9 +83,26 @@ function _usersValidateRole(string $r, string $callerRole): void {
  * @param int|null $actorUserId who created them — recorded on grants for audit
  */
 function _usersBootstrapMembership(\PDO $pdo, int $userId, int $tenantId, string $role, ?int $actorUserId): void {
-    // Map legacy role → persona_type + default access level on every
-    // canonical module.  Mirrors the rules used by scripts/backfill_memberships.php
-    // so newly-created users land in the exact same shape as backfilled ones.
+    // Step 1 — provision the canonical membership rows via the central helper
+    // (dual-writes user_tenants + tenant_memberships so the legacy bridge keeps
+    // working until user_tenants is fully retired). This is the row a future
+    // refactor can use to drop user_tenants in one place.
+    try {
+        provisionMembership($userId, $tenantId, $role, [
+            'is_primary'    => true,
+            'persona_label' => 'Primary',
+            'status'        => 'active',
+        ]);
+    } catch (\Throwable $e) {
+        // Never block user creation on a membership provisioning hiccup —
+        // the resolver will fall back to the legacy table.
+        error_log('[users] provisionMembership failed: ' . $e->getMessage());
+        return;
+    }
+
+    // Step 2 — backfill default module_access rows for this membership.
+    // Mirrors the rules used by scripts/backfill_memberships.php so newly-
+    // created users land in the exact same shape as backfilled ones.
     $level = match ($role) {
         'master_admin', 'tenant_admin', 'admin' => 'admin',
         'manager'                               => 'write',
@@ -93,22 +111,7 @@ function _usersBootstrapMembership(\PDO $pdo, int $userId, int $tenantId, string
     };
     $synthRead = $level === 'admin' ? 'admin' : ($level === 'write' ? 'read' : 'none');
 
-    try {
-        $pdo->prepare(
-            'INSERT IGNORE INTO tenant_memberships
-                (user_id, tenant_id, persona_label, persona_type,
-                 is_primary, status, invited_by_user_id, accepted_at)
-             VALUES (:u, :t, "Primary", :pt, 1, "active", :ib, NOW())'
-        )->execute([
-            'u'  => $userId,
-            't'  => $tenantId,
-            'pt' => $role,
-            'ib' => $actorUserId,
-        ]);
-    } catch (\Throwable $_) { return; /* migration 055 missing — skip */ }
-
-    // Resolve the membership id (covers both the new INSERT and the
-    // already-exists-by-unique-key case).
+    // Resolve the membership id we just provisioned.
     try {
         $stmt = $pdo->prepare(
             'SELECT id FROM tenant_memberships
@@ -148,7 +151,7 @@ if ($method === 'GET' && !$id) {
     $whereSql = $where ? "WHERE $where" : '';
 
     $sql = "SELECT u.id, u.name, u.email, u.role, u.is_active, u.created_at,
-                   (SELECT COUNT(*) FROM user_tenants ut2
+                   (SELECT COUNT(DISTINCT ut2.tenant_id) FROM tenant_memberships ut2
                      WHERE ut2.user_id = u.id AND ut2.status = 'active') AS tenant_count
               FROM users u
               $whereSql
@@ -171,7 +174,7 @@ if ($method === 'GET' && $id) {
     // Scope check for tenant_admin: must share at least one tenant with target.
     if ($role !== 'master_admin') {
         $stmt = $pdo->prepare(
-            "SELECT 1 FROM user_tenants
+            "SELECT 1 FROM tenant_memberships
               WHERE user_id = :u AND tenant_id = :t AND status = 'active' LIMIT 1"
         );
         $stmt->execute(['u' => $id, 't' => $activeTid]);
@@ -179,12 +182,16 @@ if ($method === 'GET' && $id) {
     }
 
     $stmt = $pdo->prepare(
-        "SELECT ut.tenant_id, t.name AS tenant_name, ut.role, ut.is_default,
-                ut.status, ut.last_active_at
-           FROM user_tenants ut
+        "SELECT ut.tenant_id, t.name AS tenant_name,
+                MIN(ut.persona_type) AS role,
+                MAX(ut.is_primary)   AS is_default,
+                MIN(ut.status)       AS status,
+                MAX(ut.last_active_at) AS last_active_at
+           FROM tenant_memberships ut
            JOIN tenants t ON ut.tenant_id = t.id
           WHERE ut.user_id = :u
-       ORDER BY ut.is_default DESC, t.name ASC"
+       GROUP BY ut.tenant_id, t.name
+       ORDER BY is_default DESC, t.name ASC"
     );
     $stmt->execute(['u' => $id]);
     $u['tenants'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -234,17 +241,8 @@ if ($method === 'POST') {
     )->execute(['n' => $name, 'e' => $email, 'pw1' => $hash, 'pw2' => $hash, 'r' => $newRole]);
     $newId = (int) $pdo->lastInsertId();
 
-    // Default tenant assignment.
-    $pdo->prepare(
-        "INSERT INTO user_tenants (user_id, tenant_id, role, is_default, status, created_at)
-         VALUES (:u, :t, :r, 1, 'active', NOW())"
-    )->execute(['u' => $newId, 't' => $tenantId, 'r' => $tenantRole]);
-
-    // RBAC B-fix-up — also create a tenant_memberships row + default module
-    // access so the new resolver doesn't immediately deny everything for a
-    // freshly-created user. Without this the user can log in but fails every
-    // dual-check (legacy grants, new resolver denies because no membership
-    // row exists). Best-effort: never blocks the user creation flow.
+    // Default tenant assignment — provisionMembership() dual-writes the
+    // legacy user_tenants + new tenant_memberships rows.
     _usersBootstrapMembership($pdo, $newId, $tenantId, $tenantRole, $actorId);
 
     // Optional caller-provided global-admin flag. Only honored when the
@@ -274,7 +272,7 @@ if ($method === 'PATCH' && $id) {
     if ($role !== 'master_admin') {
         // Same-tenant scope guard.
         $stmt = $pdo->prepare(
-            "SELECT 1 FROM user_tenants
+            "SELECT 1 FROM tenant_memberships
               WHERE user_id = :u AND tenant_id = :t AND status = 'active' LIMIT 1"
         );
         $stmt->execute(['u' => $id, 't' => $activeTid]);
@@ -313,24 +311,17 @@ if ($method === 'PATCH' && $id) {
         }
 
         if ($tenantRole === '') {
-            // Remove assignment (soft).
-            $pdo->prepare(
-                "UPDATE user_tenants SET status = 'inactive', updated_at = NOW()
-                  WHERE user_id = :u AND tenant_id = :t"
-            )->execute(['u' => $id, 't' => $tenantId]);
+            // Remove assignment — dual-writes deactivation to both tables.
+            deactivateMembership($id, $tenantId);
         } else {
             _usersValidateRole($tenantRole, $role);
-            $pdo->prepare(
-                "INSERT INTO user_tenants (user_id, tenant_id, role, is_default, status, created_at)
-                 VALUES (:u, :t, :r1, :d1, 'active', NOW())
-                 ON DUPLICATE KEY UPDATE role = :r2, is_default = :d2, status = 'active', updated_at = NOW()"
-            )->execute(['u' => $id, 't' => $tenantId, 'r1' => $tenantRole, 'd1' => $isDefault, 'r2' => $tenantRole, 'd2' => $isDefault]);
-            if ($isDefault) {
-                $pdo->prepare(
-                    "UPDATE user_tenants SET is_default = 0
-                      WHERE user_id = :u AND tenant_id != :t"
-                )->execute(['u' => $id, 't' => $tenantId]);
-            }
+            // Upsert via the central helper — dual-writes user_tenants +
+            // tenant_memberships and, when is_primary is on, demotes siblings.
+            provisionMembership($id, $tenantId, $tenantRole, [
+                'is_primary'    => (bool) $isDefault,
+                'persona_label' => 'Primary',
+                'status'        => 'active',
+            ]);
         }
         subTenantAudit(0, $tenantId, $actorId, 'user.tenant_assignment', [
             'user_id' => $id, 'tenant_id' => $tenantId, 'role' => $tenantRole,

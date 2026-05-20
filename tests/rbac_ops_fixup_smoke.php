@@ -75,7 +75,7 @@ $rc = 0; $o = [];
 exec('php -l ' . escapeshellarg($ROOT . '/api/users.php') . ' 2>&1', $o, $rc);
 $a('users.php syntax clean',                       $rc === 0);
 $a('defines _usersBootstrapMembership helper',     $c($users, 'function _usersBootstrapMembership('));
-$a('helper inserts into tenant_memberships',       $c($users, 'INSERT IGNORE INTO tenant_memberships'));
+$a('helper provisions via central memberships helper', $c($users, 'provisionMembership(') && $c($users, 'memberships.php'));
 $a('helper inserts into membership_module_access', $c($users, 'INSERT IGNORE INTO membership_module_access'));
 $a('helper invoked from POST handler',             $c($users, '_usersBootstrapMembership($pdo, $newId, $tenantId, $tenantRole, $actorId)'));
 $a('helper covers operational module list',

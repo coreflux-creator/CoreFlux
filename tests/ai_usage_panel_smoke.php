@@ -22,7 +22,12 @@ $a('endpoint reports p50 and p95 latency',             str_contains($api, 'p50_l
 $a('endpoint returns by_feature_class array',          str_contains($api, "'by_feature_class'"));
 $a('endpoint returns top_feature_keys array',          str_contains($api, "'top_feature_keys'"));
 $a('endpoint sorts classes by calls desc',             str_contains($api, '$b[\'calls\'] <=> $a[\'calls\']'));
-$a('endpoint deliberately omits cost (no token data)', str_contains($api, "cost (\$) is intentionally omitted"));
+$a('endpoint aggregates cost_cents per class + total', str_contains($api, "'cost_cents'")
+                                                       && str_contains($api, '$costRows')
+                                                       && str_contains($api, '$costSum'));
+$a('endpoint reports prompt + response token sums',    str_contains($api, "'prompt_tokens'")
+                                                       && str_contains($api, "'response_tokens'"));
+$a('endpoint preserves null cost (no false zeros)',    str_contains($api, '$costRows > 0 ? $costSum : null'));
 
 exec('php -l /app/api/admin/ai_usage.php 2>&1', $out, $rc);
 $a('endpoint passes php -l',                           $rc === 0);

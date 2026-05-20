@@ -36,16 +36,7 @@ function _userTenantsReadAllowlist(): array {
         'core/rbac/permissions.php'                  => 'RBACResolver::legacyRole() — by design, queries the legacy table',
         'api/admin/user_effective_permissions.php'   => 'Dual-table drift inspector — surfaces rows that exist in only one of the two tables',
         'scripts/backfill_memberships.php'           => 'The actual user_tenants → tenant_memberships migration script',
-
-        // ── Pending write-side refactor (next session) ──
-        // These files mix reads+writes against user_tenants. Retiring them
-        // safely requires a `provisionMembership($user, $tenant, $role)`
-        // helper that dual-writes both tables (or moves writes to
-        // tenant_memberships and keeps user_tenants as a derived view).
-        // Listed here so the sentry stays clean while the refactor lands.
-        'core/views/admin/user_edit.php'             => 'Pending dual-write refactor — admin user-edit form (P2 follow-up)',
-        'people/includes/people_helper.php'          => 'Pending dual-write refactor — people module bootstrap (P2 follow-up)',
-        'api/users.php'                              => 'Pending dual-write refactor — primary user CRUD (P2 follow-up; largest surface, needs helper)',
+        'core/memberships.php'                       => 'provisionMembership() dual-write helper — owns every legacy write site-wide',
     ];
 }
 
