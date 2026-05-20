@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import { Card } from '../components/UIComponents';
 import { Users, Shield, Plus, X, Copy, Save, Trash2, RefreshCw } from 'lucide-react';
 import RecentAccessChangesPanel from './RecentAccessChangesPanel';
+import RbacBridgeHealthPanel from './RbacBridgeHealthPanel';
 
 /**
  * RbacMembershipsAdmin — RBAC Phase B3 admin surface.
@@ -397,6 +398,7 @@ export default function RbacMembershipsAdmin() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--cf-space-4)' }}>
           <RecentAccessChangesPanel limit={10} showSubTenantFilter={true} />
+          <RbacBridgeHealthPanel windowHours={24} />
           <Card data-testid="memberships-help">
             <strong style={{ display: 'block', marginBottom: 6 }}>
               <Users size={14} style={{ verticalAlign: 'middle' }} /> Tips

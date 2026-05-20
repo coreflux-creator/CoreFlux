@@ -20,6 +20,7 @@ import HealthcheckAdmin from './HealthcheckAdmin';
 import IntegrationsHub from './IntegrationsHub';
 import RbacMembershipsAdmin from './RbacMembershipsAdmin';
 import RecentAccessChangesPanel from './RecentAccessChangesPanel';
+import RbacBridgeHealthPanel from './RbacBridgeHealthPanel';
 import PlaidTransferSettings from '../../../modules/treasury/ui/PlaidTransferSettings';
 import MercurySettings from '../../../modules/treasury/ui/MercurySettings';
 import QboSettings from './QboSettings';
@@ -62,8 +63,9 @@ const AdminOverview = () => (
       </ActionCardsGrid>
     </Section>
 
-    <div style={{ marginTop: 'var(--cf-space-6)' }}>
+    <div style={{ marginTop: 'var(--cf-space-6)', display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 'var(--cf-space-4)' }}>
       <RecentAccessChangesPanel limit={8} />
+      <RbacBridgeHealthPanel windowHours={24} />
     </div>
   </>
 );

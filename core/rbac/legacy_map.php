@@ -236,7 +236,53 @@ function rbac_legacy_can(array $user, string $perm): bool {
     // route every callsite through the bridge, no widening possible.
     $legacyOk = class_exists('RBAC') && method_exists('RBAC', 'hasPermission')
         ? RBAC::hasPermission($user, $perm) : false;
+
+    // Audit disagreements so an admin can see where legacy and new drift.
+    // Best-effort: never throws, never blocks the request, returns the
+    // dual-check verdict regardless of whether the log write succeeds.
+    if ($legacyOk !== $newOk) {
+        rbac_bridge_record_disagreement($user, $perm, $module, $action, $legacyOk, $newOk);
+    }
+
     return $legacyOk && $newOk;
+}
+
+/**
+ * Append a row to `rbac_bridge_audit` whenever the legacy and new layers
+ * disagree. Best-effort — wrapped in try/catch and silently no-ops when:
+ *   - migration 056 hasn't been applied
+ *   - the DB is unreachable
+ *   - `getDB()` isn't available (CLI smoke tests)
+ *
+ * Bounded by the caller: only invoked on actual disagreements, so
+ * steady-state traffic on an aligned tenant produces zero log writes.
+ */
+function rbac_bridge_record_disagreement(
+    array $user, string $perm, string $module, string $action,
+    bool $legacyOk, bool $newOk
+): void {
+    if (!function_exists('getDB')) return;
+    try {
+        $pdo = getDB();
+        if (!$pdo) return;
+        $tenantId = function_exists('currentTenantId') ? (currentTenantId() ?: null) : null;
+        $st = $pdo->prepare(
+            'INSERT INTO rbac_bridge_audit
+                (tenant_id, user_id, perm, module_key, action, legacy_ok, new_ok)
+             VALUES (:t, :u, :p, :m, :a, :lo, :no)'
+        );
+        $st->execute([
+            't'  => $tenantId,
+            'u'  => isset($user['id']) ? (int) $user['id'] : null,
+            'p'  => $perm,
+            'm'  => $module,
+            'a'  => $action,
+            'lo' => $legacyOk ? 1 : 0,
+            'no' => $newOk    ? 1 : 0,
+        ]);
+    } catch (\Throwable $_) {
+        // intentional: never bubble an audit failure into the caller.
+    }
 }
 
 /**

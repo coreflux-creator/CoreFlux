@@ -10,6 +10,67 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (RBAC B4 — Bridge Disagreement Monitor, 2026-02 — current fork)
+**Safety-net for the dual-check era.** Tenant admins can now see, at a glance, exactly where the legacy `RBAC` config and the new `RBACResolver` disagree about a permission — which tells them when it's safe to flip `CF_RBAC_BRIDGE_MODE=new` and retire `/core/RBAC.php`.
+
+### Migration 056 — `rbac_bridge_audit` table
+- New append-only table: `id, tenant_id, user_id, perm, module_key, action, legacy_ok, new_ok, occurred_at`.
+- Three indexes: `(occurred_at)`, `(perm, occurred_at)`, `(tenant_id, occurred_at)` — supports the aggregate query without table-scanning.
+- Idempotent (`CREATE TABLE IF NOT EXISTS`). Auto-applied via `coreflux_run_migrations()` on first request after deploy.
+
+### Bridge writer — `rbac_bridge_record_disagreement()`
+- Hooked into `rbac_legacy_can()` immediately after the dual-check verdict is computed.
+- **Only fires when `$legacyOk !== $newOk`** — steady-state traffic on an aligned tenant produces zero log writes.
+- Wrapped in try/catch + `function_exists('getDB')` guard; never bubbles an audit failure into the caller. The dual-check verdict is returned regardless of whether the log write succeeded (CLI tests, missing migration, DB hiccup — all safe).
+- Captures `tenant_id` (from `currentTenantId()`), `user_id` (from `$user['id']`), the original permission string, the resolved `(module_key, action)` tuple, and both verdicts.
+
+### `/api/admin/rbac_bridge_health.php` *(new)*
+GET-only, admin-gated (master_admin / tenant_admin / global). Query param `?window_hours=24` (clamped 1..168). Returns:
+- `total_disagreements` — count over the window.
+- `legacy_only_grants` — legacy said yes, new said no → widening risk if we flip to `new` mode (some users would *gain* access).
+- `new_only_grants` — new said yes, legacy said no → narrowing risk (some users would *lose* access).
+- `top_perms[]` — top 10 disagreeing permissions grouped by `(perm, module, action, legacy_ok, new_ok)` with hit counts. Shows you exactly *what's* off.
+- `recent[]` — last 20 individual rows for "show me an example" forensics.
+- Handles missing migration with `{ configured: false }` so the panel renders gracefully on greenfield tenants.
+
+### `RbacBridgeHealthPanel.jsx` *(new)*
+Reusable Card component. Embedded in two places:
+- **`AdminModule` overview** — alongside the Recent Access Changes panel (right column).
+- **`RbacMembershipsAdmin` page** — right column under the audit feed.
+
+UI states:
+- **Healthy (zero disagreements):** green ShieldCheck icon + "Bridge agrees across the board. Safe to consider flipping `CF_RBAC_BRIDGE_MODE=new`." banner.
+- **Has disagreements:** red ShieldAlert icon, big count, legacy-only / new-only breakdown, top-10 disagreeing permissions table with ✓/✗ markers.
+- **Unconfigured (migration not yet applied):** muted message; no error.
+- Every interactive element + key data point carries a `data-testid` (`rbac-bridge-health-total`, `rbac-bridge-legacy-only`, `rbac-bridge-new-only`, `rbac-bridge-health-green`, `rbac-bridge-top-perms`, `rbac-bridge-perm-{perm}`, etc.).
+
+### Smoke coverage — `/app/tests/rbac_b4_bridge_health_smoke.php` *(new, 47 assertions)*
+- Migration 056 shape (column types, defaults, all three indexes).
+- Bridge writer presence + guard conditions + disagreement-only firing + try/catch behaviour.
+- Endpoint contract (admin gate, GET-only, missing-migration handling, window clamp, response shape, group-by aggregation, recent/top limits).
+- React panel testids + state branches.
+- AdminModule + RbacMembershipsAdmin wiring (imports + embeds).
+
+Full suite status: **207/207 smoke tests passing.** Bundle rebuilt cleanly.
+
+### Workflow this enables
+1. Deploy → migration 056 auto-applies on first API request.
+2. Bridge silently logs disagreements as traffic flows. Aligned tenants log zero rows.
+3. Admin opens `/admin` or `/admin/memberships`, sees the green banner *or* sees exactly which permissions need attention.
+4. For each red row: either tweak the legacy `rbac_config.php` grant or adjust the membership's `access_level`. Refresh the panel — disagreement count drops.
+5. When the panel goes green for a sustained period, ship `CF_RBAC_BRIDGE_MODE=new` and retire `/core/RBAC.php` (B4 final).
+
+### Files touched this slice
+- `/app/core/migrations/056_rbac_bridge_audit.sql` *(new)*
+- `/app/core/rbac/legacy_map.php` *(disagreement writer)*
+- `/app/api/admin/rbac_bridge_health.php` *(new)*
+- `/app/dashboard/src/pages/RbacBridgeHealthPanel.jsx` *(new)*
+- `/app/dashboard/src/pages/AdminModule.jsx` *(embeds panel)*
+- `/app/dashboard/src/pages/RbacMembershipsAdmin.jsx` *(embeds panel)*
+- `/app/tests/rbac_b4_bridge_health_smoke.php` *(new — 47 assertions)*
+
+
+
 ## Recently completed (RBAC B4 — Legacy Sweep + Bridge, 2026-02 — current fork)
 **170 production endpoints migrated off `RBAC::hasPermission()/requirePermission()` onto a translation bridge in a single sweep. Zero behavioural change at default settings.** Plus the persona-switch UX touch — flipping personas in the header now triggers a soft reload so the new role's sidebar, modules, and gated UI render immediately.
 
