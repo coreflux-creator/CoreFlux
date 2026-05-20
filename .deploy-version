@@ -943,3 +943,10 @@ e.php
 - dashboard/src/pages/RolesReference.jsx
 - tests/rbac_roles_reference_smoke.php
 - ui.admin.roles_reference_page
+- core/mailer.php
+- core/mail_bootstrap.php
+- core/mail/ResendDriver.php
+- core/config.local.example.php
+- tests/mailer_send_shim_smoke.php
+- integrations.resend.mailerSend_shim
+- integrations.resend.config_local_or_env_key_source

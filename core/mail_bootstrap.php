@@ -30,7 +30,13 @@ if (!function_exists('cf_mail_bootstrap')) {
         static $booted = null;
         if ($booted instanceof MailService) return $booted;
 
+        // Resend key may live in env (Cloudways pattern) or as a define() in
+        // /app/core/config.local.php (matches existing OpenAI / Plaid secrets).
+        // Either path satisfies the "configured" check.
         $resendKey = (string) getenv('RESEND_API_KEY');
+        if ($resendKey === '' && defined('RESEND_API_KEY')) {
+            $resendKey = (string) constant('RESEND_API_KEY');
+        }
         $default   = $resendKey !== '' ? new ResendDriver() : new LogDriver();
 
         $writer = function (array $row): int {

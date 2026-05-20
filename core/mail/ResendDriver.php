@@ -33,9 +33,21 @@ class ResendDriver implements MailDriver
 
     public function __construct(?string $apiKey = null, ?string $defaultFromEmail = null, ?string $defaultFromName = null, ?callable $transport = null)
     {
-        $this->apiKey = $apiKey ?? (string) getenv('RESEND_API_KEY');
-        $this->defaultFromEmail = $defaultFromEmail ?? (getenv('RESEND_FROM_EMAIL') ?: null);
-        $this->defaultFromName  = $defaultFromName  ?? (getenv('RESEND_FROM_NAME')  ?: null);
+        // Accept both `define()` and `getenv()` conventions. `define()` matches
+        // the existing OpenAI / Plaid secrets in /app/core/config.local.php;
+        // `getenv()` matches the original driver contract + Cloudways env-var
+        // ops workflow. Caller-supplied $apiKey still wins (used by tests).
+        $envKey      = (string) getenv('RESEND_API_KEY');
+        $envFrom     = (string) getenv('RESEND_FROM_EMAIL');
+        $envFromName = (string) getenv('RESEND_FROM_NAME');
+
+        $defKey      = defined('RESEND_API_KEY')    ? (string) constant('RESEND_API_KEY')    : '';
+        $defFrom     = defined('RESEND_FROM_EMAIL') ? (string) constant('RESEND_FROM_EMAIL') : '';
+        $defFromName = defined('RESEND_FROM_NAME')  ? (string) constant('RESEND_FROM_NAME')  : '';
+
+        $this->apiKey           = $apiKey            ?? ($envKey !== '' ? $envKey : $defKey);
+        $this->defaultFromEmail = $defaultFromEmail  ?? ($envFrom !== '' ? $envFrom : ($defFrom !== '' ? $defFrom : null));
+        $this->defaultFromName  = $defaultFromName   ?? ($envFromName !== '' ? $envFromName : ($defFromName !== '' ? $defFromName : null));
         $this->transport = $transport;
     }
 

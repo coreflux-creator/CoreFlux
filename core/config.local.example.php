@@ -32,3 +32,20 @@ define('OPENAI_API_KEY', 'sk-proj-REPLACE_ME');
 // define('PLAID_SECRET_PRODUCTION',  'REPLACE_ME');
 // define('PLAID_ENV',                'sandbox');
 // define('PLAID_WEBHOOK_URL',        'https://yourdomain.com/api/core/webhooks/plaid');
+
+// =========================================================================
+// Resend (transactional email — outbound only)
+// -------------------------------------------------------------------------
+// Used by core/mailer.php → mailerSend() and the Core\Mail\ResendDriver
+// registered in core/mail_bootstrap.php. When RESEND_API_KEY is set (either
+// via env var or via the define() below), every mailerSend() call routes
+// through Resend; otherwise sends are captured by the LogDriver locally.
+//
+// Get a key at https://resend.com/api-keys ("Full access" recommended).
+// Verify your sending domain at https://resend.com/domains before going
+// to production — unverified domains can only deliver to your account's
+// own verified addresses.
+// =========================================================================
+// define('RESEND_API_KEY',     're_REPLACE_ME');
+// define('RESEND_FROM_EMAIL',  'no-reply@yourdomain.com');
+// define('RESEND_FROM_NAME',   'CoreFlux Notifications');

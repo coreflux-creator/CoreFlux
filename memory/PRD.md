@@ -10,6 +10,35 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (Resend wiring — mailerSend shim, 2026-02 — current fork)
+**Five email call sites just started actually delivering.** `mailerSend()` was referenced in 5 places (CFO weekly report, timesheet approver notice, vendor portal invite, AP bill approvals, Mercury payment CFO alert) but **never defined** — every send silently no-op'd. Wired it through the existing `Core\MailService` + `Core\Mail\ResendDriver` infrastructure that was already built but unused.
+
+- **`mailerSend()` shim** added to `/core/mailer.php`. Accepts the existing `['to', 'subject', 'body_html', 'body_text', 'reply_to', ...]` shape — no call-site changes required. Auto-derives tenant_id from `currentTenantId()` when not supplied. Auto-derives plaintext from HTML when `body_text` is omitted. Defaults `module='core'` + `purpose='notification'`. Returns `['ok', 'message_id', 'driver', 'error']` — does not throw on send failure (matches existing soft-fail call-site contract).
+- **Driver selection:** MailService default = `ResendDriver` when `RESEND_API_KEY` is configured (via env var **OR** `define()` in `/core/config.local.php` — matches existing OpenAI/Plaid secrets pattern), else `LogDriver` for dev-safe capture.
+- **Fallback path:** if MailService can't boot (no tenant, DB down, exception) the shim drops back to legacy `sendEmail()` (PHPMailer/SMTP) so messages still reach SMTP credentials in `core/config.php`.
+- **`ResendDriver` widened** to read its API key + from address + from name from either `getenv()` or `define()`. `mail_bootstrap.php` does the same when deciding which driver is default.
+- **Config template:** `core/config.local.example.php` now documents `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME` alongside the OpenAI/Plaid blocks.
+- **Smoke:** `tests/mailer_send_shim_smoke.php` (43 assertions) covers source-shape checks, runtime LogDriver path (outbox row, body-text derivation, dedup, validation), runtime ResendDriver path with stubbed cURL transport (Bearer auth header, Idempotency-Key, `from <name@>` formatting, payload subject/html/reply_to/tags, success+failure verdicts, outbox row tagging), and call-site no-regression assertions for all 5 endpoints.
+
+Full suite status: **212/212 smoke tests passing.**
+
+### To go live
+Drop into `/app/core/config.local.php` (or set as Cloudways env vars):
+```php
+define('RESEND_API_KEY',    're_...');                  // from https://resend.com/api-keys
+define('RESEND_FROM_EMAIL', 'no-reply@yourdomain.com'); // must be a verified domain
+define('RESEND_FROM_NAME',  'CoreFlux Notifications');  // optional
+```
+Next request boots Resend automatically — no service restart required.
+
+## Recently completed (Roles reference page, 2026-02 — current fork)
+**"What does picking this persona_type actually grant?" in one page.** Admins picking a role on a new membership now have a single reference doc explaining each of the 10 canonical persona_types without grepping the codebase.
+
+- **Backend:** `/api/admin/roles_reference.php` — GET-only, admin-gated. Loads `core/rbac_config.php`, splits each persona's grants into wildcard module access (e.g., `people.*`) vs explicit permissions, returns plain-English label/summary/scope/notes/legacy_role_mapping per persona, plus a glossary covering scope/access/wildcard/dual-check-bridge terminology.
+- **Frontend:** `dashboard/src/pages/RolesReference.jsx` — responsive card grid, filter box, scope + default-access-level pills, expandable specifics list, glossary card. Every interactive element + key data point has a `data-testid`.
+- **Wiring:** Route at `/admin/roles`, sidebar entry, and Quick Actions card on the Admin overview.
+- **Smoke:** `tests/rbac_roles_reference_smoke.php` (32 assertions) covers endpoint contract (10 persona entries, wildcard/specific split, legend keys), React testids, AdminModule wiring (import, route, sidebar link, ActionCard).
+
 ## Recently completed (Sub-tenant wizard — subdomain default DB hardening, 2026-02 — current fork)
 **Defense-in-depth for the "Field 'subdomain' doesn't have a default value" recurrence.** The user reported the SubTenantWizard "Finish & provision" step still throwing the legacy MySQL 1364 error even after `/core/sub_tenants.php` was patched to supply the column. Root cause: stale opcache / older revisions still in the deploy pipeline were skipping the column. Code-only fixes can't survive that.
 

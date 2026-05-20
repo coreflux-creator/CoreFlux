@@ -122,3 +122,142 @@ function _mailer_normalize_recipients($input): array {
     }
     return $out;
 }
+
+/**
+ * mailerSend — global delivery shim used by CFO reports, timesheet approver
+ * notices, vendor portal invites, AP bill approvals, and Mercury payment
+ * alerts. Was previously undefined (calls silently no-op'd). Now routes
+ * every message through Core\MailService so:
+ *
+ *   - When RESEND_API_KEY is set (env var OR define() in config.local.php),
+ *     ResendDriver delivers via Resend's transactional API + writes a row
+ *     to mail_outbox for audit.
+ *   - When the key is missing, LogDriver captures the envelope and
+ *     mail_outbox still records the attempt. No exceptions raised.
+ *   - If MailService can't be bootstrapped (missing tenant context, DB
+ *     down, etc.), falls back to sendEmail() which uses the legacy
+ *     PHPMailer/SMTP transport — same delivery either way.
+ *
+ * Call shape (unchanged from existing call sites):
+ *   mailerSend([
+ *     'to'        => 'user@example.com'  | [emails],
+ *     'subject'   => 'Hello',
+ *     'body_html' => '<p>...</p>',       // optional
+ *     'body_text' => 'plain fallback',   // optional
+ *     'reply_to'  => 'replies@x.com',    // optional
+ *     'tenant_id' => 42,                 // optional — auto-derived if absent
+ *     'module'    => 'cfo',              // optional — defaults to 'core'
+ *     'purpose'   => 'cfo_report',       // optional — defaults to 'notification'
+ *   ]);
+ *
+ * Returns ['ok' => true,  'message_id' => string|null, 'driver' => string]
+ *      or ['ok' => false, 'error' => string,           'driver' => string].
+ * Does NOT throw — preserves the existing try/catch contract at call sites
+ * which expect mailer failures to be soft.
+ */
+if (!function_exists('mailerSend')) {
+    function mailerSend(array $args): array {
+        if (empty($args['to']))      throw new InvalidArgumentException('mailerSend: to is required');
+        if (empty($args['subject'])) throw new InvalidArgumentException('mailerSend: subject is required');
+        if (empty($args['body_html']) && empty($args['body_text'])) {
+            throw new InvalidArgumentException('mailerSend: body_html or body_text is required');
+        }
+
+        // Flatten recipients to plain email strings — MailService validates each.
+        $toList = [];
+        foreach (_mailer_normalize_recipients($args['to']) as [$e, $_n]) {
+            if ($e !== '') $toList[] = $e;
+        }
+        if (!$toList) throw new InvalidArgumentException('mailerSend: no valid recipients');
+
+        $subject  = (string) $args['subject'];
+        $bodyHtml = isset($args['body_html']) ? (string) $args['body_html'] : null;
+        $bodyText = (string) ($args['body_text'] ?? _mailer_html_to_text($bodyHtml ?? $subject));
+
+        // Pull tenant from caller hint → session → 0. MailService::send
+        // requires tenant_id > 0; if we have nothing, fall back to PHPMailer.
+        $tenantId = (int) ($args['tenant_id'] ?? 0);
+        if ($tenantId <= 0 && function_exists('currentTenantId')) {
+            try { $tenantId = (int) (currentTenantId() ?? 0); } catch (\Throwable $_) {}
+        }
+
+        require_once __DIR__ . '/mail_bootstrap.php';
+        try {
+            $svc = cf_mail_bootstrap();
+        } catch (\Throwable $e) {
+            // MailService can't boot — fall back to legacy SMTP.
+            return _mailer_fallback_smtp($args, $toList, $bodyHtml, $bodyText, 'bootstrap_failed:' . $e->getMessage());
+        }
+
+        if ($tenantId <= 0) {
+            return _mailer_fallback_smtp($args, $toList, $bodyHtml, $bodyText, 'no_tenant_context');
+        }
+
+        try {
+            $res = $svc->send(
+                $tenantId,
+                (string) ($args['module']  ?? 'core'),
+                (string) ($args['purpose'] ?? 'notification'),
+                $toList,
+                $subject,
+                $bodyText,
+                $bodyHtml,
+                [],
+                array_filter([
+                    'from'      => $args['from_email']  ?? null,
+                    'from_name' => $args['from_name']   ?? null,
+                    'reply_to'  => $args['reply_to']    ?? null,
+                ], static fn($v) => $v !== null && $v !== '')
+            );
+            if (($res['status'] ?? '') === 'sent') {
+                return [
+                    'ok'         => true,
+                    'message_id' => $res['provider_message_id'] ?? null,
+                    'driver'     => $res['driver'] ?? 'unknown',
+                ];
+            }
+            return [
+                'ok'     => false,
+                'error'  => (string) ($res['error'] ?? 'unknown send failure'),
+                'driver' => $res['driver'] ?? 'unknown',
+            ];
+        } catch (\Throwable $e) {
+            return _mailer_fallback_smtp($args, $toList, $bodyHtml, $bodyText, 'mail_service_threw:' . $e->getMessage());
+        }
+    }
+}
+
+/** Internal: strip HTML to a serviceable plaintext when caller omits body_text. */
+function _mailer_html_to_text(?string $html): string {
+    if (!$html) return '';
+    $text = strip_tags(preg_replace('/<\s*br\s*\/?\s*>/i', "\n", (string) $html) ?? '');
+    return trim(html_entity_decode((string) $text, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+}
+
+/** Internal: legacy PHPMailer fallback when MailService can't deliver. */
+function _mailer_fallback_smtp(array $args, array $toList, ?string $bodyHtml, string $bodyText, string $reason): array {
+    try {
+        $res = sendEmail([
+            'to'         => $toList,
+            'subject'    => (string) $args['subject'],
+            'body_text'  => $bodyText,
+            'body_html'  => $bodyHtml,
+            'reply_to'   => $args['reply_to']   ?? null,
+            'from_email' => $args['from_email'] ?? null,
+            'from_name'  => $args['from_name']  ?? null,
+        ]);
+        return [
+            'ok'         => (bool) ($res['ok'] ?? false),
+            'message_id' => $res['message_id'] ?? null,
+            'driver'     => 'phpmailer_smtp',
+            'fallback'   => $reason,
+        ];
+    } catch (\Throwable $e) {
+        return [
+            'ok'       => false,
+            'error'    => $e->getMessage(),
+            'driver'   => 'phpmailer_smtp',
+            'fallback' => $reason,
+        ];
+    }
+}
