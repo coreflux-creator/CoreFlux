@@ -3,10 +3,14 @@
 Existing demo/test user (unchanged from prior forks — no new credentials were
 created in the AP Phase A0 session; AP module uses RBAC on the same identity):
 
-- **email:** `kunal@coreflux.app`
+- **email:** `kunal.verma@corefluxapp.com`
 - **role:** `master_admin`
 - **password:** (seeded on Cloudways via `/install.php`; ask user if testing
   requires password reset — NOT stored in repo for security)
+
+> Note: prior PRD/handoffs incorrectly listed this as `kunal@coreflux.app`.
+> User clarified the canonical address is `kunal.verma@corefluxapp.com`
+> (2026-02). All new docs/PRD entries should use the corrected value.
 
 This user has all `ap.*` permissions (master_admin defaults to all perms)
 including:
