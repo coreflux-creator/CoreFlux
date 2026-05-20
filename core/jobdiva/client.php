@@ -259,6 +259,25 @@ function jobdivaSessionToken(int $tenantId): string
 
     $token = jobdivaExtractToken($resp);
     if ($token === '') {
+        // JobDiva's Spring Security layer returns this exact phrase when the
+        // request reached their server but no authentication context was
+        // accepted. This almost always means the JobDiva tenant doesn't yet
+        // have API access provisioned — NOT a CoreFlux bug. Surface the
+        // remediation steps directly so operators don't have to grep logs.
+        $bodyText = is_string($resp['body'])
+            ? $resp['body']
+            : (string) json_encode($resp['body']);
+        if ($resp['status'] === 401
+            || stripos($bodyText, 'Full authentication is required') !== false) {
+            throw new \RuntimeException(
+                'JobDiva rejected authenticate with HTTP 401. This is a tenant-side '
+              . 'provisioning issue, not a credential typo. Email JobDiva Support and ask them to: '
+              . '(1) issue a Client ID for API use, '
+              . '(2) create a dedicated API user (not a normal UI login), and '
+              . '(3) enable the "Only allow to access JobDiva API Calls" permission on that user. '
+              . 'See /app/memory/JOBDIVA_API_ACCESS.md for the full template.'
+            );
+        }
         $snippet = is_string($resp['body'])
             ? substr($resp['body'], 0, 200)
             : substr((string) json_encode($resp['body']), 0, 200);

@@ -73,6 +73,10 @@ $assert('jobdivaRawRequest only sets Content-Type when body present',
     strpos($cli, "if (\$body !== null) \$headers[] = 'Content-Type: application/json'") !== false);
 $assert('jobdivaSessionToken handles JWT exp fallback',
     strpos($cli, 'jobdivaJwtExp($token)') !== false);
+$assert('jobdivaSessionToken surfaces tenant-provisioning hint on 401',
+    strpos($cli, 'tenant-side ') !== false
+    && strpos($cli, 'provisioning issue, not a credential typo') !== false
+    && strpos($cli, 'JOBDIVA_API_ACCESS.md') !== false);
 $assert('jobdivaCall auto-refreshes on 401',
     strpos($cli, "if (\$resp['status'] === 401)") !== false
     && strpos($cli, "session_token_enc = NULL, session_token_exp = NULL") !== false);
