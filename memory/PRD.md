@@ -9,6 +9,39 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Architecture:** Modular monolith; modules developed in-repo under `/modules/<name>/`, extracted to subtree repos later
 - **Hosting:** Cloudways
 
+## Tenant routing rebuild — role-based landing + platform-mode (2026-02 — current fork)
+
+Resolved the long-standing access regression where master_admin was silently downgraded to per-tenant roles, the tenant dropdown couldn't reach sub-tenants of an admin's parent tenant, and every login funnelled into the same tenant page regardless of credentials.
+
+### 🔴 Bug fixes
+1. **Role-floor in `core/api_bootstrap.php`** — `users.role='master_admin'` (or `is_global_admin=1`) is now the floor. The per-tenant `user_tenants.role` lookup and the RBAC resolver's `persona_type` override are both gated on `!$isPlatformMA`. Authoritative re-check from DB on every request defends against stale session. New `$ctx['global_role']` exposed for endpoints that need it.
+2. **`requireTenant` bypass** — `api_require_auth(true)` no longer 400s when a master_admin has no pinned tenant (platform mode).
+3. **Header tenant dropdown** — used to render only `session.tenants` (direct memberships). Now pulls `/api/admin/manageable_tenants.php` which returns direct + via_parent + platform tenants nested by master, so a tenant_admin who admins MASTER A can also click into SUB A.1 (inherited).
+
+### 🟡 Architectural changes — landing logic
+- **Master_admin / is_global_admin** → lands in PLATFORM MODE (`$_SESSION['tenant_id'] = null`, `platform_mode=true`). Redirects to `spa.php#/admin`. They can still pick any tenant from the header dropdown to "view as tenant" — clearly badged with an amber "Viewing as" pill.
+- **Tenant_admin / admin / employee** → lands on their primary tenant (`is_default` preferred; otherwise first row from the membership shim).
+- **Header dropdown** — `master_admin` always sees a "Platform Admin" entry at the top (returns to no-tenant mode) plus every tenant nested with sub-tenants under their masters. Non-master users see only what they can switch into.
+- **`switch_tenant.php`** — now accepts `?platform=1` (clears tenant, restores master_admin role) and uses `global_role`/`is_global_admin` for the master-admin bypass so a master who's been pinned mid-session can still jump.
+
+### 🟢 New / changed
+- New endpoint `/api/admin/manageable_tenants.php` — returns hierarchical tenant inventory (`direct` / `via_parent` / `platform` access marker per row) for the header dropdown.
+- `session.php` surfaces `platform_mode` and `is_global_admin`.
+- `login.php` seeds `user.tenants` with `getAllTenants()` for platform-mode users so the very first SPA paint has the full inventory.
+- `App.jsx` redirects `platform_mode` users to `/admin` on first render unless they hit a deep link.
+- New smoke `tests/tenant_routing_rebuild_smoke.php` (39 ✓) covers role-floor, manageable_tenants endpoint shape, switch_tenant platform toggle, Header wiring, session.php flags, App.jsx routing, plus `php -l` syntax sanity for every touched file.
+- Vite bundle rebuilt + `.deploy-version` synced.
+- **Smoke suite total:** 229 ✓ / 0 ✗ (229 = prior 228 + new test).
+
+### Validation steps for prod
+After deploy:
+1. **`kunal.verma@corefluxapp.com`** logs in → lands on Platform Admin (no tenant pinned). Header shows "Platform Admin" + tenant picker with every tenant nested.
+2. Click any tenant in the dropdown → "Viewing as" amber badge appears, normal tenant SPA loads.
+3. Click "Platform Admin" entry → returns to no-tenant mode.
+4. Log in as any **tenant_admin** → lands on their primary tenant. Header dropdown shows their tenants + every sub-tenant of any master they admin (with "inherited" badge). Clicking a sub-tenant successfully switches.
+5. **Sub-tenant admin** → lands directly on their sub-tenant.
+
+
 ## P0 fix v2 — Read-fallback shim extended to ALL gating call sites (2026-02 — current fork)
 
 The first read-fallback shim only patched `core/data.php` + `api/users.php`. User reported the access issues persisted: tenants still missing, sub-tenants inaccessible, admin rights still broken. Root cause: ~10 other UI/auth gating files were still doing direct `FROM tenant_memberships` reads.

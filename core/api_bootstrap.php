@@ -156,7 +156,36 @@ function api_require_auth(bool $requireTenant = true): array {
     $user     = getCurrentUser();
     $tenantId = currentTenantId();
 
-    if ($requireTenant && !$tenantId) {
+    // -----------------------------------------------------------------
+    // Platform-mode bypass for master_admin / is_global_admin.
+    // -----------------------------------------------------------------
+    // master_admin is a *platform* role, not a per-tenant role. If the
+    // user's `users.role` is master_admin (or `users.is_global_admin=1`)
+    // they retain that role even when no tenant is pinned (platform
+    // dashboard view) and CANNOT be downgraded by a per-tenant
+    // `user_tenants.role` of 'tenant_admin'/'admin' below.
+    $globalRole    = (string) ($user['global_role'] ?? $_SESSION['global_role'] ?? $user['role'] ?? 'employee');
+    $isPlatformMA  = ($globalRole === 'master_admin');
+    if (!$isPlatformMA && $user) {
+        // Authoritative re-check from DB to defend against stale session.
+        try {
+            $st = getDB()->prepare('SELECT role, COALESCE(is_global_admin,0) AS iga FROM users WHERE id = :id LIMIT 1');
+            $st->execute(['id' => (int) ($user['id'] ?? 0)]);
+            $u  = $st->fetch(PDO::FETCH_ASSOC);
+            if ($u) {
+                if ((string) ($u['role'] ?? '') === 'master_admin' || (int) ($u['iga'] ?? 0) === 1) {
+                    $isPlatformMA = true;
+                    $globalRole   = 'master_admin';
+                    if (isset($_SESSION['user']) && is_array($_SESSION['user'])) {
+                        $_SESSION['user']['global_role'] = 'master_admin';
+                    }
+                    $_SESSION['global_role'] = 'master_admin';
+                }
+            }
+        } catch (\Throwable $_) { /* keep session view */ }
+    }
+
+    if ($requireTenant && !$tenantId && !$isPlatformMA) {
         api_error('No tenant context', 400);
     }
 
@@ -166,8 +195,13 @@ function api_require_auth(bool $requireTenant = true): array {
     // should be master_admin (and vice-versa). Re-derive from user_tenants
     // for the active tenant. Falls through silently on DB hiccups so unrelated
     // endpoints don't 500 on this path.
-    $effectiveRole = $user['role'] ?? 'employee';
-    if ($user && $tenantId) {
+    //
+    // STRICT FLOOR (P0 fix, 2026-02): if the platform-mode bypass above
+    // identified this user as `master_admin`/`is_global_admin=1`, that role
+    // CANNOT be downgraded by a per-tenant `user_tenants` row. The platform
+    // role is the floor; per-tenant role is only the override for non-globals.
+    $effectiveRole = $isPlatformMA ? 'master_admin' : ($user['role'] ?? 'employee');
+    if (!$isPlatformMA && $user && $tenantId) {
         try {
             $st = getDB()->prepare(
                 'SELECT role FROM user_tenants
@@ -196,12 +230,19 @@ function api_require_auth(bool $requireTenant = true): array {
     // string (a single user can be Admin in tenant A and Employee in
     // tenant B without a re-login).  When it doesn't, we fall through
     // and leave the legacy $effectiveRole as-is.
+    //
+    // STRICT FLOOR (P0 fix, 2026-02): the persona_type override is also
+    // suppressed when $isPlatformMA — master_admin must stay master_admin
+    // even if their per-tenant persona_label happens to be 'admin'.
     $membershipId    = null;
     $personaType     = null;
-    $isGlobalAdmin   = false;
+    $isGlobalAdmin   = $isPlatformMA;
     if ($user && $tenantId && class_exists('RBACResolver')) {
         try {
-            $isGlobalAdmin = RBACResolver::isGlobalAdmin((int) ($user['id'] ?? 0));
+            // Trust the platform-mode flag if already set; else ask the resolver.
+            if (!$isGlobalAdmin) {
+                $isGlobalAdmin = RBACResolver::isGlobalAdmin((int) ($user['id'] ?? 0));
+            }
             $personaId     = isset($_SESSION['active_persona_id']) ? (int) $_SESSION['active_persona_id'] : null;
             $membership    = RBACResolver::activeMembership(
                 (int) ($user['id'] ?? 0),
@@ -211,7 +252,7 @@ function api_require_auth(bool $requireTenant = true): array {
             if ($membership) {
                 $membershipId = (int) $membership['id'];
                 $personaType  = (string) ($membership['persona_type'] ?? '');
-                if ($personaType !== '') {
+                if ($personaType !== '' && !$isPlatformMA) {
                     $effectiveRole = $personaType;
                     if (isset($_SESSION['user']) && is_array($_SESSION['user'])) {
                         $_SESSION['user']['role'] = $effectiveRole;
@@ -225,6 +266,7 @@ function api_require_auth(bool $requireTenant = true): array {
         'user'           => $user,
         'tenant_id'      => $tenantId,
         'role'           => $effectiveRole,
+        'global_role'    => $globalRole,
         'membership_id'  => $membershipId,
         'persona_type'   => $personaType,
         'is_global_admin'=> $isGlobalAdmin,

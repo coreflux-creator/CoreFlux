@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import AppLayout from './layout/AppLayout';
 import DashboardOverview from './pages/DashboardOverview';
 import ExecutiveDashboard from './pages/ExecutiveDashboard';
@@ -308,6 +308,18 @@ const useSession = () => {
 const AppContent = ({ session, usingDemo }) => {
   const [activeModule, setActiveModule] = useState(null);
   const location = useLocation();
+  const navigate = useNavigate();
+
+  // Platform-mode landing: master_admin without a pinned tenant lands on /admin.
+  // Runs once when the session resolves; respects deep-links so a master_admin
+  // who hit /spa.php#/modules/ap directly isn't yanked away.
+  useEffect(() => {
+    if (!session) return;
+    const isPlatform = session.platform_mode || session.user?.platform_mode;
+    if (isPlatform && (location.pathname === '/' || location.pathname === '/dashboard')) {
+      navigate('/admin', { replace: true });
+    }
+  }, [session, location.pathname, navigate]);
 
   // Sync active module with URL
   useEffect(() => {

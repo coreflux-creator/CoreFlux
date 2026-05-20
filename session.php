@@ -106,12 +106,15 @@ $response = [
         'email' => $user['email'] ?? '',
         'role' => $user['role'] ?? 'employee',
         'global_role' => $user['global_role'] ?? $_SESSION['global_role'] ?? 'employee',
+        'is_global_admin' => (int) ($user['is_global_admin'] ?? 0),
+        'platform_mode' => (bool) ($_SESSION['platform_mode'] ?? false),
         'avatar' => $user['avatar'] ?? null,
     ],
     'modules' => $formattedModules,
     'tenant' => $tenant,
     'tenant_id' => $tenantId,
     'tenants' => $user['tenants'] ?? [],
+    'platform_mode' => (bool) ($_SESSION['platform_mode'] ?? false),
     'active_module' => $formattedActiveModule,
 ];
 

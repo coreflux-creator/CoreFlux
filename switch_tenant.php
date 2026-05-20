@@ -25,15 +25,44 @@ if (!isAuthenticated()) {
     exit;
 }
 
-$user      = getCurrentUser();
-$userId    = (int) ($user['id'] ?? 0);
-$role      = $user['role'] ?? $_SESSION['role'] ?? 'employee';
-$targetId  = (int) ($_REQUEST['tenant_id'] ?? 0);
-$nextPath  = $_REQUEST['next'] ?? '/spa.php';
+$user        = getCurrentUser();
+$userId      = (int) ($user['id'] ?? 0);
+// Both per-tenant role AND global role matter: a master_admin who happens
+// to be currently pinned to Tenant X with persona_label='admin' is still
+// allowed to switch into any other tenant by virtue of their GLOBAL role.
+$role        = $user['role']         ?? $_SESSION['role']         ?? 'employee';
+$globalRole  = $user['global_role']  ?? $_SESSION['global_role']  ?? $role;
+$isGlobalAdm = (int) ($user['is_global_admin'] ?? 0) === 1;
+$isPlatformMA= ($globalRole === 'master_admin') || $isGlobalAdm;
+$targetId    = (int) ($_REQUEST['tenant_id'] ?? 0);
+$nextPath    = $_REQUEST['next'] ?? '/spa.php';
+// Special sentinel: tenant_id=0 (or ?platform=1) clears the active tenant
+// and returns master_admin to platform mode (no tenant pinned).
+$wantPlatform= isset($_REQUEST['platform']) && $_REQUEST['platform']
+            || (isset($_REQUEST['tenant_id']) && (int) $_REQUEST['tenant_id'] === 0);
 
 // Whitelist redirect target to local paths only.
 if (!is_string($nextPath) || strncmp($nextPath, '/', 1) !== 0) {
     $nextPath = '/spa.php';
+}
+
+// Platform-mode toggle — master_admin only.
+if ($wantPlatform) {
+    if (!$isPlatformMA) {
+        header('Location: ' . $nextPath . '?error=platform_requires_master_admin');
+        exit;
+    }
+    $_SESSION['tenant_id']        = null;
+    $_SESSION['active_tenant_id'] = null;
+    $_SESSION['tenant']           = null;
+    $_SESSION['platform_mode']    = true;
+    // Restore master_admin role in session (in case it was downgraded
+    // by a per-tenant persona during a previous switch).
+    if (isset($_SESSION['user']) && is_array($_SESSION['user'])) {
+        $_SESSION['user']['role'] = 'master_admin';
+    }
+    header('Location: ' . ($nextPath === '/spa.php' ? '/spa.php#/admin' : $nextPath));
+    exit;
 }
 
 if (!$targetId) {
@@ -41,7 +70,7 @@ if (!$targetId) {
     exit;
 }
 
-if (!_subTenantSwitchAllowed($userId, $targetId, $role)) {
+if (!_subTenantSwitchAllowed($userId, $targetId, $role, $isPlatformMA)) {
     header('Location: ' . $nextPath . '?error=unauthorized_tenant');
     exit;
 }
@@ -55,14 +84,15 @@ if (!$t || (int)($t['is_active'] ?? 1) !== 1) {
 $_SESSION['tenant_id']        = $targetId;
 $_SESSION['active_tenant_id'] = $targetId;     // legacy compat
 $_SESSION['tenant']           = $t['name'] ?? null;
+$_SESSION['platform_mode']    = false;
 
 subTenantTouchLastActive($userId, $targetId);
 
 header('Location: ' . $nextPath);
 exit;
 
-function _subTenantSwitchAllowed(int $userId, int $targetId, string $role): bool {
-    if ($role === 'master_admin') return true;
+function _subTenantSwitchAllowed(int $userId, int $targetId, string $role, bool $isPlatformMA = false): bool {
+    if ($isPlatformMA || $role === 'master_admin') return true;
     $pdo = getDB();
     if (!$pdo) return false;
 

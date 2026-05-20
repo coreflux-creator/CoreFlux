@@ -13,6 +13,10 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
   const [personaOpen, setPersonaOpen] = useState(false);
   const [personas, setPersonas] = useState([]);
   const [activePersonaId, setActivePersonaId] = useState(null);
+  // Manageable tenants (direct + via_parent + platform) — authoritative
+  // list for the tenant switcher dropdown. Falls back to the static
+  // `tenants` prop until /api/admin/manageable_tenants.php returns.
+  const [manageable, setManageable] = useState(null);
   const location = useLocation();
 
   const moduleRef = useRef(null);
@@ -58,6 +62,17 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
       console.error('active entity switch failed', e);
     }
   };
+
+  // Tenant switcher inventory — pulls direct + via_parent + platform.
+  // Refreshes whenever the active tenant changes (e.g. after switching).
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/api/admin/manageable_tenants.php').then(r => {
+      if (cancelled) return;
+      setManageable(r ?? null);
+    }).catch(() => { /* silent — fall back to static `tenants` prop */ });
+    return () => { cancelled = true; };
+  }, [tenant]);
 
   // RBAC B5 — Persona switcher.
   // Only renders when the current user holds ≥2 active memberships in
@@ -224,43 +239,145 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
           </div>
         )}
 
-        {(user?.global_role === 'master_admin' || user?.global_role === 'tenant_admin') && (
-          <Link to="/admin" className="header-btn">
+        {(user?.global_role === 'master_admin' || user?.global_role === 'tenant_admin' || user?.is_global_admin) && (
+          <Link to="/admin" className="header-btn" data-testid="header-admin-link">
             <Shield size={18} className="header-btn-icon" />
             <span>Admin Panel</span>
           </Link>
         )}
         
-        {/* Tenant Selector */}
-        {tenants && tenants.length > 0 && (
-          <div className={`dropdown ${tenantOpen ? 'open' : ''}`} ref={tenantRef}>
-            <button 
-              className="header-btn"
-              onClick={(e) => { e.stopPropagation(); setTenantOpen(!tenantOpen); }}
-            >
-              <Building2 size={18} className="header-btn-icon" />
-              <span>{tenant || 'Tenant'}</span>
-              <ChevronDown size={14} className="caret" />
-            </button>
-            
-            {tenantOpen && (
-              <div className="dropdown-menu dropdown-menu-right">
-                {tenants.map((t) => (
-                  <div
-                    key={t.id || t}
-                    className={`dropdown-item ${(t.name || t) === tenant ? 'active' : ''}`}
-                    onClick={() => {
-                      onTenantChange?.(t.id || t);
-                      setTenantOpen(false);
-                    }}
-                  >
-                    {t.name || t}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        {/* Tenant Selector — hierarchical, sourced from /api/admin/manageable_tenants.php */}
+        {(() => {
+          const isPlatformMA = user?.global_role === 'master_admin' || user?.is_global_admin;
+          const manageableTenants = manageable?.tenants ?? null;
+          const flatFallback = (tenants || []).map(t => ({
+            id: t.id || t, name: t.name || t, parent_id: t.parent_id || null,
+            tenant_type: t.parent_id ? 'sub' : 'master', sub_tenants: [],
+          }));
+          const rows = manageableTenants ?? flatFallback;
+          if (!rows.length && !isPlatformMA) return null;
+          const platformMode = manageable?.platform_mode || (isPlatformMA && !tenant);
+          const buttonLabel = platformMode
+            ? 'Platform Admin'
+            : (tenant || 'Select tenant…');
+          return (
+            <div className={`dropdown ${tenantOpen ? 'open' : ''}`} ref={tenantRef}
+                 data-testid="tenant-switcher">
+              <button
+                className="header-btn"
+                onClick={(e) => { e.stopPropagation(); setTenantOpen(!tenantOpen); }}
+                data-testid="tenant-switcher-button"
+              >
+                <Building2 size={18} className="header-btn-icon" />
+                <span>
+                  {buttonLabel}
+                  {!platformMode && isPlatformMA && (
+                    <span style={{ marginLeft: 6, padding: '1px 6px',
+                                   fontSize: 10, fontWeight: 600,
+                                   background: '#fef3c7', color: '#92400e',
+                                   borderRadius: 4 }}>
+                      Viewing as
+                    </span>
+                  )}
+                </span>
+                <ChevronDown size={14} className="caret" />
+              </button>
+
+              {tenantOpen && (
+                <div className="dropdown-menu dropdown-menu-right"
+                     style={{ minWidth: 280, maxHeight: 480, overflowY: 'auto' }}>
+                  {/* Platform Admin entry (master_admin only) */}
+                  {isPlatformMA && (
+                    <>
+                      <div
+                        className={`dropdown-item ${platformMode ? 'active' : ''}`}
+                        onClick={() => {
+                          if (!platformMode) {
+                            window.location.href = '/switch_tenant.php?platform=1&next=/spa.php';
+                          }
+                          setTenantOpen(false);
+                        }}
+                        data-testid="tenant-switcher-platform"
+                        style={{ display: 'flex', alignItems: 'center', gap: 8,
+                                 fontWeight: 600 }}
+                      >
+                        <Shield size={14} /> Platform Admin
+                        <span style={{ marginLeft: 'auto', fontSize: 11,
+                                       color: 'var(--cf-text-secondary)' }}>
+                          (no tenant)
+                        </span>
+                      </div>
+                      <hr className="dropdown-divider" />
+                    </>
+                  )}
+
+                  {rows.length === 0 && (
+                    <div style={{ padding: '12px 14px', color: 'var(--cf-text-secondary)',
+                                  fontSize: 13 }}>
+                      No tenants assigned.
+                    </div>
+                  )}
+
+                  {rows.map((t) => (
+                    <React.Fragment key={t.id}>
+                      <div
+                        className={`dropdown-item ${(t.name === tenant) ? 'active' : ''}`}
+                        onClick={() => {
+                          onTenantChange?.(t.id);
+                          setTenantOpen(false);
+                        }}
+                        data-testid={`tenant-switcher-tenant-${t.id}`}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                      >
+                        <span style={{ fontWeight: 500 }}>{t.name}</span>
+                        {t.access === 'via_parent' && (
+                          <span style={{ marginLeft: 'auto', fontSize: 10,
+                                         padding: '1px 6px', borderRadius: 4,
+                                         background: '#e0e7ff', color: '#3730a3' }}
+                                title="You manage this via the parent tenant">
+                            inherited
+                          </span>
+                        )}
+                        {t.access === 'platform' && t.access !== 'direct' && (
+                          <span style={{ marginLeft: 'auto', fontSize: 10,
+                                         padding: '1px 6px', borderRadius: 4,
+                                         background: '#fef3c7', color: '#92400e' }}>
+                            platform
+                          </span>
+                        )}
+                      </div>
+                      {/* Sub-tenants nested under their master */}
+                      {(t.sub_tenants || []).map(sub => (
+                        <div
+                          key={sub.id}
+                          className={`dropdown-item ${(sub.name === tenant) ? 'active' : ''}`}
+                          onClick={() => {
+                            onTenantChange?.(sub.id);
+                            setTenantOpen(false);
+                          }}
+                          data-testid={`tenant-switcher-tenant-${sub.id}`}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8,
+                                   paddingLeft: 32, fontSize: 13 }}
+                        >
+                          <span style={{ color: 'var(--cf-text-secondary)' }}>↳</span>
+                          <span>{sub.name}</span>
+                          {sub.access === 'via_parent' && (
+                            <span style={{ marginLeft: 'auto', fontSize: 10,
+                                           padding: '1px 6px', borderRadius: 4,
+                                           background: '#e0e7ff', color: '#3730a3' }}
+                                  title="Managed via parent">
+                              inherited
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* User Menu */}
         <div className={`dropdown ${userOpen ? 'open' : ''}`} ref={userRef}>
