@@ -172,7 +172,7 @@ $topKeys = array_values($perFeatureKey);
 usort($topKeys, fn($a, $b) => $b['calls'] <=> $a['calls']);
 $topKeys = array_slice($topKeys, 0, 10);
 
-api_json([
+api_ok([
     'ok'                => true,
     'tenant_id'         => $tid,
     'window_days'       => $days,

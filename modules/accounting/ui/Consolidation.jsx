@@ -27,9 +27,10 @@ export default function Consolidation() {
 
 function RelationshipsSection() {
   const { data, loading, error, reload } = useApi('/modules/accounting/api/entity_relationships.php');
-  const entities = useApi('/modules/accounting/api/entities.php').data?.rows
-                || useApi('/modules/accounting/api/entities.php').data?.entities
-                || [];
+  // Hooks rule: call useApi once. Endpoint returns `{rows: [...]}`; the
+  // older `entities` shape is supported as a fallback for backward compat.
+  const entitiesApi = useApi('/modules/accounting/api/entities.php');
+  const entities    = entitiesApi.data?.rows ?? entitiesApi.data?.entities ?? [];
   const [form, setForm] = useState({
     parent_entity_id: '', child_entity_id: '', ownership_pct: '100',
     relationship_type: 'subsidiary', consolidation_method: 'full',
@@ -103,7 +104,7 @@ function RelationshipsSection() {
           {(data?.rows || []).length === 0 && !loading && (
             <tr><td colSpan={8} style={{color:'#999'}}>No ownership edges yet. Add parent → child to enable consolidated reporting.</td></tr>
           )}
-          {(data?.rows || []).map(r => (
+          {(data?.rows || []).filter(Boolean).map(r => (
             <tr key={r.id} data-testid={`accounting-consol-edge-${r.id}`}>
               <td>{r.parent_name || r.parent_entity_id}</td>
               <td>{r.child_name  || r.child_entity_id}</td>
@@ -126,9 +127,9 @@ function ConsolidatedReport() {
   const [entityIds, setEntityIds] = useState([]);
   const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10));
   const [to, setTo]     = useState(() => new Date().toISOString().slice(0, 10));
-  const entities = useApi('/modules/accounting/api/entities.php').data?.rows
-                || useApi('/modules/accounting/api/entities.php').data?.entities
-                || [];
+  // Hooks rule: call useApi once and read both possible response shapes.
+  const entitiesApi = useApi('/modules/accounting/api/entities.php');
+  const entities    = entitiesApi.data?.rows ?? entitiesApi.data?.entities ?? [];
 
   const qs = useMemo(() => {
     if (!entityIds.length) return null;

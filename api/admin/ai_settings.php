@@ -120,7 +120,7 @@ $method = api_method();
 
 if ($method === 'GET') {
     $tid = aiSettingsResolveTenantId($ctx, $isGlobalAdmin, $role, $activeTenant, $_GET['tenant_id'] ?? null);
-    api_json(['ok' => true] + aiSettingsLoadPayload($pdo, $tid));
+    api_ok(['ok' => true] + aiSettingsLoadPayload($pdo, $tid));
 }
 
 if ($method === 'POST') {
@@ -175,7 +175,7 @@ if ($method === 'POST') {
         api_error('Failed to save settings: ' . $e->getMessage(), 500);
     }
 
-    api_json(['ok' => true] + aiSettingsLoadPayload($pdo, $tid));
+    api_ok(['ok' => true] + aiSettingsLoadPayload($pdo, $tid));
 }
 
 api_error('Method not allowed', 405);

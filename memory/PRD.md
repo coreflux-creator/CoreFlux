@@ -9,6 +9,26 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Architecture:** Modular monolith; modules developed in-repo under `/modules/<name>/`, extracted to subtree repos later
 - **Hosting:** Cloudways
 
+## Hotfix — `api_json()` undefined + Consolidation page null crash (2026-02 — current fork)
+
+Two production bugs reported via screenshots, both fixed:
+
+### Bug 1 — `Call to undefined function api_json()`
+- `api/admin/ai_settings.php` (lines 123, 178) and `api/admin/ai_usage.php` (line 175) called `api_json()` which doesn't exist anywhere in the codebase. The canonical helpers are `api_ok($data)` for success and `api_error($msg, $status)` for errors.
+- Renamed all 3 call-sites to `api_ok()`. Both endpoints now respond cleanly.
+- New CI guard `tests/hotfix_api_json_consolidation_smoke.php` scans every PHP file under `/app` for any future occurrence of `api_json(` and fails if it reappears.
+
+### Bug 2 — `Cannot read properties of null (reading 'parent_entity_id')` on Accounting → Consolidation
+- `modules/accounting/ui/Consolidation.jsx` violated React's Rules of Hooks: it called `useApi('/modules/accounting/api/entities.php')` **twice on the same expression** (`useApi(...).data?.rows || useApi(...).data?.entities`), once in `RelationshipsSection` and once in `ConsolidatedReport`. The order of hook calls fluctuated between renders, which corrupted hook state and made one of the destructured rows resolve to `null` — every render that then read `r.parent_name || r.parent_entity_id` blew up.
+- Fixed by capturing the `useApi` result into a single `entitiesApi` variable, then reading `entitiesApi.data?.rows ?? entitiesApi.data?.entities ?? []` (nullish-coalescing, not `||`, so an empty array on first paint doesn't cause refetches).
+- Belt-and-braces: `.filter(Boolean)` before `.map()` on the relationships rows so a stray `null` row from any future data shape can't crash render.
+
+### Tested
+- New smoke `tests/hotfix_api_json_consolidation_smoke.php` — 8 ✓ asserts no `api_json(` callers anywhere, `api_ok()` defined, exactly 2 `useApi(entities)` calls (one per component), `??` fallback, `.filter(Boolean)` guard, `php -l` on both touched PHP files.
+- Vite bundle rebuilt + `.deploy-version` synced.
+- **Smoke suite total: 233 ✓ / 0 ✗.**
+
+
 ## Auditor Session Log (2026-02 — current fork)
 
 Forensic visibility into what each external auditor actually looked at, surfaced inline on `/admin/auditor-tokens`.
