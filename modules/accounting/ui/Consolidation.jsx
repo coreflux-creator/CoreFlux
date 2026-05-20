@@ -27,9 +27,9 @@ export default function Consolidation() {
 
 function RelationshipsSection() {
   const { data, loading, error, reload } = useApi('/modules/accounting/api/entity_relationships.php');
-  // Hooks rule: call useApi once. Endpoint returns `{rows: [...]}`; the
-  // older `entities` shape is supported as a fallback for backward compat.
-  const entitiesApi = useApi('/modules/accounting/api/entities.php');
+  // Hierarchy scope = include sub-tenant entities so a master_admin viewing
+  // the parent can wire consolidation edges across the entire group.
+  const entitiesApi = useApi('/modules/accounting/api/entities.php?scope=hierarchy');
   const entities    = entitiesApi.data?.rows ?? entitiesApi.data?.entities ?? [];
   const [form, setForm] = useState({
     parent_entity_id: '', child_entity_id: '', ownership_pct: '100',
@@ -68,13 +68,21 @@ function RelationshipsSection() {
         <label style={{fontSize:12}}>Parent
           <select className="input" value={form.parent_entity_id} onChange={e => setForm({...form, parent_entity_id:e.target.value})} required data-testid="accounting-consol-parent">
             <option value="">— select —</option>
-            {entities.map(en => <option key={en.id} value={en.id}>{en.legal_name || en.code}</option>)}
+            {entities.map(en => (
+              <option key={en.id} value={en.id}>
+                {(en.legal_name || en.code)}{en.tenant_name ? `  ·  ${en.tenant_name}` : ''}
+              </option>
+            ))}
           </select>
         </label>
         <label style={{fontSize:12}}>Child
           <select className="input" value={form.child_entity_id} onChange={e => setForm({...form, child_entity_id:e.target.value})} required data-testid="accounting-consol-child">
             <option value="">— select —</option>
-            {entities.map(en => <option key={en.id} value={en.id}>{en.legal_name || en.code}</option>)}
+            {entities.map(en => (
+              <option key={en.id} value={en.id}>
+                {(en.legal_name || en.code)}{en.tenant_name ? `  ·  ${en.tenant_name}` : ''}
+              </option>
+            ))}
           </select>
         </label>
         <label style={{fontSize:12}}>Ownership %
@@ -127,8 +135,9 @@ function ConsolidatedReport() {
   const [entityIds, setEntityIds] = useState([]);
   const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10));
   const [to, setTo]     = useState(() => new Date().toISOString().slice(0, 10));
-  // Hooks rule: call useApi once and read both possible response shapes.
-  const entitiesApi = useApi('/modules/accounting/api/entities.php');
+  // Hierarchy scope so consolidated runs can pick any entity in the
+  // tenant + sub-tenant tree.
+  const entitiesApi = useApi('/modules/accounting/api/entities.php?scope=hierarchy');
   const entities    = entitiesApi.data?.rows ?? entitiesApi.data?.entities ?? [];
 
   const qs = useMemo(() => {
@@ -186,6 +195,13 @@ function ConsolidatedReport() {
             <label key={en.id} style={{fontSize:12, padding:'2px 8px', background: entityIds.includes(en.id) ? '#dbeafe' : '#fff', border:'1px solid #ddd', borderRadius:4, cursor:'pointer'}}>
               <input type="checkbox" checked={entityIds.includes(en.id)} onChange={() => toggleEntity(en.id)} style={{marginRight:4}} data-testid={`accounting-consol-entity-${en.id}`} />
               {en.legal_name || en.code}
+              {en.tenant_name && !en.is_current_tenant ? (
+                <span style={{ marginLeft: 6, fontSize: 10, padding: '0 6px',
+                               borderRadius: 8, background: '#e0e7ff',
+                               color: '#3730a3' }} title={`Sub-tenant: ${en.tenant_name}`}>
+                  {en.tenant_name}
+                </span>
+              ) : null}
             </label>
           ))}
         </div>

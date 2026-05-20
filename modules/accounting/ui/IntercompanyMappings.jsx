@@ -10,7 +10,7 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
  */
 export default function IntercompanyMappings() {
   const { data, loading, error, reload } = useApi('/modules/accounting/api/intercompany.php');
-  const entitiesApi = useApi('/modules/accounting/api/entities.php');
+  const entitiesApi = useApi('/modules/accounting/api/entities.php?scope=hierarchy');
   const accountsApi = useApi('/modules/accounting/api/accounts.php');
   const [form, setForm] = useState({ from_entity_id: '', to_entity_id: '', due_from_account_code: '', due_to_account_code: '', notes: '' });
   const [busy, setBusy] = useState(false);
@@ -53,13 +53,13 @@ export default function IntercompanyMappings() {
         <label style={{ fontSize: 12 }}>From entity
           <select className="input" value={form.from_entity_id} onChange={e => setForm({ ...form, from_entity_id: e.target.value })} required data-testid="accounting-ic-from">
             <option value="">— select —</option>
-            {entities.map(en => <option key={en.id} value={en.id}>{en.legal_name || en.code}</option>)}
+            {entities.map(en => <option key={en.id} value={en.id}>{(en.legal_name || en.code) + (en.tenant_name ? `  ·  ${en.tenant_name}` : '')}</option>)}
           </select>
         </label>
         <label style={{ fontSize: 12 }}>To entity
           <select className="input" value={form.to_entity_id} onChange={e => setForm({ ...form, to_entity_id: e.target.value })} required data-testid="accounting-ic-to">
             <option value="">— select —</option>
-            {entities.map(en => <option key={en.id} value={en.id}>{en.legal_name || en.code}</option>)}
+            {entities.map(en => <option key={en.id} value={en.id}>{(en.legal_name || en.code) + (en.tenant_name ? `  ·  ${en.tenant_name}` : '')}</option>)}
           </select>
         </label>
         <label style={{ fontSize: 12 }}>Due-from (asset on source)

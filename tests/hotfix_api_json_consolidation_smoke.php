@@ -43,7 +43,7 @@ $a('api_json_body() is defined',           function_exists('api_json_body'));
 
 // 2. Consolidation.jsx hooks rule fix.
 $ui = (string) file_get_contents($ROOT . '/modules/accounting/ui/Consolidation.jsx');
-$entitiesCalls = preg_match_all("#useApi\\('/modules/accounting/api/entities\\.php'\\)#", $ui);
+$entitiesCalls = preg_match_all("#useApi\\('/modules/accounting/api/entities\\.php(?:\\?scope=hierarchy)?'\\)#", $ui);
 $a('Consolidation.jsx calls useApi(entities) exactly twice (once per component)',
     $entitiesCalls === 2);
 $a('Consolidation.jsx uses ?? fallback rather than ||',

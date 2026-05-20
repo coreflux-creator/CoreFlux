@@ -9,6 +9,30 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Architecture:** Modular monolith; modules developed in-repo under `/modules/<name>/`, extracted to subtree repos later
 - **Hosting:** Cloudways
 
+## Cross-tenant entity scope for Consolidation & Intercompany (2026-02 — current fork)
+
+Kunal (master_admin viewing parent tenant "Seven Generations") opened Accounting → Consolidation and Accounting → Intercompany and got empty entity dropdowns even though entities existed on his sub-tenants. Root cause: `modules/accounting/api/entities.php` only returned entities matching the CURRENTLY ACTIVE tenant, so a parent-tenant view never saw sub-tenant entities — and consolidation by definition needs to span both.
+
+### Backend
+- Extended `GET /modules/accounting/api/entities.php` with an opt-in **`?scope=hierarchy`** query param. When set:
+  - Resolves direct sub-tenants of the current tenant (`tenants.parent_id = current AND COALESCE(is_active,1)=1`).
+  - Returns entities from `current_tid ∪ sub_tenant_ids`, each row tagged with `tenant_id`, `tenant_name`, and `is_current_tenant` flag.
+  - Same `accounting.entities.view` RBAC gate as the default tenant-scoped path.
+  - `tenant-leak-allow` annotation since cross-tenant is intentional (opt-in + gated).
+- Default `?scope=tenant` path unchanged — preserves backwards-compatible behaviour for every other accounting screen.
+
+### Frontend
+- `modules/accounting/ui/Consolidation.jsx` (RelationshipsSection + ConsolidatedReport) and `modules/accounting/ui/IntercompanyMappings.jsx` now request `?scope=hierarchy`.
+- Entity dropdowns suffix the option label with the source tenant name (e.g. `"Holding Co · Seven Generations"`) so users can tell which sub-tenant an entity belongs to before picking it.
+- The consolidated-report multi-select shows a small indigo chip next to each non-current-tenant entity for at-a-glance visual distinction.
+
+### Tested
+- New smoke `tests/hierarchy_entity_scope_smoke.php` — **12 ✓**: hierarchy branch, parent_id lookup, RBAC preserved, tagging columns, scope echo, leak-allow annotation, frontend wiring in both .jsx files, dropdown labelling, current-tenant chip distinction, `php -l` sanity.
+- Vite bundle rebuilt + `.deploy-version` synced.
+- Updated hotfix smoke regex to allow the `?scope=hierarchy` qs.
+- **Smoke suite total: 232 functional ✓ / 0 functional ✗** (plus the 2 ongoing sandbox-only baseline failures `ai_platform_smoke` and `plaid_integration_smoke` that need DB socket / curl extension to run).
+
+
 ## Hotfix — `api_json()` undefined + Consolidation page null crash (2026-02 — current fork)
 
 Two production bugs reported via screenshots, both fixed:
