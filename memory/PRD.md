@@ -9,6 +9,46 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Architecture:** Modular monolith; modules developed in-repo under `/modules/<name>/`, extracted to subtree repos later
 - **Hosting:** Cloudways
 
+## CFO Dashboard gating + External Auditor mode + Recently-viewed strip (2026-02 — current fork)
+
+### 🟢 Recently viewed tenants
+- `/api/admin/manageable_tenants.php` now returns a `recently_viewed: [...]` array (top 5 by `last_active_at` from the membership shim, excludes the currently active tenant).
+- `Header.jsx` renders a "Recently viewed" strip at the top of the dropdown with the date next to each name. One-click switching just calls the existing `onTenantChange()`.
+
+### 🟢 CFO Dashboard role gate (P2 done)
+- New `api_require_cfo()` helper in `core/api_bootstrap.php`. Allows: `master_admin` / `is_global_admin=1` (platform-wide), `tenant_admin` / `admin` (active tenant), or explicit `membership_module_access.module_key='cfo'` with access_level in `('read','write','admin')`.
+- All 4 CFO endpoints (`cfo_annotate.php`, `cfo_notes.php`, `cfo_send_report.php`, `cfo_formulas.php`) now call `api_require_cfo()` instead of bare `api_require_auth()`.
+- New `CFOGuard.jsx` wraps `<CFODashboard>` on the `/cfo` route — renders a friendly "Forbidden" card with a return-to-home button instead of showing a broken dashboard riddled with 403s.
+- Header's `CFO` link is hidden client-side when `canSeeCfo` is false.
+- Auth-gate static analyser updated to recognise `api_require_cfo()` as auth-equivalent.
+
+### 🟢 External Auditor view (P3 done — tokenized read-only URL)
+- **Schema** (`core/migrations/061_auditor_tokens.sql`):
+  - `auditor_tokens` — `id, tenant_id, label, email, token_hash UNIQUE, scope_modules JSON, expires_at, last_used_at, revoked_at, created_by_user, created_at`. Token stored as **sha256 hex only**; plain value is shown to issuer ONCE at creation and never recoverable from the DB.
+  - `auditor_access_log` — every redeem / view / revoke event for forensics.
+- **Backend helpers** (`core/auditor.php`): `auditorGenerateToken()`, `auditorFindActiveToken()`, `auditorRedeemAndStart()`, `auditorLog()`, `auditorModeActive()`.
+- **Entry point** (`/auditor.php?token=…`): validates token, seeds an auditor session (synthetic user id=0, role=`auditor`, tenant pinned, `auditor_mode=true`, `auditor_modules` scope), redirects to `spa.php#/cfo` as the default landing. Bad / revoked / expired tokens render a friendly error page (no login bounce).
+- **Bootstrap write-block** (`core/api_bootstrap.php`): when `auditorModeActive()` is true every non-GET request is rejected with **HTTP 403** at the bootstrap layer — no endpoint has to opt in. Every page view is logged.
+- **Admin CRUD** (`/api/admin/auditor_tokens.php`): `GET` list/count, `POST` issue (1–90 day expiry, default 7, module scope), `PATCH ?action=revoke`, `DELETE`. Scope: master_admin → any tenant; tenant_admin/admin → their tenant or its sub-tenants only. Token plain is returned **once** on POST.
+- **Admin UI** (`/admin/auditor-tokens`) — `AuditorTokensAdmin.jsx`:
+  - Table of tokens with status pills (Active / Expired / Revoked), last-used time, revoke + delete actions.
+  - Create modal (tenant picker for master_admin, label, optional email, 1–90 day slider, module-scope toggle pills).
+  - One-time **reveal modal** with copy-to-clipboard, open-as-auditor button, and an "I've copied it — done" dismiss.
+- **Site-wide banner** in `App.jsx` — when `session.auditor_mode === true` a sticky amber "🔒 External Auditor view — read-only" bar appears at the top of every page with the expiry date.
+- **Session surface**: `session.php` now exposes `auditor_mode`, `auditor_expires_at`, `auditor_modules`.
+
+### 🧪 Tested
+- New smoke `tests/cfo_auditor_recent_smoke.php` — **53 ✓** covers all three features (recently-viewed wiring, CFO gate at every endpoint, auditor migration / helpers / entry point / admin CRUD / write-block / session surface / SPA wiring / banner / PHP syntax).
+- Existing sentries updated: auth-gate analyser knows `api_require_cfo`; tenant-leak analyser gets explicit `tenant-leak-allow` annotations on the 3 auditor-by-id SQL sites (the token is itself the tenant binding).
+- Vite bundle rebuilt + `.deploy-version` synced.
+- **Smoke suite total: 230 ✓ / 0 ✗.**
+
+### Deploy steps for prod
+1. Apply migration: `mysql … < /app/core/migrations/061_auditor_tokens.sql`
+2. Pull new code + rebuilt `dashboard/dist/` (already committed).
+3. Validate at `/admin/auditor-tokens` — issue a 1-day test link, open it in an incognito window, confirm the amber banner appears and any `POST /api/...` from the network tab returns 403 with `auditor_mode: true`.
+
+
 ## Tenant routing rebuild — role-based landing + platform-mode (2026-02 — current fork)
 
 Resolved the long-standing access regression where master_admin was silently downgraded to per-tenant roles, the tenant dropdown couldn't reach sub-tenants of an admin's parent tenant, and every login funnelled into the same tenant page regardless of credentials.

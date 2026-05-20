@@ -115,6 +115,9 @@ $response = [
     'tenant_id' => $tenantId,
     'tenants' => $user['tenants'] ?? [],
     'platform_mode' => (bool) ($_SESSION['platform_mode'] ?? false),
+    'auditor_mode' => (bool) ($_SESSION['auditor_mode'] ?? false),
+    'auditor_expires_at' => $_SESSION['auditor_expires_at'] ?? null,
+    'auditor_modules' => $_SESSION['auditor_modules'] ?? null,
     'active_module' => $formattedActiveModule,
 ];
 

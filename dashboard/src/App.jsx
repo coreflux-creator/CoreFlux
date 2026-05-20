@@ -4,6 +4,7 @@ import AppLayout from './layout/AppLayout';
 import DashboardOverview from './pages/DashboardOverview';
 import ExecutiveDashboard from './pages/ExecutiveDashboard';
 import CFODashboard from './pages/CFODashboard';
+import CFOGuard from './pages/CFOGuard';
 import ReportsModule from '../../modules/reports/ui/ReportsModule';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
@@ -386,7 +387,28 @@ const AppContent = ({ session, usingDemo }) => {
           Demo Mode - Connect to PHP backend for full functionality
         </div>
       )}
-      
+
+      {/* External Auditor banner — appears site-wide when this session was
+          redeemed via /auditor.php. Read-only enforcement is at the API
+          bootstrap layer; the banner just makes the state obvious. */}
+      {session?.auditor_mode && (
+        <div data-testid="auditor-banner"
+             style={{ background: '#fef3c7', color: '#78350f',
+                      borderBottom: '1px solid #f59e0b',
+                      padding: '8px 16px', fontSize: 13, fontWeight: 500,
+                      display: 'flex', alignItems: 'center', gap: 12,
+                      position: 'sticky', top: 0, zIndex: 1000 }}>
+          <span role="img" aria-label="lock">🔒</span>
+          <span>
+            <strong>External Auditor view</strong> — this session is
+            <strong> read-only</strong>. Every mutation is blocked at the API.
+            {session.auditor_expires_at && (
+              <> Access expires <strong>{session.auditor_expires_at.replace('T',' ').slice(0,16)}</strong>.</>
+            )}
+          </span>
+        </div>
+      )}
+
       <AppLayout 
         session={sessionWithActiveModule}
         onModuleChange={handleModuleChange}
@@ -404,8 +426,9 @@ const AppContent = ({ session, usingDemo }) => {
               Reports module so anyone still hitting it lands correctly. */}
           <Route path="/exec"      element={<Navigate to="/modules/reports/exec" replace />} />
           {/* CFO Dashboard — high-level KPI surface with custom views, AI
-              annotations, per-section notes, and on-demand report email. */}
-          <Route path="/cfo"       element={<CFODashboard session={session} />} />
+              annotations, per-section notes, and on-demand report email.
+              Gated client-side; backend mirror is api_require_cfo(). */}
+          <Route path="/cfo"       element={<CFOGuard session={session}><CFODashboard session={session} /></CFOGuard>} />
           
           {/* Tenant picker */}
           <Route path="/select-tenant" element={<TenantPicker session={session} />} />

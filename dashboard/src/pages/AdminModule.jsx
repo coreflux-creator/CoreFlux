@@ -26,6 +26,7 @@ import PlaidTransferSettings from '../../../modules/treasury/ui/PlaidTransferSet
 import MercurySettings from '../../../modules/treasury/ui/MercurySettings';
 import QboSettings from './QboSettings';
 import RolesReference from './RolesReference';
+import AuditorTokensAdmin from './AuditorTokensAdmin';
 
 /**
  * AdminModule — administrator surface.
@@ -64,6 +65,7 @@ const AdminOverview = () => (
         <ActionCard icon={Palette}  title="Email branding"     description="Logo, accent colour, and signature on every digest" href="/admin/mail-branding" />
         <ActionCard icon={CalendarClock} title="Digest schedules" description="When each weekly / daily email gets sent per tenant" href="/admin/digest-schedules" />
         <ActionCard icon={Activity} title="Healthcheck"       description="One-click status of every freshly-shipped endpoint" href="/admin/healthcheck" />
+        <ActionCard icon={ScrollText} title="Auditor links" description="Issue read-only access for external auditors (revocable, time-limited)" href="/admin/auditor-tokens" />
       </ActionCardsGrid>
     </Section>
 
@@ -95,6 +97,7 @@ const AdminSidebar = () => {
     { to: '/admin/mail-branding',    label: 'Branding',         icon: Palette },
     { to: '/admin/digest-schedules', label: 'Digests',          icon: CalendarClock },
     { to: '/admin/healthcheck',      label: 'Healthcheck',      icon: Activity },
+    { to: '/admin/auditor-tokens',   label: 'Auditor links',    icon: ScrollText },
   ];
   // Local sub-sidebar — override the global .sidebar class which is
   // position:fixed; left:0 (intended for the app-level shell sidebar).
@@ -164,6 +167,7 @@ const AdminModule = ({ session }) => {
           <Route path="/mail-branding"     element={<MailBrandingAdmin session={session} />} />
           <Route path="/digest-schedules"  element={<DigestSchedulesAdmin session={session} />} />
           <Route path="/healthcheck"       element={<HealthcheckAdmin session={session} />} />
+          <Route path="/auditor-tokens"    element={<AuditorTokensAdmin session={session} />} />
         </Routes>
       </div>
     </div>

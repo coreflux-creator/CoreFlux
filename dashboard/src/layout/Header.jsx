@@ -105,6 +105,12 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
   const isOnDashboard = location.pathname === '/' || location.pathname === '/dashboard';
   const isOnInbox = location.pathname === '/inbox';
   const isOnCfo   = location.pathname.startsWith('/cfo');
+  // CFO surface is gated server-side; mirror the same rule in the UI so we
+  // don't render a link that 403s. Allow: master_admin, is_global_admin,
+  // tenant_admin/admin at the active tenant.
+  const canSeeCfo = ['master_admin','tenant_admin','admin'].includes(user?.role)
+                 || ['master_admin','tenant_admin'].includes(user?.global_role)
+                 || !!user?.is_global_admin;
   const activeEntity  = entities.find(e => e.id === activeEntityId);
   const activePersona = personas.find(p => p.id === activePersonaId);
 
@@ -132,10 +138,12 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
           <span>Dashboard</span>
         </Link>
 
-        <Link to="/cfo" className={`header-btn ${isOnCfo ? 'active' : ''}`} data-testid="header-cfo-link">
-          <TrendingUp size={18} className="header-btn-icon" />
-          <span>CFO</span>
-        </Link>
+        {canSeeCfo && (
+          <Link to="/cfo" className={`header-btn ${isOnCfo ? 'active' : ''}`} data-testid="header-cfo-link">
+            <TrendingUp size={18} className="header-btn-icon" />
+            <span>CFO</span>
+          </Link>
+        )}
         
         {modules && modules.length > 0 && (
           <div className={`dropdown ${moduleOpen ? 'open' : ''}`} ref={moduleRef}>
@@ -307,6 +315,39 @@ const Header = ({ user, modules, tenant, tenants, activeModule, onModuleChange, 
                           (no tenant)
                         </span>
                       </div>
+                      <hr className="dropdown-divider" />
+                    </>
+                  )}
+
+                  {/* Recently viewed strip — top 5 tenants by last_active */}
+                  {(manageable?.recently_viewed?.length ?? 0) > 0 && (
+                    <>
+                      <div style={{ padding: '6px 14px', fontSize: 11,
+                                    fontWeight: 600, letterSpacing: 0.4,
+                                    color: 'var(--cf-text-secondary)',
+                                    textTransform: 'uppercase' }}
+                           data-testid="tenant-switcher-recent-heading">
+                        Recently viewed
+                      </div>
+                      {manageable.recently_viewed.map(rv => (
+                        <div
+                          key={`recent-${rv.id}`}
+                          className="dropdown-item"
+                          onClick={() => { onTenantChange?.(rv.id); setTenantOpen(false); }}
+                          data-testid={`tenant-switcher-recent-${rv.id}`}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                        >
+                          <Building2 size={13} style={{ opacity: 0.5 }} />
+                          <span>{rv.name}</span>
+                          <span style={{ marginLeft: 'auto', fontSize: 11,
+                                         color: 'var(--cf-text-secondary)' }}>
+                            {rv.last_active_at
+                              ? new Date(rv.last_active_at.replace(' ', 'T')).toLocaleDateString(
+                                  undefined, { month: 'short', day: 'numeric' })
+                              : ''}
+                          </span>
+                        </div>
+                      ))}
                       <hr className="dropdown-divider" />
                     </>
                   )}

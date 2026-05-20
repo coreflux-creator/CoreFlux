@@ -18,7 +18,7 @@ require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/ai_service.php';
 require_once __DIR__ . '/../core/event_registry.php';
 
-$ctx    = api_require_auth();
+$ctx    = api_require_cfo();
 $method = api_method();
 if ($method !== 'POST') api_error('Method not allowed', 405);
 

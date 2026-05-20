@@ -21,7 +21,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../core/api_bootstrap.php';
 
-$ctx       = api_require_auth();
+$ctx       = api_require_cfo();
 $user      = $ctx['user'];
 $tenantId  = (int) (currentTenantId() ?? 0);
 $method    = api_method();

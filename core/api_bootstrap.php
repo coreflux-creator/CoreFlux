@@ -27,6 +27,7 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/tenant_scope.php';
+require_once __DIR__ . '/auditor.php';
 // Membership read-fallback shim — exposes membershipReadSourceSql() so any
 // API endpoint can swap a direct `FROM tenant_memberships` for the UNIONed
 // subquery that also surfaces un-backfilled legacy `user_tenants` rows.
@@ -155,6 +156,30 @@ function api_require_auth(bool $requireTenant = true): array {
     }
     $user     = getCurrentUser();
     $tenantId = currentTenantId();
+
+    // -----------------------------------------------------------------
+    // Auditor mode — read-only enforcement at the bootstrap layer.
+    // -----------------------------------------------------------------
+    // When the session was redeemed via /auditor.php every non-GET request
+    // is rejected with 403 right here. Endpoints don't have to opt in —
+    // this is a defense-in-depth blanket gate.
+    if (function_exists('auditorModeActive') && auditorModeActive()) {
+        $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        if (!in_array(strtoupper($method), ['GET', 'HEAD', 'OPTIONS'], true)) {
+            api_error('Forbidden — external auditor sessions are read-only', 403, [
+                'auditor_mode' => true,
+            ]);
+        }
+        // Log the page view (best-effort).
+        if (!empty($_SESSION['auditor_token_id'])) {
+            auditorLog(
+                (int) $_SESSION['auditor_token_id'],
+                (int) ($_SESSION['tenant_id'] ?? 0),
+                'view',
+                (string) ($_SERVER['REQUEST_URI'] ?? '')
+            );
+        }
+    }
 
     // -----------------------------------------------------------------
     // Platform-mode bypass for master_admin / is_global_admin.
@@ -308,6 +333,44 @@ function api_require_role(array $allowedRoles): array {
         api_error('Forbidden', 403);
     }
     return $ctx;
+}
+
+/**
+ * Gate CFO-only surfaces (CFO Dashboard, send-report email, formula CRUD).
+ *
+ * Allowed:
+ *   - users.role = 'master_admin' OR users.is_global_admin = 1 (platform)
+ *   - tenant_admin / admin at the active tenant
+ *   - explicit grant via membership_module_access.module_key = 'cfo'
+ *     with access_level in ('read','write','admin')
+ *
+ * Emits 403 if none match. Returns the standard $ctx on success.
+ */
+function api_require_cfo(): array {
+    $ctx = api_require_auth();
+    $role        = (string) ($ctx['role'] ?? 'employee');
+    $globalRole  = (string) ($ctx['global_role'] ?? $role);
+    $isGlobalAdm = (bool) ($ctx['is_global_admin'] ?? false);
+
+    // Platform admins always allowed.
+    if ($globalRole === 'master_admin' || $isGlobalAdm) return $ctx;
+    // Tenant admins / admins of the active tenant always allowed.
+    if (in_array($role, ['tenant_admin', 'admin'], true)) return $ctx;
+
+    // Explicit per-membership grant of the synthetic 'cfo' module.
+    $membershipId = (int) ($ctx['membership_id'] ?? 0);
+    if ($membershipId > 0 && class_exists('RBACResolver')) {
+        try {
+            $row = RBACResolver::moduleAccessFor($membershipId, 'cfo');
+            $level = (string) ($row['access_level'] ?? 'none');
+            if (in_array($level, ['read', 'write', 'admin'], true)) return $ctx;
+        } catch (\Throwable $_) { /* fall through */ }
+    }
+
+    api_error('Forbidden — CFO surface requires master_admin, tenant_admin, or an explicit CFO grant', 403, [
+        'required_module' => 'cfo',
+        'global_role'     => $globalRole,
+    ]);
 }
 
 /**

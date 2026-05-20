@@ -91,7 +91,7 @@ foreach ($files as $path) {
     $src = (string) file_get_contents($path);
 
     // Skip definition-only files (no `<?php` body or only declares functions/constants).
-    $hasAuth = preg_match('/\b(?:api_require_auth|api_require_admin|api_require_role|requireAuth)\s*\(/', $src);
+    $hasAuth = preg_match('/\b(?:api_require_auth|api_require_admin|api_require_role|api_require_cfo|requireAuth)\s*\(/', $src);
     $isAllowed = isset($allowed[$rel]);
 
     if ($hasAuth) continue;

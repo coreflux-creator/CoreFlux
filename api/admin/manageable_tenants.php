@@ -165,9 +165,42 @@ foreach ($tree as &$node) {
 }
 unset($node);
 
+// -------- "Recently viewed" strip — top 5 tenants by last_active_at -----------
+// Uses the same shim source so legacy `user_tenants.last_active_at` heartbeats
+// are honoured pre-backfill.
+$recentlyViewed = [];
+if ($userId > 0) {
+    try {
+        $rv = $pdo->prepare(
+            'SELECT src.tenant_id, src.last_active_at, t.name, t.parent_id, t.tenant_type
+               FROM ' . membershipReadSourceSql() . ' src
+               JOIN tenants t ON t.id = src.tenant_id AND t.is_active = 1
+              WHERE src.user_id = :u
+                AND src.last_active_at IS NOT NULL
+           ORDER BY src.last_active_at DESC
+              LIMIT 5'
+        );
+        $rv->execute(['u' => $userId]);
+        foreach ($rv->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            // Skip the active tenant from the "recently viewed" pill strip
+            // (it'd be misleading to suggest you "recently viewed" the page
+            // you're currently on).
+            if ($activeTid && (int) $row['tenant_id'] === (int) $activeTid) continue;
+            $recentlyViewed[] = [
+                'id'              => (int) $row['tenant_id'],
+                'name'            => $row['name'],
+                'parent_id'       => $row['parent_id'] ? (int) $row['parent_id'] : null,
+                'tenant_type'     => $row['tenant_type'] ?? 'master',
+                'last_active_at'  => $row['last_active_at'],
+            ];
+        }
+    } catch (\Throwable $_) { /* table missing or DB hiccup — skip strip */ }
+}
+
 api_ok([
     'active_tenant_id' => $activeTid,
     'global_role'      => $globalRole,
     'platform_mode'    => $isPlatformMA && !$activeTid,
+    'recently_viewed'  => $recentlyViewed,
     'tenants'          => array_values($tree),
 ]);
