@@ -259,12 +259,11 @@ function jobdivaSessionToken(int $tenantId): string
 
     $token = jobdivaExtractToken($resp);
     if ($token === '') {
-        // Always capture the real JobDiva response so the operator can see
-        // *what* JobDiva actually said, not just our generic remediation.
-        // Some 401s mean "tenant not provisioned" (the original case below),
-        // others mean "API user exists but the password is wrong" or
-        // "permission flag set but role membership missing" — each requires
-        // a different fix.
+        // Surface JobDiva's verbatim response so the operator can see
+        // exactly what JobDiva said — not just our remediation hint.
+        // (Previously we masked the response under a generic message when
+        // it contained "Full authentication is required", which made it
+        // impossible to tell whether anything had changed between attempts.)
         $bodyText = is_string($resp['body'])
             ? $resp['body']
             : (string) json_encode($resp['body']);
@@ -273,9 +272,8 @@ function jobdivaSessionToken(int $tenantId): string
             $jdMsg = (string) $resp['body']['message'];
         }
         $liUuid = $resp['headers']['x-li-uuid'] ?? '';
+        $isProvisioning = stripos($bodyText, 'Full authentication is required') !== false;
 
-        // Persist raw response + headers to the audit row so support tickets
-        // can quote JobDiva's correlation id.
         jobdivaAudit($tenantId, 'authenticate_failed', [
             'ok'     => false,
             'detail' => [
@@ -286,31 +284,20 @@ function jobdivaSessionToken(int $tenantId): string
             ],
         ]);
 
-        if (stripos($bodyText, 'Full authentication is required') !== false) {
-            throw new \RuntimeException(
-                'JobDiva returned HTTP ' . $resp['status'] . ' "Full authentication is required". '
-              . 'This means the tenant is not provisioned for API access yet. '
-              . 'Email JobDiva Support and ask them to: '
-              . '(1) issue an API Client ID, '
-              . '(2) create a dedicated API user (not a normal UI login), and '
-              . '(3) enable the "Only allow to access JobDiva API Calls" permission on that user. '
-              . 'See /app/memory/JOBDIVA_API_ACCESS.md for the full template. '
-              . ($liUuid ? "JobDiva correlation id (li-uuid): {$liUuid}." : '')
-            );
+        // Build one message that always shows: HTTP status + JobDiva message +
+        // raw body snippet + li-uuid + (optional) remediation footer.
+        $msg = 'JobDiva authenticate failed → HTTP ' . $resp['status'];
+        if ($jdMsg !== '')   $msg .= ' — "' . $jdMsg . '"';
+        if ($liUuid !== '')  $msg .= ' [li-uuid: ' . $liUuid . ']';
+        $msg .= "\nResponse body: " . substr($bodyText, 0, 400);
+        if ($isProvisioning) {
+            $msg .= "\n\nNext step: JobDiva says your tenant isn't provisioned for API access. "
+                  . 'Email JobDiva Support, quote the li-uuid above, and ask them to: '
+                  . '(1) issue an API Client ID, (2) create a dedicated API user (not a UI login), '
+                  . '(3) enable the "Only allow to access JobDiva API Calls" permission. '
+                  . 'Full template: /app/memory/JOBDIVA_API_ACCESS.md';
         }
-
-        // Any other 401/4xx — surface JobDiva's actual message so we can
-        // diagnose. Common shapes seen in the wild:
-        //   - "Bad credentials"                  → API password wrong
-        //   - "Access is denied"                 → user lacks API permission
-        //   - "User account is locked"           → JobDiva auto-locked the user
-        //   - "Invalid client"                   → Client ID typo / mismatch
-        throw new \RuntimeException(
-            'JobDiva authenticate failed: HTTP ' . $resp['status']
-          . ($jdMsg !== '' ? " — JobDiva says: \"{$jdMsg}\"" : '')
-          . ($liUuid ? " (li-uuid: {$liUuid})" : '')
-          . '. Raw body: ' . substr($bodyText, 0, 300)
-        );
+        throw new \RuntimeException($msg);
     }
 
     // expires_in may be in the body (JSON) or — when the body is a raw
@@ -362,17 +349,21 @@ function jobdivaCall(int $tenantId, string $method, string $path, ?array $body =
         $resp  = jobdivaRawRequest($method, $path, $body, $query, true, $token);
     }
     if ($resp['status'] >= 400) {
-        // Surface a degraded state.
+        // Surface a degraded state with the full upstream payload so the
+        // UI shows JobDiva's verbatim response. li-uuid included so the
+        // operator can quote it in a JobDiva support ticket.
+        $bodyStr = is_string($resp['body']) ? $resp['body'] : (string) json_encode($resp['body']);
+        $liUuid  = $resp['headers']['x-li-uuid'] ?? '';
+        $err = 'JobDiva ' . $method . ' ' . $path . ' → HTTP ' . $resp['status']
+             . ($liUuid !== '' ? ' [li-uuid: ' . $liUuid . ']' : '')
+             . "\nResponse body: " . substr($bodyStr, 0, 800);
         getDB()->prepare(
             'UPDATE jobdiva_connections
                 SET status = "degraded",
                     last_sync_error = :err
               WHERE tenant_id = :t'
-        )->execute([
-            't'   => $tenantId,
-            'err' => substr('HTTP ' . $resp['status'] . ' on ' . $method . ' ' . $path, 0, 500),
-        ]);
-        throw new \RuntimeException('JobDiva ' . $method . ' ' . $path . ' returned HTTP ' . $resp['status'] . ': ' . substr(json_encode($resp['body']), 0, 200));
+        )->execute(['t' => $tenantId, 'err' => substr($err, 0, 4000)]);
+        throw new \RuntimeException($err);
     }
     return $resp['body'];
 }
@@ -517,14 +508,18 @@ function jobdivaPing(int $tenantId, ?int $userId): array
         ]);
         return ['ok' => true, 'latency_ms' => $latency];
     } catch (\Throwable $e) {
+        // Persist the full upstream message (migration 057 widened the
+        // column to TEXT) so the UI can render JobDiva's verbatim response,
+        // status code, message, and li-uuid without forcing the admin to
+        // query the audit table.
         getDB()->prepare(
             'UPDATE jobdiva_connections
                 SET status = "error", last_sync_error = :err
               WHERE tenant_id = :t'
-        )->execute(['t' => $tenantId, 'err' => substr($e->getMessage(), 0, 500)]);
+        )->execute(['t' => $tenantId, 'err' => substr($e->getMessage(), 0, 4000)]);
         jobdivaAudit($tenantId, 'ping', [
             'ok' => false, 'actor_user_id' => $userId,
-            'detail' => ['error' => substr($e->getMessage(), 0, 500)],
+            'detail' => ['error' => substr($e->getMessage(), 0, 4000)],
         ]);
         return ['ok' => false, 'error' => $e->getMessage()];
     }

@@ -195,9 +195,17 @@ export default function JobDivaSettings() {
                 <span data-testid="jobdiva-settings-token-exp" style={mono}>{data.session_token_exp || '—'}</span>
               </div>
               {data.last_sync_error && (
-                <div data-testid="jobdiva-settings-last-error" style={{ flexBasis: '100%', color: '#b91c1c', fontSize: 12 }}>
-                  <AlertCircle size={11} style={{ marginRight: 3, verticalAlign: 'middle' }} />
-                  Last error: {data.last_sync_error}
+                <div data-testid="jobdiva-settings-last-error"
+                     style={{ flexBasis: '100%', color: '#b91c1c', fontSize: 12,
+                              background: '#fef2f2', border: '1px solid #fecaca',
+                              borderRadius: 6, padding: '10px 12px', marginTop: 8,
+                              fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                              whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit',
+                                marginBottom: 4, fontWeight: 600 }}>
+                    <AlertCircle size={12} /> Last error
+                  </div>
+                  {data.last_sync_error}
                 </div>
               )}
             </>

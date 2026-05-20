@@ -73,10 +73,11 @@ $assert('jobdivaRawRequest only sets Content-Type when body present',
     strpos($cli, "if (\$body !== null) \$headers[] = 'Content-Type: application/json'") !== false);
 $assert('jobdivaSessionToken handles JWT exp fallback',
     strpos($cli, 'jobdivaJwtExp($token)') !== false);
-$assert('jobdivaSessionToken surfaces JobDiva error verbatim on non-provisioning 401',
-    strpos($cli, 'JobDiva authenticate failed: HTTP') !== false
+$assert('jobdivaSessionToken surfaces JobDiva error verbatim on auth fail',
+    strpos($cli, 'JobDiva authenticate failed → HTTP') !== false
     && strpos($cli, '$jdMsg') !== false
-    && strpos($cli, 'li-uuid') !== false);
+    && strpos($cli, 'li-uuid') !== false
+    && strpos($cli, 'Response body: ') !== false);
 $assert('jobdivaSessionToken keeps provisioning hint when JobDiva returns "Full authentication is required"',
     strpos($cli, "stripos(\$bodyText, 'Full authentication is required')") !== false
     && strpos($cli, 'JOBDIVA_API_ACCESS.md') !== false);
