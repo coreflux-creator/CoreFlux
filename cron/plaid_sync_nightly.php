@@ -69,6 +69,7 @@ foreach ($rows as $item) {
         if ($pages > 200) { fwrite(STDERR, "[fail] item {$item['item_id']}: exceeded 200 pages\n"); $fail++; break 2; }
     }
 
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare(
         'UPDATE plaid_items SET transactions_cursor = :c, last_transaction_sync_at = NOW() WHERE id = :id'
     )->execute(['c' => $cursor, 'id' => $item['id']]);

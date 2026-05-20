@@ -70,6 +70,7 @@ function accountingSeedSystemAccounts(int $tenantId): array {
          VALUES (:t, :code, :name, :type, :subtype, :side,
              1, 1, :section, :sort, 1)'
     );
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $stamp = $pdo->prepare(
         'UPDATE accounting_accounts
             SET is_system_account = 1

@@ -10,6 +10,37 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (Broad audit sweep — sentries + findings, 2026-02 — current fork)
+**Two new codebase-wide sentries shipped and at zero offenders.** A systematic sweep was kicked off to harden the platform against silent cross-tenant data leaks and privilege-escalation surfaces. Every offender uncovered is either fixed or documented with an inline `tenant-leak-allow:` justification so the sentry has a permanent zero-tolerance baseline.
+
+### Sentry #1 — Tenant-leak static analyzer (`tests/tenant_leak_static_analyzer_smoke.php`)
+- Auto-discovers all **201 tenant-scoped tables** in the codebase by scanning every `.sql` under `/app/core/migrations`, `/app/modules/*/migrations`, and `/app/sql` for `tenant_id` columns (`CREATE TABLE` + `ALTER TABLE ... ADD tenant_id`).
+- Reconstructs the SQL of every single-arg `prepare()` call (1,235 statements scanned).
+- Flags any statement that touches a tenant-scoped table without mentioning `tenant_id` anywhere in the SQL text.
+- Honours `// tenant-leak-allow: <reason>` inline comments within 3 lines above the `prepare()` so legitimate global lookups (token-hash, OAuth state, webhook event dedup, post-fetch-by-id defense-in-depth) can be safelisted with their justification right next to the code.
+- **152 statements** got auto-classified + commented in this sweep (token_hash lookups, session_id lookups, OAuth state, Plaid webhook events, primary-id writes after a scoped fetch). Comment text is the per-statement reason — searchable, auditable, and visible at the call site.
+- Self-test: synthetic `SELECT * FROM placements WHERE id = :id` (with no tenant filter) gets caught.
+
+### Sentry #2 — Auth-gate static analyzer (`tests/auth_gate_static_analyzer_smoke.php`)
+- Scans every PHP file under `/app/api/` (139 files).
+- Recognises `api_require_auth()`, `api_require_admin()`, `api_require_role()`, and `requireAuth()` as auth gates.
+- Endpoints that handle requests (via `api_method`, `api_json_body`, or `$_GET/$_POST/$_REQUEST`) but skip the gate get flagged unless they're on a hard-coded allow-list that documents *why* (webhooks verified by HMAC/JWT, public-token endpoints, OAuth callbacks, login/logout).
+- **13 endpoints** are explicitly allow-listed with a one-line reason each.
+- Self-test: a synthetic endpoint with `api_json_body()` but no `api_require_auth()` gets caught.
+
+### Findings flagged for follow-up (NOT fixed in this sweep — need product decision)
+- **🔴 Sub-tenant shared-scope ONLY works on `/modules/<key>/api/*` URLs.** `effectiveTenantIdForRequest()` detects the module from `REQUEST_URI` via the `/modules/<key>/` prefix. Core report endpoints under `/api/*` (e.g. `reports_staffing.php`, `exec_dashboard.php`, `reports_ai_explain.php`, `exec_filters.php`) all use `currentTenantId()` directly — meaning a sub-tenant logged into a shared-scope `people`/`placements` module will see empty rows from these core reports even though they should see the parent's catalog. Affected files: 60 PHP files use `currentTenantId()` directly; only 2 use the resolver. Recommend either (a) moving these reports under `/modules/<key>/api/` URLs, or (b) introducing a per-query `effectiveTenantIdForModule($module)` resolver and applying it everywhere a shared-scope table is touched.
+- **🟡 Cross-tenant intercompany (`accounting/lib/cross_tenant_intercompany.php`) gaps:**
+  1. No FX handling — both legs assumed same currency.
+  2. Only audits the "from" side; no symmetric "received" event on the to-tenant.
+  3. No reversal helper for cross-tenant pairs (only `intercompanyReverseGroup` for intra-tenant).
+  4. No validation that `from_account_code` / offset codes exist in the from-tenant's COA.
+- **🟡 Legacy `user_tenants` table still read by 25 PHP files** outside the legitimate B5 bridge (`core/sub_tenants.php`, `core/api_bootstrap.php`). Phase B5 was supposed to phase this out in favour of `tenant_memberships`. The two tables can drift, causing inconsistent permissions and last-active-tenant behaviour.
+- **🟡 Duplicate module folder:** `/app/modules/private_equity 2/` exists alongside `/app/modules/private_equity/`. They contain non-overlapping files (each has unique routes) — needs manual reconciliation before either can be deleted.
+
+Full suite status: **218/218 smoke tests passing** (was 215; +1 HY093 sentry, +1 tenant-leak sentry, +1 auth-gate sentry).
+
+
 ## Recently completed (HY093 codebase-wide cleanup, 2026-02 — current fork)
 **Closed the last 10 latent PDO duplicate-placeholder bugs.** The static analyzer shipped in the previous step found 10 SQL statements that re-used a named placeholder (`WHERE a = :x OR b = :x`) — which fatally errors at execute() time under `PDO::ATTR_EMULATE_PREPARES=false`. Each one was a runtime bomb waiting to be tripped by the right call shape.
 

@@ -214,6 +214,7 @@ if ($method === 'DELETE') {
     $check->execute(['id' => $id, 't' => $tenantId]);
     if (!$check->fetchColumn()) api_error('Membership not found in this tenant', 404);
 
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $st = $pdo->prepare("UPDATE tenant_memberships SET status = 'revoked' WHERE id = :id");
     $st->execute(['id' => $id]);
 

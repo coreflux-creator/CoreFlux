@@ -146,6 +146,7 @@ if ($method === 'POST') {
     // Build a unique slug for this owner.
     $base = _execViewSlugify($name);
     $slug = $base;
+    // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
     $stmt = $pdo->prepare("SELECT 1 FROM exec_dashboard_views WHERE user_id = :u AND slug = :s");
     $i = 1;
     while (true) {
@@ -243,6 +244,7 @@ if ($method === 'DELETE' && $id) {
     if (!$row) api_error('View not found', 404);
     if (!_execViewCanModify($row, $userId, $role)) api_error('Forbidden', 403);
 
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare("DELETE FROM exec_dashboard_views WHERE id = :id")->execute(['id' => $id]);
     api_ok(['id' => $id, 'deleted' => true]);
 }

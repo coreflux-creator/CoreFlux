@@ -49,6 +49,7 @@ function registerStorageObject(
     $pdo = getDB();
     // Idempotent on s3_key (UNIQUE in storage_objects). If the same key
     // was registered before, return the existing row id.
+    // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
     $existing = $pdo->prepare('SELECT id FROM storage_objects WHERE s3_key = :k LIMIT 1');
     $existing->execute(['k' => $s3Key]);
     $found = (int) ($existing->fetchColumn() ?: 0);

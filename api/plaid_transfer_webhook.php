@@ -79,6 +79,7 @@ try {
         }
     }
     if ($eventId) {
+        // tenant-leak-allow: webhook row was just inserted; UPDATE by primary id
         getDB()->prepare(
             'UPDATE plaid_webhook_events SET processed_at = NOW() WHERE id = :id'
         )->execute(['id' => $eventId]);
@@ -88,6 +89,7 @@ try {
     error_log('[plaid.transfer.webhook] route failed: ' . $err);
     if ($eventId) {
         try {
+            // tenant-leak-allow: webhook row was just inserted; UPDATE by primary id
             getDB()->prepare(
                 'UPDATE plaid_webhook_events SET error_message = :m WHERE id = :id'
             )->execute(['m' => substr($err, 0, 500), 'id' => $eventId]);

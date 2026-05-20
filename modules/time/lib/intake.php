@@ -377,6 +377,7 @@ function timeIntakeIngestAttachments(int $tenantId, int $intakeId, array $attach
                 if (is_array($p['lines'] ?? null)) foreach ($p['lines'] as $ln) $allLines[] = $ln;
             }
             $confidence = function_exists('timeUploadConfidence') ? timeUploadConfidence($allLines) : 0.0;
+            // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
             $pdo->prepare(
                 'UPDATE time_uploaded_documents
                     SET extraction_status = "extracted",
@@ -387,6 +388,7 @@ function timeIntakeIngestAttachments(int $tenantId, int $intakeId, array $attach
                 'm' => $res['model'] ?? null, 'id' => $docId,
             ]);
         } catch (\Throwable $e) {
+            // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
             $pdo->prepare(
                 'UPDATE time_uploaded_documents
                     SET extraction_status = "failed", ai_error = :e WHERE id = :id'

@@ -117,6 +117,7 @@ if ($method === 'POST' && $action === 'watch_folder') {
         ['cid' => $cid, 'm' => $body['module'], 'p' => $body['folder_path']]
     );
     if ($existing) {
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare('UPDATE tenant_mail_folders SET folder_id_at_provider = :fid, polling_enabled = 1 WHERE id = :id')
             ->execute(['fid' => $body['folder_id_at_provider'], 'id' => $existing['id']]);
         api_ok(['folder_id' => (int) $existing['id']]);

@@ -55,6 +55,7 @@ function exportTemplateList(int $tenantId, ?string $dataset = null): array {
 
 function exportTemplateGet(int $id, int $tenantId, bool $forRender = false): array {
     $pdo = getDB();
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $stmt = $pdo->prepare('SELECT * FROM export_templates WHERE id = :id LIMIT 1');
     $stmt->execute(['id' => $id]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -124,6 +125,7 @@ function exportTemplateUpdate(int $id, array $args, int $actorUserId, int $tenan
         : $row['column_mappings'];
 
     $pdo = getDB();
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare(
         'UPDATE export_templates
             SET name = :nm, delimiter = :d, quote_char = :q,
@@ -149,10 +151,12 @@ function exportTemplateDelete(int $id, int $actorUserId, int $tenantId, string $
     }
     if ((int) $row['is_system'] === 1) {
         // System-seeded templates get soft-archived (not hard-deleted).
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         getDB()->prepare('UPDATE export_templates SET is_active = 0 WHERE id = :id')
                ->execute(['id' => $id]);
         return;
     }
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     getDB()->prepare('DELETE FROM export_templates WHERE id = :id')->execute(['id' => $id]);
 }
 

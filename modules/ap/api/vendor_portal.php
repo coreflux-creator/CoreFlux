@@ -111,6 +111,7 @@ if ($method === 'GET' && $action === 'redeem') {
     if ($token === '') api_error('token required', 422);
     $tokenHash = hash('sha256', $token);
 
+    // tenant-leak-allow: token_hash is a 256-bit random secret; row carries tenant_id
     $row = $pdo->prepare(
         "SELECT * FROM ap_vendor_portal_tokens
           WHERE token_hash = :h AND revoked_at IS NULL
@@ -134,11 +135,13 @@ if ($method === 'GET' && $action === 'redeem') {
     )->execute(['t' => $row['tenant_id'], 'v' => $row['vendor_id'], 's' => $sessionId, 'e' => $expires]);
 
     if (!$row['consumed_at']) {
+        // tenant-leak-allow: row was just fetched by token_hash secret above; id-only update is safe
         $pdo->prepare(
             'UPDATE ap_vendor_portal_tokens SET consumed_at = NOW(), last_used_at = NOW()
               WHERE id = :id'
         )->execute(['id' => $row['id']]);
     } else {
+        // tenant-leak-allow: row was just fetched by token_hash secret above; id-only update is safe
         $pdo->prepare('UPDATE ap_vendor_portal_tokens SET last_used_at = NOW() WHERE id = :id')
             ->execute(['id' => $row['id']]);
     }
@@ -160,6 +163,7 @@ if ($method === 'GET' && $action === 'redeem') {
 function vendorPortalRequireSession(\PDO $pdo): array {
     $sid = (string) ($_COOKIE['cf_vp_sid'] ?? '');
     if ($sid === '') api_error('Not authenticated as vendor', 401);
+    // tenant-leak-allow: session_id is a 256-bit random cookie secret; row carries tenant_id
     $sess = $pdo->prepare(
         'SELECT * FROM ap_vendor_portal_sessions
           WHERE session_id = :s AND expires_at > NOW() LIMIT 1'

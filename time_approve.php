@@ -28,6 +28,7 @@ $row    = $valid ? timeTokenFindByRaw($raw) : null;
 if ($row && $row['response'] === 'pending' && $row['expires_at'] < date('Y-m-d H:i:s')) {
     $pdo = getDB();
     if ($pdo) {
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare('UPDATE time_approval_tokens SET response = "expired" WHERE id = :id')->execute(['id' => $row['id']]);
         $row['response'] = 'expired';
     }

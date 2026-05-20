@@ -83,6 +83,7 @@ if ($action === 'propose') {
     if ($ruleType === '') api_error('rule_type required', 422);
     try {
         $id = aiProposeRule($tenantId, $ruleType, $userId, (int) ($body['context_size'] ?? 30));
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $stmt = $pdo->prepare('SELECT * FROM rule_proposals WHERE id = :id');
         $stmt->execute(['id' => $id]);
         api_ok(['id' => $id, 'row' => rp_row_decode($stmt->fetch(\PDO::FETCH_ASSOC) ?: [])]);
@@ -120,6 +121,7 @@ if ($action === 'review') {
     if (!$stmt->fetchColumn()) api_error('Not found', 404);
 
     $newStatus = $decision === 'accept' ? 'accepted' : 'rejected';
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare(
         'UPDATE rule_proposals
             SET status = :s, reviewed_by_user_id = :u, reviewed_at = NOW(),
@@ -127,6 +129,7 @@ if ($action === 'review') {
           WHERE id = :id'
     )->execute(['s' => $newStatus, 'u' => $userId, 'n' => $notes ?: null, 'id' => $id]);
 
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $stmt = $pdo->prepare('SELECT * FROM rule_proposals WHERE id = :id');
     $stmt->execute(['id' => $id]);
     api_ok(['id' => $id, 'row' => rp_row_decode($stmt->fetch(\PDO::FETCH_ASSOC) ?: [])]);

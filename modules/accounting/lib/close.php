@@ -41,6 +41,7 @@ function accountingSeedCloseChecklist(int $tenantId, int $periodId, ?int $actorU
     $pdo = getDB();
     if (!$pdo) return 0;
     $template = accountingDefaultCloseChecklist();
+    // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
     $existing = $pdo->prepare("SELECT task_key FROM accounting_close_tasks WHERE period_id = :p");
     $existing->execute(['p' => $periodId]);
     $have = array_flip(array_column($existing->fetchAll(PDO::FETCH_ASSOC), 'task_key'));

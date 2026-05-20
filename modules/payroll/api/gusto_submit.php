@@ -231,6 +231,7 @@ try {
         ['run_id' => $runId, 'payroll_uuid' => $payrollUuid, 'final_status' => $finalStatus], $runId);
 
     // touch last_used_at
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     getDB()->prepare('UPDATE tenant_gusto_connections SET last_used_at = NOW() WHERE id = :id')
         ->execute(['id' => (int) $conn['id']]);
 

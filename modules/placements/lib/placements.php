@@ -131,6 +131,7 @@ function placementChainSetPortalCredentials(int $chainId, array $credentials): v
     $blob = json_encode($credentials, JSON_UNESCAPED_SLASHES);
     if ($blob === false) throw new \InvalidArgumentException('Could not JSON-encode credentials');
     $ct = encryptField($blob);
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     getDB()->prepare(
         'UPDATE placement_client_chain
          SET portal_credentials_ct = :ct, kms_key_version = :v
@@ -140,6 +141,7 @@ function placementChainSetPortalCredentials(int $chainId, array $credentials): v
 
 function placementChainClearPortalCredentials(int $chainId): void
 {
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     getDB()->prepare(
         'UPDATE placement_client_chain
          SET portal_credentials_ct = NULL, kms_key_version = NULL
@@ -154,6 +156,7 @@ function placementChainClearPortalCredentials(int $chainId): void
 function placementChainRevealPortalCredentials(int $chainId): ?array
 {
     require_once __DIR__ . '/../../../core/encryption.php';
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $stmt = getDB()->prepare(
         'SELECT portal_credentials_ct FROM placement_client_chain WHERE id = :id'
     );

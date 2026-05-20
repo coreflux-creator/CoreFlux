@@ -124,6 +124,7 @@ if ($action === 'view' && $method === 'GET') {
 
     // Audit: bump view counters. Best-effort — never block the read.
     try {
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $upd = $pdo->prepare(
             'UPDATE treasury_scenario_share_links
                 SET view_count = view_count + 1,

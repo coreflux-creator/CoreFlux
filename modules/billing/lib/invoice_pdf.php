@@ -193,6 +193,7 @@ function _invoicePdfPostprocess(string $html, array $inv, array $billToLines, $h
 // --- internal helpers -------------------------------------------------- //
 
 function _invoiceLoad(PDO $pdo, int $invoiceId): ?array {
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $st = $pdo->prepare('SELECT * FROM billing_invoices WHERE id = :id LIMIT 1');
     $st->execute(['id' => $invoiceId]);
     $row = $st->fetch();

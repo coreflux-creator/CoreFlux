@@ -185,6 +185,7 @@ $summary  = [
 ];
 
 if (!$dryRun && $runId) {
+    // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
     $pdo->prepare(
         'UPDATE simulation_runs
             SET status = :st, finished_at = NOW(), duration_ms = :d,

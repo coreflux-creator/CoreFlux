@@ -106,6 +106,7 @@ if ($method === 'POST') {
     $stmt->execute(['t' => $tenantId, 'et' => $entityType, 'ei' => $entityId, 'r' => $reason]);
     $existingId = (int) ($stmt->fetchColumn() ?: 0);
     if ($existingId) {
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
             "UPDATE review_flags SET notes = :n, severity = :s, updated_at = NOW()
               WHERE id = :id"

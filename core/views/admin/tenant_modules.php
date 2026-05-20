@@ -38,6 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         if ($existing) {
             // Update
+            // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
             $stmt = $pdo->prepare("UPDATE tenant_modules SET is_enabled = ?, enabled_at = IF(? = 1, NOW(), enabled_at), disabled_at = IF(? = 0, NOW(), disabled_at) WHERE id = ?");
             $stmt->execute([$isEnabled, $isEnabled, $isEnabled, $existing['id']]);
         } else {

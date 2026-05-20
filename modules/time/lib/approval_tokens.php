@@ -29,6 +29,7 @@ function timeTokenFindByRaw(string $raw): ?array
 {
     $pdo = getDB();
     if (!$pdo) return null;
+    // tenant-leak-allow: token_hash is a 256-bit random secret; row carries tenant_id
     $stmt = $pdo->prepare(
         'SELECT * FROM time_approval_tokens WHERE token_hash = :h LIMIT 1'
     );

@@ -96,7 +96,7 @@ $assert('audit-bumps view_count + last_viewed_at + last_viewed_ip',
     && strpos($api, 'last_viewed_at = NOW()') !== false
     && strpos($api, 'last_viewed_ip = :ip') !== false);
 $assert('audit update wrapped in try/catch (never blocks read)',
-    preg_match("/try \{\s*\\\$upd = \\\$pdo->prepare\([\s\S]+?catch \(\\\\Throwable/", $api) === 1);
+    preg_match("/try \{\s*(?:\/\/[^\n]*\n\s*)?\\\$upd = \\\$pdo->prepare\([\s\S]+?catch \(\\\\Throwable/", $api) === 1);
 $assert('compare-kind link projects scenario_b too',
     strpos($api, "if (\$row['kind'] === 'compare' && \$row['preset_b_id'])") !== false);
 

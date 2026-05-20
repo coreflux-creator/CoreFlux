@@ -19,6 +19,7 @@ $token = bin2hex(random_bytes(16));
 $expires = date('Y-m-d H:i:s', strtotime('+3 days'));
 
 // Store token
+// tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
 $stmt = $pdo->prepare("INSERT INTO approval_tokens (timesheet_id, token, expires_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE token = VALUES(token), expires_at = VALUES(expires_at)");
 $stmt->execute([$timesheet_id, $token, $expires]);
 

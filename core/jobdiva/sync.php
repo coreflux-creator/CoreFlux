@@ -126,6 +126,7 @@ function jobdivaSyncUpsertContact(int $tid, int $companyId, array $jd, string $n
         $stmt->execute(['t' => $tid, 'c' => $companyId, 'e' => $email]);
         $existingId = (int) $stmt->fetchColumn();
         if ($existingId > 0) {
+            // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
             $pdo->prepare(
                 'UPDATE company_contacts SET name = :n, title = :ti, phone = :ph WHERE id = :id'
             )->execute(['n' => $name, 'ti' => $title ?: null, 'ph' => $phone ?: null, 'id' => $existingId]);
@@ -209,6 +210,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $status    = $statusMap[$statusJd] ?? 'active';
 
     if ($existingId > 0) {
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
             'UPDATE placements SET start_date = :sd, end_date = :ed,
                     status = :st, end_client_name = :ecn, end_client_company_id = :ecc

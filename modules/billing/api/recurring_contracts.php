@@ -86,6 +86,7 @@ if ($method === 'POST' && $action === '') {
 
     // Materialise next_due_at = start_date on creation so the queue UI
     // can sort + the cron knows when to fire.
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     getDB()->prepare('UPDATE billing_invoice_contracts SET next_due_at = start_date WHERE id = :id')
            ->execute(['id' => $id]);
 

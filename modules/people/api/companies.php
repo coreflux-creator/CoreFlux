@@ -190,6 +190,7 @@ if ($method === 'POST' && $action === 'add-contact') {
         'notes'        => $body['notes'] ?? null,
     ]);
     if (!empty($body['is_primary'])) {
+        // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
         getDB()->prepare('UPDATE company_contacts SET is_primary = 0 WHERE company_id = :c AND id != :id')
             ->execute(['c' => $id, 'id' => $cid]);
     }
@@ -218,6 +219,7 @@ if ($method === 'POST' && $action === 'add-address') {
 
     if (!empty($body['is_primary'])) {
         // Demote any existing primary of the same kind so there's at most one.
+        // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
         getDB()->prepare(
             'UPDATE company_addresses SET is_primary = 0
              WHERE company_id = :c AND kind = :k'

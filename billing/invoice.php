@@ -37,6 +37,7 @@ if ($tok) {
         $tenantRow = $tStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
         // Bump view counter (best-effort)
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare('UPDATE billing_invoice_tokens SET last_viewed_at = NOW(), view_count = view_count + 1 WHERE id = :id')
             ->execute(['id' => $tok['id']]);
     } else {

@@ -134,6 +134,7 @@ function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId =
     // 3) No rule? Ignore.
     if (!$rule) {
         if ($eventId) {
+            // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
             $pdo->prepare('UPDATE accounting_events SET status="ignored", error_message=:m WHERE id = :id')
                 ->execute(['m' => 'no posting rule matched', 'id' => $eventId]);
         }
@@ -149,6 +150,7 @@ function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId =
         $rendered = postingEngineRender($pdo, $tenantId, (int) $rule['journal_template_id'], $context, (string) $event['event_date']);
     } catch (\Throwable $e) {
         if ($eventId) {
+            // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
             $pdo->prepare('UPDATE accounting_events SET status="failed", error_message=:m WHERE id = :id')
                 ->execute(['m' => $e->getMessage(), 'id' => $eventId]);
         }
@@ -178,6 +180,7 @@ function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId =
         $rendered['source_module'] = (string) $event['source_module'];
         $posted = accountingPostJe($tenantId, $rendered, $actorUserId, /* post */ true);
     } catch (\Throwable $e) {
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare('UPDATE accounting_events SET status="failed", error_message=:m WHERE id = :id')
             ->execute(['m' => $e->getMessage(), 'id' => $eventId]);
 
@@ -209,6 +212,7 @@ function accountingProcessEvent(int $tenantId, array $event, ?int $actorUserId =
     }
 
     // 7) Mark posted + write subledger link.
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare(
         'UPDATE accounting_events
             SET status="posted", journal_entry_id=:je, posted_at=NOW(), error_message=NULL

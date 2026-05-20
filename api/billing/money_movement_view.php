@@ -43,6 +43,7 @@ if (strtotime((string) $link['expires_at']) <= time()) moneyMovementViewError('T
 
 // Bump view counter (best-effort, never blocks render)
 try {
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare('UPDATE billing_money_movement_share_links SET view_count = view_count + 1, last_viewed_at = NOW() WHERE id = :id')
         ->execute(['id' => $link['id']]);
 } catch (\Throwable $_) { /* swallow */ }

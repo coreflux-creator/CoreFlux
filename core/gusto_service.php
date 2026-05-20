@@ -244,6 +244,7 @@ function gustoSaveConnection(int $tenantId, int $userId, array $tokenPayload, ?s
     $row = $existing->fetch();
 
     if ($row) {
+        // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
         $stmt = $pdo->prepare(
             'UPDATE tenant_gusto_connections SET
                 access_token_ct = :a, refresh_token_ct = :r, token_type = :tt,
@@ -315,6 +316,7 @@ function gustoTokenForConnection(array $conn): string
     $accessCt  = encryptField((string) $payload['access_token']);
     $refreshCt = encryptField((string) $payload['refresh_token']);
     $newExp    = date('Y-m-d H:i:s', time() + (int) ($payload['expires_in'] ?? 7200));
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $stmt = getDB()->prepare(
         'UPDATE tenant_gusto_connections
             SET access_token_ct = :a, refresh_token_ct = :r,
@@ -395,6 +397,7 @@ function _gustoHttp(string $method, string $endpoint, $body, string $accessToken
             try {
                 $payload = gustoRefreshAccessToken($refresh);
                 require_once __DIR__ . '/db.php';
+                // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
                 getDB()->prepare(
                     'UPDATE tenant_gusto_connections SET
                         access_token_ct = :a, refresh_token_ct = :r,

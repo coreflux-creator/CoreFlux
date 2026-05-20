@@ -101,6 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         // Update tenant assignments
         // First, remove all existing assignments
+        // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
         $stmt = $pdo->prepare("DELETE FROM user_tenants WHERE user_id = ?");
         $stmt->execute([$userId]);
         

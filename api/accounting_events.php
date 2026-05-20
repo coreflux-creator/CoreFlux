@@ -130,6 +130,7 @@ if ($method === 'POST' && $pathId && $pathAction === 'post') {
     }
     // Delete the placeholder so accountingProcessEvent can re-insert. We
     // hold the same source_record_id keys so subledger_links remain stable.
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare('DELETE FROM accounting_events WHERE id = :id')->execute(['id' => $pathId]);
     $event = [
         'entity_id'        => (int) $row['entity_id'],

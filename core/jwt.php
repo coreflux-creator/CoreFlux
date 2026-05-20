@@ -112,6 +112,7 @@ function jwtConsumeRefreshToken(string $raw): ?array {
     $pdo = getDB();
     if (!$pdo) return null;
     $hash = hash('sha256', $raw);
+    // tenant-leak-allow: token_hash is a 256-bit random secret — the hash IS the auth boundary
     $stmt = $pdo->prepare(
         "SELECT * FROM auth_refresh_tokens
           WHERE token_hash = :h AND revoked_at IS NULL AND expires_at > NOW()
@@ -120,6 +121,7 @@ function jwtConsumeRefreshToken(string $raw): ?array {
     $stmt->execute(['h' => $hash]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     if ($row) {
+        // tenant-leak-allow: token row carries tenant_id; last_used_at is per-row metadata
         $upd = $pdo->prepare("UPDATE auth_refresh_tokens SET last_used_at = NOW() WHERE id = :id");
         $upd->execute(['id' => (int) $row['id']]);
     }
@@ -133,6 +135,7 @@ function jwtRevokeRefreshToken(string $raw): bool {
     $pdo = getDB();
     if (!$pdo) return false;
     $hash = hash('sha256', $raw);
+    // tenant-leak-allow: revoke by token_hash — hash is the secret, applies globally
     $stmt = $pdo->prepare(
         "UPDATE auth_refresh_tokens SET revoked_at = NOW() WHERE token_hash = :h AND revoked_at IS NULL"
     );

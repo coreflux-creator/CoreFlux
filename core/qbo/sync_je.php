@@ -195,6 +195,7 @@ function qboSyncJournalEntries(int $tenantId, ?int $userId, array $opts = []): a
     foreach ($jes as $je) {
         $jeId = (int) $je['id'];
 
+        // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
         $lineStmt = $pdo->prepare(
             'SELECT line_no, account_id, debit, credit, memo
                FROM accounting_journal_entry_lines

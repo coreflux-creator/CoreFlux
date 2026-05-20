@@ -217,6 +217,7 @@ if ($method === 'POST' && $action === 'poll') {
                 if ($atts) timeIntakeIngestAttachments($tenantId, $intakeId, $atts);
             }
         } catch (\Throwable $e) {
+            // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
             $pdo->prepare(
                 'UPDATE time_intake_events SET error_text = :e WHERE id = :id'
             )->execute(['e' => substr($e->getMessage(), 0, 500), 'id' => $intakeId]);
@@ -252,6 +253,7 @@ if ($method === 'POST' && $action === 'process') {
             $ids = timeIntakeIngestAttachments($tenantId, $id, $atts);
             api_ok(['ok' => true, 'document_ids' => $ids]);
         } catch (\Throwable $e) {
+            // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
             $pdo->prepare(
                 'UPDATE time_intake_events SET status = "failed", error_text = :e WHERE id = :id'
             )->execute(['e' => substr($e->getMessage(), 0, 500), 'id' => $id]);

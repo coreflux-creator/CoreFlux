@@ -190,6 +190,7 @@ function qboExchangeCode(int $tenantId, string $code, string $realmId, ?int $use
 
     $pdo = getDB();
     if ($existing) {
+        // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
         $pdo->prepare(
             'UPDATE qbo_connections
                 SET realm_id = :rid, environment = :env,
@@ -240,10 +241,12 @@ function qboExchangeCode(int $tenantId, string $code, string $realmId, ?int $use
         $info = qboCall($tenantId, 'GET', '/v3/company/' . $realmId . '/companyinfo/' . $realmId, null, ['minorversion' => 65]);
         $name = (string) ($info['CompanyInfo']['CompanyName'] ?? '');
         if ($name !== '') {
+            // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
             $pdo->prepare('UPDATE qbo_connections SET company_name = :n, last_probe_at = NOW() WHERE id = :id')
                 ->execute(['n' => $name, 'id' => $id]);
         }
     } catch (\Throwable $e) {
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare('UPDATE qbo_connections SET last_probe_at = NOW(), last_probe_error = :e WHERE id = :id')
             ->execute(['e' => substr($e->getMessage(), 0, 500), 'id' => $id]);
     }
@@ -514,6 +517,7 @@ function qboConsumeOAuthState(int $tenantId, string $state): bool
     if ($row['consumed_at'] !== null) return false;
     $age = time() - strtotime((string) $row['created_at']);
     if ($age > 1800) return false; // 30-minute window
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare('UPDATE qbo_oauth_state SET consumed_at = NOW() WHERE id = :id')
         ->execute(['id' => (int) $row['id']]);
     return true;

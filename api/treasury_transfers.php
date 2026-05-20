@@ -121,6 +121,7 @@ if ($method === 'POST' && $action === 'approve') {
     if (!in_array($xfer['status'], ['draft', 'pending_approval'], true)) {
         api_error("Cannot approve from status {$xfer['status']}", 409);
     }
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare('UPDATE treasury_transfers SET status="approved", approved_by_user_id=:u, approved_at=NOW() WHERE id=:id')
         ->execute(['u' => $user['id'] ?? null, 'id' => $id]);
     api_ok(['id' => $id, 'status' => 'approved']);
@@ -177,6 +178,7 @@ if ($method === 'POST' && $action === 'execute') {
     try {
         $r = accountingProcessEvent($tid, $event, $user['id'] ?? null);
     } catch (\Throwable $e) {
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare('UPDATE treasury_transfers SET status="failed", failure_reason=:f WHERE id=:id')
             ->execute(['f' => $e->getMessage(), 'id' => $id]);
         api_error('Execute failed: ' . $e->getMessage(), 422);
@@ -184,11 +186,13 @@ if ($method === 'POST' && $action === 'execute') {
 
     if ($r['status'] !== 'posted') {
         $msg = $r['error'] ?? 'event not posted';
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare('UPDATE treasury_transfers SET status="failed", failure_reason=:f, accounting_event_id=:ev WHERE id=:id')
             ->execute(['f' => $msg, 'ev' => $r['event_id'] ?? null, 'id' => $id]);
         api_error('Execute failed: ' . $msg, 422);
     }
 
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare(
         'UPDATE treasury_transfers
             SET status="executed", executed_by_user_id=:u, executed_at=NOW(),

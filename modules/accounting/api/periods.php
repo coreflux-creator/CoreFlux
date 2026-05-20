@@ -60,6 +60,7 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
         if (!in_array($row['status'], ['open','reopened'], true)) {
             api_error("Cannot soft-close from status {$row['status']}", 409);
         }
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
             'UPDATE accounting_periods
              SET status = "soft_closed", closed_at = :ts, closed_by_user_id = :u
@@ -71,6 +72,7 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
         if (!in_array($row['status'], ['open','soft_closed','reopened'], true)) {
             api_error("Cannot close from status {$row['status']}", 409);
         }
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
             'UPDATE accounting_periods
              SET status = "closed", closed_at = :ts, closed_by_user_id = :u
@@ -83,6 +85,7 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
         if ($row['status'] !== 'closed') {
             api_error("Period must be 'closed' before lock; current: {$row['status']}", 409);
         }
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
             'UPDATE accounting_periods
              SET status = "locked", locked_at = :ts, locked_by_user_id = :u
@@ -101,6 +104,7 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
         if ($row['status'] === 'locked' && ($user['role'] ?? '') !== 'master_admin') {
             api_error('Only master_admin can reopen a locked period', 403);
         }
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
             'UPDATE accounting_periods
              SET status = "reopened", reopened_at = :ts, reopened_by_user_id = :u, reopen_reason = :r

@@ -142,6 +142,7 @@ if ($method === 'POST' && $action === 'extract') {
             }
         }
 
+        // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
         $pdo->prepare(
             'UPDATE time_uploaded_documents
                 SET extraction_status = "extracted",
@@ -173,6 +174,7 @@ if ($method === 'POST' && $action === 'extract') {
             'model'       => $res['model'] ?? null,
         ]);
     } catch (\Throwable $e) {
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
             'UPDATE time_uploaded_documents
                 SET extraction_status = "failed", ai_error = :e

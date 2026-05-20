@@ -141,6 +141,7 @@ function jobdivaSaveConnection(int $tenantId, array $creds, ?int $userId): array
     $pdo = getDB();
     $existing = jobdivaConnection($tenantId);
     if ($existing) {
+        // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
         $pdo->prepare(
             'UPDATE jobdiva_connections
                 SET client_id = :c, username = :u, password_enc = :p,

@@ -59,6 +59,7 @@ try {
     if (!$sess) { $pdo->rollBack(); ssoCallbackError('Session not found or expired. Please start the sign-in again.'); }
     if ($sess['sso_slug'] !== $slug) { $pdo->rollBack(); ssoCallbackError('State / slug mismatch.'); }
     if ($sess['consumed_at']) { $pdo->rollBack(); ssoCallbackError('This sign-in link has already been used.'); }
+    // tenant-leak-allow: oidc state is a 256-bit one-time nonce; row carries tenant_id
     $pdo->prepare('UPDATE oidc_session_state SET consumed_at = NOW() WHERE id = :i')->execute(['i' => $sess['id']]);
     $pdo->commit();
 } catch (\Throwable $e) {

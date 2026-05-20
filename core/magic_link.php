@@ -136,6 +136,7 @@ function magicLinkConsume(string $rawToken, ?string $ip = null): array {
     $pdo = getDB();
     $hash = hash('sha256', $rawToken);
 
+    // tenant-leak-allow: token_hash is a 256-bit random secret — the hash IS the auth boundary
     $sel = $pdo->prepare(
         'SELECT id, email, tenant_id, user_id, redirect_path, expires_at, consumed_at
            FROM auth_magic_links
@@ -155,6 +156,7 @@ function magicLinkConsume(string $rawToken, ?string $ip = null): array {
     }
 
     // Atomic consume: only succeed if no one else got there first.
+    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $upd = $pdo->prepare(
         'UPDATE auth_magic_links
             SET consumed_at = NOW(), consumed_ip = :ip

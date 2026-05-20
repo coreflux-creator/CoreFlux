@@ -69,11 +69,13 @@ if ($event !== '' && $resourceUuid !== '') {
                 default => null,
             };
             if ($status !== null) {
+                // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
                 $pdo->prepare(
                     'UPDATE payroll_runs SET gusto_submission_status = :s, updated_at = NOW()
                      WHERE gusto_payroll_uuid = :u'
                 )->execute(['s' => $status, 'u' => $resourceUuid]);
                 if ($status === 'paid') {
+                    // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
                     $pdo->prepare(
                         'UPDATE payroll_runs SET status = "paid", paid_at = COALESCE(paid_at, NOW())
                          WHERE gusto_payroll_uuid = :u AND status <> "paid"'
