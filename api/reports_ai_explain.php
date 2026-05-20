@@ -85,9 +85,9 @@ if ($entityType === 'recruiter') {
             AND te.work_date >= :s
             AND te.placement_id IN (
               SELECT placement_id FROM placement_commissions
-               WHERE tenant_id = :t AND user_id = :rid AND role = 'recruiter')"
+               WHERE tenant_id = :t2 AND user_id = :rid AND role = 'recruiter')"
     );
-    $stmt->execute(['t' => $tenantId, 'rid' => $entityId, 's' => $cutoff90]);
+    $stmt->execute(['t' => $tenantId, 't2' => $tenantId, 'rid' => $entityId, 's' => $cutoff90]);
     $perf = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['hrs' => 0, 'margin' => 0];
 
     // Team median margin/hr (90d) — used as the comparison baseline.

@@ -48,12 +48,12 @@ function jobdivaSyncTimePull(int $tid, ?int $userId, array $opts = []): array
                    FROM placements p
                    JOIN time_periods tp
                      ON tp.tenant_id = p.tenant_id
-                    AND tp.start_date <= :wd
-                    AND tp.end_date   >= :wd
+                    AND tp.start_date <= :wd1
+                    AND tp.end_date   >= :wd2
                   WHERE p.id = :pid AND p.tenant_id = :t
                   LIMIT 1'
             );
-            $row->execute(['pid' => $placementId, 't' => $tid, 'wd' => $workDate]);
+            $row->execute(['pid' => $placementId, 't' => $tid, 'wd1' => $workDate, 'wd2' => $workDate]);
             $meta = $row->fetch(\PDO::FETCH_ASSOC);
             if (!$meta) { $skipped++; continue; }
 

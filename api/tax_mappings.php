@@ -133,7 +133,7 @@ if ($method === 'POST') {
         'INSERT INTO accounting_tax_mappings
             (tenant_id, account_id, tax_form_code, tax_form_line, tax_form_label, notes,
              created_by_user_id, updated_by_user_id)
-         VALUES (:t, :a, :f, :ln, :lb, :n, :u, :u)
+         VALUES (:t, :a, :f, :ln, :lb, :n, :u1, :u2)
          ON DUPLICATE KEY UPDATE
              tax_form_line = VALUES(tax_form_line),
              tax_form_label = VALUES(tax_form_label),
@@ -143,7 +143,8 @@ if ($method === 'POST') {
     $up->execute([
         't' => $tid, 'a' => $accountId, 'f' => $form,
         'ln' => $line, 'lb' => $label, 'n' => $notes,
-        'u' => $user['id'] ?? null,
+        'u1' => $user['id'] ?? null,
+        'u2' => $user['id'] ?? null,
     ]);
 
     $idStmt = $pdo->prepare(

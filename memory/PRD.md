@@ -10,6 +10,26 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (HY093 codebase-wide cleanup, 2026-02 — current fork)
+**Closed the last 10 latent PDO duplicate-placeholder bugs.** The static analyzer shipped in the previous step found 10 SQL statements that re-used a named placeholder (`WHERE a = :x OR b = :x`) — which fatally errors at execute() time under `PDO::ATTR_EMULATE_PREPARES=false`. Each one was a runtime bomb waiting to be tripped by the right call shape.
+
+- **Fixed (10 distinct prepare() statements across 8 files):**
+  - `api/reports_ai_explain.php:73` — `:t` → `:t / :t2` (recruiter book inner subquery)
+  - `api/tax_mappings.php:132` — `:u` → `:u1 / :u2` (created_by + updated_by upsert)
+  - `core/jobdiva/sync_time.php:46` — `:wd` → `:wd1 / :wd2` (time_periods date-range join)
+  - `core/seeds/event_registry_seed.php:408` — `:canonical` → `:canonical1 / :canonical2` (alias seed concat + alias_for)
+  - `legacy/people_pre_spec_20260429/api/compensation.php:44` — `:eff` → `:eff1 / :eff2` (effective-to back-date update)
+  - `modules/ap/api/bill_approvals.php:127` — `:a` → `:a1 / :a2` (workflow bracket lookup)
+  - `modules/ap/api/weekly_queue.php:122` — `:a` → `:a1 / :a2` (finalize bracket lookup)
+  - `modules/billing/lib/recurring.php:250` — `:asOf` → second instance renamed to `:asOf4` (eligible-contracts window guard)
+  - `modules/time/lib/intake.php:53` — `:t` → `:t / :t2` (users ↔ people email join)
+  - `modules/time/lib/settlement_create.php:91` — `:d` → `:d1 / :d2` (placement_rates effective-window pick)
+- **Test wiring:** `tests/ap_phase_a1_followups_smoke.php` updated to assert the new `:a1 >= min_amount` literal so the bracket-lookup contract still has a guard.
+- **Analyzer status:** `tests/hy093_static_analyzer_smoke.php` now reports **0 offenders** across 1,242 reconstructed prepare() calls in 800 PHP files. The sentry catches the synthetic bad input in its self-test, so any future regression fails the smoke suite immediately.
+
+Full suite status: **216/216 smoke tests passing.**
+
+
 ## Recently completed (Mail branding — Send test email card, 2026-02 — current fork)
 **One-button confidence check for the Resend wiring.** Right after pasting `RESEND_API_KEY` into `config.local.php`, tenant admins can now send a test message from `/admin/mail-branding` and see exactly which driver delivered (`resend`, `log`, or `phpmailer_smtp`) plus the Resend `message_id` round-trip — no need to trigger a real CFO report or bill-approval flow to find out the key is valid and the domain is verified.
 

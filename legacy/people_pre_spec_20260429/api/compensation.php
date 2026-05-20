@@ -43,11 +43,11 @@ switch (api_method()) {
         if ($pdo) {
             $stmt = $pdo->prepare(
                 'UPDATE people_compensation
-                 SET effective_to = DATE_SUB(:eff, INTERVAL 1 DAY), updated_at = NOW()
+                 SET effective_to = DATE_SUB(:eff1, INTERVAL 1 DAY), updated_at = NOW()
                  WHERE tenant_id = :tenant_id AND employee_id = :emp
-                   AND effective_to IS NULL AND effective_from < :eff'
+                   AND effective_to IS NULL AND effective_from < :eff2'
             );
-            $stmt->execute(['eff' => $effFrom, 'tenant_id' => currentTenantId(), 'emp' => $empId]);
+            $stmt->execute(['eff1' => $effFrom, 'eff2' => $effFrom, 'tenant_id' => currentTenantId(), 'emp' => $empId]);
         }
 
         $id = scopedInsert('people_compensation', [

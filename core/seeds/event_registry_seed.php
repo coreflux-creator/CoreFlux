@@ -409,15 +409,15 @@ function eventRegistrySeedRun(\PDO $pdo): array {
         "INSERT INTO event_registry
             (event_type, schema_version, domain, description,
              required_payload_keys, deprecated_at, deprecated_alias_for)
-         VALUES (:t, 1, 'alias', CONCAT('Legacy alias of ', :canonical),
-                 JSON_ARRAY(), NOW(), :canonical)
+         VALUES (:t, 1, 'alias', CONCAT('Legacy alias of ', :canonical1),
+                 JSON_ARRAY(), NOW(), :canonical2)
          ON DUPLICATE KEY UPDATE
              deprecated_at        = COALESCE(deprecated_at, NOW()),
              deprecated_alias_for = VALUES(deprecated_alias_for)"
     );
     $aliasCount = 0;
     foreach (eventRegistryAliasRows() as [$legacy, $canonical]) {
-        $aliasUpsert->execute(['t' => $legacy, 'canonical' => $canonical]);
+        $aliasUpsert->execute(['t' => $legacy, 'canonical1' => $canonical, 'canonical2' => $canonical]);
         $aliasCount++;
     }
 

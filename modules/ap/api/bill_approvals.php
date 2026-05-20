@@ -129,11 +129,11 @@ if ($action === 'submit') {
            FROM ap_approval_workflow_rules
           WHERE tenant_id   = :t
             AND workflow_id = :w
-            AND :a >= min_amount
-            AND (max_amount IS NULL OR :a < max_amount)
+            AND :a1 >= min_amount
+            AND (max_amount IS NULL OR :a2 < max_amount)
           ORDER BY step_no ASC"
     );
-    $rules->execute(['t' => $tenantId, 'w' => $wfId, 'a' => $amt]);
+    $rules->execute(['t' => $tenantId, 'w' => $wfId, 'a1' => $amt, 'a2' => $amt]);
     $rules = $rules->fetchAll(PDO::FETCH_ASSOC);
     if (!$rules) api_error('No rule in workflow brackets the bill amount', 422);
 

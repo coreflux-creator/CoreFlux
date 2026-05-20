@@ -57,13 +57,13 @@ function timeIntakeResolveSenderContext(int $tenantId, string $fromAddress): arr
            FROM users u
            JOIN user_tenants ut ON ut.user_id = u.id AND ut.tenant_id = :t
            LEFT JOIN people p
-                  ON p.tenant_id = :t
+                  ON p.tenant_id = :t2
                  AND p.deleted_at IS NULL
                  AND LOWER(p.email_primary) = LOWER(u.email)
           WHERE LOWER(u.email) = LOWER(:em)
           LIMIT 1"
     );
-    $stmt->execute(['t' => $tenantId, 'em' => $fromAddress]);
+    $stmt->execute(['t' => $tenantId, 't2' => $tenantId, 'em' => $fromAddress]);
     $row = $stmt->fetch(\PDO::FETCH_ASSOC);
     if ($row) {
         $out['user_id']     = (int) $row['user_id'];

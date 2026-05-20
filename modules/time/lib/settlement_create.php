@@ -91,12 +91,12 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
             $rateStmt = $pdo->prepare(
                 'SELECT * FROM placement_rates
                  WHERE tenant_id = :t AND placement_id = :p
-                   AND effective_from <= :d
-                   AND (effective_to IS NULL OR effective_to >= :d)
+                   AND effective_from <= :d1
+                   AND (effective_to IS NULL OR effective_to >= :d2)
                    AND superseded_by IS NULL
                  ORDER BY effective_from DESC LIMIT 1'
             );
-            $rateStmt->execute(['t' => $tenantId, 'p' => $placementId, 'd' => $minDate]);
+            $rateStmt->execute(['t' => $tenantId, 'p' => $placementId, 'd1' => $minDate, 'd2' => $minDate]);
             $rate = $rateStmt->fetch(\PDO::FETCH_ASSOC);
             if (!$rate) {
                 throw new TimeSettlementException("Placement #$placementId has no active rate snapshot for $minDate");

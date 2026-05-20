@@ -252,14 +252,14 @@ function billingRecurringEligibleContracts(int $tenantId, string $asOf): array {
           WHERE tenant_id = :t
             AND status = 'active'
             AND start_date <= :asOf
-            AND (end_date IS NULL OR end_date >= :asOf)
+            AND (end_date IS NULL OR end_date >= :asOf4)
             AND (
                   (next_due_at IS NULL     AND start_date <= :asOf2)
                OR (next_due_at IS NOT NULL AND next_due_at <= :asOf3)
             )
           ORDER BY id ASC"
     );
-    $stmt->execute(['t' => $tenantId, 'asOf' => $asOf, 'asOf2' => $asOf, 'asOf3' => $asOf]);
+    $stmt->execute(['t' => $tenantId, 'asOf' => $asOf, 'asOf2' => $asOf, 'asOf3' => $asOf, 'asOf4' => $asOf]);
     $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     // Materialise the first-run pivot.
     foreach ($rows as &$r) {

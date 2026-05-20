@@ -123,10 +123,10 @@ function ap_weekly_queue_finalize_one(int $tenantId, int $billId, array $actor):
         "SELECT step_no, approver_user_id, min_amount, max_amount
            FROM ap_approval_workflow_rules
           WHERE tenant_id = :t AND workflow_id = :w
-            AND :a >= min_amount AND (max_amount IS NULL OR :a < max_amount)
+            AND :a1 >= min_amount AND (max_amount IS NULL OR :a2 < max_amount)
           ORDER BY step_no ASC"
     );
-    $rules->execute(['t' => $tenantId, 'w' => $wfId, 'a' => $amt]);
+    $rules->execute(['t' => $tenantId, 'w' => $wfId, 'a1' => $amt, 'a2' => $amt]);
     $rules = $rules->fetchAll(\PDO::FETCH_ASSOC);
     if (!$rules) return ['ok' => false, 'reason' => 'No rule brackets the bill amount'];
 

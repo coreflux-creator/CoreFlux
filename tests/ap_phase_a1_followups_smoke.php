@@ -46,7 +46,7 @@ $assert('GET ?inbox=1 returns pending steps',         strpos($ba, 'inbox') !== f
 $assert('?action=submit fans out from rules',         strpos($ba, "action === 'submit'") !== false  // JS-style; real check next
                                                    || strpos($ba, "\$action === 'submit'") !== false);
 $assert('submit picks default workflow',              strpos($ba, "is_default DESC") !== false);
-$assert('submit bracket query :a >= min_amount',      strpos($ba, ':a >= min_amount') !== false);
+$assert('submit bracket query :a1 >= min_amount',     strpos($ba, ':a1 >= min_amount') !== false);
 $assert('approve action advances chain',              strpos($ba, "approve") !== false && strpos($ba, "state = 'pending'") !== false);
 $assert('reject sets bill.status=disputed',           strpos($ba, "SET status = 'disputed'") !== false);
 $assert('all steps approved → bill.status=approved',  strpos($ba, "SET status = 'approved'") !== false);
