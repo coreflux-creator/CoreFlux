@@ -59,8 +59,18 @@ $assert('jobdivaSaveConnection clears stale session on update',
     strpos($cli, 'session_token_enc = NULL, session_token_exp = NULL') !== false);
 $assert('jobdivaSessionToken caches + uses slack',
     strpos($cli, '$exp > (time() + JOBDIVA_TOKEN_SLACK_SEC)') !== false);
-$assert('jobdivaSessionToken mints via authenticate',
-    strpos($cli, "jobdivaRawRequest('POST', JOBDIVA_AUTH_PATH,") !== false);
+$assert('jobdivaSessionToken mints via authenticate (creds in query, not body)',
+    strpos($cli, "jobdivaRawRequest(\n        'POST',\n        JOBDIVA_AUTH_PATH,\n        /* body  */ null,") !== false
+    && strpos($cli, "'clientid' => (string) \$row['client_id'],") !== false);
+$assert('jobdivaExtractToken handles raw body / JSON / header shapes',
+    strpos($cli, 'function jobdivaExtractToken') !== false
+    && strpos($cli, "'x-li-token'") !== false
+    && strpos($cli, "'access_token'") !== false);
+$assert('jobdivaRawRequest captures response headers',
+    strpos($cli, 'CURLOPT_HEADERFUNCTION') !== false
+    && strpos($cli, '$respHeaders[$k] = $v;') !== false);
+$assert('jobdivaRawRequest only sets Content-Type when body present',
+    strpos($cli, "if (\$body !== null) \$headers[] = 'Content-Type: application/json'") !== false);
 $assert('jobdivaSessionToken handles JWT exp fallback',
     strpos($cli, 'jobdivaJwtExp($token)') !== false);
 $assert('jobdivaCall auto-refreshes on 401',

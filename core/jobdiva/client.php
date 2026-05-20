@@ -217,6 +217,15 @@ function jobdivaAudit(int $tenantId, string $action, array $opts = []): void
 /**
  * Mint or return the cached session token. Always returns a non-empty
  * string token, or throws.
+ *
+ * JobDiva's authenticate endpoint is unusual:
+ *   - Credentials go in the QUERY STRING, not the JSON body
+ *     (POST /api/jobdiva/authenticate?clientid=X&username=Y&password=Z).
+ *   - The token can come back as a raw plain-text body, a JSON envelope
+ *     with one of several key names, or a response header such as
+ *     `x-li-token` / `li-token` / `Authorization`. We accept all of them.
+ *   - The response also carries an `li-uuid` correlation header used by
+ *     JobDiva support — we audit it on the connection row.
  */
 function jobdivaSessionToken(int $tenantId): string
 {
@@ -235,21 +244,37 @@ function jobdivaSessionToken(int $tenantId): string
         }
     }
 
-    // Mint.
-    $resp = jobdivaRawRequest('POST', JOBDIVA_AUTH_PATH, [
-        'clientid' => (string) $row['client_id'],
-        'username' => (string) $row['username'],
-        'password' => decryptField((string) $row['password_enc']),
-    ], null, /* withAuth */ false);
+    // Mint — credentials as query params, NOT JSON body.
+    $resp = jobdivaRawRequest(
+        'POST',
+        JOBDIVA_AUTH_PATH,
+        /* body  */ null,
+        /* query */ [
+            'clientid' => (string) $row['client_id'],
+            'username' => (string) $row['username'],
+            'password' => decryptField((string) $row['password_enc']),
+        ],
+        /* withAuth */ false
+    );
 
-    $token = (string) ($resp['body']['token'] ?? $resp['body']['access_token'] ?? $resp['body']['jwt'] ?? '');
+    $token = jobdivaExtractToken($resp);
     if ($token === '') {
-        throw new \RuntimeException('JobDiva authenticate response missing token: ' . substr(json_encode($resp['body']), 0, 200));
+        $snippet = is_string($resp['body'])
+            ? substr($resp['body'], 0, 200)
+            : substr((string) json_encode($resp['body']), 0, 200);
+        throw new \RuntimeException('JobDiva authenticate response missing token: ' . $snippet);
     }
-    // Server may return an explicit expires_in OR a JWT we can decode.
-    $expiresAt = isset($resp['body']['expires_in']) ? (time() + (int) $resp['body']['expires_in']) : null;
+
+    // expires_in may be in the body (JSON) or — when the body is a raw
+    // token — only derivable from the JWT itself. Either way, fall back
+    // to a safe 60-minute window so we re-mint well before JobDiva's
+    // typical token TTL expires.
+    $expiresAt = null;
+    if (is_array($resp['body']) && isset($resp['body']['expires_in'])) {
+        $expiresAt = time() + (int) $resp['body']['expires_in'];
+    }
     if ($expiresAt === null) {
-        $expiresAt = jobdivaJwtExp($token) ?: (time() + 3600); // safe default 60 min
+        $expiresAt = jobdivaJwtExp($token) ?: (time() + 3600);
     }
 
     $pdo->prepare(
@@ -306,6 +331,9 @@ function jobdivaCall(int $tenantId, string $method, string $path, ?array $body =
 
 /**
  * Low-level HTTP. Always returns ['status'=>int,'body'=>mixed,'headers'=>array]
+ *
+ * `headers` is keyed by lower-cased header name so callers can do
+ * $resp['headers']['x-li-token'] without worrying about case.
  */
 function jobdivaRawRequest(string $method, string $path, ?array $body = null, ?array $query = null, bool $withAuth = true, ?string $token = null): array
 {
@@ -313,15 +341,32 @@ function jobdivaRawRequest(string $method, string $path, ?array $body = null, ?a
     if ($query) $url .= (str_contains($url, '?') ? '&' : '?') . http_build_query($query);
 
     $ch = curl_init($url);
-    $headers = ['Accept: application/json', 'Content-Type: application/json'];
+    $headers = ['Accept: application/json'];
+    // Only set Content-Type when there's a JSON body to send. Authenticate
+    // posts with credentials in the query string and an empty body — JobDiva
+    // rejects requests that announce JSON without one.
+    if ($body !== null) $headers[] = 'Content-Type: application/json';
     if ($withAuth && $token) $headers[] = 'Authorization: Bearer ' . $token;
 
+    // Capture response headers for token extraction (JobDiva surfaces
+    // `x-li-token` and `li-uuid` on the authenticate response).
+    $respHeaders = [];
     $opts = [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CUSTOMREQUEST  => strtoupper($method),
         CURLOPT_HTTPHEADER     => $headers,
         CURLOPT_TIMEOUT        => 30,
         CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_HEADERFUNCTION => function ($ch, $line) use (&$respHeaders) {
+            $len = strlen($line);
+            $p = strpos($line, ':');
+            if ($p !== false) {
+                $k = strtolower(trim(substr($line, 0, $p)));
+                $v = trim(substr($line, $p + 1));
+                $respHeaders[$k] = $v;
+            }
+            return $len;
+        },
     ];
     if ($body !== null) $opts[CURLOPT_POSTFIELDS] = json_encode($body);
     curl_setopt_array($ch, $opts);
@@ -335,12 +380,62 @@ function jobdivaRawRequest(string $method, string $path, ?array $body = null, ?a
     if ($errno) {
         throw new \RuntimeException('JobDiva network error: ' . $err . ' (errno ' . $errno . ')');
     }
+    // Try JSON-decode; if that fails (or yields a scalar), keep the raw
+    // string body so the token extractor can read it directly.
     $decoded = ($raw === '' || $raw === false) ? null : json_decode((string) $raw, true);
+    $body    = (is_array($decoded)) ? $decoded : ($raw === false ? null : (string) $raw);
     return [
         'status'  => $status,
-        'body'    => $decoded ?? $raw,
-        'headers' => [],
+        'body'    => $body,
+        'headers' => $respHeaders,
     ];
+}
+
+/**
+ * Pull a JobDiva session token out of an authenticate response.
+ *
+ * Order of checks:
+ *   1. Plain-text body that looks like a JWT or opaque token string.
+ *   2. JSON body with `token` / `access_token` / `jwt` / `id_token`.
+ *   3. Response headers — `x-li-token`, `li-token`, or `authorization` (Bearer X).
+ *
+ * Returns the token string, or '' if none found.
+ */
+function jobdivaExtractToken(array $resp): string
+{
+    $body = $resp['body'] ?? null;
+
+    // (1) Raw string body — what JobDiva actually returns most of the time.
+    if (is_string($body)) {
+        $b = trim($body);
+        // Strip enclosing quotes if the server wrapped the token (e.g. "eyJhbGc...").
+        if ($b !== '' && $b[0] === '"' && substr($b, -1) === '"') {
+            $b = trim($b, '"');
+        }
+        // Reasonable token shape: long, no whitespace, not obviously HTML/JSON.
+        if ($b !== '' && strlen($b) >= 20 && !preg_match('/\s/', $b)
+            && $b[0] !== '<' && $b[0] !== '{') {
+            return $b;
+        }
+    }
+
+    // (2) JSON envelope.
+    if (is_array($body)) {
+        foreach (['token', 'access_token', 'jwt', 'id_token'] as $k) {
+            if (!empty($body[$k]) && is_string($body[$k])) return (string) $body[$k];
+        }
+    }
+
+    // (3) Response headers.
+    $headers = $resp['headers'] ?? [];
+    foreach (['x-li-token', 'li-token', 'x-auth-token'] as $h) {
+        if (!empty($headers[$h])) return (string) $headers[$h];
+    }
+    if (!empty($headers['authorization']) && stripos($headers['authorization'], 'Bearer ') === 0) {
+        return trim(substr((string) $headers['authorization'], 7));
+    }
+
+    return '';
 }
 
 /**
