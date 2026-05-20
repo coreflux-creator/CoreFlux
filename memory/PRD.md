@@ -10,6 +10,15 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (Sub-tenant wizard — subdomain default DB hardening, 2026-02 — current fork)
+**Defense-in-depth for the "Field 'subdomain' doesn't have a default value" recurrence.** The user reported the SubTenantWizard "Finish & provision" step still throwing the legacy MySQL 1364 error even after `/core/sub_tenants.php` was patched to supply the column. Root cause: stale opcache / older revisions still in the deploy pipeline were skipping the column. Code-only fixes can't survive that.
+
+- **Migration 059 — `tenants.subdomain` gets a DB-level default.** New idempotent migration runs `ALTER TABLE tenants MODIFY COLUMN subdomain VARCHAR(255) NOT NULL DEFAULT ""` only when `information_schema.columns` reports `IS_NULLABLE='NO' AND COLUMN_DEFAULT IS NULL`. Auto-applied via `coreflux_run_migrations()` on next API request. Application code can still set a meaningful subdomain when desired; the DB no longer crashes if it's omitted.
+- **Smoke:** `tests/migration_059_subdomain_default_smoke.php` (8 assertions) covers file shape, idempotent guard, ALTER target, and runner pickup. Live schema verification is best-effort (skipped when no MySQL is available in the CLI sandbox).
+- **`.deploy-version` sentinels** added so post-deploy diagnostics catch missing migration.
+
+Full suite status: **210/210 smoke tests passing.**
+
 ## Recently completed (RBAC — Effective Permissions Inspector finalize, 2026-02 — current fork)
 **"Why can't this user see X?" in one click.** Tenant admins can now click the new Shield icon on any user row in `/admin/users` to open a modal that shows every membership, every module access level, and a per-permission ALLOW/DENY/PARKED verdict computed by impersonating that user against the dual-check bridge.
 

@@ -935,3 +935,7 @@ e.php
 - rbac.b1.users_is_global_admin_flag
 - rbac.b1.membership_audit_log
 - rbac.b1.backfill_idempotent_legacy_user_tenants
+- core/migrations/059_tenants_subdomain_default.sql
+- tests/migration_059_subdomain_default_smoke.php
+- bugfix.tenants_subdomain_db_default
+- bugfix.sub_tenant_wizard_provision_no_default_value
