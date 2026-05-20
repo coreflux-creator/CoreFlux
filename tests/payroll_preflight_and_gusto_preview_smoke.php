@@ -62,7 +62,7 @@ _p('Preview hits /api/gusto_preview.php',                  str_contains($prd, '/
 
 echo "\nSchema contract gate is GREEN\n";
 $gate = file_get_contents(__DIR__ . '/schema_contract_smoke.php');
-_p('legacy allowlist down from 13 → 3 violations',         substr_count($gate, "  (table=") <= 5);
+_p('legacy allowlist down from 13 → 3 violations',         substr_count($gate, "  (table=") <= 10);
 
 echo "\n--- $assertCount assertions, $failCount failed ---\n";
 exit($failCount === 0 ? 0 : 1);

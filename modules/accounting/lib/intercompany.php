@@ -88,6 +88,7 @@ function intercompanyUpsertMapping(int $tenantId, array $data): int
         accountingAudit('accounting.intercompany.mapping_updated', [
             'id' => (int) $existing['id'], 'from' => $fr, 'to' => $to,
         ], (int) $existing['id']);
+        _intercompanyLogCrossTenant($tenantId, $fr, $to, $df, $dt, (int) $existing['id'], 'updated');
         return (int) $existing['id'];
     }
     $id = scopedInsert('accounting_intercompany_mappings', [
@@ -101,7 +102,43 @@ function intercompanyUpsertMapping(int $tenantId, array $data): int
     accountingAudit('accounting.intercompany.mapping_created', [
         'id' => $id, 'from' => $fr, 'to' => $to,
     ], $id);
+    _intercompanyLogCrossTenant($tenantId, $fr, $to, $df, $dt, $id, 'created');
     return $id;
+}
+
+/**
+ * Cross-tenant audit shim — fires only when the from/to entities sit on
+ * different tenants (same-tenant mappings are already in accountingAudit).
+ */
+function _intercompanyLogCrossTenant(
+    int $actingTenantId, int $fromEntityId, int $toEntityId,
+    string $dueFromAcct, string $dueToAcct, int $mappingId, string $verb
+): void {
+    require_once __DIR__ . '/../../../core/cross_tenant_audit.php';
+    $fTid = crossTenantAuditEntityTenantId($fromEntityId);
+    $tTid = crossTenantAuditEntityTenantId($toEntityId);
+    if ($fTid === 0 || $tTid === 0 || $fTid === $tTid) return;
+
+    $user = function_exists('getCurrentUser') ? getCurrentUser() : null;
+    crossTenantAuditLog(
+        $actingTenantId,
+        $fTid,
+        $tTid,
+        $verb === 'updated'
+            ? 'intercompany.mapping_updated'
+            : 'intercompany.mapping_created',
+        [
+            'mapping_id'            => $mappingId,
+            'from_entity_id'        => $fromEntityId,
+            'to_entity_id'          => $toEntityId,
+            'due_from_account_code' => $dueFromAcct,
+            'due_to_account_code'   => $dueToAcct,
+        ],
+        $fromEntityId,
+        $toEntityId,
+        $user ? (int) ($user['id'] ?? 0) : null,
+        $user ? (string) ($user['email'] ?? $user['name'] ?? '') : null
+    );
 }
 
 function intercompanyDeriveGroupId(): string

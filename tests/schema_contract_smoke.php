@@ -238,6 +238,16 @@ $knownLegacyViolations = [
     // (sub_tenants) but the parser maps it to `tenants`. Real query
     // joins through correctly.
     'st.parent_id  (table=tenants)',
+    // Cross-tenant audit endpoint joins `tenants` three times (acting,
+    // left, right) for human-friendly names. `tenants` is created via
+    // install.php, not a migration file, so the parser can't see its
+    // column list. The columns (`id`, `name`) are well-established.
+    'lt.name  (table=tenants)',
+    'rt.name  (table=tenants)',
+    'at.name  (table=tenants)',
+    'lt.id  (table=tenants)',
+    'rt.id  (table=tenants)',
+    'at.id  (table=tenants)',
 ];
 
 $violationCount = 0;

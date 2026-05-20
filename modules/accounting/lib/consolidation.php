@@ -75,6 +75,7 @@ function entityRelationshipUpsert(int $tenantId, array $data): int
     if ($existing) {
         scopedUpdate('accounting_entity_relationships', (int) $existing['id'], $row);
         accountingAudit('accounting.consolidation.relationship_updated', ['id' => $existing['id']], (int) $existing['id']);
+        _consolidationLogCrossTenant($tenantId, $p, $c, $row, (int) $existing['id'], 'updated');
         return (int) $existing['id'];
     }
     $id = scopedInsert('accounting_entity_relationships', array_merge($row, [
@@ -85,7 +86,42 @@ function entityRelationshipUpsert(int $tenantId, array $data): int
     accountingAudit('accounting.consolidation.relationship_created', [
         'id' => $id, 'parent' => $p, 'child' => $c, 'pct' => $pct, 'method' => $method,
     ], $id);
+    _consolidationLogCrossTenant($tenantId, $p, $c, $row, $id, 'created');
     return $id;
+}
+
+/**
+ * Append a cross-tenant audit row whenever parent/child sit on different
+ * tenants. Same-tenant edges are recorded by `accountingAudit()` only and
+ * intentionally NOT mirrored here.
+ */
+function _consolidationLogCrossTenant(
+    int $actingTenantId, int $parentEntityId, int $childEntityId,
+    array $row, int $relationshipId, string $verb
+): void {
+    require_once __DIR__ . '/../../../core/cross_tenant_audit.php';
+    $pTid = crossTenantAuditEntityTenantId($parentEntityId);
+    $cTid = crossTenantAuditEntityTenantId($childEntityId);
+    if ($pTid === 0 || $cTid === 0 || $pTid === $cTid) return;
+
+    $user = function_exists('getCurrentUser') ? getCurrentUser() : null;
+    crossTenantAuditLog(
+        $actingTenantId,
+        $pTid,
+        $cTid,
+        $verb === 'updated'
+            ? 'consolidation.edge_updated'
+            : 'consolidation.edge_created',
+        array_merge($row, [
+            'relationship_id'  => $relationshipId,
+            'parent_entity_id' => $parentEntityId,
+            'child_entity_id'  => $childEntityId,
+        ]),
+        $parentEntityId,
+        $childEntityId,
+        $user ? (int) ($user['id'] ?? 0) : null,
+        $user ? (string) ($user['email'] ?? $user['name'] ?? '') : null
+    );
 }
 
 /**
