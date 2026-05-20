@@ -9,6 +9,31 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Architecture:** Modular monolith; modules developed in-repo under `/modules/<name>/`, extracted to subtree repos later
 - **Hosting:** Cloudways
 
+## Auditor Session Log (2026-02 — current fork)
+
+Forensic visibility into what each external auditor actually looked at, surfaced inline on `/admin/auditor-tokens`.
+
+### Backend
+- Extended `/api/admin/auditor_tokens.php` with **`GET ?action=log&id=N`** — gated by the same `_auditorTenantAllowed()` check as the rest of the endpoint, so tenant_admins can only inspect their own tenants' tokens.
+- Returns three blocks built from `auditor_access_log` (token_id keyed; `tenant-leak-allow` annotated since the token is itself the tenant binding):
+  - `stats`: `hits`, `views`, `redeems`, `unique_paths`, `unique_ips`, `first_seen`, `last_seen`
+  - `top_paths`: top 15 most-visited paths with hit counts + last visit time
+  - `events`: most recent 200 raw events `(action, path, ip, user_agent, occurred_at)`
+
+### Frontend
+- New `<SessionLogPanel>` component inside `AuditorTokensAdmin.jsx`:
+  - **Stats strip** (7 tiles, tabular numerals)
+  - **Most-visited pages table** with hits + last-seen time
+  - **Reverse-chrono event log** with color-coded action pills (`redeem` green, `view` blue, anything else red), 320px scrollable container, monospace path, IP + UA tooltip
+- Each token row has a new `Activity` toggle button (`<Activity />` + chevron) that expands an inline log row right below — no modal, no page reload.
+- Tested for graceful "no events yet" empty state on a freshly-issued token.
+
+### Tested
+- New smoke `tests/auditor_session_log_smoke.php` — 15 ✓ covers endpoint shape, id-required, tenant authorisation, all three payload blocks, all UI testids, scrollable container, `php -l` sanity.
+- Vite bundle rebuilt + `.deploy-version` synced.
+- **Smoke suite total: 232 ✓ / 0 ✗.**
+
+
 ## Audit Snapshot — one-page printable summary (2026-02 — current fork)
 
 Polished follow-up to the External Auditor feature. Auditors (and any CFO/admin) now land on a clean, branded one-pager they can print or save as PDF for their workpapers.

@@ -56,6 +56,84 @@ function _auditorTenantAllowed(?int $tid, bool $isPlatformMA, ?int $activeTid): 
 
 // ----------------------------------------------------------------- GET ---
 if ($method === 'GET') {
+    // Per-token session log (?action=log&id=N) — accessed by the admin UI to
+    // drill into a single auditor's activity. Stats + capped event list.
+    $action = (string) api_query('action', '');
+    if ($action === 'log') {
+        $id = (int) api_query('id', 0);
+        if (!$id) api_error('id required', 422);
+        $row = _auditorFetch($pdo, $id);
+        if (!$row) api_error('Token not found', 404);
+        if (!_auditorTenantAllowed((int) $row['tenant_id'], $isPlatformMA, $activeTid)) {
+            api_error('Forbidden', 403);
+        }
+
+        // Aggregate stats.
+        // tenant-leak-allow: filtered by token_id; tenant scope was just
+        // authorised on the token row via _auditorTenantAllowed() above.
+        $st = $pdo->prepare(
+            "SELECT COUNT(*)                           AS hits,
+                    COUNT(DISTINCT path)               AS unique_paths,
+                    MIN(occurred_at)                   AS first_seen,
+                    MAX(occurred_at)                   AS last_seen,
+                    SUM(action='redeem')               AS redeems,
+                    SUM(action='view')                 AS views,
+                    COUNT(DISTINCT ip)                 AS unique_ips
+               FROM auditor_access_log
+              WHERE token_id = :id"
+        );
+        $st->execute(['id' => $id]);
+        $stats = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        // Most-visited paths (top 15, with hit counts and last visit).
+        // tenant-leak-allow: same justification — token_id keyed lookup
+        // after tenant authorisation upstream.
+        $st = $pdo->prepare(
+            "SELECT path, COUNT(*) AS hits, MAX(occurred_at) AS last_seen
+               FROM auditor_access_log
+              WHERE token_id = :id AND action = 'view' AND path IS NOT NULL
+           GROUP BY path
+           ORDER BY hits DESC, last_seen DESC
+              LIMIT 15"
+        );
+        $st->execute(['id' => $id]);
+        $topPaths = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        // Raw event list (most recent 200 — UI shows them in reverse-chrono).
+        // tenant-leak-allow: token_id keyed; tenant scope authorised above.
+        $st = $pdo->prepare(
+            "SELECT id, action, path, ip, user_agent, occurred_at
+               FROM auditor_access_log
+              WHERE token_id = :id
+           ORDER BY occurred_at DESC
+              LIMIT 200"
+        );
+        $st->execute(['id' => $id]);
+        $events = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        foreach ($events as &$e) { $e['id'] = (int) $e['id']; }
+        unset($e);
+        foreach ($topPaths as &$p) { $p['hits'] = (int) $p['hits']; }
+        unset($p);
+        foreach (['hits','unique_paths','redeems','views','unique_ips'] as $k) {
+            if (isset($stats[$k])) $stats[$k] = (int) $stats[$k];
+        }
+
+        api_ok([
+            'token'      => [
+                'id'         => (int) $row['id'],
+                'tenant_id'  => (int) $row['tenant_id'],
+                'label'      => $row['label'],
+                'email'      => $row['email'],
+                'expires_at' => $row['expires_at'],
+                'revoked_at' => $row['revoked_at'],
+            ],
+            'stats'      => $stats,
+            'top_paths'  => $topPaths,
+            'events'     => $events,
+        ]);
+    }
+
     $tenantFilter = (int) api_query('tenant_id', 0);
     if (!$tenantFilter && !$isPlatformMA) $tenantFilter = (int) $activeTid;
 

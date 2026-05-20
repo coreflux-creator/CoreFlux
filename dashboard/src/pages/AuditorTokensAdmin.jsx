@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Copy, Trash2, X, Check, ShieldOff, ExternalLink } from 'lucide-react';
+import { Plus, Copy, Trash2, X, Check, ShieldOff, ExternalLink, Activity, ChevronDown, ChevronUp } from 'lucide-react';
 import { api, useApi } from '../lib/api';
 import { Card } from '../components/UIComponents';
 
@@ -24,6 +24,7 @@ export default function AuditorTokensAdmin({ session }) {
 
   const [creating, setCreating]   = useState(false);
   const [revealing, setRevealing] = useState(null); // { token, url, expires_at, label }
+  const [expandedLogId, setExpandedLogId] = useState(null); // token id whose log is open
 
   const tokens = data?.tokens || [];
   const activeCount  = data?.active_count  ?? 0;
@@ -86,7 +87,8 @@ export default function AuditorTokensAdmin({ session }) {
             </thead>
             <tbody>
               {tokens.map(t => (
-                <tr key={t.id} data-testid={`auditor-row-${t.id}`}>
+                <React.Fragment key={t.id}>
+                <tr data-testid={`auditor-row-${t.id}`}>
                   <td style={{ fontWeight: 500 }}>{t.label}</td>
                   <td>{t.tenant_name}</td>
                   <td style={{ color: 'var(--cf-text-secondary)' }}>{t.email || '—'}</td>
@@ -102,6 +104,13 @@ export default function AuditorTokensAdmin({ session }) {
                         : <span className="badge badge--warning">Expired</span>}
                   </td>
                   <td style={{ textAlign: 'right' }}>
+                    <button className="btn btn--ghost"
+                            onClick={() => setExpandedLogId(expandedLogId === t.id ? null : t.id)}
+                            data-testid={`auditor-activity-${t.id}`}
+                            title={expandedLogId === t.id ? 'Hide activity' : 'Show activity'}>
+                      <Activity size={14} />
+                      {expandedLogId === t.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                    </button>
                     {!t.revoked_at && t.is_active && (
                       <button className="btn btn--ghost"
                               onClick={() => onRevoke(t)}
@@ -118,6 +127,14 @@ export default function AuditorTokensAdmin({ session }) {
                     </button>
                   </td>
                 </tr>
+                {expandedLogId === t.id && (
+                  <tr data-testid={`auditor-log-row-${t.id}`}>
+                    <td colSpan={7} style={{ background: '#f9fafb', padding: 16 }}>
+                      <SessionLogPanel tokenId={t.id} />
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               ))}
               {tokens.length === 0 && (
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24,
@@ -238,6 +255,139 @@ function NewAuditorTokenModal({ isMaster, activeTid, tenants, onClose, onCreated
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function SessionLogPanel({ tokenId }) {
+  const { data, loading, error } = useApi(`/api/admin/auditor_tokens.php?action=log&id=${tokenId}`);
+  if (loading) return <div style={{ fontSize: 13, color: '#6b7280' }}>Loading activity…</div>;
+  if (error)   return <div style={{ fontSize: 13, color: '#b91c1c' }}
+                           data-testid={`auditor-log-error-${tokenId}`}>
+                       {error?.message || String(error)}
+                     </div>;
+  if (!data)   return null;
+  const { stats = {}, top_paths = [], events = [] } = data;
+
+  return (
+    <div data-testid={`auditor-log-panel-${tokenId}`}>
+      {/* Stats strip */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, marginBottom: 16,
+                    fontSize: 13, color: '#374151' }}
+           data-testid={`auditor-log-stats-${tokenId}`}>
+        <Stat label="Total events"     value={stats.hits ?? 0} />
+        <Stat label="Page views"       value={stats.views ?? 0} />
+        <Stat label="Redeems"          value={stats.redeems ?? 0} />
+        <Stat label="Distinct pages"   value={stats.unique_paths ?? 0} />
+        <Stat label="Distinct IPs"     value={stats.unique_ips ?? 0} />
+        <Stat label="First seen"
+              value={stats.first_seen?.replace('T',' ').slice(0,16) || '—'} mono />
+        <Stat label="Last seen"
+              value={stats.last_seen?.replace('T',' ').slice(0,16) || '—'} mono />
+      </div>
+
+      {/* Two-column layout: top pages + event list */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.4fr)',
+                    gap: 24, alignItems: 'flex-start' }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280',
+                        textTransform: 'uppercase', letterSpacing: 0.4,
+                        marginBottom: 6 }}>
+            Most-visited pages
+          </div>
+          {top_paths.length === 0 && (
+            <div style={{ fontSize: 13, color: '#6b7280', padding: 8 }}>
+              No page views yet — auditor hasn't opened any pages.
+            </div>
+          )}
+          {top_paths.length > 0 && (
+            <table className="data-table" data-testid={`auditor-log-top-${tokenId}`}>
+              <thead>
+                <tr><th>Path</th><th style={{ textAlign: 'right' }}>Hits</th><th>Last</th></tr>
+              </thead>
+              <tbody>
+                {top_paths.map((p, i) => (
+                  <tr key={i}>
+                    <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{p.path}</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{p.hits}</td>
+                    <td style={{ fontSize: 11, color: '#6b7280' }}>
+                      {p.last_seen?.replace('T',' ').slice(11,16) || ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280',
+                        textTransform: 'uppercase', letterSpacing: 0.4,
+                        marginBottom: 6 }}>
+            Event log (most recent 200)
+          </div>
+          <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid #e5e7eb',
+                        borderRadius: 6, background: '#fff' }}
+               data-testid={`auditor-log-events-${tokenId}`}>
+            {events.length === 0 && (
+              <div style={{ fontSize: 13, color: '#6b7280', padding: 12 }}>
+                No events recorded yet.
+              </div>
+            )}
+            {events.map(ev => (
+              <div key={ev.id}
+                   style={{ display: 'flex', gap: 8, alignItems: 'baseline',
+                            padding: '6px 10px',
+                            borderBottom: '1px solid #f3f4f6',
+                            fontSize: 12 }}>
+                <span style={{ color: '#6b7280', fontVariantNumeric: 'tabular-nums',
+                               flexShrink: 0, width: 130 }}>
+                  {ev.occurred_at?.replace('T',' ').slice(0,16)}
+                </span>
+                <span style={{ flexShrink: 0, padding: '1px 6px',
+                               borderRadius: 4, fontSize: 10, fontWeight: 600,
+                               textTransform: 'uppercase',
+                               background: ev.action === 'redeem' ? '#dcfce7' :
+                                           ev.action === 'view'   ? '#dbeafe' :
+                                                                    '#fee2e2',
+                               color:      ev.action === 'redeem' ? '#15803d' :
+                                           ev.action === 'view'   ? '#1d4ed8' :
+                                                                    '#b91c1c' }}>
+                  {ev.action}
+                </span>
+                <span style={{ fontFamily: 'monospace',
+                               flex: 1, minWidth: 0,
+                               overflow: 'hidden', textOverflow: 'ellipsis',
+                               whiteSpace: 'nowrap',
+                               color: '#374151' }}
+                      title={ev.path || ''}>
+                  {ev.path || '—'}
+                </span>
+                <span style={{ color: '#9ca3af', fontSize: 11, flexShrink: 0 }}
+                      title={ev.user_agent || ''}>
+                  {ev.ip || ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, mono }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280',
+                    textTransform: 'uppercase', letterSpacing: 0.4 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 18, fontWeight: 700,
+                    fontFamily: mono ? 'monospace' : undefined,
+                    fontVariantNumeric: 'tabular-nums' }}>
+        {value}
       </div>
     </div>
   );
