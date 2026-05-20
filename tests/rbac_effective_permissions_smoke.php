@@ -37,7 +37,7 @@ $a('builds can_matrix from RbacLegacyMap::table',
 $a('runs dual-check verdict (legacy && new) per permission',
     $c($ep, 'RBAC::hasPermission')
     && $c($ep, 'api_can(')
-    && $c($ep, '\$legacyOk && \$newOk'));
+    && $c($ep, '$legacyOk && $newOk'));
 $a('PARKED permissions defer to legacy only',   $c($ep, "\$isParked = \$module === '_platform'"));
 $a('summary counts canonical / synthetic / parked',
     $c($ep, "'canonical_modules_count'")

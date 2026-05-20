@@ -10,6 +10,16 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (RBAC — Effective Permissions Inspector finalize, 2026-02 — current fork)
+**"Why can't this user see X?" in one click.** Tenant admins can now click the new Shield icon on any user row in `/admin/users` to open a modal that shows every membership, every module access level, and a per-permission ALLOW/DENY/PARKED verdict computed by impersonating that user against the dual-check bridge.
+
+- **Backend:** `/api/admin/user_effective_permissions.php` — GET-only, admin-gated. Pulls `user_tenants` + `tenant_memberships` + `membership_module_access`, then iterates every entry in `RbacLegacyMap::table()` running both `RBAC::hasPermission` and `api_can()` under a temporarily-swapped `$_SESSION` (restored in `finally`). Surfaces orphan memberships (no `user_tenants` row) so admins can spot drift.
+- **Frontend:** `dashboard/src/pages/UserEffectivePermissionsModal.jsx` — tenant cards → membership rows → module-access tiles → permission matrix with ALLOW/DENY/PARKED markers, plus filter input, "only denied", and "only disagreement" toggles.
+- **Wiring:** Shield button per row in `UsersAdmin.jsx`, opens the modal in-context.
+- **Smoke:** `tests/rbac_effective_permissions_smoke.php` (35 assertions, all passing) covers endpoint contract, modal testids, UsersAdmin wiring, plus a regression assertion for the sub-tenant `subdomain` insert fix.
+
+Full suite status: **209/209 smoke tests passing.** Vite bundle rebuilt and `sync_bundle.sh` propagated new hashes.
+
 ## Recently completed (RBAC B4 — Bridge Disagreement Monitor, 2026-02 — current fork)
 **Safety-net for the dual-check era.** Tenant admins can now see, at a glance, exactly where the legacy `RBAC` config and the new `RBACResolver` disagree about a permission — which tells them when it's safe to flip `CF_RBAC_BRIDGE_MODE=new` and retire `/core/RBAC.php`.
 
