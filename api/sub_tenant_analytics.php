@@ -38,8 +38,8 @@ if (!$parentId) api_error('Active tenant has no master parent', 400);
 if ($role !== 'master_admin') {
     $pdo = getDB();
     $stmt = $pdo->prepare(
-        "SELECT persona_type AS role FROM tenant_memberships
-          WHERE user_id = :u AND tenant_id = :t AND status = 'active' LIMIT 1"
+        "SELECT persona_type AS role FROM " . membershipReadSourceSql() . " src
+          WHERE src.user_id = :u AND src.tenant_id = :t LIMIT 1"
     );
     $stmt->execute(['u' => $user['id'] ?? 0, 't' => $parentId]);
     $r = $stmt->fetch();
@@ -73,7 +73,7 @@ if ($subs) {
     $place = implode(',', array_fill(0, count($ids), '?'));
     $stmt = $pdo->prepare(
         "SELECT t.id, t.name, MAX(ut.last_active_at) AS last_active_at
-           FROM tenant_memberships ut JOIN tenants t ON t.id = ut.tenant_id
+           FROM " . membershipReadSourceSql() . " ut JOIN tenants t ON t.id = ut.tenant_id
           WHERE ut.tenant_id IN ($place) AND ut.last_active_at IS NOT NULL
        GROUP BY t.id, t.name
        ORDER BY last_active_at DESC LIMIT 1"

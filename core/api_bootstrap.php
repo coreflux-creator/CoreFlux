@@ -27,6 +27,10 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/tenant_scope.php';
+// Membership read-fallback shim — exposes membershipReadSourceSql() so any
+// API endpoint can swap a direct `FROM tenant_memberships` for the UNIONed
+// subquery that also surfaces un-backfilled legacy `user_tenants` rows.
+require_once __DIR__ . '/memberships.php';
 // RBAC B2 resolver — new tenant_memberships grid. Loaded alongside the
 // legacy /core/RBAC.php (different class name on purpose; see header in
 // /core/rbac/permissions.php). Safe to require at bootstrap so $ctx can

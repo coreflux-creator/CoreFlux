@@ -42,8 +42,8 @@ if (!$parentId) api_error('Active tenant has no master parent', 400);
 if ($role !== 'master_admin') {
     $pdo = getDB();
     $stmt = $pdo->prepare(
-        "SELECT persona_type AS role FROM tenant_memberships
-          WHERE user_id = :u AND tenant_id = :t AND status = 'active' LIMIT 1"
+        "SELECT persona_type AS role FROM " . membershipReadSourceSql() . " src
+          WHERE src.user_id = :u AND src.tenant_id = :t LIMIT 1"
     );
     $stmt->execute(['u' => (int)($user['id'] ?? 0), 't' => $parentId]);
     $r = $stmt->fetch();

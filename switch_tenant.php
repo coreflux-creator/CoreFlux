@@ -16,6 +16,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/core/auth.php';
 require_once __DIR__ . '/core/sub_tenants.php';
+require_once __DIR__ . '/core/memberships.php';
 
 initSession();
 
@@ -67,8 +68,8 @@ function _subTenantSwitchAllowed(int $userId, int $targetId, string $role): bool
 
     // Direct membership wins.
     $stmt = $pdo->prepare(
-        "SELECT 1 FROM tenant_memberships
-          WHERE user_id = :u AND tenant_id = :t AND status = 'active' LIMIT 1"
+        "SELECT 1 FROM " . membershipReadSourceSql() . " src
+          WHERE src.user_id = :u AND src.tenant_id = :t LIMIT 1"
     );
     $stmt->execute(['u' => $userId, 't' => $targetId]);
     if ($stmt->fetch()) return true;
@@ -77,8 +78,8 @@ function _subTenantSwitchAllowed(int $userId, int $targetId, string $role): bool
     $t = subTenantLookup($targetId);
     if ($t && !empty($t['parent_id'])) {
         $stmt = $pdo->prepare(
-            "SELECT persona_type AS role FROM tenant_memberships
-              WHERE user_id = :u AND tenant_id = :t AND status = 'active' LIMIT 1"
+            "SELECT persona_type AS role FROM " . membershipReadSourceSql() . " src
+              WHERE src.user_id = :u AND src.tenant_id = :t LIMIT 1"
         );
         $stmt->execute(['u' => $userId, 't' => (int)$t['parent_id']]);
         $r = $stmt->fetch();

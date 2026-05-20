@@ -9,6 +9,32 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Architecture:** Modular monolith; modules developed in-repo under `/modules/<name>/`, extracted to subtree repos later
 - **Hosting:** Cloudways
 
+## P0 fix v2 — Read-fallback shim extended to ALL gating call sites (2026-02 — current fork)
+
+The first read-fallback shim only patched `core/data.php` + `api/users.php`. User reported the access issues persisted: tenants still missing, sub-tenants inaccessible, admin rights still broken. Root cause: ~10 other UI/auth gating files were still doing direct `FROM tenant_memberships` reads.
+
+**Sites swept (all now use `membershipReadSourceSql()`):**
+- `switch_tenant.php` — direct cause of "tenants are gone": the tenant switcher gate filtered out users not in `tenant_memberships`. Now passes legacy users through transparently.
+- `api/sub_tenants.php` — 4 read sites (switch role refresh, `subTenantUserCanManageParent`, `subTenantUserHasMembership` direct + parent fallback). Sub-tenant access restored.
+- `api/tenants.php` — `user_count` subquery in master tenant list.
+- `api/tenant_modules.php` — `_tenantModulesCanManage()` checkRoleAt closure (drove the "admin rights" symptom).
+- `api/sub_tenant_consolidated_reports.php` — master/tenant_admin gate for consolidated reports.
+- `api/sub_tenant_analytics.php` — gate + last-active sub-tenant summary.
+- `api/sub_tenant_setup_checklist.php` — `users.invited` step user count.
+- `core/views/admin/user_edit.php` — initial fetch + post-save refresh of the user's tenant assignment matrix.
+- `core/push_service.php` — `pushSendToTenant()` recipient resolution.
+- `people/includes/people_helper.php` — `getAccessibleEmployees()`, `getEmployeeProfile()`, `getAllApprovers()` (3 joins).
+
+**Bootstrap wiring**: `core/api_bootstrap.php` now `require_once`s `core/memberships.php` so every API endpoint gets `membershipReadSourceSql()` for free (no per-file include shuffling).
+
+**Intentionally NOT shimmed** (correctly tenant_memberships-only):
+- `core/rbac/permissions.php` — `RBACResolver::activeMembership()` returning null is the trigger that hands off to the legacy fallback; shimming it would defeat that fall-through.
+- `api/admin/user_effective_permissions.php`, `api/admin/membership_drift.php`, `api/admin/membership_audit.php`, `api/admin/membership_access.php` — diagnostic / drift / id-keyed admin tools that legitimately need the literal table.
+- `api/users.php` line 117 — `_usersBootstrapMembership` reads back its own freshly-inserted row.
+
+**Smoke test extended:** `tests/tenant_read_fallback_smoke.php` now 39 ✓ — adds an "every critical gate must call the shim AND must NOT have any hard-coded `FROM tenant_memberships`" cross-check across all 10 sites. **Suite total still 228 ✓ / 0 ✗.**
+
+
 ## Backfill Drift Inspector — admin widget for membership migration progress (2026-02 — current fork)
 
 Follow-up to the read-fallback fix: master admins now have a one-click way to see and heal accounts still living only in `user_tenants`.

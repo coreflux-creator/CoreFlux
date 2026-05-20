@@ -75,6 +75,28 @@ $a('api/users.php uses membershipReadSourceSql()',
 $a('api/users.php only reads tenant_memberships from the bootstrap helper',
     preg_match_all('/FROM\s+tenant_memberships\b/i', $usersPhp) <= 1);
 
+// 7. Critical UI/auth gates — every site that decides "can this user see
+// this tenant?" must route through the shim, otherwise un-backfilled
+// users keep getting locked out.
+$gates = [
+    'switch_tenant.php'                     => '/switch_tenant.php',
+    'api/sub_tenants.php'                   => '/api/sub_tenants.php',
+    'api/tenants.php'                       => '/api/tenants.php',
+    'api/tenant_modules.php'                => '/api/tenant_modules.php',
+    'api/sub_tenant_consolidated_reports.php'=> '/api/sub_tenant_consolidated_reports.php',
+    'api/sub_tenant_analytics.php'          => '/api/sub_tenant_analytics.php',
+    'api/sub_tenant_setup_checklist.php'    => '/api/sub_tenant_setup_checklist.php',
+    'core/views/admin/user_edit.php'        => '/core/views/admin/user_edit.php',
+    'core/push_service.php'                 => '/core/push_service.php',
+    'people/includes/people_helper.php'     => '/people/includes/people_helper.php',
+];
+foreach ($gates as $label => $rel) {
+    $src = (string) file_get_contents($ROOT . $rel);
+    $a("{$label} uses membershipReadSourceSql()", str_contains($src, 'membershipReadSourceSql()'));
+    $a("{$label} has no remaining hard-coded membership-gate read",
+        preg_match_all('/FROM\s+tenant_memberships\b/i', $src) === 0);
+}
+
 // 6. Live DB exec (best-effort — only when DB is available) -------------------
 require_once $ROOT . '/core/db.php';
 $pdo = function_exists('getDB') ? getDB() : null;

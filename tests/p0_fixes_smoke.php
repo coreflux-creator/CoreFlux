@@ -40,7 +40,8 @@ $a('returns effective role in context',       (bool) preg_match("/'role'\s+=>\s+
 // ----------------------------------------------------------------- 3) sub_tenants switch
 echo "\nsub_tenants switch — role refresh on tenant change\n";
 $st = (string) file_get_contents($ROOT . '/api/sub_tenants.php');
-$a('queries user_tenants on switch',          $c($st, 'SELECT persona_type AS role FROM tenant_memberships WHERE user_id = :u AND tenant_id = :t'));
+$a('queries user_tenants on switch',          $c($st, 'SELECT persona_type AS role FROM tenant_memberships WHERE user_id = :u AND tenant_id = :t')
+                                              || $c($st, "SELECT persona_type AS role FROM ' . membershipReadSourceSql() . ' src WHERE src.user_id = :u AND src.tenant_id = :t"));
 $a('updates session role',                    $c($st, "\$_SESSION['user']['role'] = (string) \$newRole"));
 $a('refreshes available modules',             $c($st, "\$_SESSION['modules'] = getUserModules"));
 $a('returns role in switch response',         $c($st, "'role'      => \$_SESSION['user']['role']"));

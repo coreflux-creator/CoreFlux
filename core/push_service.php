@@ -105,7 +105,8 @@ function pushSendToUser(int $tenantId, int $userId, string $title, string $body,
 function pushSendToTenant(int $tenantId, string $title, string $body, array $data = [], array $rolesOrPerms = [], array $opts = []): int {
     $pdo = getDB();
     if (!$pdo) return 0;
-    $where = "ut.tenant_id = :t AND ut.status = 'active'";
+    require_once __DIR__ . '/memberships.php';
+    $where = "ut.tenant_id = :t";
     $params = ['t' => $tenantId];
     if ($rolesOrPerms) {
         $roleList = array_values(array_filter($rolesOrPerms, fn($r) => stripos($r, 'perm:') !== 0));
@@ -115,7 +116,7 @@ function pushSendToTenant(int $tenantId, string $title, string $body, array $dat
             $where .= " AND ut.persona_type IN (" . implode(',', $in) . ")";
         }
     }
-    $stmt = $pdo->prepare("SELECT DISTINCT user_id FROM tenant_memberships ut WHERE $where");
+    $stmt = $pdo->prepare("SELECT DISTINCT user_id FROM " . membershipReadSourceSql() . " ut WHERE $where");
     $stmt->execute($params);
     $userIds = array_map('intval', array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'user_id'));
     $count = 0;

@@ -92,7 +92,7 @@ $cnt = function (string $sql, array $params = []) use ($pdo, $tenantId): int {
     } catch (\Throwable $_) { return 0; }
 };
 
-$userCount = $cnt("SELECT COUNT(DISTINCT user_id) c FROM tenant_memberships WHERE tenant_id = :tid AND status = 'active'");
+$userCount = $cnt("SELECT COUNT(DISTINCT user_id) c FROM " . membershipReadSourceSql() . " src WHERE src.tenant_id = :tid");
 $items[] = [
     'id'           => 'users.invited',
     'label'        => 'Invite at least one teammate',

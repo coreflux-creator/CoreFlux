@@ -38,7 +38,7 @@ function _tenantModulesCanManage(PDO $pdo, int $userId, string $globalRole, int 
     // tenant_admin of the target OR of the target's parent.
     $checkRoleAt = function (int $tid) use ($pdo, $userId): bool {
         $stmt = $pdo->prepare(
-            "SELECT persona_type AS role FROM tenant_memberships WHERE user_id = :u AND tenant_id = :t AND status = 'active' LIMIT 1"
+            "SELECT persona_type AS role FROM " . membershipReadSourceSql() . " src WHERE src.user_id = :u AND src.tenant_id = :t LIMIT 1"
         );
         $stmt->execute(['u' => $userId, 't' => $tid]);
         $r = $stmt->fetch(PDO::FETCH_ASSOC);

@@ -1,13 +1,14 @@
 
 <?php
+require_once __DIR__ . '/../../core/memberships.php';
 
 // Get list of employees the user can view based on tenant access
 function getAccessibleEmployees(PDO $pdo, int $userId, int $tenantId): array {
     $stmt = $pdo->prepare("
         SELECT DISTINCT t.id
-        FROM tenant_memberships ut
+        FROM " . membershipReadSourceSql() . " ut
         JOIN tenants t ON t.id = ut.tenant_id
-        WHERE ut.user_id = ? AND ut.status = 'active'
+        WHERE ut.user_id = ?
     ");
     $stmt->execute([$userId]);
     $tenantIds = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'id');
@@ -18,7 +19,7 @@ function getAccessibleEmployees(PDO $pdo, int $userId, int $tenantId): array {
     $query = "
         SELECT u.id AS user_id, u.name, u.email, u.role, u.created_at AS start_date, u.is_active, t.name AS tenant_name
         FROM users u
-        JOIN tenant_memberships ut ON ut.user_id = u.id AND ut.status = 'active'
+        JOIN " . membershipReadSourceSql() . " ut ON ut.user_id = u.id
         JOIN tenants t ON t.id = ut.tenant_id
         WHERE ut.tenant_id IN ($placeholders)
      GROUP BY u.id, t.name
@@ -35,7 +36,7 @@ function getEmployeeProfile(PDO $pdo, int $userId): ?array {
     $stmt = $pdo->prepare("
         SELECT u.id, u.name, u.email, u.role, u.is_active, u.created_at AS start_date, t.name AS tenant_name
         FROM users u
-        JOIN tenant_memberships ut ON ut.user_id = u.id AND ut.status = 'active'
+        JOIN " . membershipReadSourceSql() . " ut ON ut.user_id = u.id
         JOIN tenants t ON t.id = ut.tenant_id
         WHERE u.id = ?
         LIMIT 1
@@ -99,7 +100,7 @@ function getAllApprovers(PDO $pdo, int $tenantId): array {
     $stmt = $pdo->prepare("
         SELECT u.id, u.name, u.email
         FROM users u
-        JOIN tenant_memberships ut ON ut.user_id = u.id AND ut.status = 'active'
+        JOIN " . membershipReadSourceSql() . " ut ON ut.user_id = u.id
         WHERE ut.tenant_id = ? AND u.role = 'approver'
     ");
     $stmt->execute([$tenantId]);

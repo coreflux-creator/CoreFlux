@@ -50,8 +50,8 @@ if ($method === 'GET') {
     $stmt = $pdo->query(
         "SELECT t.id, t.name, t.slug, t.domain, t.subdomain, t.tenant_type,
                 t.is_active, t.landing_enabled, t.primary_color, t.created_at,
-                (SELECT COUNT(DISTINCT user_id) FROM tenant_memberships ut
-                  WHERE ut.tenant_id = t.id AND ut.status = 'active') AS user_count,
+                (SELECT COUNT(DISTINCT user_id) FROM " . membershipReadSourceSql() . " ut
+                  WHERE ut.tenant_id = t.id) AS user_count,
                 (SELECT COUNT(*) FROM tenants st
                   WHERE st.parent_id = t.id AND st.tenant_type = 'sub') AS sub_count
            FROM tenants t

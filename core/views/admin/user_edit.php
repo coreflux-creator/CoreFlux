@@ -2,6 +2,7 @@
 /**
  * Master Admin - Edit User
  */
+require_once __DIR__ . '/../../memberships.php';
 $pdo = getDB();
 
 $userId = (int)($_GET['id'] ?? 0);
@@ -18,7 +19,7 @@ if (!$isNew) {
     }
     
     // Get user's current tenant assignments
-    $stmt = $pdo->prepare("SELECT tenant_id, MIN(persona_type) AS role, MAX(is_primary) AS is_default FROM tenant_memberships WHERE user_id = ? AND status = 'active' GROUP BY tenant_id");
+    $stmt = $pdo->prepare("SELECT tenant_id, MIN(persona_type) AS role, MAX(is_primary) AS is_default FROM " . membershipReadSourceSql() . " src WHERE src.user_id = ? GROUP BY tenant_id");
     $stmt->execute([$userId]);
     $userTenants = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $userTenantMap = [];
@@ -128,7 +129,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([$userId]);
         $editUser = $stmt->fetch();
         
-        $stmt = $pdo->prepare("SELECT tenant_id, MIN(persona_type) AS role, MAX(is_primary) AS is_default FROM tenant_memberships WHERE user_id = ? AND status = 'active' GROUP BY tenant_id");
+        $stmt = $pdo->prepare("SELECT tenant_id, MIN(persona_type) AS role, MAX(is_primary) AS is_default FROM " . membershipReadSourceSql() . " src WHERE src.user_id = ? GROUP BY tenant_id");
         $stmt->execute([$userId]);
         $userTenants = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $userTenantMap = [];
