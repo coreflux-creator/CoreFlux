@@ -954,3 +954,6 @@ e.php
 - tests/mail_test_send_smoke.php
 - ui.admin.mail_branding.test_send_card
 - ui.admin.mail_branding.driver_status_pill
+- core/mercury_service.php
+- tests/mercury_connect_lastinsertid_smoke.php
+- bugfix.mercury_connect_lastinsertid_bool_typeerror

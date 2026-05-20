@@ -108,7 +108,15 @@ function mercuryStoreConnection(int $tenantId, string $apiToken, ?string $label,
     ]);
 
     // Hydrate accounts cache eagerly so the UI shows balances on first load.
-    mercurySyncAccountsFromList($tenantId, (int) $pdo->lastInsertId(true) ?: (int) ($pdo->query("SELECT id FROM mercury_connections WHERE tenant_id = {$tenantId}")->fetchColumn() ?: 0), $accounts);
+    // NB: PHP 8 PDO::lastInsertId() expects ?string (or no argument); passing
+    // `true` raises a TypeError on PHP 8.0+. Use bare call. UPSERT returns 0
+    // when a row was updated rather than inserted — the fallback SELECT handles
+    // that case so we always end up with a valid connection_id.
+    $insertedId = (int) $pdo->lastInsertId();
+    if ($insertedId <= 0) {
+        $insertedId = (int) ($pdo->query("SELECT id FROM mercury_connections WHERE tenant_id = {$tenantId}")->fetchColumn() ?: 0);
+    }
+    mercurySyncAccountsFromList($tenantId, $insertedId, $accounts);
 
     return [
         'workspace_name' => $workspaceName,
