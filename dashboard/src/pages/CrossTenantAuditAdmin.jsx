@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Filter, ChevronRight, RefreshCw } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Filter, ChevronRight, RefreshCw, ExternalLink } from 'lucide-react';
 import { useApi } from '../lib/api';
 import { Card } from '../components/UIComponents';
 
