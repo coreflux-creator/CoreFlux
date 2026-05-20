@@ -24,6 +24,7 @@ import RbacBridgeHealthPanel from './RbacBridgeHealthPanel';
 import PlaidTransferSettings from '../../../modules/treasury/ui/PlaidTransferSettings';
 import MercurySettings from '../../../modules/treasury/ui/MercurySettings';
 import QboSettings from './QboSettings';
+import RolesReference from './RolesReference';
 
 /**
  * AdminModule — administrator surface.
@@ -50,6 +51,7 @@ const AdminOverview = () => (
         <ActionCard icon={BarChart3} title="Consolidated reports" description="Roll-up P&L / BS / CF across all sub-tenants" href="/admin/consolidated-reports" />
         <ActionCard icon={Users}     title="Users"          description="Add users, assign roles, reset passwords" href="/admin/users" />
         <ActionCard icon={Shield}    title="Memberships & access" description="Granular per-tenant RBAC — personas, modules, copy permissions" href="/admin/memberships" />
+        <ActionCard icon={ScrollText} title="Roles reference" description="What each persona_type grants — quick lookup before assigning a role" href="/admin/roles" />
         <ActionCard icon={Package}   title="Module access"  description="Toggle which apps a tenant can see" href="/admin/modules" />
         <ActionCard icon={FileText}  title="Export templates" description="CSV templates for any module" href="/admin/export-templates" />
         <ActionCard icon={Sparkles}  title="AI accuracy"    description="Confidence-score moat dashboard" href="/admin/ai-accuracy" />
@@ -79,6 +81,7 @@ const AdminSidebar = () => {
     { to: '/admin/consolidated-reports', label: 'Consolidated Reports', icon: BarChart3 },
     { to: '/admin/users',            label: 'Users',            icon: Users },
     { to: '/admin/memberships',      label: 'Memberships & access', icon: Shield },
+    { to: '/admin/roles',            label: 'Roles reference',  icon: ScrollText },
     { to: '/admin/modules',          label: 'Module access',    icon: Package },
     { to: '/admin/export-templates', label: 'Export Templates', icon: FileText },
     { to: '/admin/ai-accuracy',      label: 'AI Accuracy',      icon: Sparkles },
@@ -142,6 +145,7 @@ const AdminModule = ({ session }) => {
           <Route path="/consolidated-reports" element={<SubTenantConsolidatedReports session={session} />} />
           <Route path="/users"             element={<UsersAdmin        session={session} />} />
           <Route path="/memberships"       element={<RbacMembershipsAdmin session={session} />} />
+          <Route path="/roles"             element={<RolesReference session={session} />} />
           <Route path="/modules"           element={<ModuleAccessAdmin session={session} />} />
           <Route path="/export-templates"  element={<ExportTemplatesAdmin session={session} />} />
           <Route path="/ai-accuracy"       element={<AiAccuracyDashboard session={session} />} />
