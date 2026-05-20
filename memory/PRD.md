@@ -10,6 +10,15 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Recently completed (Mail branding — Send test email card, 2026-02 — current fork)
+**One-button confidence check for the Resend wiring.** Right after pasting `RESEND_API_KEY` into `config.local.php`, tenant admins can now send a test message from `/admin/mail-branding` and see exactly which driver delivered (`resend`, `log`, or `phpmailer_smtp`) plus the Resend `message_id` round-trip — no need to trigger a real CFO report or bill-approval flow to find out the key is valid and the domain is verified.
+
+- **Backend:** `/api/admin/mail_test_send.php` — POST-only, admin-gated. Accepts `{ recipient, subject?, body_html? }`, defaults the subject/body to a self-describing template, validates the recipient address, rate-limits to 1 send per admin per 10 seconds (uses `audit_log` for the lockout window), routes through `mailerSend()`, and audits every send. Returns `{ ok, driver, message_id, error, fallback, resend_configured, tenant_id, recipient, subject }`.
+- **Frontend:** New `MailTestSendCard` mounted inside `MailBrandingAdmin.jsx`. Recipient email input + Send button, then a verdict panel showing pass/fail pill, driver pill, RESEND_API_KEY configured/missing badge, Resend message_id (when present), fallback reason (when the shim dropped to PHPMailer), and any provider error.
+- **Smoke:** `tests/mail_test_send_smoke.php` (30 assertions) covers endpoint contract (auth gate, validation, rate limit, audit row, dual-key detection, response shape) plus every testid on the React card.
+
+Full suite status: **213/213 smoke tests passing.** Bundle rebuilt + synced.
+
 ## Recently completed (Resend wiring — mailerSend shim, 2026-02 — current fork)
 **Five email call sites just started actually delivering.** `mailerSend()` was referenced in 5 places (CFO weekly report, timesheet approver notice, vendor portal invite, AP bill approvals, Mercury payment CFO alert) but **never defined** — every send silently no-op'd. Wired it through the existing `Core\MailService` + `Core\Mail\ResendDriver` infrastructure that was already built but unused.
 
