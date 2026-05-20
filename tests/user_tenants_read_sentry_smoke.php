@@ -35,6 +35,7 @@ function _userTenantsReadAllowlist(): array {
         'core/api_bootstrap.php'                     => 'Legacy role lookup during request bootstrap (B5 compatibility path)',
         'core/rbac/permissions.php'                  => 'RBACResolver::legacyRole() — by design, queries the legacy table',
         'api/admin/user_effective_permissions.php'   => 'Dual-table drift inspector — surfaces rows that exist in only one of the two tables',
+        'api/admin/membership_drift.php'             => 'Backfill drift inspector — surfaces user_tenants rows still awaiting heal into tenant_memberships',
         'scripts/backfill_memberships.php'           => 'The actual user_tenants → tenant_memberships migration script',
         'core/memberships.php'                       => 'provisionMembership() dual-write helper — owns every legacy write site-wide',
     ];

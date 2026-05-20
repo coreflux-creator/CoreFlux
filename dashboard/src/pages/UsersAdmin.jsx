@@ -3,6 +3,7 @@ import { Plus, Edit2, X, Save, KeyRound, Power, Search, Shield } from 'lucide-re
 import { api, useApi } from '../lib/api';
 import { Card } from '../components/UIComponents';
 import UserEffectivePermissionsModal from './UserEffectivePermissionsModal';
+import MembershipDriftBanner from './MembershipDriftBanner';
 
 /**
  * UsersAdmin — real CRUD against /api/users.php. Replaces the mock array
@@ -75,6 +76,8 @@ export default function UsersAdmin({ session }) {
           data-testid="users-search"
         />
       </div>
+
+      {isMaster && <MembershipDriftBanner onHealed={reload} />}
 
       {loading && <Card><p>Loading…</p></Card>}
       {error && <Card><p style={{ color: '#b91c1c' }}>{error.message || String(error)}</p></Card>}

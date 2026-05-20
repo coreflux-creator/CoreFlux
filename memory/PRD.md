@@ -9,6 +9,25 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Architecture:** Modular monolith; modules developed in-repo under `/modules/<name>/`, extracted to subtree repos later
 - **Hosting:** Cloudways
 
+## Backfill Drift Inspector — admin widget for membership migration progress (2026-02 — current fork)
+
+Follow-up to the read-fallback fix: master admins now have a one-click way to see and heal accounts still living only in `user_tenants`.
+
+- **New endpoint `/api/admin/membership_drift.php`** (master_admin / is_global_admin only):
+  - `GET` — returns `summary` (`total_active_users`, `in_legacy_only`, `in_new_table`, `drifting_users`, `returned`, `detail_capped_at`) plus up to 100 detail rows with `legacy_tenants` / `unhealed_tenants` / `last_active_at` / `tenant_names`.
+  - `POST ?action=heal&user_id=N` — heal one user via `healMembershipsForUser()`.
+  - `POST ?action=heal_all` — batched heal capped at 250 users per call (UI re-polls and re-runs until clean).
+  - `tenant-leak-allow` annotation + read-sentry allow-list entry (`tests/user_tenants_read_sentry_smoke.php`) — drift inspection legitimately needs to read `user_tenants` directly.
+- **New component `dashboard/src/pages/MembershipDriftBanner.jsx`** mounted on `/admin/users`:
+  - Hidden for non-masters and (after first paint) when drift is zero — replaced by a small green "all clean" pill so admins know the check ran.
+  - Card with amber left-border, summary counts (Total / In tenant_memberships / Drifting), "Heal all N" primary action, refresh button, and an expandable detail table with per-row Heal buttons.
+  - "Heal all" loops until `drifting_users === 0` (with a 20-hop circuit-breaker) so a single click drains drift even if it spans multiple 250-user batches.
+  - On every successful heal, fires `onHealed()` which re-polls the parent users list so the new tenant_count column updates immediately.
+- **Vite bundle re-built and `.deploy-version` synced** via `scripts/sync_bundle.sh`.
+- **New smoke `tests/membership_drift_inspector_smoke.php`** — 20 assertions covering endpoint auth gate, route shape, batch caps, NOT EXISTS de-dup semantics, banner test ids, heal-loop guard, and UsersAdmin wiring (gated on `isMaster`, `onHealed={reload}`).
+- **Smoke suite total:** 228 ✓ / 0 ✗ (was 227; +1 from the drift smoke).
+
+
 ## P0 fix — Tenant read-fallback (UNION shim + login self-heal, 2026-02 — current fork)
 
 After the prior session swapped every membership read from `user_tenants` to `tenant_memberships`, the production UI broke because `tenant_memberships` is not yet backfilled in prod (users saw zero tenants, master_admin lost global access, modules disappeared). Resolved without a DB migration:
