@@ -120,17 +120,24 @@ function subTenantProvision(int $parentTenantId, array $opts, ?int $actorUserId 
     if ($parent['tenant_type'] !== 'master') throw new InvalidArgumentException('parent must be a master tenant');
 
     $slug = trim((string)($opts['slug'] ?? '')) ?: subTenantSlugify($name);
+    // The `tenants.subdomain` column is NOT NULL with no default on some
+    // installs (it predates this codebase's migrations). Auto-derive from
+    // slug so the wizard doesn't fail with "Field 'subdomain' doesn't have
+    // a default value" — caller can still override via $opts['subdomain']
+    // when they need a distinct subdomain.
+    $subdomain = trim((string)($opts['subdomain'] ?? '')) ?: $slug;
 
     $pdo->beginTransaction();
     try {
         $stmt = $pdo->prepare(
-            "INSERT INTO tenants (name, slug, parent_id, tenant_type, is_active,
+            "INSERT INTO tenants (name, slug, subdomain, parent_id, tenant_type, is_active,
                                   primary_color, logo_url, created_at)
-             VALUES (:n, :s, :p, 'sub', 1, :pc, :lu, NOW())"
+             VALUES (:n, :s, :sd, :p, 'sub', 1, :pc, :lu, NOW())"
         );
         $stmt->execute([
             'n'  => $name,
             's'  => $slug,
+            'sd' => $subdomain,
             'p'  => $parentTenantId,
             'pc' => $opts['primary_color'] ?? null,
             'lu' => $opts['logo_url'] ?? null,

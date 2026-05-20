@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Plus, Edit2, X, Save, KeyRound, Power, Search } from 'lucide-react';
+import { Plus, Edit2, X, Save, KeyRound, Power, Search, Shield } from 'lucide-react';
 import { api, useApi } from '../lib/api';
 import { Card } from '../components/UIComponents';
+import UserEffectivePermissionsModal from './UserEffectivePermissionsModal';
 
 /**
  * UsersAdmin — real CRUD against /api/users.php. Replaces the mock array
@@ -28,6 +29,7 @@ export default function UsersAdmin({ session }) {
   const [editing, setEditing] = useState(null);
   const [filter,  setFilter]  = useState('');
   const [pwReset, setPwReset] = useState(null);  // user object
+  const [permsFor, setPermsFor] = useState(null); // user object — opens effective-permissions inspector
   const isMaster = session?.user?.global_role === 'master_admin';
 
   const users = (data?.users || []).filter(u => {
@@ -105,6 +107,8 @@ export default function UsersAdmin({ session }) {
                     </span>
                   </td>
                   <td style={{ textAlign: 'right' }}>
+                    <button className="btn btn--ghost" onClick={() => setPermsFor(u)}
+                            data-testid={`users-perms-${u.id}`} title="View effective permissions"><Shield size={14} /></button>
                     <button className="btn btn--ghost" onClick={() => setEditing(u)}
                             data-testid={`users-edit-${u.id}`}><Edit2 size={14} /></button>
                     <button className="btn btn--ghost" onClick={() => setPwReset(u)}
@@ -138,6 +142,12 @@ export default function UsersAdmin({ session }) {
       )}
       {pwReset && (
         <PasswordResetModal user={pwReset} onClose={() => setPwReset(null)} />
+      )}
+      {permsFor && (
+        <UserEffectivePermissionsModal
+          userId={permsFor.id}
+          onClose={() => setPermsFor(null)}
+        />
       )}
     </div>
   );
