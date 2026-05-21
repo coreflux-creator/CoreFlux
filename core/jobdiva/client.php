@@ -27,7 +27,18 @@ declare(strict_types=1);
 require_once __DIR__ . '/../encryption.php';
 
 const JOBDIVA_BASE_URL  = 'https://api.jobdiva.com';
-const JOBDIVA_AUTH_PATH = '/api/jobdiva/authenticate';
+// Authenticate against JobDiva V2 — verified 2026-02 from
+// https://api.jobdiva.com/swagger?group=Version%202. The path WAS
+// `/api/jobdiva/authenticate` (POST) in earlier docs, but that route
+// does not exist on api.jobdiva.com and Spring Security rejects it
+// with a generic `401 "Full authentication is required to access this
+// resource"` because the request is treated as unauthenticated against
+// an unmatched route. Correct shape:
+//   GET /apiv2/v2/authenticate?clientid=…&username=…&password=…
+// → 200 {"token": "...", "refreshtoken": "..."} (JwtV2Response)
+// → 500 "Invalid username/password" when creds are wrong (which is the
+//   real auth failure — the 401 we used to see was a path mismatch).
+const JOBDIVA_AUTH_PATH = '/apiv2/v2/authenticate';
 // Refresh the session token a minute before the server marks it expired,
 // to avoid racing with our own clock skew.
 const JOBDIVA_TOKEN_SLACK_SEC = 60;
@@ -245,9 +256,9 @@ function jobdivaSessionToken(int $tenantId): string
         }
     }
 
-    // Mint — credentials as query params, NOT JSON body.
+    // Mint — credentials as query params on a GET request (JobDiva V2 spec).
     $resp = jobdivaRawRequest(
-        'POST',
+        'GET',
         JOBDIVA_AUTH_PATH,
         /* body  */ null,
         /* query */ [
@@ -274,6 +285,8 @@ function jobdivaSessionToken(int $tenantId): string
         }
         $liUuid = $resp['headers']['x-li-uuid'] ?? '';
         $isProvisioning = stripos($bodyText, 'Full authentication is required') !== false;
+        $isBadCreds     = stripos($bodyText, 'Invalid username/password') !== false
+                       || stripos($bodyText, 'Invalid username or password') !== false;
 
         jobdivaAudit($tenantId, 'authenticate_failed', [
             'ok'     => false,
@@ -291,9 +304,18 @@ function jobdivaSessionToken(int $tenantId): string
         if ($jdMsg !== '')   $msg .= ' — "' . $jdMsg . '"';
         if ($liUuid !== '')  $msg .= ' [li-uuid: ' . $liUuid . ']';
         $msg .= "\nResponse body: " . substr($bodyText, 0, 400);
-        if ($isProvisioning) {
-            $msg .= "\n\nNext step: JobDiva says your tenant isn't provisioned for API access. "
-                  . 'Email JobDiva Support, quote the li-uuid above, and ask them to: '
+        if ($isBadCreds) {
+            $msg .= "\n\nNext step: JobDiva rejected the credentials. Double-check in /admin/integrations/jobdiva: "
+                  . '(1) Client ID is the numeric API client ID issued by JobDiva (not the alphanumeric tenant/company ID seen in the JobDiva UI), '
+                  . '(2) Username is the API service account email exactly as provisioned, '
+                  . '(3) Password has not been auto-rotated by JobDiva. '
+                  . 'If all three look correct, ask JobDiva Support to confirm the API user still has the '
+                  . '"Only allow to access JobDiva API Calls" permission enabled.';
+        } elseif ($isProvisioning) {
+            $msg .= "\n\nNext step: HTTP 401 \"Full authentication is required\" from JobDiva on the authenticate endpoint "
+                  . 'is almost always a path mismatch — confirm JOBDIVA_AUTH_PATH points at /apiv2/v2/authenticate (current). '
+                  . 'If the path is correct, JobDiva says your tenant is not provisioned for API access — '
+                  . 'email JobDiva Support, quote the li-uuid above, and ask them to: '
                   . '(1) issue an API Client ID, (2) create a dedicated API user (not a UI login), '
                   . '(3) enable the "Only allow to access JobDiva API Calls" permission. '
                   . 'Full template: /app/memory/JOBDIVA_API_ACCESS.md';

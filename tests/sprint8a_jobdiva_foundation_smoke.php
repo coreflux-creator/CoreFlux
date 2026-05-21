@@ -49,7 +49,8 @@ echo "\nClient — core/jobdiva/client.php\n";
 $cli = (string) file_get_contents("{$ROOT}/core/jobdiva/client.php");
 $assert('parses',                                 $lint("{$ROOT}/core/jobdiva/client.php"));
 $assert('JOBDIVA_BASE_URL = api.jobdiva.com',     strpos($cli, "const JOBDIVA_BASE_URL  = 'https://api.jobdiva.com'") !== false);
-$assert('auth path /api/jobdiva/authenticate',    strpos($cli, "JOBDIVA_AUTH_PATH = '/api/jobdiva/authenticate'") !== false);
+$assert('auth path /apiv2/v2/authenticate (JobDiva V2)',
+    strpos($cli, "JOBDIVA_AUTH_PATH = '/apiv2/v2/authenticate'") !== false);
 $assert('token-slack constant defined',           strpos($cli, 'JOBDIVA_TOKEN_SLACK_SEC = 60') !== false);
 $assert('jobdivaSaveConnection encrypts password',strpos($cli, "encryptField(\$password)") !== false);
 $assert('jobdivaSaveConnection upsert path',
@@ -59,8 +60,8 @@ $assert('jobdivaSaveConnection clears stale session on update',
     strpos($cli, 'session_token_enc = NULL, session_token_exp = NULL') !== false);
 $assert('jobdivaSessionToken caches + uses slack',
     strpos($cli, '$exp > (time() + JOBDIVA_TOKEN_SLACK_SEC)') !== false);
-$assert('jobdivaSessionToken mints via authenticate (creds in query, not body)',
-    strpos($cli, "jobdivaRawRequest(\n        'POST',\n        JOBDIVA_AUTH_PATH,\n        /* body  */ null,") !== false
+$assert('jobdivaSessionToken mints via GET authenticate (creds in query, no body)',
+    strpos($cli, "jobdivaRawRequest(\n        'GET',\n        JOBDIVA_AUTH_PATH,\n        /* body  */ null,") !== false
     && strpos($cli, "'clientid' => (string) \$row['client_id'],") !== false);
 $assert('jobdivaExtractToken handles raw body / JSON / header shapes',
     strpos($cli, 'function jobdivaExtractToken') !== false
