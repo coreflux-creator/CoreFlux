@@ -174,6 +174,147 @@ function airtableMappingDelete(int $tenantId, int $id, ?int $userId): void
 }
 
 /**
+ * Returns the set of tenant ids the user is authorised to manage as an
+ * admin (direct or via_parent). Mirrors the access matrix used by
+ * /api/admin/manageable_tenants.php — kept inline here so the duplicate
+ * flow doesn't depend on the SPA payload.
+ *
+ * @return array<int, true>  set of tenant_ids
+ */
+function airtableUserAdminTenantSet(int $userId, string $globalRole, bool $isGlobalAdmin): array
+{
+    $pdo = getDB();
+    if ($globalRole === 'master_admin' || $isGlobalAdmin) {
+        $rows = $pdo->query("SELECT id FROM tenants WHERE is_active = 1")->fetchAll(\PDO::FETCH_COLUMN);
+        $set = [];
+        foreach ($rows as $tid) $set[(int) $tid] = true;
+        return $set;
+    }
+    require_once __DIR__ . '/../memberships.php';
+    $stmt = $pdo->prepare(
+        "SELECT src.tenant_id, src.persona_type AS role
+           FROM " . membershipReadSourceSql() . " src
+           JOIN tenants t ON t.id = src.tenant_id AND t.is_active = 1
+          WHERE src.user_id = :u"
+    );
+    $stmt->execute(['u' => $userId]);
+    $set = [];
+    $adminParentIds = [];
+    foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
+        $tid  = (int) $r['tenant_id'];
+        $role = (string) ($r['role'] ?? 'employee');
+        if (in_array($role, ['tenant_admin', 'admin', 'master_admin'], true)) {
+            $set[$tid] = true;
+            $adminParentIds[] = $tid;
+        }
+    }
+    // via_parent — every sub-tenant whose parent is a tenant the user admins.
+    if ($adminParentIds) {
+        $place = implode(',', array_fill(0, count($adminParentIds), '?'));
+        $sub = $pdo->prepare(
+            "SELECT id FROM tenants
+              WHERE is_active = 1 AND tenant_type = 'sub' AND parent_id IN ($place)"
+        );
+        $sub->execute($adminParentIds);
+        foreach ($sub->fetchAll(\PDO::FETCH_COLUMN) as $tid) $set[(int) $tid] = true;
+    }
+    return $set;
+}
+
+/**
+ * Duplicate one source mapping into a list of target tenants. Each
+ * target must (a) be in the caller's admin-tenant set, and (b) have an
+ * active Airtable connection. Targets that fail either check are
+ * reported in `skipped` so the UI can surface the reason.
+ *
+ * Returns { source_mapping_id, created, updated, skipped, errors }.
+ */
+function airtableMappingDuplicate(
+    int $sourceTenantId,
+    int $sourceMappingId,
+    array $targetTenantIds,
+    int $userId,
+    string $globalRole,
+    bool $isGlobalAdmin
+): array {
+    $source = airtableMappingGet($sourceTenantId, $sourceMappingId);
+    if (!$source) throw new \RuntimeException('Source mapping not found');
+
+    $allowed = airtableUserAdminTenantSet($userId, $globalRole, $isGlobalAdmin);
+    $pdo = getDB();
+    $created = []; $updated = []; $skipped = []; $errors = [];
+
+    foreach ($targetTenantIds as $rawTid) {
+        $tid = (int) $rawTid;
+        if ($tid <= 0)              { continue; }
+        if ($tid === $sourceTenantId) { $skipped[] = ['tenant_id' => $tid, 'reason' => 'is_source']; continue; }
+        if (!isset($allowed[$tid])) { $skipped[] = ['tenant_id' => $tid, 'reason' => 'not_admin']; continue; }
+
+        // Target must have an active Airtable connection to actually sync.
+        $conn = $pdo->prepare(
+            'SELECT id, status FROM airtable_connections WHERE tenant_id = :t LIMIT 1'
+        );
+        $conn->execute(['t' => $tid]);
+        $row = $conn->fetch(\PDO::FETCH_ASSOC);
+        if (!$row || $row['status'] !== 'active') {
+            $skipped[] = ['tenant_id' => $tid, 'reason' => 'no_connection'];
+            continue;
+        }
+
+        // Check if target already has the same (base, table) — distinguish
+        // "created" from "updated" for the response payload.
+        $exStmt = $pdo->prepare(
+            'SELECT id FROM airtable_table_mappings
+              WHERE tenant_id = :t AND base_id = :b AND table_id = :tb LIMIT 1'
+        );
+        $exStmt->execute(['t' => $tid, 'b' => $source['base_id'], 'tb' => $source['table_id']]);
+        $isUpdate = (bool) $exStmt->fetch(\PDO::FETCH_ASSOC);
+
+        try {
+            $newRow = airtableMappingUpsert($tid, [
+                'base_id'         => $source['base_id'],
+                'base_name'       => $source['base_name'],
+                'table_id'        => $source['table_id'],
+                'table_name'      => $source['table_name'],
+                'internal_entity' => $source['internal_entity'],
+                'direction'       => $source['direction'],
+                'field_map'       => $source['field_map'],
+                'primary_field'   => $source['primary_field'],
+            ], $userId);
+            $bucket = $isUpdate ? 'updated' : 'created';
+            ${$bucket}[] = ['tenant_id' => $tid, 'mapping_id' => (int) $newRow['id']];
+        } catch (\Throwable $e) {
+            $errors[] = ['tenant_id' => $tid, 'error' => substr($e->getMessage(), 0, 300)];
+        }
+    }
+
+    // Audit on the source tenant — explains where the mapping fanned out.
+    airtableAudit($sourceTenantId, 'mapping_duplicate', [
+        'base_id' => $source['base_id'], 'table_id' => $source['table_id'],
+        'actor_user_id' => $userId,
+        'items_processed' => count($created) + count($updated),
+        'items_skipped'   => count($skipped),
+        'items_failed'    => count($errors),
+        'detail' => [
+            'source_mapping_id' => $sourceMappingId,
+            'targets'           => $targetTenantIds,
+            'created'           => $created,
+            'updated'           => $updated,
+            'skipped'           => $skipped,
+            'errors'            => $errors,
+        ],
+    ]);
+
+    return [
+        'source_mapping_id' => $sourceMappingId,
+        'created'           => $created,
+        'updated'           => $updated,
+        'skipped'           => $skipped,
+        'errors'            => $errors,
+    ];
+}
+
+/**
  * Pull every record in an Airtable table through the field_map and
  * upsert into external_entity_mappings under source_system='airtable'.
  * The internal_entity_id is synthesised from the Airtable record id —

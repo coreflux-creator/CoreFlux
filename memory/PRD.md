@@ -64,11 +64,28 @@ Covered by the `integrations.*` wildcard in `rbac_config.php` for tenant_admin.
 - Activity feed: latest 25 audit rows with action / base / table / result.
 
 ### Smoke test
-- `tests/airtable_foundation_smoke.php` — 94 assertions covering migration shape,
-  client public surface, sync pipeline surface, API dispatch, all 10 shims,
-  `php -l` sanity, UI testids, AdminModule/Hub wiring, RBAC legacy_map,
-  and a functional adapter test using the injected transport stub.
+- `tests/airtable_foundation_smoke.php` — 105 assertions covering migration shape,
+  client public surface, sync pipeline surface, API dispatch (incl.
+  `duplicate_targets` + `mapping_duplicate`), all 12 shims, `php -l`
+  sanity, UI testids (incl. duplicate modal + per-row trigger),
+  AdminModule/Hub wiring, RBAC legacy_map, and a functional adapter
+  test using the injected transport stub.
 - Full suite: 236/236 passing.
+
+### Duplicate-to-tenants flow (Slice 1.5)
+- Backend: `airtableUserAdminTenantSet()` resolves every tenant the
+  caller may manage (master_admin = all active tenants; tenant_admin =
+  direct memberships + via_parent sub-tenants).
+- `airtableMappingDuplicate()` validates each target against that set,
+  requires an active Airtable connection on the target, and reuses
+  `airtableMappingUpsert()` so dedup on `(tenant, base, table)` works.
+- API actions: `GET duplicate_targets` (candidate tenants annotated with
+  connection status) + `POST mapping_duplicate` (body:
+  `{source_mapping_id, target_tenant_ids: int[]}`, max 100).
+- UI: per-row "Duplicate" button opens a modal with two sections
+  ("Connected" selectable, "Without Airtable connection" disabled), a
+  bulk "Select all" toggle, and a result block summarising
+  created/updated/skipped/errored tenants.
 
 
 ## Cross-tenant accounting audit trail (2026-02 — current fork)

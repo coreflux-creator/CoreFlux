@@ -67,6 +67,7 @@ foreach ([
     'airtableMappingList', 'airtableMappingGet',
     'airtableMappingUpsert', 'airtableMappingDelete',
     'airtableSyncTable',
+    'airtableUserAdminTenantSet', 'airtableMappingDuplicate',
 ] as $fn) {
     $a("declares $fn()",                         $c($sync, "function $fn"));
 }
@@ -84,6 +85,7 @@ foreach ([
     'status', 'connect', 'disconnect', 'ping',
     'list_bases', 'list_tables',
     'mappings', 'mapping_save', 'mapping_delete', 'sync_now',
+    'duplicate_targets', 'mapping_duplicate',
 ] as $act) {
     $a("handles action: $act",                   $c($api, "case '$act'"));
 }
@@ -95,6 +97,7 @@ foreach ([
     'status', 'connect', 'disconnect', 'ping',
     'list_bases', 'list_tables',
     'mappings', 'mapping_save', 'mapping_delete', 'sync_now',
+    'duplicate_targets', 'mapping_duplicate',
 ] as $shim) {
     $a("shim api/airtable/$shim.php present",    file_exists($ROOT . "/api/airtable/$shim.php"));
 }
@@ -135,6 +138,11 @@ $a('save mapping btn testid',                    $c($ui, 'data-testid="airtable-
 $a('uses /api/airtable/connect',                 $c($ui, '/api/airtable/connect.php'));
 $a('uses /api/airtable/sync_now',                $c($ui, '/api/airtable/sync_now.php'));
 $a('uses /api/airtable/mapping_save',            $c($ui, '/api/airtable/mapping_save.php'));
+$a('duplicate modal testid',                     $c($ui, 'data-testid="airtable-duplicate-modal"'));
+$a('duplicate apply btn testid',                 $c($ui, 'data-testid="airtable-duplicate-apply-btn"'));
+$a('duplicate per-row trigger testid',           $c($ui, 'data-testid={`airtable-duplicate-mapping-${mapping.id}`}'));
+$a('uses /api/airtable/duplicate_targets',       $c($ui, '/api/airtable/duplicate_targets.php'));
+$a('uses /api/airtable/mapping_duplicate',       $c($ui, '/api/airtable/mapping_duplicate.php'));
 
 // ----------------------------------------------------------------- Admin + Hub wiring
 echo "\nUI — AdminModule + IntegrationsHub wiring\n";

@@ -181,6 +181,73 @@ switch ($action) {
         }
         api_ok($res);
     }
+
+    case 'duplicate_targets': {
+        // List candidate target tenants for a duplicate operation.
+        // Returns every tenant the caller is authorised to manage,
+        // annotated with whether each one has an active Airtable
+        // connection. tenant-leak-allow: cross-tenant by design — scoped
+        // by the caller's admin-tenant set above.
+        if ($method !== 'GET') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.airtable.manage');
+        $globalRole  = (string) ($ctx['global_role'] ?? $user['global_role'] ?? $user['role'] ?? 'employee');
+        $isGlobalAdm = (bool)   ($ctx['is_global_admin'] ?? false);
+        $allowed     = airtableUserAdminTenantSet((int) ($user['id'] ?? 0), $globalRole, $isGlobalAdm);
+        if (!$allowed) api_ok(['targets' => []]);
+        $place = implode(',', array_fill(0, count($allowed), '?'));
+        $ids   = array_keys($allowed);
+        $stmt = getDB()->prepare(
+            "SELECT t.id, t.name, t.parent_id, t.tenant_type,
+                    c.status AS connection_status, c.pat_last4
+               FROM tenants t
+          LEFT JOIN airtable_connections c ON c.tenant_id = t.id
+              WHERE t.is_active = 1 AND t.id IN ($place)
+           ORDER BY (t.parent_id IS NULL) DESC, t.name ASC"
+        );
+        $stmt->execute($ids);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        $out = [];
+        foreach ($rows as $r) {
+            $rid = (int) $r['id'];
+            if ($rid === $tid) continue;   // never list the source
+            $out[] = [
+                'id'                => $rid,
+                'name'              => (string) $r['name'],
+                'parent_id'         => $r['parent_id'] ? (int) $r['parent_id'] : null,
+                'tenant_type'       => (string) ($r['tenant_type'] ?? 'master'),
+                'connection_status' => (string) ($r['connection_status'] ?? 'none'),
+                'pat_last4'         => $r['pat_last4'] ?? null,
+                'connected'         => ($r['connection_status'] ?? null) === 'active',
+            ];
+        }
+        api_ok(['targets' => $out]);
+    }
+
+    case 'mapping_duplicate': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.airtable.manage');
+        $body = api_json_body();
+        $sourceId = (int) ($body['source_mapping_id'] ?? 0);
+        $targets  = $body['target_tenant_ids'] ?? [];
+        if ($sourceId <= 0)        api_error('source_mapping_id required', 422);
+        if (!is_array($targets))   api_error('target_tenant_ids must be an array', 422);
+        if (count($targets) === 0) api_error('target_tenant_ids must not be empty', 422);
+        if (count($targets) > 100) api_error('target_tenant_ids may not exceed 100', 422);
+
+        $globalRole  = (string) ($ctx['global_role'] ?? $user['global_role'] ?? $user['role'] ?? 'employee');
+        $isGlobalAdm = (bool)   ($ctx['is_global_admin'] ?? false);
+        try {
+            $res = airtableMappingDuplicate(
+                $tid, $sourceId, $targets,
+                (int) ($user['id'] ?? 0), $globalRole, $isGlobalAdm
+            );
+        } catch (\RuntimeException $e) {
+            api_error($e->getMessage(), 404);
+        } catch (\Throwable $e) {
+            api_error('duplicate failed: ' . $e->getMessage(), 500);
+        }
+        api_ok($res);
+    }
 }
 
 api_error('Unknown action: ' . $action, 400);

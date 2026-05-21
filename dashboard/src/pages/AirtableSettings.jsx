@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useApi, api } from '../lib/api';
 import {
   CheckCircle2, XCircle, RefreshCw, ExternalLink, Save, Trash2,
-  Database, Table2, AlertTriangle, Send, Plus, Eye, EyeOff,
+  Database, Table2, AlertTriangle, Send, Plus, Eye, EyeOff, Copy, X,
 } from 'lucide-react';
 
 /**
@@ -291,6 +291,7 @@ function MappingEditor({ mappings, entities, directions, busy, setBusy, setFlash
 
 function MappingRow({ mapping, entities, directions, busy, setBusy, setFlash, reload }) {
   const [editing, setEditing] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
 
   const handleSyncNow = async () => {
     setBusy(true); setFlash(null);
@@ -355,6 +356,14 @@ function MappingRow({ mapping, entities, directions, busy, setBusy, setFlash, re
             </button>
             <button
               type="button" className="btn"
+              data-testid={`airtable-duplicate-mapping-${mapping.id}`}
+              onClick={() => setDuplicating(true)} disabled={busy}
+              title="Duplicate this mapping to other tenants you manage"
+            >
+              <Copy size={13} style={{ marginRight: 4 }} />Duplicate
+            </button>
+            <button
+              type="button" className="btn"
               data-testid={`airtable-edit-mapping-${mapping.id}`}
               onClick={() => setEditing(true)} disabled={busy}
             >
@@ -375,6 +384,13 @@ function MappingRow({ mapping, entities, directions, busy, setBusy, setFlash, re
           busy={busy} setBusy={setBusy}
           setFlash={setFlash} reload={reload}
           onClose={() => setEditing(false)}
+        />
+      )}
+      {duplicating && (
+        <DuplicateModal
+          mapping={mapping} busy={busy} setBusy={setBusy}
+          setFlash={setFlash} reload={reload}
+          onClose={() => setDuplicating(false)}
         />
       )}
     </div>
@@ -570,6 +586,228 @@ const inputStyle = {
   width: '100%', padding: '6px 10px', borderRadius: 4,
   border: '1px solid var(--cf-border)', fontSize: 13, marginTop: 4,
 };
+
+/* ─────────────────────────────────────────────────────────── duplicate */
+
+function DuplicateModal({ mapping, busy, setBusy, setFlash, reload, onClose }) {
+  const [targets, setTargets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(new Set());
+  const [result, setResult] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    api.get('/api/airtable/duplicate_targets.php?action=duplicate_targets')
+      .then((r) => { if (mounted) { setTargets(r.targets || []); setLoading(false); } })
+      .catch((e) => {
+        if (mounted) {
+          setFlash({ kind: 'error', msg: 'Failed to load tenants: ' + (e.message || e) });
+          setLoading(false);
+        }
+      });
+    return () => { mounted = false; };
+  }, [setFlash]);
+
+  const toggle = (id) => {
+    const n = new Set(selected);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    setSelected(n);
+  };
+  const toggleAll = (filterFn) => {
+    const eligible = targets.filter(filterFn).map((t) => t.id);
+    const allOn = eligible.every((id) => selected.has(id));
+    const n = new Set(selected);
+    if (allOn) eligible.forEach((id) => n.delete(id));
+    else       eligible.forEach((id) => n.add(id));
+    setSelected(n);
+  };
+
+  const submit = async () => {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    setBusy(true);
+    try {
+      const r = await api.post('/api/airtable/mapping_duplicate.php?action=mapping_duplicate', {
+        source_mapping_id: mapping.id,
+        target_tenant_ids: ids,
+      });
+      setResult(r);
+      const total = (r.created?.length || 0) + (r.updated?.length || 0);
+      setFlash({
+        kind: (r.errors?.length || 0) === 0 ? 'success' : 'error',
+        msg: `Duplicate complete: ${r.created?.length || 0} created · ${r.updated?.length || 0} updated · ${r.skipped?.length || 0} skipped · ${r.errors?.length || 0} errors (${total} mappings synced).`,
+      });
+      reload();
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const connectedTargets   = targets.filter((t) => t.connected);
+  const unconnectedTargets = targets.filter((t) => !t.connected);
+
+  return (
+    <div
+      data-testid="airtable-duplicate-modal"
+      role="dialog" aria-modal="true"
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        style={{
+          background: 'var(--cf-surface, #fff)', borderRadius: 8,
+          width: 'min(640px, 92vw)', maxHeight: '88vh', overflow: 'auto',
+          boxShadow: '0 20px 50px rgba(0,0,0,0.25)', padding: 20,
+        }}
+      >
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 600 }}>Duplicate mapping</h3>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+              Copy <strong>{mapping.base_name || mapping.base_id} / {mapping.table_name || mapping.table_id}</strong>
+              {' → '}<code>{mapping.internal_entity}</code> to other tenants you manage. Each target must already
+              have an Airtable PAT connected; targets without one are listed but disabled.
+            </p>
+          </div>
+          <button
+            type="button" className="btn"
+            data-testid="airtable-duplicate-close-btn"
+            onClick={onClose} disabled={busy}
+          >
+            <X size={14} />
+          </button>
+        </header>
+
+        {loading && <p data-testid="airtable-duplicate-loading">Loading tenants…</p>}
+
+        {!loading && targets.length === 0 && (
+          <p data-testid="airtable-duplicate-empty" style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>
+            You don't have admin access to any other tenants. Duplicate isn't available here.
+          </p>
+        )}
+
+        {!loading && targets.length > 0 && (
+          <>
+            {connectedTargets.length > 0 && (
+              <section data-testid="airtable-duplicate-connected-section" style={{ marginBottom: 16 }}>
+                <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <strong style={{ fontSize: 13 }}>Connected tenants ({connectedTargets.length})</strong>
+                  <button
+                    type="button" className="btn"
+                    data-testid="airtable-duplicate-select-all-connected"
+                    onClick={() => toggleAll((t) => t.connected)}
+                    disabled={busy}
+                    style={{ fontSize: 11, padding: '2px 8px' }}
+                  >
+                    Select all
+                  </button>
+                </header>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, border: '1px solid var(--cf-border-muted, #f1f5f9)', borderRadius: 6 }}>
+                  {connectedTargets.map((t) => (
+                    <TargetRow key={t.id} target={t} selected={selected.has(t.id)} onToggle={() => toggle(t.id)} disabled={busy} />
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {unconnectedTargets.length > 0 && (
+              <section data-testid="airtable-duplicate-unconnected-section" style={{ marginBottom: 16 }}>
+                <header style={{ marginBottom: 6 }}>
+                  <strong style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>
+                    Without Airtable connection ({unconnectedTargets.length})
+                  </strong>
+                  <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--cf-text-secondary)' }}>
+                    Connect Airtable in each tenant's Integrations page before duplicating.
+                  </p>
+                </header>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, border: '1px dashed var(--cf-border, #e5e7eb)', borderRadius: 6, opacity: 0.6 }}>
+                  {unconnectedTargets.map((t) => (
+                    <TargetRow key={t.id} target={t} selected={false} onToggle={() => {}} disabled />
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {result && (
+              <div data-testid="airtable-duplicate-result" style={{ marginTop: 12, padding: 10, borderRadius: 6, background: 'var(--cf-blue-bg, #eff6ff)', fontSize: 12 }}>
+                <div><strong>Created:</strong> {result.created?.map((c) => c.tenant_id).join(', ') || 'none'}</div>
+                <div><strong>Updated:</strong> {result.updated?.map((c) => c.tenant_id).join(', ') || 'none'}</div>
+                {result.skipped?.length > 0 && (
+                  <div><strong>Skipped:</strong> {result.skipped.map((s) => `${s.tenant_id} (${s.reason})`).join(', ')}</div>
+                )}
+                {result.errors?.length > 0 && (
+                  <div style={{ color: 'var(--cf-red, #b91c1c)' }}>
+                    <strong>Errors:</strong> {result.errors.map((e) => `${e.tenant_id}: ${e.error}`).join('; ')}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <footer style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+              <button type="button" className="btn" onClick={onClose} disabled={busy} data-testid="airtable-duplicate-cancel-btn">
+                Close
+              </button>
+              <button
+                type="button" className="btn btn--primary"
+                data-testid="airtable-duplicate-apply-btn"
+                onClick={submit}
+                disabled={busy || selected.size === 0}
+              >
+                <Copy size={13} style={{ marginRight: 4 }} />
+                {busy ? 'Applying…' : `Duplicate to ${selected.size} tenant${selected.size === 1 ? '' : 's'}`}
+              </button>
+            </footer>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TargetRow({ target, selected, onToggle, disabled }) {
+  return (
+    <li
+      data-testid={`airtable-duplicate-target-${target.id}`}
+      style={{
+        padding: '8px 12px',
+        borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)',
+        display: 'flex', alignItems: 'center', gap: 10, cursor: disabled ? 'not-allowed' : 'pointer',
+      }}
+      onClick={() => { if (!disabled) onToggle(); }}
+    >
+      <input
+        type="checkbox"
+        data-testid={`airtable-duplicate-checkbox-${target.id}`}
+        checked={selected}
+        onChange={() => {}}
+        disabled={disabled}
+        style={{ pointerEvents: 'none' }}
+      />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 500, fontSize: 13 }}>
+          {target.name}
+          {target.tenant_type === 'sub' && (
+            <span style={{ fontSize: 11, color: 'var(--cf-text-secondary)', marginLeft: 6 }}>
+              (sub-tenant of #{target.parent_id})
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>
+          tenant #{target.id} ·{' '}
+          {target.connected
+            ? <>PAT ••••{target.pat_last4} · <span style={{ color: 'var(--cf-green, #047857)' }}>connected</span></>
+            : <span style={{ color: 'var(--cf-amber, #92400e)' }}>no connection</span>}
+        </div>
+      </div>
+    </li>
+  );
+}
 
 /* ─────────────────────────────────────────────────────────── activity */
 
