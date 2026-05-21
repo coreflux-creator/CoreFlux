@@ -37,7 +37,7 @@ $assert('UNIQUE per tenant on connections',       strpos($mig, 'UNIQUE KEY uk_te
 $assert('UNIQUE webhook event idempotency',
     strpos($mig, 'UNIQUE KEY uk_tenant_event (tenant_id, jd_event_id)') !== false);
 $assert('encrypted password column VARBINARY',    strpos($mig, 'password_enc      VARBINARY(1024) NOT NULL') !== false);
-$assert('encrypted session_token column',         strpos($mig, 'session_token_enc VARBINARY(1024)') !== false);
+$assert('encrypted session_token column (widened by mig 066)', strpos($mig, 'session_token_enc VARBINARY(4096)') !== false);
 $assert('encrypted webhook_secret column',        strpos($mig, 'webhook_secret_enc VARBINARY(1024)') !== false);
 $assert('status enum 4 states',
     strpos($mig, "ENUM('connected','degraded','disconnected','error')") !== false);

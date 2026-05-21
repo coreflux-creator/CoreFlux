@@ -70,3 +70,27 @@ Paste the new Client ID + API username + API password into `/admin/integrations/
 ## Sync paths (separate follow-up)
 
 `core/jobdiva/sync.php` and `sync_time.php` still hit `/api/jobdiva/companies`, `/api/jobdiva/contacts`, `/api/jobdiva/placements`, `/api/jobdiva/timesheets`. None of those paths exist either. Once authenticate is confirmed working with real credentials, the next pass should map them to the V2 BI endpoints (`/apiv2/bi/CompaniesDetail`, `/apiv2/bi/ContactsDetail`, etc.) — see Swagger group `Version 2`.
+
+## Known follow-up issues already resolved in code (need prod ALTER)
+
+After fixing the auth path, the next failure was:
+
+```
+SQLSTATE[22001]: String data, right truncated: 1406
+Data too long for column 'session_token_enc' at row 1
+```
+
+JobDiva's V2 JWT is ~1.2 KB raw, and after AES-256-GCM wrapping
+(`12-byte nonce + 16-byte tag + ciphertext`) it overflows the original
+`VARBINARY(1024)`. Migration **066** widens the column to
+`VARBINARY(4096)`. Run on prod:
+
+```sql
+ALTER TABLE jobdiva_connections
+    MODIFY COLUMN session_token_enc VARBINARY(4096) DEFAULT NULL;
+```
+
+Or apply the file via your usual migration runner:
+`core/migrations/066_jobdiva_session_token_width.sql`. Idempotent —
+safe to re-run.
+

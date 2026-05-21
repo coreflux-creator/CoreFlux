@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS jobdiva_connections (
     username          VARCHAR(255)    NOT NULL,
     password_enc      VARBINARY(1024) NOT NULL,
     -- Cached session token, refreshed on demand. NULL → next call mints.
-    session_token_enc VARBINARY(1024) DEFAULT NULL,
+    session_token_enc VARBINARY(4096) DEFAULT NULL,
     session_token_exp TIMESTAMP NULL DEFAULT NULL,
     -- Webhook HMAC secret (raw shared secret, encrypted).
     webhook_secret_enc VARBINARY(1024) DEFAULT NULL,
