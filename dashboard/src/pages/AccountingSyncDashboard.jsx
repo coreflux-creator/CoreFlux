@@ -24,34 +24,43 @@ export default function AccountingSyncDashboard() {
   const { data, loading, error, reload } = useApi('/api/admin/accounting_sync_dashboard.php');
   const [busyKey, setBusyKey] = useState(null);
   const [flash, setFlash] = useState(null);
+  const [batchProgress, setBatchProgress] = useState(null);   // { idx, total, currentLabel } when reconcile-all is running
+
+  const fireReconcile = async (entityKey) => {
+    return api.post('/api/admin/accounting_sync_reconcile.php', { entity_key: entityKey });
+  };
+
+  const formatPerSystem = (r) => {
+    const parts = [];
+    if (r.qbo?.attempted) {
+      const ok = !r.qbo?.error;
+      const res = r.qbo?.result || {};
+      const counts = [];
+      if (res.pushed   !== undefined) counts.push(`${res.pushed} pushed`);
+      if (res.pulled   !== undefined) counts.push(`${res.pulled} pulled`);
+      if (res.matched  !== undefined) counts.push(`${res.matched} matched`);
+      if (res.created  !== undefined) counts.push(`${res.created} created`);
+      if (res.updated  !== undefined) counts.push(`${res.updated} updated`);
+      if (res.skipped  !== undefined) counts.push(`${res.skipped} skipped`);
+      if (res.skipped_unmapped !== undefined) counts.push(`${res.skipped_unmapped} skipped`);
+      if (res.failed   !== undefined && res.failed > 0) counts.push(`${res.failed} failed`);
+      parts.push(`QBO ${ok ? 'ok' : 'fail'}${counts.length ? ' (' + counts.join(' · ') + ')' : ''}${r.qbo.error ? ': ' + r.qbo.error : ''}`);
+    } else {
+      parts.push(`QBO skipped (${r.qbo?.reason || 'unknown'})`);
+    }
+    if (r.zoho_books?.attempted) {
+      parts.push(`Zoho ok`);
+    } else {
+      parts.push(`Zoho skipped (${r.zoho_books?.reason || 'unknown'})`);
+    }
+    return parts;
+  };
 
   const reconcile = async (entity) => {
     setBusyKey(entity.key); setFlash(null);
     try {
-      const r = await api.post('/api/admin/accounting_sync_reconcile.php', { entity_key: entity.key });
-      const parts = [];
-      if (r.qbo?.attempted) {
-        const ok = !r.qbo?.error;
-        const res = r.qbo?.result || {};
-        const counts = [];
-        if (res.pushed   !== undefined) counts.push(`${res.pushed} pushed`);
-        if (res.pulled   !== undefined) counts.push(`${res.pulled} pulled`);
-        if (res.matched  !== undefined) counts.push(`${res.matched} matched`);
-        if (res.created  !== undefined) counts.push(`${res.created} created`);
-        if (res.updated  !== undefined) counts.push(`${res.updated} updated`);
-        if (res.skipped  !== undefined) counts.push(`${res.skipped} skipped`);
-        if (res.skipped_unmapped !== undefined) counts.push(`${res.skipped_unmapped} skipped`);
-        if (res.failed   !== undefined && res.failed > 0) counts.push(`${res.failed} failed`);
-        parts.push(`QBO ${ok ? 'ok' : 'fail'}${counts.length ? ' (' + counts.join(' · ') + ')' : ''}${r.qbo.error ? ': ' + r.qbo.error : ''}`);
-      } else {
-        parts.push(`QBO skipped (${r.qbo?.reason || 'unknown'})`);
-      }
-      if (r.zoho_books?.attempted) {
-        parts.push(`Zoho ok`);
-      } else {
-        parts.push(`Zoho skipped (${r.zoho_books?.reason || 'unknown'})`);
-      }
-      setFlash({ kind: 'success', msg: `Reconcile ${entity.label}: ${parts.join(' · ')}` });
+      const r = await fireReconcile(entity.key);
+      setFlash({ kind: 'success', msg: `Reconcile ${entity.label}: ${formatPerSystem(r).join(' · ')}` });
       reload();
     } catch (e) {
       setFlash({ kind: 'error', msg: e.message || String(e) });
@@ -60,11 +69,44 @@ export default function AccountingSyncDashboard() {
     }
   };
 
+  const reconcileAll = async () => {
+    const eligible = (data?.entities || []).filter((e) => e.coverage !== 'neither');
+    if (eligible.length === 0) {
+      setFlash({ kind: 'error', msg: 'No eligible entities to reconcile — flip a direction on at least one entity first.' });
+      return;
+    }
+    setFlash(null);
+    setBatchProgress({ idx: 0, total: eligible.length, currentLabel: eligible[0].label });
+    let okCount = 0; let failCount = 0; const lines = [];
+    for (let i = 0; i < eligible.length; i++) {
+      const e = eligible[i];
+      setBatchProgress({ idx: i, total: eligible.length, currentLabel: e.label });
+      setBusyKey(e.key);
+      try {
+        const r = await fireReconcile(e.key);
+        const ok = !(r.qbo?.error);
+        if (ok) okCount++; else failCount++;
+        lines.push(`${e.label}: ${formatPerSystem(r).join(' · ')}`);
+      } catch (err) {
+        failCount++;
+        lines.push(`${e.label}: error — ${err.message || String(err)}`);
+      }
+    }
+    setBatchProgress(null);
+    setBusyKey(null);
+    setFlash({
+      kind: failCount === 0 ? 'success' : 'error',
+      msg: `Reconcile-all complete: ${okCount} ok / ${failCount} failed across ${eligible.length} entities. ` + lines.join(' • '),
+    });
+    reload();
+  };
+
   if (loading) return <div data-testid="acct-sync-loading">Loading sync dashboard…</div>;
   if (error)   return <div data-testid="acct-sync-error" style={{ color: 'var(--cf-red, #b91c1c)' }}>Failed to load: {error.message || String(error)}</div>;
   if (!data)   return null;
 
   const { qbo, zoho_books: zoho, entities = [], summary = {}, unified_activity: activity = [] } = data;
+  const eligibleCount = entities.filter((e) => e.coverage !== 'neither').length;
 
   return (
     <div data-testid="accounting-sync-dashboard" style={{ maxWidth: 1100 }}>
@@ -129,15 +171,64 @@ export default function AccountingSyncDashboard() {
         className="card"
         style={{ padding: 16, border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8, marginBottom: 24 }}
       >
-        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>
-          <TrendingUp size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-          Per-entity drift
-        </h3>
-        <p style={{ margin: '4px 0 12px', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
-          A signal of <strong>QBO ahead</strong> / <strong>Zoho ahead</strong> means the last successful sync on
-          that side is ≥ 24 hours newer than the other — reconcile manually or flip a direction so they catch up.
-        </p>
-        <table data-testid="acct-sync-drift-table" style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+        <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 4 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>
+              <TrendingUp size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+              Per-entity drift
+            </h3>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+              A signal of <strong>QBO ahead</strong> / <strong>Zoho ahead</strong> means the last successful sync on
+              that side is ≥ 24 hours newer than the other — reconcile manually or flip a direction so they catch up.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn--primary"
+            data-testid="acct-sync-reconcile-all-btn"
+            onClick={reconcileAll}
+            disabled={eligibleCount === 0 || !!busyKey}
+            title={
+              eligibleCount === 0
+                ? 'No entities are eligible — flip a direction on at least one row first.'
+                : `Runs every eligible sync (${eligibleCount}) sequentially.`
+            }
+            style={{ whiteSpace: 'nowrap' }}
+          >
+            <RefreshCw size={13} style={{ marginRight: 6 }} />
+            {batchProgress ? `Running ${batchProgress.idx + 1} / ${batchProgress.total}…` : `Reconcile all (${eligibleCount})`}
+          </button>
+        </header>
+
+        {batchProgress && (
+          <div data-testid="acct-sync-reconcile-all-progress" style={{ margin: '12px 0 16px' }}>
+            <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)', marginBottom: 4 }}>
+              {batchProgress.idx + 1} of {batchProgress.total} — {batchProgress.currentLabel}
+            </div>
+            <div
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={batchProgress.total}
+              aria-valuenow={batchProgress.idx}
+              style={{
+                height: 6, background: 'var(--cf-border-muted, #f1f5f9)',
+                borderRadius: 3, overflow: 'hidden',
+              }}
+            >
+              <div
+                data-testid="acct-sync-reconcile-all-progress-bar"
+                style={{
+                  height: '100%',
+                  width: `${Math.round((batchProgress.idx / batchProgress.total) * 100)}%`,
+                  background: 'var(--cf-blue, #2563eb)',
+                  transition: 'width 200ms ease',
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        <table data-testid="acct-sync-drift-table" style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', marginTop: 12 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: 'var(--cf-text-secondary)', borderBottom: '1px solid var(--cf-border)' }}>
               <th style={{ padding: '8px 4px' }}>Entity</th>

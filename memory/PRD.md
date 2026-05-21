@@ -10,6 +10,83 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Reconcile-All + Zoho Books Slice 2 (2026-02 — current fork)
+
+### Reconcile-All (dashboard header button)
+- New "Reconcile all (N)" button at the top of the per-entity drift
+  table. Counts and labels itself with the number of eligible entities
+  (coverage !== 'neither').
+- Runs each eligible entity sequentially against the existing
+  `/api/admin/accounting_sync_reconcile.php` endpoint to avoid
+  hammering Zoho/Intuit rate limits.
+- Progress block shows `X of Y — <entity label>` plus an animated
+  progress bar (`role="progressbar"`).
+- Final flash summarises per-entity outcomes inline so a CFO can scan
+  the whole month-end pass without scrolling activity feed.
+- Pure frontend addition — backend already supports per-entity calls.
+
+### Zoho Books Slice 2 — Journal Entries push
+Mirrors QBO Slice 2 architecture exactly.
+
+**Backend (`core/zoho_books/sync_je.php`)**
+- Public surface: `zohoBooksResolveAccountRef`,
+  `zohoBooksBuildJournalPayload` (pure function — unit-testable),
+  `zohoBooksSyncJournalEntries`.
+- Eligibility: `accounting_journal_entries.status='posted'` AND no
+  existing row in `external_entity_mappings` for
+  (tenant, 'zoho_books', 'journal_entry', je.id). Idempotency lives at
+  the SELECT layer, not at the POST layer.
+- Account resolution: looks up existing
+  (tenant, 'zoho_books', 'account', accountId) mapping; otherwise
+  auto-discovers via Zoho's `/books/v3/chartofaccounts?account_code=<code>`
+  and persists the mapping for future runs.
+- Skip-on-unmapped-accounts: any line with no resolvable account aborts
+  the entire JE with `reason=unmapped_accounts` and records the
+  unresolved account ids. Audit row written under
+  `action=sync_je_skip` for visibility in the unified activity feed.
+- Zoho payload: `{ journal_date, reference_number, notes, line_items: [
+  { account_id, description, debit_or_credit, amount } ] }`.
+- POSTs to `/books/v3/journals`, captures `journal.journal_id` from the
+  response, and writes the mapping under
+  (tenant, 'zoho_books', 'journal_entry').
+- Opts: `limit` (default 50, cap 500), `dry_run` (skip POST — useful
+  for diagnosing unmapped accounts before booking), `je_ids` (restrict).
+- Audit emits three actions per run: `sync_je` (aggregate), and
+  per-JE `sync_je_push` (ok) or `sync_je_skip` (unmapped) /
+  failure-tagged push.
+
+**API + cron**
+- `api/zoho_books.php` adds `sync_je` action, shim at
+  `api/zoho_books/sync_je.php`. RBAC `integrations.zoho_books.manage`.
+- `cron/zoho_books_sync_outbound.php` — `H/15 * * * *`. Scans every
+  active connection where `journal_entries` direction is push/two_way,
+  caps at 50 per tenant per cycle, continues on per-tenant failure,
+  emits aggregate counts to stdout.
+
+**Reconcile endpoint wiring**
+- `api/admin/accounting_sync_reconcile.php` now registers Zoho's JE
+  runner alongside QBO's. The `worker_pending` fallback still applies
+  to the other 6 entities until their Slice 3/4 workers land.
+
+**UI**
+- `ZohoBooksSettings.jsx` adds a "Manual sync" card with a Journal
+  Entries row exposing two buttons: **Sync now** (POST `/sync_je`)
+  and **Dry run** (POST `/sync_je` with `dry_run=true`). Both disabled
+  unless direction is push or two_way.
+- Banner notes updated: Slice 2 is live, Slices 3-5 still pending.
+
+**Smoke tests**
+- `tests/zoho_books_je_push_smoke.php` — 50 assertions covering the
+  worker public surface, idempotency join, account resolver, payload
+  builder (with both happy-path and unmapped-line scenarios via the
+  pure function), audit actions, API dispatch, cron wiring, reconcile
+  registration, and the manual-sync UI testids.
+- `tests/accounting_sync_dashboard_smoke.php` extended to 77 assertions
+  for the new reconcile-all button + progress bar.
+- Full suite: **239/239 passing**.
+
+
+
 ## Accounting Sync Dashboard — Reconcile (2026-02 — current fork)
 
 Per-entity one-click reconcile inside the drift table. Each row now

@@ -126,6 +126,15 @@ $a('reconcile POSTs to /api/admin/accounting_sync_reconcile',
 $a('reconcile disables on inactive coverage',    $c($ui, "entity.coverage !== 'neither'"));
 $a('reconcile uses RefreshCw icon import',       $c($ui, 'RefreshCw'));
 
+// reconcile-all
+echo "\nUI — reconcile-all header button\n";
+$a('reconcile-all button testid',                $c($ui, 'data-testid="acct-sync-reconcile-all-btn"'));
+$a('reconcile-all progress container testid',    $c($ui, 'data-testid="acct-sync-reconcile-all-progress"'));
+$a('reconcile-all progress bar testid',          $c($ui, 'data-testid="acct-sync-reconcile-all-progress-bar"'));
+$a('reconcile-all runs sequentially',            $c($ui, 'for (let i = 0; i < eligible.length; i++)'));
+$a('reconcile-all filters by coverage neither',  $c($ui, "(e) => e.coverage !== 'neither'"));
+$a('reconcile-all shows eligibleCount',          $c($ui, 'eligibleCount'));
+
 echo "\n=========================================\n";
 echo "Accounting Sync Dashboard smoke: {$pass} ok / {$fail} fail\n";
 echo "=========================================\n";

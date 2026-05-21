@@ -20,6 +20,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/zoho_books/client.php';
+require_once __DIR__ . '/../core/zoho_books/sync_je.php';
 
 $method = api_method();
 $action = (string) (api_query('action') ?? '');
@@ -179,6 +180,22 @@ switch ($action) {
             api_error('sync_config_set failed: ' . $e->getMessage(), 500);
         }
         api_ok(['sync_config' => $saved]);
+    }
+
+    case 'sync_je': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.zoho_books.manage');
+        $body   = api_json_body();
+        $opts   = [];
+        if (isset($body['limit']))   $opts['limit']   = (int) $body['limit'];
+        if (!empty($body['dry_run'])) $opts['dry_run'] = true;
+        if (isset($body['je_ids']) && is_array($body['je_ids'])) $opts['je_ids'] = $body['je_ids'];
+        try {
+            $res = zohoBooksSyncJournalEntries($tid, $user['id'] ?? null, $opts);
+        } catch (\Throwable $e) {
+            api_error('sync_je failed: ' . $e->getMessage(), 502);
+        }
+        api_ok($res);
     }
 }
 

@@ -38,6 +38,7 @@ require_once __DIR__ . '/../../core/qbo/sync_bills.php';
 require_once __DIR__ . '/../../core/qbo/sync_invoices.php';
 require_once __DIR__ . '/../../core/qbo/sync_payments.php';
 require_once __DIR__ . '/../../core/zoho_books/client.php';
+require_once __DIR__ . '/../../core/zoho_books/sync_je.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
@@ -54,10 +55,12 @@ $entityKey = trim((string) ($body['entity_key'] ?? ''));
 // per-entity QBO worker and what direction it satisfies.
 $ENTITY_RUNNERS = [
     'journal_entries' => [
-        'qbo_dir_key'  => 'journal_entries',
-        'qbo_runs_on'  => ['push', 'two_way'],
-        'qbo_runner'   => static function (int $t, ?int $u) { return qboSyncJournalEntries($t, $u, ['limit' => 50]); },
-        'zoho_dir_key' => 'journal_entries',
+        'qbo_dir_key'   => 'journal_entries',
+        'qbo_runs_on'   => ['push', 'two_way'],
+        'qbo_runner'    => static function (int $t, ?int $u) { return qboSyncJournalEntries($t, $u, ['limit' => 50]); },
+        'zoho_dir_key'  => 'journal_entries',
+        'zoho_runs_on'  => ['push', 'two_way'],
+        'zoho_runner'   => static function (int $t, ?int $u) { return zohoBooksSyncJournalEntries($t, $u, ['limit' => 50]); },
     ],
     'customers' => [
         'qbo_dir_key'  => 'customers',
@@ -141,17 +144,30 @@ if (!$zohoActive) {
     $zohoResult['reason'] = 'not_connected';
 } elseif ($zohoDir === 'off') {
     $zohoResult['reason'] = 'direction_off';
-} else {
+} elseif (!isset($spec['zoho_runner']) || !isset($spec['zoho_runs_on'])) {
+    // No worker registered for this entity yet — Slice 2+ progressively
+    // fills these in. Until then, audit the request so it appears in the
+    // unified activity feed and an upcoming runner can opt to replay
+    // queued reconcile requests.
     $zohoResult['reason'] = 'worker_pending';
-    // Audit the request so an upcoming Slice 2+ runner can opt to
-    // replay queued reconcile requests, and so it shows up in the
-    // unified activity feed immediately.
     zohoBooksAudit($tid, 'reconcile_requested', [
         'actor_user_id' => $user['id'] ?? null,
         'entity_type'   => $spec['zoho_dir_key'],
         'direction'     => $zohoDir,
-        'detail'        => ['entity_key' => $entityKey, 'note' => 'Zoho Books sync workers ship in Slice 2+; request queued.'],
+        'detail'        => ['entity_key' => $entityKey, 'note' => 'Zoho Books sync worker pending for this entity.'],
     ]);
+} elseif (!in_array($zohoDir, $spec['zoho_runs_on'], true)) {
+    $zohoResult['reason'] = 'direction_not_eligible';
+    $zohoResult['current_direction']   = $zohoDir;
+    $zohoResult['eligible_directions'] = $spec['zoho_runs_on'];
+} else {
+    try {
+        $zohoResult['attempted'] = true;
+        $zohoResult['result']    = ($spec['zoho_runner'])($tid, $user['id'] ?? null);
+    } catch (\Throwable $e) {
+        $zohoResult['attempted'] = true;
+        $zohoResult['error']     = $e->getMessage();
+    }
 }
 
 api_ok([

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApi, api } from '../lib/api';
 import {
   CheckCircle2, ExternalLink, RefreshCw, XCircle,
-  ArrowRight, ArrowLeft, ArrowLeftRight, MinusCircle,
+  ArrowRight, ArrowLeft, ArrowLeftRight, MinusCircle, Send,
 } from 'lucide-react';
 
 /**
@@ -213,10 +213,15 @@ export default function ZohoBooksSettings() {
             busy={busy}
           />
 
+          <ManualSyncCard
+            currentConfig={data.sync_config || {}}
+            busy={busy} setBusy={setBusy}
+            setFlash={setFlash} reload={status.reload}
+          />
+
           <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)', marginTop: 12 }} data-testid="zoho-books-slice1-note">
-            <strong>Slice 1 (Foundation)</strong> ships the connection vault, region auto-detect, and direction picker.
-            Push / pull workers for each entity ship in subsequent slices — opt-in directions are stored now so
-            they fire as soon as the worker for that entity lands.
+            <strong>Slice 2 — Journal Entries</strong> is live (push only). Subsequent slices ship
+            chart-of-accounts pull, contacts pull, and invoices/bills/payments push.
           </p>
         </>
       )}
@@ -310,6 +315,82 @@ function SyncConfigCard({ entities, config, onChange, onSave, onReset, dirty, bu
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+function ManualSyncCard({ currentConfig, busy, setBusy, setFlash, reload }) {
+  const jeDir = currentConfig.journal_entries || 'off';
+  const jeEligible = jeDir === 'push' || jeDir === 'two_way';
+
+  const handleJe = async ({ dryRun }) => {
+    setBusy(true); setFlash(null);
+    try {
+      const r = await api.post('/api/zoho_books/sync_je.php?action=sync_je', { limit: 50, dry_run: !!dryRun });
+      const parts = [
+        `${r.pushed} ${dryRun ? 'would-push' : 'pushed'}`,
+        `${r.skipped_unmapped} skipped (unmapped accounts)`,
+        `${r.failed} failed`,
+        `${r.considered} considered`,
+        `${r.latency_ms}ms`,
+      ];
+      setFlash({
+        kind: (r.failed || 0) === 0 ? 'success' : 'error',
+        msg: `Zoho JE ${dryRun ? 'dry-run' : 'sync'}: ${parts.join(' · ')}`,
+      });
+      reload();
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      data-testid="zoho-books-manual-sync"
+      className="card"
+      style={{ padding: 16, border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8, marginTop: 16 }}
+    >
+      <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Manual sync</h4>
+      <p style={{ margin: '4px 0 12px', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+        Run an entity's push worker on demand. Cron runs every 15 minutes; use these buttons to
+        verify a connection or unblock a stuck queue. <strong>Dry run</strong> builds the Zoho payload
+        without POSTing — useful for diagnosing unmapped accounts.
+      </p>
+      <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+        <tbody>
+          <tr style={{ borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)' }}>
+            <td style={{ padding: '8px 4px', fontWeight: 500 }}>Journal Entries</td>
+            <td style={{ padding: '8px 4px', color: 'var(--cf-text-secondary)', fontSize: 12 }}>
+              Direction: <code>{jeDir}</code>
+              {!jeEligible && <span> — set to push or two_way to enable</span>}
+            </td>
+            <td style={{ padding: '8px 4px', textAlign: 'right' }}>
+              <button
+                type="button"
+                className="btn"
+                data-testid="zoho-books-sync-je-dryrun-btn"
+                onClick={() => handleJe({ dryRun: true })}
+                disabled={!jeEligible || busy}
+                style={{ marginRight: 6 }}
+              >
+                Dry run
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                data-testid="zoho-books-sync-je-btn"
+                onClick={() => handleJe({ dryRun: false })}
+                disabled={!jeEligible || busy}
+              >
+                <Send size={12} style={{ marginRight: 4 }} />
+                {busy ? 'Syncing…' : 'Sync now'}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
