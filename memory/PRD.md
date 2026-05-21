@@ -10,6 +10,55 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Accounting Sync Dashboard — Reconcile (2026-02 — current fork)
+
+Per-entity one-click reconcile inside the drift table. Each row now
+carries a `Reconcile` button that fires sync workers on both systems
+in parallel and surfaces a structured per-system result.
+
+### Backend (`api/admin/accounting_sync_reconcile.php`)
+POST endpoint, RBAC `integrations.qbo.manage`. Body: `{ entity_key }`
+(one of the 7 canonical entities).
+
+- **QBO side** — direct in-process calls to the existing workers:
+  - journal_entries → `qboSyncJournalEntries(limit=50)` (push, two_way)
+  - customers       → `qboSyncCustomers(limit=1000)` (pull, two_way)
+  - vendors         → `qboSyncVendors(limit=1000)`   (pull, two_way)
+  - invoices        → `qboSyncInvoices(limit=50)`    (push, two_way)
+  - bills           → `qboSyncBills(limit=50)`        (push, two_way)
+  - payments        → `qboSyncBillPayments(limit=50)` (push, two_way)
+  - chart_of_accounts → `qboSyncAccounts(limit=1000)` (pull, two_way)
+- Skip with `reason: not_connected | direction_not_eligible` when the
+  active direction can't satisfy the worker. `current_direction` and
+  `eligible_directions` returned for diagnostics.
+- **Zoho Books side** — Slice 1 has the vault but no workers yet, so
+  honestly returns `reason: worker_pending` and writes an audit row
+  (`action: reconcile_requested`) so the request is visible in the
+  unified activity feed and an upcoming Slice 2+ runner can replay
+  queued intents.
+
+### Frontend
+- New `Reconcile` button per drift row (testid pattern
+  `acct-sync-reconcile-{entity.key}`).
+- Disabled when `coverage === 'neither'` (both sides off) with a
+  contextual tooltip ("flip a direction first").
+- Dynamic tooltip per drift signal — explains what reconcile will do.
+- Flash banner above the dashboard summarises per-system result
+  (`QBO ok (5 pushed · 2 skipped) · Zoho skipped (worker_pending)`).
+- `reload()` fires automatically on success so the drift table and
+  activity feed refresh.
+
+### Smoke test
+`tests/accounting_sync_dashboard_smoke.php` extended to **71
+assertions** covering the endpoint's POST/RBAC gates, all 7 entity
+mappings, every QBO worker invocation, the Zoho `worker_pending`
+contract, the audit hook, and the UI reconcile button + flash + POST
+target.
+
+Full suite: 238/238 passing.
+
+
+
 ## Accounting Sync Dashboard (2026-02 — current fork)
 
 Unified roll-up that surfaces QBO + Zoho Books side-by-side for the

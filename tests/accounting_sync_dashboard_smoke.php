@@ -88,6 +88,44 @@ $a('hub adds accounting-sync card testid',       $c($hub, 'testid="integration-c
 $a('hub links to /admin/integrations/accounting-sync',
     $c($hub, 'href="/admin/integrations/accounting-sync"'));
 
+// ----------------------------------------------------------------- Reconcile endpoint
+echo "\nAPI — api/admin/accounting_sync_reconcile.php\n";
+$recPath = $ROOT . '/api/admin/accounting_sync_reconcile.php';
+$rec = file_exists($recPath) ? (string) file_get_contents($recPath) : '';
+$a('reconcile file exists',                      $rec !== '');
+$a('reconcile is POST only',                     $c($rec, "api_method() !== 'POST'"));
+$a('reconcile rbac integrations.qbo.manage',     $c($rec, "rbac_legacy_require(\$user, 'integrations.qbo.manage')"));
+$a('reconcile requires qbo sync_je',             $c($rec, "require_once __DIR__ . '/../../core/qbo/sync_je.php'"));
+$a('reconcile requires qbo sync_in',             $c($rec, "require_once __DIR__ . '/../../core/qbo/sync_in.php'"));
+$a('reconcile requires zoho_books client',       $c($rec, "require_once __DIR__ . '/../../core/zoho_books/client.php'"));
+foreach (['journal_entries', 'customers', 'vendors', 'invoices', 'bills', 'payments', 'chart_of_accounts'] as $e) {
+    $a("reconcile maps entity: $e",              $c($rec, "'$e' =>"));
+}
+$a('reconcile invokes qboSyncJournalEntries',    $c($rec, 'qboSyncJournalEntries('));
+$a('reconcile invokes qboSyncCustomers',         $c($rec, 'qboSyncCustomers('));
+$a('reconcile invokes qboSyncVendors',           $c($rec, 'qboSyncVendors('));
+$a('reconcile invokes qboSyncInvoices',          $c($rec, 'qboSyncInvoices('));
+$a('reconcile invokes qboSyncBills',             $c($rec, 'qboSyncBills('));
+$a('reconcile invokes qboSyncBillPayments',      $c($rec, 'qboSyncBillPayments('));
+$a('reconcile invokes qboSyncAccounts',          $c($rec, 'qboSyncAccounts('));
+$a('reconcile zoho returns worker_pending',      $c($rec, "'worker_pending'"));
+$a('reconcile audits zoho intent',               $c($rec, "zohoBooksAudit(\$tid, 'reconcile_requested'"));
+$a('reconcile reports attempted flag',           $c($rec, "'attempted'"));
+$a('reconcile reports per-system reason',        $c($rec, "'reason'"));
+
+$out = []; $rc = 0;
+exec('php -l ' . escapeshellarg($recPath) . ' 2>&1', $out, $rc);
+$a('php -l accounting_sync_reconcile.php',       $rc === 0);
+
+// UI: reconcile button per row
+echo "\nUI — reconcile column\n";
+$a('reconcile button testid pattern',            $c($ui, 'data-testid={`acct-sync-reconcile-${entity.key}`}'));
+$a('reconcile flash success testid',             $c($ui, 'data-testid={`acct-sync-flash-${flash.kind}`}'));
+$a('reconcile POSTs to /api/admin/accounting_sync_reconcile',
+    $c($ui, '/api/admin/accounting_sync_reconcile.php'));
+$a('reconcile disables on inactive coverage',    $c($ui, "entity.coverage !== 'neither'"));
+$a('reconcile uses RefreshCw icon import',       $c($ui, 'RefreshCw'));
+
 echo "\n=========================================\n";
 echo "Accounting Sync Dashboard smoke: {$pass} ok / {$fail} fail\n";
 echo "=========================================\n";

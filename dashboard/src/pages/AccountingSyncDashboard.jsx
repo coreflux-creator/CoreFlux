@@ -1,10 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useApi } from '../lib/api';
+import { useApi, api } from '../lib/api';
 import {
   BookOpen, CheckCircle2, XCircle, AlertTriangle, ExternalLink,
   ArrowRight, ArrowLeft, ArrowLeftRight, MinusCircle, Activity,
-  TrendingUp, Layers,
+  TrendingUp, Layers, RefreshCw,
 } from 'lucide-react';
 
 /**
@@ -21,7 +21,44 @@ import {
  *   4. Unified activity feed: merged audit rows from both systems.
  */
 export default function AccountingSyncDashboard() {
-  const { data, loading, error } = useApi('/api/admin/accounting_sync_dashboard.php');
+  const { data, loading, error, reload } = useApi('/api/admin/accounting_sync_dashboard.php');
+  const [busyKey, setBusyKey] = useState(null);
+  const [flash, setFlash] = useState(null);
+
+  const reconcile = async (entity) => {
+    setBusyKey(entity.key); setFlash(null);
+    try {
+      const r = await api.post('/api/admin/accounting_sync_reconcile.php', { entity_key: entity.key });
+      const parts = [];
+      if (r.qbo?.attempted) {
+        const ok = !r.qbo?.error;
+        const res = r.qbo?.result || {};
+        const counts = [];
+        if (res.pushed   !== undefined) counts.push(`${res.pushed} pushed`);
+        if (res.pulled   !== undefined) counts.push(`${res.pulled} pulled`);
+        if (res.matched  !== undefined) counts.push(`${res.matched} matched`);
+        if (res.created  !== undefined) counts.push(`${res.created} created`);
+        if (res.updated  !== undefined) counts.push(`${res.updated} updated`);
+        if (res.skipped  !== undefined) counts.push(`${res.skipped} skipped`);
+        if (res.skipped_unmapped !== undefined) counts.push(`${res.skipped_unmapped} skipped`);
+        if (res.failed   !== undefined && res.failed > 0) counts.push(`${res.failed} failed`);
+        parts.push(`QBO ${ok ? 'ok' : 'fail'}${counts.length ? ' (' + counts.join(' · ') + ')' : ''}${r.qbo.error ? ': ' + r.qbo.error : ''}`);
+      } else {
+        parts.push(`QBO skipped (${r.qbo?.reason || 'unknown'})`);
+      }
+      if (r.zoho_books?.attempted) {
+        parts.push(`Zoho ok`);
+      } else {
+        parts.push(`Zoho skipped (${r.zoho_books?.reason || 'unknown'})`);
+      }
+      setFlash({ kind: 'success', msg: `Reconcile ${entity.label}: ${parts.join(' · ')}` });
+      reload();
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusyKey(null);
+    }
+  };
 
   if (loading) return <div data-testid="acct-sync-loading">Loading sync dashboard…</div>;
   if (error)   return <div data-testid="acct-sync-error" style={{ color: 'var(--cf-red, #b91c1c)' }}>Failed to load: {error.message || String(error)}</div>;
@@ -41,6 +78,20 @@ export default function AccountingSyncDashboard() {
           or that haven't been opted into either rail.
         </p>
       </header>
+
+      {flash && (
+        <div
+          data-testid={`acct-sync-flash-${flash.kind}`}
+          style={{
+            padding: '10px 14px', borderRadius: 6, marginBottom: 16,
+            background: flash.kind === 'success' ? 'var(--cf-green-bg, #ecfdf5)' : 'var(--cf-red-bg, #fef2f2)',
+            color:      flash.kind === 'success' ? 'var(--cf-green, #047857)'    : 'var(--cf-red, #b91c1c)',
+            fontSize: 13,
+          }}
+        >
+          {flash.msg}
+        </div>
+      )}
 
       {/* ─────────────────────── system tiles ─────────────────────── */}
       <div
@@ -95,11 +146,18 @@ export default function AccountingSyncDashboard() {
               <th style={{ padding: '8px 4px' }}>Zoho direction</th>
               <th style={{ padding: '8px 4px' }}>Zoho last sync</th>
               <th style={{ padding: '8px 4px' }}>Signal</th>
+              <th style={{ padding: '8px 4px' }}></th>
             </tr>
           </thead>
           <tbody>
             {entities.map((e) => (
-              <EntityRow key={e.key} entity={e} />
+              <EntityRow
+                key={e.key}
+                entity={e}
+                onReconcile={() => reconcile(e)}
+                busy={busyKey === e.key}
+                anyBusy={!!busyKey}
+              />
             ))}
           </tbody>
         </table>
@@ -310,11 +368,25 @@ const SIGNAL_META = {
   inactive:   { label: 'Inactive',    fg: '#475569', bg: '#f1f5f9' },
 };
 
-function EntityRow({ entity }) {
+function EntityRow({ entity, onReconcile, busy, anyBusy }) {
   const qMeta = DIR_META[entity.qbo_dir]  || DIR_META.off;
   const zMeta = DIR_META[entity.zoho_dir] || DIR_META.off;
   const sig   = SIGNAL_META[entity.drift_signal] || SIGNAL_META.inactive;
   const QIcon = qMeta.icon; const ZIcon = zMeta.icon;
+
+  // Show Reconcile only when at least one side has a non-`off` direction.
+  // `inactive` rows have nothing to sync — keep them quiet.
+  const canReconcile = entity.coverage !== 'neither';
+  const tooltip = entity.coverage === 'neither'
+    ? 'Both sides are off — flip a direction in settings before reconciling.'
+    : entity.drift_signal === 'qbo_ahead'
+      ? 'QBO is ahead — run a sync to catch the lagging side up.'
+      : entity.drift_signal === 'zoho_ahead'
+        ? 'Zoho is ahead — run a sync to catch QBO up.'
+        : entity.drift_signal === 'one_sided'
+          ? 'Only one side is active — runs the eligible sync now.'
+          : 'Run a sync on both systems now.';
+
   return (
     <tr data-testid={`acct-sync-row-${entity.key}`} style={{ borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)' }}>
       <td style={{ padding: '8px 4px', fontWeight: 500 }}>{entity.label}</td>
@@ -346,6 +418,20 @@ function EntityRow({ entity }) {
         >
           {sig.label}
         </span>
+      </td>
+      <td style={{ padding: '8px 4px', textAlign: 'right' }}>
+        <button
+          type="button"
+          className="btn"
+          data-testid={`acct-sync-reconcile-${entity.key}`}
+          onClick={onReconcile}
+          disabled={!canReconcile || anyBusy}
+          title={tooltip}
+          style={{ fontSize: 12, padding: '3px 10px' }}
+        >
+          <RefreshCw size={11} style={{ marginRight: 4 }} />
+          {busy ? 'Running…' : 'Reconcile'}
+        </button>
       </td>
     </tr>
   );
