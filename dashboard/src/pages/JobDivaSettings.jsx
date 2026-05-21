@@ -78,6 +78,7 @@ export default function JobDivaSettings() {
         latency_ms: r.ping?.latency_ms ?? r.latency_ms ?? null,
         note: r.note || null,
         skipped_by_config: Array.isArray(r.skipped_by_config) ? r.skipped_by_config : [],
+        by_entity: r.by_entity || {},
         ts: new Date().toISOString(),
       });
       if (!counts) setMsg(r.note || 'Sync triggered.');
@@ -257,7 +258,13 @@ export default function JobDivaSettings() {
             <X size={14} />
           </button>
           <strong style={{ fontSize: 14, color: '#5b21b6', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Sparkles size={14} /> Sync complete
+            <Sparkles size={14} />
+            {(() => {
+              const totalFailed = Object.values(syncResult.by_entity || {}).reduce((s, e) => s + (Number(e?.failed) || 0), 0);
+              return totalFailed > 0
+                ? <>Sync completed with {totalFailed} error{totalFailed === 1 ? '' : 's'}</>
+                : <>Sync complete</>;
+            })()}
             {syncResult.latency_ms != null && (
               <span data-testid="jobdiva-settings-sync-result-latency"
                     style={{ fontSize: 11, color: '#7c3aed', fontWeight: 400 }}>
@@ -293,6 +300,58 @@ export default function JobDivaSettings() {
           </div>
           {syncResult.note && (
             <p style={{ fontSize: 11, color: '#64748b', margin: '8px 0 0' }}>{syncResult.note}</p>
+          )}
+          {/* Per-entity diagnostics — surfaces error / deferred reasons that
+              would otherwise be invisible to the user. Always renders so
+              the operator can see what each entity did during sync (helps
+              localize JobDiva-side issues like "Not an array" 500s). */}
+          {syncResult.by_entity && Object.keys(syncResult.by_entity).length > 0 && (
+            <details data-testid="jobdiva-settings-sync-result-diag" style={{ marginTop: 10 }}>
+              <summary style={{ fontSize: 11, color: '#7c3aed', cursor: 'pointer', fontWeight: 600 }}>
+                Per-entity diagnostics
+              </summary>
+              <table style={{ width: '100%', fontSize: 11, marginTop: 6, background: 'rgba(255,255,255,0.7)', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #ddd6fe', textAlign: 'left' }}>
+                    <th style={{ padding: '4px 6px' }}>Entity</th>
+                    <th style={{ padding: '4px 6px' }}>Processed</th>
+                    <th style={{ padding: '4px 6px' }}>Skipped</th>
+                    <th style={{ padding: '4px 6px' }}>Failed</th>
+                    <th style={{ padding: '4px 6px' }}>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(syncResult.by_entity).map(([entity, info]) => {
+                    const sk = !!info?.skipped_by_config;
+                    const def = info?.deferred_reason;
+                    const errs = Array.isArray(info?.errors) ? info.errors : [];
+                    return (
+                      <tr key={entity} data-testid={`jobdiva-settings-sync-result-diag-${entity}`} style={{ borderBottom: '1px solid #ede9fe' }}>
+                        <td style={{ padding: '4px 6px', textTransform: 'capitalize', fontWeight: 500 }}>{entity}</td>
+                        <td style={{ padding: '4px 6px', fontVariantNumeric: 'tabular-nums' }}>{info?.processed ?? 0}</td>
+                        <td style={{ padding: '4px 6px', fontVariantNumeric: 'tabular-nums' }}>{info?.skipped ?? 0}</td>
+                        <td style={{ padding: '4px 6px', fontVariantNumeric: 'tabular-nums', color: (info?.failed > 0) ? '#dc2626' : 'inherit' }}>{info?.failed ?? 0}</td>
+                        <td style={{ padding: '4px 6px', color: '#475569' }}>
+                          {sk && <span data-testid={`jobdiva-settings-sync-result-diag-${entity}-skipcfg`}>skipped_by_config</span>}
+                          {def && <span data-testid={`jobdiva-settings-sync-result-diag-${entity}-deferred`}>{def}</span>}
+                          {errs.length > 0 && (
+                            <ul style={{ margin: 0, paddingLeft: 14 }} data-testid={`jobdiva-settings-sync-result-diag-${entity}-errors`}>
+                              {errs.slice(0, 3).map((e, i) => (
+                                <li key={i} style={{ color: '#dc2626', fontFamily: 'ui-monospace, monospace', fontSize: 10, wordBreak: 'break-all' }}>
+                                  {typeof e === 'string' ? e : (e?.message || JSON.stringify(e))}
+                                </li>
+                              ))}
+                              {errs.length > 3 && <li style={{ color: '#94a3b8' }}>+{errs.length - 3} more</li>}
+                            </ul>
+                          )}
+                          {!sk && !def && errs.length === 0 && (info?.processed ?? 0) === 0 && '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </details>
           )}
         </div>
       )}

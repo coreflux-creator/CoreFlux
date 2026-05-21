@@ -113,8 +113,10 @@ $assert('time entity dispatched when shouldPull OR shouldPush',
 $assert('lazy-requires sync_time.php only when needed',
     strpos($orch, "require_once __DIR__ . '/sync_time.php'") !== false);
 $assert('two_way runs both pull AND push',
-    strpos($orch, "\$pull = \$shouldPull(\$config, 'time') ? jobdivaSyncTimePull") !== false
-    && strpos($orch, "\$push = \$shouldPush(\$config, 'time') ? jobdivaSyncTimePush") !== false);
+    strpos($orch, "\$pull = \$shouldPull(\$config, 'time') ? \$safeRun('time_pull'") !== false
+    && strpos($orch, "\$push = \$shouldPush(\$config, 'time') ? \$safeRun('time_push'") !== false
+    && strpos($orch, "jobdivaSyncTimePull") !== false
+    && strpos($orch, "jobdivaSyncTimePush") !== false);
 $assert('time excluded → marked skipped_by_config',
     preg_match("/\\\$shouldPush\\(\\\$config, 'time'\\)\\)\\s*\\{[^}]+\\}\\s*else\\s*\\{\\s*\\\$skipped\\[\\]\\s*=\\s*'time'/s", $orch) === 1);
 $assert('time count included in counts envelope',

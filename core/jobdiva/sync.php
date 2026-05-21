@@ -325,20 +325,44 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
     };
 
     $skipped = []; // entity-types skipped because of config
+
+    // Per-entity calls are isolated: a 500 in one entity must NOT abort the
+    // others. Each caught exception lands in by_entity[X].errors so the UI
+    // diagnostics table shows JobDiva's verbatim response without
+    // collapsing the entire sync into a single 502.
+    $safeRun = static function (string $entityKey, callable $fn) use ($tid, $userId): array {
+        try {
+            return $fn();
+        } catch (\Throwable $e) {
+            // Surface the JobDiva error verbatim so the operator can read
+            // the path, status, and li-uuid directly from the diagnostics
+            // panel. Truncate to keep the API response from ballooning.
+            $errStr = $e->getMessage();
+            jobdivaAudit($tid, 'sync_entity_error', [
+                'ok' => false, 'actor_user_id' => $userId,
+                'detail' => ['entity' => $entityKey, 'error' => substr($errStr, 0, 800)],
+            ]);
+            return [
+                'processed' => 0, 'skipped' => 0, 'failed' => 1,
+                'errors'    => [['entity' => $entityKey, 'error' => substr($errStr, 0, 800)]],
+            ];
+        }
+    };
+
     if ($shouldPull($config, 'company')) {
-        $companies  = jobdivaSyncCompanies($tid, $userId, $opts['companies']  ?? $opts);
+        $companies  = $safeRun('company',   static fn() => jobdivaSyncCompanies($tid, $userId, $opts['companies']  ?? $opts));
     } else {
         $companies  = ['processed' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [], 'skipped_by_config' => true];
         $skipped[]  = 'company';
     }
     if ($shouldPull($config, 'contact')) {
-        $contacts   = jobdivaSyncContacts($tid, $userId, $opts['contacts']   ?? $opts);
+        $contacts   = $safeRun('contact',   static fn() => jobdivaSyncContacts($tid, $userId, $opts['contacts']   ?? $opts));
     } else {
         $contacts   = ['processed' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [], 'skipped_by_config' => true];
         $skipped[]  = 'contact';
     }
     if ($shouldPull($config, 'placement')) {
-        $placements = jobdivaSyncPlacements($tid, $userId, $opts['placements'] ?? $opts);
+        $placements = $safeRun('placement', static fn() => jobdivaSyncPlacements($tid, $userId, $opts['placements'] ?? $opts));
     } else {
         $placements = ['processed' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [], 'skipped_by_config' => true];
         $skipped[]  = 'placement';
@@ -348,8 +372,8 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
     $timeResult = ['processed' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [], 'skipped_by_config' => true];
     if ($shouldPull($config, 'time') || $shouldPush($config, 'time')) {
         require_once __DIR__ . '/sync_time.php';
-        $pull = $shouldPull($config, 'time') ? jobdivaSyncTimePull($tid, $userId, $opts['time'] ?? $opts) : null;
-        $push = $shouldPush($config, 'time') ? jobdivaSyncTimePush($tid, $userId, $opts['time'] ?? $opts) : null;
+        $pull = $shouldPull($config, 'time') ? $safeRun('time_pull', static fn() => jobdivaSyncTimePull($tid, $userId, $opts['time'] ?? $opts)) : null;
+        $push = $shouldPush($config, 'time') ? $safeRun('time_push', static fn() => jobdivaSyncTimePush($tid, $userId, $opts['time'] ?? $opts)) : null;
         $timeResult = [
             'processed' => ($pull['processed'] ?? 0) + ($push['processed'] ?? 0),
             'skipped'   => ($pull['skipped']   ?? 0) + ($push['skipped']   ?? 0),

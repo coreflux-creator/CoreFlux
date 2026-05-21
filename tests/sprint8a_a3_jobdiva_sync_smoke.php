@@ -113,10 +113,16 @@ $assert('binds mapping (placement)',
     strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'placement', \$extId, \$internalId, \$jd, 'pull')") !== false);
 
 echo "\njobdivaSyncAll — orchestration\n";
-$assert('runs all 3 drivers in order',
-    strpos($src, '$companies  = jobdivaSyncCompanies') !== false
-    && strpos($src, '$contacts   = jobdivaSyncContacts') !== false
-    && strpos($src, '$placements = jobdivaSyncPlacements') !== false);
+$assert('runs all 3 drivers in order via safeRun isolator',
+    strpos($src, "\$companies  = \$safeRun('company',")   !== false
+    && strpos($src, "\$contacts   = \$safeRun('contact',") !== false
+    && strpos($src, "\$placements = \$safeRun('placement',") !== false
+    && strpos($src, "jobdivaSyncCompanies(\$tid, \$userId")   !== false
+    && strpos($src, "jobdivaSyncContacts(\$tid, \$userId")    !== false
+    && strpos($src, "jobdivaSyncPlacements(\$tid, \$userId")  !== false);
+$assert('per-entity errors isolated (one fail no longer aborts whole sync)',
+    strpos($src, "'sync_entity_error'") !== false
+    && strpos($src, "'processed' => 0, 'skipped' => 0, 'failed' => 1") !== false);
 $assert('measures latency_ms',                    strpos($src, '(int) round((microtime(true) - $start) * 1000)') !== false);
 $assert('returns counts {company,contact,placement}',
     strpos($src, "'company'   => \$companies['processed']") !== false
