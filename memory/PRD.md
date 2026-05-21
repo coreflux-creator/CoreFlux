@@ -10,6 +10,60 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Accounting Sync Dashboard (2026-02 — current fork)
+
+Unified roll-up that surfaces QBO + Zoho Books side-by-side for the
+active tenant. Mounted at `/admin/integrations/accounting-sync`.
+
+### Backend (`api/admin/accounting_sync_dashboard.php`)
+GET-only endpoint, RBAC gated by `integrations.qbo.view` (wildcard
+`integrations.*` covers it for tenant_admin). Folds three data sources
+into one payload:
+1. **QBO block** — connection row, sync_config, last 10 audit rows.
+2. **Zoho Books block** — connection row, sync_config, last 10 audit rows.
+3. **Per-entity grid** — 7 canonical entities (journal_entries,
+   customers, vendors, invoices, bills, payments, chart_of_accounts).
+   For Zoho both customers + vendors map to its unified `contacts`
+   direction. Each row carries:
+   - `qbo_dir` / `zoho_dir` (off / push / pull / two_way)
+   - `qbo_last_sync` / `zoho_last_sync` (derived from audit MAX(occurred_at))
+   - `qbo_last_ok` / `zoho_last_ok`
+   - `coverage`: `both` | `qbo_only` | `zoho_only` | `neither`
+   - `drift_signal`: `aligned` | `qbo_ahead` (≥24h newer) | `zoho_ahead` |
+     `one_sided` | `inactive`
+4. **Summary scorecard** — counts in each coverage bucket.
+5. **Unified activity feed** — last 30 audit rows merged across both
+   systems, sorted DESC by occurred_at.
+
+### Frontend (`dashboard/src/pages/AccountingSyncDashboard.jsx`)
+- Two large "system tiles" (QBO + Zoho) with connection state,
+  identity rows (company/org + id + region/env), last probe, and a
+  "Manage" link straight to the per-system settings page.
+- Coverage scorecard: 4 coloured tiles (both / QBO-only / Zoho-only /
+  neither) + total entities tracked.
+- Drift table: 7 rows × {qbo_dir, qbo_last, zoho_dir, zoho_last, signal}.
+  Signal badge is colour-coded; failed last_sync shows an inline alert
+  triangle.
+- Unified activity table: timestamp, system badge (QBO / Zoho),
+  action, entity_type, processed/skipped/failed counters, ok/fail badge.
+- Empty-state copy for tenants who haven't run a sync yet.
+
+### Wiring
+- AdminModule.jsx mounts the route + imports the component.
+- IntegrationsHub.jsx Accounting section now has a third card
+  ("Sync Dashboard", TrendingUp icon) that links to it.
+
+### Smoke test
+- `tests/accounting_sync_dashboard_smoke.php` — 41 assertions:
+  endpoint shape, auth + RBAC gates, both client requires, all unified
+  fields, coverage + drift labels, audit queries against both systems,
+  cap of 30 rows on unified feed, php -l sanity, UI testids
+  (root, tiles, scorecard, drift table, signal badges, activity rows,
+  system badges), AdminModule route + Hub wiring.
+- Full suite: 238/238 passing.
+
+
+
 ## Zoho Books Integration — Slice 1 Foundation (2026-02 — current fork)
 
 Per-tenant Zoho Books OAuth 2.0 connection with auto-detected data centre

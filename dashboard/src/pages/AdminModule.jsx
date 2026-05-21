@@ -27,6 +27,7 @@ import MercurySettings from '../../../modules/treasury/ui/MercurySettings';
 import QboSettings from './QboSettings';
 import ZohoBooksSettings from './ZohoBooksSettings';
 import AirtableSettings from './AirtableSettings';
+import AccountingSyncDashboard from './AccountingSyncDashboard';
 import RolesReference from './RolesReference';
 import AuditorTokensAdmin from './AuditorTokensAdmin';
 import CrossTenantAuditAdmin from './CrossTenantAuditAdmin';
@@ -164,6 +165,7 @@ const AdminModule = ({ session }) => {
           <Route path="/audit-log"         element={<AuditLogViewer session={session} />} />
           <Route path="/rule-sandbox"      element={<RuleSandbox session={session} />} />
           <Route path="/integrations"          element={<IntegrationsHub session={session} />} />
+          <Route path="/integrations/accounting-sync" element={<AccountingSyncDashboard session={session} />} />
           <Route path="/integrations/plaid"    element={<PlaidTransferSettings session={session} />} />
           <Route path="/integrations/mercury"  element={<MercurySettings session={session} />} />
           <Route path="/integrations/qbo"      element={<QboSettings session={session} />} />

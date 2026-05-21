@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/api';
 import { Section, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { PlugZap, Building2, Banknote, BookOpen, Database, ChevronRight } from 'lucide-react';
+import { PlugZap, Building2, Banknote, BookOpen, Database, TrendingUp, ChevronRight } from 'lucide-react';
 
 /**
  * IntegrationsHub — tenant admin "single pane of glass" for every external
@@ -125,6 +125,14 @@ export default function IntegrationsHub() {
             description="OAuth connection to your Zoho Books organization (region auto-detected). Per-entity push / pull / two-way controls for journal entries, contacts, invoices, bills, payments, and the chart of accounts."
             href="/admin/integrations/zoho-books"
             status={zohoStatus}
+          />
+          <IntegrationCard
+            testid="integration-card-accounting-sync"
+            icon={TrendingUp}
+            title="Sync Dashboard"
+            description="Side-by-side view of QBO + Zoho Books — coverage scorecard, per-entity drift signals, and a unified activity feed across both systems."
+            href="/admin/integrations/accounting-sync"
+            status="connected"
           />
         </ActionCardsGrid>
       </Section>
