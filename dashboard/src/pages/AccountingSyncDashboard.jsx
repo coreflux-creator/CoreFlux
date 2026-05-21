@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi, api } from '../lib/api';
 import {
   BookOpen, CheckCircle2, XCircle, AlertTriangle, ExternalLink,
   ArrowRight, ArrowLeft, ArrowLeftRight, MinusCircle, Activity,
-  TrendingUp, Layers, RefreshCw,
+  TrendingUp, Layers, RefreshCw, Search, Compass,
 } from 'lucide-react';
 
 /**
@@ -253,6 +253,9 @@ export default function AccountingSyncDashboard() {
           </tbody>
         </table>
       </section>
+
+      {/* ─────────────────────── CoA coverage ─────────────────────── */}
+      <CoaCoverageCard tenantChanged={data} />
 
       {/* ─────────────────────── unified activity ─────────────────────── */}
       <section
@@ -525,6 +528,229 @@ function EntityRow({ entity, onReconcile, busy, anyBusy }) {
         </button>
       </td>
     </tr>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────── coa coverage */
+
+function CoaCoverageCard() {
+  const { data, loading, error, reload } = useApi('/api/admin/accounting_coa_coverage.php');
+  const [busyId, setBusyId] = useState(null);
+  const [filter, setFilter] = useState('all');     // all | unmapped | qbo_only | zoho_only | both
+  const [q, setQ] = useState('');
+  const [flash, setFlash] = useState(null);
+
+  const handleDiscover = async (account, system) => {
+    const key = `${account.id}:${system}`;
+    setBusyId(key); setFlash(null);
+    try {
+      const r = await api.post('/api/admin/accounting_coa_coverage.php', { account_id: account.id, system });
+      if (r.status === 'mapped') {
+        setFlash({ kind: 'success', msg: `${account.code} ${account.name} → ${system} "${r.external_name}" (id ${r.external_id})` });
+      } else if (r.status === 'not_found') {
+        setFlash({ kind: 'error', msg: `${account.code}: ${r.note || 'no match in ' + system}` });
+      } else {
+        setFlash({ kind: 'error', msg: `${account.code}: ${r.error || 'discover error'}` });
+      }
+      reload();
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const accounts  = data?.accounts || [];
+  const summary   = data?.summary  || {};
+  const qboActive = !!data?.qbo_active;
+  const zohoActive= !!data?.zoho_active;
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return accounts.filter((a) => {
+      if (filter !== 'all' && a.coverage !== filter) return false;
+      if (needle && !`${a.code} ${a.name}`.toLowerCase().includes(needle)) return false;
+      return true;
+    });
+  }, [accounts, filter, q]);
+
+  return (
+    <section
+      data-testid="coa-coverage-section"
+      className="card"
+      style={{ padding: 16, border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8, marginBottom: 24 }}
+    >
+      <header style={{ marginBottom: 4 }}>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>
+          <Compass size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+          Chart-of-accounts coverage
+        </h3>
+        <p style={{ margin: '4px 0 12px', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+          Every CoreFlux account, mapped against QBO and Zoho Books. <strong>JE refs (90d)</strong> shows how
+          often each account has been used recently — prioritise mapping the high-traffic ones first.
+          Click <strong>Discover</strong> to auto-match by account code.
+        </p>
+      </header>
+
+      {flash && (
+        <div
+          data-testid={`coa-coverage-flash-${flash.kind}`}
+          style={{
+            padding: '8px 12px', borderRadius: 6, marginBottom: 12, fontSize: 12,
+            background: flash.kind === 'success' ? 'var(--cf-green-bg, #ecfdf5)' : 'var(--cf-red-bg, #fef2f2)',
+            color:      flash.kind === 'success' ? 'var(--cf-green, #047857)'    : 'var(--cf-red, #b91c1c)',
+          }}
+        >
+          {flash.msg}
+        </div>
+      )}
+
+      {/* mini scorecard */}
+      <div data-testid="coa-coverage-summary" style={{ display: 'flex', gap: 16, fontSize: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+        <Stat label="Total accounts"  value={summary.total       || 0} fg="#475569" />
+        <Stat label="Both"            value={summary.mapped_both || 0} fg="#047857" testid="coa-coverage-stat-both" />
+        <Stat label="QBO only"        value={summary.qbo_only    || 0} fg="#1d4ed8" testid="coa-coverage-stat-qbo-only" />
+        <Stat label="Zoho only"       value={summary.zoho_only   || 0} fg="#7c3aed" testid="coa-coverage-stat-zoho-only" />
+        <Stat label="Unmapped"        value={summary.unmapped    || 0} fg="#92400e" testid="coa-coverage-stat-unmapped" />
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ position: 'relative' }}>
+          <Search size={12} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--cf-text-secondary)' }} />
+          <input
+            type="text"
+            data-testid="coa-coverage-search"
+            placeholder="Filter by code or name…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            style={{ paddingLeft: 26, padding: '6px 10px 6px 26px', borderRadius: 4, border: '1px solid var(--cf-border)', fontSize: 12, width: 220 }}
+          />
+        </div>
+        <select
+          data-testid="coa-coverage-filter"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          style={{ padding: '6px 8px', borderRadius: 4, border: '1px solid var(--cf-border)', fontSize: 12 }}
+        >
+          <option value="all">All accounts</option>
+          <option value="both">Mapped both</option>
+          <option value="qbo_only">QBO only</option>
+          <option value="zoho_only">Zoho only</option>
+          <option value="neither">Unmapped</option>
+        </select>
+        <span style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>
+          showing {filtered.length} / {accounts.length}
+        </span>
+      </div>
+
+      {loading && <p data-testid="coa-coverage-loading">Loading…</p>}
+      {error   && <p data-testid="coa-coverage-error" style={{ color: 'var(--cf-red, #b91c1c)' }}>Failed: {error.message || String(error)}</p>}
+
+      {!loading && !error && (
+        <div style={{ overflowX: 'auto', maxHeight: 420 }}>
+          <table data-testid="coa-coverage-table" style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+            <thead style={{ position: 'sticky', top: 0, background: 'var(--cf-surface, #fff)' }}>
+              <tr style={{ textAlign: 'left', color: 'var(--cf-text-secondary)', borderBottom: '1px solid var(--cf-border)' }}>
+                <th style={{ padding: '6px 4px' }}>Code</th>
+                <th style={{ padding: '6px 4px' }}>Name</th>
+                <th style={{ padding: '6px 4px' }}>Type</th>
+                <th style={{ padding: '6px 4px', textAlign: 'right' }}>JE refs (90d)</th>
+                <th style={{ padding: '6px 4px' }}>QBO</th>
+                <th style={{ padding: '6px 4px' }}>Zoho</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr><td colSpan={6} data-testid="coa-coverage-empty" style={{ padding: 16, textAlign: 'center', color: 'var(--cf-text-secondary)' }}>No accounts match.</td></tr>
+              ) : filtered.map((a) => (
+                <CoaRow
+                  key={a.id}
+                  account={a}
+                  qboActive={qboActive}
+                  zohoActive={zohoActive}
+                  busyId={busyId}
+                  onDiscover={handleDiscover}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Stat({ label, value, fg, testid }) {
+  return (
+    <div data-testid={testid} style={{ minWidth: 90 }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: fg }}>{value}</div>
+      <div style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>{label}</div>
+    </div>
+  );
+}
+
+function CoaRow({ account, qboActive, zohoActive, busyId, onDiscover }) {
+  const inactiveStyle = !account.active ? { opacity: 0.55 } : null;
+  return (
+    <tr data-testid={`coa-coverage-row-${account.id}`} style={{ borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)', ...inactiveStyle }}>
+      <td style={{ padding: '6px 4px', fontFamily: 'var(--cf-mono, ui-monospace)' }}>{account.code}</td>
+      <td style={{ padding: '6px 4px' }}>
+        {account.name}
+        {!account.active && (
+          <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--cf-text-secondary)' }} title="inactive">(inactive)</span>
+        )}
+      </td>
+      <td style={{ padding: '6px 4px', color: 'var(--cf-text-secondary)', textTransform: 'capitalize' }}>{account.account_type}</td>
+      <td style={{ padding: '6px 4px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: account.je_refs_90d > 0 ? 600 : 400 }}>
+        {account.je_refs_90d}
+      </td>
+      <CoaMappingCell
+        testidBase={`coa-coverage-qbo-${account.id}`}
+        mapped={account.qbo_mapped}
+        externalId={account.qbo_external_id}
+        externalName={account.qbo_external_name}
+        systemActive={qboActive}
+        busy={busyId === `${account.id}:qbo`}
+        onDiscover={() => onDiscover(account, 'qbo')}
+      />
+      <CoaMappingCell
+        testidBase={`coa-coverage-zoho-${account.id}`}
+        mapped={account.zoho_mapped}
+        externalId={account.zoho_external_id}
+        externalName={account.zoho_external_name}
+        systemActive={zohoActive}
+        busy={busyId === `${account.id}:zoho_books`}
+        onDiscover={() => onDiscover(account, 'zoho_books')}
+      />
+    </tr>
+  );
+}
+
+function CoaMappingCell({ testidBase, mapped, externalId, externalName, systemActive, busy, onDiscover }) {
+  if (mapped) {
+    return (
+      <td style={{ padding: '6px 4px' }} data-testid={`${testidBase}-mapped`}>
+        <CheckCircle2 size={11} style={{ verticalAlign: 'middle', marginRight: 4, color: 'var(--cf-green, #047857)' }} />
+        <span style={{ fontFamily: 'var(--cf-mono, ui-monospace)', color: 'var(--cf-text-secondary)' }} title={externalName || ''}>
+          {externalId}
+        </span>
+      </td>
+    );
+  }
+  return (
+    <td style={{ padding: '6px 4px' }} data-testid={`${testidBase}-unmapped`}>
+      <button
+        type="button"
+        className="btn"
+        data-testid={`${testidBase}-discover-btn`}
+        onClick={onDiscover}
+        disabled={!systemActive || busy}
+        title={systemActive ? 'Auto-match by account code' : 'Connect this system first'}
+        style={{ fontSize: 11, padding: '2px 8px' }}
+      >
+        {busy ? '…' : 'Discover'}
+      </button>
+    </td>
   );
 }
 

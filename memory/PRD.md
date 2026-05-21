@@ -10,6 +10,75 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Chart-of-Accounts Coverage Report (2026-02 — current fork)
+
+Drop-in card on the accounting sync dashboard that surfaces every
+CoreFlux account with its QBO + Zoho mapping status and a 90-day JE
+reference count, plus a one-click "Discover" button per cell to fire
+the resolver and persist the mapping immediately.
+
+### Backend (`api/admin/accounting_coa_coverage.php`)
+Single file, two methods.
+
+- **GET** (rbac: `integrations.qbo.view`):
+  - Pulls every `accounting_accounts` row for the tenant (active +
+    inactive — inactives render dimmed so a CFO can confirm they
+    don't need mappings).
+  - Two bulk mapping lookups: one query against
+    `external_entity_mappings` with `internal_entity_type='account'`
+    and `source_system IN ('quickbooks_online', 'zoho_books')`. Avoids
+    N+1 entirely.
+  - JE usage: aggregate
+    `COUNT(*) FROM accounting_journal_entry_lines JOIN
+     accounting_journal_entries WHERE posting_date >= NOW() - 90 DAY
+     GROUP BY account_id`.
+  - Decodes `payload_snapshot` to surface QBO `Name` and Zoho
+    `account_name` for hover/display.
+  - Returns `{ accounts: [...], summary: { total, mapped_both,
+    qbo_only, zoho_only, unmapped }, qbo_active, zoho_active }`.
+
+- **POST** (rbac: `integrations.qbo.manage`):
+  - Body: `{ account_id, system: 'qbo' | 'zoho_books' }`.
+  - Validates the account belongs to the active tenant before calling
+    the cross-system resolver.
+  - Calls the existing `qboResolveAccountRef` or
+    `zohoBooksResolveAccountRef` which auto-discover by account code
+    (CoreFlux `code` ↔ QBO `AcctNum` ↔ Zoho `account_code`) and
+    persist the mapping via `mappingUpsert()` on success.
+  - Returns `{ status: 'mapped' | 'not_found' | 'error', external_id?,
+    external_name?, note?, error? }`.
+
+### Frontend (`AccountingSyncDashboard.jsx` → `<CoaCoverageCard />`)
+Mounted between the drift table and unified activity feed.
+
+- 5-stat mini scorecard (Total, Both, QBO only, Zoho only, Unmapped).
+- Search box + filter dropdown
+  (All / Both / QBO only / Zoho only / Unmapped).
+- Scrollable table with sticky header and 6 columns:
+  Code, Name, Type, JE refs (90d, bold when > 0), QBO cell, Zoho cell.
+- **Mapped** cell renders a green check + the external_id (mono font,
+  external name on hover).
+- **Unmapped** cell renders a "Discover" button. Disabled when the
+  corresponding system isn't connected. Per-cell busy state.
+- Inline flash after each Discover: success shows the matched
+  external name/id; not_found explains "no account with code X found
+  in <system> — create one or rename to match"; error surfaces the
+  resolver error message.
+- Auto-reloads on success so the row flips from Unmapped → green.
+
+### Smoke test
+`tests/coa_coverage_smoke.php` — 39 assertions covering both methods'
+shape (auth, RBAC for read vs write, tenant scope on POST, system
+enum, dual resolver requires, bulk mapping query, 90-day window,
+coverage labels, qbo_active/zoho_active, payload_snapshot decoding for
+both systems' name fields), and the UI testids
+(section, summary, all 4 stat tiles, search, filter, table, row
+pattern, mapped/unmapped cells, discover button, system-active gate).
+
+Full suite: **240/240 passing**.
+
+
+
 ## Reconcile-All + Zoho Books Slice 2 (2026-02 — current fork)
 
 ### Reconcile-All (dashboard header button)
