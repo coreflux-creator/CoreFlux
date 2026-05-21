@@ -19,6 +19,7 @@ export default function IntegrationsHub() {
   const mercury  = useApi('/api/mercury_connection.php?action=status');
   const jobdiva  = useApi('/api/jobdiva/status.php?action=status');
   const qbo      = useApi('/api/qbo/status.php?action=status');
+  const zoho     = useApi('/api/zoho_books/status.php?action=status');
   const airtable = useApi('/api/airtable/status.php?action=status');
 
   const plaidStatus = plaid.loading
@@ -42,6 +43,14 @@ export default function IntegrationsHub() {
     : qbo.data?.connected
       ? 'connected'
       : qbo.data?.configured
+        ? 'not_connected'
+        : 'not_configured';
+
+  const zohoStatus = zoho.loading
+    ? 'loading'
+    : zoho.data?.connected
+      ? 'connected'
+      : zoho.data?.configured
         ? 'not_connected'
         : 'not_configured';
 
@@ -108,6 +117,14 @@ export default function IntegrationsHub() {
             description="OAuth connection to your Intuit QuickBooks company. Per-entity push / pull / two-way controls for journal entries, customers, vendors, invoices, bills, payments, and the chart of accounts."
             href="/admin/integrations/qbo"
             status={qboStatus}
+          />
+          <IntegrationCard
+            testid="integration-card-zoho-books"
+            icon={BookOpen}
+            title="Zoho Books"
+            description="OAuth connection to your Zoho Books organization (region auto-detected). Per-entity push / pull / two-way controls for journal entries, contacts, invoices, bills, payments, and the chart of accounts."
+            href="/admin/integrations/zoho-books"
+            status={zohoStatus}
           />
         </ActionCardsGrid>
       </Section>

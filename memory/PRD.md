@@ -10,6 +10,91 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Zoho Books Integration — Slice 1 Foundation (2026-02 — current fork)
+
+Per-tenant Zoho Books OAuth 2.0 connection with auto-detected data centre
+(DC). Mirrors QBO Slice 1 exactly. Push/pull workers for the 6 entities
+land in subsequent slices; this slice ships the vault, region detection,
+sync_config picker, ping, and audit.
+
+### Schema (migration 064)
+- `core/migrations/064_zoho_books_foundation.sql` creates three tables:
+  - `zoho_books_connections` — one row per tenant. AES-256-GCM
+    `access_token_ct` + `refresh_token_ct`. Columns: `organization_id`,
+    `organization_name`, `dc` (default `com`), `access_token_exp`,
+    `scope`, `status`, `sync_config` JSON, `last_probe_*`.
+  - `zoho_books_oauth_state` — single-use state nonces (30-min TTL).
+  - `zoho_books_sync_audit` — mirrors `qbo_sync_audit` shape for activity
+    feed reuse.
+
+### Backend (`core/zoho_books/client.php`)
+Public surface: `zohoBooksConfigured`, `zohoBooksConnection`,
+`zohoBooksBuildAuthorizeUrl`, `zohoBooksExchangeCode`,
+`zohoBooksDisconnect`, `zohoBooksAccessToken`,
+`zohoBooksRefreshAccessToken`, `zohoBooksCall`, `zohoBooksRawRequest`,
+`zohoBooksPing`, `zohoBooksSyncConfigRead`, `zohoBooksSyncConfigWrite`,
+`zohoBooksConsumeOAuthState`, `zohoBooksAudit`,
+`zohoBooksDcFromAccountsServer`, `zohoBooksAccountsHost`,
+`zohoBooksApiBase`.
+
+Key behaviours:
+- **DC auto-detect**: parses the `accounts-server` query parameter Zoho
+  returns on the OAuth callback (e.g. `https://accounts.zoho.eu` → `eu`).
+  Supported DCs: `com, eu, in, com.au, jp, com.cn, sa`. Unknown values
+  fall back to `com`.
+- **Token refresh**: uses `Authorization: Zoho-oauthtoken <token>` header
+  and refreshes 60s before expiry. Auto-refresh on 401 + single retry.
+- **Org auto-probe**: at connect we insert with `organization_id='pending'`
+  then call `/books/v3/organizations` and update the row with the first
+  org's id + name. UI hides "connected" state until `organization_id` is
+  no longer `pending`.
+- **Org-id injection**: every non-/organizations API call automatically
+  receives `?organization_id=` derived from the connection row.
+- **Test transport hook**: `$GLOBALS['__zoho_books_transport']` for unit
+  tests, same pattern as QBO/Mercury.
+
+### API (`api/zoho_books.php` + `api/zoho_books/*.php` shims)
+Actions: `status`, `oauth_start`, `oauth_callback`, `disconnect`, `ping`,
+`sync_config_get`, `sync_config_set`. OAuth callback runs before the
+auth guard so the Zoho redirect carries the SPA's session cookie.
+RBAC: `integrations.zoho_books.view` / `integrations.zoho_books.manage`.
+Both covered by the `integrations.*` wildcard for tenant_admin.
+
+### Frontend (`dashboard/src/pages/ZohoBooksSettings.jsx`)
+- Mounted at `/admin/integrations/zoho-books` (AdminModule.jsx).
+- Card added to IntegrationsHub.jsx (Accounting section).
+- Branches: not-configured / not-connected / connected.
+- Connected card: organization name + id, DC, token expiry, last probe.
+- Sync-config table: per-entity dropdown (`push`/`pull`/`two_way`/`off`)
+  for journal_entries, contacts, invoices, bills, payments,
+  chart_of_accounts.
+- Slice 1 explicitly omits the "Manual sync" buttons block until the
+  per-entity workers ship in subsequent slices.
+
+### Smoke test
+- `tests/zoho_books_foundation_smoke.php` — 116 assertions covering
+  migration shape, client public surface, API dispatch, all 7 shims,
+  `php -l` sanity, UI testids, AdminModule/Hub wiring, RBAC legacy_map,
+  DC parser correctness across all 7 supported regions, host/api-base
+  resolution, and a functional adapter test using the injected transport
+  stub against the EU accounts host.
+- Full suite: 237/237 passing.
+
+### Configuration required (Zoho API Console)
+The pod operator must register an OAuth client in
+https://api-console.zoho.com/ and set in `core/config.local.php` (or env):
+```
+ZOHO_BOOKS_CLIENT_ID=...
+ZOHO_BOOKS_CLIENT_SECRET=...
+ZOHO_BOOKS_REDIRECT_URI=https://<host>/api/zoho_books/oauth_callback.php
+ZOHO_BOOKS_SCOPES=ZohoBooks.fullaccess.all   # optional override
+```
+The redirect URI must exactly match what's registered in the Zoho API
+Console, and the OAuth client must be a "Server-based Applications" type
+to receive the refresh_token.
+
+
+
 ## Airtable Integration — Slice 1 Foundation (2026-02 — current fork)
 
 Tenant-scoped Airtable connection via Personal Access Token (PAT). Pull-only v1.

@@ -93,6 +93,8 @@ final class RbacLegacyMap
             'integrations.jobdiva.view'          => ['integrations', 'read'],
             'integrations.qbo.manage'            => ['integrations', 'admin'],
             'integrations.qbo.view'              => ['integrations', 'read'],
+            'integrations.zoho_books.manage'     => ['integrations', 'admin'],
+            'integrations.zoho_books.view'       => ['integrations', 'read'],
             'integrations.airtable.manage'       => ['integrations', 'admin'],
             'integrations.airtable.view'         => ['integrations', 'read'],
 
