@@ -22,6 +22,7 @@
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/sim_mock_bridge.php';
+require_once __DIR__ . '/tenant_mail.php';
 
 function sendEmail(array $args): array {
     if (empty($args['to']))       throw new InvalidArgumentException('sendEmail: to is required');
@@ -179,6 +180,28 @@ if (!function_exists('mailerSend')) {
         $tenantId = (int) ($args['tenant_id'] ?? 0);
         if ($tenantId <= 0 && function_exists('currentTenantId')) {
             try { $tenantId = (int) (currentTenantId() ?? 0); } catch (\Throwable $_) {}
+        }
+
+        // Resolve per-purpose sender (display name + reply-to + enabled mute).
+        // Caller-supplied `from_name`/`reply_to` always win — the resolver only
+        // fills in when caller didn't specify. `enabled=false` short-circuits
+        // delivery for that purpose with a soft failure so cron loops don't
+        // crash and the outbox stays consistent.
+        $purposeKey = (string) ($args['purpose'] ?? 'core');
+        $sender     = cf_tenant_mail_sender($tenantId, $purposeKey);
+        if (!($sender['enabled'] ?? true)) {
+            return [
+                'ok'     => false,
+                'driver' => 'disabled',
+                'error'  => 'purpose_disabled',
+                'reason' => $purposeKey,
+            ];
+        }
+        if (empty($args['from_name']) && !empty($sender['from_name'])) {
+            $args['from_name'] = $sender['from_name'];
+        }
+        if (empty($args['reply_to']) && !empty($sender['reply_to'])) {
+            $args['reply_to'] = $sender['reply_to'];
         }
 
         require_once __DIR__ . '/mail_bootstrap.php';

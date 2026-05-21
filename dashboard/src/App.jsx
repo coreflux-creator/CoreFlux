@@ -10,6 +10,7 @@ import ReportsModule from '../../modules/reports/ui/ReportsModule';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import MailSettingsPage from './pages/MailSettingsPage';
+import NotificationSendersPage from './pages/NotificationSendersPage';
 import AdminModule from './pages/AdminModule';
 import TenantPicker from './pages/TenantPicker';
 import PeopleModule from '../../modules/people/ui/PeopleModule';
@@ -439,6 +440,7 @@ const AppContent = ({ session, usingDemo }) => {
           <Route path="/profile" element={<ProfilePage session={session} />} />
           <Route path="/settings" element={<SettingsPage session={session} />} />
           <Route path="/settings/mail" element={<MailSettingsPage session={session} />} />
+          <Route path="/settings/notifications" element={<NotificationSendersPage session={session} />} />
           {/* Cross-module approval inbox (Sprint 6b) */}
           <Route path="/inbox" element={<WorkflowInbox session={session} />} />
 

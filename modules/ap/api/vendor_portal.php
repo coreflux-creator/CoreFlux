@@ -89,6 +89,9 @@ if ($method === 'POST' && $action === 'invite') {
                 'body_html' => "<p>Hi,</p><p>Click below to view your bills and payments:</p>"
                     . "<p><a href=\"{$magicLink}\">Open vendor portal →</a></p>"
                     . "<p>This link expires in 7 days.</p>",
+                'module'    => 'ap',
+                'purpose'   => 'vendor_portal',
+                'tenant_id' => $tenantId,
             ]);
         } catch (\Throwable $_) { /* swallow — admin still gets the link returned */ }
     }

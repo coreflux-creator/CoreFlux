@@ -328,6 +328,9 @@ function mercuryNotifyCfoOfApproval(int $tenantId, int $instructionId, ?array $a
                         'to'        => $r['email'],
                         'subject'   => $subj,
                         'body_html' => $html,
+                        'module'    => 'treasury',
+                        'purpose'   => 'payments',
+                        'tenant_id' => $tenantId,
                     ]);
                     $sent++;
                 } catch (\Throwable $e) { $failed++; }

@@ -48,42 +48,23 @@ const SettingsPage = ({ session }) => {
           </Card>
         </Link>
 
-        {/* Notifications */}
-        <Card>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--cf-space-4)' }}>
-              <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--cf-blue-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--cf-blue)' }}>
-                <Bell size={20} />
+        {/* Notification senders — per-purpose display name + reply-to + mute */}
+        <Link to="/settings/notifications" style={{ textDecoration: 'none', color: 'inherit' }} data-testid="settings-notifications-link">
+          <Card>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--cf-space-4)' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--cf-blue-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--cf-blue)' }}>
+                  <Bell size={20} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 500 }}>Notification senders</div>
+                  <div style={{ fontSize: 'var(--cf-text-sm)', color: 'var(--cf-text-secondary)' }}>Per-purpose display name, reply-to, and mute toggle (Timesheets · AP · Vendor Portal · CFO · Payments)</div>
+                </div>
               </div>
-              <div>
-                <div style={{ fontWeight: 500 }}>Email Notifications</div>
-                <div style={{ fontSize: 'var(--cf-text-sm)', color: 'var(--cf-text-secondary)' }}>Receive email updates about your account</div>
-              </div>
+              <ChevronRight size={18} style={{ color: 'var(--cf-text-secondary)' }} />
             </div>
-            <label style={{ position: 'relative', display: 'inline-block', width: '50px', height: '28px' }}>
-              <input type="checkbox" defaultChecked style={{ opacity: 0, width: 0, height: 0 }} />
-              <span style={{
-                position: 'absolute',
-                cursor: 'pointer',
-                top: 0, left: 0, right: 0, bottom: 0,
-                background: 'var(--cf-accent)',
-                borderRadius: '28px',
-                transition: '0.3s'
-              }}>
-                <span style={{
-                  position: 'absolute',
-                  height: '22px',
-                  width: '22px',
-                  left: '24px',
-                  bottom: '3px',
-                  background: 'white',
-                  borderRadius: '50%',
-                  transition: '0.3s'
-                }}></span>
-              </span>
-            </label>
-          </div>
-        </Card>
+          </Card>
+        </Link>
 
         {/* Dark Mode */}
         <Card>

@@ -96,6 +96,9 @@ try {
             'to'        => $approverEmail,
             'subject'   => $subject,
             'body_html' => $html,
+            'module'    => 'staffing',
+            'purpose'   => 'timesheets',
+            'tenant_id' => $tenantId,
         ]);
         $sent = true;
     } else {

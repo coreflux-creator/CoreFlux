@@ -350,6 +350,9 @@ function apBillApprovalNotify(\PDO $pdo, int $tenantId, int $billId, ?array $bil
                     'to' => $email,
                     'subject' => 'Bill awaiting your approval — ' . ($bill['bill_number'] ?? '') . ' / ' . ($bill['vendor_name'] ?? ''),
                     'body_html' => $html,
+                    'module'    => 'ap',
+                    'purpose'   => 'ap',
+                    'tenant_id' => $tenantId,
                 ]);
                 $sent = true;
             } else {

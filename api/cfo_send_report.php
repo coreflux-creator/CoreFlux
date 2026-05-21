@@ -100,6 +100,9 @@ foreach ($recipients as $em) {
             'to'        => $em,
             'subject'   => $subject,
             'body_html' => $bodyHtml,
+            'module'    => 'cfo',
+            'purpose'   => 'cfo',
+            'tenant_id' => $tenantId,
         ]);
         $sent[] = $em;
     } catch (\Throwable $e) {

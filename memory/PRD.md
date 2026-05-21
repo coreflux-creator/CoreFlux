@@ -10,6 +10,82 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Resend Mailer + Per-Purpose Tenant Sender Overrides (2026-02 — current fork)
+
+### What shipped
+- **Platform Resend envelope**: `config.local.php` now defines
+  `RESEND_FROM_EMAIL = 'no-reply@mail.corefluxapp.com'` and
+  `RESEND_FROM_NAME = 'CoreFlux Notifications'`. The `RESEND_API_KEY`
+  itself is **not** committed — operators set it as a Cloudways env
+  var or via SSH-edit. Once the key is set, `ResendDriver` is the
+  default outbound transport (was already wired in
+  `core/mail_bootstrap.php`).
+- **Per-purpose tenant overrides**: new `tenant_mail_senders` table
+  (migration 065) keyed on `(tenant_id, purpose)` with columns
+  `from_name`, `reply_to`, `enabled`, plus `updated_by_user_id`.
+- **Purpose registry** (in `core/tenant_mail.php`) — five canonical
+  purposes covering every active `mailerSend()` site:
+  - `timesheets` → staffing/timesheets (label: **Timesheets**)
+  - `ap` → ap/bill approvals (label: **AP**)
+  - `vendor_portal` → ap/vendor portal magic link (label: **Vendor Portal**)
+  - `cfo` → CFO digests (label: **CFO**)
+  - `payments` → Mercury/treasury alerts (label: **Payments**)
+- **Resolver precedence** (`cf_tenant_mail_sender(tenantId, purpose)`):
+  1. `tenant_mail_senders` row → from_name / reply_to / enabled
+  2. legacy `tenants.mail_from_name_override` / `mail_reply_to`
+  3. derived `"{tenant_name} {Purpose Label}"`
+  4. platform `RESEND_FROM_NAME` / null Reply-To
+- **Mute flag**: `enabled=0` for a (tenant, purpose) row hard-mutes
+  that category — `mailerSend()` returns
+  `{ok:false, driver:'disabled', error:'purpose_disabled'}` without
+  contacting Resend.
+- **Wired call sites**: all five existing `mailerSend()` invocations
+  now pass `module`, `purpose`, and `tenant_id`:
+  `staffing/api/timesheet_email_approver.php`,
+  `ap/api/bill_approvals.php`, `ap/api/vendor_portal.php`,
+  `api/cfo_send_report.php`, `core/mercury_payments.php`.
+
+### API
+- New `/api/admin/mail_senders.php` (RBAC `tenant.manage`):
+  - `GET` → `{purposes:[{key,label,description,override,resolved:{display,from_name,reply_to,enabled,source}}], platform:{from_email,from_name}}`
+  - `POST` body `{purpose, from_name?, reply_to?, enabled?}` upserts
+  - `DELETE ?purpose=…` removes the override (cascade to legacy/platform fallback)
+
+### UI
+- New `/settings/notifications` page (`NotificationSendersPage.jsx`)
+  rendering one card per purpose with:
+  - "Sending enabled / muted" toggle (per-purpose hard mute)
+  - Display-name input (max 120, line-break-free)
+  - Reply-To input (RFC-validated email)
+  - Live "Current effective sender" preview with `source` tag
+    (`purpose` / `tenant` / `derived` / `platform`)
+  - "Save" + "Reset to default" buttons (DELETE) for tenant admins
+- `SettingsPage` "Email Notifications" placeholder toggle replaced
+  with a link card to the new page.
+
+### Smoke tests
+- New: `tests/tenant_mail_senders_smoke.php` (79 assertions covering
+  migration schema, registry contents, resolver short-circuits,
+  mailerSend mute behaviour, all 5 call-site wirings, API surface,
+  config.local.php envelope, and full UI testid map).
+- Updated: `tests/mailer_send_shim_smoke.php` to allow the new
+  platform `RESEND_FROM_NAME` to flow through (was hard-coded to a
+  driver-default name).
+- Suite total: **243 / 243 passing** (was 242).
+
+### Operator todo
+Before live delivery, the operator must:
+1. Add the Resend key as a Cloudways env var: `RESEND_API_KEY=re_...`.
+2. Verify the `mail.corefluxapp.com` domain (SPF/DKIM/DMARC) inside
+   the Resend dashboard.
+3. Run `php /app/core/migrations/065_tenant_mail_senders.sql` against
+   prod MySQL.
+4. Visit `/api/admin/mail_test_send.php` (existing) to round-trip a
+   test message through ResendDriver and confirm headers land
+   correctly.
+
+
+
 ## Zoho Books Slice 4 + Transaction Value at Risk Widget (2026-02 — current fork)
 
 ### Zoho Books Slice 4 — Invoice / Bill / Vendor Payment push

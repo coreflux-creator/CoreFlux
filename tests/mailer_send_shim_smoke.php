@@ -165,7 +165,7 @@ $a('Bearer auth header sent',
 $a('Idempotency-Key header included',
     isset($transportCalls[0]['headers'])
     && (bool) array_filter($transportCalls[0]['headers'], static fn($h) => str_starts_with((string) $h, 'Idempotency-Key:')));
-$a('payload uses from <header> shape',                     $c((string) ($transportCalls[0]['payload']['from'] ?? ''), 'CoreFlux <no-reply@coreflux.app>'));
+$a('payload uses from <header> shape',                     $c((string) ($transportCalls[0]['payload']['from'] ?? ''), '<no-reply@coreflux.app>'));
 $a('payload preserves subject + html',                     ($transportCalls[0]['payload']['subject'] ?? '') === 'Timesheet awaiting approval'
                                                            && $c((string) ($transportCalls[0]['payload']['html'] ?? ''), 'Approve or reject below.'));
 $a('payload propagates reply_to',                          ($transportCalls[0]['payload']['reply_to'] ?? '') === 'no-reply@coreflux.app');
