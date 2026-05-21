@@ -48,6 +48,10 @@ $assert('passes fromDate/toDate query through (V2 BI format)',
     strpos($src, "'fromDate'") !== false && strpos($src, "'toDate'") !== false
     && strpos($src, "m/d/Y H:i:s") !== false);
 $assert('handles {data:[...]} pagination',        strpos($src, "isset(\$resp['data'])  && is_array(\$resp['data'])") !== false);
+$assert('userFieldsName workaround on Companies + Contacts BI calls',
+    strpos($src, "'/apiv2/bi/NewUpdatedCompanyRecords'") !== false
+    && strpos($src, "'/apiv2/bi/NewUpdatedContactRecords'") !== false
+    && strpos($src, "\$query['userFieldsName'] = ''") !== false);
 $assert('handles {items:[...]} pagination',       strpos($src, "isset(\$resp['items']) && is_array(\$resp['items'])") !== false);
 $assert('handles plain list response',            strpos($src, 'array_keys($resp) === range(0, count($resp) - 1)') !== false);
 

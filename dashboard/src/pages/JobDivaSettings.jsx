@@ -77,6 +77,7 @@ export default function JobDivaSettings() {
         total,
         latency_ms: r.ping?.latency_ms ?? r.latency_ms ?? null,
         note: r.note || null,
+        skipped_by_config: Array.isArray(r.skipped_by_config) ? r.skipped_by_config : [],
         ts: new Date().toISOString(),
       });
       if (!counts) setMsg(r.note || 'Sync triggered.');
@@ -284,7 +285,9 @@ export default function JobDivaSettings() {
             {Object.values(syncResult.counts).every(n => Number(n) === 0) && (
               <span data-testid="jobdiva-settings-sync-result-zero"
                     style={{ fontSize: 12, color: '#64748b' }}>
-                Nothing new to import — your tenant is already up to date.
+                {syncResult.skipped_by_config && syncResult.skipped_by_config.length > 0
+                  ? <>No entities are configured to pull from JobDiva. Set direction to <strong>pull</strong> or <strong>two_way</strong> for <code data-testid="jobdiva-settings-sync-result-skipped-list">{syncResult.skipped_by_config.join(', ')}</code> in the Sync Direction section below.</>
+                  : 'Nothing new to import — your tenant is already up to date.'}
               </span>
             )}
           </div>

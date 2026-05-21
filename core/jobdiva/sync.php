@@ -411,6 +411,21 @@ function jobdivaSyncFetchItems(int $tid, string $path, array $opts): array
     $query = jobdivaBiDateRange($opts);
     if (!empty($opts['page_size']))   $query['pageSize']   = (int) $opts['page_size'];
     if (!empty($opts['page_number'])) $query['pageNumber'] = (int) $opts['page_number'];
+
+    // Workaround for JobDiva V2 BI 500 "Not an array".
+    // The `/apiv2/bi/NewUpdated{Company,Contact}Records` endpoints declare
+    // `userFieldsName` as an OPTIONAL `@RequestParam List<String>`. When
+    // the param is omitted entirely, JobDiva's controller iterates a
+    // null list and surfaces the response as
+    //   500 Internal Server Error · message: "Not an array".
+    // Sending an empty value (`userFieldsName=`) binds Spring's param to
+    // an empty list and avoids the NullPointer. Harmless on endpoints
+    // that don't declare this param (Spring ignores unknown query params).
+    if (str_starts_with($path, '/apiv2/bi/NewUpdatedCompanyRecords')
+     || str_starts_with($path, '/apiv2/bi/NewUpdatedContactRecords')) {
+        if (!array_key_exists('userFieldsName', $query)) $query['userFieldsName'] = '';
+    }
+
     $resp  = jobdivaCall($tid, 'GET', $path, null, $query);
     if (is_array($resp)) {
         if (isset($resp['data'])  && is_array($resp['data']))   return $resp['data'];
