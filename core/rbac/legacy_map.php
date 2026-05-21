@@ -93,6 +93,8 @@ final class RbacLegacyMap
             'integrations.jobdiva.view'          => ['integrations', 'read'],
             'integrations.qbo.manage'            => ['integrations', 'admin'],
             'integrations.qbo.view'              => ['integrations', 'read'],
+            'integrations.airtable.manage'       => ['integrations', 'admin'],
+            'integrations.airtable.view'         => ['integrations', 'read'],
 
             // ── payroll ───────────────────────────────────────────────────
             'payroll.runs.approve'               => ['payroll', 'admin'],

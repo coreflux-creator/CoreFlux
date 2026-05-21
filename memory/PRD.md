@@ -9,6 +9,68 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Architecture:** Modular monolith; modules developed in-repo under `/modules/<name>/`, extracted to subtree repos later
 - **Hosting:** Cloudways
 
+
+## Airtable Integration — Slice 1 Foundation (2026-02 — current fork)
+
+Tenant-scoped Airtable connection via Personal Access Token (PAT). Pull-only v1.
+Push and OAuth deferred to a follow-on slice.
+
+### Schema (migration 063)
+- `core/migrations/063_airtable_foundation.sql` creates three tables:
+  - `airtable_connections` — one row per tenant. `pat_ct` is AES-256-GCM ciphertext;
+    `pat_last4` is the only plaintext display hint. Status + last_probe_* + scopes columns.
+  - `airtable_table_mappings` — one row per (base_id, table_id) the tenant wants synced.
+    Columns: `internal_entity` (entity-mapping bucket), `direction` (`pull`/`off`),
+    `field_map` JSON, `primary_field`, `last_sync_*`.
+  - `airtable_sync_audit` — mirrors `qbo_sync_audit` shape for activity-feed reuse.
+
+### Backend (`core/airtable/`)
+- `client.php` — PAT vault + raw HTTP client + meta API helpers.
+  Public surface: `airtableConfigured`, `airtableConnection`, `airtablePAT`,
+  `airtableSavePAT`, `airtableDisconnect`, `airtablePing`, `airtableCall`,
+  `airtableRawRequest`, `airtableListBases`, `airtableListTables`,
+  `airtableSelectRecords`, `airtableAudit`.
+  - PAT format guard (`^pat[A-Za-z0-9._-]{10,}$`).
+  - Rate-limit 429 → 1.1s backoff + retry once.
+  - Test transport hook via `$GLOBALS['__airtable_transport']`.
+- `sync.php` — mapping CRUD + pull worker.
+  Public surface: `airtableMappingList/Get/Upsert/Delete`, `airtableSyncTable`.
+  - Pulls Airtable records page-by-page (offset cursor), normalises via field_map,
+    persists into `external_entity_mappings` under `source_system='airtable'`.
+  - Synthesises a deterministic internal_entity_id from sha256(tenant:externalId)
+    so the worker never touches a CoreFlux core table — downstream features can
+    remap once they want the data inside a real table.
+  - Pagination cap (`maxPages=20`) for safety; cron raises if a base is huge.
+
+### API (`api/airtable.php` + `api/airtable/*.php` shims)
+Actions: `status`, `connect`, `disconnect`, `ping`, `list_bases`, `list_tables`,
+`mappings`, `mapping_save`, `mapping_delete`, `sync_now`.
+RBAC: `integrations.airtable.view` (read), `integrations.airtable.manage` (write).
+Covered by the `integrations.*` wildcard in `rbac_config.php` for tenant_admin.
+
+### Cron (`cron/airtable_sync.php`)
+- Cloudways entry: `H/15 * * * *` (every 15 minutes).
+- Iterates every tenant with an active connection AND ≥1 pull mapping.
+- Continues on per-mapping failure; emits aggregate counts to stdout.
+
+### Frontend (`dashboard/src/pages/AirtableSettings.jsx`)
+- Mounted at `/admin/integrations/airtable` (AdminModule.jsx).
+- Card added to `IntegrationsHub.jsx` (Operations & CRM section, Database icon).
+- Branches: not-configured / not-connected / connected.
+- Connect form: PAT input (show/hide toggle), optional workspace label.
+- Mapping editor: live base/table pickers (loaded via `/list_bases` & `/list_tables`),
+  CoreFlux entity dropdown, primary_field input, field_map JSON textarea.
+- Per-mapping row: Sync Now / Edit / Delete + inline error display.
+- Activity feed: latest 25 audit rows with action / base / table / result.
+
+### Smoke test
+- `tests/airtable_foundation_smoke.php` — 94 assertions covering migration shape,
+  client public surface, sync pipeline surface, API dispatch, all 10 shims,
+  `php -l` sanity, UI testids, AdminModule/Hub wiring, RBAC legacy_map,
+  and a functional adapter test using the injected transport stub.
+- Full suite: 236/236 passing.
+
+
 ## Cross-tenant accounting audit trail (2026-02 — current fork)
 
 Companion to the hierarchy entity scope: every consolidation edge or intercompany mapping that spans tenant boundaries is now recorded in a dedicated forensic feed. Use it as SOX evidence and as a one-stop rollback signal.

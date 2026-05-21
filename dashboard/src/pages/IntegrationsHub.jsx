@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/api';
 import { Section, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { PlugZap, Building2, Banknote, BookOpen, ChevronRight } from 'lucide-react';
+import { PlugZap, Building2, Banknote, BookOpen, Database, ChevronRight } from 'lucide-react';
 
 /**
  * IntegrationsHub — tenant admin "single pane of glass" for every external
@@ -19,6 +19,7 @@ export default function IntegrationsHub() {
   const mercury  = useApi('/api/mercury_connection.php?action=status');
   const jobdiva  = useApi('/api/jobdiva/status.php?action=status');
   const qbo      = useApi('/api/qbo/status.php?action=status');
+  const airtable = useApi('/api/airtable/status.php?action=status');
 
   const plaidStatus = plaid.loading
     ? 'loading'
@@ -41,6 +42,14 @@ export default function IntegrationsHub() {
     : qbo.data?.connected
       ? 'connected'
       : qbo.data?.configured
+        ? 'not_connected'
+        : 'not_configured';
+
+  const airtableStatus = airtable.loading
+    ? 'loading'
+    : airtable.data?.connected
+      ? 'connected'
+      : airtable.data?.configured
         ? 'not_connected'
         : 'not_configured';
 
@@ -99,6 +108,19 @@ export default function IntegrationsHub() {
             description="OAuth connection to your Intuit QuickBooks company. Per-entity push / pull / two-way controls for journal entries, customers, vendors, invoices, bills, payments, and the chart of accounts."
             href="/admin/integrations/qbo"
             status={qboStatus}
+          />
+        </ActionCardsGrid>
+      </Section>
+
+      <Section title="Operations & CRM">
+        <ActionCardsGrid>
+          <IntegrationCard
+            testid="integration-card-airtable"
+            icon={Database}
+            title="Airtable"
+            description="Pull records from any Airtable base/table into the integrations vault. Per-mapping field map; pull-only v1; PAT auth (encrypted at rest)."
+            href="/admin/integrations/airtable"
+            status={airtableStatus}
           />
         </ActionCardsGrid>
       </Section>
