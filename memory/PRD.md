@@ -10,6 +10,69 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Zoho Books Slice 4 + Transaction Value at Risk Widget (2026-02 — current fork)
+
+### Zoho Books Slice 4 — Invoice / Bill / Vendor Payment push
+- `core/zoho_books/sync_bills.php` mirrors QBO `sync_bills.php`. POSTs to
+  `/books/v3/bills`, idempotent via `external_entity_mappings`
+  (entity_type='bill'). Vendor mapping prefers the existing
+  `ap_vendors_index → mapping` row, then live-discovers via
+  `/books/v3/contacts?contact_type=vendor` and upserts. Account
+  resolution reuses Slice 2's `zohoBooksResolveAccountRef()`.
+- `core/zoho_books/sync_payments.php` POSTs to
+  `/books/v3/vendorpayments` with FIFO bill allocation. Bill links use
+  `{bill_id, amount_applied}`. Maps CoreFlux method enum
+  (`check`/`ach`/`wire`/`cash`/`card`) to Zoho `payment_mode`
+  (`check`/`banktransfer`/`cash`/`creditcard`). Idempotent under
+  entity_type='payment'.
+- `core/zoho_books/sync_invoices.php` (already shipped) wired into the
+  dispatcher and cron alongside the new workers.
+- API: `/api/zoho_books.php` adds `sync_invoices`, `sync_bills`,
+  `sync_payments` actions. Shims at
+  `/api/zoho_books/sync_{invoices,bills,payments}.php`. RBAC gates on
+  `integrations.zoho_books.manage`.
+- Cron `cron/zoho_books_sync_outbound.php` now iterates all four
+  workers (journal_entries, invoices, bills, payments), each gated on
+  its own sync_config direction.
+- Reconcile (`api/admin/accounting_sync_reconcile.php`) registers
+  `zoho_runner` + `zoho_runs_on` for invoices, bills, payments —
+  Reconcile-All now hits both systems instead of returning
+  `worker_pending` for Zoho.
+- UI: `ZohoBooksSettings.jsx` ManualSyncCard refactored to a row
+  registry with per-entity Dry-run + Sync-now buttons for JE,
+  invoices, bills, payments.
+
+### Transaction Value at Risk Widget (Option A)
+- Two side-by-side widgets on the Accounting Sync Dashboard (one per
+  integration), backed by `transaction_value_at_risk` payload from
+  `/api/admin/accounting_sync_dashboard.php`.
+- Each widget surfaces:
+  - **Pending value** ($) + count of push-eligible txns with no
+    `external_entity_mappings` row yet.
+  - **Oldest unmapped age** with a conditional health pill:
+    🟢 Green &lt;30m · 🟡 Amber 30m–4h · 🔴 Red &gt;4h.
+  - **24-hour sparkline** (SVG, 24 hourly buckets) showing both pending
+    $ (bar height) and txn count (hover tooltip), with header showing
+    total amount + count across the window.
+  - **Per-entity breakdown** (Invoices · Bills · Payments) with pending
+    $, count, and current sync direction.
+- API runs three eligibility queries per integration (invoices: status
+  IN ('approved','sent','partially_paid'); bills: IN
+  ('approved','partially_paid'); payments: IN ('sent','cleared')),
+  joined LEFT against mappings to find unmapped rows, then rolls up
+  amount/count/oldest_age and generates the 24h hourly sparkline via
+  `DATE_FORMAT(created_at, '%Y-%m-%d %H:00')` grouping.
+
+### Smoke tests
+- New: `tests/zoho_books_slice4_smoke.php` (95 assertions covering
+  driver surfaces, payload builders, API dispatch, cron wiring,
+  reconcile registration, VAR payload contracts, widget JSX testids).
+- Updated: `tests/zoho_books_je_push_smoke.php` to track refactored
+  ManualSyncCard structure.
+- Suite total: **242 / 242 passing** (was 241).
+
+
+
 ## Bulk Discover + Zoho Books Slice 3 (2026-02 — current fork)
 
 ### Bulk Discover (CoA Coverage card)

@@ -105,7 +105,7 @@ export default function AccountingSyncDashboard() {
   if (error)   return <div data-testid="acct-sync-error" style={{ color: 'var(--cf-red, #b91c1c)' }}>Failed to load: {error.message || String(error)}</div>;
   if (!data)   return null;
 
-  const { qbo, zoho_books: zoho, entities = [], summary = {}, unified_activity: activity = [] } = data;
+  const { qbo, zoho_books: zoho, entities = [], summary = {}, unified_activity: activity = [], transaction_value_at_risk: valueAtRisk = {} } = data;
   const eligibleCount = entities.filter((e) => e.coverage !== 'neither').length;
 
   return (
@@ -159,6 +159,27 @@ export default function AccountingSyncDashboard() {
           identityRow={{ label: 'Organization', value: zoho?.organization_name }}
           identityRow2={{ label: 'Org ID', value: zoho?.organization_id, mono: true }}
           identityRow3={{ label: 'Region', value: zoho?.dc }}
+        />
+      </div>
+
+      {/* ─────────────────── transaction value at risk ─────────────────── */}
+      <div
+        data-testid="acct-sync-var-widgets"
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, marginBottom: 24 }}
+      >
+        <ValueAtRiskCard
+          testid="acct-sync-var-qbo"
+          system="qbo"
+          title="QBO — value at risk"
+          stats={valueAtRisk.qbo}
+          connected={qbo?.connected}
+        />
+        <ValueAtRiskCard
+          testid="acct-sync-var-zoho"
+          system="zoho_books"
+          title="Zoho Books — value at risk"
+          stats={valueAtRisk.zoho_books}
+          connected={zoho?.connected}
         />
       </div>
 
@@ -314,6 +335,181 @@ export default function AccountingSyncDashboard() {
 }
 
 /* ─────────────────────────────────────────────────────────── system tile */
+
+function ValueAtRiskCard({ testid, system, title, stats, connected }) {
+  // health colors keyed by oldest age band — kept locally so the
+  // backend stays free of colour concerns.
+  const HEALTH = {
+    green: { label: 'Healthy',  bg: '#d1fae5', fg: '#065f46', dot: '#10b981' },
+    amber: { label: 'Stale',    bg: '#fef3c7', fg: '#92400e', dot: '#f59e0b' },
+    red:   { label: 'Critical', bg: '#fee2e2', fg: '#991b1b', dot: '#ef4444' },
+  };
+  const health = HEALTH[stats?.health] || HEALTH.green;
+  const pendingAmount = Number(stats?.pending_amount ?? 0);
+  const pendingCount  = Number(stats?.pending_count  ?? 0);
+  const oldest        = stats?.oldest_age_minutes;
+  const buckets       = Array.isArray(stats?.sparkline_24h) ? stats.sparkline_24h : [];
+  const maxAmount     = Math.max(1, ...buckets.map((b) => Number(b.amount || 0)));
+  const totalCount24h = buckets.reduce((s, b) => s + Number(b.count || 0), 0);
+  const total24hAmt   = buckets.reduce((s, b) => s + Number(b.amount || 0), 0);
+  const byEntity      = stats?.by_entity || {};
+
+  return (
+    <div
+      data-testid={testid}
+      className="card"
+      style={{
+        padding: 16, border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8,
+        background: 'var(--cf-surface, #fff)', display: 'flex', flexDirection: 'column', gap: 12,
+      }}
+    >
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>{title}</div>
+          <div style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>
+            Push-eligible transactions waiting to be shipped to {system === 'qbo' ? 'QuickBooks' : 'Zoho Books'}.
+          </div>
+        </div>
+        <span
+          data-testid={`${testid}-health`}
+          style={{
+            fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+            background: health.bg, color: health.fg, whiteSpace: 'nowrap',
+          }}
+        >
+          <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: health.dot, marginRight: 5, verticalAlign: 'middle' }} />
+          {health.label}
+        </span>
+      </header>
+
+      {!connected ? (
+        <p data-testid={`${testid}-not-connected`} style={{ fontSize: 12, color: 'var(--cf-text-secondary)', margin: 0 }}>
+          Not connected — value-at-risk metrics start tracking once this integration is wired up.
+        </p>
+      ) : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--cf-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Pending value
+              </div>
+              <div data-testid={`${testid}-pending-amount`} style={{ fontSize: 22, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                {formatCurrency(pendingAmount)}
+              </div>
+              <div data-testid={`${testid}-pending-count`} style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+                {pendingCount} txn{pendingCount === 1 ? '' : 's'}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--cf-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Oldest unmapped
+              </div>
+              <div
+                data-testid={`${testid}-oldest-age`}
+                style={{ fontSize: 22, fontWeight: 700, color: health.fg }}
+              >
+                {formatAge(oldest)}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>
+                Green &lt;30m · Amber 30m–4h · Red &gt;4h
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--cf-text-secondary)', marginBottom: 4 }}>
+              <span>Last 24h arrivals</span>
+              <span data-testid={`${testid}-sparkline-totals`}>
+                {formatCurrency(total24hAmt)} · {totalCount24h} txn{totalCount24h === 1 ? '' : 's'}
+              </span>
+            </div>
+            <Sparkline
+              testid={`${testid}-sparkline`}
+              buckets={buckets}
+              maxAmount={maxAmount}
+              barColor={health.dot}
+            />
+          </div>
+
+          <div data-testid={`${testid}-by-entity`} style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, fontSize: 11 }}>
+            {[
+              { key: 'invoices', label: 'Invoices' },
+              { key: 'bills',    label: 'Bills' },
+              { key: 'payments', label: 'Payments' },
+            ].map((row) => {
+              const e = byEntity[row.key] || {};
+              return (
+                <div
+                  key={row.key}
+                  data-testid={`${testid}-entity-${row.key}`}
+                  style={{ padding: '6px 8px', background: 'var(--cf-border-muted, #f8fafc)', borderRadius: 4 }}
+                >
+                  <div style={{ fontWeight: 600 }}>{row.label}</div>
+                  <div style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(e.pending_amount || 0)}</div>
+                  <div style={{ color: 'var(--cf-text-secondary)' }}>
+                    {(e.pending_count || 0)} txn · {e.direction || 'off'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Sparkline({ testid, buckets, maxAmount, barColor }) {
+  if (!buckets || buckets.length === 0) {
+    return <div data-testid={`${testid}-empty`} style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>No arrivals in the last 24 hours.</div>;
+  }
+  const W = 280, H = 36, gap = 1;
+  const barW = (W - gap * (buckets.length - 1)) / buckets.length;
+  return (
+    <svg
+      data-testid={testid}
+      width="100%" height={H}
+      viewBox={`0 0 ${W} ${H}`}
+      preserveAspectRatio="none"
+      role="img"
+      aria-label="24-hour pending value sparkline"
+    >
+      {buckets.map((b, i) => {
+        const amt = Number(b.amount || 0);
+        const cnt = Number(b.count  || 0);
+        const h = maxAmount > 0 ? Math.max(amt > 0 ? 2 : 0, (amt / maxAmount) * H) : 0;
+        return (
+          <g key={i}>
+            <title>{`${b.hour} — ${cnt} txn · $${amt.toFixed(2)}`}</title>
+            <rect
+              x={i * (barW + gap)}
+              y={H - h}
+              width={barW}
+              height={h}
+              fill={barColor}
+              opacity={amt > 0 ? 0.85 : 0.15}
+            />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function formatCurrency(n) {
+  const v = Number(n) || 0;
+  return v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+}
+
+function formatAge(minutes) {
+  if (minutes === null || minutes === undefined) return '—';
+  const m = Math.max(0, Number(minutes));
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${m % 60}m`;
+  const d = Math.floor(h / 24);
+  return `${d}d ${h % 24}h`;
+}
 
 function SystemTile({ testid, system, title, settingsHref, data, identityRow, identityRow2, identityRow3 }) {
   const configured = !!data?.configured;

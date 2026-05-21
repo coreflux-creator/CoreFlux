@@ -23,6 +23,9 @@ require_once __DIR__ . '/../core/zoho_books/client.php';
 require_once __DIR__ . '/../core/zoho_books/sync_je.php';
 require_once __DIR__ . '/../core/zoho_books/sync_accounts.php';
 require_once __DIR__ . '/../core/zoho_books/sync_contacts.php';
+require_once __DIR__ . '/../core/zoho_books/sync_invoices.php';
+require_once __DIR__ . '/../core/zoho_books/sync_bills.php';
+require_once __DIR__ . '/../core/zoho_books/sync_payments.php';
 
 $method = api_method();
 $action = (string) (api_query('action') ?? '');
@@ -229,6 +232,51 @@ switch ($action) {
             $res = zohoBooksSyncContactsVendors($tid, $user['id'] ?? null, []);
         } catch (\Throwable $e) {
             api_error('sync_vendors failed: ' . $e->getMessage(), 502);
+        }
+        api_ok($res);
+    }
+
+    case 'sync_invoices': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.zoho_books.manage');
+        $body = api_json_body();
+        $opts = [];
+        if (isset($body['limit']))   $opts['limit']   = (int) $body['limit'];
+        if (!empty($body['dry_run'])) $opts['dry_run'] = true;
+        try {
+            $res = zohoBooksSyncInvoices($tid, $user['id'] ?? null, $opts);
+        } catch (\Throwable $e) {
+            api_error('sync_invoices failed: ' . $e->getMessage(), 502);
+        }
+        api_ok($res);
+    }
+
+    case 'sync_bills': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.zoho_books.manage');
+        $body = api_json_body();
+        $opts = [];
+        if (isset($body['limit']))   $opts['limit']   = (int) $body['limit'];
+        if (!empty($body['dry_run'])) $opts['dry_run'] = true;
+        try {
+            $res = zohoBooksSyncBills($tid, $user['id'] ?? null, $opts);
+        } catch (\Throwable $e) {
+            api_error('sync_bills failed: ' . $e->getMessage(), 502);
+        }
+        api_ok($res);
+    }
+
+    case 'sync_payments': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.zoho_books.manage');
+        $body = api_json_body();
+        $opts = [];
+        if (isset($body['limit']))   $opts['limit']   = (int) $body['limit'];
+        if (!empty($body['dry_run'])) $opts['dry_run'] = true;
+        try {
+            $res = zohoBooksSyncVendorPayments($tid, $user['id'] ?? null, $opts);
+        } catch (\Throwable $e) {
+            api_error('sync_payments failed: ' . $e->getMessage(), 502);
         }
         api_ok($res);
     }

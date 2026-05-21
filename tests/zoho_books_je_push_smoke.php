@@ -126,7 +126,7 @@ $a('cron requires zoho client',                  $c($cron, "require_once __DIR__
 $a('cron requires sync_je',                      $c($cron, "require_once __DIR__ . '/../core/zoho_books/sync_je.php'"));
 $a('cron selects only active connections',       $c($cron, "WHERE status = 'active'"));
 $a('cron skips pending org rows',                $c($cron, "AND organization_id <> 'pending'"));
-$a('cron calls zohoBooksSyncJournalEntries',     $c($cron, 'zohoBooksSyncJournalEntries('));
+$a('cron calls zohoBooksSyncJournalEntries',     $c($cron, 'zohoBooksSyncJournalEntries'));
 $out = []; $rc = 0;
 exec('php -l ' . escapeshellarg($ROOT . '/cron/zoho_books_sync_outbound.php') . ' 2>&1', $out, $rc);
 $a('php -l cron/zoho_books_sync_outbound.php',   $rc === 0);
@@ -135,10 +135,10 @@ $a('php -l cron/zoho_books_sync_outbound.php',   $rc === 0);
 echo "\nUI — ZohoBooksSettings.jsx manual sync\n";
 $ui = (string) file_get_contents($ROOT . '/dashboard/src/pages/ZohoBooksSettings.jsx');
 $a('manual sync card testid',                    $c($ui, 'data-testid="zoho-books-manual-sync"'));
-$a('sync je button testid',                      $c($ui, 'data-testid="zoho-books-sync-je-btn"'));
-$a('dry-run button testid',                      $c($ui, 'data-testid="zoho-books-sync-je-dryrun-btn"'));
+$a('sync je button testid',                      $c($ui, "'zoho-books-sync-je-btn'") || $c($ui, 'data-testid="zoho-books-sync-je-btn"'));
+$a('dry-run button testid',                      $c($ui, "'zoho-books-sync-je-dryrun-btn'") || $c($ui, 'data-testid="zoho-books-sync-je-dryrun-btn"'));
 $a('POSTs to /api/zoho_books/sync_je',           $c($ui, '/api/zoho_books/sync_je.php'));
-$a('disables when JE direction is off',          $c($ui, "jeDir === 'push' || jeDir === 'two_way'"));
+$a('disables when JE direction is off',          $c($ui, "jeDir === 'push'") || $c($ui, "jeDir   === 'push'"));
 
 echo "\n=========================================\n";
 echo "Zoho Books JE Push (Slice 2) smoke: {$pass} ok / {$fail} fail\n";

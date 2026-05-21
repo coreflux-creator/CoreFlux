@@ -20,6 +20,9 @@ require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/encryption.php';
 require_once __DIR__ . '/../core/zoho_books/client.php';
 require_once __DIR__ . '/../core/zoho_books/sync_je.php';
+require_once __DIR__ . '/../core/zoho_books/sync_invoices.php';
+require_once __DIR__ . '/../core/zoho_books/sync_bills.php';
+require_once __DIR__ . '/../core/zoho_books/sync_payments.php';
 
 $pdo = getDB();
 try {
@@ -42,21 +45,30 @@ if (!$tenants) {
 
 $total = ['pushed' => 0, 'skipped' => 0, 'failed' => 0, 'tenants_ok' => 0, 'tenants_err' => 0];
 
+// Slice 4 push workers — each gated on its own sync_config direction.
+$WORKERS = [
+    'journal_entries' => ['fn' => 'zohoBooksSyncJournalEntries', 'limit' => 50],
+    'invoices'        => ['fn' => 'zohoBooksSyncInvoices',       'limit' => 50],
+    'bills'           => ['fn' => 'zohoBooksSyncBills',          'limit' => 50],
+    'payments'        => ['fn' => 'zohoBooksSyncVendorPayments', 'limit' => 50],
+];
+
 foreach ($tenants as $tid) {
     $tid = (int) $tid;
     try {
         $cfg = zohoBooksSyncConfigRead($tid);
-        $jeDir = $cfg['journal_entries'] ?? 'off';
-        if (!in_array($jeDir, ['push', 'two_way'], true)) continue;
-
-        $res = zohoBooksSyncJournalEntries($tid, null, ['limit' => 50]);
-        $total['pushed']  += (int) ($res['pushed']           ?? 0);
-        $total['skipped'] += (int) ($res['skipped_unmapped'] ?? 0);
-        $total['failed']  += (int) ($res['failed']           ?? 0);
+        foreach ($WORKERS as $entity => $worker) {
+            $dir = $cfg[$entity] ?? 'off';
+            if (!in_array($dir, ['push', 'two_way'], true)) continue;
+            $res = ($worker['fn'])($tid, null, ['limit' => $worker['limit']]);
+            $total['pushed']  += (int) ($res['pushed']           ?? 0);
+            $total['skipped'] += (int) (($res['skipped'] ?? $res['skipped_unmapped']) ?? 0);
+            $total['failed']  += (int) ($res['failed']           ?? 0);
+        }
         $total['tenants_ok']++;
     } catch (\Throwable $e) {
         $total['tenants_err']++;
-        fwrite(STDERR, "Zoho outbound cron: tenant={$tid} JE push failed: {$e->getMessage()}\n");
+        fwrite(STDERR, "Zoho outbound cron: tenant={$tid} push failed: {$e->getMessage()}\n");
     }
 }
 

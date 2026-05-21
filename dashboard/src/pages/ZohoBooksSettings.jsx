@@ -320,8 +320,14 @@ function SyncConfigCard({ entities, config, onChange, onSave, onReset, dirty, bu
 }
 
 function ManualSyncCard({ currentConfig, busy, setBusy, setFlash, reload }) {
-  const jeDir = currentConfig.journal_entries || 'off';
-  const jeEligible = jeDir === 'push' || jeDir === 'two_way';
+  const jeDir  = currentConfig.journal_entries || 'off';
+  const invDir = currentConfig.invoices        || 'off';
+  const billDir= currentConfig.bills           || 'off';
+  const payDir = currentConfig.payments        || 'off';
+  const jeEligible   = jeDir   === 'push' || jeDir   === 'two_way';
+  const invEligible  = invDir  === 'push' || invDir  === 'two_way';
+  const billEligible = billDir === 'push' || billDir === 'two_way';
+  const payEligible  = payDir  === 'push' || payDir  === 'two_way';
 
   const handleJe = async ({ dryRun }) => {
     setBusy(true); setFlash(null);
@@ -346,6 +352,55 @@ function ManualSyncCard({ currentConfig, busy, setBusy, setFlash, reload }) {
     }
   };
 
+  const handlePush = async (label, action, { dryRun }) => {
+    setBusy(true); setFlash(null);
+    try {
+      const r = await api.post(`/api/zoho_books/${action}.php?action=${action}`, { limit: 50, dry_run: !!dryRun });
+      const parts = [
+        `${r.pushed} ${dryRun ? 'would-push' : 'pushed'}`,
+        `${r.skipped} skipped`,
+        `${r.failed} failed`,
+        `${r.considered} considered`,
+        `${r.latency_ms}ms`,
+      ];
+      setFlash({
+        kind: (r.failed || 0) === 0 ? 'success' : 'error',
+        msg: `Zoho ${label} ${dryRun ? 'dry-run' : 'sync'}: ${parts.join(' · ')}`,
+      });
+      reload();
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const rows = [
+    {
+      label: 'Journal Entries', dir: jeDir, eligible: jeEligible,
+      dryRunTid: 'zoho-books-sync-je-dryrun-btn', tid: 'zoho-books-sync-je-btn',
+      onDry: () => handleJe({ dryRun: true }), onGo: () => handleJe({ dryRun: false }),
+    },
+    {
+      label: 'Invoices', dir: invDir, eligible: invEligible,
+      dryRunTid: 'zoho-books-sync-invoices-dryrun-btn', tid: 'zoho-books-sync-invoices-btn',
+      onDry: () => handlePush('Invoices', 'sync_invoices', { dryRun: true }),
+      onGo:  () => handlePush('Invoices', 'sync_invoices', { dryRun: false }),
+    },
+    {
+      label: 'Bills', dir: billDir, eligible: billEligible,
+      dryRunTid: 'zoho-books-sync-bills-dryrun-btn', tid: 'zoho-books-sync-bills-btn',
+      onDry: () => handlePush('Bills', 'sync_bills', { dryRun: true }),
+      onGo:  () => handlePush('Bills', 'sync_bills', { dryRun: false }),
+    },
+    {
+      label: 'Payments', dir: payDir, eligible: payEligible,
+      dryRunTid: 'zoho-books-sync-payments-dryrun-btn', tid: 'zoho-books-sync-payments-btn',
+      onDry: () => handlePush('Payments', 'sync_payments', { dryRun: true }),
+      onGo:  () => handlePush('Payments', 'sync_payments', { dryRun: false }),
+    },
+  ];
+
   return (
     <div
       data-testid="zoho-books-manual-sync"
@@ -356,39 +411,41 @@ function ManualSyncCard({ currentConfig, busy, setBusy, setFlash, reload }) {
       <p style={{ margin: '4px 0 12px', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
         Run an entity's push worker on demand. Cron runs every 15 minutes; use these buttons to
         verify a connection or unblock a stuck queue. <strong>Dry run</strong> builds the Zoho payload
-        without POSTing — useful for diagnosing unmapped accounts.
+        without POSTing — useful for diagnosing unmapped accounts, vendors, or customers.
       </p>
       <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
         <tbody>
-          <tr style={{ borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)' }}>
-            <td style={{ padding: '8px 4px', fontWeight: 500 }}>Journal Entries</td>
-            <td style={{ padding: '8px 4px', color: 'var(--cf-text-secondary)', fontSize: 12 }}>
-              Direction: <code>{jeDir}</code>
-              {!jeEligible && <span> — set to push or two_way to enable</span>}
-            </td>
-            <td style={{ padding: '8px 4px', textAlign: 'right' }}>
-              <button
-                type="button"
-                className="btn"
-                data-testid="zoho-books-sync-je-dryrun-btn"
-                onClick={() => handleJe({ dryRun: true })}
-                disabled={!jeEligible || busy}
-                style={{ marginRight: 6 }}
-              >
-                Dry run
-              </button>
-              <button
-                type="button"
-                className="btn btn--primary"
-                data-testid="zoho-books-sync-je-btn"
-                onClick={() => handleJe({ dryRun: false })}
-                disabled={!jeEligible || busy}
-              >
-                <Send size={12} style={{ marginRight: 4 }} />
-                {busy ? 'Syncing…' : 'Sync now'}
-              </button>
-            </td>
-          </tr>
+          {rows.map((row) => (
+            <tr key={row.label} style={{ borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)' }}>
+              <td style={{ padding: '8px 4px', fontWeight: 500 }}>{row.label}</td>
+              <td style={{ padding: '8px 4px', color: 'var(--cf-text-secondary)', fontSize: 12 }}>
+                Direction: <code>{row.dir}</code>
+                {!row.eligible && <span> — set to push or two_way to enable</span>}
+              </td>
+              <td style={{ padding: '8px 4px', textAlign: 'right' }}>
+                <button
+                  type="button"
+                  className="btn"
+                  data-testid={row.dryRunTid}
+                  onClick={row.onDry}
+                  disabled={!row.eligible || busy}
+                  style={{ marginRight: 6 }}
+                >
+                  Dry run
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  data-testid={row.tid}
+                  onClick={row.onGo}
+                  disabled={!row.eligible || busy}
+                >
+                  <Send size={12} style={{ marginRight: 4 }} />
+                  {busy ? 'Syncing…' : 'Sync now'}
+                </button>
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
