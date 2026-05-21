@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS tenant_mail_connections (
     account_address VARCHAR(255) NOT NULL,
 
     -- OAuth (encrypted at app layer via Core\Encryption / KMS)
-    oauth_access_token_ct  VARBINARY(2048) NULL,
+    oauth_access_token_ct  VARBINARY(4096) NULL,
     oauth_refresh_token_ct VARBINARY(2048) NULL,
     oauth_expires_at       DATETIME NULL,
     oauth_scope            VARCHAR(500) NULL,

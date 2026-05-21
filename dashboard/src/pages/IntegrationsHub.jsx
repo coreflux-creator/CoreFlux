@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/api';
 import { Section, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { PlugZap, Building2, Banknote, BookOpen, Database, TrendingUp, ChevronRight } from 'lucide-react';
+import { PlugZap, Building2, Banknote, BookOpen, Database, TrendingUp, ChevronRight, ShieldCheck, AlertTriangle, AlertOctagon } from 'lucide-react';
 
 /**
  * IntegrationsHub — tenant admin "single pane of glass" for every external
@@ -21,6 +21,7 @@ export default function IntegrationsHub() {
   const qbo      = useApi('/api/qbo/status.php?action=status');
   const zoho     = useApi('/api/zoho_books/status.php?action=status');
   const airtable = useApi('/api/airtable/status.php?action=status');
+  const health   = useApi('/api/admin/schema_health.php');
 
   const plaidStatus = plaid.loading
     ? 'loading'
@@ -73,6 +74,8 @@ export default function IntegrationsHub() {
           Tokens are encrypted at rest; each integration is scoped to the active tenant.
         </p>
       </div>
+
+      <SchemaHealthPanel data={health.data} loading={health.loading} error={health.error} />
 
       <Section title="Payment Rails">
         <ActionCardsGrid>
@@ -205,5 +208,104 @@ function IntegrationCard({ testid, icon: Icon, title, description, href, status 
         </div>
       </div>
     </Link>
+  );
+}
+
+/* ─────────────────────── schema health diagnostic panel ─────────────────────── */
+
+const HEALTH_META = {
+  green: { Icon: ShieldCheck,   bg: '#d1fae5', fg: '#065f46', dot: '#10b981', label: 'All integration credential columns sized correctly' },
+  amber: { Icon: AlertTriangle, bg: '#fef3c7', fg: '#92400e', dot: '#f59e0b', label: 'Some columns missing — migration pending' },
+  red:   { Icon: AlertOctagon,  bg: '#fee2e2', fg: '#991b1b', dot: '#ef4444', label: 'Undersized credential columns detected — action required' },
+  loading: { Icon: ShieldCheck, bg: '#f1f5f9', fg: '#475569', dot: '#94a3b8', label: 'Checking integration schema…' },
+};
+
+function SchemaHealthPanel({ data, loading, error }) {
+  const [expanded, setExpanded] = React.useState(false);
+
+  if (loading) {
+    return (
+      <div data-testid="schema-health-panel-loading" style={{ marginBottom: 'var(--cf-space-6)', padding: 12, border: '1px solid var(--cf-border)', borderRadius: 8, fontSize: 13, color: 'var(--cf-text-secondary)' }}>
+        Checking integration credential schema…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div data-testid="schema-health-panel-error" style={{ marginBottom: 'var(--cf-space-6)', padding: 12, border: '1px solid var(--cf-red, #b91c1c)', borderRadius: 8, fontSize: 13, color: 'var(--cf-red, #b91c1c)' }}>
+        Schema health probe failed: {error.message || String(error)}
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  const meta    = HEALTH_META[data.status] || HEALTH_META.loading;
+  const Icon    = meta.Icon;
+  const columns = Array.isArray(data.columns) ? data.columns : [];
+  const counts  = data.counts || {};
+  const problemRows = columns.filter((c) => c.verdict !== 'ok');
+
+  return (
+    <div
+      data-testid="schema-health-panel"
+      style={{
+        marginBottom: 'var(--cf-space-6)',
+        padding: 16,
+        border: `1px solid ${meta.dot}`,
+        borderRadius: 8,
+        background: meta.bg,
+        color: meta.fg,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        <Icon size={20} style={{ flexShrink: 0, marginTop: 2 }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 600, fontSize: 14 }} data-testid="schema-health-panel-label">{meta.label}</div>
+          <div style={{ fontSize: 12, marginTop: 4, opacity: 0.85 }} data-testid="schema-health-panel-counts">
+            {counts.ok || 0} ok · {counts.undersized || 0} undersized · {counts.missing || 0} missing · {counts.unknown || 0} unknown
+          </div>
+          {problemRows.length > 0 && (
+            <button
+              type="button"
+              data-testid="schema-health-panel-toggle"
+              onClick={() => setExpanded((v) => !v)}
+              style={{
+                marginTop: 8, fontSize: 12, fontWeight: 500, background: 'transparent',
+                border: `1px solid ${meta.fg}`, color: meta.fg, borderRadius: 4,
+                padding: '4px 10px', cursor: 'pointer',
+              }}
+            >
+              {expanded ? 'Hide details' : `Show ${problemRows.length} flagged column${problemRows.length === 1 ? '' : 's'}`}
+            </button>
+          )}
+          {expanded && problemRows.length > 0 && (
+            <table data-testid="schema-health-panel-details" style={{ marginTop: 12, width: '100%', fontSize: 12, borderCollapse: 'collapse', background: 'rgba(255,255,255,0.5)', borderRadius: 4 }}>
+              <thead>
+                <tr style={{ textAlign: 'left', borderBottom: `1px solid ${meta.fg}` }}>
+                  <th style={{ padding: '6px 8px' }}>Integration</th>
+                  <th style={{ padding: '6px 8px' }}>Column</th>
+                  <th style={{ padding: '6px 8px' }}>Width / Min</th>
+                  <th style={{ padding: '6px 8px' }}>Verdict</th>
+                  <th style={{ padding: '6px 8px' }}>Remediation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {problemRows.map((r, i) => (
+                  <tr key={i} data-testid={`schema-health-row-${r.integration}-${r.column}`} style={{ borderBottom: `1px solid ${meta.fg}30` }}>
+                    <td style={{ padding: '6px 8px', fontWeight: 500 }}>{r.integration_label}</td>
+                    <td style={{ padding: '6px 8px', fontFamily: 'var(--cf-mono, ui-monospace)' }}>{r.table}.{r.column}</td>
+                    <td style={{ padding: '6px 8px', fontVariantNumeric: 'tabular-nums' }}>
+                      {r.actual_bytes === null ? '—' : `${r.actual_bytes} / ${r.min_bytes}`}
+                    </td>
+                    <td style={{ padding: '6px 8px', textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.5 }}>{r.verdict}</td>
+                    <td style={{ padding: '6px 8px', fontFamily: 'var(--cf-mono, ui-monospace)', fontSize: 11 }}>{r.message || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

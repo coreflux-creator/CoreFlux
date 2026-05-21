@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS qbo_connections (
     realm_id            VARCHAR(40)  NOT NULL,          -- Intuit "Company ID"
     company_name        VARCHAR(255) NULL,
     environment         ENUM('sandbox','production') NOT NULL DEFAULT 'sandbox',
-    access_token_ct     VARBINARY(2048) NOT NULL,       -- AES-256-GCM via encryptField()
+    access_token_ct     VARBINARY(4096) NOT NULL,       -- AES-256-GCM via encryptField() — widened by mig 067 for Intuit OAuth tokens up to ~2KB
     refresh_token_ct    VARBINARY(2048) NOT NULL,       -- ditto
     access_token_exp    DATETIME NULL,
     refresh_token_exp   DATETIME NULL,                  -- rolls every refresh
