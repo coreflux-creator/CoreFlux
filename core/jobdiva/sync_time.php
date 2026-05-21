@@ -23,7 +23,7 @@ require_once __DIR__ . '/../integrations/entity_mappings.php';
 
 function jobdivaSyncTimePull(int $tid, ?int $userId, array $opts = []): array
 {
-    $items = jobdivaSyncFetchItems($tid, '/api/jobdiva/timesheets', $opts);
+    $items = jobdivaSyncFetchItems($tid, JOBDIVA_PATH_TIMESHEETS_DELTA, $opts);
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
 
     $pdo = getDB();
@@ -134,19 +134,21 @@ function jobdivaSyncTimePush(int $tid, ?int $userId, array $opts = []): array
             $existing = mappingFindExternal($tid, 'jobdiva', 'time_entry', $internalId);
             if ($existing && $existing['content_hash'] === $newHash) { $skipped++; continue; }
 
-            // Push to JobDiva. Test path uses items_override-style stubbing
-            // by allowing $opts['transport'] to short-circuit the HTTP call.
+            // Push to JobDiva V2.
+            //   POST /apiv2/jobdiva/uploadTimesheet
+            // Verified 2026-02 — V2 has no "update timesheet by id" endpoint
+            // (only updateTimesheetStatus / updateTimesheetExternalID /
+            // updateTimesheetUDFs, none of which replace the timesheet body).
+            // We therefore guard against re-pushes via the content_hash check
+            // above and skip when a mapping already exists.
+            if ($existing) { $skipped++; continue; }
             $resp = isset($opts['transport']) && is_callable($opts['transport'])
-                ? ($opts['transport'])($payload, $existing['external_id'] ?? null)
-                : jobdivaCall(
-                    $tid,
-                    $existing ? 'PUT' : 'POST',
-                    $existing
-                        ? "/api/jobdiva/timesheets/{$existing['external_id']}"
-                        : "/api/jobdiva/timesheets",
-                    $payload
-                );
-            $extId = (string) ($resp['id'] ?? $existing['external_id'] ?? '');
+                ? ($opts['transport'])($payload, null)
+                : jobdivaCall($tid, 'POST', '/apiv2/jobdiva/uploadTimesheet', $payload);
+            $extId = (string) ($resp['id']
+                ?? $resp['timesheetId']
+                ?? $resp['timesheet_id']
+                ?? '');
             if ($extId === '') { $skipped++; continue; }
 
             mappingUpsert($tid, 'jobdiva', 'time_entry', $extId, $internalId, $payload, 'push');

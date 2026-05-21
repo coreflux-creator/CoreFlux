@@ -44,14 +44,16 @@ $assert('exports jobdivaSyncFetchItems',          strpos($src, 'function jobdiva
 echo "\nFetch shape — paginated + list + override\n";
 $assert('items_override bypass for tests',
     strpos($src, "isset(\$opts['items_override']) && is_array(\$opts['items_override'])") !== false);
-$assert('passes modified_since query through',
-    strpos($src, "modifiedSince") !== false);
-$assert('handles {data:[...]} pagination',        strpos($src, "isset(\$resp['data']) && is_array(\$resp['data'])") !== false);
+$assert('passes fromDate/toDate query through (V2 BI format)',
+    strpos($src, "'fromDate'") !== false && strpos($src, "'toDate'") !== false
+    && strpos($src, "m/d/Y H:i:s") !== false);
+$assert('handles {data:[...]} pagination',        strpos($src, "isset(\$resp['data'])  && is_array(\$resp['data'])") !== false);
 $assert('handles {items:[...]} pagination',       strpos($src, "isset(\$resp['items']) && is_array(\$resp['items'])") !== false);
 $assert('handles plain list response',            strpos($src, 'array_keys($resp) === range(0, count($resp) - 1)') !== false);
 
 echo "\nCompanies driver\n";
-$assert('hits /api/jobdiva/companies',            strpos($src, "'/api/jobdiva/companies'") !== false);
+$assert('hits V2 BI NewUpdatedCompanyRecords',    strpos($src, 'JOBDIVA_PATH_COMPANIES_DELTA')  !== false
+                                                  && strpos($src, "'/apiv2/bi/NewUpdatedCompanyRecords'") !== false);
 $assert('falls back across id key spellings',     strpos($src, "\$jd['companyId']") !== false && strpos($src, "\$jd['company_id']") !== false);
 $assert('falls back across name key spellings',   strpos($src, "\$jd['companyName']") !== false && strpos($src, "\$jd['company_name']") !== false);
 $assert('upserts via companiesUpsertByName',      strpos($src, "companiesUpsertByName(\$tid, \$name") !== false);
@@ -65,7 +67,8 @@ $assert('emits audit row entity_type=company',
 $assert('truncates errors at 50',                 strpos($src, 'count($errors) >= 50') !== false);
 
 echo "\nContacts driver\n";
-$assert('hits /api/jobdiva/contacts',             strpos($src, "'/api/jobdiva/contacts'") !== false);
+$assert('hits V2 BI NewUpdatedContactRecords',    strpos($src, 'JOBDIVA_PATH_CONTACTS_DELTA')   !== false
+                                                  && strpos($src, "'/apiv2/bi/NewUpdatedContactRecords'") !== false);
 $assert('resolves company via mappingFindInternal',
     strpos($src, "mappingFindInternal(\$tid, 'jobdiva', 'company', \$companyExtId)") !== false);
 $assert('skips when company mapping missing',
@@ -79,8 +82,13 @@ $assert('contact upsert dedupes by email per company',
 $assert("contact insert defaults role to 'other'",
     strpos($src, "contact_role)\n         VALUES (:t, :c, :n, :ti, :e, :ph, \"other\")") !== false);
 
-echo "\nPlacements driver\n";
-$assert('hits /api/jobdiva/placements',           strpos($src, "'/api/jobdiva/placements'") !== false);
+echo "\nPlacements driver — deferred-by-design (no V2 BI endpoint)\n";
+$assert('emits sync_skip audit when no items_override',
+    strpos($src, "'sync_skip'") !== false && strpos($src, "'no_v2_bi_endpoint'") !== false);
+$assert('returns deferred_reason for callers',
+    strpos($src, "'deferred_reason'") !== false);
+$assert('still honours items_override for tests',
+    strpos($src, "if (isset(\$opts['items_override']) && is_array(\$opts['items_override'])) {\n        // Smoke tests still drive the upsert logic via items_override.") !== false);
 $assert('resolves person via existing mapping',
     strpos($src, "mappingFindInternal(\$tid, 'jobdiva', 'person', \$personExtId)") !== false);
 $assert('skips when person mapping missing (NO ATS auto-create)',

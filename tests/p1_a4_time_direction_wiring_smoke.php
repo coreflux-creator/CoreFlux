@@ -44,8 +44,8 @@ $assert('exports jobdivaMapTimeCategory',          strpos($src, 'function jobdiv
 $assert('exports jobdivaUnmapTimeCategory',        strpos($src, 'function jobdivaUnmapTimeCategory(') !== false);
 
 echo "\nPull driver behaviour\n";
-$assert('hits /api/jobdiva/timesheets path',
-    strpos($src, "'/api/jobdiva/timesheets'") !== false);
+$assert('hits V2 BI NewUpdatedTimesheetRecords path',
+    strpos($src, "JOBDIVA_PATH_TIMESHEETS_DELTA") !== false);
 $assert('falls back across id key spellings',
     strpos($src, "\$jd['timesheetId']") !== false
     && strpos($src, "\$jd['timesheet_id']") !== false);
@@ -79,8 +79,9 @@ $assert('content_hash short-circuits unchanged rows',
     && strpos($src, "\$existing['content_hash'] === \$newHash") !== false);
 $assert('test transport injection point',
     strpos($src, "isset(\$opts['transport']) && is_callable(\$opts['transport'])") !== false);
-$assert('PUT existing / POST new dispatch',
-    strpos($src, "\$existing ? 'PUT' : 'POST'") !== false);
+$assert('POST to V2 uploadTimesheet (no V2 PUT-by-id endpoint)',
+    strpos($src, "'/apiv2/jobdiva/uploadTimesheet'") !== false
+    && strpos($src, "if (\$existing) { \$skipped++; continue; }") !== false);
 $assert('binds mapping (time_entry, push direction)',
     strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'time_entry', \$extId, \$internalId, \$payload, 'push')") !== false);
 $assert('emits audit row entity_type=time direction=push',

@@ -67,9 +67,24 @@ Paste the new Client ID + API username + API password into `/admin/integrations/
 - The credentials column in `jobdiva_connections` is AES-256-GCM encrypted; only `client_id` and `username` are recoverable via the UI (`password` and `webhook_secret` are one-way).
 - Webhook verifier accepts JobDiva's actual `X-Hub-Signature` (HmacSHA1) plus `X-Hub-Signature-256` and the legacy `X-JobDiva-Signature` headers.
 
-## Sync paths (separate follow-up)
+## Sync paths (V1 → V2 BI migration)
 
-`core/jobdiva/sync.php` and `sync_time.php` still hit `/api/jobdiva/companies`, `/api/jobdiva/contacts`, `/api/jobdiva/placements`, `/api/jobdiva/timesheets`. None of those paths exist either. Once authenticate is confirmed working with real credentials, the next pass should map them to the V2 BI endpoints (`/apiv2/bi/CompaniesDetail`, `/apiv2/bi/ContactsDetail`, etc.) — see Swagger group `Version 2`.
+| Entity | V1 path (broken) | V2 path (live) | Method |
+|---|---|---|---|
+| Companies | `/api/jobdiva/companies` ❌ | `/apiv2/bi/NewUpdatedCompanyRecords` | GET |
+| Contacts | `/api/jobdiva/contacts` ❌ | `/apiv2/bi/NewUpdatedContactRecords` | GET |
+| Timesheets (pull) | `/api/jobdiva/timesheets` ❌ | `/apiv2/bi/NewUpdatedTimesheetRecords` | GET |
+| Timesheet (push) | `POST /api/jobdiva/timesheets` ❌ | `/apiv2/jobdiva/uploadTimesheet` | POST |
+| Placements | `/api/jobdiva/placements` ❌ | *(none — see below)* | — |
+
+All V2 BI endpoints require `fromDate` + `toDate` query params formatted **`MM/dd/yyyy HH:mm:ss`** (JobDiva-specific, NOT ISO-8601). `jobdivaBiDateRange()` formats these from `$opts['modified_since']`/`modified_until`, defaulting to a 30-day window ending now.
+
+### Placements deferred-by-design
+
+JobDiva V2 has NO `NewUpdatedStartRecords` BI endpoint. The only listing route is `POST /apiv2/jobdiva/searchStart` which requires explicit search criteria (`jobId` / `candidateId` / `candidateFirstName` etc.). `jobdivaSyncPlacements()` therefore returns early with `{deferred_reason: ...}` and an `'sync_skip'` audit row instead of hitting a 404.
+
+When you want placements syncing, the cleanest approach is to driver-discover them from the timesheet delta (every active placement appears in timesheets) — happy to wire that up next.
+
 
 ## Known follow-up issues already resolved in code (need prod ALTER)
 

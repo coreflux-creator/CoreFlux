@@ -29,9 +29,55 @@ require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../../modules/people/lib/companies.php';
 
+/**
+ * JobDiva V2 BI endpoints — verified 2026-02 from
+ * https://api.jobdiva.com/swagger?group=Version%202. All BI endpoints
+ * take `fromDate` + `toDate` as required query params formatted
+ * `MM/dd/yyyy HH:mm:ss` (JobDiva-specific format, NOT ISO-8601).
+ *
+ *   Companies   → /apiv2/bi/NewUpdatedCompanyRecords
+ *   Contacts    → /apiv2/bi/NewUpdatedContactRecords
+ *   Timesheets  → /apiv2/bi/NewUpdatedTimesheetRecords (used by sync_time.php)
+ *
+ * Placements (Starts) intentionally have NO V2 "NewUpdatedStartRecords"
+ * — JobDiva only exposes `/apiv2/jobdiva/searchStart` (POST with explicit
+ * search criteria). Until we decide on the criteria source (timesheets,
+ * job list, candidate list, etc.), jobdivaSyncPlacements() returns early
+ * with a deferred-by-design result instead of hitting a non-existent path.
+ */
+const JOBDIVA_PATH_COMPANIES_DELTA  = '/apiv2/bi/NewUpdatedCompanyRecords';
+const JOBDIVA_PATH_CONTACTS_DELTA   = '/apiv2/bi/NewUpdatedContactRecords';
+const JOBDIVA_PATH_TIMESHEETS_DELTA = '/apiv2/bi/NewUpdatedTimesheetRecords';
+
+/**
+ * Build JobDiva BI date-range query string. `fromDate` defaults to 30
+ * days ago, `toDate` defaults to now. Accepts an ISO-8601 override via
+ * $opts['modified_since'] and converts to JobDiva's MM/dd/yyyy HH:mm:ss
+ * shape. Time-zone agnostic — JobDiva treats these as account-local.
+ */
+function jobdivaBiDateRange(array $opts): array
+{
+    $now = new \DateTimeImmutable('now');
+    if (!empty($opts['modified_since'])) {
+        try { $from = new \DateTimeImmutable((string) $opts['modified_since']); }
+        catch (\Throwable $_) { $from = $now->modify('-30 days'); }
+    } else {
+        $from = $now->modify('-30 days');
+    }
+    $to = $now;
+    if (!empty($opts['modified_until'])) {
+        try { $to = new \DateTimeImmutable((string) $opts['modified_until']); }
+        catch (\Throwable $_) { /* keep now */ }
+    }
+    return [
+        'fromDate' => $from->format('m/d/Y H:i:s'),
+        'toDate'   => $to->format('m/d/Y H:i:s'),
+    ];
+}
+
 function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
 {
-    $items = jobdivaSyncFetchItems($tid, '/api/jobdiva/companies', $opts);
+    $items = jobdivaSyncFetchItems($tid, JOBDIVA_PATH_COMPANIES_DELTA, $opts);
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
 
     foreach ($items as $jd) {
@@ -76,7 +122,7 @@ function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
 
 function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
 {
-    $items = jobdivaSyncFetchItems($tid, '/api/jobdiva/contacts', $opts);
+    $items = jobdivaSyncFetchItems($tid, JOBDIVA_PATH_CONTACTS_DELTA, $opts);
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
 
     foreach ($items as $jd) {
@@ -145,7 +191,34 @@ function jobdivaSyncUpsertContact(int $tid, int $companyId, array $jd, string $n
 
 function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
 {
-    $items = jobdivaSyncFetchItems($tid, '/api/jobdiva/placements', $opts);
+    // JobDiva V2 has no "NewUpdatedStartRecords" BI endpoint — only
+    // `/apiv2/jobdiva/searchStart` (POST) which requires explicit
+    // criteria (jobId / candidateId / candidate name / email). Until we
+    // wire that up (probably driven off the timesheet delta to discover
+    // active placements), surface an honest deferred-by-design result.
+    //
+    // Caller-side: jobdivaSyncAll() will see processed=0 and won't
+    // treat this as a sync failure — the audit row marks the skip.
+    if (isset($opts['items_override']) && is_array($opts['items_override'])) {
+        // Smoke tests still drive the upsert logic via items_override.
+        $items = $opts['items_override'];
+    } else {
+        jobdivaAudit($tid, 'sync_skip', [
+            'entity_type'     => 'placement',
+            'direction'       => 'pull',
+            'ok'              => true,
+            'actor_user_id'   => $userId,
+            'items_skipped'   => 1,
+            'detail'          => [
+                'reason' => 'no_v2_bi_endpoint',
+                'note'   => 'JobDiva V2 BI exposes no NewUpdatedStartRecords. searchStart wiring deferred.',
+            ],
+        ]);
+        return [
+            'processed' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [],
+            'deferred_reason' => 'JobDiva V2 has no NewUpdatedStartRecords endpoint; placements sync needs searchStart criteria (follow-up).',
+        ];
+    }
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
 
     foreach ($items as $jd) {
@@ -319,21 +392,31 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
 
 /**
  * Fetch raw items list from JobDiva, OR use injected items_override (testing).
- * Accepts both list-style and paginated `{data: [...]}` responses.
+ *
+ * For JobDiva V2 BI endpoints (`/apiv2/bi/NewUpdated*Records`), all calls
+ * require `fromDate` + `toDate` query params in `MM/dd/yyyy HH:mm:ss`.
+ * `jobdivaBiDateRange()` provides defaults (30-day window ending now) and
+ * honours `$opts['modified_since']` / `modified_until` overrides.
+ *
+ * The IBiData response wrapper can be:
+ *   - a plain JSON array of records, OR
+ *   - a {data: [...]} or {items: [...]} envelope.
+ * All three shapes are handled.
  */
 function jobdivaSyncFetchItems(int $tid, string $path, array $opts): array
 {
     if (isset($opts['items_override']) && is_array($opts['items_override'])) {
         return $opts['items_override'];
     }
-    $query = [];
-    if (!empty($opts['modified_since'])) $query['modifiedSince'] = $opts['modified_since'];
-    $resp  = jobdivaCall($tid, 'GET', $path, null, $query ?: null);
+    $query = jobdivaBiDateRange($opts);
+    if (!empty($opts['page_size']))   $query['pageSize']   = (int) $opts['page_size'];
+    if (!empty($opts['page_number'])) $query['pageNumber'] = (int) $opts['page_number'];
+    $resp  = jobdivaCall($tid, 'GET', $path, null, $query);
     if (is_array($resp)) {
-        if (isset($resp['data']) && is_array($resp['data']))   return $resp['data'];
-        if (isset($resp['items']) && is_array($resp['items'])) return $resp['items'];
+        if (isset($resp['data'])  && is_array($resp['data']))   return $resp['data'];
+        if (isset($resp['items']) && is_array($resp['items']))  return $resp['items'];
         // Plain list response.
-        if (array_keys($resp) === range(0, count($resp) - 1))  return $resp;
+        if (array_keys($resp) === range(0, count($resp) - 1))   return $resp;
     }
     return [];
 }
