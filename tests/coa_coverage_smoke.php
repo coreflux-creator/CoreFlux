@@ -77,6 +77,16 @@ $a('disables Discover when system not active',   $c($ui, 'disabled={!systemActiv
 $a('mounted inside dashboard between drift+activity',
     $c($ui, '<CoaCoverageCard'));
 
+// bulk discover
+$a('checkbox column testid',                     $c($ui, 'data-testid="coa-coverage-select-all"'));
+$a('row checkbox testid pattern',                $c($ui, 'data-testid={`coa-coverage-checkbox-${account.id}`}'));
+$a('bulk QBO button testid',                     $c($ui, 'data-testid="coa-coverage-bulk-qbo-btn"'));
+$a('bulk Zoho button testid',                    $c($ui, 'data-testid="coa-coverage-bulk-zoho-btn"'));
+$a('bulk progress container testid',             $c($ui, 'data-testid="coa-coverage-bulk-progress"'));
+$a('bulk progress bar testid',                   $c($ui, 'data-testid="coa-coverage-bulk-progress-bar"'));
+$a('bulk only runs unmapped on chosen system',   $c($ui, 'system === \'qbo\' ? !a.qbo_mapped : !a.zoho_mapped'));
+$a('bulk runs sequentially',                     $c($ui, 'for (let i = 0; i < queue.length; i++)'));
+
 echo "\n=========================================\n";
 echo "CoA Coverage smoke: {$pass} ok / {$fail} fail\n";
 echo "=========================================\n";

@@ -21,6 +21,8 @@ require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/zoho_books/client.php';
 require_once __DIR__ . '/../core/zoho_books/sync_je.php';
+require_once __DIR__ . '/../core/zoho_books/sync_accounts.php';
+require_once __DIR__ . '/../core/zoho_books/sync_contacts.php';
 
 $method = api_method();
 $action = (string) (api_query('action') ?? '');
@@ -194,6 +196,39 @@ switch ($action) {
             $res = zohoBooksSyncJournalEntries($tid, $user['id'] ?? null, $opts);
         } catch (\Throwable $e) {
             api_error('sync_je failed: ' . $e->getMessage(), 502);
+        }
+        api_ok($res);
+    }
+
+    case 'sync_accounts': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.zoho_books.manage');
+        try {
+            $res = zohoBooksSyncChartOfAccounts($tid, $user['id'] ?? null, []);
+        } catch (\Throwable $e) {
+            api_error('sync_accounts failed: ' . $e->getMessage(), 502);
+        }
+        api_ok($res);
+    }
+
+    case 'sync_customers': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.zoho_books.manage');
+        try {
+            $res = zohoBooksSyncContactsCustomers($tid, $user['id'] ?? null, []);
+        } catch (\Throwable $e) {
+            api_error('sync_customers failed: ' . $e->getMessage(), 502);
+        }
+        api_ok($res);
+    }
+
+    case 'sync_vendors': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.zoho_books.manage');
+        try {
+            $res = zohoBooksSyncContactsVendors($tid, $user['id'] ?? null, []);
+        } catch (\Throwable $e) {
+            api_error('sync_vendors failed: ' . $e->getMessage(), 502);
         }
         api_ok($res);
     }

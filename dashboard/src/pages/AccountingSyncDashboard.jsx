@@ -539,6 +539,8 @@ function CoaCoverageCard() {
   const [filter, setFilter] = useState('all');     // all | unmapped | qbo_only | zoho_only | both
   const [q, setQ] = useState('');
   const [flash, setFlash] = useState(null);
+  const [selected, setSelected] = useState(new Set());
+  const [batch, setBatch] = useState(null);        // { system, idx, total, currentLabel }
 
   const handleDiscover = async (account, system) => {
     const key = `${account.id}:${system}`;
@@ -560,6 +562,40 @@ function CoaCoverageCard() {
     }
   };
 
+  const handleBulk = async (system) => {
+    const ids = [...selected];
+    const queue = (data?.accounts || [])
+      .filter((a) => ids.includes(a.id))
+      .filter((a) => (system === 'qbo' ? !a.qbo_mapped : !a.zoho_mapped));
+    if (queue.length === 0) {
+      setFlash({ kind: 'error', msg: `Nothing to do — selected rows are already mapped on ${system === 'qbo' ? 'QBO' : 'Zoho'}.` });
+      return;
+    }
+    setFlash(null);
+    let ok = 0; let notFound = 0; let errored = 0; const errs = [];
+    setBatch({ system, idx: 0, total: queue.length, currentLabel: queue[0].code });
+    for (let i = 0; i < queue.length; i++) {
+      const acc = queue[i];
+      setBatch({ system, idx: i, total: queue.length, currentLabel: `${acc.code} ${acc.name}` });
+      try {
+        const r = await api.post('/api/admin/accounting_coa_coverage.php', { account_id: acc.id, system });
+        if      (r.status === 'mapped')    ok++;
+        else if (r.status === 'not_found') { notFound++; if (errs.length < 5) errs.push(`${acc.code} (not found)`); }
+        else                               { errored++;  if (errs.length < 5) errs.push(`${acc.code} (${r.error || 'error'})`); }
+      } catch (e) {
+        errored++;
+        if (errs.length < 5) errs.push(`${acc.code} (${e.message || 'error'})`);
+      }
+    }
+    setBatch(null);
+    setSelected(new Set());
+    setFlash({
+      kind: errored === 0 ? 'success' : 'error',
+      msg: `Bulk discover on ${system === 'qbo' ? 'QBO' : 'Zoho'}: ${ok} mapped · ${notFound} not found · ${errored} errored (of ${queue.length})` + (errs.length ? ' — ' + errs.join(', ') : ''),
+    });
+    reload();
+  };
+
   const accounts  = data?.accounts || [];
   const summary   = data?.summary  || {};
   const qboActive = !!data?.qbo_active;
@@ -573,6 +609,32 @@ function CoaCoverageCard() {
       return true;
     });
   }, [accounts, filter, q]);
+
+  const toggle = (id) => {
+    const n = new Set(selected); n.has(id) ? n.delete(id) : n.add(id); setSelected(n);
+  };
+  const visibleIds = filtered.map((a) => a.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const toggleAllVisible = () => {
+    const n = new Set(selected);
+    if (allVisibleSelected) visibleIds.forEach((id) => n.delete(id));
+    else                    visibleIds.forEach((id) => n.add(id));
+    setSelected(n);
+  };
+
+  // Clear stale selections when filter/search trims them out of view.
+  useEffect(() => {
+    const visible = new Set(visibleIds);
+    let changed = false;
+    const next = new Set();
+    for (const id of selected) {
+      if (visible.has(id)) next.add(id); else changed = true;
+    }
+    if (changed) setSelected(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, q, accounts.length]);
+
+  const selCount = selected.size;
 
   return (
     <section
@@ -641,7 +703,53 @@ function CoaCoverageCard() {
         <span style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>
           showing {filtered.length} / {accounts.length}
         </span>
+        <span style={{ flex: 1 }} />
+        <button
+          type="button"
+          className="btn"
+          data-testid="coa-coverage-bulk-qbo-btn"
+          onClick={() => handleBulk('qbo')}
+          disabled={selCount === 0 || !qboActive || !!batch}
+          title={qboActive ? `Auto-discover on QBO for ${selCount} selected` : 'Connect QBO first'}
+          style={{ fontSize: 12, padding: '4px 10px' }}
+        >
+          <Compass size={12} style={{ marginRight: 4 }} />
+          Bulk discover · QBO ({selCount})
+        </button>
+        <button
+          type="button"
+          className="btn"
+          data-testid="coa-coverage-bulk-zoho-btn"
+          onClick={() => handleBulk('zoho_books')}
+          disabled={selCount === 0 || !zohoActive || !!batch}
+          title={zohoActive ? `Auto-discover on Zoho for ${selCount} selected` : 'Connect Zoho Books first'}
+          style={{ fontSize: 12, padding: '4px 10px' }}
+        >
+          <Compass size={12} style={{ marginRight: 4 }} />
+          Bulk discover · Zoho ({selCount})
+        </button>
       </div>
+
+      {batch && (
+        <div data-testid="coa-coverage-bulk-progress" style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)', marginBottom: 4 }}>
+            {batch.system === 'qbo' ? 'QBO' : 'Zoho'} · {batch.idx + 1} / {batch.total} — {batch.currentLabel}
+          </div>
+          <div role="progressbar" aria-valuemin={0} aria-valuemax={batch.total} aria-valuenow={batch.idx}
+            style={{ height: 6, background: 'var(--cf-border-muted, #f1f5f9)', borderRadius: 3, overflow: 'hidden' }}
+          >
+            <div
+              data-testid="coa-coverage-bulk-progress-bar"
+              style={{
+                height: '100%',
+                width: `${Math.round((batch.idx / batch.total) * 100)}%`,
+                background: batch.system === 'qbo' ? 'var(--cf-blue, #2563eb)' : '#7c3aed',
+                transition: 'width 200ms ease',
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {loading && <p data-testid="coa-coverage-loading">Loading…</p>}
       {error   && <p data-testid="coa-coverage-error" style={{ color: 'var(--cf-red, #b91c1c)' }}>Failed: {error.message || String(error)}</p>}
@@ -651,6 +759,16 @@ function CoaCoverageCard() {
           <table data-testid="coa-coverage-table" style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
             <thead style={{ position: 'sticky', top: 0, background: 'var(--cf-surface, #fff)' }}>
               <tr style={{ textAlign: 'left', color: 'var(--cf-text-secondary)', borderBottom: '1px solid var(--cf-border)' }}>
+                <th style={{ padding: '6px 4px', width: 28 }}>
+                  <input
+                    type="checkbox"
+                    data-testid="coa-coverage-select-all"
+                    checked={allVisibleSelected}
+                    onChange={toggleAllVisible}
+                    disabled={visibleIds.length === 0}
+                    title="Toggle all visible"
+                  />
+                </th>
                 <th style={{ padding: '6px 4px' }}>Code</th>
                 <th style={{ padding: '6px 4px' }}>Name</th>
                 <th style={{ padding: '6px 4px' }}>Type</th>
@@ -661,7 +779,7 @@ function CoaCoverageCard() {
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={6} data-testid="coa-coverage-empty" style={{ padding: 16, textAlign: 'center', color: 'var(--cf-text-secondary)' }}>No accounts match.</td></tr>
+                <tr><td colSpan={7} data-testid="coa-coverage-empty" style={{ padding: 16, textAlign: 'center', color: 'var(--cf-text-secondary)' }}>No accounts match.</td></tr>
               ) : filtered.map((a) => (
                 <CoaRow
                   key={a.id}
@@ -670,6 +788,8 @@ function CoaCoverageCard() {
                   zohoActive={zohoActive}
                   busyId={busyId}
                   onDiscover={handleDiscover}
+                  selected={selected.has(a.id)}
+                  onToggle={() => toggle(a.id)}
                 />
               ))}
             </tbody>
@@ -689,10 +809,18 @@ function Stat({ label, value, fg, testid }) {
   );
 }
 
-function CoaRow({ account, qboActive, zohoActive, busyId, onDiscover }) {
+function CoaRow({ account, qboActive, zohoActive, busyId, onDiscover, selected, onToggle }) {
   const inactiveStyle = !account.active ? { opacity: 0.55 } : null;
   return (
     <tr data-testid={`coa-coverage-row-${account.id}`} style={{ borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)', ...inactiveStyle }}>
+      <td style={{ padding: '6px 4px' }}>
+        <input
+          type="checkbox"
+          data-testid={`coa-coverage-checkbox-${account.id}`}
+          checked={!!selected}
+          onChange={onToggle}
+        />
+      </td>
       <td style={{ padding: '6px 4px', fontFamily: 'var(--cf-mono, ui-monospace)' }}>{account.code}</td>
       <td style={{ padding: '6px 4px' }}>
         {account.name}

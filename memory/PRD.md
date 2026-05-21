@@ -10,6 +10,76 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Bulk Discover + Zoho Books Slice 3 (2026-02 — current fork)
+
+### Bulk Discover (CoA Coverage card)
+- Checkbox column added to the chart-of-accounts coverage table with a
+  header "Select all visible" toggle that respects the current
+  search/filter state.
+- Two new header buttons: **Bulk discover · QBO (N)** and
+  **Bulk discover · Zoho (N)**. Each iterates the selected unmapped
+  rows sequentially through the existing per-row Discover endpoint
+  (rate-limit-friendly).
+- Per-system progress bar (`role="progressbar"`) shows current row
+  label and N/Total. Result flash summarises
+  `mapped / not_found / errored` counts with sample error lines.
+- Auto-clears stale selections when filter or search trims rows out of
+  view.
+- Backend unchanged — same single-account POST endpoint, called N
+  times. Maintains audit fidelity (one row per resolver attempt).
+
+### Zoho Books Slice 3 — Pull workers
+Mirrors QBO Slice 3/4a one-for-one.
+
+**Chart of Accounts pull (`core/zoho_books/sync_accounts.php`)**
+- `zohoBooksSyncChartOfAccounts()` paginates `/books/v3/chartofaccounts`
+  via `page_context.has_more_page`.
+- Match strategy: existing mapping → `account_code = accounting_accounts.code`
+  → record under `unmapped_zoho_accounts` audit (samples capped at 20).
+- Once a run lands, the Slice 2 JE pusher's `zohoBooksResolveAccountRef()`
+  hits the mapping cache directly — `skipped_unmapped` should drop to
+  near-zero.
+- Opts: `limit` (default 2000, cap 5000), `max_pages` (default 20, cap 100).
+- Audit actions: `sync_accounts` (aggregate), `unmapped_zoho_accounts`
+  (when applicable), `sync_account_error` (on HTTP errors).
+
+**Contacts pull (`core/zoho_books/sync_contacts.php`)**
+- Zoho `/books/v3/contacts?contact_type=customer|vendor` returns each
+  kind in a unified collection — `_zohoBooksSyncContactKind()` is the
+  shared paginator; `zohoBooksSyncContactsCustomers()` /
+  `zohoBooksSyncContactsVendors()` are thin wrappers.
+- Per-row upserters: `zohoBooksUpsertCustomer()` →
+  `staffing_clients` (name-match fallback via
+  `uq_sc_tenant_name`); `zohoBooksUpsertVendor()` → `ap_vendors_index`
+  (name-match via `uq_apv_tenant_name`).
+- Maps under `entity_type='customer'` and `entity_type='vendor'`
+  respectively so the dashboard's drift table picks up Zoho's
+  unified-contact direction on both rows.
+- Returns per-row results (`created`/`updated`/`unchanged`/`failed`).
+- Opts: `limit` (default 1000, cap 5000), `max_pages` (default 10, cap 50).
+
+**API + cron + reconcile**
+- `api/zoho_books.php` adds 3 actions: `sync_accounts`,
+  `sync_customers`, `sync_vendors`. Shims under
+  `api/zoho_books/*.php`. RBAC `integrations.zoho_books.manage`.
+- `cron/zoho_books_sync_inbound.php` runs every 30 min, per-tenant:
+  CoA pull when `chart_of_accounts` direction permits, then customers
+  + vendors when `contacts` direction permits.
+- `api/admin/accounting_sync_reconcile.php` now registers
+  zoho_runners for `chart_of_accounts`, `customers`, `vendors`. The
+  per-row Reconcile and the Reconcile-all button automatically fire
+  the right Zoho worker now.
+
+**Smoke tests**
+- `tests/zoho_books_slice3_smoke.php` — 53 assertions covering CoA +
+  contacts public surface, match strategy, audit hooks, API dispatch,
+  shims, cron wiring, and reconcile registration for all 3 entities.
+- `tests/coa_coverage_smoke.php` extended to 47 assertions for bulk
+  checkboxes + progress + sequential queue.
+- Full suite: **241/241 passing**.
+
+
+
 ## Chart-of-Accounts Coverage Report (2026-02 — current fork)
 
 Drop-in card on the accounting sync dashboard that surfaces every

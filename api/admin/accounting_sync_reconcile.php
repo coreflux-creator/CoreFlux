@@ -39,6 +39,8 @@ require_once __DIR__ . '/../../core/qbo/sync_invoices.php';
 require_once __DIR__ . '/../../core/qbo/sync_payments.php';
 require_once __DIR__ . '/../../core/zoho_books/client.php';
 require_once __DIR__ . '/../../core/zoho_books/sync_je.php';
+require_once __DIR__ . '/../../core/zoho_books/sync_accounts.php';
+require_once __DIR__ . '/../../core/zoho_books/sync_contacts.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
@@ -63,16 +65,20 @@ $ENTITY_RUNNERS = [
         'zoho_runner'   => static function (int $t, ?int $u) { return zohoBooksSyncJournalEntries($t, $u, ['limit' => 50]); },
     ],
     'customers' => [
-        'qbo_dir_key'  => 'customers',
-        'qbo_runs_on'  => ['pull', 'two_way'],
-        'qbo_runner'   => static function (int $t, ?int $u) { return qboSyncCustomers($t, $u, ['limit' => 1000]); },
-        'zoho_dir_key' => 'contacts',
+        'qbo_dir_key'   => 'customers',
+        'qbo_runs_on'   => ['pull', 'two_way'],
+        'qbo_runner'    => static function (int $t, ?int $u) { return qboSyncCustomers($t, $u, ['limit' => 1000]); },
+        'zoho_dir_key'  => 'contacts',
+        'zoho_runs_on'  => ['pull', 'two_way'],
+        'zoho_runner'   => static function (int $t, ?int $u) { return zohoBooksSyncContactsCustomers($t, $u, ['limit' => 1000]); },
     ],
     'vendors' => [
-        'qbo_dir_key'  => 'vendors',
-        'qbo_runs_on'  => ['pull', 'two_way'],
-        'qbo_runner'   => static function (int $t, ?int $u) { return qboSyncVendors($t, $u, ['limit' => 1000]); },
-        'zoho_dir_key' => 'contacts',
+        'qbo_dir_key'   => 'vendors',
+        'qbo_runs_on'   => ['pull', 'two_way'],
+        'qbo_runner'    => static function (int $t, ?int $u) { return qboSyncVendors($t, $u, ['limit' => 1000]); },
+        'zoho_dir_key'  => 'contacts',
+        'zoho_runs_on'  => ['pull', 'two_way'],
+        'zoho_runner'   => static function (int $t, ?int $u) { return zohoBooksSyncContactsVendors($t, $u, ['limit' => 1000]); },
     ],
     'invoices' => [
         'qbo_dir_key'  => 'invoices',
@@ -93,10 +99,12 @@ $ENTITY_RUNNERS = [
         'zoho_dir_key' => 'payments',
     ],
     'chart_of_accounts' => [
-        'qbo_dir_key'  => 'chart_of_accounts',
-        'qbo_runs_on'  => ['pull', 'two_way'],
-        'qbo_runner'   => static function (int $t, ?int $u) { return qboSyncAccounts($t, $u, ['limit' => 1000]); },
-        'zoho_dir_key' => 'chart_of_accounts',
+        'qbo_dir_key'   => 'chart_of_accounts',
+        'qbo_runs_on'   => ['pull', 'two_way'],
+        'qbo_runner'    => static function (int $t, ?int $u) { return qboSyncAccounts($t, $u, ['limit' => 1000]); },
+        'zoho_dir_key'  => 'chart_of_accounts',
+        'zoho_runs_on'  => ['pull', 'two_way'],
+        'zoho_runner'   => static function (int $t, ?int $u) { return zohoBooksSyncChartOfAccounts($t, $u, ['limit' => 2000]); },
     ],
 ];
 if (!isset($ENTITY_RUNNERS[$entityKey])) {
