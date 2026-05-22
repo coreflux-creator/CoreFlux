@@ -51,6 +51,8 @@ if ($method === 'GET') {
         'work_auth_expiry_before' => $_GET['work_auth_expiry_before'] ?? null,
         'skill'                   => $_GET['skill']                   ?? null,
         'pipeline_stage'          => $_GET['pipeline_stage']          ?? null,
+        'source'                  => $_GET['source']                  ?? null,
+        'needs_review'            => $_GET['needs_review']            ?? null,
         'page'                    => $_GET['page']                    ?? 1,
         'per_page'                => $_GET['per_page']                ?? 25,
     ];

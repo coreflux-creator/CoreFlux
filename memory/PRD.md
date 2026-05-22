@@ -10,6 +10,36 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## People Directory: "Imported from JobDiva — Needs Review" Filter (2026-02 — current fork)
+
+### Background
+`jobdivaPlacementsAutoCreatePerson()` mints placeholder `people` rows when JobDiva's start payload lacks real candidate data — synthetic email (`jd-emp-<id>@no-email.invalid`), `first_name="JobDiva"`, `last_name="Candidate-<id>"`. Operators needed a way to find these and complete them in bulk.
+
+### What shipped
+- **Backend filter** (`modules/people/lib/people.php` + `modules/people/api/people.php`):
+  - New `source` filter (`p.source = :source`) — surfaces all JobDiva-imported records, not just placeholders.
+  - New `needs_review` flag — OR-joined predicate matching the three synthesised values that `jobdivaPlacementsAutoCreatePerson()` writes (`email_primary LIKE '%@no-email.invalid'` OR `first_name='JobDiva'` OR `last_name LIKE 'Candidate-%'`). Predicate values are literal SQL strings (not bound params) since they're fixed and don't vary by user input — avoids unbound-param warnings when the toggle is off.
+  - API: query params `?source=jobdiva&needs_review=1`.
+- **Frontend toggle** (`modules/people/ui/Directory.jsx`):
+  - New checkbox chip labelled "Imported from JobDiva — needs review" next to the existing status filter.
+  - Visually marks active state (amber background + border) so it's obvious the list is filtered.
+  - Toggle sets `source=jobdiva&needs_review=1` and resets pagination.
+- **Per-row "Needs review" badge** — renders next to each row's name when the row matches the same predicate (JS mirror of the SQL filter), so imports are identifiable even when the toggle is off (e.g. when an operator searches by name). Amber pill with tooltip: *"Auto-imported from JobDiva with placeholder fields — review and complete."*
+
+### Tests
+- New: `tests/people_imported_needs_review_smoke.php` — 27 assertions covering the SQL predicate, API surface, JS toggle wiring, badge predicate parity, and the auto-create placeholder literals (so a future change to `jobdivaPlacementsAutoCreatePerson()` would break the smoke before drifting silently from the filter).
+- Full suite: **247/247 passing** (was 246).
+- Frontend rebuilt: `yarn --cwd /app/dashboard build` + `sync_bundle.sh` ran clean; new bundle hashes in `.deploy-version`.
+
+### Files touched
+- `/app/modules/people/lib/people.php` (filter)
+- `/app/modules/people/api/people.php` (query param wiring)
+- `/app/modules/people/ui/Directory.jsx` (toggle + per-row badge)
+- `/app/tests/people_imported_needs_review_smoke.php` (new)
+- `/app/dashboard/dist/*` + `/app/.deploy-version` (rebuilt bundles)
+
+
+
 ## JobDiva Placement Discovery — searchStart + Timesheets + Webhook (2026-02 — current fork)
 
 ### Background

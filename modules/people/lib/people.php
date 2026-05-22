@@ -98,6 +98,27 @@ function peopleList(array $filters = []): array
                  . 'WHERE ps.person_id = p.id AND ps.tenant_id = p.tenant_id AND ps.stage = :stage)';
         $params['stage'] = $filters['pipeline_stage'];
     }
+    // 2026-02 — surface auto-imported records that still need operator
+    // attention. `source` is the People SPEC's free-text origin tag
+    // (`jobdiva` is what jobdivaPlacementsAutoCreatePerson sets when it
+    // mints a placeholder row). `needs_review` matches the synthetic
+    // values that helper creates when the JobDiva payload lacked an
+    // email/firstname/lastname:
+    //   - email_primary ending in @no-email.invalid (RFC 6761 reserved)
+    //   - first_name literal "JobDiva"   (firstName placeholder)
+    //   - last_name  LIKE "Candidate-%"  (lastName placeholder)
+    // Keeping the predicate tight to the helper's exact synthesised
+    // values means operators see false positives only if a real human
+    // happens to be named "JobDiva Candidate-…", which is fine.
+    if (!empty($filters['source'])) {
+        $where[] = 'p.source = :source';
+        $params['source'] = $filters['source'];
+    }
+    if (!empty($filters['needs_review'])) {
+        $where[] = '(p.email_primary LIKE \'%@no-email.invalid\' '
+                 . 'OR p.first_name = \'JobDiva\' '
+                 . 'OR p.last_name LIKE \'Candidate-%\')';
+    }
 
     $page    = max(1, (int) ($filters['page'] ?? 1));
     $perPage = min(200, max(1, (int) ($filters['per_page'] ?? 25)));
