@@ -23,7 +23,9 @@ require_once __DIR__ . '/../integrations/entity_mappings.php';
 
 function jobdivaSyncTimePull(int $tid, ?int $userId, array $opts = []): array
 {
-    $items = jobdivaSyncFetchItems($tid, JOBDIVA_PATH_TIMESHEETS_DELTA, $opts);
+    $items = isset($opts['items_override']) && is_array($opts['items_override'])
+        ? $opts['items_override']
+        : jobdivaSyncFetchWithRetry($tid, JOBDIVA_PATH_TIMESHEETS_DELTA, $opts);
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
 
     $pdo = getDB();

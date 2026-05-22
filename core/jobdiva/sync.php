@@ -50,19 +50,22 @@ const JOBDIVA_PATH_CONTACTS_DELTA   = '/apiv2/bi/NewUpdatedContactRecords';
 const JOBDIVA_PATH_TIMESHEETS_DELTA = '/apiv2/bi/NewUpdatedTimesheetRecords';
 
 /**
- * Build JobDiva BI date-range query string. `fromDate` defaults to 30
- * days ago, `toDate` defaults to now. Accepts an ISO-8601 override via
- * $opts['modified_since'] and converts to JobDiva's MM/dd/yyyy HH:mm:ss
- * shape. Time-zone agnostic — JobDiva treats these as account-local.
+ * Build JobDiva BI date-range query string. `fromDate` defaults to 7
+ * days ago (narrower than before to dodge the JobDiva-side "Not an
+ * array" 500 that fires when a result set is too large or contains a
+ * malformed row). Accepts ISO-8601 overrides via `modified_since` /
+ * `modified_until`. Time-zone agnostic — JobDiva treats these as
+ * account-local.
  */
 function jobdivaBiDateRange(array $opts): array
 {
+    $defaultWindowDays = (int) ($opts['default_window_days'] ?? 7);
     $now = new \DateTimeImmutable('now');
     if (!empty($opts['modified_since'])) {
         try { $from = new \DateTimeImmutable((string) $opts['modified_since']); }
-        catch (\Throwable $_) { $from = $now->modify('-30 days'); }
+        catch (\Throwable $_) { $from = $now->modify("-{$defaultWindowDays} days"); }
     } else {
-        $from = $now->modify('-30 days');
+        $from = $now->modify("-{$defaultWindowDays} days");
     }
     $to = $now;
     if (!empty($opts['modified_until'])) {
@@ -75,9 +78,92 @@ function jobdivaBiDateRange(array $opts): array
     ];
 }
 
+/**
+ * Resilient BI fetch — when JobDiva returns a 500 (typically the
+ * tenant-data-shaped "Not an array" serialization NPE on the controller
+ * side, or a timeout from a too-wide window), retry the call with a
+ * progressively halved date window, down to a 1-hour floor. Returns
+ * the first non-failing slice list and absorbs subsequent failures
+ * into the audit log.
+ *
+ * Why: JobDiva's V2 BI endpoints are stateless date-range queries with
+ * no row-level error recovery. One broken row in a 30-day window can
+ * 500 the whole response. Halving the window 5 times shrinks 30 days →
+ * 30d → 15d → 7d → 3d → 1d → 12h, by which point the bad slice is
+ * isolated and the rest of the data flows.
+ *
+ * Public helper so per-entity drivers can opt in with their own opts.
+ */
+function jobdivaSyncFetchWithRetry(int $tid, string $path, array $opts): array
+{
+    $now  = new \DateTimeImmutable('now');
+    try { $from = !empty($opts['modified_since']) ? new \DateTimeImmutable((string) $opts['modified_since']) : $now->modify('-30 days'); }
+    catch (\Throwable $_) { $from = $now->modify('-30 days'); }
+    try { $to = !empty($opts['modified_until']) ? new \DateTimeImmutable((string) $opts['modified_until']) : $now; }
+    catch (\Throwable $_) { $to = $now; }
+
+    $minWindowSec = 3600; // never retry below a 1-hour slice
+    $maxAttempts  = (int) ($opts['retry_attempts'] ?? 6);
+    $items = []; $lastError = null;
+    for ($i = 0; $i < $maxAttempts; $i++) {
+        $sliceOpts = $opts;
+        $sliceOpts['modified_since'] = $from->format('c');
+        $sliceOpts['modified_until'] = $to->format('c');
+        try {
+            $items = jobdivaSyncFetchItems($tid, $path, $sliceOpts);
+            if ($i > 0) {
+                jobdivaAudit($tid, 'sync_retry_succeeded', [
+                    'ok' => true,
+                    'detail' => [
+                        'path' => $path, 'attempts' => $i + 1,
+                        'window_seconds' => $to->getTimestamp() - $from->getTimestamp(),
+                    ],
+                ]);
+            }
+            return $items;
+        } catch (\Throwable $e) {
+            $lastError = $e;
+            $msg = $e->getMessage();
+            // Only retry on JobDiva 500-class server errors that smell like
+            // payload size / serialization issues. Auth + path errors
+            // shouldn't be retried — they'd just multiply audit noise.
+            $retriable = stripos($msg, 'HTTP 500') !== false
+                      || stripos($msg, 'HTTP 502') !== false
+                      || stripos($msg, 'HTTP 504') !== false
+                      || stripos($msg, 'Not an array') !== false
+                      || stripos($msg, 'timeout') !== false;
+            if (!$retriable) throw $e;
+            // Halve the window towards the most recent end. We keep $to fixed
+            // (newest data first) and pull $from forward — gives the operator
+            // most-recent data on the first successful slice.
+            $windowSec = $to->getTimestamp() - $from->getTimestamp();
+            if ($windowSec <= $minWindowSec) {
+                jobdivaAudit($tid, 'sync_retry_floor_hit', [
+                    'ok' => false,
+                    'detail' => [
+                        'path' => $path, 'attempts' => $i + 1,
+                        'last_error' => substr($msg, 0, 500),
+                        'note'       => 'Reached 1-hour window floor — JobDiva still 500ing. Likely a single malformed record; contact JobDiva Support with the li-uuid.',
+                    ],
+                ]);
+                throw new \RuntimeException(
+                    "JobDiva BI {$path} still failing after {$maxAttempts} retries down to a 1-hour window. "
+                    . 'Likely a single malformed record in this tenant. Last error: ' . substr($msg, 0, 300),
+                    0, $e
+                );
+            }
+            $from = $to->modify('-' . max($minWindowSec, intdiv($windowSec, 2)) . ' seconds');
+        }
+    }
+    if ($lastError) throw $lastError;
+    return $items;
+}
+
 function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
 {
-    $items = jobdivaSyncFetchItems($tid, JOBDIVA_PATH_COMPANIES_DELTA, $opts);
+    $items = isset($opts['items_override']) && is_array($opts['items_override'])
+        ? $opts['items_override']
+        : jobdivaSyncFetchWithRetry($tid, JOBDIVA_PATH_COMPANIES_DELTA, $opts);
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
 
     foreach ($items as $jd) {
@@ -122,7 +208,9 @@ function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
 
 function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
 {
-    $items = jobdivaSyncFetchItems($tid, JOBDIVA_PATH_CONTACTS_DELTA, $opts);
+    $items = isset($opts['items_override']) && is_array($opts['items_override'])
+        ? $opts['items_override']
+        : jobdivaSyncFetchWithRetry($tid, JOBDIVA_PATH_CONTACTS_DELTA, $opts);
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
 
     foreach ($items as $jd) {

@@ -52,6 +52,23 @@ $assert('userFieldsName workaround on Companies + Contacts BI calls',
     strpos($src, "'/apiv2/bi/NewUpdatedCompanyRecords'") !== false
     && strpos($src, "'/apiv2/bi/NewUpdatedContactRecords'") !== false
     && strpos($src, "\$query['userFieldsName'] = ''") !== false);
+$assert('resilient retry helper exists',
+    strpos($src, "function jobdivaSyncFetchWithRetry") !== false);
+$assert('retry halves window on 500/Not an array/timeout',
+    strpos($src, "stripos(\$msg, 'HTTP 500')") !== false
+    && strpos($src, "stripos(\$msg, 'Not an array')") !== false
+    && strpos($src, "stripos(\$msg, 'timeout')") !== false);
+$assert('retry honours 1-hour floor',
+    strpos($src, '$minWindowSec = 3600') !== false
+    && strpos($src, "'sync_retry_floor_hit'") !== false);
+$assert('retry audit logs success on later attempt',
+    strpos($src, "'sync_retry_succeeded'") !== false);
+$assert('default delta window is 7 days (was 30, narrowed for JobDiva BI stability)',
+    strpos($src, "default_window_days'] ?? 7") !== false);
+$assert('Companies driver opts into retry helper',
+    strpos($src, "jobdivaSyncFetchWithRetry(\$tid, JOBDIVA_PATH_COMPANIES_DELTA") !== false);
+$assert('Contacts driver opts into retry helper',
+    strpos($src, "jobdivaSyncFetchWithRetry(\$tid, JOBDIVA_PATH_CONTACTS_DELTA") !== false);
 $assert('handles {items:[...]} pagination',       strpos($src, "isset(\$resp['items']) && is_array(\$resp['items'])") !== false);
 $assert('handles plain list response',            strpos($src, 'array_keys($resp) === range(0, count($resp) - 1)') !== false);
 
