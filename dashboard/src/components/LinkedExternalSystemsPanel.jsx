@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { useApi } from '../lib/api';
-import { Link2, AlertCircle, CheckCircle2, Clock, ExternalLink, ChevronRight, ChevronDown } from 'lucide-react';
+import { api, useApi } from '../lib/api';
+import { Link2, AlertCircle, CheckCircle2, Clock, ExternalLink, ChevronRight, ChevronDown, Sparkles, X } from 'lucide-react';
 
 /**
  * Linked External Systems panel — full per-record mapping list with an
@@ -97,8 +97,215 @@ function pluckPayloadValue(payload, candidates) {
   return '';
 }
 
+function SuggestMappingModal({ open, onClose, mapping, entityType }) {
+  // Modal that POSTs the mapping's raw payload to
+  // /api/admin/integrations/field_map_suggest.php and lets the operator
+  // tick which proposed (external_field → internal_field) rows to apply.
+  // One-click "Apply selected" walks the upsert endpoint per row.
+  const [suggestions, setSuggestions] = useState([]);
+  const [shadowed, setShadowed]       = useState([]);
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState(null);
+  const [selected, setSelected]       = useState({});
+  const [applying, setApplying]       = useState(false);
+  const [applied, setApplied]         = useState(0);
+
+  React.useEffect(() => {
+    if (!open) return;
+    setLoading(true); setError(null); setApplied(0);
+    api('/api/admin/integrations/field_map_suggest.php', {
+      method: 'POST',
+      body: {
+        integration: mapping.source_system,
+        entity_type: entityType,
+        payload:     mapping.payload_snapshot || {},
+      },
+    }).then(r => {
+      setSuggestions(r.suggestions || []);
+      setShadowed(r.shadowed || []);
+      // Pre-select all high-confidence (≥ 0.9) suggestions so the
+      // operator can one-click "Apply selected" without ticking each.
+      const preset = {};
+      (r.suggestions || []).forEach((s, i) => { if (s.confidence >= 0.9) preset[i] = true; });
+      setSelected(preset);
+    })
+    .catch(e => setError(e.message || 'Suggest failed'))
+    .finally(() => setLoading(false));
+  }, [open, mapping.source_system, mapping.payload_snapshot, entityType]);
+
+  if (!open) return null;
+
+  const handleApply = async () => {
+    setApplying(true); setError(null);
+    let ok = 0;
+    for (let i = 0; i < suggestions.length; i++) {
+      if (!selected[i]) continue;
+      const s = suggestions[i];
+      try {
+        await api('/api/admin/integrations/field_map.php', {
+          method: 'POST',
+          body: {
+            integration:    mapping.source_system,
+            entity_type:    entityType,
+            external_field: s.external_field,
+            internal_field: s.internal_field,
+            transform:      s.transform || 'none',
+            notes:          `Suggested ${new Date().toISOString().slice(0,10)}: ${s.reason}`,
+          },
+        });
+        ok++;
+      } catch (e) {
+        setError(`Failed on ${s.internal_field}: ${e.message || e}`);
+        break;
+      }
+    }
+    setApplied(ok);
+    setApplying(false);
+  };
+
+  return (
+    <div
+      data-testid={`suggest-mapping-modal-${mapping.source_system}`}
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 9999, padding: '2rem',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: '#fff', borderRadius: 12, padding: 0,
+          maxWidth: 720, width: '100%', maxHeight: '80vh',
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        }}
+      >
+        <header style={{
+          padding: '14px 20px', borderBottom: '1px solid #e2e8f0',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <Sparkles size={16} color="#7c3aed" />
+          <strong style={{ flex: 1 }}>Suggested mappings — {mapping.source_system} / {entityType}</strong>
+          <button onClick={onClose} data-testid="suggest-mapping-modal-close"
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}>
+            <X size={18} />
+          </button>
+        </header>
+
+        <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
+          {loading && <p data-testid="suggest-mapping-loading">Scanning payload…</p>}
+          {error && <p className="error" data-testid="suggest-mapping-error" style={{ color: '#991b1b' }}>{error}</p>}
+          {applied > 0 && (
+            <div data-testid="suggest-mapping-applied"
+                 style={{ marginBottom: 12, padding: '0.5rem 0.75rem',
+                          background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8,
+                          color: '#065f46', fontSize: 13 }}>
+              ✓ Applied {applied} mapping{applied === 1 ? '' : 's'}. Trigger Sync now to use them.
+            </div>
+          )}
+
+          {!loading && suggestions.length === 0 && !error && (
+            <p data-testid="suggest-mapping-empty" style={{ color: '#64748b' }}>
+              No new suggestions — every recognisable field is already mapped or doesn't match an internal column.
+            </p>
+          )}
+
+          {!loading && suggestions.length > 0 && (
+            <table data-testid="suggest-mapping-table" style={{ width: '100%', fontSize: 13 }}>
+              <thead>
+                <tr style={{ color: '#64748b', textAlign: 'left' }}>
+                  <th style={{ padding: '6px 8px', width: 24 }}>
+                    <input
+                      type="checkbox"
+                      data-testid="suggest-mapping-toggle-all"
+                      checked={suggestions.every((_, i) => selected[i])}
+                      onChange={(e) => {
+                        const next = {};
+                        if (e.target.checked) suggestions.forEach((_, i) => { next[i] = true; });
+                        setSelected(next);
+                      }}
+                    />
+                  </th>
+                  <th style={{ padding: '6px 8px' }}>External field</th>
+                  <th style={{ padding: '6px 8px' }}>→ Internal field</th>
+                  <th style={{ padding: '6px 8px' }}>Transform</th>
+                  <th style={{ padding: '6px 8px' }}>Confidence</th>
+                  <th style={{ padding: '6px 8px' }}>Sample</th>
+                </tr>
+              </thead>
+              <tbody>
+                {suggestions.map((s, i) => (
+                  <tr key={i} data-testid={`suggest-mapping-row-${i}`}>
+                    <td style={{ padding: '6px 8px' }}>
+                      <input
+                        type="checkbox"
+                        checked={!!selected[i]}
+                        onChange={(e) => setSelected(prev => ({ ...prev, [i]: e.target.checked }))}
+                        data-testid={`suggest-mapping-check-${s.internal_field}`}
+                      />
+                    </td>
+                    <td style={{ padding: '6px 8px', fontFamily: 'ui-monospace, monospace' }}>{s.external_field}</td>
+                    <td style={{ padding: '6px 8px', fontFamily: 'ui-monospace, monospace' }}>{s.internal_field}</td>
+                    <td style={{ padding: '6px 8px', fontSize: 12 }}>{s.transform}</td>
+                    <td style={{ padding: '6px 8px' }}>
+                      <span style={{
+                        padding: '2px 6px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+                        background: s.confidence >= 0.9 ? '#ecfdf5' : (s.confidence >= 0.7 ? '#fef3c7' : '#f1f5f9'),
+                        color:      s.confidence >= 0.9 ? '#065f46' : (s.confidence >= 0.7 ? '#92400e' : '#475569'),
+                      }}>
+                        {Math.round(s.confidence * 100)}%
+                      </span>
+                      <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{s.reason}</div>
+                    </td>
+                    <td style={{ padding: '6px 8px', fontSize: 11, color: '#475569', fontFamily: 'ui-monospace, monospace',
+                                 maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {s.sample_value ?? '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {!loading && shadowed.length > 0 && (
+            <details data-testid="suggest-mapping-shadowed" style={{ marginTop: 16, color: '#64748b', fontSize: 12 }}>
+              <summary style={{ cursor: 'pointer' }}>
+                {shadowed.length} suggestion{shadowed.length === 1 ? '' : 's'} already configured (click to view)
+              </summary>
+              <ul style={{ marginTop: 6 }}>
+                {shadowed.map((s, i) => (
+                  <li key={i}>
+                    <code>{s.external_field}</code> → <code>{s.internal_field}</code> ({s.reason})
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+
+        <footer style={{
+          padding: '12px 20px', borderTop: '1px solid #e2e8f0',
+          display: 'flex', justifyContent: 'flex-end', gap: 8,
+        }}>
+          <button onClick={onClose} className="btn btn--ghost" data-testid="suggest-mapping-cancel">Cancel</button>
+          <button
+            onClick={handleApply}
+            className="btn btn--primary"
+            disabled={applying || suggestions.length === 0 || !suggestions.some((_, i) => selected[i])}
+            data-testid="suggest-mapping-apply"
+          >
+            {applying ? 'Applying…' : `Apply ${suggestions.filter((_, i) => selected[i]).length} selected`}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 function DetailRow({ mapping, entityType }) {
   const [showRaw, setShowRaw] = useState(false);
+  const [showSuggest, setShowSuggest] = useState(false);
   const payload = mapping.payload_snapshot || {};
   const idFields = SOURCE_ID_FIELDS[mapping.source_system]?.[entityType] || [];
 
@@ -133,7 +340,7 @@ function DetailRow({ mapping, entityType }) {
             })}
           </dl>
         )}
-        <div style={{ marginTop: idFields.length > 0 ? '0.6rem' : 0 }}>
+        <div style={{ marginTop: idFields.length > 0 ? '0.6rem' : 0, display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <button
             onClick={() => setShowRaw(s => !s)}
             data-testid={`linked-systems-raw-toggle-${mapping.source_system}`}
@@ -145,6 +352,19 @@ function DetailRow({ mapping, entityType }) {
           >
             {showRaw ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             {showRaw ? 'Hide raw payload' : 'View raw payload'}
+          </button>
+          <button
+            onClick={() => setShowSuggest(true)}
+            data-testid={`linked-systems-suggest-${mapping.source_system}`}
+            style={{
+              background: 'transparent', border: '1px solid #c7d2fe', borderRadius: 6,
+              cursor: 'pointer', color: '#4338ca', fontSize: 12,
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              padding: '2px 8px',
+            }}
+            title="Scan this payload and propose field mappings"
+          >
+            <Sparkles size={11} /> Suggest mappings
           </button>
         </div>
         {showRaw && (
@@ -159,6 +379,12 @@ function DetailRow({ mapping, entityType }) {
             {JSON.stringify(payload, null, 2)}
           </pre>
         )}
+        <SuggestMappingModal
+          open={showSuggest}
+          onClose={() => setShowSuggest(false)}
+          mapping={mapping}
+          entityType={entityType}
+        />
       </td>
     </tr>
   );

@@ -100,5 +100,35 @@ awk -v js="$NEW_JS" -v css="$NEW_CSS" '
 echo "✓ spa-assets/ synced"
 echo "✓ .deploy-version expected_bundle: updated"
 echo "✓ dashboard/dist/index.html already points at new hashes (Vite wrote them)"
+
+# ── 4. Auto-bump service-worker CACHE_VERSION ────────────────────────────
+#
+# Why: the SW uses cache-first for /spa-assets/*.js. When Vite produces
+# the same content-hash filename across two sessions (which happens when
+# bundle content is byte-identical), browsers keep serving the OLDER
+# cached response under that URL — making post-build changes invisible
+# to users even after a hard refresh.
+#
+# Fix: stamp a fresh CACHE_VERSION value into sw.js on every build. The
+# SW's `activate` handler then deletes any cache key that doesn't match
+# the new version, forcing a network fetch for the latest bundle.
+#
+# We derive the version from the bundle hash itself, so two builds with
+# identical content produce identical SW caches (idempotent — no spurious
+# invalidation in CI where the bundle hasn't changed).
+SW_FILES=("$TOP_ASSETS/sw.js" "$DIST_ASSETS/sw.js")
+NEW_SW_VERSION="coreflux-${NEW_JS#index-}"
+NEW_SW_VERSION="${NEW_SW_VERSION%.js}"
+for sw in "${SW_FILES[@]}"; do
+    if [ -f "$sw" ]; then
+        # Replace the line that sets CACHE_VERSION = '…' regardless of its
+        # current value. Use sed with a precise pattern so we never
+        # accidentally rewrite anything else.
+        sed -i.bak -E "s|^const CACHE_VERSION = '[^']*';|const CACHE_VERSION = '${NEW_SW_VERSION}';|" "$sw"
+        rm -f "$sw.bak"
+    fi
+done
+echo "✓ service-worker CACHE_VERSION → $NEW_SW_VERSION"
+
 echo ""
-echo "All three sync points are now consistent. Commit and push."
+echo "All four sync points are now consistent. Commit and push."

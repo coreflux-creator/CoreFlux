@@ -10,6 +10,47 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Service-Worker Cache Invalidation Fix + Suggest Mappings Feature (2026-02 — current fork)
+
+### Background
+User reported: *"I don't see any change?"* even after hard refresh + Sync now. Investigation revealed the service worker uses cache-first for `/spa-assets/*.js`. Vite's content-hash filenames sometimes collide across sessions (when bundle content is byte-similar), so the SW kept serving stale bundles under the same URL — making post-build changes invisible.
+
+### What shipped — SW cache invalidation auto-bump
+- **`scripts/sync_bundle.sh`** now derives `CACHE_VERSION` from the bundle's content-hash on every build and stamps it into both `/spa-assets/sw.js` AND `dashboard/dist/spa-assets/sw.js`. The SW's `activate` handler already deletes any cache key that doesn't match the current `CACHE_VERSION`, so the next page load purges the stale cache and fetches fresh assets.
+- Idempotent: two builds producing identical bundles produce identical `CACHE_VERSION` values, so CI doesn't spuriously invalidate. New builds produce new hashes → new cache version → forced refresh.
+
+### What shipped — Suggest Mappings ("Sparkles" flow)
+- **`/api/admin/integrations/field_map_suggest.php`** — new POST endpoint. Body: `{integration, entity_type, payload}`. Returns ordered list of proposed `(external_field → internal_field, transform, confidence, reason, sample_value)` rows.
+- **Three-tier heuristic**:
+  1. **Curated alias hit** — confidence 1.0. Bake-in alias table covers JobDiva's most common field shapes for placement / person / company / contact (e.g. `jobTitle → title`, `startDate → start_date` with `date_normalise`, `candidateEmail → email_primary` with `lowercase`).
+  2. **Case/separator-insensitive exact match** — confidence 0.9. e.g. external `"start_date"` matches internal `start_date`.
+  3. **Substring containment** — confidence 0.7. e.g. `jobTitle` contains `title`. Guarded by `strlen($intNorm) < 4` so short names like `id` don't match everything.
+- Already-configured internal fields are **shadowed** (returned in a separate `shadowed` array — operator can still see what would have been suggested without auto-overwriting their choices).
+- Each internal field gets at most one suggestion (highest-confidence wins).
+- Supports one-level nested object flattening (`job.title`) — enough for every JobDiva V2 envelope we've seen.
+- **UI** — `<Sparkles /> Suggest mappings` button on each expanded LinkedExternalSystemsPanel row → modal with checkboxes (high-confidence pre-selected), confidence pills, sample values, reason text, "Apply selected" walks the upsert endpoint per row, success banner with "Trigger Sync now to use them" hint.
+
+### Workflow loop (end-to-end)
+1. Open any placement → "Linked external systems" → expand the JobDiva row.
+2. Click **"Suggest mappings"** (Sparkles icon).
+3. Modal opens, scans the payload, pre-ticks the high-confidence rows.
+4. Click **"Apply X selected"** — registry rows persist via the existing upsert endpoint.
+5. Click **Sync now** on JobDiva → next placement upsert uses the new mappings.
+
+### Tests
+- New: `tests/jobdiva_field_map_suggest_smoke.php` — 41 assertions covering backend RBAC, input validation, curated aliases, confidence-tier scoring, response envelope, frontend modal mount, button rendering, and the SW CACHE_VERSION auto-bump in `sync_bundle.sh`.
+- Full suite: **250/250 passing** (was 249).
+- Bundle hash genuinely advanced: `index-ED4CoJ_l.js` → `index-DjuWyKtx.js`. SW `CACHE_VERSION` = `coreflux-DjuWyKtx` (matches).
+
+### Files touched
+- `/app/api/admin/integrations/field_map_suggest.php` (new)
+- `/app/dashboard/src/components/LinkedExternalSystemsPanel.jsx` (added SuggestMappingModal + Sparkles button)
+- `/app/scripts/sync_bundle.sh` (auto-bump SW CACHE_VERSION on every build)
+- `/app/spa-assets/sw.js` (CACHE_VERSION value advances every build now)
+- `/app/tests/jobdiva_field_map_suggest_smoke.php` (new)
+
+
+
 ## JobDiva Field Mapping — Slice 4 (Syncer Wiring) (2026-02 — current fork)
 
 ### Background
