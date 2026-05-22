@@ -110,18 +110,25 @@ $assert('contact upsert dedupes by email per company',
 $assert("contact insert defaults role to 'other'",
     strpos($src, "contact_role)\n         VALUES (:t, :c, :n, :ti, :e, :ph, \"other\")") !== false);
 
-echo "\nPlacements driver — deferred-by-design (no V2 BI endpoint)\n";
-$assert('emits sync_skip audit when no items_override',
-    strpos($src, "'sync_skip'") !== false && strpos($src, "'no_v2_bi_endpoint'") !== false);
-$assert('returns deferred_reason for callers',
-    strpos($src, "'deferred_reason'") !== false);
+echo "\nPlacements driver — discovery via searchStart + timesheet fallback (2026-02 follow-on)\n";
+$assert('requires sync_placements helper module',
+    strpos($src, "require_once __DIR__ . '/sync_placements.php'") !== false);
+$assert('routes through jobdivaPlacementsDiscover when not items_override',
+    strpos($src, 'jobdivaPlacementsDiscover($tid, $userId, $opts)') !== false);
+$assert('first-sync mode widens placement window to 365 days',
+    strpos($src, "jobdivaSyncIsFirstSync(\$tid, 'placement')") !== false);
+$assert('auto-creates person via jobdivaPlacementsAutoCreatePerson (non-override path)',
+    strpos($src, 'jobdivaPlacementsAutoCreatePerson($tid, $jd, $userId)') !== false);
+$assert('audit detail surfaces discovery channel + diagnostics',
+    strpos($src, "'channel'       => \$channel,") !== false
+    && strpos($src, "'discovery'     => \$discovery['diagnostics']") !== false);
 $assert('still honours items_override for tests',
-    strpos($src, "if (isset(\$opts['items_override']) && is_array(\$opts['items_override'])) {\n        // Smoke tests still drive the upsert logic via items_override.") !== false);
-$assert('resolves person via existing mapping',
+    strpos($src, "if (isset(\$opts['items_override'])) {") !== false
+    && strpos($src, "// items_override path keeps the legacy") !== false);
+$assert('resolves person via existing mapping in items_override path',
     strpos($src, "mappingFindInternal(\$tid, 'jobdiva', 'person', \$personExtId)") !== false);
-$assert('skips when person mapping missing (NO ATS auto-create)',
-    strpos($src, '$personMapping = mappingFindInternal') !== false
-    && strpos($src, 'if (!$personMapping) { $skipped++; continue; }') !== false);
+$assert('skips when person mapping missing (items_override path)',
+    strpos($src, 'if (!$personMapping) { $skipped++; continue; }') !== false);
 $assert('optionally resolves end_client company_id',
     strpos($src, "if (\$companyExtId !== '') {") !== false
     && strpos($src, "mappingFindInternal(\$tid, 'jobdiva', 'company', \$companyExtId)") !== false);
@@ -133,6 +140,9 @@ $assert('placement status maps JobDiva → CoreFlux enum',
     && strpos($src, "'cancelled' => 'cancelled'") !== false);
 $assert("placement insert defaults engagement_type='w2'",
     strpos($src, '"w2"') !== false);
+$assert('placement insert provides title (NOT NULL on placements table)',
+    strpos($src, "engagement_type, end_client_name, end_client_company_id, title)") !== false
+    && strpos($src, "if (\$title === '') \$title = 'JobDiva Placement '") !== false);
 $assert('binds mapping (placement)',
     strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'placement', \$extId, \$internalId, \$jd, 'pull')") !== false);
 

@@ -78,6 +78,61 @@ if ($action === 'webhook') {
         'detail' => ['event_type' => $eventType, 'jd_event_id' => $eventId, 'signature_ok' => $ok],
     ]);
     if (!$ok) api_error('Invalid signature', 401);
+
+    // Real-time placement ingestion. JobDiva fires `start.created` /
+    // `start.updated` (and historically `placement.*`) when a recruiter
+    // saves a start in the JobDiva UI. We process inline so the operator
+    // doesn't have to wait for the next manual sync. If JobDiva sends the
+    // full record in `payload.data`, we ingest it directly; otherwise we
+    // re-fetch via searchStart using the start ID in the event.
+    $eventLc = strtolower($eventType);
+    if (strpos($eventLc, 'placement') !== false || strpos($eventLc, 'start') !== false) {
+        require_once __DIR__ . '/../core/jobdiva/sync.php';
+        require_once __DIR__ . '/../core/jobdiva/sync_placements.php';
+        try {
+            $record = $payload['data'] ?? $payload['record'] ?? $payload['placement'] ?? $payload['start'] ?? null;
+            $items  = [];
+            if (is_array($record)) {
+                $items = [$record];
+            } else {
+                $startId = (string) (
+                    $payload['startId']
+                    ?? $payload['placementId']
+                    ?? $payload['id']
+                    ?? ($payload['data']['id'] ?? '')
+                );
+                if ($startId !== '') {
+                    $resp = jobdivaCall($tid, 'POST', JOBDIVA_PATH_SEARCH_START, ['startId' => $startId]);
+                    $items = jobdivaPlacementsExtractList($resp);
+                }
+            }
+            if (count($items) > 0) {
+                $result = jobdivaSyncPlacements($tid, null, ['items_override' => $items, '_webhook' => true]);
+                getDB()->prepare(
+                    'UPDATE jobdiva_webhook_events
+                        SET status = "processed", processed_at = NOW()
+                      WHERE tenant_id = :t AND id = LAST_INSERT_ID()'
+                )->execute(['t' => $tid]);
+                api_ok([
+                    'ok' => true, 'queued' => false, 'processed' => true,
+                    'event_type' => $eventType, 'placement_result' => $result,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            // Webhook ingestion failure shouldn't 5xx — the event row is
+            // still queued and the operator can re-process via Sync now.
+            getDB()->prepare(
+                'UPDATE jobdiva_webhook_events
+                    SET status = "error", process_error = :err, processed_at = NOW()
+                  WHERE tenant_id = :t AND jd_event_id = :eid'
+            )->execute(['t' => $tid, 'eid' => $eventId !== '' ? $eventId : '', 'err' => substr($e->getMessage(), 0, 500)]);
+            jobdivaAudit($tid, 'webhook_process_failed', [
+                'ok' => false, 'direction' => 'pull',
+                'detail' => ['event_type' => $eventType, 'error' => substr($e->getMessage(), 0, 500)],
+            ]);
+        }
+    }
+
     api_ok(['ok' => true, 'queued' => true, 'event_type' => $eventType]);
 }
 

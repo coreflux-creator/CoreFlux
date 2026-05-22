@@ -455,51 +455,80 @@ function jobdivaSyncUpsertContact(int $tid, int $companyId, array $jd, string $n
 
 function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
 {
-    // JobDiva V2 has no "NewUpdatedStartRecords" BI endpoint — only
-    // `/apiv2/jobdiva/searchStart` (POST) which requires explicit
-    // criteria (jobId / candidateId / candidate name / email). Until we
-    // wire that up (probably driven off the timesheet delta to discover
-    // active placements), surface an honest deferred-by-design result.
+    // 2026-02 follow-on: placements now have a real discovery path even
+    // though JobDiva V2 has no "NewUpdatedStartRecords" BI delta endpoint.
     //
-    // Caller-side: jobdivaSyncAll() will see processed=0 and won't
-    // treat this as a sync failure — the audit row marks the skip.
-    if (isset($opts['items_override']) && is_array($opts['items_override'])) {
-        // Smoke tests still drive the upsert logic via items_override.
-        $items = $opts['items_override'];
-    } else {
-        jobdivaAudit($tid, 'sync_skip', [
-            'entity_type'     => 'placement',
-            'direction'       => 'pull',
-            'ok'              => true,
-            'actor_user_id'   => $userId,
-            'items_skipped'   => 1,
-            'detail'          => [
-                'reason' => 'no_v2_bi_endpoint',
-                'note'   => 'JobDiva V2 BI exposes no NewUpdatedStartRecords. searchStart wiring deferred.',
-            ],
+    // Discovery channels (in priority order, all wrapped in
+    // jobdivaPlacementsDiscover()):
+    //   1. POST /apiv2/jobdiva/searchStart with date-range criteria
+    //   2. NewUpdatedTimesheetRecords → unique placementIds → searchStart per-ID
+    //   3. webhook ingestion (api/jobdiva.php, placement.* events)
+    //
+    // For each discovered placement, jobdivaPlacementsAutoCreatePerson()
+    // resolves-or-creates the internal person_id so placement.person_id
+    // (NOT NULL) is always satisfiable.
+    //
+    // items_override still drives the upsert logic for smoke tests; in
+    // that path we keep the original "skip when no person mapping"
+    // behaviour, since the test fixtures are designed for it.
+    require_once __DIR__ . '/sync_placements.php';
+
+    if (!isset($opts['items_override']) && !isset($opts['modified_since'])
+        && jobdivaSyncIsFirstSync($tid, 'placement')) {
+        $opts['default_window_days'] = 365;
+        jobdivaAudit($tid, 'sync_first_backfill', [
+            'ok'     => true,
+            'detail' => ['entity' => 'placement', 'window_days' => 365],
+            'actor_user_id' => $userId,
         ]);
-        return [
-            'processed' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [],
-            'deferred_reason' => 'JobDiva V2 has no NewUpdatedStartRecords endpoint; placements sync needs searchStart criteria (follow-up).',
-        ];
     }
+
+    $discovery = jobdivaPlacementsDiscover($tid, $userId, $opts);
+    $items     = $discovery['items'];
+    $channel   = $discovery['channel'];
+
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
+    $skipReasons = ['missing_fields' => 0, 'no_person' => 0];
 
     foreach ($items as $jd) {
         try {
-            $extId        = (string) ($jd['id'] ?? $jd['placementId'] ?? $jd['placement_id'] ?? '');
-            $personExtId  = (string) ($jd['employeeId'] ?? $jd['candidateId'] ?? $jd['person_id'] ?? '');
-            $companyExtId = (string) ($jd['companyId']  ?? $jd['company_id']  ?? '');
-            $startDate    = (string) ($jd['startDate']  ?? $jd['start_date']  ?? '');
-            if ($extId === '' || $personExtId === '' || $startDate === '') { $skipped++; continue; }
+            $extId        = jobdivaPluckField($jd, [
+                'id', 'startId', 'start_id', 'placementId', 'placement_id', 'startID',
+            ]);
+            $startDate    = jobdivaPluckField($jd, [
+                'startDate', 'start_date', 'start date', 'startdate',
+            ]);
+            $companyExtId = jobdivaPluckField($jd, [
+                'companyId', 'company_id', 'company id', 'endClientCompanyId',
+            ]);
 
-            // Person mapping must already exist — JobDiva employee↔CoreFlux person
-            // is established when employees are pulled (out of A3 scope; we DO NOT
-            // sync candidates/applicants per user requirement). If no mapping,
-            // skip the placement gracefully.
-            $personMapping = mappingFindInternal($tid, 'jobdiva', 'person', $personExtId);
-            if (!$personMapping) { $skipped++; continue; }
-            $personId = (int) $personMapping['internal_entity_id'];
+            if ($extId === '' || $startDate === '') {
+                // items_override / smoke-fixture compat: legacy fixtures
+                // use the older simple key shapes, so try one more pass
+                // before giving up. (jobdivaPluckField is case-insensitive
+                // so this is belt-and-braces.)
+                $extId     = $extId !== ''     ? $extId     : (string) ($jd['id'] ?? $jd['placementId'] ?? $jd['placement_id'] ?? '');
+                $startDate = $startDate !== '' ? $startDate : (string) ($jd['startDate'] ?? $jd['start_date'] ?? '');
+                if ($extId === '' || $startDate === '') {
+                    $skipped++; $skipReasons['missing_fields']++; continue;
+                }
+            }
+
+            // items_override path keeps the legacy "must have person mapping"
+            // behaviour so the existing smoke fixtures still work unchanged.
+            // Real-sync path auto-creates a minimal person record on demand.
+            if (isset($opts['items_override'])) {
+                $personExtId = (string) ($jd['employeeId'] ?? $jd['candidateId'] ?? $jd['person_id'] ?? '');
+                $personMapping = mappingFindInternal($tid, 'jobdiva', 'person', $personExtId);
+                if (!$personMapping) { $skipped++; continue; }
+                $personId = (int) $personMapping['internal_entity_id'];
+            } else {
+                $personId = jobdivaPlacementsAutoCreatePerson($tid, $jd, $userId);
+                if ($personId === null) {
+                    $skipped++; $skipReasons['no_person']++;
+                    continue;
+                }
+            }
 
             // Optional end-client company.
             $endClientCompanyId = null;
@@ -526,9 +555,21 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
         'items_skipped'   => $skipped,
         'items_failed'    => $failed,
         'actor_user_id'   => $userId,
-        'detail'          => ['errors' => array_slice($errors, 0, 5)],
+        'detail'          => [
+            'errors'        => array_slice($errors, 0, 5),
+            'skip_reasons'  => $skipReasons,
+            'channel'       => $channel,
+            'discovery'     => $discovery['diagnostics'] ?? [],
+        ],
     ]);
-    return ['processed' => $processed, 'skipped' => $skipped, 'failed' => $failed, 'errors' => $errors];
+    return [
+        'processed'    => $processed,
+        'skipped'      => $skipped,
+        'failed'       => $failed,
+        'errors'       => $errors,
+        'channel'      => $channel,
+        'skip_reasons' => $skipReasons,
+    ];
 }
 
 function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientCompanyId, array $jd, string $extId): int
@@ -539,10 +580,23 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $stmt->execute(['t' => $tid, 'ext' => 'jd:' . $extId]);
     $existingId = (int) $stmt->fetchColumn();
 
-    $startDate = (string) ($jd['startDate'] ?? $jd['start_date'] ?? '');
-    $endDate   = (string) ($jd['endDate']   ?? $jd['end_date']   ?? '');
-    $endClientName = trim((string) ($jd['endClientName'] ?? $jd['clientName'] ?? ''));
-    $statusJd  = strtolower((string) ($jd['status'] ?? 'active'));
+    // Title is NOT NULL on `placements`. JobDiva uses many shapes for the
+    // job/role title — fall back to a deterministic placeholder so we
+    // never bail out at the DB layer.
+    $title = jobdivaPluckField($jd, [
+        'jobTitle', 'job_title', 'job title', 'title',
+        'positionTitle', 'position_title', 'role', 'roleName',
+    ]);
+    if ($title === '') $title = 'JobDiva Placement ' . $extId;
+
+    $startDate = jobdivaPluckField($jd, ['startDate', 'start_date', 'start date', 'startdate']);
+    if ($startDate === '') $startDate = (string) ($jd['startDate'] ?? $jd['start_date'] ?? '');
+    $endDate   = jobdivaPluckField($jd, ['endDate', 'end_date', 'end date', 'enddate']);
+    $endClientName = jobdivaPluckField($jd, [
+        'endClientName', 'clientName', 'end_client_name', 'client_name', 'client name', 'end client name',
+    ]);
+    $statusJd  = strtolower(jobdivaPluckField($jd, ['status', 'startStatus', 'placementStatus']));
+    if ($statusJd === '') $statusJd = 'active';
     $statusMap = ['active' => 'active', 'pending' => 'pending_start', 'ended' => 'ended', 'cancelled' => 'cancelled'];
     $status    = $statusMap[$statusJd] ?? 'active';
 
@@ -550,22 +604,25 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
             'UPDATE placements SET start_date = :sd, end_date = :ed,
-                    status = :st, end_client_name = :ecn, end_client_company_id = :ecc
+                    status = :st, end_client_name = :ecn, end_client_company_id = :ecc,
+                    title = :ti
               WHERE id = :id'
         )->execute([
             'sd' => $startDate, 'ed' => $endDate ?: null, 'st' => $status,
-            'ecn' => $endClientName ?: null, 'ecc' => $endClientCompanyId, 'id' => $existingId,
+            'ecn' => $endClientName ?: null, 'ecc' => $endClientCompanyId,
+            'ti' => $title, 'id' => $existingId,
         ]);
         return $existingId;
     }
     $pdo->prepare(
         'INSERT INTO placements (tenant_id, person_id, external_id, status, start_date, end_date,
-                                  engagement_type, end_client_name, end_client_company_id)
-         VALUES (:t, :p, :ext, :st, :sd, :ed, "w2", :ecn, :ecc)'
+                                  engagement_type, end_client_name, end_client_company_id, title)
+         VALUES (:t, :p, :ext, :st, :sd, :ed, "w2", :ecn, :ecc, :ti)'
     )->execute([
         't' => $tid, 'p' => $personId, 'ext' => 'jd:' . $extId, 'st' => $status,
         'sd' => $startDate, 'ed' => $endDate ?: null,
         'ecn' => $endClientName ?: null, 'ecc' => $endClientCompanyId,
+        'ti' => $title,
     ]);
     return (int) $pdo->lastInsertId();
 }

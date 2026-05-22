@@ -10,6 +10,36 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## JobDiva Placement Discovery — searchStart + Timesheets + Webhook (2026-02 — current fork)
+
+### Background
+JobDiva V2 has **no `NewUpdatedStartRecords` BI delta endpoint**. The previous agent deferred placement sync entirely (`sync_skip` audit + `deferred_reason`). User asked: *"why only from timesheets — why not from creation of new placement?"*. Answer: we wire **all three** channels.
+
+### What shipped
+- **`/app/core/jobdiva/sync_placements.php`** (new module) with:
+  - `jobdivaPlacementsFetchViaSearchStart()` — probes `POST /apiv2/jobdiva/searchStart` with five date-range criterion shapes (`startDateBegin`/`startDateEnd`, lowercase variants, `modifyDate*`, `dateBegin`/`dateEnd`). First non-empty array wins. 401/auth errors bubble up; 400/empty falls through to the next shape.
+  - `jobdivaPlacementsFetchViaTimesheets()` — pulls `NewUpdatedTimesheetRecords` (existing wired endpoint), extracts unique placement IDs, per-ID `searchStart` for full detail. Safety-net for active placements.
+  - `jobdivaPlacementsExtractList()` — normalises `{data}` / `{items}` / `{starts}` / `{records}` / single-record envelopes.
+  - `jobdivaPlacementsDiscover()` — orchestrator: searchStart → timesheets → fail-soft. Exposes per-attempt diagnostics in audit detail.
+  - `jobdivaPlacementsAutoCreatePerson()` — resolves person via mapping → email match → auto-create (`INSERT INTO people`). Synthesises `jd-emp-<id>@no-email.invalid` (RFC 6761) if email missing. Defaults `classification='w2'`, `source='jobdiva'`, `external_id='jd:<candidateId>'`.
+- **`jobdivaSyncPlacements`** rewritten — calls `jobdivaPlacementsDiscover()` when no `items_override`, auto-creates the person on the fly. `items_override` path preserves legacy "skip when no person mapping" behaviour for smoke compatibility.
+- **`jobdivaSyncUpsertPlacement`** — now provides `title` (was missing; would have failed at DB layer since `placements.title` is NOT NULL). Resolves via `jobTitle` / `positionTitle` / `role` etc, falls back to `"JobDiva Placement <extId>"`.
+- **Webhook handler** in `api/jobdiva.php` — dispatches `placement.*` and `start.*` events into the sync pipeline in real time. Inline `payload.data` is ingested directly; ID-only payloads are re-fetched via `searchStart`. Failures mark the event row `status='error'` (non-fatal, operator can re-run "Sync now").
+
+### Tests
+- New: `tests/jobdiva_placement_discovery_smoke.php` — 58 assertions across module structure, criterion shapes, fallback orchestration, person resolver, sync.php wiring, and webhook dispatch.
+- Updated: `tests/sprint8a_a3_jobdiva_sync_smoke.php` — replaced "deferred-by-design" assertions with the new discovery contract.
+- Full suite: **246/246 passing** (was 245).
+
+### Files touched
+- `/app/core/jobdiva/sync_placements.php` (new)
+- `/app/core/jobdiva/sync.php` (Placements driver + Upsert helper)
+- `/app/api/jobdiva.php` (webhook dispatch)
+- `/app/tests/sprint8a_a3_jobdiva_sync_smoke.php` (updated)
+- `/app/tests/jobdiva_placement_discovery_smoke.php` (new)
+
+
+
 ## JobDiva Contact Field Resolution Fix (2026-02 — current fork)
 
 ### Background
