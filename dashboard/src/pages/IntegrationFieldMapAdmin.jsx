@@ -85,17 +85,18 @@ export default function IntegrationFieldMapAdmin() {
           name and writes it into the chosen CoreFlux column.
         </p>
         <div
-          data-testid="field-map-scaffolding-banner"
+          data-testid="field-map-status-banner"
           style={{
             marginTop: '0.75rem',
             padding: '0.6rem 0.9rem',
-            background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8,
-            color: '#92400e', fontSize: 13,
+            background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8,
+            color: '#065f46', fontSize: 13,
           }}
         >
-          <strong>Scaffolding mode.</strong>{' '}
-          The mappings you save here are persisted but the syncer doesn't consult this registry yet.
-          Wiring lands in the next slice — until then, the syncer uses its built-in field candidates.
+          <strong>Live.</strong>{' '}
+          The next sync will use these mappings. Configured rows override the syncer's built-in field choices;
+          unconfigured fields fall back to the default candidate keys. Tip: open any placement and use
+          <em> "View raw payload" </em> in the Linked external systems panel to find the exact JobDiva field name to map.
         </div>
       </header>
 

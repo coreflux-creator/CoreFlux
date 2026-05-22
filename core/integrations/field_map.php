@@ -179,3 +179,186 @@ function tenantIntegrationFieldMapDelete(int $tenantId, int $id, ?int $actorUser
     $stmt->execute(['id' => $id, 't' => $tenantId]);
     return $stmt->rowCount() > 0;
 }
+
+/**
+ * Per-request cache for resolved (tenant, integration, entity_type)
+ * field maps. Sync runs upsert hundreds of records in a single tick;
+ * we MUST NOT round-trip the DB per record.
+ *
+ * Shape: $cache[$tenantId][$integration][$entityType] = [
+ *   'title'      => ['external_field' => 'job.title', 'transform' => 'none'],
+ *   'start_date' => ['external_field' => 'startDate',  'transform' => 'date_normalise'],
+ *   …
+ * ]
+ *
+ * Key insight: only the FIRST call for an (integration, entity_type)
+ * pair hits the DB; subsequent calls are O(1) lookups against the
+ * cached array.
+ */
+/**
+ * Backing cache for resolveAll. Top-level scope so the flush function
+ * can clear it without reflection trickery.
+ *
+ * Shape: $GLOBALS['CF_FIELD_MAP_CACHE'][$compositeKey] = [internal_field => spec]
+ */
+function &tenantIntegrationFieldMapCache(): array
+{
+    if (!isset($GLOBALS['CF_FIELD_MAP_CACHE']) || !is_array($GLOBALS['CF_FIELD_MAP_CACHE'])) {
+        $GLOBALS['CF_FIELD_MAP_CACHE'] = [];
+    }
+    return $GLOBALS['CF_FIELD_MAP_CACHE'];
+}
+
+function tenantIntegrationFieldMapResolveAll(int $tenantId, string $integration, string $entityType): array
+{
+    $cache =& tenantIntegrationFieldMapCache();
+    $key = $tenantId . '|' . $integration . '|' . $entityType;
+    if (isset($cache[$key])) return $cache[$key];
+
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'SELECT internal_field, external_field, transform
+           FROM tenant_integration_field_map
+          WHERE tenant_id = :t AND integration = :i AND entity_type = :e
+            AND enabled = 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'i' => $integration, 'e' => $entityType]);
+    $map = [];
+    foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        $map[(string) $row['internal_field']] = [
+            'external_field' => (string) $row['external_field'],
+            'transform'      => (string) $row['transform'],
+        ];
+    }
+    $cache[$key] = $map;
+    return $map;
+}
+
+/**
+ * Reset the resolveAll cache. Cron loops that span multiple tenants
+ * SHOULD call this between tenants. Smoke tests use it to assert
+ * behaviour across different configured states within a single process.
+ */
+function tenantIntegrationFieldMapFlushCache(): void
+{
+    $GLOBALS['CF_FIELD_MAP_CACHE'] = [];
+}
+
+/**
+ * Apply a configured transform to a raw value. Returns the transformed
+ * string, or the original if no transform applies.
+ *
+ * Note: `date_normalise` requires `jobdivaNormaliseDate()` to be in
+ * scope — it's loaded by `core/jobdiva/sync.php`, the only caller path
+ * that uses this transform today. If you need date_normalise from
+ * another integration, require the helper there too.
+ */
+function tenantIntegrationFieldMapApplyTransform(mixed $value, string $transform): mixed
+{
+    if ($value === null || $value === '') return $value;
+    $s = is_scalar($value) ? (string) $value : null;
+    switch ($transform) {
+        case 'none':
+            return $value;
+        case 'lowercase':
+            return $s !== null ? strtolower($s) : $value;
+        case 'uppercase':
+            return $s !== null ? strtoupper($s) : $value;
+        case 'trim':
+            return $s !== null ? trim($s) : $value;
+        case 'cents_to_dollars':
+            return is_numeric($value) ? ((float) $value / 100) : $value;
+        case 'dollars_to_cents':
+            return is_numeric($value) ? (int) round(((float) $value) * 100) : $value;
+        case 'date_normalise':
+            if (function_exists('jobdivaNormaliseDate')) {
+                return jobdivaNormaliseDate($value);
+            }
+            return $value;
+        default:
+            return $value;
+    }
+}
+
+/**
+ * Pluck a value from a payload using an `external_field` spec that may
+ * include a dotted path for nested objects (e.g. `job.title` to walk
+ * into `$payload['job']['title']`). The final segment is matched
+ * case/separator-insensitively via the same normalisation as
+ * jobdivaPluckField() (so `job.JobTitle` matches `{job: {jobtitle: …}}`).
+ *
+ * Returns '' when the path doesn't resolve.
+ */
+function tenantIntegrationFieldMapPluckPath(array $payload, string $path): string
+{
+    if ($path === '') return '';
+    $segments = explode('.', $path);
+    $cursor = $payload;
+    while (count($segments) > 1) {
+        $head = array_shift($segments);
+        $matched = null;
+        if (is_array($cursor)) {
+            $nh = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $head));
+            foreach ($cursor as $k => $v) {
+                if (!is_string($k)) continue;
+                $nk = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $k));
+                if ($nk === $nh) { $matched = $v; break; }
+            }
+        }
+        if (!is_array($matched)) return '';
+        $cursor = $matched;
+    }
+    $final = $segments[0];
+    $nf = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $final));
+    foreach ($cursor as $k => $v) {
+        if (!is_string($k)) continue;
+        $nk = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $k));
+        if ($nk === $nf) {
+            if (is_scalar($v)) return trim((string) $v);
+            return '';
+        }
+    }
+    return '';
+}
+
+/**
+ * Pluck a value for an internal field, consulting the per-tenant
+ * registry first. If the registry has a row for this internal_field,
+ * we use the configured external_field + transform. Otherwise we fall
+ * back to $defaultFn() — typically the syncer's built-in
+ * jobdivaPluckField() call with hard-coded candidate keys.
+ *
+ * This is the canonical entry point for syncers — call this instead of
+ * touching the registry table directly.
+ *
+ * Returns the resolved value (string), or '' if neither registry nor
+ * fallback produced anything.
+ */
+function tenantIntegrationFieldMapPluckInternal(
+    int $tenantId,
+    string $integration,
+    string $entityType,
+    string $internalField,
+    array $payload,
+    callable $defaultFn
+): mixed {
+    $map = tenantIntegrationFieldMapResolveAll($tenantId, $integration, $entityType);
+    if (isset($map[$internalField])) {
+        $raw = tenantIntegrationFieldMapPluckPath($payload, $map[$internalField]['external_field']);
+        if ($raw !== '') {
+            return tenantIntegrationFieldMapApplyTransform($raw, $map[$internalField]['transform']);
+        }
+        // Registry was configured but the payload didn't contain the
+        // mapped field. Fall through to default so the operator's
+        // misconfiguration doesn't wipe out the value entirely.
+    }
+    return $defaultFn();
+}
+
+/**
+ * Test helper — flush the per-request cache. Re-exported as an alias for
+ * the same-effect helper above; kept so external callers can use a
+ * single canonical name.
+ */
+// (Alias removed — tenantIntegrationFieldMapFlushCache is now the
+// canonical entry point defined alongside the resolver above.)

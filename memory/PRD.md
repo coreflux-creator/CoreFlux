@@ -10,6 +10,37 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## JobDiva Field Mapping — Slice 4 (Syncer Wiring) (2026-02 — current fork)
+
+### Background
+User asked: *"how about mapping the synced data? that's probably most important. payload field → [core module]/[corefied]"*. The registry built in Slice 3 was scaffolding — Slice 4 makes it take effect.
+
+### What shipped
+- **`core/integrations/field_map.php`** — new resolver layer:
+  - `tenantIntegrationFieldMapResolveAll($tid, $integration, $entityType)` — globally-cached lookup (one DB hit per (tenant, integration, entity_type) per process). Cron loops MUST call `tenantIntegrationFieldMapFlushCache()` between tenants.
+  - `tenantIntegrationFieldMapApplyTransform($value, $transform)` — implements `none` / `lowercase` / `uppercase` / `trim` / `cents_to_dollars` / `dollars_to_cents` / `date_normalise` (delegates to `jobdivaNormaliseDate` when available).
+  - `tenantIntegrationFieldMapPluckPath($payload, $path)` — walks dotted paths (`job.JobTitle`, `job.meta.JOB_OWNER`) with case- and separator-insensitive matching at every segment. The operator can copy field names directly from the "View raw payload" viewer in the LinkedExternalSystemsPanel and the registry resolves them no matter how JobDiva spells them.
+  - `tenantIntegrationFieldMapPluckInternal()` — canonical entry point for syncers. Registry-first, default-fn fallback. Falls through to default when the configured external_field isn't present in the payload (operator misconfig doesn't wipe data).
+- **`jobdivaSyncUpsertPlacement`** consults the registry for `title`, `start_date`, `end_date`, `end_client_name`, `status`. `date_normalise` is still applied post-resolution so the operator doesn't have to remember to configure the transform for date columns.
+- **`jobdivaPlacementsAutoCreatePerson`** consults the registry for `first_name`, `last_name`, `email_primary`, `phone_primary`. Built-in candidate lists preserved as the fallback closure.
+- **Admin UI banner** flipped from yellow "Scaffolding mode" → green "Live." with a tip directing operators to use the raw payload viewer in the LinkedExternalSystemsPanel to discover field names. This is the synergy: open placement → inspect raw payload → copy field name → configure in registry → next sync uses it.
+
+### Tests
+- New: `tests/jobdiva_field_mapping_slice4_smoke.php` — 50 assertions covering resolver exports, every transform, dotted-path traversal (case/separator-insensitive at every segment), registry-first/default-fallback behaviour, cache flush, placement upsert wiring (5 fields), auto-create person wiring (4 fields), and the UI banner flip.
+- Full suite: **249/249 passing** (+1 new file).
+- Frontend rebuilt: `sync_bundle.sh` ran clean.
+
+### Files touched
+- `/app/core/integrations/field_map.php` (resolver layer)
+- `/app/core/jobdiva/sync.php` (Placement upsert wiring)
+- `/app/core/jobdiva/sync_placements.php` (Auto-create person wiring)
+- `/app/dashboard/src/pages/IntegrationFieldMapAdmin.jsx` (banner: scaffolding → live)
+- `/app/tests/jobdiva_field_mapping_slice4_smoke.php` (new)
+- `/app/tests/jobdiva_field_mapping_slice1_smoke.php` (updated assertions)
+- `/app/tests/sprint8a_a3_jobdiva_sync_smoke.php` (endDate variable rename)
+
+
+
 ## JobDiva Field Mapping — Slice 1 (Title + Connected Sources panel) + Slice 3 Scaffolding (2026-02 — current fork)
 
 ### Background

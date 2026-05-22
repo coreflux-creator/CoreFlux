@@ -625,52 +625,78 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
 
 function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientCompanyId, array $jd, string $extId): int
 {
+    require_once __DIR__ . '/../integrations/field_map.php';
     $pdo = getDB();
     // Look up by external_id first (placements has a `external_id` column).
     $stmt = $pdo->prepare('SELECT id FROM placements WHERE tenant_id = :t AND external_id = :ext LIMIT 1');
     $stmt->execute(['t' => $tid, 'ext' => 'jd:' . $extId]);
     $existingId = (int) $stmt->fetchColumn();
 
-    // Title is NOT NULL on `placements`. JobDiva uses many shapes for the
-    // job/role title — fall back to a deterministic placeholder so we
-    // never bail out at the DB layer.
+    // Resolve each placement field via the tenant field-map registry,
+    // falling back to the built-in candidate-key lookups when the
+    // tenant hasn't configured an override. This is how Slice 4 wires
+    // the per-tenant "payload field → CoreFlux column" registry into
+    // the syncer — see /app/core/integrations/field_map.php.
     //
-    // V2 searchStart sometimes nests the title inside a `job` object
-    // (`job.title`, `job.jobTitle`, `job.positionTitle`). Try the
-    // top-level pluck first, then probe each known nested envelope.
-    $title = jobdivaPluckField($jd, [
-        'jobTitle', 'job_title', 'job title', 'title',
-        'positionTitle', 'position_title', 'role', 'roleName',
-    ]);
-    if ($title === '') {
-        foreach (['job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
-            if (isset($jd[$nest]) && is_array($jd[$nest])) {
-                $title = jobdivaPluckField($jd[$nest], [
-                    'title', 'jobTitle', 'job_title', 'job title',
-                    'positionTitle', 'position_title', 'roleName',
-                ]);
-                if ($title !== '') break;
+    // Title is NOT NULL on `placements`. JobDiva uses many shapes for
+    // the job/role title — fall back to a deterministic placeholder
+    // so we never bail out at the DB layer.
+    $title = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'title', $jd,
+        static function () use ($jd) {
+            $t = jobdivaPluckField($jd, [
+                'jobTitle', 'job_title', 'job title', 'title',
+                'positionTitle', 'position_title', 'role', 'roleName',
+            ]);
+            if ($t === '') {
+                // V2 searchStart sometimes nests the title inside a `job` object
+                // (`job.title`, `job.jobTitle`, `job.positionTitle`).
+                foreach (['job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
+                    if (isset($jd[$nest]) && is_array($jd[$nest])) {
+                        $t = jobdivaPluckField($jd[$nest], [
+                            'title', 'jobTitle', 'job_title', 'job title',
+                            'positionTitle', 'position_title', 'roleName',
+                        ]);
+                        if ($t !== '') break;
+                    }
+                }
             }
+            return $t;
         }
-    }
+    );
     // Last-resort placeholder. Kept distinct from the JobDiva ID so
     // operators can tell which placements had no Job Title available
     // (vs. genuinely synthetic ones). The Connected Sources panel
     // shows the actual JobDiva Start/Job IDs separately.
     if ($title === '') $title = 'JobDiva Placement ' . $extId;
 
-    $startDate = jobdivaPluckField($jd, ['startDate', 'start_date', 'start date', 'startdate']);
+    $startDate = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'start_date', $jd,
+        static fn() => jobdivaPluckField($jd, ['startDate', 'start_date', 'start date', 'startdate'])
+    );
     if ($startDate === '') $startDate = (string) ($jd['startDate'] ?? $jd['start_date'] ?? '');
-    $endDate   = jobdivaPluckField($jd, ['endDate', 'end_date', 'end date', 'enddate']);
+    $endDate = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'end_date', $jd,
+        static fn() => jobdivaPluckField($jd, ['endDate', 'end_date', 'end date', 'enddate'])
+    );
     // JobDiva V2 BI returns dates as epoch-milliseconds in many envelopes;
     // normalise to MySQL DATE (Y-m-d) so the prepared statement doesn't
-    // 22007 the whole batch.
+    // 22007 the whole batch. (If the registry already specified
+    // 'date_normalise' as the transform, this is idempotent.)
     $startDate = jobdivaNormaliseDate($startDate) ?? '';
-    $endDate   = jobdivaNormaliseDate($endDate);   // may be null — column is nullable
-    $endClientName = jobdivaPluckField($jd, [
-        'endClientName', 'clientName', 'end_client_name', 'client_name', 'client name', 'end client name',
-    ]);
-    $statusJd  = strtolower(jobdivaPluckField($jd, ['status', 'startStatus', 'placementStatus']));
+    $endDateNorm = jobdivaNormaliseDate($endDate);   // may be null — column is nullable
+
+    $endClientName = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'end_client_name', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'endClientName', 'clientName', 'end_client_name', 'client_name', 'client name', 'end client name',
+        ])
+    );
+    $statusRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'status', $jd,
+        static fn() => jobdivaPluckField($jd, ['status', 'startStatus', 'placementStatus'])
+    );
+    $statusJd  = strtolower($statusRaw);
     if ($statusJd === '') $statusJd = 'active';
     $statusMap = ['active' => 'active', 'pending' => 'pending_start', 'ended' => 'ended', 'cancelled' => 'cancelled'];
     $status    = $statusMap[$statusJd] ?? 'active';
@@ -683,7 +709,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
                     title = :ti
               WHERE id = :id'
         )->execute([
-            'sd' => $startDate, 'ed' => $endDate ?: null, 'st' => $status,
+            'sd' => $startDate, 'ed' => $endDateNorm ?: null, 'st' => $status,
             'ecn' => $endClientName ?: null, 'ecc' => $endClientCompanyId,
             'ti' => $title, 'id' => $existingId,
         ]);
@@ -695,7 +721,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
          VALUES (:t, :p, :ext, :st, :sd, :ed, "w2", :ecn, :ecc, :ti)'
     )->execute([
         't' => $tid, 'p' => $personId, 'ext' => 'jd:' . $extId, 'st' => $status,
-        'sd' => $startDate, 'ed' => $endDate ?: null,
+        'sd' => $startDate, 'ed' => $endDateNorm ?: null,
         'ecn' => $endClientName ?: null, 'ecc' => $endClientCompanyId,
         'ti' => $title,
     ]);

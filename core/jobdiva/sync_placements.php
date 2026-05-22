@@ -229,6 +229,7 @@ function jobdivaPlacementsDiscover(int $tid, ?int $userId, array $opts = []): ar
  */
 function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?int
 {
+    require_once __DIR__ . '/../integrations/field_map.php';
     $candidateExtId = jobdivaPluckField($jd, [
         'candidateId', 'candidate_id', 'employeeId', 'employee_id',
         'candidateID', 'EmployeeID', 'personId', 'person_id',
@@ -239,22 +240,37 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
     $mapping = mappingFindInternal($tid, 'jobdiva', 'person', $candidateExtId);
     if ($mapping) return (int) $mapping['internal_entity_id'];
 
-    $firstName = jobdivaPluckField($jd, [
-        'candidateFirstName', 'firstName', 'first_name', 'first name',
-        'candidate_first_name',
-    ]);
-    $lastName  = jobdivaPluckField($jd, [
-        'candidateLastName',  'lastName',  'last_name',  'last name',
-        'candidate_last_name',
-    ]);
-    $email     = jobdivaPluckField($jd, [
-        'candidateEmail', 'email', 'email_primary', 'emailAddress',
-        'candidate_email', 'primary email',
-    ]);
-    $phone     = jobdivaPluckField($jd, [
-        'candidatePhone', 'phone', 'phone_primary', 'phoneNumber',
-        'candidate_phone', 'phone 1',
-    ]);
+    // Slice 4 wiring — each person field consults the tenant registry
+    // first; built-in candidate lists are the fallback when no override
+    // is configured.
+    $firstName = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'person', 'first_name', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'candidateFirstName', 'firstName', 'first_name', 'first name',
+            'candidate_first_name',
+        ])
+    );
+    $lastName = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'person', 'last_name', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'candidateLastName',  'lastName',  'last_name',  'last name',
+            'candidate_last_name',
+        ])
+    );
+    $email = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'person', 'email_primary', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'candidateEmail', 'email', 'email_primary', 'emailAddress',
+            'candidate_email', 'primary email',
+        ])
+    );
+    $phone = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'person', 'phone_primary', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'candidatePhone', 'phone', 'phone_primary', 'phoneNumber',
+            'candidate_phone', 'phone 1',
+        ])
+    );
 
     if ($firstName === '' && $lastName === '') {
         // Truly blank candidate identity — refuse to create a ghost record.

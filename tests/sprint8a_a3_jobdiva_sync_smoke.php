@@ -84,7 +84,7 @@ $assert('preserves Y-m-d prefix on otherwise-uninterpretable string',
 $assert('placement upsert normalises startDate before binding',
     strpos($src, "\$startDate = jobdivaNormaliseDate(\$startDate)") !== false);
 $assert('placement upsert normalises endDate (nullable) before binding',
-    strpos($src, "\$endDate   = jobdivaNormaliseDate(\$endDate);") !== false);
+    strpos($src, "\$endDateNorm = jobdivaNormaliseDate(\$endDate);") !== false);
 
 echo "\nCompanies driver\n";
 $assert('hits V2 BI NewUpdatedCompanyRecords',    strpos($src, 'JOBDIVA_PATH_COMPANIES_DELTA')  !== false

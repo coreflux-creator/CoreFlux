@@ -35,7 +35,7 @@ $assert('top-level pluck tries jobTitle/positionTitle/role',
 $assert('nested job.* envelopes probed (V2 searchStart often nests title)',
     strpos($syncSrc, "foreach (['job', 'Job', 'jobInfo', 'jobObj', 'jobRecord']") !== false);
 $assert('nested pluck reuses jobdivaPluckField',
-    strpos($syncSrc, "jobdivaPluckField(\$jd[\$nest], [\n                    'title', 'jobTitle'") !== false);
+    strpos($syncSrc, "jobdivaPluckField(\$jd[\$nest], [\n                            'title', 'jobTitle'") !== false);
 $assert('placeholder only when JobDiva genuinely sent no title',
     strpos($syncSrc, "// Last-resort placeholder. Kept distinct from the JobDiva ID") !== false
     && strpos($syncSrc, "if (\$title === '') \$title = 'JobDiva Placement ' . \$extId;") !== false);
@@ -162,9 +162,10 @@ $ui     = (string) file_get_contents($uiPath);
 $assert('component file exists',                 strlen($ui) > 0);
 $assert('default exports IntegrationFieldMapAdmin',
     strpos($ui, 'export default function IntegrationFieldMapAdmin') !== false);
-$assert('renders scaffolding banner (so operators expect no behaviour yet)',
-    strpos($ui, 'Scaffolding mode.') !== false
-    && strpos($ui, 'data-testid="field-map-scaffolding-banner"') !== false);
+$assert('renders live banner (Slice 4 — syncer now consults the registry)',
+    strpos($ui, 'Live.') !== false
+    && strpos($ui, 'data-testid="field-map-status-banner"') !== false
+    && strpos($ui, 'The next sync will use these mappings.') !== false);
 $assert('scope dropdown carries integration + entity selects',
     strpos($ui, 'data-testid="field-map-integration-select"') !== false
     && strpos($ui, 'data-testid="field-map-entity-select"') !== false);
