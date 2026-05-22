@@ -50,6 +50,45 @@ const JOBDIVA_PATH_CONTACTS_DELTA   = '/apiv2/bi/NewUpdatedContactRecords';
 const JOBDIVA_PATH_TIMESHEETS_DELTA = '/apiv2/bi/NewUpdatedTimesheetRecords';
 
 /**
+ * Resilient case/space-insensitive field lookup for JobDiva BI records.
+ *
+ * JobDiva V2 BI responses use INCONSISTENT key shapes across endpoints and
+ * over time — a single endpoint can return "id" / "ID" / "Id" / "contactId"
+ * across releases, and Contact records specifically use space-separated
+ * keys ("first name", "company id"). Rather than chain ten `??` lookups
+ * per field, we normalise both the record keys and the candidate list to
+ * lowercase-alphanumeric, then resolve once.
+ *
+ * Candidates are tried in order; first non-empty scalar wins. Non-scalar
+ * matches (arrays/objects) are skipped — JobDiva sometimes nests
+ * structured payloads under a name that collides with a flat field.
+ */
+function jobdivaPluckField(array $item, array $candidates): string
+{
+    $norm = [];
+    foreach ($item as $k => $v) {
+        if (!is_string($k)) continue;
+        $nk = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $k));
+        if ($nk === '') continue;
+        // First occurrence wins — JobDiva sometimes echoes the same logical
+        // field twice with subtly different spellings; the canonical one
+        // tends to appear first.
+        if (!array_key_exists($nk, $norm)) $norm[$nk] = $v;
+    }
+    foreach ($candidates as $cand) {
+        $nk = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $cand));
+        if (!isset($norm[$nk])) continue;
+        $v = $norm[$nk];
+        if ($v === null) continue;
+        if (is_scalar($v)) {
+            $s = trim((string) $v);
+            if ($s !== '') return $s;
+        }
+    }
+    return '';
+}
+
+/**
  * Build JobDiva BI date-range query string. `fromDate` defaults to 7
  * days ago (narrower than before to dodge the JobDiva-side "Not an
  * array" 500 that fires when a result set is too large or contains a
@@ -207,6 +246,10 @@ function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
         try {
             $extId = (string) ($jd['id'] ?? $jd['companyId'] ?? $jd['company_id'] ?? '');
             $name  = trim((string) ($jd['name'] ?? $jd['companyName'] ?? $jd['company_name'] ?? ''));
+            // V2 BI fallback — JobDiva also returns "COMPANYID" / "COMPANY NAME"
+            // in some tenant configs. jobdivaPluckField() catches those.
+            if ($extId === '') $extId = jobdivaPluckField($jd, ['id', 'companyId', 'company_id', 'companyID', 'CompanyId', 'COMPANYID']);
+            if ($name === '')  $name  = jobdivaPluckField($jd, ['name', 'companyName', 'company_name', 'company name', 'COMPANY NAME']);
             if ($extId === '' || $name === '') { $skipped++; continue; }
 
             $companyId = companiesUpsertByName($tid, $name, [
@@ -264,28 +307,45 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
     $skipReasons = ['missing_fields' => 0, 'company_unmapped' => 0];
     $unmappedCompanies = []; // collect distinct external IDs for the diagnostic
+    $sampleKeys = [];        // record-shape diagnostic: keys from first 3 items
+    $sampleMissing = [];     // example records that failed the field gate
 
-    foreach ($items as $jd) {
+    foreach ($items as $idx => $jd) {
+        if ($idx < 3 && is_array($jd)) $sampleKeys[$idx] = array_keys($jd);
         try {
-            // JobDiva V2 BI Contact schema uses LITERAL-SPACE-SEPARATED
-            // JSON keys (verified 2026-02 in the V2 swagger):
-            //   "id", "first name", "last name", "company id",
-            //   "company name", "email", "phone 1", "title", ...
-            // Older docs and some V1 responses use camelCase
-            // (`firstName`, `companyId`) — accept both shapes so we
-            // don't break the smoke fixtures.
-            $extId        = (string) ($jd['id'] ?? $jd['contactId'] ?? $jd['contact_id'] ?? '');
-            $companyExtId = (string) (
-                $jd['company id']                                  // V2 BI (canonical)
-                ?? $jd['companyId']                                // V1 / smoke fixture
-                ?? $jd['company_id']                               // snake_case alias
-                ?? ''
-            );
-            $firstName    = trim((string) ($jd['first name'] ?? $jd['firstName'] ?? ''));
-            $lastName     = trim((string) ($jd['last name']  ?? $jd['lastName']  ?? ''));
-            $name         = trim((string) ($jd['name'] ?? trim($firstName . ' ' . $lastName)));
+            // JobDiva V2 BI Contact records use INCONSISTENT key shapes
+            // across releases — "first name" / "FirstName" / "FIRSTNAME"
+            // have all been observed in the wild. We normalise both the
+            // record keys and our candidates to lowercase-alphanumeric so
+            // a single canonical list catches every variant. See
+            // jobdivaPluckField() above.
+            $extId        = jobdivaPluckField($jd, ['id', 'contactId', 'contact_id', 'contactID']);
+            $companyExtId = jobdivaPluckField($jd, [
+                'company id', 'companyId', 'company_id', 'companyID',
+                'CompanyId', 'COMPANYID', 'clientId', 'client_id',
+            ]);
+            $firstName    = jobdivaPluckField($jd, ['first name', 'firstName', 'first_name', 'firstname']);
+            $lastName     = jobdivaPluckField($jd, ['last name',  'lastName',  'last_name',  'lastname']);
+            $name         = jobdivaPluckField($jd, ['name', 'fullName', 'full_name', 'contactName', 'contact_name']);
+            if ($name === '') $name = trim($firstName . ' ' . $lastName);
             if ($extId === '' || $name === '' || $companyExtId === '') {
-                $skipped++; $skipReasons['missing_fields']++; continue;
+                $skipped++; $skipReasons['missing_fields']++;
+                if (count($sampleMissing) < 2 && is_array($jd)) {
+                    // Capture a redacted sample so the operator can see
+                    // EXACTLY what shape JobDiva is sending. We expose
+                    // keys + the first 60 chars of each scalar value;
+                    // arrays/objects are summarised by shape only.
+                    $sample = [];
+                    foreach ($jd as $k => $v) {
+                        if (is_scalar($v) || $v === null) {
+                            $sample[(string) $k] = $v === null ? null : substr((string) $v, 0, 60);
+                        } else {
+                            $sample[(string) $k] = '[' . gettype($v) . ']';
+                        }
+                    }
+                    $sampleMissing[] = $sample;
+                }
+                continue;
             }
 
             // Resolve internal company via mapping created by jobdivaSyncCompanies().
@@ -329,6 +389,11 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
             'entity' => 'contact',
             'kind'   => 'missing_fields',
             'error'  => sprintf('%d contacts skipped: missing required fields (id/name/companyId).', $skipReasons['missing_fields']),
+            // Surface the actual record shape so the operator can compare
+            // against the JobDiva V2 BI swagger and confirm/correct the
+            // key list in jobdivaSyncContacts() if JobDiva renames a field.
+            'sample_keys'    => $sampleKeys,
+            'sample_records' => $sampleMissing,
         ];
     }
 
@@ -341,8 +406,10 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
         'items_failed'    => $failed,
         'actor_user_id'   => $userId,
         'detail'          => [
-            'errors'        => array_slice($errors, 0, 5),
-            'skip_reasons'  => $skipReasons,
+            'errors'         => array_slice($errors, 0, 5),
+            'skip_reasons'   => $skipReasons,
+            'sample_keys'    => $sampleKeys,
+            'sample_records' => $sampleMissing,
         ],
     ]);
     return [
@@ -356,9 +423,12 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
 
 function jobdivaSyncUpsertContact(int $tid, int $companyId, array $jd, string $name): int
 {
-    $email = trim((string) ($jd['email'] ?? ''));
-    $phone = trim((string) ($jd['phone'] ?? ''));
-    $title = trim((string) ($jd['title'] ?? $jd['jobTitle'] ?? ''));
+    // JobDiva V2 BI Contact records expose "email", "phone 1" / "phone 2",
+    // and "title" — older shapes use camelCase. jobdivaPluckField()
+    // tolerates both.
+    $email = jobdivaPluckField($jd, ['email', 'emailAddress', 'email_address', 'primary email', 'primaryEmail']);
+    $phone = jobdivaPluckField($jd, ['phone 1', 'phone', 'phoneNumber', 'phone_number', 'workPhone', 'work phone']);
+    $title = jobdivaPluckField($jd, ['title', 'jobTitle', 'job_title', 'job title']);
 
     $pdo = getDB();
     if ($email !== '') {

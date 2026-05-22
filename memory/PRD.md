@@ -10,6 +10,28 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## JobDiva Contact Field Resolution Fix (2026-02 — current fork)
+
+### Background
+After fixing JobDiva V2 auth + the 500-on-Contacts response (via window-halving retries), the Contacts BI sync successfully retrieved 49 records but parsed **0** — all 49 were dropped under `missing_fields` because the V2 BI response uses key shapes (`"first name"`, `"COMPANYID"`, `"FirstName"`) that the parser's literal `??` chain didn't cover.
+
+### What shipped
+- **`jobdivaPluckField(array $item, array $candidates): string`** — new helper in `core/jobdiva/sync.php` that normalises BOTH the record's keys and the candidate list to lowercase-alphanumeric, then resolves the first non-empty scalar match. Tolerates `"first name"` / `"FirstName"` / `"FIRSTNAME"` / `"firstname"` etc. all at once.
+- **Contacts parser** (`jobdivaSyncContacts`) refactored to use the helper with comprehensive candidate lists for `id`, `companyId`, `firstName`, `lastName`, `name`.
+- **Contact upsert helper** (`jobdivaSyncUpsertContact`) extended the same way for `email` / `phone 1` / `title`.
+- **Companies parser** (`jobdivaSyncCompanies`) — added an *additive* V2 BI pluck fallback after the existing `??` chain (preserving the existing smoke contract literally).
+- **Sample-shape diagnostic** — on `missing_fields` skip, the audit detail and `errors[]` now include `sample_keys` (first 3 records' key arrays) + `sample_records` (up to 2 redacted records, scalars truncated to 60 chars). The operator can read the actual JobDiva payload shape from the Diagnostics panel without server-side log spelunking.
+
+### Tests
+- New file `tests/jobdiva_contact_field_resolution_smoke.php` — 32 assertions covering helper signature, normalisation logic, live behaviour across 8 key shapes, candidate lists for every Contact field, diagnostic surface, and Companies fallback.
+- Full suite: **245/245 passing** (was 244).
+
+### Files touched
+- `/app/core/jobdiva/sync.php` (helper + Contacts/Companies parsers + audit detail)
+- `/app/tests/jobdiva_contact_field_resolution_smoke.php` (new)
+
+
+
 ## Resend Mailer + Per-Purpose Tenant Sender Overrides (2026-02 — current fork)
 
 ### What shipped
