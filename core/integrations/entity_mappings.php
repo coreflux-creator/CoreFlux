@@ -254,9 +254,14 @@ function mappingDelete(int $tenantId, string $source, string $entityType, string
 function mappingListForInternal(int $tenantId, string $entityType, int $internalId): array
 {
     $pdo = getDB();
+    // payload_snapshot is included so the Connected Sources panel can
+    // surface the source-system's native IDs (JobDiva Job #, Candidate #,
+    // etc.) without a second round-trip. Callers that don't need it can
+    // ignore the column; the row size is bounded by the source-side
+    // payload, which is already tenant-scoped.
     $stmt = $pdo->prepare(
         'SELECT id, source_system, external_id, sync_status, direction,
-                last_synced_at, last_seen_at
+                last_synced_at, last_seen_at, payload_snapshot
            FROM external_entity_mappings
           WHERE tenant_id = :t
             AND internal_entity_type = :et
@@ -264,5 +269,14 @@ function mappingListForInternal(int $tenantId, string $entityType, int $internal
           ORDER BY source_system ASC'
     );
     $stmt->execute(['t' => $tenantId, 'et' => $entityType, 'iid' => $internalId]);
-    return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    // payload_snapshot is JSON; decode for the wire so the frontend
+    // doesn't have to double-parse.
+    foreach ($rows as &$r) {
+        if (isset($r['payload_snapshot']) && is_string($r['payload_snapshot'])) {
+            $decoded = json_decode($r['payload_snapshot'], true);
+            $r['payload_snapshot'] = is_array($decoded) ? $decoded : null;
+        }
+    }
+    return $rows;
 }

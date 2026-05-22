@@ -31,6 +31,7 @@ import AccountingSyncDashboard from './AccountingSyncDashboard';
 import RolesReference from './RolesReference';
 import AuditorTokensAdmin from './AuditorTokensAdmin';
 import CrossTenantAuditAdmin from './CrossTenantAuditAdmin';
+import IntegrationFieldMapAdmin from './IntegrationFieldMapAdmin';
 
 /**
  * AdminModule — administrator surface.
@@ -172,6 +173,7 @@ const AdminModule = ({ session }) => {
           <Route path="/integrations/zoho-books" element={<ZohoBooksSettings session={session} />} />
           <Route path="/integrations/airtable" element={<AirtableSettings session={session} />} />
           <Route path="/integrations/jobdiva" element={<JobDivaSettings session={session} />} />
+          <Route path="/integrations/field-map" element={<IntegrationFieldMapAdmin session={session} />} />
           <Route path="/sso"               element={<SsoConfigAdmin session={session} />} />
           <Route path="/mail-branding"     element={<MailBrandingAdmin session={session} />} />
           <Route path="/digest-schedules"  element={<DigestSchedulesAdmin session={session} />} />

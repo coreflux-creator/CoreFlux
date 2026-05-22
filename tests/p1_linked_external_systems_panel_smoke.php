@@ -51,7 +51,7 @@ $assert('direction label map covers pull/push/two_way/off',
     && strpos($src, "off:     'Disabled'") !== false);
 $assert('JobDiva label map entry',                  strpos($src, "jobdiva: 'JobDiva'") !== false);
 $assert('renders external_id in monospace',
-    strpos($src, "fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>\n                    {m.external_id}") !== false);
+    preg_match("/fontFamily: 'ui-monospace, monospace', fontSize: 12 \\}\\}>\\s+\\{m\\.external_id\\}/", $src) === 1);
 $assert('table testid',                             strpos($src, 'data-testid="linked-systems-table"') !== false);
 $assert('handles loading + error states',
     strpos($src, 'data-testid="linked-systems-loading"') !== false

@@ -634,10 +634,29 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     // Title is NOT NULL on `placements`. JobDiva uses many shapes for the
     // job/role title — fall back to a deterministic placeholder so we
     // never bail out at the DB layer.
+    //
+    // V2 searchStart sometimes nests the title inside a `job` object
+    // (`job.title`, `job.jobTitle`, `job.positionTitle`). Try the
+    // top-level pluck first, then probe each known nested envelope.
     $title = jobdivaPluckField($jd, [
         'jobTitle', 'job_title', 'job title', 'title',
         'positionTitle', 'position_title', 'role', 'roleName',
     ]);
+    if ($title === '') {
+        foreach (['job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
+            if (isset($jd[$nest]) && is_array($jd[$nest])) {
+                $title = jobdivaPluckField($jd[$nest], [
+                    'title', 'jobTitle', 'job_title', 'job title',
+                    'positionTitle', 'position_title', 'roleName',
+                ]);
+                if ($title !== '') break;
+            }
+        }
+    }
+    // Last-resort placeholder. Kept distinct from the JobDiva ID so
+    // operators can tell which placements had no Job Title available
+    // (vs. genuinely synthetic ones). The Connected Sources panel
+    // shows the actual JobDiva Start/Job IDs separately.
     if ($title === '') $title = 'JobDiva Placement ' . $extId;
 
     $startDate = jobdivaPluckField($jd, ['startDate', 'start_date', 'start date', 'startdate']);

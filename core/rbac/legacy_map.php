@@ -97,6 +97,12 @@ final class RbacLegacyMap
             'integrations.zoho_books.view'       => ['integrations', 'read'],
             'integrations.airtable.manage'       => ['integrations', 'admin'],
             'integrations.airtable.view'         => ['integrations', 'read'],
+            // Tenant Integration Field Map registry (Slice 3 scaffolding) —
+            // admin-only because misconfiguration drives data into wrong
+            // columns. master_admin + tenant_admin via the 'integrations'
+            // module getting 'admin' level.
+            'integrations.field_map.manage'      => ['integrations', 'admin'],
+            'integrations.field_map.view'        => ['integrations', 'admin'],
 
             // ── payroll ───────────────────────────────────────────────────
             'payroll.runs.approve'               => ['payroll', 'admin'],

@@ -10,6 +10,49 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## JobDiva Field Mapping — Slice 1 (Title + Connected Sources panel) + Slice 3 Scaffolding (2026-02 — current fork)
+
+### Background
+User reported: *"the JobDiva placement ID shouldn't be the title — the title should be the actual Job Title. Placement ID is separate. Each active integration likely needs its own ID field. Maybe a tenant-level integration mapping that only tenant_admin can control."*
+
+### What shipped (Slice 1 — placement title + per-source identifier visibility)
+- **`jobdivaSyncUpsertPlacement` title resolution** now probes nested `job.*` envelopes in addition to flat `jobTitle` / `positionTitle` / `role` keys. JobDiva V2 `searchStart` typically nests the title inside a `job` object — that's why the previous flat lookup always missed and the synthetic placeholder showed up. The literal `"JobDiva Placement <extId>"` placeholder is preserved as a genuine last-resort.
+- **`mappingListForInternal()`** now returns `payload_snapshot` alongside the metadata, decoded server-side so the frontend doesn't double-parse.
+- **`LinkedExternalSystemsPanel`** rewritten with an expandable per-source detail row that surfaces:
+  - Curated identifier fields from `payload_snapshot` (Start ID, JobDiva Job #, Job Title, Candidate ID, Bill/Pay Rate) picked per `(source_system, entity_type)` — operators no longer need to dig through raw JSON.
+  - Collapsible raw payload viewer (full JSON, monospaced) for deeper inspection.
+- **Wired** into `PlacementDetail.jsx` — Connected Sources panel now appears under the header.
+- JS pluck mirrors the backend `jobdivaPluckField()` normalisation so the same candidate-key list works on both sides.
+
+### What shipped (Slice 3 — Tenant Integration Field Map registry, scaffolding only)
+- **Migration 068** `tenant_integration_field_map` table — composite unique on `(tenant_id, integration, entity_type, internal_field)`. Columns: `external_field`, `internal_field`, `transform` (default `'none'`), `enabled`, `notes`, `updated_by_user_id`.
+- **`core/integrations/field_map.php`** lib — list / upsert / delete helpers with server-side **internal-field allow-list** per entity_type so a misconfigured tenant_admin can't accidentally route data into `tenant_id` / `created_by_user_id`. Transform list is also validated server-side.
+- **`/api/admin/integrations/field_map.php`** — GET (list + allow-list + transforms) / POST (idempotent upsert via `ON DUPLICATE KEY UPDATE`) / DELETE (tenant-scoped). RBAC: new `integrations.field_map.manage` and `integrations.field_map.view` permissions (both `integrations:admin` level → master_admin + tenant_admin).
+- **`/admin/integrations/field-map`** admin UI page — scope dropdowns (integration + entity_type), table of current overrides, add-form with constrained `internal_field` dropdown from server-provided allow-list, transform dropdown, notes column. **Yellow scaffolding banner** makes the wiring-status clear: rows persist but the syncer doesn't consult the registry yet.
+- **Slice 4 (next session)**: wire `jobdivaSyncUpsertPlacement` / `jobdivaPlacementsAutoCreatePerson` / etc to consult `tenant_integration_field_map` BEFORE falling back to the built-in candidate lists.
+
+### Tests
+- New: `tests/jobdiva_field_mapping_slice1_smoke.php` — 57 assertions covering title resolution, payload_snapshot wiring, LinkedExternalSystemsPanel UX surface, migration schema, lib helpers + validation, admin API surface, RBAC bridge, and admin UI scaffolding.
+- Updated: `tests/p1_linked_external_systems_panel_smoke.php` — loosened external_id whitespace assertion to tolerate the new chevron column.
+- Full suite: **248/248 passing** (was 247).
+- Frontend rebuilt: `yarn --cwd /app/dashboard build` + `sync_bundle.sh` ran clean.
+
+### Files touched
+- `/app/core/jobdiva/sync.php` (title nested-envelope probe)
+- `/app/core/integrations/entity_mappings.php` (payload_snapshot in list_for_internal)
+- `/app/core/integrations/field_map.php` (new lib)
+- `/app/core/migrations/068_tenant_integration_field_map.sql` (new)
+- `/app/core/rbac/legacy_map.php` (new permissions)
+- `/app/api/admin/integrations/field_map.php` (new admin API)
+- `/app/dashboard/src/components/LinkedExternalSystemsPanel.jsx` (rewritten with expandable rows + payload fields)
+- `/app/dashboard/src/pages/IntegrationFieldMapAdmin.jsx` (new admin UI page)
+- `/app/dashboard/src/pages/AdminModule.jsx` (route)
+- `/app/modules/placements/ui/PlacementDetail.jsx` (panel wiring)
+- `/app/tests/jobdiva_field_mapping_slice1_smoke.php` (new)
+- `/app/tests/p1_linked_external_systems_panel_smoke.php` (loosened whitespace assertion)
+
+
+
 ## JobDiva Date Normalisation — Epoch-ms → Y-m-d Fix (2026-02 — current fork)
 
 ### Background

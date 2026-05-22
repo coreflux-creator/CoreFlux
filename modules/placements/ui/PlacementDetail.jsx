@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useParams, useNavigate, NavLink, Routes, Route, Navigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
+import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
 
 /**
  * Placement Detail — SPEC §7 tabs.
@@ -52,6 +53,8 @@ export default function PlacementDetail({ session }) {
           </p>
         </div>
       </header>
+
+      <LinkedExternalSystemsPanel entityType="placement" internalId={placement.id} />
 
       <nav className="person-detail__tabs" data-testid="placement-detail-tabs" style={{ display: 'flex', gap: 'var(--cf-space-1)' }}>
         {TABS.map(t => (
