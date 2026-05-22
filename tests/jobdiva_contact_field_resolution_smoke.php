@@ -62,6 +62,19 @@ $assert('returns empty for whitespace-only scalar',
     jobdivaPluckField(['id' => '   '], ['id']) === '');
 $assert('casts numerics to string',              jobdivaPluckField(['id' => 7], ['id']) === '7');
 
+echo "\nLive behaviour — jobdivaNormaliseDate()\n";
+$assert('epoch ms (13 digits) → Y-m-d',          jobdivaNormaliseDate('1779231290000') === gmdate('Y-m-d', 1779231290));
+$assert('epoch ms as integer also works',        jobdivaNormaliseDate(1779231290000) === gmdate('Y-m-d', 1779231290));
+$assert('epoch seconds (10 digits) → Y-m-d',     jobdivaNormaliseDate('1779231290') === gmdate('Y-m-d', 1779231290));
+$assert('ISO date passes through',               jobdivaNormaliseDate('2026-05-22') === '2026-05-22');
+$assert('ISO datetime trims to date',            jobdivaNormaliseDate('2026-05-22T08:32:43+0000') === '2026-05-22');
+$assert('US slash format parses',                jobdivaNormaliseDate('5/22/2026') === '2026-05-22');
+$assert('empty string → null',                   jobdivaNormaliseDate('') === null);
+$assert('"0" → null (JobDiva placeholder)',      jobdivaNormaliseDate('0') === null);
+$assert('"null" string → null',                  jobdivaNormaliseDate('null') === null);
+$assert('garbage input → null (no fatal)',       jobdivaNormaliseDate('not-a-date') === null);
+$assert('actual null → null',                    jobdivaNormaliseDate(null) === null);
+
 echo "\nContacts driver — candidate lists\n";
 $assert('extId candidate list includes id/contactId/contactID',
     strpos($src, "jobdivaPluckField(\$jd, ['id', 'contactId', 'contact_id', 'contactID']);") !== false);

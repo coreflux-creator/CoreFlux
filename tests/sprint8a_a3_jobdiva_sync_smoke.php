@@ -72,6 +72,20 @@ $assert('Contacts driver opts into retry helper',
 $assert('handles {items:[...]} pagination',       strpos($src, "isset(\$resp['items']) && is_array(\$resp['items'])") !== false);
 $assert('handles plain list response',            strpos($src, 'array_keys($resp) === range(0, count($resp) - 1)') !== false);
 
+echo "\nDate normaliser (Y-m-d for MySQL DATE columns)\n";
+$assert('exports jobdivaNormaliseDate',           strpos($src, 'function jobdivaNormaliseDate(') !== false);
+$assert('detects epoch milliseconds (>= 10^12)',  strpos($src, '$n >= 1_000_000_000_000') !== false);
+$assert('detects epoch seconds (>= 10^8)',        strpos($src, '$n >= 100_000_000') !== false);
+$assert('uses gmdate Y-m-d for portable output',  strpos($src, "gmdate('Y-m-d',") !== false);
+$assert('parses common string dates via strtotime',
+    strpos($src, '$ts = strtotime($raw);') !== false);
+$assert('preserves Y-m-d prefix on otherwise-uninterpretable string',
+    strpos($src, "preg_match('/^\\d{4}-\\d{2}-\\d{2}/'") !== false);
+$assert('placement upsert normalises startDate before binding',
+    strpos($src, "\$startDate = jobdivaNormaliseDate(\$startDate)") !== false);
+$assert('placement upsert normalises endDate (nullable) before binding',
+    strpos($src, "\$endDate   = jobdivaNormaliseDate(\$endDate);") !== false);
+
 echo "\nCompanies driver\n";
 $assert('hits V2 BI NewUpdatedCompanyRecords',    strpos($src, 'JOBDIVA_PATH_COMPANIES_DELTA')  !== false
                                                   && strpos($src, "'/apiv2/bi/NewUpdatedCompanyRecords'") !== false);

@@ -10,6 +10,35 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## JobDiva Date Normalisation — Epoch-ms → Y-m-d Fix (2026-02 — current fork)
+
+### Background
+After enabling placement discovery, user's "Sync now" successfully fetched **50 placements** from JobDiva V2 but ALL 50 failed with:
+```
+SQLSTATE[22007]: Incorrect date value: '1779231290000' for column 'start_date'
+```
+JobDiva V2 BI returns dates as Java/Spring's default `Date.getTime()` epoch-milliseconds (`1779231290000`), not formatted strings.
+
+### What shipped
+- **`jobdivaNormaliseDate(mixed $raw): ?string`** new helper in `core/jobdiva/sync.php` — accepts:
+  - 13-digit string/int → epoch milliseconds → `gmdate('Y-m-d', $n/1000)`
+  - 10-digit string/int → epoch seconds → `gmdate('Y-m-d', $n)`
+  - ISO-8601 / "5/22/2026" / "Y-m-d HH:MM:SS" → parsed via `strtotime`
+  - `''` / `'0'` / `'null'` / unparseable → `null`
+- **`jobdivaSyncUpsertPlacement`** now normalises both `startDate` and `endDate` before binding. `endDate` may be `null` (column is nullable); `startDate` falls back to `''` if normalisation fails (caller's try/catch surfaces the failure in `errors[]` instead of corrupting the table).
+
+### Tests
+- 8 new assertions in `sprint8a_a3_jobdiva_sync_smoke.php` (helper exports + placement upsert wiring).
+- 11 live-behaviour assertions in `jobdiva_contact_field_resolution_smoke.php` (epoch ms/s, ISO, US slash, null/empty/garbage handling).
+- Full suite: **247/247 passing**.
+
+### Files touched
+- `/app/core/jobdiva/sync.php` (helper + placement upsert)
+- `/app/tests/sprint8a_a3_jobdiva_sync_smoke.php` (static assertions)
+- `/app/tests/jobdiva_contact_field_resolution_smoke.php` (live behaviour assertions)
+
+
+
 ## People Directory: "Imported from JobDiva — Needs Review" Filter (2026-02 — current fork)
 
 ### Background
