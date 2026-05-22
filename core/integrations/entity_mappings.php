@@ -93,7 +93,8 @@ function mappingUpsert(
     string $externalId,
     int $internalId,
     ?array $payload = null,
-    string $direction = 'pull'
+    string $direction = 'pull',
+    ?int $actorUserId = null
 ): array {
     if ($tenantId <= 0)         throw new \InvalidArgumentException('tenant_id required');
     if ($source === '')         throw new \InvalidArgumentException('source_system required');
@@ -134,6 +135,20 @@ function mappingUpsert(
                         last_synced_at     = NOW()
                   WHERE id = :id AND tenant_id = :t'
             )->execute($bindings);
+            // Write a history row when payload content genuinely changed
+            // (internal_entity_id moves are merge events; not content drift,
+            // skip those to keep the history drawer signal-only).
+            if ($changed && $snapshot !== null && $hash !== null) {
+                entitySyncHistoryRecord(
+                    $tenantId, $source, $entityType, $internalId, $externalId,
+                    $direction,
+                    is_string($existing['payload_snapshot']) ? $existing['payload_snapshot'] : null,
+                    $snapshot,
+                    $existing['content_hash'] ?? null,
+                    $hash,
+                    $actorUserId
+                );
+            }
         } else {
             // Unchanged — just bump last_seen_at.
             $pdo->prepare(
@@ -280,3 +295,90 @@ function mappingListForInternal(int $tenantId, string $entityType, int $internal
     }
     return $rows;
 }
+
+/**
+ * Record a single sync-history row when mappingUpsert() detects a real
+ * content change. Only `payload_before` ≠ `payload_after` events get
+ * here — unchanged-but-re-touched syncs DO NOT write history (we want
+ * the drawer to be signal-only).
+ *
+ * Wired from mappingUpsert(); not intended for external callers.
+ *
+ * Failure handling: this is a "nice to have" telemetry write — a DB
+ * error here MUST NOT bubble up and break the actual sync. Any throw
+ * is caught and logged via error_log() so a malformed payload or a
+ * full-disk doesn't drop placement inserts on the floor.
+ */
+function entitySyncHistoryRecord(
+    int $tenantId,
+    string $source,
+    string $entityType,
+    int $internalId,
+    string $externalId,
+    string $direction,
+    ?string $payloadBefore,
+    string $payloadAfter,
+    ?string $hashBefore,
+    string $hashAfter,
+    ?int $actorUserId
+): void {
+    try {
+        $pdo = getDB();
+        $pdo->prepare(
+            'INSERT INTO entity_sync_history
+                (tenant_id, source_system, internal_entity_type, internal_entity_id,
+                 external_id, direction, payload_before, payload_after,
+                 content_hash_before, content_hash_after, actor_user_id)
+             VALUES (:t, :s, :et, :iid, :ext, :dir, :pb, :pa, :hb, :ha, :u)'
+        )->execute([
+            't' => $tenantId, 's' => $source, 'et' => $entityType, 'iid' => $internalId,
+            'ext' => $externalId, 'dir' => $direction,
+            'pb' => $payloadBefore, 'pa' => $payloadAfter,
+            'hb' => $hashBefore, 'ha' => $hashAfter, 'u' => $actorUserId,
+        ]);
+    } catch (\Throwable $e) {
+        error_log('entitySyncHistoryRecord failed (non-fatal): ' . $e->getMessage());
+    }
+}
+
+/**
+ * List the most recent N history rows for a given internal entity,
+ * newest first. Payloads are decoded server-side. Callers (the
+ * /api/integrations/sync_history.php endpoint) typically pass
+ * `$limit = 50` for the drawer view.
+ *
+ * Cross-source — if a record is mapped to BOTH JobDiva and QuickBooks,
+ * both syncs' history rows are returned interleaved. Each row's
+ * `source_system` field lets the UI render per-source badges.
+ */
+function entitySyncHistoryList(int $tenantId, string $entityType, int $internalId, int $limit = 50): array
+{
+    $limit = max(1, min(500, $limit));
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'SELECT id, source_system, internal_entity_type, internal_entity_id,
+                external_id, direction, payload_before, payload_after,
+                content_hash_before, content_hash_after, actor_user_id, created_at
+           FROM entity_sync_history
+          WHERE tenant_id = :t
+            AND internal_entity_type = :et
+            AND internal_entity_id = :iid
+          ORDER BY created_at DESC, id DESC
+          LIMIT ' . $limit
+    );
+    $stmt->execute(['t' => $tenantId, 'et' => $entityType, 'iid' => $internalId]);
+    $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    foreach ($rows as &$r) {
+        foreach (['payload_before', 'payload_after'] as $col) {
+            if (isset($r[$col]) && is_string($r[$col])) {
+                $decoded = json_decode($r[$col], true);
+                $r[$col] = is_array($decoded) ? $decoded : null;
+            }
+        }
+        $r['id'] = (int) $r['id'];
+        $r['internal_entity_id'] = (int) $r['internal_entity_id'];
+        $r['actor_user_id']      = $r['actor_user_id'] !== null ? (int) $r['actor_user_id'] : null;
+    }
+    return $rows;
+}
+

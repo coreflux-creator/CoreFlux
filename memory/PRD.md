@@ -10,6 +10,39 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Sync History Drawer — Per-Record Change Log (2026-02 — current fork)
+
+### Background
+User asked: *"yes, add sync history"* — a "Sync history" drawer on the placement detail page showing last N audit rows for that record with field-level before/after values and the actor who triggered each sync.
+
+### What shipped
+- **Migration 069** `entity_sync_history` — per-record change log. Each row captures `payload_before` + `payload_after` + `content_hash_before/after` + `actor_user_id` + timestamps. Indexed on `(tenant_id, internal_entity_type, internal_entity_id, created_at)` for fast drawer lookups, and `(tenant_id, source_system, created_at)` for future system-wide audit views.
+- **`mappingUpsert()` history hook** — now accepts an optional `?int $actorUserId = null` param (backwards-compatible default). When `content_hash` differs from the existing row (i.e. payload genuinely changed), writes a history row via the new `entitySyncHistoryRecord()` helper BEFORE the UPDATE commits. **Signal-only**: unchanged-but-re-touched syncs do NOT write history. History writes are wrapped in try/catch + `error_log()` so a malformed payload can't break the actual sync.
+- **`entitySyncHistoryList(tid, entity_type, internal_id, limit)`** — newest-first, decodes payload_before/after as PHP arrays so the API doesn't double-encode. Limit clamped to 1..500.
+- **`GET /api/integrations/sync_history.php?entity_type=&internal_id=`** — returns `{ rows: [...] }` with each row's actor resolved via a single `IN(...)` query (no N+1).
+- **`SyncHistoryDrawer.jsx`** — right-anchored slide-out panel with a `<History />` trigger button. Per-row header shows source + change count badge + timestamp + actor. Expanding a row reveals a field-level diff table: only keys whose values changed are listed, alphabetically sorted, before-value dimmed and after-value highlighted. `useApi` is gated on `open` so the drawer doesn't pre-fetch.
+- **Threaded `$userId` into every `mappingUpsert()` call** in the JobDiva sync paths (`sync.php`: companies, contacts, placements; `sync_placements.php`: auto-create person). Now the "Sync now" button's operator id propagates into the history actor column — "system (cron)" only shows for genuinely scheduled runs.
+- **Wired** `<SyncHistoryDrawer entityType="placement" internalId={placement.id} />` into PlacementDetail under the LinkedExternalSystemsPanel.
+
+### Tests
+- New: `tests/entity_sync_history_smoke.php` — 42 assertions covering schema, the mappingUpsert hook, the list helper, the API endpoint, the drawer UI surface (diff hides unchanged keys, alphabetical sort, gated fetch, actor labels), and the JobDiva sync threading.
+- Updated: `tests/sprint8a_a3_jobdiva_sync_smoke.php` — mappingUpsert assertions now expect the `$userId` arg.
+- Full suite: **251/251 passing** (was 250).
+- Bundle advanced: `index-DjuWyKtx.js` → `index-BDbWiYC6.js`; SW CACHE_VERSION matches.
+
+### Files touched
+- `/app/core/migrations/069_entity_sync_history.sql` (new)
+- `/app/core/integrations/entity_mappings.php` (history hook + recorder + list helper, actor param)
+- `/app/api/integrations/sync_history.php` (new endpoint)
+- `/app/dashboard/src/components/SyncHistoryDrawer.jsx` (new)
+- `/app/modules/placements/ui/PlacementDetail.jsx` (drawer mount)
+- `/app/core/jobdiva/sync.php` (3 mappingUpsert sites — actor threading)
+- `/app/core/jobdiva/sync_placements.php` (2 mappingUpsert sites — actor threading)
+- `/app/tests/entity_sync_history_smoke.php` (new)
+- `/app/tests/sprint8a_a3_jobdiva_sync_smoke.php` (updated assertions)
+
+
+
 ## Service-Worker Cache Invalidation Fix + Suggest Mappings Feature (2026-02 — current fork)
 
 ### Background

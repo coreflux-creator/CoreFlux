@@ -3,6 +3,7 @@ import { useParams, useNavigate, NavLink, Routes, Route, Navigate } from 'react-
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
+import SyncHistoryDrawer from '../../../dashboard/src/components/SyncHistoryDrawer';
 
 /**
  * Placement Detail — SPEC §7 tabs.
@@ -55,6 +56,9 @@ export default function PlacementDetail({ session }) {
       </header>
 
       <LinkedExternalSystemsPanel entityType="placement" internalId={placement.id} />
+      <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+        <SyncHistoryDrawer entityType="placement" internalId={placement.id} />
+      </div>
 
       <nav className="person-detail__tabs" data-testid="placement-detail-tabs" style={{ display: 'flex', gap: 'var(--cf-space-1)' }}>
         {TABS.map(t => (

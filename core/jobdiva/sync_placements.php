@@ -291,7 +291,7 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
     $existingId = (int) $stmt->fetchColumn();
     if ($existingId > 0) {
         // Bind the mapping so future syncs find this person directly.
-        mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $existingId, $jd, 'pull');
+        mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $existingId, $jd, 'pull', $userId);
         return $existingId;
     }
 
@@ -315,6 +315,6 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
         'u'   => $userId,
     ]);
     $newId = (int) $pdo->lastInsertId();
-    mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $newId, $jd, 'pull');
+    mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $newId, $jd, 'pull', $userId);
     return $newId;
 }

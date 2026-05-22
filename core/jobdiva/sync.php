@@ -315,7 +315,7 @@ function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
                 'created_by_user_id'   => $userId,
             ], ['client']);
 
-            mappingUpsert($tid, 'jobdiva', 'company', $extId, $companyId, $jd, 'pull');
+            mappingUpsert($tid, 'jobdiva', 'company', $extId, $companyId, $jd, 'pull', $userId);
             $processed++;
         } catch (\Throwable $e) {
             $failed++;
@@ -409,7 +409,7 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
             $companyId = (int) $companyMapping['internal_entity_id'];
 
             $internalId = jobdivaSyncUpsertContact($tid, $companyId, $jd, $name);
-            mappingUpsert($tid, 'jobdiva', 'contact', $extId, $internalId, $jd, 'pull');
+            mappingUpsert($tid, 'jobdiva', 'contact', $extId, $internalId, $jd, 'pull', $userId);
             $processed++;
         } catch (\Throwable $e) {
             $failed++;
@@ -589,7 +589,7 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
             }
 
             $internalId = jobdivaSyncUpsertPlacement($tid, $personId, $endClientCompanyId, $jd, $extId);
-            mappingUpsert($tid, 'jobdiva', 'placement', $extId, $internalId, $jd, 'pull');
+            mappingUpsert($tid, 'jobdiva', 'placement', $extId, $internalId, $jd, 'pull', $userId);
             $processed++;
         } catch (\Throwable $e) {
             $failed++;

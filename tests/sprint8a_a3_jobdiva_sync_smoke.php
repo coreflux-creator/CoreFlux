@@ -94,7 +94,7 @@ $assert('falls back across name key spellings',   strpos($src, "\$jd['companyNam
 $assert('upserts via companiesUpsertByName',      strpos($src, "companiesUpsertByName(\$tid, \$name") !== false);
 $assert("tags 'client' role on backfilled company", strpos($src, "['client']") !== false);
 $assert('binds mapping (company)',
-    strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'company', \$extId, \$companyId, \$jd, 'pull')") !== false);
+    strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'company', \$extId, \$companyId, \$jd, 'pull', \$userId)") !== false);
 $assert('skips records missing extId or name',    strpos($src, "if (\$extId === '' || \$name === '') { \$skipped++; continue; }") !== false);
 $assert('emits audit row entity_type=company',
     strpos($src, "'entity_type'     => 'company'") !== false
@@ -117,7 +117,7 @@ $assert('first-sync mode widens window to 365 days',
     && strpos($src, "\$opts['default_window_days'] = 365") !== false
     && strpos($src, "'sync_first_backfill'") !== false);
 $assert('binds mapping (contact)',
-    strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'contact', \$extId, \$internalId, \$jd, 'pull')") !== false);
+    strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'contact', \$extId, \$internalId, \$jd, 'pull', \$userId)") !== false);
 $assert('contact upsert helper exists',           strpos($src, 'function jobdivaSyncUpsertContact(') !== false);
 $assert('contact upsert dedupes by email per company',
     strpos($src, "AND company_id = :c AND email = :e LIMIT 1") !== false);
@@ -158,7 +158,7 @@ $assert('placement insert provides title (NOT NULL on placements table)',
     strpos($src, "engagement_type, end_client_name, end_client_company_id, title)") !== false
     && strpos($src, "if (\$title === '') \$title = 'JobDiva Placement '") !== false);
 $assert('binds mapping (placement)',
-    strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'placement', \$extId, \$internalId, \$jd, 'pull')") !== false);
+    strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'placement', \$extId, \$internalId, \$jd, 'pull', \$userId)") !== false);
 
 echo "\njobdivaSyncAll — orchestration\n";
 $assert('runs all 3 drivers in order via safeRun isolator',
