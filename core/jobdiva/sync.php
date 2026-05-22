@@ -159,8 +159,45 @@ function jobdivaSyncFetchWithRetry(int $tid, string $path, array $opts): array
     return $items;
 }
 
+/**
+ * First-sync detection — returns true if NO mappings exist yet for
+ * the given (tenant, entity_type) pair. Drivers use this to widen
+ * their date window for the initial backfill so the operator doesn't
+ * have to manually set `modified_since` to "last year".
+ */
+function jobdivaSyncIsFirstSync(int $tenantId, string $entityType): bool
+{
+    try {
+        $pdo = getDB();
+        $stmt = $pdo->prepare(
+            "SELECT 1 FROM external_entity_mappings
+              WHERE tenant_id = :t
+                AND source_system = 'jobdiva'
+                AND internal_entity_type = :e
+              LIMIT 1"
+        );
+        $stmt->execute(['t' => $tenantId, 'e' => $entityType]);
+        return $stmt->fetchColumn() === false;
+    } catch (\Throwable $_) {
+        return false;
+    }
+}
+
 function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
 {
+    // First-ever Companies sync: widen the window to 365 days so the
+    // operator backfills all reachable companies before Contacts /
+    // Placements lookups fire. Subsequent syncs use the 7-day delta
+    // window (or whatever the caller supplied via modified_since).
+    if (!isset($opts['items_override']) && !isset($opts['modified_since'])
+        && jobdivaSyncIsFirstSync($tid, 'company')) {
+        $opts['default_window_days'] = 365;
+        jobdivaAudit($tid, 'sync_first_backfill', [
+            'ok'     => true,
+            'detail' => ['entity' => 'company', 'window_days' => 365],
+            'actor_user_id' => $userId,
+        ]);
+    }
     $items = isset($opts['items_override']) && is_array($opts['items_override'])
         ? $opts['items_override']
         : jobdivaSyncFetchWithRetry($tid, JOBDIVA_PATH_COMPANIES_DELTA, $opts);
@@ -208,21 +245,42 @@ function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
 
 function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
 {
+    // Same first-sync widening as Companies — backfill 365 days on the
+    // initial pull so we don't end up with a sparse contact set that
+    // depends on companies created earlier (which would otherwise be
+    // outside the 7-day delta window).
+    if (!isset($opts['items_override']) && !isset($opts['modified_since'])
+        && jobdivaSyncIsFirstSync($tid, 'contact')) {
+        $opts['default_window_days'] = 365;
+        jobdivaAudit($tid, 'sync_first_backfill', [
+            'ok'     => true,
+            'detail' => ['entity' => 'contact', 'window_days' => 365],
+            'actor_user_id' => $userId,
+        ]);
+    }
     $items = isset($opts['items_override']) && is_array($opts['items_override'])
         ? $opts['items_override']
         : jobdivaSyncFetchWithRetry($tid, JOBDIVA_PATH_CONTACTS_DELTA, $opts);
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
+    $skipReasons = ['missing_fields' => 0, 'company_unmapped' => 0];
+    $unmappedCompanies = []; // collect distinct external IDs for the diagnostic
 
     foreach ($items as $jd) {
         try {
             $extId        = (string) ($jd['id'] ?? $jd['contactId'] ?? $jd['contact_id'] ?? '');
             $companyExtId = (string) ($jd['companyId'] ?? $jd['company_id'] ?? '');
             $name         = trim((string) ($jd['name'] ?? trim(($jd['firstName'] ?? '') . ' ' . ($jd['lastName'] ?? ''))));
-            if ($extId === '' || $name === '' || $companyExtId === '') { $skipped++; continue; }
+            if ($extId === '' || $name === '' || $companyExtId === '') {
+                $skipped++; $skipReasons['missing_fields']++; continue;
+            }
 
             // Resolve internal company via mapping created by jobdivaSyncCompanies().
             $companyMapping = mappingFindInternal($tid, 'jobdiva', 'company', $companyExtId);
-            if (!$companyMapping) { $skipped++; continue; }
+            if (!$companyMapping) {
+                $skipped++; $skipReasons['company_unmapped']++;
+                if (count($unmappedCompanies) < 20) $unmappedCompanies[$companyExtId] = true;
+                continue;
+            }
             $companyId = (int) $companyMapping['internal_entity_id'];
 
             $internalId = jobdivaSyncUpsertContact($tid, $companyId, $jd, $name);
@@ -235,6 +293,31 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
         }
     }
 
+    // Diagnostic: when most contacts skip because their parent company
+    // isn't mapped yet, surface this clearly so the operator knows to
+    // backfill Companies (rather than wondering why "49 records" went
+    // into a black hole). Counts as an error in the UI so the
+    // diagnostics panel highlights it.
+    if ($skipReasons['company_unmapped'] > 0) {
+        $errors[] = [
+            'entity'      => 'contact',
+            'kind'        => 'company_unmapped',
+            'error'       => sprintf(
+                '%d contact%s skipped: parent company has no mapping. Run Companies sync first with a wider window or enable the "backfill_companies_on_contact_pull" option. Unmapped external company IDs (first 20): %s',
+                $skipReasons['company_unmapped'],
+                $skipReasons['company_unmapped'] === 1 ? '' : 's',
+                implode(', ', array_keys($unmappedCompanies))
+            ),
+        ];
+    }
+    if ($skipReasons['missing_fields'] > 0) {
+        $errors[] = [
+            'entity' => 'contact',
+            'kind'   => 'missing_fields',
+            'error'  => sprintf('%d contacts skipped: missing required fields (id/name/companyId).', $skipReasons['missing_fields']),
+        ];
+    }
+
     jobdivaAudit($tid, 'sync', [
         'entity_type'     => 'contact',
         'direction'       => 'pull',
@@ -243,9 +326,18 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
         'items_skipped'   => $skipped,
         'items_failed'    => $failed,
         'actor_user_id'   => $userId,
-        'detail'          => ['errors' => array_slice($errors, 0, 5)],
+        'detail'          => [
+            'errors'        => array_slice($errors, 0, 5),
+            'skip_reasons'  => $skipReasons,
+        ],
     ]);
-    return ['processed' => $processed, 'skipped' => $skipped, 'failed' => $failed, 'errors' => $errors];
+    return [
+        'processed'    => $processed,
+        'skipped'      => $skipped,
+        'failed'       => $failed,
+        'errors'       => $errors,
+        'skip_reasons' => $skipReasons,
+    ];
 }
 
 function jobdivaSyncUpsertContact(int $tid, int $companyId, array $jd, string $name): int

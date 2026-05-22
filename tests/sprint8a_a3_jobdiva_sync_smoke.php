@@ -92,9 +92,16 @@ $assert('hits V2 BI NewUpdatedContactRecords',    strpos($src, 'JOBDIVA_PATH_CON
                                                   && strpos($src, "'/apiv2/bi/NewUpdatedContactRecords'") !== false);
 $assert('resolves company via mappingFindInternal',
     strpos($src, "mappingFindInternal(\$tid, 'jobdiva', 'company', \$companyExtId)") !== false);
-$assert('skips when company mapping missing',
+$assert('skips when company mapping missing + records reason',
     strpos($src, '$companyMapping = mappingFindInternal') !== false
-    && strpos($src, 'if (!$companyMapping) { $skipped++; continue; }') !== false);
+    && strpos($src, "if (!\$companyMapping) {\n                \$skipped++; \$skipReasons['company_unmapped']++;") !== false);
+$assert('surfaces company_unmapped diagnostic in errors[] for UI',
+    strpos($src, "'kind'        => 'company_unmapped'") !== false
+    && strpos($src, "parent company has no mapping") !== false);
+$assert('first-sync mode widens window to 365 days',
+    strpos($src, "function jobdivaSyncIsFirstSync") !== false
+    && strpos($src, "\$opts['default_window_days'] = 365") !== false
+    && strpos($src, "'sync_first_backfill'") !== false);
 $assert('binds mapping (contact)',
     strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'contact', \$extId, \$internalId, \$jd, 'pull')") !== false);
 $assert('contact upsert helper exists',           strpos($src, 'function jobdivaSyncUpsertContact(') !== false);
