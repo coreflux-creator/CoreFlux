@@ -267,9 +267,23 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
 
     foreach ($items as $jd) {
         try {
+            // JobDiva V2 BI Contact schema uses LITERAL-SPACE-SEPARATED
+            // JSON keys (verified 2026-02 in the V2 swagger):
+            //   "id", "first name", "last name", "company id",
+            //   "company name", "email", "phone 1", "title", ...
+            // Older docs and some V1 responses use camelCase
+            // (`firstName`, `companyId`) — accept both shapes so we
+            // don't break the smoke fixtures.
             $extId        = (string) ($jd['id'] ?? $jd['contactId'] ?? $jd['contact_id'] ?? '');
-            $companyExtId = (string) ($jd['companyId'] ?? $jd['company_id'] ?? '');
-            $name         = trim((string) ($jd['name'] ?? trim(($jd['firstName'] ?? '') . ' ' . ($jd['lastName'] ?? ''))));
+            $companyExtId = (string) (
+                $jd['company id']                                  // V2 BI (canonical)
+                ?? $jd['companyId']                                // V1 / smoke fixture
+                ?? $jd['company_id']                               // snake_case alias
+                ?? ''
+            );
+            $firstName    = trim((string) ($jd['first name'] ?? $jd['firstName'] ?? ''));
+            $lastName     = trim((string) ($jd['last name']  ?? $jd['lastName']  ?? ''));
+            $name         = trim((string) ($jd['name'] ?? trim($firstName . ' ' . $lastName)));
             if ($extId === '' || $name === '' || $companyExtId === '') {
                 $skipped++; $skipReasons['missing_fields']++; continue;
             }
