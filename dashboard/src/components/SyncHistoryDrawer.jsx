@@ -165,6 +165,8 @@ export default function SyncHistoryDrawer({ entityType, internalId }) {
   const [open, setOpen] = useState(false);
   const [migrating, setMigrating] = useState(false);
   const [migrateMsg, setMigrateMsg] = useState(null);
+  const [migrateErrors, setMigrateErrors] = useState([]);
+  const [showErrors, setShowErrors] = useState(false);
   const url = open && entityType && internalId
     ? `/api/integrations/sync_history.php?entity_type=${encodeURIComponent(entityType)}&internal_id=${encodeURIComponent(internalId)}&limit=50`
     : null;
@@ -173,11 +175,17 @@ export default function SyncHistoryDrawer({ entityType, internalId }) {
   const migrationPending = !!data?.migration_pending;
 
   const runMigration = async () => {
-    setMigrating(true); setMigrateMsg(null);
+    setMigrating(true); setMigrateMsg(null); setMigrateErrors([]); setShowErrors(false);
     try {
       const r = await api.post('/api/admin/migrate.php');
-      const errs = (r.status?.errors || []).length;
-      setMigrateMsg(errs === 0 ? 'Migrations applied. Reloading…' : `Applied with ${errs} error(s).`);
+      const errs = r.status?.errors || [];
+      const applied = (r.status?.applied_files || []).length;
+      setMigrateErrors(errs);
+      if (errs.length === 0) {
+        setMigrateMsg(`Migrations applied (${applied} new). Reloading…`);
+      } else {
+        setMigrateMsg(`Applied ${applied} file(s) with ${errs.length} error(s).`);
+      }
       if (reload) reload();
     } catch (e) {
       setMigrateMsg('Failed: ' + (e.message || e));
@@ -255,6 +263,43 @@ export default function SyncHistoryDrawer({ entityType, internalId }) {
                     {migrateMsg && (
                       <span data-testid="sync-history-migration-msg"
                             style={{ marginLeft: 12, fontSize: 12 }}>{migrateMsg}</span>
+                    )}
+                    {migrateErrors.length > 0 && (
+                      <div style={{ marginTop: 10 }}>
+                        <button
+                          onClick={() => setShowErrors(s => !s)}
+                          data-testid="sync-history-migration-errors-toggle"
+                          style={{
+                            background: 'transparent', border: '1px solid #fcd34d',
+                            color: '#92400e', cursor: 'pointer', fontSize: 11,
+                            padding: '3px 8px', borderRadius: 4, fontWeight: 600,
+                          }}
+                        >
+                          {showErrors ? 'Hide' : 'Show'} {migrateErrors.length} error{migrateErrors.length === 1 ? '' : 's'}
+                        </button>
+                        {showErrors && (
+                          <div
+                            data-testid="sync-history-migration-errors"
+                            style={{
+                              marginTop: 8, maxHeight: 320, overflowY: 'auto',
+                              background: '#fffbeb', border: '1px solid #fde68a',
+                              borderRadius: 4, padding: 8, fontSize: 11,
+                              fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                              color: '#78350f', whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-word',
+                            }}
+                          >
+                            {migrateErrors.slice(0, 100).map((e, i) => (
+                              <div key={i} style={{ marginBottom: 4 }}>• {e}</div>
+                            ))}
+                            {migrateErrors.length > 100 && (
+                              <div style={{ marginTop: 6, fontStyle: 'italic', color: '#92400e' }}>
+                                …{migrateErrors.length - 100} more error(s) truncated. Check backend logs.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

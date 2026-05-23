@@ -84,6 +84,32 @@ $assert('reloads the API on successful migration',
     strpos($drawer, 'if (reload) reload();') !== false);
 $assert('empty state ONLY shown when migration is NOT pending',
     strpos($drawer, '!loading && !error && !migrationPending && rows.length === 0') !== false);
+$assert('captures actual error list (not just count) into migrateErrors state',
+    strpos($drawer, 'const errs = r.status?.errors || [];') !== false
+    && strpos($drawer, 'setMigrateErrors(errs);') !== false);
+$assert('exposes a Show/Hide errors toggle when errors > 0',
+    strpos($drawer, 'data-testid="sync-history-migration-errors-toggle"') !== false);
+$assert('renders the error list with a stable test id (so operators can copy specifics)',
+    strpos($drawer, 'data-testid="sync-history-migration-errors"') !== false);
+$assert('truncates after 100 errors so the UI does not blow out on mass-rerun',
+    strpos($drawer, 'migrateErrors.slice(0, 100)') !== false);
+$assert('reports applied-file count alongside error count in the status message',
+    strpos($drawer, "const applied = (r.status?.applied_files || []).length;") !== false
+    && strpos($drawer, "Applied \${applied} file(s) with \${errs.length} error(s).") !== false);
+
+echo "\nDefense 5 — expanded safe-error patterns in core/migrate.php\n";
+$assert('treats Duplicate foreign key constraint name as idempotent',
+    strpos($migrate, "'Duplicate foreign key constraint name'") !== false);
+$assert('treats Unknown table as idempotent (DROP on already-removed table)',
+    strpos($migrate, "'Unknown table'") !== false
+    || strpos($migrate, '"Unknown table"') !== false);
+$assert('treats "check that it exists" as idempotent (older MariaDB phrasing for DROP INDEX)',
+    strpos($migrate, "'check that it exists'") !== false
+    || strpos($migrate, '"check that it exists"') !== false);
+$assert('does NOT silently swallow "Duplicate entry" (data integrity risk)',
+    strpos($migrate, "'Duplicate entry'") === false);
+$assert('does NOT silently swallow generic "doesn\'t exist" (could mask schema bugs in seed inserts)',
+    strpos($migrate, "\"doesn't exist\"") === false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

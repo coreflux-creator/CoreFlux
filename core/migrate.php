@@ -188,6 +188,18 @@ function coreflux_run_migrations(bool $force = false): array {
                     'Duplicate key name',
                     'check that column/key exists',
                     'Multiple primary key defined',
+                    // FK constraint re-application (MySQL 8 names FK
+                    // constraints; re-adding the same FK by name fails
+                    // with this message — safe to skip on idempotent reruns).
+                    'Duplicate foreign key constraint name',
+                    // Trigger redefinition (covers "Trigger does already exist"
+                    // and "Trigger 'x' already exists" — second is matched
+                    // by 'already exists' but defensive belt-and-braces).
+                    'Trigger does already',
+                    // DROP/ALTER on objects already removed during prior
+                    // idempotent runs of the same migration file.
+                    "Unknown table",
+                    "check that it exists",
                 ];
                 $isSafe = false;
                 foreach ($safePatterns as $p) {
