@@ -7392,3 +7392,34 @@ so the refactor unlocked these features without any backend changes:
 ### New Vite bundle: `index-nhrxDOrA.js` / `index-Cwhpy62y.css`
 
 
+
+---
+
+## 2026-02 · SyncHistoryDrawer Hotfix
+
+### Issue
+`api is not a function` runtime crash when clicking the "Run pending
+migrations" self-heal button inside the Sync History Drawer.
+Root cause: `api` exported from `lib/api.js` is an object with method
+helpers (`api.get`, `api.post`), not a callable function. The drawer
+invoked it as `api('/api/admin/migrate.php', { method: 'POST' })`.
+
+### Fix
+- `/app/dashboard/src/components/SyncHistoryDrawer.jsx` →
+  `runMigration` now calls `api.post('/api/admin/migrate.php')` and
+  removed the broken dynamic import.
+
+### Verification
+- ESLint clean.
+- Vite rebuild + `scripts/sync_bundle.sh` synced all four hash points
+  (CACHE_VERSION, expected_bundle, dist/index.html, sw cache).
+- New bundle: `index-BPUCXt-p.js` / `index-BC5g6YJu.css`.
+- Full PHP suite: **252/252 ✅**.
+
+### Pod Note
+The PHP CLI binaries had been wiped from the sandbox at session start
+(`command not found`). Restored via
+`sudo apt-get install -y php8.2-cli php8.2-mysql php8.2-xml php8.2-curl
+php8.2-mbstring`. This is the same recurring issue documented in the
+handoff. PHP 8.2.31 confirmed.
+

@@ -142,7 +142,15 @@ function coreflux_run_migrations(bool $force = false): array {
 
         $stmtFind->execute(['f' => $name]);
         $prev = $stmtFind->fetchColumn();
-        if (!$force && $prev === $hash) {
+        // Idempotency: skip when the file content hasn't changed since
+        // the last successful apply. `$force` ONLY bypasses the
+        // per-process `$ranOnce` gate above — never the ledger. If we
+        // forced re-execution of every matching-hash file, we'd
+        // re-attempt ALTER TABLE statements that already applied,
+        // producing dozens or hundreds of "column already exists"
+        // errors (observed in production 2026-02 as "Applied with 450
+        // error(s)" after a manual /api/admin/migrate.php call).
+        if ($prev === $hash) {
             $coreflux_migration_status['skipped_files'][] = $name;
             continue;
         }
