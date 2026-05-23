@@ -32,5 +32,18 @@
 ALTER TABLE qbo_connections
     MODIFY COLUMN access_token_ct VARBINARY(4096) NOT NULL;
 
-ALTER TABLE mail_oauth
-    MODIFY COLUMN oauth_access_token_ct VARBINARY(4096) NULL;
+-- Guard the mail_oauth widening: tenants who haven't yet enabled
+-- Microsoft Graph / Gmail OAuth don't have this table. INFORMATION_SCHEMA
+-- preflight skips the ALTER cleanly rather than throwing "Table doesn't
+-- exist" — that error is NOT in the safe-pattern list because it
+-- usually signals a real schema bug.
+SET @has_tbl := (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME   = 'mail_oauth'
+);
+SET @sql := IF(@has_tbl = 1,
+    'ALTER TABLE mail_oauth MODIFY COLUMN oauth_access_token_ct VARBINARY(4096) NULL',
+    'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

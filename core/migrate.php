@@ -53,6 +53,95 @@ function coreflux_migration_status(): array {
     return $coreflux_migration_status;
 }
 
+/**
+ * Split a SQL file into individual statements, respecting:
+ *
+ *   • `-- ...` line comments (entire `--` to end-of-line is stripped before
+ *     splitting, so a `;` inside the comment doesn't split the statement).
+ *   • `/* ... *\/` block comments (stripped before splitting).
+ *   • `'...'`  single-quote string literals (supports `''` and `\'` escapes).
+ *   • `"..."`  double-quote string literals / identifiers.
+ *   • `` `...` `` backtick identifiers.
+ *
+ * Returns an array of trimmed, non-empty statements. The trailing `;` is
+ * stripped from each.
+ *
+ * Why we wrote this by hand instead of using a regex: PCRE has no clean way
+ * to express "a `;` outside any string literal" without backtracking, and
+ * the regex we previously used (`/;\s*\R/m`) required a NEWLINE after each
+ * `;` which broke multi-statement-per-line migrations. A 30-line state
+ * machine is simpler and faster than fighting the regex engine.
+ */
+function coreflux_split_sql_statements(string $sql): array {
+    // Strip /* ... */ block comments (non-greedy, multi-line).
+    $sql = preg_replace('#/\*.*?\*/#s', '', $sql) ?? $sql;
+
+    // Strip `-- ...` line comments (everything from `--` to end-of-line).
+    // We intentionally do NOT strip `#` comments — none of our migrations
+    // use them, and the # symbol appears in some HEX-encoded defaults.
+    $sql = preg_replace('/--[^\r\n]*/', '', $sql) ?? $sql;
+
+    $stmts  = [];
+    $buf    = '';
+    $len    = strlen($sql);
+    $inSq   = false; // inside '...'
+    $inDq   = false; // inside "..."
+    $inBt   = false; // inside `...`
+
+    for ($i = 0; $i < $len; $i++) {
+        $c = $sql[$i];
+
+        if ($inSq) {
+            $buf .= $c;
+            if ($c === '\\' && $i + 1 < $len) {
+                // Backslash-escaped character — copy as-is.
+                $buf .= $sql[++$i];
+            } elseif ($c === "'") {
+                // Doubled-up '' is an escaped single quote, not a string end.
+                if ($i + 1 < $len && $sql[$i + 1] === "'") {
+                    $buf .= $sql[++$i];
+                } else {
+                    $inSq = false;
+                }
+            }
+            continue;
+        }
+        if ($inDq) {
+            $buf .= $c;
+            if ($c === '\\' && $i + 1 < $len) {
+                $buf .= $sql[++$i];
+            } elseif ($c === '"') {
+                $inDq = false;
+            }
+            continue;
+        }
+        if ($inBt) {
+            $buf .= $c;
+            if ($c === '`') $inBt = false;
+            continue;
+        }
+
+        if ($c === "'")  { $inSq = true; $buf .= $c; continue; }
+        if ($c === '"')  { $inDq = true; $buf .= $c; continue; }
+        if ($c === '`')  { $inBt = true; $buf .= $c; continue; }
+
+        if ($c === ';') {
+            $t = trim($buf);
+            if ($t !== '') $stmts[] = $t;
+            $buf = '';
+            continue;
+        }
+
+        $buf .= $c;
+    }
+
+    // Final unterminated statement (no trailing `;`).
+    $t = trim($buf);
+    if ($t !== '') $stmts[] = $t;
+
+    return $stmts;
+}
+
 function coreflux_run_migrations(bool $force = false): array {
     global $coreflux_migration_status;
     static $ranOnce        = false;
@@ -157,13 +246,29 @@ function coreflux_run_migrations(bool $force = false): array {
 
         $start    = microtime(true);
         $errBlob  = null;
-        // Split on `;` at end-of-line so embedded semicolons inside string
-        // literals or trigger bodies don't tear statements. CoreFlux migrations
-        // are schema-only DDL right now, so this is sufficient.
-        $statements = array_filter(array_map('trim', preg_split('/;\s*\R/m', $sql)));
+        // Robust SQL statement splitter. Two prior bugs we are fixing here:
+        //
+        //   1. `preg_split('/;\s*\R/m', $sql)` required a NEWLINE after the
+        //      `;`, so migrations with multiple statements on one line —
+        //      e.g. `PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;`
+        //      stayed glued together and MariaDB rejected them as
+        //      multi-statement queries (observed in prod 2026-02 as ~440
+        //      "EXECUTE stmt; DEALLOCATE PREPARE stmt' at line 1" errors).
+        //
+        //   2. Comment-stripping happened AFTER splitting, so a `;` inside
+        //      a `--` line-comment (e.g. `-- Captured for fast lookup;`)
+        //      would split a CREATE TABLE definition mid-way, leaving the
+        //      tail half (starting with `actor_user_id ...`) to fail with
+        //      a syntax error at line 1.
+        //
+        // New approach: strip `--` and `/* */` comments FIRST, then walk
+        // the SQL character-by-character respecting single-quote strings,
+        // double-quote identifiers, and backtick identifiers so `;` inside
+        // quoted text doesn't split. Statements terminate at any `;` that
+        // is NOT inside a string/identifier literal.
+        $statements = coreflux_split_sql_statements($sql);
         foreach ($statements as $stmt) {
-            // Strip comment-only lines and blank statements.
-            $clean = trim(preg_replace('/^\s*--.*$/m', '', $stmt));
+            $clean = trim($stmt);
             if ($clean === '' || $clean === ';') continue;
             try {
                 // Use query() (not exec()) so we can drain any unexpected

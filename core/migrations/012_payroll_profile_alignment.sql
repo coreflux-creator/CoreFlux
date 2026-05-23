@@ -34,12 +34,23 @@ ALTER TABLE payroll_profiles ADD COLUMN cycle_id        INT UNSIGNED NULL;
 -- ---------------------------------------------------------------------
 ALTER TABLE ap_1099_ledger ADD COLUMN vendor_id INT UNSIGNED NULL;
 
--- Backfill the alias from the existing `ap_vendor_id` column. Best-effort:
--- if either column is missing on this tenant, the runner's safe-pattern
--- treats it as a no-op.
-UPDATE ap_1099_ledger
-   SET vendor_id = ap_vendor_id
- WHERE vendor_id IS NULL AND ap_vendor_id IS NOT NULL;
+-- Backfill the alias from the existing `ap_vendor_id` column. Guarded
+-- with INFORMATION_SCHEMA so tenants whose schema never had the legacy
+-- `ap_vendor_id` column (e.g. fresh installs that started post-rename)
+-- skip the UPDATE cleanly instead of throwing "Unknown column" — the
+-- migration runner's safe-pattern list does NOT cover Unknown column
+-- (those usually signal real schema bugs we'd want to surface).
+SET @has_col := (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME   = 'ap_1099_ledger'
+       AND COLUMN_NAME  = 'ap_vendor_id'
+);
+SET @sql := IF(@has_col = 1,
+    'UPDATE ap_1099_ledger SET vendor_id = ap_vendor_id WHERE vendor_id IS NULL AND ap_vendor_id IS NOT NULL',
+    'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ---------------------------------------------------------------------
 -- people_tax_federal needs an `is_active` column the legacy advisor
@@ -56,11 +67,20 @@ ALTER TABLE people_tax_federal ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 
 -- ---------------------------------------------------------------------
 ALTER TABLE placement_corp_details ADD COLUMN corp_name VARCHAR(255) NULL;
 
-UPDATE placement_corp_details pcd
-   JOIN placement_corps pc ON pc.id = pcd.placement_corp_id
-                          AND pc.tenant_id = pcd.tenant_id
-    SET pcd.corp_name = pc.name
-  WHERE pcd.corp_name IS NULL;
+-- Backfill guarded on placement_corps existence — fresh tenants without
+-- the staffing corp module enabled don't have this parent table, and the
+-- migration runner does NOT silently swallow "Table doesn't exist" since
+-- that's usually a real bug.
+SET @has_tbl := (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME   = 'placement_corps'
+);
+SET @sql := IF(@has_tbl = 1,
+    'UPDATE placement_corp_details pcd JOIN placement_corps pc ON pc.id = pcd.placement_corp_id AND pc.tenant_id = pcd.tenant_id SET pcd.corp_name = pc.name WHERE pcd.corp_name IS NULL',
+    'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ---------------------------------------------------------------------
 -- accounting_journal_entry_lines: code uses `l.tenant_id` and
@@ -83,8 +103,21 @@ UPDATE accounting_journal_entry_lines jel
 -- ---------------------------------------------------------------------
 ALTER TABLE people ADD COLUMN user_id INT UNSIGNED NULL;
 
-UPDATE people SET user_id = user_account_id
- WHERE user_id IS NULL AND user_account_id IS NOT NULL;
+-- Guard the backfill: legacy schemas pre-people-encryption used
+-- `user_account_id`; greenfield schemas may only have `user_id` from
+-- the start. INFORMATION_SCHEMA preflight skips the UPDATE rather than
+-- throwing "Unknown column".
+SET @has_col := (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME   = 'people'
+       AND COLUMN_NAME  = 'user_account_id'
+);
+SET @sql := IF(@has_col = 1,
+    'UPDATE people SET user_id = user_account_id WHERE user_id IS NULL AND user_account_id IS NOT NULL',
+    'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ---------------------------------------------------------------------
 -- placements: cycle anchors used by billing but stored on placement_corps.
