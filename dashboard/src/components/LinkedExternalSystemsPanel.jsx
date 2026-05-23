@@ -418,9 +418,38 @@ function FieldMapEditor({ integration, entityType, payload }) {
           {rows.length} active · {unmappedInternal.length} unmapped
         </span>
       </div>
+      <p data-testid="field-map-scope-hint"
+         style={{ fontSize: 11, color: '#64748b', margin: '0 0 6px',
+                  background: '#f1f5f9', border: '1px solid #e2e8f0',
+                  padding: '4px 8px', borderRadius: 4 }}>
+        These mappings are <strong>tenant-wide</strong> — they apply to every {integration} {entityType} record, not just this one.
+        This record&apos;s raw payload (below) is shown here only so you can copy real field names into the mapping.
+      </p>
 
       {loading && <p data-testid="field-map-loading" style={{ fontSize: 11, color: '#64748b', margin: 0 }}>Loading mappings…</p>}
-      {error && <p className="error" data-testid="field-map-error" style={{ fontSize: 11, margin: 0 }}>{error.message}</p>}
+      {error && (
+        <div data-testid="field-map-error"
+             style={{ fontSize: 11, background: '#fef2f2', border: '1px solid #fecaca',
+                      padding: '6px 10px', borderRadius: 6, color: '#991b1b', marginBottom: 6 }}>
+          <strong>Couldn&apos;t load mappings.</strong>
+          {' '}HTTP {error.status ?? '?'} — {error.message || 'Unknown error'}
+          {error.data?.required && (
+            <div style={{ marginTop: 4 }}>
+              Required permission: <code>{error.data.required}</code>
+              {error.data.required_module && (
+                <> (module <code>{error.data.required_module}</code> + <code>{error.data.required_action}</code> level)</>
+              )}
+            </div>
+          )}
+          {error.data?.raw && (
+            <details style={{ marginTop: 4 }}>
+              <summary style={{ cursor: 'pointer' }}>Raw response</summary>
+              <pre style={{ marginTop: 4, fontSize: 10, whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word', maxHeight: 200, overflow: 'auto' }}>{error.data.raw}</pre>
+            </details>
+          )}
+        </div>
+      )}
       {opError && (
         <p data-testid="field-map-op-error"
            style={{ fontSize: 11, color: '#991b1b', background: '#fef2f2',
