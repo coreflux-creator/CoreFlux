@@ -10,6 +10,31 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Bug Fix — `api is not a function` in self-heal + suggest flows (2026-02 — current fork)
+
+### Background
+User clicked "Run pending migrations" → error: *"Failed: j is not a function"*. The minified `j` was the `api` import. Root cause: `api` in `/dashboard/src/lib/api.js` is exported as an **object** with `.get`/`.post`/`.put`/`.patch`/`.delete` methods, NOT as a callable function. Three call sites in this session's new code called it as `api('/path', { method, body })` which fails at runtime.
+
+### What shipped
+Fixed all three callsites:
+- **`SyncHistoryDrawer.runMigration`** → `api.post('/api/admin/migrate.php')`. Removed the unnecessary `await import('../lib/api')` dynamic import; uses top-level `import { api } from '../lib/api'` instead.
+- **`LinkedExternalSystemsPanel.SuggestMappingModal`** → `api.post(path, body)` for both the suggest probe AND the per-row upsert.
+- **`IntegrationFieldMapAdmin`** → `api.get(...)`, `api.post(...)`, `api.delete(...)` for list/upsert/delete actions.
+
+### Tests
+- Updated assertion shape in `tests/jobdiva_field_map_suggest_smoke.php` and `tests/migration_self_heal_smoke.php` (`method: 'POST'` → `api.post(`).
+- Full suite: **252/252 passing**.
+- Bundle advanced: `index-Dkpscc8e.js` → `index-BPUCXt-p.js`; SW CACHE_VERSION matches.
+
+### Files touched
+- `/app/dashboard/src/components/SyncHistoryDrawer.jsx`
+- `/app/dashboard/src/components/LinkedExternalSystemsPanel.jsx`
+- `/app/dashboard/src/pages/IntegrationFieldMapAdmin.jsx`
+- `/app/tests/jobdiva_field_map_suggest_smoke.php` (assertion update)
+- `/app/tests/migration_self_heal_smoke.php` (assertion update)
+
+
+
 ## Migration Self-Heal — PHP-FPM Worker Cache Fix (2026-02 — current fork)
 
 ### Background

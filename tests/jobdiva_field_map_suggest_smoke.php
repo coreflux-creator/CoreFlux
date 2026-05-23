@@ -94,7 +94,7 @@ $assert('modal POSTs to field_map_suggest endpoint',
     strpos($panel, "/api/admin/integrations/field_map_suggest.php") !== false);
 $assert('modal walks upsert endpoint per selected suggestion',
     strpos($panel, "/api/admin/integrations/field_map.php") !== false
-    && strpos($panel, "method: 'POST'") !== false);
+    && strpos($panel, 'api.post(') !== false);
 $assert('modal pre-selects high-confidence (≥ 0.9) rows',
     strpos($panel, 'if (s.confidence >= 0.9) preset[i] = true;') !== false);
 $assert('modal preserves operator selection on partial check',

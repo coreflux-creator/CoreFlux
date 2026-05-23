@@ -33,7 +33,7 @@ export default function IntegrationFieldMapAdmin() {
     setLoading(true); setError(null);
     try {
       const params = new URLSearchParams({ integration, entity_type: entityType });
-      const r = await api(`/api/admin/integrations/field_map.php?${params}`);
+      const r = await api.get(`/api/admin/integrations/field_map.php?${params}`);
       setData(r);
     } catch (e) {
       setError(e.message || 'Failed to load');
@@ -49,10 +49,7 @@ export default function IntegrationFieldMapAdmin() {
     if (!form.external_field || !form.internal_field) return;
     setSaving(true); setError(null);
     try {
-      await api('/api/admin/integrations/field_map.php', {
-        method: 'POST',
-        body: { integration, entity_type: entityType, ...form },
-      });
+      await api.post('/api/admin/integrations/field_map.php', { integration, entity_type: entityType, ...form });
       setForm({ external_field: '', internal_field: '', transform: 'none', notes: '' });
       await reload();
     } catch (e) {
@@ -65,7 +62,7 @@ export default function IntegrationFieldMapAdmin() {
   const handleDelete = async (id) => {
     if (!window.confirm('Remove this mapping? The syncer will revert to its built-in defaults.')) return;
     try {
-      await api(`/api/admin/integrations/field_map.php?id=${id}`, { method: 'DELETE' });
+      await api.delete(`/api/admin/integrations/field_map.php?id=${id}`);
       await reload();
     } catch (e) {
       setError(e.message || 'Delete failed');

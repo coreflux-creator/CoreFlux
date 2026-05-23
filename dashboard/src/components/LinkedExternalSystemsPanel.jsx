@@ -113,13 +113,10 @@ function SuggestMappingModal({ open, onClose, mapping, entityType }) {
   React.useEffect(() => {
     if (!open) return;
     setLoading(true); setError(null); setApplied(0);
-    api('/api/admin/integrations/field_map_suggest.php', {
-      method: 'POST',
-      body: {
-        integration: mapping.source_system,
-        entity_type: entityType,
-        payload:     mapping.payload_snapshot || {},
-      },
+    api.post('/api/admin/integrations/field_map_suggest.php', {
+      integration: mapping.source_system,
+      entity_type: entityType,
+      payload:     mapping.payload_snapshot || {},
     }).then(r => {
       setSuggestions(r.suggestions || []);
       setShadowed(r.shadowed || []);
@@ -142,16 +139,13 @@ function SuggestMappingModal({ open, onClose, mapping, entityType }) {
       if (!selected[i]) continue;
       const s = suggestions[i];
       try {
-        await api('/api/admin/integrations/field_map.php', {
-          method: 'POST',
-          body: {
-            integration:    mapping.source_system,
-            entity_type:    entityType,
-            external_field: s.external_field,
-            internal_field: s.internal_field,
-            transform:      s.transform || 'none',
-            notes:          `Suggested ${new Date().toISOString().slice(0,10)}: ${s.reason}`,
-          },
+        await api.post('/api/admin/integrations/field_map.php', {
+          integration:    mapping.source_system,
+          entity_type:    entityType,
+          external_field: s.external_field,
+          internal_field: s.internal_field,
+          transform:      s.transform || 'none',
+          notes:          `Suggested ${new Date().toISOString().slice(0,10)}: ${s.reason}`,
         });
         ok++;
       } catch (e) {

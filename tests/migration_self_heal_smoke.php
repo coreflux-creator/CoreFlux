@@ -74,8 +74,7 @@ $assert('reads migration_pending flag from response',
 $assert('declares runMigration handler',
     strpos($drawer, 'const runMigration = async () =>') !== false);
 $assert('runMigration POSTs /api/admin/migrate.php',
-    strpos($drawer, "/api/admin/migrate.php") !== false
-    && strpos($drawer, "method: 'POST'") !== false);
+    strpos($drawer, "api.post('/api/admin/migrate.php')") !== false);
 $assert('renders amber "Migration pending" banner',
     strpos($drawer, 'data-testid="sync-history-migration-pending"') !== false
     && strpos($drawer, '<strong>Migration pending.</strong>') !== false);

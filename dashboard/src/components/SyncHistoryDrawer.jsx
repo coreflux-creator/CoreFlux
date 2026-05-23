@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useApi } from '../lib/api';
+import { api, useApi } from '../lib/api';
 import { History, ChevronRight, ChevronDown, X, ArrowRight } from 'lucide-react';
 
 /**
@@ -175,8 +175,7 @@ export default function SyncHistoryDrawer({ entityType, internalId }) {
   const runMigration = async () => {
     setMigrating(true); setMigrateMsg(null);
     try {
-      const { api } = await import('../lib/api');
-      const r = await api('/api/admin/migrate.php', { method: 'POST' });
+      const r = await api.post('/api/admin/migrate.php');
       const errs = (r.status?.errors || []).length;
       setMigrateMsg(errs === 0 ? 'Migrations applied. Reloading…' : `Applied with ${errs} error(s).`);
       if (reload) reload();
