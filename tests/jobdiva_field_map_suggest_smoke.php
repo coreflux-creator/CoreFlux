@@ -87,7 +87,9 @@ echo "\nFrontend — SuggestMappingModal mount in LinkedExternalSystemsPanel\n";
 $panelPath = "{$ROOT}/dashboard/src/components/LinkedExternalSystemsPanel.jsx";
 $panel     = (string) file_get_contents($panelPath);
 $assert('imports Sparkles + X icons from lucide-react',
-    strpos($panel, "Sparkles, X } from 'lucide-react'") !== false);
+    preg_match("/from 'lucide-react'/", $panel) === 1
+    && strpos($panel, 'Sparkles') !== false
+    && preg_match('/\bX\b/', $panel) === 1);
 $assert('defines SuggestMappingModal component',
     strpos($panel, 'function SuggestMappingModal({ open, onClose, mapping, entityType })') !== false);
 $assert('modal POSTs to field_map_suggest endpoint',

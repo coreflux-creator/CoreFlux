@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../lib/api';
-import { Link2, AlertCircle, CheckCircle2, Clock, ExternalLink, ChevronRight, ChevronDown, Sparkles, X } from 'lucide-react';
+import { Link2, AlertCircle, CheckCircle2, Clock, ExternalLink, ChevronRight, ChevronDown, Sparkles, X, Pencil, Trash2, Plus, Save } from 'lucide-react';
 
 /**
  * Linked External Systems panel — full per-record mapping list with an
@@ -297,6 +297,295 @@ function SuggestMappingModal({ open, onClose, mapping, entityType }) {
   );
 }
 
+function FieldMapEditor({ integration, entityType, payload }) {
+  // Editable list of CURRENT (external_field → internal_field) mappings
+  // for this (integration, entity_type). Replaces the AI-only "Suggest"
+  // flow with direct CRUD so operators can fix sync drift on demand —
+  // e.g. when JobDiva returns `name` and we expected `jobTitle`, the
+  // operator can map `name → title` and re-trigger sync.
+  //
+  // Data sources:
+  //   GET  /api/admin/integrations/field_map.php?integration=&entity_type=
+  //   POST /api/admin/integrations/field_map.php  (upsert by internal_field)
+  //   DEL  /api/admin/integrations/field_map.php?id=
+  const url = `/api/admin/integrations/field_map.php?integration=${encodeURIComponent(integration)}&entity_type=${encodeURIComponent(entityType)}`;
+  const { data, loading, error, reload } = useApi(url);
+  const [editing, setEditing] = useState(null);          // mapping id being edited inline
+  const [draft, setDraft]     = useState({ external_field: '', transform: 'none' });
+  const [adding, setAdding]   = useState(false);
+  const [newRow, setNewRow]   = useState({ internal_field: '', external_field: '', transform: 'none' });
+  const [busy, setBusy]       = useState(false);
+  const [opError, setOpError] = useState(null);
+
+  const rows       = data?.rows || [];
+  const allowed    = data?.allowed_internal_fields?.[entityType] || [];
+  const transforms = data?.transforms || ['none'];
+
+  // Payload-key suggestions for autocomplete. We surface top-level
+  // scalar keys; nested objects are findable via "View raw payload"
+  // below — kept off the autocomplete to avoid overwhelming the dropdown.
+  const payloadKeys = React.useMemo(() => {
+    if (!payload || typeof payload !== 'object') return [];
+    return Object.keys(payload).filter(k => {
+      const v = payload[k];
+      return v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
+    }).sort();
+  }, [payload]);
+
+  // Internal fields not yet mapped — drives the "Add mapping" dropdown.
+  const mappedInternal = new Set(rows.map(r => r.internal_field));
+  const unmappedInternal = allowed.filter(f => !mappedInternal.has(f));
+
+  const startEdit = (r) => {
+    setEditing(r.id);
+    setDraft({ external_field: r.external_field || '', transform: r.transform || 'none' });
+    setOpError(null);
+  };
+
+  const saveEdit = async (r) => {
+    setBusy(true); setOpError(null);
+    try {
+      await api.post('/api/admin/integrations/field_map.php', {
+        integration, entity_type: entityType,
+        internal_field: r.internal_field,
+        external_field: draft.external_field.trim(),
+        transform:      draft.transform,
+        enabled:        true,
+      });
+      setEditing(null);
+      reload && reload();
+    } catch (e) {
+      setOpError(e.message || 'Save failed');
+    } finally { setBusy(false); }
+  };
+
+  const remove = async (r) => {
+    if (!window.confirm(`Remove mapping ${r.external_field} → ${r.internal_field}?`)) return;
+    setBusy(true); setOpError(null);
+    try {
+      await api.delete(`/api/admin/integrations/field_map.php?id=${r.id}`);
+      reload && reload();
+    } catch (e) {
+      setOpError(e.message || 'Delete failed');
+    } finally { setBusy(false); }
+  };
+
+  const saveNew = async () => {
+    if (!newRow.internal_field || !newRow.external_field.trim()) {
+      setOpError('Pick an internal field and enter the external field name'); return;
+    }
+    setBusy(true); setOpError(null);
+    try {
+      await api.post('/api/admin/integrations/field_map.php', {
+        integration, entity_type: entityType,
+        internal_field: newRow.internal_field,
+        external_field: newRow.external_field.trim(),
+        transform:      newRow.transform,
+        enabled:        true,
+      });
+      setNewRow({ internal_field: '', external_field: '', transform: 'none' });
+      setAdding(false);
+      reload && reload();
+    } catch (e) {
+      setOpError(e.message || 'Save failed');
+    } finally { setBusy(false); }
+  };
+
+  const cellStyle  = { padding: '6px 8px', fontSize: 12, verticalAlign: 'middle' };
+  const inputStyle = {
+    width: '100%', padding: '3px 6px', fontSize: 12,
+    fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+    border: '1px solid #cbd5e1', borderRadius: 4,
+  };
+  const btnIcon    = {
+    background: 'transparent', border: 'none', cursor: 'pointer',
+    padding: 2, color: '#475569', display: 'inline-flex', alignItems: 'center',
+  };
+
+  return (
+    <div
+      data-testid={`field-map-editor-${integration}-${entityType}`}
+      style={{
+        marginBottom: 12, padding: 10,
+        background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <Pencil size={12} color="#475569" />
+        <strong style={{ fontSize: 12 }}>Current field mappings</strong>
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: 11, color: '#64748b' }}>
+          {rows.length} active · {unmappedInternal.length} unmapped
+        </span>
+      </div>
+
+      {loading && <p data-testid="field-map-loading" style={{ fontSize: 11, color: '#64748b', margin: 0 }}>Loading mappings…</p>}
+      {error && <p className="error" data-testid="field-map-error" style={{ fontSize: 11, margin: 0 }}>{error.message}</p>}
+      {opError && (
+        <p data-testid="field-map-op-error"
+           style={{ fontSize: 11, color: '#991b1b', background: '#fef2f2',
+                    border: '1px solid #fecaca', padding: '4px 8px',
+                    borderRadius: 4, margin: '0 0 6px' }}>{opError}</p>
+      )}
+
+      {!loading && (
+        <table data-testid="field-map-table" style={{ width: '100%', fontSize: 12 }}>
+          <thead>
+            <tr style={{ color: '#64748b', textAlign: 'left' }}>
+              <th style={cellStyle}>External field (payload key)</th>
+              <th style={cellStyle}>→ Internal field</th>
+              <th style={cellStyle}>Transform</th>
+              <th style={{ ...cellStyle, width: 70 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && !adding && (
+              <tr><td colSpan={4} style={{ ...cellStyle, color: '#94a3b8', fontStyle: 'italic' }}>
+                No tenant overrides yet — the syncer is using built-in JobDiva field
+                candidates. Add a mapping below to override (e.g. <code>name → title</code>)
+                if your placements are showing as &quot;JobDiva Placement {`{id}`}&quot;.
+              </td></tr>
+            )}
+            {rows.map(r => {
+              const isEd = editing === r.id;
+              return (
+                <tr key={r.id} data-testid={`field-map-row-${r.internal_field}`}>
+                  <td style={cellStyle}>
+                    {isEd ? (
+                      <input
+                        list={`payloadkeys-${integration}-${entityType}`}
+                        value={draft.external_field}
+                        onChange={e => setDraft(d => ({ ...d, external_field: e.target.value }))}
+                        data-testid={`field-map-edit-external-${r.internal_field}`}
+                        style={inputStyle}
+                      />
+                    ) : (
+                      <code data-testid={`field-map-external-${r.internal_field}`}>{r.external_field}</code>
+                    )}
+                  </td>
+                  <td style={cellStyle}>
+                    <code style={{ fontWeight: 600 }}>{r.internal_field}</code>
+                  </td>
+                  <td style={cellStyle}>
+                    {isEd ? (
+                      <select
+                        value={draft.transform}
+                        onChange={e => setDraft(d => ({ ...d, transform: e.target.value }))}
+                        data-testid={`field-map-edit-transform-${r.internal_field}`}
+                        style={{ ...inputStyle, fontFamily: 'inherit' }}
+                      >
+                        {transforms.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    ) : (
+                      <span style={{ fontSize: 11, color: '#475569' }}>{r.transform || 'none'}</span>
+                    )}
+                  </td>
+                  <td style={{ ...cellStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {isEd ? (
+                      <>
+                        <button onClick={() => saveEdit(r)} disabled={busy} title="Save"
+                                data-testid={`field-map-save-${r.internal_field}`} style={{ ...btnIcon, color: '#059669' }}>
+                          <Save size={14} />
+                        </button>
+                        <button onClick={() => setEditing(null)} disabled={busy} title="Cancel"
+                                data-testid={`field-map-cancel-${r.internal_field}`} style={btnIcon}>
+                          <X size={14} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={() => startEdit(r)} disabled={busy} title="Edit"
+                                data-testid={`field-map-edit-${r.internal_field}`} style={btnIcon}>
+                          <Pencil size={13} />
+                        </button>
+                        <button onClick={() => remove(r)} disabled={busy} title="Delete"
+                                data-testid={`field-map-delete-${r.internal_field}`} style={{ ...btnIcon, color: '#dc2626' }}>
+                          <Trash2 size={13} />
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {adding && (
+              <tr data-testid="field-map-row-new">
+                <td style={cellStyle}>
+                  <input
+                    list={`payloadkeys-${integration}-${entityType}`}
+                    placeholder="e.g. jobTitle, name, job.title"
+                    value={newRow.external_field}
+                    onChange={e => setNewRow(r => ({ ...r, external_field: e.target.value }))}
+                    data-testid="field-map-new-external"
+                    style={inputStyle}
+                  />
+                </td>
+                <td style={cellStyle}>
+                  <select
+                    value={newRow.internal_field}
+                    onChange={e => setNewRow(r => ({ ...r, internal_field: e.target.value }))}
+                    data-testid="field-map-new-internal"
+                    style={{ ...inputStyle, fontFamily: 'inherit' }}
+                  >
+                    <option value="">— pick CoreFlux field —</option>
+                    {unmappedInternal.map(f => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                </td>
+                <td style={cellStyle}>
+                  <select
+                    value={newRow.transform}
+                    onChange={e => setNewRow(r => ({ ...r, transform: e.target.value }))}
+                    data-testid="field-map-new-transform"
+                    style={{ ...inputStyle, fontFamily: 'inherit' }}
+                  >
+                    {transforms.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </td>
+                <td style={{ ...cellStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <button onClick={saveNew} disabled={busy} title="Save new mapping"
+                          data-testid="field-map-new-save" style={{ ...btnIcon, color: '#059669' }}>
+                    <Save size={14} />
+                  </button>
+                  <button onClick={() => { setAdding(false); setNewRow({ internal_field: '', external_field: '', transform: 'none' }); }}
+                          disabled={busy} title="Cancel"
+                          data-testid="field-map-new-cancel" style={btnIcon}>
+                    <X size={14} />
+                  </button>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      )}
+
+      {/* Shared autocomplete source — top-level payload keys */}
+      <datalist id={`payloadkeys-${integration}-${entityType}`}>
+        {payloadKeys.map(k => <option key={k} value={k} />)}
+      </datalist>
+
+      {!adding && unmappedInternal.length > 0 && (
+        <button
+          onClick={() => { setAdding(true); setOpError(null); }}
+          data-testid="field-map-add"
+          style={{
+            marginTop: 6, background: 'transparent',
+            border: '1px dashed #c7d2fe', color: '#4338ca',
+            cursor: 'pointer', fontSize: 11, padding: '3px 8px',
+            borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4,
+          }}
+        >
+          <Plus size={11} /> Add mapping
+        </button>
+      )}
+      {!adding && unmappedInternal.length === 0 && rows.length > 0 && (
+        <p style={{ fontSize: 11, color: '#64748b', margin: '6px 0 0' }}>
+          Every mappable internal field is already configured.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function DetailRow({ mapping, entityType }) {
   const [showRaw, setShowRaw] = useState(false);
   const [showSuggest, setShowSuggest] = useState(false);
@@ -334,6 +623,11 @@ function DetailRow({ mapping, entityType }) {
             })}
           </dl>
         )}
+        <FieldMapEditor
+          integration={mapping.source_system}
+          entityType={entityType}
+          payload={payload}
+        />
         <div style={{ marginTop: idFields.length > 0 ? '0.6rem' : 0, display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <button
             onClick={() => setShowRaw(s => !s)}
@@ -408,7 +702,10 @@ export default function LinkedExternalSystemsPanel({ entityType, internalId }) {
         <strong style={{ fontSize: 14 }}>Linked external systems</strong>
       </div>
       <p style={{ color: '#64748b', fontSize: 12, margin: '0 0 12px' }}>
-        Other systems that have a binding to this CoreFlux record. Click a row to see source-side identifiers and the raw payload.
+        Other systems that have a binding to this CoreFlux record. Click the chevron
+        (▸) on a row to see the current field mappings, add or edit overrides
+        (e.g. <code>name → title</code> if your placements show as &quot;JobDiva Placement&nbsp;
+        {`{id}`}&quot;), inspect the raw payload, or run AI-suggested mappings.
       </p>
 
       {mappings.length === 0 && (
@@ -438,10 +735,14 @@ export default function LinkedExternalSystemsPanel({ entityType, internalId }) {
               const isOpen = !!expanded[m.id];
               return (
                 <React.Fragment key={m.id}>
-                  <tr data-testid={`linked-systems-row-${m.source_system}`}>
+                  <tr
+                    data-testid={`linked-systems-row-${m.source_system}`}
+                    onClick={() => setExpanded(s => ({ ...s, [m.id]: !s[m.id] }))}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <td style={{ padding: '8px', textAlign: 'center' }}>
                       <button
-                        onClick={() => setExpanded(s => ({ ...s, [m.id]: !s[m.id] }))}
+                        onClick={(e) => { e.stopPropagation(); setExpanded(s => ({ ...s, [m.id]: !s[m.id] })); }}
                         data-testid={`linked-systems-expand-${m.source_system}`}
                         aria-expanded={isOpen}
                         aria-label={isOpen ? 'Collapse details' : 'Expand details'}
