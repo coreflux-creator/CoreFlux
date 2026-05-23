@@ -42,7 +42,23 @@ $limit      = (int) (api_query('limit') ?? 50);
 if ($entityType === '') api_error('entity_type required', 422);
 if ($internalId <= 0)   api_error('internal_id required', 422);
 
-$rows = entitySyncHistoryList($tid, $entityType, $internalId, $limit);
+// Graceful handling for the deploy-window gap where the endpoint code is
+// live but migration 069 hasn't applied yet (e.g. PHP-FPM workers still
+// holding a stale $ranOnce cache). Return empty rows + a hint flag so
+// the drawer renders the empty state instead of a 500.
+try {
+    $rows = entitySyncHistoryList($tid, $entityType, $internalId, $limit);
+} catch (\PDOException $e) {
+    if (str_contains($e->getMessage(), 'entity_sync_history') && str_contains($e->getMessage(), "doesn't exist")) {
+        api_ok([
+            'rows' => [],
+            'migration_pending' => true,
+            'hint' => 'Migration 069_entity_sync_history.sql has not applied yet. '
+                . 'Master admin can POST /api/admin/migrate.php to force-rerun.',
+        ]);
+    }
+    throw $e;
+}
 
 // Resolve actor emails in one query (avoid N+1 for the drawer load).
 $actorIds = [];

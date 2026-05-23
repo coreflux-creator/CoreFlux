@@ -55,9 +55,32 @@ function coreflux_migration_status(): array {
 
 function coreflux_run_migrations(bool $force = false): array {
     global $coreflux_migration_status;
-    static $ranOnce = false;
-    if ($ranOnce && !$force) return $coreflux_migration_status;
-    $ranOnce = true;
+    static $ranOnce        = false;
+    static $lastFileSetSig = null;
+
+    // Compute a cheap signature of the current core+module migration
+    // file set. If new files have appeared (or existing files changed
+    // mtime) since the last run in THIS process, treat it as a fresh
+    // run. This prevents the long-lived PHP-FPM worker problem where
+    // a deploy ships new migration files but the worker — which set
+    // $ranOnce = true on its first request — skips them indefinitely
+    // until the worker is recycled.
+    //
+    // Signature: SHA-1 of (filename|mtime|size) pairs. Filename is
+    // basename-only to match the ledger's tracking key for core files.
+    $sig = '';
+    $coreList   = glob(COREFLUX_MIGRATIONS_DIR . '/*.sql') ?: [];
+    $appRootSig = dirname(__DIR__);
+    $modList    = glob($appRootSig . '/modules/*/migrations/*.sql') ?: [];
+    foreach (array_merge($coreList, $modList) as $p) {
+        $sig .= $p . '|' . (string) @filemtime($p) . '|' . (string) @filesize($p) . "\n";
+    }
+    $sig = sha1($sig);
+    $filesChanged = ($lastFileSetSig !== null && $lastFileSetSig !== $sig);
+
+    if ($ranOnce && !$force && !$filesChanged) return $coreflux_migration_status;
+    $ranOnce        = true;
+    $lastFileSetSig = $sig;
     $coreflux_migration_status['ran_in_process'] = true;
 
     $pdo = getDB();

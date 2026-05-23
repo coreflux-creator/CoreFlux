@@ -163,11 +163,29 @@ function HistoryRow({ row }) {
 
 export default function SyncHistoryDrawer({ entityType, internalId }) {
   const [open, setOpen] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+  const [migrateMsg, setMigrateMsg] = useState(null);
   const url = open && entityType && internalId
     ? `/api/integrations/sync_history.php?entity_type=${encodeURIComponent(entityType)}&internal_id=${encodeURIComponent(internalId)}&limit=50`
     : null;
-  const { data, loading, error } = useApi(url);
+  const { data, loading, error, reload } = useApi(url);
   const rows = data?.rows || [];
+  const migrationPending = !!data?.migration_pending;
+
+  const runMigration = async () => {
+    setMigrating(true); setMigrateMsg(null);
+    try {
+      const { api } = await import('../lib/api');
+      const r = await api('/api/admin/migrate.php', { method: 'POST' });
+      const errs = (r.status?.errors || []).length;
+      setMigrateMsg(errs === 0 ? 'Migrations applied. Reloading…' : `Applied with ${errs} error(s).`);
+      if (reload) reload();
+    } catch (e) {
+      setMigrateMsg('Failed: ' + (e.message || e));
+    } finally {
+      setMigrating(false);
+    }
+  };
 
   return (
     <>
@@ -217,7 +235,32 @@ export default function SyncHistoryDrawer({ entityType, internalId }) {
             <div style={{ flex: 1, overflowY: 'auto' }}>
               {loading && <p data-testid="sync-history-loading" style={{ padding: 18, color: '#64748b' }}>Loading…</p>}
               {error && <p className="error" data-testid="sync-history-error" style={{ padding: 18 }}>{error.message}</p>}
-              {!loading && !error && rows.length === 0 && (
+              {!loading && !error && migrationPending && (
+                <div data-testid="sync-history-migration-pending"
+                     style={{ padding: 18, color: '#92400e', fontSize: 13,
+                              background: '#fef3c7', border: '1px solid #fde68a',
+                              borderRadius: 8, margin: 18 }}>
+                  <strong>Migration pending.</strong>{' '}
+                  The sync-history table hasn't been created yet on this environment.
+                  Click below to apply pending migrations (idempotent — safe to retry).
+                  <div style={{ marginTop: 8 }}>
+                    <button
+                      onClick={runMigration}
+                      disabled={migrating}
+                      data-testid="sync-history-run-migration"
+                      className="btn btn--primary"
+                      style={{ fontSize: 12 }}
+                    >
+                      {migrating ? 'Running…' : 'Run pending migrations'}
+                    </button>
+                    {migrateMsg && (
+                      <span data-testid="sync-history-migration-msg"
+                            style={{ marginLeft: 12, fontSize: 12 }}>{migrateMsg}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+              {!loading && !error && !migrationPending && rows.length === 0 && (
                 <p data-testid="sync-history-empty" style={{ padding: 18, color: '#64748b', fontSize: 13 }}>
                   No sync changes recorded yet for this record. The history populates on the next sync that
                   actually modifies a field.

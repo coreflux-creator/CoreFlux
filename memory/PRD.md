@@ -10,6 +10,31 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Migration Self-Heal — PHP-FPM Worker Cache Fix (2026-02 — current fork)
+
+### Background
+User reported "Failed to load history: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'coreflux.entity_sync_history' doesn't exist" — even though the migration file was deployed. Root cause: `coreflux_run_migrations()` uses `static $ranOnce = false` as a per-process guard. PHP-FPM workers are long-lived, so once a worker has migrated at startup, it keeps `$ranOnce = true` and **skips new migration files** that land in subsequent deploys, until the worker recycles.
+
+### What shipped (four defenses)
+1. **Auto-detect new files**: `coreflux_run_migrations()` now computes a SHA-1 file-set signature from `(path|mtime|size)` of every `core/migrations/*.sql` + `modules/*/migrations/*.sql` file. When the signature changes between calls within the same process, the runner re-executes — new migration files trigger an automatic re-run without requiring worker recycle.
+2. **Force-rerun endpoint**: `POST /api/admin/migrate.php` calls `coreflux_run_migrations(true)`. Manual safety net when defense #1 fails (e.g. file system caching, clock skew). RBAC: `integrations.field_map.manage`.
+3. **Graceful endpoint**: `/api/integrations/sync_history.php` now catches `PDOException` matching `entity_sync_history` + `doesn't exist`, returns `{rows: [], migration_pending: true, hint: '…POST /api/admin/migrate.php…'}` instead of 500.
+4. **Self-heal UI**: `SyncHistoryDrawer` renders an amber "Migration pending" banner with a "Run pending migrations" button when the API flags `migration_pending: true`. One-click → POSTs `/api/admin/migrate.php` → reloads the drawer.
+
+### Tests
+- New: `tests/migration_self_heal_smoke.php` — 20 assertions covering all four defenses.
+- Full suite: **252/252 passing** (was 251).
+- Bundle advanced: `index-BDbWiYC6.js` → `index-Dkpscc8e.js`; SW CACHE_VERSION matches.
+
+### Files touched
+- `/app/core/migrate.php` (file-set signature detection)
+- `/app/api/admin/migrate.php` (new force-rerun endpoint)
+- `/app/api/integrations/sync_history.php` (graceful missing-table handling)
+- `/app/dashboard/src/components/SyncHistoryDrawer.jsx` (Migration pending banner + Run button)
+- `/app/tests/migration_self_heal_smoke.php` (new)
+
+
+
 ## Sync History Drawer — Per-Record Change Log (2026-02 — current fork)
 
 ### Background
