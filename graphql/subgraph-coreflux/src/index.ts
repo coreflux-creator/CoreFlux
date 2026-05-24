@@ -219,6 +219,20 @@ const resolvers = {
       const row = await ctx.api(`/api/placements/placements?id=${encodeURIComponent(ref.id)}`);
       return shapePlacement(row?.placement ?? row);
     },
+    // Field resolvers that fetch the full Person/Company. Federation
+    // won't fire `_entities` against ourselves when the parent already
+    // returned a Person object (even one with only `{id}`), so we have
+    // to load these inline.
+    async person(parent: any, _: unknown, ctx: TenantContext) {
+      if (parent?._personId == null) return null;
+      const row = await ctx.api(`/api/people/people?id=${parent._personId}`);
+      return shapePerson(row?.person ?? row);
+    },
+    async endClient(parent: any, _: unknown, ctx: TenantContext) {
+      if (parent?._endClientId == null) return null;
+      const row = await ctx.api(`/api/people/companies?id=${parent._endClientId}`);
+      return shapeCompany(row?.company ?? row);
+    },
     async externalMappings(parent: any, _: unknown, ctx: TenantContext) {
       const body = await ctx.api(
         `/api/integrations/mappings.php?action=list_for_internal&entity_type=placement&internal_id=${parent.id}`

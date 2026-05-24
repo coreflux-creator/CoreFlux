@@ -1,0 +1,34 @@
+# Apollo Router config for the E2E smoke test.
+#
+# The production-grade config lives in router.yaml (JWKS auth, entity cache,
+# rhai scripts, CORS, telemetry). This file strips all of those to the
+# minimum needed to verify federation routing works:
+#
+#   • Listen on the port the smoke test injects via ${env.ROUTER_LISTEN}.
+#   • Introspection ON so the test can inspect the supergraph.
+#   • Plain `propagate` of the Authorization header to subgraphs (no JWT
+#     verification — the smoke runs anonymous queries against fixture data).
+#
+# DO NOT use this config in production.
+
+supergraph:
+  listen: ${env.ROUTER_LISTEN:-127.0.0.1:4000}
+  introspection: true
+
+# Forward Authorization to subgraphs (they have their own JWT verifier),
+# but otherwise let traffic through unauthenticated for the smoke.
+headers:
+  all:
+    request:
+      - propagate:
+          named: "authorization"
+
+# CORS — permissive for the smoke; production restricts to corefluxapp.com.
+cors:
+  allow_any_origin: true
+  allow_credentials: false
+
+# Surface subgraph errors verbatim — production hides them, but the
+# smoke must see them to assert correctness.
+include_subgraph_errors:
+  all: true

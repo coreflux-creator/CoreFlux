@@ -301,8 +301,8 @@ scalar join__DirectiveArguments
 scalar join__FieldSet
 
 enum join__Graph {
-  COREFLUX @join__graph(name: "coreflux", url: "http://localhost:4001/graphql")
-  JOBDIVA @join__graph(name: "jobdiva", url: "http://localhost:4002/graphql")
+  COREFLUX @join__graph(name: "coreflux", url: "http://127.0.0.1:41651/")
+  JOBDIVA @join__graph(name: "jobdiva", url: "http://127.0.0.1:37991/")
 }
 
 scalar JSON

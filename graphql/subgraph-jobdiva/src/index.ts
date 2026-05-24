@@ -72,6 +72,12 @@ function decodeContext(req: { headers: Record<string, string | string[] | undefi
       role     = typeof claims.role === 'string' ? (claims.role as string) : null;
     } catch { /* soft-fail */ }
   }
+  // Smoke/dev escape hatch — when DEFAULT_TENANT_ID is set the subgraph
+  // resolves with that tenant if no JWT was supplied. Production never
+  // sets this env var; the router rejects unauth queries upstream.
+  if (tenantId == null && process.env.DEFAULT_TENANT_ID) {
+    tenantId = Number(process.env.DEFAULT_TENANT_ID) || null;
+  }
   return { tenantId, userId, role, scopes: scopesForRole(role) };
 }
 

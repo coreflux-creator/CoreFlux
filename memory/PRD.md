@@ -7510,3 +7510,51 @@ sanctioned. New surface area only — no existing PHP/React files touched.
 - RBAC B2 (resolve `class RBAC` naming collision; rename to
   `RBACResolver`, wire into `core/auth.php`).
 
+
+---
+
+## 2026-02 · GraphQL Federation Phase 1 — Live Apollo Router E2E ✅
+
+### What this adds
+Phase 1 spike is now wired end-to-end through a live Apollo Router (Rust, v1.55.0). A single federated query from one HTTP endpoint returns merged data from both subgraphs (CoreFlux + JobDiva).
+
+### Tangible proof
+The new `/app/tests/graphql_router_e2e_smoke.php` boots the entire stack from scratch on free ports:
+- mock PHP backend (fixture data — placement/person/company/jobdiva)
+- coreflux subgraph (Node)
+- jobdiva subgraph (Node)
+- Apollo Router (Rust binary)
+
+Then runs:
+```graphql
+query { placement(id:"17") {
+  title status startDate
+  person { firstName lastName emailPrimary }
+  endClient { name billingAddress { city state } }
+  rates { billRate payRate currency }
+  jobDiva {
+    externalId refNumber startStatus
+    job { title department }
+    candidate { firstName lastName email }
+    customer { name }
+    contact { displayName email }
+    bill { rate payRate currency }
+  }
+}}
+```
+…and asserts 17 distinct field values across both subgraphs landed in the merged response. **All 33 e2e assertions green.**
+
+### Files added/changed
+- `/app/graphql/router/router.smoke.yaml` — minimal router config (no JWKS) with `include_subgraph_errors: all: true` so test failures surface real subgraph errors.
+- `/app/graphql/mock-php/index.php` — fixture backend used by the e2e smoke ONLY (not deployed).
+- `/app/tests/graphql_router_e2e_smoke.php` — 33 assertions, orchestrates router + 2 subgraphs + mock PHP.
+- `/app/graphql/subgraph-coreflux/src/index.ts` — added `Placement.person` and `Placement.endClient` field resolvers (FK stubs alone don't trigger `_entities` when the same subgraph owns the type).
+- `/app/graphql/subgraph-jobdiva/src/index.ts` — `DEFAULT_TENANT_ID` env-var escape hatch for smoke tests (production never sets it; router enforces auth upstream).
+
+### Apollo Router binary
+Installed at `/usr/local/bin/router` (v1.55.0, aarch64-unknown-linux-gnu) via `curl -sSL https://router.apollo.dev/download/nix/v1.55.0 | sh`. The smoke test skips cleanly if the binary is absent, so CI hosts that don't have it don't break.
+
+### Tests
+- New: `tests/graphql_router_e2e_smoke.php` (33 assertions).
+- Full smoke suite: **262/262 ✅** (was 261; +1 new file).
+
