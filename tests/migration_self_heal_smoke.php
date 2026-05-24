@@ -52,7 +52,10 @@ $assert('POST-only',                             strpos($api, "api_method() !== 
 $assert('calls coreflux_run_migrations(true) to bypass cache',
     strpos($api, 'coreflux_run_migrations(true)') !== false);
 $assert('returns status payload with errors list',
-    strpos($api, "'status' => \$status") !== false);
+    strpos($api, "'status'  => \$status") !== false
+    || strpos($api, "'status' => \$status") !== false);
+$assert('flushes PHP OPcache so post-deploy bytecode is fresh',
+    strpos($api, 'opcache_reset()') !== false);
 
 echo "\nDefense 3 — sync_history endpoint handles missing table\n";
 $ep = (string) file_get_contents("{$ROOT}/api/integrations/sync_history.php");

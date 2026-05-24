@@ -43,7 +43,28 @@ rbac_legacy_require($user, 'integrations.field_map.manage');
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
 
 $status = coreflux_run_migrations(true);   // force=true bypasses $ranOnce
+
+// Flush PHP OPcache so any updated .php files on disk are picked up by
+// the long-lived FPM workers immediately. Symptom this fixes: after a
+// deploy, a .php file is updated on disk but FPM workers keep running
+// the cached bytecode from before the deploy — so backend bug fixes
+// appear to not deploy at all (observed 2026-02 on the field_map.php
+// endpoint where new try/catch blocks weren't executing).
+//
+// opcache_reset() invalidates EVERY cached script in this worker. Other
+// FPM workers in the pool still hold their old caches until each one
+// services a request that re-touches a script, OR until they're
+// recycled. We accept that staleness — the typical CoreFlux pool is
+// small enough that a few subsequent requests will round-robin through
+// every worker.
+$opcache = ['available' => false, 'reset' => false];
+if (function_exists('opcache_reset')) {
+    $opcache['available'] = true;
+    $opcache['reset']     = (bool) @opcache_reset();
+}
+
 api_ok([
-    'ok'     => empty($status['errors'] ?? []),
-    'status' => $status,
+    'ok'      => empty($status['errors'] ?? []),
+    'status'  => $status,
+    'opcache' => $opcache,
 ]);

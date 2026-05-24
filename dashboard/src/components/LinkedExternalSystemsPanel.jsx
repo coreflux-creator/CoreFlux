@@ -323,6 +323,25 @@ function FieldMapEditor({ integration, entityType, payload }) {
   const migrationPending = !!data?.migration_pending;
   const [migrating, setMigrating] = useState(false);
   const [migrateMsg, setMigrateMsg] = useState(null);
+  const [flushing, setFlushing] = useState(false);
+  const [flushMsg, setFlushMsg] = useState(null);
+
+  const flushOpcacheAndRetry = async () => {
+    // Recovery path for the "backend deployed but FPM workers still
+    // serving stale bytecode" failure mode. Hitting a brand-new endpoint
+    // forces FPM to compile fresh code, then opcache_reset() clears the
+    // rest of the pool on subsequent requests.
+    setFlushing(true); setFlushMsg(null);
+    try {
+      const r = await api.post('/api/admin/opcache_flush.php');
+      setFlushMsg(r.available
+        ? (r.reset ? 'OPcache flushed. Retrying…' : 'OPcache flush failed — try once more or restart FPM.')
+        : 'OPcache not loaded on this server. Retrying anyway…');
+      reload && reload();
+    } catch (e) {
+      setFlushMsg('Flush failed: HTTP ' + (e.status ?? '?') + ' — ' + (e.message || e));
+    } finally { setFlushing(false); }
+  };
 
   const runMigration = async () => {
     setMigrating(true); setMigrateMsg(null);
@@ -492,6 +511,33 @@ function FieldMapEditor({ integration, entityType, payload }) {
               <pre style={{ marginTop: 4, fontSize: 10, whiteSpace: 'pre-wrap',
                             wordBreak: 'break-word', maxHeight: 200, overflow: 'auto' }}>{error.data.raw}</pre>
             </details>
+          )}
+          {/* Recovery affordance — when a 500 returns an empty body
+              (text/html, Content-Length: 0), the most common cause on
+              this stack is stale PHP-FPM opcache holding pre-deploy
+              bytecode. One click flushes the cache + retries the GET. */}
+          {error.status === 500 && (
+            <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid #fecaca' }}>
+              <button
+                onClick={flushOpcacheAndRetry}
+                disabled={flushing}
+                data-testid="field-map-flush-opcache"
+                style={{
+                  background: '#991b1b', color: '#fff', border: 'none', cursor: 'pointer',
+                  fontSize: 11, padding: '4px 10px', borderRadius: 4, fontWeight: 600,
+                }}
+              >
+                {flushing ? 'Flushing…' : 'Flush server cache & retry'}
+              </button>
+              {flushMsg && (
+                <span data-testid="field-map-flush-msg"
+                      style={{ marginLeft: 10, fontSize: 11 }}>{flushMsg}</span>
+              )}
+              <div style={{ marginTop: 4, fontSize: 10, color: '#7f1d1d' }}>
+                Tip: if you just deployed a backend fix and this endpoint still 500s with an empty body,
+                PHP-FPM is likely serving stale bytecode. This forces an opcache reset.
+              </div>
+            </div>
           )}
         </div>
       )}
