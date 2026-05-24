@@ -547,7 +547,13 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
     // Resolved titles are injected into each item under
     // `__cf_resolved_job_title` so the existing title pluck chain in
     // jobdivaSyncUpsertPlacement picks them up at no extra cost.
-    $items = jobdivaSyncResolveJobTitles($tid, $items, $userId);
+    // The opt-in `enrich_start` flag adds a /apiv2/jobdiva/searchStart
+    // detail call per placement to pick up fields (pay rate, etc.) the
+    // discovery feed nulls out. Costs one extra API call per placement
+    // — leave off unless operators ask for it.
+    $items = jobdivaSyncEnrichRelatedEntities($tid, $items, $userId, [
+        'enrich_start' => !empty($opts['enrich_start']),
+    ]);
 
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
     $skipReasons = ['missing_fields' => 0, 'no_person' => 0];
@@ -691,80 +697,166 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
  * — in normal operation it always returns a positive integer.
  */
 /**
- * Bulk job-title resolver. JobDiva's V2 BI Assignment payload contains
- * the job's foreign key (`job id`) but NOT the job title — that lives
- * on the Job record. This helper:
+ * Bulk enrichment of placement records with full data from every
+ * related JobDiva entity referenced by their FK IDs. Replaces the
+ * earlier narrow `jobdivaSyncResolveJobTitles` (which only fetched job
+ * titles).
  *
- *   1. Collects every unique non-zero `job id` across the batch
- *   2. Fetches each one via /apiv2/jobdiva/searchJob (per-id call,
- *      since JobDiva's bulk-IDs filter is undocumented and inconsistent
- *      across tenants)
- *   3. Caches the (jobId → title) map per sync run so re-encountering
- *      the same job costs zero API calls
- *   4. Injects `__cf_resolved_job_title` onto each item so the existing
- *      title pluck chain finds it without changes
+ * Why: JobDiva's V2 BI `searchStart` payload only carries scalar
+ * placement attributes + FK ids (`job id`, `candidate id`, `customer id`,
+ * `job contact id`). Real source data — job title, pay rate, candidate
+ * address, customer billing address, contact email, etc. — lives on
+ * the referenced records and requires separate API calls.
  *
- * Soft-fails — if a job fetch errors (JobDiva rate-limit, network blip),
- * we log + continue. The placement still upserts; the title just falls
- * back to the synthetic "JobDiva Placement {id}" placeholder, which the
- * operator can see and remediate (vs. blowing up the whole sync).
+ * This helper fetches every related record once per sync run and
+ * injects the full result as a nested object on each placement under
+ * a `_jd_<kind>` key:
  *
- * Best-effort caching is in-memory only — re-running the sync re-fetches.
- * If needed we can persist (jobId, title) into mappingUpsert(kind=job)
- * later to skip API calls across runs.
+ *   __cf_resolved_job_title  ← legacy convenience (still set, see notes)
+ *   _jd_job        ← /apiv2/jobdiva/searchJob       result row
+ *   _jd_candidate  ← /apiv2/jobdiva/searchCandidate result row
+ *   _jd_customer   ← /apiv2/jobdiva/searchCustomer  result row
+ *   _jd_contact    ← /apiv2/jobdiva/searchContact   result row (job contact)
+ *   _jd_start      ← /apiv2/jobdiva/searchStart     full detail (with rates)
+ *
+ * The operator then maps any nested field via the dotted-path syntax
+ * supported by tenantIntegrationFieldMapPluckPath, e.g.:
+ *   `_jd_candidate.address  → notes`
+ *   `_jd_customer.address1  → notes`     (end-client billing addr)
+ *   `_jd_job.department     → notes`
+ *   `_jd_start.payRate      → pay_rate`  (when BI feed has it null)
+ *
+ * Endpoints are tried defensively — if a tenant's JobDiva install
+ * doesn't expose one (404 / 400), the sync continues without that
+ * enrichment for the rest of the batch. Cache is in-memory per run.
  */
-function jobdivaSyncResolveJobTitles(int $tid, array $items, ?int $userId): array
+function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, array $opts = []): array
 {
-    $jobIds = [];
-    foreach ($items as $jd) {
-        $jid = jobdivaPluckField($jd, ['job id', 'jobId', 'job_id', 'jobID']);
-        if ($jid !== '' && ctype_digit($jid) && (int) $jid > 0) {
-            $jobIds[(int) $jid] = true;
+    // (kind, id-pluck-keys, endpoint, id-body-key, inject-key, broken-flag).
+    // broken-flag is set to true on the first 4xx so subsequent items
+    // skip the endpoint — avoids hammering JobDiva with calls that
+    // can't possibly succeed on this tenant's configuration.
+    $configs = [
+        'job'       => [
+            'ids' => ['job id', 'jobId', 'job_id', 'jobID'],
+            'endpoint' => '/apiv2/jobdiva/searchJob',
+            'body_key' => 'jobId',
+            'inject'   => '_jd_job',
+        ],
+        'candidate' => [
+            'ids' => ['candidate id', 'candidateId', 'candidate_id', 'employeeId'],
+            'endpoint' => '/apiv2/jobdiva/searchCandidate',
+            'body_key' => 'candidateId',
+            'inject'   => '_jd_candidate',
+        ],
+        'customer'  => [
+            'ids' => ['customer id', 'customerId', 'customer_id', 'clientId'],
+            'endpoint' => '/apiv2/jobdiva/searchCustomer',
+            'body_key' => 'customerId',
+            'inject'   => '_jd_customer',
+        ],
+        'contact'   => [
+            'ids' => ['job contact id', 'jobContactId', 'contactId'],
+            'endpoint' => '/apiv2/jobdiva/searchContact',
+            'body_key' => 'contactId',
+            'inject'   => '_jd_contact',
+        ],
+        'start'     => [
+            'ids' => ['id', 'startId', 'start_id', 'placementId'],
+            'endpoint' => '/apiv2/jobdiva/searchStart',
+            'body_key' => 'startId',
+            'inject'   => '_jd_start',
+        ],
+    ];
+
+    // Phase 1 — collect unique non-zero IDs per kind across the batch.
+    $idsByKind = [];
+    foreach ($configs as $kind => $cfg) {
+        $idsByKind[$kind] = [];
+        foreach ($items as $jd) {
+            $raw = jobdivaPluckField($jd, $cfg['ids']);
+            if ($raw === '' || !ctype_digit($raw) || (int) $raw <= 0) continue;
+            $idsByKind[$kind][(int) $raw] = true;
         }
     }
-    if (empty($jobIds)) return $items;
 
-    $titles = [];
-    foreach (array_keys($jobIds) as $jid) {
-        try {
-            // JobDiva's /apiv2/jobdiva/searchJob accepts a body of
-            // search criteria; `{jobId: N}` is the documented per-id
-            // shape, mirroring how /apiv2/jobdiva/searchStart accepts
-            // `{startId: N}` for single-placement lookups.
-            $resp = jobdivaCall($tid, 'POST', '/apiv2/jobdiva/searchJob', ['jobId' => $jid]);
-            $body = $resp['body'] ?? [];
-            // Response shape varies by tenant config — the most common
-            // shapes are {data:[…]} / {items:[…]} / direct array.
-            $rows = $body['data'] ?? $body['items'] ?? (is_array($body) && isset($body[0]) ? $body : []);
-            if (is_array($rows) && count($rows) > 0) {
-                $row = $rows[0];
-                $title = jobdivaPluckField((array) $row, [
-                    'title', 'jobTitle', 'job_title', 'job title',
-                    'positionTitle', 'position_title', 'roleName',
-                    'name', 'jobName',
-                ]);
-                if ($title !== '') $titles[$jid] = $title;
+    // Phase 2 — fetch each unique id once. Soft-fail per id; mark the
+    // endpoint broken on first 4xx so we don't keep hammering it.
+    $cache = [];       // [kind][id] => row (assoc array) | null on miss
+    $brokenEndpoint = [];
+    foreach ($configs as $kind => $cfg) {
+        if (empty($idsByKind[$kind])) continue;
+        foreach (array_keys($idsByKind[$kind]) as $id) {
+            // Don't re-call the start endpoint when the id matches the
+            // own row's id (we already HAVE the searchStart payload —
+            // it IS this row's payload). This avoids a 1:1 fan-out of
+            // useless API calls for the most common pattern. Operators
+            // who need a fuller searchStart (e.g. to pick up pay rate
+            // that JobDiva's BI feed nulls out on the Assignment
+            // payload) can flip `enrich_start=1` in the sync opts.
+            if ($kind === 'start' && empty($opts['enrich_start'])) continue;
+
+            if (!empty($brokenEndpoint[$cfg['endpoint']])) {
+                $cache[$kind][$id] = null;
+                continue;
             }
-        } catch (\Throwable $e) {
-            error_log("[jobdiva] resolveJobTitles failed for job_id={$jid}: " . $e->getMessage());
-            // continue — soft fail
+            try {
+                $resp = jobdivaCall($tid, 'POST', $cfg['endpoint'], [$cfg['body_key'] => $id]);
+                $body = $resp['body'] ?? [];
+                $rows = $body['data'] ?? $body['items'] ?? (is_array($body) && isset($body[0]) ? $body : []);
+                if (is_array($rows) && count($rows) > 0 && is_array($rows[0])) {
+                    $cache[$kind][$id] = $rows[0];
+                } else {
+                    $cache[$kind][$id] = null;
+                }
+            } catch (\Throwable $e) {
+                $msg = $e->getMessage();
+                error_log("[jobdiva] enrich {$kind} id={$id} failed: {$msg}");
+                // Heuristic: HTTP 4xx in the error message = endpoint
+                // unavailable on this tenant. Skip the rest of this kind.
+                if (preg_match('/\b4\d\d\b/', $msg)) {
+                    $brokenEndpoint[$cfg['endpoint']] = true;
+                }
+                $cache[$kind][$id] = null;
+            }
         }
     }
 
-    if (empty($titles)) return $items;
-
+    // Phase 3 — inject enriched rows back onto each placement item.
+    // Also set the legacy `__cf_resolved_job_title` hint so existing
+    // title pluck logic keeps working without changes.
     foreach ($items as &$jd) {
-        $jid = jobdivaPluckField($jd, ['job id', 'jobId', 'job_id', 'jobID']);
-        if ($jid !== '' && ctype_digit($jid)) {
-            $j = (int) $jid;
-            if (isset($titles[$j])) {
-                $jd['__cf_resolved_job_title'] = $titles[$j];
-            }
+        foreach ($configs as $kind => $cfg) {
+            $raw = jobdivaPluckField($jd, $cfg['ids']);
+            if ($raw === '' || !ctype_digit($raw)) continue;
+            $id = (int) $raw;
+            if (!isset($cache[$kind][$id]) || $cache[$kind][$id] === null) continue;
+            $jd[$cfg['inject']] = $cache[$kind][$id];
+        }
+        // Legacy convenience field for the title pluck chain.
+        if (isset($jd['_jd_job']) && is_array($jd['_jd_job'])) {
+            $title = jobdivaPluckField($jd['_jd_job'], [
+                'title', 'jobTitle', 'job_title', 'job title',
+                'positionTitle', 'position_title', 'roleName',
+                'name', 'jobName',
+            ]);
+            if ($title !== '') $jd['__cf_resolved_job_title'] = $title;
         }
     }
     unset($jd);
 
     return $items;
+}
+
+/**
+ * Legacy thin wrapper — `jobdivaSyncResolveJobTitles` was the original
+ * narrow job-title-only resolver. Tests and existing callers still
+ * reference the name; routing through the general enricher means they
+ * also get candidate/customer/contact enrichment for free.
+ */
+function jobdivaSyncResolveJobTitles(int $tid, array $items, ?int $userId): array
+{
+    return jobdivaSyncEnrichRelatedEntities($tid, $items, $userId, []);
 }
 
 function jobdivaResolveOrAutoCreateEndClient(
@@ -1070,7 +1162,17 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             'final bill rate', 'finalBillRate', 'final_bill_rate',
             'bill rate', 'billRate', 'bill_rate',
             'quoted bill rate', 'quotedBillRate',
-        ])
+        ]) ?: (
+            // Fall through to the enriched start detail (when present).
+            // JobDiva BI feeds frequently null out the rate on the
+            // Assignment-level payload; the searchStart detail call
+            // (when wired) carries it.
+            isset($jd['_jd_start']) && is_array($jd['_jd_start'])
+                ? jobdivaPluckField($jd['_jd_start'], [
+                    'finalBillRate', 'billRate', 'final_bill_rate', 'bill_rate',
+                ])
+                : ''
+        )
     );
     $billRate = is_numeric($billRateRaw) ? (float) $billRateRaw : 0.0;
     if ($billRate <= 0) {
@@ -1085,7 +1187,13 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         static fn() => jobdivaPluckField($jd, [
             'agreed pay rate', 'agreedPayRate', 'agreed_pay_rate',
             'pay rate', 'payRate', 'pay_rate',
-        ])
+        ]) ?: (
+            isset($jd['_jd_start']) && is_array($jd['_jd_start'])
+                ? jobdivaPluckField($jd['_jd_start'], [
+                    'payRate', 'agreedPayRate', 'pay_rate', 'agreed_pay_rate',
+                ])
+                : ''
+        )
     );
     // pay_rate is NOT NULL on the schema — if JobDiva didn't supply
     // one, mirror bill_rate (overrideable by the operator later).
