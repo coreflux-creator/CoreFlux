@@ -26,6 +26,26 @@
  */
 declare(strict_types=1);
 
+// Inline fatal-error trap (see field_map.php for rationale). Belt-and-
+// braces in case api_bootstrap's global handler hasn't deployed yet.
+register_shutdown_function(static function (): void {
+    $err = error_get_last();
+    if ($err === null) return;
+    $fatalMask = E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR | E_USER_ERROR;
+    if (($err['type'] & $fatalMask) === 0) return;
+    if (headers_sent()) return;
+    @http_response_code(500);
+    @header('Content-Type: application/json; charset=utf-8');
+    while (ob_get_level() > 0) { @ob_end_clean(); }
+    echo json_encode([
+        'error' => 'Fatal PHP error: ' . $err['message'],
+        'status' => 500, 'kind' => 'fatal',
+        'file' => isset($err['file']) ? basename((string) $err['file']) : null,
+        'line' => $err['line'] ?? null,
+        'origin' => 'opcache_flush.php inline shutdown handler',
+    ], JSON_UNESCAPED_SLASHES);
+});
+
 require_once __DIR__ . '/../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../core/RBAC.php';
 

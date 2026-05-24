@@ -25,6 +25,40 @@
  */
 declare(strict_types=1);
 
+// ---------------------------------------------------------------------
+// LOCAL fatal-error trap — registered BEFORE require_once so it survives
+// a fatal in any of the includes. set_exception_handler() in
+// api_bootstrap.php only catches throwables; PHP fatals (E_ERROR /
+// Call to undefined function / class not found / parse) bypass it and
+// produce an empty 500 with Content-Type: text/html in production.
+// Without this, the operator sees only "Request failed" with no detail.
+//
+// Belt-and-braces — api_bootstrap.php now has the same handler globally
+// but a partial deploy may not have shipped that file yet, so we keep
+// a copy here. Both register cleanly (PHP runs shutdown functions in
+// FIFO order; the JSON envelope from the first one wins).
+register_shutdown_function(static function (): void {
+    $err = error_get_last();
+    if ($err === null) return;
+    $fatalMask = E_ERROR | E_PARSE | E_CORE_ERROR | E_CORE_WARNING
+               | E_COMPILE_ERROR | E_COMPILE_WARNING | E_USER_ERROR;
+    if (($err['type'] & $fatalMask) === 0) return;
+    if (headers_sent()) return;
+    @http_response_code(500);
+    @header('Content-Type: application/json; charset=utf-8');
+    @header('Cache-Control: no-store');
+    while (ob_get_level() > 0) { @ob_end_clean(); }
+    error_log('[field_map.php/fatal] ' . $err['message'] . ' @ ' . ($err['file'] ?? '?') . ':' . ($err['line'] ?? '?'));
+    echo json_encode([
+        'error'  => 'Fatal PHP error: ' . $err['message'],
+        'status' => 500,
+        'kind'   => 'fatal',
+        'file'   => isset($err['file']) ? basename((string) $err['file']) : null,
+        'line'   => $err['line'] ?? null,
+        'origin' => 'field_map.php inline shutdown handler',
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+});
+
 require_once __DIR__ . '/../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../core/RBAC.php';
 require_once __DIR__ . '/../../core/integrations/field_map.php';
