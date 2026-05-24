@@ -116,7 +116,17 @@ $assert('exports tenantIntegrationFieldMapDelete',
 $assert('exports tenantIntegrationFieldMapAllowedInternalFields',
     strpos($libSrc, 'function tenantIntegrationFieldMapAllowedInternalFields(') !== false);
 $assert('placement allow-list includes title (the actual user request)',
-    strpos($libSrc, "'placement' => [\n            'title', 'status', 'start_date'") !== false);
+    preg_match("/'placement'\s*=>\s*\[[\s\S]*?'title'/", $libSrc) === 1);
+$assert('placement allow-list expanded to cover external_id + lifecycle dates + approval toggles',
+    strpos($libSrc, "'external_id'") !== false
+    && strpos($libSrc, "'actual_end_date'") !== false
+    && strpos($libSrc, "'due_date'") !== false
+    && strpos($libSrc, "'tokenized_email_approval_enabled'") !== false);
+$assert('person allow-list expanded to cover middle_name + home address + work auth + source',
+    strpos($libSrc, "'middle_name'") !== false
+    && strpos($libSrc, "'home_address_line1'") !== false
+    && strpos($libSrc, "'requires_sponsorship'") !== false
+    && strpos($libSrc, "'source'") !== false);
 $assert('person allow-list excludes tenant_id and id (info-disclosure guard)',
     strpos($libSrc, "'tenant_id'") === false
     && strpos($libSrc, "'created_by_user_id'") === false);

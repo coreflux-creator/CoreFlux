@@ -43,29 +43,68 @@ const TENANT_INTEGRATION_FIELD_MAP_TRANSFORMS = [
  */
 function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): array
 {
+    // Allow-list per entity_type. Restricts what columns the admin UI
+    // can target. Keys MUST match real columns on the relevant table;
+    // the syncer trusts this list to be safe.
+    //
+    // Curation rules:
+    //   • Only columns the SYNCER can safely write — no FKs, no
+    //     denormalized rollups, no `_at` / `_by` audit timestamps.
+    //   • Cross-table fields (placement_rates.bill_rate,
+    //     placement_corp_details.corp_legal_name, etc.) are NOT exposed
+    //     here yet — they need a multi-table writer in the syncer.
+    //   • PII columns (people.dob, people.ssn_last4) are intentionally
+    //     omitted — they should never come from an external sync.
     static $map = [
         'placement' => [
-            'title', 'status', 'start_date', 'end_date',
-            'end_client_name', 'engagement_type', 'worksite_state',
-            'worksite_country', 'remote_policy', 'notes',
+            // Identity / lifecycle
+            'external_id', 'title', 'status',
+            // Dates
+            'start_date', 'end_date', 'actual_end_date', 'due_date',
+            // Engagement metadata
+            'engagement_type', 'remote_policy',
+            'worksite_state', 'worksite_country',
+            // Client / approval
+            'end_client_name',
             'client_approver_name', 'client_approver_email',
+            // Free-text
+            'notes',
+            // Approval-flow toggles
+            'tokenized_email_approval_enabled',
+            'bulk_uploads_can_be_pre_approved',
         ],
         'person' => [
-            'first_name', 'last_name', 'preferred_name',
+            // Identity
+            'external_id',
+            'first_name', 'middle_name', 'last_name', 'preferred_name',
+            // Contact
             'email_primary', 'email_secondary',
             'phone_primary', 'phone_secondary',
+            // Classification / lifecycle
             'classification', 'status', 'employment_type',
+            // Work auth
+            'work_auth_status', 'work_auth_expiry', 'requires_sponsorship',
+            // Tenure
             'hire_date', 'termination_date', 'pay_frequency',
-            'linkedin_url', 'recruiter_notes',
-            'work_auth_status', 'work_auth_expiry',
+            // Home address (non-PII — public-record fields are fine to sync)
+            'home_address_line1', 'home_address_line2',
+            'home_city', 'home_state', 'home_postal_code', 'home_country',
+            // Career
+            'linkedin_url', 'source', 'recruiter_notes',
         ],
         'company' => [
-            'name', 'website', 'phone',
+            'external_id',
+            'name', 'website', 'phone', 'industry', 'description',
             'address_line1', 'address_line2', 'city', 'state',
             'postal_code', 'country',
+            // Billing / commercial
+            'billing_email', 'billing_terms', 'tax_id_last4',
         ],
         'contact' => [
-            'name', 'title', 'email', 'phone', 'contact_role',
+            'external_id',
+            'name', 'first_name', 'last_name',
+            'title', 'email', 'phone', 'mobile_phone',
+            'contact_role', 'notes',
         ],
     ];
     return $map[$entityType] ?? [];

@@ -137,11 +137,33 @@ $assert('skip_reasons tracks no_person separately from missing_fields',
     strpos($syncSrc, "'no_person' => 0") !== false);
 $assert('Upsert provides title (NOT NULL on placements)',
     strpos($syncSrc, "if (\$title === '') \$title = 'JobDiva Placement ' . \$extId;") !== false
-    && strpos($syncSrc, "engagement_type, end_client_name, end_client_company_id, title)") !== false);
+    && strpos($syncSrc, "client_approver_name, client_approver_email, title") !== false);
 $assert('Upsert UPDATE path also writes title',
     strpos($syncSrc, "title = :ti\n              WHERE id = :id") !== false);
 $assert('Upsert pluck-resolves title across JobDiva key shapes',
     strpos($syncSrc, "'jobTitle', 'job_title', 'job title', 'title'") !== false);
+
+// Slice 4 expansion regression — registry-aware writes for the new
+// allow-listed columns. Catches the "user can pick the column from the
+// dropdown but the upsert silently drops it" failure mode.
+echo "\nSlice 4 — registry-aware writes for expanded allow-list\n";
+foreach (['engagement_type', 'worksite_state', 'worksite_country',
+          'remote_policy', 'notes', 'client_approver_name',
+          'client_approver_email', 'actual_end_date', 'due_date'] as $col) {
+    $assert("upsert resolves placement.{$col} via tenantIntegrationFieldMapPluckInternal",
+        strpos($syncSrc, "'jobdiva', 'placement', '{$col}', \$jd,") !== false);
+}
+$assert('engagement_type enum coercion handles common upstream variants',
+    strpos($syncSrc, "'corp-to-corp' => 'c2c'") !== false
+    && strpos($syncSrc, "'temp_to_perm' => 'temp_to_perm'") !== false);
+$assert('worksite_country is forced to CHAR(2) (matches column type)',
+    strpos($syncSrc, 'strtoupper(substr($worksiteCountry, 0, 2))') !== false);
+$assert('remote_policy enum coercion accepts onsite/hybrid/remote synonyms',
+    strpos($syncSrc, "'on-site' => 'onsite'") !== false
+    && strpos($syncSrc, "'wfh' => 'remote'") !== false);
+$assert('actual_end_date / due_date are date-normalised before write',
+    strpos($syncSrc, 'jobdivaNormaliseDate($actualEndRaw)') !== false
+    && strpos($syncSrc, 'jobdivaNormaliseDate($dueDateRaw)') !== false);
 
 echo "\nWiring — api/jobdiva.php webhook → real-time placement ingest\n";
 $api = (string) file_get_contents("{$ROOT}/api/jobdiva.php");

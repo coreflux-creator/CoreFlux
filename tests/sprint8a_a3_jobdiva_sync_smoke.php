@@ -152,10 +152,12 @@ $assert("placement uses 'jd:' external_id prefix",
 $assert('placement status maps JobDiva → CoreFlux enum',
     strpos($src, "'pending' => 'pending_start'") !== false
     && strpos($src, "'cancelled' => 'cancelled'") !== false);
-$assert("placement insert defaults engagement_type='w2'",
-    strpos($src, '"w2"') !== false);
+$assert("placement insert defaults engagement_type='w2' when registry/payload yield nothing",
+    strpos($src, "'w2'") !== false
+    && strpos($src, '$engagementMap[strtolower(trim($engagementRaw))] ?? \'w2\'') !== false);
 $assert('placement insert provides title (NOT NULL on placements table)',
-    strpos($src, "engagement_type, end_client_name, end_client_company_id, title)") !== false
+    strpos($src, "engagement_type, worksite_state, worksite_country") !== false
+    && strpos($src, "client_approver_name, client_approver_email, title") !== false
     && strpos($src, "if (\$title === '') \$title = 'JobDiva Placement '") !== false);
 $assert('binds mapping (placement)',
     strpos($src, "mappingUpsert(\$tid, 'jobdiva', 'placement', \$extId, \$internalId, \$jd, 'pull', \$userId)") !== false);

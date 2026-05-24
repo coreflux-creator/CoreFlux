@@ -701,29 +701,149 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $statusMap = ['active' => 'active', 'pending' => 'pending_start', 'ended' => 'ended', 'cancelled' => 'cancelled'];
     $status    = $statusMap[$statusJd] ?? 'active';
 
+    // -----------------------------------------------------------------
+    // Slice 4 expansion (2026-02): resolve every additional same-table
+    // placement column the allow-list now exposes. Each call falls
+    // through to a sensible JobDiva default-key list when the tenant
+    // hasn't configured an override — so the syncer never silently
+    // wipes a value that the registry didn't redirect.
+    //
+    // ENUM/boolean coercion happens AFTER resolution because tenants
+    // who map e.g. JobDiva's `engagementType` -> CoreFlux `engagement_type`
+    // may have free-text upstream values that need normalising.
+    // -----------------------------------------------------------------
+    $engagementRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'engagement_type', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'engagementType', 'engagement_type', 'workerType',
+            'worker_type', 'classification', 'employmentType',
+        ])
+    );
+    $engagementMap = [
+        'w2' => 'w2', '1099' => '1099', 'c2c' => 'c2c',
+        'corp-to-corp' => 'c2c', 'corp_to_corp' => 'c2c',
+        'temp_to_perm' => 'temp_to_perm', 'temp-to-perm' => 'temp_to_perm',
+        'direct_hire' => 'direct_hire', 'direct-hire' => 'direct_hire',
+        'perm' => 'direct_hire',
+    ];
+    $engagement = $engagementMap[strtolower(trim($engagementRaw))] ?? 'w2';
+
+    $worksiteState = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'worksite_state', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'worksiteState', 'worksite_state', 'state', 'workSiteState', 'jobState', 'job_state',
+        ])
+    );
+    $worksiteCountry = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'worksite_country', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'worksiteCountry', 'worksite_country', 'country', 'jobCountry', 'job_country',
+        ])
+    );
+    // worksite_country is CHAR(2) — coerce to ISO-2 if user mapped a name.
+    if (strlen($worksiteCountry) > 2) {
+        $worksiteCountry = strtoupper(substr($worksiteCountry, 0, 2));
+    } else {
+        $worksiteCountry = strtoupper($worksiteCountry);
+    }
+    if ($worksiteCountry === '') $worksiteCountry = null;
+
+    $remoteRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'remote_policy', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'remotePolicy', 'remote_policy', 'workLocation', 'work_location', 'jobLocationType',
+        ])
+    );
+    $remoteMap = [
+        'onsite' => 'onsite', 'on-site' => 'onsite', 'on_site' => 'onsite',
+        'hybrid' => 'hybrid',
+        'remote' => 'remote', 'work_from_home' => 'remote', 'wfh' => 'remote',
+    ];
+    $remote = $remoteMap[strtolower(trim($remoteRaw))] ?? null;
+
+    $notes = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'notes', $jd,
+        static fn() => jobdivaPluckField($jd, ['notes', 'placementNotes', 'placement_notes'])
+    );
+    $approverName = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'client_approver_name', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'approverName', 'approver_name', 'clientApprover', 'client_approver', 'clientContactName',
+        ])
+    );
+    $approverEmail = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'client_approver_email', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'approverEmail', 'approver_email', 'clientApproverEmail', 'client_approver_email', 'clientContactEmail',
+        ])
+    );
+    $actualEndRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'actual_end_date', $jd,
+        static fn() => jobdivaPluckField($jd, ['actualEndDate', 'actual_end_date', 'actualEnd'])
+    );
+    $actualEnd = jobdivaNormaliseDate($actualEndRaw);
+    $dueDateRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'due_date', $jd,
+        static fn() => jobdivaPluckField($jd, ['dueDate', 'due_date'])
+    );
+    $dueDate = jobdivaNormaliseDate($dueDateRaw);
+
     if ($existingId > 0) {
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
-            'UPDATE placements SET start_date = :sd, end_date = :ed,
-                    status = :st, end_client_name = :ecn, end_client_company_id = :ecc,
+            'UPDATE placements SET start_date = :sd, end_date = :ed, actual_end_date = :aed, due_date = :dd,
+                    status = :st, engagement_type = :eng, worksite_state = :ws, worksite_country = :wc,
+                    remote_policy = :rp, notes = :notes,
+                    end_client_name = :ecn, end_client_company_id = :ecc,
+                    client_approver_name = :can, client_approver_email = :cae,
                     title = :ti
               WHERE id = :id'
         )->execute([
-            'sd' => $startDate, 'ed' => $endDateNorm ?: null, 'st' => $status,
-            'ecn' => $endClientName ?: null, 'ecc' => $endClientCompanyId,
-            'ti' => $title, 'id' => $existingId,
+            'sd'    => $startDate,
+            'ed'    => $endDateNorm ?: null,
+            'aed'   => $actualEnd ?: null,
+            'dd'    => $dueDate ?: null,
+            'st'    => $status,
+            'eng'   => $engagement,
+            'ws'    => $worksiteState ?: null,
+            'wc'    => $worksiteCountry,
+            'rp'    => $remote,
+            'notes' => $notes ?: null,
+            'ecn'   => $endClientName ?: null,
+            'ecc'   => $endClientCompanyId,
+            'can'   => $approverName ?: null,
+            'cae'   => $approverEmail ?: null,
+            'ti'    => $title,
+            'id'    => $existingId,
         ]);
         return $existingId;
     }
     $pdo->prepare(
         'INSERT INTO placements (tenant_id, person_id, external_id, status, start_date, end_date,
-                                  engagement_type, end_client_name, end_client_company_id, title)
-         VALUES (:t, :p, :ext, :st, :sd, :ed, "w2", :ecn, :ecc, :ti)'
+                                  actual_end_date, due_date, engagement_type, worksite_state, worksite_country,
+                                  remote_policy, notes, end_client_name, end_client_company_id,
+                                  client_approver_name, client_approver_email, title)
+         VALUES (:t, :p, :ext, :st, :sd, :ed, :aed, :dd, :eng, :ws, :wc,
+                 :rp, :notes, :ecn, :ecc, :can, :cae, :ti)'
     )->execute([
-        't' => $tid, 'p' => $personId, 'ext' => 'jd:' . $extId, 'st' => $status,
-        'sd' => $startDate, 'ed' => $endDateNorm ?: null,
-        'ecn' => $endClientName ?: null, 'ecc' => $endClientCompanyId,
-        'ti' => $title,
+        't'     => $tid,
+        'p'     => $personId,
+        'ext'   => 'jd:' . $extId,
+        'st'    => $status,
+        'sd'    => $startDate,
+        'ed'    => $endDateNorm ?: null,
+        'aed'   => $actualEnd ?: null,
+        'dd'    => $dueDate ?: null,
+        'eng'   => $engagement,
+        'ws'    => $worksiteState ?: null,
+        'wc'    => $worksiteCountry,
+        'rp'    => $remote,
+        'notes' => $notes ?: null,
+        'ecn'   => $endClientName ?: null,
+        'ecc'   => $endClientCompanyId,
+        'can'   => $approverName ?: null,
+        'cae'   => $approverEmail ?: null,
+        'ti'    => $title,
     ]);
     return (int) $pdo->lastInsertId();
 }
