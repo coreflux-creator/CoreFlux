@@ -320,6 +320,24 @@ function FieldMapEditor({ integration, entityType, payload }) {
   const rows       = data?.rows || [];
   const allowed    = data?.allowed_internal_fields?.[entityType] || [];
   const transforms = data?.transforms || ['none'];
+  const migrationPending = !!data?.migration_pending;
+  const [migrating, setMigrating] = useState(false);
+  const [migrateMsg, setMigrateMsg] = useState(null);
+
+  const runMigration = async () => {
+    setMigrating(true); setMigrateMsg(null);
+    try {
+      const r = await api.post('/api/admin/migrate.php');
+      const errs = (r.status?.errors || []).length;
+      const applied = (r.status?.applied_files || []).length;
+      setMigrateMsg(errs === 0
+        ? `Applied ${applied} migration(s). Reloading…`
+        : `Applied ${applied} with ${errs} error(s) — check Sync History drawer for details.`);
+      reload && reload();
+    } catch (e) {
+      setMigrateMsg('Failed: ' + (e.message || e));
+    } finally { setMigrating(false); }
+  };
 
   // Payload-key suggestions for autocomplete. We surface top-level
   // scalar keys; nested objects are findable via "View raw payload"
@@ -427,6 +445,33 @@ function FieldMapEditor({ integration, entityType, payload }) {
       </p>
 
       {loading && <p data-testid="field-map-loading" style={{ fontSize: 11, color: '#64748b', margin: 0 }}>Loading mappings…</p>}
+      {migrationPending && (
+        <div data-testid="field-map-migration-pending"
+             style={{ fontSize: 12, background: '#fef3c7', border: '1px solid #fde68a',
+                      padding: '8px 12px', borderRadius: 6, color: '#92400e',
+                      marginBottom: 8 }}>
+          <strong>Migration pending.</strong>{' '}
+          The <code>tenant_integration_field_map</code> table hasn&apos;t been created on this environment yet
+          (migration 068). Click below to apply pending migrations — idempotent, safe to retry.
+          <div style={{ marginTop: 6 }}>
+            <button
+              onClick={runMigration}
+              disabled={migrating}
+              data-testid="field-map-run-migration"
+              style={{
+                background: '#92400e', color: '#fff', border: 'none', cursor: 'pointer',
+                fontSize: 11, padding: '4px 10px', borderRadius: 4, fontWeight: 600,
+              }}
+            >
+              {migrating ? 'Running…' : 'Run pending migrations'}
+            </button>
+            {migrateMsg && (
+              <span data-testid="field-map-migration-msg"
+                    style={{ marginLeft: 10, fontSize: 11 }}>{migrateMsg}</span>
+            )}
+          </div>
+        </div>
+      )}
       {error && (
         <div data-testid="field-map-error"
              style={{ fontSize: 11, background: '#fef2f2', border: '1px solid #fecaca',

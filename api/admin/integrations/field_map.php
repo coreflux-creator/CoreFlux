@@ -40,41 +40,74 @@ $method = api_method();
 // read-only inspection.
 rbac_legacy_require($user, 'integrations.field_map.manage');
 
-switch ($method) {
-    case 'GET': {
-        $integration = (string) (api_query('integration') ?? '');
-        $entityType  = (string) (api_query('entity_type') ?? '');
-        $rows = tenantIntegrationFieldMapList($tid, $integration ?: null, $entityType ?: null);
-        // Expose the allow-list per entity_type so the UI can render
-        // a constrained dropdown for `internal_field` (prevents
-        // operators from typing arbitrary column names).
-        $allow = [];
-        foreach (['placement', 'person', 'company', 'contact'] as $et) {
-            $allow[$et] = tenantIntegrationFieldMapAllowedInternalFields($et);
+// All handler bodies are wrapped so any uncaught throwable surfaces as a
+// JSON error (default PHP 500s on this stack return an empty body in
+// prod, which makes the UI useless when something genuinely breaks).
+// We also special-case "table doesn't exist" → `migration_pending=true`
+// so the UI can render the same self-heal banner the SyncHistoryDrawer
+// uses (migration 068 may not have applied on this environment yet).
+try {
+    switch ($method) {
+        case 'GET': {
+            $integration = (string) (api_query('integration') ?? '');
+            $entityType  = (string) (api_query('entity_type') ?? '');
+            $rows = tenantIntegrationFieldMapList($tid, $integration ?: null, $entityType ?: null);
+            // Expose the allow-list per entity_type so the UI can render
+            // a constrained dropdown for `internal_field` (prevents
+            // operators from typing arbitrary column names).
+            $allow = [];
+            foreach (['placement', 'person', 'company', 'contact'] as $et) {
+                $allow[$et] = tenantIntegrationFieldMapAllowedInternalFields($et);
+            }
+            api_ok([
+                'rows'                     => $rows,
+                'allowed_internal_fields'  => $allow,
+                'transforms'               => TENANT_INTEGRATION_FIELD_MAP_TRANSFORMS,
+            ]);
         }
+
+        case 'POST': {
+            $body = api_json_body();
+            try {
+                $row = tenantIntegrationFieldMapUpsert($tid, $body, $user['id'] ?? null);
+            } catch (\InvalidArgumentException $e) {
+                api_error($e->getMessage(), 422);
+            }
+            api_ok(['row' => $row]);
+        }
+
+        case 'DELETE': {
+            $id = (int) (api_query('id') ?? 0);
+            if ($id <= 0) api_error('id required', 400);
+            $ok = tenantIntegrationFieldMapDelete($tid, $id, $user['id'] ?? null);
+            api_ok(['ok' => $ok]);
+        }
+    }
+} catch (\PDOException $e) {
+    $msg = $e->getMessage();
+    // Migration not applied — the registry table is missing on this env.
+    // Mirror sync_history.php's contract: return migration_pending so the
+    // UI can render its self-heal banner + "Run pending migrations"
+    // button instead of an opaque HTTP 500.
+    if (str_contains($msg, 'tenant_integration_field_map') && str_contains($msg, "doesn't exist")) {
         api_ok([
-            'rows'                     => $rows,
-            'allowed_internal_fields'  => $allow,
-            'transforms'               => TENANT_INTEGRATION_FIELD_MAP_TRANSFORMS,
+            'rows'                    => [],
+            'allowed_internal_fields' => [
+                'placement' => tenantIntegrationFieldMapAllowedInternalFields('placement'),
+                'person'    => tenantIntegrationFieldMapAllowedInternalFields('person'),
+                'company'   => tenantIntegrationFieldMapAllowedInternalFields('company'),
+                'contact'   => tenantIntegrationFieldMapAllowedInternalFields('contact'),
+            ],
+            'transforms'        => TENANT_INTEGRATION_FIELD_MAP_TRANSFORMS,
+            'migration_pending' => true,
+            'migration_hint'    => 'Run /api/admin/migrate.php to create tenant_integration_field_map (migration 068).',
         ]);
     }
-
-    case 'POST': {
-        $body = api_json_body();
-        try {
-            $row = tenantIntegrationFieldMapUpsert($tid, $body, $user['id'] ?? null);
-        } catch (\InvalidArgumentException $e) {
-            api_error($e->getMessage(), 422);
-        }
-        api_ok(['row' => $row]);
-    }
-
-    case 'DELETE': {
-        $id = (int) (api_query('id') ?? 0);
-        if ($id <= 0) api_error('id required', 400);
-        $ok = tenantIntegrationFieldMapDelete($tid, $id, $user['id'] ?? null);
-        api_ok(['ok' => $ok]);
-    }
+    error_log('[field_map.php] PDOException: ' . $msg);
+    api_error('Database error: ' . $msg, 500, ['code' => $e->getCode()]);
+} catch (\Throwable $e) {
+    error_log('[field_map.php] ' . get_class($e) . ': ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+    api_error('Server error: ' . $e->getMessage(), 500, ['class' => get_class($e)]);
 }
 
 api_error('Method not allowed', 405);
