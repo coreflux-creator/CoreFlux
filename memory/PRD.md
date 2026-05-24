@@ -7558,3 +7558,72 @@ Installed at `/usr/local/bin/router` (v1.55.0, aarch64-unknown-linux-gnu) via `c
 - New: `tests/graphql_router_e2e_smoke.php` (33 assertions).
 - Full smoke suite: **262/262 ✅** (was 261; +1 new file).
 
+
+---
+
+## 2026-02 · GraphQL Federation — Production Deploy Surface + MCP-Router E2E ✅
+
+### What landed
+1. **Production-grade `router.yaml`**:
+   - Removed paid-tier-only features that triggered "license violation" on the free self-hosted binary (`authentication.router.jwt`, `limits.max_depth/height/aliases`, advanced telemetry spans).
+   - JWT verification moves to each subgraph (where it already runs). The router stays as a thin, free federation gateway: composition, planning, header propagation, CORS, traffic shaping, JSON-to-journald logs.
+   - Health probe on `127.0.0.1:8088/health` for nginx.
+
+2. **Deploy artefacts** at `/app/graphql/deploy/`:
+   - `systemd/coreflux-subgraph-coreflux.service`
+   - `systemd/coreflux-subgraph-jobdiva.service`
+   - `systemd/coreflux-router.service` (Requires= the two subgraphs)
+   - `systemd/coreflux-mcp.service` (HTTP transport, Requires= router)
+   - `nginx/coreflux-graphql.conf` (`/graphql` → router, `/mcp` → MCP, `/healthz/graphql` internal-only probe)
+   - `etc/graphql.env.example` (single env file shared by every unit)
+   - `DEPLOYMENT.md` (one-time host prep, deploy step, rotation/rollback recipes)
+
+3. **JWKS-from-shared-secret tool**: `/app/scripts/generate_jwks.sh` —
+   the prod config no longer uses it (since auth moved to subgraphs)
+   but the script is kept and tested for future re-enabling if/when
+   we upgrade to a paid GraphOS tier.
+
+4. **Live MCP-through-router e2e** (`tests/graphql_mcp_router_smoke.php`):
+   Boots mock-php → coreflux subgraph → jobdiva subgraph → Apollo Router
+   → MCP server (HTTP) and proves an MCP `tools/call coreflux_placement(id:"17")`
+   returns the merged federated payload (placement.title from coreflux,
+   jobDiva.job.title from jobdiva subgraph, all stitched).
+
+5. **Prod config smoke** (`tests/graphql_router_prod_config_smoke.php`):
+   Boots the Apollo Router with the production `router.yaml` directly
+   to verify the YAML parses, the binary boots, the listener accepts
+   queries, the health endpoint responds, and introspection works.
+
+### Smoke teardown fix
+Both new e2e tests now use a two-phase teardown (SIGTERM children →
+sleep 300ms → SIGKILL the process group). The old `proc_terminate($p, 9)`
+leaked grandchildren when run back-to-back in the suite.
+
+### Tests
+- New: `tests/graphql_mcp_router_smoke.php` (24 assertions, MCP → router → subgraphs).
+- New: `tests/graphql_router_prod_config_smoke.php` (7 assertions, prod config validation).
+- Full suite: **264/264 ✅** (was 262; +2 new).
+
+### Files of reference
+- `/app/graphql/router/router.yaml` (production, free-tier-clean)
+- `/app/graphql/router/router.smoke.yaml` (smoke-only, no auth/CORS)
+- `/app/graphql/deploy/DEPLOYMENT.md`
+- `/app/graphql/deploy/systemd/*.service`
+- `/app/graphql/deploy/nginx/coreflux-graphql.conf`
+- `/app/graphql/deploy/etc/graphql.env.example`
+- `/app/scripts/generate_jwks.sh`
+- `/app/tests/graphql_mcp_router_smoke.php`
+- `/app/tests/graphql_router_prod_config_smoke.php`
+
+### Production status
+The deploy surface is ready to ship to Cloudways. The next pushable
+artefacts are:
+1. Run `bash /app/graphql/deploy/scripts/...` (TODO: a `deploy.sh`
+   that wraps the rsync + yarn build + supergraph compose sequence
+   from `DEPLOYMENT.md` into one command).
+2. Cloudways admin: install systemd units, drop nginx include, reload.
+3. Cutover: flip the dashboard's GraphQL endpoint from the legacy
+   placeholder to `/graphql` — but only after the JobDiva subgraph's
+   `Placement.jobDiva` resolver has been validated against real
+   `external_entity_mappings` data (currently only fixture-tested).
+

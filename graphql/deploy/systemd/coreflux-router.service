@@ -1,0 +1,37 @@
+[Unit]
+Description=CoreFlux GraphQL — Apollo Router
+After=network-online.target coreflux-subgraph-coreflux.service coreflux-subgraph-jobdiva.service
+Wants=network-online.target
+Requires=coreflux-subgraph-coreflux.service coreflux-subgraph-jobdiva.service
+
+[Service]
+Type=simple
+User=coreflux
+Group=coreflux
+WorkingDirectory=/opt/coreflux/graphql/router
+EnvironmentFile=/etc/coreflux/graphql.env
+ExecStart=/usr/local/bin/router \
+  --config /opt/coreflux/graphql/router/router.yaml \
+  --supergraph /opt/coreflux/graphql/router/supergraph.graphql \
+  --log info \
+  --anonymous-telemetry-disabled
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+# Router needs more headroom — composition + planning are CPU-heavy.
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateTmp=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

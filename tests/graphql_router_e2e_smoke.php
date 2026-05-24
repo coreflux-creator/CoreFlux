@@ -85,7 +85,22 @@ echo "Ports: php={$portPHP} coreflux={$portCF} jobdiva={$portJD} router={$portRo
 $procs = [];
 register_shutdown_function(function () use (&$procs) {
     foreach ($procs as $p) {
-        if (is_resource($p)) { @proc_terminate($p, 9); @proc_close($p); }
+        if (!is_resource($p)) continue;
+        $st = @proc_get_status($p);
+        $pid = $st['pid'] ?? 0;
+        if ($pid > 0) {
+            @shell_exec("pkill -TERM -P {$pid} 2>/dev/null; kill -TERM {$pid} 2>/dev/null");
+        }
+    }
+    usleep(300_000);
+    foreach ($procs as $p) {
+        if (!is_resource($p)) continue;
+        $st = @proc_get_status($p);
+        $pid = $st['pid'] ?? 0;
+        if ($pid > 0) {
+            @shell_exec("pkill -KILL -P {$pid} 2>/dev/null; kill -KILL {$pid} 2>/dev/null");
+        }
+        @proc_close($p);
     }
 });
 

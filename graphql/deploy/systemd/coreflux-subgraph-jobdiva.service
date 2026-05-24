@@ -1,0 +1,29 @@
+[Unit]
+Description=CoreFlux GraphQL — jobdiva subgraph (Node)
+After=network-online.target php8.2-fpm.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=coreflux
+Group=coreflux
+WorkingDirectory=/opt/coreflux/graphql/subgraph-jobdiva
+EnvironmentFile=/etc/coreflux/graphql.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateTmp=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

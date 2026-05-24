@@ -1,0 +1,30 @@
+[Unit]
+Description=CoreFlux GraphQL — coreflux subgraph (Node)
+After=network-online.target php8.2-fpm.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=coreflux
+Group=coreflux
+WorkingDirectory=/opt/coreflux/graphql/subgraph-coreflux
+EnvironmentFile=/etc/coreflux/graphql.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+# Hardening — read-only fs, no privilege escalation, no /tmp writes.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateTmp=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

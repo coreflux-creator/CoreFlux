@@ -1,0 +1,30 @@
+[Unit]
+Description=CoreFlux GraphQL MCP Server (HTTP transport for remote agents)
+After=network-online.target coreflux-router.service
+Wants=network-online.target
+Requires=coreflux-router.service
+
+[Service]
+Type=simple
+User=coreflux
+Group=coreflux
+WorkingDirectory=/opt/coreflux/graphql/mcp-server
+EnvironmentFile=/etc/coreflux/graphql.env
+Environment="MCP_TRANSPORT=http"
+Environment="MCP_HTTP_PORT=4100"
+Environment="ROUTER_URL=http://127.0.0.1:4000/"
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

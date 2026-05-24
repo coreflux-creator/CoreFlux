@@ -1,46 +1,61 @@
-# Apollo Router config — CoreFlux federation gateway.
-# Spec: https://www.apollographql.com/docs/router/configuration/overview
+# Apollo Router — PRODUCTION config (self-hosted, free tier).
+#
+# Auth/limits architecture
+# ------------------------
+# Apollo Router's free tier excludes some features that require GraphOS:
+#   - authentication.router.jwt     (JWT verification at gateway)
+#   - limits.max_depth / max_height (operation limits)
+#   - advanced telemetry attributes
+#
+# We compensate by:
+#   - Verifying the JWT in EACH subgraph (Node, using `jsonwebtoken`).
+#   - The router forwards the Authorization header verbatim.
+#   - Depth/height limits implemented as Apollo Server plugins per subgraph.
+#
+# The router stays as a thin, free, blazing-fast federation gateway:
+# composition, query planning, response merging, header propagation, CORS.
 
 supergraph:
   listen: ${env.ROUTER_LISTEN:-0.0.0.0:4000}
-  introspection: true              # Re-evaluate before going public
+  # Introspection ON for the MCP server and dashboard schema-aware tooling.
+  introspection: true
 
-# JWT verification — same HS256 secret as the PHP backend, so a dashboard
-# session token is valid here without re-issuance.
-authentication:
-  router:
-    jwt:
-      jwks:
-        - url: "file:///etc/jwks.json"   # populated at deploy from JWT_SECRET
-      header_name: "Authorization"
-      header_value_prefix: "Bearer"
-      on_error: Error                    # 401 instead of letting unauth queries through
-
-# Pass extracted claims through to subgraphs as a signed header so they
-# don't have to re-verify the JWT. Each subgraph trusts this header
-# because the only path to reach it is via the router (no public ports).
+# Forward Authorization (and tracing headers) to every subgraph. Each
+# subgraph runs its own JWT verifier with the same JWT_SECRET, so the
+# auth model is "one secret, verified once per request per subgraph".
 headers:
   all:
     request:
       - propagate:
           named: "authorization"
-      - insert:
-          name: "x-coreflux-tenant"
-          from_context: "tenant_id"
-      - insert:
-          name: "x-coreflux-user"
-          from_context: "user_id"
-      - insert:
-          name: "x-coreflux-roles"
-          from_context: "roles"
+      - propagate:
+          named: "x-request-id"
+      - propagate:
+          named: "traceparent"
+      - propagate:
+          named: "tracestate"
 
-# Read tenant_id / user_id / roles from the verified JWT claims into the
-# router's per-request context. Names match what the PHP backend signs.
-rhai:
-  scripts: /dist/rhai
-  main: main.rhai
+# CORS — locked to the production dashboard origin and local dev.
+cors:
+  origins:
+    - https://corefluxapp.com
+    - https://www.corefluxapp.com
+    - http://localhost:3000
+    - http://localhost:5173
+  allow_credentials: true
+  allow_headers:
+    - "Authorization"
+    - "Content-Type"
+    - "x-request-id"
+    - "apollo-require-preflight"
 
-# Conservative timeouts — JobDiva REST occasionally takes 3-5s under load.
+# Surface subgraph errors for the dashboard's debug overlay.
+include_subgraph_errors:
+  all: true
+
+# Conservative timeouts. JobDiva REST occasionally takes 3-5s under load
+# so 15s gives DataLoader-batched fan-outs room. The router-level 30s
+# cap stops runaway federated plans.
 traffic_shaping:
   router:
     timeout: 30s
@@ -48,23 +63,14 @@ traffic_shaping:
     timeout: 15s
     deduplicate_query: true
 
-# Response cache — opportunistic only. Each subgraph still owns its own
-# DataLoader-based per-request batching; this just helps when the same
-# placement is queried twice within a minute by different dashboard tabs.
-preview_entity_cache:
+# Health check at /health for nginx upstream probes.
+health_check:
+  listen: 127.0.0.1:8088
   enabled: true
-  subgraph:
-    all:
-      enabled: true
-      ttl: 60s
 
-# CORS — dashboard is on the same domain in prod, this matters for local dev.
-cors:
-  origins:
-    - https://corefluxapp.com
-    - http://localhost:3000
-  allow_credentials: true
-
+# Telemetry — JSON to stdout for journald to capture. Plug in an OTLP
+# collector by uncommenting the otlp exporter and pointing it at
+# Jaeger/Tempo. (Advanced span attributes are paid; the defaults are free.)
 telemetry:
   exporters:
     logging:
@@ -73,9 +79,4 @@ telemetry:
         format: json
   instrumentation:
     spans:
-      router:
-        attributes:
-          tenant_id:
-            request_context: tenant_id
-          user_id:
-            request_context: user_id
+      mode: spec_compliant
