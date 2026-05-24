@@ -461,6 +461,9 @@ function FieldMapEditor({ integration, entityType, payload }) {
                   padding: '4px 8px', borderRadius: 4 }}>
         These mappings are <strong>tenant-wide</strong> — they apply to every {integration} {entityType} record, not just this one.
         This record&apos;s raw payload (below) is shown here only so you can copy real field names into the mapping.
+        {entityType === 'placement' && (
+          <> Mapping <code>bill_rate</code> / <code>pay_rate</code> / <code>currency</code> writes to the <code>placement_rates</code> table; everything else writes to <code>placements</code>.</>
+        )}
       </p>
 
       {loading && <p data-testid="field-map-loading" style={{ fontSize: 11, color: '#64748b', margin: 0 }}>Loading mappings…</p>}

@@ -816,6 +816,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'ti'    => $title,
             'id'    => $existingId,
         ]);
+        jobdivaSyncUpsertPlacementRates($tid, $existingId, $startDate, $jd);
         return $existingId;
     }
     $pdo->prepare(
@@ -845,7 +846,159 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         'cae'   => $approverEmail ?: null,
         'ti'    => $title,
     ]);
-    return (int) $pdo->lastInsertId();
+    $placementId = (int) $pdo->lastInsertId();
+    jobdivaSyncUpsertPlacementRates($tid, $placementId, $startDate, $jd);
+    return $placementId;
+}
+
+/**
+ * Cross-table writer for the current `placement_rates` row.
+ *
+ * The field-map registry surfaces bill_rate / pay_rate / currency / etc.
+ * under entity_type='placement' (matches the operator's mental model —
+ * JobDiva's Assignment screen shows rates alongside the placement) but
+ * the schema separates them out so we can track rate history per
+ * placement. This helper writes the CURRENT row (effective_to IS NULL).
+ *
+ * Resolution order per field:
+ *   1. tenant_integration_field_map override (if the tenant configured one)
+ *   2. Built-in JobDiva candidate-key fallback (covers the V2 payload
+ *      keys observed in this user's pod: `final bill rate`,
+ *      `agreed pay rate`, `bill rate currency/unit`, etc.)
+ *   3. Sensible default (USD, hour, 1.50 OT, 2.00 DT)
+ *
+ * Skipped (returns false) when bill_rate resolves to a non-numeric / 0
+ * — placements without a rate (e.g. direct-hire) should NOT create
+ * placeholder rows; users can fix manually.
+ */
+function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $startDate, array $jd): bool
+{
+    require_once __DIR__ . '/../integrations/field_map.php';
+    $pdo = getDB();
+
+    // -- Resolve every rate field via the registry, with JobDiva-native
+    //    default-key candidate lists shaped to the V2 BI payload.
+    $billRateRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'bill_rate', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'final bill rate', 'finalBillRate', 'final_bill_rate',
+            'bill rate', 'billRate', 'bill_rate',
+            'quoted bill rate', 'quotedBillRate',
+        ])
+    );
+    $billRate = is_numeric($billRateRaw) ? (float) $billRateRaw : 0.0;
+    if ($billRate <= 0) {
+        // No rate present — placement is rate-less (direct hire,
+        // perm placement, etc). Skip writing a rate row so we don't
+        // pollute placement_rates with zero-valued placeholders.
+        return false;
+    }
+
+    $payRateRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'pay_rate', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'agreed pay rate', 'agreedPayRate', 'agreed_pay_rate',
+            'pay rate', 'payRate', 'pay_rate',
+        ])
+    );
+    // pay_rate is NOT NULL on the schema — if JobDiva didn't supply
+    // one, mirror bill_rate (overrideable by the operator later).
+    $payRate = is_numeric($payRateRaw) ? (float) $payRateRaw : $billRate;
+
+    // Coerce 'h' / 'hourly' / 'USD/Hour' / etc. to the ENUM values.
+    // Per-rate units may differ (e.g. day rate + hourly OT) but the
+    // ENUM is `hour|day|week|month|project` per the schema.
+    $coerceUnit = static function (string $raw): string {
+        $s = strtolower(trim($raw));
+        if ($s === '' || $s === 'h' || str_contains($s, 'hour')) return 'hour';
+        if (str_contains($s, 'day'))     return 'day';
+        if (str_contains($s, 'week'))    return 'week';
+        if (str_contains($s, 'month'))   return 'month';
+        if (str_contains($s, 'project') || str_contains($s, 'fixed')) return 'project';
+        return 'hour';
+    };
+    $billRateUnit = $coerceUnit((string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'bill_rate_unit', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'final bill rate unit', 'bill rate currency/unit', 'billRateUnit', 'bill_rate_unit',
+        ])
+    ));
+    $payRateUnit = $coerceUnit((string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'pay_rate_unit', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'pay rate currency/unit', 'payRateUnit', 'pay_rate_unit', 'hourly unit',
+        ])
+    ));
+
+    // Currency: extract from "USD/Hour" style strings if needed.
+    $currencyRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'currency', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'currency', 'final bill rate currency', 'hourly currency',
+        ])
+    );
+    if ($currencyRaw === '') $currencyRaw = 'USD';
+    if (preg_match('/\b([A-Z]{3})\b/', strtoupper($currencyRaw), $m)) {
+        $currency = $m[1];
+    } else {
+        $currency = strtoupper(substr($currencyRaw, 0, 3));
+    }
+    if (strlen($currency) !== 3) $currency = 'USD';
+
+    $otRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'ot_multiplier', $jd,
+        static fn() => jobdivaPluckField($jd, ['ot_multiplier', 'otMultiplier', 'overtime_multiplier'])
+    );
+    $dtRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'dt_multiplier', $jd,
+        static fn() => jobdivaPluckField($jd, ['dt_multiplier', 'dtMultiplier', 'doubletime_multiplier'])
+    );
+    $otMul = is_numeric($otRaw) ? (float) $otRaw : 1.50;
+    $dtMul = is_numeric($dtRaw) ? (float) $dtRaw : 2.00;
+
+    // Locate the current rate row (effective_to IS NULL). If multiple
+    // exist (data anomaly), update the most recent one.
+    $existing = $pdo->prepare(
+        'SELECT id FROM placement_rates
+          WHERE tenant_id = :t AND placement_id = :p AND effective_to IS NULL
+          ORDER BY effective_from DESC, id DESC LIMIT 1'
+    );
+    $existing->execute(['t' => $tid, 'p' => $placementId]);
+    $rateId = (int) $existing->fetchColumn();
+
+    if ($rateId > 0) {
+        // tenant-leak-allow: id was just fetched under tenant scope above
+        $pdo->prepare(
+            'UPDATE placement_rates
+                SET bill_rate = :br, bill_rate_unit = :bru,
+                    pay_rate  = :pr, pay_rate_unit  = :pru,
+                    currency  = :cur,
+                    ot_multiplier = :ot, dt_multiplier = :dt
+              WHERE id = :id'
+        )->execute([
+            'br'  => $billRate, 'bru' => $billRateUnit,
+            'pr'  => $payRate,  'pru' => $payRateUnit,
+            'cur' => $currency,
+            'ot'  => $otMul, 'dt' => $dtMul,
+            'id'  => $rateId,
+        ]);
+        return true;
+    }
+
+    $pdo->prepare(
+        'INSERT INTO placement_rates
+            (tenant_id, placement_id, effective_from, bill_rate, bill_rate_unit,
+             pay_rate, pay_rate_unit, currency, ot_multiplier, dt_multiplier)
+         VALUES (:t, :p, :ef, :br, :bru, :pr, :pru, :cur, :ot, :dt)'
+    )->execute([
+        't'   => $tid, 'p'   => $placementId,
+        'ef'  => $startDate !== '' ? $startDate : date('Y-m-d'),
+        'br'  => $billRate, 'bru' => $billRateUnit,
+        'pr'  => $payRate,  'pru' => $payRateUnit,
+        'cur' => $currency,
+        'ot'  => $otMul, 'dt' => $dtMul,
+    ]);
+    return true;
 }
 
 function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array

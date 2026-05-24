@@ -57,6 +57,7 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
     //     omitted — they should never come from an external sync.
     static $map = [
         'placement' => [
+            // -- placements table (one-row-per-engagement) --
             // Identity / lifecycle
             'external_id', 'title', 'status',
             // Dates
@@ -72,6 +73,17 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             // Approval-flow toggles
             'tokenized_email_approval_enabled',
             'bulk_uploads_can_be_pre_approved',
+
+            // -- placement_rates table (cross-table — the syncer
+            //    routes these via jobdivaSyncUpsertPlacementRates).
+            //    Surfacing them under the 'placement' entity_type
+            //    matches the operator's mental model: from JobDiva's
+            //    Assignment screen, bill/pay rate live on the
+            //    placement, not in a separate table.
+            'bill_rate', 'bill_rate_unit',
+            'pay_rate',  'pay_rate_unit',
+            'currency',
+            'ot_multiplier', 'dt_multiplier',
         ],
         'person' => [
             // Identity
