@@ -321,6 +321,13 @@ function FieldMapEditor({ integration, entityType, payload }) {
   const allowed    = data?.allowed_internal_fields?.[entityType] || [];
   const transforms = data?.transforms || ['none'];
   const migrationPending = !!data?.migration_pending;
+  // Heuristic — internal fields whose name ends with `_date` or starts
+  // with `date_` are the legitimate targets for `date_normalise`. Used
+  // to flag the "footgun" config of applying `date_normalise` to a
+  // text column like `end_client_name` (observed in prod 2026-02:
+  // `customer name → end_client_name` with date_normalise was nuking
+  // the value to NULL because "Public Storage" isn't a date).
+  const isDateField = (f) => /(^date_|_date$|_at$|_from$|_to$)/i.test(f);
   const [migrating, setMigrating] = useState(false);
   const [migrateMsg, setMigrateMsg] = useState(null);
   const [flushing, setFlushing] = useState(false);
@@ -600,7 +607,20 @@ function FieldMapEditor({ integration, entityType, payload }) {
                         {transforms.map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                     ) : (
-                      <span style={{ fontSize: 11, color: '#475569' }}>{r.transform || 'none'}</span>
+                      <span style={{ fontSize: 11, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        {r.transform || 'none'}
+                        {r.transform === 'date_normalise' && !isDateField(r.internal_field) && (
+                          <span
+                            data-testid={`field-map-transform-warn-${r.internal_field}`}
+                            title="date_normalise will discard non-date values (e.g. 'Public Storage' → null). Edit and switch to 'none' or 'trim'."
+                            style={{
+                              background: '#fef3c7', border: '1px solid #fde68a',
+                              color: '#92400e', borderRadius: 3, padding: '0 4px',
+                              fontSize: 10, fontWeight: 700,
+                            }}
+                          >!</span>
+                        )}
+                      </span>
                     )}
                   </td>
                   <td style={{ ...cellStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>

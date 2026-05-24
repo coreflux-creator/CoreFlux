@@ -322,10 +322,29 @@ function tenantIntegrationFieldMapApplyTransform(mixed $value, string $transform
         case 'dollars_to_cents':
             return is_numeric($value) ? (int) round(((float) $value) * 100) : $value;
         case 'date_normalise':
+            // jobdivaNormaliseDate() returns null when the input isn't
+            // parseable as a date (epoch ms, ISO, m/d/Y). Returning null
+            // here silently nukes the value — which is a footgun when an
+            // operator mis-targets the transform onto a non-date column
+            // (e.g. mapping `customer name` → `end_client_name` with
+            // `date_normalise` selected from the dropdown by mistake;
+            // observed 2026-02 on Andrew Lee's placement where the end
+            // client kept showing "(no end client)" because "Public
+            // Storage" was being parsed as a date and discarded).
+            //
+            // Defensive contract: if the value clearly LOOKS like a date
+            // (epoch-ms digits, or jobdivaNormaliseDate returns non-null)
+            // we apply the transform. Otherwise we return the trimmed
+            // original so the column still gets the operator-intended
+            // value. The UI surfaces a warning so this doesn't become
+            // an invisible silent-fallback.
             if (function_exists('jobdivaNormaliseDate')) {
-                return jobdivaNormaliseDate($value);
+                $normalised = jobdivaNormaliseDate($value);
+                if ($normalised !== null) return $normalised;
             }
-            return $value;
+            // Fallback — input doesn't look like a date; preserve the
+            // raw string trimmed (better than dropping the value).
+            return $s !== null ? trim($s) : $value;
         default:
             return $value;
     }

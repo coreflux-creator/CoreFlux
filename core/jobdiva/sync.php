@@ -581,11 +581,51 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
                 }
             }
 
-            // Optional end-client company.
+            // End-client company resolution. JobDiva's V2 BI payload
+            // surfaces the end client via TWO key shapes (and the
+            // distinction matters for some tenants):
+            //
+            //   • `companyId`              — JobDiva "company" entity id
+            //     (Companies tab in JobDiva). Some tenants use this.
+            //   • `customer id` + `customer name`  — JobDiva "customer"
+            //     entity id (Customers tab). Most placements observed
+            //     in this user's pod use this shape; `companyId` is
+            //     absent. The customer IS the end client for staffing
+            //     placements — Public Storage in the Andrew Lee example.
+            //
+            // Resolution chain (first hit wins):
+            //   1. Existing `external_entity_mappings` row of kind
+            //      'company' for `companyId`.
+            //   2. Existing `external_entity_mappings` row of kind
+            //      'jobdiva_customer' for `customer id`.
+            //   3. NEW — auto-create a CoreFlux `companies` row from
+            //      `customer name`, bind the mapping, and use it. This
+            //      unblocks the "(no end client)" badge that's been
+            //      showing on every JobDiva-synced placement, and lets
+            //      the operator merge / rename the company later in the
+            //      Companies UI without losing the mapping.
             $endClientCompanyId = null;
             if ($companyExtId !== '') {
                 $cm = mappingFindInternal($tid, 'jobdiva', 'company', $companyExtId);
                 if ($cm) $endClientCompanyId = (int) $cm['internal_entity_id'];
+            }
+            if ($endClientCompanyId === null) {
+                $customerExtId = jobdivaPluckField($jd, [
+                    'customerId', 'customer_id', 'customer id', 'clientId', 'client_id',
+                ]);
+                $customerName  = jobdivaPluckField($jd, [
+                    'customerName', 'customer_name', 'customer name', 'clientName', 'client_name',
+                ]);
+                if ($customerExtId !== '') {
+                    $cm = mappingFindInternal($tid, 'jobdiva', 'jobdiva_customer', $customerExtId);
+                    if ($cm) {
+                        $endClientCompanyId = (int) $cm['internal_entity_id'];
+                    } elseif ($customerName !== '') {
+                        $endClientCompanyId = jobdivaResolveOrAutoCreateEndClient(
+                            $tid, $customerExtId, $customerName, $userId, $jd
+                        );
+                    }
+                }
             }
 
             $internalId = jobdivaSyncUpsertPlacement($tid, $personId, $endClientCompanyId, $jd, $extId);
@@ -621,6 +661,56 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
         'channel'      => $channel,
         'skip_reasons' => $skipReasons,
     ];
+}
+
+/**
+ * Resolve OR auto-create the CoreFlux companies row that backs a JobDiva
+ * customer entity. Binds the resulting (jobdiva_customer, ext_id) →
+ * companies.id mapping so subsequent syncs short-circuit.
+ *
+ * Auto-create path is intentionally minimal — name only, no
+ * legal_name / DUNS / EIN. Operators can enrich the company record in
+ * the Companies UI; the mapping persists across edits so a later JobDiva
+ * resync won't create a duplicate. If a company with the same name
+ * already exists for this tenant (case-insensitive), we bind to that
+ * one instead of creating a dupe — common when the operator created
+ * "Public Storage" manually before the first sync ran.
+ *
+ * Returns null only when the auto-create itself fails (e.g. DB outage)
+ * — in normal operation it always returns a positive integer.
+ */
+function jobdivaResolveOrAutoCreateEndClient(
+    int $tid,
+    string $customerExtId,
+    string $customerName,
+    ?int $userId,
+    array $payload
+): ?int {
+    $pdo = getDB();
+    $customerName = trim($customerName);
+    if ($customerName === '') return null;
+
+    // Existing company with this name? Bind to it instead of duping.
+    $stmt = $pdo->prepare(
+        'SELECT id FROM companies
+          WHERE tenant_id = :t AND LOWER(name) = LOWER(:n) AND deleted_at IS NULL
+          LIMIT 1'
+    );
+    $stmt->execute(['t' => $tid, 'n' => $customerName]);
+    $existingId = (int) $stmt->fetchColumn();
+
+    if ($existingId > 0) {
+        mappingUpsert($tid, 'jobdiva', 'jobdiva_customer', $customerExtId, $existingId, $payload, 'pull', $userId);
+        return $existingId;
+    }
+
+    // Auto-create.
+    $pdo->prepare(
+        'INSERT INTO companies (tenant_id, name) VALUES (:t, :n)'
+    )->execute(['t' => $tid, 'n' => $customerName]);
+    $newId = (int) $pdo->lastInsertId();
+    mappingUpsert($tid, 'jobdiva', 'jobdiva_customer', $customerExtId, $newId, $payload, 'pull', $userId);
+    return $newId;
 }
 
 function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientCompanyId, array $jd, string $extId): int
