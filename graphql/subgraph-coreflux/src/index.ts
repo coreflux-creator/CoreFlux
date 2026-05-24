@@ -183,32 +183,32 @@ function shapeCompany(row: any): any {
 const resolvers = {
   Query: {
     async placement(_: unknown, { id }: { id: string }, ctx: TenantContext) {
-      const row = await ctx.api(`/api/placements/${encodeURIComponent(id)}`);
+      const row = await ctx.api(`/api/placements/placements?id=${encodeURIComponent(id)}`);
       return shapePlacement(row?.placement ?? row);
     },
     async placements(_: unknown, args: { personId?: string; status?: string; limit?: number }, ctx: TenantContext) {
       const q = new URLSearchParams();
       if (args.personId) q.set('person_id', args.personId);
       if (args.status)   q.set('status', args.status);
-      if (args.limit)    q.set('limit', String(args.limit));
-      const body = await ctx.api(`/api/placements?${q.toString()}`);
-      return (body?.rows ?? body ?? []).map(shapePlacement);
+      if (args.limit)    q.set('per_page', String(args.limit));
+      const body = await ctx.api(`/api/placements/placements?${q.toString()}`);
+      return (body?.rows ?? body?.placements ?? body ?? []).map(shapePlacement);
     },
     async person(_: unknown, { id }: { id: string }, ctx: TenantContext) {
-      const row = await ctx.api(`/api/people/${encodeURIComponent(id)}`);
+      const row = await ctx.api(`/api/people/people?id=${encodeURIComponent(id)}`);
       return shapePerson(row?.person ?? row);
     },
     async people(_: unknown, { limit = 50 }: { limit?: number }, ctx: TenantContext) {
-      const body = await ctx.api(`/api/people?limit=${limit}`);
-      return (body?.rows ?? body ?? []).map(shapePerson);
+      const body = await ctx.api(`/api/people/people?per_page=${limit}`);
+      return (body?.rows ?? body?.people ?? body ?? []).map(shapePerson);
     },
     async company(_: unknown, { id }: { id: string }, ctx: TenantContext) {
-      const row = await ctx.api(`/api/companies/${encodeURIComponent(id)}`);
+      const row = await ctx.api(`/api/people/companies?id=${encodeURIComponent(id)}`);
       return shapeCompany(row?.company ?? row);
     },
     async companies(_: unknown, { limit = 50 }: { limit?: number }, ctx: TenantContext) {
-      const body = await ctx.api(`/api/companies?limit=${limit}`);
-      return (body?.rows ?? body ?? []).map(shapeCompany);
+      const body = await ctx.api(`/api/people/companies?per_page=${limit}`);
+      return (body?.rows ?? body?.companies ?? body ?? []).map(shapeCompany);
     },
   },
 
@@ -216,25 +216,25 @@ const resolvers = {
   // canonical types by @key.
   Placement: {
     __resolveReference: async (ref: { id: string }, ctx: TenantContext) => {
-      const row = await ctx.api(`/api/placements/${encodeURIComponent(ref.id)}`);
+      const row = await ctx.api(`/api/placements/placements?id=${encodeURIComponent(ref.id)}`);
       return shapePlacement(row?.placement ?? row);
     },
     async externalMappings(parent: any, _: unknown, ctx: TenantContext) {
       const body = await ctx.api(
-        `/api/integrations/external_mappings.php?internal_entity_type=placement&internal_entity_id=${parent.id}`
+        `/api/integrations/mappings.php?action=list_for_internal&entity_type=placement&internal_id=${parent.id}`
       );
-      return (body?.rows ?? []).map((r: any) => ({
+      return (body?.rows ?? body?.mappings ?? []).map((r: any) => ({
         sourceSystem: r.source_system,
-        kind: r.kind,
+        kind: r.internal_entity_type ?? r.kind ?? 'placement',
         externalId: r.external_id,
-        direction: r.direction,
+        direction: r.direction ?? null,
         payloadSnapshot: r.payload_snapshot ?? null,
-        lastSyncedAt: r.updated_at ?? r.created_at,
+        lastSyncedAt: r.last_synced_at ?? r.updated_at ?? r.created_at ?? null,
       }));
     },
     async rates(parent: any, _: unknown, ctx: TenantContext) {
-      const body = await ctx.api(`/api/placements/${parent.id}/rates`);
-      const cur = body?.current ?? body;
+      const body = await ctx.api(`/api/placements/placements?id=${encodeURIComponent(parent.id)}`);
+      const cur = body?.current_rate ?? null;
       if (!cur) return null;
       return {
         billRate: cur.bill_rate,
@@ -251,22 +251,22 @@ const resolvers = {
   },
   Person: {
     __resolveReference: async (ref: { id: string }, ctx: TenantContext) => {
-      const row = await ctx.api(`/api/people/${encodeURIComponent(ref.id)}`);
+      const row = await ctx.api(`/api/people/people?id=${encodeURIComponent(ref.id)}`);
       return shapePerson(row?.person ?? row);
     },
     async placements(parent: any, _: unknown, ctx: TenantContext) {
-      const body = await ctx.api(`/api/placements?person_id=${parent.id}`);
-      return (body?.rows ?? []).map(shapePlacement);
+      const body = await ctx.api(`/api/placements/placements?person_id=${parent.id}`);
+      return (body?.rows ?? body?.placements ?? []).map(shapePlacement);
     },
   },
   Company: {
     __resolveReference: async (ref: { id: string }, ctx: TenantContext) => {
-      const row = await ctx.api(`/api/companies/${encodeURIComponent(ref.id)}`);
+      const row = await ctx.api(`/api/people/companies?id=${encodeURIComponent(ref.id)}`);
       return shapeCompany(row?.company ?? row);
     },
     async placements(parent: any, _: unknown, ctx: TenantContext) {
-      const body = await ctx.api(`/api/placements?end_client_company_id=${parent.id}`);
-      return (body?.rows ?? []).map(shapePlacement);
+      const body = await ctx.api(`/api/placements/placements?end_client=${parent.id}`);
+      return (body?.rows ?? body?.placements ?? []).map(shapePlacement);
     },
   },
 };

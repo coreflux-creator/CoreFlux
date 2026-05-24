@@ -7423,3 +7423,90 @@ The PHP CLI binaries had been wiped from the sandbox at session start
 php8.2-mbstring`. This is the same recurring issue documented in the
 handoff. PHP 8.2.31 confirmed.
 
+
+---
+
+## 2026-02 · GraphQL Federation Phase 1 + Agentic-AI MCP Server ✅
+
+### Why
+Per the user pivot: integrations no longer evolve via brittle
+`tenant_integration_field_map` rows in the UI; each integration ships
+its own typed GraphQL subgraph and the AI agents talk to a single
+federated graph. Foundation for Apollo-platform Agentic AI.
+
+### What landed
+1. **PHP HMAC bridge** — two new endpoints that let Node subgraphs
+   talk to CoreFlux without duplicating PDO/auth/encryption:
+   - `/api/internal/jobdiva_proxy.php` — HMAC-signed forwarder to
+     `jobdivaCall()` (path allowlisted to `/apiv2/jobdiva/*`).
+   - `/api/internal/mappings_lookup.php` — `find_external_by_internal`
+     / `find_internal_by_external` against `external_entity_mappings`.
+   Both gated on `INTERNAL_HMAC_SECRET` (env), with 60s timestamp
+   freshness window and path/op allowlists.
+
+2. **CoreFlux subgraph** (`/app/graphql/subgraph-coreflux`) — fully
+   wired. Resolvers proxy to the existing PHP REST API at the actual
+   paths (`/api/placements/placements?id=N`, `/api/people/people?id=N`,
+   `/api/people/companies?id=N`, `/api/integrations/mappings.php`).
+   Owns canonical `Placement`, `Person`, `Company`, `PlacementRates`,
+   `ExternalMapping`. Federation `__resolveReference` implemented for
+   every `@key` type so other subgraphs can extend by id.
+
+3. **JobDiva subgraph** (`/app/graphql/subgraph-jobdiva`) — fully
+   wired. `src/client.ts` calls the PHP bridge; `src/loaders.ts` adds
+   DataLoader-based per-request batching with the same soft-fail-per-
+   endpoint behaviour as `jobdivaSyncEnrichRelatedEntities()`. Field
+   pluck/shape logic mirrors the PHP enricher 1:1 so AI agents see
+   the same fields the dashboard sees. `Placement.jobDiva` resolver
+   maps `placement_id → start_id` via the mappings bridge then loads
+   the Start row through the DataLoader.
+
+4. **Supergraph composition** (`/app/graphql/router/compose.mjs`) —
+   uses `@apollo/composition` (npm) instead of the rover Rust binary,
+   so it composes natively in CI without extra installs. Produces
+   `router/supergraph.graphql`.
+
+5. **GraphQL MCP server** (`/app/graphql/mcp-server`) — Model-Context-
+   Protocol server using `@modelcontextprotocol/sdk`. Two transports:
+   - **stdio** (default) — Claude Desktop / Cursor / local agents.
+   - **HTTP/SSE** (`MCP_TRANSPORT=http`, port 4100) — remote agents,
+     session-aware via `Mcp-Session-Id`.
+   Exposes 4 tools: `coreflux_query` (escape hatch), `coreflux_introspect`,
+   `coreflux_placement` (single placement + jobDiva enrichment in one
+   shot), `coreflux_placements` (list with filters). Tools are
+   intentionally coarse-grained — dozens of fine-grained tools overflow
+   model context windows.
+
+### Tests
+- New `/app/tests/internal_hmac_bridge_smoke.php` — 9 assertions
+  covering HMAC verification, timestamp freshness, path/op allowlists,
+  secret-unset → 503 fail-safe. Spins up `php -S` on a free port.
+- New `/app/tests/graphql_federation_smoke.php` — 31 assertions
+  covering: layout, TypeScript builds, supergraph composition, both
+  subgraphs serving introspection + `_service { sdl }`, MCP server
+  responding to `initialize` over stdio.
+- **Full smoke suite: 261/261 ✅** (was 252; no regressions, +9 new).
+
+### Tech-stack addition
+**Node.js + Apollo Federation v2** alongside the PHP monolith. User-
+sanctioned. New surface area only — no existing PHP/React files touched.
+
+### Files of reference
+- `/app/api/internal/jobdiva_proxy.php`
+- `/app/api/internal/mappings_lookup.php`
+- `/app/graphql/router/compose.mjs` + `supergraph.graphql`
+- `/app/graphql/subgraph-coreflux/src/index.ts`
+- `/app/graphql/subgraph-jobdiva/src/{index,client,loaders}.ts`
+- `/app/graphql/mcp-server/src/index.ts`
+
+### Next up (P1)
+- Boot Apollo Router (Rust binary) in CI and exercise an end-to-end
+  federated query through it (currently the smoke test exercises the
+  subgraphs individually and the composition output, not a live router).
+- JobDiva Placements Edit (Slice 2) — `coreflux_overridden` flag.
+- Refactor JobDiva PHP cron sync into a scheduled GraphQL client.
+- Mercury Webhooks Integration.
+- Wire `mailerSend()` to Resend.
+- RBAC B2 (resolve `class RBAC` naming collision; rename to
+  `RBACResolver`, wire into `core/auth.php`).
+

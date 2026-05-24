@@ -1,0 +1,14 @@
+{
+  "name": "graphql-router",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "compose": "node compose.mjs"
+  },
+  "dependencies": {
+    "@apollo/composition": "^2.7.5",
+    "@apollo/subgraph": "^2.7.5",
+    "graphql": "^16.9.0"
+  }
+}

@@ -1,0 +1,456 @@
+schema
+  @link(url: "https://specs.apollo.dev/link/v1.0")
+  @link(url: "https://specs.apollo.dev/join/v0.4", for: EXECUTION)
+  @link(url: "https://specs.apollo.dev/tag/v0.3")
+{
+  query: Query
+}
+
+directive @join__directive(graphs: [join__Graph!], name: String!, args: join__DirectiveArguments) repeatable on SCHEMA | OBJECT | INTERFACE | FIELD_DEFINITION
+
+directive @join__enumValue(graph: join__Graph!) repeatable on ENUM_VALUE
+
+directive @join__field(graph: join__Graph, requires: join__FieldSet, provides: join__FieldSet, type: String, external: Boolean, override: String, usedOverridden: Boolean, overrideLabel: String) repeatable on FIELD_DEFINITION | INPUT_FIELD_DEFINITION
+
+directive @join__graph(name: String!, url: String!) on ENUM_VALUE
+
+directive @join__implements(graph: join__Graph!, interface: String!) repeatable on OBJECT | INTERFACE
+
+directive @join__type(graph: join__Graph!, key: join__FieldSet, extension: Boolean! = false, resolvable: Boolean! = true, isInterfaceObject: Boolean! = false) repeatable on OBJECT | INTERFACE | UNION | ENUM | INPUT_OBJECT | SCALAR
+
+directive @join__unionMember(graph: join__Graph!, member: String!) repeatable on UNION
+
+directive @link(url: String, as: String, for: link__Purpose, import: [link__Import]) repeatable on SCHEMA
+
+directive @tag(name: String!) repeatable on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION | SCHEMA
+
+type Address
+  @join__type(graph: COREFLUX)
+{
+  line1: String
+  line2: String
+  city: String
+  state: String
+  postalCode: String
+  country: String
+}
+
+type Company
+  @join__type(graph: COREFLUX, key: "id")
+{
+  id: ID!
+  name: String!
+  industry: String
+  website: String
+  phone: String
+  description: String
+  billingEmail: String
+  billingTerms: String
+  taxIdLast4: String
+  billingAddress: Address
+  placements: [Placement!]!
+}
+
+scalar Date
+  @join__type(graph: COREFLUX)
+  @join__type(graph: JOBDIVA)
+
+scalar DateTime
+  @join__type(graph: COREFLUX)
+  @join__type(graph: JOBDIVA)
+
+scalar Decimal
+  @join__type(graph: COREFLUX)
+  @join__type(graph: JOBDIVA)
+
+enum EngagementType
+  @join__type(graph: COREFLUX)
+{
+  w2 @join__enumValue(graph: COREFLUX)
+  c2c @join__enumValue(graph: COREFLUX)
+  contract_1099 @join__enumValue(graph: COREFLUX)
+  temp_to_perm @join__enumValue(graph: COREFLUX)
+  direct_hire @join__enumValue(graph: COREFLUX)
+}
+
+type ExternalMapping
+  @join__type(graph: COREFLUX)
+{
+  sourceSystem: String!
+  kind: String!
+  externalId: String!
+  direction: String
+  payloadSnapshot: JSON
+  lastSyncedAt: DateTime
+}
+
+type JobDivaAddress
+  @join__type(graph: JOBDIVA)
+{
+  line1: String
+  line2: String
+  city: String
+  state: String
+  postalCode: String
+  country: String
+}
+
+"""
+A single JobDiva Assignment ("Start") — one engagement of one candidate
+on one job for one customer. Equivalent of CoreFlux `Placement`.
+
+Source: /apiv2/jobdiva/searchStart (BI feed) + /apiv2/jobdiva/searchStart
+detail endpoint for fields the BI feed nulls out (notably payRate).
+"""
+type JobDivaAssignment
+  @join__type(graph: JOBDIVA, key: "externalId")
+{
+  """JobDiva's internal Start ID (e.g. 55811863)."""
+  externalId: ID!
+
+  """JobDiva's reference number / job ref (e.g. "26-03327")."""
+  refNumber: String
+
+  """Assignment lifecycle status as reported by JobDiva."""
+  status: String
+
+  """Human-readable status from JobDiva (e.g. "Offer Accepted")."""
+  startStatus: String
+  startDate: Date
+  endDate: Date
+
+  """Date the candidate was originally submitted to the customer."""
+  submittalDate: Date
+
+  """Date the customer scheduled an interview."""
+  interviewDate: Date
+
+  """JobDiva's "position type" string (e.g. "contract", "perm")."""
+  positionType: String
+
+  """Internal notes JobDiva attached to the assignment."""
+  internalNotes: String
+
+  """Linked Job record (drives `Placement.title` in CoreFlux)."""
+  job: JobDivaJob
+
+  """Linked Candidate record (the placed person)."""
+  candidate: JobDivaCandidate
+
+  """Linked end-client / customer record."""
+  customer: JobDivaCustomer
+
+  """Linked job contact on the customer side, when set."""
+  contact: JobDivaContact
+
+  """
+  Recruiter who placed this assignment. Mapped from JobDiva's
+  `recruited by` / `recruiterId` fields. NOT a CoreFlux user yet —
+  Phase 3 wires `placement_recruiters` to bind these.
+  """
+  recruiter: JobDivaRecruiter
+
+  """
+  Bill + pay rate detail. Falls through to /searchStart detail endpoint
+  when the BI feed nulls out payRate (default behaviour on most tenants).
+  """
+  bill: JobDivaBilling
+
+  """
+  The raw V2 BI payload JobDiva returned. Internal-only — exposed for
+  debugging when a tenant reports a field looks wrong. AI agents should
+  use typed fields above, not this.
+  """
+  rawPayload: JSON @tag(name: "internal")
+}
+
+"""
+Bill + pay rate detail for an assignment. Visible only to roles holding
+the `bill_rate.read` scope (so recruiters see assignments but not margins).
+"""
+type JobDivaBilling
+  @join__type(graph: JOBDIVA)
+{
+  """Final bill rate to the customer."""
+  rate: Decimal
+  rateUnit: String
+
+  """Pay rate to the candidate."""
+  payRate: Decimal
+  payRateUnit: String
+
+  """Currency (ISO-3) — extracted from JobDiva's "USD/Hour" style strings."""
+  currency: String
+
+  """Overtime multiplier (typically 1.5)."""
+  otMultiplier: Decimal
+
+  """Doubletime multiplier (typically 2.0)."""
+  dtMultiplier: Decimal
+}
+
+"""
+JobDiva Candidate record (the placed person). Mapped onto CoreFlux
+Person via external_entity_mappings of kind='candidate'.
+"""
+type JobDivaCandidate
+  @join__type(graph: JOBDIVA, key: "externalId")
+{
+  externalId: ID!
+  firstName: String
+  middleName: String
+  lastName: String
+
+  """
+  Display name as stored in JobDiva (may differ from firstName + lastName).
+  """
+  displayName: String
+  email: String
+  phonePrimary: String
+  phoneSecondary: String
+
+  """Free-text address as returned by JobDiva. See homeAddress for parsed."""
+  addressRaw: String
+
+  """Best-effort parsed home address (may be incomplete)."""
+  homeAddress: JobDivaAddress
+
+  """Work authorisation status JobDiva stores."""
+  workAuthStatus: String
+  workAuthExpiry: Date
+
+  """JobDiva-side flag — true if this candidate has been masked for export."""
+  redacted: Boolean
+
+  """Date the candidate was hired."""
+  hireDate: Date
+}
+
+"""
+JobDiva Contact record — a named individual on the customer's side
+(hiring manager, approver, billing contact). Mapped via
+external_entity_mappings kind='jobdiva_contact'.
+"""
+type JobDivaContact
+  @join__type(graph: JOBDIVA, key: "externalId")
+{
+  externalId: ID!
+  firstName: String
+  lastName: String
+  displayName: String
+  title: String
+  email: String
+  phone: String
+}
+
+"""
+JobDiva Customer record. Conceptually the same as CoreFlux Company
+(end-client). Mapped via external_entity_mappings kind='jobdiva_customer'.
+"""
+type JobDivaCustomer
+  @join__type(graph: JOBDIVA, key: "externalId")
+{
+  externalId: ID!
+  name: String!
+  industry: String
+  billingAddress: JobDivaAddress
+
+  """Customer-level billing terms / payment terms in JobDiva."""
+  billingTerms: String
+
+  """JobDiva account manager assigned to this customer (display name)."""
+  accountManager: String
+}
+
+"""JobDiva Job record (the open requisition the assignment is filling)."""
+type JobDivaJob
+  @join__type(graph: JOBDIVA, key: "externalId")
+{
+  externalId: ID!
+
+  """
+  The role title displayed in the JobDiva UI (e.g. "Service Desk Analyst").
+  """
+  title: String
+
+  """Internal job code / requisition number."""
+  refNumber: String
+  description: String
+  department: String
+
+  """JobDiva job status (e.g. Open, Hold, Closed)."""
+  status: String
+
+  """Hiring manager's display name on the customer side."""
+  hiringManager: String
+
+  """Date the job was posted in JobDiva."""
+  postedDate: Date
+}
+
+"""Recruiter who closed the placement — JobDiva user, not CoreFlux."""
+type JobDivaRecruiter
+  @join__type(graph: JOBDIVA)
+{
+  externalId: ID
+  displayName: String
+}
+
+scalar join__DirectiveArguments
+
+scalar join__FieldSet
+
+enum join__Graph {
+  COREFLUX @join__graph(name: "coreflux", url: "http://localhost:4001/graphql")
+  JOBDIVA @join__graph(name: "jobdiva", url: "http://localhost:4002/graphql")
+}
+
+scalar JSON
+  @join__type(graph: COREFLUX)
+  @join__type(graph: JOBDIVA)
+
+scalar link__Import
+
+enum link__Purpose {
+  """
+  `SECURITY` features provide metadata necessary to securely resolve fields.
+  """
+  SECURITY
+
+  """
+  `EXECUTION` features provide metadata necessary for operation execution.
+  """
+  EXECUTION
+}
+
+type Person
+  @join__type(graph: COREFLUX, key: "id")
+{
+  id: ID!
+  firstName: String
+  middleName: String
+  lastName: String
+  preferredName: String
+  emailPrimary: String
+  emailSecondary: String
+  phonePrimary: String
+  phoneSecondary: String
+  classification: String
+  employmentType: String
+  status: String
+  hireDate: Date
+  terminationDate: Date
+  workAuthStatus: String
+  workAuthExpiry: Date
+  requiresSponsorship: Boolean
+  homeAddress: Address
+  linkedinUrl: String
+  source: String
+  recruiterNotes: String
+  placements: [Placement!]!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type Placement
+  @join__type(graph: COREFLUX, key: "id")
+  @join__type(graph: JOBDIVA, key: "id", extension: true)
+{
+  id: ID!
+  title: String @join__field(graph: COREFLUX)
+  status: PlacementStatus @join__field(graph: COREFLUX)
+  startDate: Date @join__field(graph: COREFLUX)
+  endDate: Date @join__field(graph: COREFLUX)
+  actualEndDate: Date @join__field(graph: COREFLUX)
+  dueDate: Date @join__field(graph: COREFLUX)
+  engagementType: EngagementType @join__field(graph: COREFLUX)
+  remotePolicy: RemotePolicy @join__field(graph: COREFLUX)
+  worksiteState: String @join__field(graph: COREFLUX)
+  worksiteCountry: String @join__field(graph: COREFLUX)
+  notes: String @join__field(graph: COREFLUX)
+  endClientName: String @join__field(graph: COREFLUX)
+  clientApproverName: String @join__field(graph: COREFLUX)
+  clientApproverEmail: String @join__field(graph: COREFLUX)
+  person: Person @join__field(graph: COREFLUX)
+  endClient: Company @join__field(graph: COREFLUX)
+  rates: PlacementRates @join__field(graph: COREFLUX)
+  externalMappings: [ExternalMapping!]! @join__field(graph: COREFLUX)
+  createdAt: DateTime! @join__field(graph: COREFLUX)
+  updatedAt: DateTime! @join__field(graph: COREFLUX)
+
+  """
+  The JobDiva assignment record this placement was sourced from.
+  Null when the placement was created in CoreFlux directly (no JobDiva
+  Start exists). Resolved from external_entity_mappings by joining
+  this placement's id to a row of kind='start'.
+  """
+  jobDiva: JobDivaAssignment @join__field(graph: JOBDIVA)
+}
+
+type PlacementRates
+  @join__type(graph: COREFLUX)
+{
+  billRate: Decimal
+  billRateUnit: RateUnit
+  payRate: Decimal
+  payRateUnit: RateUnit
+  currency: String
+  otMultiplier: Decimal
+  dtMultiplier: Decimal
+  effectiveFrom: Date
+  effectiveTo: Date
+}
+
+enum PlacementStatus
+  @join__type(graph: COREFLUX)
+{
+  active @join__enumValue(graph: COREFLUX)
+  pending_start @join__enumValue(graph: COREFLUX)
+  ended @join__enumValue(graph: COREFLUX)
+  cancelled @join__enumValue(graph: COREFLUX)
+}
+
+type Query
+  @join__type(graph: COREFLUX)
+  @join__type(graph: JOBDIVA)
+{
+  placement(id: ID!): Placement @join__field(graph: COREFLUX)
+  placements(personId: ID, status: PlacementStatus, limit: Int = 50): [Placement!]! @join__field(graph: COREFLUX)
+  person(id: ID!): Person @join__field(graph: COREFLUX)
+  people(limit: Int = 50): [Person!]! @join__field(graph: COREFLUX)
+  company(id: ID!): Company @join__field(graph: COREFLUX)
+  companies(limit: Int = 50): [Company!]! @join__field(graph: COREFLUX)
+
+  """Look up a JobDiva assignment by its Start ID."""
+  jobDivaAssignment(externalId: ID!): JobDivaAssignment @join__field(graph: JOBDIVA)
+
+  """Look up a JobDiva job (open requisition) by its Job ID."""
+  jobDivaJob(externalId: ID!): JobDivaJob @join__field(graph: JOBDIVA)
+
+  """Look up a JobDiva candidate by its Candidate ID."""
+  jobDivaCandidate(externalId: ID!): JobDivaCandidate @join__field(graph: JOBDIVA)
+
+  """Look up a JobDiva customer (end-client) by its Customer ID."""
+  jobDivaCustomer(externalId: ID!): JobDivaCustomer @join__field(graph: JOBDIVA)
+
+  """Look up a JobDiva contact by its Contact ID."""
+  jobDivaContact(externalId: ID!): JobDivaContact @join__field(graph: JOBDIVA)
+}
+
+enum RateUnit
+  @join__type(graph: COREFLUX)
+{
+  hour @join__enumValue(graph: COREFLUX)
+  day @join__enumValue(graph: COREFLUX)
+  week @join__enumValue(graph: COREFLUX)
+  month @join__enumValue(graph: COREFLUX)
+  project @join__enumValue(graph: COREFLUX)
+}
+
+enum RemotePolicy
+  @join__type(graph: COREFLUX)
+{
+  onsite @join__enumValue(graph: COREFLUX)
+  hybrid @join__enumValue(graph: COREFLUX)
+  remote @join__enumValue(graph: COREFLUX)
+}

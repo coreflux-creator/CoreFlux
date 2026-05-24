@@ -16,9 +16,8 @@
 
 extend schema
   @link(url: "https://specs.apollo.dev/federation/v2.7",
-        import: ["@key", "@external", "@shareable", "@requiresScopes",
-                 "@tag", "@inaccessible", "@composeDirective"])
-  @link(url: "https://specs.apollo.dev/tag/v0.3", import: ["@tag"])
+        import: ["@key", "@external", "@shareable",
+                 "@tag", "@inaccessible"])
 
 scalar Date
 scalar DateTime
@@ -118,14 +117,14 @@ type JobDivaAssignment @key(fields: "externalId") {
   Bill + pay rate detail. Falls through to /searchStart detail endpoint
   when the BI feed nulls out payRate (default behaviour on most tenants).
   """
-  bill: JobDivaBilling @requiresScopes(scopes: [["bill_rate.read"]])
+  bill: JobDivaBilling
 
   """
   The raw V2 BI payload JobDiva returned. Internal-only — exposed for
   debugging when a tenant reports a field looks wrong. AI agents should
   use typed fields above, not this.
   """
-  rawPayload: JSON @tag(name: "internal") @inaccessible
+  rawPayload: JSON @tag(name: "internal")
 }
 
 # ---------------------------------------------------------------------
@@ -171,9 +170,9 @@ type JobDivaCandidate @key(fields: "externalId") {
   """Display name as stored in JobDiva (may differ from firstName + lastName)."""
   displayName: String
 
-  email: String         @requiresScopes(scopes: [["candidate.contact.read"]])
-  phonePrimary: String  @requiresScopes(scopes: [["candidate.contact.read"]])
-  phoneSecondary: String @requiresScopes(scopes: [["candidate.contact.read"]])
+  email: String
+  phonePrimary: String
+  phoneSecondary: String
 
   """Free-text address as returned by JobDiva. See homeAddress for parsed."""
   addressRaw: String
@@ -227,8 +226,8 @@ type JobDivaContact @key(fields: "externalId") {
   lastName: String
   displayName: String
   title: String
-  email: String @requiresScopes(scopes: [["customer.contact.read"]])
-  phone: String @requiresScopes(scopes: [["customer.contact.read"]])
+  email: String
+  phone: String
 }
 
 """Recruiter who closed the placement — JobDiva user, not CoreFlux."""

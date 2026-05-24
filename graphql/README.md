@@ -33,20 +33,27 @@ graphql/
 ├── router/
 │   ├── Dockerfile
 │   ├── router.yaml          Apollo Router config (auth, CORS, tracing)
-│   └── supergraph.yaml      lists subgraph endpoints for composition
+│   ├── supergraph.yaml      lists subgraph endpoints for composition
+│   ├── compose.mjs          composes supergraph.graphql from subgraph schemas
+│   └── supergraph.graphql   composed federation SDL (build output)
 ├── subgraph-coreflux/
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── schema.graphql       canonical types: Placement, Person, Company
 │   └── src/index.ts         Apollo Server + resolvers proxying PHP REST
-└── subgraph-jobdiva/
+├── subgraph-jobdiva/
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── schema.graphql       JobDivaAssignment, JobDivaJob, JobDivaCandidate, …
+│   └── src/                 resolvers + JobDiva client + DataLoaders
+│       ├── index.ts
+│       ├── client.ts
+│       └── loaders.ts
+└── mcp-server/
     ├── package.json
     ├── tsconfig.json
-    ├── schema.graphql       JobDivaAssignment, JobDivaJob, JobDivaCandidate, …
-    └── src/                 resolvers + JobDiva client + DataLoaders
-        ├── index.ts
-        ├── client.ts
-        └── loaders.ts
+    ├── README.md            MCP integration guide
+    └── src/index.ts         MCP server (stdio + HTTP), exposes 4 tools
 ```
 
 ## Local dev
@@ -92,5 +99,14 @@ file and point `WorkingDirectory` at the relevant subgraph dir.
 
 ## Versioning the supergraph
 
-Run `npm run compose` in `/app/graphql/router/` to regenerate `supergraph.graphql`
-from the current subgraph schemas. Apollo Router hot-reloads.
+Run `node compose.mjs` in `/app/graphql/router/` to regenerate
+`supergraph.graphql` from the current subgraph schemas. Apollo Router
+hot-reloads on file change. The composition is exercised by
+`/app/tests/graphql_federation_smoke.php` (rerun before committing).
+
+## Agentic AI / MCP integration
+
+`/app/graphql/mcp-server/` is a Model-Context-Protocol server that wraps
+the router and exposes typed tools (`coreflux_query`, `coreflux_introspect`,
+`coreflux_placement`, `coreflux_placements`) to AI agents over either
+stdio (Claude Desktop, Cursor) or Streamable HTTP. See its own README.
