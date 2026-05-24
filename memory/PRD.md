@@ -7711,3 +7711,59 @@ is already present.
 ### Tests
 **267/267 ✅** (was 264; +3 new files: deploy script (20), Slice 2 (27), real-DB (9), one existing test updated to match the refactor).
 
+
+---
+
+## 2026-02 · Slice 2 Frontend — Override Badge + Revert ✅
+
+### What landed
+Closing the loop on Slice 2: operators now SEE the override behaviour
+in the UI, not just in the JSON column.
+
+`/app/modules/placements/ui/PlacementDetail.jsx`:
+
+- **`parseOverrides(placement)`** — robust parser for the JSON column.
+  Returns an empty Set on null/malformed input so callers can `.has()`
+  unconditionally.
+- **`isJobDivaSourced(placement)`** — gates the affordances. Direct-
+  CoreFlux placements don't render any badges, since they have nothing
+  to revert "to".
+- **`<OverridePill>`** — small orange pill (`OVERRIDDEN`, 0.7em, pill-
+  shape) rendered next to any field listed in
+  `coreflux_overridden_fields`. Tooltip explains why and how to revert.
+- **OverviewTab** — read-only view now shows the pill next to every
+  Slice-2-tracked field (title, status, start_date, end_date,
+  actual_end_date, due_date, end_client_name, engagement_type,
+  remote_policy).
+- **OverviewEdit** — adds:
+  - A JobDiva-only **banner** explaining the edit→overridden flow.
+  - A `<RevertControl>` ghost button under every editable field that
+    is currently overridden. Click → POST `?action=clear_override`,
+    update local Set, no full reload needed.
+  - Pills on every label so operators see the override state while
+    they're editing too.
+- All controls carry `data-testid` (`override-pill-{field}`,
+  `revert-{field}`, `overview-edit-jd-banner`).
+
+### Tests
+- New `tests/placements_override_slice2_frontend_smoke.php` —
+  23 assertions covering the parser, isJobDivaSourced, the OverridePill,
+  OverviewTab field-level rendering, OverviewEdit banner + RevertControl,
+  clear_override wiring, and the .deploy-version bundle-sync guard.
+- Vite build ran successfully; `.deploy-version` and `spa-assets`
+  bundle hashes are in lockstep (recurring drift issue stayed fixed).
+- Full suite: **268/268 ✅** (was 267; +1 new frontend smoke).
+
+### Files of reference
+- `/app/modules/placements/ui/PlacementDetail.jsx` (OverviewTab,
+  OverviewEdit, OverridePill, parseOverrides, isJobDivaSourced)
+- `/app/tests/placements_override_slice2_frontend_smoke.php`
+
+### What an operator now sees
+- A JobDiva-sourced placement they've never touched: no badges.
+- They edit the title: title gets an orange "OVERRIDDEN" pill on the
+  read-only view AND in the edit form. JobDiva sync no longer touches
+  the title column.
+- They click "↻ Revert to JobDiva" under title in Edit mode: the pill
+  vanishes, the next JobDiva sync refreshes the title from upstream.
+

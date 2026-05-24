@@ -86,11 +86,70 @@ export default function PlacementDetail({ session }) {
 }
 
 // ── Overview ────────────────────────────────────────────────
+/**
+ * Parse the placement's `coreflux_overridden_fields` JSON column into
+ * a Set of field names. Returns an empty Set when the column is null,
+ * empty, or malformed — so callers can always `.has(fieldName)`.
+ */
+function parseOverrides(placement) {
+  const raw = placement?.coreflux_overridden_fields;
+  if (!raw) return new Set();
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * True when the placement was pulled in from JobDiva. The override
+ * affordances only render for these — direct-CoreFlux placements don't
+ * have anything to "revert to".
+ */
+function isJobDivaSourced(placement) {
+  const ext = placement?.external_id;
+  return typeof ext === 'string' && ext.startsWith('jd:');
+}
+
+/** Pill shown next to fields that have been edited inside CoreFlux. */
+function OverridePill({ field }) {
+  return (
+    <span
+      data-testid={`override-pill-${field.replace(/_/g, '-')}`}
+      title={`This field was edited in CoreFlux and is no longer synced from JobDiva. Click the field in Edit mode to revert.`}
+      style={{
+        marginLeft:    '6px',
+        padding:       '1px 6px',
+        fontSize:      '0.7em',
+        fontWeight:    600,
+        letterSpacing: '0.02em',
+        textTransform: 'uppercase',
+        color:         '#7c3a00',
+        background:    '#ffe7c2',
+        border:        '1px solid #ffb766',
+        borderRadius:  '999px',
+        verticalAlign: '2px',
+      }}
+    >
+      overridden
+    </span>
+  );
+}
+
 function OverviewTab({ placement, reload }) {
   const [editing, setEditing] = useState(false);
   if (editing) return <OverviewEdit placement={placement} onClose={() => { setEditing(false); reload(); }} />;
-  const Item = ({ k, v, t }) => (
-    <div><span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em', display: 'block' }}>{k}</span><span data-testid={t}>{v ?? '—'}</span></div>
+  const overrides = parseOverrides(placement);
+  const fromJD    = isJobDivaSourced(placement);
+  const Item = ({ k, v, t, field }) => (
+    <div>
+      <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em', display: 'block' }}>
+        {k}
+        {fromJD && field && overrides.has(field) ? <OverridePill field={field} /> : null}
+      </span>
+      <span data-testid={t}>{v ?? '—'}</span>
+    </div>
   );
   return (
     <div data-testid="tab-overview">
@@ -98,16 +157,16 @@ function OverviewTab({ placement, reload }) {
         <button className="btn" onClick={() => setEditing(true)} data-testid="placement-overview-edit">Edit</button>
       </header>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
-        <Item k="Title"            v={placement.title}            t="overview-title" />
-        <Item k="Engagement type"  v={placement.engagement_type}  t="overview-etype" />
-        <Item k="Status"           v={placement.status}           t="overview-status" />
-        <Item k="Start"            v={placement.start_date}       t="overview-start" />
-        <Item k="End (planned)"    v={placement.end_date}         t="overview-end" />
-        <Item k="Actual end"       v={placement.actual_end_date}  t="overview-actual-end" />
-        <Item k="Due"              v={placement.due_date}         t="overview-due" />
-        <Item k="End client"       v={placement.end_client_name}  t="overview-client" />
+        <Item k="Title"            v={placement.title}            t="overview-title"       field="title" />
+        <Item k="Engagement type"  v={placement.engagement_type}  t="overview-etype"       field="engagement_type" />
+        <Item k="Status"           v={placement.status}           t="overview-status"      field="status" />
+        <Item k="Start"            v={placement.start_date}       t="overview-start"       field="start_date" />
+        <Item k="End (planned)"    v={placement.end_date}         t="overview-end"         field="end_date" />
+        <Item k="Actual end"       v={placement.actual_end_date}  t="overview-actual-end"  field="actual_end_date" />
+        <Item k="Due"              v={placement.due_date}         t="overview-due"         field="due_date" />
+        <Item k="End client"       v={placement.end_client_name}  t="overview-client"      field="end_client_name" />
         <Item k="Worksite"         v={[placement.worksite_state, placement.worksite_country].filter(Boolean).join(', ') || '—'} t="overview-site" />
-        <Item k="Remote policy"    v={placement.remote_policy}    t="overview-remote" />
+        <Item k="Remote policy"    v={placement.remote_policy}    t="overview-remote"      field="remote_policy" />
         <Item k="External ID"      v={placement.external_id}      t="overview-external" />
       </div>
     </div>
@@ -116,7 +175,12 @@ function OverviewTab({ placement, reload }) {
 function OverviewEdit({ placement, onClose }) {
   const [form, setForm] = useState(placement);
   const [saving, setSaving] = useState(false);
+  const [reverting, setReverting] = useState(null);   // current field being reverted, for spinner
   const [error, setError] = useState(null);
+  // Local copy of the override set — kept in sync with the server after
+  // every clear_override call so the UI updates without a full reload.
+  const [overrides, setOverrides] = useState(() => parseOverrides(placement));
+  const fromJD = isJobDivaSourced(placement);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const save = async () => {
     setSaving(true); setError(null);
@@ -129,40 +193,116 @@ function OverviewEdit({ placement, onClose }) {
       onClose();
     } catch (e) { setError(e); setSaving(false); }
   };
+  /**
+   * Drop one field from the placement's coreflux_overridden_fields list.
+   * The next JobDiva sync will then refresh that column from upstream.
+   */
+  const revert = async (field) => {
+    setReverting(field); setError(null);
+    try {
+      const resp = await api.post(
+        `/modules/placements/api/placements.php?id=${placement.id}&action=clear_override`,
+        { fields: [field] }
+      );
+      // Server returns the updated placement; re-parse the new override list.
+      setOverrides(parseOverrides(resp?.placement ?? {}));
+    } catch (e) {
+      setError(e);
+    } finally {
+      setReverting(null);
+    }
+  };
+  /** Renders a "Revert to JobDiva" pill under a field when it's overridden. */
+  const RevertControl = ({ field }) => {
+    if (!fromJD || !overrides.has(field)) return null;
+    const isBusy = reverting === field;
+    return (
+      <button
+        type="button"
+        onClick={() => revert(field)}
+        disabled={isBusy}
+        data-testid={`revert-${field.replace(/_/g, '-')}`}
+        title="Drop the CoreFlux override on this field — next JobDiva sync will refresh it from upstream."
+        style={{
+          marginTop:    '4px',
+          alignSelf:    'flex-start',
+          padding:      '2px 8px',
+          fontSize:     '0.72em',
+          fontWeight:   500,
+          color:        '#7c3a00',
+          background:   'transparent',
+          border:       '1px solid #ffb766',
+          borderRadius: '999px',
+          cursor:       isBusy ? 'wait' : 'pointer',
+          opacity:      isBusy ? 0.6 : 1,
+        }}
+      >
+        {isBusy ? 'Reverting…' : '↻ Revert to JobDiva'}
+      </button>
+    );
+  };
   return (
     <div data-testid="tab-overview-edit">
       <h3>Edit overview</h3>
+      {fromJD && (
+        <p style={{ fontSize: '0.85em', color: 'var(--cf-text-secondary)', marginBottom: 'var(--cf-space-3)' }} data-testid="overview-edit-jd-banner">
+          This placement was pulled from JobDiva. Fields you edit here will be
+          marked <em>overridden</em> and skipped by future JobDiva syncs. Use
+          the <strong>Revert</strong> button under any overridden field to give
+          control back to JobDiva.
+        </p>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
         {[['title','Title'],['end_client_name','End client'],['external_id','External ID'],
           ['worksite_state','State'],['worksite_country','Country (2)'],['notes','Notes']].map(([k, l]) => (
           <label key={k} style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>{l}</span>
+            <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>
+              {l}
+              {fromJD && overrides.has(k) ? <OverridePill field={k} /> : null}
+            </span>
             <input className="input" value={form[k] ?? ''} onChange={set(k)} data-testid={`overview-edit-${k.replace(/_/g,'-')}`} />
+            <RevertControl field={k} />
           </label>
         ))}
         {[['start_date','Start'],['end_date','End'],['due_date','Due']].map(([k, l]) => (
           <label key={k} style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>{l}</span>
+            <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>
+              {l}
+              {fromJD && overrides.has(k) ? <OverridePill field={k} /> : null}
+            </span>
             <input className="input" type="date" value={form[k] ?? ''} onChange={set(k)} data-testid={`overview-edit-${k.replace(/_/g,'-')}`} />
+            <RevertControl field={k} />
           </label>
         ))}
         <label style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>Status</span>
+          <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>
+            Status
+            {fromJD && overrides.has('status') ? <OverridePill field="status" /> : null}
+          </span>
           <select className="input" value={form.status} onChange={set('status')} data-testid="overview-edit-status">
             {['draft','pending_start','active','on_hold','ended','cancelled'].map(s => <option key={s} value={s}>{s}</option>)}
           </select>
+          <RevertControl field="status" />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>Engagement type</span>
+          <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>
+            Engagement type
+            {fromJD && overrides.has('engagement_type') ? <OverridePill field="engagement_type" /> : null}
+          </span>
           <select className="input" value={form.engagement_type} onChange={set('engagement_type')} data-testid="overview-edit-etype">
             {['w2','1099','c2c','temp_to_perm','direct_hire'].map(s => <option key={s} value={s}>{s}</option>)}
           </select>
+          <RevertControl field="engagement_type" />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>Remote</span>
+          <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em' }}>
+            Remote
+            {fromJD && overrides.has('remote_policy') ? <OverridePill field="remote_policy" /> : null}
+          </span>
           <select className="input" value={form.remote_policy ?? ''} onChange={set('remote_policy')} data-testid="overview-edit-remote">
             <option value="">—</option><option value="onsite">onsite</option><option value="hybrid">hybrid</option><option value="remote">remote</option>
           </select>
+          <RevertControl field="remote_policy" />
         </label>
       </div>
       {error && <p className="error" data-testid="overview-edit-error">Error: {error.message}</p>}
