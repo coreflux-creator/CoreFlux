@@ -139,7 +139,10 @@ $assert('Upsert provides title (NOT NULL on placements)',
     strpos($syncSrc, "if (\$title === '') \$title = 'JobDiva Placement ' . \$extId;") !== false
     && strpos($syncSrc, "client_approver_name, client_approver_email, title") !== false);
 $assert('Upsert UPDATE path also writes title',
-    strpos($syncSrc, "title = :ti\n              WHERE id = :id") !== false);
+    // Slice 2 refactor: UPDATE assignments are built dynamically so
+    // `coreflux_overridden_fields` can selectively skip columns. Verify
+    // the title column is in the allow-list dispatched into the UPDATE.
+    strpos($syncSrc, "'title'                => ['ti',    \$title]") !== false);
 $assert('Upsert pluck-resolves title across JobDiva key shapes',
     strpos($syncSrc, "'jobTitle', 'job_title', 'job title', 'title'") !== false);
 

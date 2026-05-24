@@ -7627,3 +7627,87 @@ artefacts are:
    `Placement.jobDiva` resolver has been validated against real
    `external_entity_mappings` data (currently only fixture-tested).
 
+
+---
+
+## 2026-02 · Four-pack: deploy.sh, Slice 2 overrides, real-DB GraphQL validation, Resend audit ✅
+
+User chose Option 3 (lighter shapes) from the action-items follow-up:
+ship `deploy.sh`, real-data GraphQL validation, and JobDiva Placements
+Edit Slice 2 backend; defer cron→GraphQL refactor; verify Resend wiring
+is already present.
+
+### What landed
+
+1. **`deploy.sh`** at `/app/graphql/deploy/scripts/deploy.sh`:
+   one-shot wrapper for rsync + `yarn install --frozen-lockfile` +
+   `yarn build` + `compose.mjs`. Supports `--dry-run`, `--skip-build`,
+   `--restart-router`, `--src=`, `--dst=`. Idempotent on re-run.
+   Tested via the new `tests/graphql_deploy_script_smoke.php` (20
+   assertions covering dry-run, skip-build, full deploy, idempotency).
+
+2. **JobDiva Placements Edit — Slice 2 (backend-only)**:
+   - Migration `070_placement_override_flags.sql` adds
+     `coreflux_overridden_fields JSON NULL` to `placements`.
+   - `jobdivaSyncUpsertPlacement()` now reads that column, builds its
+     UPDATE assignments dynamically, and SKIPS any field listed in
+     the override array. Skipped fields are `error_log`'d for audit.
+   - `PATCH /api/placements/placements?id=N` auto-flags every column
+     it touches when the placement was JobDiva-sourced (external_id
+     starts with `jd:`). Direct-CoreFlux placements (no prefix)
+     are unaffected — no need to "protect" fields that came from us.
+   - `POST /api/placements/placements?action=clear_override` with
+     `{fields:[...]}` body lets a `placements.manage` operator revert
+     specific fields — the next JobDiva pull will then refresh them.
+   - `placement.override_cleared` audit event added.
+   - 27-assertion smoke: `tests/placements_override_slice2_smoke.php`.
+   - The existing `jobdiva_placement_discovery_smoke.php` regression
+     was updated to match the new dynamic-UPDATE structure (1 assertion
+     reworded to reflect the new code shape; semantics unchanged).
+
+3. **Real-DB validation for `Placement.jobDiva`**:
+   `tests/graphql_jobdiva_real_db_smoke.php` seeds a real placement +
+   external_entity_mappings row in MariaDB, then exercises
+   `mappingFindExternal()` directly AND through the HMAC bridge HTTP
+   endpoint. Asserts:
+   - Direct PDO lookup finds the row.
+   - HMAC bridge returns the same external_id.
+   - Reverse lookup (external_id → placement_id) round-trips.
+   - Wrong tenant_id returns explicit JSON `null` (multi-tenant
+     isolation, not a leak). 9 assertions.
+
+4. **Resend driver — already wired**:
+   The handoff said `mailerSend()` was MOCKED, but the codebase
+   already has a complete `/app/core/mail/ResendDriver.php` integrated
+   via `mail_bootstrap.php` (RESEND_API_KEY env → ResendDriver, else
+   LogDriver). 43-assertion `mailer_send_shim_smoke.php` confirms the
+   path. Marked as ✅ (no work needed — handoff was stale).
+
+### Deferred (with clear next steps)
+
+- **JobDiva PHP cron → GraphQL client** (Option 3c in the planning
+  conversation): not started. Path forward documented in
+  `GRAPHQL_FEDERATION_PLAN.md` — needs `Mutation.upsertPlacement`
+  on the coreflux subgraph first.
+
+### Sandbox environment notes
+
+- MariaDB is not part of the default sandbox; installed via
+  `apt-get install -y mariadb-server` and seeded with the CoreFlux
+  user/db pair. Subsequent test runs can rely on the same instance.
+- Apollo Router binary required re-install (`curl router.apollo.dev/.../v1.55.0`)
+  after sandbox restart — known sandbox idiosyncrasy, not a code issue.
+
+### Files of reference
+
+- `/app/graphql/deploy/scripts/deploy.sh`
+- `/app/core/migrations/070_placement_override_flags.sql`
+- `/app/core/jobdiva/sync.php` (line ~1045 — dynamic UPDATE block)
+- `/app/modules/placements/api/placements.php` (PATCH + clear_override)
+- `/app/tests/graphql_deploy_script_smoke.php`
+- `/app/tests/placements_override_slice2_smoke.php`
+- `/app/tests/graphql_jobdiva_real_db_smoke.php`
+
+### Tests
+**267/267 ✅** (was 264; +3 new files: deploy script (20), Slice 2 (27), real-DB (9), one existing test updated to match the refactor).
+

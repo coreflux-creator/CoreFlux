@@ -1067,33 +1067,59 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $dueDate = jobdivaNormaliseDate($dueDateRaw);
 
     if ($existingId > 0) {
-        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-        $pdo->prepare(
-            'UPDATE placements SET start_date = :sd, end_date = :ed, actual_end_date = :aed, due_date = :dd,
-                    status = :st, engagement_type = :eng, worksite_state = :ws, worksite_country = :wc,
-                    remote_policy = :rp, notes = :notes,
-                    end_client_name = :ecn, end_client_company_id = :ecc,
-                    client_approver_name = :can, client_approver_email = :cae,
-                    title = :ti
-              WHERE id = :id'
-        )->execute([
-            'sd'    => $startDate,
-            'ed'    => $endDateNorm ?: null,
-            'aed'   => $actualEnd ?: null,
-            'dd'    => $dueDate ?: null,
-            'st'    => $status,
-            'eng'   => $engagement,
-            'ws'    => $worksiteState ?: null,
-            'wc'    => $worksiteCountry,
-            'rp'    => $remote,
-            'notes' => $notes ?: null,
-            'ecn'   => $endClientName ?: null,
-            'ecc'   => $endClientCompanyId,
-            'can'   => $approverName ?: null,
-            'cae'   => $approverEmail ?: null,
-            'ti'    => $title,
-            'id'    => $existingId,
-        ]);
+        // Slice 2: respect coreflux_overridden_fields — fields the user edited
+        // in CoreFlux must not be reverted on the next JobDiva pull. Strip
+        // any overridden field from the SET clause and audit what we skipped.
+        $overrideStmt = $pdo->prepare(
+            'SELECT coreflux_overridden_fields FROM placements WHERE tenant_id = :t AND id = :id LIMIT 1'
+        );
+        $overrideStmt->execute(['t' => $tid, 'id' => $existingId]);
+        $rawOverride = $overrideStmt->fetchColumn();
+        $overrides = [];
+        if (is_string($rawOverride) && $rawOverride !== '') {
+            $decoded = json_decode($rawOverride, true);
+            if (is_array($decoded)) {
+                $overrides = array_values(array_filter(array_map('strval', $decoded)));
+            }
+        }
+
+        $allFields = [
+            'start_date'           => ['sd',    $startDate],
+            'end_date'             => ['ed',    $endDateNorm ?: null],
+            'actual_end_date'      => ['aed',   $actualEnd ?: null],
+            'due_date'             => ['dd',    $dueDate ?: null],
+            'status'               => ['st',    $status],
+            'engagement_type'      => ['eng',   $engagement],
+            'worksite_state'       => ['ws',    $worksiteState ?: null],
+            'worksite_country'     => ['wc',    $worksiteCountry],
+            'remote_policy'        => ['rp',    $remote],
+            'notes'                => ['notes', $notes ?: null],
+            'end_client_name'      => ['ecn',   $endClientName ?: null],
+            'end_client_company_id' => ['ecc',  $endClientCompanyId],
+            'client_approver_name' => ['can',   $approverName ?: null],
+            'client_approver_email'=> ['cae',   $approverEmail ?: null],
+            'title'                => ['ti',    $title],
+        ];
+        $assignments = [];
+        $bindings = ['id' => $existingId];
+        $skipped = [];
+        foreach ($allFields as $col => [$bind, $val]) {
+            if (in_array($col, $overrides, true)) {
+                $skipped[] = $col;
+                continue;
+            }
+            $assignments[] = "{$col} = :{$bind}";
+            $bindings[$bind] = $val;
+        }
+        if (!empty($skipped)) {
+            error_log("[jobdiva] placement id={$existingId} skipping CoreFlux-overridden fields: " . implode(',', $skipped));
+        }
+
+        if (!empty($assignments)) {
+            $sql = 'UPDATE placements SET ' . implode(', ', $assignments) . ' WHERE id = :id';
+            // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
+            $pdo->prepare($sql)->execute($bindings);
+        }
         jobdivaSyncUpsertPlacementRates($tid, $existingId, $startDate, $jd);
         return $existingId;
     }

@@ -58,6 +58,30 @@ if ($method === 'GET') {
 if ($method === 'POST') {
     $action = $_GET['action'] ?? '';
 
+    // Slice 2: revert a JobDiva-sourced field that was previously overridden
+    // in CoreFlux. The next JobDiva pull will then overwrite the column.
+    if ($action === 'clear_override') {
+        $id = (int) api_query('id', 0);
+        if ($id <= 0) api_error('id required', 400);
+        rbac_legacy_require($user, 'placements.manage');
+        $body = api_json_body();
+        $fields = is_array($body['fields'] ?? null) ? $body['fields'] : [];
+        if (empty($fields)) api_error('fields[] required', 422);
+        $row = placementGet($id);
+        if (!$row) api_error('Not found', 404);
+        $current = [];
+        if (!empty($row['coreflux_overridden_fields'])) {
+            $decoded = json_decode((string) $row['coreflux_overridden_fields'], true);
+            if (is_array($decoded)) $current = array_values(array_filter(array_map('strval', $decoded)));
+        }
+        $remaining = array_values(array_diff($current, array_map('strval', $fields)));
+        scopedUpdate('placements', $id, [
+            'coreflux_overridden_fields' => $remaining === [] ? null : json_encode($remaining),
+        ]);
+        placementsAudit('placement.override_cleared', ['id' => $id, 'fields' => array_values($fields)], $id);
+        api_ok(['placement' => placementGet($id)]);
+    }
+
     if ($action === 'end') {
         $id = (int) api_query('id', 0);
         if ($id <= 0) api_error('id required', 400);
@@ -154,20 +178,43 @@ if ($method === 'PATCH') {
     if ($id <= 0) api_error('id required', 400);
     rbac_legacy_require($user, 'placements.manage');
     $body = api_json_body();
-    foreach (['id','tenant_id','created_at','created_by_user_id','deleted_at'] as $k) unset($body[$k]);
+    foreach (['id','tenant_id','created_at','created_by_user_id','deleted_at','coreflux_overridden_fields'] as $k) unset($body[$k]);
     if (isset($body['engagement_type']) && !in_array($body['engagement_type'], ALLOWED_ETYPE, true)) {
         api_error('Invalid engagement_type', 422);
     }
     if (isset($body['status']) && !in_array($body['status'], ALLOWED_STATUS, true)) {
         api_error('Invalid status', 422);
     }
-    // Coerce remote_policy '' → null (ENUM rejects empty string).
     if (array_key_exists('remote_policy', $body)) {
         $body['remote_policy'] = placementsNormalizeRemotePolicy($body['remote_policy']);
     }
     if (!$body) api_error('No fields to update', 422);
+
+    // Slice 2: for JobDiva-sourced placements, every field touched by a
+    // user PATCH becomes a "coreflux_overridden" field — the JobDiva sync
+    // writer respects this list and won't revert the edit on the next
+    // pull. Placements created directly in CoreFlux (no `jd:` external_id
+    // prefix) are unaffected; their fields don't need protection.
+    $existing = placementGet($id);
+    if (!$existing) api_error('Not found', 404);
+    $isJobDivaSourced = is_string($existing['external_id'] ?? null)
+        && strpos((string) $existing['external_id'], 'jd:') === 0;
+
     $rows = scopedUpdate('placements', $id, $body);
     if ($rows === 0) api_error('Not found or no change', 404);
+
+    if ($isJobDivaSourced) {
+        $current = [];
+        if (!empty($existing['coreflux_overridden_fields'])) {
+            $decoded = json_decode((string) $existing['coreflux_overridden_fields'], true);
+            if (is_array($decoded)) $current = array_values(array_filter(array_map('strval', $decoded)));
+        }
+        $merged = array_values(array_unique(array_merge($current, array_map('strval', array_keys($body)))));
+        if ($merged !== $current) {
+            scopedUpdate('placements', $id, ['coreflux_overridden_fields' => json_encode($merged)]);
+        }
+    }
+
     if (isset($body['status'])) {
         placementsAudit('placement.status_changed', ['id' => $id, 'status' => $body['status']], $id);
     } else {
