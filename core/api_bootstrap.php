@@ -426,6 +426,58 @@ set_exception_handler(function (Throwable $e) {
 });
 
 /**
+ * Fatal-error trap. set_exception_handler() above catches uncaught
+ * THROWABLES (Exception, TypeError, PDOException, …). It does NOT catch
+ * E_ERROR / E_PARSE / E_CORE_ERROR / out-of-memory / "Call to undefined
+ * function" — those bypass user-land handlers entirely.
+ *
+ * In production with `display_errors=Off` (the recommended setting), a
+ * fatal therefore emits a 500 with an empty body and `Content-Type:
+ * text/html`. The UI sees "Request failed" with no detail, indistinguishable
+ * from a network error.
+ *
+ * register_shutdown_function() runs even after a fatal. Inside it we read
+ * error_get_last() and, if the last error was fatal-severity, emit a JSON
+ * envelope so the front-end has something to display.
+ *
+ * Observed 2026-02 on /api/admin/integrations/field_map.php after deploying
+ * a try/catch wrap — the endpoint still 500-emptied because the actual
+ * error was a fatal, not a throwable. This shutdown handler unmasks it.
+ */
+register_shutdown_function(static function (): void {
+    $err = error_get_last();
+    if ($err === null) return;
+    // Severity codes that PHP treats as fatal — anything that aborts the
+    // script before normal output flushing.
+    $fatalMask = E_ERROR | E_PARSE | E_CORE_ERROR | E_CORE_WARNING
+               | E_COMPILE_ERROR | E_COMPILE_WARNING | E_USER_ERROR;
+    if (($err['type'] & $fatalMask) === 0) return;
+
+    // If headers have already been sent (e.g. api_ok flushed before the
+    // fatal occurred mid-shutdown) we cannot rewrite the response.
+    if (headers_sent()) return;
+
+    @http_response_code(500);
+    @header('Content-Type: application/json; charset=utf-8');
+    @header('Cache-Control: no-store');
+
+    // Discard any partial output the dying script may have echoed
+    // (otherwise it would prefix our JSON envelope and break the parse).
+    while (ob_get_level() > 0) { @ob_end_clean(); }
+
+    error_log('[api/fatal] ' . $err['message'] . ' @ ' . ($err['file'] ?? '?') . ':' . ($err['line'] ?? '?'));
+
+    echo json_encode([
+        'error'  => 'Fatal PHP error: ' . $err['message'],
+        'status' => 500,
+        'kind'   => 'fatal',
+        'file'   => isset($err['file']) ? basename((string) $err['file']) : null,
+        'line'   => $err['line'] ?? null,
+        'hint'   => 'PHP fatal errors are NOT caught by exception handlers. The most common cause on this stack is a missing function/class (e.g. Call to undefined function …) after a partial deploy. Check the server error log for the full path and stack.',
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+});
+
+/**
  * Self-heal a known schema-drift column reference. Returns true if the
  * column was missing and has now been added (or skipped because the host
  * table doesn't exist on this tenant). Returns false if we don't have a
