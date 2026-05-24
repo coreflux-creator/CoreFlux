@@ -14,9 +14,9 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../core/api_bootstrap.php';
-require_once __DIR__ . '/../../core/RBAC.php';
-require_once __DIR__ . '/../../core/ai_categorization.php';
+require_once __DIR__ . '/../core/api_bootstrap.php';
+require_once __DIR__ . '/../core/RBAC.php';
+require_once __DIR__ . '/../core/ai_categorization.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];

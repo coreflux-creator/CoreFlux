@@ -59,9 +59,16 @@ register_shutdown_function(static function (): void {
     ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 });
 
-require_once __DIR__ . '/../../core/api_bootstrap.php';
-require_once __DIR__ . '/../../core/RBAC.php';
-require_once __DIR__ . '/../../core/integrations/field_map.php';
+// Path note: this file lives at /api/admin/integrations/field_map.php so
+// the core/ directory is THREE levels up, not two. The original file
+// used `../../core/` which silently resolved to /api/core/ (nonexistent)
+// and produced a fatal "Failed opening required" — masked in production
+// by display_errors=Off until the inline shutdown handler above unmasked
+// it. Sister endpoint field_map_suggest.php had the same bug; fixed in
+// the same change.
+require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/integrations/field_map.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];

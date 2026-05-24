@@ -41,9 +41,9 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../core/api_bootstrap.php';
-require_once __DIR__ . '/../../core/RBAC.php';
-require_once __DIR__ . '/../../core/integrations/field_map.php';
+require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/integrations/field_map.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
