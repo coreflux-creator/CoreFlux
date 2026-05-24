@@ -1,0 +1,52 @@
+# Local-dev only. Production runs each container under systemd directly so we can
+# share network/UID with PHP-FPM and skip the docker overhead per the architecture
+# decision (one box, no orchestrator).
+version: "3.9"
+
+services:
+  subgraph-coreflux:
+    build: ./subgraph-coreflux
+    container_name: cf-sg-coreflux
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+    environment:
+      PORT: "4001"
+      JWT_SECRET: "${JWT_SECRET}"
+      COREFLUX_API_BASE: "${COREFLUX_API_BASE}"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4001/.well-known/apollo/server-health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  subgraph-jobdiva:
+    build: ./subgraph-jobdiva
+    container_name: cf-sg-jobdiva
+    restart: unless-stopped
+    ports:
+      - "4002:4002"
+    environment:
+      PORT: "4002"
+      JWT_SECRET: "${JWT_SECRET}"
+      INTERNAL_HMAC_SECRET: "${INTERNAL_HMAC_SECRET}"
+      COREFLUX_API_BASE: "${COREFLUX_API_BASE}"
+      JOBDIVA_BASE_URL: "${JOBDIVA_BASE_URL}"
+
+  router:
+    image: ghcr.io/apollographql/router:v1.55.0
+    container_name: cf-router
+    restart: unless-stopped
+    depends_on:
+      - subgraph-coreflux
+      - subgraph-jobdiva
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./router/router.yaml:/etc/router.yaml:ro
+      - ./router/supergraph.graphql:/etc/supergraph.graphql:ro
+    environment:
+      APOLLO_ROUTER_CONFIG_PATH: /etc/router.yaml
+      APOLLO_ROUTER_SUPERGRAPH_PATH: /etc/supergraph.graphql
+      APOLLO_ROUTER_LOG: info
+      JWT_SECRET: "${JWT_SECRET}"

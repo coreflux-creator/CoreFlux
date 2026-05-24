@@ -1,0 +1,159 @@
+# CoreFlux subgraph — owns the canonical types every other subgraph extends.
+# Resolvers proxy to the existing PHP REST API (/api/*) over PDO — no new SQL
+# is duplicated in TypeScript. The PHP API stays the system of record.
+
+extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.7",
+        import: ["@key", "@shareable", "@external", "@requires", "@inaccessible"])
+
+scalar Date
+scalar DateTime
+scalar Decimal
+scalar JSON
+
+# ---------------------------------------------------------------------
+# Placement — the central engagement record. JobDiva subgraph extends
+# this type to add `jobDiva: JobDivaAssignment`. QBO would extend with
+# `qboInvoices: [QBOInvoice!]!`, etc.
+# ---------------------------------------------------------------------
+type Placement @key(fields: "id") {
+  id: ID!
+  title: String
+  status: PlacementStatus
+  startDate: Date
+  endDate: Date
+  actualEndDate: Date
+  dueDate: Date
+  engagementType: EngagementType
+  remotePolicy: RemotePolicy
+  worksiteState: String
+  worksiteCountry: String
+  notes: String
+  endClientName: String
+  clientApproverName: String
+  clientApproverEmail: String
+  person: Person
+  endClient: Company
+  rates: PlacementRates
+  externalMappings: [ExternalMapping!]!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+enum PlacementStatus {
+  active
+  pending_start
+  ended
+  cancelled
+}
+
+enum EngagementType {
+  w2
+  c2c
+  contract_1099
+  temp_to_perm
+  direct_hire
+}
+
+enum RemotePolicy {
+  onsite
+  hybrid
+  remote
+}
+
+type PlacementRates {
+  billRate: Decimal
+  billRateUnit: RateUnit
+  payRate: Decimal
+  payRateUnit: RateUnit
+  currency: String
+  otMultiplier: Decimal
+  dtMultiplier: Decimal
+  effectiveFrom: Date
+  effectiveTo: Date
+}
+
+enum RateUnit { hour day week month project }
+
+# ---------------------------------------------------------------------
+# Person
+# ---------------------------------------------------------------------
+type Person @key(fields: "id") {
+  id: ID!
+  firstName: String
+  middleName: String
+  lastName: String
+  preferredName: String
+  emailPrimary: String
+  emailSecondary: String
+  phonePrimary: String
+  phoneSecondary: String
+  classification: String
+  employmentType: String
+  status: String
+  hireDate: Date
+  terminationDate: Date
+  workAuthStatus: String
+  workAuthExpiry: Date
+  requiresSponsorship: Boolean
+  homeAddress: Address
+  linkedinUrl: String
+  source: String
+  recruiterNotes: String
+  placements: [Placement!]!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+# ---------------------------------------------------------------------
+# Company — used for end-client, billing-co, vendor.
+# ---------------------------------------------------------------------
+type Company @key(fields: "id") {
+  id: ID!
+  name: String!
+  industry: String
+  website: String
+  phone: String
+  description: String
+  billingEmail: String
+  billingTerms: String
+  taxIdLast4: String
+  billingAddress: Address
+  placements: [Placement!]!
+}
+
+type Address {
+  line1: String
+  line2: String
+  city: String
+  state: String
+  postalCode: String
+  country: String
+}
+
+# ---------------------------------------------------------------------
+# ExternalMapping — surfaces the (kind, external_id, source_system)
+# triples that link CoreFlux rows to their upstream sources. The
+# JobDiva subgraph reads these to find the right Start ID, the QBO
+# subgraph to find the right Customer ID, etc.
+# ---------------------------------------------------------------------
+type ExternalMapping {
+  sourceSystem: String!
+  kind: String!
+  externalId: String!
+  direction: String
+  payloadSnapshot: JSON
+  lastSyncedAt: DateTime
+}
+
+# ---------------------------------------------------------------------
+# Query roots — minimal for Phase 1. Pagination + filtering land in Phase 2.
+# ---------------------------------------------------------------------
+type Query {
+  placement(id: ID!): Placement
+  placements(personId: ID, status: PlacementStatus, limit: Int = 50): [Placement!]!
+  person(id: ID!): Person
+  people(limit: Int = 50): [Person!]!
+  company(id: ID!): Company
+  companies(limit: Int = 50): [Company!]!
+}

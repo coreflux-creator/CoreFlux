@@ -1,0 +1,81 @@
+# Apollo Router config — CoreFlux federation gateway.
+# Spec: https://www.apollographql.com/docs/router/configuration/overview
+
+supergraph:
+  listen: ${env.ROUTER_LISTEN:-0.0.0.0:4000}
+  introspection: true              # Re-evaluate before going public
+
+# JWT verification — same HS256 secret as the PHP backend, so a dashboard
+# session token is valid here without re-issuance.
+authentication:
+  router:
+    jwt:
+      jwks:
+        - url: "file:///etc/jwks.json"   # populated at deploy from JWT_SECRET
+      header_name: "Authorization"
+      header_value_prefix: "Bearer"
+      on_error: Error                    # 401 instead of letting unauth queries through
+
+# Pass extracted claims through to subgraphs as a signed header so they
+# don't have to re-verify the JWT. Each subgraph trusts this header
+# because the only path to reach it is via the router (no public ports).
+headers:
+  all:
+    request:
+      - propagate:
+          named: "authorization"
+      - insert:
+          name: "x-coreflux-tenant"
+          from_context: "tenant_id"
+      - insert:
+          name: "x-coreflux-user"
+          from_context: "user_id"
+      - insert:
+          name: "x-coreflux-roles"
+          from_context: "roles"
+
+# Read tenant_id / user_id / roles from the verified JWT claims into the
+# router's per-request context. Names match what the PHP backend signs.
+rhai:
+  scripts: /dist/rhai
+  main: main.rhai
+
+# Conservative timeouts — JobDiva REST occasionally takes 3-5s under load.
+traffic_shaping:
+  router:
+    timeout: 30s
+  all:
+    timeout: 15s
+    deduplicate_query: true
+
+# Response cache — opportunistic only. Each subgraph still owns its own
+# DataLoader-based per-request batching; this just helps when the same
+# placement is queried twice within a minute by different dashboard tabs.
+preview_entity_cache:
+  enabled: true
+  subgraph:
+    all:
+      enabled: true
+      ttl: 60s
+
+# CORS — dashboard is on the same domain in prod, this matters for local dev.
+cors:
+  origins:
+    - https://corefluxapp.com
+    - http://localhost:3000
+  allow_credentials: true
+
+telemetry:
+  exporters:
+    logging:
+      stdout:
+        enabled: true
+        format: json
+  instrumentation:
+    spans:
+      router:
+        attributes:
+          tenant_id:
+            request_context: tenant_id
+          user_id:
+            request_context: user_id

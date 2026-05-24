@@ -1,0 +1,27 @@
+{
+  "name": "subgraph-jobdiva",
+  "version": "1.0.0",
+  "description": "JobDiva GraphQL subgraph — typed projection of JobDiva V2 REST. Stores nothing.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@apollo/server": "^4.10.4",
+    "@apollo/subgraph": "^2.7.5",
+    "dataloader": "^2.2.2",
+    "graphql": "^16.9.0",
+    "graphql-tag": "^2.12.6",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^20.12.7",
+    "tsx": "^4.7.2",
+    "typescript": "^5.4.5"
+  },
+  "engines": { "node": ">=18" }
+}

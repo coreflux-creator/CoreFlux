@@ -1,0 +1,21 @@
+# Subgraph manifest for `rover supergraph compose` (Phase 1 — 2 subgraphs).
+# Regenerate supergraph.graphql after editing this file or any subgraph
+# schema:
+#
+#   rover supergraph compose --config supergraph.yaml > supergraph.graphql
+#
+# In prod we run this as a build step in CI; Apollo Router hot-reloads on
+# supergraph.graphql change.
+
+federation_version: =2.7.0
+
+subgraphs:
+  coreflux:
+    routing_url: ${env.SUBGRAPH_COREFLUX_URL:-http://subgraph-coreflux:4001/graphql}
+    schema:
+      file: ../subgraph-coreflux/schema.graphql
+
+  jobdiva:
+    routing_url: ${env.SUBGRAPH_JOBDIVA_URL:-http://subgraph-jobdiva:4002/graphql}
+    schema:
+      file: ../subgraph-jobdiva/schema.graphql

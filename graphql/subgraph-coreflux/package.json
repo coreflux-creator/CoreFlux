@@ -1,0 +1,27 @@
+{
+  "name": "subgraph-coreflux",
+  "version": "1.0.0",
+  "description": "CoreFlux GraphQL subgraph — owns canonical types (Placement / Person / Company). Resolvers proxy to the PHP REST API.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "test": "tsx test/schema.test.ts"
+  },
+  "dependencies": {
+    "@apollo/server": "^4.10.4",
+    "@apollo/subgraph": "^2.7.5",
+    "graphql": "^16.9.0",
+    "graphql-tag": "^2.12.6",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^20.12.7",
+    "tsx": "^4.7.2",
+    "typescript": "^5.4.5"
+  },
+  "engines": { "node": ">=18" }
+}

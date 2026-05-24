@@ -1,0 +1,296 @@
+# JobDiva subgraph — typed projection of JobDiva's REST API.
+#
+# Design principles (Apollo GraphOS + agentic-AI ready):
+#   • Every type and field carries a description so an AI agent can
+#     introspect the schema and reason about what each field means
+#     without seeing the upstream API docs.
+#   • No `JSON` scalars on the public surface — every JobDiva field is
+#     normalised into a typed shape. AI agents can't reason about
+#     unstructured blobs. (`rawPayload: JSON` is exposed only as an
+#     escape hatch for debugging, behind @tag(name: "internal").)
+#   • Federation @key on the JobDiva entity types so other subgraphs
+#     (or other JobDiva resolvers) can reference them by id.
+#   • Field-level auth via @requiresScopes — the BI/recruiter scope
+#     can see candidate.email, but only the CFO scope sees rates.
+#   • Date scalars only — no epoch-ms timestamps leaking through.
+
+extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.7",
+        import: ["@key", "@external", "@shareable", "@requiresScopes",
+                 "@tag", "@inaccessible", "@composeDirective"])
+  @link(url: "https://specs.apollo.dev/tag/v0.3", import: ["@tag"])
+
+scalar Date
+scalar DateTime
+scalar Decimal
+scalar JSON
+
+# ---------------------------------------------------------------------
+# Federation extension on Placement.
+#
+# CoreFlux owns Placement; we add `jobDiva` as a typed relation so:
+#
+#   query {
+#     placement(id: "17") {
+#       title                  ← CoreFlux subgraph
+#       jobDiva {              ← JobDiva subgraph
+#         externalId
+#         job { title department }
+#         candidate { firstName email address { city state } }
+#         customer { name billingAddress { city } }
+#         bill { rate payRate currency }
+#       }
+#     }
+#   }
+#
+# is a single round-trip that the router decomposes for us.
+# ---------------------------------------------------------------------
+extend type Placement @key(fields: "id") {
+  id: ID! @external
+
+  """
+  The JobDiva assignment record this placement was sourced from.
+  Null when the placement was created in CoreFlux directly (no JobDiva
+  Start exists). Resolved from external_entity_mappings by joining
+  this placement's id to a row of kind='start'.
+  """
+  jobDiva: JobDivaAssignment
+}
+
+# ---------------------------------------------------------------------
+# JobDivaAssignment — JobDiva's "Start" / "Placement" record.
+# ---------------------------------------------------------------------
+"""
+A single JobDiva Assignment ("Start") — one engagement of one candidate
+on one job for one customer. Equivalent of CoreFlux `Placement`.
+
+Source: /apiv2/jobdiva/searchStart (BI feed) + /apiv2/jobdiva/searchStart
+detail endpoint for fields the BI feed nulls out (notably payRate).
+"""
+type JobDivaAssignment @key(fields: "externalId") {
+  """JobDiva's internal Start ID (e.g. 55811863)."""
+  externalId: ID!
+
+  """JobDiva's reference number / job ref (e.g. "26-03327")."""
+  refNumber: String
+
+  """Assignment lifecycle status as reported by JobDiva."""
+  status: String
+
+  """Human-readable status from JobDiva (e.g. "Offer Accepted")."""
+  startStatus: String
+
+  startDate: Date
+  endDate: Date
+
+  """Date the candidate was originally submitted to the customer."""
+  submittalDate: Date
+
+  """Date the customer scheduled an interview."""
+  interviewDate: Date
+
+  """JobDiva's "position type" string (e.g. "contract", "perm")."""
+  positionType: String
+
+  """Internal notes JobDiva attached to the assignment."""
+  internalNotes: String
+
+  """Linked Job record (drives `Placement.title` in CoreFlux)."""
+  job: JobDivaJob
+
+  """Linked Candidate record (the placed person)."""
+  candidate: JobDivaCandidate
+
+  """Linked end-client / customer record."""
+  customer: JobDivaCustomer
+
+  """Linked job contact on the customer side, when set."""
+  contact: JobDivaContact
+
+  """
+  Recruiter who placed this assignment. Mapped from JobDiva's
+  `recruited by` / `recruiterId` fields. NOT a CoreFlux user yet —
+  Phase 3 wires `placement_recruiters` to bind these.
+  """
+  recruiter: JobDivaRecruiter
+
+  """
+  Bill + pay rate detail. Falls through to /searchStart detail endpoint
+  when the BI feed nulls out payRate (default behaviour on most tenants).
+  """
+  bill: JobDivaBilling @requiresScopes(scopes: [["bill_rate.read"]])
+
+  """
+  The raw V2 BI payload JobDiva returned. Internal-only — exposed for
+  debugging when a tenant reports a field looks wrong. AI agents should
+  use typed fields above, not this.
+  """
+  rawPayload: JSON @tag(name: "internal") @inaccessible
+}
+
+# ---------------------------------------------------------------------
+# Job — title, department, requirements, etc.
+# ---------------------------------------------------------------------
+"""JobDiva Job record (the open requisition the assignment is filling)."""
+type JobDivaJob @key(fields: "externalId") {
+  externalId: ID!
+
+  """The role title displayed in the JobDiva UI (e.g. "Service Desk Analyst")."""
+  title: String
+
+  """Internal job code / requisition number."""
+  refNumber: String
+
+  description: String
+  department: String
+
+  """JobDiva job status (e.g. Open, Hold, Closed)."""
+  status: String
+
+  """Hiring manager's display name on the customer side."""
+  hiringManager: String
+
+  """Date the job was posted in JobDiva."""
+  postedDate: Date
+}
+
+# ---------------------------------------------------------------------
+# Candidate — the person being placed.
+# ---------------------------------------------------------------------
+"""
+JobDiva Candidate record (the placed person). Mapped onto CoreFlux
+Person via external_entity_mappings of kind='candidate'.
+"""
+type JobDivaCandidate @key(fields: "externalId") {
+  externalId: ID!
+
+  firstName: String
+  middleName: String
+  lastName: String
+
+  """Display name as stored in JobDiva (may differ from firstName + lastName)."""
+  displayName: String
+
+  email: String         @requiresScopes(scopes: [["candidate.contact.read"]])
+  phonePrimary: String  @requiresScopes(scopes: [["candidate.contact.read"]])
+  phoneSecondary: String @requiresScopes(scopes: [["candidate.contact.read"]])
+
+  """Free-text address as returned by JobDiva. See homeAddress for parsed."""
+  addressRaw: String
+
+  """Best-effort parsed home address (may be incomplete)."""
+  homeAddress: JobDivaAddress
+
+  """Work authorisation status JobDiva stores."""
+  workAuthStatus: String
+  workAuthExpiry: Date
+
+  """JobDiva-side flag — true if this candidate has been masked for export."""
+  redacted: Boolean
+
+  """Date the candidate was hired."""
+  hireDate: Date
+}
+
+# ---------------------------------------------------------------------
+# Customer — end-client company.
+# ---------------------------------------------------------------------
+"""
+JobDiva Customer record. Conceptually the same as CoreFlux Company
+(end-client). Mapped via external_entity_mappings kind='jobdiva_customer'.
+"""
+type JobDivaCustomer @key(fields: "externalId") {
+  externalId: ID!
+  name: String!
+
+  industry: String
+  billingAddress: JobDivaAddress
+
+  """Customer-level billing terms / payment terms in JobDiva."""
+  billingTerms: String
+
+  """JobDiva account manager assigned to this customer (display name)."""
+  accountManager: String
+}
+
+# ---------------------------------------------------------------------
+# Contact — a person on the customer side.
+# ---------------------------------------------------------------------
+"""
+JobDiva Contact record — a named individual on the customer's side
+(hiring manager, approver, billing contact). Mapped via
+external_entity_mappings kind='jobdiva_contact'.
+"""
+type JobDivaContact @key(fields: "externalId") {
+  externalId: ID!
+  firstName: String
+  lastName: String
+  displayName: String
+  title: String
+  email: String @requiresScopes(scopes: [["customer.contact.read"]])
+  phone: String @requiresScopes(scopes: [["customer.contact.read"]])
+}
+
+"""Recruiter who closed the placement — JobDiva user, not CoreFlux."""
+type JobDivaRecruiter {
+  externalId: ID
+  displayName: String
+}
+
+# ---------------------------------------------------------------------
+# Money / rates.
+# ---------------------------------------------------------------------
+"""
+Bill + pay rate detail for an assignment. Visible only to roles holding
+the `bill_rate.read` scope (so recruiters see assignments but not margins).
+"""
+type JobDivaBilling {
+  """Final bill rate to the customer."""
+  rate: Decimal
+  rateUnit: String
+
+  """Pay rate to the candidate."""
+  payRate: Decimal
+  payRateUnit: String
+
+  """Currency (ISO-3) — extracted from JobDiva's "USD/Hour" style strings."""
+  currency: String
+
+  """Overtime multiplier (typically 1.5)."""
+  otMultiplier: Decimal
+
+  """Doubletime multiplier (typically 2.0)."""
+  dtMultiplier: Decimal
+}
+
+type JobDivaAddress {
+  line1: String
+  line2: String
+  city: String
+  state: String
+  postalCode: String
+  country: String
+}
+
+# ---------------------------------------------------------------------
+# Query roots — single-entity lookups by JobDiva external ID. Most
+# queries enter this subgraph via federation references from CoreFlux
+# placements; these direct queries are useful for the MCP server and
+# admin tooling.
+# ---------------------------------------------------------------------
+type Query {
+  """Look up a JobDiva assignment by its Start ID."""
+  jobDivaAssignment(externalId: ID!): JobDivaAssignment
+
+  """Look up a JobDiva job (open requisition) by its Job ID."""
+  jobDivaJob(externalId: ID!): JobDivaJob
+
+  """Look up a JobDiva candidate by its Candidate ID."""
+  jobDivaCandidate(externalId: ID!): JobDivaCandidate
+
+  """Look up a JobDiva customer (end-client) by its Customer ID."""
+  jobDivaCustomer(externalId: ID!): JobDivaCustomer
+
+  """Look up a JobDiva contact by its Contact ID."""
+  jobDivaContact(externalId: ID!): JobDivaContact
+}
