@@ -64,11 +64,12 @@ fi
 command -v yarn >/dev/null || run "npm install -g yarn"
 
 # ---------------------------------------------------------------------
-# 2. Apollo Router binary
+# 2. Apollo Router binary (latest stable from Apollo's official installer)
 # ---------------------------------------------------------------------
 step "Apollo Router"
 if ! command -v router >/dev/null; then
-    run "curl -sSL https://router.apollo.dev/download/nix/v1.55.0 | sh"
+    # Apollo's official installer pulls the latest stable release.
+    run "curl -sSL https://router.apollo.dev/download/nix/latest | sh"
     run "mv router /usr/local/bin/router"
     run "chmod +x /usr/local/bin/router"
 else

@@ -7852,3 +7852,49 @@ Logged as P1 backlog.
 - `/app/api/jobdiva.php` (sync action accepts backfill flag)
 - `/app/graphql/deploy/scripts/release.sh`
 
+
+
+## Feature — Cloudways one-command GraphQL setup (2026-02)
+
+### Why
+After the Apollo Router architecture landed, the user was facing 6 manual SSH
+steps on the Cloudways server (install Node 20, install Apollo Router, create
+service user, write `/etc/coreflux/graphql.env`, drop in systemd units, wire
+nginx). They asked: *"can those commands be automated? like you've been doing
+for the migrations and updates?"*
+
+### What shipped
+- **`/app/scripts/setup_cloudways_graphql.sh`** — new user-facing single-command
+  wrapper. Validates root + Debian/Ubuntu, installs git/curl/openssl/rsync,
+  `git clone`s (or `git pull --ff-only`s) the repo into `/app`, then hands off
+  to the existing `bootstrap.sh`. Supports `--dry-run`, `--skip-nginx`,
+  `--skip-git`, `REPO_URL`, `REPO_BRANCH`, `REPO_PATH`. Re-runnable.
+- **`bootstrap.sh`** — switched Apollo Router install from pinned `v1.55.0` to
+  the official `latest` channel (per user choice).
+- **`/app/api/admin/router_deploy.php`** — fixed missing `api_require_auth()`
+  guard (was only calling `rbac_legacy_require` which tripped the auth-gate
+  static analyzer sentry).
+- **`/app/graphql/deploy/DEPLOYMENT.md`** — added a "One-command setup
+  (recommended)" section at the top with the `curl | sudo … bash` invocation.
+
+### Usage
+```bash
+sudo REPO_URL=https://github.com/<org>/coreflux.git \
+     bash /tmp/setup_cloudways_graphql.sh
+```
+
+### Tests
+- `tests/setup_cloudways_graphql_smoke.php` (22 assertions — syntax, flags,
+  delegation, safety rails, --help, DEPLOYMENT.md cross-link)
+- `tests/auth_gate_static_analyzer_smoke.php` — now passes again after fixing
+  `router_deploy.php`
+- Full suite: **272/272 ✅** (was 268/271 at session start due to PHP CLI loss
+  + pre-existing router_deploy.php gap; reinstalled php8.2-cli, fixed the
+  auth-gate gap, added the new smoke).
+
+### Files of reference
+- `/app/scripts/setup_cloudways_graphql.sh`
+- `/app/graphql/deploy/scripts/bootstrap.sh`
+- `/app/graphql/deploy/DEPLOYMENT.md`
+- `/app/api/admin/router_deploy.php`
+- `/app/tests/setup_cloudways_graphql_smoke.php`

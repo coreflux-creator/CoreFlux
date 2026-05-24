@@ -52,8 +52,11 @@ register_shutdown_function(static function (): void {
 });
 
 require_once __DIR__ . '/../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../core/RBAC.php';
 
 // Auth + method guard (same as migrate.php).
+$ctx  = api_require_auth();
+$user = $ctx['user'];
 rbac_legacy_require($user, 'integrations.field_map.manage');
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
 

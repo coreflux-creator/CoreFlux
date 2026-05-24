@@ -26,6 +26,42 @@ on the same box.
               php-fpm  (existing PHP REST API)
 ```
 
+## One-command setup (recommended)
+
+For a fresh Cloudways server, run a **single** script that chains every
+host-prep step below (Node 20 → Apollo Router → service user → secrets →
+systemd → nginx). It also `git pull`s the latest CoreFlux source so
+`/app/graphql/*` is on disk before bootstrap wires systemd.
+
+```bash
+# SSH into the Cloudways application server, then either:
+curl -fsSL https://raw.githubusercontent.com/<org>/coreflux/main/scripts/setup_cloudways_graphql.sh \
+  | sudo REPO_URL=https://github.com/<org>/coreflux.git bash
+
+# …or scp the file over first, then:
+sudo REPO_URL=https://github.com/<org>/coreflux.git \
+     bash /tmp/setup_cloudways_graphql.sh
+```
+
+Flags / env:
+
+| Var / flag      | Default  | Purpose |
+|-----------------|----------|---------|
+| `REPO_URL=…`    | _(req.)_ | git remote for first-time clone |
+| `REPO_BRANCH=…` | `main`   | branch to track |
+| `REPO_PATH=…`   | `/app`   | where the checkout lands (must match SRC in release.sh) |
+| `--dry-run`     | off      | print every action, change nothing |
+| `--skip-nginx`  | off      | leave nginx alone (managed by another script) |
+| `--skip-git`    | off      | use an existing checkout, don't clone or pull |
+
+The script is fully idempotent — re-run it whenever you want to pull
+the latest code, upgrade the Apollo Router binary, or re-apply unit
+files. After the first run, every subsequent deploy can be triggered
+from the dashboard (**Settings → Integrations → "Deploy Apollo Router"**)
+via `/api/admin/router_deploy.php` — no SSH needed.
+
+---
+
 ## One-time host prep
 
 ```bash
