@@ -83,6 +83,121 @@ foreach ($rows as &$r) {
     $r['actor'] = ($r['actor_user_id'] !== null && isset($actorMap[(int) $r['actor_user_id']]))
         ? $actorMap[(int) $r['actor_user_id']]
         : null;
+    // Stamp the integration-sync rows with a kind discriminator so the
+    // drawer can render them in the same timeline as CoreFlux audit
+    // events (added below) without confusing the two row shapes.
+    $r['kind'] = 'sync';
+}
+unset($r);
+
+// ---------------------------------------------------------------------
+// CoreFlux audit events for the same entity. These are operator edits
+// (placement.updated, placement.override_cleared, placement.created,
+// etc.) — *not* integration syncs. We surface them in the same drawer so
+// operators see a single chronological timeline of "what changed and
+// who/what changed it".
+//
+// Only enabled for `placement` today; person/company can be added by
+// extending $AUDIT_EVENT_MAP. The map serves two purposes: it is the
+// allow-list (so a wrong entity_type doesn't dump unrelated events into
+// the drawer), AND it controls which events show up where.
+// ---------------------------------------------------------------------
+$AUDIT_EVENT_MAP = [
+    'placement' => [
+        'placement.created',
+        'placement.updated',
+        'placement.status_changed',
+        'placement.ended',
+        'placement.override_cleared',
+        'placement.rate.drafted',
+        'placement.rate.approved',
+        'placement.rate.superseded',
+    ],
+];
+
+$auditRows = [];
+if (isset($AUDIT_EVENT_MAP[$entityType])) {
+    $events = $AUDIT_EVENT_MAP[$entityType];
+    $placeholders = implode(',', array_fill(0, count($events), '?'));
+    $params = array_merge([$tid, $internalId], $events);
+    try {
+        $pdo = getDB();
+        $stmt = $pdo->prepare(
+            "SELECT id, actor_user_id, event, meta_json, created_at
+               FROM audit_log
+              WHERE tenant_id = ? AND target_id = ? AND event IN ({$placeholders})
+              ORDER BY created_at DESC, id DESC
+              LIMIT " . max(1, min(500, $limit))
+        );
+        $stmt->execute($params);
+        $auditRows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    } catch (\PDOException $e) {
+        // audit_log absent? Don't break the drawer; just skip the merge.
+        error_log('sync_history: audit_log read failed (non-fatal): ' . $e->getMessage());
+    }
 }
 
-api_ok(['rows' => $rows]);
+// Backfill actor map with any audit actors not already resolved.
+if (!empty($auditRows)) {
+    $missing = [];
+    foreach ($auditRows as $r) {
+        $aid = $r['actor_user_id'] !== null ? (int) $r['actor_user_id'] : null;
+        if ($aid !== null && !isset($actorMap[$aid])) $missing[$aid] = true;
+    }
+    if (!empty($missing)) {
+        $ids = array_keys($missing);
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $pdo = getDB();
+        $stmt = $pdo->prepare("SELECT id, email FROM users WHERE id IN ({$placeholders})");
+        $stmt->execute($ids);
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $u) {
+            $actorMap[(int) $u['id']] = ['id' => (int) $u['id'], 'email' => (string) $u['email']];
+        }
+    }
+}
+
+// Shape audit rows so they slot into the same timeline as sync rows.
+// We don't have a payload_before/payload_after on audit events — they
+// represent atomic user actions — so the drawer renders the meta_json
+// directly instead of a diff.
+$shapedAudit = [];
+foreach ($auditRows as $r) {
+    $meta = null;
+    if (is_string($r['meta_json']) && $r['meta_json'] !== '') {
+        $decoded = json_decode($r['meta_json'], true);
+        if (is_array($decoded)) $meta = $decoded;
+    }
+    $actorId = $r['actor_user_id'] !== null ? (int) $r['actor_user_id'] : null;
+    $shapedAudit[] = [
+        'id'                   => (int) $r['id'],
+        'kind'                 => 'audit',
+        'source_system'        => 'coreflux',
+        'internal_entity_type' => $entityType,
+        'internal_entity_id'   => $internalId,
+        'external_id'          => null,
+        'direction'            => 'internal',
+        'payload_before'       => null,
+        'payload_after'        => null,
+        'content_hash_before'  => null,
+        'content_hash_after'   => null,
+        'actor_user_id'        => $actorId,
+        'actor'                => ($actorId !== null && isset($actorMap[$actorId])) ? $actorMap[$actorId] : null,
+        'created_at'           => $r['created_at'],
+        // Audit-only fields below — drawer reads these when kind === 'audit'.
+        'event'                => (string) $r['event'],
+        'meta'                 => $meta,
+    ];
+}
+
+// Merge + sort newest-first across BOTH sources, then truncate to limit.
+$merged = array_merge($rows, $shapedAudit);
+usort($merged, static function ($a, $b) {
+    $ad = strtotime((string) ($a['created_at'] ?? ''));
+    $bd = strtotime((string) ($b['created_at'] ?? ''));
+    if ($ad !== $bd) return $bd <=> $ad;
+    // Tie-break on id within the same source so the order is deterministic.
+    return ((int) ($b['id'] ?? 0)) <=> ((int) ($a['id'] ?? 0));
+});
+$merged = array_slice($merged, 0, $limit);
+
+api_ok(['rows' => $merged]);

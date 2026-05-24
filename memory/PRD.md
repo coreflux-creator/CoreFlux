@@ -7767,3 +7767,88 @@ in the UI, not just in the JSON column.
 - They click "↻ Revert to JobDiva" under title in Edit mode: the pill
   vanishes, the next JobDiva sync refreshes the title from upstream.
 
+
+---
+
+## 2026-02 · Action-items batch: Sync History merge, contacts backfill, release.sh; RBAC B2 verified-done; cron deferred
+
+User asked for "next action items + sync history items". Worked through
+them in priority order. Outcome:
+
+### ✅ 1. Sync History audit merge
+**Frontend + backend.** The placement Sync History drawer now shows
+operator edits intermixed with integration syncs in one timeline.
+
+- `/app/api/integrations/sync_history.php`:
+  - Tags existing sync rows with `kind: 'sync'`.
+  - Pulls `audit_log` rows for the same entity (allow-list per
+    `$AUDIT_EVENT_MAP` — currently `placement.*` only) tagged
+    `kind: 'audit', source_system: 'coreflux'`.
+  - Merges + sorts newest-first, truncates to limit, surfaces missing
+    audit_log table as a non-fatal warning.
+- `/app/dashboard/src/components/SyncHistoryDrawer.jsx`:
+  - New `<AuditRow>` component with a purple `#a855f7` left border + chip.
+  - `<HistoryRow>` dispatches on `row.kind`; audit rows render their
+    `meta_json` as a key/value table when expanded.
+  - `AUDIT_EVENT_LABEL` dictionary maps backend event names to UX
+    strings ('placement.updated' → 'Edited',
+    'placement.override_cleared' → 'Override reverted', etc.).
+- Smoke: `tests/sync_history_audit_merge_smoke.php` — 26 assertions
+  including real-DB merge with chronological ordering.
+
+### ✅ 2. JobDiva Contacts backfill (50-skipped-contacts fix)
+**Backend.** `jobdivaSyncContacts()` now has a new opt-in flag
+`backfill_companies_on_contact_pull`. When set:
+- A contact whose parent `external_entity_mappings` row is missing
+  triggers an on-demand `/apiv2/jobdiva/searchCustomer` fetch.
+- The fetched customer is upserted via `companiesUpsertByName()` and
+  a `jobdiva → company` mapping is written.
+- The original contact then succeeds instead of skipping.
+- A `companies_backfilled` informational error surfaces the count.
+- Backfill failures are non-fatal — falls through to the same skip
+  diagnostics as before.
+
+`/app/api/jobdiva.php?action=sync` exposes the flag via the request
+body. Smoke: `tests/jobdiva_contacts_backfill_smoke.php` — 16
+assertions including real-DB legacy-path validation.
+
+### ✅ 3. Cloudways release.sh
+`/app/graphql/deploy/scripts/release.sh` — root-only release wrapper.
+Pipeline: pre-flight (tools, env, secrets-not-placeholder) →
+supergraph snapshot → delegates to deploy.sh → conditional systemd
+restarts (only subgraphs whose dist/ hash changed; router hot-reloads
+via supergraph mtime) → pre/post health diff → runs three GraphQL
+smoke tests against the live stack → prints rollback hint.
+
+Smoke: `tests/graphql_release_script_smoke.php` — 15 assertions.
+
+### ✅ 4. RBAC B2 — already shipped (handoff was stale)
+`/app/core/rbac/permissions.php` already declares `RBACResolver`
+(not the colliding `RBAC`). It's wired into `core/auth.php:149` and
+`core/api_bootstrap.php`. Existing smokes
+`rbac_b1_smoke.php`–`rbac_b5_smoke.php` cover it. No work needed.
+
+### ⏸ 5. JobDiva cron → GraphQL client — deferred
+There IS no cron file for JobDiva (only `/api/jobdiva.php?action=sync`
+triggered by the dashboard or external scheduler). The "refactor"
+needs to be re-scoped to either:
+- (a) Create a new `/app/cron/jobdiva_sync.php` that calls the
+      federated graph, OR
+- (b) Add `Mutation.upsertPlacement` (+ company/person) to the
+      coreflux subgraph first, then write the cron against it.
+Either is 2-3 hours and would benefit from a real JobDiva sandbox.
+Logged as P1 backlog.
+
+### Tests
+- `tests/sync_history_audit_merge_smoke.php` (26 assertions)
+- `tests/jobdiva_contacts_backfill_smoke.php` (16 assertions)
+- `tests/graphql_release_script_smoke.php` (15 assertions)
+- Full suite: **271/271 ✅** (was 268; +3 new files).
+
+### Files of reference
+- `/app/api/integrations/sync_history.php` (audit-merge block)
+- `/app/dashboard/src/components/SyncHistoryDrawer.jsx` (AuditRow + label map)
+- `/app/core/jobdiva/sync.php` (contact-backfill block, ~line 410)
+- `/app/api/jobdiva.php` (sync action accepts backfill flag)
+- `/app/graphql/deploy/scripts/release.sh`
+

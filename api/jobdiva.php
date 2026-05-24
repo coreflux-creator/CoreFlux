@@ -253,6 +253,14 @@ switch ($action) {
         $body = api_json_body();
         $opts = [];
         if (!empty($body['modified_since'])) $opts['modified_since'] = (string) $body['modified_since'];
+        // Operator opt-in: when JobDiva's Companies delta window misses
+        // parents that some Contacts depend on, this flag tells the
+        // Contact sync to fetch the missing parent via /searchCustomer
+        // on demand and upsert it before mapping. Off by default — the
+        // extra REST calls aren't free.
+        if (!empty($body['backfill_companies_on_contact_pull'])) {
+            $opts['backfill_companies_on_contact_pull'] = true;
+        }
         try {
             $result = jobdivaSyncAll($tid, $user['id'] ?? null, $opts);
         } catch (\Throwable $e) {

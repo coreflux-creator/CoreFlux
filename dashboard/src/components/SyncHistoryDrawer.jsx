@@ -29,6 +29,23 @@ const SOURCE_LABEL = {
   quickbooks: 'QuickBooks',
   zoho_books: 'Zoho Books',
   airtable: 'Airtable',
+  coreflux: 'CoreFlux',
+};
+
+/**
+ * Human-readable label for the CoreFlux audit events the drawer
+ * surfaces. Keys mirror $AUDIT_EVENT_MAP in
+ * /app/api/integrations/sync_history.php — keep in lockstep.
+ */
+const AUDIT_EVENT_LABEL = {
+  'placement.created':           'Created',
+  'placement.updated':           'Edited',
+  'placement.status_changed':    'Status changed',
+  'placement.ended':             'Ended',
+  'placement.override_cleared':  'Override reverted',
+  'placement.rate.drafted':      'Rate drafted',
+  'placement.rate.approved':     'Rate approved',
+  'placement.rate.superseded':   'Rate superseded',
 };
 
 /**
@@ -87,7 +104,95 @@ function PayloadValue({ value, dim }) {
   );
 }
 
+/**
+ * Audit row — surfaces operator actions (placement.updated,
+ * placement.override_cleared, etc.) in the same drawer as integration
+ * syncs. Visually distinct (purple chip, "CoreFlux" tag) so operators
+ * can tell at a glance "this was a human edit" vs "JobDiva pushed this".
+ */
+function AuditRow({ row }) {
+  const [open, setOpen] = useState(false);
+  const eventLabel = AUDIT_EVENT_LABEL[row.event] || row.event;
+  const actorLabel = row.actor?.email
+    || (row.actor_user_id ? `User #${row.actor_user_id}` : 'system');
+  const metaEntries = row.meta && typeof row.meta === 'object'
+    ? Object.entries(row.meta).filter(([k]) => k !== 'id')   // 'id' is redundant — same as the placement we're viewing
+    : [];
+
+  return (
+    <div
+      data-testid={`sync-history-row-audit-${row.id}`}
+      style={{
+        borderBottom: '1px solid #e2e8f0',
+        padding: '10px 14px',
+        // Subtle purple wash so audit rows stand apart from sync rows.
+        background: 'linear-gradient(to right, rgba(168,85,247,0.04), transparent 30%)',
+        borderLeft: '3px solid #a855f7',
+      }}
+    >
+      <button
+        onClick={() => setOpen(o => !o)}
+        data-testid={`sync-history-row-audit-toggle-${row.id}`}
+        aria-expanded={open}
+        style={{
+          width: '100%', background: 'transparent', border: 'none', cursor: 'pointer',
+          textAlign: 'left', padding: 0, display: 'flex', alignItems: 'center', gap: 8,
+        }}
+      >
+        {open ? <ChevronDown size={14} color="#64748b" /> : <ChevronRight size={14} color="#64748b" />}
+        <span style={{ fontWeight: 600, fontSize: 13 }}>CoreFlux</span>
+        <span style={{
+          fontSize: 11, background: '#f3e8ff', color: '#7c3aed',
+          padding: '1px 6px', borderRadius: 999, fontWeight: 600,
+        }}>
+          {eventLabel}
+        </span>
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: 11, color: '#64748b' }}>{row.created_at}</span>
+      </button>
+      <div style={{ fontSize: 11, color: '#64748b', marginLeft: 22, marginTop: 2 }}>
+        by <span data-testid={`sync-history-audit-actor-${row.id}`}>{actorLabel}</span>
+        {metaEntries.length > 0 && (
+          <> · <code data-testid={`sync-history-audit-meta-summary-${row.id}`}>{metaEntries.length} detail{metaEntries.length === 1 ? '' : 's'}</code></>
+        )}
+      </div>
+
+      {open && metaEntries.length > 0 && (
+        <div data-testid={`sync-history-audit-meta-${row.id}`} style={{ marginTop: 8, marginLeft: 22 }}>
+          <table style={{ width: '100%', fontSize: 12 }}>
+            <tbody>
+              {metaEntries.map(([k, v]) => (
+                <tr key={k} data-testid={`sync-history-audit-meta-row-${row.id}-${k}`}>
+                  <td style={{
+                    padding: '3px 6px',
+                    fontFamily: 'ui-monospace, monospace',
+                    fontSize: 11,
+                    color: '#475569',
+                    verticalAlign: 'top',
+                    width: 1,
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {k}
+                  </td>
+                  <td style={{ padding: '3px 6px' }}>
+                    <PayloadValue value={v} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HistoryRow({ row }) {
+  const isAudit = row.kind === 'audit';
+  // Audit rows render a different shape: no payload diff, just the
+  // event label + meta-json fields rendered inline.
+  if (isAudit) return <AuditRow row={row} />;
+
   const [open, setOpen] = useState(false);
   const changes = useMemo(() => diffPayloads(row.payload_before, row.payload_after), [row]);
   const sourceLabel = SOURCE_LABEL[row.source_system] || row.source_system;
@@ -236,7 +341,7 @@ export default function SyncHistoryDrawer({ entityType, internalId }) {
               </button>
             </header>
             <p style={{ padding: '8px 18px 0', margin: 0, fontSize: 12, color: '#64748b' }}>
-              Every sync that changed at least one field for this record. Click a row to see the field-level diff.
+              Every integration sync AND every CoreFlux operator edit for this record, newest first. Click a row to expand.
             </p>
 
             <div style={{ flex: 1, overflowY: 'auto' }}>

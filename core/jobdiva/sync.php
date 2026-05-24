@@ -401,6 +401,51 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
 
             // Resolve internal company via mapping created by jobdivaSyncCompanies().
             $companyMapping = mappingFindInternal($tid, 'jobdiva', 'company', $companyExtId);
+            if (!$companyMapping && !empty($opts['backfill_companies_on_contact_pull'])) {
+                // Backfill on-demand: the Companies delta window missed
+                // this parent (likely because it hasn't been edited
+                // recently). Fetch the single record by id and upsert it
+                // before retrying the mapping lookup. Soft-fail — if
+                // JobDiva 404s the company, we still fall through to the
+                // skip path below so the contact is logged like before.
+                try {
+                    $resp = jobdivaCall(
+                        $tid, 'POST', '/apiv2/jobdiva/searchCustomer',
+                        ['customerId' => (int) $companyExtId]
+                    );
+                    $candidateRows = $resp['body']['data']
+                        ?? $resp['body']['items']
+                        ?? (is_array($resp['body'] ?? null) && array_keys($resp['body']) === range(0, count($resp['body']) - 1) ? $resp['body'] : null);
+                    if (is_array($candidateRows) && !empty($candidateRows) && is_array($candidateRows[0])) {
+                        $jdCo = $candidateRows[0];
+                        $coName = trim((string) (
+                            $jdCo['name']         ?? $jdCo['companyName'] ?? $jdCo['company_name']
+                            ?? $jdCo['customerName'] ?? $jdCo['customer_name'] ?? ''
+                        ));
+                        if ($coName !== '') {
+                            $newCoId = companiesUpsertByName($tid, $coName, [
+                                'website'            => $jdCo['website'] ?? null,
+                                'phone'              => $jdCo['phone']   ?? null,
+                                'address_line1'      => $jdCo['address1'] ?? $jdCo['address'] ?? null,
+                                'address_line2'      => $jdCo['address2'] ?? null,
+                                'city'               => $jdCo['city']    ?? null,
+                                'state'              => $jdCo['state']   ?? null,
+                                'postal_code'        => $jdCo['zip']     ?? $jdCo['postal_code'] ?? null,
+                                'country'            => $jdCo['country'] ?? 'US',
+                                'created_by_user_id' => $userId,
+                            ], ['client']);
+                            mappingUpsert($tid, 'jobdiva', 'company', (string) $companyExtId, $newCoId, $jdCo, 'pull', $userId);
+                            $companyMapping = mappingFindInternal($tid, 'jobdiva', 'company', $companyExtId);
+                            $skipReasons['backfilled_companies'] = ($skipReasons['backfilled_companies'] ?? 0) + 1;
+                        }
+                    }
+                } catch (\Throwable $bfe) {
+                    // Backfill failure is non-fatal — the contact will
+                    // just go through the existing skip+diagnostic path
+                    // so the operator still sees the underlying problem.
+                    error_log("[jobdiva] backfill_companies_on_contact_pull failed for customer={$companyExtId}: " . $bfe->getMessage());
+                }
+            }
             if (!$companyMapping) {
                 $skipped++; $skipReasons['company_unmapped']++;
                 if (count($unmappedCompanies) < 20) $unmappedCompanies[$companyExtId] = true;
@@ -428,10 +473,23 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
             'entity'      => 'contact',
             'kind'        => 'company_unmapped',
             'error'       => sprintf(
-                '%d contact%s skipped: parent company has no mapping. Run Companies sync first with a wider window or enable the "backfill_companies_on_contact_pull" option. Unmapped external company IDs (first 20): %s',
+                '%d contact%s skipped: parent company has no mapping%s. Run Companies sync first with a wider window or set "backfill_companies_on_contact_pull" to fetch parents on demand. Unmapped external company IDs (first 20): %s',
                 $skipReasons['company_unmapped'],
                 $skipReasons['company_unmapped'] === 1 ? '' : 's',
+                empty($opts['backfill_companies_on_contact_pull'])
+                    ? '' : ' (backfill enabled but the company also could not be fetched on demand)',
                 implode(', ', array_keys($unmappedCompanies))
+            ),
+        ];
+    }
+    if (!empty($skipReasons['backfilled_companies'])) {
+        $errors[] = [
+            'entity' => 'contact',
+            'kind'   => 'companies_backfilled',
+            'error'  => sprintf(
+                '%d parent company%s auto-fetched via searchCustomer during this contact sync (backfill_companies_on_contact_pull=true). The contact(s) succeeded; no operator action needed.',
+                $skipReasons['backfilled_companies'],
+                $skipReasons['backfilled_companies'] === 1 ? '' : 'ies'
             ),
         ];
     }
