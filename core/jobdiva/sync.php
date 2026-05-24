@@ -538,6 +538,17 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
     $items     = $discovery['items'];
     $channel   = $discovery['channel'];
 
+    // Enrich every placement item with its job title BEFORE the upsert
+    // loop. JobDiva's V2 BI searchStart payload contains `job id` but
+    // NOT `job title`; the title lives on the Job record itself. Without
+    // this enrichment, every placement falls through to the synthetic
+    // "JobDiva Placement {id}" title — observed 2026-02 on Andrew Lee's
+    // placement (job id 27857851 → real title "Service Desk Analyst").
+    // Resolved titles are injected into each item under
+    // `__cf_resolved_job_title` so the existing title pluck chain in
+    // jobdivaSyncUpsertPlacement picks them up at no extra cost.
+    $items = jobdivaSyncResolveJobTitles($tid, $items, $userId);
+
     $processed = 0; $skipped = 0; $failed = 0; $errors = [];
     $skipReasons = ['missing_fields' => 0, 'no_person' => 0];
 
@@ -679,6 +690,83 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
  * Returns null only when the auto-create itself fails (e.g. DB outage)
  * — in normal operation it always returns a positive integer.
  */
+/**
+ * Bulk job-title resolver. JobDiva's V2 BI Assignment payload contains
+ * the job's foreign key (`job id`) but NOT the job title — that lives
+ * on the Job record. This helper:
+ *
+ *   1. Collects every unique non-zero `job id` across the batch
+ *   2. Fetches each one via /apiv2/jobdiva/searchJob (per-id call,
+ *      since JobDiva's bulk-IDs filter is undocumented and inconsistent
+ *      across tenants)
+ *   3. Caches the (jobId → title) map per sync run so re-encountering
+ *      the same job costs zero API calls
+ *   4. Injects `__cf_resolved_job_title` onto each item so the existing
+ *      title pluck chain finds it without changes
+ *
+ * Soft-fails — if a job fetch errors (JobDiva rate-limit, network blip),
+ * we log + continue. The placement still upserts; the title just falls
+ * back to the synthetic "JobDiva Placement {id}" placeholder, which the
+ * operator can see and remediate (vs. blowing up the whole sync).
+ *
+ * Best-effort caching is in-memory only — re-running the sync re-fetches.
+ * If needed we can persist (jobId, title) into mappingUpsert(kind=job)
+ * later to skip API calls across runs.
+ */
+function jobdivaSyncResolveJobTitles(int $tid, array $items, ?int $userId): array
+{
+    $jobIds = [];
+    foreach ($items as $jd) {
+        $jid = jobdivaPluckField($jd, ['job id', 'jobId', 'job_id', 'jobID']);
+        if ($jid !== '' && ctype_digit($jid) && (int) $jid > 0) {
+            $jobIds[(int) $jid] = true;
+        }
+    }
+    if (empty($jobIds)) return $items;
+
+    $titles = [];
+    foreach (array_keys($jobIds) as $jid) {
+        try {
+            // JobDiva's /apiv2/jobdiva/searchJob accepts a body of
+            // search criteria; `{jobId: N}` is the documented per-id
+            // shape, mirroring how /apiv2/jobdiva/searchStart accepts
+            // `{startId: N}` for single-placement lookups.
+            $resp = jobdivaCall($tid, 'POST', '/apiv2/jobdiva/searchJob', ['jobId' => $jid]);
+            $body = $resp['body'] ?? [];
+            // Response shape varies by tenant config — the most common
+            // shapes are {data:[…]} / {items:[…]} / direct array.
+            $rows = $body['data'] ?? $body['items'] ?? (is_array($body) && isset($body[0]) ? $body : []);
+            if (is_array($rows) && count($rows) > 0) {
+                $row = $rows[0];
+                $title = jobdivaPluckField((array) $row, [
+                    'title', 'jobTitle', 'job_title', 'job title',
+                    'positionTitle', 'position_title', 'roleName',
+                    'name', 'jobName',
+                ]);
+                if ($title !== '') $titles[$jid] = $title;
+            }
+        } catch (\Throwable $e) {
+            error_log("[jobdiva] resolveJobTitles failed for job_id={$jid}: " . $e->getMessage());
+            // continue — soft fail
+        }
+    }
+
+    if (empty($titles)) return $items;
+
+    foreach ($items as &$jd) {
+        $jid = jobdivaPluckField($jd, ['job id', 'jobId', 'job_id', 'jobID']);
+        if ($jid !== '' && ctype_digit($jid)) {
+            $j = (int) $jid;
+            if (isset($titles[$j])) {
+                $jd['__cf_resolved_job_title'] = $titles[$j];
+            }
+        }
+    }
+    unset($jd);
+
+    return $items;
+}
+
 function jobdivaResolveOrAutoCreateEndClient(
     int $tid,
     string $customerExtId,
@@ -734,6 +822,14 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $title = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'title', $jd,
         static function () use ($jd) {
+            // Highest priority: the resolved job title injected by
+            // jobdivaSyncResolveJobTitles() (so we use the real JobDiva
+            // Job record's title instead of falling through to the
+            // synthetic placeholder when the Assignment payload doesn't
+            // carry one inline).
+            if (!empty($jd['__cf_resolved_job_title'])) {
+                return (string) $jd['__cf_resolved_job_title'];
+            }
             $t = jobdivaPluckField($jd, [
                 'jobTitle', 'job_title', 'job title', 'title',
                 'positionTitle', 'position_title', 'role', 'roleName',
