@@ -684,10 +684,43 @@ function RatesTab({ pid, rates, reload }) {
     } catch (e) { alert(`Approve failed: ${e.message}`); }
   };
 
+  const approveAllDrafts = async () => {
+    // Catch-up button for the (frequent) case where a placement was
+    // promoted from draft BEFORE the auto-approve side effect shipped
+    // — or where the operator at promotion time didn't have the
+    // financials.approve permission. One click here re-runs the same
+    // server-side helper and approves every draft rate on the
+    // placement at once.
+    try {
+      const res = await api.post(`/modules/placements/api/rates.php?action=approve_all_for_placement&placement_id=${pid}`, {});
+      console.info(`Approved ${res?.approved ?? 0} draft rate(s) on placement ${pid}`);
+      reload();
+    } catch (e) { alert(`Approve all failed: ${e.message}`); }
+  };
+
+  const draftCount = rates.filter(r => !r.approved_at).length;
+
   return (
     <div data-testid="tab-rates">
-      <h3>Rates</h3>
-      <p style={{ color: 'var(--cf-text-secondary)' }}>Drafts can be edited; approved rates are locked (snapshot).</p>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 'var(--cf-space-2)' }}>
+        <div>
+          <h3 style={{ margin: 0 }}>Rates</h3>
+          <p style={{ color: 'var(--cf-text-secondary)', margin: '4px 0 0' }}>
+            Drafts can be edited; approved rates are locked (snapshot).
+          </p>
+        </div>
+        {draftCount > 0 && (
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={approveAllDrafts}
+            data-testid="rates-approve-all-drafts"
+            title="Approve every draft rate on this placement in one click. Uses the same chain-based margin snapshot + audit as per-row approval."
+          >
+            Approve all {draftCount} draft{draftCount === 1 ? '' : 's'}
+          </button>
+        )}
+      </header>
       <table className="data-table" data-testid="rates-table">
         <thead><tr><th>From</th><th>To</th><th>Bill</th><th>Pay</th><th>Adjusted</th><th>Net</th><th>State</th><th></th></tr></thead>
         <tbody>

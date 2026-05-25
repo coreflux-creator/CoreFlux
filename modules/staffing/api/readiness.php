@@ -19,11 +19,22 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
+
+// Cross-module entity tenants. Timesheets live under the staffing
+// module scope; People + Placements + Companies live under their own
+// scopes. For a sub-tenant in `'people' => 'shared'` mode, the people
+// row's tenant_id != the timesheet's tenant_id, which would silently
+// kill the LEFT JOIN and surface as "Person #5 / Person #7" in the UI.
+// Resolving each FK target tenant explicitly fixes both the payroll
+// readiness (worker names) and the billing readiness (client names).
+$peopleTid     = effectiveTenantIdForModule('people')     ?? currentTenantId();
+$placementsTid = effectiveTenantIdForModule('placements') ?? currentTenantId();
 
 if ($method === 'GET' && $action === 'payroll') {
     $ps = (string) ($_GET['period_start'] ?? date('Y-m-d', strtotime('-14 days')));
@@ -35,12 +46,12 @@ if ($method === 'GET' && $action === 'payroll') {
         "SELECT t.id, t.person_id, t.period_start, t.period_end, t.total_hours, t.status,
                 p.first_name, p.last_name, p.email_primary
            FROM staffing_timesheets t
-           LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = t.tenant_id
+           LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = :people_tid
           WHERE t.tenant_id = :tenant_id
             AND t.status = 'approved'
             AND t.period_start BETWEEN :ps AND :pe
           ORDER BY t.period_start DESC, p.last_name, p.first_name",
-        ['ps' => $ps, 'pe' => $pe]
+        ['ps' => $ps, 'pe' => $pe, 'people_tid' => $peopleTid]
     );
 
     // Group by person for the readiness view.
@@ -80,15 +91,15 @@ if ($method === 'GET' && $action === 'billing') {
                     GROUP_CONCAT(DISTINCT pl.id) AS placement_ids
                FROM staffing_timesheets t
                JOIN time_entries te ON te.timesheet_id = t.id
-               JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = t.tenant_id
-               LEFT JOIN staffing_clients c ON c.id = pl.client_id AND c.tenant_id = t.tenant_id
+               JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
+               LEFT JOIN staffing_clients c ON c.id = pl.client_id AND c.tenant_id = :placements_tid_c
                LEFT JOIN v_timesheet_day_fin v ON v.entry_id = te.id
               WHERE t.tenant_id = :tenant_id
                 AND t.status = 'approved'
                 AND t.period_start BETWEEN :ps AND :pe
               GROUP BY pl.client_id, c.name
               ORDER BY revenue DESC, hours DESC",
-            ['ps' => $ps, 'pe' => $pe]
+            ['ps' => $ps, 'pe' => $pe, 'placements_tid' => $placementsTid, 'placements_tid_c' => $placementsTid]
         );
     } catch (\Throwable $_) {
         // v_timesheet_day_fin missing — fall back without revenue.
@@ -101,14 +112,14 @@ if ($method === 'GET' && $action === 'billing') {
                     GROUP_CONCAT(DISTINCT pl.id) AS placement_ids
                FROM staffing_timesheets t
                JOIN time_entries te ON te.timesheet_id = t.id
-               JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = t.tenant_id
-               LEFT JOIN staffing_clients c ON c.id = pl.client_id AND c.tenant_id = t.tenant_id
+               JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
+               LEFT JOIN staffing_clients c ON c.id = pl.client_id AND c.tenant_id = :placements_tid_c
               WHERE t.tenant_id = :tenant_id
                 AND t.status = 'approved'
                 AND t.period_start BETWEEN :ps AND :pe
               GROUP BY pl.client_id, c.name
               ORDER BY hours DESC",
-            ['ps' => $ps, 'pe' => $pe]
+            ['ps' => $ps, 'pe' => $pe, 'placements_tid' => $placementsTid, 'placements_tid_c' => $placementsTid]
         );
     }
 

@@ -179,6 +179,55 @@ PHP + React both touched. Cloudways deploy + `update.php` needed. New bundle:
 `index-Cet53ImG.js` / `coreflux-Cet53ImG`.
 
 
+## Catch-up "Approve all drafts" + readiness name JOIN (2026-02 — current fork)
+
+### Why
+After the previous auto-approve work landed, operator reported:
+1. **"rates still say draft"** — placements promoted BEFORE the
+   side-effect shipped never received the auto-approve, and there was
+   no UI affordance to catch them up. Also: when the soft-RBAC-skip
+   fired (operator lacked `placements.financials.approve`), there was
+   no audit trail to explain *why* nothing happened.
+2. **"payroll readiness by number?"** — Payroll & Billing readiness
+   tables showed `Person #5`, `Person #7` instead of names. Root cause:
+   same cross-tenant JOIN bug as the placement detail issue. Readiness
+   joined `people` on `p.tenant_id = t.tenant_id` (timesheet's tenant);
+   sub-tenants in `'people' => 'shared'` mode store people under the
+   parent tenant, so the JOIN silently misses.
+
+### Fixes
+- **Soft-skip telemetry** — `placementsAutoApproveDraftRates()` now
+  emits a `placement.rates.auto_approve_skipped_no_permission` audit
+  when the RBAC bail fires. The "why are these still draft" question
+  is now answerable from the audit log.
+- **New endpoint** `POST /api/placements/rates?action=approve_all_for_placement&placement_id=N`
+  — reuses the same helper, requires `placements.financials.approve`,
+  emits a `placement.rates.approve_all_clicked` audit. One-click
+  catch-up for placements promoted before the auto-approve work.
+- **RatesTab UI** — when ≥1 draft exists, the tab header shows an
+  "Approve all N draft(s)" button (testid `rates-approve-all-drafts`)
+  wired to the new endpoint.
+- **`modules/staffing/api/readiness.php`** — loads `core/sub_tenants.php`,
+  resolves `$peopleTid` / `$placementsTid` once at the top, and binds
+  every cross-table JOIN (people, placements, staffing_clients) to
+  the effective module tenant instead of the timesheet's own
+  `tenant_id`. Both the revenue path and the fallback path updated.
+  Fixes Payroll Readiness names + Billing Readiness client names in
+  the same change.
+
+### Tests
+- `tests/catchup_approve_and_readiness_names_smoke.php` — 26 ✓ / 0 ✗
+- `placement_detail_and_auto_approve_smoke.php` updated for the new
+  soft-skip audit branch — 45 ✓ / 0 ✗
+- Full suite: **292/292 ✓**
+- `yarn build` clean → bundle `index-BO6ErO-u.js`, sync_bundle.sh
+  successful.
+
+### Deploy note
+PHP + React both touched. Cloudways deploy + `update.php` needed.
+
+
+
 
 ### Deploy note
 React + PHP both touched — needs a full Cloudways deploy + `update.php`

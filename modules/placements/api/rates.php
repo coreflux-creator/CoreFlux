@@ -69,6 +69,23 @@ if ($method === 'GET') {
  * status promotions without re-loading this API file.)
  */
 
+if ($method === 'POST' && $action === 'approve_all_for_placement') {
+    rbac_legacy_require($user, 'placements.financials.approve');
+    $pid = (int) api_query('placement_id', 0);
+    if ($pid <= 0) api_error('placement_id required', 400);
+    // Catch-up affordance for placements that were promoted from draft
+    // BEFORE the auto-approve side effect shipped (or where the
+    // operator lacked the financials.approve permission at promotion
+    // time). Reuses the same shared helper as bulk_status / PATCH so
+    // the audit trail and margin snapshots are identical.
+    $count = placementsAutoApproveDraftRates($pid, $user);
+    placementsAudit('placement.rates.approve_all_clicked', [
+        'placement_id' => $pid,
+        'approved'     => $count,
+    ], $pid);
+    api_ok(['ok' => true, 'approved' => $count]);
+}
+
 if ($method === 'POST' && $action === 'bulk_approve') {
     rbac_legacy_require($user, 'placements.financials.approve');
     $body = api_json_body();

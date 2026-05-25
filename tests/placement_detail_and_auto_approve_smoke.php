@@ -102,7 +102,7 @@ $a('rate_approve.php defines placementsAutoApproveDraftRates',
    str_contains($rateAppr, 'function placementsAutoApproveDraftRates(int $placementId, array $user): int'));
 $a('auto-approve helper is RBAC-gated via rbac_legacy_can (soft skip, no 403)',
    str_contains($rateAppr, "rbac_legacy_can(\$user, 'placements.financials.approve')")
-   && str_contains($rateAppr, 'if (!$canApprove) return 0;'));
+   && str_contains($rateAppr, 'if (!$canApprove) {'));
 $a('auto-approve helper iterates each draft rate row',
    str_contains($rateAppr, 'placement_id = :pid AND approved_at IS NULL')
    && str_contains($rateAppr, "ORDER BY id ASC"));

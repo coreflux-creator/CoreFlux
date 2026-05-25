@@ -126,7 +126,17 @@ if (!function_exists('placementsAutoApproveDraftRates')) {
         $canApprove = function_exists('rbac_legacy_can')
             ? rbac_legacy_can($user, 'placements.financials.approve')
             : false;
-        if (!$canApprove) return 0;
+        if (!$canApprove) {
+            // Audit the soft skip so an operator wondering "why are
+            // these still draft?" can trace it back to a permission
+            // issue rather than thinking the feature is broken.
+            placementsAudit('placement.rates.auto_approve_skipped_no_permission', [
+                'placement_id' => $placementId,
+                'user_id'      => (int) ($user['id'] ?? 0),
+                'reason'       => 'rbac_legacy_can(placements.financials.approve)=false',
+            ], $placementId);
+            return 0;
+        }
 
         $rows = scopedQuery(
             'SELECT id FROM placement_rates
