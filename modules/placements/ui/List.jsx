@@ -20,7 +20,7 @@ export default function List() {
     return `/modules/placements/api/placements.php?${p.toString()}`;
   }, [q, status, engagementType, page]);
 
-  const { data, loading, error, reload } = useApi(path);
+  const { data, loading, error, elapsedMs, reload } = useApi(path);
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
   const perPage = data?.per_page ?? 25;
@@ -31,7 +31,18 @@ export default function List() {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)' }}>
         <div>
           <h2>Placements</h2>
-          <p style={{ color: 'var(--cf-text-secondary)' }} data-testid="placements-count">{data ? `${total} total` : 'Loading…'}</p>
+          <p style={{ color: 'var(--cf-text-secondary)' }} data-testid="placements-count">
+            {!data ? 'Loading…' : (
+              <>
+                {total} total
+                {elapsedMs != null && (
+                  <span data-testid="placements-rest-perf" style={{ marginLeft: 8, fontSize: 'var(--cf-text-xs)', color: '#64748b', fontWeight: 600 }}>
+                    ⌁ {Math.round(elapsedMs)}ms via /api (REST)
+                  </span>
+                )}
+              </>
+            )}
+          </p>
         </div>
         <div style={{ display: 'flex', gap: 'var(--cf-space-2)' }}>
           <Link to="../list-graphql" className="btn btn--ghost" data-testid="placements-try-graphql-btn" title="Same data, fetched via the new federated GraphQL endpoint">

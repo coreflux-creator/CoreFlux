@@ -86,24 +86,28 @@ export function useApi(path, { enabled = true } = {}) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(Boolean(enabled));
+  const [elapsedMs, setElapsedMs] = useState(null);
 
   const load = useCallback(async () => {
     if (!enabled || !path) return;
     setLoading(true);
     setError(null);
+    const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     try {
       const result = await api.get(path);
       setData(result);
     } catch (e) {
       setError(e);
     } finally {
+      const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      setElapsedMs(t1 - t0);
       setLoading(false);
     }
   }, [path, enabled]);
 
   useEffect(() => { load(); }, [load]);
 
-  return { data, error, loading, reload: load };
+  return { data, error, loading, elapsedMs, reload: load };
 }
 
 export default api;
