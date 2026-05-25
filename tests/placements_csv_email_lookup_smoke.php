@@ -53,8 +53,8 @@ $a('hidden-NBSP variant resolves to the same canonical form',
     === placementsCsvNormaliseEmail('cecibelbravo691@gmail.com'));
 
 echo "\n2. Dry-run handler — normalises BEFORE looking up\n";
-$a('dry-run uses placementsCsvNormaliseEmail in the IN-list',
-    str_contains($src, '$em = placementsCsvNormaliseEmail((string) ($r[\'person_email\'] ?? \'\'));'));
+$a('dry-run uses placementsCsvNormaliseEmail in the lookup pass',
+    str_contains($src, '$em  = placementsCsvNormaliseEmail((string) ($r[\'person_email\'] ?? \'\'));'));
 $a('dry-run re-normalises in the per-row error loop too',
     str_contains($src, '$em    = placementsCsvNormaliseEmail($rawEm);'));
 $a('error message echoes the RAW email so operator can spot a typo',
@@ -76,7 +76,7 @@ $a('returns at most 3 suggestions',
 $a('refuses to levenshtein strings > 255 chars (PHP limit)',
     str_contains($src, 'strlen($cand) > 255 || strlen($needle) > 255'));
 $a('suggestion list appended to the error message when non-empty',
-    str_contains($src, "did you mean: ' . implode(', ', \$suggestions) . '?"));
+    str_contains($src, "did you mean: ' . implode(', ', \$suggestions)"));
 
 echo "\n4. Commit handler — same Unicode-defensive normalisation\n";
 $a('commit calls placementsCsvNormaliseEmail before scopedFind',

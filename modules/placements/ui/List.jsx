@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 const STATUSES = ['', 'draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'];
 const ETYPES   = ['', 'w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire'];
@@ -70,13 +71,17 @@ export default function List() {
       {error && <p className="error" data-testid="placements-error">Error: {error.message}</p>}
 
       <table className="data-table" data-testid="placements-table">
-        <thead><tr><th>Title</th><th>Person</th><th>End client</th><th>Type</th><th>Status</th><th>Start</th><th>Due</th><th>End</th></tr></thead>
+        <thead><tr><th>ID</th><th>Title</th><th>Person</th><th>End client</th><th>Type</th><th>Status</th><th>Start</th><th>Due</th><th>End</th></tr></thead>
         <tbody>
-          {rows.length === 0 && <tr><td colSpan={8} className="empty" data-testid="placements-empty">No placements match.</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={9} className="empty" data-testid="placements-empty">No placements match.</td></tr>}
           {rows.map(p => (
             <tr key={p.id} data-testid={`placement-row-${p.id}`}>
+              <td><IdBadge id={p.id} prefix="PL" /></td>
               <td><Link to={`../${p.id}`}>{p.title}</Link></td>
-              <td>{p.first_name ? `${p.first_name} ${p.last_name}` : '—'}</td>
+              <td>
+                {p.first_name ? `${p.first_name} ${p.last_name}` : '—'}
+                {p.person_id ? <> <IdBadge id={p.person_id} prefix="P" /></> : null}
+              </td>
               <td>{p.end_client_name || '—'}</td>
               <td>{p.engagement_type}</td>
               <td><span className={`badge badge--${p.status}`}>{p.status}</span></td>

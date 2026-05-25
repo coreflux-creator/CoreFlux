@@ -3,6 +3,7 @@ import { useParams, useNavigate, NavLink, Routes, Route, Navigate } from 'react-
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import ConnectedSourcesBadge from '../../../dashboard/src/components/ConnectedSourcesBadge';
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 /**
  * Person Detail — 7 tabs per SPEC §6:
@@ -40,8 +41,9 @@ export default function PersonDetail({ session }) {
       <header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
           <button onClick={() => nav('..')} className="btn btn--ghost" data-testid="person-detail-back">← Directory</button>
-          <h2 data-testid="person-detail-name" style={{ marginTop: '0.5rem' }}>
-            {person.preferred_name || person.first_name} {person.last_name}
+          <h2 data-testid="person-detail-name" style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span>{person.preferred_name || person.first_name} {person.last_name}</span>
+            <IdBadge id={person.id} prefix="P" title={`Person ID ${person.id} — click to copy for CSV imports`} />
           </h2>
           <p style={{ color: '#666' }}>
             <span data-testid="person-detail-classification" className={`badge badge--${person.classification}`}>{person.classification}</span>

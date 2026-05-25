@@ -10,6 +10,74 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Placements CSV — ID-based lookup (2026-02 — current fork)
+
+### Bug context
+The previous Unicode-defensive email normalisation + "did you mean?"
+suggestions didn't actually fix the operator-reported "person not found"
+import bug. The real fix is to **bypass the fuzzy-email surface
+entirely** by letting CSVs reference the numeric `people.id` and
+`placements.id` primary keys directly.
+
+### What shipped
+- **CSV schema** (`modules/placements/api/csv_import.php`) gained two
+  optional integer columns:
+  - `person_id` — preferred lookup. When present and non-empty,
+    `person_email` becomes informational (skipped) so a stale legacy
+    email column can't poison an otherwise-valid id row.
+  - `placement_id` — preferred match key for the update-existing path
+    (beats `external_id` and the legacy `(person_id + title +
+    start_date)` composite).
+  - Either `person_id` or `person_email` is required per row;
+    rows with neither are rejected at dry-run with a clear message.
+- **`CsvImportService` type system** gained `'integer'` — strict regex
+  (`^-?\d+$`, digits only, optional sign) so `1042.0` and `1,042` are
+  rejected. After validation the cell is coerced to a real `int`.
+- **Dry-run + commit symmetric** — both paths use `person_id` first
+  with the same tenant-scoped + soft-delete-safe SQL. `placement_id`
+  miss is a hard error in commit (no silent fallback to email match).
+- **UI — surface the IDs**:
+  - New `<IdBadge id={n} prefix="P|PL" />` component
+    (`/app/dashboard/src/components/IdBadge.jsx`) — small mono-spaced
+    pill, click writes the **bare integer** to clipboard (CSV-friendly),
+    flashes "✓ copied" for 1.2s. Optional prefix is presentational only.
+  - **Placements list** (`modules/placements/ui/List.jsx`) gained an
+    ID column (`PL-{id}`) and a linked `P-{person_id}` badge inside
+    the Person cell.
+  - **Placement detail** header surfaces both `PL-{id}` and
+    `P-{person_id}` next to the title.
+  - **Employee directory** (`modules/people/ui/EmployeeDirectory.jsx`)
+    gained an ID column.
+  - **Person detail** header surfaces `P-{id}` next to the name.
+- **Fallback path** preserved — the email lookup (with Unicode
+  defenses + "did you mean?" suggestions from the previous fork) still
+  works for legacy CSVs that don't have a `person_id` column. The
+  fallback's error message now nudges operators toward the id flow.
+
+### Tests
+- New: `tests/placements_csv_id_lookup_smoke.php` (33 ✓) — schema,
+  type validator, dry-run precedence, commit precedence,
+  placement_id update path, UI affordances, PHP syntax.
+- Existing `tests/placements_csv_email_lookup_smoke.php` updated to
+  match the new IN-list shape (the legacy email-only path still
+  exercises the same Unicode-defensive code).
+- Full suite: **285/285 passing**.
+
+### Files touched
+- `core/CsvImportService.php` — `integer` type validator
+- `modules/placements/api/csv_import.php` — schema + dry-run + commit
+- `dashboard/src/components/IdBadge.jsx` — new shared component
+- `modules/placements/ui/List.jsx` — ID column + linked person badge
+- `modules/placements/ui/PlacementDetail.jsx` — header badges
+- `modules/people/ui/EmployeeDirectory.jsx` — ID column
+- `modules/people/ui/PersonDetail.jsx` — header badge
+
+### Bundle
+- `index-Cjpt6YOE.js` + `index-BC5g6YJu.css` — `.deploy-version`,
+  `spa-assets/`, SW CACHE_VERSION all in sync.
+
+
+
 ## P1 Burst — Approval rules, Reconciliation workbench, Sweep rules, QBO/Zoho/Xero field-map (2026-02 — current fork)
 
 ### Shipped this fork

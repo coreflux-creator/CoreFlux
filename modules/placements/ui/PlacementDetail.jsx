@@ -4,6 +4,7 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
 import SyncHistoryDrawer from '../../../dashboard/src/components/SyncHistoryDrawer';
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 /**
  * Placement Detail — SPEC §7 tabs.
@@ -45,7 +46,15 @@ export default function PlacementDetail({ session }) {
       <header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--cf-space-3)' }}>
         <div>
           <button onClick={() => nav('..')} className="btn btn--ghost" data-testid="placement-detail-back">← Placements</button>
-          <h2 data-testid="placement-detail-title" style={{ marginTop: 'var(--cf-space-2)' }}>{placement.title}</h2>
+          <h2 data-testid="placement-detail-title" style={{ marginTop: 'var(--cf-space-2)', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span>{placement.title}</span>
+            <IdBadge id={placement.id} prefix="PL" title={`Placement ID ${placement.id} — click to copy for CSV imports`} />
+            {placement.person_id && (
+              <span style={{ fontSize: 12, color: '#64748b', fontWeight: 400 }}>
+                Person <IdBadge id={placement.person_id} prefix="P" />
+              </span>
+            )}
+          </h2>
           <p style={{ color: 'var(--cf-text-secondary)' }}>
             <span className={`badge badge--${placement.status}`} data-testid="placement-detail-status">{placement.status}</span>{' '}
             <span className={`badge badge--${placement.engagement_type}`} data-testid="placement-detail-etype">{placement.engagement_type}</span>{' · '}

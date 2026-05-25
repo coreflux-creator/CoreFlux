@@ -22,7 +22,16 @@ require_once __DIR__ . '/../lib/csv_helpers.php';
 
 CsvImportService::registerSchema('placements', [
     'fields' => [
-        'person_email'      => ['label' => 'Person email',     'required' => true, 'type' => 'email'],
+        // person_id is the preferred lookup (numeric primary key, copy
+        // from People directory). person_email kept as a fallback for
+        // legacy CSVs. At least one is required — enforced in dry_run
+        // since CsvImportService validates fields individually.
+        'person_id'         => ['label' => 'Person ID',        'type'  => 'integer'],
+        'person_email'      => ['label' => 'Person email',     'type'  => 'email'],
+        // placement_id is the preferred match key for the "update
+        // existing row" pathway — beats external_id + title + start_date
+        // composite lookup. Leave blank when creating a new placement.
+        'placement_id'      => ['label' => 'Placement ID',     'type'  => 'integer'],
         'title'             => ['label' => 'Title',            'required' => true],
         'engagement_type'   => ['label' => 'Engagement type',  'required' => true,
                                 'enum' => ['w2','1099','c2c','temp_to_perm','direct_hire']],
@@ -38,7 +47,7 @@ CsvImportService::registerSchema('placements', [
         'external_id'       => ['label' => 'External ID'],
         'notes'             => ['label' => 'Notes'],
     ],
-    'unique_within_batch' => ['external_id'],
+    'unique_within_batch' => ['external_id', 'placement_id'],
 ]);
 
 $ctx = api_require_auth();
@@ -120,72 +129,112 @@ if ($method === 'POST' && $action === 'dry_run') {
     $columnMap = CsvImportService::readRequestColumnMap();
     $result = CsvImportService::dryRun('placements', $csv, $columnMap);
 
-    // Validate person_email exists in tenant
+    // Person lookup — `person_id` is the preferred identifier (numeric
+    // PK from People directory, no typo / hidden-whitespace surface).
+    // Falls back to case-insensitive email match for legacy CSVs. At
+    // least one of the two is required per row.
     if ($result['rows']) {
-        $emails = [];
-        foreach ($result['rows'] as $r) {
-            $em = placementsCsvNormaliseEmail((string) ($r['person_email'] ?? ''));
-            if ($em !== '') $emails[] = $em;
+        $pdo = getDB();
+        $tid = currentTenantId();
+
+        // Collect both lookup keys in one pass.
+        $idsWanted    = [];
+        $emailsWanted = [];
+        foreach ($result['rows'] as $rn => $r) {
+            $pid = isset($r['person_id']) && $r['person_id'] !== '' ? (int) $r['person_id'] : 0;
+            $em  = placementsCsvNormaliseEmail((string) ($r['person_email'] ?? ''));
+            if ($pid > 0)       $idsWanted[]    = $pid;
+            elseif ($em !== '') $emailsWanted[] = $em;
         }
-        if ($emails) {
-            $placeholders = implode(',', array_fill(0, count($emails), '?'));
-            $pdo  = getDB();
+
+        $foundById = [];
+        if ($idsWanted) {
+            $placeholders = implode(',', array_fill(0, count($idsWanted), '?'));
             $stmt = $pdo->prepare(
-                "SELECT LOWER(email_primary) AS e, id FROM people
-                 WHERE tenant_id = ? AND deleted_at IS NULL AND LOWER(email_primary) IN ({$placeholders})"
+                "SELECT id, LOWER(email_primary) AS e FROM people
+                  WHERE tenant_id = ? AND deleted_at IS NULL
+                    AND id IN ({$placeholders})"
             );
-            $stmt->execute(array_merge([currentTenantId()], $emails));
-            $found = [];
-            foreach ($stmt as $r) $found[$r['e']] = (int) $r['id'];
-
-            // "Did you mean?" — when a CSV email misses, hand the operator
-            // up to 3 closest emails from the tenant's directory so a
-            // single-character typo or hidden-Unicode bug is fixable
-            // in two clicks instead of a database safari. Loaded lazily
-            // (only when there's at least one miss) to keep dry-run fast
-            // on clean batches.
-            $directoryCache = null;
-            $loadDirectory = static function () use (&$directoryCache, $pdo) {
-                if ($directoryCache !== null) return $directoryCache;
-                $st = $pdo->prepare(
-                    'SELECT LOWER(email_primary) AS e FROM people
-                      WHERE tenant_id = ? AND deleted_at IS NULL AND email_primary IS NOT NULL
-                      LIMIT 5000'
-                );
-                $st->execute([currentTenantId()]);
-                $directoryCache = array_column($st->fetchAll(\PDO::FETCH_ASSOC), 'e');
-                return $directoryCache;
-            };
-            $suggestFor = static function (string $needle) use ($loadDirectory): array {
-                if ($needle === '') return [];
-                $candidates = $loadDirectory();
-                if (!$candidates) return [];
-                $scored = [];
-                foreach ($candidates as $cand) {
-                    // levenshtein blows up beyond 255 chars — bail safely.
-                    if (strlen($cand) > 255 || strlen($needle) > 255) continue;
-                    $d = levenshtein($needle, $cand);
-                    if ($d <= 3) $scored[$cand] = $d;
-                }
-                asort($scored);
-                return array_slice(array_keys($scored), 0, 3);
-            };
-
-            foreach ($result['rows'] as $rn => $row) {
-                $rawEm = (string) ($row['person_email'] ?? '');
-                $em    = placementsCsvNormaliseEmail($rawEm);
-                if ($em && !isset($found[$em])) {
-                    $msg = "person_email: '{$rawEm}' not found in this tenant's People";
-                    $suggestions = $suggestFor($em);
-                    if ($suggestions) {
-                        $msg .= ' — did you mean: ' . implode(', ', $suggestions) . '?';
-                    }
-                    $result['errors'][$rn] = $result['errors'][$rn] ?? [];
-                    $result['errors'][$rn][] = $msg;
-                }
-            }
-            $result['error_count'] = count($result['errors']);
+            $stmt->execute(array_merge([$tid], $idsWanted));
+            foreach ($stmt as $r) $foundById[(int) $r['id']] = (string) ($r['e'] ?? '');
         }
+
+        $foundByEmail = [];
+        if ($emailsWanted) {
+            $placeholders = implode(',', array_fill(0, count($emailsWanted), '?'));
+            $stmt = $pdo->prepare(
+                "SELECT id, LOWER(email_primary) AS e FROM people
+                  WHERE tenant_id = ? AND deleted_at IS NULL
+                    AND LOWER(email_primary) IN ({$placeholders})"
+            );
+            $stmt->execute(array_merge([$tid], $emailsWanted));
+            foreach ($stmt as $r) $foundByEmail[(string) $r['e']] = (int) $r['id'];
+        }
+
+        // "Did you mean?" — only kicks in when neither id nor email
+        // matched. Cheaper than the legacy email-only path because
+        // person_id misses don't need a fuzzy search.
+        $directoryCache = null;
+        $loadDirectory = static function () use (&$directoryCache, $pdo, $tid) {
+            if ($directoryCache !== null) return $directoryCache;
+            $st = $pdo->prepare(
+                'SELECT LOWER(email_primary) AS e FROM people
+                  WHERE tenant_id = ? AND deleted_at IS NULL AND email_primary IS NOT NULL
+                  LIMIT 5000'
+            );
+            $st->execute([$tid]);
+            $directoryCache = array_column($st->fetchAll(\PDO::FETCH_ASSOC), 'e');
+            return $directoryCache;
+        };
+        $suggestFor = static function (string $needle) use ($loadDirectory): array {
+            if ($needle === '') return [];
+            $candidates = $loadDirectory();
+            if (!$candidates) return [];
+            $scored = [];
+            foreach ($candidates as $cand) {
+                if (strlen($cand) > 255 || strlen($needle) > 255) continue;
+                $d = levenshtein($needle, $cand);
+                if ($d <= 3) $scored[$cand] = $d;
+            }
+            asort($scored);
+            return array_slice(array_keys($scored), 0, 3);
+        };
+
+        foreach ($result['rows'] as $rn => $row) {
+            $pid   = isset($row['person_id']) && $row['person_id'] !== '' ? (int) $row['person_id'] : 0;
+            $rawEm = (string) ($row['person_email'] ?? '');
+            $em    = placementsCsvNormaliseEmail($rawEm);
+
+            if ($pid <= 0 && $em === '') {
+                $result['errors'][$rn] = $result['errors'][$rn] ?? [];
+                $result['errors'][$rn][] = 'either person_id or person_email is required';
+                continue;
+            }
+
+            if ($pid > 0) {
+                if (!isset($foundById[$pid])) {
+                    $result['errors'][$rn] = $result['errors'][$rn] ?? [];
+                    $result['errors'][$rn][] = "person_id: {$pid} not found in this tenant's People";
+                }
+                // person_id wins → email is informational only. Skip
+                // email validation so a stale legacy email column doesn't
+                // poison an otherwise-valid id row.
+                continue;
+            }
+
+            // Fallback: email-only lookup with fuzzy suggestion.
+            if (!isset($foundByEmail[$em])) {
+                $msg = "person_email: '{$rawEm}' not found in this tenant's People";
+                $suggestions = $suggestFor($em);
+                if ($suggestions) {
+                    $msg .= ' — did you mean: ' . implode(', ', $suggestions)
+                          . '? (Tip: paste the person_id column from the People directory to skip the email lookup entirely.)';
+                }
+                $result['errors'][$rn] = $result['errors'][$rn] ?? [];
+                $result['errors'][$rn][] = $msg;
+            }
+        }
+        $result['error_count'] = count($result['errors']);
     }
     api_ok($result);
 }
@@ -200,21 +249,44 @@ if ($method === 'POST' && $action === 'commit') {
     $updateExisting = !empty($_GET['update_existing']);
 
     $result = CsvImportService::commit('placements', $csv, function (array $row) use ($user, $updateExisting) {
-        // Resolve person_id by tenant + email. Same Unicode-defensive
+        // Resolve person by id (preferred) or email (fallback). Same
         // normalisation as dry_run so a row that passed validation
-        // doesn't fail the commit with a stale hidden-whitespace error.
-        $emClean = placementsCsvNormaliseEmail((string) ($row['person_email'] ?? ''));
-        $person = scopedFind(
-            'SELECT id FROM people WHERE tenant_id = :tenant_id AND LOWER(email_primary) = :email AND deleted_at IS NULL',
-            ['email' => $emClean]
-        );
-        if (!$person) throw new \RuntimeException("person_email not found: {$row['person_email']}");
+        // doesn't fail commit with a stale hidden-whitespace error.
+        $pid = isset($row['person_id']) && $row['person_id'] !== '' ? (int) $row['person_id'] : 0;
+        if ($pid > 0) {
+            $person = scopedFind(
+                'SELECT id FROM people WHERE tenant_id = :tenant_id AND id = :pid AND deleted_at IS NULL',
+                ['pid' => $pid]
+            );
+            if (!$person) throw new \RuntimeException("person_id not found: {$pid}");
+        } else {
+            $emClean = placementsCsvNormaliseEmail((string) ($row['person_email'] ?? ''));
+            if ($emClean === '') {
+                throw new \RuntimeException('either person_id or person_email is required');
+            }
+            $person = scopedFind(
+                'SELECT id FROM people WHERE tenant_id = :tenant_id AND LOWER(email_primary) = :email AND deleted_at IS NULL',
+                ['email' => $emClean]
+            );
+            if (!$person) throw new \RuntimeException("person_email not found: {$row['person_email']}");
+        }
 
-        // Update-existing mode: match by external_id (tenant-unique identifier
-        // when present), then by (person_id + title + start_date).
+        // Update-existing mode lookup order:
+        //   1. placement_id (numeric PK — most reliable, no ambiguity)
+        //   2. external_id  (tenant-unique upstream identifier)
+        //   3. (person_id + title + start_date) composite
         $existing = null;
         if ($updateExisting) {
-            if (!empty($row['external_id'])) {
+            if (!empty($row['placement_id'])) {
+                $existing = scopedFind(
+                    'SELECT id FROM placements WHERE tenant_id = :tenant_id AND id = :pid AND deleted_at IS NULL',
+                    ['pid' => (int) $row['placement_id']]
+                );
+                if (!$existing) {
+                    throw new \RuntimeException("placement_id not found: {$row['placement_id']}");
+                }
+            }
+            if (!$existing && !empty($row['external_id'])) {
                 $existing = scopedFind(
                     'SELECT id FROM placements WHERE tenant_id = :tenant_id AND external_id = :x AND deleted_at IS NULL',
                     ['x' => $row['external_id']]

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 const API = '/modules/people/api/employees.php';
 
@@ -69,6 +70,7 @@ export default function EmployeeDirectory() {
         <table className="data-table" data-testid="people-directory-table">
           <thead>
             <tr>
+              <th>ID</th>
               <th>#</th>
               <th>Name</th>
               <th>Title</th>
@@ -81,10 +83,11 @@ export default function EmployeeDirectory() {
           </thead>
           <tbody>
             {employees.length === 0 && (
-              <tr><td colSpan={8} className="empty">No employees match.</td></tr>
+              <tr><td colSpan={9} className="empty">No employees match.</td></tr>
             )}
             {employees.map((e) => (
               <tr key={e.id} data-testid={`people-row-${e.id}`}>
+                <td><IdBadge id={e.id} prefix="P" /></td>
                 <td>{e.employee_number}</td>
                 <td>
                   <Link to={`../${e.id}`}>

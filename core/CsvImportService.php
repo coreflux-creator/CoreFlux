@@ -245,6 +245,16 @@ class CsvImportService
                 if ($type === 'number' && !is_numeric($val)) {
                     $rowErrors[] = "{$field}: not numeric '{$val}'";
                 }
+                if ($type === 'integer') {
+                    // Strict integer: digits only, optional leading sign.
+                    // Rejects "1042.0" and "1,042" so a typo doesn't silently
+                    // resolve to int 1042 and link the wrong person.
+                    if (!preg_match('/^-?\d+$/', $val)) {
+                        $rowErrors[] = "{$field}: not an integer '{$val}'";
+                    } else {
+                        $row[$field] = (int) $val;
+                    }
+                }
                 if ($type === 'boolean') {
                     $lc = strtolower($val);
                     if (in_array($lc, ['1','true','yes','y','t'], true))      $row[$field] = 1;
