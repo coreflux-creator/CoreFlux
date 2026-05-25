@@ -1,6 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import List from './List';
+import ListGraphql from './ListGraphql';
 import Expiring from './Expiring';
 import PlacementCreate from './PlacementCreate';
 import PlacementDetail from './PlacementDetail';
@@ -20,6 +21,7 @@ export default function PlacementsModule({ session }) {
         <Route index             element={<Navigate to="list" replace />} />
         <Route path="overview"   element={<Navigate to="../list" replace />} />
         <Route path="list"       element={<List session={session} />} />
+        <Route path="list-graphql" element={<ListGraphql />} />
         <Route path="expiring"   element={<Expiring />} />
         <Route path="new"        element={<PlacementCreate />} />
         <Route path="csv_import" element={<CsvImport />} />

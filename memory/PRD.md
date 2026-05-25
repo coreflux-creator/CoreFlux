@@ -7996,3 +7996,82 @@ in `cors.origins`, so the dashboard's introspection probe from
 - `/app/tests/graphql_sandbox_admin_page_smoke.php`
 - `/app/graphql/router/router.yaml` (CORS origins)
 
+## Placements list — first REST→GraphQL pilot migration (2026-02-14)
+
+### Why
+First real proof that the new federated GraphQL endpoint at
+`graphql.corefluxapp.com` can serve a production dashboard feature.
+Chose Placements list because it's:
+  - High-visibility (operators look at it daily)
+  - Read-only (mutations come later, safer pilot)
+  - Naturally federated (Placement → Person across subgraphs is a great
+    showcase for one round-trip nested fetching)
+
+### What shipped
+1. **`/api/auth/issue_dashboard_jwt.php`** — mints an 8h JWT from the
+   PHP session cookie. Auth-gated via `api_require_auth()`. Same claim
+   shape as `mobile_login.php` so the existing JWT plumbing accepts it.
+2. **`/app/dashboard/src/lib/graphqlClient.js`** — dependency-free GraphQL
+   client (~150 lines). Caches the JWT in module scope, refreshes 60s
+   before expiry, dedupes concurrent token fetches via an inflight
+   promise, clears on HTTP 401. Exposes `gql(query, vars)` + `useGql()`
+   React hook. Defaults endpoint to `https://graphql.corefluxapp.com/`,
+   honors `VITE_GRAPHQL_URL` for local dev override.
+3. **`/app/modules/placements/ui/ListGraphql.jsx`** — pilot React page.
+   Identical UX to `List.jsx` (search, status filter, pagination) but
+   data comes from the GraphQL `placements(...)` query with nested
+   `person { firstName lastName }` join. Carries a purple "⚡ GraphQL"
+   badge so operators can see at a glance which transport rendered the
+   page.
+4. **`PlacementsModule.jsx`** — registers new route
+   `/staffing/placements/list-graphql` alongside the existing `/list`.
+   Zero-risk rollback: just remove the route.
+5. **`List.jsx` (REST)** — added a "⚡ Try GraphQL (beta)" CTA in the
+   header. Zero-friction A/B for operators.
+
+### Architecture (verified)
+```
+Browser session cookie
+     │
+     ▼
+corefluxapp.com/api/auth/issue_dashboard_jwt.php  (same-origin POST)
+     │  returns { jwt, expires_in, expires_at }
+     ▼
+[ cached in module scope, refreshes 60s before expiry ]
+     │
+     ▼
+graphql.corefluxapp.com/  with Authorization: Bearer <jwt>   (CORS POST)
+     │
+     ▼
+Apollo Router → subgraph-coreflux → corefluxapp.com/api/placements/...
+     │  (subgraph forwards the same JWT — PHP api_require_auth() accepts
+     │   via jwtFromRequest() bearer path → hydrates session-shape context)
+     ▼
+PDO query + shapePlacement() → federated response
+```
+
+### Tests
+- New: `placements_graphql_pilot_smoke.php` (41 assertions covering all
+  five layers + sentry cross-check)
+- Full PHP smoke suite: **275/275 ✅**
+- ESLint clean on graphqlClient.js + ListGraphql.jsx
+- Vite build: `index-BAnYgEuO.js` / `index-BC5g6YJu.css`, all sync points
+  consistent.
+
+### Next migrations (when user picks)
+- **People directory** — same pattern, fewer fields, very safe second pilot.
+- **Companies list** — also already exposed via `companies(limit)` query.
+- **Placement detail page** — would showcase federated `Placement.person`
+  expansion in one round-trip.
+- **Mutations** — defer until N+1 read migrations land. Will need a
+  separate "writeGql()" path that re-mints token on 401.
+
+### Files of reference
+- `/app/api/auth/issue_dashboard_jwt.php`
+- `/app/dashboard/src/lib/graphqlClient.js`
+- `/app/modules/placements/ui/ListGraphql.jsx`
+- `/app/modules/placements/ui/PlacementsModule.jsx`
+- `/app/modules/placements/ui/List.jsx`
+- `/app/tests/placements_graphql_pilot_smoke.php`
+
+

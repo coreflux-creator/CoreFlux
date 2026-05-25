@@ -34,6 +34,9 @@ export default function List() {
           <p style={{ color: 'var(--cf-text-secondary)' }} data-testid="placements-count">{data ? `${total} total` : 'Loading…'}</p>
         </div>
         <div style={{ display: 'flex', gap: 'var(--cf-space-2)' }}>
+          <Link to="../list-graphql" className="btn btn--ghost" data-testid="placements-try-graphql-btn" title="Same data, fetched via the new federated GraphQL endpoint">
+            ⚡ Try GraphQL (beta)
+          </Link>
           <Link to="../csv_import" className="btn" data-testid="placements-csv-btn">Import CSV</Link>
           <a href="/modules/placements/api/csv_export.php" className="btn" data-testid="placements-csv-export-btn">Export CSV</a>
           <Link to="../new"        className="btn btn--primary" data-testid="placements-new-btn">+ New Placement</Link>
