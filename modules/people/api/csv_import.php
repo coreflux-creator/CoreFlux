@@ -23,6 +23,10 @@ use Core\CsvImportService;
 
 CsvImportService::registerSchema('people', [
     'fields' => [
+        // person_id wins over email_primary for update-existing rows.
+        // Leave blank for new people (insert path resolves on
+        // email_primary + external_id uniqueness).
+        'person_id'            => ['label' => 'Person ID',            'type' => 'integer'],
         'first_name'           => ['label' => 'First name',           'required' => true],
         'middle_name'          => ['label' => 'Middle name'],
         'last_name'            => ['label' => 'Last name',            'required' => true],
@@ -161,13 +165,28 @@ if ($method === 'POST' && $action === 'commit') {
     $updateExisting = !empty($_GET['update_existing']);
 
     $result = CsvImportService::commit('people', $csv, function (array $row) use ($user, $updateExisting) {
-        // Tenant uniqueness check (against existing records)
-        $existing = scopedFind(
-            'SELECT id FROM people WHERE tenant_id = :tenant_id AND LOWER(email_primary) = LOWER(:email) AND deleted_at IS NULL',
-            ['email' => $row['email_primary']]
-        );
-        if ($existing && !$updateExisting) {
-            throw new \RuntimeException("email_primary already exists for this tenant (id={$existing['id']})");
+        // Update-existing precedence: person_id beats email lookup so
+        // an email change in the CSV doesn't accidentally insert a
+        // duplicate row. Same id-first pattern as placements/recipients.
+        $existing = null;
+        $pid = isset($row['person_id']) && $row['person_id'] !== '' ? (int) $row['person_id'] : 0;
+        if ($pid > 0) {
+            $existing = scopedFind(
+                'SELECT id FROM people WHERE tenant_id = :tenant_id AND id = :pid AND deleted_at IS NULL',
+                ['pid' => $pid]
+            );
+            if (!$existing) {
+                throw new \RuntimeException("person_id not found: {$pid}");
+            }
+        } else {
+            // Tenant uniqueness check (against existing records by email)
+            $existing = scopedFind(
+                'SELECT id FROM people WHERE tenant_id = :tenant_id AND LOWER(email_primary) = LOWER(:email) AND deleted_at IS NULL',
+                ['email' => $row['email_primary']]
+            );
+            if ($existing && !$updateExisting) {
+                throw new \RuntimeException("email_primary already exists for this tenant (id={$existing['id']})");
+            }
         }
 
         $payload = [

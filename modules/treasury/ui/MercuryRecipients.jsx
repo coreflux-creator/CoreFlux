@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApi, api } from '../../../dashboard/src/lib/api';
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 /**
  * <MercuryRecipients /> — Slice 2 Recipient Vault UI.
@@ -183,13 +184,14 @@ export default function MercuryRecipients() {
         <table className="data-table" data-testid="mercury-recipients-table" style={{ width: '100%', fontSize: 13 }}>
           <thead>
             <tr>
-              <th>Kind</th><th>Name</th><th>Email</th><th>Method</th>
+              <th>ID</th><th>Kind</th><th>Name</th><th>Email</th><th>Method</th>
               <th>Bank ••</th><th>Mercury ID</th><th>Status</th><th></th>
             </tr>
           </thead>
           <tbody>
             {rows.map(r => (
               <tr key={r.id} data-testid={`mercury-recipient-row-${r.id}`}>
+                <td><IdBadge id={r.id} prefix="R" /></td>
                 <td>
                   <span className={`badge badge--${r.kind === 'funding_source' ? 'amber' : 'blue'}`}
                         style={{ padding: '2px 6px', borderRadius: 4, fontSize: 11 }}>

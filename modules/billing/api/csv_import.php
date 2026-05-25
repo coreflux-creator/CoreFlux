@@ -24,6 +24,11 @@ use Core\CsvImportService;
 
 CsvImportService::registerSchema('billing_invoices', [
     'fields' => [
+        // invoice_id wins over invoice_number for update-existing
+        // matching — copy from the Invoices list UI (click-to-copy
+        // <IdBadge prefix="INV" />). Optional; leave blank for new
+        // invoices.
+        'invoice_id'       => ['label' => 'Invoice ID',      'type' => 'integer'],
         'invoice_number'   => ['label' => 'Invoice #',       'required' => true],
         'client_name'      => ['label' => 'Client name'],
         'issue_date'       => ['label' => 'Issue date',      'type' => 'date'],

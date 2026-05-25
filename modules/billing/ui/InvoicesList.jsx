@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import InvoiceFromTimeBundleModal from './InvoiceFromTimeBundleModal';
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 const STATUS_FILTERS = ['all','draft','approved','sent','partially_paid','paid','void'];
 
@@ -55,11 +56,12 @@ export default function InvoicesList() {
       {error && <p className="error" data-testid="billing-invoices-error">Error: {error.message}</p>}
 
       <table className="data-table" data-testid="billing-invoices-table">
-        <thead><tr><th>#</th><th>Client</th><th>Issue</th><th>Due</th><th style={{textAlign:'right'}}>Total</th><th style={{textAlign:'right'}}>Due</th><th>Status</th></tr></thead>
+        <thead><tr><th>ID</th><th>#</th><th>Client</th><th>Issue</th><th>Due</th><th style={{textAlign:'right'}}>Total</th><th style={{textAlign:'right'}}>Due</th><th>Status</th></tr></thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={7} className="empty" data-testid="billing-invoices-empty">No invoices yet.</td></tr>}
+          {rows.length === 0 && !loading && <tr><td colSpan={8} className="empty" data-testid="billing-invoices-empty">No invoices yet.</td></tr>}
           {rows.map(r => (
             <tr key={r.id} data-testid={`billing-invoice-row-${r.id}`}>
+              <td><IdBadge id={r.id} prefix="INV" /></td>
               <td><Link to={`/modules/billing/invoices/${r.id}`} data-testid={`billing-invoice-link-${r.id}`}>{r.invoice_number}</Link></td>
               <td>{r.client_name}</td>
               <td>{r.issue_date}</td>

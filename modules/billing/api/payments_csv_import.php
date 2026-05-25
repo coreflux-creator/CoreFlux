@@ -22,6 +22,10 @@ use Core\CsvImportService;
 
 CsvImportService::registerSchema('billing_payments', [
     'fields' => [
+        // payment_id wins over the (client_name + received_at + reference)
+        // composite for update-existing matching. Optional; leave blank
+        // for new payments.
+        'payment_id'  => ['label' => 'Payment ID',  'type' => 'integer'],
         'client_name' => ['label' => 'Client name', 'required' => true],
         'received_at' => ['label' => 'Received at', 'required' => true, 'type' => 'date'],
         'method'      => ['label' => 'Method',

@@ -10,6 +10,68 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## IdBadge — product-wide rollout (2026-02 — current fork)
+
+### Why
+The previous fork landed the id-based CSV lookup pattern for placements +
+people. User asked to extend it everywhere. Done with one disciplined
+constraint: **only add an id column when it actually corresponds to a
+real FK or to the table's own PK**. Adding `vendor_id` to a CSV whose
+target table stores `vendor_name` as a free-text column would mislead
+operators into thinking they were linking rows when nothing is being
+linked. Audit revealed `ap_bills`, `ap_payments`, `billing_invoices`,
+and `billing_payments` all store vendor/client info as free-text — so
+those importers get the table's OWN PK column instead (for the update-
+existing-row pathway), not a foreign-key column.
+
+### Schemas extended (own-PK update-existing match)
+- `people.csv`              → `person_id`
+- `ap_vendors.csv`          → `vendor_id`
+- `ap_bills.csv`            → `bill_id`
+- `ap_payments.csv`         → `payment_id`
+- `billing_invoices.csv`    → `invoice_id`
+- `billing_payments.csv`    → `payment_id`
+- `staffing_clients.csv`    → `client_id`
+- `mercury_recipients.csv`  → `recipient_id`
+
+All accept the column as **optional integer**. Validated by the strict
+`type='integer'` regex shipped last fork. Operators leave the column
+blank for new rows, or paste the badge value to update an existing one.
+
+### People CSV commit path
+`person_id`-first lookup with **hard error on miss** (no silent fallback
+to email). When no id is present, the legacy email upsert + unique-check
+path still runs. Matches the placement importer's behaviour for
+operator consistency.
+
+### UI lists that gained `<IdBadge />`
+- People directory  (P-prefix, already shipped)
+- Companies / Clients / Vendors directory  (C-prefix)
+- AP Vendors list   (V-prefix)
+- AP Bills list     (B-prefix)
+- AP Payments list  (PAY-prefix)
+- Billing Invoices  (INV-prefix)
+- Billing Payments  (RCP-prefix)
+- Mercury Recipients (R-prefix)
+- Mercury Payments  (MP-prefix)
+- Placements list   (PL + linked P-prefix, already shipped)
+
+Each detail page header also gets the badge inline next to the entity
+name with a tooltip ("…click to copy for CSV imports"). Click copies
+the bare integer to the clipboard — CSV-friendly, no prefix.
+
+### Tests
+- New: `tests/idbadge_product_wide_rollout_smoke.php` (45 ✓) — covers
+  every schema, every UI page, every colSpan bump, PHP syntax on
+  every touched importer.
+- Full suite: **286/286 passing**.
+
+### Bundle
+- `index-DaevHJg6.js` (new) + `index-BC5g6YJu.css` — `.deploy-version`,
+  `spa-assets/`, SW CACHE_VERSION all in sync.
+
+
+
 ## Placements CSV — ID-based lookup (2026-02 — current fork)
 
 ### Bug context

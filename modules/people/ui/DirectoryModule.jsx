@@ -3,6 +3,7 @@ import { Routes, Route, NavLink, Navigate, useNavigate, useParams, Link } from '
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import ConnectedSourcesBadge from '../../../dashboard/src/components/ConnectedSourcesBadge';
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 /**
  * Directory module — shared engine for Clients and Vendors views.
@@ -101,13 +102,14 @@ function DirectoryList({ cfg, mode }) {
       {error && <p className="error">Error: {error.message}</p>}
 
       <table className="data-table" data-testid={`${mode}-table`}>
-        <thead><tr><th>Name</th><th>Roles</th><th>Primary contact</th><th>Location</th><th style={{textAlign:'right'}}>Used</th></tr></thead>
+        <thead><tr><th>ID</th><th>Name</th><th>Roles</th><th>Primary contact</th><th>Location</th><th style={{textAlign:'right'}}>Used</th></tr></thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={5} className="empty" data-testid={`${mode}-empty`}>No {cfg.label.toLowerCase()} yet — auto-created when placements reference them, or click "+ New {cfg.listLabel}".</td></tr>}
+          {rows.length === 0 && !loading && <tr><td colSpan={6} className="empty" data-testid={`${mode}-empty`}>No {cfg.label.toLowerCase()} yet — auto-created when placements reference them, or click "+ New {cfg.listLabel}".</td></tr>}
           {rows.map(c => {
             const alsoOther = (c.roles || []).some(role => cfg.crossRoles.includes(role));
             return (
               <tr key={c.id} data-testid={`${mode}-row-${c.id}`}>
+                <td><IdBadge id={c.id} prefix="C" /></td>
                 <td>
                   <Link to={String(c.id)} data-testid={`${mode}-link-${c.id}`}>{c.name}</Link>
                   {alsoOther && <span title={`Also acts as ${cfg.crossLabel}`} className="badge" style={{ marginLeft: 6, fontSize: 10 }}>also {cfg.crossLabel}</span>}
@@ -292,7 +294,10 @@ function DirectoryDetail({ cfg, mode }) {
   return (
     <div data-testid={`${mode}-detail`}>
       <Link to=".." style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>← {cfg.label}</Link>
-      <h2 style={{ marginTop: 8 }} data-testid={`${mode}-detail-name`}>{c.name}</h2>
+      <h2 style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }} data-testid={`${mode}-detail-name`}>
+        <span>{c.name}</span>
+        <IdBadge id={c.id} prefix="C" title={`Company ID ${c.id} — click to copy for CSV imports`} />
+      </h2>
       <p style={{ margin: '4px 0', color: 'var(--cf-text-secondary)', fontSize: 14 }}>
         {c.legal_name && c.legal_name !== c.name ? `${c.legal_name} · ` : ''}
         {c.city ? `${c.city}, ${c.state || c.country || ''}` : ''}

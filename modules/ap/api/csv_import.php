@@ -24,6 +24,9 @@ use Core\CsvImportService;
 
 CsvImportService::registerSchema('ap_vendors', [
     'fields' => [
+        // vendor_id (companies.id) wins over fuzzy vendor_name match
+        // for update-existing rows. Copy from the Vendors list UI.
+        'vendor_id'        => ['label' => 'Vendor ID',           'type' => 'integer'],
         'vendor_name'      => ['label' => 'Vendor name',         'required' => true],
         'vendor_type'      => ['label' => 'Vendor type',
                                'enum'  => ['1099_individual','c2c_corp','w9_business','utility','other']],

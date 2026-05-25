@@ -4,6 +4,7 @@ import { api, useApi } from '../../../dashboard/src/lib/api'; // eslint-disable-
 import { useBulkSelection } from '../../../dashboard/src/lib/useBulkSelection';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import BillFromTimeBundleModal from './BillFromTimeBundleModal';
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 const STATUS_FILTERS = ['all','pending_approval','approved','partially_paid','paid','disputed','void'];
 
@@ -87,14 +88,14 @@ export default function BillsList() {
                 data-testid="ap-bills-select-all"
               />
             </th>
-            <th>Ref</th><th>Vendor</th><th>Type</th><th>Bill date</th><th>Due</th>
+            <th>ID</th><th>Ref</th><th>Vendor</th><th>Type</th><th>Bill date</th><th>Due</th>
             <th style={{textAlign:'right'}}>Total</th>
             <th style={{textAlign:'right'}}>Due</th>
             <th>Status</th>
           </tr>
         </thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={9} className="empty" data-testid="ap-bills-empty">No bills yet.</td></tr>}
+          {rows.length === 0 && !loading && <tr><td colSpan={10} className="empty" data-testid="ap-bills-empty">No bills yet.</td></tr>}
           {rows.map(r => (
             <tr key={r.id} data-testid={`ap-bill-row-${r.id}`} style={sel.has(r.id) ? { background: 'var(--cf-surface-alt, #f9fafb)' } : null}>
               <td>
@@ -105,6 +106,7 @@ export default function BillsList() {
                   data-testid={`ap-bill-select-${r.id}`}
                 />
               </td>
+              <td><IdBadge id={r.id} prefix="B" /></td>
               <td><Link to={`/modules/ap/bills/${r.id}`} data-testid={`ap-bill-link-${r.id}`}>{r.internal_ref}</Link></td>
               <td>{r.vendor_name}</td>
               <td><span className="badge">{r.vendor_type}</span></td>

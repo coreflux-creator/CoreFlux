@@ -24,6 +24,10 @@ use Core\CsvImportService;
 
 CsvImportService::registerSchema('ap_payments', [
     'fields' => [
+        // payment_id wins over the (vendor_name + pay_date + reference)
+        // composite for update-existing matching. Optional; leave blank
+        // for new payments.
+        'payment_id'  => ['label' => 'Payment ID',   'type' => 'integer'],
         'vendor_name' => ['label' => 'Vendor name',  'required' => true],
         'pay_date'    => ['label' => 'Pay date',     'required' => true, 'type' => 'date'],
         'method'      => ['label' => 'Method',

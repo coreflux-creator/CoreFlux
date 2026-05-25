@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useBulkSelection } from '../../../dashboard/src/lib/useBulkSelection';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 export default function PaymentsList() {
   const { data, loading, error, reload } = useApi('/modules/ap/api/payments.php');
@@ -189,7 +190,7 @@ export default function PaymentsList() {
                   data-testid={`ap-payment-select-${p.id}`}
                 />
               </td>
-              <td>#{p.id}</td>
+              <td><IdBadge id={p.id} prefix="PAY" /></td>
               <td>{p.vendor_name}</td>
               <td>{p.pay_date}</td>
               <td>{p.method}</td>

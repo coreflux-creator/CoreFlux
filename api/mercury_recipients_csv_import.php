@@ -26,6 +26,9 @@ use Core\CsvImportService;
 
 CsvImportService::registerSchema('mercury_vendor_recipients', [
     'fields' => [
+        // recipient_id wins over fuzzy name match for update-existing
+        // rows. Copy from the Recipients list UI <IdBadge prefix="R" />.
+        'recipient_id'   => ['label' => 'Recipient ID',     'type'     => 'integer'],
         'name'           => ['label' => 'Vendor name',      'required' => true],
         'email'          => ['label' => 'Email',            'type'     => 'email'],
         'payment_method' => ['label' => 'Payment method',

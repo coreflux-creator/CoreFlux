@@ -22,6 +22,9 @@ use Core\CsvImportService;
 
 CsvImportService::registerSchema('staffing_clients', [
     'fields' => [
+        // client_id (companies.id) wins over fuzzy name match for
+        // update-existing rows.
+        'client_id'             => ['label' => 'Client ID',             'type' => 'integer'],
         'name'                  => ['label' => 'Client name',           'required' => true],
         'legal_name'            => ['label' => 'Legal name'],
         'industry'              => ['label' => 'Industry'],

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 const METHODS = ['ach','wire','check','card','cash','other'];
 
@@ -64,11 +65,12 @@ export default function PaymentsList() {
       {error && <p className="error" data-testid="billing-payments-error">Error: {error.message}</p>}
 
       <table className="data-table" data-testid="billing-payments-table">
-        <thead><tr><th>Received</th><th>Client</th><th>Method</th><th>Reference</th><th style={{textAlign:'right'}}>Amount</th><th style={{textAlign:'right'}}>Unallocated</th><th></th></tr></thead>
+        <thead><tr><th>ID</th><th>Received</th><th>Client</th><th>Method</th><th>Reference</th><th style={{textAlign:'right'}}>Amount</th><th style={{textAlign:'right'}}>Unallocated</th><th></th></tr></thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={7} className="empty" data-testid="billing-payments-empty">No payments recorded yet.</td></tr>}
+          {rows.length === 0 && !loading && <tr><td colSpan={8} className="empty" data-testid="billing-payments-empty">No payments recorded yet.</td></tr>}
           {rows.map(p => (
             <tr key={p.id} data-testid={`billing-payment-row-${p.id}`}>
+              <td><IdBadge id={p.id} prefix="RCP" /></td>
               <td>{p.received_at}</td>
               <td>{p.client_name}</td>
               <td>{p.method}</td>

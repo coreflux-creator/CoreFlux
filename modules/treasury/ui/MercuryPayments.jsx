@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApi, api } from '../../../dashboard/src/lib/api';
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 /**
  * <MercuryPayments /> — Slice 3 payment engine dashboard.
@@ -184,7 +185,7 @@ export default function MercuryPayments() {
               const c = STATE_COLORS[p.state] || STATE_COLORS.Draft;
               return (
                 <tr key={p.id} data-testid={`mercury-payment-row-${p.id}`}>
-                  <td>{p.id}</td>
+                  <td><IdBadge id={p.id} prefix="MP" /></td>
                   <td>
                     <span
                       data-testid={`mercury-payment-state-${p.id}`}

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 export default function VendorsList() {
   const [q, setQ] = useState('');
@@ -24,11 +25,12 @@ export default function VendorsList() {
       {error && <p className="error">Error: {error.message}</p>}
 
       <table className="data-table" data-testid="ap-vendors-table">
-        <thead><tr><th>Name</th><th>Type</th><th>Terms</th><th>PWP?</th><th>Tax ID</th><th>1099?</th><th>Last bill</th><th></th></tr></thead>
+        <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Terms</th><th>PWP?</th><th>Tax ID</th><th>1099?</th><th>Last bill</th><th></th></tr></thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={8} className="empty" data-testid="ap-vendors-empty">No vendors yet.</td></tr>}
+          {rows.length === 0 && !loading && <tr><td colSpan={9} className="empty" data-testid="ap-vendors-empty">No vendors yet.</td></tr>}
           {rows.map(v => (
             <tr key={v.id} data-testid={`ap-vendor-row-${v.id}`}>
+              <td><IdBadge id={v.id} prefix="V" /></td>
               <td>{v.vendor_name}</td>
               <td><span className="badge">{v.vendor_type}</span></td>
               <td>{v.default_terms}</td>

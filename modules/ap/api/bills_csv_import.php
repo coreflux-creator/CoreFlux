@@ -27,6 +27,9 @@ use Core\CsvImportService;
 CsvImportService::registerSchema('ap_bills', [
     'fields' => [
         // Header fields (read from first row of each bill_number group)
+        // bill_id wins over bill_number for update-existing matching.
+        // Optional; leave blank for new bills.
+        'bill_id'          => ['label' => 'Bill ID',        'type' => 'integer'],
         'bill_number'      => ['label' => 'Bill #',         'required' => true],
         'vendor_name'      => ['label' => 'Vendor name'],
         'vendor_type'      => ['label' => 'Vendor type',
