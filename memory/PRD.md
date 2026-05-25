@@ -127,6 +127,59 @@ across nine placements with no global "review and approve" surface.
 - `yarn build` clean + `sync_bundle.sh` updated `.deploy-version`,
   service-worker `CACHE_VERSION`, `dashboard/dist/index.html`.
 
+## Placement detail overhaul + auto-approve rates + no-popup approve (2026-02 — current fork)
+
+### Why
+Three operator complaints in one turn:
+1. **"It doesn't even have the NAME?!"** — the Placement Detail Overview tab was
+   missing the person's name, email, classification, work auth, end-client
+   company link, approver, JobDiva metadata, and notes.
+2. **"initial placement approval should include approved rates"** — promoting a
+   draft placement to active left its draft rates untouched, forcing the
+   operator into the Rates tab as a separate workflow.
+3. **"updates are already updates to previously approved items. shouldn't need
+   the popup to ask"** — the Rates tab popped `confirm("Is this a
+   correction?")` + `prompt("Correction reason")` on every approve. Redundant
+   when the placement obviously has a prior approved rate.
+
+### Fixes
+- **`placementGet()`** now LEFT JOINs `people` and `companies` so the detail
+  page receives `person_first_name`, `person_last_name`, `person_email_primary`,
+  `person_phone_primary`, `person_classification`, `person_work_auth_status`,
+  `person_work_auth_expiry`, `end_client_company_name`, and
+  `end_client_company_website`.
+- **`OverviewTab`** rewritten into 5 sections (Person, Engagement, End client
+  & approver, JobDiva metadata, Notes) covering every safe-to-display column
+  with mailto/website/profile deep-links. Header also shows the person name
+  + email mailto next to the title.
+- **Shared rate-approve helper** moved from `api/rates.php` to
+  `modules/placements/lib/rate_approve.php`. Defines
+  `placementsRateApproveOne()` and the new `placementsAutoApproveDraftRates()`.
+- **PATCH** and **`?action=bulk_status`** on `api/placements.php` now call
+  `placementsAutoApproveDraftRates()` when the placement transitions from
+  `draft` → any non-terminal status. Soft-gated by `rbac_legacy_can` so a
+  recruiter without `placements.financials.approve` can't escalate; returns
+  `rates_auto_approved` count in the response.
+- **`?action=approve` on rates** auto-detects correction by probing for any
+  prior approved row on the same placement. Auto-generates a default reason.
+  `correction_reason` is no longer hard-required at the API layer.
+- **UI**: `RatesTab.approve()` no longer calls `confirm()`/`prompt()`. POSTs
+  an empty body, quietly logs `console.info` when the server returned
+  `auto_correction=true`.
+
+### Tests
+- `tests/placement_detail_and_auto_approve_smoke.php` — 45 ✓ / 0 ✗
+- `tests/placements_bulk_approve_drafts_queue_smoke.php` updated for the
+  helper relocation — 58 ✓ / 0 ✗
+- Full suite: **291/291 ✓**
+- `yarn build` clean → bundle `index-Cet53ImG.js`, sync_bundle.sh successful.
+
+### Deploy note
+PHP + React both touched. Cloudways deploy + `update.php` needed. New bundle:
+`index-Cet53ImG.js` / `coreflux-Cet53ImG`.
+
+
+
 ### Deploy note
 React + PHP both touched — needs a full Cloudways deploy + `update.php`
 to pick up new bundle hashes AND new API endpoints. New bundle:

@@ -15,6 +15,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/placements.php';
+require_once __DIR__ . '/../lib/rate_approve.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -104,8 +105,14 @@ if ($method === 'POST') {
         if (!in_array($newStatus, ALLOWED_STATUS, true)) {
             api_error('Invalid status', 422, ['allowed' => ALLOWED_STATUS]);
         }
-        $updated = 0; $skipped = 0; $results = [];
+        $updated = 0; $skipped = 0; $totalAutoApproved = 0; $results = [];
         foreach ($ids as $pid) {
+            // Capture pre-update status so the auto-approve side
+            // effect only fires on draft → non-draft promotions.
+            $prior = scopedFind(
+                'SELECT status FROM placements WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL',
+                ['id' => $pid]
+            );
             $rows = scopedUpdate('placements', $pid, ['status' => $newStatus]);
             if ($rows > 0) {
                 $updated++;
@@ -114,18 +121,33 @@ if ($method === 'POST') {
                     'status' => $newStatus,
                     'via'    => 'bulk_status',
                 ], $pid);
-                $results[] = ['id' => $pid, 'ok' => true];
+                $autoApproved = 0;
+                if ($prior && (string) $prior['status'] === 'draft'
+                    && !in_array($newStatus, ['draft', 'cancelled'], true)) {
+                    $autoApproved = placementsAutoApproveDraftRates($pid, $user);
+                    $totalAutoApproved += $autoApproved;
+                    if ($autoApproved > 0) {
+                        placementsAudit('placement.rates.auto_approved_on_promotion', [
+                            'placement_id'    => $pid,
+                            'rate_count'      => $autoApproved,
+                            'promoted_status' => $newStatus,
+                            'via'             => 'bulk_status',
+                        ], $pid);
+                    }
+                }
+                $results[] = ['id' => $pid, 'ok' => true, 'rates_auto_approved' => $autoApproved];
             } else {
                 $skipped++;
                 $results[] = ['id' => $pid, 'ok' => false, 'reason' => 'not_found_or_no_change'];
             }
         }
         api_ok([
-            'ok'      => true,
-            'updated' => $updated,
-            'skipped' => $skipped,
-            'status'  => $newStatus,
-            'results' => $results,
+            'ok'                   => true,
+            'updated'              => $updated,
+            'skipped'              => $skipped,
+            'status'               => $newStatus,
+            'rates_auto_approved'  => $totalAutoApproved,
+            'results'              => $results,
         ]);
     }
 
@@ -267,7 +289,28 @@ if ($method === 'PATCH') {
     } else {
         placementsAudit('placement.updated', ['id' => $id, 'fields' => array_keys($body)], $id);
     }
-    api_ok(['placement' => placementGet($id)]);
+
+    // Auto-approve side effect: when a placement leaves `draft` for any
+    // non-terminal state, approve every draft rate row attached to it.
+    // Matches the operator mental model — "approving the placement"
+    // is one action that includes the rates, not two separate clicks
+    // in two separate tabs. Soft-gated by rbac inside the helper so
+    // a recruiter without financials.approve doesn't get a free
+    // privilege escalation.
+    $autoApproved = 0;
+    if (isset($body['status'])
+        && (string) $existing['status'] === 'draft'
+        && !in_array((string) $body['status'], ['draft', 'cancelled'], true)) {
+        $autoApproved = placementsAutoApproveDraftRates($id, $user);
+        if ($autoApproved > 0) {
+            placementsAudit('placement.rates.auto_approved_on_promotion', [
+                'placement_id'    => $id,
+                'rate_count'      => $autoApproved,
+                'promoted_status' => (string) $body['status'],
+            ], $id);
+        }
+    }
+    api_ok(['placement' => placementGet($id), 'rates_auto_approved' => $autoApproved]);
 }
 
 api_error('Method not allowed', 405);

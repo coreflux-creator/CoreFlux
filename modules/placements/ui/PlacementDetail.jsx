@@ -46,12 +46,23 @@ export default function PlacementDetail({ session }) {
       <header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--cf-space-3)' }}>
         <div>
           <button onClick={() => nav('..')} className="btn btn--ghost" data-testid="placement-detail-back">← Placements</button>
-          <h2 data-testid="placement-detail-title" style={{ marginTop: 'var(--cf-space-2)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h2 data-testid="placement-detail-title" style={{ marginTop: 'var(--cf-space-2)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span>{placement.title}</span>
             <IdBadge id={placement.id} prefix="PL" title={`Placement ID ${placement.id} — click to copy for CSV imports`} />
             {placement.person_id && (
-              <span style={{ fontSize: 12, color: '#64748b', fontWeight: 400 }}>
-                Person <IdBadge id={placement.person_id} prefix="P" />
+              <span style={{ fontSize: 14, color: '#334155', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                ·{' '}
+                <a
+                  href={`/modules/people/${placement.person_id}`}
+                  data-testid="placement-detail-person-link"
+                  style={{ color: '#1d4ed8', textDecoration: 'none' }}
+                  title="Open person profile"
+                >
+                  {placement.person_first_name || placement.person_last_name
+                    ? `${placement.person_first_name || ''} ${placement.person_last_name || ''}`.trim()
+                    : `Person #${placement.person_id}`}
+                </a>
+                <IdBadge id={placement.person_id} prefix="P" />
               </span>
             )}
           </h2>
@@ -60,6 +71,14 @@ export default function PlacementDetail({ session }) {
             <span className={`badge badge--${placement.engagement_type}`} data-testid="placement-detail-etype">{placement.engagement_type}</span>{' · '}
             <span data-testid="placement-detail-client">{placement.end_client_name || '(no end client)'}</span>{' · '}
             <span data-testid="placement-detail-dates">{placement.start_date} → {placement.end_date || '∞'}</span>
+            {placement.person_email_primary && (
+              <>
+                {' · '}
+                <a href={`mailto:${placement.person_email_primary}`} data-testid="placement-detail-person-email" style={{ color: '#1d4ed8' }}>
+                  {placement.person_email_primary}
+                </a>
+              </>
+            )}
           </p>
         </div>
       </header>
@@ -151,33 +170,129 @@ function OverviewTab({ placement, reload }) {
   if (editing) return <OverviewEdit placement={placement} onClose={() => { setEditing(false); reload(); }} />;
   const overrides = parseOverrides(placement);
   const fromJD    = isJobDivaSourced(placement);
-  const Item = ({ k, v, t, field }) => (
-    <div>
-      <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em', display: 'block' }}>
+  const Item = ({ k, v, t, field, span }) => (
+    <div style={span ? { gridColumn: `span ${span}` } : undefined}>
+      <span style={{ color: 'var(--cf-text-secondary)', fontSize: '0.85em', display: 'block', marginBottom: 2 }}>
         {k}
         {fromJD && field && overrides.has(field) ? <OverridePill field={field} /> : null}
       </span>
-      <span data-testid={t}>{v ?? '—'}</span>
+      <span data-testid={t}>{v != null && v !== '' ? v : '—'}</span>
     </div>
   );
+
+  // Person fields surfaced from the new placementGet() JOIN. Operator
+  // complaint was that the detail page "doesn't even have the NAME?!"
+  // — we now expose name, email, phone, classification, work auth,
+  // plus a clickable link back to the person profile.
+  const personName = [placement.person_first_name, placement.person_last_name].filter(Boolean).join(' ').trim();
+  const personLink = placement.person_id ? `/modules/people/${placement.person_id}` : null;
+
   return (
     <div data-testid="tab-overview">
       <header style={{ display: 'flex', justifyContent: 'space-between' }}><h3>Overview</h3>
         <button className="btn" onClick={() => setEditing(true)} data-testid="placement-overview-edit">Edit</button>
       </header>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
-        <Item k="Title"            v={placement.title}            t="overview-title"       field="title" />
-        <Item k="Engagement type"  v={placement.engagement_type}  t="overview-etype"       field="engagement_type" />
-        <Item k="Status"           v={placement.status}           t="overview-status"      field="status" />
-        <Item k="Start"            v={placement.start_date}       t="overview-start"       field="start_date" />
-        <Item k="End (planned)"    v={placement.end_date}         t="overview-end"         field="end_date" />
-        <Item k="Actual end"       v={placement.actual_end_date}  t="overview-actual-end"  field="actual_end_date" />
-        <Item k="Due"              v={placement.due_date}         t="overview-due"         field="due_date" />
-        <Item k="End client"       v={placement.end_client_name}  t="overview-client"      field="end_client_name" />
-        <Item k="Worksite"         v={[placement.worksite_state, placement.worksite_country].filter(Boolean).join(', ') || '—'} t="overview-site" />
-        <Item k="Remote policy"    v={placement.remote_policy}    t="overview-remote"      field="remote_policy" />
-        <Item k="External ID"      v={placement.external_id}      t="overview-external" />
-      </div>
+
+      {/* Section 1: Person on this placement — was missing entirely. */}
+      <section data-testid="tab-overview-section-person" style={{ marginBottom: 'var(--cf-space-4)' }}>
+        <h4 style={{ marginBottom: 'var(--cf-space-2)', color: '#475569', fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Person</h4>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
+          <Item k="Name"             v={personLink && personName
+              ? <a href={personLink} data-testid="overview-person-name-link" style={{ color: '#1d4ed8', textDecoration: 'none' }}>{personName}</a>
+              : (personName || (placement.person_id ? `Person #${placement.person_id}` : '—'))}
+            t="overview-person-name" />
+          <Item k="Email"            v={placement.person_email_primary
+              ? <a href={`mailto:${placement.person_email_primary}`} style={{ color: '#1d4ed8' }}>{placement.person_email_primary}</a>
+              : '—'}
+            t="overview-person-email" />
+          <Item k="Phone"            v={placement.person_phone_primary}              t="overview-person-phone" />
+          <Item k="Classification"   v={placement.person_classification}              t="overview-person-classification" />
+          <Item k="Work auth"        v={placement.person_work_auth_status}            t="overview-person-work-auth" />
+          <Item k="Work auth expiry" v={placement.person_work_auth_expiry}            t="overview-person-work-auth-expiry" />
+        </div>
+      </section>
+
+      {/* Section 2: Engagement (the original Overview) */}
+      <section data-testid="tab-overview-section-engagement" style={{ marginBottom: 'var(--cf-space-4)' }}>
+        <h4 style={{ marginBottom: 'var(--cf-space-2)', color: '#475569', fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Engagement</h4>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
+          <Item k="Title"            v={placement.title}            t="overview-title"       field="title" />
+          <Item k="Engagement type"  v={placement.engagement_type}  t="overview-etype"       field="engagement_type" />
+          <Item k="Status"           v={placement.status}           t="overview-status"      field="status" />
+          <Item k="Start"            v={placement.start_date}       t="overview-start"       field="start_date" />
+          <Item k="End (planned)"    v={placement.end_date}         t="overview-end"         field="end_date" />
+          <Item k="Actual end"       v={placement.actual_end_date}  t="overview-actual-end"  field="actual_end_date" />
+          <Item k="Due"              v={placement.due_date}         t="overview-due"         field="due_date" />
+          <Item k="Worksite"         v={[placement.worksite_state, placement.worksite_country].filter(Boolean).join(', ') || null} t="overview-site" />
+          <Item k="Remote policy"    v={placement.remote_policy}    t="overview-remote"      field="remote_policy" />
+          <Item k="External ID"      v={placement.external_id}      t="overview-external" />
+        </div>
+      </section>
+
+      {/* Section 3: End client */}
+      <section data-testid="tab-overview-section-client" style={{ marginBottom: 'var(--cf-space-4)' }}>
+        <h4 style={{ marginBottom: 'var(--cf-space-2)', color: '#475569', fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em' }}>End client &amp; approver</h4>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
+          <Item k="End client"        v={placement.end_client_company_id
+              ? <a href={`/modules/people/companies/${placement.end_client_company_id}`} data-testid="overview-end-client-link" style={{ color: '#1d4ed8', textDecoration: 'none' }}>
+                  {placement.end_client_company_name || placement.end_client_name}
+                </a>
+              : placement.end_client_name}
+            t="overview-client" field="end_client_name" />
+          <Item k="Client website"    v={placement.end_client_company_website
+              ? <a href={placement.end_client_company_website} target="_blank" rel="noreferrer" style={{ color: '#1d4ed8' }}>{placement.end_client_company_website}</a>
+              : null}
+            t="overview-client-website" />
+          <Item k="Approver name"     v={placement.client_approver_name}  t="overview-approver-name" />
+          <Item k="Approver email"    v={placement.client_approver_email
+              ? <a href={`mailto:${placement.client_approver_email}`} style={{ color: '#1d4ed8' }}>{placement.client_approver_email}</a>
+              : null}
+            t="overview-approver-email" />
+          <Item k="Tokenised email approvals"
+            v={<span style={{ color: placement.tokenized_email_approval_enabled ? '#15803d' : '#94a3b8' }}>
+                  {placement.tokenized_email_approval_enabled ? 'Enabled' : 'Off'}
+               </span>}
+            t="overview-token-email" />
+          <Item k="Bulk pre-approval"
+            v={<span style={{ color: placement.bulk_uploads_can_be_pre_approved ? '#15803d' : '#94a3b8' }}>
+                  {placement.bulk_uploads_can_be_pre_approved ? 'Allowed' : 'Off'}
+               </span>}
+            t="overview-bulk-preapprove" />
+        </div>
+      </section>
+
+      {/* Section 4: JobDiva metadata — only when sourced from JobDiva.
+          Surfaces the assignment id, recruiter, account manager so the
+          ops team doesn't have to flip back to JobDiva to see who owns
+          this placement. */}
+      {(fromJD || placement.jobdiva_job_id || placement.recruiter_name || placement.account_manager_name) && (
+        <section data-testid="tab-overview-section-jobdiva" style={{ marginBottom: 'var(--cf-space-4)' }}>
+          <h4 style={{ marginBottom: 'var(--cf-space-2)', color: '#475569', fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            JobDiva metadata
+          </h4>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--cf-space-3)' }}>
+            <Item k="JobDiva job ID"     v={placement.jobdiva_job_id}        t="overview-jd-job-id" field="jobdiva_job_id" />
+            <Item k="Recruiter"          v={placement.recruiter_name}        t="overview-recruiter-name" field="recruiter_name" />
+            <Item k="Recruiter email"    v={placement.recruiter_email
+                ? <a href={`mailto:${placement.recruiter_email}`} style={{ color: '#1d4ed8' }}>{placement.recruiter_email}</a>
+                : null}
+              t="overview-recruiter-email" field="recruiter_email" />
+            <Item k="Account manager"    v={placement.account_manager_name}  t="overview-am-name" field="account_manager_name" />
+            <Item k="AM email"           v={placement.account_manager_email
+                ? <a href={`mailto:${placement.account_manager_email}`} style={{ color: '#1d4ed8' }}>{placement.account_manager_email}</a>
+                : null}
+              t="overview-am-email" field="account_manager_email" />
+          </div>
+        </section>
+      )}
+
+      {/* Section 5: Notes — full width, multi-line. */}
+      <section data-testid="tab-overview-section-notes">
+        <h4 style={{ marginBottom: 'var(--cf-space-2)', color: '#475569', fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Notes</h4>
+        <div style={{ whiteSpace: 'pre-wrap', color: placement.notes ? 'inherit' : '#94a3b8', fontSize: 14 }} data-testid="overview-notes">
+          {placement.notes || '— no notes —'}
+        </div>
+      </section>
     </div>
   );
 }
@@ -554,14 +669,17 @@ function RatesTab({ pid, rates, reload }) {
   };
 
   const approve = async (rateId) => {
-    const isCorrection = confirm('Is this a correction to a prior approved rate? OK = yes, Cancel = no');
-    let reason = null;
-    if (isCorrection) {
-      reason = prompt('Correction reason (required for audit log):');
-      if (!reason) { alert('Correction reason required.'); return; }
-    }
+    // No more "Is this a correction?" popup. The server auto-detects
+    // a correction (any prior approved row on this placement) and
+    // generates a default reason. Operators who genuinely need a
+    // custom reason can still PATCH the audit row afterwards — UI
+    // doesn't gate that on a confirm dialog.
     try {
-      await api.post(`/modules/placements/api/rates.php?action=approve&id=${rateId}`, { is_correction: isCorrection, correction_reason: reason });
+      const res = await api.post(`/modules/placements/api/rates.php?action=approve&id=${rateId}`, {});
+      if (res?.auto_correction) {
+        // Quiet inline confirmation rather than another modal.
+        console.info(`Rate ${rateId} approved as a correction (auto-detected supersede).`);
+      }
       reload();
     } catch (e) { alert(`Approve failed: ${e.message}`); }
   };

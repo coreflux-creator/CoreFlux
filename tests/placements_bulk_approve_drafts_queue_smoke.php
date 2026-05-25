@@ -33,6 +33,7 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
 
 $placements = (string) file_get_contents('/app/modules/placements/api/placements.php');
 $rates      = (string) file_get_contents('/app/modules/placements/api/rates.php');
+$rateApprLib = (string) file_get_contents('/app/modules/placements/lib/rate_approve.php');
 $csvImp     = (string) file_get_contents('/app/modules/placements/ui/CsvImport.jsx');
 $importPg   = (string) file_get_contents('/app/dashboard/src/components/CsvImportPage.jsx');
 $list       = (string) file_get_contents('/app/modules/placements/ui/List.jsx');
@@ -48,25 +49,25 @@ $a('validates status against ALLOWED_STATUS', str_contains($placements, "in_arra
 $a('coerces ids to positive ints',          str_contains($placements, 'array_map(\'intval\', $body[\'ids\'])')
                                             && str_contains($placements, 'array_filter($ids, static fn ($n) => $n > 0)'));
 $a('audits each row with via=bulk_status',  str_contains($placements, "'via'    => 'bulk_status'"));
-$a('returns updated + skipped + results',   str_contains($placements, "'updated' => \$updated")
-                                            && str_contains($placements, "'skipped' => \$skipped")
-                                            && str_contains($placements, "'results' => \$results"));
+$a('returns updated + skipped + results',   (bool) preg_match("/'updated'\\s*=>\\s*\\\$updated/", $placements)
+                                            && (bool) preg_match("/'skipped'\\s*=>\\s*\\\$skipped/", $placements)
+                                            && (bool) preg_match("/'results'\\s*=>\\s*\\\$results/", $placements));
 $a('end action remains untouched (regression guard)',
    str_contains($placements, "if (\$action === 'end') {"));
 
 echo "\n2. Rates bulk_approve endpoint + shared helper\n";
 $a('shared placementsRateApproveOne() helper defined',
-   str_contains($rates, 'function placementsRateApproveOne(int $rateId, array $user, bool $isCorrection, ?string $correctionReason): array'));
+   str_contains($rateApprLib, 'function placementsRateApproveOne(int $rateId, array $user, bool $isCorrection, ?string $correctionReason): array'));
 $a('helper begins + commits a transaction',
-   str_contains($rates, '$pdo->beginTransaction()')
-   && str_contains($rates, '$pdo->commit()')
-   && str_contains($rates, '$pdo->rollBack()'));
-$a('helper emits placement.rate.approved audit', str_contains($rates, "placementsAudit('placement.rate.approved'"));
+   str_contains($rateApprLib, '$pdo->beginTransaction()')
+   && str_contains($rateApprLib, '$pdo->commit()')
+   && str_contains($rateApprLib, '$pdo->rollBack()'));
+$a('helper emits placement.rate.approved audit', str_contains($rateApprLib, "placementsAudit('placement.rate.approved'"));
 $a('helper supersedes prior approved rows',
-   str_contains($rates, 'SET effective_to = DATE_SUB(:eff_set, INTERVAL 1 DAY)')
-   && str_contains($rates, 'superseded_by = :new_id_set'));
+   str_contains($rateApprLib, 'SET effective_to = DATE_SUB(:eff_set, INTERVAL 1 DAY)')
+   && str_contains($rateApprLib, 'superseded_by = :new_id_set'));
 $a('helper computes margin from chain via placementsComputeMargin',
-   str_contains($rates, 'placementsComputeMargin($rate, $chain)'));
+   str_contains($rateApprLib, 'placementsComputeMargin($rate, $chain)'));
 $a('single ?action=approve now calls placementsRateApproveOne',
    (bool) preg_match("/action === 'approve'.*?placementsRateApproveOne\(\\\$id, \\\$user, \\\$isCorrection, \\\$correctionReason\)/s", $rates));
 $a('single approve still maps known errors to 404/409',

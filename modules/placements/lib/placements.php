@@ -42,8 +42,26 @@ function placementsSafeFields(string $alias = 'p'): string
 
 function placementGet(int $id): ?array
 {
-    $sql = 'SELECT ' . placementsSafeFields() . '
+    // Single-row GET joins both `people` (so the Overview tab can show
+    // the person's actual name + email — operator complaint: "it doesn't
+    // even have the NAME?!") and `companies` (so the end-client FK
+    // resolves to a clickable, real company row when present). LEFT
+    // JOINs are intentional: placements may be drafts without a person
+    // assigned yet, and end_client_company_id is nullable when the
+    // operator hasn't promoted the free-text name to a Company row.
+    $sql = 'SELECT ' . placementsSafeFields() . ',
+                   pe.first_name        AS person_first_name,
+                   pe.last_name         AS person_last_name,
+                   pe.email_primary     AS person_email_primary,
+                   pe.phone_primary     AS person_phone_primary,
+                   pe.classification    AS person_classification,
+                   pe.work_auth_status  AS person_work_auth_status,
+                   pe.work_auth_expiry  AS person_work_auth_expiry,
+                   ec.name              AS end_client_company_name,
+                   ec.website           AS end_client_company_website
             FROM placements p
+            LEFT JOIN people    pe ON pe.id = p.person_id          AND pe.tenant_id = p.tenant_id
+            LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
             WHERE p.tenant_id = :tenant_id AND p.id = :id AND p.deleted_at IS NULL';
     return scopedFind($sql, ['id' => $id]);
 }

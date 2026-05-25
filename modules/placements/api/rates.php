@@ -17,6 +17,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/placements.php';
+require_once __DIR__ . '/../lib/rate_approve.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -63,91 +64,10 @@ if ($method === 'GET') {
 
 /**
  * Approve a single placement_rates row inside a transaction.
- * Shared by `?action=approve` (one rate) and `?action=bulk_approve`
- * (many) so the bulk path uses the IDENTICAL approve semantics —
- * margin snapshot computed from current chain, prior approved row
- * closed via effective_to, audit emitted. Throws on failure.
- *
- * @return array{margin: array, superseded_count: int}
+ * (Implementation moved to `modules/placements/lib/rate_approve.php`
+ * so `api/placements.php` can also call it during draft → active
+ * status promotions without re-loading this API file.)
  */
-function placementsRateApproveOne(int $rateId, array $user, bool $isCorrection, ?string $correctionReason): array
-{
-    $rate = scopedFind('SELECT * FROM placement_rates WHERE tenant_id = :tenant_id AND id = :id', ['id' => $rateId]);
-    if (!$rate)              throw new \RuntimeException("Rate {$rateId} not found");
-    if ($rate['approved_at']) throw new \RuntimeException("Rate {$rateId} already approved");
-
-    $chain  = placementChain((int) $rate['placement_id']);
-    $margin = placementsComputeMargin($rate, $chain);
-
-    $pdo = getDB();
-    $pdo->beginTransaction();
-    try {
-        $stmt = $pdo->prepare(
-            "UPDATE placement_rates
-             SET effective_to = DATE_SUB(:eff_set, INTERVAL 1 DAY),
-                 superseded_by = :new_id_set
-             WHERE tenant_id = :tenant_id AND placement_id = :pid
-               AND id != :new_id_filter
-               AND approved_at IS NOT NULL
-               AND effective_from <= :eff_lt
-               AND (effective_to IS NULL OR effective_to >= :eff_gt)"
-        );
-        $stmt->execute([
-            'eff_set'        => $rate['effective_from'],
-            'eff_lt'         => $rate['effective_from'],
-            'eff_gt'         => $rate['effective_from'],
-            'new_id_set'     => $rateId,
-            'new_id_filter'  => $rateId,
-            'tenant_id'      => currentTenantId(),
-            'pid'            => $rate['placement_id'],
-        ]);
-        $closed = $stmt->rowCount();
-
-        $stmt2 = $pdo->prepare(
-            'UPDATE placement_rates SET
-                approved_by_user_id = :uid,
-                approved_at = NOW(),
-                adjusted_bill_rate = :abr,
-                net_to_vendor = :ntv,
-                is_correction = :ic,
-                correction_reason = :reason
-             WHERE tenant_id = :tenant_id AND id = :id'
-        );
-        $stmt2->execute([
-            'uid'       => $user['id'] ?? null,
-            'abr'       => $margin['adjusted_bill_rate'],
-            'ntv'       => $margin['net_to_vendor'],
-            'ic'        => $isCorrection ? 1 : 0,
-            'reason'    => $correctionReason,
-            'tenant_id' => currentTenantId(),
-            'id'        => $rateId,
-        ]);
-        $pdo->commit();
-    } catch (\Throwable $e) {
-        $pdo->rollBack();
-        throw $e;
-    }
-
-    placementsAudit('placement.rate.approved', [
-        'placement_id'        => (int) $rate['placement_id'],
-        'rate_id'             => $rateId,
-        'effective_from'      => $rate['effective_from'],
-        'adjusted_bill_rate'  => $margin['adjusted_bill_rate'],
-        'net_to_vendor'       => $margin['net_to_vendor'],
-        'total_portal_fee_pct'=> $margin['total_portal_fee_pct'],
-        'is_correction'       => $isCorrection,
-        'correction_reason'   => $correctionReason,
-        'superseded_count'    => $closed,
-    ], (int) $rate['placement_id']);
-
-    if ($closed > 0) {
-        placementsAudit('placement.rate.superseded', [
-            'placement_id' => (int) $rate['placement_id'], 'by_rate_id' => $rateId, 'count' => $closed,
-        ], (int) $rate['placement_id']);
-    }
-
-    return ['margin' => $margin, 'superseded_count' => $closed];
-}
 
 if ($method === 'POST' && $action === 'bulk_approve') {
     rbac_legacy_require($user, 'placements.financials.approve');
@@ -181,10 +101,37 @@ if ($method === 'POST' && $action === 'approve') {
     if ($id <= 0) api_error('id required', 400);
 
     $body = api_json_body();
-    $isCorrection    = !empty($body['is_correction']);
-    $correctionReason= $body['correction_reason'] ?? null;
+    // Auto-detect correction: if a prior approved rate row exists for
+    // this placement, the new approval IS a supersede — flag it as
+    // is_correction regardless of what the client sent. Removes the
+    // confirm popup from the UI ("Is this a correction?") that
+    // operators (rightly) thought was redundant — by definition,
+    // approving a second rate after one is already locked is a
+    // correction.
+    //
+    // Reason is OPTIONAL when auto-detected; we generate a default
+    // breadcrumb so the audit row still has something useful. Operators
+    // can override by passing an explicit `correction_reason` in the
+    // request body.
+    $rateRow = scopedFind('SELECT placement_id FROM placement_rates WHERE tenant_id = :tenant_id AND id = :id',
+        ['id' => $id]);
+    $autoCorrection = false;
+    if ($rateRow) {
+        $prior = scopedFind(
+            'SELECT id FROM placement_rates
+              WHERE tenant_id = :tenant_id AND placement_id = :pid
+                AND id != :rid AND approved_at IS NOT NULL
+              LIMIT 1',
+            ['pid' => (int) $rateRow['placement_id'], 'rid' => $id]
+        );
+        $autoCorrection = (bool) $prior;
+    }
+    $isCorrection     = !empty($body['is_correction']) || $autoCorrection;
+    $correctionReason = $body['correction_reason'] ?? null;
     if ($isCorrection && empty($correctionReason)) {
-        api_error('correction_reason is required when is_correction=true', 422);
+        $correctionReason = $autoCorrection
+            ? 'Rate update (auto-detected supersede of prior approved row)'
+            : 'Manual correction (no reason provided)';
     }
 
     try {
@@ -195,7 +142,7 @@ if ($method === 'POST' && $action === 'approve') {
         if (str_contains($msg, 'already approved')) api_error('Already approved (snapshot is locked; create a correction)', 409);
         api_error('Approve failed: ' . $msg, 500);
     }
-    api_ok(['ok' => true, 'snapshot' => $r['margin']]);
+    api_ok(['ok' => true, 'snapshot' => $r['margin'], 'auto_correction' => $autoCorrection]);
 }
 
 if ($method === 'POST') {
