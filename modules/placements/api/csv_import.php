@@ -162,10 +162,18 @@ if ($method === 'POST' && $action === 'dry_run') {
         $foundByEmail = [];
         if ($emailsWanted) {
             $placeholders = implode(',', array_fill(0, count($emailsWanted), '?'));
+            // DEFENSIVE: normalise BOTH sides of the equality. The CSV
+            // cell goes through placementsCsvNormaliseEmail() (strips
+            // Unicode whitespace + lowercases). The stored DB value may
+            // ALSO carry the same junk from a prior import — TRIM +
+            // LOWER on email_primary so a trailing NBSP in the people
+            // row doesn't silently miss every lookup. The leading TRIM
+            // also catches BOM bytes some Excel-roundtripped imports
+            // wrote into the column.
             $stmt = $pdo->prepare(
-                "SELECT id, LOWER(email_primary) AS e FROM people
+                "SELECT id, LOWER(TRIM(email_primary)) AS e FROM people
                   WHERE tenant_id = ? AND deleted_at IS NULL
-                    AND LOWER(email_primary) IN ({$placeholders})"
+                    AND LOWER(TRIM(email_primary)) IN ({$placeholders})"
             );
             $stmt->execute(array_merge([$tid], $emailsWanted));
             foreach ($stmt as $r) $foundByEmail[(string) $r['e']] = (int) $r['id'];
@@ -201,20 +209,33 @@ if ($method === 'POST' && $action === 'dry_run') {
         };
 
         foreach ($result['rows'] as $rn => $row) {
-            $pid   = isset($row['person_id']) && $row['person_id'] !== '' ? (int) $row['person_id'] : 0;
-            $rawEm = (string) ($row['person_email'] ?? '');
-            $em    = placementsCsvNormaliseEmail($rawEm);
+            $hasPidCol  = array_key_exists('person_id', $row)
+                       && $row['person_id'] !== ''
+                       && $row['person_id'] !== null;
+            $pid        = $hasPidCol && is_int($row['person_id'])
+                       ? (int) $row['person_id'] : 0;
+            $pidInvalid = $hasPidCol && !is_int($row['person_id']);
+            $rawEm      = (string) ($row['person_email'] ?? '');
+            $em         = placementsCsvNormaliseEmail($rawEm);
 
-            if ($pid <= 0 && $em === '') {
+            if (!$hasPidCol && $em === '') {
                 $result['errors'][$rn] = $result['errors'][$rn] ?? [];
                 $result['errors'][$rn][] = 'either person_id or person_email is required';
+                continue;
+            }
+
+            // If person_id was provided but rejected at validation time
+            // (eg. "P-foo"), the CsvImportService already attached an
+            // explicit "not an integer" error. Don't ALSO complain about
+            // the email — the row already shows the precise problem.
+            if ($pidInvalid) {
                 continue;
             }
 
             if ($pid > 0) {
                 if (!isset($foundById[$pid])) {
                     $result['errors'][$rn] = $result['errors'][$rn] ?? [];
-                    $result['errors'][$rn][] = "person_id: {$pid} not found in this tenant's People";
+                    $result['errors'][$rn][] = "person_id: {$pid} not found in this tenant's People — open /modules/people/{$pid} to verify, or click the P-badge on a real row to copy the right id.";
                 }
                 // person_id wins → email is informational only. Skip
                 // email validation so a stale legacy email column doesn't
@@ -229,6 +250,12 @@ if ($method === 'POST' && $action === 'dry_run') {
                 if ($suggestions) {
                     $msg .= ' — did you mean: ' . implode(', ', $suggestions)
                           . '? (Tip: paste the person_id column from the People directory to skip the email lookup entirely.)';
+                } else {
+                    // No close match — most likely the person hasn't
+                    // been imported yet. Point at the people importer
+                    // explicitly so the operator stops fighting this
+                    // page.
+                    $msg .= ' — no close match found. Import the person first via /modules/people/import, or add a person_id column referencing an existing row.';
                 }
                 $result['errors'][$rn] = $result['errors'][$rn] ?? [];
                 $result['errors'][$rn][] = $msg;
@@ -249,10 +276,22 @@ if ($method === 'POST' && $action === 'commit') {
     $updateExisting = !empty($_GET['update_existing']);
 
     $result = CsvImportService::commit('placements', $csv, function (array $row) use ($user, $updateExisting) {
-        // Resolve person by id (preferred) or email (fallback). Same
-        // normalisation as dry_run so a row that passed validation
-        // doesn't fail commit with a stale hidden-whitespace error.
-        $pid = isset($row['person_id']) && $row['person_id'] !== '' ? (int) $row['person_id'] : 0;
+        // Resolve person — id wins over email. Same precedence as
+        // dry_run: the operator's choice of person_id is honoured even
+        // if the email column is also present (the email might be
+        // stale legacy data).
+        $hasPidCol  = array_key_exists('person_id', $row)
+                   && $row['person_id'] !== ''
+                   && $row['person_id'] !== null;
+        $pid        = $hasPidCol && is_int($row['person_id']) ? (int) $row['person_id'] : 0;
+        if ($hasPidCol && !is_int($row['person_id'])) {
+            // CsvImportService already attached an explicit "not an integer"
+            // error at dry-run time; re-raise the same message here so
+            // commit doesn't silently fall through to an email lookup.
+            throw new \RuntimeException(
+                "person_id: not an integer '{$row['person_id']}' (accepted: 1042 or P-1042)"
+            );
+        }
         if ($pid > 0) {
             $person = scopedFind(
                 'SELECT id FROM people WHERE tenant_id = :tenant_id AND id = :pid AND deleted_at IS NULL',
@@ -264,8 +303,11 @@ if ($method === 'POST' && $action === 'commit') {
             if ($emClean === '') {
                 throw new \RuntimeException('either person_id or person_email is required');
             }
+            // Mirror dry_run defensive DB-side normalisation — TRIM the
+            // stored email so a row with a trailing NBSP from an older
+            // import still matches.
             $person = scopedFind(
-                'SELECT id FROM people WHERE tenant_id = :tenant_id AND LOWER(email_primary) = :email AND deleted_at IS NULL',
+                'SELECT id FROM people WHERE tenant_id = :tenant_id AND LOWER(TRIM(email_primary)) = :email AND deleted_at IS NULL',
                 ['email' => $emClean]
             );
             if (!$person) throw new \RuntimeException("person_email not found: {$row['person_email']}");

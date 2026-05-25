@@ -54,12 +54,10 @@ $a("placement_id added to unique_within_batch",
     str_contains($svc, "'unique_within_batch' => ['external_id', 'placement_id']"));
 
 echo "\n2. CsvImportService — 'integer' type validation\n";
-$a("integer type uses strict regex (digits only, optional sign)",
-    str_contains($csvSvc, "preg_match('/^-?\\d+\$/', \$val)"));
-$a("integer type rejects '1042.0'",
-    str_contains($csvSvc, "not an integer"));
-$a("integer type coerces the cell to int after validation",
-    str_contains($csvSvc, "\$row[\$field] = (int) \$val;"));
+$a("integer type strips alphabetic prefix before digit-check",
+    str_contains($csvSvc, "preg_replace("));
+$a("integer type coerces stripped cell to int after validation",
+    str_contains($csvSvc, "\$row[\$field] = (int) \$stripped;"));
 
 // Synthetic CSV exercising the integer parser end-to-end. The
 // /api/csv_import.php file registers the full schema but pulling it
@@ -108,8 +106,9 @@ $a('email-fallback suggestion still references the id workflow',
     str_contains($svc, 'paste the person_id column from the People directory'));
 
 echo "\n4. Commit handler — same precedence + placement_id update path\n";
-$a('commit reads pid from row before falling back to email',
-    str_contains($svc, "\$pid = isset(\$row['person_id']) && \$row['person_id'] !== '' ? (int) \$row['person_id'] : 0;"));
+$a('commit reads pid via array_key_exists/is_int (not raw cast)',
+    str_contains($svc, "\$hasPidCol  = array_key_exists('person_id', \$row)")
+    && str_contains($svc, '$pid        = $hasPidCol && is_int($row[\'person_id\']) ? (int) $row[\'person_id\'] : 0;'));
 $a('commit looks up person by id when pid > 0',
     str_contains($svc, "WHERE tenant_id = :tenant_id AND id = :pid AND deleted_at IS NULL"));
 $a('commit errors out cleanly when neither id nor email present',

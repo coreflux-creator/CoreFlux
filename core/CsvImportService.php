@@ -246,13 +246,26 @@ class CsvImportService
                     $rowErrors[] = "{$field}: not numeric '{$val}'";
                 }
                 if ($type === 'integer') {
-                    // Strict integer: digits only, optional leading sign.
-                    // Rejects "1042.0" and "1,042" so a typo doesn't silently
-                    // resolve to int 1042 and link the wrong person.
-                    if (!preg_match('/^-?\d+$/', $val)) {
-                        $rowErrors[] = "{$field}: not an integer '{$val}'";
+                    // Accept either the bare integer (1042 — what
+                    // <IdBadge /> writes to the clipboard) OR the
+                    // displayed form (P-1042, PL-1042, B-1042 — what
+                    // operators paste from the UI). Strips a leading
+                    // alphabetic prefix + dash, plus stray whitespace
+                    // and commas (Excel exports), before the strict
+                    // digits-only validation. Rejects "1042.0" and
+                    // genuinely-bogus values like "abc".
+                    $stripped = preg_replace(
+                        ['/^\s+|\s+$/u', '/^[A-Za-z]+-/', '/,/'],
+                        '',
+                        $val
+                    );
+                    if (!preg_match('/^-?\d+$/', $stripped)) {
+                        // Echo the ORIGINAL value in the error so the
+                        // operator can spot their typo verbatim; mention
+                        // both accepted forms in the hint.
+                        $rowErrors[] = "{$field}: not an integer '{$val}' (accepted: 1042 or P-1042)";
                     } else {
-                        $row[$field] = (int) $val;
+                        $row[$field] = (int) $stripped;
                     }
                 }
                 if ($type === 'boolean') {

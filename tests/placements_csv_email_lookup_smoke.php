@@ -56,7 +56,7 @@ echo "\n2. Dry-run handler — normalises BEFORE looking up\n";
 $a('dry-run uses placementsCsvNormaliseEmail in the lookup pass',
     str_contains($src, '$em  = placementsCsvNormaliseEmail((string) ($r[\'person_email\'] ?? \'\'));'));
 $a('dry-run re-normalises in the per-row error loop too',
-    str_contains($src, '$em    = placementsCsvNormaliseEmail($rawEm);'));
+    str_contains($src, '$em         = placementsCsvNormaliseEmail($rawEm);'));
 $a('error message echoes the RAW email so operator can spot a typo',
     str_contains($src, "not found in this tenant's People\""));
 
@@ -81,8 +81,8 @@ $a('suggestion list appended to the error message when non-empty',
 echo "\n4. Commit handler — same Unicode-defensive normalisation\n";
 $a('commit calls placementsCsvNormaliseEmail before scopedFind',
     str_contains($src, "\$emClean = placementsCsvNormaliseEmail((string) (\$row['person_email'] ?? ''));"));
-$a('commit uses LOWER(email_primary) = :email (already-lowercased value)',
-    str_contains($src, 'LOWER(email_primary) = :email'));
+$a('commit uses LOWER(TRIM(email_primary)) = :email (both sides normalised)',
+    str_contains($src, 'LOWER(TRIM(email_primary)) = :email'));
 $a('commit error includes the RAW unnormalised input',
     str_contains($src, "throw new \\RuntimeException(\"person_email not found: {\$row['person_email']}\");"));
 
