@@ -151,9 +151,21 @@ export default function TimesheetWeek({ session }) {
 
   const placementInfo = (pid) => {
     const fromActive = activePlacements.find(p => String(p.id) === String(pid));
-    if (fromActive) return { title: fromActive.title, client: fromActive.end_client_name || fromActive.client_name || '' };
+    if (fromActive) {
+      const fullName = [fromActive.first_name, fromActive.last_name].filter(Boolean).join(' ').trim();
+      return {
+        personName: fullName || 'Unknown person',
+        endClient:  fromActive.end_client_name || fromActive.client_name || '',
+        title:      fromActive.title || '',
+      };
+    }
     const first = entries.find(e => String(e.placement_id) === String(pid));
-    return { title: first?.placement_title || `Placement #${pid}`, client: first?.client_name || '' };
+    const fullName = [first?.person_first_name, first?.person_last_name].filter(Boolean).join(' ').trim();
+    return {
+      personName: fullName || first?.person_name || `Placement #${pid}`,
+      endClient:  first?.end_client_name || first?.client_name || '',
+      title:      first?.placement_title || '',
+    };
   };
 
   // ── editing handlers ──
@@ -347,8 +359,17 @@ export default function TimesheetWeek({ session }) {
             return (
               <tr key={pid} data-testid={`ts-row-${pid}`}>
                 <td>
-                  <strong>{info.title}</strong>
-                  {info.client && <div style={{ fontSize:'0.8em', color:'var(--cf-text-secondary)' }}>{info.client}</div>}
+                  <strong data-testid={`ts-row-${pid}-person`}>{info.personName}</strong>
+                  {info.endClient && (
+                    <div data-testid={`ts-row-${pid}-client`} style={{ fontSize:'0.85em', color:'var(--cf-text-secondary)', marginTop: 2 }}>
+                      {info.endClient}
+                    </div>
+                  )}
+                  {info.title && (
+                    <div data-testid={`ts-row-${pid}-title`} style={{ fontSize:'0.75em', color:'var(--cf-text-tertiary, #94a3b8)', marginTop: 1 }}>
+                      {info.title}
+                    </div>
+                  )}
                 </td>
                 {days.map((d, i) => {
                   const iso   = toISO(d);

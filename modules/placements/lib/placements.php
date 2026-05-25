@@ -30,9 +30,10 @@ function placementsNormalizeRemotePolicy($v): ?string
 
 function placementsSafeFields(string $alias = 'p'): string
 {
-    $cols = ['id','tenant_id','person_id','external_id','status','start_date','end_date',
+    $cols = ['id','tenant_id','person_id','external_id','jobdiva_job_id','status','start_date','end_date',
              'actual_end_date','due_date','engagement_type','worksite_state','worksite_country',
              'remote_policy','title','end_client_name','end_client_company_id','notes',
+             'recruiter_name','recruiter_email','account_manager_name','account_manager_email',
              'client_approver_name','client_approver_email','tokenized_email_approval_enabled',
              'bulk_uploads_can_be_pre_approved',
              'created_by_user_id','created_at','updated_at','deleted_at'];

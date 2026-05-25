@@ -1219,6 +1219,37 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'approverEmail', 'approver_email', 'clientApproverEmail', 'client_approver_email', 'clientContactEmail',
         ])
     );
+    // Slice 5b additions — capture JobDiva metadata we previously dropped.
+    // jobdiva_job_id is the JobDiva *Job* entity ID (the role/req the
+    // assignment was filled against), distinct from the assignment ID
+    // which we already store in external_id. Useful for cross-linking
+    // back to the Job record and rebooking detection.
+    $jobdivaJobId = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'jobdiva_job_id', $jd,
+        static fn() => jobdivaPluckField($jd, ['jobId', 'job_id', 'jobID', 'JOBID', 'reqId', 'req_id'])
+    );
+    $recruiterName = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'recruiter_name', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'recruiterName', 'recruiter_name', 'recruiter', 'recruiterFullName', 'primaryRecruiter',
+        ])
+    );
+    $recruiterEmail = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'recruiter_email', $jd,
+        static fn() => jobdivaPluckField($jd, ['recruiterEmail', 'recruiter_email'])
+    );
+    $accountManagerName = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'account_manager_name', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'accountManager', 'account_manager', 'accountManagerName', 'salesperson', 'salesPerson',
+        ])
+    );
+    $accountManagerEmail = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'account_manager_email', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'accountManagerEmail', 'account_manager_email', 'salesPersonEmail', 'salespersonEmail',
+        ])
+    );
     $actualEndRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'actual_end_date', $jd,
         static fn() => jobdivaPluckField($jd, ['actualEndDate', 'actual_end_date', 'actualEnd'])
@@ -1263,6 +1294,11 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'client_approver_name' => ['can',   $approverName ?: null],
             'client_approver_email'=> ['cae',   $approverEmail ?: null],
             'title'                => ['ti',    $title],
+            'jobdiva_job_id'       => ['jji',   $jobdivaJobId ?: null],
+            'recruiter_name'       => ['rn',    $recruiterName ?: null],
+            'recruiter_email'      => ['re',    $recruiterEmail ?: null],
+            'account_manager_name' => ['amn',   $accountManagerName ?: null],
+            'account_manager_email'=> ['ame',   $accountManagerEmail ?: null],
         ];
         $assignments = [];
         $bindings = ['id' => $existingId];
@@ -1288,16 +1324,20 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         return $existingId;
     }
     $pdo->prepare(
-        'INSERT INTO placements (tenant_id, person_id, external_id, status, start_date, end_date,
+        'INSERT INTO placements (tenant_id, person_id, external_id, jobdiva_job_id, status, start_date, end_date,
                                   actual_end_date, due_date, engagement_type, worksite_state, worksite_country,
                                   remote_policy, notes, end_client_name, end_client_company_id,
-                                  client_approver_name, client_approver_email, title)
-         VALUES (:t, :p, :ext, :st, :sd, :ed, :aed, :dd, :eng, :ws, :wc,
-                 :rp, :notes, :ecn, :ecc, :can, :cae, :ti)'
+                                  client_approver_name, client_approver_email, title,
+                                  recruiter_name, recruiter_email,
+                                  account_manager_name, account_manager_email)
+         VALUES (:t, :p, :ext, :jji, :st, :sd, :ed, :aed, :dd, :eng, :ws, :wc,
+                 :rp, :notes, :ecn, :ecc, :can, :cae, :ti,
+                 :rn, :re, :amn, :ame)'
     )->execute([
         't'     => $tid,
         'p'     => $personId,
         'ext'   => 'jd:' . $extId,
+        'jji'   => $jobdivaJobId ?: null,
         'st'    => $status,
         'sd'    => $startDate,
         'ed'    => $endDateNorm ?: null,
@@ -1313,6 +1353,10 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         'can'   => $approverName ?: null,
         'cae'   => $approverEmail ?: null,
         'ti'    => $title,
+        'rn'    => $recruiterName ?: null,
+        're'    => $recruiterEmail ?: null,
+        'amn'   => $accountManagerName ?: null,
+        'ame'   => $accountManagerEmail ?: null,
     ]);
     $placementId = (int) $pdo->lastInsertId();
     jobdivaSyncUpsertPlacementRates($tid, $placementId, $startDate, $jd);
