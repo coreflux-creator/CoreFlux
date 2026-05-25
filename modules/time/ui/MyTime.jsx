@@ -65,6 +65,38 @@ export default function MyTime() {
 
   const dayTotal = (placementId, date) => (byPlacement[placementId]?.days[date] ?? []).reduce((s, e) => s + parseFloat(e.hours), 0);
 
+  // Operator complaint: "can't submit a single timesheet, only all at
+  // once." The API already supports per-entry submit
+  // (`/modules/time/api/entries.php?action=submit&id=N`) — we just
+  // never surfaced it here. Now we list every draft this week with a
+  // per-row Submit button, plus a single "Submit all N drafts" CTA
+  // that loops through them (parallel, all-or-nothing-friendly).
+  const drafts = entries.filter(e => e.status === 'draft');
+  const [submitBusy, setSubmitBusy] = useState(null); // entry_id while one is in flight, 'all' for the bulk loop
+  const submitOne = async (entryId) => {
+    setSubmitBusy(entryId);
+    try {
+      await api.post(`/modules/time/api/entries.php?action=submit&id=${entryId}`, {});
+      reload();
+    } catch (e) { alert(`Submit failed: ${e.message}`); }
+    finally     { setSubmitBusy(null); }
+  };
+  const submitAll = async () => {
+    if (drafts.length === 0) return;
+    if (!confirm(`Submit all ${drafts.length} draft entr${drafts.length === 1 ? 'y' : 'ies'} for review?`)) return;
+    setSubmitBusy('all');
+    try {
+      // Parallel — backend is idempotent on already-submitted rows
+      // (returns 409) so a partial failure just leaves the rest queued.
+      const results = await Promise.allSettled(
+        drafts.map(e => api.post(`/modules/time/api/entries.php?action=submit&id=${e.id}`, {}))
+      );
+      const failed = results.filter(r => r.status === 'rejected').length;
+      if (failed > 0) alert(`${results.length - failed} submitted, ${failed} failed. Reload to see which.`);
+      reload();
+    } finally { setSubmitBusy(null); }
+  };
+
   return (
     <section className="people-directory" data-testid="time-my-time">
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)' }}>
@@ -85,6 +117,61 @@ export default function MyTime() {
 
       {loading && <p>Loading…</p>}
       {error && <p className="error" data-testid="time-error">Error: {error.message}</p>}
+
+      {/* Drafts panel — surfaces per-entry Submit so users don't have
+          to push all their hours in one swing. */}
+      {drafts.length > 0 && (
+        <section
+          data-testid="time-drafts-panel"
+          style={{
+            margin: '0 0 var(--cf-space-3)',
+            padding: 'var(--cf-space-3)',
+            background: '#fffbeb',
+            border: '1px solid #fcd34d',
+            borderRadius: 6,
+          }}
+        >
+          <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-2)' }}>
+            <strong data-testid="time-drafts-count">{drafts.length} draft entr{drafts.length === 1 ? 'y' : 'ies'} this week</strong>
+            <button
+              className="btn btn--primary"
+              disabled={submitBusy !== null}
+              onClick={submitAll}
+              data-testid="time-drafts-submit-all"
+              title="Submit every draft in this week for review. Per-row Submit also available below."
+            >
+              {submitBusy === 'all' ? 'Submitting…' : `Submit all ${drafts.length}`}
+            </button>
+          </header>
+          <table className="data-table" data-testid="time-drafts-table" style={{ marginTop: 4 }}>
+            <thead>
+              <tr><th>Date</th><th>Placement</th><th>Person</th><th>Category</th><th style={{ textAlign: 'right' }}>Hours</th><th></th></tr>
+            </thead>
+            <tbody>
+              {drafts.map(e => (
+                <tr key={e.id} data-testid={`time-draft-row-${e.id}`}>
+                  <td>{e.work_date}</td>
+                  <td>{e.placement_title || `Placement #${e.placement_id}`}{e.end_client_name ? ` · ${e.end_client_name}` : ''}</td>
+                  <td>{e.first_name || e.last_name ? `${e.first_name || ''} ${e.last_name || ''}`.trim() : (e.person_id ? `Person #${e.person_id}` : '—')}</td>
+                  <td>{e.category}</td>
+                  <td style={{ textAlign: 'right' }}>{parseFloat(e.hours).toFixed(2)}</td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button
+                      className="btn"
+                      disabled={submitBusy !== null}
+                      onClick={() => submitOne(e.id)}
+                      data-testid={`time-draft-submit-${e.id}`}
+                      title="Submit just this entry for review."
+                    >
+                      {submitBusy === e.id ? '…' : 'Submit'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       <table className="data-table" data-testid="time-grid">
         <thead>

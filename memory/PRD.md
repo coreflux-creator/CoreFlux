@@ -226,6 +226,67 @@ After the previous auto-approve work landed, operator reported:
 ### Deploy note
 PHP + React both touched. Cloudways deploy + `update.php` needed.
 
+## Time-entries JOIN drift + per-row Submit in MyTime (2026-02 — current fork)
+
+### Why
+Operator complaints continued:
+1. **"time not linked to placement or person?"** — `timeEntriesList()`
+   in `modules/time/lib/time.php` JOINed `people` and `placements` on
+   `te.tenant_id` (the time_entry's tenant). Both modules are
+   `'shared'` by default, so a sub-tenant's time_entries row's
+   tenant_id doesn't match the parent-owned people/placements row →
+   JOIN silently misses → UI shows "—" for name + placement. Same bug
+   class as the placement detail + staffing readiness fixes.
+2. **"can't submit a single timesheet, only all at once"** — the API
+   already exposes per-entry submit via
+   `/modules/time/api/entries.php?action=submit&id=N`, but the
+   `MyTime` weekly grid had no UI for it. Users could only submit by
+   bouncing into the staffing TimesheetWeek "Submit Week" path.
+
+### Fixes
+- `modules/time/lib/time.php` loads `core/sub_tenants.php`, resolves
+  `effectiveTenantIdForModule('people')` + `…('placements')` once and
+  binds them to the JOINs in both `timeEntriesList()` (entries-list
+  endpoint feeding ReviewQueue + MyTime) and the period
+  bundle-build path (`SELECT … FROM time_entries te LEFT JOIN
+  placements`).
+- `modules/time/ui/MyTime.jsx` now renders a yellow **drafts panel**
+  above the weekly grid when ≥1 draft exists. Each draft row shows
+  date / placement / person / category / hours plus a per-row
+  **Submit** button. Header has a **"Submit all N drafts"** CTA that
+  loops via `Promise.allSettled` (partial-failure tolerant).
+- UI falls back to "Person #N" / "Placement #N" only when the JOIN
+  genuinely returns nothing (e.g. row was soft-deleted) — not because
+  of the cross-tenant scope bug, which is now fixed.
+
+### Tests
+- `tests/time_join_and_per_row_submit_smoke.php` — 19 ✓ / 0 ✗
+- Full suite: **293/293 ✓**
+- `yarn build` clean → bundle `index-BO6ErO-u.js`.
+
+### Deploy note
+PHP (`time/lib/time.php`) + React (`time/ui/MyTime.jsx`) both touched.
+Cloudways deploy + `update.php`.
+
+### Still pending — flagged for next turn
+- **🔴 Ad-hoc invoice creation (no closed-period requirement)** — the
+  current modal forces a `period_id` from
+  `time/api/periods.php?status=closed`. To accept "approved hours, no
+  closed period", we'd need a new endpoint that queries
+  `time_entries WHERE status='approved'` directly within a date
+  range, builds lines from `placement_rates`-snapshotted rows, and
+  inserts the invoice + lines + audit. Substantive new code path
+  (~3–4 hrs); needs SPEC re-read against the uploaded Spec.docx
+  + Staffing.docx to confirm ad-hoc semantics (e.g. should it still
+  bump `placement_rates` snapshots? does it mark `time_entries` as
+  consumed?). Parked until user re-confirms priority.
+- **🟡 Staffing Overview $0** — needs DB inspection (real data) to
+  diagnose whether it's empty tenant context, missing
+  `staffing_clients` rows, or the same JOIN-drift issue against a
+  reports view. Can't fix blind from source alone.
+
+
+
 
 
 

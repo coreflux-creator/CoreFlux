@@ -6,6 +6,7 @@
  */
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 
 const TIME_CATEGORIES = [
     'regular_billable','regular_nonbillable','OT_billable','OT_nonbillable',
@@ -46,12 +47,20 @@ function timeEntriesList(array $filters = []): array
     $whereSql = implode(' AND ', $where);
 
     $total = (int) (scopedFind("SELECT COUNT(*) AS c FROM time_entries te WHERE {$whereSql}", $params)['c'] ?? 0);
+    // FK joins are bound to the *target module's* effective tenant —
+    // not te.tenant_id. People and placements default to `'shared'`
+    // sub-tenant scope, so for a sub-tenant the time_entries row lives
+    // under the sub but the people/placements rows live under the
+    // parent. Joining on te.tenant_id silently misses every row →
+    // operator sees "name + placement: —" in the time entries list.
+    $params['people_tid']     = effectiveTenantIdForModule('people')     ?? currentTenantId();
+    $params['placements_tid'] = effectiveTenantIdForModule('placements') ?? currentTenantId();
     $rows  = scopedQuery(
         "SELECT te.*, pe.first_name, pe.last_name, pe.email_primary,
                 pl.title AS placement_title, pl.end_client_name
          FROM time_entries te
-         LEFT JOIN people pe     ON pe.id = te.person_id    AND pe.tenant_id = te.tenant_id
-         LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
+         LEFT JOIN people pe     ON pe.id = te.person_id    AND pe.tenant_id = :people_tid
+         LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
          WHERE {$whereSql}
          ORDER BY te.work_date DESC, te.id DESC
          LIMIT " . (int) $perPage . " OFFSET " . (int) $offset,
@@ -210,10 +219,10 @@ function timePreviewBundlesForPeriod(int $periodId): array
     $entries = scopedQuery(
         'SELECT te.*, pl.title AS placement_title, pl.end_client_name
          FROM time_entries te
-         LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
+         LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = :placements_tid
          WHERE te.tenant_id = :tenant_id AND te.period_id = :pid AND te.status = "approved"
          ORDER BY te.placement_id, te.work_date',
-        ['pid' => $periodId]
+        ['pid' => $periodId, 'placements_tid' => effectiveTenantIdForModule('placements') ?? currentTenantId()]
     );
 
     $byPlacement = [];
