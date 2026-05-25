@@ -10,6 +10,41 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## CSV ID-prefix stripper + DB-side whitespace defense (2026-02 — current fork)
+
+### Why
+Operators were pasting the formatted badge string (`P-114`, `PL-2317`)
+straight from the UI into the CSV — same string the `IdBadge`
+component renders. The strict integer validator rejected it, and the
+fallback email lookup also missed because hidden Unicode whitespace
+(NBSP / BOM) lived on the *DB side* of `email_primary` from prior
+imports. Result: rows showed two confusing errors saying effectively
+"we couldn't find this person at all".
+
+### Fixes locked in
+- `core/CsvImportService.php` `type=integer` now strips a leading
+  `^[A-Za-z]+-` prefix, surrounding whitespace, and stray commas
+  (Excel exports) before the digits-only check. `1042.5`, `abc`,
+  `P-foo` still rejected. Error hint shows both accepted forms
+  (`1042 or P-1042`).
+- `modules/placements/api/csv_import.php` dry_run + commit normalise
+  BOTH sides of the email equality with `LOWER(TRIM(email_primary))`
+  so stored NBSP/BOM bytes don't break lookups.
+- Rows with an invalid `person_id` (e.g. `P-foo`) no longer ALSO
+  report an "email not found" error — the validator message stands
+  alone.
+- Missing-person error copy points at `/modules/people/{$pid}` to
+  verify or the People importer if there's no close match.
+
+### Tests
+- `tests/placements_csv_id_validator_smoke.php` — 26 ✓ / 0 ✗
+- Full suite: 286/287 functional pass; lone failure is
+  `plaid_integration_smoke.php` flakiness against the live Plaid
+  sandbox (passes 96/0 when run in isolation — network timing, not
+  our change).
+
+
+
 ## IdBadge — product-wide rollout (2026-02 — current fork)
 
 ### Why
