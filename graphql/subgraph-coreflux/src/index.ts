@@ -63,13 +63,34 @@ function decodeContext(req: { headers: Record<string, string | string[] | undefi
     if (token) headers.set('Authorization', `Bearer ${token}`);
     if (!headers.has('Content-Type') && init.body) headers.set('Content-Type', 'application/json');
     const url = path.startsWith('http') ? path : `${COREFLUX_API_BASE}${path}`;
-    const r = await fetch(url, { ...init, headers });
+    let r: Response;
+    try {
+      r = await fetch(url, { ...init, headers });
+    } catch (e: any) {
+      // Node's undici fetch wraps the underlying cause; surface it so the
+      // dashboard's diagnostic panel can show e.g. ENOTFOUND / ECONNREFUSED /
+      // UNABLE_TO_VERIFY_LEAF_SIGNATURE rather than a blank "fetch failed".
+      const cause = e?.cause ?? {};
+      const code  = cause?.code  ?? cause?.errno ?? null;
+      const host  = (() => { try { return new URL(url).host; } catch { return url; } })();
+      const hint  = code === 'ENOTFOUND'      ? 'DNS lookup failed on the droplet — check /etc/resolv.conf'
+                  : code === 'ECONNREFUSED'   ? 'Cloudways closed the connection — likely WAF blocking droplet IP'
+                  : code === 'ETIMEDOUT'      ? 'Connection timed out — firewall or outbound port blocked'
+                  : code === 'CERT_HAS_EXPIRED' || (typeof code === 'string' && code.includes('CERT'))
+                                              ? 'TLS cert validation failed'
+                  : '';
+      throw new Error(
+          `CoreFlux API fetch to ${host}${path} failed: ${e?.message || 'fetch failed'}` +
+          (code ? ` (cause=${code})` : '') +
+          (hint ? ` — ${hint}` : '')
+      );
+    }
     const text = await r.text();
     let body: any = null;
     try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
     if (!r.ok) {
       const msg = body?.error ?? body?.raw ?? r.statusText;
-      throw new Error(`CoreFlux API ${r.status}: ${msg}`);
+      throw new Error(`CoreFlux API ${r.status} ${path}: ${msg}`);
     }
     return body;
   };
