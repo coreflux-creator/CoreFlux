@@ -7898,3 +7898,45 @@ sudo REPO_URL=https://github.com/<org>/coreflux.git \
 - `/app/graphql/deploy/DEPLOYMENT.md`
 - `/app/api/admin/router_deploy.php`
 - `/app/tests/setup_cloudways_graphql_smoke.php`
+
+
+## Production deploy — GraphQL on a separate DO droplet (2026-02-14)
+
+### Why
+Cloudways managed hosting blocks root access (master users are not in
+`sudoers`). The Apollo Router + Node.js subgraphs cannot be installed
+on the same box as the PHP app. User picked Option B: spin up a $6/mo
+DigitalOcean droplet purpose-built for the GraphQL stack, expose it via
+a subdomain.
+
+### What shipped
+- **`/app/scripts/setup_droplet_graphql.sh`** — purpose-built droplet
+  bootstrap. Single curl-pipe-bash command on a fresh Ubuntu 22.04 box.
+  Installs Node 20, Apollo Router latest, creates `coreflux` service
+  user, clones repo, builds all subgraphs, writes `/etc/coreflux/graphql.env`,
+  installs systemd units, opens UFW, prints the HMAC + nginx snippet.
+- **`/app/tests/setup_droplet_graphql_smoke.php`** — 27 assertions
+  validating script structure, idempotency, and runtime safety.
+- **`/app/graphql/deploy/DEPLOYMENT.md`** — added "Option A: DO droplet"
+  as the recommended path for Cloudways-hosted PHP apps.
+
+### Bugs fixed live during the deploy
+1. `rsync --exclude 'src'` was non-anchored — stripped `node_modules/debug/src/`
+   and crashed all subgraphs with `MODULE_NOT_FOUND`. Removed the exclude.
+2. Shared `PORT=4001` in env file forced both subgraphs onto the same port
+   → `EADDRINUSE`. Removed; subgraphs use per-code defaults (4001 / 4002).
+
+### Live production endpoint
+- **`https://graphql.corefluxapp.com/`** — DNS A record → DO droplet,
+  Caddy reverse-proxy → router :4000, auto-renewing Let's Encrypt cert.
+- Verified: Apollo Sandbox loads, `Invoke-RestMethod` introspection query
+  returns `{"data":{"__schema":...}}`.
+
+### Tests
+- Full PHP smoke suite: **273/273 ✅**
+- New: `setup_droplet_graphql_smoke.php` (27 assertions)
+
+### Files of reference
+- `/app/scripts/setup_droplet_graphql.sh`
+- `/app/tests/setup_droplet_graphql_smoke.php`
+- `/app/graphql/deploy/DEPLOYMENT.md`
