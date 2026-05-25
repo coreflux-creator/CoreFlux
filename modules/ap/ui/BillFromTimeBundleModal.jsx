@@ -1,28 +1,62 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 
 /**
- * Modal: pick a closed period + placements with ready AP bundles (non-W2 pay),
- * choose aggregation, confirm to draft N bills in one transaction.
+ * Modal: pick a period (open or locked — closed periods are immutable)
+ * with ready AP bundles, choose aggregation, confirm to draft N
+ * pending-approval bills for 1099 / C2C contractor pay.
+ *
+ * Common-sense accounting flow (per operator):
+ *   period opens → contractor hours land + get approved → AP bills
+ *   drafted from those hours → bills approved + paid → period close
+ *   locks everything as the LAST step.
+ *
+ * Previously this modal hard-filtered the period dropdown to
+ * `status=closed`, which created a deadlock: you couldn't book payables
+ * until the period was closed, but closing was supposed to happen after
+ * payables were booked. Same architectural mistake as the billing-side
+ * modal — fixed identically here.
  */
 export default function BillFromTimeBundleModal({ onClose, onCreated }) {
-  const { data: periods } = useApi('/modules/time/api/periods.php?status=closed&per_page=20');
+  // Drop the status filter — closing the period is the LAST step in
+  // the AP cycle, not a prerequisite for booking a payable.
+  const { data: periods } = useApi('/modules/time/api/periods.php?per_page=20');
   const [periodId, setPeriodId] = useState(null);
   const [aggregation, setAggregation] = useState('per_vendor');
   const [bundles, setBundles] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [busy, setBusy] = useState(false);
+  const [building, setBuilding] = useState(false);
   const [error, setError] = useState(null);
+  const [info, setInfo]   = useState(null);
 
+  // Default to the most recent OPEN period — that's where live AP
+  // booking happens.
   useEffect(() => {
-    if (!periodId) { setBundles([]); return; }
-    api.get(`/modules/time/api/feed.php?period_id=${periodId}&bundle_type=ap&status=ready`)
+    if (periodId) return;
+    const rows = periods?.rows || [];
+    if (rows.length === 0) return;
+    const firstOpen = rows.find(p => p.status === 'open') || rows[0];
+    if (firstOpen) setPeriodId(String(firstOpen.id));
+  }, [periods, periodId]);
+
+  const selectedPeriod = useMemo(
+    () => (periods?.rows || []).find(p => String(p.id) === String(periodId)),
+    [periods, periodId]
+  );
+
+  const loadBundles = (pid) => {
+    if (!pid) { setBundles([]); return; }
+    return api.get(`/modules/time/api/feed.php?period_id=${pid}&bundle_type=ap&status=ready`)
       .then(r => {
         setBundles(r.rows || []);
         setSelected(new Set((r.rows || []).map(b => b.placement_id)));
+        setError(null);
       })
       .catch(e => setError(e));
-  }, [periodId]);
+  };
+
+  useEffect(() => { loadBundles(periodId); }, [periodId]);
 
   const togglePlacement = (pid) => {
     setSelected(prev => {
@@ -30,6 +64,20 @@ export default function BillFromTimeBundleModal({ onClose, onCreated }) {
       next.has(pid) ? next.delete(pid) : next.add(pid);
       return next;
     });
+  };
+
+  const buildBundles = async () => {
+    if (!periodId) return;
+    setBuilding(true); setError(null); setInfo(null);
+    try {
+      // Shared endpoint with the billing modal — one helper builds AR
+      // *and* AP bundles in the same pass, since they read from the
+      // same approved-hours source.
+      const r = await api.post(`/modules/time/api/periods.php?action=build_bundles&id=${periodId}`, {});
+      setInfo(`Built ${r.bundles_built} bundle${r.bundles_built === 1 ? '' : 's'} for this period.`);
+      await loadBundles(periodId);
+    } catch (e) { setError(e); }
+    finally     { setBuilding(false); }
   };
 
   const submit = async () => {
@@ -49,25 +97,41 @@ export default function BillFromTimeBundleModal({ onClose, onCreated }) {
   const totalAmount = bundles.filter(b => selected.has(b.placement_id))
     .reduce((s, b) => s + parseFloat(b.total_amount_pay || 0), 0);
 
+  const periodStatusBadge = (s) => {
+    const colors = { open: '#15803d', locked: '#a16207', closed: '#64748b' };
+    return <span style={{ fontSize: 11, color: colors[s] || '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginLeft: 6 }}>{s}</span>;
+  };
+
+  const isClosed = selectedPeriod?.status === 'closed';
+
   return (
     <div data-testid="ap-from-time-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(15,18,28,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={(e) => e.target === e.currentTarget && !busy && onClose?.()}>
       <div style={{ background: 'var(--cf-surface, #fff)', borderRadius: 12, width: 'min(720px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
         <header style={{ padding: 20, borderBottom: '1px solid var(--cf-border, #e5e7eb)' }}>
-          <h3 style={{ margin: 0 }}>Create bills from time bundle (1099 / C2C pay)</h3>
+          <h3 style={{ margin: 0 }}>Create bills from approved hours (1099 / C2C pay)</h3>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--cf-text-secondary)' }}>
-            Pick a closed period and placements with ready AP bundles. Each vendor (or placement) becomes one pending-approval bill.
+            Pick a period with approved contractor hours, then choose placements. Each vendor (or placement) becomes one pending-approval bill. Periods don't need to be closed — close is the LAST step, after AR, AP, and payroll are booked.
           </p>
         </header>
 
         <div style={{ overflow: 'auto', padding: 20, flex: 1 }}>
           <label style={{ display: 'block', marginBottom: 12 }}>
-            <span style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>Closed period</span>
+            <span style={{ fontSize: 13, color: 'var(--cf-text-secondary)' }}>Period</span>
             <select className="input" value={periodId || ''} onChange={(e) => setPeriodId(e.target.value)} data-testid="ap-from-time-period" style={{ width: '100%', marginTop: 4 }}>
-              <option value="">— Select a closed period —</option>
+              <option value="">— Select a period —</option>
               {(periods?.rows || []).map(p => (
-                <option key={p.id} value={p.id}>{p.label} ({p.start_date} → {p.end_date})</option>
+                <option key={p.id} value={p.id}>
+                  {p.label || `${p.start_date} → ${p.end_date}`} · {p.status}
+                </option>
               ))}
             </select>
+            {selectedPeriod && (
+              <div style={{ marginTop: 6, fontSize: 13, color: 'var(--cf-text-secondary)' }} data-testid="ap-from-time-period-meta">
+                {selectedPeriod.start_date} → {selectedPeriod.end_date}
+                {periodStatusBadge(selectedPeriod.status)}
+                {isClosed && <span style={{ marginLeft: 8, color: '#b91c1c' }}>· closed periods are immutable</span>}
+              </div>
+            )}
           </label>
 
           <fieldset style={{ border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 8, padding: 12, marginBottom: 12 }}>
@@ -82,7 +146,22 @@ export default function BillFromTimeBundleModal({ onClose, onCreated }) {
             </label>
           </fieldset>
 
-          {periodId && bundles.length === 0 && <p style={{ color: 'var(--cf-text-secondary)', fontSize: 14 }} data-testid="ap-from-time-no-bundles">No ready AP bundles for this period.</p>}
+          {periodId && bundles.length === 0 && !isClosed && (
+            <div data-testid="ap-from-time-no-bundles" style={{ padding: 12, background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 6, marginBottom: 12 }}>
+              <p style={{ margin: '0 0 8px', fontSize: 13 }}>
+                No AP bundles ready for this period yet. If approved contractor hours exist, click below to build them.
+              </p>
+              <button className="btn btn--primary" onClick={buildBundles} disabled={building} data-testid="ap-from-time-build-bundles">
+                {building ? 'Building…' : 'Build bundles for this period'}
+              </button>
+            </div>
+          )}
+          {periodId && bundles.length === 0 && isClosed && (
+            <p style={{ color: 'var(--cf-text-secondary)', fontSize: 14 }} data-testid="ap-from-time-closed-empty">
+              This period is closed and has no AP bundles ready. Closed periods are immutable — reopen the period or post a manual bill.
+            </p>
+          )}
+          {info && <p data-testid="ap-from-time-info" style={{ color: '#15803d', fontSize: 13 }}>{info}</p>}
 
           {bundles.length > 0 && (
             <table className="data-table" data-testid="ap-from-time-bundles">
@@ -108,7 +187,13 @@ export default function BillFromTimeBundleModal({ onClose, onCreated }) {
           </span>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn--ghost" onClick={onClose} disabled={busy} data-testid="ap-from-time-cancel">Cancel</button>
-            <button className="btn btn--primary" onClick={submit} disabled={busy || !periodId || selected.size === 0} data-testid="ap-from-time-confirm">
+            <button
+              className="btn btn--primary"
+              onClick={submit}
+              disabled={busy || !periodId || selected.size === 0 || isClosed}
+              data-testid="ap-from-time-confirm"
+              title={isClosed ? 'Closed periods are immutable.' : ''}
+            >
               {busy ? 'Creating…' : `Create ${selected.size} bill${selected.size !== 1 ? 's' : ''}`}
             </button>
           </div>

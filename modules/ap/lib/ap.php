@@ -14,6 +14,7 @@
  */
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../../../core/encryption.php';
 
 /**
@@ -90,14 +91,20 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
                 pcd.corp_name,
                 pe.first_name, pe.last_name
          FROM time_downstream_feed tdf
-         LEFT JOIN placements p ON p.id = tdf.placement_id AND p.tenant_id = tdf.tenant_id
+         LEFT JOIN placements p ON p.id = tdf.placement_id AND p.tenant_id = :placements_tid
          LEFT JOIN placement_corp_details pcd ON pcd.placement_id = p.id
-         LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
+         LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = :people_tid
          WHERE tdf.tenant_id = :tenant_id
            AND tdf.period_id = :per
            AND tdf.bundle_type = "ap"
            AND tdf.placement_id IN (' . implode(',', $placeholders) . ')',
-        $params
+        array_merge($params, [
+            // Same cross-tenant JOIN-drift fix as billing/staffing/time:
+            // placements + people default to `'shared'` scope, so binding
+            // tdf.tenant_id misses on every sub-tenant row.
+            'placements_tid' => effectiveTenantIdForModule('placements') ?? currentTenantId(),
+            'people_tid'     => effectiveTenantIdForModule('people')     ?? currentTenantId(),
+        ])
     );
     if (empty($bundles)) {
         throw new \RuntimeException('No AP bundles found for the given period+placements.');

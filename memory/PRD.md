@@ -329,6 +329,61 @@ touched. Cloudways deploy + `update.php`.
 2. Time entries accumulate, get approved.
 3. Open the invoice modal → defaults to the current open period.
 4. If "no bundles ready" → click **"Build bundles for this period"**.
+
+## AP close-is-last-step inversion fix + payroll audit (2026-02 — current fork)
+
+### Why
+Following the same complaint as the AR-side fix, the AP module had
+the identical deadlock — `BillFromTimeBundleModal` hard-filtered the
+period dropdown to `status=closed`, so you couldn't book a contractor
+payable until the period was closed, which was supposed to come AFTER
+payables were booked.
+
+Plus the same cross-tenant JOIN-drift bug inside
+`apBuildDraftFromBundle()` for the same reason as placement detail /
+staffing readiness / time entries: `placements` + `people` JOINs were
+bound to `tdf.tenant_id` (bundle's tenant). Sub-tenants in `'shared'`
+mode store those rows under the parent → JOIN missed → bills built
+with NULL placement title + worker name.
+
+### Fixes
+- `ap/lib/ap.php` loads `core/sub_tenants.php` and binds
+  `effectiveTenantIdForModule('placements' | 'people')` to the JOIN
+  tenants inside `apBuildDraftFromBundle()`.
+- `ap/ui/BillFromTimeBundleModal.jsx` rewritten to mirror the billing
+  modal — no status filter on period dropdown, defaults to most recent
+  OPEN period, "Build bundles for this period" CTA when empty,
+  Create disabled on closed periods (immutable archive).
+- The shared `POST /api/time/periods?action=build_bundles` endpoint
+  serves both AR + AP bundle builds — same helper builds both types
+  in a single pass.
+
+### Payroll — audited and confirmed clean
+- `modules/payroll/api/runs.php` and `modules/payroll/api/preflight.php`
+  source hours from their own `payroll_pay_periods`, not from
+  `time_periods`. No deadlock, no change needed.
+
+### Tests
+- `tests/ap_close_is_last_step_smoke.php` — 16 ✓ / 0 ✗
+- Full suite: **295/295 ✓**
+- `yarn build` clean → bundle `coreflux-CIzIhBAJ`.
+
+### Deploy note
+PHP (`ap/lib/ap.php`) + React (`BillFromTimeBundleModal.jsx`) touched.
+Cloudways deploy + `update.php`.
+
+### Complete accounting cycle map (post-deploy)
+| Step | Module | Period gate |
+|------|--------|-------------|
+| 1. Time entries land + get approved | time | needs `open` period |
+| 2. Build AR + AP bundles (any time)  | time | requires NOT closed   |
+| 3. Draft AR invoices                  | billing | requires NOT closed |
+| 4. Draft AP bills (contractor pay)    | ap   | requires NOT closed |
+| 5. Run payroll (W-2 path)             | payroll | independent (own pay_periods) |
+| 6. Reconcile + post                   | mercury / accounting | requires NOT closed |
+| 7. **CLOSE the period** (last step)   | time | flips → `closed` (immutable) |
+
+
 5. Select placements → draft N invoices.
 6. (Eventually) AP bills + payroll posted into the same open period.
 7. Reconcile, then **close** the period as the last step.
