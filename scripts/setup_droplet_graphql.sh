@@ -146,10 +146,11 @@ sudo -u coreflux bash -c "cd $SRC_DIR/graphql/router && node compose.mjs"
 # ---------------------------------------------------------------------
 say "Stage runtime tree"
 run "install -d -o coreflux -g coreflux $DST_DIR"
-run "rsync -a --delete --exclude '.git' --exclude 'src' --exclude 'node_modules/.cache' $SRC_DIR/graphql/ $DST_DIR/"
-# Subgraphs need their node_modules at runtime; router needs supergraph.graphql.
-# rsync copied everything above, but yarn's dev deps in node_modules are fine
-# on a single-purpose droplet.
+# IMPORTANT: do NOT exclude 'src' here — rsync's exclude is non-anchored,
+# so `--exclude 'src'` would strip every nested `src/` including ones inside
+# node_modules (e.g. node_modules/debug/src/index.js, which `debug` lists as
+# its package.json "main" entry — silently breaks startup with MODULE_NOT_FOUND).
+run "rsync -a --delete --exclude '.git' --exclude 'node_modules/.cache' $SRC_DIR/graphql/ $DST_DIR/"
 run "chown -R coreflux:coreflux $DST_DIR"
 
 # ---------------------------------------------------------------------
