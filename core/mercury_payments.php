@@ -214,7 +214,7 @@ function mpSubmitForApproval(int $tenantId, int $id, ?int $userId): bool
 }
 
 /** Two-eye approval: refuses self-approval + requires a distinct approver role. */
-function mpApprove(int $tenantId, int $id, $approver, ?string $note = null): bool
+function mpApprove(int $tenantId, int $id, $approver, ?string $note = null, array $opts = []): bool
 {
     // Accept either a full user array (preferred — enables permission check) or
     // just an int user id (legacy callers). Wrap so the existing $approverId
@@ -257,6 +257,45 @@ function mpApprove(int $tenantId, int $id, $approver, ?string $note = null): boo
             error_log('[mercury.payment.cfo_notify] failed: ' . $e->getMessage());
         }
     }
+
+    // Dual-leg auto-trigger (2026-02 — current fork). The product win the
+    // user explicitly called out: "the approval within the platform
+    // actually triggers two transactions — transfer in to Mercury from
+    // funding account, transfer out to vendor." We honour that by
+    // immediately driving the row from Approved → Funding (originate leg
+    // 1: pull from external funding account into the operating Mercury
+    // account). The poll-and-payout step (leg 2) still happens on the
+    // next worker tick (or via the "Continue" button) because it
+    // requires Mercury to confirm the funding transfer cleared first.
+    //
+    // Best-effort by design: if Mercury is unreachable or the connection
+    // is mid-rotation, the row stays in Approved and the cron worker
+    // picks it up on its next pass. The approval transition itself has
+    // already committed and audited — it is NEVER rolled back by an
+    // adapter failure here.
+    //
+    // Opt out via mpApprove(..., ['trigger_now' => false]) — exercised
+    // by smoke tests that want to assert the pure approval transition
+    // without invoking the Mercury HTTP layer.
+    if ($ok && ($opts['trigger_now'] ?? true) !== false) {
+        try {
+            mpAdvance($tenantId, $id);
+        } catch (\Throwable $e) {
+            error_log('[mercury.payment.auto_advance] approval-time advance failed (will retry next worker tick): ' . $e->getMessage());
+            try {
+                getDB()->prepare(
+                    'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
+                     VALUES (:t, :u, "mercury.payment.auto_advance_failed", :id, :m, NOW())'
+                )->execute([
+                    't'  => $tenantId,
+                    'u'  => $approverId,
+                    'id' => $id,
+                    'm'  => json_encode(['error' => substr($e->getMessage(), 0, 400)]),
+                ]);
+            } catch (\Throwable $_) {}
+        }
+    }
+
     return $ok;
 }
 

@@ -456,3 +456,202 @@ function tenantIntegrationFieldMapPluckInternal(
  */
 // (Alias removed — tenantIntegrationFieldMapFlushCache is now the
 // canonical entry point defined alongside the resolver above.)
+
+/**
+ * Bulk export — return a portable JSON-ready snapshot of every field-map
+ * row for a tenant, optionally filtered by integration. Output shape is
+ * a hand-editable manifest that round-trips cleanly through
+ * tenantIntegrationFieldMapBulkImport().
+ *
+ * Format intentionally drops tenant_id, ids, audit timestamps so the
+ * same JSON can be shared between tenants (e.g. paste a vetted JobDiva
+ * mapping from tenant A into tenant B). The receiving tenant binds it
+ * back to its own scope on import.
+ */
+function tenantIntegrationFieldMapBulkExport(int $tenantId, ?string $integration = null): array
+{
+    $rows = tenantIntegrationFieldMapList($tenantId, $integration, null);
+    $mappings = [];
+    foreach ($rows as $r) {
+        $mappings[] = [
+            'integration'    => (string) $r['integration'],
+            'entity_type'    => (string) $r['entity_type'],
+            'external_field' => (string) $r['external_field'],
+            'internal_field' => (string) $r['internal_field'],
+            'transform'      => (string) ($r['transform'] ?? 'none'),
+            'enabled'        => (bool) $r['enabled'],
+            'notes'          => $r['notes'] ?? null,
+        ];
+    }
+    return [
+        'version'      => 1,
+        'exported_at'  => gmdate('c'),
+        'integration'  => $integration,
+        'source_tenant_id'    => $tenantId, // informational; ignored on import
+        'mappings'     => $mappings,
+    ];
+}
+
+/**
+ * Bulk import — accept a {mappings: [...]} payload (the same shape
+ * tenantIntegrationFieldMapBulkExport returns) and apply it to this
+ * tenant.
+ *
+ * Modes:
+ *   - 'merge'   — upsert each row by (integration, entity_type, internal_field);
+ *                 existing unrelated rows are left untouched.
+ *   - 'replace' — DELETE every existing row scoped to the import's
+ *                 integration set first, then insert. Use to wipe a stale
+ *                 mapping config and start over from a vetted JSON.
+ *
+ * Validation is row-by-row and non-atomic — invalid rows are skipped
+ * with an error entry, valid rows still land. This matches the operator
+ * mental model ("import what you can, tell me what broke") and avoids
+ * the all-or-nothing trap where a single typo blocks 200 good rows.
+ *
+ * Returns:
+ *   {
+ *     mode, imported, replaced, skipped, errors: [{row_index, error}],
+ *     integrations_affected: [...]
+ *   }
+ */
+function tenantIntegrationFieldMapBulkImport(
+    int $tenantId,
+    array $payload,
+    string $mode,
+    ?int $actorUserId
+): array {
+    if (!in_array($mode, ['merge', 'replace'], true)) {
+        throw new \InvalidArgumentException('mode must be "merge" or "replace"');
+    }
+    $mappings = $payload['mappings'] ?? null;
+    if (!is_array($mappings)) {
+        throw new \InvalidArgumentException('payload missing "mappings" array');
+    }
+
+    $pdo = getDB();
+    $imported = 0; $skipped = 0; $errors = [];
+    $integrationsAffected = [];
+
+    if ($mode === 'replace') {
+        // Determine integration scope from the import payload. We only
+        // delete rows for integrations present in the import so a JobDiva
+        // replace doesn't wipe out a tenant's QBO mappings as collateral.
+        $scope = [];
+        foreach ($mappings as $r) {
+            $i = trim((string) ($r['integration'] ?? ''));
+            if ($i !== '') $scope[$i] = true;
+        }
+        foreach (array_keys($scope) as $i) {
+            $pdo->prepare(
+                'DELETE FROM tenant_integration_field_map
+                  WHERE tenant_id = :t AND integration = :i'
+            )->execute(['t' => $tenantId, 'i' => $i]);
+        }
+        $replaced = array_keys($scope);
+        // After delete the cache is stale.
+        tenantIntegrationFieldMapFlushCache();
+    } else {
+        $replaced = [];
+    }
+
+    foreach ($mappings as $idx => $row) {
+        if (!is_array($row)) {
+            $errors[] = ['row_index' => $idx, 'error' => 'row is not an object'];
+            $skipped++;
+            continue;
+        }
+        try {
+            $upsertPayload = [
+                'integration'    => $row['integration']    ?? '',
+                'entity_type'    => $row['entity_type']    ?? '',
+                'external_field' => $row['external_field'] ?? '',
+                'internal_field' => $row['internal_field'] ?? '',
+                'transform'      => $row['transform']      ?? 'none',
+                'enabled'        => array_key_exists('enabled', $row)
+                                    ? (bool) $row['enabled'] : true,
+                'notes'          => $row['notes']          ?? null,
+            ];
+            tenantIntegrationFieldMapUpsert($tenantId, $upsertPayload, $actorUserId);
+            $integrationsAffected[(string) $upsertPayload['integration']] = true;
+            $imported++;
+        } catch (\Throwable $e) {
+            $errors[] = ['row_index' => $idx, 'error' => $e->getMessage()];
+            $skipped++;
+        }
+    }
+
+    // Mutations invalidate the resolver cache.
+    tenantIntegrationFieldMapFlushCache();
+
+    return [
+        'mode'                  => $mode,
+        'imported'              => $imported,
+        'skipped'               => $skipped,
+        'replaced_integrations' => $replaced,
+        'integrations_affected' => array_keys($integrationsAffected),
+        'errors'                => $errors,
+    ];
+}
+
+/**
+ * Test-mapping dry run — apply the configured rules to a sample payload
+ * WITHOUT writing anything. Operator pastes a JobDiva record (or any
+ * source-side JSON), picks (integration, entity_type), and sees:
+ *   - which rules matched, and what value each one resolved to
+ *   - which rules didn't match (external_field path missing in payload)
+ *   - which allow-listed internal fields have NO rule yet
+ *
+ * Crucially this does NOT invoke the syncer's built-in candidate-key
+ * fallbacks. Operators are testing the REGISTRY config, so the registry
+ * is what we evaluate. Built-in defaults are noted alongside each
+ * unconfigured internal field for context.
+ *
+ * Returns:
+ *   {
+ *     integration, entity_type,
+ *     resolved: [
+ *       { internal_field, external_field, transform, value, raw_value, matched: bool }
+ *     ],
+ *     unmapped_internal_fields: [...allow-listed columns with no rule...]
+ *   }
+ */
+function tenantIntegrationFieldMapTestPayload(
+    int $tenantId,
+    string $integration,
+    string $entityType,
+    array $payload
+): array {
+    $allowed = tenantIntegrationFieldMapAllowedInternalFields($entityType);
+    $rules   = tenantIntegrationFieldMapResolveAll($tenantId, $integration, $entityType);
+
+    $resolved = [];
+    $configured = [];
+    foreach ($rules as $internalField => $spec) {
+        $raw = tenantIntegrationFieldMapPluckPath($payload, $spec['external_field']);
+        $matched = ($raw !== '');
+        $value = $matched
+            ? tenantIntegrationFieldMapApplyTransform($raw, $spec['transform'])
+            : null;
+        $resolved[] = [
+            'internal_field' => $internalField,
+            'external_field' => $spec['external_field'],
+            'transform'      => $spec['transform'],
+            'raw_value'      => $matched ? $raw : null,
+            'value'          => $value,
+            'matched'        => $matched,
+        ];
+        $configured[$internalField] = true;
+    }
+    $unmapped = array_values(array_filter(
+        $allowed,
+        static fn(string $f): bool => !isset($configured[$f])
+    ));
+
+    return [
+        'integration'              => $integration,
+        'entity_type'              => $entityType,
+        'resolved'                 => $resolved,
+        'unmapped_internal_fields' => $unmapped,
+    ];
+}

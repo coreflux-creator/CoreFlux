@@ -85,8 +85,26 @@ try {
             api_ok(['ok' => true, 'state' => 'PendingApproval']);
             break;
         case 'approve':
-            mpApprove($tenantId, $id, $user, api_json_body()['note'] ?? null);
-            api_ok(['ok' => true, 'state' => 'Approved']);
+            $approveBody = api_json_body();
+            // Dual-leg auto-trigger is on by default; smoke tests + ops
+            // who want the legacy "Approved waiting for cron" behaviour
+            // can opt out via {trigger_now: false} in the request body.
+            $opts = [];
+            if (array_key_exists('trigger_now', $approveBody)) {
+                $opts['trigger_now'] = (bool) $approveBody['trigger_now'];
+            }
+            mpApprove($tenantId, $id, $user, $approveBody['note'] ?? null, $opts);
+            // Re-read the row so the UI gets the actual state — typically
+            // "Funding" once the dual-leg auto-trigger fired, or
+            // "Approved" if the adapter wasn't reachable yet (worker will
+            // retry on its next tick).
+            $current = mpGet($tenantId, $id);
+            api_ok([
+                'ok'       => true,
+                'state'    => (string) $current['state'],
+                'auto_advanced' => $current['state'] !== 'Approved',
+                'row'      => $current,
+            ]);
             break;
         case 'reject':
             $reason = trim((string) (api_json_body()['reason'] ?? ''));

@@ -10,6 +10,88 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Slice 6/7 + Mercury Dual-Leg Workflow (2026-02 — current fork)
+
+### What user asked
+1. P1A — JobDiva Slice 6/7: "bulk import/export of field mappings" + "Test mapping with sample payload" UI affordance.
+2. P1B — Mercury workflow. **Forget Mercury webhooks.** The real win:
+   > "the approval within the platform actually triggers two transactions —
+   >  transfer in to mercury from funding account, transfer out to vendor."
+
+### What shipped (P1A — Field map import/export + test)
+- **Core helpers** (`core/integrations/field_map.php`):
+  `tenantIntegrationFieldMapBulkExport` (portable JSON snapshot —
+  drops tenant_id / row ids / audit timestamps so the same JSON can
+  travel between tenants), `tenantIntegrationFieldMapBulkImport`
+  with `merge` and `replace` modes (replace is integration-scoped so a
+  JobDiva replace can't wipe QBO/Zoho mappings as collateral), and
+  `tenantIntegrationFieldMapTestPayload` (dry-run resolver against an
+  operator-supplied payload — no DB writes).
+- **API endpoints**:
+  `GET/POST /api/admin/integrations/field_map_bulk.php`,
+  `POST /api/admin/integrations/field_map_test.php`. Both gated by
+  the existing `integrations.field_map.manage` permission.
+- **UI** (`IntegrationFieldMapAdmin.jsx`):
+  Export button (copies JSON to clipboard + opens textarea), Import
+  toggle with mode selector (merge / replace) and inline error
+  reporting, "Test with payload" toggle with green/red per-rule status
+  table + unmapped-fields disclosure. Replace mode shows a confirm
+  prompt naming the integrations it'll wipe.
+
+### What shipped (P1B — Mercury approval triggers dual-leg)
+- `mpApprove()` now accepts an `$opts` array; `trigger_now` defaults to
+  **true**, calling `mpAdvance()` synchronously after the approval
+  transition commits. Leg 1 (funding pull: external funding account →
+  operating Mercury) fires within milliseconds of the approval click;
+  leg 2 (vendor payout) fires on the next worker tick (or the
+  "Run worker" button) after Mercury confirms the funding transfer cleared.
+- Failures are **best-effort by design** — if the Mercury adapter is
+  unreachable, the row stays in `Approved` (cron retries on its next
+  tick) and an `mercury.payment.auto_advance_failed` audit row is
+  written. The approval itself is **never rolled back**.
+- `/api/mercury_payments.php?action=approve` re-reads the row after
+  `mpApprove()` so the response carries the actual post-advance state
+  (typically `Funding`), plus `auto_advanced: bool` and the full row.
+- **UI** (`MercuryPayments.jsx`):
+  - Approval flash banner now says "Approved + funding leg started →
+    Funding. Vendor payout will fire once the funding transfer clears."
+  - Detail modal renders a new `<DualLegProgress />` visualisation:
+    two leg cards with status pill, Mercury txn id, initiated/settled
+    timestamps, and a vertical connector between them. The audit trail
+    table is preserved below for state-transition history.
+
+### Tests
+- New: `tests/field_map_bulk_and_test_smoke.php` (43 ✓)
+- New: `tests/mercury_dual_leg_approval_smoke.php` (36 ✓)
+- Full suite: **280/280 passing**.
+
+### Files touched
+- `/app/core/integrations/field_map.php` — bulk export/import/test helpers
+- `/app/api/admin/integrations/field_map_bulk.php` — new
+- `/app/api/admin/integrations/field_map_test.php` — new
+- `/app/dashboard/src/pages/IntegrationFieldMapAdmin.jsx` — Export / Import / Test panels
+- `/app/core/mercury_payments.php` — `mpApprove()` dual-leg auto-trigger
+- `/app/api/mercury_payments.php` — approve handler returns post-advance state
+- `/app/modules/treasury/ui/MercuryPayments.jsx` — `<DualLegProgress />` + flash copy
+- Bundle: `index-TdTQw6Yw.js` / `index-BC5g6YJu.css` (rebuilt + sync_bundle.sh)
+
+### Next action items
+- (P1) Apply same field-map registry pattern to QuickBooks Online, Zoho Books, Xero.
+- (P1) Migrate remaining dashboards (People, Companies, Placement detail) REST → GraphQL.
+- (P1) Approval rules / SoD enforcement — tenant-configurable thresholds
+  ($amount, vendor, account → 1-eye vs 2-eye vs CFO-must-approve), routing,
+  escalation timers.
+- (P1) Reconciliation workflow UI — 3-pane unmatched/suggested/matched
+  with bulk-confirm.
+- (P1) Treasury cash-allocation workflow — sweep rules + live Mercury
+  balances wired into the (currently partly-mocked)
+  `money_movement_weekly.php`.
+- (P2) Wire `mailerSend()` → real Resend driver (currently logs locally — MOCKED).
+- (P2) Engagements module; Migration Status Dashboard tile.
+- (P3) AI Digest Scheduler.
+
+
+
 ## Slice 5b — JobDiva placement metadata + Timesheet UI follow-through (2026-02 — current fork)
 
 ### What user asked

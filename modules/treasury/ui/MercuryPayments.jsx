@@ -65,7 +65,18 @@ export default function MercuryPayments() {
     setFlash(null);
     try {
       const res = await api.post(`/api/mercury_payments.php?action=${action}&id=${id}`, body);
-      setFlash({ kind: 'success', msg: `Action ${action} → ${res.state}` });
+      // For approvals the API returns auto_advanced=true when the
+      // dual-leg orchestrator fired the funding pull synchronously.
+      // Surface that explicitly so the operator sees both legs in the
+      // flash banner instead of just "Approved" (which would look
+      // identical to the old single-leg world).
+      let msg = `Action ${action} → ${res.state}`;
+      if (action === 'approve') {
+        msg = res.auto_advanced
+          ? `Approved + funding leg started → ${res.state}. Vendor payout will fire once the funding transfer clears.`
+          : `Approved (state ${res.state}). Mercury adapter unreachable — cron worker will retry the funding leg.`;
+      }
+      setFlash({ kind: 'success', msg });
       list.reload();
     } catch (err) {
       setFlash({ kind: 'error', msg: err.message || String(err) });
@@ -367,18 +378,24 @@ function CreatePaymentModal({ recipients, onClose, onCreated }) {
   );
 }
 
-function PaymentDetailModal({ id, onClose }) {  const detail = useApi(`/api/mercury_payments.php?id=${id}`);
+function PaymentDetailModal({ id, onClose }) {
+  const detail = useApi(`/api/mercury_payments.php?id=${id}`);
+  const row = detail.data?.row;
   return (
     <div data-testid="mercury-payment-detail-modal" style={modalOverlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div style={{ ...modalCard, maxWidth: 720 }}>
-        <h4 style={{ margin: '0 0 12px' }}>Payment #{id} — audit trail</h4>
+        <h4 style={{ margin: '0 0 12px' }}>Payment #{id} — dual-leg workflow</h4>
         {detail.loading && <p>Loading…</p>}
         {detail.error   && <p className="error">{detail.error.message}</p>}
-        {detail.data && (
+        {row && (
           <>
-            <pre style={{ background: '#f9fafb', padding: 10, borderRadius: 4, fontSize: 11, maxHeight: 200, overflow: 'auto' }} data-testid="mercury-payment-detail-row">
-              {JSON.stringify(detail.data.row, null, 2)}
-            </pre>
+            <DualLegProgress row={row} data-testid="mercury-payment-dual-leg" />
+            <details style={{ marginTop: 12 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 12, color: '#475569' }}>Raw payment row</summary>
+              <pre style={{ background: '#f9fafb', padding: 10, borderRadius: 4, fontSize: 11, maxHeight: 200, overflow: 'auto' }} data-testid="mercury-payment-detail-row">
+                {JSON.stringify(row, null, 2)}
+              </pre>
+            </details>
             <h5 style={{ margin: '12px 0 6px', fontSize: 12 }}>State transitions</h5>
             <table style={{ width: '100%', fontSize: 12 }} data-testid="mercury-payment-audit-table">
               <thead><tr><th>From</th><th>To</th><th>Reason</th><th>When</th></tr></thead>
@@ -401,6 +418,110 @@ function PaymentDetailModal({ id, onClose }) {  const detail = useApi(`/api/merc
       </div>
     </div>
   );
+}
+
+/**
+ * Visual progress for the two Mercury transactions an approval triggers:
+ *   LEG 1 — Funding pull (external funding account → operating Mercury)
+ *   LEG 2 — Vendor payout (operating Mercury → vendor counterparty)
+ *
+ * Each leg shows: status pill, Mercury txn id (when set), initiated/
+ * settled timestamps. State drives the active step indicator.
+ */
+function DualLegProgress({ row }) {
+  // Leg 1 = funding. Status drawn from funding_mercury_status when
+  // present; otherwise derived from the row's overall state.
+  const fundingStatus = row.funding_mercury_status
+    || (row.state === 'Approved' ? 'pending' :
+        row.state === 'Funding' ? 'in-flight' :
+        ['Submitted', 'Settled', 'Reconciled'].includes(row.state) ? 'cleared' :
+        row.state === 'Failed' && !row.funding_settled_at ? 'failed' :
+        row.state === 'Returned' && !row.funding_settled_at ? 'returned' :
+        '—');
+  const payoutStatus = row.payout_mercury_status
+    || (['Approved', 'Funding'].includes(row.state) ? 'queued' :
+        row.state === 'Submitted' ? 'in-flight' :
+        ['Settled', 'Reconciled'].includes(row.state) ? 'cleared' :
+        row.state === 'Failed' && row.funding_settled_at ? 'failed' :
+        row.state === 'Returned' && row.funding_settled_at ? 'returned' :
+        '—');
+
+  return (
+    <div data-testid="mercury-payment-dual-leg" style={{
+      border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, background: '#f8fafc',
+    }}>
+      <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>
+        Two transactions, one approval
+      </div>
+      <LegCard
+        testid="mercury-leg-funding"
+        index="1"
+        title="Funding pull"
+        subtitle="External funding account → operating Mercury"
+        status={fundingStatus}
+        txnId={row.funding_mercury_txn_id}
+        initiatedAt={row.funding_initiated_at}
+        settledAt={row.funding_settled_at}
+        polledAt={row.funding_last_polled_at}
+      />
+      <div style={{
+        width: 1, height: 14, background: '#cbd5e1', marginLeft: 22, marginTop: -2,
+      }} />
+      <LegCard
+        testid="mercury-leg-payout"
+        index="2"
+        title="Vendor payout"
+        subtitle="Operating Mercury → vendor counterparty"
+        status={payoutStatus}
+        txnId={row.payout_mercury_txn_id}
+        initiatedAt={row.payout_initiated_at}
+        settledAt={row.payout_settled_at}
+        polledAt={row.payout_last_polled_at}
+      />
+    </div>
+  );
+}
+
+function LegCard({ testid, index, title, subtitle, status, txnId, initiatedAt, settledAt, polledAt }) {
+  const tone = legTone(status);
+  return (
+    <div data-testid={testid} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '8px 0' }}>
+      <div style={{
+        width: 28, height: 28, borderRadius: 14, background: tone.bg,
+        color: tone.fg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontWeight: 600, fontSize: 13, flexShrink: 0,
+      }}>{index}</div>
+      <div style={{ flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+          <strong style={{ fontSize: 13 }}>{title}</strong>
+          <span data-testid={`${testid}-status`} style={{
+            fontSize: 11, padding: '1px 8px', borderRadius: 10,
+            background: tone.bg, color: tone.fg,
+          }}>{status}</span>
+        </div>
+        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{subtitle}</div>
+        <div style={{ fontSize: 11, color: '#475569', marginTop: 4, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+          {txnId && (
+            <span data-testid={`${testid}-txn`}>
+              <span style={{ color: '#64748b' }}>txn:</span> <code>{txnId}</code>
+            </span>
+          )}
+          {initiatedAt && <span>initiated {initiatedAt}</span>}
+          {settledAt   && <span data-testid={`${testid}-settled`}>settled {settledAt}</span>}
+          {!settledAt && polledAt && <span>last polled {polledAt}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function legTone(status) {
+  const s = String(status || '').toLowerCase();
+  if (['cleared', 'settled', 'posted'].includes(s))  return { bg: '#d1fae5', fg: '#065f46' };
+  if (['in-flight', 'sent', 'pending'].includes(s))   return { bg: '#dbeafe', fg: '#1e40af' };
+  if (['queued'].includes(s))                         return { bg: '#f1f5f9', fg: '#475569' };
+  if (['failed', 'returned', 'cancelled'].includes(s))return { bg: '#fee2e2', fg: '#991b1b' };
+  return { bg: '#e5e7eb', fg: '#374151' };
 }
 
 const fieldLabel = { display: 'block', marginBottom: 8, fontSize: 12, color: 'var(--cf-text-secondary)' };
