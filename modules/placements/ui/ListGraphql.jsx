@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useGql } from '../../../dashboard/src/lib/graphqlClient';
-import { Zap } from 'lucide-react';
+import { useGql, runDiagnostics, __GRAPHQL_URL__ } from '../../../dashboard/src/lib/graphqlClient';
+import { Zap, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 
 /**
  * ListGraphql — PILOT migration of Placements list from REST → GraphQL.
@@ -20,6 +20,39 @@ import { Zap } from 'lucide-react';
 
 const STATUSES = ['', 'pending_start', 'active', 'ended', 'cancelled'];
 const PER_PAGE = 25;
+
+function DiagRow({ testid, label, url, result, hint404, hint401, hintNetwork }) {
+  const ok = result?.ok;
+  let hint = '';
+  if (!ok) {
+    if (result?.status === 404 && hint404) hint = hint404;
+    else if (result?.status === 401 && hint401) hint = hint401;
+    else if (result?.status === 0 && hintNetwork) hint = hintNetwork;
+  }
+  return (
+    <div data-testid={testid} style={{
+      display: 'flex',
+      alignItems: 'flex-start',
+      gap: 'var(--cf-space-2)',
+      padding: 'var(--cf-space-2)',
+      background: ok ? 'rgba(34,197,94,0.05)' : 'rgba(239,68,68,0.05)',
+      border: `1px solid ${ok ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}`,
+      borderRadius: 6,
+    }}>
+      {ok ? <CheckCircle2 size={18} color="#16a34a" /> : <XCircle size={18} color="#dc2626" />}
+      <div style={{ flex: 1 }}>
+        <div style={{ fontWeight: 600 }}>{label}</div>
+        <code style={{ fontSize: 'var(--cf-text-xs)', color: 'var(--cf-text-secondary)' }}>{url}</code>
+        <div style={{ fontSize: 'var(--cf-text-xs)', marginTop: 2 }}>
+          {ok
+            ? `OK — HTTP ${result.status} in ${result.durationMs}ms`
+            : `FAIL — ${result?.error || 'unknown'} (${result?.durationMs ?? '?'}ms)`}
+        </div>
+        {hint && <div style={{ fontSize: 'var(--cf-text-xs)', marginTop: 4, color: '#7f1d1d' }}>💡 {hint}</div>}
+      </div>
+    </div>
+  );
+}
 
 const PLACEMENTS_QUERY = `
   query DashboardPlacements($status: PlacementStatus, $limit: Int!) {
@@ -50,7 +83,15 @@ export default function ListGraphql() {
     limit: PER_PAGE * 4, // pull 4 pages worth, paginate client-side
   }), [status]);
 
-  const { data, error, loading, reload } = useGql(PLACEMENTS_QUERY, { variables });
+  const { data, error, loading, elapsedMs, reload } = useGql(PLACEMENTS_QUERY, { variables });
+
+  const [diag, setDiag] = useState(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const runDiag = async () => {
+    setDiagLoading(true);
+    try { setDiag(await runDiagnostics()); }
+    finally { setDiagLoading(false); }
+  };
 
   const allRows = data?.placements ?? [];
   const filtered = useMemo(() => {
@@ -95,7 +136,18 @@ export default function ListGraphql() {
             </span>
           </h2>
           <p style={{ color: 'var(--cf-text-secondary)' }} data-testid="placements-gql-count">
-            {loading ? 'Loading…' : `${total} total (via graphql.corefluxapp.com)`}
+            {loading
+              ? 'Loading…'
+              : (
+                <>
+                  {total} total
+                  {elapsedMs != null && (
+                    <span data-testid="placements-gql-perf" style={{ marginLeft: 8, fontSize: 'var(--cf-text-xs)', color: '#7c3aed', fontWeight: 600 }}>
+                      ⚡ {Math.round(elapsedMs)}ms via graphql.corefluxapp.com
+                    </span>
+                  )}
+                </>
+              )}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 'var(--cf-space-2)' }}>
@@ -113,9 +165,50 @@ export default function ListGraphql() {
       </div>
 
       {error && (
-        <p className="error" data-testid="placements-gql-error" style={{ padding: 'var(--cf-space-3)', background: 'rgba(239,68,68,0.08)', borderRadius: 6 }}>
-          GraphQL error: {error.message}
-        </p>
+        <div data-testid="placements-gql-error" style={{
+          padding: 'var(--cf-space-3)',
+          background: 'rgba(239,68,68,0.06)',
+          border: '1px solid rgba(239,68,68,0.25)',
+          borderRadius: 8,
+          marginBottom: 'var(--cf-space-3)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
+            <div>
+              <strong style={{ color: '#b91c1c' }}>GraphQL error</strong>
+              {error.code && <code style={{ marginLeft: 8, fontSize: 'var(--cf-text-xs)', padding: '2px 6px', background: '#fee2e2', borderRadius: 4 }}>{error.code}</code>}
+              <div style={{ marginTop: 4, fontSize: 'var(--cf-text-sm)', color: '#7f1d1d' }} data-testid="placements-gql-error-message">
+                {error.message}
+              </div>
+            </div>
+            <button className="btn" onClick={runDiag} disabled={diagLoading} data-testid="placements-gql-diag-run">
+              {diagLoading ? <Loader2 size={14} className="cf-spin" /> : null} Run diagnostics
+            </button>
+          </div>
+
+          {diag && (
+            <div data-testid="placements-gql-diag-results" style={{ marginTop: 'var(--cf-space-3)', display: 'grid', gap: 'var(--cf-space-2)', fontSize: 'var(--cf-text-sm)' }}>
+              <DiagRow
+                testid="diag-jwt-row"
+                label="JWT mint endpoint"
+                url="/api/auth/issue_dashboard_jwt.php"
+                result={diag.jwtMint}
+                hint404="Endpoint not deployed yet — push to GitHub + redeploy PHP on Cloudways."
+                hint401="No active dashboard session — log out and log back in."
+              />
+              <DiagRow
+                testid="diag-graphql-row"
+                label="GraphQL endpoint"
+                url={__GRAPHQL_URL__}
+                result={diag.graphql}
+                hintNetwork="Browser can't reach the droplet. Check CORS origins in router.yaml include this dashboard's URL, or that DNS / cert / firewall didn't break."
+                hint404="Router didn't accept POST / — likely path or method config mismatch."
+              />
+              <p style={{ fontSize: 'var(--cf-text-xs)', color: 'var(--cf-text-secondary)', marginTop: 4 }}>
+                Both rows green = the pilot should work; if it still doesn't, the JWT_SECRET on the droplet doesn't match the one Cloudways PHP uses to sign tokens.
+              </p>
+            </div>
+          )}
+        </div>
       )}
 
       <table className="data-table" data-testid="placements-gql-table">

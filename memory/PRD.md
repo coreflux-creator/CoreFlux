@@ -8075,3 +8075,47 @@ PDO query + shapePlacement() → federated response
 - `/app/tests/placements_graphql_pilot_smoke.php`
 
 
+
+
+## Pilot diagnostic + perf instrumentation (2026-02-14, follow-up)
+
+### Why
+First production try of `/staffing/placements/list-graphql` rendered
+"GraphQL error: fetch failed" with no breadcrumb pointing at which side
+of the wire failed. `Failed to fetch` could mean JWT-mint network failure,
+GraphQL-endpoint network failure, CORS preflight rejection, missing PHP
+file, or stale auth — and the original handler obscured all of them.
+
+### What shipped
+- **`graphqlClient.js`** now classifies every failure path with a code:
+  - `AUTH_MINT_NETWORK` — DNS/CORS/offline on the JWT endpoint
+  - `AUTH_MINT_HTTP` — JWT endpoint returned non-2xx
+    - 404 → hint "issue_dashboard_jwt.php not deployed yet"
+    - 401 → hint "no active dashboard session, log out and back in"
+  - `AUTH_MINT_SHAPE` — 2xx but no `jwt` field
+  - `GQL_NETWORK` — fetch threw before HTTP layer (CORS/DNS/TLS/firewall)
+  - `GQL_NON_JSON` — router returned non-JSON
+- **`runDiagnostics()`** — new exported probe that hits BOTH endpoints
+  independently and returns `{ jwtMint: {...}, graphql: {...} }`. Used
+  by the inline diagnostic panel.
+- **`useGql()`** now returns `elapsedMs` alongside data/error/loading,
+  measured via `performance.now()` for the actual GraphQL transport
+  round-trip (post-token-mint).
+- **`ListGraphql.jsx`** wires both:
+  - Perf badge in subtitle: `⚡ 142ms via graphql.corefluxapp.com`
+  - When an error renders, a "Run diagnostics" button appears that
+    surfaces per-endpoint pass/fail with green/red rows, status codes,
+    duration, and context-specific hints (404 → push to git, 401 → log
+    back in, network failure → check CORS/DNS).
+
+### Tests
+- Pilot smoke updated: **60 assertions ✓** (covers new codes, perf,
+  diagnostic UI testids)
+- Full suite: **275/275 ✅**
+- ESLint clean on both touched files.
+- Vite build: `index-CpMT2nSQ.js`, all sync points consistent.
+
+### Files of reference (updated)
+- `/app/dashboard/src/lib/graphqlClient.js` (+~80 LOC for diagnostics)
+- `/app/modules/placements/ui/ListGraphql.jsx` (+DiagRow component, perf badge)
+- `/app/tests/placements_graphql_pilot_smoke.php` (60 assertions total)

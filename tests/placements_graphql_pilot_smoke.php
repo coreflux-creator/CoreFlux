@@ -49,6 +49,7 @@ $a('exports gql()',           str_contains($cliSrc, 'export async function gql')
 $a('exports useGql()',        str_contains($cliSrc, 'export function useGql'));
 $a('exports getToken()',      str_contains($cliSrc, 'export async function getToken'));
 $a('exports clearToken()',    str_contains($cliSrc, 'export function clearToken'));
+$a('exports runDiagnostics()',str_contains($cliSrc, 'export async function runDiagnostics'));
 $a('points at graphql.corefluxapp.com by default',
     str_contains($cliSrc, "'https://graphql.corefluxapp.com/'"));
 $a('honors VITE_GRAPHQL_URL override',
@@ -56,14 +57,26 @@ $a('honors VITE_GRAPHQL_URL override',
 $a('fetches JWT from issue_dashboard_jwt.php',
     str_contains($cliSrc, '/api/auth/issue_dashboard_jwt.php'));
 $a('attaches Authorization: Bearer',
-    str_contains($cliSrc, 'Authorization: `Bearer ${token}`') ||
-    str_contains($cliSrc, "Authorization: 'Bearer '"));
+    str_contains($cliSrc, 'Authorization: `Bearer ${token}`'));
 $a('uses credentials: include for JWT mint',
     str_contains($cliSrc, "credentials: 'include'"));
 $a('caches token in-memory + refresh window',
     str_contains($cliSrc, 'expiresAt') && str_contains($cliSrc, 'Date.now()'));
 $a('coalesces concurrent token fetches (inflight)', str_contains($cliSrc, 'inflight'));
 $a('clears token on 401',     str_contains($cliSrc, "r.status === 401"));
+
+echo "\n2b. Diagnostics + perf\n";
+$a('classifies JWT-mint network failure',  str_contains($cliSrc, 'AUTH_MINT_NETWORK'));
+$a('classifies JWT-mint HTTP failure',     str_contains($cliSrc, 'AUTH_MINT_HTTP'));
+$a('classifies GraphQL network failure',   str_contains($cliSrc, 'GQL_NETWORK'));
+$a('measures fetch elapsed ms',            str_contains($cliSrc, 'elapsedMs'));
+$a('uses performance.now when available',  str_contains($cliSrc, 'performance.now'));
+$a('useGql exposes elapsedMs',             (bool) preg_match('/return\s*\{[^}]*elapsedMs[^}]*\}/s', $cliSrc));
+$a('runDiagnostics probes both endpoints', str_contains($cliSrc, 'jwtMint') && str_contains($cliSrc, 'graphql'));
+$a('special 404 hint for missing JWT endpoint',
+    str_contains($cliSrc, 'issue_dashboard_jwt.php not deployed yet'));
+$a('hints DevTools Network panel on net failure',
+    str_contains($cliSrc, 'DevTools'));
 
 echo "\n3. ListGraphql.jsx pilot\n";
 $a('ListGraphql.jsx exists', is_file($page));
@@ -81,6 +94,17 @@ $a('has pager next/prev',
     str_contains($pSrc, 'placements-gql-next') && str_contains($pSrc, 'placements-gql-prev'));
 $a('surfaces graphql errors', str_contains($pSrc, 'placements-gql-error'));
 $a('has switch-to-REST link', str_contains($pSrc, 'placements-gql-switch-rest'));
+
+echo "\n3b. Perf analytic + diagnostic panel\n";
+$a('renders perf badge',          str_contains($pSrc, 'placements-gql-perf'));
+$a('uses elapsedMs from useGql',  str_contains($pSrc, 'elapsedMs'));
+$a('renders ms suffix',           str_contains($pSrc, 'ms via graphql.corefluxapp.com'));
+$a('has "Run diagnostics" button',str_contains($pSrc, 'placements-gql-diag-run'));
+$a('renders diag-jwt-row',        str_contains($pSrc, 'diag-jwt-row'));
+$a('renders diag-graphql-row',    str_contains($pSrc, 'diag-graphql-row'));
+$a('imports runDiagnostics',      str_contains($pSrc, 'runDiagnostics'));
+$a('imports CheckCircle2 + XCircle for diag', str_contains($pSrc, 'CheckCircle2') && str_contains($pSrc, 'XCircle'));
+$a('shows error.code badge',      str_contains($pSrc, 'error.code'));
 
 echo "\n4. PlacementsModule wiring\n";
 $mSrc = (string) file_get_contents($mod);
