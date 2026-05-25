@@ -68,6 +68,16 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             // Client / approval
             'end_client_name',
             'client_approver_name', 'client_approver_email',
+            // JobDiva cross-reference / sales metadata (migration 071, Slice 5b).
+            // jobdiva_job_id is the JobDiva *Job* entity ID — distinct from
+            // `external_id` which stores the Assignment ID. Recruiter and
+            // account-manager fields are denormalised snapshots from the
+            // source system; FK linkage to internal user rows is intentionally
+            // omitted so operators can backfill names that don't match any
+            // CoreFlux user.
+            'jobdiva_job_id',
+            'recruiter_name', 'recruiter_email',
+            'account_manager_name', 'account_manager_email',
             // Free-text
             'notes',
             // Approval-flow toggles

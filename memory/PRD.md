@@ -10,6 +10,67 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Slice 5b — JobDiva placement metadata + Timesheet UI follow-through (2026-02 — current fork)
+
+### What user asked
+1. "we're still not getting all the details from job diva. job id, job contact, end client … we need to get all of it and be able to map anywhere"
+2. "Timesheet page needs to contain name and client, not title as it does now."
+3. Confirmed scope: **full JobDiva payload exposed via `field_map`**; end client modelled BOTH as a column AND linked to `companies`.
+
+### What shipped this fork
+- Migration `071_jobdiva_placement_metadata.sql` adds 5 columns on `placements`:
+  `jobdiva_job_id`, `recruiter_name`, `recruiter_email`,
+  `account_manager_name`, `account_manager_email` + index on
+  `(tenant_id, jobdiva_job_id)`. Auto-applied by `coreflux_run_migrations()`.
+- `core/jobdiva/sync.php` resolves all 5 new fields through
+  `tenantIntegrationFieldMapPluckInternal()` (registry-first, JobDiva-native
+  candidate keys as fallback). INSERT + UPDATE clauses extended; UPDATE
+  path still honours `coreflux_overridden_fields`.
+- Bulk enrichment (`jobdivaSyncEnrichRelatedEntities`) batch-fetches every
+  related JobDiva entity once per sync run and injects them as nested
+  objects (`_jd_job`, `_jd_candidate`, `_jd_customer`, `_jd_contact`,
+  `_jd_start`) so operators can dotted-path-map ANY field on those records
+  into any allow-listed CoreFlux column.
+- `core/integrations/field_map.php` allow-list now exposes the 5 new
+  columns under entity_type='placement'. They appear automatically in
+  `IntegrationFieldMapAdmin` and the suggest UI — no UI changes required.
+- End-client modelling: `jobdivaResolveOrAutoCreateEndClient()` writes
+  BOTH `placements.end_client_name` (denormalised string) AND
+  `placements.end_client_company_id` (FK), auto-creating the `companies`
+  row + `external_entity_mappings` link on first encounter.
+- `modules/staffing/ui/TimesheetWeek.jsx` updated to display person name
+  + end-client name (instead of just title), per direct user feedback.
+- Frontend rebuilt → bundle now `index-DuTfqpv-.js` / `index-BC5g6YJu.css`;
+  `.deploy-version`, `spa-assets/`, and the service-worker CACHE_VERSION
+  are all in sync via the postbuild `sync_bundle.sh` hook.
+
+### Tests
+- New: `tests/jobdiva_placement_metadata_smoke.php` (40 assertions covering
+  migration, sync wiring, allow-list, end-client modelling, PHP syntax).
+- Full suite: **278/278 passing**.
+
+### Files touched this fork
+- `/app/core/integrations/field_map.php` (allow-list additions)
+- `/app/tests/jobdiva_placement_metadata_smoke.php` (new)
+- Bundle artefacts under `/app/dashboard/dist/` and `/app/spa-assets/`
+  (regenerated)
+- `/app/.deploy-version` (expected_bundle hashes updated)
+
+### Next action items (priorities in handoff)
+- (P1) JobDiva Slice 6/7 — bulk import/export of field mappings as JSON
+  in `IntegrationFieldMapAdmin.jsx` + "Test mapping with sample payload"
+  UI action.
+- (P1) Apply the same integration-registry pattern to QuickBooks Online,
+  Zoho Books, Xero.
+- (P1) Migrate remaining dashboards (People, Companies, Placement
+  detail) from REST → GraphQL.
+- (P1) Mercury Webhooks Integration.
+- (P2) Wire `mailerSend()` → real Resend driver.
+- (P2) Engagements module (fixed-fee project accounting).
+- (P3) AI Digest Scheduler.
+
+
+
 ## Bug Fix — `api is not a function` in self-heal + suggest flows (2026-02 — current fork)
 
 ### Background
