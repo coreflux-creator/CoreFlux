@@ -28,37 +28,56 @@ on the same box.
 
 ## One-command setup (recommended)
 
-For a fresh Cloudways server, run a **single** script that chains every
-host-prep step below (Node 20 → Apollo Router → service user → secrets →
-systemd → nginx). It also `git pull`s the latest CoreFlux source so
-`/app/graphql/*` is on disk before bootstrap wires systemd.
+CoreFlux supports two production deploy targets:
+
+### A. DigitalOcean droplet (or any Ubuntu VM where you have root)
+
+This is the path to use if your PHP app lives on Cloudways (or any other
+managed PaaS that doesn't grant root). The droplet runs the GraphQL stack
+in isolation; your Cloudways nginx is the only thing that needs to know
+about it (one custom `location /graphql {}` block).
 
 ```bash
-# SSH into the Cloudways application server, then either:
-curl -fsSL https://raw.githubusercontent.com/<org>/coreflux/main/scripts/setup_cloudways_graphql.sh \
-  | sudo REPO_URL=https://github.com/<org>/coreflux.git bash
-
-# …or scp the file over first, then:
-sudo REPO_URL=https://github.com/<org>/coreflux.git \
-     bash /tmp/setup_cloudways_graphql.sh
+# On the droplet, as root:
+curl -fsSL https://raw.githubusercontent.com/coreflux-creator/CoreFlux/main/scripts/setup_droplet_graphql.sh \
+  | COREFLUX_API_BASE=https://corefluxapp.com \
+    JWT_SECRET=<paste-from-cloudways-php-env> \
+    CLOUDWAYS_APP_IP=<your-cloudways-server-ip> \
+    bash
 ```
 
-Flags / env:
+Required env:
 
-| Var / flag      | Default  | Purpose |
-|-----------------|----------|---------|
-| `REPO_URL=…`    | _(req.)_ | git remote for first-time clone |
-| `REPO_BRANCH=…` | `main`   | branch to track |
-| `REPO_PATH=…`   | `/app`   | where the checkout lands (must match SRC in release.sh) |
-| `--dry-run`     | off      | print every action, change nothing |
-| `--skip-nginx`  | off      | leave nginx alone (managed by another script) |
-| `--skip-git`    | off      | use an existing checkout, don't clone or pull |
+| Var                  | Where to get it |
+|----------------------|-----------------|
+| `COREFLUX_API_BASE`  | Your Cloudways app's public URL (e.g. `https://corefluxapp.com`) |
+| `JWT_SECRET`         | Cloudways → Application Settings → SFTP → `.env` → `JWT_SECRET=…` |
+| `CLOUDWAYS_APP_IP`   | Cloudways dashboard → Server → public IPv4 (locks droplet :4000 to only this IP) |
 
-The script is fully idempotent — re-run it whenever you want to pull
-the latest code, upgrade the Apollo Router binary, or re-apply unit
-files. After the first run, every subsequent deploy can be triggered
-from the dashboard (**Settings → Integrations → "Deploy Apollo Router"**)
-via `/api/admin/router_deploy.php` — no SSH needed.
+Optional env: `REPO_URL`, `REPO_BRANCH`, `INTERNAL_HMAC_SECRET`.
+
+After the script finishes it prints:
+- The auto-generated `INTERNAL_HMAC_SECRET` — paste it into your
+  Cloudways app's `.env` so the PHP `/api/internal/jobdiva_proxy.php`
+  bridge accepts subgraph requests.
+- The exact `location /graphql { proxy_pass http://<droplet-ip>:4000/; }`
+  block to add via Cloudways' nginx UI.
+
+Re-runnable: `git pull`s the latest code, rebuilds, restarts services.
+
+### B. Self-managed server / Cloudways "Dedicated" tier
+
+If you DO have root on the same box as the PHP app (rare on Cloudways
+managed, normal on Cloudways Dedicated or self-managed), this script
+chains the previously-manual six SSH steps (Node 20 → Apollo Router →
+service user → secrets → systemd → nginx). It also `git pull`s the
+latest CoreFlux source so `/app/graphql/*` is on disk before bootstrap
+wires systemd.
+
+```bash
+sudo REPO_URL=https://github.com/coreflux-creator/CoreFlux.git \
+     bash /tmp/setup_cloudways_graphql.sh
+```
 
 ---
 
