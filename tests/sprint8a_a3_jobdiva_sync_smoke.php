@@ -121,8 +121,8 @@ $assert('binds mapping (contact)',
 $assert('contact upsert helper exists',           strpos($src, 'function jobdivaSyncUpsertContact(') !== false);
 $assert('contact upsert dedupes by email per company',
     strpos($src, "AND company_id = :c AND email = :e LIMIT 1") !== false);
-$assert("contact insert defaults role to 'other'",
-    strpos($src, "contact_role)\n         VALUES (:t, :c, :n, :ti, :e, :ph, \"other\")") !== false);
+$assert("contact insert defaults role to 'other' (via $contactRoleMap fallback)",
+    strpos($src, "\$contactRoleMap[strtolower(trim(\$contactRoleRaw))] ?? 'other'") !== false);
 
 echo "\nPlacements driver — discovery via searchStart + timesheet fallback (2026-02 follow-on)\n";
 $assert('requires sync_placements helper module',

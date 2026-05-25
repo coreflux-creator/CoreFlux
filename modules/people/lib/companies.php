@@ -112,16 +112,46 @@ function companiesUpsertByName(int $tenantId, string $name, array $extra = [], a
     $find->execute(['t' => $tenantId, 'n' => $name]);
     $id = (int) $find->fetchColumn();
 
+    // Safe-to-write columns from the patch. Extended in slice 5 (2026-02)
+    // to cover duns / ein_last4 / msa_signed_at so the JobDiva field-map
+    // registry can rewire those at sync time. FKs (id, tenant_id), audit
+    // timestamps, deleted_at, ein_full_ct (ciphertext) and the system-
+    // managed use_count / last_used_at / msa_storage_object_id remain
+    // intentionally excluded.
+    $writable = [
+        'legal_name','website','phone','duns','ein_last4',
+        'primary_contact_name','primary_contact_email','primary_contact_phone',
+        'address_line1','address_line2','city','state','postal_code','country',
+        'msa_signed_at','notes','created_by_user_id',
+    ];
+    $patch = array_intersect_key($extra, array_flip($writable));
+
     if (!$id) {
         $insert = array_merge([
-            'tenant_id'    => $tenantId,
-            'name'         => $name,
-            'country'      => 'US',
-        ], array_intersect_key($extra, array_flip([
-            'legal_name','website','phone','primary_contact_name','primary_contact_email','primary_contact_phone',
-            'address_line1','address_line2','city','state','postal_code','country','notes','created_by_user_id',
-        ])));
+            'tenant_id' => $tenantId,
+            'name'      => $name,
+            'country'   => 'US',
+        ], $patch);
         $id = scopedInsert('companies', $insert);
+    } else {
+        // Re-encounter: update non-null patch fields so JobDiva edits flow
+        // through on every delta sync (slice 5). Empty strings count as
+        // "not provided" — we don't clobber existing data with blanks.
+        // created_by_user_id is set only at insert; drop it from updates.
+        unset($patch['created_by_user_id']);
+        $updatable = array_filter(
+            $patch,
+            static fn($v) => $v !== null && $v !== ''
+        );
+        if (!empty($updatable)) {
+            $setSql = implode(', ', array_map(static fn($k) => "{$k} = :{$k}", array_keys($updatable)));
+            $params = $updatable;
+            $params['id']        = $id;
+            $params['tenant_id'] = $tenantId;
+            // tenant-leak-allow: tenant scope re-asserted in the WHERE
+            $pdo->prepare("UPDATE companies SET {$setSql} WHERE id = :id AND tenant_id = :tenant_id")
+                ->execute($params);
+        }
     }
 
     foreach ($rolesToEnsure as $role) {

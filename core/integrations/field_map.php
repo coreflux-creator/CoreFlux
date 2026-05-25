@@ -86,37 +86,51 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             'ot_multiplier', 'dt_multiplier',
         ],
         'person' => [
-            // Identity
+            // -- people table (one row per person; talent-pool model) --
             'external_id',
+            // Names
             'first_name', 'middle_name', 'last_name', 'preferred_name',
             // Contact
             'email_primary', 'email_secondary',
             'phone_primary', 'phone_secondary',
             // Classification / lifecycle
-            'classification', 'status', 'employment_type',
+            'classification', 'status',
             // Work auth
             'work_auth_status', 'work_auth_expiry', 'requires_sponsorship',
-            // Tenure
-            'hire_date', 'termination_date', 'pay_frequency',
             // Home address (non-PII — public-record fields are fine to sync)
             'home_address_line1', 'home_address_line2',
             'home_city', 'home_state', 'home_postal_code', 'home_country',
-            // Career
+            // Career / sourcing
             'linkedin_url', 'source', 'recruiter_notes',
+            // INTENTIONALLY EXCLUDED:
+            //   id, tenant_id                 — FKs / system
+            //   dob, ssn_last4                — PII (people.pii.view gates them)
+            //   resume_storage_object_id      — FK to object storage
+            //   referred_by_person_id         — FK
+            //   created_by_user_id, *_at      — audit columns
         ],
         'company' => [
+            // -- companies table --
             'external_id',
-            'name', 'website', 'phone', 'industry', 'description',
-            'address_line1', 'address_line2', 'city', 'state',
-            'postal_code', 'country',
-            // Billing / commercial
-            'billing_email', 'billing_terms', 'tax_id_last4',
+            'name', 'legal_name', 'website', 'phone',
+            'duns', 'ein_last4',
+            'primary_contact_name', 'primary_contact_email', 'primary_contact_phone',
+            'address_line1', 'address_line2',
+            'city', 'state', 'postal_code', 'country',
+            'msa_signed_at', 'notes',
+            // INTENTIONALLY EXCLUDED:
+            //   id, tenant_id, deleted_at, created_by_user_id, *_at  — system
+            //   ein_full_ct                                           — ciphertext column
+            //   msa_storage_object_id, use_count, last_used_at        — system-managed
         ],
         'contact' => [
+            // -- company_contacts table (multiple per company) --
             'external_id',
-            'name', 'first_name', 'last_name',
-            'title', 'email', 'phone', 'mobile_phone',
-            'contact_role', 'notes',
+            'name', 'first_name', 'last_name',     // first/last virtual: split server-side
+            'title', 'email', 'phone',
+            'contact_role', 'is_primary', 'notes',
+            // INTENTIONALLY EXCLUDED:
+            //   id, tenant_id, company_id, *_at  — system
         ],
     ];
     return $map[$entityType] ?? [];

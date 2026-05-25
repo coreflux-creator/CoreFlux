@@ -108,21 +108,25 @@ $assert('errors[] for missing_fields includes sample_keys for UI panel',
     strpos($src, "'kind'   => 'missing_fields'") !== false
     && strpos($src, "'sample_keys'    => \$sampleKeys,") !== false);
 
-echo "\nContact upsert helper — V2 BI key tolerance\n";
+echo "\nContact upsert helper — V2 BI key tolerance (slice 5: through registry fallback)\n";
+// The plucker candidate lists were preserved verbatim — they're now the
+// static-fn fallback the field-map registry calls when no tenant rule exists.
 $assert('email lookup includes "email" + "primary email"',
-    strpos($src, "jobdivaPluckField(\$jd, ['email', 'emailAddress', 'email_address', 'primary email', 'primaryEmail']);") !== false);
+    strpos($src, "jobdivaPluckField(\$jd, [\n            'email', 'emailAddress', 'email_address', 'primary email', 'primaryEmail',\n        ])") !== false);
 $assert('phone lookup includes "phone 1" / camelCase / snake_case / work phone',
-    strpos($src, "jobdivaPluckField(\$jd, ['phone 1', 'phone', 'phoneNumber', 'phone_number', 'workPhone', 'work phone']);") !== false);
+    strpos($src, "jobdivaPluckField(\$jd, [\n            'phone 1', 'phone', 'phoneNumber', 'phone_number', 'workPhone', 'work phone',\n        ])") !== false);
 $assert('title lookup includes "job title" space variant',
-    strpos($src, "jobdivaPluckField(\$jd, ['title', 'jobTitle', 'job_title', 'job title']);") !== false);
+    strpos($src, "jobdivaPluckField(\$jd, ['title', 'jobTitle', 'job_title', 'job title'])") !== false);
+$assert('contact upsert routes through tenantIntegrationFieldMapPluckInternal',
+    strpos($src, "tenantIntegrationFieldMapPluckInternal(\n        \$tid, 'jobdiva', 'contact', 'email'") !== false);
 
 echo "\nCompanies driver — V2 BI fallback (additive, preserves smoke contract)\n";
 $assert('preserves existing legacy ?? chain for companyId',
     strpos($src, "(string) (\$jd['id'] ?? \$jd['companyId'] ?? \$jd['company_id'] ?? '')") !== false);
 $assert('adds V2 BI pluck fallback for extId',
     strpos($src, "jobdivaPluckField(\$jd, ['id', 'companyId', 'company_id', 'companyID', 'CompanyId', 'COMPANYID'])") !== false);
-$assert('adds V2 BI pluck fallback for name',
-    strpos($src, "jobdivaPluckField(\$jd, ['name', 'companyName', 'company_name', 'company name', 'COMPANY NAME'])") !== false);
+$assert('adds V2 BI pluck fallback for name (now via registry $pluck helper)',
+    strpos($src, "\$pluck('name', ['name', 'companyName', 'company_name', 'company name', 'COMPANY NAME']);") !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

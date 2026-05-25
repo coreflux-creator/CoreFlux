@@ -296,24 +296,49 @@ function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
     foreach ($items as $jd) {
         try {
             $extId = (string) ($jd['id'] ?? $jd['companyId'] ?? $jd['company_id'] ?? '');
-            $name  = trim((string) ($jd['name'] ?? $jd['companyName'] ?? $jd['company_name'] ?? ''));
             // V2 BI fallback — JobDiva also returns "COMPANYID" / "COMPANY NAME"
             // in some tenant configs. jobdivaPluckField() catches those.
             if ($extId === '') $extId = jobdivaPluckField($jd, ['id', 'companyId', 'company_id', 'companyID', 'CompanyId', 'COMPANYID']);
-            if ($name === '')  $name  = jobdivaPluckField($jd, ['name', 'companyName', 'company_name', 'company name', 'COMPANY NAME']);
+
+            // Slice 5 wiring (2026-02): every settable column on `companies`
+            // resolves through the tenant integration field-map registry
+            // first, with the built-in JobDiva V2 candidate-key list as a
+            // safe fallback. Operators can rewire ANY field at runtime
+            // (e.g. map JobDiva's `customerName` → name) without code change.
+            require_once __DIR__ . '/../integrations/field_map.php';
+            $pluck = static function (string $internal, array $candidates) use ($tid, $jd) {
+                return (string) tenantIntegrationFieldMapPluckInternal(
+                    $tid, 'jobdiva', 'company', $internal, $jd,
+                    static fn() => jobdivaPluckField($jd, $candidates)
+                );
+            };
+
+            $name = trim((string) ($jd['name'] ?? $jd['companyName'] ?? $jd['company_name'] ?? ''));
+            $registryName = $pluck('name', ['name', 'companyName', 'company_name', 'company name', 'COMPANY NAME']);
+            if ($registryName !== '') $name = $registryName;
             if ($extId === '' || $name === '') { $skipped++; continue; }
 
-            $companyId = companiesUpsertByName($tid, $name, [
-                'website'              => $jd['website']     ?? null,
-                'phone'                => $jd['phone']       ?? null,
-                'address_line1'        => $jd['address1']    ?? $jd['address']     ?? null,
-                'address_line2'        => $jd['address2']    ?? null,
-                'city'                 => $jd['city']        ?? null,
-                'state'                => $jd['state']       ?? null,
-                'postal_code'          => $jd['zip']         ?? $jd['postal_code'] ?? null,
-                'country'              => $jd['country']     ?? 'US',
+            $patch = [
+                'website'              => $pluck('website',       ['website', 'url', 'homepage', 'site']) ?: null,
+                'phone'                => $pluck('phone',         ['phone', 'phoneNumber', 'phone_number', 'main phone']) ?: null,
+                'legal_name'           => $pluck('legal_name',    ['legal_name', 'legalName', 'legal name']) ?: null,
+                'duns'                 => $pluck('duns',          ['duns', 'dunsNumber', 'duns_number']) ?: null,
+                'ein_last4'            => substr($pluck('ein_last4', ['einLast4', 'ein_last4', 'einLastFour']), -4) ?: null,
+                'primary_contact_name' => $pluck('primary_contact_name',  ['primaryContactName',  'primary_contact_name',  'primary contact']) ?: null,
+                'primary_contact_email'=> $pluck('primary_contact_email', ['primaryContactEmail', 'primary_contact_email']) ?: null,
+                'primary_contact_phone'=> $pluck('primary_contact_phone', ['primaryContactPhone', 'primary_contact_phone']) ?: null,
+                'address_line1'        => $pluck('address_line1', ['address1', 'address', 'street1', 'street_address']) ?: null,
+                'address_line2'        => $pluck('address_line2', ['address2', 'street2', 'suite']) ?: null,
+                'city'                 => $pluck('city',          ['city', 'town', 'locality']) ?: null,
+                'state'                => $pluck('state',         ['state', 'region', 'province']) ?: null,
+                'postal_code'          => $pluck('postal_code',   ['zip', 'postal_code', 'postalCode', 'postal code', 'zipcode']) ?: null,
+                'country'              => $pluck('country',       ['country', 'countryCode', 'country_code']) ?: 'US',
+                'notes'                => $pluck('notes',         ['notes', 'note', 'comments', 'comment']) ?: null,
+                'msa_signed_at'        => $pluck('msa_signed_at', ['msaSignedAt', 'msa_signed_at', 'msaDate', 'msa_date']) ?: null,
                 'created_by_user_id'   => $userId,
-            ], ['client']);
+            ];
+
+            $companyId = companiesUpsertByName($tid, $name, $patch, ['client']);
 
             mappingUpsert($tid, 'jobdiva', 'company', $extId, $companyId, $jd, 'pull', $userId);
             $processed++;
@@ -532,12 +557,77 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
 
 function jobdivaSyncUpsertContact(int $tid, int $companyId, array $jd, string $name): int
 {
-    // JobDiva V2 BI Contact records expose "email", "phone 1" / "phone 2",
-    // and "title" — older shapes use camelCase. jobdivaPluckField()
-    // tolerates both.
-    $email = jobdivaPluckField($jd, ['email', 'emailAddress', 'email_address', 'primary email', 'primaryEmail']);
-    $phone = jobdivaPluckField($jd, ['phone 1', 'phone', 'phoneNumber', 'phone_number', 'workPhone', 'work phone']);
-    $title = jobdivaPluckField($jd, ['title', 'jobTitle', 'job_title', 'job title']);
+    require_once __DIR__ . '/../integrations/field_map.php';
+
+    // Slice 5 wiring (2026-02) — every settable column on company_contacts
+    // resolves through the tenant registry first, with built-in JobDiva
+    // V2 candidate-key lists as fallback. Operators can rewire any field
+    // (e.g. map JobDiva's `secondaryEmail` → email) without code changes.
+    //
+    // The caller already built a sensible $name from first+last; we let
+    // the registry override that via a 'name', 'first_name', or 'last_name'
+    // rule. Empty registry response → keep the caller's value.
+    $registryName = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'contact', 'name', $jd,
+        static fn() => ''
+    );
+    if ($registryName === '') {
+        $firstOverride = (string) tenantIntegrationFieldMapPluckInternal(
+            $tid, 'jobdiva', 'contact', 'first_name', $jd, static fn() => ''
+        );
+        $lastOverride = (string) tenantIntegrationFieldMapPluckInternal(
+            $tid, 'jobdiva', 'contact', 'last_name', $jd, static fn() => ''
+        );
+        if ($firstOverride !== '' || $lastOverride !== '') {
+            $registryName = trim($firstOverride . ' ' . $lastOverride);
+        }
+    }
+    if ($registryName !== '') $name = $registryName;
+
+    $email = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'contact', 'email', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'email', 'emailAddress', 'email_address', 'primary email', 'primaryEmail',
+        ])
+    );
+    $phone = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'contact', 'phone', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'phone 1', 'phone', 'phoneNumber', 'phone_number', 'workPhone', 'work phone',
+        ])
+    );
+    $title = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'contact', 'title', $jd,
+        static fn() => jobdivaPluckField($jd, ['title', 'jobTitle', 'job_title', 'job title'])
+    );
+    $contactRoleRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'contact', 'contact_role', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'role', 'contactRole', 'contact_role', 'contactType', 'contact type',
+        ])
+    );
+    // Coerce free-text role into the ENUM. Anything unrecognised falls back to 'other'.
+    $contactRoleMap = [
+        'account_mgr' => 'account_mgr', 'account manager' => 'account_mgr', 'am' => 'account_mgr',
+        'recruiter' => 'recruiter',
+        'ap' => 'ap', 'accounts payable' => 'ap',
+        'ar' => 'ar', 'accounts receivable' => 'ar',
+        'approver' => 'approver', 'timesheet approver' => 'approver',
+        'technical' => 'technical', 'tech' => 'technical',
+        'executive' => 'executive', 'exec' => 'executive', 'c-level' => 'executive',
+    ];
+    $contactRole = $contactRoleMap[strtolower(trim($contactRoleRaw))] ?? 'other';
+    $isPrimaryRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'contact', 'is_primary', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'isPrimary', 'is_primary', 'primaryContact', 'primary_contact',
+        ])
+    );
+    $isPrimary = in_array(strtolower(trim($isPrimaryRaw)), ['1', 'true', 'yes', 'y'], true) ? 1 : 0;
+    $notes = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'contact', 'notes', $jd,
+        static fn() => jobdivaPluckField($jd, ['notes', 'note', 'comments', 'comment'])
+    );
 
     $pdo = getDB();
     if ($email !== '') {
@@ -547,17 +637,33 @@ function jobdivaSyncUpsertContact(int $tid, int $companyId, array $jd, string $n
         if ($existingId > 0) {
             // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
             $pdo->prepare(
-                'UPDATE company_contacts SET name = :n, title = :ti, phone = :ph WHERE id = :id'
-            )->execute(['n' => $name, 'ti' => $title ?: null, 'ph' => $phone ?: null, 'id' => $existingId]);
+                'UPDATE company_contacts
+                    SET name = :n, title = :ti, phone = :ph,
+                        contact_role = :cr, is_primary = :ip,
+                        notes = :no
+                  WHERE id = :id'
+            )->execute([
+                'n'  => $name,
+                'ti' => $title ?: null,
+                'ph' => $phone ?: null,
+                'cr' => $contactRole,
+                'ip' => $isPrimary,
+                'no' => $notes !== '' ? mb_substr($notes, 0, 500) : null,
+                'id' => $existingId,
+            ]);
             return $existingId;
         }
     }
     $pdo->prepare(
-        'INSERT INTO company_contacts (tenant_id, company_id, name, title, email, phone, contact_role)
-         VALUES (:t, :c, :n, :ti, :e, :ph, "other")'
+        'INSERT INTO company_contacts
+            (tenant_id, company_id, name, title, email, phone, contact_role, is_primary, notes)
+         VALUES
+            (:t, :c, :n, :ti, :e, :ph, :cr, :ip, :no)'
     )->execute([
-        't' => $tid, 'c' => $companyId, 'n' => $name,
-        'ti' => $title ?: null, 'e' => $email ?: null, 'ph' => $phone ?: null,
+        't'  => $tid, 'c'  => $companyId, 'n'  => $name,
+        'ti' => $title ?: null, 'e'  => $email ?: null, 'ph' => $phone ?: null,
+        'cr' => $contactRole, 'ip' => $isPrimary,
+        'no' => $notes !== '' ? mb_substr($notes, 0, 500) : null,
     ]);
     return (int) $pdo->lastInsertId();
 }
