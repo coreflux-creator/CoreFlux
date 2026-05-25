@@ -1,7 +1,7 @@
 import React from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap, BarChart3, KeyRound, Palette, CalendarClock, Activity, Shield } from 'lucide-react';
+import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap, BarChart3, KeyRound, Palette, CalendarClock, Activity, Shield, Zap } from 'lucide-react';
 import SubTenantsAdmin from './SubTenantsAdmin';
 import SubTenantWizard from './SubTenantWizard';
 import SubTenantConsolidatedReports from './SubTenantConsolidatedReports';
@@ -32,6 +32,7 @@ import RolesReference from './RolesReference';
 import AuditorTokensAdmin from './AuditorTokensAdmin';
 import CrossTenantAuditAdmin from './CrossTenantAuditAdmin';
 import IntegrationFieldMapAdmin from './IntegrationFieldMapAdmin';
+import GraphqlSandbox from './GraphqlSandbox';
 
 /**
  * AdminModule — administrator surface.
@@ -72,6 +73,7 @@ const AdminOverview = () => (
         <ActionCard icon={Activity} title="Healthcheck"       description="One-click status of every freshly-shipped endpoint" href="/admin/healthcheck" />
         <ActionCard icon={ScrollText} title="Auditor links" description="Issue read-only access for external auditors (revocable, time-limited)" href="/admin/auditor-tokens" />
         <ActionCard icon={ScrollText} title="Cross-tenant audit trail" description="Every consolidation edge & intercompany mapping that crossed tenants" href="/admin/cross-tenant-audit" />
+        <ActionCard icon={Zap} title="GraphQL Sandbox" description="Interactive playground for the federated GraphQL endpoint — query, explore, export snippets" href="/admin/graphql-sandbox" />
       </ActionCardsGrid>
     </Section>
 
@@ -105,6 +107,7 @@ const AdminSidebar = () => {
     { to: '/admin/healthcheck',      label: 'Healthcheck',      icon: Activity },
     { to: '/admin/auditor-tokens',   label: 'Auditor links',    icon: ScrollText },
     { to: '/admin/cross-tenant-audit', label: 'Cross-tenant audit', icon: ScrollText },
+    { to: '/admin/graphql-sandbox',  label: 'GraphQL Sandbox',  icon: Zap },
   ];
   // Local sub-sidebar — override the global .sidebar class which is
   // position:fixed; left:0 (intended for the app-level shell sidebar).
@@ -180,6 +183,7 @@ const AdminModule = ({ session }) => {
           <Route path="/healthcheck"       element={<HealthcheckAdmin session={session} />} />
           <Route path="/auditor-tokens"    element={<AuditorTokensAdmin session={session} />} />
           <Route path="/cross-tenant-audit" element={<CrossTenantAuditAdmin session={session} />} />
+          <Route path="/graphql-sandbox"   element={<GraphqlSandbox session={session} />} />
         </Routes>
       </div>
     </div>

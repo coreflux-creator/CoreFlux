@@ -7940,3 +7940,59 @@ a subdomain.
 - `/app/scripts/setup_droplet_graphql.sh`
 - `/app/tests/setup_droplet_graphql_smoke.php`
 - `/app/graphql/deploy/DEPLOYMENT.md`
+
+## GraphQL Sandbox admin page + dashboard live-probe (2026-02-14)
+
+### Why
+Now that `https://graphql.corefluxapp.com/` is live, operators and engineers
+needed a discoverable, in-dashboard surface to (a) confirm the endpoint is
+healthy at a glance, (b) jump into the Apollo Sandbox query playground, and
+(c) copy curl/auth snippets. Also serves as the first end-to-end proof that
+the React app can talk to the GraphQL endpoint cross-origin.
+
+### What shipped
+- **`/app/dashboard/src/pages/GraphqlSandbox.jsx`** — admin page with:
+  - Live introspection check on mount → green pill "Endpoint healthy — N
+    types exposed" / red pill "Endpoint unreachable" + error detail.
+  - Big "Open Apollo Sandbox" → new tab to `https://graphql.corefluxapp.com/`.
+  - Copy-to-clipboard curl snippet.
+  - Architecture ASCII diagram showing the request path.
+- **`AdminModule.jsx`** wiring:
+  - New `Zap` icon import from lucide-react
+  - ActionCard "GraphQL Sandbox" in the overview grid
+  - Sidebar link `/admin/graphql-sandbox`
+  - Route registered
+- **`/app/tests/graphql_sandbox_admin_page_smoke.php`** — 23 assertions
+  covering file presence, endpoint URL, introspection wiring, CORS safety,
+  all required data-testids, AdminModule integration, and a cross-check
+  that the auth-gate sentry still passes.
+
+### CORS verification
+The Apollo Router's `router.yaml` already lists `https://corefluxapp.com`
+in `cors.origins`, so the dashboard's introspection probe from
+`corefluxapp.com` → `graphql.corefluxapp.com` works without further config.
+
+### Build
+- Vite bundle: `index-B-sAphxJ.js` / `index-BC5g6YJu.css`
+- `sync_bundle.sh` confirms all four sync points consistent.
+
+### Tests
+- Full PHP smoke suite: **274/274 ✅** (added the new sandbox smoke)
+
+### Deferred (next session)
+- Apollo Client (`@apollo/client`, `graphql`) install + `ApolloProvider`
+  wiring around `<App />`
+- JWT acquisition strategy for cross-origin auth (dashboard currently uses
+  session cookies; GraphQL subgraphs verify JWTs). Options: (a) mint a JWT
+  from the existing PHP session via a new `/api/auth/issue_dashboard_jwt.php`
+  endpoint, (b) reuse `mobile_login`'s JWT path, (c) configure subgraphs
+  to also accept a session cookie via a Cloudways → droplet bridge call.
+- First pilot REST→GraphQL migration of a real dashboard component (waiting
+  for user to pick which feature).
+
+### Files of reference
+- `/app/dashboard/src/pages/GraphqlSandbox.jsx`
+- `/app/dashboard/src/pages/AdminModule.jsx`
+- `/app/tests/graphql_sandbox_admin_page_smoke.php`
+- `/app/graphql/router/router.yaml` (CORS origins)
+
