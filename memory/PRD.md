@@ -64,6 +64,75 @@ earlier prefix-stripper wasn't the issue. Root cause:
 - Commit lookups replaced both `scopedFind(... FROM people ...)`
   calls with raw prepared statements bound to the same
   `effectiveTenantIdForModule('people')`, so person lookups don't
+
+## Post-import approval UX + cross-importer sub-tenant fix (2026-02 — current fork, follow-up to CSV stability)
+
+### Why
+After the prefix-stripper + people-scope fixes landed, operator imported 9
+placements successfully — but the CsvImportPage's "Done" button just
+returned them to the default Placements list (filtered to
+`status=active`), which hides drafts. They saw "Success 9/0/0" with no
+clue where the rows went. Same gap on rates: nine new draft rates spread
+across nine placements with no global "review and approve" surface.
+
+### Backend
+- **`POST /modules/placements/api/placements.php?action=bulk_status`** —
+  flips many placements at once. Requires `placements.manage`, caps at
+  500 ids, validates against `ALLOWED_STATUS`, audits each row with
+  `via=bulk_status`. Returns `{updated, skipped, results[]}`.
+- **`POST /modules/placements/api/rates.php?action=bulk_approve`** —
+  approves N draft rates in one call. Requires
+  `placements.financials.approve`, caps at 200 ids. Shares the new
+  `placementsRateApproveOne()` helper with the single-row approve
+  endpoint so semantics are identical (chain-based margin snapshot,
+  prior-row supersede, audit trail). Bulk path never sets
+  `is_correction=true` — corrections still require the per-row flow.
+- **`GET /modules/placements/api/rates.php?action=drafts`** — tenant-
+  wide queue of unapproved `placement_rates` joined with placements +
+  people. 500-row cap. Powers the new queue page.
+
+### Frontend
+- `CsvImportPage.jsx` accepts an optional `successCtas(result) =>
+  [{label, to, primary, testid}]` prop. Module wrappers can now
+  surface a smart "View N drafts" link instead of the generic Done.
+- `modules/placements/ui/CsvImport.jsx` passes two CTAs:
+  - "View N draft placement(s)" → `../list?status=draft`
+  - "Approve N draft rate(s)"   → `../draft-rates`
+- `modules/placements/ui/List.jsx` reads `?status=` from the URL, syncs
+  it on every filter change, and when filtered to `draft` shows a bulk
+  toolbar (select-all, "Promote drafts to: pending_start / active /
+  on_hold", Clear selection). Bulk update reloads the list and shows a
+  Updated/Skipped result banner.
+- New `modules/placements/ui/DraftRatesQueue.jsx` at `/modules/placements/draft-rates`.
+  Lists every unapproved rate with placement + person context, supports
+  select-all + bulk Approve. Empty state copy nudges the operator to
+  import to see anything here. Per-row "Review →" links jump into the
+  placement's Rates tab for the correction workflow.
+- `PlacementsModule.jsx` wires `<Route path="draft-rates" />`.
+
+### Cross-importer sub-tenant scope sweep (carry-over from prior fix)
+- `modules/people/api/csv_import.php` email-collision dedupe now binds
+  `effectiveTenantIdForModule('people')`. Sub-tenants in shared mode no
+  longer silently re-import people that exist under the master tenant.
+- `modules/time/api/csv_import.php` placement-external-id lookup binds
+  `effectiveTenantIdForModule('placements')` for the same reason.
+- Both files `require_once core/sub_tenants.php`.
+
+### Tests
+- `tests/placements_bulk_approve_drafts_queue_smoke.php` — 58 ✓ / 0 ✗
+- `tests/csv_importers_subtenant_scope_smoke.php` — 10 ✓ / 0 ✗
+- `tests/placements_csv_id_lookup_smoke.php` updated to accept the new
+  dynamic `colSpan={isDraftView ? 10 : 9}` shape (32 ✓ / 0 ✗).
+- Full suite: **290/290 ✓** — no plaid flake this run.
+- `yarn build` clean + `sync_bundle.sh` updated `.deploy-version`,
+  service-worker `CACHE_VERSION`, `dashboard/dist/index.html`.
+
+### Deploy note
+React + PHP both touched — needs a full Cloudways deploy + `update.php`
+to pick up new bundle hashes AND new API endpoints. New bundle:
+`index-BoK2e7wC.js` / `index-BC5g6YJu.css` / SW `coreflux-BoK2e7wC`.
+
+
   silently drift if a tenant overrides the placements scope.
 
 ### Tests

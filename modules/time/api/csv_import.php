@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/time.php';
 
 use Core\CsvImportService;
@@ -108,7 +109,12 @@ if ($method === 'POST' && $action === 'dry_run') {
             $pdo = getDB();
             $stmt = $pdo->prepare("SELECT external_id, id FROM placements
                                    WHERE tenant_id = ? AND deleted_at IS NULL AND external_id IN ({$placeholders})");
-            $stmt->execute(array_merge([currentTenantId()], $exts));
+            // Placement lookup uses the *placements* module scope —
+            // a sub-tenant under shared placement scope sees the
+            // master's placements, so binding the raw session
+            // tenant_id would always miss in that mode.
+            $placementsTid = effectiveTenantIdForModule('placements') ?? currentTenantId();
+            $stmt->execute(array_merge([$placementsTid], $exts));
             $map = [];
             foreach ($stmt as $r) $map[$r['external_id']] = (int) $r['id'];
             foreach ($result['rows'] as $rn => $row) {

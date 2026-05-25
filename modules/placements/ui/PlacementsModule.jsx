@@ -7,6 +7,7 @@ import PlacementCreate from './PlacementCreate';
 import PlacementDetail from './PlacementDetail';
 import Reports from './Reports';
 import CsvImport from './CsvImport';
+import DraftRatesQueue from './DraftRatesQueue';
 
 /**
  * Placements module entry — SPEC §7 routes.
@@ -25,6 +26,7 @@ export default function PlacementsModule({ session }) {
         <Route path="expiring"   element={<Expiring />} />
         <Route path="new"        element={<PlacementCreate />} />
         <Route path="csv_import" element={<CsvImport />} />
+        <Route path="draft-rates" element={<DraftRatesQueue />} />
         <Route path="reports"    element={<Reports />} />
         <Route path="commissions"element={<List session={session} commissionsView />} />
         <Route path="referrals"  element={<List session={session} referralsView />} />

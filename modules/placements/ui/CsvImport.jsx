@@ -23,6 +23,26 @@ export default function CsvImport() {
         { key: 'start_date',      label: 'Start date' },
         { key: 'end_client_name', label: 'End client name' },
       ]}
+      successCtas={(result) => {
+        // CSV imports always land placements as `status='draft'` and
+        // their first rate row as unapproved. The default Placements
+        // list filters to status=active, which hides everything the
+        // operator just imported. Surface explicit CTAs so the
+        // post-import path is "review drafts → activate → approve
+        // rates" instead of "where did my rows go?".
+        const n = result?.imported_count ?? 0;
+        if (n <= 0) return [];
+        return [
+          { label: `View ${n} draft placement${n === 1 ? '' : 's'}`,
+            to: '../list?status=draft',
+            testid: 'placements-csv-import-view-drafts',
+            primary: true },
+          { label: `Approve ${n} draft rate${n === 1 ? '' : 's'}`,
+            to: '../draft-rates',
+            testid: 'placements-csv-import-view-draft-rates',
+            primary: false },
+        ];
+      }}
     />
   );
 }

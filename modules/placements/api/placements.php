@@ -82,6 +82,53 @@ if ($method === 'POST') {
         api_ok(['placement' => placementGet($id)]);
     }
 
+    // Bulk status update — flips many placements at once. Built for the
+    // post-CSV-import "I just imported 9 drafts, mark them all active"
+    // flow. Single-row PATCH is still the canonical edit path; this is
+    // strictly an operator-time-saver.
+    //
+    // POST /api/placements/placements?action=bulk_status
+    // body: {"ids": [12,13,14], "status": "active"}
+    //
+    // Required permission: placements.manage (same as single-row PATCH).
+    // Each updated row gets its own `placement.status_changed` audit so
+    // the audit trail looks identical to operator-by-operator edits.
+    if ($action === 'bulk_status') {
+        rbac_legacy_require($user, 'placements.manage');
+        $body = api_json_body();
+        $ids = is_array($body['ids'] ?? null) ? array_values(array_unique(array_map('intval', $body['ids']))) : [];
+        $ids = array_values(array_filter($ids, static fn ($n) => $n > 0));
+        $newStatus = (string) ($body['status'] ?? '');
+        if (!$ids)                                       api_error('ids[] required', 422);
+        if (count($ids) > 500)                           api_error('Too many ids (max 500 per call)', 422);
+        if (!in_array($newStatus, ALLOWED_STATUS, true)) {
+            api_error('Invalid status', 422, ['allowed' => ALLOWED_STATUS]);
+        }
+        $updated = 0; $skipped = 0; $results = [];
+        foreach ($ids as $pid) {
+            $rows = scopedUpdate('placements', $pid, ['status' => $newStatus]);
+            if ($rows > 0) {
+                $updated++;
+                placementsAudit('placement.status_changed', [
+                    'id'     => $pid,
+                    'status' => $newStatus,
+                    'via'    => 'bulk_status',
+                ], $pid);
+                $results[] = ['id' => $pid, 'ok' => true];
+            } else {
+                $skipped++;
+                $results[] = ['id' => $pid, 'ok' => false, 'reason' => 'not_found_or_no_change'];
+            }
+        }
+        api_ok([
+            'ok'      => true,
+            'updated' => $updated,
+            'skipped' => $skipped,
+            'status'  => $newStatus,
+            'results' => $results,
+        ]);
+    }
+
     if ($action === 'end') {
         $id = (int) api_query('id', 0);
         if ($id <= 0) api_error('id required', 400);

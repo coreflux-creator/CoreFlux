@@ -54,6 +54,16 @@ export default function CsvImportPage({
    * under `extra_flags` so audits show which options were checked.
    */
   extraToggles = [],
+  /**
+   * successCtas: optional fn that returns custom action buttons for the
+   * "Import complete" success screen. Lets a module surface a smart
+   * follow-up (e.g. placements: "View N drafts") so the operator
+   * doesn't bounce back to a default-filtered list and find nothing.
+   * Shape: (result) => [{ label, to, testid, primary }]
+   * Receives the parsed commit response so the CTA label can include
+   * the row count.
+   */
+  successCtas = null,
 }) {
   const fileRef = useRef(null);
   const [csvText, setCsvText]         = useState('');
@@ -563,7 +573,17 @@ export default function CsvImportPage({
               This import has been logged to the audit trail (who, when, file, rows, errors).
             </p>
             <div style={{ display: 'flex', gap: 'var(--cf-space-2)', flexWrap: 'wrap' }}>
-              <Link to={backTo}              className="btn btn--primary" data-testid={`${testidPrefix}-result-back`}>Done</Link>
+              {(typeof successCtas === 'function' ? (successCtas(committed) || []) : []).map((c, i) => (
+                <Link
+                  key={c.testid || c.to || i}
+                  to={c.to}
+                  className={c.primary === false ? 'btn' : 'btn btn--primary'}
+                  data-testid={c.testid || `${testidPrefix}-result-cta-${i}`}
+                >
+                  {c.label}
+                </Link>
+              ))}
+              <Link to={backTo}              className={(typeof successCtas === 'function' && (successCtas(committed) || []).length > 0) ? 'btn' : 'btn btn--primary'} data-testid={`${testidPrefix}-result-back`}>Done</Link>
               <Link to="/data/import-history" className="btn btn--ghost"   data-testid={`${testidPrefix}-result-view-history`}>View Import History</Link>
             </div>
           </div>

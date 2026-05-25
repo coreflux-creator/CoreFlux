@@ -25,36 +25,63 @@ $action = $_GET['action'] ?? '';
 
 if ($method === 'GET') {
     rbac_legacy_require($user, 'placements.financials.view');
+
+    // GET /api/placements/rates?action=drafts
+    //
+    // Lists every UNapproved placement_rates row in the current tenant,
+    // joined with the parent placement + person so the queue page can
+    // render rich rows without an N+1 fetch. Powers the "Draft Rates"
+    // bulk-approval queue.
+    if ($action === 'drafts') {
+        $pdo = getDB();
+        $stmt = $pdo->prepare(
+            "SELECT pr.id, pr.placement_id, pr.effective_from, pr.bill_rate, pr.bill_rate_unit,
+                    pr.pay_rate, pr.pay_rate_unit, pr.currency, pr.created_at,
+                    p.title AS placement_title, p.status AS placement_status,
+                    p.external_id AS placement_external_id, p.start_date AS placement_start_date,
+                    p.person_id, p.end_client_name,
+                    pe.first_name, pe.last_name, pe.email_primary
+             FROM placement_rates pr
+             JOIN placements p ON p.id = pr.placement_id
+             LEFT JOIN people pe ON pe.id = p.person_id
+             WHERE pr.tenant_id = :tenant_id
+               AND pr.approved_at IS NULL
+               AND (p.deleted_at IS NULL)
+             ORDER BY pr.created_at DESC, pr.id DESC
+             LIMIT 500"
+        );
+        $stmt->execute(['tenant_id' => currentTenantId()]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        api_ok(['rates' => $rows, 'count' => count($rows)]);
+    }
+
     $pid = (int) api_query('placement_id', 0);
     if ($pid <= 0) api_error('placement_id required', 400);
     placementsAudit('placement.financials.viewed', ['placement_id' => $pid], $pid);
     api_ok(['rates' => placementRates($pid)]);
 }
 
-if ($method === 'POST' && $action === 'approve') {
-    rbac_legacy_require($user, 'placements.financials.approve');
-    $id = (int) api_query('id', 0);
-    if ($id <= 0) api_error('id required', 400);
+/**
+ * Approve a single placement_rates row inside a transaction.
+ * Shared by `?action=approve` (one rate) and `?action=bulk_approve`
+ * (many) so the bulk path uses the IDENTICAL approve semantics —
+ * margin snapshot computed from current chain, prior approved row
+ * closed via effective_to, audit emitted. Throws on failure.
+ *
+ * @return array{margin: array, superseded_count: int}
+ */
+function placementsRateApproveOne(int $rateId, array $user, bool $isCorrection, ?string $correctionReason): array
+{
+    $rate = scopedFind('SELECT * FROM placement_rates WHERE tenant_id = :tenant_id AND id = :id', ['id' => $rateId]);
+    if (!$rate)              throw new \RuntimeException("Rate {$rateId} not found");
+    if ($rate['approved_at']) throw new \RuntimeException("Rate {$rateId} already approved");
 
-    $rate = scopedFind('SELECT * FROM placement_rates WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
-    if (!$rate) api_error('Rate not found', 404);
-    if ($rate['approved_at']) api_error('Already approved (snapshot is locked; create a correction)', 409);
-
-    $body = api_json_body();
-    $isCorrection    = !empty($body['is_correction']);
-    $correctionReason= $body['correction_reason'] ?? null;
-    if ($isCorrection && empty($correctionReason)) {
-        api_error('correction_reason is required when is_correction=true', 422);
-    }
-
-    // Compute snapshot from current chain
-    $chain = placementChain((int) $rate['placement_id']);
+    $chain  = placementChain((int) $rate['placement_id']);
     $margin = placementsComputeMargin($rate, $chain);
 
     $pdo = getDB();
     $pdo->beginTransaction();
     try {
-        // Close prior approved row covering this effective_from
         $stmt = $pdo->prepare(
             "UPDATE placement_rates
              SET effective_to = DATE_SUB(:eff_set, INTERVAL 1 DAY),
@@ -69,14 +96,13 @@ if ($method === 'POST' && $action === 'approve') {
             'eff_set'        => $rate['effective_from'],
             'eff_lt'         => $rate['effective_from'],
             'eff_gt'         => $rate['effective_from'],
-            'new_id_set'     => $id,
-            'new_id_filter'  => $id,
+            'new_id_set'     => $rateId,
+            'new_id_filter'  => $rateId,
             'tenant_id'      => currentTenantId(),
             'pid'            => $rate['placement_id'],
         ]);
         $closed = $stmt->rowCount();
 
-        // Stamp the new row
         $stmt2 = $pdo->prepare(
             'UPDATE placement_rates SET
                 approved_by_user_id = :uid,
@@ -94,18 +120,17 @@ if ($method === 'POST' && $action === 'approve') {
             'ic'        => $isCorrection ? 1 : 0,
             'reason'    => $correctionReason,
             'tenant_id' => currentTenantId(),
-            'id'        => $id,
+            'id'        => $rateId,
         ]);
-
         $pdo->commit();
     } catch (\Throwable $e) {
         $pdo->rollBack();
-        api_error('Approve failed: ' . $e->getMessage(), 500);
+        throw $e;
     }
 
     placementsAudit('placement.rate.approved', [
         'placement_id'        => (int) $rate['placement_id'],
-        'rate_id'             => $id,
+        'rate_id'             => $rateId,
         'effective_from'      => $rate['effective_from'],
         'adjusted_bill_rate'  => $margin['adjusted_bill_rate'],
         'net_to_vendor'       => $margin['net_to_vendor'],
@@ -117,11 +142,60 @@ if ($method === 'POST' && $action === 'approve') {
 
     if ($closed > 0) {
         placementsAudit('placement.rate.superseded', [
-            'placement_id' => (int) $rate['placement_id'], 'by_rate_id' => $id, 'count' => $closed,
+            'placement_id' => (int) $rate['placement_id'], 'by_rate_id' => $rateId, 'count' => $closed,
         ], (int) $rate['placement_id']);
     }
 
-    api_ok(['ok' => true, 'snapshot' => $margin]);
+    return ['margin' => $margin, 'superseded_count' => $closed];
+}
+
+if ($method === 'POST' && $action === 'bulk_approve') {
+    rbac_legacy_require($user, 'placements.financials.approve');
+    $body = api_json_body();
+    $ids = is_array($body['ids'] ?? null) ? array_values(array_unique(array_map('intval', $body['ids']))) : [];
+    $ids = array_values(array_filter($ids, static fn ($n) => $n > 0));
+    if (!$ids)             api_error('ids[] required', 422);
+    if (count($ids) > 200) api_error('Too many ids (max 200 per call)', 422);
+
+    // Bulk-approve never accepts an "is_correction=true" flag — by the
+    // shape of the workflow a CSV-imported draft is always a fresh
+    // rate, never a correction (corrections are explicit single-row).
+    // Forces operators to use the per-row Approve flow for corrections.
+    $approved = 0; $failed = 0; $results = [];
+    foreach ($ids as $rid) {
+        try {
+            $r = placementsRateApproveOne($rid, $user, false, null);
+            $approved++;
+            $results[] = ['id' => $rid, 'ok' => true, 'adjusted_bill_rate' => $r['margin']['adjusted_bill_rate']];
+        } catch (\Throwable $e) {
+            $failed++;
+            $results[] = ['id' => $rid, 'ok' => false, 'reason' => $e->getMessage()];
+        }
+    }
+    api_ok(['ok' => true, 'approved' => $approved, 'failed' => $failed, 'results' => $results]);
+}
+
+if ($method === 'POST' && $action === 'approve') {
+    rbac_legacy_require($user, 'placements.financials.approve');
+    $id = (int) api_query('id', 0);
+    if ($id <= 0) api_error('id required', 400);
+
+    $body = api_json_body();
+    $isCorrection    = !empty($body['is_correction']);
+    $correctionReason= $body['correction_reason'] ?? null;
+    if ($isCorrection && empty($correctionReason)) {
+        api_error('correction_reason is required when is_correction=true', 422);
+    }
+
+    try {
+        $r = placementsRateApproveOne($id, $user, $isCorrection, $correctionReason);
+    } catch (\Throwable $e) {
+        $msg = $e->getMessage();
+        if (str_contains($msg, 'not found'))    api_error('Rate not found', 404);
+        if (str_contains($msg, 'already approved')) api_error('Already approved (snapshot is locked; create a correction)', 409);
+        api_error('Approve failed: ' . $msg, 500);
+    }
+    api_ok(['ok' => true, 'snapshot' => $r['margin']]);
 }
 
 if ($method === 'POST') {

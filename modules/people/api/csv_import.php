@@ -16,6 +16,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/people.php';
 require_once __DIR__ . '/../lib/audit.php';
 
@@ -142,7 +143,13 @@ if ($method === 'POST' && $action === 'dry_run') {
                 "SELECT LOWER(email_primary) AS e FROM people
                  WHERE tenant_id = ? AND deleted_at IS NULL AND LOWER(email_primary) IN ({$placeholders})"
             );
-            $stmt->execute(array_merge([currentTenantId()], array_map('strtolower', $emails)));
+            // Email-collision dedupe — uses the *people* module scope
+            // (shared → parent for sub-tenants) so a sub-tenant doesn't
+            // silently re-import a person that already exists under the
+            // master tenant. Falls back to raw session tenant when
+            // sub_tenants config isn't deployed yet.
+            $peopleTid = effectiveTenantIdForModule('people') ?? currentTenantId();
+            $stmt->execute(array_merge([$peopleTid], array_map('strtolower', $emails)));
             foreach ($stmt as $r) $existingEmails[$r['e']] = true;
         }
     }
