@@ -18,6 +18,8 @@ require_once __DIR__ . '/../lib/placements.php';
 
 use Core\CsvImportService;
 
+require_once __DIR__ . '/../lib/csv_helpers.php';
+
 CsvImportService::registerSchema('placements', [
     'fields' => [
         'person_email'      => ['label' => 'Person email',     'required' => true, 'type' => 'email'],
@@ -121,7 +123,10 @@ if ($method === 'POST' && $action === 'dry_run') {
     // Validate person_email exists in tenant
     if ($result['rows']) {
         $emails = [];
-        foreach ($result['rows'] as $r) if (!empty($r['person_email'])) $emails[] = strtolower($r['person_email']);
+        foreach ($result['rows'] as $r) {
+            $em = placementsCsvNormaliseEmail((string) ($r['person_email'] ?? ''));
+            if ($em !== '') $emails[] = $em;
+        }
         if ($emails) {
             $placeholders = implode(',', array_fill(0, count($emails), '?'));
             $pdo  = getDB();
@@ -132,11 +137,51 @@ if ($method === 'POST' && $action === 'dry_run') {
             $stmt->execute(array_merge([currentTenantId()], $emails));
             $found = [];
             foreach ($stmt as $r) $found[$r['e']] = (int) $r['id'];
+
+            // "Did you mean?" — when a CSV email misses, hand the operator
+            // up to 3 closest emails from the tenant's directory so a
+            // single-character typo or hidden-Unicode bug is fixable
+            // in two clicks instead of a database safari. Loaded lazily
+            // (only when there's at least one miss) to keep dry-run fast
+            // on clean batches.
+            $directoryCache = null;
+            $loadDirectory = static function () use (&$directoryCache, $pdo) {
+                if ($directoryCache !== null) return $directoryCache;
+                $st = $pdo->prepare(
+                    'SELECT LOWER(email_primary) AS e FROM people
+                      WHERE tenant_id = ? AND deleted_at IS NULL AND email_primary IS NOT NULL
+                      LIMIT 5000'
+                );
+                $st->execute([currentTenantId()]);
+                $directoryCache = array_column($st->fetchAll(\PDO::FETCH_ASSOC), 'e');
+                return $directoryCache;
+            };
+            $suggestFor = static function (string $needle) use ($loadDirectory): array {
+                if ($needle === '') return [];
+                $candidates = $loadDirectory();
+                if (!$candidates) return [];
+                $scored = [];
+                foreach ($candidates as $cand) {
+                    // levenshtein blows up beyond 255 chars — bail safely.
+                    if (strlen($cand) > 255 || strlen($needle) > 255) continue;
+                    $d = levenshtein($needle, $cand);
+                    if ($d <= 3) $scored[$cand] = $d;
+                }
+                asort($scored);
+                return array_slice(array_keys($scored), 0, 3);
+            };
+
             foreach ($result['rows'] as $rn => $row) {
-                $em = strtolower($row['person_email'] ?? '');
+                $rawEm = (string) ($row['person_email'] ?? '');
+                $em    = placementsCsvNormaliseEmail($rawEm);
                 if ($em && !isset($found[$em])) {
+                    $msg = "person_email: '{$rawEm}' not found in this tenant's People";
+                    $suggestions = $suggestFor($em);
+                    if ($suggestions) {
+                        $msg .= ' — did you mean: ' . implode(', ', $suggestions) . '?';
+                    }
                     $result['errors'][$rn] = $result['errors'][$rn] ?? [];
-                    $result['errors'][$rn][] = "person_email: '{$em}' not found in this tenant's People";
+                    $result['errors'][$rn][] = $msg;
                 }
             }
             $result['error_count'] = count($result['errors']);
@@ -155,10 +200,13 @@ if ($method === 'POST' && $action === 'commit') {
     $updateExisting = !empty($_GET['update_existing']);
 
     $result = CsvImportService::commit('placements', $csv, function (array $row) use ($user, $updateExisting) {
-        // Resolve person_id by tenant + email
+        // Resolve person_id by tenant + email. Same Unicode-defensive
+        // normalisation as dry_run so a row that passed validation
+        // doesn't fail the commit with a stale hidden-whitespace error.
+        $emClean = placementsCsvNormaliseEmail((string) ($row['person_email'] ?? ''));
         $person = scopedFind(
-            'SELECT id FROM people WHERE tenant_id = :tenant_id AND LOWER(email_primary) = LOWER(:email) AND deleted_at IS NULL',
-            ['email' => $row['person_email']]
+            'SELECT id FROM people WHERE tenant_id = :tenant_id AND LOWER(email_primary) = :email AND deleted_at IS NULL',
+            ['email' => $emClean]
         );
         if (!$person) throw new \RuntimeException("person_email not found: {$row['person_email']}");
 
