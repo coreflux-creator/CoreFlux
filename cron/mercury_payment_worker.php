@@ -27,6 +27,7 @@ try {
     $stmt = $pdo->prepare(
         'SELECT id, tenant_id, state FROM payment_instructions
           WHERE state IN ("Approved", "Funding", "Submitted")
+            AND (cool_off_until IS NULL OR cool_off_until <= NOW())
           ORDER BY tenant_id, state_changed_at ASC
           LIMIT 1000'
     );

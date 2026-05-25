@@ -361,3 +361,46 @@ function mercuryReconciliationMatches(int $tenantId, ?int $instructionId = null,
         return [];
     }
 }
+
+/**
+ * Reconciliation workbench feed — payment_instructions that are
+ * Settled (Mercury confirmed the payout cleared) but haven't been
+ * tied to an incoming bank-feed transaction yet.
+ *
+ * The 3-pane UI's LEFT column lives off this list. The MIDDLE column
+ * is populated by clicking "Run auto-match" (which kicks the existing
+ * mercuryReconcileTenant() engine). The RIGHT column shows the
+ * already-reconciled rows via mercuryReconciliationMatches().
+ *
+ * Returns up to 100 rows ordered by oldest-unreconciled-first so
+ * stale items surface immediately.
+ */
+function mercuryReconciliationUnmatched(int $tenantId, int $limit = 100): array
+{
+    try {
+        $pdo = getDB();
+        $stmt = $pdo->prepare(
+            'SELECT pi.id, pi.amount_cents, pi.currency, pi.state, pi.memo,
+                    pi.payout_mercury_txn_id, pi.payout_initiated_at,
+                    pi.payout_settled_at, pi.payout_last_polled_at,
+                    pi.funding_mercury_txn_id, pi.funding_settled_at,
+                    r.name AS recipient_name, r.email AS recipient_email
+               FROM payment_instructions pi
+               LEFT JOIN mercury_recipients r ON r.id = pi.recipient_id AND r.tenant_id = pi.tenant_id
+              WHERE pi.tenant_id = :t
+                AND pi.state IN ("Settled")
+                AND pi.reconciled_at IS NULL
+              ORDER BY pi.payout_settled_at ASC, pi.id ASC
+              LIMIT ' . (int) max(1, min(500, $limit))
+        );
+        $stmt->execute(['t' => $tenantId]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        foreach ($rows as &$r) {
+            $r['id']           = (int) $r['id'];
+            $r['amount_cents'] = (int) $r['amount_cents'];
+        }
+        return $rows;
+    } catch (\Throwable $e) {
+        return [];
+    }
+}

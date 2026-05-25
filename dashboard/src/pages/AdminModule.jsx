@@ -32,6 +32,7 @@ import RolesReference from './RolesReference';
 import AuditorTokensAdmin from './AuditorTokensAdmin';
 import CrossTenantAuditAdmin from './CrossTenantAuditAdmin';
 import IntegrationFieldMapAdmin from './IntegrationFieldMapAdmin';
+import ApprovalPoliciesAdmin from './ApprovalPoliciesAdmin';
 import GraphqlSandbox from './GraphqlSandbox';
 
 /**
@@ -74,6 +75,7 @@ const AdminOverview = () => (
         <ActionCard icon={ScrollText} title="Auditor links" description="Issue read-only access for external auditors (revocable, time-limited)" href="/admin/auditor-tokens" />
         <ActionCard icon={ScrollText} title="Cross-tenant audit trail" description="Every consolidation edge & intercompany mapping that crossed tenants" href="/admin/cross-tenant-audit" />
         <ActionCard icon={Zap} title="GraphQL Sandbox" description="Interactive playground for the federated GraphQL endpoint — query, explore, export snippets" href="/admin/graphql-sandbox" />
+        <ActionCard icon={Shield} title="Approval policies" description="Mercury payment approval rules — amount thresholds, co-approver chains, cool-off windows" href="/admin/treasury/approval-policies" />
       </ActionCardsGrid>
     </Section>
 
@@ -177,6 +179,7 @@ const AdminModule = ({ session }) => {
           <Route path="/integrations/airtable" element={<AirtableSettings session={session} />} />
           <Route path="/integrations/jobdiva" element={<JobDivaSettings session={session} />} />
           <Route path="/integrations/field-map" element={<IntegrationFieldMapAdmin session={session} />} />
+          <Route path="/treasury/approval-policies" element={<ApprovalPoliciesAdmin session={session} />} />
           <Route path="/sso"               element={<SsoConfigAdmin session={session} />} />
           <Route path="/mail-branding"     element={<MailBrandingAdmin session={session} />} />
           <Route path="/digest-schedules"  element={<DigestSchedulesAdmin session={session} />} />

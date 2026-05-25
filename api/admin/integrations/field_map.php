@@ -97,7 +97,8 @@ try {
             // a constrained dropdown for `internal_field` (prevents
             // operators from typing arbitrary column names).
             $allow = [];
-            foreach (['placement', 'person', 'company', 'contact'] as $et) {
+            foreach (['placement', 'person', 'company', 'contact',
+                      'gl_account', 'journal_entry', 'bill', 'invoice', 'payment'] as $et) {
                 $allow[$et] = tenantIntegrationFieldMapAllowedInternalFields($et);
             }
             api_ok([
@@ -138,6 +139,11 @@ try {
                 'person'    => tenantIntegrationFieldMapAllowedInternalFields('person'),
                 'company'   => tenantIntegrationFieldMapAllowedInternalFields('company'),
                 'contact'   => tenantIntegrationFieldMapAllowedInternalFields('contact'),
+                'gl_account'    => tenantIntegrationFieldMapAllowedInternalFields('gl_account'),
+                'journal_entry' => tenantIntegrationFieldMapAllowedInternalFields('journal_entry'),
+                'bill'          => tenantIntegrationFieldMapAllowedInternalFields('bill'),
+                'invoice'       => tenantIntegrationFieldMapAllowedInternalFields('invoice'),
+                'payment'       => tenantIntegrationFieldMapAllowedInternalFields('payment'),
             ],
             'transforms'        => TENANT_INTEGRATION_FIELD_MAP_TRANSFORMS,
             'migration_pending' => true,

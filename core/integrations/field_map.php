@@ -142,6 +142,62 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             // INTENTIONALLY EXCLUDED:
             //   id, tenant_id, company_id, *_at  — system
         ],
+
+        // -- Accounting integrations (QuickBooks Online / Zoho Books / Xero).
+        //    Different entity_types here because the source-side data
+        //    model is fundamentally different from staffing payloads —
+        //    GL accounts, journal entries, invoices, bills.
+        //    All three accounting integrations share the same target
+        //    schema (`accounting_*` tables) so a single entity_type per
+        //    target table works across QBO/Zoho/Xero.
+        'gl_account' => [
+            // -- accounting_chart_of_accounts --
+            'external_id',
+            'name', 'account_number', 'account_type', 'account_subtype',
+            'currency', 'is_active',
+            'parent_external_id',  // dotted-path resolved on import
+            'description',
+        ],
+        'journal_entry' => [
+            // -- accounting_journal_entries (header only; line items are
+            //    posted separately by the syncer once the header lands).
+            'external_id',
+            'entry_date', 'doc_number', 'memo', 'currency',
+            'source_module', 'source_ref',
+            'private_note',
+        ],
+        'bill' => [
+            // -- ap_bills (vendor invoices we owe; QBO Bill, Zoho Bill,
+            //    Xero Purchase Invoice).
+            'external_id',
+            'vendor_name',          // resolved → companies.id server-side
+            'bill_number', 'bill_date', 'due_date',
+            'amount', 'currency',
+            'memo', 'reference',
+            'status',               // mapped to ENUM server-side
+            'department', 'class',  // QBO/Zoho dimension fields
+        ],
+        'invoice' => [
+            // -- billing_invoices (customer invoices we issue; QBO
+            //    Invoice, Zoho Invoice, Xero Sales Invoice).
+            'external_id',
+            'customer_name',        // resolved → companies.id server-side
+            'invoice_number', 'invoice_date', 'due_date',
+            'amount', 'currency',
+            'memo', 'reference',
+            'status',
+            'department', 'class',
+        ],
+        'payment' => [
+            // -- ap_payments / customer_payments. Source identifies
+            //    direction via `kind` ('vendor_payment' | 'customer_payment').
+            'external_id',
+            'payment_date', 'amount', 'currency',
+            'method',               // ach / check / wire / card
+            'reference',             // check number / ACH trace / wire id
+            'memo',
+            'kind',                  // vendor_payment | customer_payment
+        ],
     ];
     return $map[$entityType] ?? [];
 }

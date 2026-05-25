@@ -17,8 +17,9 @@ import { api } from '../lib/api';
  * RBAC: integrations.field_map.manage (enforced server-side; this UI
  * is hidden from non-admins via AdminModule's nav gating elsewhere).
  */
-const ENTITY_TYPES = ['placement', 'person', 'company', 'contact'];
-const INTEGRATIONS = ['jobdiva', 'quickbooks', 'zoho_books', 'airtable', 'bullhorn'];
+const ENTITY_TYPES = ['placement', 'person', 'company', 'contact',
+                      'gl_account', 'journal_entry', 'bill', 'invoice', 'payment'];
+const INTEGRATIONS = ['jobdiva', 'quickbooks', 'zoho_books', 'xero', 'airtable', 'bullhorn'];
 
 export default function IntegrationFieldMapAdmin() {
   const [integration, setIntegration] = useState('jobdiva');

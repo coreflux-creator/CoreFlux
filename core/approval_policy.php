@@ -172,8 +172,8 @@ function approvalPolicyResolve(
         $stmt = $pdo->prepare(
             'SELECT * FROM tenant_approval_policies
               WHERE tenant_id = :t AND integration = :i AND enabled = 1
-                AND (min_amount_cents IS NULL OR min_amount_cents <= :a)
-                AND (max_amount_cents IS NULL OR max_amount_cents >= :a)
+                AND (min_amount_cents IS NULL OR min_amount_cents <= :amt_min)
+                AND (max_amount_cents IS NULL OR max_amount_cents >= :amt_max)
                 AND (applies_to_recipient_id IS NULL OR applies_to_recipient_id = :r)
                 AND (applies_to_account_id   IS NULL OR applies_to_account_id   = :ac)
               ORDER BY
@@ -183,7 +183,8 @@ function approvalPolicyResolve(
               LIMIT 1'
         );
         $stmt->execute([
-            't' => $tid, 'i' => $integration, 'a' => $amountCents,
+            't' => $tid, 'i' => $integration,
+            'amt_min' => $amountCents, 'amt_max' => $amountCents,
             'r' => $recipientId, 'ac' => $accountId,
         ]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);

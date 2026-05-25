@@ -10,6 +10,53 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## P1 Burst — Approval rules, Reconciliation workbench, Sweep rules, QBO/Zoho/Xero field-map (2026-02 — current fork)
+
+### Shipped this fork
+
+**1. Approval policies (SoD threshold engine)**
+- Migration 072 — `tenant_approval_policies` + `payment_instruction_approvals` tables + `payment_instructions.cool_off_until` column.
+- `core/approval_policy.php` — list/get/upsert/delete/resolve/recordAck/listAcks. Resolve picks the most-specific rule (recipient > account > broad) within the payment's amount band.
+- `mpApprove()` integrated: required-role check from the user object (no `user_tenants` read, RBAC sentry clean), N-of-M co-approver chain (each approval recorded once, transition only after Nth distinct ack), cool-off window stamped onto `cool_off_until` and the auto-advance deferred when the window is in the future.
+- Cron worker (`/app/cron/mercury_payment_worker.php`) SELECT now filters `cool_off_until IS NULL OR cool_off_until <= NOW()`.
+- `/api/admin/treasury/approval_policies.php` — GET/POST/DELETE with `treasury.payment.approve` gate.
+- UI: `/admin/treasury/approval-policies` page with table + form (amount band, required role, distinct approvers 1–5, cool-off minutes 0–2880, recipient/account scoping, sort order, enabled toggle). Admin overview card linked.
+
+**2. QBO / Zoho Books / Xero field-map allow-lists**
+- `core/integrations/field_map.php` allow-list grew 5 new accounting entity_types: `gl_account`, `journal_entry`, `bill`, `invoice`, `payment`. All three accounting integrations (QBO, Zoho, Xero) share these schemas because they all target the same `accounting_*` tables.
+- `/api/admin/integrations/field_map.php` GET surfaces all 9 entity_types in `allowed_internal_fields`.
+- `IntegrationFieldMapAdmin.jsx` selectors now include `xero` as an integration plus the 5 new entity types — operators can author QBO/Zoho/Xero mappings using the same UI + bulk import/export + test-with-payload tooling shipped last fork.
+
+**3. Reconciliation workbench (3-pane UI)**
+- New helper `mercuryReconciliationUnmatched()` in `core/mercury_reconciliation.php` — tenant-scoped, Settled + null-reconciled, oldest-first, LIMIT bounded to 1..500.
+- `/api/mercury_reconciliation.php` gains `?action=unmatched` and `?action=workbench` (single-shot bundle: stats + unmatched + matched + discrepancy).
+- New page `modules/treasury/ui/ReconciliationWorkbench.jsx` — 3 panes (Unmatched | Discrepancies | Reconciled) + 4 stats tiles + "Run auto-match" button that calls the existing engine and refreshes inline. Treasury tab + route wired at `/treasury/reconciliation`.
+
+**4. Cash-allocation / sweep rules (definition layer)**
+- Migration 073 — `tenant_sweep_rules` table (source/destination Mercury account ids, target_min_balance_cents, sweep_above_cents, frequency enum, optional `require_approval_policy_id` so swept payments still go through the approval engine).
+- `core/sweep_rules.php` — list/get/upsert/delete with thorough validation (blank name, blank source/dest, source==dest, unknown frequency, negative balances).
+- `/api/admin/treasury/sweep_rules.php` — CRUD gated by `accounting.bank.manage`.
+- New page `modules/treasury/ui/SweepRulesAdmin.jsx` with table + form, tab + route wired at `/treasury/sweep-rules`.
+- **Execution worker (creating actual Mercury transfer payment_instructions when source balance > target_min) is deferred** — requires live Mercury balance API + scheduled runner, slated for next fork.
+
+### Tests
+- New smoke files: `approval_policy_engine_smoke.php` (60 ✓), `reconciliation_workbench_smoke.php` (25 ✓), `treasury_sweep_rules_smoke.php` (44 ✓).
+- Existing: `jobdiva_field_mapping_slice5_smoke.php` updated (anchored ghost-field assertion to the company block to avoid colliding with new `gl_account.description` field).
+- Full PHP CLI suite: **284/284 passing**.
+
+### Bundle
+- `index-grxl72RX.js` + `index-BC5g6YJu.css` — `.deploy-version`, `spa-assets/`, SW CACHE_VERSION all in sync via postbuild `sync_bundle.sh`.
+
+### Deferred (carry forward to next fork)
+- **(P1) GraphQL dashboard migration — People, Companies, Placement detail.**
+  Placements list pilot is live and proven; the same pattern applies (mirror existing REST page → `*Graphql.jsx` using `useGql`, add a "Switch to REST" link, A/B perf badges). Subgraph already exposes `Query.companies(limit)` and `Query.people` so no schema work needed. Estimated 1 fork to migrate all three with smoke tests.
+- **(P1) Sweep execution worker.** Schema (migration 073) is execution-engine-agnostic. Worker would: poll enabled rules whose frequency matches today, fetch Mercury balance via the adapter, if source > (target_min + sweep_above) then create a `payment_instructions` row source→dest with policy_id stamped, write `last_run_at/last_outcome/last_run_amount_cents`.
+- **(P2)** Wire `mailerSend()` → real Resend driver (currently MOCKED — logs locally).
+- (P2) Engagements module; Migration Status Dashboard tile.
+- (P3) AI Digest Scheduler.
+
+
+
 ## Slice 6/7 + Mercury Dual-Leg Workflow (2026-02 — current fork)
 
 ### What user asked

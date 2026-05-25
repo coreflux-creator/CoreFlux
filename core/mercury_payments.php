@@ -30,6 +30,7 @@ require_once __DIR__ . '/RBAC.php';
 require_once __DIR__ . '/mercury_adapter.php';
 require_once __DIR__ . '/mercury_service.php';
 require_once __DIR__ . '/mercury_recipients.php';
+require_once __DIR__ . '/approval_policy.php';
 
 // ----------------------------------------------------------------- state machine
 
@@ -242,9 +243,84 @@ function mpApprove(int $tenantId, int $id, $approver, ?string $note = null, arra
     if ((int) ($row['created_by_user_id'] ?? 0) === (int) ($approverId ?? -1)) {
         throw new \RuntimeException('Segregation of duties: creator cannot approve their own payment');
     }
-    $ok = mpTransition($tenantId, $id, 'Approved', $note ?: 'approver_ok', $approverId, [
+
+    // -----------------------------------------------------------------
+    // Approval-policy engine (migration 072). Tenants can encode amount-
+    // banded rules that demand a specific approver role, N-of-M co-
+    // approvers, and an enforced cool-off window before the worker may
+    // advance the row. Absent any matching policy, the legacy single-
+    // approver default (creator ≠ approver + treasury.payment.approve
+    // permission) still gates the transition.
+    //
+    // Policy is resolved by amount + recipient + source account; the
+    // most-specific match wins. See approvalPolicyResolve().
+    // -----------------------------------------------------------------
+    $policy = approvalPolicyResolve(
+        $tenantId,
+        (int) $row['amount_cents'],
+        (int) $row['recipient_id'],
+        // operating_mercury_account_id is only set after Funding; before
+        // that we can match by the tenant's default funding account.
+        (string) ($row['operating_mercury_account_id'] ?? '') ?: null,
+        'mercury'
+    );
+    $minApprovers = 1;
+    $coolOffMinutes = 0;
+    if ($policy !== null) {
+        $minApprovers   = max(1, (int) ($policy['min_approvers']    ?? 1));
+        $coolOffMinutes = max(0, (int) ($policy['cool_off_minutes'] ?? 0));
+        $requiredRole   = $policy['required_approver_role'] ?? null;
+        if ($requiredRole !== null && $requiredRole !== '' && $approverUser !== null) {
+            // Use the role on the authenticated user object (already
+            // tenant-scoped by api_require_auth). Avoids a direct
+            // user_tenants read so the RBAC sentry stays happy — that
+            // table is being phased out in favour of tenant_memberships.
+            $hasRole = (string) ($approverUser['role'] ?? '') === $requiredRole;
+            if (!$hasRole) {
+                throw new \RuntimeException(sprintf(
+                    'Approval policy "%s" requires role "%s"; approver does not hold it.',
+                    $policy['name'], $requiredRole
+                ));
+            }
+        }
+    }
+
+    // Record this user's ack on the co-approver chain. If we still need
+    // more approvals, STAY in PendingApproval and short-circuit. The
+    // next distinct approver flips the row to Approved.
+    $ackCount = $approverId !== null
+        ? approvalRecordAck($tenantId, $id, $approverId, $policy['id'] ?? null, $note)
+        : 1;
+    if ($ackCount < $minApprovers) {
+        try {
+            getDB()->prepare(
+                'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
+                 VALUES (:t, :u, "mercury.payment.coapproval_recorded", :id, :m, NOW())'
+            )->execute([
+                't'  => $tenantId, 'u' => $approverId, 'id' => $id,
+                'm'  => json_encode([
+                    'acks_collected'  => $ackCount,
+                    'acks_required'   => $minApprovers,
+                    'policy_id'       => $policy['id'] ?? null,
+                    'policy_name'     => $policy['name'] ?? null,
+                ]),
+            ]);
+        } catch (\Throwable $_) {}
+        return false; // not enough approvals yet
+    }
+
+    $patch = [
         'approved_by_user_id' => $approverId,
         'approved_at'         => date('Y-m-d H:i:s'),
+    ];
+    if ($coolOffMinutes > 0) {
+        $patch['cool_off_until'] = date('Y-m-d H:i:s', time() + $coolOffMinutes * 60);
+    }
+    $ok = mpTransition($tenantId, $id, 'Approved', $note ?: 'approver_ok', $approverId, $patch, [
+        'policy_id'       => $policy['id'] ?? null,
+        'policy_name'     => $policy['name'] ?? null,
+        'acks_collected'  => $ackCount,
+        'cool_off_until'  => $patch['cool_off_until'] ?? null,
     ]);
 
     // Out-of-band CFO notification (Slice 3.6 hardening). Best-effort — never
@@ -278,6 +354,27 @@ function mpApprove(int $tenantId, int $id, $approver, ?string $note = null, arra
     // by smoke tests that want to assert the pure approval transition
     // without invoking the Mercury HTTP layer.
     if ($ok && ($opts['trigger_now'] ?? true) !== false) {
+        // Cool-off window enforcement (policy.cool_off_minutes). When set,
+        // we defer the funding-leg origination to the cron worker so the
+        // configured delay genuinely elapses before any money moves. The
+        // worker SELECT in /app/cron/mercury_payment_worker.php must also
+        // honour cool_off_until (added in migration 072).
+        $coolOff = $patch['cool_off_until'] ?? null;
+        if ($coolOff !== null && strtotime($coolOff) > time()) {
+            try {
+                getDB()->prepare(
+                    'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
+                     VALUES (:t, :u, "mercury.payment.cool_off_deferred", :id, :m, NOW())'
+                )->execute([
+                    't'  => $tenantId, 'u' => $approverId, 'id' => $id,
+                    'm'  => json_encode([
+                        'cool_off_until' => $coolOff,
+                        'policy_id'      => $policy['id'] ?? null,
+                    ]),
+                ]);
+            } catch (\Throwable $_) {}
+            return $ok;
+        }
         try {
             mpAdvance($tenantId, $id);
         } catch (\Throwable $e) {

@@ -39,6 +39,24 @@ if ($method === 'GET' && $action === 'matches') {
     api_ok(['rows' => mercuryReconciliationMatches($tenantId, $instr, $oc)]);
 }
 
+if ($method === 'GET' && $action === 'unmatched') {
+    if (!$canView) api_error('Permission denied', 403);
+    $limit = (int) ($_GET['limit'] ?? 100);
+    api_ok(['rows' => mercuryReconciliationUnmatched($tenantId, $limit)]);
+}
+
+if ($method === 'GET' && $action === 'workbench') {
+    // Single round-trip for the 3-pane UI — saves three sequential
+    // requests on initial load and on every "refresh after auto-match".
+    if (!$canView) api_error('Permission denied', 403);
+    api_ok([
+        'stats'        => mercuryReconciliationStats($tenantId),
+        'unmatched'    => mercuryReconciliationUnmatched($tenantId, 100),
+        'matched'      => mercuryReconciliationMatches($tenantId, null, 'matched'),
+        'discrepancy'  => mercuryReconciliationMatches($tenantId, null, 'discrepancy'),
+    ]);
+}
+
 if ($method === 'POST' && $action === 'run') {
     if (!$canManage) api_error('Permission denied', 403);
     $out = mercuryReconcileTenant($tenantId);

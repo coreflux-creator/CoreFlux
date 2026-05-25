@@ -26,8 +26,21 @@ echo "\n1. Allow-list audit\n";
 foreach (['employment_type','hire_date','termination_date','pay_frequency'] as $ghost) {
     $a("ghost person field '{$ghost}' removed", !preg_match("/'{$ghost}'/", $fmap));
 }
-foreach (['industry','description','billing_email','billing_terms','tax_id_last4'] as $ghost) {
+foreach (['industry','billing_email','billing_terms','tax_id_last4'] as $ghost) {
     $a("ghost company field '{$ghost}' removed", !preg_match("/'{$ghost}'/", $fmap));
+}
+// 'description' was removed from the company allow-list (it's not a real
+// `companies.*` column), but it IS a legitimate field on the
+// gl_account / journal_entry / bill / invoice / payment entity types
+// added in the QBO/Zoho/Xero rollout (2026-02). Assert removal scoped
+// to the `'company' => [` block only, not the whole file.
+if (preg_match("/'company'\\s*=>\\s*\\[(.*?)\\],\\s*\\n\\s*\\/\\//s", $fmap, $m)) {
+    $a("ghost company field 'description' removed from company block",
+        !preg_match("/'description'/", $m[1]));
+} else {
+    // Fallback if regex shape changes — still better than the old
+    // global check which broke on legitimate uses elsewhere.
+    $a('company block locatable for ghost-field assertion', false);
 }
 // Real schema columns must be present:
 foreach (['legal_name','duns','ein_last4','primary_contact_name','primary_contact_email','primary_contact_phone','msa_signed_at','notes'] as $real) {
