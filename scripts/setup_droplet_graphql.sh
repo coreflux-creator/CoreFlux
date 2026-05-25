@@ -181,8 +181,10 @@ COREFLUX_API_BASE=$COREFLUX_API_BASE
 SUBGRAPH_COREFLUX_URL=http://127.0.0.1:4001/
 SUBGRAPH_JOBDIVA_URL=http://127.0.0.1:4002/
 ROUTER_LISTEN=0.0.0.0:4000
-PORT=4001
 EOF
+# NOTE: do NOT set a shared PORT= here. Both subgraphs read process.env.PORT,
+# so a single value would force them onto the same port (EADDRINUSE). Each
+# subgraph defaults to its own port in code: coreflux=4001, jobdiva=4002.
 chown root:coreflux "$ENV_FILE"
 chmod 0640 "$ENV_FILE"
 echo "  + wrote $ENV_FILE"
