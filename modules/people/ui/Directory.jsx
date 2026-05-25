@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
+import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 const API = '/modules/people/api/people.php';
 
@@ -115,6 +116,7 @@ export default function Directory() {
           <table className="data-table" data-testid="people-directory-table" style={{ width: '100%' }}>
             <thead>
               <tr>
+                <th>ID</th>
                 <th>Name</th>
                 <th>Email</th>
                 <th>Classification</th>
@@ -125,7 +127,7 @@ export default function Directory() {
             </thead>
             <tbody>
               {rows.length === 0 && (
-                <tr><td colSpan={6} className="empty" data-testid="people-directory-empty">No people match.</td></tr>
+                <tr><td colSpan={7} className="empty" data-testid="people-directory-empty">No people match.</td></tr>
               )}
               {rows.map((p) => {
                 // A row "needs review" iff it carries one of the synthetic
@@ -141,6 +143,7 @@ export default function Directory() {
                   || (p.last_name && p.last_name.startsWith('Candidate-'));
                 return (
                 <tr key={p.id} data-testid={`people-row-${p.id}`}>
+                  <td><IdBadge id={p.id} prefix="P" /></td>
                   <td>
                     <Link to={`../${p.id}`} data-testid={`people-row-link-${p.id}`}>
                       {p.preferred_name || p.first_name} {p.last_name}

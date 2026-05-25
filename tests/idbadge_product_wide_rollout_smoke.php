@@ -87,6 +87,8 @@ $a('email-fallback path still runs when no id present',
 
 echo "\n3. UI list pages render <IdBadge />\n";
 $listPages = [
+    'people/Directory (LIVE — /modules/people/directory)'
+        => ['/app/modules/people/ui/Directory.jsx', 'prefix="P"'],
     'people/DirectoryModule (companies/clients/vendors)'
         => ['/app/modules/people/ui/DirectoryModule.jsx', 'prefix="C"'],
     'ap/VendorsList'
@@ -119,6 +121,7 @@ $a('DirectoryModule detail header renders C-prefixed badge next to name',
 
 echo "\n5. Column-header bumps consistent\n";
 $colSpanFiles = [
+    '/app/modules/people/ui/Directory.jsx'       => 'colSpan={7}',
     '/app/modules/ap/ui/VendorsList.jsx'         => 'colSpan={9}',
     '/app/modules/ap/ui/BillsList.jsx'           => 'colSpan={10}',
     '/app/modules/billing/ui/InvoicesList.jsx'   => 'colSpan={8}',
