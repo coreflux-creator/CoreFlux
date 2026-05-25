@@ -20,6 +20,11 @@ import { Zap, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 
 const STATUSES = ['', 'pending_start', 'active', 'ended', 'cancelled'];
 const PER_PAGE = 25;
+// PHP's placementsList caps per_page at 200. Ask for the max so we get
+// every record for a typical tenant in one round-trip. A future iteration
+// can add a paginated GraphQL connection (rows + total + cursor) for tenants
+// with >200 placements per status.
+const MAX_FETCH = 200;
 
 function DiagRow({ testid, label, url, result, hint404, hint401, hintNetwork }) {
   const ok = result?.ok;
@@ -80,7 +85,7 @@ export default function ListGraphql() {
   // Limit pulls a generous window so the page UI feels identical.
   const variables = useMemo(() => ({
     status: status || null,
-    limit: PER_PAGE * 4, // pull 4 pages worth, paginate client-side
+    limit: MAX_FETCH,
   }), [status]);
 
   const { data, error, loading, elapsedMs, reload } = useGql(PLACEMENTS_QUERY, { variables });
@@ -163,6 +168,21 @@ export default function ListGraphql() {
           {STATUSES.map(s => <option key={s} value={s}>{s === '' ? 'All statuses' : s}</option>)}
         </select>
       </div>
+
+      {!loading && allRows.length >= MAX_FETCH && (
+        <div data-testid="placements-gql-truncated" style={{
+          padding: 'var(--cf-space-2) var(--cf-space-3)',
+          background: 'rgba(245,158,11,0.10)',
+          border: '1px solid rgba(245,158,11,0.35)',
+          color: '#92400e',
+          borderRadius: 6,
+          marginBottom: 'var(--cf-space-3)',
+          fontSize: 'var(--cf-text-sm)',
+        }}>
+          ⚠ Showing the first {MAX_FETCH} records — there may be more.
+          A paginated GraphQL connection is on the roadmap. For now, narrow by status to drill in.
+        </div>
+      )}
 
       {error && (
         <div data-testid="placements-gql-error" style={{
