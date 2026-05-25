@@ -14,6 +14,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
+require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/placements.php';
 
 use Core\CsvImportService;
@@ -135,7 +136,14 @@ if ($method === 'POST' && $action === 'dry_run') {
     // least one of the two is required per row.
     if ($result['rows']) {
         $pdo = getDB();
-        $tid = currentTenantId();
+        // CRITICAL: resolve the lookup tenant via the *people* module
+        // scope, not the placements scope (which is what the URL would
+        // route us to). People rows are `shared` by default — a sub-
+        // tenant's directory shows the parent's people, and IdBadge
+        // copies the parent-tenant id. If we look up under the raw
+        // sub-tenant id, every row misses with "not found in this
+        // tenant's People" even though the operator copied a real id.
+        $tid = effectiveTenantIdForModule('people') ?? currentTenantId();
 
         // Collect both lookup keys in one pass.
         $idsWanted    = [];
@@ -293,10 +301,18 @@ if ($method === 'POST' && $action === 'commit') {
             );
         }
         if ($pid > 0) {
-            $person = scopedFind(
-                'SELECT id FROM people WHERE tenant_id = :tenant_id AND id = :pid AND deleted_at IS NULL',
-                ['pid' => $pid]
+            // Look up the person under the *people* module scope (shared
+            // → parent for sub-tenants). The raw scopedFind here would
+            // resolve via the URL → 'placements' scope, which usually
+            // also points at the parent but isn't guaranteed: a tenant
+            // can override placements to 'isolated'. Bind the tenant
+            // explicitly so person lookups are always correct.
+            $peopleTid = effectiveTenantIdForModule('people') ?? currentTenantId();
+            $stmt = getDB()->prepare(
+                'SELECT id FROM people WHERE tenant_id = :tenant_id AND id = :pid AND deleted_at IS NULL'
             );
+            $stmt->execute(['tenant_id' => $peopleTid, 'pid' => $pid]);
+            $person = $stmt->fetch();
             if (!$person) throw new \RuntimeException("person_id not found: {$pid}");
         } else {
             $emClean = placementsCsvNormaliseEmail((string) ($row['person_email'] ?? ''));
@@ -305,11 +321,13 @@ if ($method === 'POST' && $action === 'commit') {
             }
             // Mirror dry_run defensive DB-side normalisation — TRIM the
             // stored email so a row with a trailing NBSP from an older
-            // import still matches.
-            $person = scopedFind(
-                'SELECT id FROM people WHERE tenant_id = :tenant_id AND LOWER(TRIM(email_primary)) = :email AND deleted_at IS NULL',
-                ['email' => $emClean]
+            // import still matches. Same people-scope rationale as above.
+            $peopleTid = effectiveTenantIdForModule('people') ?? currentTenantId();
+            $stmt = getDB()->prepare(
+                'SELECT id FROM people WHERE tenant_id = :tenant_id AND LOWER(TRIM(email_primary)) = :email AND deleted_at IS NULL'
             );
+            $stmt->execute(['tenant_id' => $peopleTid, 'email' => $emClean]);
+            $person = $stmt->fetch();
             if (!$person) throw new \RuntimeException("person_email not found: {$row['person_email']}");
         }
 

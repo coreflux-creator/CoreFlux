@@ -36,6 +36,48 @@ imports. Result: rows showed two confusing errors saying effectively
 - Missing-person error copy points at `/modules/people/{$pid}` to
   verify or the People importer if there's no close match.
 
+
+## Sub-tenant People-scope lookup fix in Placements CSV importer (2026-02 — current fork, follow-up)
+
+### Why (root cause)
+User reported every row failing with `person_id: 114 not found in
+this tenant's People` despite the IDs being copied directly from the
+People directory. The CSV format was clean (plain integers), so the
+earlier prefix-stripper wasn't the issue. Root cause:
+
+- `'people' => 'shared'` in `SUBTENANT_MODULE_SCOPE_DEFAULTS` —
+  sub-tenants transparently read the master/parent tenant's people.
+- People directory + `IdBadge` therefore display rows that live
+  under `tenant_id = <parent>`.
+- `modules/placements/api/csv_import.php` dry_run was looking up
+  people with `tenant_id = currentTenantId()` (= sub-tenant). The
+  rows weren't there → every row failed.
+- Commit path's `scopedFind` happened to resolve via the URL →
+  `'placements' => 'shared'` (same parent) so it would have worked,
+  but is fragile against tenants that override placements scope.
+
+### Fix
+- `csv_import.php` now `require_once`s `core/sub_tenants.php`.
+- Dry_run lookup uses `effectiveTenantIdForModule('people') ??
+  currentTenantId()` — always resolves to the tenant that actually
+  owns the People rows for this user.
+- Commit lookups replaced both `scopedFind(... FROM people ...)`
+  calls with raw prepared statements bound to the same
+  `effectiveTenantIdForModule('people')`, so person lookups don't
+  silently drift if a tenant overrides the placements scope.
+
+### Tests
+- New `tests/placements_csv_subtenant_people_scope_smoke.php`: 9/9.
+- `placements_csv_id_validator_smoke.php`: 26/26.
+- `placements_csv_id_lookup_smoke.php`: 32/32.
+- `placements_csv_email_lookup_smoke.php`: 25/25.
+- Full suite: 288/288 ✓ (plaid live-network flake didn't recur).
+
+### Deploy note
+This is a server-side PHP-only change — no React rebuild required.
+Triggers on the next Cloudways deploy + `update.php` run.
+
+
 ### Tests
 - `tests/placements_csv_id_validator_smoke.php` — 26 ✓ / 0 ✗
 - Full suite: 286/287 functional pass; lone failure is
