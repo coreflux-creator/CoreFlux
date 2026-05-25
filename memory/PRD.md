@@ -377,6 +377,70 @@ Cloudways deploy + `update.php`.
 |------|--------|-------------|
 | 1. Time entries land + get approved | time | needs `open` period |
 | 2. Build AR + AP bundles (any time)  | time | requires NOT closed   |
+
+## Accrual-basis correction (2026-02 — current fork)
+
+### Why
+Operator (correctly) caught a follow-up framing error: "Period close is
+based on accrual, not bill/pay." Re-reading the
+`CoreFlux_CoreAccounting_CoreTreasury_Master_Spec.docx` confirmed:
+
+- `accounting_periods` has 4 statuses per spec — `open`, `soft_closed`,
+  `closed`, `locked`. Posting validation ("Period allows posting")
+  blocks GL JE posting against `closed`/`soft_closed` periods.
+- `time_periods` is a separate, upstream entity: closing it locks the
+  *accrual* side (approved hours, snapshotted bundles). It does NOT
+  block downstream document creation (invoices/bills).
+- AR invoices + AP bills can be **drafted and approved** any time,
+  against any period (including a closed time period). The actual
+  gate against a closed *accounting* period fires at the JE-posting
+  step downstream (already correctly implemented at
+  `modules/accounting/lib/accounting.php:183`).
+
+### Fix
+My previous turn over-aggressively disabled the Create button on the
+billing + AP modals when the selected time period was closed. That
+treated `time_periods.closed` as if it locked the AR/AP side — wrong
+under accrual basis. Surgical changes:
+
+- Both modals: removed `|| isClosed` from the Create-button
+  `disabled` condition. Create is now enabled whenever the selection
+  is non-empty.
+- Tooltip on the Create button (when period is closed) explains:
+  *"Drafting from a closed time period is allowed — the accrual is
+  locked but the AR/AP side stays open. Posting to a closed
+  accounting period is what would actually be blocked, separately,
+  at the GL level."*
+- Header copy rewritten: *"Closing a time period locks the **accrual**
+  (the underlying hours/bundles) — drafting invoices/bills still works
+  against open or closed periods. The separate GL-posting gate lives
+  on accounting periods."*
+- Empty-state copy on closed periods rewritten to point at the right
+  recovery path: reopen the period to rebuild bundles, or post a
+  manual document referencing the period.
+- Backend libs (`billing/lib/billing.php`, `ap/lib/ap.php`) were
+  already correct — they only require `bundle.status='ready'`, not a
+  particular `time_period.status`. No backend change needed.
+
+### Gap flagged (not implemented this turn)
+The `accounting_periods` table currently supports
+`future/open/soft_closed/closed/reopened` but is missing the spec's
+4th terminal `locked` state. Posting validation at
+`accounting.php:183` also doesn't have a `soft_closed` override-user
+path. Both are deviations from the Master Spec but pre-existed and
+aren't blocking any active operator workflow. Left as follow-ups.
+
+### Tests
+- `period_close_is_last_step_smoke.php` updated — 22 ✓ / 0 ✗
+- `ap_close_is_last_step_smoke.php` updated — 17 ✓ / 0 ✗
+- Full suite: **295/295 ✓**
+- `yarn build` clean → bundle `coreflux-BejR81gO`.
+
+### Deploy note
+React-only change this turn (modal copy + Create-button condition).
+Cloudways deploy + `update.php` to pick up the new bundle.
+
+
 | 3. Draft AR invoices                  | billing | requires NOT closed |
 | 4. Draft AP bills (contractor pay)    | ap   | requires NOT closed |
 | 5. Run payroll (W-2 path)             | payroll | independent (own pay_periods) |

@@ -63,8 +63,8 @@ $a('drops the prior `status=closed` URL filter completely',
 $a('default-selects the most recent OPEN period',
    str_contains($modal, "const firstOpen = rows.find(p => p.status === 'open') || rows[0];")
    && str_contains($modal, 'setPeriodId(String(firstOpen.id));'));
-$a('header copy explicitly debunks the "must be closed first" assumption',
-   str_contains($modal, "close is the LAST step in the cycle"));
+$a('header copy frames close as accrual-side lock (not "last step")',
+   str_contains($modal, 'Closing a time period locks the <strong>accrual</strong>'));
 $a('period dropdown shows status next to each entry',
    str_contains($modal, '· {p.status}'));
 $a('period meta row shows status badge',
@@ -82,14 +82,17 @@ $a('handler reloads bundles after build (no full reload)',
 $a('info banner reports built count',
    str_contains($modal, 'Built ${r.bundles_built} bundle'));
 
-echo "\n4. Frontend — closed periods are read-only archives\n";
+echo "\n4. Frontend — closed time periods lock the accrual side, not draft creation\n";
 $a('isClosed flag derived from selected period',
    str_contains($modal, "const isClosed = selectedPeriod?.status === 'closed';"));
-$a('Create-drafts button disabled when isClosed',
-   str_contains($modal, 'disabled={busy || !periodId || selected.size === 0 || isClosed}'));
+$a('Create-drafts button NOT disabled merely because period is closed (drafts allowed; GL posting is the real gate)',
+   str_contains($modal, 'disabled={busy || !periodId || selected.size === 0}')
+   && !str_contains($modal, 'selected.size === 0 || isClosed'));
+$a('Button title explains the GL-posting-vs-draft distinction when period is closed',
+   str_contains($modal, 'Posting to a closed accounting period is what would actually be blocked, separately, at the GL level'));
 $a('closed-empty hint nudges toward reopen / manual invoice',
    str_contains($modal, 'data-testid="billing-from-time-closed-empty"')
-   && str_contains($modal, 'Closed periods are immutable'));
+   && str_contains($modal, 'Closed time periods lock the accrual side'));
 
 echo "\n5. PHP syntax\n";
 $out = []; $rc = 0;

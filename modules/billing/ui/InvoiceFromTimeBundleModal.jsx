@@ -112,7 +112,7 @@ export default function InvoiceFromTimeBundleModal({ onClose, onCreated }) {
         <header style={{ padding: 20, borderBottom: '1px solid var(--cf-border, #e5e7eb)' }}>
           <h3 style={{ margin: 0 }}>Create invoices from approved hours</h3>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--cf-text-secondary)' }}>
-            Pick a period with approved hours, then choose placements. Each placement (or client, if you choose per-client) becomes one draft invoice. Periods don't need to be closed first — close is the LAST step in the cycle, after invoices, AP bills, and payroll have been booked.
+            Pick a period with approved hours, then choose placements. Each placement (or client, if you choose per-client) becomes one draft invoice. Closing a time period locks the <strong>accrual</strong> (the underlying hours/bundles) — drafting invoices still works against open or closed periods. The separate GL-posting gate lives on accounting periods.
           </p>
         </header>
 
@@ -168,7 +168,7 @@ export default function InvoiceFromTimeBundleModal({ onClose, onCreated }) {
           )}
           {periodId && bundles.length === 0 && isClosed && (
             <p style={{ color: 'var(--cf-text-secondary)', fontSize: 14 }} data-testid="billing-from-time-closed-empty">
-              This period is closed and has no bundles ready. Closed periods are immutable — to bill historical hours, reopen the period (Audit-logged) or use a manual invoice.
+              This time period is closed and has no ready bundles. Closed time periods lock the accrual side — to bill historical hours you'd need to reopen the period to rebuild bundles, or post a manual invoice referencing the period.
             </p>
           )}
           {info && <p data-testid="billing-from-time-info" style={{ color: '#15803d', fontSize: 13 }}>{info}</p>}
@@ -201,9 +201,9 @@ export default function InvoiceFromTimeBundleModal({ onClose, onCreated }) {
             <button
               className="btn btn--primary"
               onClick={submit}
-              disabled={busy || !periodId || selected.size === 0 || isClosed}
+              disabled={busy || !periodId || selected.size === 0}
               data-testid="billing-from-time-confirm"
-              title={isClosed ? 'Closed periods are immutable.' : ''}
+              title={isClosed ? 'Drafting from a closed time period is allowed — the accrual is locked but the AR side stays open. Posting to a closed accounting period is what would actually be blocked, separately, at the GL level.' : ''}
             >
               {busy ? 'Creating…' : `Create ${selected.size} draft${selected.size !== 1 ? 's' : ''}`}
             </button>

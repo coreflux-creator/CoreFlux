@@ -110,7 +110,7 @@ export default function BillFromTimeBundleModal({ onClose, onCreated }) {
         <header style={{ padding: 20, borderBottom: '1px solid var(--cf-border, #e5e7eb)' }}>
           <h3 style={{ margin: 0 }}>Create bills from approved hours (1099 / C2C pay)</h3>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--cf-text-secondary)' }}>
-            Pick a period with approved contractor hours, then choose placements. Each vendor (or placement) becomes one pending-approval bill. Periods don't need to be closed — close is the LAST step, after AR, AP, and payroll are booked.
+            Pick a period with approved contractor hours, then choose placements. Each vendor (or placement) becomes one pending-approval bill. Closing a time period locks the <strong>accrual</strong> (hours + bundles) — drafting bills still works against open or closed periods. The separate GL-posting gate lives on accounting periods.
           </p>
         </header>
 
@@ -158,7 +158,7 @@ export default function BillFromTimeBundleModal({ onClose, onCreated }) {
           )}
           {periodId && bundles.length === 0 && isClosed && (
             <p style={{ color: 'var(--cf-text-secondary)', fontSize: 14 }} data-testid="ap-from-time-closed-empty">
-              This period is closed and has no AP bundles ready. Closed periods are immutable — reopen the period or post a manual bill.
+              This time period is closed and has no ready bundles. Closed time periods lock the accrual side — to bill contractors against historical hours you'd need to reopen the period to rebuild bundles, or post a manual bill referencing the period.
             </p>
           )}
           {info && <p data-testid="ap-from-time-info" style={{ color: '#15803d', fontSize: 13 }}>{info}</p>}
@@ -190,9 +190,9 @@ export default function BillFromTimeBundleModal({ onClose, onCreated }) {
             <button
               className="btn btn--primary"
               onClick={submit}
-              disabled={busy || !periodId || selected.size === 0 || isClosed}
+              disabled={busy || !periodId || selected.size === 0}
               data-testid="ap-from-time-confirm"
-              title={isClosed ? 'Closed periods are immutable.' : ''}
+              title={isClosed ? 'Drafting from a closed time period is allowed — the accrual is locked but the AP side stays open. Posting to a closed accounting period is what would actually be blocked, separately, at the GL level.' : ''}
             >
               {busy ? 'Creating…' : `Create ${selected.size} bill${selected.size !== 1 ? 's' : ''}`}
             </button>

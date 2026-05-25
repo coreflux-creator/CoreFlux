@@ -58,18 +58,21 @@ $a('useApi path drops status=closed filter',
    && !str_contains($apModal, '?status=closed'));
 $a('default-selects most recent OPEN period',
    str_contains($apModal, "rows.find(p => p.status === 'open') || rows[0]"));
-$a('header copy debunks "must be closed" assumption',
-   str_contains($apModal, 'close is the LAST step'));
+$a('header copy frames close as accrual-side lock (not "last step")',
+   str_contains($apModal, 'Closing a time period locks the <strong>accrual</strong>'));
+$a('Create-bills button NOT disabled merely because period is closed (drafts allowed; GL posting is the real gate)',
+   str_contains($apModal, 'disabled={busy || !periodId || selected.size === 0}')
+   && !str_contains($apModal, 'selected.size === 0 || isClosed'));
 $a('build-bundles handler POSTs to shared backend endpoint',
    str_contains($apModal, '/modules/time/api/periods.php?action=build_bundles&id=${periodId}'));
 $a('build-bundles CTA gated to non-closed periods with empty bundles',
    str_contains($apModal, '{periodId && bundles.length === 0 && !isClosed && ('))
    && str_contains($apModal, 'data-testid="ap-from-time-build-bundles"');
-$a('Create-bills button disabled when period is closed',
-   str_contains($apModal, 'disabled={busy || !periodId || selected.size === 0 || isClosed}'));
+$a('Create-bills button NOT disabled on closed period',
+   !str_contains($apModal, 'disabled={busy || !periodId || selected.size === 0 || isClosed}'));
 $a('closed-empty hint nudges toward reopen / manual bill',
    str_contains($apModal, 'data-testid="ap-from-time-closed-empty"')
-   && str_contains($apModal, 'reopen the period or post a manual bill'));
+   && str_contains($apModal, 'reopen the period to rebuild bundles, or post a manual bill'));
 
 echo "\n3. Payroll — confirmed clean (no time_period gating)\n";
 $payrollRuns = (string) file_get_contents('/app/modules/payroll/api/runs.php');
