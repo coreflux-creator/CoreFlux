@@ -42,6 +42,39 @@ if ($method === 'GET') {
     api_ok(['rows' => $rows]);
 }
 
+if ($method === 'POST' && $action === 'build_bundles') {
+    // Operator request: "how can a period be closed before we've
+    // invoiced, booked payables, run payroll, etc?" — exactly right.
+    // Bundle build was historically chained to ?action=close, which
+    // created a deadlock: you couldn't invoice until you closed, and
+    // closing is by definition the LAST step. This endpoint lets the
+    // bundle build run on any *open* (or locked) period so downstream
+    // modules can consume approved hours throughout the period.
+    //
+    // Idempotent: re-running replaces `ready` bundles in place;
+    // bundles already `consumed` by an invoice are left untouched —
+    // the underlying `timeBuildBundlesForPeriod` helper has handled
+    // this semantics since day one.
+    rbac_legacy_require($user, 'time.period.close');
+    $id = (int) api_query('id', 0);
+    if ($id <= 0) api_error('id required', 400);
+
+    $period = scopedFind('SELECT * FROM time_periods WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    if (!$period) api_error('Not found', 404);
+    if ($period['status'] === 'closed') {
+        api_error('Period is closed — bundles are immutable. Reopen first if you need to rebuild.', 409);
+    }
+
+    $built = timeBuildBundlesForPeriod($id);
+    timeAudit('time.period.bundles_rebuilt', [
+        'period_id' => $id,
+        'period_status' => $period['status'],
+        'bundles_built' => count($built),
+    ], $id);
+    foreach ($built as $b) timeAudit('time.feed.bundle_built', $b, (int) $b['id']);
+    api_ok(['ok' => true, 'bundles_built' => count($built), 'bundles' => $built, 'period_status' => $period['status']]);
+}
+
 if ($method === 'POST' && $action === 'close') {
     rbac_legacy_require($user, 'time.period.close');
     $id = (int) api_query('id', 0);

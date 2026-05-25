@@ -283,6 +283,57 @@ Cloudways deploy + `update.php`.
 - **🟡 Staffing Overview $0** — needs DB inspection (real data) to
   diagnose whether it's empty tenant context, missing
   `staffing_clients` rows, or the same JOIN-drift issue against a
+
+## Accounting-period flow inversion fix (2026-02 — current fork)
+
+### Why
+Operator caught a real architectural mistake:
+> "How would an accounting period be closed until we've invoiced,
+>  booked payables, payroll, etc?"
+
+Exactly right. The original wiring chained AR-bundle build to
+`?action=close`, which created a deadlock — you couldn't draft an
+invoice for a period until you closed it, but closing was supposed to
+come AFTER invoicing, AP, and payroll were booked. Invoicing was
+blocked on a step that was supposed to follow it.
+
+### Fixes
+- **`POST /api/time/periods?action=build_bundles&id=N`** (new) — explicit
+  bundle build that runs on any `open` or `locked` period. Closed
+  periods 409 (immutable historical archives). Reuses the existing
+  `timeBuildBundlesForPeriod()` helper which has always been
+  idempotent. Audited as `time.period.bundles_rebuilt`.
+- **`InvoiceFromTimeBundleModal.jsx`** — drops the `status=closed` URL
+  filter on the period dropdown, default-selects the most recent OPEN
+  period, shows status next to each option, surfaces a "Build bundles
+  for this period" CTA whenever an open/locked period has no `ready`
+  bundles yet. Closed periods stay selectable for historical context
+  but the Create button is disabled.
+- Header copy rewritten to explicitly state: *"Periods don't need to
+  be closed first — close is the LAST step in the cycle."*
+- `?action=close` handler in `periods.php` is intentionally untouched
+  — it still builds bundles defensively at close time, but is no
+  longer the only entry point.
+
+### Tests
+- `tests/period_close_is_last_step_smoke.php` — 21 ✓ / 0 ✗
+- Full suite: **294/294 ✓**
+- `yarn build` clean → bundle `index-Dxob2Hr8.js`.
+
+### Deploy note
+PHP (`time/api/periods.php`) + React (`InvoiceFromTimeBundleModal.jsx`)
+touched. Cloudways deploy + `update.php`.
+
+### After deploy — the correct AR cycle now works
+1. Period starts as `open`.
+2. Time entries accumulate, get approved.
+3. Open the invoice modal → defaults to the current open period.
+4. If "no bundles ready" → click **"Build bundles for this period"**.
+5. Select placements → draft N invoices.
+6. (Eventually) AP bills + payroll posted into the same open period.
+7. Reconcile, then **close** the period as the last step.
+
+
   reports view. Can't fix blind from source alone.
 
 
