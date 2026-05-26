@@ -591,7 +591,64 @@ if ($method === 'POST' && $action === 'post') {
     }
 
     require_once __DIR__ . '/../../accounting/lib/accounting.php';
+    require_once __DIR__ . '/../../accounting/lib/multi_period.php';
     require_once __DIR__ . '/../../../core/posting_engine/process.php';
+
+    // Multi-period split branch (AP mirror) — gated by per-tenant
+    // opt-in. When ON, the bill posts as N JEs (one per
+    // accounting_period its underlying work_dates span) via AP
+    // Accrued, instead of a single JE tied to bill_date.
+    $settings = accountingSettingsGet($tid);
+    if (!empty($settings['multi_period_split_enabled'])) {
+        try {
+            accountingEnsureAccrualAccounts($tid, $settings);
+            $byDate    = accountingBreakdownBillByDate($tid, (int) $id);
+            $perPeriod = accountingGroupBreakdownByPeriod($tid, (int) ($row['entity_id'] ?? 0), $byDate);
+        } catch (\Throwable $e) {
+            api_error('Multi-period split prep failed: ' . $e->getMessage(), 422);
+        }
+        if (count($perPeriod) > 1) {
+            $batch = accountingBuildBillJEBatch($row, $perPeriod, (string) $settings['ap_accrued_account_code']);
+            $pdoMp = getDB();
+            $jeIds = [];
+            $pdoMp->beginTransaction();
+            try {
+                foreach ($batch as $i => $je) {
+                    $res = accountingPostJe($tid, [
+                        'posting_date'    => $je['date'],
+                        'currency'        => $row['currency'] ?? 'USD',
+                        'source_module'   => 'ap',
+                        'source_ref_type' => 'ap_bill',
+                        'source_ref_id'   => $id,
+                        'idempotency_key' => sprintf('ap:bill:%d:post:mp:%d', $id, $i),
+                        'memo'            => "Bill {$row['internal_ref']} — period " . ($i + 1) . '/' . count($batch)
+                                          . ($je['is_recognition_period'] ? ' (recognition)' : ' (accrual)'),
+                        'lines'           => $je['lines'],
+                    ], $user['id'] ?? null, true);
+                    $jeIds[] = $res['je_id'];
+                }
+                $pdoMp->prepare('UPDATE ap_bills SET journal_entry_id = :j WHERE id = :id')
+                    ->execute(['j' => $jeIds[count($jeIds) - 1], 'id' => $id]);
+                $pdoMp->commit();
+            } catch (\Throwable $e) {
+                if ($pdoMp->inTransaction()) $pdoMp->rollBack();
+                api_error('Multi-period AP post failed: ' . $e->getMessage(), 422);
+            }
+            apAudit('ap.bill.posted', [
+                'bill_id'           => $id,
+                'journal_entry_ids' => $jeIds,
+                'via'               => 'multi_period_split',
+                'periods_spanned'   => count($batch),
+            ], $id);
+            api_ok([
+                'ok'                => true,
+                'journal_entry_ids' => $jeIds,
+                'periods_spanned'   => count($batch),
+                'via'               => 'multi_period_split',
+            ]);
+        }
+        // Single-period fall-through into legacy path.
+    }
 
     $pdo = getDB();
     $linesStmt = $pdo->prepare('SELECT * FROM ap_bill_lines WHERE bill_id = :id ORDER BY line_no');

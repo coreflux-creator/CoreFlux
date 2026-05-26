@@ -49,6 +49,214 @@ declare(strict_types=1);
 require_once __DIR__ . '/accounting.php';
 
 /**
+ * Ensure the AR Unbilled + AP Accrued accounts exist in this tenant's
+ * COA. Idempotent. Called lazily before any multi-period post —
+ * cheaper than maintaining a separate seed pathway, and means a
+ * tenant flipping `multi_period_split_enabled=1` doesn't have to
+ * first remember to seed two account rows manually.
+ *
+ * Account TYPE is set conservatively: AR Unbilled = `asset` (current
+ * receivable contra), AP Accrued = `liability` (accrued payable).
+ * Operator can rename / re-classify post-creation; the function
+ * never updates an existing row.
+ */
+function accountingEnsureAccrualAccounts(int $tenantId, array $settings): void {
+    $pdo = getDB();
+    $rows = [
+        [$settings['ar_unbilled_account_code'], 'AR Unbilled (Accrued Revenue)', 'asset'],
+        [$settings['ap_accrued_account_code'],  'AP Accrued (Unbilled Costs)',   'liability'],
+    ];
+    foreach ($rows as [$code, $name, $type]) {
+        $exists = $pdo->prepare(
+            'SELECT id FROM accounting_accounts WHERE tenant_id = :t AND account_code = :c LIMIT 1'
+        );
+        $exists->execute(['t' => $tenantId, 'c' => $code]);
+        if ($exists->fetch()) continue;
+        // Create with `is_active=1`. Sub-ledger flag stays default (0)
+        // — these are pure GL accruals, not customer/vendor scoped.
+        try {
+            $ins = $pdo->prepare(
+                'INSERT INTO accounting_accounts (tenant_id, account_code, account_name, account_type, is_active, created_at, updated_at)
+                 VALUES (:t, :c, :n, :ty, 1, NOW(), NOW())'
+            );
+            $ins->execute(['t' => $tenantId, 'c' => $code, 'n' => $name, 'ty' => $type]);
+        } catch (\Throwable $e) {
+            // Race or schema drift — leave the loud-fail to the JE
+            // post itself, which will report "account code X not
+            // found" with a much more useful operator-facing message.
+            continue;
+        }
+    }
+}
+
+/**
+ * AP mirror — group a bill's expense lines by work_date.
+ *
+ * Same structure as accountingBreakdownInvoiceByDate() but reads
+ * ap_bill_lines + walks back through the AP bundle to the
+ * underlying time_entries. Manual lines attribute to the bill's
+ * `bill_date` (no time fidelity).
+ *
+ * Returns the same shape:
+ *   [ 'YYYY-MM-DD' => ['<expense_code>' => amount, '__tax' => amount?], ... ]
+ */
+function accountingBreakdownBillByDate(int $tenantId, int $billId): array {
+    $pdo = getDB();
+    $b   = $pdo->prepare('SELECT * FROM ap_bills WHERE tenant_id = :t AND id = :id');
+    $b->execute(['t' => $tenantId, 'id' => $billId]);
+    $bill = $b->fetch(\PDO::FETCH_ASSOC);
+    if (!$bill) throw new \RuntimeException("Bill {$billId} not found");
+
+    $linesStmt = $pdo->prepare(
+        'SELECT id, source_type, source_ref_id, gl_expense_account_code,
+                subtotal, tax_amount
+           FROM ap_bill_lines WHERE bill_id = :id'
+    );
+    $linesStmt->execute(['id' => $billId]);
+
+    $byDate = [];
+    $billDate = (string) ($bill['bill_date'] ?? $bill['received_date'] ?? date('Y-m-d'));
+
+    foreach ($linesStmt->fetchAll(\PDO::FETCH_ASSOC) as $l) {
+        $expCode  = (string) ($l['gl_expense_account_code'] ?: '5000');
+        $subtotal = (float) $l['subtotal'];
+        $taxAmt   = (float) ($l['tax_amount'] ?? 0);
+
+        if ($l['source_type'] === 'time' && !empty($l['source_ref_id'])) {
+            $dayStmt = $pdo->prepare(
+                'SELECT te.work_date, SUM(te.hours) AS hrs
+                   FROM time_downstream_feed tdf
+                   JOIN time_entries te ON te.period_id = tdf.period_id
+                                        AND te.placement_id = tdf.placement_id
+                                        AND te.tenant_id    = tdf.tenant_id
+                                        AND te.status       = "approved"
+                  WHERE tdf.tenant_id = :t AND tdf.id = :bid
+                  GROUP BY te.work_date
+                  ORDER BY te.work_date'
+            );
+            $dayStmt->execute(['t' => $tenantId, 'bid' => (int) $l['source_ref_id']]);
+            $days = $dayStmt->fetchAll(\PDO::FETCH_ASSOC);
+            $totalHrs = array_sum(array_column($days, 'hrs')) ?: 1.0;
+
+            $allocated = 0.0; $taxAlloc = 0.0;
+            for ($i = 0, $n = count($days); $i < $n; $i++) {
+                $d = $days[$i];
+                $share = (float) $d['hrs'] / (float) $totalHrs;
+                $exp = ($i === $n - 1) ? round($subtotal - $allocated, 2) : round($subtotal * $share, 2);
+                $tax = ($i === $n - 1) ? round($taxAmt   - $taxAlloc,   2) : round($taxAmt   * $share, 2);
+                $allocated += $exp; $taxAlloc += $tax;
+                $byDate[$d['work_date']][$expCode] = ($byDate[$d['work_date']][$expCode] ?? 0.0) + $exp;
+                if ($tax > 0.005) {
+                    $byDate[$d['work_date']]['__tax'] = ($byDate[$d['work_date']]['__tax'] ?? 0.0) + $tax;
+                }
+            }
+            if (!$days) {
+                $byDate[$billDate][$expCode] = ($byDate[$billDate][$expCode] ?? 0.0) + $subtotal;
+                if ($taxAmt > 0.005) {
+                    $byDate[$billDate]['__tax'] = ($byDate[$billDate]['__tax'] ?? 0.0) + $taxAmt;
+                }
+            }
+        } else {
+            $byDate[$billDate][$expCode] = ($byDate[$billDate][$expCode] ?? 0.0) + $subtotal;
+            if ($taxAmt > 0.005) {
+                $byDate[$billDate]['__tax'] = ($byDate[$billDate]['__tax'] ?? 0.0) + $taxAmt;
+            }
+        }
+    }
+    ksort($byDate);
+    return $byDate;
+}
+
+/**
+ * Build the JE batch for an AP bill spanning N accounting periods.
+ *
+ * Mirrors accountingBuildInvoiceJEBatch() with the sides flipped:
+ *   Non-bill periods (cost accrued before bill received):
+ *       Dr Expense / Cr AP Accrued
+ *   Bill-date period (cost recognised on the actual payable):
+ *       Dr Expense (this period's portion) / Dr AP Accrued (clear prior accruals) / Cr AP (full)
+ *
+ * @param array $bill        ap_bills row.
+ * @param array $perPeriod   accountingGroupBreakdownByPeriod() output.
+ * @param string $apAccrued  Tenant-configured AP Accrued code.
+ */
+function accountingBuildBillJEBatch(array $bill, array $perPeriod, string $apAccrued): array {
+    $billDate = (string) ($bill['bill_date'] ?? $bill['received_date'] ?? date('Y-m-d'));
+    $party    = !empty($bill['vendor_company_id']) ? (int) $bill['vendor_company_id'] : null;
+    $billNo   = (string) ($bill['bill_number'] ?? $bill['internal_ref'] ?? "BILL-{$bill['id']}");
+
+    // Identify the period containing bill_date — recognition lives there.
+    $billPeriodIdx = null;
+    foreach ($perPeriod as $i => $grp) {
+        if ($billDate >= $grp['period']['start_date'] && $billDate <= $grp['period']['end_date']) {
+            $billPeriodIdx = $i; break;
+        }
+    }
+    if ($billPeriodIdx === null) {
+        $billPeriodIdx = count($perPeriod) - 1;
+    }
+
+    $batch = [];
+    $priorAccruedByCode = [];
+
+    foreach ($perPeriod as $idx => $grp) {
+        $period = $grp['period'];
+        $amounts = $grp['amounts'];
+        $isRecognition = ($idx === $billPeriodIdx);
+        $postDate = $isRecognition ? $billDate : (string) $period['end_date'];
+
+        $tax = (float) ($amounts['__tax'] ?? 0); unset($amounts['__tax']);
+        $expenseTotal = 0.0;
+        foreach ($amounts as $a) $expenseTotal += (float) $a;
+        $periodTotal  = $expenseTotal + $tax;
+
+        $lines = [];
+        if ($isRecognition) {
+            // Recognition JE — credit AP for the full payable, debit
+            // this period's expense, debit AP Accrued to clear prior
+            // accruals.
+            $fullTotal = (float) ($bill['total'] ?? ($bill['subtotal'] + $bill['tax_total']));
+            foreach ($amounts as $code => $amt) {
+                if (round($amt, 2) <= 0.005) continue;
+                $lines[] = ['account_code' => (string) $code, 'debit' => round($amt, 2), 'credit' => 0,
+                            'memo' => "Expense — {$billNo}", 'counterparty_company_id' => $party];
+            }
+            if ($tax > 0.005) {
+                $lines[] = ['account_code' => '1310', 'debit' => round($tax, 2), 'credit' => 0,
+                            'memo' => "Sales tax (input) — {$billNo}", 'counterparty_company_id' => $party];
+            }
+            $priorAccruedSum = 0.0;
+            foreach ($priorAccruedByCode as $a) $priorAccruedSum += $a;
+            if ($priorAccruedSum > 0.005) {
+                $lines[] = ['account_code' => $apAccrued, 'debit' => round($priorAccruedSum, 2), 'credit' => 0,
+                            'memo' => "Clear AP accrual — {$billNo}", 'counterparty_company_id' => $party];
+            }
+            $lines[] = ['account_code' => '2000', 'debit' => 0, 'credit' => round($fullTotal, 2),
+                        'memo' => "Bill {$billNo} / vendor", 'counterparty_company_id' => $party];
+        } else {
+            // Pre-bill accrual JE: Dr expense / Cr AP Accrued.
+            foreach ($amounts as $code => $amt) {
+                if (round($amt, 2) <= 0.005) continue;
+                $lines[] = ['account_code' => (string) $code, 'debit' => round($amt, 2), 'credit' => 0,
+                            'memo' => "Expense (accrued) — {$billNo}", 'counterparty_company_id' => $party];
+                $priorAccruedByCode[$code] = ($priorAccruedByCode[$code] ?? 0.0) + round($amt, 2);
+            }
+            if ($tax > 0.005) {
+                $lines[] = ['account_code' => '1310', 'debit' => round($tax, 2), 'credit' => 0,
+                            'memo' => "Tax (accrued) — {$billNo}", 'counterparty_company_id' => $party];
+                $priorAccruedByCode['__tax'] = ($priorAccruedByCode['__tax'] ?? 0.0) + round($tax, 2);
+            }
+            $lines[] = ['account_code' => $apAccrued, 'debit' => 0, 'credit' => round($periodTotal, 2),
+                        'memo' => "Accrue payable — {$billNo} period {$period['period_number']}",
+                        'counterparty_company_id' => $party];
+        }
+
+        $batch[] = ['date' => $postDate, 'period_id' => (int) $period['id'], 'is_recognition_period' => $isRecognition, 'lines' => $lines];
+    }
+    return $batch;
+}
+
+/**
  * Read tenant-level accounting settings, applying defaults for any
  * row not yet inserted. Idempotent and safe to call before the
  * migration has run (returns defaults on missing-table error).
