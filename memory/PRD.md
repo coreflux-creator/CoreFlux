@@ -9229,3 +9229,126 @@ hook.
 - `/app/modules/time/api/approval_tokens.php` (tokenized bulk site)
 - `/app/modules/time/api/csv_import.php` (CSV pre-approved site)
 - `/app/tests/time_entry_approved_audit_smoke.php` (NEW)
+
+---
+
+## 2026-02 — Approval Mix Tile (P1.a follow-up enhancement)
+
+### Why
+The new `time.entry.approved` audit emitter carries `approved_via`
+(manual / tokenized_client_email / bulk_pre_approved). Operators
+leaning heavily on `bulk_pre_approved` are skipping client validation
+entirely — a useful early-warning for collection-risk concentration.
+
+### What shipped
+- **`/app/modules/time/api/approval_mix.php`** — GET endpoint that rolls
+  `audit_log` rows up by ISO-week + `approved_via` channel over the
+  last N weeks (4 ≤ N ≤ 26, default 12). Pre-seeds the three known
+  channels so empty channels still render zero-bars; unknown channels
+  land in `_other`.
+- **`/app/dashboard/src/components/ApprovalMixTile.jsx`** — three-tier
+  severity (green/warn/alert) keyed on last week's `bulk_pre_approved`
+  share. Renders one mini-sparkline per channel. Hides itself when
+  `grandTotal === 0` so brand-new tenants don't see broken chrome.
+- Mounted in `CFODashboard.jsx` right after `<QboSyncHealthTile />`.
+
+### Tests
+- `/app/tests/approval_mix_tile_smoke.php` — 27 assertions covering
+  endpoint contract, weeks-window bounds, response shape, frontend
+  wiring, and severity thresholds.
+
+---
+
+## 2026-02 — P1.c: GraphQL Pilots for Companies + Placement Detail
+
+### Why
+The existing `/staffing/placements/list-graphql` pilot proved the
+GraphQL transport pattern works in production. P1.c extends the same
+read-only pilot model to Companies (Clients) and Placement Detail,
+giving operators a side-by-side GraphQL preview without touching the
+REST mutation paths.
+
+### What shipped
+- **`/app/modules/staffing/ui/ClientsGraphql.jsx`** — read-only pilot
+  mirroring `ListGraphql.jsx`: GraphQL badge, perf ping, switch-to-REST
+  link, error panel, paginated client-side search. Query selects the
+  canonical `Company` fields (name / industry / website / billingEmail
+  / billingTerms / billingAddress).
+- **`/app/modules/placements/ui/PlacementDetailGraphql.jsx`** — read-only
+  detail viewer. Renders engagement, person, end-client, rates,
+  external-mappings, and notes sections — enough for a CFO/recruiter
+  to verify a record matches the upstream JobDiva/QBO source without
+  leaving GraphQL transport.
+- **Routes wired**: `placements/:pid/graphql` (mounted BEFORE the
+  catch-all `:pid/*`) and `staffing/clients-graphql`.
+- **REST → GraphQL discoverability CTA**: "⚡ GraphQL pilot" links
+  added to the REST Clients list and Placement detail header.
+- **Subgraph schema unchanged** — `Query.companies`, `Query.company`,
+  `Query.placement` resolvers already existed and proxy to the PHP REST
+  API. The pilot only adds new dashboard pages.
+
+### Tests
+- `/app/tests/graphql_pilots_p1c_smoke.php` — 38 assertions covering
+  component file existence, useGql wiring (no leftover useApi calls),
+  READ-ONLY guarantee (no api.post/put/del), query field correctness,
+  route mounting, switch-to-GraphQL CTAs, and zero regressions to the
+  existing `list-graphql` pilot.
+
+---
+
+## 2026-02 — P1.b: Treasury Sweep Worker (Mercury Integration)
+
+### Why
+`tenant_sweep_rules` (migration 073) shipped the authoring layer for
+cash-allocation sweep rules ("keep $50k in operating, sweep the rest
+to high-yield every Friday"). The execution layer was deferred — this
+slice lands the worker.
+
+### What shipped
+- **`/app/core/migrations/074_treasury_sweep_runs.sql`** — per-evaluation
+  audit table. Captures every fire (including skipped/failed) with
+  source balance snapshot, sweep amount, outcome, dry_run flag,
+  payment_instruction_id (when live), and error message.
+- **`/app/core/treasury_sweep_engine.php`** — pure-logic engine in
+  three testable layers:
+  - **Layer 1 (Schedule decoder)**: `treasurySweepFrequencyDueOn()`
+    handles `daily`, `weekly_<dow>`, and `monthly_<1-28>`. Rejects
+    `monthly_29..31` (Feb ambiguity) and unknown frequencies safely.
+  - **Layer 2 (Amount computer)**: `treasurySweepComputeAmount()`
+    handles both floor models (`target_min_balance_cents` and
+    `sweep_above_cents`) with proper edge cases (zero balance,
+    negative floor coerced to 0, no floor → 0 safe-default, both
+    floors set → conservative win).
+  - **Layer 3 (Run orchestrator)**: `treasurySweepRunRule()` fetches
+    Mercury balance (prefers `availableBalance` over `currentBalance`),
+    computes sweep, records audit, updates rule's `last_*` snapshot.
+    Never throws — every failure becomes an audit row.
+- **`/app/cron/treasury_sweep_worker.php`** — thin cron driver that
+  delegates to `treasurySweepRunAllTenants()`. Logs structured outcomes
+  to stdout for cron log forwarding. Cron: `30 8 * * *`.
+- **`TREASURY_SWEEP_LIVE=1` env gate**: live execution is INTENTIONALLY
+  deferred — internal-transfer leg needs either a new
+  `mercury_recipients.kind='sweep_destination'` or a counterparty
+  bypass. Default is dry-run: every evaluation lands in
+  `treasury_sweep_runs` with `dry_run=1` and zero side-effects beyond
+  the audit row + the rule's `last_*` snapshot. Lets operators
+  validate the math BEFORE flipping to live.
+
+### What's NOT shipped (deferred to a follow-up slice)
+- The actual Mercury internal-transfer call (Layer 3c). When
+  `TREASURY_SWEEP_LIVE=1`, the engine records `failed_execute` with a
+  message pointing at this gap. The next slice picks a recipient model
+  (new `sweep_destination` kind preferred for approval-policy
+  consistency) and wires the originate leg through the existing
+  `payment_instructions` / `mpAdvance` pipeline.
+- UI to expose `treasury_sweep_runs` (operator-facing audit feed of
+  "last 30 days of evaluations"). Schema is in place; the
+  `SweepRulesAdmin.jsx` page can add a tab in a follow-up.
+
+### Tests
+- `/app/tests/treasury_sweep_engine_smoke.php` — 56 assertions covering
+  every frequency variant on representative calendar dates, all floor
+  edge cases, env-driven live-mode toggle (default OFF), orchestrator
+  outcome routing, dry-run/live-stub paths, migration shape, and
+  tenant-leak safety on the rule UPDATE.
+- Full PHP CLI suite: **303/303 ✅** (up from 302).

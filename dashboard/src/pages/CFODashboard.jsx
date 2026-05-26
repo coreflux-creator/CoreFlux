@@ -6,6 +6,7 @@ import Sparkline from '../components/Sparkline';
 import CIStatusBadge from '../components/CIStatusBadge';
 import FscHealthPanel from '../components/FscHealthPanel';
 import QboSyncHealthTile from '../components/QboSyncHealthTile';
+import ApprovalMixTile from '../components/ApprovalMixTile';
 import {
   TrendingUp, TrendingDown, Calendar, Save, Send, Sparkles, StickyNote, X,
   Eye, EyeOff, ArrowUpDown, Plus, Trash2, Loader2, FileText,
@@ -196,6 +197,8 @@ export default function CFODashboard({ session }) {
       <FscHealthPanel />
 
       <QboSyncHealthTile />
+
+      <ApprovalMixTile />
 
       {showSend && (
         <SendReportModal

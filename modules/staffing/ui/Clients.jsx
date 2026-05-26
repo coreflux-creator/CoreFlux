@@ -84,6 +84,7 @@ export default function Clients() {
           <button className="btn btn--primary" onClick={openNew} data-testid="staffing-clients-new">+ New Client</button>
           <Link to="csv_import" className="btn" data-testid="staffing-clients-import-csv">Import CSV</Link>
           <a className="btn" href={`/modules/staffing/api/csv_export.php${statusFilter ? `?status=${statusFilter}` : ''}`} data-testid="staffing-clients-export-csv">Export CSV</a>
+          <Link to="../clients-graphql" className="btn btn--ghost" data-testid="staffing-clients-switch-gql">⚡ GraphQL pilot</Link>
         </div>
       </header>
 

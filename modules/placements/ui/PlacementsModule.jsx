@@ -5,6 +5,7 @@ import ListGraphql from './ListGraphql';
 import Expiring from './Expiring';
 import PlacementCreate from './PlacementCreate';
 import PlacementDetail from './PlacementDetail';
+import PlacementDetailGraphql from './PlacementDetailGraphql';
 import Reports from './Reports';
 import CsvImport from './CsvImport';
 import DraftRatesQueue from './DraftRatesQueue';
@@ -30,6 +31,7 @@ export default function PlacementsModule({ session }) {
         <Route path="reports"    element={<Reports />} />
         <Route path="commissions"element={<List session={session} commissionsView />} />
         <Route path="referrals"  element={<List session={session} referralsView />} />
+        <Route path=":pid/graphql" element={<PlacementDetailGraphql />} />
         <Route path=":pid/*"     element={<PlacementDetail session={session} />} />
       </Routes>
     </div>

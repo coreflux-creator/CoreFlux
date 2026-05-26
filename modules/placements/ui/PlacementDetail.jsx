@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useParams, useNavigate, NavLink, Routes, Route, Navigate } from 'react-router-dom';
+import { useParams, useNavigate, NavLink, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
@@ -46,6 +46,12 @@ export default function PlacementDetail({ session }) {
       <header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--cf-space-3)' }}>
         <div>
           <button onClick={() => nav('..')} className="btn btn--ghost" data-testid="placement-detail-back">← Placements</button>
+          <Link
+            to="graphql"
+            className="btn btn--ghost"
+            data-testid="placement-detail-switch-gql"
+            style={{ marginLeft: 'var(--cf-space-2)' }}
+          >⚡ GraphQL pilot</Link>
           <h2 data-testid="placement-detail-title" style={{ marginTop: 'var(--cf-space-2)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span>{placement.title}</span>
             <IdBadge id={placement.id} prefix="PL" title={`Placement ID ${placement.id} — click to copy for CSV imports`} />
