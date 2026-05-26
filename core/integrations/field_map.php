@@ -94,6 +94,13 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             'pay_rate',  'pay_rate_unit',
             'currency',
             'ot_multiplier', 'dt_multiplier',
+            // -- placements (cycle config, migration 002_cycles +
+            //    002_cycle_config). Mappable so JobDiva tenants can
+            //    inherit upstream billing/pay cadences without
+            //    re-entering them in CoreFlux. ENUMs are coerced
+            //    server-side; anchors normalised via date_normalise.
+            'client_bill_cycle', 'client_bill_cycle_anchor',
+            'vendor_pay_cycle',  'vendor_pay_cycle_anchor',
         ],
         'person' => [
             // -- people table (one row per person; talent-pool model) --
@@ -112,6 +119,15 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             'home_city', 'home_state', 'home_postal_code', 'home_country',
             // Career / sourcing
             'linkedin_url', 'source', 'recruiter_notes',
+            // Slice 5b broader-mapping (2026-02): additional people columns
+            // surfaced from migrations 006_unify_and_extend + 007_worker_class.
+            // Lets JobDiva tenants pull employment lifecycle + worker
+            // classification + mailing address from the upstream payload.
+            // PII (gender, marital_status) intentionally still omitted.
+            'employment_type', 'hire_date', 'termination_date',
+            'pay_frequency', 'worker_class',
+            'mailing_address_line1', 'mailing_address_line2',
+            'mailing_city', 'mailing_state', 'mailing_postal_code', 'mailing_country',
             // INTENTIONALLY EXCLUDED:
             //   id, tenant_id                 — FKs / system
             //   dob, ssn_last4                — PII (people.pii.view gates them)
@@ -128,10 +144,22 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             'address_line1', 'address_line2',
             'city', 'state', 'postal_code', 'country',
             'msa_signed_at', 'notes',
+            // Slice 5b broader-mapping (2026-02): companies-v2 columns
+            // (migration 005_companies_v2). Account lifecycle + terms +
+            // compliance flags are typical fields JobDiva exposes for
+            // the Company entity.
+            'payment_terms_days', 'default_terms', 'currency',
+            'status', 'tax_classification',
+            'industry', 'employee_size_range',
+            'w9_on_file', 'w9_expires_on',
+            'coi_on_file', 'coi_expires_on',
+            'tags_json',
             // INTENTIONALLY EXCLUDED:
             //   id, tenant_id, deleted_at, created_by_user_id, *_at  — system
             //   ein_full_ct                                           — ciphertext column
             //   msa_storage_object_id, use_count, last_used_at        — system-managed
+            //   account_manager_user_id, w9_storage_object_id,
+            //   coi_storage_object_id                                 — FKs
         ],
         'contact' => [
             // -- company_contacts table (multiple per company) --
@@ -139,6 +167,14 @@ function tenantIntegrationFieldMapAllowedInternalFields(string $entityType): arr
             'name', 'first_name', 'last_name',     // first/last virtual: split server-side
             'title', 'email', 'phone',
             'contact_role', 'is_primary', 'notes',
+            // Slice 5b broader-mapping (2026-02): companies-v2 additions
+            // (migration 005_companies_v2). mobile_phone, linkedin_url,
+            // and department are routinely populated in JobDiva's
+            // ClientContacts feed; decision_role lets ops capture
+            // sales-cycle context. is_active mirrors the upstream
+            // active/inactive toggle.
+            'mobile_phone', 'linkedin_url', 'department',
+            'decision_role', 'is_active',
             // INTENTIONALLY EXCLUDED:
             //   id, tenant_id, company_id, *_at  — system
         ],

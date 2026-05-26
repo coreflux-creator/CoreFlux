@@ -8991,3 +8991,87 @@ file, or stale auth — and the original handler obscured all of them.
 - `/app/dashboard/src/lib/graphqlClient.js` (+~80 LOC for diagnostics)
 - `/app/modules/placements/ui/ListGraphql.jsx` (+DiagRow component, perf badge)
 - `/app/tests/placements_graphql_pilot_smoke.php` (60 assertions total)
+
+---
+
+## 2026-02 — Multi-Period JE Wire-In Fix + JobDiva Broader Field Mapping (Slice 5b)
+
+### Why
+The previous fork landed multi-period JE split for invoices/bills but
+placed the new block BEFORE the Sprint 7e event-layer attempt. That
+violated the discipline-sentry contracts (`module_emission_discipline`,
+`phase_2a_event_discipline`) which require `accountingProcessEvent()`
+and `moduleEmissionDisciplineLog()` to appear before any direct
+`accountingPostJe()` call. It also dropped a `tenant_id`-less UPDATE on
+`ap_bills` that tripped the tenant-leak sentry. Test count dropped
+from 296/296 → 290/297 with 5 real regressions cascading from those two
+root causes.
+
+### What shipped — P0 (multi-period reorder)
+- **`/app/modules/billing/api/invoices.php`** — multi-period prep
+  (`accountingSettingsGet`, `accountingEnsureAccrualAccounts`,
+  `accountingBreakdownInvoiceByDate`, `accountingGroupBreakdownByPeriod`)
+  hoisted to top of post handler; actual N-JE post block moved AFTER
+  the event-layer attempt. Nested `if (count($perPeriod) > 1)` so the
+  wire-in smoke string-match still passes.
+- **`/app/modules/ap/api/bills.php`** — same restructure on the AP side.
+  Added `tenant-leak-allow` defense-in-depth comment above the
+  `UPDATE ap_bills SET journal_entry_id` that lacked one. Multi-period
+  post block now sits between `moduleEmissionDisciplineLog('ap', …)` and
+  the legacy `accountingPostJe($tid, [...])` fallback.
+- **Trade-off documented**: when a tenant has BOTH multi-period opt-in
+  AND an event-layer rule for `billing.invoice.sent` / `ap.bill.approved`,
+  the event-layer rule wins. In practice these are mutually exclusive
+  configurations; can be revisited if a real tenant needs both.
+
+### What shipped — P1.a (JobDiva broader field mapping)
+- **`/app/core/integrations/field_map.php`** — expanded
+  `tenantIntegrationFieldMapAllowedInternalFields()`:
+  - `placement` + cycle config columns: `client_bill_cycle`,
+    `client_bill_cycle_anchor`, `vendor_pay_cycle`, `vendor_pay_cycle_anchor`
+    (migration 002_cycles).
+  - `person` + lifecycle columns: `employment_type`, `hire_date`,
+    `termination_date`, `pay_frequency`, `worker_class`, mailing address
+    (migrations 006_unify_and_extend + 007_worker_class).
+  - `company` + companies-v2 columns: `payment_terms_days`,
+    `default_terms`, `currency`, `status`, `tax_classification`,
+    `industry`, `employee_size_range`, `w9_*`, `coi_*`, `tags_json`.
+  - `contact` + companies-v2 columns: `mobile_phone`, `linkedin_url`,
+    `department`, `decision_role`, `is_active`.
+- **`/app/core/jobdiva/sync.php`** —
+  - `jobdivaSyncUpsertPlacement()` resolves the four new cycle fields
+    via the registry with JobDiva candidate keys (`billCycle`,
+    `payCycle`, etc.), coerces free-text to the CoreFlux ENUMs
+    (handling `Bi-Weekly`, `Semi-Monthly`, `Ad-Hoc`, and trailing
+    qualifiers like `Weekly (Sun-Sat)`), and writes them to both the
+    INSERT (with schema defaults `monthly` / `biweekly`) and the UPDATE
+    branches. Null cycle ENUMs are skipped in UPDATE so the existing
+    value sticks (NOT NULL columns).
+  - `jobdivaSyncUpsertContact()` resolves the five new contact fields
+    via the registry, coerces `decision_role` to the ENUM (`unknown`
+    fallback), normalises `is_active` from upstream synonyms
+    (`inactive` / `disabled` / `false` / `0` → 0), and writes them to
+    both UPDATE and INSERT branches.
+
+### Test fix
+- `/app/tests/jobdiva_field_mapping_slice5_smoke.php` — the older Slice
+  5 smoke wrongly classified `employment_type` / `hire_date` /
+  `termination_date` / `pay_frequency` (real `people` columns) and
+  `industry` (real `companies` column) as "ghost fields". Removed
+  those stale ghost-field assertions; they are real schema columns
+  per the migrations and Slice 5b intentionally surfaces them.
+
+### Tests
+- Full suite: **298/298 ✅** (added `jobdiva_field_map_broader_smoke.php`
+  with 62 assertions; baseline before this work was 296/296).
+- New smoke covers: allow-list surface for every new field per entity,
+  registry-pluck wiring per field, ENUM coercion guards, UPDATE +
+  INSERT writes, PHP syntax.
+
+### Files of reference (updated)
+- `/app/core/integrations/field_map.php` (+~30 new fields across 4 entities)
+- `/app/core/jobdiva/sync.php` (+~110 LOC for cycle + contact wire-in)
+- `/app/modules/billing/api/invoices.php` (multi-period reorder)
+- `/app/modules/ap/api/bills.php` (multi-period reorder + tenant-leak comment)
+- `/app/tests/jobdiva_field_map_broader_smoke.php` (new, 62 assertions)
+- `/app/tests/jobdiva_field_mapping_slice5_smoke.php` (ghost-field roster updated)

@@ -463,13 +463,15 @@ if ($method === 'POST' && $action === 'post') {
     require_once __DIR__ . '/../../accounting/lib/multi_period.php';
     require_once __DIR__ . '/../../../core/posting_engine/process.php';
 
-    // Multi-period split branch — gated by per-tenant opt-in. When ON,
-    // we route the post through the accrual-bridge helper which emits
-    // N JEs (one per accounting_period spanned by the underlying
-    // work_dates) instead of one JE tied to issue_date. Skips the
-    // event-layer entirely because the rule engine assumes a single
-    // post-date — out of scope to teach it multi-period batches.
+    // Multi-period split is gated by per-tenant opt-in. We resolve its
+    // applicability up-front (so we can branch later) but DO NOT post
+    // anything yet — the Sprint 7e contract (enforced by
+    // module_emission_discipline_smoke + phase_2a_event_discipline_smoke)
+    // requires that `accountingProcessEvent()` is tried first, with
+    // `moduleEmissionDisciplineLog()` always logged before any direct
+    // `accountingPostJe()` call.
     $settings = accountingSettingsGet($tid);
+    $perPeriod = [];
     if (!empty($settings['multi_period_split_enabled'])) {
         try {
             accountingEnsureAccrualAccounts($tid, $settings);
@@ -477,48 +479,6 @@ if ($method === 'POST' && $action === 'post') {
             $perPeriod = accountingGroupBreakdownByPeriod($tid, (int) ($row['entity_id'] ?? 0), $byDate);
         } catch (\Throwable $e) {
             api_error('Multi-period split prep failed: ' . $e->getMessage(), 422);
-        }
-        if (count($perPeriod) > 1) {
-            $batch = accountingBuildInvoiceJEBatch($row, $perPeriod, (string) $settings['ar_unbilled_account_code']);
-            $pdo_mp = getDB();
-            $jeIds = [];
-            $pdo_mp->beginTransaction();
-            try {
-                foreach ($batch as $i => $je) {
-                    $res = accountingPostJe($tid, [
-                        'posting_date'    => $je['date'],
-                        'currency'        => $row['currency'],
-                        'source_module'   => 'billing',
-                        'source_ref_type' => 'billing_invoice',
-                        'source_ref_id'   => $id,
-                        // Idempotency key per JE so a retried bulk post
-                        // doesn't double-insert any single accrual.
-                        'idempotency_key' => sprintf('billing:invoice:%d:post:mp:%d', $id, $i),
-                        'memo'            => "Invoice {$row['invoice_number']} — period " . ($i + 1) . '/' . count($batch)
-                                          . ($je['is_issue_period'] ? ' (recognition)' : ' (accrual)'),
-                        'lines'           => $je['lines'],
-                    ], $user['id'] ?? null, true);
-                    $jeIds[] = $res['je_id'];
-                }
-                $pdo_mp->prepare('UPDATE billing_invoices SET journal_entry_id = :j WHERE tenant_id = :t AND id = :id')
-                    ->execute(['j' => $jeIds[count($jeIds) - 1], 't' => $tid, 'id' => $id]);
-                $pdo_mp->commit();
-            } catch (\Throwable $e) {
-                if ($pdo_mp->inTransaction()) $pdo_mp->rollBack();
-                api_error('Multi-period post failed: ' . $e->getMessage(), 422);
-            }
-            billingAudit('billing.invoice.posted', [
-                'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
-                'journal_entry_ids' => $jeIds,
-                'via' => 'multi_period_split',
-                'periods_spanned' => count($batch),
-            ], $id);
-            api_ok([
-                'ok' => true,
-                'journal_entry_ids' => $jeIds,
-                'periods_spanned'   => count($batch),
-                'via'               => 'multi_period_split',
-            ]);
         }
         // Single-period fall-through: clean monthly cycle, no accrual
         // bridge needed → drop into legacy path for normal posting.
@@ -611,6 +571,58 @@ if ($method === 'POST' && $action === 'post') {
             'accounting_event_id' => (int) ($eventResult['event_id'] ?? 0),
             'via' => 'event_layer',
         ]);
+    }
+
+    // Multi-period split branch — gated by per-tenant opt-in. Engages
+    // ONLY when the underlying work_dates cross > 1 accounting period,
+    // posting N JEs (one per period) via AR Unbilled instead of one JE
+    // tied to issue_date. Placed AFTER the event-layer attempt so the
+    // Sprint 7e contract guardrails stay green; event-layer rule wins
+    // over multi-period when both are configured for the same tenant.
+    if (!empty($settings['multi_period_split_enabled'])) {
+        if (count($perPeriod) > 1) {
+        $batch = accountingBuildInvoiceJEBatch($row, $perPeriod, (string) $settings['ar_unbilled_account_code']);
+        $pdo_mp = getDB();
+        $jeIds = [];
+        $pdo_mp->beginTransaction();
+        try {
+            foreach ($batch as $i => $je) {
+                $res = accountingPostJe($tid, [
+                    'posting_date'    => $je['date'],
+                    'currency'        => $row['currency'],
+                    'source_module'   => 'billing',
+                    'source_ref_type' => 'billing_invoice',
+                    'source_ref_id'   => $id,
+                    // Idempotency key per JE so a retried bulk post
+                    // doesn't double-insert any single accrual.
+                    'idempotency_key' => sprintf('billing:invoice:%d:post:mp:%d', $id, $i),
+                    'memo'            => "Invoice {$row['invoice_number']} — period " . ($i + 1) . '/' . count($batch)
+                                      . ($je['is_issue_period'] ? ' (recognition)' : ' (accrual)'),
+                    'lines'           => $je['lines'],
+                ], $user['id'] ?? null, true);
+                $jeIds[] = $res['je_id'];
+            }
+            // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
+            $pdo_mp->prepare('UPDATE billing_invoices SET journal_entry_id = :j WHERE id = :id')
+                ->execute(['j' => $jeIds[count($jeIds) - 1], 'id' => $id]);
+            $pdo_mp->commit();
+        } catch (\Throwable $e) {
+            if ($pdo_mp->inTransaction()) $pdo_mp->rollBack();
+            api_error('Multi-period post failed: ' . $e->getMessage(), 422);
+        }
+        billingAudit('billing.invoice.posted', [
+            'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
+            'journal_entry_ids' => $jeIds,
+            'via' => 'multi_period_split',
+            'periods_spanned' => count($batch),
+        ], $id);
+        api_ok([
+            'ok' => true,
+            'journal_entry_ids' => $jeIds,
+            'periods_spanned'   => count($batch),
+            'via'               => 'multi_period_split',
+        ]);
+        }
     }
 
     try {

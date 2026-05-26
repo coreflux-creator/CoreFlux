@@ -22,11 +22,16 @@ $fmap   = (string) file_get_contents('/app/core/integrations/field_map.php');
 $cohelp = (string) file_get_contents('/app/modules/people/lib/companies.php');
 
 echo "\n1. Allow-list audit\n";
-// Ghost fields that don't exist on the real schema must be GONE:
-foreach (['employment_type','hire_date','termination_date','pay_frequency'] as $ghost) {
+// Slice 5b (2026-02): the original ghost-field roster has been pared
+// down — `employment_type`, `hire_date`, `termination_date`,
+// `pay_frequency` (people: migration 006_unify_and_extend) and
+// `industry` (companies: migration 005_companies_v2) ARE real schema
+// columns and the broader-mapping expansion (Slice 5b) intentionally
+// surfaces them. Only the truly synthetic columns remain banned.
+foreach ([] as $ghost) {
     $a("ghost person field '{$ghost}' removed", !preg_match("/'{$ghost}'/", $fmap));
 }
-foreach (['industry','billing_email','billing_terms','tax_id_last4'] as $ghost) {
+foreach (['billing_email','billing_terms','tax_id_last4'] as $ghost) {
     $a("ghost company field '{$ghost}' removed", !preg_match("/'{$ghost}'/", $fmap));
 }
 // 'description' was removed from the company allow-list (it's not a real

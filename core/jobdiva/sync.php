@@ -629,6 +629,50 @@ function jobdivaSyncUpsertContact(int $tid, int $companyId, array $jd, string $n
         static fn() => jobdivaPluckField($jd, ['notes', 'note', 'comments', 'comment'])
     );
 
+    // Slice 5b broader-mapping additions (2026-02) — companies-v2
+    // company_contacts columns. mobile_phone + linkedin_url + department
+    // are common JobDiva ClientContacts payload fields; decision_role +
+    // is_active capture sales-cycle context for downstream CRM views.
+    $mobilePhone = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'contact', 'mobile_phone', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'mobilePhone', 'mobile_phone', 'cellPhone', 'cell_phone', 'mobile', 'cell',
+        ])
+    );
+    $linkedinUrl = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'contact', 'linkedin_url', $jd,
+        static fn() => jobdivaPluckField($jd, ['linkedinUrl', 'linkedin_url', 'linkedIn', 'linkedin'])
+    );
+    $department = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'contact', 'department', $jd,
+        static fn() => jobdivaPluckField($jd, ['department', 'dept', 'departmentName'])
+    );
+    $decisionRoleRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'contact', 'decision_role', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'decisionRole', 'decision_role', 'decisionMakerRole', 'buyerRole',
+        ])
+    );
+    $decisionRoleMap = [
+        'decision_maker'  => 'decision_maker', 'decision maker' => 'decision_maker',
+        'champion'        => 'champion',
+        'influencer'      => 'influencer',
+        'blocker'         => 'blocker',
+        'gatekeeper'      => 'gatekeeper',
+    ];
+    $decisionRole = $decisionRoleMap[strtolower(trim($decisionRoleRaw))] ?? 'unknown';
+    $isActiveRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'contact', 'is_active', $jd,
+        static fn() => jobdivaPluckField($jd, ['isActive', 'is_active', 'active', 'status'])
+    );
+    // 'inactive' / 'disabled' / 'false' / '0' all collapse to 0; anything
+    // else (including blank — JobDiva defaults the contact to active) is 1.
+    $isActive = in_array(
+        strtolower(trim($isActiveRaw)),
+        ['0', 'false', 'no', 'n', 'inactive', 'disabled'],
+        true
+    ) ? 0 : 1;
+
     $pdo = getDB();
     if ($email !== '') {
         $stmt = $pdo->prepare('SELECT id FROM company_contacts WHERE tenant_id = :t AND company_id = :c AND email = :e LIMIT 1');
@@ -640,7 +684,10 @@ function jobdivaSyncUpsertContact(int $tid, int $companyId, array $jd, string $n
                 'UPDATE company_contacts
                     SET name = :n, title = :ti, phone = :ph,
                         contact_role = :cr, is_primary = :ip,
-                        notes = :no
+                        notes = :no,
+                        mobile_phone = :mp, linkedin_url = :lu,
+                        department = :dp, decision_role = :dr,
+                        is_active = :ia
                   WHERE id = :id'
             )->execute([
                 'n'  => $name,
@@ -649,6 +696,11 @@ function jobdivaSyncUpsertContact(int $tid, int $companyId, array $jd, string $n
                 'cr' => $contactRole,
                 'ip' => $isPrimary,
                 'no' => $notes !== '' ? mb_substr($notes, 0, 500) : null,
+                'mp' => $mobilePhone ?: null,
+                'lu' => $linkedinUrl ?: null,
+                'dp' => $department ?: null,
+                'dr' => $decisionRole,
+                'ia' => $isActive,
                 'id' => $existingId,
             ]);
             return $existingId;
@@ -656,14 +708,21 @@ function jobdivaSyncUpsertContact(int $tid, int $companyId, array $jd, string $n
     }
     $pdo->prepare(
         'INSERT INTO company_contacts
-            (tenant_id, company_id, name, title, email, phone, contact_role, is_primary, notes)
+            (tenant_id, company_id, name, title, email, phone, contact_role, is_primary, notes,
+             mobile_phone, linkedin_url, department, decision_role, is_active)
          VALUES
-            (:t, :c, :n, :ti, :e, :ph, :cr, :ip, :no)'
+            (:t, :c, :n, :ti, :e, :ph, :cr, :ip, :no,
+             :mp, :lu, :dp, :dr, :ia)'
     )->execute([
         't'  => $tid, 'c'  => $companyId, 'n'  => $name,
         'ti' => $title ?: null, 'e'  => $email ?: null, 'ph' => $phone ?: null,
         'cr' => $contactRole, 'ip' => $isPrimary,
         'no' => $notes !== '' ? mb_substr($notes, 0, 500) : null,
+        'mp' => $mobilePhone ?: null,
+        'lu' => $linkedinUrl ?: null,
+        'dp' => $department ?: null,
+        'dr' => $decisionRole,
+        'ia' => $isActive,
     ]);
     return (int) $pdo->lastInsertId();
 }
@@ -1261,6 +1320,60 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     );
     $dueDate = jobdivaNormaliseDate($dueDateRaw);
 
+    // Slice 5b — broader-mapping additions (2026-02). Billing + pay
+    // cadence usually live in JobDiva's Assignment screen as
+    // `billCycle` / `payCycle`; pulling them here means the operator
+    // doesn't have to re-pick them in CoreFlux. ENUM coercion is
+    // necessary because JobDiva uses free-text like "Bi-Weekly" or
+    // "Weekly (Sun-Sat)" that we must collapse to the CoreFlux enum.
+    $cycleEnumMap = [
+        'weekly'        => 'weekly',
+        'biweekly'      => 'biweekly', 'bi-weekly' => 'biweekly', 'bi_weekly' => 'biweekly',
+        'semimonthly'   => 'semimonthly', 'semi-monthly' => 'semimonthly', 'semi_monthly' => 'semimonthly',
+        'monthly'       => 'monthly',
+        'adhoc'         => 'adhoc', 'ad-hoc' => 'adhoc', 'ad_hoc' => 'adhoc', 'as needed' => 'adhoc',
+    ];
+    $coerceCycle = static function (string $raw) use ($cycleEnumMap): ?string {
+        if ($raw === '') return null;
+        $key = strtolower(trim($raw));
+        // Some JobDiva tenants embed extra qualifiers like "Weekly (Sun-Sat)";
+        // strip everything after the first space/paren so the ENUM matches.
+        $key = preg_replace('/[\s(].*$/', '', $key) ?? $key;
+        return $cycleEnumMap[$key] ?? null;
+    };
+    $clientBillCycleRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'client_bill_cycle', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'billCycle', 'bill_cycle', 'clientBillCycle', 'client_bill_cycle',
+            'invoiceFrequency', 'billingFrequency', 'billing_cycle',
+        ])
+    );
+    $clientBillCycle = $coerceCycle($clientBillCycleRaw);
+    $clientBillCycleAnchorRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'client_bill_cycle_anchor', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'billCycleAnchor', 'bill_cycle_anchor', 'clientBillCycleAnchor',
+            'client_bill_cycle_anchor', 'billingAnchorDate', 'invoiceAnchor',
+        ])
+    );
+    $clientBillCycleAnchor = jobdivaNormaliseDate($clientBillCycleAnchorRaw);
+    $vendorPayCycleRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'vendor_pay_cycle', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'payCycle', 'pay_cycle', 'vendorPayCycle', 'vendor_pay_cycle',
+            'payrollFrequency', 'pay_frequency',
+        ])
+    );
+    $vendorPayCycle = $coerceCycle($vendorPayCycleRaw);
+    $vendorPayCycleAnchorRaw = (string) tenantIntegrationFieldMapPluckInternal(
+        $tid, 'jobdiva', 'placement', 'vendor_pay_cycle_anchor', $jd,
+        static fn() => jobdivaPluckField($jd, [
+            'payCycleAnchor', 'pay_cycle_anchor', 'vendorPayCycleAnchor',
+            'vendor_pay_cycle_anchor', 'payrollAnchorDate',
+        ])
+    );
+    $vendorPayCycleAnchor = jobdivaNormaliseDate($vendorPayCycleAnchorRaw);
+
     if ($existingId > 0) {
         // Slice 2: respect coreflux_overridden_fields — fields the user edited
         // in CoreFlux must not be reverted on the next JobDiva pull. Strip
@@ -1299,12 +1412,25 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'recruiter_email'      => ['re',    $recruiterEmail ?: null],
             'account_manager_name' => ['amn',   $accountManagerName ?: null],
             'account_manager_email'=> ['ame',   $accountManagerEmail ?: null],
+            // Slice 5b broader-mapping additions
+            'client_bill_cycle'         => ['cbc',  $clientBillCycle],
+            'client_bill_cycle_anchor'  => ['cbca', $clientBillCycleAnchor],
+            'vendor_pay_cycle'          => ['vpc',  $vendorPayCycle],
+            'vendor_pay_cycle_anchor'   => ['vpca', $vendorPayCycleAnchor],
         ];
         $assignments = [];
         $bindings = ['id' => $existingId];
         $skipped = [];
         foreach ($allFields as $col => [$bind, $val]) {
             if (in_array($col, $overrides, true)) {
+                $skipped[] = $col;
+                continue;
+            }
+            // ENUM columns reject empty strings AND reject NULL when
+            // declared NOT NULL. `client_bill_cycle` / `vendor_pay_cycle`
+            // are NOT NULL with defaults; skipping the assignment lets
+            // the existing column value (or DB default) stick.
+            if ($val === null && in_array($col, ['client_bill_cycle', 'vendor_pay_cycle'], true)) {
                 $skipped[] = $col;
                 continue;
             }
@@ -1329,10 +1455,13 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
                                   remote_policy, notes, end_client_name, end_client_company_id,
                                   client_approver_name, client_approver_email, title,
                                   recruiter_name, recruiter_email,
-                                  account_manager_name, account_manager_email)
+                                  account_manager_name, account_manager_email,
+                                  client_bill_cycle, client_bill_cycle_anchor,
+                                  vendor_pay_cycle, vendor_pay_cycle_anchor)
          VALUES (:t, :p, :ext, :jji, :st, :sd, :ed, :aed, :dd, :eng, :ws, :wc,
                  :rp, :notes, :ecn, :ecc, :can, :cae, :ti,
-                 :rn, :re, :amn, :ame)'
+                 :rn, :re, :amn, :ame,
+                 :cbc, :cbca, :vpc, :vpca)'
     )->execute([
         't'     => $tid,
         'p'     => $personId,
@@ -1357,6 +1486,12 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         're'    => $recruiterEmail ?: null,
         'amn'   => $accountManagerName ?: null,
         'ame'   => $accountManagerEmail ?: null,
+        // Cycle columns are NOT NULL with defaults; fall back to the
+        // schema defaults when the upstream payload didn't carry one.
+        'cbc'   => $clientBillCycle ?? 'monthly',
+        'cbca'  => $clientBillCycleAnchor,
+        'vpc'   => $vendorPayCycle ?? 'biweekly',
+        'vpca'  => $vendorPayCycleAnchor,
     ]);
     $placementId = (int) $pdo->lastInsertId();
     jobdivaSyncUpsertPlacementRates($tid, $placementId, $startDate, $jd);
