@@ -9352,3 +9352,112 @@ slice lands the worker.
   outcome routing, dry-run/live-stub paths, migration shape, and
   tenant-leak safety on the rule UPDATE.
 - Full PHP CLI suite: **303/303 ✅** (up from 302).
+
+---
+
+## 2026-02 — P1.d Cleanup + Treasury Sweep Go-Live + Audit UI + Divergence Alert + Mercury Dual-Leg Progress
+
+Five shippable slices in one fork session.
+
+### 1. P1.d — Legacy `EmployeeDirectory.jsx` Pruned
+- Removed `/app/modules/people/ui/EmployeeDirectory.jsx` and
+  `/app/dashboard/src/modules/EmployeeDirectory.jsx`.
+- Only references remaining are in `/app/legacy/people_pre_spec_20260429/`,
+  which is intentionally archived.
+- Stale assertions in `placements_csv_id_lookup_smoke.php` cleaned up.
+
+### 2. Treasury Sweep — Go-Live Wiring (P1.b follow-up)
+- **`/app/core/migrations/075_sweep_destination_recipient.sql`** —
+  extends `mercury_recipients.kind` ENUM with `'sweep_destination'`
+  and adds `tenant_sweep_rules.destination_recipient_id` (FK to
+  `mercury_recipients`).
+- **`/app/core/mercury_recipients.php`** — validation accepts the new
+  kind in both `create` and `pushToMercury`.
+- **`/app/core/mercury_payments.php`** — `mpCreate()` now accepts
+  recipients of kind `vendor` OR `sweep_destination`, so internal
+  transfers reuse the same `payment_instructions` / `mpAdvance`
+  pipeline (full approval-policy + state-machine coverage).
+- **`/app/core/treasury_sweep_engine.php` Layer 3c** — when
+  `TREASURY_SWEEP_LIVE=1` AND the rule has a `destination_recipient_id`,
+  the engine calls `mpCreate(source_module='treasury_sweep',
+  idempotency_key='sweep:<rule>:<YYYY-MM-DD>', …)`. Missing recipient
+  records `failed_execute` with a clear remediation message.
+- Idempotency intentionally keyed on (rule, calendar-day) only —
+  cron-safe replay returns the existing instruction.
+
+### 3. Treasury Sweep — Worker Audit UI
+- **`/app/api/admin/treasury/sweep_runs.php`** — GET endpoint that
+  reads `treasury_sweep_runs` for the last 1..90 days, optionally
+  filtered by `rule_id`. Joins rule name for display. Returns
+  per-outcome rollups + planned-dryrun vs swept-live totals + live_mode
+  flag. Soft-handles missing migration 074 with `migration_pending=true`.
+- **`/app/modules/treasury/ui/SweepRunsFeed.jsx`** — operator-facing
+  audit feed mounted below the rules table in `SweepRulesAdmin.jsx`.
+  Surfaces: mode badge (DRY-RUN/LIVE), four summary cards (total,
+  planned-dry-run, swept-live, failures), go-live readiness banners
+  (ready / blocked / building-evidence), and the full run table with
+  per-outcome color badges.
+
+### 4. Treasury Sweep — Divergence Alert Cron
+- **`/app/cron/treasury_sweep_divergence_alert.php`** — daily 09:00
+  cron driver that emails finance admins per tenant. Builds a
+  yesterday-only summary table + per-outcome rollups. Computes a
+  go-live readiness STREAK (up to 14 days back) of consecutive
+  clean-dry-run days and surfaces:
+  - `>= 7` clean days → **Go-live ready** banner with `TREASURY_SWEEP_LIVE=1` recommendation.
+  - Any failures → **Action required** banner (precedence over readiness).
+  - 1..6 clean days → "Building go-live evidence" banner.
+- Recipients resolved via `user_tenants` filtered to
+  `master_admin/tenant_admin/finance_admin/cfo` roles.
+- Uses `mailerSend(purpose='treasury_sweep_divergence')`; absent
+  mailer logs MOCKED summary without crashing.
+
+### 5. Mercury — Dual-Leg Approval Progress (operator visibility)
+- **`mpGetApprovalProgress(int $tid, int $instructionId, ?array $viewer)`** in
+  `mercury_payments.php`. Composes:
+  - Resolved `approval_policy` (policy_name, min_approvers,
+    cool_off_minutes, required_approver_role)
+  - Acks collected (with JOIN to users for name/email)
+  - Acks remaining (`max(0, min - count)`)
+  - `cool_off_seconds_remaining` (computed from `cool_off_until`)
+  - `can_approve` + `can_approve_reason` for the viewer
+    (`no-viewer` / `creator-cannot-approve` /
+    `role-mismatch:<role>` / `already-acked` / `state-<state>`)
+- **`/app/api/mercury_payments.php` GET-by-id** — now returns
+  `approval_progress` alongside `row` + `audit`. Wrapped in try/catch
+  so a transient progress-query failure can't 500 a viewer who's just
+  checking the status.
+
+### Tests
+- Full PHP CLI suite: **304/304 ✅** (up from 303).
+- New `/app/tests/treasury_sweep_golive_and_dual_leg_smoke.php` —
+  58 assertions across all five slices.
+- Existing smokes updated:
+  - `mercury_recipients_smoke.php` — kind validation includes `sweep_destination`.
+  - `placements_csv_id_lookup_smoke.php` — purged stale `EmployeeDirectory.jsx` assertions.
+
+### Files touched
+- DELETED: `/app/modules/people/ui/EmployeeDirectory.jsx`,
+  `/app/dashboard/src/modules/EmployeeDirectory.jsx`
+- NEW: `/app/core/migrations/075_sweep_destination_recipient.sql`,
+  `/app/api/admin/treasury/sweep_runs.php`,
+  `/app/modules/treasury/ui/SweepRunsFeed.jsx`,
+  `/app/cron/treasury_sweep_divergence_alert.php`,
+  `/app/tests/treasury_sweep_golive_and_dual_leg_smoke.php`
+- MODIFIED: `/app/core/mercury_recipients.php`, `/app/core/mercury_payments.php`,
+  `/app/core/treasury_sweep_engine.php`,
+  `/app/modules/treasury/ui/SweepRulesAdmin.jsx`,
+  `/app/api/mercury_payments.php`,
+  `/app/tests/mercury_recipients_smoke.php`,
+  `/app/tests/placements_csv_id_lookup_smoke.php`,
+  `/app/tests/treasury_sweep_engine_smoke.php`
+
+### Next operator setup steps (manual, not in this slice)
+1. Apply migrations 074 + 075 to production.
+2. For each Mercury connection: create `mercury_recipients` rows of
+   `kind='sweep_destination'` for every destination account; push to
+   Mercury so the counterparty resolves at originate time.
+3. Wire each `tenant_sweep_rules.destination_recipient_id` to the
+   appropriate `sweep_destination` recipient.
+4. Tail the divergence alert email for 7+ days; once clean, flip
+   `TREASURY_SWEEP_LIVE=1` in the cron environment.

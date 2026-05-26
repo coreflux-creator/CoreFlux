@@ -226,27 +226,59 @@ function treasurySweepRunRule(
 
     // Layer 3c: originate the transfer.
     //
-    // Live execution is INTENTIONALLY deferred. The internal-transfer
-    // leg requires either:
-    //   a) A new mercury_recipients kind ('sweep_destination') so we
-    //      can reuse the existing payment_instructions / mpAdvance
-    //      pipeline (preferred — keeps approval policy + state machine
-    //      consistent with vendor payments), OR
-    //   b) A bypass that calls mercuryCreatePayment with a destination
-    //      counterparty mapped to the destination account.
+    // Live execution wires the sweep into the existing
+    // payment_instructions / mpAdvance pipeline by creating an
+    // instruction whose recipient is a kind='sweep_destination' (added
+    // by migration 075). The standard approval policy applies — if
+    // require_approval_policy_id is set on the rule, the worker just
+    // creates the instruction in Draft state and the approval workflow
+    // runs the rest. When no approval policy is required, an
+    // operator/cron can pick it up and advance through mpAdvance.
     //
-    // Both are scope for the follow-up slice that turns
-    // TREASURY_SWEEP_LIVE=1 on for real. For now, dry-run records the
-    // planned amount, every rule's last_run snapshot updates, and
-    // operators get a complete audit trail to validate the math.
+    // The Mercury counterparty for the destination account must be
+    // pre-pushed (mercuryRecipientPush) so the originate leg can
+    // resolve the counterparty_id. Setup-time concern, not run-time.
     if ($dryRun) {
         treasurySweepRecordRun($tenantId, $ruleId, $balanceCents, $sweepCents, 'swept', true);
         return 'swept'; // outcome reflects the *intended* state; dry_run=1 column tells the truth
     }
 
-    treasurySweepRecordRun($tenantId, $ruleId, $balanceCents, $sweepCents, 'failed_execute', false,
-        null, 'TREASURY_SWEEP_LIVE=1 but internal-transfer recipient model not yet wired — see treasury_sweep_engine.php Layer 3c');
-    return 'failed_execute';
+    $destRecipientId = isset($rule['destination_recipient_id']) ? (int) $rule['destination_recipient_id'] : 0;
+    if ($destRecipientId <= 0) {
+        treasurySweepRecordRun($tenantId, $ruleId, $balanceCents, $sweepCents, 'failed_execute', false,
+            null, 'rule has no destination_recipient_id — wire a kind=sweep_destination recipient first (migration 075)');
+        return 'failed_execute';
+    }
+
+    require_once __DIR__ . '/mercury_payments.php';
+    try {
+        $pi = mpCreate($tenantId, [
+            'recipient_id'    => $destRecipientId,
+            'amount_cents'    => $sweepCents,
+            'currency'        => 'USD',
+            'source_module'   => 'treasury_sweep',
+            'source_ref'      => (string) $ruleId,
+            // Idempotency: one instruction per (rule, calendar-day). A
+            // double-fired worker tick on the same day returns the
+            // existing instruction without double-spending. We do NOT
+            // include the amount in the key — if the rule re-evaluates
+            // mid-day and balance shifted, the FIRST decision wins,
+            // matching cron-safety expectations.
+            'idempotency_key' => sprintf('sweep:%d:%s', $ruleId, $now->format('Y-m-d')),
+            'description'     => sprintf('Sweep #%d: balance %s → destination', $ruleId, number_format($balanceCents / 100, 2)),
+            'notes'           => 'Auto-originated by treasury_sweep_worker',
+        ], null);
+    } catch (\Throwable $e) {
+        treasurySweepRecordRun($tenantId, $ruleId, $balanceCents, $sweepCents, 'failed_execute', false,
+            null, 'mpCreate failed: ' . $e->getMessage());
+        return 'failed_execute';
+    }
+
+    treasurySweepRecordRun(
+        $tenantId, $ruleId, $balanceCents, $sweepCents, 'swept', false,
+        (int) ($pi['id'] ?? 0), null
+    );
+    return 'swept';
 }
 
 /**

@@ -80,8 +80,8 @@ $a('mercuryRecipientRevoke() exported',          $c($svc, 'function mercuryRecip
 $a('mercuryRecipientPushToMercury() exported',   $c($svc, 'function mercuryRecipientPushToMercury'));
 $a('mercuryRecipientSetFundingDefault() exported', $c($svc, 'function mercuryRecipientSetFundingDefault'));
 $a('mercuryRecipientGetFundingDefault() exported', $c($svc, 'function mercuryRecipientGetFundingDefault'));
-$a('kind validation (vendor|funding_source)',
-    $c($svc, "in_array(\$kind, ['vendor', 'funding_source'], true)"));
+$a('kind validation (vendor|funding_source|sweep_destination)',
+    $c($svc, "in_array(\$kind, ['vendor', 'funding_source', 'sweep_destination'], true)"));
 $a('routing number must be 9 digits',
     $c($svc, "strlen(\$routing) !== 9"));
 $a('account length 4-17 validation',

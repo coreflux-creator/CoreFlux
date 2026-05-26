@@ -141,8 +141,12 @@ function mpCreate(int $tenantId, array $data, ?int $userId = null): array
         }
     }
     $rec = mercuryRecipientGet($tenantId, (int) $data['recipient_id']);
-    if (!$rec || $rec['kind'] !== 'vendor') {
-        throw new \InvalidArgumentException('recipient must exist with kind=vendor');
+    if (!$rec || !in_array($rec['kind'] ?? '', ['vendor', 'sweep_destination'], true)) {
+        // Treasury Sweep go-live (migration 075) added the
+        // sweep_destination kind so internal-transfer instructions
+        // (account-to-account within the same Mercury org) reuse this
+        // pipeline with full approval-policy + state-machine coverage.
+        throw new \InvalidArgumentException('recipient must exist with kind=vendor or kind=sweep_destination');
     }
     if ($rec['status'] !== 'active') {
         throw new \InvalidArgumentException('recipient is not active');
@@ -819,4 +823,125 @@ function mpPollPayoutStatus(int $tenantId, array $row, string $apiToken): string
         return 'Settled';
     }
     return 'Submitted'; // still pending
+}
+
+/**
+ * mpGetApprovalProgress — surface the dual-leg approval state for a
+ * single payment instruction, so the operator-facing UI can render:
+ *   • who has already ack'd (with names)
+ *   • how many acks are still needed
+ *   • cool-off countdown (seconds remaining; 0 if elapsed or no policy)
+ *   • required approver role (if a policy demands one)
+ *   • whether the current viewer is eligible to ack
+ *
+ * Pure-read; never throws. Returns a stable shape even when no policy
+ * matches (legacy default: 1 distinct non-creator approver).
+ *
+ *   ['policy_id', 'policy_name', 'required_approver_role',
+ *    'min_approvers', 'cool_off_minutes',
+ *    'acks_collected' => N, 'acks_required' => N, 'acks_remaining' => N,
+ *    'acks' => [['user_id','user_name','user_email','note','created_at'], ...],
+ *    'cool_off_until', 'cool_off_seconds_remaining',
+ *    'creator_user_id', 'creator_name',
+ *    'can_approve' => bool, 'can_approve_reason' => string]
+ */
+function mpGetApprovalProgress(int $tenantId, int $instructionId, ?array $viewer = null): array
+{
+    require_once __DIR__ . '/approval_policy.php';
+
+    $pdo = getDB();
+    // tenant-leak-allow: caller already validated tenant ownership via mpGet/list
+    $rowStmt = $pdo->prepare(
+        'SELECT pi.id, pi.amount_cents, pi.recipient_id, pi.state,
+                pi.created_by_user_id, pi.cool_off_until,
+                pi.operating_mercury_account_id,
+                cu.name AS creator_name
+           FROM payment_instructions pi
+      LEFT JOIN users cu ON cu.id = pi.created_by_user_id
+          WHERE pi.tenant_id = :t AND pi.id = :i'
+    );
+    $rowStmt->execute(['t' => $tenantId, 'i' => $instructionId]);
+    $pi = $rowStmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$pi) return [];
+
+    $policy = approvalPolicyResolve(
+        $tenantId,
+        (int) $pi['amount_cents'],
+        (int) $pi['recipient_id'],
+        (string) ($pi['operating_mercury_account_id'] ?? '') ?: null,
+        'mercury'
+    );
+    $minApprovers   = $policy ? max(1, (int) $policy['min_approvers'])    : 1;
+    $coolOffMin     = $policy ? max(0, (int) $policy['cool_off_minutes']) : 0;
+    $requiredRole   = $policy['required_approver_role'] ?? null;
+
+    // Acks collected — JOIN to users for display.
+    $ackStmt = $pdo->prepare(
+        'SELECT a.id, a.user_id, a.note, a.created_at,
+                u.name AS user_name, u.email AS user_email
+           FROM payment_instruction_approvals a
+      LEFT JOIN users u ON u.id = a.user_id
+          WHERE a.tenant_id = :t AND a.instruction_id = :i
+          ORDER BY a.created_at ASC, a.id ASC'
+    );
+    $ackStmt->execute(['t' => $tenantId, 'i' => $instructionId]);
+    $acks = $ackStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $ackCount = count($acks);
+    $remaining = max(0, $minApprovers - $ackCount);
+
+    $coolOffSecs = 0;
+    if (!empty($pi['cool_off_until'])) {
+        $coolOffSecs = max(0, strtotime((string) $pi['cool_off_until']) - time());
+    }
+
+    // Viewer eligibility — used by the UI to enable/disable the
+    // Approve button without round-tripping mpApprove.
+    $canApprove = true; $canApproveReason = '';
+    $viewerId   = $viewer !== null ? (int) ($viewer['id'] ?? 0) : 0;
+    $viewerRole = (string) ($viewer['role'] ?? '');
+    if ($viewerId === 0) {
+        $canApprove = false; $canApproveReason = 'no-viewer';
+    } elseif ((int) $pi['created_by_user_id'] === $viewerId) {
+        $canApprove = false; $canApproveReason = 'creator-cannot-approve';
+    } elseif ($requiredRole !== null && $requiredRole !== '' && $viewerRole !== $requiredRole) {
+        $canApprove = false; $canApproveReason = 'role-mismatch:' . $requiredRole;
+    } else {
+        foreach ($acks as $a) {
+            if ((int) $a['user_id'] === $viewerId) {
+                $canApprove = false; $canApproveReason = 'already-acked';
+                break;
+            }
+        }
+        if ($canApprove && $remaining === 0 && (string) $pi['state'] !== 'PendingApproval') {
+            $canApprove = false; $canApproveReason = 'state-' . $pi['state'];
+        }
+    }
+
+    return [
+        'instruction_id'             => (int) $pi['id'],
+        'state'                      => (string) $pi['state'],
+        'policy_id'                  => $policy['id']    ?? null,
+        'policy_name'                => $policy['name']  ?? null,
+        'required_approver_role'     => $requiredRole,
+        'min_approvers'              => $minApprovers,
+        'cool_off_minutes'           => $coolOffMin,
+        'acks_collected'             => $ackCount,
+        'acks_required'              => $minApprovers,
+        'acks_remaining'             => $remaining,
+        'acks'                       => array_map(static fn(array $a) => [
+            'id'         => (int) $a['id'],
+            'user_id'    => (int) $a['user_id'],
+            'user_name'  => $a['user_name']  ?? null,
+            'user_email' => $a['user_email'] ?? null,
+            'note'       => $a['note'],
+            'created_at' => $a['created_at'],
+        ], $acks),
+        'cool_off_until'             => $pi['cool_off_until'],
+        'cool_off_seconds_remaining' => $coolOffSecs,
+        'creator_user_id'            => (int) $pi['created_by_user_id'],
+        'creator_name'               => $pi['creator_name'],
+        'can_approve'                => $canApprove,
+        'can_approve_reason'         => $canApproveReason,
+    ];
 }

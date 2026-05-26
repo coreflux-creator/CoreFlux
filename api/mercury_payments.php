@@ -55,7 +55,14 @@ if ($method === 'GET') {
             $st->execute(['t' => $tenantId, 'id' => $id]);
             $audit = $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
         } catch (\Throwable $e) { $audit = []; }
-        api_ok(['row' => $row, 'audit' => $audit]);
+        // Dual-leg approval progress — surfaces co-approval chain,
+        // cool-off countdown, and viewer eligibility so the UI doesn't
+        // have to model policy state itself. Safe-default empty array
+        // if the helper throws (won't 500 a viewer who's just checking).
+        try {
+            $progress = mpGetApprovalProgress($tenantId, $id, $user);
+        } catch (\Throwable $e) { $progress = []; }
+        api_ok(['row' => $row, 'audit' => $audit, 'approval_progress' => $progress]);
     }
     $opts = [];
     if (!empty($_GET['state'])) $opts['state'] = (string) $_GET['state'];

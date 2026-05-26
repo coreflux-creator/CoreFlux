@@ -132,9 +132,16 @@ $a('engine records skipped_under_floor when sweep amount is 0',
    str_contains($eng, "'skipped_under_floor'"));
 $a('dry-run path records outcome=swept with dry_run=true flag',
    str_contains($eng, "treasurySweepRecordRun(\$tenantId, \$ruleId, \$balanceCents, \$sweepCents, 'swept', true);"));
-$a('live path stub records failed_execute with explanatory message',
+$a('live path stub records failed_execute when destination_recipient_id missing',
    str_contains($eng, "'failed_execute'")
-   && str_contains($eng, 'internal-transfer recipient model not yet wired'));
+   && str_contains($eng, 'destination_recipient_id'));
+$a('live path delegates to mpCreate with source_module=treasury_sweep',
+   str_contains($eng, "'source_module'   => 'treasury_sweep',")
+   && str_contains($eng, 'mpCreate($tenantId, ['));
+$a('live path uses (rule, calendar-day) idempotency key',
+   str_contains($eng, "sprintf('sweep:%d:%s', \$ruleId, \$now->format('Y-m-d'))"));
+$a('live path records outcome=swept when mpCreate succeeds',
+   str_contains($eng, "treasurySweepRecordRun(\n        \$tenantId, \$ruleId, \$balanceCents, \$sweepCents, 'swept', false,"));
 $a('UPDATE tenant_sweep_rules carries tenant_leak-allow comment',
    (bool) preg_match('/tenant-leak-allow.*\n\s+\$pdo->prepare\(\s*\n\s+\'UPDATE tenant_sweep_rules/s', $eng));
 $a('orchestrator caches Mercury tokens per tenant (no re-decrypt)',

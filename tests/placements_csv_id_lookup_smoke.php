@@ -34,7 +34,6 @@ $csvSvc   = (string) file_get_contents('/app/core/CsvImportService.php');
 $badgeUi  = (string) file_get_contents('/app/dashboard/src/components/IdBadge.jsx');
 $listUi   = (string) file_get_contents('/app/modules/placements/ui/List.jsx');
 $detailUi = (string) file_get_contents('/app/modules/placements/ui/PlacementDetail.jsx');
-$peopleUi = (string) file_get_contents('/app/modules/people/ui/EmployeeDirectory.jsx');
 $personUi = (string) file_get_contents('/app/modules/people/ui/PersonDetail.jsx');
 
 echo "\n1. CSV schema — new optional integer columns\n";
@@ -137,11 +136,6 @@ $a('Placements list header has an ID column (colSpan covers all columns)',
 $a('PlacementDetail surfaces PL + linked P badges',
     str_contains($detailUi, '<IdBadge id={placement.id} prefix="PL"')
     && str_contains($detailUi, '<IdBadge id={placement.person_id} prefix="P"'));
-$a('EmployeeDirectory adds an ID column with P prefix',
-    str_contains($peopleUi, '<IdBadge id={e.id} prefix="P"'));
-$a('EmployeeDirectory header has the ID column (colSpan bumped to 9)',
-    str_contains($peopleUi, '<th>ID</th>')
-    && str_contains($peopleUi, 'colSpan={9}'));
 $a('PersonDetail header surfaces the P badge next to the name',
     str_contains($personUi, '<IdBadge id={person.id} prefix="P"'));
 

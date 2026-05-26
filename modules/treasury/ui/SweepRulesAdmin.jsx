@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../../dashboard/src/lib/api';
+import SweepRunsFeed from './SweepRunsFeed';
 
 /**
  * Treasury Sweep Rules admin (P1 — cash-allocation workflow).
@@ -233,6 +234,7 @@ export default function SweepRulesAdmin() {
           </form>
         </>
       )}
+      <SweepRunsFeed />
     </section>
   );
 }

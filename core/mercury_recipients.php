@@ -43,8 +43,8 @@ require_once __DIR__ . '/mercury_service.php';
 function mercuryRecipientCreate(int $tenantId, array $data, ?int $userId = null): array
 {
     $kind = (string) ($data['kind'] ?? '');
-    if (!in_array($kind, ['vendor', 'funding_source'], true)) {
-        throw new \InvalidArgumentException('recipient.kind must be vendor|funding_source');
+    if (!in_array($kind, ['vendor', 'funding_source', 'sweep_destination'], true)) {
+        throw new \InvalidArgumentException('recipient.kind must be vendor|funding_source|sweep_destination');
     }
     $name = trim((string) ($data['name'] ?? ''));
     if ($name === '') throw new \InvalidArgumentException('recipient.name required');
@@ -133,7 +133,7 @@ function mercuryRecipientList(int $tenantId, ?string $kind = null): array
                  WHERE r.tenant_id = :t AND r.deleted_at IS NULL';
         $params = ['t' => $tenantId];
         if ($kind !== null && $kind !== '') {
-            if (!in_array($kind, ['vendor', 'funding_source'], true)) return [];
+            if (!in_array($kind, ['vendor', 'funding_source', 'sweep_destination'], true)) return [];
             $sql .= ' AND r.kind = :k';
             $params['k'] = $kind;
         }
