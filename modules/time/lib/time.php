@@ -342,3 +342,39 @@ function timeAudit(string $event, array $meta = [], ?int $targetId = null): void
         error_log("[time.audit] db-write-failed: " . $e->getMessage());
     }
 }
+
+/**
+ * Per-entry approval audit emitter (2026-02 — accrual-at-approval P1.a).
+ *
+ * Bundle-level approval drives GL recognition (see
+ * `accountingPostBundleAccrual`). Entry-level approval is audit-only:
+ * every individual entry transition into status='approved' lands a
+ * `time.entry.approved` row in `audit_log` with the per-entry context
+ * (work_date, placement_id, hours, approved_via, approver). No GL
+ * write — recognition is owned by the bundle path.
+ *
+ * Centralised so every approve site emits the same shape — keeps
+ * downstream dashboards (audit_log queries, future event subscribers)
+ * able to trust a stable payload regardless of which approve path
+ * fired (manual / tokenized email / bulk pre-approved CSV).
+ *
+ * @param int    $entryId         time_entries.id that just landed approved
+ * @param array  $entry           the time_entries row (for work_date/hours/etc.)
+ * @param string $approvedVia     'manual'|'tokenized_client_email'|'bulk_pre_approved'
+ * @param array  $approverContext extra metadata (approver_id, email, token_id, etc.)
+ */
+function timeEntryApprovedEmit(int $entryId, array $entry, string $approvedVia, array $approverContext = []): void
+{
+    $meta = array_merge([
+        'entry_id'         => $entryId,
+        'placement_id'     => isset($entry['placement_id']) ? (int) $entry['placement_id'] : null,
+        'person_id'        => isset($entry['person_id'])    ? (int) $entry['person_id']    : null,
+        'period_id'        => isset($entry['period_id'])    ? (int) $entry['period_id']    : null,
+        'work_date'        => $entry['work_date'] ?? null,
+        'category'         => $entry['category']  ?? null,
+        'hours'            => isset($entry['hours']) ? (float) $entry['hours'] : null,
+        'rate_snapshot_id' => isset($entry['rate_snapshot_id']) ? (int) $entry['rate_snapshot_id'] : null,
+        'approved_via'     => $approvedVia,
+    ], $approverContext);
+    timeAudit('time.entry.approved', $meta, $entryId);
+}

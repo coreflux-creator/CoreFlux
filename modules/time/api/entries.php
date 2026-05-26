@@ -54,12 +54,14 @@ if ($method === 'POST' && $action !== '') {
             'approved_at'        => date('Y-m-d H:i:s'),
             'approved_via'       => 'manual',
         ]);
-        timeAudit('time.entry.approved', [
-            'entry_id'        => $id,
-            'rate_snapshot_id'=> (int) $snap['id'],
-            'approved_via'    => 'manual',
-        ], $id);
-        api_ok(['ok' => true, 'entry' => timeEntryGet($id)]);
+        // Per-entry approval audit (P1.a — accrual-at-approval companion).
+        // No GL write: bundle accrual owns recognition; this emits the
+        // audit_log row downstream dashboards subscribe to.
+        $approvedEntry = timeEntryGet($id) ?? $entry;
+        timeEntryApprovedEmit((int) $id, $approvedEntry, 'manual', [
+            'approver_user_id' => $user['id'] ?? null,
+        ]);
+        api_ok(['ok' => true, 'entry' => $approvedEntry]);
     }
 
     if ($action === 'reject') {

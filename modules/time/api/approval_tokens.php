@@ -153,6 +153,40 @@ if ($method === 'POST' && $action === 'respond') {
         throw $e;
     }
 
+    // Per-entry approval audit (P1.a — accrual-at-approval companion).
+    // The bulk UPDATE above transitioned 1..N entries at once; emit one
+    // `time.entry.approved` audit_log row per entry so downstream
+    // dashboards see the same granular signal as the manual approve
+    // path. Fetched POST-commit so the rate_snapshot_id (auto-resolved
+    // by triggers/triggers-equivalent code, if any) and approved_via
+    // are visible. Skipped for reject — only approval flows through here.
+    if ($choice === 'approve' && !empty($entryIds)) {
+        try {
+            $in = implode(',', array_map('intval', $entryIds));
+            // tenant-leak-allow: defense-in-depth — tenant_id pinned to $row's tenant which is the token-bound tenant
+            $approvedStmt = $pdo->prepare(
+                "SELECT id, placement_id, person_id, period_id, work_date, category, hours, rate_snapshot_id
+                   FROM time_entries
+                  WHERE tenant_id = :t AND id IN ({$in}) AND status = 'approved'"
+            );
+            $approvedStmt->execute(['t' => (int) $row['tenant_id']]);
+            foreach ($approvedStmt->fetchAll(\PDO::FETCH_ASSOC) as $approved) {
+                timeEntryApprovedEmit(
+                    (int) $approved['id'],
+                    $approved,
+                    'tokenized_client_email',
+                    [
+                        'token_id'              => (int) $row['id'],
+                        'client_approver_email' => $row['client_approver_email'],
+                        'ip_address'            => $ip,
+                    ]
+                );
+            }
+        } catch (\Throwable $e) {
+            error_log('[time.token.respond] per-entry audit emit failed: ' . $e->getMessage());
+        }
+    }
+
     // Public audit: use raw PDO (no tenant scope available here beyond the row).
     try {
         $pdo->prepare('INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)

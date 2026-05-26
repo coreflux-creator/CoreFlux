@@ -200,10 +200,22 @@ if ($method === 'POST' && $action === 'commit') {
 
         if ($existing) {
             scopedUpdate('time_entries', (int) $existing['id'], $payload);
-            return (int) $existing['id'];
+            $resultId = (int) $existing['id'];
+        } else {
+            $payload['created_by_user_id'] = $user['id'] ?? null;
+            $resultId = scopedInsert('time_entries', $payload);
         }
-        $payload['created_by_user_id'] = $user['id'] ?? null;
-        return scopedInsert('time_entries', $payload);
+        // Per-entry approval audit (P1.a). The CSV-pre-approved path
+        // transitions entries straight to status='approved' without
+        // going through the manual two-eye gate; emit a per-row audit
+        // so downstream dashboards see consistent granularity.
+        if ($preApproved) {
+            timeEntryApprovedEmit($resultId, $payload, 'bulk_pre_approved', [
+                'approver_user_id' => $user['id'] ?? null,
+                'source'           => 'bulk_upload',
+            ]);
+        }
+        return $resultId;
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
 
     timeAudit('time.bulk.uploaded', [

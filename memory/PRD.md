@@ -9166,3 +9166,66 @@ exclusion.
 - Added 22 + 50 = 72 new assertions across the new model.
 - All discipline sentries (Sprint 7e contract, tenant-leak, phase-2a)
   remain green.
+
+---
+
+## 2026-02 — P1.a Entry-Level Approval Audit (Accrual-At-Approval Companion)
+
+### Why
+Bundle-level approval owns GL recognition (Dr AR Unbilled / Cr Revenue
++ Dr Expense / Cr AP Accrued per period). Entry-level approval needed
+its own discoverable audit signal — per the operator's choice "(c) both
+— bundle-level for AR/AP accrual; entry-level only for audit". The
+three approve-transition sites had inconsistent audit footprints:
+- `entries.php` manual approve → emitted `time.entry.approved` with a
+  minimal payload (entry_id + rate_snapshot_id + approved_via).
+- `approval_tokens.php` tokenized bulk approve → emitted one batch
+  audit (`time.entry.approved.via_token`) per token, no per-entry rows.
+- `csv_import.php` pre-approved bulk → emitted only a `time.bulk.uploaded`
+  batch audit, no per-entry rows.
+
+Downstream dashboards couldn't reliably enumerate "all entries approved
+last week with their work_date and approver context".
+
+### What shipped
+- **`/app/modules/time/lib/time.php`** — new helper
+  `timeEntryApprovedEmit(int $entryId, array $entry, string $approvedVia, array $approverContext = [])`.
+  Delegates to `timeAudit('time.entry.approved', …)` so the audit_log
+  table is the single source of truth. Payload carries
+  `placement_id`, `person_id`, `period_id`, `work_date`, `category`,
+  `hours`, `rate_snapshot_id`, `approved_via`, plus caller-provided
+  `approverContext`. **No GL write** — recognition is owned by the
+  bundle accrual.
+- **`/app/modules/time/api/entries.php`** — manual approve replaced
+  its bespoke `timeAudit()` call with `timeEntryApprovedEmit(..., 'manual', …)`.
+- **`/app/modules/time/api/approval_tokens.php`** — after the bulk
+  UPDATE transitions N entries to `status='approved'`, the loop now
+  re-fetches the approved rows and emits one `time.entry.approved`
+  per row via `timeEntryApprovedEmit(..., 'tokenized_client_email', …)`.
+  Existing `time.entry.approved.via_token` batch audit retained for
+  the token-lifecycle trail. Per-entry emit is wrapped in try/catch
+  so an audit failure can't break the token response.
+- **`/app/modules/time/api/csv_import.php`** — when `pre_approved=true`,
+  each row's INSERT/UPDATE now emits `timeEntryApprovedEmit(..., 'bulk_pre_approved', …)`.
+
+### Strict no-GL guarantee
+The new smoke test asserts that NONE of the three approve sites call
+`accountingPostJe()` directly. GL recognition flows exclusively through
+`timeBuildBundlesForPeriod() → accountingPostBundleAccrual()` (the
+bundle path). The smoke also asserts only one callsite for
+`accountingPostBundleAccrual()` exists in the time module — the bundle
+hook.
+
+### Tests
+- Full suite: **300/300 ✅** (up from 299).
+- New `/app/tests/time_entry_approved_audit_smoke.php` — 33 assertions
+  validating helper signature, payload shape, per-site wiring, and the
+  strict no-GL guarantee.
+- No regressions to existing bundle accrual / multi-period smokes.
+
+### Files touched
+- `/app/modules/time/lib/time.php` (+`timeEntryApprovedEmit()`)
+- `/app/modules/time/api/entries.php` (manual approve site)
+- `/app/modules/time/api/approval_tokens.php` (tokenized bulk site)
+- `/app/modules/time/api/csv_import.php` (CSV pre-approved site)
+- `/app/tests/time_entry_approved_audit_smoke.php` (NEW)
