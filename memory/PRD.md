@@ -441,6 +441,79 @@ React-only change this turn (modal copy + Create-button condition).
 Cloudways deploy + `update.php` to pick up the new bundle.
 
 
+
+## Multi-period JE split — accrual-basis revenue/cost recognition (2026-02 — current fork)
+
+### Why
+Operator's question: *"If time is accrued weekly what happens when
+the month (GL period) ends on a Wednesday? How about monthly billing
+periods but Artemis (four week) GL periods?"*
+
+Standard accrual answer: when an invoice/bill's underlying work
+crosses a GL period boundary, it must post as N journal entries —
+one per period it touches — with `AR Unbilled` / `AP Accrued`
+carrying the bridge.
+
+### What shipped (chosen scope: option B / Standard, ~6h)
+- **Migration `021_accounting_settings.sql`** — new per-tenant
+  `accounting_settings` table with:
+  - `ar_unbilled_account_code` (default `13100`)
+  - `ap_accrued_account_code`  (default `21500`)
+  - `multi_period_split_enabled` (default `0`, opt-in)
+- **`modules/accounting/lib/multi_period.php`** — pure-logic helper:
+  - `accountingSettingsGet($tenantId)` — defaults-fallback safe.
+  - `accountingBreakdownInvoiceByDate($tenantId, $invoiceId)` —
+    walks invoice lines back through `time_downstream_feed` →
+    `time_entries` to recover per-work_date amounts (proportional
+    by hours-share, last-day-rounding-residual to avoid drift).
+  - `accountingGroupBreakdownByPeriod($tenantId, $entityId, $byDate)`
+    — resolves each date to its GL period; loud-fails with the
+    offending date when no period covers it ("refuses to drop
+    revenue silently").
+  - `accountingBuildInvoiceJEBatch($invoice, $perPeriod, $arUnbilledCode)`
+    — emits the chronological JE batch:
+      - Accrual JEs (non-issue periods): Dr AR Unbilled / Cr Revenue.
+      - Recognition JE (issue-date period): Dr AR (full total) /
+        Cr AR Unbilled (clear all prior accruals) / Cr Revenue
+        (this period's portion) / Cr Tax (full).
+      - Each JE individually balanced; aggregate revenue across the
+        batch equals the invoice subtotal exactly.
+- **NOT yet wired into invoices.php/bills.php post handlers** —
+  helper exists, gated by `multi_period_split_enabled=1` per tenant.
+  Flip-the-switch wiring is the next step; ships separately so we
+  can review the JE batch shape against real data before mutating
+  the existing GL-post path.
+
+### Scenarios verified (smoke test, 46 ✓ / 0 ✗)
+- Single-period invoice → exactly 1 JE (legacy shape preserved).
+- Weekly time, monthly GL, week spans month-end Wednesday → 2 JEs.
+- Three-period work span (Artemis 4-week P11→P12→P13) → 3 JEs.
+- Late invoice (issue_date after all work) → posts cleanly to latest
+  work period, no orphan future accrual.
+- Multi-account-code revenue (4000 + 4100) splits preserve per-code.
+- Multi-account-code accruals collapse into a single AR Unbilled
+  clearing line on the recognition JE.
+- Loud-fail copy + opt-in flag wiring + migration shape.
+
+### Out of scope this turn (explicitly)
+- AP bill mirror (same shape but for `apBuildBillJEBatch` with
+  `AP Accrued + Expense/COGS`) — easy follow-up; helper layout makes
+  it ~1 hour of mirror code.
+- Wire-in to `invoices.php?action=post` + `bills.php?action=post` —
+  guarded by a feature flag for safe rollout; user reviews shape
+  first.
+- Month-end accrual cron (option C from the earlier triage).
+
+### Tests
+- `tests/multi_period_je_split_smoke.php` — 46 ✓ / 0 ✗
+- Full suite: **296/296 ✓**
+
+### Deploy note
+PHP-only change, additive. Migration must run via `update.php`. No
+behavior change until a tenant flips `multi_period_split_enabled=1`
+(and the post-handler wiring lands).
+
+
 | 3. Draft AR invoices                  | billing | requires NOT closed |
 | 4. Draft AP bills (contractor pay)    | ap   | requires NOT closed |
 | 5. Run payroll (W-2 path)             | payroll | independent (own pay_periods) |
