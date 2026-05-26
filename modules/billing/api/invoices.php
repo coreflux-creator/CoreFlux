@@ -463,26 +463,19 @@ if ($method === 'POST' && $action === 'post') {
     require_once __DIR__ . '/../../accounting/lib/multi_period.php';
     require_once __DIR__ . '/../../../core/posting_engine/process.php';
 
-    // Multi-period split is gated by per-tenant opt-in. We resolve its
-    // applicability up-front (so we can branch later) but DO NOT post
-    // anything yet — the Sprint 7e contract (enforced by
-    // module_emission_discipline_smoke + phase_2a_event_discipline_smoke)
-    // requires that `accountingProcessEvent()` is tried first, with
-    // `moduleEmissionDisciplineLog()` always logged before any direct
-    // `accountingPostJe()` call.
+    // Accrual-at-approval reclassification gate (2026-02). When the
+    // tenant has `multi_period_split_enabled=1`, revenue + AR Unbilled
+    // were already recognised by `accountingPostBundleAccrual()` at
+    // timesheet/bundle approval time. The invoice post becomes a pure
+    // RECLASSIFICATION (single JE on issue_date):
+    //   Dr  Accounts Receivable (full total)
+    //   Cr  AR Unbilled         (subtotal — clears the accrual)
+    //   Cr  Sales Tax Payable   (tax, if any)
+    // No revenue line — recognition is owned by the bundle accrual.
+    // Tenants with the flag OFF keep the legacy "recognise at invoice"
+    // flow below (event-layer first, then direct post).
     $settings = accountingSettingsGet($tid);
-    $perPeriod = [];
-    if (!empty($settings['multi_period_split_enabled'])) {
-        try {
-            accountingEnsureAccrualAccounts($tid, $settings);
-            $byDate    = accountingBreakdownInvoiceByDate($tid, (int) $id);
-            $perPeriod = accountingGroupBreakdownByPeriod($tid, (int) ($row['entity_id'] ?? 0), $byDate);
-        } catch (\Throwable $e) {
-            api_error('Multi-period split prep failed: ' . $e->getMessage(), 422);
-        }
-        // Single-period fall-through: clean monthly cycle, no accrual
-        // bridge needed → drop into legacy path for normal posting.
-    }
+    $reclassifyOnly = !empty($settings['multi_period_split_enabled']);
 
     $subtotal = (float) $row['subtotal'];
     $taxTotal = (float) $row['tax_total'];
@@ -573,56 +566,63 @@ if ($method === 'POST' && $action === 'post') {
         ]);
     }
 
-    // Multi-period split branch — gated by per-tenant opt-in. Engages
-    // ONLY when the underlying work_dates cross > 1 accounting period,
-    // posting N JEs (one per period) via AR Unbilled instead of one JE
-    // tied to issue_date. Placed AFTER the event-layer attempt so the
-    // Sprint 7e contract guardrails stay green; event-layer rule wins
-    // over multi-period when both are configured for the same tenant.
-    if (!empty($settings['multi_period_split_enabled'])) {
-        if (count($perPeriod) > 1) {
-        $batch = accountingBuildInvoiceJEBatch($row, $perPeriod, (string) $settings['ar_unbilled_account_code']);
-        $pdo_mp = getDB();
-        $jeIds = [];
-        $pdo_mp->beginTransaction();
-        try {
-            foreach ($batch as $i => $je) {
-                $res = accountingPostJe($tid, [
-                    'posting_date'    => $je['date'],
-                    'currency'        => $row['currency'],
-                    'source_module'   => 'billing',
-                    'source_ref_type' => 'billing_invoice',
-                    'source_ref_id'   => $id,
-                    // Idempotency key per JE so a retried bulk post
-                    // doesn't double-insert any single accrual.
-                    'idempotency_key' => sprintf('billing:invoice:%d:post:mp:%d', $id, $i),
-                    'memo'            => "Invoice {$row['invoice_number']} — period " . ($i + 1) . '/' . count($batch)
-                                      . ($je['is_issue_period'] ? ' (recognition)' : ' (accrual)'),
-                    'lines'           => $je['lines'],
-                ], $user['id'] ?? null, true);
-                $jeIds[] = $res['je_id'];
-            }
-            // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-            $pdo_mp->prepare('UPDATE billing_invoices SET journal_entry_id = :j WHERE id = :id')
-                ->execute(['j' => $jeIds[count($jeIds) - 1], 'id' => $id]);
-            $pdo_mp->commit();
-        } catch (\Throwable $e) {
-            if ($pdo_mp->inTransaction()) $pdo_mp->rollBack();
-            api_error('Multi-period post failed: ' . $e->getMessage(), 422);
+    // Reclassification branch (accrual-at-approval model). When the
+    // tenant flag is ON, revenue + AR Unbilled were already posted by
+    // the bundle-accrual hook at timesheet approval time, so the
+    // invoice post is a pure AR reclassification — no revenue, no
+    // expense, no multi-period batching. Placed AFTER the event-layer
+    // attempt so the Sprint 7e contract guardrails stay green; the
+    // event-layer rule wins over reclassification when both are
+    // configured for the same tenant.
+    if ($reclassifyOnly) {
+        accountingEnsureAccrualAccounts($tid, $settings);
+        $arUnbilled = (string) $settings['ar_unbilled_account_code'];
+        $reclassLines = [
+            // Dr Accounts Receivable for the full invoice total.
+            ['account_code' => '1100', 'debit' => round((float) $row['total'], 2), 'credit' => 0,
+             'memo' => "Inv {$row['invoice_number']} / {$row['client_name']}", 'counterparty_company_id' => $party],
+            // Cr AR Unbilled for the subtotal — clears the prior accrual.
+            ['account_code' => $arUnbilled, 'debit' => 0, 'credit' => round((float) $row['subtotal'], 2),
+             'memo' => "Clear AR Unbilled — {$row['invoice_number']}", 'counterparty_company_id' => $party],
+        ];
+        if ((float) $row['tax_total'] > 0.005) {
+            // Sales tax was NOT accrued at approval (it's an invoice-time
+            // construct), so credit it directly here. The AR debit
+            // above already includes the tax in the total.
+            $reclassLines[] = ['account_code' => '2100', 'debit' => 0, 'credit' => round((float) $row['tax_total'], 2),
+                               'memo' => "Sales tax — {$row['invoice_number']}", 'counterparty_company_id' => $party];
         }
+        $pdo_mp = getDB();
+        try {
+            $resRc = accountingPostJe($tid, [
+                'posting_date'    => $row['issue_date'],
+                'currency'        => $row['currency'],
+                'source_module'   => 'billing',
+                'source_ref_type' => 'billing_invoice',
+                'source_ref_id'   => $id,
+                'idempotency_key' => sprintf('billing:invoice:%d:post:reclass', $id),
+                'memo'            => "Reclassify AR Unbilled → AR — Inv {$row['invoice_number']}",
+                'lines'           => $reclassLines,
+            ], $user['id'] ?? null, true);
+        } catch (\Throwable $e) {
+            api_error('AR reclassification post failed: ' . $e->getMessage(), 422);
+        }
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
+        $pdo_mp->prepare('UPDATE billing_invoices SET journal_entry_id = :j WHERE id = :id')
+            ->execute(['j' => (int) $resRc['je_id'], 'id' => $id]);
         billingAudit('billing.invoice.posted', [
             'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
-            'journal_entry_ids' => $jeIds,
-            'via' => 'multi_period_split',
-            'periods_spanned' => count($batch),
+            'journal_entry_id' => (int) $resRc['je_id'],
+            'idempotent_replay' => (bool) ($resRc['idempotent_replay'] ?? false),
+            'via' => 'ar_reclassification',
         ], $id);
         api_ok([
             'ok' => true,
-            'journal_entry_ids' => $jeIds,
-            'periods_spanned'   => count($batch),
-            'via'               => 'multi_period_split',
+            'journal_entry_id'  => (int) $resRc['je_id'],
+            'je_number'         => $resRc['je_number'] ?? null,
+            'idempotent_replay' => (bool) ($resRc['idempotent_replay'] ?? false),
+            'via'               => 'ar_reclassification',
         ]);
-        }
     }
 
     try {

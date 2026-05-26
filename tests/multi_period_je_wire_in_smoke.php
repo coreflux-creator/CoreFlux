@@ -1,15 +1,23 @@
 <?php
 /**
- * Smoke — multi-period JE split, B-part-2:
- *   1. AP mirror (`accountingBuildBillJEBatch`) shape + balance
- *   2. accountingEnsureAccrualAccounts() auto-seed behaviour
- *   3. Invoice post handler wire-in (feature-flag gated)
- *   4. Bill post handler wire-in (feature-flag gated)
+ * Smoke — accrual-at-approval model wire-in (2026-02 architectural
+ * correction).
  *
- * Pure source-level + pure-PHP logic (no live DB). The B-part-1 smoke
- * `multi_period_je_split_smoke.php` already covers the invoice batch
- * builder + scenario matrix; this one extends to the AP mirror plus
- * confirms the gating + ensure-accounts plumbing.
+ * Per operator's accounting clarification:
+ *   • Timesheet approval IS the recognition event.
+ *     - bundle_type='ar' → Dr AR Unbilled / Cr Revenue (per accounting_period)
+ *     - bundle_type='ap' → Dr Expense    / Cr AP Accrued (per accounting_period)
+ *   • Invoice post is pure RECLASSIFICATION (single JE on issue_date):
+ *       Dr AR / Cr AR Unbilled (/ Cr Sales Tax)
+ *   • Bill post is pure RECLASSIFICATION (single JE on bill_date):
+ *       Dr AP Accrued (/ Dr Input Tax) / Cr AP
+ *
+ * The previous fork's "multi-period split on invoice post" model has been
+ * superseded — this smoke asserts the new shape is in place.
+ *
+ * Pure source-level (no live DB). DB-level execution is covered by the
+ * separate bundle_accrual_at_approval_smoke + the multi_period_je_split
+ * batch builder smokes.
  */
 declare(strict_types=1);
 
@@ -21,92 +29,7 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-function mkPeriod(int $id, string $start, string $end, ?int $num = null): array {
-    return ['id' => $id, 'period_number' => $num ?? $id, 'start_date' => $start, 'end_date' => $end, 'status' => 'open'];
-}
-
-echo "\n1. AP mirror — single-period bill (degenerate)\n";
-$periods = [['period' => mkPeriod(601, '2026-01-01', '2026-01-31'),
-             'amounts' => ['5000' => 1000.00]]];
-$bill = ['id' => 1, 'bill_date' => '2026-01-20', 'vendor_company_id' => 11,
-         'internal_ref' => 'BILL-001', 'total' => 1000.00, 'subtotal' => 1000.00, 'tax_total' => 0];
-$batch = accountingBuildBillJEBatch($bill, $periods, '21500');
-$a('1 JE for single-period bill', count($batch) === 1);
-$a('JE marked is_recognition_period=true', $batch[0]['is_recognition_period'] === true);
-$a('contains AP 2000 credit for full amount',
-   (bool) array_filter($batch[0]['lines'], fn($l) => $l['account_code'] === '2000' && (float) $l['credit'] === 1000.0));
-$a('contains expense debit 5000 for full amount',
-   (bool) array_filter($batch[0]['lines'], fn($l) => $l['account_code'] === '5000' && (float) $l['debit'] === 1000.0));
-$dr = array_sum(array_column($batch[0]['lines'], 'debit'));
-$cr = array_sum(array_column($batch[0]['lines'], 'credit'));
-$a('JE balances', round($dr, 2) === round($cr, 2));
-
-echo "\n2. AP mirror — bill spanning month boundary (TWO JEs)\n";
-// Contractor week Mon Jan 29 → Sun Feb 4. Bill received Feb 5.
-// $1400 cost total; Jan portion $600, Feb portion $800.
-$periods = [
-    ['period' => mkPeriod(701, '2026-01-01', '2026-01-31', 1), 'amounts' => ['5000' => 600.00]],
-    ['period' => mkPeriod(702, '2026-02-01', '2026-02-28', 2), 'amounts' => ['5000' => 800.00]],
-];
-$bill = ['id' => 2, 'bill_date' => '2026-02-05', 'vendor_company_id' => 12,
-         'internal_ref' => 'BILL-002', 'total' => 1400.00, 'subtotal' => 1400.00, 'tax_total' => 0];
-$batch = accountingBuildBillJEBatch($bill, $periods, '21500');
-$a('TWO JEs produced', count($batch) === 2);
-$a('JE0 (Jan) is accrual, posts on period end_date',
-   $batch[0]['date'] === '2026-01-31' && $batch[0]['is_recognition_period'] === false);
-$a('JE1 (Feb) is recognition, posts on bill_date',
-   $batch[1]['date'] === '2026-02-05' && $batch[1]['is_recognition_period'] === true);
-// Jan accrual: Dr 5000 $600 / Cr 21500 $600
-$a('Jan JE Dr 5000 $600 expense',
-   (bool) array_filter($batch[0]['lines'], fn($l) => $l['account_code'] === '5000' && (float) $l['debit'] === 600.0));
-$a('Jan JE Cr 21500 AP Accrued $600',
-   (bool) array_filter($batch[0]['lines'], fn($l) => $l['account_code'] === '21500' && (float) $l['credit'] === 600.0));
-$dr0 = array_sum(array_column($batch[0]['lines'], 'debit'));
-$cr0 = array_sum(array_column($batch[0]['lines'], 'credit'));
-$a('Jan JE balances at 600.0', round($dr0, 2) === 600.0 && round($cr0, 2) === 600.0);
-// Feb recognition: Dr 5000 $800 + Dr 21500 $600 (clear accrual) / Cr 2000 $1400
-$a('Feb JE Dr 5000 $800 (Feb portion expense)',
-   (bool) array_filter($batch[1]['lines'], fn($l) => $l['account_code'] === '5000' && (float) $l['debit'] === 800.0));
-$a('Feb JE Dr 21500 $600 (clears Jan accrual)',
-   (bool) array_filter($batch[1]['lines'], fn($l) => $l['account_code'] === '21500' && (float) $l['debit'] === 600.0));
-$a('Feb JE Cr 2000 AP $1400 (full payable)',
-   (bool) array_filter($batch[1]['lines'], fn($l) => $l['account_code'] === '2000'  && (float) $l['credit'] === 1400.0));
-$dr1 = array_sum(array_column($batch[1]['lines'], 'debit'));
-$cr1 = array_sum(array_column($batch[1]['lines'], 'credit'));
-$a('Feb JE balances at 1400.0', round($dr1, 2) === 1400.0 && round($cr1, 2) === 1400.0);
-
-// Aggregate expense across both JEs equals bill subtotal (no leakage,
-// no double-counting from the accrual clear).
-$totalExp = 0.0;
-foreach ($batch as $je) {
-    foreach ($je['lines'] as $l) {
-        if ($l['account_code'] === '5000') {
-            $totalExp += ((float) $l['debit']) - ((float) $l['credit']);
-        }
-    }
-}
-$a('aggregate net expense across JEs equals bill subtotal (1400)',
-   round($totalExp, 2) === 1400.0);
-
-echo "\n3. AP mirror — three-period span\n";
-$periods = [
-    ['period' => mkPeriod(801, '2025-11-02', '2025-11-29', 11), 'amounts' => ['5000' => 200.00]],
-    ['period' => mkPeriod(802, '2025-11-30', '2025-12-27', 12), 'amounts' => ['5000' => 400.00]],
-    ['period' => mkPeriod(803, '2025-12-28', '2026-01-24', 13), 'amounts' => ['5000' => 800.00]],
-];
-$bill = ['id' => 3, 'bill_date' => '2026-01-20', 'vendor_company_id' => 13,
-         'internal_ref' => 'BILL-Q4', 'total' => 1400.00, 'subtotal' => 1400.00, 'tax_total' => 0];
-$batch = accountingBuildBillJEBatch($bill, $periods, '21500');
-$a('three JEs produced', count($batch) === 3);
-$a('P13 JE clears combined prior accruals (200 + 400 = 600)',
-   (bool) array_filter($batch[2]['lines'], fn($l) => $l['account_code'] === '21500' && (float) $l['debit'] === 600.0));
-foreach ($batch as $i => $je) {
-    $dr = array_sum(array_column($je['lines'], 'debit'));
-    $cr = array_sum(array_column($je['lines'], 'credit'));
-    $a("AP JE{$i} balances", round($dr, 2) === round($cr, 2));
-}
-
-echo "\n4. accountingEnsureAccrualAccounts — defined + idempotent shape\n";
+echo "\n1. accountingEnsureAccrualAccounts — still defined + idempotent shape\n";
 $a('function declared', function_exists('accountingEnsureAccrualAccounts'));
 $lib = (string) file_get_contents('/app/modules/accounting/lib/multi_period.php');
 $a('checks accounting_accounts for existing code (no double-insert)',
@@ -115,71 +38,129 @@ $a('AR Unbilled inserted as account_type=asset',
    str_contains($lib, "'AR Unbilled (Accrued Revenue)', 'asset'"));
 $a('AP Accrued inserted as account_type=liability',
    str_contains($lib, "'AP Accrued (Unbilled Costs)',   'liability'"));
-$a('insert wrapped in try/catch (race-safe)',
-   str_contains($lib, 'try {')
-   && str_contains($lib, '$ins->execute(')
-   && str_contains($lib, 'Race or schema drift'));
 
-echo "\n5. Invoice post handler wire-in (billing/api/invoices.php)\n";
+echo "\n2. New bundle-accrual helpers exist\n";
+$a('accountingBreakdownBundleByDate declared',
+   function_exists('accountingBreakdownBundleByDate'));
+$a('accountingPostBundleAccrual declared',
+   function_exists('accountingPostBundleAccrual'));
+$a('bundle breakdown filters to billable categories only',
+   str_contains($lib, 'IN ("regular_billable","OT_billable")'));
+$a('bundle accrual gated to ar/ap bundle types only',
+   str_contains($lib, "if (!in_array(\$bundleType, ['ar', 'ap'], true)) {\n        return [];"));
+$a('bundle accrual posts AR shape (Dr AR Unbilled / Cr Revenue)',
+   str_contains($lib, "'account_code' => \$arUnbilled,  'debit' => round(\$amt, 2), 'credit' => 0,")
+   && str_contains($lib, "'account_code' => \$revenueCode, 'debit' => 0, 'credit' => round(\$amt, 2),"));
+$a('bundle accrual posts AP shape (Dr Expense / Cr AP Accrued)',
+   str_contains($lib, "'account_code' => \$expenseCode, 'debit' => round(\$amt, 2), 'credit' => 0,")
+   && str_contains($lib, "'account_code' => \$apAccrued,   'debit' => 0, 'credit' => round(\$amt, 2),"));
+$a('bundle accrual idempotency key is time:bundle:<id>:accrual:<period>',
+   str_contains($lib, "sprintf('time:bundle:%d:accrual:%d', \$bundleId, (int) \$period['id'])"));
+$a('bundle accrual source_ref_type=time_bundle',
+   str_contains($lib, "'source_ref_type' => 'time_bundle'"));
+
+echo "\n3. Invoice post handler — reclassification wiring (billing/api/invoices.php)\n";
 $inv = (string) file_get_contents('/app/modules/billing/api/invoices.php');
 $a('require_once multi_period.php at top of post handler',
    str_contains($inv, "require_once __DIR__ . '/../../accounting/lib/multi_period.php';"));
 $a('reads accountingSettingsGet($tid) inside post action',
    str_contains($inv, '$settings = accountingSettingsGet($tid);'));
-$a('multi-period branch gated on multi_period_split_enabled',
-   str_contains($inv, "if (!empty(\$settings['multi_period_split_enabled']))"));
-$a('ensures accrual accounts before building batch',
-   str_contains($inv, 'accountingEnsureAccrualAccounts($tid, $settings);'));
-$a('builds breakdown via accountingBreakdownInvoiceByDate',
-   str_contains($inv, 'accountingBreakdownInvoiceByDate($tid, (int) $id)'));
-$a('groups via accountingGroupBreakdownByPeriod',
-   str_contains($inv, 'accountingGroupBreakdownByPeriod($tid, (int) ($row[\'entity_id\'] ?? 0), $byDate)'));
-$a('only takes multi-JE path when perPeriod count > 1',
-   str_contains($inv, 'if (count($perPeriod) > 1)'));
-$a('single-period falls through to legacy path (comment present)',
-   str_contains($inv, 'Single-period fall-through'));
-$a('each multi JE gets its own idempotency_key',
-   str_contains($inv, "sprintf('billing:invoice:%d:post:mp:%d', \$id, \$i)"));
-$a('multi-period audit tagged via=multi_period_split',
-   str_contains($inv, "'via' => 'multi_period_split'"));
-$a('response includes periods_spanned count',
-   str_contains($inv, "'periods_spanned'   => count(\$batch)"));
-$a('multi-period failure rolls back transaction (loud-fail)',
-   str_contains($inv, 'if ($pdo_mp->inTransaction()) $pdo_mp->rollBack();')
-   && str_contains($inv, "api_error('Multi-period post failed: "));
+$a('reclassifyOnly gate set from multi_period_split_enabled',
+   str_contains($inv, "\$reclassifyOnly = !empty(\$settings['multi_period_split_enabled']);"));
+$a('reclassification block engages on the flag',
+   str_contains($inv, "if (\$reclassifyOnly) {"));
+$a('reclassification debits AR (account 1100) for full total',
+   str_contains($inv, "'account_code' => '1100', 'debit' => round((float) \$row['total'], 2)"));
+$a('reclassification credits AR Unbilled for subtotal',
+   str_contains($inv, "'account_code' => \$arUnbilled, 'debit' => 0, 'credit' => round((float) \$row['subtotal'], 2)"));
+$a('reclassification credits Sales Tax Payable (2100) when tax > 0',
+   str_contains($inv, "'account_code' => '2100', 'debit' => 0, 'credit' => round((float) \$row['tax_total'], 2)"));
+$a('reclassification idempotency key includes :post:reclass',
+   str_contains($inv, "sprintf('billing:invoice:%d:post:reclass', \$id)"));
+$a('reclassification audits with via=ar_reclassification',
+   str_contains($inv, "'via' => 'ar_reclassification'"));
+$a('reclassification block placed AFTER event-layer try',
+   strpos($inv, 'accountingProcessEvent(') < strpos($inv, 'if ($reclassifyOnly)'));
+$a('reclassification block placed BEFORE legacy accountingPostJe',
+   strpos($inv, 'if ($reclassifyOnly)') < strpos($inv, "sprintf('billing:invoice:%d:post',"));
+$a('legacy single-period revenue-recognition path still present',
+   str_contains($inv, "sprintf('billing:invoice:%d:post', \$id)"));
+$a('OLD multi-period-split phrases removed from invoice handler',
+   !str_contains($inv, "accountingBuildInvoiceJEBatch")
+   && !str_contains($inv, "'via' => 'multi_period_split'")
+   && !str_contains($inv, 'is_issue_period'));
 
-echo "\n6. AP bill post handler wire-in (ap/api/bills.php)\n";
+echo "\n4. AP bill post handler — reclassification wiring (ap/api/bills.php)\n";
 $ap = (string) file_get_contents('/app/modules/ap/api/bills.php');
 $a('require_once multi_period.php at top of post handler',
    str_contains($ap, "require_once __DIR__ . '/../../accounting/lib/multi_period.php';"));
 $a('reads accountingSettingsGet inside post action',
    str_contains($ap, '$settings = accountingSettingsGet($tid);'));
-$a('gated on multi_period_split_enabled flag',
-   str_contains($ap, "if (!empty(\$settings['multi_period_split_enabled']))"));
-$a('uses AP-side breakdown helper',
-   str_contains($ap, 'accountingBreakdownBillByDate($tid, (int) $id)'));
-$a('builds AP-side batch with ap_accrued account code',
-   str_contains($ap, "accountingBuildBillJEBatch(\$row, \$perPeriod, (string) \$settings['ap_accrued_account_code'])"));
-$a('AP multi-period only fires when count > 1',
-   str_contains($ap, 'if (count($perPeriod) > 1)'));
-$a('AP idempotency_key per JE',
-   str_contains($ap, "sprintf('ap:bill:%d:post:mp:%d', \$id, \$i)"));
-$a('AP multi audit tagged via=multi_period_split',
-   str_contains($ap, "'via'               => 'multi_period_split'"));
-$a('AP loud-fails on prep error with 422',
-   str_contains($ap, "api_error('Multi-period split prep failed: "));
+$a('reclassifyOnly gate set from multi_period_split_enabled',
+   str_contains($ap, "\$reclassifyOnly = !empty(\$settings['multi_period_split_enabled']);"));
+$a('AP reclassification debits AP Accrued for subtotal',
+   str_contains($ap, "'account_code' => \$apAccrued, 'debit' => round(\$subtotalAp, 2)"));
+$a('AP reclassification credits Accounts Payable (2000) for total',
+   str_contains($ap, "'account_code' => '2000', 'debit' => 0, 'credit' => round(\$totalAp, 2)"));
+$a('AP reclassification debits Input Tax (1310) when tax > 0',
+   str_contains($ap, "'account_code' => '1310', 'debit' => round(\$taxAp, 2)"));
+$a('AP reclassification idempotency key includes :post:reclass',
+   str_contains($ap, "sprintf('ap:bill:%d:post:reclass', \$id)"));
+$a('AP reclassification audits with via=ap_reclassification',
+   str_contains($ap, "'via'               => 'ap_reclassification'"));
+$a('AP reclassification placed AFTER event-layer try',
+   strpos($ap, 'accountingProcessEvent(') < strpos($ap, 'if ($reclassifyOnly)'));
+$a('AP reclassification placed BEFORE legacy accountingPostJe',
+   strpos($ap, 'if ($reclassifyOnly)') < strpos($ap, "sprintf('ap:bill:%d:post',"));
+$a('AP legacy expense-recognition path still present',
+   str_contains($ap, "sprintf('ap:bill:%d:post', \$id)"));
+$a('OLD multi-period-split phrases removed from AP bill handler',
+   !str_contains($ap, "accountingBuildBillJEBatch")
+   && !str_contains($ap, "'via'               => 'multi_period_split'")
+   && !str_contains($ap, 'is_recognition_period'));
 
-echo "\n7. Legacy single-period path preserved (regression guard)\n";
-$a('invoice legacy accountingPostJe call still present',
-   substr_count($inv, 'accountingPostJe(') >= 2); // multi-period + legacy
-$a('AP legacy accountingPostJe call still present',
-   substr_count($ap, 'accountingPostJe(') >= 2);
+echo "\n5. Bundle accrual hook in timeBuildBundlesForPeriod (modules/time/lib/time.php)\n";
+$time = (string) file_get_contents('/app/modules/time/lib/time.php');
+$a('time.php requires multi_period helper after bundle build',
+   str_contains($time, "require_once __DIR__ . '/../../accounting/lib/multi_period.php';"));
+$a('hook gated by multi_period_split_enabled',
+   str_contains($time, "if (!empty(\$settings['multi_period_split_enabled']))"));
+$a('hook iterates over $built bundles',
+   str_contains($time, 'foreach ($built as $b) {'));
+$a('hook only fires for ar/ap bundle types',
+   str_contains($time, "if (!in_array(\$b['bundle_type'], ['ar', 'ap'], true)) continue;"));
+$a('hook calls accountingPostBundleAccrual',
+   str_contains($time, 'accountingPostBundleAccrual('));
+$a('hook log-and-swallows failures (does not block bundle build)',
+   str_contains($time, '[time.bundle.accrual]')
+   && str_contains($time, '} catch (\Throwable $e) {'));
 
-echo "\n8. PHP syntax\n";
+echo "\n6. Sprint 7e contract still green (event-layer first in both handlers)\n";
+// Strip PHP comments before ordering checks so a stray reference in a
+// comment block doesn't falsely break the strpos invariant — mirrors
+// module_emission_discipline_smoke's approach.
+$stripPhpComments = static function (string $s): string {
+    return preg_replace([
+        '#/\*.*?\*/#s',
+        '#//[^\n]*#',
+        '/\#[^\n]*/',
+    ], '', $s);
+};
+$invCode = $stripPhpComments($inv);
+$apCode  = $stripPhpComments($ap);
+$a('Invoice: accountingProcessEvent before accountingPostJe',
+   strpos($invCode, 'accountingProcessEvent(') < strpos($invCode, 'accountingPostJe('));
+$a('AP bill: accountingProcessEvent before accountingPostJe',
+   strpos($apCode, 'accountingProcessEvent(') < strpos($apCode, 'accountingPostJe('));
+$a('AP bill: moduleEmissionDisciplineLog before legacy direct post',
+   strpos($apCode, "moduleEmissionDisciplineLog('ap'") < strpos($apCode, "accountingPostJe(\$tid, ["));
+
+echo "\n7. PHP syntax\n";
 foreach ([
     '/app/modules/accounting/lib/multi_period.php',
     '/app/modules/billing/api/invoices.php',
     '/app/modules/ap/api/bills.php',
+    '/app/modules/time/lib/time.php',
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
@@ -187,6 +168,6 @@ foreach ([
 }
 
 echo "\n=========================================\n";
-echo "Multi-period JE split B-part-2 smoke: {$pass} ✓ / {$fail} ✗\n";
+echo "Accrual-at-approval wire-in smoke: {$pass} ✓ / {$fail} ✗\n";
 echo "=========================================\n";
 exit($fail === 0 ? 0 : 1);

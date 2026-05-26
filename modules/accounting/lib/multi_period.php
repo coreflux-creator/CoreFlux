@@ -509,3 +509,232 @@ function accountingBuildInvoiceJEBatch(array $invoice, array $perPeriod, string 
     }
     return $batch;
 }
+
+/* =========================================================================
+ * ACCRUAL-AT-APPROVAL MODEL (2026-02 architectural correction)
+ * =========================================================================
+ *
+ * Per the operator's correction: timesheet approval is the recognition
+ * event, NOT invoice/bill posting. When a `time_downstream_feed` bundle
+ * lands in status='ready' (the period has been built / approved), we
+ * immediately post per-period accrual JEs:
+ *
+ *   bundle_type='ar' →  Dr AR Unbilled / Cr Revenue (per accounting_period)
+ *   bundle_type='ap' →  Dr Expense     / Cr AP Accrued (per accounting_period)
+ *
+ * Later, when the invoice/bill is posted to GL, it becomes a pure
+ * RECLASSIFICATION (single JE on issue_date / bill_date):
+ *
+ *   Invoice → Dr Accounts Receivable / Cr AR Unbilled / Cr Sales Tax
+ *   Bill    → Dr AP Accrued / Dr Input Tax / Cr Accounts Payable
+ *
+ * The multi-period split happens at the ACCRUAL step, not the document
+ * posting step. This matches accrual-basis GAAP: revenue/expense recognised
+ * when earned/incurred (work performed), receivable/payable recognised
+ * when invoiced/billed.
+ *
+ * The legacy helpers `accountingBuildInvoiceJEBatch` and
+ * `accountingBuildBillJEBatch` above are DEPRECATED — they bundle
+ * recognition + accrual on the document post, which would double-recognise
+ * revenue/expense if combined with the accrual-at-approval poster below.
+ * They remain in the file for backward compatibility with existing test
+ * scaffolding but are no longer wired into the production endpoints.
+ * ========================================================================= */
+
+/**
+ * Group a time_downstream_feed bundle's underlying entries by work_date.
+ *
+ * Distributes the bundle's headline amount (total_amount_bill for ar,
+ * total_amount_pay for ap) across work_dates proportional to billable
+ * hours per day so the per-period accrual JEs sum back exactly to the
+ * bundle total (no rounding drift).
+ *
+ * Returns:
+ *   [ 'YYYY-MM-DD' => amount_in_dollars, ... ]   (chronological)
+ *
+ * @param string $bundleType  'ar' or 'ap' — selects the amount column.
+ * @throws \RuntimeException if bundle missing or unknown bundle_type.
+ */
+function accountingBreakdownBundleByDate(int $tenantId, int $bundleId, string $bundleType): array {
+    if (!in_array($bundleType, ['ar', 'ap'], true)) {
+        throw new \RuntimeException("Bundle accrual only supports ar/ap, got '{$bundleType}'");
+    }
+    $pdo = getDB();
+    $b = $pdo->prepare(
+        'SELECT id, tenant_id, period_id, placement_id, bundle_type,
+                total_amount_bill, total_amount_pay, entries_json
+           FROM time_downstream_feed
+          WHERE tenant_id = :t AND id = :id'
+    );
+    $b->execute(['t' => $tenantId, 'id' => $bundleId]);
+    $bundle = $b->fetch(\PDO::FETCH_ASSOC);
+    if (!$bundle) throw new \RuntimeException("Bundle {$bundleId} not found");
+
+    $total = $bundleType === 'ar'
+        ? (float) $bundle['total_amount_bill']
+        : (float) $bundle['total_amount_pay'];
+    if (round($total, 2) <= 0.005) {
+        // Zero-bill bundles are valid (e.g. all PTO) — caller should
+        // skip accrual entirely. Return empty map (signal to caller).
+        return [];
+    }
+
+    // Pull the billable-hours per work_date for this bundle's
+    // (period_id, placement_id). Mirrors the join used by
+    // accountingBreakdownInvoiceByDate(); restricted to billable
+    // categories because non-billable PTO/unpaid hours don't drive
+    // revenue or cost.
+    $dayStmt = $pdo->prepare(
+        'SELECT te.work_date, SUM(te.hours) AS hrs
+           FROM time_entries te
+          WHERE te.tenant_id    = :t
+            AND te.period_id    = :pid
+            AND te.placement_id = :plid
+            AND te.status       = "approved"
+            AND te.category     IN ("regular_billable","OT_billable")
+          GROUP BY te.work_date
+          ORDER BY te.work_date'
+    );
+    $dayStmt->execute([
+        't'    => $tenantId,
+        'pid'  => (int) $bundle['period_id'],
+        'plid' => (int) $bundle['placement_id'],
+    ]);
+    $days = $dayStmt->fetchAll(\PDO::FETCH_ASSOC);
+    if (!$days) return [];
+
+    $totalHrs = (float) array_sum(array_column($days, 'hrs'));
+    if ($totalHrs <= 0) return [];
+
+    $byDate    = [];
+    $allocated = 0.0;
+    $n         = count($days);
+    foreach ($days as $i => $d) {
+        $share = (float) $d['hrs'] / $totalHrs;
+        // Last day absorbs rounding so the sum is exactly $total.
+        $amt   = ($i === $n - 1) ? round($total - $allocated, 2) : round($total * $share, 2);
+        $allocated += $amt;
+        $byDate[$d['work_date']] = $amt;
+    }
+    ksort($byDate);
+    return $byDate;
+}
+
+/**
+ * Post accrual JEs for a time_downstream_feed bundle, split per
+ * accounting_period the underlying work_dates touch.
+ *
+ * Idempotent: each per-period JE uses an idempotency_key of
+ *   "time:bundle:<bundleId>:accrual:<periodId>"
+ * so re-running (e.g. after a bundle rebuild on entry correction)
+ * does not double-post. The caller is responsible for posting a
+ * reversal JE if the bundle is superseded.
+ *
+ * Gated by tenant flag `multi_period_split_enabled` — caller checks
+ * before invoking this function.
+ *
+ * @param string $bundleType 'ar' or 'ap' — only types eligible for accrual.
+ * @return array Per-period results: [['period_id'=>X, 'je_id'=>Y, 'idempotent_replay'=>bool], ...]
+ */
+function accountingPostBundleAccrual(int $tenantId, int $bundleId, string $bundleType, ?int $actorUserId = null): array {
+    if (!in_array($bundleType, ['ar', 'ap'], true)) {
+        return []; // payroll/revrec/superseded bundles don't drive GL accrual
+    }
+    $settings = accountingSettingsGet($tenantId);
+    accountingEnsureAccrualAccounts($tenantId, $settings);
+
+    $pdo = getDB();
+    $b = $pdo->prepare(
+        'SELECT id, period_id, placement_id, bundle_type, status,
+                total_amount_bill, total_amount_pay
+           FROM time_downstream_feed
+          WHERE tenant_id = :t AND id = :id'
+    );
+    $b->execute(['t' => $tenantId, 'id' => $bundleId]);
+    $bundle = $b->fetch(\PDO::FETCH_ASSOC);
+    if (!$bundle) return [];
+
+    $byDate = accountingBreakdownBundleByDate($tenantId, $bundleId, $bundleType);
+    if (!$byDate) return []; // zero-bill or no billable hours — nothing to accrue
+
+    // Reshape into the form accountingGroupBreakdownByPeriod expects.
+    // It accepts ['YYYY-MM-DD' => ['<code>' => amount, ...]], so we
+    // route the accrual amount under a synthetic key '__accrual'.
+    $byDateCoded = [];
+    foreach ($byDate as $date => $amt) {
+        $byDateCoded[$date] = ['__accrual' => $amt];
+    }
+    // Resolve placement → entity_id (multi-entity tenants route the
+    // accrual to the placement's owning entity).
+    $entityStmt = $pdo->prepare(
+        'SELECT entity_id FROM placements WHERE tenant_id = :t AND id = :id LIMIT 1'
+    );
+    try { $entityStmt->execute(['t' => $tenantId, 'id' => (int) $bundle['placement_id']]); } catch (\Throwable $_) {}
+    $entityId = (int) ($entityStmt ? ($entityStmt->fetchColumn() ?: 0) : 0);
+
+    $perPeriod = accountingGroupBreakdownByPeriod($tenantId, $entityId, $byDateCoded);
+
+    // Resolve counterparty: AR bundle → client; AP bundle → vendor.
+    // We pull both via a single placement join. Both may be NULL —
+    // accountingPostJe accepts that.
+    $partyStmt = $pdo->prepare(
+        'SELECT end_client_company_id, person_id
+           FROM placements WHERE tenant_id = :t AND id = :id LIMIT 1'
+    );
+    $partyStmt->execute(['t' => $tenantId, 'id' => (int) $bundle['placement_id']]);
+    $partyRow = $partyStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+    $partyCompanyId = $bundleType === 'ar' && !empty($partyRow['end_client_company_id'])
+        ? (int) $partyRow['end_client_company_id'] : null;
+
+    $arUnbilled = (string) $settings['ar_unbilled_account_code'];
+    $apAccrued  = (string) $settings['ap_accrued_account_code'];
+    $revenueCode = '4000';
+    $expenseCode = '5000';
+
+    $results = [];
+    foreach ($perPeriod as $grp) {
+        $period = $grp['period'];
+        $amt    = (float) ($grp['amounts']['__accrual'] ?? 0);
+        if (round($amt, 2) <= 0.005) continue;
+
+        if ($bundleType === 'ar') {
+            $lines = [
+                ['account_code' => $arUnbilled,  'debit' => round($amt, 2), 'credit' => 0,
+                 'memo' => "Accrue unbilled revenue — bundle #{$bundleId} period {$period['period_number']}",
+                 'counterparty_company_id' => $partyCompanyId],
+                ['account_code' => $revenueCode, 'debit' => 0, 'credit' => round($amt, 2),
+                 'memo' => "Revenue (work performed) — bundle #{$bundleId}",
+                 'counterparty_company_id' => $partyCompanyId],
+            ];
+        } else { // 'ap'
+            $lines = [
+                ['account_code' => $expenseCode, 'debit' => round($amt, 2), 'credit' => 0,
+                 'memo' => "Accrue cost — bundle #{$bundleId} period {$period['period_number']}",
+                 'counterparty_company_id' => null],
+                ['account_code' => $apAccrued,   'debit' => 0, 'credit' => round($amt, 2),
+                 'memo' => "AP accrued (work performed) — bundle #{$bundleId}",
+                 'counterparty_company_id' => null],
+            ];
+        }
+
+        $res = accountingPostJe($tenantId, [
+            // Accruals land on the period's end_date so the GL stamp is
+            // unambiguous; the work_date is preserved in the memo line.
+            'posting_date'    => (string) $period['end_date'],
+            'currency'        => 'USD',
+            'source_module'   => $bundleType === 'ar' ? 'time' : 'time',
+            'source_ref_type' => 'time_bundle',
+            'source_ref_id'   => $bundleId,
+            'idempotency_key' => sprintf('time:bundle:%d:accrual:%d', $bundleId, (int) $period['id']),
+            'memo'            => "Bundle #{$bundleId} accrual — period {$period['period_number']} ({$bundleType})",
+            'lines'           => $lines,
+        ], $actorUserId, true);
+        $results[] = [
+            'period_id'         => (int) $period['id'],
+            'je_id'             => (int) ($res['je_id'] ?? 0),
+            'idempotent_replay' => (bool) ($res['idempotent_replay'] ?? false),
+            'amount'            => round($amt, 2),
+        ];
+    }
+    return $results;
+}

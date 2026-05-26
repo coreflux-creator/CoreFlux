@@ -177,6 +177,35 @@ function timeBuildBundlesForPeriod(int $periodId): array
             }
         }
     }
+
+    // Accrual-at-approval hook (2026-02). Per the corrected accounting
+    // model: timesheet approval IS the recognition event. For every ar/ap
+    // bundle that just landed in status='ready', post per-accounting-period
+    // accrual JEs (Dr AR Unbilled / Cr Revenue  +  Dr Expense / Cr AP Accrued)
+    // when the tenant has multi_period_split_enabled=1. Failures are
+    // logged-and-swallowed so a single misconfigured GL period doesn't
+    // block the entire bundle build — operators can re-trigger via the
+    // bundle's idempotent accrual key once the period is seeded.
+    require_once __DIR__ . '/../../accounting/lib/multi_period.php';
+    $tidNow = currentTenantId();
+    $settings = accountingSettingsGet((int) $tidNow);
+    if (!empty($settings['multi_period_split_enabled'])) {
+        foreach ($built as $b) {
+            if (!in_array($b['bundle_type'], ['ar', 'ap'], true)) continue;
+            try {
+                accountingPostBundleAccrual(
+                    (int) $tidNow,
+                    (int) $b['id'],
+                    (string) $b['bundle_type']
+                );
+            } catch (\Throwable $e) {
+                error_log(sprintf(
+                    '[time.bundle.accrual] bundle_id=%d type=%s failed: %s',
+                    (int) $b['id'], $b['bundle_type'], $e->getMessage()
+                ));
+            }
+        }
+    }
     return $built;
 }
 

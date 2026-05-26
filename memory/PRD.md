@@ -9075,3 +9075,94 @@ root causes.
 - `/app/modules/ap/api/bills.php` (multi-period reorder + tenant-leak comment)
 - `/app/tests/jobdiva_field_map_broader_smoke.php` (new, 62 assertions)
 - `/app/tests/jobdiva_field_mapping_slice5_smoke.php` (ghost-field roster updated)
+
+---
+
+## 2026-02 — Accrual-At-Approval Architectural Correction
+
+### Why
+The operator caught a conceptual error in the prior "multi-period split"
+work. The model is supposed to be:
+
+> The hours from the approved timesheet are the event — revenue and
+> unbilled revenue is posted at that point. Later when it's time to
+> invoice, unbilled revenue decreases and accounts receivable increases.
+> The event triggers revenue and expense recognition. The multi-period
+> accrual is to match billed and unbilled on a rolling basis.
+
+What the previous fork shipped (and what the agent had been doubling
+down on) was recognition AT INVOICE/BILL POST TIME — which would
+double-recognise revenue/expense if the bundle accrual ever turned on.
+
+### Correct flow (now wired)
+1. **Timesheet approval / bundle build → recognition event.** When
+   `timeBuildBundlesForPeriod()` lands an ar/ap bundle in
+   `status='ready'`, the new `accountingPostBundleAccrual()` hook
+   immediately posts per-accounting-period accrual JEs:
+   - `bundle_type='ar'` → **Dr AR Unbilled / Cr Revenue (4000)** per period
+   - `bundle_type='ap'` → **Dr Expense (5000) / Cr AP Accrued** per period
+   - Idempotent on `time:bundle:<id>:accrual:<period_id>`.
+   - Amounts distributed by hours/day with last-day-absorbs-rounding so
+     the per-period sums tie exactly to `total_amount_bill` /
+     `total_amount_pay`.
+   - Only `regular_billable` / `OT_billable` time categories drive the
+     accrual — PTO/unpaid/nonbillable do not generate GL movement.
+   - Gated by tenant flag `accounting_settings.multi_period_split_enabled`
+     (flag repurposed for accrual-at-approval per operator choice).
+
+2. **Invoice post = pure AR reclassification** (single JE on `issue_date`):
+   - **Dr Accounts Receivable (full total)**
+   - **Cr AR Unbilled (subtotal)** — clears the prior accrual
+   - **Cr Sales Tax Payable (tax)** — sales tax was NOT accrued (it's an
+     invoice-time construct)
+   - Idempotent on `billing:invoice:<id>:post:reclass`.
+   - No revenue line — recognition is owned by the bundle accrual.
+
+3. **Bill post = pure AP reclassification** (single JE on `bill_date`):
+   - **Dr AP Accrued (subtotal)** — clears the prior accrual
+   - **Dr Input Tax (1310)** when applicable
+   - **Cr Accounts Payable (full total)**
+   - Idempotent on `ap:bill:<id>:post:reclass`.
+   - No expense line — recognition is owned by the bundle accrual.
+
+4. **Legacy "recognise at invoice/bill" model preserved** for tenants
+   with the flag OFF — they keep the existing revenue/expense JE shape
+   on document post.
+
+### What was ripped
+- `accountingBuildInvoiceJEBatch()` / `accountingBuildBillJEBatch()` —
+  no longer wired into any endpoint. Kept declared so the older
+  isolated batch-shape smoke (`multi_period_je_split_smoke.php`) still
+  passes; they're marked DEPRECATED with a clear note in the file.
+- The "post N JEs on invoice/bill" code paths in `invoices.php` and
+  `bills.php`. Replaced with reclassification logic.
+
+### Event-layer / multi-period precedence
+When a tenant has BOTH the flag enabled AND an event-layer rule for
+`billing.invoice.sent` / `ap.bill.approved`, the event-layer rule fires
+first (Sprint 7e contract preserved per discipline sentries). Tenants
+configuring multi-period accruals typically don't also wire a custom
+event-layer template for the same event; this is a documented mutual
+exclusion.
+
+### Files touched
+- `/app/modules/accounting/lib/multi_period.php`
+  - +`accountingBreakdownBundleByDate()` (work_date → amount split by hours)
+  - +`accountingPostBundleAccrual()` (per-period accrual JE poster)
+- `/app/modules/billing/api/invoices.php`
+  - Replaced multi-period block with reclassification logic (Dr AR / Cr AR Unbilled / Cr Sales Tax)
+- `/app/modules/ap/api/bills.php`
+  - Replaced multi-period block with reclassification logic (Dr AP Accrued / Dr Input Tax / Cr AP)
+- `/app/modules/time/lib/time.php`
+  - Added bundle-accrual hook inside `timeBuildBundlesForPeriod()`,
+    gated by the flag, log-and-swallow on failure.
+- `/app/tests/multi_period_je_wire_in_smoke.php`
+  - Rewritten end-to-end (50 assertions) to validate the new shape.
+- `/app/tests/bundle_accrual_at_approval_smoke.php` (NEW, 22 assertions)
+  - Pure-PHP shape + gating coverage for the new helpers.
+
+### Tests
+- Full suite: **299/299 ✅** (up from 298/298 in the prior step).
+- Added 22 + 50 = 72 new assertions across the new model.
+- All discipline sentries (Sprint 7e contract, tenant-leak, phase-2a)
+  remain green.

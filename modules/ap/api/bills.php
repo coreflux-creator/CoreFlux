@@ -594,25 +594,17 @@ if ($method === 'POST' && $action === 'post') {
     require_once __DIR__ . '/../../accounting/lib/multi_period.php';
     require_once __DIR__ . '/../../../core/posting_engine/process.php';
 
-    // Multi-period split is gated by per-tenant opt-in. We resolve its
-    // applicability up-front (so we can branch later) but DO NOT post
-    // anything yet — the Sprint 7e contract (enforced by
-    // module_emission_discipline_smoke + phase_2a_event_discipline_smoke)
-    // requires that `accountingProcessEvent()` is tried first, with
-    // `moduleEmissionDisciplineLog()` always logged before any direct
-    // `accountingPostJe()` call.
+    // Accrual-at-approval reclassification gate (2026-02). When the
+    // tenant has `multi_period_split_enabled=1`, expense + AP Accrued
+    // were already recognised by `accountingPostBundleAccrual()` at
+    // timesheet/bundle approval time. The bill post becomes a pure
+    // RECLASSIFICATION (single JE on bill_date):
+    //   Dr  AP Accrued     (subtotal — clears the prior accrual)
+    //   Dr  Input Tax 1310 (tax_total, if any)
+    //   Cr  Accounts Payable (full total)
+    // No expense line — recognition is owned by the bundle accrual.
     $settings = accountingSettingsGet($tid);
-    $perPeriod = [];
-    if (!empty($settings['multi_period_split_enabled'])) {
-        try {
-            accountingEnsureAccrualAccounts($tid, $settings);
-            $byDate    = accountingBreakdownBillByDate($tid, (int) $id);
-            $perPeriod = accountingGroupBreakdownByPeriod($tid, (int) ($row['entity_id'] ?? 0), $byDate);
-        } catch (\Throwable $e) {
-            api_error('Multi-period split prep failed: ' . $e->getMessage(), 422);
-        }
-        // Single-period fall-through: bill stays in legacy path below.
-    }
+    $reclassifyOnly = !empty($settings['multi_period_split_enabled']);
 
     $pdo = getDB();
     $linesStmt = $pdo->prepare('SELECT * FROM ap_bill_lines WHERE bill_id = :id ORDER BY line_no');
@@ -707,48 +699,64 @@ if ($method === 'POST' && $action === 'post') {
     // single JE tied to bill_date. Placed AFTER the event-layer attempt
     // and discipline log so the Sprint 7e contract guardrails stay green;
     // event-layer rule wins over multi-period when both are configured.
-    if (!empty($settings['multi_period_split_enabled'])) {
-        if (count($perPeriod) > 1) {
-        $batch = accountingBuildBillJEBatch($row, $perPeriod, (string) $settings['ap_accrued_account_code']);
-        $pdoMp = getDB();
-        $jeIds = [];
-        $pdoMp->beginTransaction();
-        try {
-            foreach ($batch as $i => $je) {
-                $res = accountingPostJe($tid, [
-                    'posting_date'    => $je['date'],
-                    'currency'        => $row['currency'] ?? 'USD',
-                    'source_module'   => 'ap',
-                    'source_ref_type' => 'ap_bill',
-                    'source_ref_id'   => $id,
-                    'idempotency_key' => sprintf('ap:bill:%d:post:mp:%d', $id, $i),
-                    'memo'            => "Bill {$row['internal_ref']} — period " . ($i + 1) . '/' . count($batch)
-                                      . ($je['is_recognition_period'] ? ' (recognition)' : ' (accrual)'),
-                    'lines'           => $je['lines'],
-                ], $user['id'] ?? null, true);
-                $jeIds[] = $res['je_id'];
-            }
-            // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-            $pdoMp->prepare('UPDATE ap_bills SET journal_entry_id = :j WHERE id = :id')
-                ->execute(['j' => $jeIds[count($jeIds) - 1], 'id' => $id]);
-            $pdoMp->commit();
-        } catch (\Throwable $e) {
-            if ($pdoMp->inTransaction()) $pdoMp->rollBack();
-            api_error('Multi-period AP post failed: ' . $e->getMessage(), 422);
+    // Reclassification branch (accrual-at-approval AP mirror). When the
+    // tenant flag is ON, expense + AP Accrued were already posted by
+    // the bundle-accrual hook at timesheet approval time, so the bill
+    // post is a pure AP reclassification — no expense, no multi-period
+    // batching. Placed AFTER the event-layer attempt and discipline
+    // log so the Sprint 7e contract guardrails stay green.
+    if ($reclassifyOnly) {
+        accountingEnsureAccrualAccounts($tid, $settings);
+        $apAccrued = (string) $settings['ap_accrued_account_code'];
+        $partyAp = !empty($row['vendor_company_id']) ? (int) $row['vendor_company_id'] : null;
+        $subtotalAp = (float) ($row['subtotal'] ?? 0);
+        $taxAp      = (float) ($row['tax_total'] ?? 0);
+        $totalAp    = (float) $row['total'];
+        $reclassLines = [
+            // Dr AP Accrued for the subtotal — clears the prior accrual.
+            ['account_code' => $apAccrued, 'debit' => round($subtotalAp, 2), 'credit' => 0,
+             'memo' => "Clear AP Accrued — {$row['internal_ref']}", 'counterparty_company_id' => $partyAp],
+        ];
+        if ($taxAp > 0.005) {
+            // Input tax wasn't accrued at approval — debit it directly here.
+            $reclassLines[] = ['account_code' => '1310', 'debit' => round($taxAp, 2), 'credit' => 0,
+                               'memo' => "Input tax — {$row['internal_ref']}", 'counterparty_company_id' => $partyAp];
         }
+        $reclassLines[] = [
+            // Cr Accounts Payable for the full bill total.
+            'account_code' => '2000', 'debit' => 0, 'credit' => round($totalAp, 2),
+            'memo' => "AP {$row['internal_ref']} / {$row['vendor_name']}", 'counterparty_company_id' => $partyAp,
+        ];
+        try {
+            $resRc = accountingPostJe($tid, [
+                'posting_date'    => $row['bill_date'],
+                'currency'        => $row['currency'] ?? 'USD',
+                'source_module'   => 'ap',
+                'source_ref_type' => 'ap_bill',
+                'source_ref_id'   => $id,
+                'idempotency_key' => sprintf('ap:bill:%d:post:reclass', $id),
+                'memo'            => "Reclassify AP Accrued → AP — Bill {$row['internal_ref']}",
+                'lines'           => $reclassLines,
+            ], $user['id'] ?? null, true);
+        } catch (\Throwable $e) {
+            api_error('AP reclassification post failed: ' . $e->getMessage(), 422);
+        }
+        // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
+        $pdo->prepare('UPDATE ap_bills SET journal_entry_id = :j WHERE id = :id')
+            ->execute(['j' => (int) $resRc['je_id'], 'id' => $id]);
         apAudit('ap.bill.posted', [
             'bill_id'           => $id,
-            'journal_entry_ids' => $jeIds,
-            'via'               => 'multi_period_split',
-            'periods_spanned'   => count($batch),
+            'journal_entry_id'  => (int) $resRc['je_id'],
+            'idempotent_replay' => (bool) ($resRc['idempotent_replay'] ?? false),
+            'via'               => 'ap_reclassification',
         ], $id);
         api_ok([
             'ok'                => true,
-            'journal_entry_ids' => $jeIds,
-            'periods_spanned'   => count($batch),
-            'via'               => 'multi_period_split',
+            'journal_entry_id'  => (int) $resRc['je_id'],
+            'je_number'         => $resRc['je_number'] ?? null,
+            'idempotent_replay' => (bool) ($resRc['idempotent_replay'] ?? false),
+            'via'               => 'ap_reclassification',
         ]);
-        }
     }
 
     try {
