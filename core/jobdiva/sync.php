@@ -921,6 +921,24 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
 
             $internalId = jobdivaSyncUpsertPlacement($tid, $personId, $endClientCompanyId, $jd, $extId);
             mappingUpsert($tid, 'jobdiva', 'placement', $extId, $internalId, $jd, 'pull', $userId);
+
+            // Phase 2 — apply ALL enabled tenant mappings against the
+            // enriched payload. Tenant mappings ALWAYS win over the
+            // hardcoded sync defaults above (decision (d) from the
+            // 2026-02 spec re-audit). The context map tells the apply
+            // step which row id to write to for each linked_entity slug.
+            try {
+                require_once __DIR__ . '/../integrations/field_map_apply.php';
+                integrationFieldMapApplyAll($tid, 'jobdiva', 'placement', $jd, [
+                    'self'                   => $internalId,
+                    'placement_rates'        => $internalId,
+                    'placement_corp_details' => $internalId,
+                    'person'                 => $personId ?? 0,
+                    'end_client_company'     => $endClientCompanyId ?? 0,
+                ]);
+            } catch (\Throwable $e) {
+                error_log('[jobdiva placement sync] applyAll failed: ' . $e->getMessage());
+            }
             $processed++;
         } catch (\Throwable $e) {
             $failed++;

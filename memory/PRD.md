@@ -9932,3 +9932,106 @@ picker can then show real paths with real sample values.
 - NEW: `/app/api/admin/integrations/payload_fields.php`
 - NEW: `/app/tests/integration_payload_field_index_smoke.php`
 - MODIFIED: `/app/core/integrations/entity_mappings.php`
+
+---
+
+## 2026-02 — Field-Mapping Rebuild Phase 2: Generalised Schema +
+##           Cross-Module Apply + Custom-Field Targets
+
+### What shipped
+- **Migration 077** — adds five columns to
+  `tenant_integration_field_map`:
+  - `source_path` (dotted JSON path inside the enriched payload)
+  - `target_module` ('people' | 'placements' | 'companies' | 'ap' | …)
+  - `target_table`  (physical table, including `custom_field_values`)
+  - `target_column` (physical column or custom field code)
+  - `linked_entity` ('self' | 'person' | 'end_client_company' |
+                    'vendor_company' | 'placement_rates' |
+                    'placement_corp_details')
+  Backfills every existing row from legacy `(entity_type,
+  internal_field)` so the syncer keeps working unchanged during
+  cutover. Bill/pay/OT/DT rate fields auto-route to
+  `placement_rates` table.
+
+- **Migration 078** — `integration_writable_targets` catalog table.
+  DB-driven replacement for the hardcoded
+  `tenantIntegrationFieldMapAllowedInternalFields()` allow-list.
+  Seeded with people / placements / placement_rates / companies /
+  ap.ap_vendors / billing.billing_clients + three
+  `custom_field_values` magic rows (target_column='*' = "any code
+  on this module's entity").
+
+- **NEW `/app/core/integrations/field_map_apply.php`**:
+  - `integrationWritableTargetsList(?module, ?table)` — catalog rows
+    for the picker right-pane (sorted by module/table/column).
+  - `integrationPayloadResolvePath($payload, $path)` — strict dotted
+    walker supporting `foo.bar`, `foo[].bar`, `foo[0].bar`. Returns
+    `null` for missing paths or non-scalar cursors.
+  - `integrationFieldMapResolveGeneralised($tid, $integration,
+     ?$entityType)` — returns enabled mappings with full Phase-2
+    shape + a `resolved` flag for legacy rows.
+  - `integrationFieldMapApplyAll($tid, $integration, $entityType,
+     $payload, $contextRowIds)` — buckets writes by
+     `(target_table, row_id)` so one mapping run can hydrate
+     placements + placement_rates + the linked person + the end-
+     client company + a custom field with one UPDATE per row.
+     Tenant mapping ALWAYS wins (decision d). Skips when the source
+     path resolves to empty OR when no context row id is supplied
+     for the mapping's linked_entity.
+
+- **`tenantIntegrationFieldMapUpsert()` extended** — accepts the
+  new generalised shape (source_path + target_module + target_table
+  + target_column + linked_entity). Validates against the catalog
+  first; falls back to the legacy allow-list for old callers.
+  Backfills `internal_field` from `target_column` so the legacy
+  shallow-syncer path keeps working.
+
+- **JobDiva placement sync now calls `applyAll`** right after
+  `mappingUpsert`, passing a context map that names every row id
+  available at that point (self/placement_rates/placement_corp_details/
+  person/end_client_company). Wrapped in try/catch — apply
+  failures never block the sync.
+
+- **NEW `/api/admin/integrations/writable_targets.php`** —
+  discovery endpoint backing the UI's target picker. RBAC
+  `tenant_admin.integrations`. Optional `?module=&table=` filters.
+
+### Why this answers the user's question
+Before Phase 2: tenants could only map JobDiva fields to a
+hardcoded list of columns on `placements` or `people`, and only
+one external_field per internal_field. Cross-module writes (e.g.
+"JobDiva customer.industry → companies.industry on end-client") +
+custom-field writes were impossible without a code change.
+
+After Phase 2: every writable column across every module is a
+DB-row in the catalog. Operators (via the Phase 3 UI) can map any
+`_jd_*` payload path to any catalog column, including custom-field
+codes, with explicit cross-module routing via `linked_entity`.
+Tenant overrides ALWAYS win the syncer's hardcoded defaults — so a
+mapping registry change is the OFFICIAL way to override sync
+behaviour going forward, never a code edit.
+
+### Tests
+- **NEW `/app/tests/field_mapping_phase2_smoke.php`** — 57
+  assertions across migration shapes, catalog seed, path walker
+  unit tests, apply-step bucket semantics, custom_field_values
+  branch, JobDiva wire-up, and writable-targets endpoint contract.
+- Full suite: **310/310 ✅**.
+
+### Files touched
+- NEW: `/app/core/migrations/077_tenant_field_map_generalise.sql`
+- NEW: `/app/core/migrations/078_integration_writable_targets.sql`
+- NEW: `/app/core/integrations/field_map_apply.php`
+- NEW: `/app/api/admin/integrations/writable_targets.php`
+- NEW: `/app/tests/field_mapping_phase2_smoke.php`
+- MODIFIED: `/app/core/integrations/field_map.php`
+- MODIFIED: `/app/core/jobdiva/sync.php`
+
+### What Phase 3 still needs (UI build)
+- Left pane: payload tree from
+  `/api/admin/integrations/payload_fields.php` (Phase 1).
+- Right pane: target picker from
+  `/api/admin/integrations/writable_targets.php` (this PR).
+- Save handler posting `source_path` + target_module/table/column +
+  linked_entity to the existing `/api/admin/integrations/
+  field_map.php` upsert path.

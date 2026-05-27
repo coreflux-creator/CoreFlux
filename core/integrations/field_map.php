@@ -285,17 +285,70 @@ function tenantIntegrationFieldMapUpsert(int $tenantId, array $payload, ?int $ac
     $transform     = trim((string) ($payload['transform']      ?? 'none'));
     $enabled       = isset($payload['enabled']) ? (int) (bool) $payload['enabled'] : 1;
     $notes         = isset($payload['notes']) && $payload['notes'] !== '' ? (string) $payload['notes'] : null;
+    // Phase 2 generalised shape — dotted path on the source side +
+    // explicit (target_module, target_table, target_column,
+    // linked_entity) on the destination side. All five are optional
+    // during cutover so legacy callers still work; new callers
+    // should provide source_path + the four target fields.
+    $sourcePath    = isset($payload['source_path'])
+                       ? trim((string) $payload['source_path']) : '';
+    $targetModule  = isset($payload['target_module'])
+                       ? trim((string) $payload['target_module']) : '';
+    $targetTable   = isset($payload['target_table'])
+                       ? trim((string) $payload['target_table'])  : '';
+    $targetColumn  = isset($payload['target_column'])
+                       ? trim((string) $payload['target_column']) : '';
+    $linkedEntity  = isset($payload['linked_entity'])
+                       ? trim((string) $payload['linked_entity']) : '';
 
     if ($integration === '')   throw new \InvalidArgumentException('integration required');
     if ($entityType === '')    throw new \InvalidArgumentException('entity_type required');
-    if ($externalField === '') throw new \InvalidArgumentException('external_field required');
-    if ($internalField === '') throw new \InvalidArgumentException('internal_field required');
+    if ($externalField === '' && $sourcePath === '') {
+        throw new \InvalidArgumentException('external_field or source_path required');
+    }
+    if ($internalField === '' && $targetColumn === '') {
+        throw new \InvalidArgumentException('internal_field or target_column required');
+    }
 
-    $allowed = tenantIntegrationFieldMapAllowedInternalFields($entityType);
-    if (!in_array($internalField, $allowed, true)) {
-        throw new \InvalidArgumentException(
-            sprintf('internal_field "%s" is not in the allow-list for entity_type "%s"', $internalField, $entityType)
-        );
+    // If caller used the generalised shape, validate against the
+    // DB-driven catalog and backfill internal_field for legacy
+    // syncer compatibility. If caller used the legacy shape, fall
+    // through to the hardcoded allow-list.
+    if ($targetTable !== '' && $targetColumn !== '') {
+        $allowed = false;
+        try {
+            require_once __DIR__ . '/field_map_apply.php';
+            $cat = integrationWritableTargetsList($targetModule !== '' ? $targetModule : null,
+                                                  $targetTable);
+            foreach ($cat as $row) {
+                if ($row['target_table'] === $targetTable
+                    && ($row['target_column'] === $targetColumn || $row['target_column'] === '*')) {
+                    $allowed = true; break;
+                }
+            }
+        } catch (\Throwable $e) {
+            // Catalog missing — fall through to legacy allow-list.
+        }
+        if (!$allowed) {
+            // Try legacy allow-list as a fallback gate before refusing.
+            $legacyAllowed = tenantIntegrationFieldMapAllowedInternalFields($entityType);
+            if (!in_array($targetColumn, $legacyAllowed, true)
+                && !in_array($internalField, $legacyAllowed, true)) {
+                throw new \InvalidArgumentException(sprintf(
+                    'target %s.%s not in writable-targets catalog and not in legacy allow-list for "%s"',
+                    $targetTable, $targetColumn, $entityType
+                ));
+            }
+        }
+        if ($internalField === '') $internalField = $targetColumn;
+    } else {
+        // Legacy code path — hardcoded allow-list.
+        $allowed = tenantIntegrationFieldMapAllowedInternalFields($entityType);
+        if (!in_array($internalField, $allowed, true)) {
+            throw new \InvalidArgumentException(
+                sprintf('internal_field "%s" is not in the allow-list for entity_type "%s"', $internalField, $entityType)
+            );
+        }
     }
     if (!in_array($transform, TENANT_INTEGRATION_FIELD_MAP_TRANSFORMS, true)) {
         throw new \InvalidArgumentException('unknown transform: ' . $transform);
@@ -304,24 +357,36 @@ function tenantIntegrationFieldMapUpsert(int $tenantId, array $payload, ?int $ac
     $pdo = getDB();
     $pdo->prepare(
         'INSERT INTO tenant_integration_field_map
-            (tenant_id, integration, entity_type, external_field, internal_field,
+            (tenant_id, integration, entity_type, external_field, source_path,
+             internal_field, target_module, target_table, target_column, linked_entity,
              transform, enabled, notes, updated_by_user_id)
-         VALUES (:t, :i, :e, :ef, :if, :tr, :en, :n, :u)
+         VALUES (:t, :i, :e, :ef, :sp, :if, :tm, :tt, :tc, :le, :tr, :en, :n, :u)
          ON DUPLICATE KEY UPDATE
              external_field = VALUES(external_field),
+             source_path    = VALUES(source_path),
+             target_module  = VALUES(target_module),
+             target_table   = VALUES(target_table),
+             target_column  = VALUES(target_column),
+             linked_entity  = VALUES(linked_entity),
              transform      = VALUES(transform),
              enabled        = VALUES(enabled),
              notes          = VALUES(notes),
              updated_by_user_id = VALUES(updated_by_user_id)'
     )->execute([
         't'  => $tenantId, 'i' => $integration, 'e' => $entityType,
-        'ef' => $externalField, 'if' => $internalField, 'tr' => $transform,
-        'en' => $enabled, 'n' => $notes, 'u' => $actorUserId,
+        'ef' => $externalField, 'sp' => $sourcePath !== '' ? $sourcePath : null,
+        'if' => $internalField,
+        'tm' => $targetModule !== '' ? $targetModule : null,
+        'tt' => $targetTable  !== '' ? $targetTable  : null,
+        'tc' => $targetColumn !== '' ? $targetColumn : null,
+        'le' => $linkedEntity !== '' ? $linkedEntity : null,
+        'tr' => $transform, 'en' => $enabled, 'n' => $notes, 'u' => $actorUserId,
     ]);
 
     // Return the resulting canonical row.
     $stmt = $pdo->prepare(
-        'SELECT id, integration, entity_type, external_field, internal_field,
+        'SELECT id, integration, entity_type, external_field, source_path,
+                internal_field, target_module, target_table, target_column, linked_entity,
                 transform, enabled, notes, updated_by_user_id, created_at, updated_at
            FROM tenant_integration_field_map
           WHERE tenant_id = :t AND integration = :i AND entity_type = :e AND internal_field = :if
