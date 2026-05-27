@@ -9635,3 +9635,59 @@ they conflict. Full decision log in `/app/memory/HARD_RULES.md`.
 >  to MVP status for testing."
 
 Each item: build → smoke → demo curl/screenshot → ✅ → PRD update → next.
+
+---
+
+## 2026-02 P1.3 — Treasury Sweep Destination UI + In-app Divergence Alerts
+
+### Backend
+- **`/app/api/admin/treasury/sweep_destinations.php`** (NEW) — full
+  GET/POST/DELETE wraps `mercuryRecipientCreate(kind=sweep_destination)`,
+  optional Mercury counterparty push, optional rule wiring. Mirrors
+  the existing `scripts/sweep_destination_setup.php` CLI so tenants
+  no longer need shell access to configure destinations. RBAC gate:
+  `accounting.bank.manage`. Refuses sweep loops (destination ==
+  source). DELETE unwires rules before revoke.
+- **`/app/api/admin/treasury/sweep_divergence.php`** (NEW) —
+  serves the same per-tenant divergence signal the daily email
+  cron computes. Window param 1..168h. Tone:
+    - any `outcome=failed` → severity=error
+    - `outcome=swept && dry_run=1` → severity=warn
+  Soft-degrades when migration 074 is pending.
+- **`/app/core/mercury_recipients.php`** — `mercuryRecipientList()`
+  now attaches `account_type` via subquery so the destinations
+  table renders without N+1.
+
+### Frontend
+- **`/app/modules/treasury/ui/SweepDestinations.jsx`** (NEW) — CRUD
+  page: new-destination form (name, routing, account, type,
+  account_id ref, push checkbox, rule-wire select), revoke action,
+  status pill, counterparty + rule-wiring badges. Live-filters
+  available rules (excludes already-wired).
+- **`/app/modules/treasury/ui/SweepDivergenceBanner.jsx`** (NEW) —
+  in-app banner. Tone: red on failure, amber on planned-but-dry-run,
+  green when clean, grey when no activity. Drill-down list with
+  per-alert testids + severity attributes. Auto-refresh every 5 min.
+  Renders DRY-RUN MODE pill when `live_mode === false`.
+- **`/app/modules/treasury/ui/TreasuryModule.jsx`** — new
+  `sweep-destinations` tab + route mounted after `sweep-rules`.
+- **`/app/modules/treasury/ui/SweepRulesAdmin.jsx`** — banner rendered
+  at the top of the admin section.
+
+### Tests
+- New `/app/tests/sweep_destination_ui_and_divergence_smoke.php`:
+  45 assertions covering API contracts, RBAC gate, sweep-loop
+  refusal, divergence severity classification, UI testid surface,
+  module wiring, and PHP syntax.
+- Full PHP CLI suite: **306/306 ✅**.
+- Vite bundle rebuilt + `sync_bundle.sh` clean (`index-BEFNkF9O.js`).
+
+### Files touched
+- NEW: `/app/api/admin/treasury/sweep_destinations.php`
+- NEW: `/app/api/admin/treasury/sweep_divergence.php`
+- NEW: `/app/modules/treasury/ui/SweepDestinations.jsx`
+- NEW: `/app/modules/treasury/ui/SweepDivergenceBanner.jsx`
+- NEW: `/app/tests/sweep_destination_ui_and_divergence_smoke.php`
+- MODIFIED: `/app/modules/treasury/ui/TreasuryModule.jsx`
+- MODIFIED: `/app/modules/treasury/ui/SweepRulesAdmin.jsx`
+- MODIFIED: `/app/core/mercury_recipients.php`

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../../dashboard/src/lib/api';
 import SweepRunsFeed from './SweepRunsFeed';
+import SweepDivergenceBanner from './SweepDivergenceBanner';
 
 /**
  * Treasury Sweep Rules admin (P1 — cash-allocation workflow).
@@ -87,6 +88,7 @@ export default function SweepRulesAdmin() {
 
   return (
     <section data-testid="sweep-rules-admin" style={{ padding: 'var(--cf-space-3, 1rem)' }}>
+      <SweepDivergenceBanner hours={24} />
       <header style={{ marginBottom: '1rem' }}>
         <h2 style={{ margin: 0 }}>Cash-allocation / sweep rules</h2>
         <p style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>

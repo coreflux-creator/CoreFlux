@@ -126,6 +126,9 @@ function mercuryRecipientList(int $tenantId, ?string $kind = null): array
                        (SELECT account_number_last4 FROM mercury_recipient_bank_methods
                           WHERE tenant_id = r.tenant_id AND recipient_id = r.id AND is_default = 1
                           AND deleted_at IS NULL LIMIT 1) AS bank_last4,
+                       (SELECT account_type FROM mercury_recipient_bank_methods
+                          WHERE tenant_id = r.tenant_id AND recipient_id = r.id AND is_default = 1
+                          AND deleted_at IS NULL LIMIT 1) AS account_type,
                        (SELECT mercury_id FROM mercury_recipient_mappings
                           WHERE tenant_id = r.tenant_id AND recipient_id = r.id
                           ORDER BY id DESC LIMIT 1) AS mercury_id
