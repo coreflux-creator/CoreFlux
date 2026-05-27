@@ -9845,3 +9845,90 @@ JobDiva's detail endpoint is returning null on that field — not
 our consumption layer. The Connected Sources panel + `_jd_*`
 sub-objects on the placement payload now let operators inspect
 exactly what JobDiva served vs. what we wrote.
+
+---
+
+## 2026-02 — Field-Mapping Rebuild Phase 1: Persist Full Enriched Payload + Field Index
+
+### User decision log (locked, from spec re-audit follow-up)
+> "We're still only mapping within people/placements. How about
+>  mapping at the integration setting level? Entire payload, allow
+>  mapping by selecting core module + field."
+
+Decisions:
+- **(a) Cross-module row identity**: mapping carries explicit
+  `linked_entity` join hint (option 2).
+- **(b) Scope**: all integrations (JobDiva, QBO, Zoho, Airtable).
+- **(c) Custom field targets**: yes, include `custom_field_values`.
+- **(d) Conflict semantics**: tenant mapping ALWAYS wins.
+- **(e) Sequencing**: ship all three phases JobDiva-first, then
+  replicate.
+
+### Three-phase plan
+- **Phase 1 (THIS PR)** — persist full enriched payload + index.
+- **Phase 2 (next)** — generalise field-map schema:
+  `target_module + target_table + target_column + source_path +
+  linked_entity` on `tenant_integration_field_map`. DB-driven
+  writable-targets table. Custom-field target support.
+- **Phase 3** — Integration Settings UI: left-pane payload tree,
+  right-pane writable-target dropdown, save mapping.
+
+### Phase 1 — what shipped
+- **NEW migration 076_integration_payload_field_index.sql** —
+  per-tenant catalog of every JSON path observed in payloads.
+  Keys `(tenant_id, integration, entity_type, source_path)`,
+  tracks `value_type`, `sample_value`, `occurrence_count`,
+  `first_seen_at`, `last_seen_at`. Index by occurrence_count so
+  the picker can rank common fields above flaky ones.
+- **NEW `/app/core/integrations/payload_field_index.php`** —
+  three primitives:
+  - `integrationPayloadFlatten($node, $prefix)` — recursive walker
+    emitting one row per JSON path. Object bones get `type=object`,
+    array bones `type=array`, scalars carry truncated sample value.
+    Array elements collapse to `[]` suffix (no path explosion on
+    100-element arrays).
+  - `integrationPayloadFieldIndexRecord($tid, $integration,
+    $entityType, $payload)` — upserts each path; bumps
+    occurrence_count, refreshes sample, races safely via
+    `ON DUPLICATE KEY UPDATE`. Soft-degrades on missing migration.
+  - `integrationPayloadFieldIndexList(...)` /
+    `integrationPayloadFieldIndexSources(...)` — drives the UI.
+- **MODIFIED `mappingUpsert()`** (entity_mappings.php) — after
+  computing the snapshot, fires
+  `integrationPayloadFieldIndexRecord()` best-effort. Indexing
+  failures never block the mapping write.
+- **NEW `/api/admin/integrations/payload_fields.php`** — discovery
+  endpoint. RBAC `tenant_admin.integrations`. Two modes:
+  - no args: returns `sources[]` (which integration/entity_type
+    tuples have indexed paths for this tenant).
+  - with `?integration=&entity_type=`: returns `paths[]` for the
+    picker tree.
+
+### Why this is the foundation
+Phase 2 (target_module schema) and Phase 3 (UI picker) BOTH need a
+queryable answer to "what fields can the operator map from?".
+Without Phase 1, the UI is reduced to a free-text input where the
+operator guesses field names — exactly the failure mode that made
+the user say "how many times will we come back to this?". Once a
+tenant runs ANY sync, the index fills for that integration; the
+picker can then show real paths with real sample values.
+
+### Test coverage
+- **NEW `/app/tests/integration_payload_field_index_smoke.php`** —
+  56 assertions covering:
+  - migration table shape (PK, unique key, indexes, column widths)
+  - flattener correctness against a realistic JobDiva-shaped
+    fixture (placement + _jd_candidate + _jd_job + _jd_customer +
+    _jd_contact + _jd_start including nested arrays)
+  - type classification (string/number/boolean/null/object/array)
+  - sample-value truncation at 200 chars
+  - mappingUpsert wires the indexer best-effort, payload-only
+  - API endpoint contract + RBAC gate
+- Full suite: **309/309 ✅**.
+
+### Files touched
+- NEW: `/app/core/migrations/076_integration_payload_field_index.sql`
+- NEW: `/app/core/integrations/payload_field_index.php`
+- NEW: `/app/api/admin/integrations/payload_fields.php`
+- NEW: `/app/tests/integration_payload_field_index_smoke.php`
+- MODIFIED: `/app/core/integrations/entity_mappings.php`

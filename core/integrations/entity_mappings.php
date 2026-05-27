@@ -108,6 +108,21 @@ function mappingUpsert(
     $hash    = $payload !== null ? mappingHash($payload) : null;
     $snapshot = $payload !== null ? json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : null;
 
+    // Phase 1 — index every JSON path seen in the payload so the UI
+    // picker (Integration Settings → Field Mapping) can offer the
+    // operator a complete list of mappable source fields, including
+    // the enriched `_jd_candidate.firstName`, `_jd_job.title`, etc.
+    // grafts. Best-effort: indexing failures (e.g. migration 076 not
+    // applied) never block the mapping persist.
+    if ($payload !== null) {
+        try {
+            require_once __DIR__ . '/payload_field_index.php';
+            integrationPayloadFieldIndexRecord($tenantId, $source, $entityType, $payload);
+        } catch (\Throwable $e) {
+            error_log('[mappingUpsert] field index record failed: ' . $e->getMessage());
+        }
+    }
+
     $pdo = getDB();
     $existing = mappingFindInternal($tenantId, $source, $entityType, $externalId);
 
