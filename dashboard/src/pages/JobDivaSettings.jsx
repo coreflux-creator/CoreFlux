@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, useApi } from '../lib/api';
 import {
   Activity, AlertCircle, CheckCircle2, Copy, Link2,
@@ -159,6 +160,32 @@ export default function JobDivaSettings() {
           <RefreshCw size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />Refresh
         </button>
       </header>
+
+      {/* Field Mapping Studio CTA — JobDiva is the most common entry point so we surface it here. */}
+      <div data-testid="jobdiva-settings-field-map-cta"
+           style={{ padding: 14, background: 'linear-gradient(135deg,#eef2ff,#faf5ff)',
+                    border: '1px solid #c4b5fd', borderRadius: 10,
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div>
+          <strong style={{ fontSize: 13, color: '#5b21b6', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Sparkles size={14} /> Customize what JobDiva writes into CoreFlux
+          </strong>
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: '#475569' }}>
+            Use the <strong>Field Mapping Studio</strong> to pick any path from the live JobDiva payload
+            (placement, person, company, contact) and route it into any CoreFlux column — including custom
+            fields. Tenant mappings always win over built-in sync defaults. Run a sync at least once so the
+            indexer learns the payload shape, then open the Studio.
+          </p>
+        </div>
+        <Link
+          to="/admin/integrations/field-map/studio?integration=jobdiva&entity_type=placement"
+          data-testid="jobdiva-settings-field-map-studio-link"
+          className="btn btn--primary"
+          style={{ whiteSpace: 'nowrap', fontSize: 13 }}
+        >
+          Open Field Mapping Studio →
+        </Link>
+      </div>
 
       {loading && <p data-testid="jobdiva-settings-loading">Loading…</p>}
       {error   && <p data-testid="jobdiva-settings-error" className="error">Error: {error.message}</p>}

@@ -69,6 +69,7 @@ const AdminOverview = () => (
         <ActionCard icon={ScrollText} title="Audit log"     description="Tenant-scoped audit trail with CSV export" href="/admin/audit-log" />
         <ActionCard icon={FlaskConical} title="Rule sandbox" description="Dry-run posting rules without writing to the GL" href="/admin/rule-sandbox" />
         <ActionCard icon={PlugZap} title="Integrations" description="Connect Plaid, Mercury, JobDiva and other external systems" href="/admin/integrations" />
+        <ActionCard icon={Sparkles} title="Field Mapping Studio" description="Route any integration payload field (JobDiva, QBO, Zoho, Airtable) into any CoreFlux column — including custom fields. Tenant overrides + dry-run test panel." href="/admin/integrations/field-map/studio" />
         <ActionCard icon={KeyRound} title="SSO configuration" description="Register your Okta or Microsoft Entra identity provider" href="/admin/sso" />
         <ActionCard icon={Palette}  title="Email branding"     description="Logo, accent colour, and signature on every digest" href="/admin/mail-branding" />
         <ActionCard icon={CalendarClock} title="Digest schedules" description="When each weekly / daily email gets sent per tenant" href="/admin/digest-schedules" />
@@ -104,6 +105,7 @@ const AdminSidebar = () => {
     { to: '/admin/audit-log',        label: 'Audit Log',        icon: ScrollText },
     { to: '/admin/rule-sandbox',     label: 'Rule Sandbox',     icon: FlaskConical },
     { to: '/admin/integrations',     label: 'Integrations',     icon: PlugZap },
+    { to: '/admin/integrations/field-map/studio', label: 'Field Mapping Studio', icon: Sparkles },
     { to: '/admin/sso',              label: 'SSO',              icon: KeyRound },
     { to: '/admin/mail-branding',    label: 'Branding',         icon: Palette },
     { to: '/admin/digest-schedules', label: 'Digests',          icon: CalendarClock },

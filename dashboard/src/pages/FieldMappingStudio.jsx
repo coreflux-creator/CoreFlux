@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { api } from '../lib/api';
 
 /**
@@ -33,9 +34,11 @@ const LINKED_ENTITY_LABELS = {
 };
 
 export default function FieldMappingStudio() {
+  const location = useLocation();
+  const queryParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const [sources, setSources]         = useState([]);
-  const [integration, setIntegration] = useState('jobdiva');
-  const [entityType, setEntityType]   = useState('placement');
+  const [integration, setIntegration] = useState(queryParams.get('integration') || 'jobdiva');
+  const [entityType, setEntityType]   = useState(queryParams.get('entity_type') || 'placement');
 
   const [paths, setPaths]             = useState([]);
   const [pathFilter, setPathFilter]   = useState('');
@@ -233,10 +236,42 @@ export default function FieldMappingStudio() {
           </div>
           {loading && <p>Loading paths…</p>}
           {!loading && filteredPaths.length === 0 && (
-            <p data-testid="fms-paths-empty" style={emptyHint}>
-              No indexed paths yet. Trigger a sync for <code>{integration}/{entityType}</code> and reload — the
-              indexer populates this list automatically.
-            </p>
+            <div data-testid="fms-paths-empty" style={emptyHint}>
+              <p style={{ margin: 0 }}>
+                No indexed paths yet for <code>{integration}/{entityType}</code>.
+              </p>
+              <p style={{ margin: '6px 0 0' }}>
+                The indexer populates this list automatically the next time CoreFlux
+                receives a payload from the integration. Trigger one now:
+              </p>
+              <p style={{ margin: '6px 0 0' }}>
+                {integration === 'jobdiva' && (
+                  <Link to="/admin/integrations/jobdiva"
+                        data-testid="fms-paths-empty-jobdiva-link"
+                        style={{ fontSize: 13 }}>→ Open JobDiva settings → "Sync now"</Link>
+                )}
+                {integration === 'quickbooks' && (
+                  <Link to="/admin/integrations/qbo"
+                        data-testid="fms-paths-empty-qbo-link"
+                        style={{ fontSize: 13 }}>→ Open QBO settings → "Pull customers/vendors"</Link>
+                )}
+                {integration === 'zoho_books' && (
+                  <Link to="/admin/integrations/zoho-books"
+                        data-testid="fms-paths-empty-zoho-link"
+                        style={{ fontSize: 13 }}>→ Open Zoho Books settings</Link>
+                )}
+                {integration === 'airtable' && (
+                  <Link to="/admin/integrations/airtable"
+                        data-testid="fms-paths-empty-airtable-link"
+                        style={{ fontSize: 13 }}>→ Open Airtable settings</Link>
+                )}
+                {!['jobdiva', 'quickbooks', 'zoho_books', 'airtable'].includes(integration) && (
+                  <Link to="/admin/integrations"
+                        data-testid="fms-paths-empty-hub-link"
+                        style={{ fontSize: 13 }}>→ Open Integrations Hub</Link>
+                )}
+              </p>
+            </div>
           )}
           <ul data-testid="fms-paths-list" style={scrollList}>
             {filteredPaths.map(p => (

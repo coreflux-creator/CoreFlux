@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/api';
 import { Section, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { PlugZap, Building2, Banknote, BookOpen, Database, TrendingUp, ChevronRight, ShieldCheck, AlertTriangle, AlertOctagon } from 'lucide-react';
+import { PlugZap, Building2, Banknote, BookOpen, Database, TrendingUp, ChevronRight, ShieldCheck, AlertTriangle, AlertOctagon, Sparkles } from 'lucide-react';
 
 /**
  * IntegrationsHub — tenant admin "single pane of glass" for every external
@@ -149,6 +149,27 @@ export default function IntegrationsHub() {
             description="Pull records from any Airtable base/table into the integrations vault. Per-mapping field map; pull-only v1; PAT auth (encrypted at rest)."
             href="/admin/integrations/airtable"
             status={airtableStatus}
+          />
+        </ActionCardsGrid>
+      </Section>
+
+      <Section title="Field Mapping">
+        <ActionCardsGrid>
+          <IntegrationCard
+            testid="integration-card-field-map-studio"
+            icon={Sparkles}
+            title="Field Mapping Studio"
+            description="Pick any path from any integration's live payload (JobDiva, QBO, Zoho, Airtable) and route it to any CoreFlux column — including custom fields. Tenant mappings win over built-in defaults. Includes a dry-run Test Mappings panel."
+            href="/admin/integrations/field-map/studio"
+            status="connected"
+          />
+          <IntegrationCard
+            testid="integration-card-field-map-legacy"
+            icon={Database}
+            title="Field Map (legacy table view)"
+            description="Flat per-row admin view of the existing mapping rows. Use this for bulk JSON import/export. New mappings should be created in the Studio."
+            href="/admin/integrations/field-map"
+            status="connected"
           />
         </ActionCardsGrid>
       </Section>

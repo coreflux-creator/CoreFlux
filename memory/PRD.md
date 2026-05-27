@@ -10199,3 +10199,58 @@ change mappings in the past.
 - Phase 3 enhancement: Test panel for confident mapping changes ✓
 - Apply step wired across every JobDiva sync path (placement,
   company, contact, person) ✓
+
+
+---
+
+## 2026-02 — Field Mapping Studio discoverability fix
+
+### Why
+Operator reported "I still don't see the updated jobdiva payload and
+field mapping tool" after Phase 3 shipped. Root cause was pure
+discoverability: the Studio existed at
+`/admin/integrations/field-map/studio` but nothing surfaced it —
+no JobDiva Settings link, no Integrations Hub card, no Admin
+sidebar entry, no Admin Overview action card. The legacy
+`IntegrationFieldMapAdmin` had a small banner link but operators
+weren't landing on that page in the first place.
+
+### What shipped
+- **JobDivaSettings.jsx** now renders a prominent
+  `jobdiva-settings-field-map-cta` banner directly below the page
+  header. CTA button (`jobdiva-settings-field-map-studio-link`)
+  deep-links to
+  `/admin/integrations/field-map/studio?integration=jobdiva&entity_type=placement`.
+- **IntegrationsHub.jsx** gets a new "Field Mapping" section with
+  two cards: the Studio (`integration-card-field-map-studio`,
+  Sparkles icon) and the legacy flat-row admin
+  (`integration-card-field-map-legacy`, for bulk JSON
+  import/export).
+- **AdminModule.jsx** adds two surfaces:
+  - Admin Overview ActionCard for the Studio.
+  - Admin sidebar nav entry (`Sparkles` icon) so the Studio is
+    one click from anywhere in the Admin module.
+- **FieldMappingStudio.jsx** now respects URL query params:
+  - `?integration=` pre-fills the integration dropdown.
+  - `?entity_type=` pre-fills the entity-type dropdown.
+- **Empty-state CTA** on the source-paths pane now diagnoses the
+  most common confusion: "indexer hasn't seen this entity yet."
+  It surfaces an integration-specific link back to the sync
+  surface (JobDiva / QBO / Zoho / Airtable) so the operator
+  knows to run a sync before mapping.
+
+### Tests
+- NEW `/app/tests/field_mapping_studio_discoverability_smoke.php`
+  (24 assertions: JobDiva CTA, Hub cards, Admin sidebar + overview,
+  URL-param defaulting, empty-state CTA, deploy-version coherence).
+- Full suite: **317/318 ✅** (one pre-existing failure is
+  `accounting_phase2_a7_smoke.php`, requires live MySQL and is
+  unrelated).
+
+### Files touched
+- MODIFIED: `dashboard/src/pages/JobDivaSettings.jsx`
+- MODIFIED: `dashboard/src/pages/IntegrationsHub.jsx`
+- MODIFIED: `dashboard/src/pages/AdminModule.jsx`
+- MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx`
+- NEW: `tests/field_mapping_studio_discoverability_smoke.php`
+- Vite bundle: `index-Ckax1kTB.js` / `index-BC5g6YJu.css` synced.
