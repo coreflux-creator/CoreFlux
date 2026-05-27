@@ -9461,3 +9461,68 @@ Five shippable slices in one fork session.
    appropriate `sweep_destination` recipient.
 4. Tail the divergence alert email for 7+ days; once clean, flip
    `TREASURY_SWEEP_LIVE=1` in the cron environment.
+
+---
+
+## 2026-02 — Dual-Leg Approval Progress UI + Sweep Destination CLI Helper
+
+### Why
+Two remaining ergonomics gaps after the Treasury Sweep + dual-leg
+backend work landed: operators couldn't SEE approval progress (they
+had to read the JSON), and wiring a new sweep destination took five
+separate REST calls per destination account.
+
+### 1. Dual-Leg Approval Progress UI panel
+- **`/app/modules/treasury/ui/MercuryPayments.jsx`** — new
+  `ApprovalProgressPanel` rendered inside `PaymentDetailModal` above
+  the existing `DualLegProgress`. Reads `approval_progress` from the
+  GET-by-id response (shipped earlier this session).
+- Surfaces in one glanceable panel:
+  - Resolved policy name + required role (if any) + creator name
+  - `acks_collected / acks_required` ratio with a COMPLETE / NEEDED badge
+  - Each ack as a list item (user name, timestamp, optional note)
+  - Live cool-off countdown (client-side `setInterval` decrement)
+  - Eligibility-to-approve hint with reason:
+    - `no-viewer` → "Not signed in"
+    - `creator-cannot-approve` → "Segregation of Duties blocks self-approval"
+    - `role-mismatch:<role>` → "Requires role: <role>"
+    - `already-acked` → "You already approved this"
+    - `state-<state>` → "Payment is <state> — approval window closed"
+- Hides itself when `acks_required` is null (legacy payments or
+  transient lookup failure) — never breaks the modal.
+
+### 2. Sweep Destination Setup CLI helper
+- **`/app/scripts/sweep_destination_setup.php`** — single-command
+  alternative to the five-REST-call setup process.
+- Usage:
+  ```
+  php scripts/sweep_destination_setup.php \
+      --tenant=42 --account-id=acct_… \
+      --routing=987654321 --account-number=1234567890 \
+      --name="High-Yield Savings" \
+      [--rule-id=7] [--no-push] [--dry-run]
+  ```
+- Pre-flight checks with specific remediation messages:
+  - Tenant exists (exit 3)
+  - Migration 075 applied (exit 4)
+  - Mercury connection active (auto-degrades to `--no-push` if not)
+  - Rule exists for tenant (exit 5)
+  - Destination ≠ source (exit 6) — a sweep can't loop to itself
+- `--dry-run` bails BEFORE any DB writes, prints the plan
+- Happy path: creates the `kind='sweep_destination'` recipient,
+  pushes to Mercury as a counterparty (unless `--no-push`), wires
+  `destination_recipient_id` + `destination_account_id` on the rule
+  (when `--rule-id` provided), and prints a runbook-ready go-live
+  readiness summary.
+- Mercury push failure is non-fatal — local recipient row still
+  serves the rule; operator can retry the push later.
+
+### Tests
+- Full PHP CLI suite: **305/305 ✅** (up from 304).
+- New `/app/tests/dual_leg_ui_and_sweep_cli_smoke.php` — 52 assertions
+  covering all UI integration points + every CLI pre-flight branch.
+
+### Files touched
+- MODIFIED: `/app/modules/treasury/ui/MercuryPayments.jsx`
+- NEW: `/app/scripts/sweep_destination_setup.php`
+- NEW: `/app/tests/dual_leg_ui_and_sweep_cli_smoke.php`

@@ -390,6 +390,7 @@ function PaymentDetailModal({ id, onClose }) {
         {detail.error   && <p className="error">{detail.error.message}</p>}
         {row && (
           <>
+            <ApprovalProgressPanel progress={detail.data.approval_progress} />
             <DualLegProgress row={row} data-testid="mercury-payment-dual-leg" />
             <details style={{ marginTop: 12 }}>
               <summary style={{ cursor: 'pointer', fontSize: 12, color: '#475569' }}>Raw payment row</summary>
@@ -541,5 +542,167 @@ function ReconKpi({ label, value, testid, accent }) {
       <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</span>
       <strong style={{ fontSize: 18, color: accent || '#0f172a' }}>{value}</strong>
     </div>
+  );
+}
+
+
+const ELIGIBILITY_HINT = {
+  'no-viewer':              { text: 'Not signed in',         tone: '#64748b' },
+  'creator-cannot-approve': { text: 'You created this — Segregation of Duties blocks self-approval', tone: '#92400e' },
+  'already-acked':          { text: 'You already approved this',         tone: '#15803d' },
+};
+
+function fmtCoolOff(secs) {
+  if (!secs || secs <= 0) return null;
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m}m ${String(s).padStart(2, '0')}s`;
+}
+
+/**
+ * ApprovalProgressPanel — surfaces the dual-leg approval state for the
+ * payment in focus. Backend computes the shape via mpGetApprovalProgress;
+ * we render acks collected vs. required, the live cool-off countdown,
+ * and the viewer's eligibility-to-approve with a human reason if not.
+ *
+ * Hides itself if the backend didn't return progress (legacy payments
+ * or transient lookup failure — never breaks the modal).
+ */
+function ApprovalProgressPanel({ progress }) {
+  if (!progress || !progress.acks_required) return null;
+  const {
+    policy_name, required_approver_role,
+    acks_collected, acks_required, acks_remaining,
+    acks = [], cool_off_seconds_remaining,
+    can_approve, can_approve_reason, creator_name,
+  } = progress;
+
+  const complete = acks_remaining === 0;
+  const ringColor = complete ? '#16a34a' : '#7c3aed';
+
+  // Live-tick cool-off countdown without re-fetching by leaning on the
+  // server-supplied seconds and decrementing client-side. Re-mounts
+  // each modal open get a fresh count.
+  const [tick, setTick] = useState(cool_off_seconds_remaining || 0);
+  React.useEffect(() => {
+    setTick(cool_off_seconds_remaining || 0);
+    if (!cool_off_seconds_remaining) return;
+    const h = setInterval(() => setTick(t => Math.max(0, t - 1)), 1000);
+    return () => clearInterval(h);
+  }, [cool_off_seconds_remaining]);
+
+  const eligHint = !can_approve && (() => {
+    if (can_approve_reason?.startsWith('role-mismatch:')) {
+      const r = can_approve_reason.slice('role-mismatch:'.length);
+      return { text: `Requires role: ${r}`, tone: '#92400e' };
+    }
+    if (can_approve_reason?.startsWith('state-')) {
+      return { text: `Payment is ${can_approve_reason.slice('state-'.length)} — approval window closed`, tone: '#64748b' };
+    }
+    return ELIGIBILITY_HINT[can_approve_reason] || { text: can_approve_reason || 'Cannot approve', tone: '#64748b' };
+  })();
+
+  return (
+    <section
+      data-testid="mercury-payment-approval-progress"
+      data-complete={complete ? 'yes' : 'no'}
+      style={{
+        marginBottom: 12, padding: 12, borderRadius: 8,
+        border: `1px solid ${ringColor}33`, background: `${ringColor}0a`,
+      }}
+    >
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 12, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+            Approval chain
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 600 }} data-testid="mercury-payment-approval-policy">
+            {policy_name || 'Default policy (1 approver, no cool-off)'}
+            {required_approver_role && (
+              <span style={{ marginLeft: 6, fontSize: 11, color: '#7c3aed', fontWeight: 500 }}>
+                role required: {required_approver_role}
+              </span>
+            )}
+          </div>
+          {creator_name && (
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+              Created by <strong>{creator_name}</strong>
+            </div>
+          )}
+        </div>
+        <div
+          data-testid="mercury-payment-approval-count"
+          style={{
+            display: 'flex', alignItems: 'baseline', gap: 4,
+            padding: '4px 10px', borderRadius: 999,
+            background: ringColor + '1a', color: ringColor,
+            fontSize: 11, fontWeight: 700,
+          }}
+        >
+          <span style={{ fontSize: 16 }}>{acks_collected}</span>
+          <span>/</span>
+          <span>{acks_required}</span>
+          <span style={{ marginLeft: 4, fontWeight: 600 }}>{complete ? 'COMPLETE' : 'NEEDED'}</span>
+        </div>
+      </header>
+
+      <ol
+        data-testid="mercury-payment-approval-acks"
+        style={{ margin: '0 0 10px', paddingLeft: 18, fontSize: 13, color: '#0f172a' }}
+      >
+        {acks.length === 0 && (
+          <li data-testid="mercury-payment-approval-acks-empty" style={{ listStyle: 'none', color: '#94a3b8', marginLeft: -18 }}>
+            No approvals yet.
+          </li>
+        )}
+        {acks.map(a => (
+          <li
+            key={a.id}
+            data-testid={`mercury-payment-approval-ack-${a.id}`}
+            style={{ marginBottom: 4 }}
+          >
+            <strong>{a.user_name || a.user_email || `User #${a.user_id}`}</strong>
+            <span style={{ marginLeft: 6, color: '#64748b', fontSize: 11 }}>
+              {a.created_at}
+            </span>
+            {a.note && (
+              <span style={{ display: 'block', fontSize: 12, color: '#475569', fontStyle: 'italic' }}>
+                “{a.note}”
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+
+      {tick > 0 && (
+        <div
+          data-testid="mercury-payment-approval-cooloff"
+          style={{
+            padding: '6px 10px', background: '#fef3c7', color: '#92400e',
+            border: '1px solid #fde68a', borderRadius: 6,
+            fontSize: 12, marginBottom: 8,
+          }}
+        >
+          <strong>Cool-off:</strong> funding can&apos;t advance for{' '}
+          <code style={{ fontFamily: 'monospace' }}>{fmtCoolOff(tick)}</code>
+        </div>
+      )}
+
+      {can_approve ? (
+        <p data-testid="mercury-payment-approval-eligible" style={{ margin: 0, fontSize: 12, color: '#15803d' }}>
+          ✓ You can approve this payment ({acks_remaining} more {acks_remaining === 1 ? 'approval needed' : 'approvals needed'}).
+        </p>
+      ) : (
+        eligHint && (
+          <p
+            data-testid="mercury-payment-approval-ineligible"
+            data-reason={can_approve_reason}
+            style={{ margin: 0, fontSize: 12, color: eligHint.tone }}
+          >
+            ⓘ {eligHint.text}.
+          </p>
+        )
+      )}
+    </section>
   );
 }
