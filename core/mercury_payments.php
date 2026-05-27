@@ -194,7 +194,12 @@ function mpList(int $tenantId, array $opts = []): array
 {
     try {
         $pdo = getDB();
-        $sql = 'SELECT pi.*, r.name AS recipient_name
+        // Use a correlated subquery for ack count so the list endpoint can
+        // surface an inline approval progress indicator (N/M) on the table
+        // row without forcing the UI to round-trip per payment.
+        $sql = 'SELECT pi.*, r.name AS recipient_name,
+                       (SELECT COUNT(*) FROM payment_instruction_approvals a
+                          WHERE a.tenant_id = pi.tenant_id AND a.instruction_id = pi.id) AS acks_collected
                   FROM payment_instructions pi
                   LEFT JOIN mercury_recipients r ON r.id = pi.recipient_id AND r.tenant_id = pi.tenant_id
                  WHERE pi.tenant_id = :t';
@@ -203,7 +208,35 @@ function mpList(int $tenantId, array $opts = []): array
         $sql .= ' ORDER BY pi.created_at DESC, pi.id DESC LIMIT 200';
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
-        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+        // Resolve acks_required for PendingApproval rows only (bounded loop;
+        // mpList already caps at 200). Other states show no inline badge.
+        if ($rows) {
+            require_once __DIR__ . '/approval_policy.php';
+            foreach ($rows as &$r) {
+                $r['acks_collected'] = (int) ($r['acks_collected'] ?? 0);
+                $r['acks_required']  = 1;
+                if (($r['state'] ?? '') === 'PendingApproval') {
+                    try {
+                        $policy = approvalPolicyResolve(
+                            $tenantId,
+                            (int) $r['amount_cents'],
+                            (int) $r['recipient_id'],
+                            (string) ($r['operating_mercury_account_id'] ?? '') ?: null,
+                            'mercury'
+                        );
+                        $r['acks_required'] = $policy
+                            ? max(1, (int) $policy['min_approvers'])
+                            : 1;
+                    } catch (\Throwable $e) {
+                        // Fall back to single-approver policy on resolver fail.
+                    }
+                }
+            }
+            unset($r);
+        }
+        return $rows;
     } catch (\Throwable $e) {
         return [];
     }

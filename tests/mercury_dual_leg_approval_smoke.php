@@ -114,6 +114,26 @@ $a('cron worker continues to drive states one step at a time',
     str_contains((string) file_get_contents('/app/cron/mercury_payment_worker.php'),
                  'state IN ("Approved", "Funding", "Submitted")'));
 
+echo "\n6b. mpList attaches inline approval counts (UI list-view badge)\n";
+$a('mpList SQL pulls correlated acks_collected subquery',
+    str_contains($svc, 'AS acks_collected')
+    && str_contains($svc, 'FROM payment_instruction_approvals a'));
+$a('mpList resolves acks_required via approvalPolicyResolve for PendingApproval',
+    str_contains($svc, "if ((\$r['state'] ?? '') === 'PendingApproval')")
+    && str_contains($svc, "approvalPolicyResolve("));
+$a('mpList defaults acks_required to 1 when no policy matches',
+    (bool) preg_match("/\\\$r\\['acks_required'\\]\\s*=\\s*1;/", $svc));
+$a('UI renders InlineApprovalBadge on PendingApproval rows',
+    str_contains($ui, "p.state === 'PendingApproval' && p.acks_required > 0")
+    && str_contains($ui, '<InlineApprovalBadge'));
+$a('InlineApprovalBadge exposes testid + data attrs for regression',
+    str_contains($ui, 'data-testid={`mercury-payment-approval-inline-${paymentId}`}')
+    && str_contains($ui, "data-collected={String(collected)}")
+    && str_contains($ui, "data-required={String(required)}"));
+$a('InlineApprovalBadge flips to "ready" tone when collected >= required',
+    str_contains($ui, 'const complete = collected >= required;')
+    && str_contains($ui, "complete ? 'ready' : 'acks'"));
+
 echo "\n7. PHP syntax\n";
 foreach ([
     '/app/core/mercury_payments.php',

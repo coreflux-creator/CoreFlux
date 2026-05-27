@@ -193,6 +193,13 @@ export default function MercuryPayments() {
                     >
                       {p.state}
                     </span>
+                    {p.state === 'PendingApproval' && p.acks_required > 0 && (
+                      <InlineApprovalBadge
+                        paymentId={p.id}
+                        collected={p.acks_collected || 0}
+                        required={p.acks_required}
+                      />
+                    )}
                   </td>
                   <td>{p.recipient_name || `#${p.recipient_id}`}</td>
                   <td style={{ textAlign: 'right', fontFamily: 'var(--cf-mono, ui-monospace)' }}>
@@ -524,6 +531,38 @@ function legTone(status) {
   if (['queued'].includes(s))                         return { bg: '#f1f5f9', fg: '#475569' };
   if (['failed', 'returned', 'cancelled'].includes(s))return { bg: '#fee2e2', fg: '#991b1b' };
   return { bg: '#e5e7eb', fg: '#374151' };
+}
+
+/**
+ * InlineApprovalBadge — compact "N / M approvals" indicator rendered
+ * directly under the state pill for PendingApproval rows. Lets the
+ * operator see the dual-leg approval chain progress at a glance from
+ * the list view, without opening the detail modal. The numbers come
+ * from the list endpoint (mpList) which already attaches acks_collected
+ * and acks_required.
+ */
+function InlineApprovalBadge({ paymentId, collected, required }) {
+  const complete = collected >= required;
+  const tone = complete
+    ? { bg: '#d1fae5', fg: '#065f46', ring: '#16a34a' }
+    : { bg: '#ede9fe', fg: '#6d28d9', ring: '#7c3aed' };
+  return (
+    <div
+      data-testid={`mercury-payment-approval-inline-${paymentId}`}
+      data-collected={String(collected)}
+      data-required={String(required)}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        marginTop: 4, padding: '1px 6px', borderRadius: 8,
+        background: tone.bg, color: tone.fg, border: `1px solid ${tone.ring}33`,
+        fontSize: 10, fontWeight: 600, letterSpacing: 0.2,
+      }}
+      title={`${collected} of ${required} approvals collected`}
+    >
+      <span>{collected}/{required}</span>
+      <span style={{ opacity: 0.75 }}>{complete ? 'ready' : 'acks'}</span>
+    </div>
+  );
 }
 
 const fieldLabel = { display: 'block', marginBottom: 8, fontSize: 12, color: 'var(--cf-text-secondary)' };

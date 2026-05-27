@@ -9526,3 +9526,41 @@ separate REST calls per destination account.
 - MODIFIED: `/app/modules/treasury/ui/MercuryPayments.jsx`
 - NEW: `/app/scripts/sweep_destination_setup.php`
 - NEW: `/app/tests/dual_leg_ui_and_sweep_cli_smoke.php`
+
+---
+
+## 2026-02 P0 Wrap — Inline Approval Progress Badge
+
+### Context
+Resumed handoff item: the `ApprovalProgressPanel` was inserted into the
+detail modal but the table list view still had no signal of dual-leg
+approval progress. Operators were forced to open the modal per row to
+see how many co-approvers had ack'd. This MVP pass closes that gap.
+
+### Backend — `mpList()` (`/app/core/mercury_payments.php`)
+- Added correlated subquery to SELECT `acks_collected` per row.
+- For rows in `PendingApproval`, calls `approvalPolicyResolve(...)` to
+  compute `acks_required` (bounded by mpList's 200-row cap).
+- Defaults `acks_required` to 1 when no policy matches (single-approver
+  fallback). Resolver failures swallowed — list never 500s.
+
+### Frontend — `MercuryPayments.jsx`
+- New `<InlineApprovalBadge>` component renders directly under the
+  State pill when `state === 'PendingApproval'`.
+- Shows `N/M` ratio + word ("acks" or "ready" when complete).
+- Tone flips green when collected ≥ required.
+- Carries `data-testid="mercury-payment-approval-inline-{id}"` plus
+  `data-collected` / `data-required` for e2e regression.
+
+### Tests
+- Extended `/app/tests/mercury_dual_leg_approval_smoke.php` with a
+  new section 6b — 6 assertions covering the SQL, policy resolution,
+  fallback, JSX wiring, testid surface, and tone transition.
+- Full PHP CLI suite: **305/305 ✅** (no regressions).
+- Vite bundle rebuilt + `sync_bundle.sh` ran successfully:
+  - `index-CBhShLTj.js` / `index-BC5g6YJu.css`
+
+### Files touched
+- MODIFIED: `/app/core/mercury_payments.php` (mpList)
+- MODIFIED: `/app/modules/treasury/ui/MercuryPayments.jsx`
+- MODIFIED: `/app/tests/mercury_dual_leg_approval_smoke.php`
