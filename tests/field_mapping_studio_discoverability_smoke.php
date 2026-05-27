@@ -99,9 +99,9 @@ $a('PATH_GROUPS declares the JobDiva enrichment buckets',
     && str_contains($fms, "'_jd_contact'")
     && str_contains($fms, "'_jd_start'"));
 $a('groupPathsByNamespace helper exists',
-    str_contains($fms, 'function groupPathsByNamespace(paths)'));
+    str_contains($fms, 'function groupPathsByNamespace(paths'));
 $a('groupedPaths memo derives groups from filteredPaths',
-    str_contains($fms, 'const groupedPaths = useMemo(() => groupPathsByNamespace(filteredPaths)'));
+    str_contains($fms, 'const groupedPaths = useMemo(() => groupPathsByNamespace(filteredPaths'));
 $a('grouped UI surface rendered with data-testid="fms-paths-grouped"',
     str_contains($fms, 'data-testid="fms-paths-grouped"'));
 $a('per-group toggle button has stable testid',

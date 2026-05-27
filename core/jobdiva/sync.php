@@ -27,6 +27,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
+require_once __DIR__ . '/../integrations/payload_field_index.php';
 require_once __DIR__ . '/../../modules/people/lib/companies.php';
 
 /**
@@ -935,6 +936,19 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
             $internalId = jobdivaSyncUpsertPlacement($tid, $personId, $endClientCompanyId, $jd, $extId);
             mappingUpsert($tid, 'jobdiva', 'placement', $extId, $internalId, $jd, 'pull', $userId);
 
+            // Side-effect: index every joined sub-record (_jd_candidate,
+            // _jd_job, _jd_customer, _jd_contact, _jd_start) under its OWN
+            // entity_type so the Field Mapping Studio offers paths for
+            // person / job / jobdiva_customer / contact / assignment after
+            // any placement sync. Without this the picker only shows
+            // "placement.*" paths; with this it shows real domain entity
+            // pickers with sample values populated.
+            try {
+                jobdivaIndexJoinedSubPayloads($tid, $jd);
+            } catch (\Throwable $e) {
+                error_log('[jobdiva placement sync] index sub-payloads failed: ' . $e->getMessage());
+            }
+
             // Phase 2 — apply ALL enabled tenant mappings against the
             // enriched payload. Tenant mappings ALWAYS win over the
             // hardcoded sync defaults above (decision (d) from the
@@ -949,6 +963,42 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
                     'person'                 => $personId ?? 0,
                     'end_client_company'     => $endClientCompanyId ?? 0,
                 ]);
+
+                // Also apply mappings stored UNDER the joined entity
+                // types (person/job/jobdiva_customer/contact/assignment),
+                // treating each enriched sub-record as the source
+                // payload. This is how the Field Mapping Studio's
+                // entity-type dropdown becomes useful: an operator can
+                // pick entity_type='person', map `firstName → people.first_name`,
+                // and the placement sync will honour it because the
+                // _jd_candidate sub-record is the active payload.
+                static $JOINED_APPLY = [
+                    ['_jd_candidate', 'person',            'person',             ['person']],
+                    ['_jd_job',       'job',               'self',               []],
+                    ['_jd_customer',  'jobdiva_customer',  'end_client_company', ['end_client_company']],
+                    ['_jd_contact',   'contact',           'self',               []],
+                    ['_jd_start',     'assignment',        'self',               []],
+                ];
+                foreach ($JOINED_APPLY as [$subKey, $joinedEntity, $selfSlug, $extraSlugs]) {
+                    if (empty($jd[$subKey]) || !is_array($jd[$subKey])) continue;
+                    $ctx = [
+                        'self'               => $selfSlug === 'person'             ? ($personId ?? 0)
+                                              : ($selfSlug === 'end_client_company' ? ($endClientCompanyId ?? 0)
+                                              : $internalId),
+                        'person'             => $personId ?? 0,
+                        'end_client_company' => $endClientCompanyId ?? 0,
+                        // Placement context still reachable via these
+                        // for joined-entity mappings that want to write
+                        // back onto the placement row itself.
+                        'placement_rates'        => $internalId,
+                        'placement_corp_details' => $internalId,
+                    ];
+                    try {
+                        integrationFieldMapApplyAll($tid, 'jobdiva', $joinedEntity, $jd[$subKey], $ctx);
+                    } catch (\Throwable $e) {
+                        error_log('[jobdiva placement sync] joined applyAll ' . $joinedEntity . ' failed: ' . $e->getMessage());
+                    }
+                }
             } catch (\Throwable $e) {
                 error_log('[jobdiva placement sync] applyAll failed: ' . $e->getMessage());
             }
@@ -1163,6 +1213,57 @@ function jobdivaSyncResolveJobTitles(int $tid, array $items, ?int $userId): arra
 {
     return jobdivaSyncEnrichRelatedEntities($tid, $items, $userId, []);
 }
+
+/**
+ * Index every joined sub-record (_jd_candidate, _jd_job, _jd_customer,
+ * _jd_contact, _jd_start) of an enriched placement payload UNDER ITS
+ * OWN entity_type, so the Field Mapping Studio surfaces paths for
+ * `person`, `job`, `jobdiva_customer`, `contact`, `assignment` even
+ * without separate top-level JobDiva endpoints for those entities.
+ *
+ * Why this exists: JobDiva's V2 BI only ships
+ * NewUpdatedCompanyRecords / NewUpdatedContactRecords / NewUpdated
+ * TimesheetRecords + searchStart. There's no NewUpdatedJobRecords or
+ * NewUpdatedCandidateRecords delta feed. But every placement we pull
+ * is enriched with the full Job, Candidate, Customer, Contact, and
+ * Start detail. By indexing each of those sub-records under its own
+ * entity_type, the picker shows real, sample-rich paths for every
+ * domain entity the operator might want to map — without needing a
+ * separate sync driver per entity.
+ *
+ * Side-effect only — never throws. Failures are logged + swallowed
+ * because the indexer is best-effort.
+ *
+ * Map sub-record → entity_type:
+ *   _jd_candidate → 'person'
+ *   _jd_job       → 'job'
+ *   _jd_customer  → 'jobdiva_customer'
+ *   _jd_contact   → 'contact'
+ *   _jd_start     → 'assignment'
+ */
+function jobdivaIndexJoinedSubPayloads(int $tenantId, array $enrichedPayload): void
+{
+    if ($tenantId <= 0) return;
+    static $SUB_RECORD_TYPES = [
+        '_jd_candidate' => 'person',
+        '_jd_job'       => 'job',
+        '_jd_customer'  => 'jobdiva_customer',
+        '_jd_contact'   => 'contact',
+        '_jd_start'     => 'assignment',
+    ];
+    foreach ($SUB_RECORD_TYPES as $key => $entityType) {
+        if (!isset($enrichedPayload[$key]) || !is_array($enrichedPayload[$key])) continue;
+        $sub = $enrichedPayload[$key];
+        if (empty($sub)) continue;
+        try {
+            integrationPayloadFieldIndexRecord($tenantId, 'jobdiva', $entityType, $sub);
+        } catch (\Throwable $e) {
+            error_log('[jobdivaIndexJoinedSubPayloads] ' . $entityType . ' index failed: ' . $e->getMessage());
+        }
+    }
+}
+
+
 
 function jobdivaResolveOrAutoCreateEndClient(
     int $tid,

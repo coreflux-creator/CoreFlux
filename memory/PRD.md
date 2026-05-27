@@ -10330,3 +10330,87 @@ and custom mapping capability."
 4. Right pane: pick the destination column. Save. Next sync
    honours the mapping.
 
+
+---
+
+## 2026-02 — JobDiva: joined-entity indexing + per-entity field mapping apply
+
+### Why
+Operator: "there are no available fields anywhere except placements,
+even after sync. it's still not doing what it needs to. get all jobs,
+assignments, people, EVERYTHING. link person to job, client,
+assignment etc."
+
+Root cause: JobDiva's V2 BI feed only ships
+NewUpdatedCompanyRecords / NewUpdatedContactRecords / NewUpdated
+TimesheetRecords + searchStart. There is no NewUpdatedJobRecords or
+NewUpdatedCandidateRecords. Every placement IS enriched server-side
+with `_jd_candidate` (Person), `_jd_job` (Job), `_jd_customer`
+(End-client), `_jd_contact` (Hiring contact), `_jd_start` (Assignment
+detail) sub-records — but those sub-records were never indexed under
+their own entity_type, so the Studio's entity-type dropdown was empty
+for anything outside `placement`. And even if an operator manually
+created a mapping under entity_type='person', the apply step only
+fired with entity_type='placement', so the mapping never wrote.
+
+### What shipped
+- **`jobdivaIndexJoinedSubPayloads()`** in `core/jobdiva/sync.php` —
+  side-effect helper invoked after every successful placement
+  `mappingUpsert`. Routes each joined sub-record to its own
+  entity_type for indexing:
+  - `_jd_candidate` → `person`
+  - `_jd_job`       → `job`
+  - `_jd_customer`  → `jobdiva_customer`
+  - `_jd_contact`   → `contact`
+  - `_jd_start`     → `assignment`
+  Best-effort; failures logged + swallowed.
+- **Per-joined-entity `integrationFieldMapApplyAll()` fan-out** in the
+  placement sync — after the placement-level apply, the sync also
+  iterates a `JOINED_APPLY` table and fires applyAll once per joined
+  entity with the matching sub-record as the source payload and the
+  right linked_entity context (person → person, customer → end-client
+  company, etc.). Mappings stored under `entity_type=person` now
+  actually write on every placement pull.
+- **FieldMappingStudio**:
+  - `groupPathsByNamespace()` now takes `entityType` so the root
+    bucket label adapts: `placement` → "Placement fields", `person`
+    → "Person fields (root of candidate record)", `job` → "Job
+    fields", `jobdiva_customer` → "End-client fields", `contact` →
+    "Contact fields", `assignment` → "Assignment fields", etc.
+  - **New explainer banner** (`fms-paths-explainer-joined`,
+    `data-entity={entityType}`) appears when the operator picks a
+    joined entity type, telling them the source is indexed from the
+    Placement sync and that their mappings apply on every placement
+    pull.
+
+### Tests
+- NEW `/app/tests/jobdiva_joined_entity_indexing_smoke.php` (22 ✓).
+- Extended `field_mapping_studio_discoverability_smoke.php` (38 ✓).
+- Full suite: **316/319** stable (3 are documented pre-existing
+  infra failures — DB connection in `accounting_phase2_a7`, curl
+  extension in `ai_platform`, Plaid keys in `plaid_integration`).
+
+### Files touched
+- MODIFIED: `core/jobdiva/sync.php`
+- MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx`
+- MODIFIED: `tests/field_mapping_studio_discoverability_smoke.php`
+- NEW:      `tests/jobdiva_joined_entity_indexing_smoke.php`
+- Vite bundle: `index-DlDURd5-.js` / `index-BC5g6YJu.css` synced.
+
+### How the workflow looks now
+1. **One JobDiva placement sync** populates the indexer for SIX
+   entity types: placement, person, job, jobdiva_customer, contact,
+   assignment.
+2. Open the **Field Mapping Studio**. The entity-type dropdown is
+   data-driven — every entity type with indexed paths shows
+   `(N indexed paths)` so the operator picks the richest source.
+3. Pick e.g. **entity_type=person**. Left pane shows the 👤 Person
+   root group with real candidate fields — `firstName`, `lastName`,
+   `email`, `phone`, `address`, etc. — with sample values.
+4. Map `firstName → people.first_name`, `lastName → people.last_name`,
+   etc. Save. Repeat for `job` (→ placements.title), `assignment`
+   (→ placement_rates.bill_rate), `jobdiva_customer` (→ companies.name
+   on end-client), `contact` (→ ap_vendors.remit_email).
+5. On the next placement pull, every mapping fires — placement-level
+   + all five joined-entity-level — with the right context.
+

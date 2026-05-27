@@ -52,19 +52,34 @@ const PATH_GROUPS = [
   { key: '_jd_start',     label: 'Start / Assignment detail', icon: '📋', linked: 'self',               defaultOpen: true },
 ];
 
-function groupPathsByNamespace(paths) {
+function groupPathsByNamespace(paths, entityType = 'placement') {
   const groups = new Map();
+  // Friendly root-bucket label per entity_type so the UI doesn't say
+  // "Placement fields" when the operator is actually mapping a Person
+  // / Job / Customer / Contact / Assignment sub-record.
+  const ROOT_LABELS = {
+    placement:         { label: 'Placement fields (root record)',         icon: '📄' },
+    person:            { label: 'Person fields (root of candidate record)', icon: '👤' },
+    job:               { label: 'Job fields (root of job record)',        icon: '💼' },
+    jobdiva_customer:  { label: 'End-client fields (root of customer record)', icon: '🏢' },
+    contact:           { label: 'Contact fields (root of contact record)', icon: '☎️' },
+    assignment:        { label: 'Assignment fields (root of start record)', icon: '📋' },
+    company:           { label: 'Company fields (root record)',           icon: '🏢' },
+    time_entry:        { label: 'Time entry fields (root record)',        icon: '⏱️' },
+  };
+  const rootMeta = ROOT_LABELS[entityType] || { label: 'Top-level fields', icon: '📄' };
+
   // Always-initialise known buckets so the UI is stable even when a
   // sub-record hasn't been indexed yet.
   for (const g of PATH_GROUPS) {
     groups.set(g.key, { meta: g, rows: [] });
   }
   groups.set('__root__', {
-    meta: { key: '__root__', label: 'Placement fields (root record)', icon: '📄', linked: 'self', defaultOpen: true },
+    meta: { key: '__root__', label: rootMeta.label, icon: rootMeta.icon, linked: 'self', defaultOpen: true },
     rows: [],
   });
   groups.set('__other__', {
-    meta: { key: '__other__', label: 'Other', icon: '…', linked: 'self', defaultOpen: false },
+    meta: { key: '__other__', label: 'Other / internal', icon: '…', linked: 'self', defaultOpen: false },
     rows: [],
   });
 
@@ -155,7 +170,7 @@ export default function FieldMappingStudio() {
   // "Placement → Person → Job → End-client → Contact → Start" instead of
   // a 200-row flat list. When the operator types into the filter, groups
   // that have no surviving rows are dropped.
-  const groupedPaths = useMemo(() => groupPathsByNamespace(filteredPaths), [filteredPaths]);
+  const groupedPaths = useMemo(() => groupPathsByNamespace(filteredPaths, entityType), [filteredPaths, entityType]);
 
   // Default group-open state — only set once per integration/entity load
   // so collapsing remains sticky as the operator filters.
@@ -368,9 +383,10 @@ export default function FieldMappingStudio() {
           )}
           {!loading && filteredPaths.length > 0 && (
             <div data-testid="fms-paths-grouped" style={{ ...scrollList, padding: 0 }}>
-              {/* Helpful preamble so operators understand WHY paths come from
-                  joined entities like _jd_candidate (Person), _jd_job (Job),
-                  _jd_customer (End-client), _jd_start (Assignment). */}
+              {/* Helpful preamble — adapts per entity type so operators
+                  understand the source. Placement shows joined-entity
+                  groups; the joined entity types themselves explain
+                  that they're indexed FROM the placement sync. */}
               {integration === 'jobdiva' && entityType === 'placement' && (
                 <div data-testid="fms-paths-explainer"
                      style={{ fontSize: 11, color: '#475569', background: '#f8fafc',
@@ -379,6 +395,17 @@ export default function FieldMappingStudio() {
                   Person, Job, End-client and Assignment detail. Pick any field from any group
                   below — set <em>linked_entity</em> in the save bar to route it to the right
                   CoreFlux row.
+                </div>
+              )}
+              {integration === 'jobdiva' && ['person', 'job', 'jobdiva_customer', 'contact', 'assignment'].includes(entityType) && (
+                <div data-testid="fms-paths-explainer-joined"
+                     data-entity={entityType}
+                     style={{ fontSize: 11, color: '#475569', background: '#fefce8',
+                              padding: '6px 10px', borderBottom: '1px solid #fde68a' }}>
+                  Source paths here come from the <strong>{entityType.replace('_', ' ')}</strong>{' '}
+                  sub-record indexed during each Placement sync. Map them to any CoreFlux column
+                  on the right — mappings stored under this entity_type are applied on every
+                  placement pull using the joined sub-record as the source.
                 </div>
               )}
               {groupedPaths.map(grp => {
