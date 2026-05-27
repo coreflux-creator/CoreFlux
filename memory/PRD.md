@@ -9564,3 +9564,74 @@ see how many co-approvers had ack'd. This MVP pass closes that gap.
 - MODIFIED: `/app/core/mercury_payments.php` (mpList)
 - MODIFIED: `/app/modules/treasury/ui/MercuryPayments.jsx`
 - MODIFIED: `/app/tests/mercury_dual_leg_approval_smoke.php`
+
+---
+
+## 2026-02 Spec Re-Audit Decisions Locked
+
+User responded to the spec re-audit on 2026-02 with the following
+priority decisions. These supersede / amend prior PRD entries where
+they conflict. Full decision log in `/app/memory/HARD_RULES.md`.
+
+### New priority sequence (after current P0 wrap)
+
+**🔴 P0 — URGENT (do next):**
+1. **Gusto integration** — Make the Gusto adapter live + e2e tested
+   (connect / preview / submit / sync). Currently scaffold-only,
+   no smoke coverage.
+2. **QuickBooks Online integration** — Verify full QBO MVP is wired
+   (Slices 1–5 marked done in PRD, but smoke-coverage thin).
+   Add health checks + missing flows.
+
+**🟡 P1 — Next:**
+3. **Treasury Sweep Destination UI + in-app Divergence Alerts.**
+   - Build admin UI for sweep destination CRUD (CLI exists; users
+     also want browser flow).
+   - In-app alert surface (not just email/log) when sweep diverges.
+4. **Mercury Webhooks Integration** (carry-over).
+5. **AP 4-way match** for "paid when paid" terms:
+   - Add `paid_when_paid` flag at placement level.
+   - When set, vendor bill release is gated by: matching AR invoice
+     for the same time bundle must be `paid` before AP bill can post
+     for payment.
+   - Wires time bundle → AR invoice → AR payment → AP bill → AP payment.
+6. **AP 3-way match: HARD (not soft warn).**
+   - Bills failing match cannot be posted/paid without explicit
+     override + mandatory reason. Override audit-logged.
+7. **Multi-level approval chain: actually fire** (not stored-only).
+   - Rules evaluate by `level`; each level gates the next.
+   - Service-layer enforcement, not just UI.
+8. **Accounting close packets wired** to the close workflow:
+   - Tasks have owners + due dates.
+   - Open tasks block period close.
+   - Audit visibility into who owns what.
+9. **Time module grace period** for bundle corrections:
+   - Reverses earlier "no grace period" rule per user.
+   - Tenant-configurable window (default suggested 7 days).
+   - Within window: correction supersedes prior bundle accrual;
+     reversing JEs auto-posted; downstream re-derivation cascades.
+10. **Consolidation: equity method + proportionate + CTA.**
+    - Equity method: investor records share of investee profit/loss.
+    - Proportionate: line-by-line proportional pickup.
+    - CTA: cumulative translation adjustment posting on FX rate change.
+11. **Reports overhaul** — visual, sharp, responsive, drill-down
+    on every metric. Current 5 reports get UX/IA pass before adding
+    new ones.
+
+**🟢 P2 — Backlog (deferred):**
+- Customer portal view (was Phase A; backlogged per user).
+- CFO Dashboard role/access gating.
+- Engagements module.
+- AI Digest Scheduler (Sunday Weekly Memo cron).
+- External Auditor tokenized URL view.
+- Resend mailer wire-up (still mocked).
+- CSV importers for Treasury + Payroll entities.
+- Live Financial State Cache verification.
+- Event Registry (Phase 1.a) verification.
+- Naming drift cleanup (`multi_period_je_split_enabled` etc.).
+
+### Sequencing rule (re-confirmed by user)
+> "One at a time we need to get each item, each feature, everything
+>  to MVP status for testing."
+
+Each item: build → smoke → demo curl/screenshot → ✅ → PRD update → next.
