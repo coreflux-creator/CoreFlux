@@ -19,6 +19,45 @@ const TIME_NONBILLABLE_CATS = ['regular_nonbillable','OT_nonbillable'];
 const TIME_PTO_CATS         = ['holiday','vacation','sick','bereavement'];
 const TIME_UNPAID_CATS      = ['unpaid_leave'];
 
+/**
+ * Resolve the tenant's bundle-correction grace window in days.
+ * Spec re-audit reversal: post-consume bundle supersession is
+ * allowed within this window. Beyond the window, supersession
+ * SKIPS (does not silently overwrite) and emits an audit event so
+ * operators can run an explicit override path.
+ */
+function timeBundleCorrectionGraceDays(?int $tid = null): int {
+    static $cache = [];
+    $tid = $tid ?? currentTenantId();
+    if (isset($cache[$tid])) return $cache[$tid];
+    try {
+        $pdo = getDB();
+        $st  = $pdo->prepare('SELECT time_bundle_correction_grace_days FROM tenants WHERE id = :t LIMIT 1');
+        $st->execute(['t' => $tid]);
+        $days = (int) ($st->fetchColumn() ?: 7);
+    } catch (\Throwable $e) {
+        $days = 7;
+    }
+    return $cache[$tid] = ($days > 0 ? $days : 7);
+}
+
+/**
+ * True when a consumed bundle's `consumed_at` timestamp is still
+ * within the grace window. Null timestamp = treat as within (never
+ * actually consumed). Caller decides what to do when out-of-window.
+ */
+function timeBundleWithinGrace(?string $consumedAt, int $graceDays): bool {
+    if ($consumedAt === null || $consumedAt === '' || $consumedAt === '0000-00-00 00:00:00') return true;
+    try {
+        $ts = strtotime($consumedAt);
+        if ($ts === false) return true;
+        $age = (time() - $ts) / 86400.0;
+        return $age <= $graceDays;
+    } catch (\Throwable $e) {
+        return true;
+    }
+}
+
 function timeEntryGet(int $id): ?array
 {
     return scopedFind(
@@ -149,11 +188,30 @@ function timeBuildBundlesForPeriod(int $periodId): array
 
             // Find existing bundle
             $existing = scopedFind(
-                'SELECT id, status FROM time_downstream_feed
+                'SELECT id, status, consumed_at FROM time_downstream_feed
                  WHERE tenant_id = :tenant_id AND period_id = :pid AND placement_id = :plid AND bundle_type = :bt',
                 ['pid' => $periodId, 'plid' => $placementId, 'bt' => $bundleType]
             );
             if ($existing && $existing['status'] === 'consumed') {
+                // P1.9 — Bundle-correction grace window. Spec re-audit
+                // reversed the earlier "no grace period on consumed
+                // bundles" rule. Within window: supersede as before.
+                // Beyond window: SKIP and audit so an operator can run
+                // the explicit override flow (admin endpoint, not
+                // automatic) instead of accruing a silent overwrite
+                // past the close-window.
+                $graceDays = timeBundleCorrectionGraceDays();
+                if (!timeBundleWithinGrace($existing['consumed_at'] ?? null, $graceDays)) {
+                    timeAudit('time.bundle.grace_exceeded_skipped', [
+                        'period_id'    => $periodId,
+                        'placement_id' => $placementId,
+                        'bundle_type'  => $bundleType,
+                        'prior_bundle_id' => (int) $existing['id'],
+                        'consumed_at'  => $existing['consumed_at'] ?? null,
+                        'grace_days'   => $graceDays,
+                    ], (int) $existing['id']);
+                    continue;
+                }
                 // Consumed bundles are immutable — produce a superseded-status row alongside.
                 $stmt = $pdo->prepare(
                     'UPDATE time_downstream_feed SET status = "superseded"

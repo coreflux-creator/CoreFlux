@@ -117,12 +117,15 @@ function apRouteBillForApproval(int $tenantId, array $bill, ?int $actorUserId = 
     }
 
     // Insert approval rows for step 1.
+    // P1.7 — explicitly set step_no=1 so the chain advancement logic in
+    // bill_approvals.php can read the canonical step number when
+    // deciding whether to materialise the next step.
     $step1 = $eval['chain'][0];
     $apIds = [];
     $insertSql = $pdo->prepare(
         "INSERT INTO ap_bill_approvals
-          (tenant_id, bill_id, approver_user_id, state, created_at)
-         VALUES (:t, :b, :u, 'pending', NOW())"
+          (tenant_id, bill_id, approver_user_id, step_no, state, created_at)
+         VALUES (:t, :b, :u, 1, 'pending', NOW())"
     );
     foreach ($step1['approver_user_ids'] as $uid) {
         try {

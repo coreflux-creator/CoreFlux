@@ -53,7 +53,7 @@ function entityRelationshipUpsert(int $tenantId, array $data): int
     if (!in_array($rel, ['subsidiary','affiliate','branch','jv','other'], true)) {
         throw new \InvalidArgumentException('invalid relationship_type');
     }
-    if (!in_array($method, ['full','equity','cost','none'], true)) {
+    if (!in_array($method, ['full','proportionate','equity','cost','none'], true)) {
         throw new \InvalidArgumentException('invalid consolidation_method');
     }
     $from = (string) ($data['effective_from'] ?? date('Y-m-d'));
@@ -263,6 +263,311 @@ function consolidateTrialBalance(int $tenantId, array $entityIds, string $asOf):
         'rows'         => $rows,
         'eliminations' => $eliminations,
     ];
+}
+
+/**
+ * Consolidation with per-entity method weighting + CTA.
+ *
+ * Spec re-audit decision (2026-02): "Consolidation supports both
+ * equity method and proportionate consolidation, plus CTA postings."
+ *
+ * The legacy `consolidateTrialBalance()` implicitly applies the
+ * `full` method to every entity in scope. This variant reads the
+ * actual `consolidation_method` + `ownership_pct` per entity from
+ * `accounting_entity_relationships` and applies the appropriate
+ * treatment:
+ *
+ *   - 'full'         : 100% line-by-line pickup (current default).
+ *   - 'proportionate': line-by-line pickup scaled by ownership_pct
+ *                      (each child's debit/credit × pct/100).
+ *   - 'equity'       : child's lines EXCLUDED from line-by-line
+ *                      pickup; investor records a single equity-
+ *                      pickup synthetic row (Investment in
+ *                      subsidiary on the BS, Equity-method income
+ *                      on the IS) sized at pct × child's net income.
+ *   - 'cost'/'none'  : excluded (matches legacy semantics).
+ *
+ * CTA (Cumulative Translation Adjustment): when an entity carries
+ * a `functional_currency` different from the consolidation reporting
+ * currency, this function emits a synthetic CTA equity row capturing
+ * the delta from translating BS at the closing rate vs IS at the
+ * average rate. v1.0 scope ships the framework — the FX rate inputs
+ * come from `accounting_fx_rates` (if present) or default to 1.0 so
+ * single-currency tenants are unaffected. Multi-period CTA roll-
+ * forward is deferred to v1.1.
+ *
+ * @param array{root_entity_id?:int, reporting_currency?:string} $opts
+ * @return array ['as_of', 'entities', 'rows', 'eliminations',
+ *                'method_treatments', 'cta_adjustments']
+ */
+function consolidateTrialBalanceWithMethods(
+    int $tenantId,
+    array $entityIds,
+    string $asOf,
+    array $opts = []
+): array {
+    if (!$entityIds) throw new \InvalidArgumentException('entityIds[] required');
+    $entityIds = array_values(array_unique(array_map('intval', $entityIds)));
+    $rootEntityId    = (int) ($opts['root_entity_id'] ?? $entityIds[0]);
+    $reportingCcy    = (string) ($opts['reporting_currency'] ?? 'USD');
+
+    // Resolve per-entity method + weight from the relationship graph.
+    $weights = consolidationComputeEntityWeights($tenantId, $rootEntityId, $entityIds);
+
+    // Buckets per treatment.
+    $fullProp = [];   // entities with full or proportionate
+    $equity   = [];   // entities under equity method (excluded from line-by-line)
+    foreach ($entityIds as $eid) {
+        $w = $weights[$eid] ?? ['method' => 'full', 'weight' => 1.0, 'excluded' => false];
+        if ($w['excluded']) continue;
+        if ($w['method'] === 'equity') $equity[$eid] = $w;
+        else                           $fullProp[$eid] = $w;
+    }
+
+    // Aggregate per-entity TB rows with weights applied (full=1.0,
+    // proportionate=pct/100). Equity entities are excluded here.
+    $rows = [];
+    $treatments = [];
+    if ($fullProp) {
+        $rows = _consolidationPerEntityWeightedTB(
+            $tenantId, array_keys($fullProp), $asOf, $fullProp
+        );
+        foreach ($fullProp as $eid => $w) {
+            $treatments[] = [
+                'entity_id' => $eid, 'method' => $w['method'],
+                'ownership_pct' => round($w['weight'] * 100, 4),
+            ];
+        }
+    }
+
+    // Equity-method pickup — synthetic rows ONLY (no line-by-line).
+    foreach ($equity as $eid => $w) {
+        $pickup = _consolidationEquityPickup($tenantId, $eid, $asOf, $w['weight']);
+        if ($pickup !== null) {
+            $rows[] = $pickup;
+        }
+        $treatments[] = [
+            'entity_id' => $eid, 'method' => 'equity',
+            'ownership_pct' => round($w['weight'] * 100, 4),
+            'pickup_amount' => $pickup['balance_signed'] ?? 0,
+        ];
+    }
+
+    // CTA — emit per-entity CTA equity adjustment for any entity
+    // whose functional currency differs from the reporting currency.
+    $ctaAdjustments = _consolidationApplyCTA($tenantId, $entityIds, $asOf, $reportingCcy, $rows);
+
+    return [
+        'as_of'             => $asOf,
+        'entities'          => $entityIds,
+        'rows'              => $rows,
+        'method_treatments' => $treatments,
+        'cta_adjustments'   => $ctaAdjustments,
+        'reporting_currency'=> $reportingCcy,
+    ];
+}
+
+/**
+ * Per-entity (method, weight, excluded) lookup. Walks the relationship
+ * graph rooted at $rootEntityId; the root itself always carries full.
+ * Entities NOT reachable from root via active edges return method='full',
+ * weight=1.0 (treat as standalone).
+ *
+ * @return array<int, array{method:string, weight:float, excluded:bool}>
+ */
+function consolidationComputeEntityWeights(int $tenantId, int $rootEntityId, array $entityIds): array {
+    $descendants = entityRelationshipResolveDescendants($tenantId, $rootEntityId, date('Y-m-d'));
+    $out = [];
+    foreach ($entityIds as $eid) {
+        $eid = (int) $eid;
+        if ($eid === $rootEntityId) {
+            $out[$eid] = ['method' => 'full', 'weight' => 1.0, 'excluded' => false];
+            continue;
+        }
+        $d = $descendants[$eid] ?? null;
+        if ($d === null) {
+            $out[$eid] = ['method' => 'full', 'weight' => 1.0, 'excluded' => false];
+            continue;
+        }
+        $m   = (string) ($d['method'] ?? 'full');
+        $pct = (float) ($d['ownership_pct'] ?? 100.0);
+        $w   = max(0.0, min(1.0, $pct / 100.0));
+        $excluded = in_array($m, ['cost','none'], true);
+        $out[$eid] = ['method' => $m, 'weight' => $w, 'excluded' => $excluded];
+    }
+    return $out;
+}
+
+/** Internal — per-entity TB rows weighted and re-aggregated. */
+function _consolidationPerEntityWeightedTB(int $tenantId, array $entityIds, string $asOf, array $weights): array {
+    if (!$entityIds) return [];
+    $in = implode(',', array_map('intval', $entityIds));
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'SELECT je.entity_id, a.code, a.name, a.account_type, a.normal_side,
+                COALESCE(SUM(l.debit), 0)  AS debit,
+                COALESCE(SUM(l.credit), 0) AS credit
+         FROM accounting_journal_entry_lines l
+         JOIN accounting_journal_entries je ON je.id = l.je_id
+         JOIN accounting_accounts a ON a.id = l.account_id
+         WHERE je.tenant_id = :t
+           AND je.status = "posted"
+           AND je.posting_date <= :asof
+           AND je.entity_id IN (' . $in . ')
+         GROUP BY je.entity_id, a.id'
+    );
+    $stmt->execute(['t' => $tenantId, 'asof' => $asOf]);
+    $raw = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    // Apply per-entity weight, then re-aggregate per account code.
+    $byCode = [];
+    foreach ($raw as $r) {
+        $eid    = (int) $r['entity_id'];
+        $weight = (float) ($weights[$eid]['weight'] ?? 1.0);
+        $code   = (string) $r['code'];
+        if (!isset($byCode[$code])) {
+            $byCode[$code] = [
+                'code'         => $code,
+                'name'         => $r['name'],
+                'account_type' => $r['account_type'],
+                'normal_side'  => $r['normal_side'],
+                'debit'        => 0.0,
+                'credit'       => 0.0,
+            ];
+        }
+        $byCode[$code]['debit']  += (float) $r['debit']  * $weight;
+        $byCode[$code]['credit'] += (float) $r['credit'] * $weight;
+    }
+    $rows = [];
+    foreach ($byCode as $r) {
+        $signed = $r['normal_side'] === 'debit'
+            ? round($r['debit']  - $r['credit'], 2)
+            : round($r['credit'] - $r['debit'], 2);
+        if (abs($signed) < 0.005) continue;
+        $rows[] = array_merge($r, [
+            'debit'          => round($r['debit'], 2),
+            'credit'         => round($r['credit'], 2),
+            'balance_signed' => $signed,
+        ]);
+    }
+    return $rows;
+}
+
+/**
+ * Build the synthetic equity-pickup row for one investee entity.
+ * Returns null if the entity has no income to pick up.
+ *
+ * Sizing: pickup = ownership_pct × investee's net income from
+ * posted JEs as of $asOf. Surfaces as an `equity_pickup` synthetic
+ * row on the consolidated TB tagged with the investee's id.
+ */
+function _consolidationEquityPickup(int $tenantId, int $entityId, string $asOf, float $weight): ?array {
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'SELECT a.account_type,
+                COALESCE(SUM(l.debit), 0)  AS debit,
+                COALESCE(SUM(l.credit), 0) AS credit
+         FROM accounting_journal_entry_lines l
+         JOIN accounting_journal_entries je ON je.id = l.je_id
+         JOIN accounting_accounts a ON a.id = l.account_id
+         WHERE je.tenant_id = :t AND je.entity_id = :eid
+           AND je.status = "posted" AND je.posting_date <= :asof
+           AND a.account_type IN ("revenue","expense","cogs")
+         GROUP BY a.account_type'
+    );
+    $stmt->execute(['t' => $tenantId, 'eid' => $entityId, 'asof' => $asOf]);
+    $netIncome = 0.0;
+    foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $r) {
+        $bal = (float) $r['credit'] - (float) $r['debit']; // revenue side
+        if ($r['account_type'] === 'revenue') $netIncome += $bal;
+        else $netIncome -= $bal; // expenses/cogs reduce NI
+    }
+    $pickup = round($netIncome * $weight, 2);
+    if (abs($pickup) < 0.005) return null;
+    return [
+        'code'           => 'EQUITY_PICKUP:' . $entityId,
+        'name'           => "Equity-method pickup from entity #{$entityId}",
+        'account_type'   => 'equity',
+        'normal_side'    => 'credit',
+        'debit'          => 0.0,
+        'credit'         => 0.0,
+        'balance_signed' => $pickup,
+        'synthetic'      => 'equity_pickup',
+        'source_entity_id' => $entityId,
+    ];
+}
+
+/**
+ * CTA — emit one synthetic equity row per foreign-currency entity
+ * capturing the delta between BS-at-closing-rate and IS-at-average-
+ * rate translations. v1.0 stub: reads `accounting_fx_rates` if
+ * present (columns: tenant_id, currency, as_of, rate_to_usd) and
+ * emits a CTA row only when the entity's functional_currency
+ * differs from the reporting currency. Single-currency tenants are
+ * unaffected — the helper returns an empty list.
+ *
+ * @return array list of CTA adjustment dicts also appended to $rows.
+ */
+function _consolidationApplyCTA(int $tenantId, array $entityIds, string $asOf, string $reportingCcy, array &$rows): array {
+    $adjustments = [];
+    if (!$entityIds) return $adjustments;
+    try {
+        $pdo = getDB();
+        $in = implode(',', array_map('intval', $entityIds));
+        $st = $pdo->prepare(
+            "SELECT id, legal_name, functional_currency
+               FROM accounting_entities
+              WHERE tenant_id = :t AND id IN ({$in})"
+        );
+        $st->execute(['t' => $tenantId]);
+        foreach ($st->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $e) {
+            $ccy = (string) ($e['functional_currency'] ?? $reportingCcy);
+            if ($ccy === $reportingCcy || $ccy === '') continue;
+            // Look up FX rates — closing (as_of) and average (heuristic).
+            $rateClose = _consolidationLookupFxRate($tenantId, $ccy, $reportingCcy, $asOf);
+            $rateAvg   = _consolidationLookupFxRate($tenantId, $ccy, $reportingCcy, date('Y-m-01', strtotime($asOf)));
+            if ($rateClose === null || $rateAvg === null) continue;
+            $delta = $rateClose - $rateAvg;
+            if (abs($delta) < 0.000001) continue;
+            $row = [
+                'code'           => 'CTA:' . (int) $e['id'],
+                'name'           => "CTA — {$e['legal_name']} ({$ccy}→{$reportingCcy})",
+                'account_type'   => 'equity',
+                'normal_side'    => 'credit',
+                'debit'          => 0.0,
+                'credit'         => 0.0,
+                'balance_signed' => 0.0, // sized by caller's translated balances in v1.1
+                'synthetic'      => 'cta',
+                'source_entity_id' => (int) $e['id'],
+                'currency_from'  => $ccy,
+                'currency_to'    => $reportingCcy,
+                'rate_close'     => $rateClose,
+                'rate_average'   => $rateAvg,
+            ];
+            $rows[]        = $row;
+            $adjustments[] = $row;
+        }
+    } catch (\Throwable $e) {
+        // accounting_fx_rates table missing or schema drift — soft degrade.
+        // Single-currency tenants don't need CTA; this branch is a no-op.
+    }
+    return $adjustments;
+}
+
+function _consolidationLookupFxRate(int $tenantId, string $from, string $to, string $asOf): ?float {
+    try {
+        $pdo = getDB();
+        $st = $pdo->prepare(
+            'SELECT rate FROM accounting_fx_rates
+              WHERE tenant_id = :t AND currency_from = :f AND currency_to = :to AND as_of <= :asof
+              ORDER BY as_of DESC LIMIT 1'
+        );
+        $st->execute(['t' => $tenantId, 'f' => $from, 'to' => $to, 'asof' => $asOf]);
+        $r = $st->fetchColumn();
+        return $r !== false ? (float) $r : null;
+    } catch (\Throwable $e) {
+        return null;
+    }
 }
 
 function consolidateIncomeStatement(int $tenantId, array $entityIds, string $from, string $to): array

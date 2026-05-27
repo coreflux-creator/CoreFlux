@@ -34,8 +34,11 @@ function apThreeWayMatch(int $tenantId, int $billId): array
 
     $cfg = $pdo->prepare('SELECT ap_three_way_match_enforce, ap_three_way_match_tolerance_pct FROM tenants WHERE id = :t');
     $cfg->execute(['t' => $tenantId]);
-    $cfg = $cfg->fetch(\PDO::FETCH_ASSOC) ?: ['ap_three_way_match_enforce' => 0, 'ap_three_way_match_tolerance_pct' => 5.0];
-    $enforce  = (bool) ((int) ($cfg['ap_three_way_match_enforce'] ?? 0));
+    $cfg = $cfg->fetch(\PDO::FETCH_ASSOC) ?: ['ap_three_way_match_enforce' => 1, 'ap_three_way_match_tolerance_pct' => 5.0];
+    // P1.6 — HARD-by-default per the 2026-02 spec re-audit. Tenants
+    // who explicitly set this column to 0 stay in soft-warn mode;
+    // missing row / NULL falls back to enforce=1.
+    $enforce  = (bool) ((int) ($cfg['ap_three_way_match_enforce'] ?? 1));
     $tolPct   = (float) ($cfg['ap_three_way_match_tolerance_pct'] ?? 5.0);
 
     $billTotal = (float) ($bill['total'] ?? 0);

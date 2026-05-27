@@ -219,6 +219,66 @@ try {
         $pdo->prepare("UPDATE ap_bills SET status = 'disputed' WHERE tenant_id = :t AND id = :id")
             ->execute(['t' => $tenantId, 'id' => $billId]);
     } else {
+        // === P1.7 — Multi-level approval chain advancement ===========
+        // The router previously only materialised step 1 of the chain.
+        // When step 1 approvers acted, step 2's rows didn't exist, so
+        // the chain silently terminated as if step 1 were the only step.
+        // Spec re-audit: "Multi-level approval chain must actually
+        // fire." We now read the stored chain_json on each step
+        // completion and INSERT the next step's pending rows.
+        $stepNo = (int) $step['step_no'];
+
+        // Has THIS step now reached unanimous (every approver acted)?
+        $stepPending = $pdo->prepare(
+            "SELECT COUNT(*) FROM ap_bill_approvals
+              WHERE tenant_id = :t AND bill_id = :b AND step_no = :s AND state = 'pending'"
+        );
+        $stepPending->execute(['t' => $tenantId, 'b' => $billId, 's' => $stepNo]);
+        $stepDone = (int) $stepPending->fetchColumn() === 0;
+
+        if ($stepDone) {
+            // Fetch the policy evaluation snapshot — chain_json is the
+            // authoritative list of steps + per-step approver ids the
+            // router stored at submit time.
+            $ev = $pdo->prepare(
+                "SELECT chain_json FROM ap_approval_policy_evaluations
+                  WHERE tenant_id = :t AND bill_id = :b
+                  ORDER BY id DESC LIMIT 1"
+            );
+            $ev->execute(['t' => $tenantId, 'b' => $billId]);
+            $chainJson = (string) ($ev->fetchColumn() ?: '[]');
+            $chain     = json_decode($chainJson, true) ?: [];
+
+            // Do we already have a step (stepNo+1) row, or is the
+            // chain exhausted? Materialise if neither.
+            $nextNo = $stepNo + 1;
+            if (isset($chain[$stepNo])) {  // 0-indexed chain[1] === step 2
+                $existsNext = $pdo->prepare(
+                    "SELECT COUNT(*) FROM ap_bill_approvals
+                      WHERE tenant_id = :t AND bill_id = :b AND step_no = :s LIMIT 1"
+                );
+                $existsNext->execute(['t' => $tenantId, 'b' => $billId, 's' => $nextNo]);
+                if ((int) $existsNext->fetchColumn() === 0) {
+                    $nextStepDef = $chain[$stepNo];
+                    $approverIds = (array) ($nextStepDef['approver_user_ids'] ?? []);
+                    $insertNext  = $pdo->prepare(
+                        "INSERT INTO ap_bill_approvals
+                            (tenant_id, bill_id, approver_user_id, step_no, state, created_at)
+                         VALUES (:t, :b, :u, :s, 'pending', NOW())"
+                    );
+                    foreach ($approverIds as $uid) {
+                        try {
+                            $insertNext->execute([
+                                't' => $tenantId, 'b' => $billId,
+                                'u' => (int) $uid, 's' => $nextNo,
+                            ]);
+                        } catch (\Throwable $_) { /* duplicate / schema drift — non-fatal */ }
+                    }
+                }
+            }
+        }
+        // ==============================================================
+
         $pending = $pdo->prepare(
             "SELECT COUNT(*) FROM ap_bill_approvals
               WHERE tenant_id = :t AND bill_id = :b AND state = 'pending'"

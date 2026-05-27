@@ -511,6 +511,43 @@ if ($method === 'POST' && $action === 'approve') {
     $minTotal = (float) ($lineCheck->fetchColumn() ?? 0);
     if ($minTotal <= 0) api_error('All bill lines must have total > 0', 422);
 
+    // === 3-WAY MATCH HARD GATE (P1.6) ============================
+    // Spec re-audit decision: 3-way match is a HARD rule, not a soft
+    // warn. Bills failing PO + receipt + bill reconciliation cannot
+    // be approved without an explicit override + mandatory reason.
+    // Override is audit-logged so finance + auditors see who waived
+    // which check and why.
+    require_once __DIR__ . '/../lib/three_way_match.php';
+    $match = apThreeWayMatch($tid, $id);
+    if (!empty($match['warnings']) && !empty($match['enforce'])) {
+        $body          = api_json_body();
+        $overrideOk    = !empty($body['three_way_match_override']);
+        $overrideReason = trim((string) ($body['three_way_match_override_reason'] ?? ''));
+        if (!$overrideOk || $overrideReason === '') {
+            api_error(
+                '3-way match failed: ' . implode('; ', $match['warnings'])
+                . '. Approval blocked. Resolve the variance OR re-submit with three_way_match_override=true + three_way_match_override_reason.',
+                409,
+                [
+                    'code'                  => '3wm_block',
+                    'warnings'              => $match['warnings'],
+                    'po_total'              => $match['po_total']      ?? null,
+                    'receipt_total'         => $match['receipt_total'] ?? null,
+                    'bill_total'            => $match['bill_total']    ?? null,
+                    'tolerance_pct'         => $match['tolerance_pct'] ?? null,
+                ]
+            );
+        }
+        // Override accepted — record it.
+        apAudit('ap.bill.three_way_match_override', [
+            'bill_id'   => $id, 'internal_ref' => $row['internal_ref'],
+            'warnings'  => $match['warnings'],
+            'reason'    => $overrideReason,
+            'actor_id'  => $user['id'] ?? null,
+        ], $id);
+    }
+    // =================================================================
+
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     getDB()->prepare('UPDATE ap_bills SET status = "approved", approved_by_user_id = :u, approved_at = NOW() WHERE id = :id')
         ->execute(['u' => $user['id'] ?? null, 'id' => $id]);

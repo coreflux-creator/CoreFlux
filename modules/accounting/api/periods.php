@@ -60,6 +60,38 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
         if (!in_array($row['status'], ['open','reopened'], true)) {
             api_error("Cannot soft-close from status {$row['status']}", 409);
         }
+        // P1.8 — close-packet blocking gate. Spec re-audit:
+        // "Accounting close packets must be wired into the actual close
+        //  workflow (not just data files). Owners + due-dates + blocking
+        //  gates active." We refuse soft-close while any close task
+        //  is still pending / in_progress / blocked. Tasks explicitly
+        //  marked 'skipped' or 'done' don't block. Override is allowed
+        //  with body.close_with_open_tasks=true + reason — audit-logged.
+        $blockers = $pdo->prepare(
+            "SELECT id, task_key, title, status, assignee_user_id, due_date
+               FROM accounting_close_tasks
+              WHERE tenant_id = :t AND period_id = :p
+                AND status IN ('pending','in_progress','blocked')
+              ORDER BY due_date IS NULL, due_date ASC, sort_order ASC"
+        );
+        $blockers->execute(['t' => $tid, 'p' => $id]);
+        $openTasks = $blockers->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        if ($openTasks) {
+            $override = !empty($body['close_with_open_tasks']);
+            if (!$override || $reason === '') {
+                api_error(
+                    'Soft-close blocked: ' . count($openTasks)
+                    . ' close task(s) still open. Resolve them, mark them skipped,'
+                    . ' OR re-submit with close_with_open_tasks=true + reason.',
+                    409,
+                    ['code' => 'close_tasks_open', 'open_tasks' => $openTasks]
+                );
+            }
+            accountingAudit('accounting.period.soft_close_open_tasks_override', [
+                'period_id' => $id, 'open_count' => count($openTasks),
+                'reason'    => $reason, 'task_keys' => array_column($openTasks, 'task_key'),
+            ], $id);
+        }
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
             'UPDATE accounting_periods
@@ -71,6 +103,32 @@ if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen
     if ($action === 'close') {
         if (!in_array($row['status'], ['open','soft_closed','reopened'], true)) {
             api_error("Cannot close from status {$row['status']}", 409);
+        }
+        // P1.8 — same blocking gate on hard close.
+        $blockers = $pdo->prepare(
+            "SELECT id, task_key, title, status, assignee_user_id, due_date
+               FROM accounting_close_tasks
+              WHERE tenant_id = :t AND period_id = :p
+                AND status IN ('pending','in_progress','blocked')
+              ORDER BY due_date IS NULL, due_date ASC, sort_order ASC"
+        );
+        $blockers->execute(['t' => $tid, 'p' => $id]);
+        $openTasks = $blockers->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        if ($openTasks) {
+            $override = !empty($body['close_with_open_tasks']);
+            if (!$override || $reason === '') {
+                api_error(
+                    'Period close blocked: ' . count($openTasks)
+                    . ' close task(s) still open. Resolve them, mark them skipped,'
+                    . ' OR re-submit with close_with_open_tasks=true + reason.',
+                    409,
+                    ['code' => 'close_tasks_open', 'open_tasks' => $openTasks]
+                );
+            }
+            accountingAudit('accounting.period.close_open_tasks_override', [
+                'period_id' => $id, 'open_count' => count($openTasks),
+                'reason'    => $reason, 'task_keys' => array_column($openTasks, 'task_key'),
+            ], $id);
         }
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare(
