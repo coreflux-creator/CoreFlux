@@ -144,7 +144,7 @@ $assert('end_client_name pulled via registry helper',
 $assert('status pulled via registry helper',
     strpos($syncSrc, "tenantIntegrationFieldMapPluckInternal(\n        \$tid, 'jobdiva', 'placement', 'status'") !== false);
 $assert('default closures preserve original built-in candidate lists',
-    strpos($syncSrc, "jobdivaPluckField(\$jd, [\n                'jobTitle', 'job_title', 'job title', 'title',") !== false);
+    strpos($syncSrc, "jobdivaPluckFieldDeep(\$jd, [\n                'jobTitle', 'job_title', 'job title', 'title',") !== false);
 $assert('date_normalise still applied after registry resolution (idempotent)',
     strpos($syncSrc, "\$startDate = jobdivaNormaliseDate(\$startDate) ?? '';") !== false
     && strpos($syncSrc, "\$endDateNorm = jobdivaNormaliseDate(\$endDate);") !== false);

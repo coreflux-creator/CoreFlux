@@ -33,9 +33,13 @@ $assert('top-level pluck tries jobTitle/positionTitle/role',
     strpos($syncSrc, "'jobTitle', 'job_title', 'job title', 'title',") !== false
     && strpos($syncSrc, "'positionTitle', 'position_title', 'role', 'roleName',") !== false);
 $assert('nested job.* envelopes probed (V2 searchStart often nests title)',
-    strpos($syncSrc, "foreach (['job', 'Job', 'jobInfo', 'jobObj', 'jobRecord']") !== false);
-$assert('nested pluck reuses jobdivaPluckField',
-    strpos($syncSrc, "jobdivaPluckField(\$jd[\$nest], [\n                            'title', 'jobTitle'") !== false);
+    // The nest walk now lives inside jobdivaPluckFieldDeep() — its
+    // $nestOrder default includes `_jd_job` + legacy `job`/`Job`/etc.
+    strpos($syncSrc, "'_jd_candidate', '_jd_job', '_jd_customer', '_jd_contact', '_jd_start',") !== false
+    && strpos($syncSrc, "'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord',") !== false);
+$assert('nested pluck reuses jobdivaPluckField under the hood',
+    // jobdivaPluckFieldDeep iterates nests and calls jobdivaPluckField on each.
+    strpos($syncSrc, '$v = jobdivaPluckField($item[$nest], $candidates);') !== false);
 $assert('placeholder only when JobDiva genuinely sent no title',
     strpos($syncSrc, "// Last-resort placeholder. Kept distinct from the JobDiva ID") !== false
     && strpos($syncSrc, "if (\$title === '') \$title = 'JobDiva Placement ' . \$extId;") !== false);

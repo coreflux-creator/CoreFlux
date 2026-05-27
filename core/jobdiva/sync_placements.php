@@ -242,31 +242,34 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
 
     // Slice 4 wiring — each person field consults the tenant registry
     // first; built-in candidate lists are the fallback when no override
-    // is configured.
+    // is configured. The deep pluck variant looks into the enriched
+    // `_jd_candidate` record (fetched by jobdivaSyncEnrichRelatedEntities)
+    // so person data comes from JobDiva's full Candidate detail, not
+    // just whatever the placement BI feed happened to denormalise.
     $firstName = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'person', 'first_name', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'candidateFirstName', 'firstName', 'first_name', 'first name',
             'candidate_first_name',
         ])
     );
     $lastName = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'person', 'last_name', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'candidateLastName',  'lastName',  'last_name',  'last name',
             'candidate_last_name',
         ])
     );
     $email = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'person', 'email_primary', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'candidateEmail', 'email', 'email_primary', 'emailAddress',
             'candidate_email', 'primary email',
         ])
     );
     $phone = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'person', 'phone_primary', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'candidatePhone', 'phone', 'phone_primary', 'phoneNumber',
             'candidate_phone', 'phone 1',
         ])

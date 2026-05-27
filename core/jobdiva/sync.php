@@ -89,6 +89,53 @@ function jobdivaPluckField(array $item, array $candidates): string
 }
 
 /**
+ * Deep variant of jobdivaPluckField — walks the shallow item FIRST,
+ * then drills into the enriched sub-objects (`_jd_job`,
+ * `_jd_candidate`, `_jd_customer`, `_jd_contact`, `_jd_start`) that
+ * jobdivaSyncEnrichRelatedEntities injects, plus a few legacy
+ * nested keys JobDiva V2 has used.
+ *
+ * Why this exists: JobDiva's BI delta endpoints return placements
+ * with mostly references (jobId, candidateId, customerId, contactId).
+ * The detail records carry the rich payload (candidate's name/email,
+ * job's title/description, customer's address, contact's phone). The
+ * enricher fetches those detail records and grafts them on as
+ * `_jd_*` keys — but every shallow pluck in the syncer used to ignore
+ * them, so consumers got mostly-empty placements and had to be
+ * back-filled by hand. Routing through this deep variant means the
+ * sync uses the joined data the way operators expect.
+ *
+ * Search order:
+ *   1. Shallow pluck on $item itself
+ *   2. _jd_candidate (person fields)
+ *   3. _jd_job       (job/title/description/dept)
+ *   4. _jd_customer  (end-client / company name + address)
+ *   5. _jd_contact   (account manager / hiring contact)
+ *   6. _jd_start     (full start detail — rates, dates that BI nullified)
+ *   7. legacy nest keys (`job`, `Job`, `jobInfo`, `candidate`, `customer`, `contact`)
+ *
+ * Caller can override the search order via the optional 4th arg.
+ */
+function jobdivaPluckFieldDeep(
+    array $item,
+    array $candidates,
+    array $nestOrder = ['_jd_candidate', '_jd_job', '_jd_customer', '_jd_contact', '_jd_start',
+                       'job', 'Job', 'jobInfo', 'jobObj', 'jobRecord',
+                       'candidate', 'Candidate', 'customer', 'Customer', 'contact', 'Contact']
+): string {
+    // 1. shallow first
+    $v = jobdivaPluckField($item, $candidates);
+    if ($v !== '') return $v;
+    // 2. walk enriched + legacy nests in priority order
+    foreach ($nestOrder as $nest) {
+        if (!isset($item[$nest]) || !is_array($item[$nest])) continue;
+        $v = jobdivaPluckField($item[$nest], $candidates);
+        if ($v !== '') return $v;
+    }
+    return '';
+}
+
+/**
  * Normalise a JobDiva date value into MySQL DATE (YYYY-MM-DD) format.
  *
  * JobDiva V2 BI is inconsistent: some endpoints return formatted strings
@@ -850,11 +897,15 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
                 if ($cm) $endClientCompanyId = (int) $cm['internal_entity_id'];
             }
             if ($endClientCompanyId === null) {
-                $customerExtId = jobdivaPluckField($jd, [
+                // Deep pluck — pulls from `_jd_customer` when the placement
+                // BI feed nullified the inline customer name (common).
+                $customerExtId = jobdivaPluckFieldDeep($jd, [
                     'customerId', 'customer_id', 'customer id', 'clientId', 'client_id',
                 ]);
-                $customerName  = jobdivaPluckField($jd, [
+                $customerName  = jobdivaPluckFieldDeep($jd, [
                     'customerName', 'customer_name', 'customer name', 'clientName', 'client_name',
+                    // _jd_customer record stores the name as 'name'
+                    'name',
                 ]);
                 if ($customerExtId !== '') {
                     $cm = mappingFindInternal($tid, 'jobdiva', 'jobdiva_customer', $customerExtId);
@@ -1145,24 +1196,13 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             if (!empty($jd['__cf_resolved_job_title'])) {
                 return (string) $jd['__cf_resolved_job_title'];
             }
-            $t = jobdivaPluckField($jd, [
+            // Deep pluck — walks shallow + `_jd_job` + legacy `job`/`Job`/etc.
+            // so the title comes from the enriched Job record when the
+            // placement BI feed left it null.
+            return jobdivaPluckFieldDeep($jd, [
                 'jobTitle', 'job_title', 'job title', 'title',
                 'positionTitle', 'position_title', 'role', 'roleName',
             ]);
-            if ($t === '') {
-                // V2 searchStart sometimes nests the title inside a `job` object
-                // (`job.title`, `job.jobTitle`, `job.positionTitle`).
-                foreach (['job', 'Job', 'jobInfo', 'jobObj', 'jobRecord'] as $nest) {
-                    if (isset($jd[$nest]) && is_array($jd[$nest])) {
-                        $t = jobdivaPluckField($jd[$nest], [
-                            'title', 'jobTitle', 'job_title', 'job title',
-                            'positionTitle', 'position_title', 'roleName',
-                        ]);
-                        if ($t !== '') break;
-                    }
-                }
-            }
-            return $t;
         }
     );
     // Last-resort placeholder. Kept distinct from the JobDiva ID so
@@ -1173,12 +1213,12 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
 
     $startDate = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'start_date', $jd,
-        static fn() => jobdivaPluckField($jd, ['startDate', 'start_date', 'start date', 'startdate'])
+        static fn() => jobdivaPluckFieldDeep($jd, ['startDate', 'start_date', 'start date', 'startdate'])
     );
     if ($startDate === '') $startDate = (string) ($jd['startDate'] ?? $jd['start_date'] ?? '');
     $endDate = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'end_date', $jd,
-        static fn() => jobdivaPluckField($jd, ['endDate', 'end_date', 'end date', 'enddate'])
+        static fn() => jobdivaPluckFieldDeep($jd, ['endDate', 'end_date', 'end date', 'enddate'])
     );
     // JobDiva V2 BI returns dates as epoch-milliseconds in many envelopes;
     // normalise to MySQL DATE (Y-m-d) so the prepared statement doesn't
@@ -1189,13 +1229,15 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
 
     $endClientName = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'end_client_name', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'endClientName', 'clientName', 'end_client_name', 'client_name', 'client name', 'end client name',
+            // _jd_customer carries the customer record — name lives there as 'name' / 'customerName'.
+            'customerName', 'customer name', 'name',
         ])
     );
     $statusRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'status', $jd,
-        static fn() => jobdivaPluckField($jd, ['status', 'startStatus', 'placementStatus'])
+        static fn() => jobdivaPluckFieldDeep($jd, ['status', 'startStatus', 'placementStatus'])
     );
     $statusJd  = strtolower($statusRaw);
     if ($statusJd === '') $statusJd = 'active';
@@ -1215,7 +1257,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     // -----------------------------------------------------------------
     $engagementRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'engagement_type', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'engagementType', 'engagement_type', 'workerType',
             'worker_type', 'classification', 'employmentType',
         ])
@@ -1231,13 +1273,13 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
 
     $worksiteState = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'worksite_state', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'worksiteState', 'worksite_state', 'state', 'workSiteState', 'jobState', 'job_state',
         ])
     );
     $worksiteCountry = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'worksite_country', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'worksiteCountry', 'worksite_country', 'country', 'jobCountry', 'job_country',
         ])
     );
@@ -1251,7 +1293,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
 
     $remoteRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'remote_policy', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'remotePolicy', 'remote_policy', 'workLocation', 'work_location', 'jobLocationType',
         ])
     );
@@ -1264,18 +1306,22 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
 
     $notes = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'notes', $jd,
-        static fn() => jobdivaPluckField($jd, ['notes', 'placementNotes', 'placement_notes'])
+        static fn() => jobdivaPluckFieldDeep($jd, ['notes', 'placementNotes', 'placement_notes'])
     );
     $approverName = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'client_approver_name', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'approverName', 'approver_name', 'clientApprover', 'client_approver', 'clientContactName',
+            // _jd_contact carries the hiring contact — name lives there.
+            'fullName', 'full_name', 'contactName', 'contact_name',
         ])
     );
     $approverEmail = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'client_approver_email', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'approverEmail', 'approver_email', 'clientApproverEmail', 'client_approver_email', 'clientContactEmail',
+            // _jd_contact carries the hiring contact's email.
+            'email', 'emailAddress',
         ])
     );
     // Slice 5b additions — capture JobDiva metadata we previously dropped.
@@ -1285,38 +1331,38 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     // back to the Job record and rebooking detection.
     $jobdivaJobId = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'jobdiva_job_id', $jd,
-        static fn() => jobdivaPluckField($jd, ['jobId', 'job_id', 'jobID', 'JOBID', 'reqId', 'req_id'])
+        static fn() => jobdivaPluckFieldDeep($jd, ['jobId', 'job_id', 'jobID', 'JOBID', 'reqId', 'req_id'])
     );
     $recruiterName = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'recruiter_name', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'recruiterName', 'recruiter_name', 'recruiter', 'recruiterFullName', 'primaryRecruiter',
         ])
     );
     $recruiterEmail = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'recruiter_email', $jd,
-        static fn() => jobdivaPluckField($jd, ['recruiterEmail', 'recruiter_email'])
+        static fn() => jobdivaPluckFieldDeep($jd, ['recruiterEmail', 'recruiter_email'])
     );
     $accountManagerName = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'account_manager_name', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'accountManager', 'account_manager', 'accountManagerName', 'salesperson', 'salesPerson',
         ])
     );
     $accountManagerEmail = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'account_manager_email', $jd,
-        static fn() => jobdivaPluckField($jd, [
+        static fn() => jobdivaPluckFieldDeep($jd, [
             'accountManagerEmail', 'account_manager_email', 'salesPersonEmail', 'salespersonEmail',
         ])
     );
     $actualEndRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'actual_end_date', $jd,
-        static fn() => jobdivaPluckField($jd, ['actualEndDate', 'actual_end_date', 'actualEnd'])
+        static fn() => jobdivaPluckFieldDeep($jd, ['actualEndDate', 'actual_end_date', 'actualEnd'])
     );
     $actualEnd = jobdivaNormaliseDate($actualEndRaw);
     $dueDateRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'due_date', $jd,
-        static fn() => jobdivaPluckField($jd, ['dueDate', 'due_date'])
+        static fn() => jobdivaPluckFieldDeep($jd, ['dueDate', 'due_date'])
     );
     $dueDate = jobdivaNormaliseDate($dueDateRaw);
 

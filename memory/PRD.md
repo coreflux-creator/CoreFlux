@@ -9750,3 +9750,98 @@ allocations carried `pwp_status='awaiting_ar'`. Money could leak.
 - MODIFIED: `/app/modules/ap/lib/pwp.php` (new helper)
 - MODIFIED: `/app/modules/ap/api/payments.php` (send gate + batch gate + list flag)
 - NEW: `/app/tests/ap_pwp_four_way_match_smoke.php`
+
+---
+
+## 2026-02 — JobDiva Deep Field Resolution Fix (P0 carve-out, mid-P1)
+
+### The persistent complaint
+Operator: "we're still not getting the full JobDiva payload to join
+data for the job, the person, the assignment (placement). How many
+times will we come back to this?"
+
+### Root cause (finally found)
+`jobdivaSyncEnrichRelatedEntities()` (sync.php line ~1007) HAS been
+fetching the joined records since Slice 5b — `_jd_job`,
+`_jd_candidate`, `_jd_customer`, `_jd_contact`, `_jd_start` — and
+grafting them onto each placement item. The plumbing works.
+
+**But every downstream pluck used `jobdivaPluckField()`, which is
+shallow** — it only reads the top-level `$item` keys, never walks
+into the enriched sub-objects. So the syncer kept fetching the
+joined data and then throwing it away.
+
+That's why this kept coming back: the enrichment was treated as
+"done", but the consumers never got wired through. Title fell to
+"JobDiva Placement #N", person fields stayed empty, end-client
+stayed "(no end client)", because the resolver only ever looked
+at the top-level placement record where those fields are null.
+
+### Fix shipped
+1. **New `jobdivaPluckFieldDeep($item, $candidates, $nestOrder?)`**
+   in `/app/core/jobdiva/sync.php`:
+   - Tries the shallow pluck first (so existing tenant overrides win).
+   - Then walks `_jd_candidate`, `_jd_job`, `_jd_customer`,
+     `_jd_contact`, `_jd_start` (in that priority order).
+   - Then walks legacy nest keys (`job`, `Job`, `jobInfo`,
+     `candidate`, `customer`, `contact`).
+   - Caller can override the order if they need a different
+     priority on a specific field.
+2. **`jobdivaPlacementsAutoCreatePerson()`** — `first_name`,
+   `last_name`, `email_primary`, `phone_primary` now all route
+   through deep pluck so person data populates from the enriched
+   candidate detail.
+3. **`jobdivaSyncUpsertPlacement()`** — every fallback now uses
+   deep pluck: title, start_date, end_date, end_client_name,
+   status, engagement_type, worksite_state, worksite_country,
+   remote_policy, notes, approver name+email, jobdiva_job_id,
+   recruiter name+email, account_manager name+email, due_date,
+   actual_end_date.
+4. **End-client name lookup** at placement upsert time now uses
+   deep pluck AND adds `name` to the candidate list so the
+   `_jd_customer.name` field (the bare field name JobDiva uses
+   on customer detail records) is found.
+5. **Approver name/email** fallback chains now include `fullName`
+   / `email` so the `_jd_contact` record (which uses those field
+   names) populates the hiring contact slot.
+
+### Why this is the definitive fix
+Shallow plucks are now reserved for the standalone
+`jobdivaSyncCompanies` / `jobdivaSyncContacts` BI sync paths (which
+don't have enriched sub-objects). Every placement-context plucks
+through the deep variant. Once an enriched record lands in the
+pipeline, every column on `people`, `placements`, and the
+end-client `companies` row will see it.
+
+### Tests
+- New `/app/tests/jobdiva_deep_field_resolution_smoke.php`:
+  37 assertions — 17 behavioural (deep pluck actually walks the
+  enriched nests, shallow-wins-when-both-present, full joined
+  record resolves all four entities, empty when truly absent,
+  legacy nest still works) + 16 source-level wire-up checks + 2
+  enrichment scaffolding checks + 2 PHP syntax.
+- Updated `/app/tests/jobdiva_field_mapping_slice4_smoke.php` and
+  `/app/tests/jobdiva_field_mapping_slice1_smoke.php` to match the
+  new pluck pattern.
+- Full suite: **308/308 ✅** (one new test added).
+
+### Files touched
+- MODIFIED: `/app/core/jobdiva/sync.php` (helper + every placement-upsert fallback)
+- MODIFIED: `/app/core/jobdiva/sync_placements.php` (person-create fallbacks)
+- MODIFIED: `/app/tests/jobdiva_field_mapping_slice1_smoke.php`
+- MODIFIED: `/app/tests/jobdiva_field_mapping_slice4_smoke.php`
+- NEW: `/app/tests/jobdiva_deep_field_resolution_smoke.php`
+
+### How to verify in production
+On the next JobDiva sync for this tenant:
+- People records auto-created from the placement feed now carry
+  real names/emails/phones (not "JobDiva Candidate-<id>").
+- Placements show real job titles (not "JobDiva Placement #...").
+- End-client column populates from `_jd_customer.name`.
+- Approver columns populate from `_jd_contact`.
+
+If a specific field still comes through empty, the issue is that
+JobDiva's detail endpoint is returning null on that field — not
+our consumption layer. The Connected Sources panel + `_jd_*`
+sub-objects on the placement payload now let operators inspect
+exactly what JobDiva served vs. what we wrote.
