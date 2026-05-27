@@ -34,10 +34,10 @@ $a('section root testid',                str_contains($ui, 'data-testid="field-m
 $a('integration + entity_type dropdowns',
     str_contains($ui, 'data-testid="fms-integration"')
     && str_contains($ui, 'data-testid="fms-entity-type"'));
-$a('paths pane + filter + list + empty-state',
+$a('paths pane + filter + grouped list + empty-state',
     str_contains($ui, 'data-testid="fms-paths-pane"')
     && str_contains($ui, 'data-testid="fms-paths-filter"')
-    && str_contains($ui, 'data-testid="fms-paths-list"')
+    && str_contains($ui, 'data-testid="fms-paths-grouped"')
     && str_contains($ui, 'data-testid="fms-paths-empty"'));
 $a('targets pane + filter + list',
     str_contains($ui, 'data-testid="fms-targets-pane"')

@@ -89,6 +89,46 @@ $a('empty-state covers zoho_books and airtable',
     str_contains($fms, 'data-testid="fms-paths-empty-zoho-link"')
     && str_contains($fms, 'data-testid="fms-paths-empty-airtable-link"'));
 
+// 5.5) Joined-entity grouping for the source pane.
+echo "\n5.5 Grouped source paths (joined entities)\n";
+$a('PATH_GROUPS declares the JobDiva enrichment buckets',
+    str_contains($fms, "PATH_GROUPS = [")
+    && str_contains($fms, "'_jd_candidate'")
+    && str_contains($fms, "'_jd_job'")
+    && str_contains($fms, "'_jd_customer'")
+    && str_contains($fms, "'_jd_contact'")
+    && str_contains($fms, "'_jd_start'"));
+$a('groupPathsByNamespace helper exists',
+    str_contains($fms, 'function groupPathsByNamespace(paths)'));
+$a('groupedPaths memo derives groups from filteredPaths',
+    str_contains($fms, 'const groupedPaths = useMemo(() => groupPathsByNamespace(filteredPaths)'));
+$a('grouped UI surface rendered with data-testid="fms-paths-grouped"',
+    str_contains($fms, 'data-testid="fms-paths-grouped"'));
+$a('per-group toggle button has stable testid',
+    str_contains($fms, 'data-testid={`fms-paths-group-toggle-${grp.meta.key}`}'));
+$a('per-group container exposes data-open attribute',
+    str_contains($fms, "data-open={isOpen ? 'yes' : 'no'}"));
+$a('placement explainer appears for jobdiva/placement',
+    str_contains($fms, 'data-testid="fms-paths-explainer"'));
+$a('selecting a path from a joined-entity group auto-sets linked_entity',
+    str_contains($fms, "if (grp.meta.linked && grp.meta.linked !== 'self') {")
+    && str_contains($fms, 'setLinkedEntity(grp.meta.linked)'));
+$a('Person group routes to linked_entity=person',
+    preg_match("/'_jd_candidate'.*linked:\s*'person'/s", $fms) === 1);
+$a('End-client group routes to linked_entity=end_client_company',
+    preg_match("/'_jd_customer'.*linked:\s*'end_client_company'/s", $fms) === 1);
+
+// 5.6) Entity-type dropdown is data-driven (not the old hardcoded list).
+echo "\n5.6 Data-driven entity-type dropdown\n";
+$a('dropdown options derive from indexed sources',
+    str_contains($fms, 'sources') && str_contains($fms, 's.integration === integration'));
+$a('fallback list includes JobDiva entity types',
+    str_contains($fms, "jobdiva:") && str_contains($fms, "'jobdiva_customer'") && str_contains($fms, "'time_entry'"));
+$a('fallback list includes QBO entity types',
+    str_contains($fms, "quickbooks:") && str_contains($fms, "'journal_entry'") && str_contains($fms, "'customer'"));
+$a('old hardcoded gl_account-only dropdown removed',
+    !str_contains($fms, "['placement', 'person', 'company', 'contact', 'gl_account', 'journal_entry', 'bill', 'invoice', 'payment'].map(et =>"));
+
 // 6) PHP syntax sanity on touched JSX-adjacent PHP (none changed in this
 //    slice, just confirm bundle sync left the deploy-version coherent).
 echo "\n6. Deploy version + dist coherence\n";

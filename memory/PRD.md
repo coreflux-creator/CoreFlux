@@ -10254,3 +10254,79 @@ weren't landing on that page in the first place.
 - MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx`
 - NEW: `tests/field_mapping_studio_discoverability_smoke.php`
 - Vite bundle: `index-Ckax1kTB.js` / `index-BC5g6YJu.css` synced.
+
+---
+
+## 2026-02 — Field Mapping Studio: joined-entity grouping + data-driven entity types
+
+### Why
+Even after the discoverability fix, operators couldn't see *why* the
+Studio is powerful: the JobDiva sync grafts `_jd_candidate` (Person),
+`_jd_job` (Job), `_jd_customer` (End-client), `_jd_contact` (Hiring
+contact), and `_jd_start` (Assignment detail) onto every placement
+payload, but the picker just dumped 200+ flat dotted paths and the
+operator had to memorise the `_jd_*` prefixes to even know that
+joined data existed. Result: "it still doesn't have the full payload
+and custom mapping capability."
+
+### What shipped
+- **PATH_GROUPS registry** in `FieldMappingStudio.jsx` declares the
+  five JobDiva enrichment buckets with friendly labels, icons, and
+  the natural `linked_entity` each one routes to:
+  - 👤 Person (candidate)   → linked_entity=person
+  - 💼 Job                  → linked_entity=self
+  - 🏢 End-client company   → linked_entity=end_client_company
+  - ☎️ Hiring contact       → linked_entity=self
+  - 📋 Start / Assignment   → linked_entity=self
+- **`groupPathsByNamespace(paths)` helper** sorts every indexed path
+  into Placement-root / Person / Job / End-client / Contact / Start /
+  Other. Buckets with zero rows collapse out.
+- **Grouped left-pane render** with collapsible buckets
+  (`fms-paths-group-<key>`, `fms-paths-group-toggle-<key>`,
+  `data-open=yes|no`). Each group shows its field count + the
+  linked_entity it auto-routes to.
+- **Smart linked_entity defaulting**: clicking a Person-group path
+  flips `linked_entity` to `person` automatically, an End-client path
+  flips it to `end_client_company`. Operator can override in the save
+  bar — defaults just remove the most common foot-gun.
+- **Explainer banner** above the source list for jobdiva/placement
+  context: "Placement records are enriched server-side with the
+  joined Person, Job, End-client and Assignment detail."
+- **Data-driven entity-type dropdown**: options now come from the
+  indexer's `sources` for the selected integration, ordered by
+  path-count (richest source first), with static fallbacks per
+  integration so empty tenants can still pick:
+  - JobDiva:    placement / person / company / contact / jobdiva_customer / time_entry
+  - QuickBooks: journal_entry / customer / vendor / invoice / bill / payment / gl_account / item
+  - Zoho:       journal_entry / customer / vendor / invoice / bill / payment / gl_account
+  - Airtable:   record
+  The old hardcoded one-size-fits-all `[placement, person, company, contact, gl_account, ...]` dropdown is gone.
+
+### Tests
+- `/app/tests/field_mapping_studio_discoverability_smoke.php` extended
+  with sections 5.5 (grouping) + 5.6 (data-driven dropdown) — now
+  **38 ✓ / 0 ✗**.
+- `/app/tests/field_mapping_phase3_studio_smoke.php` updated to assert
+  the new `fms-paths-grouped` surface (replaced legacy `fms-paths-list`).
+- Full suite: **317/318 ✅** (the 1 fail is `accounting_phase2_a7_smoke.php`,
+  pre-existing DB-connection assertion, unrelated).
+
+### Files touched
+- MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx`
+- MODIFIED: `tests/field_mapping_studio_discoverability_smoke.php`
+- MODIFIED: `tests/field_mapping_phase3_studio_smoke.php`
+- Vite bundle: `index-C9A1lAKG.js` / `index-BC5g6YJu.css` synced.
+
+### How operators use this now
+1. Trigger one JobDiva sync (Admin → JobDiva → Sync now). The
+   indexer learns every path including the joined sub-records.
+2. Open Admin → JobDiva → "Open Field Mapping Studio →" (the new
+   gradient CTA). Lands pre-filtered to jobdiva/placement.
+3. Left pane shows **collapsible groups** — expand "Person
+   (candidate)" to map first/last/email from the joined candidate
+   onto `people.*` (linked_entity auto-set to `person`). Expand
+   "End-client company" to map address1/industry onto
+   `companies.*` (linked_entity auto-set to `end_client_company`).
+4. Right pane: pick the destination column. Save. Next sync
+   honours the mapping.
+

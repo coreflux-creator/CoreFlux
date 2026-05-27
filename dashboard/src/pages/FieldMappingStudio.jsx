@@ -33,6 +33,58 @@ const LINKED_ENTITY_LABELS = {
   placement_corp_details: 'placement_corp_details (sibling row)',
 };
 
+/**
+ * JobDiva enrichment buckets — the sync grafts these joined sub-records
+ * onto the placement payload so a placement-level mapping can reach into
+ * the candidate / job / customer / contact / start records without a
+ * separate sync. The Studio surfaces these as visual groups in the
+ * left pane so operators see "this is the Person section, this is the
+ * Job section, this is the Assignment section" instead of a flat path
+ * list.
+ *
+ * default-open groups bubble to the top; the rest expand on click.
+ */
+const PATH_GROUPS = [
+  { key: '_jd_candidate', label: 'Person (candidate)',        icon: '👤', linked: 'person',             defaultOpen: true },
+  { key: '_jd_job',       label: 'Job',                       icon: '💼', linked: 'self',               defaultOpen: true },
+  { key: '_jd_customer',  label: 'End-client company',        icon: '🏢', linked: 'end_client_company', defaultOpen: true },
+  { key: '_jd_contact',   label: 'Hiring contact',            icon: '☎️', linked: 'self',               defaultOpen: false },
+  { key: '_jd_start',     label: 'Start / Assignment detail', icon: '📋', linked: 'self',               defaultOpen: true },
+];
+
+function groupPathsByNamespace(paths) {
+  const groups = new Map();
+  // Always-initialise known buckets so the UI is stable even when a
+  // sub-record hasn't been indexed yet.
+  for (const g of PATH_GROUPS) {
+    groups.set(g.key, { meta: g, rows: [] });
+  }
+  groups.set('__root__', {
+    meta: { key: '__root__', label: 'Placement fields (root record)', icon: '📄', linked: 'self', defaultOpen: true },
+    rows: [],
+  });
+  groups.set('__other__', {
+    meta: { key: '__other__', label: 'Other', icon: '…', linked: 'self', defaultOpen: false },
+    rows: [],
+  });
+
+  for (const p of paths) {
+    const top = (p.source_path || '').split('.')[0].split('[')[0];
+    if (top.startsWith('_jd_') && groups.has(top)) {
+      groups.get(top).rows.push(p);
+    } else if (!top.startsWith('_jd_') && !top.startsWith('_')) {
+      groups.get('__root__').rows.push(p);
+    } else {
+      groups.get('__other__').rows.push(p);
+    }
+  }
+  // Preserve known-bucket order, drop empty buckets.
+  const ordered = ['__root__', '_jd_candidate', '_jd_job', '_jd_customer', '_jd_contact', '_jd_start', '__other__'];
+  return ordered
+    .map(k => groups.get(k))
+    .filter(g => g && g.rows.length > 0);
+}
+
 export default function FieldMappingStudio() {
   const location = useLocation();
   const queryParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
@@ -43,6 +95,7 @@ export default function FieldMappingStudio() {
   const [paths, setPaths]             = useState([]);
   const [pathFilter, setPathFilter]   = useState('');
   const [selectedPath, setSelectedPath] = useState(null);
+  const [openGroups, setOpenGroups]   = useState({});
 
   const [targets, setTargets]         = useState([]);
   const [targetFilter, setTargetFilter] = useState('');
@@ -97,6 +150,22 @@ export default function FieldMappingStudio() {
     return paths.filter(p => p.source_path.toLowerCase().includes(q)
                           || (p.sample_value || '').toLowerCase().includes(q));
   }, [paths, pathFilter]);
+
+  // Group the filtered paths by joined-entity namespace so operators see
+  // "Placement → Person → Job → End-client → Contact → Start" instead of
+  // a 200-row flat list. When the operator types into the filter, groups
+  // that have no surviving rows are dropped.
+  const groupedPaths = useMemo(() => groupPathsByNamespace(filteredPaths), [filteredPaths]);
+
+  // Default group-open state — only set once per integration/entity load
+  // so collapsing remains sticky as the operator filters.
+  useEffect(() => {
+    const init = {};
+    for (const g of PATH_GROUPS) init[g.key] = g.defaultOpen;
+    init.__root__ = true;
+    init.__other__ = false;
+    setOpenGroups(init);
+  }, [integration, entityType]);
 
   const filteredTargets = useMemo(() => {
     if (!targetFilter) return targets;
@@ -202,10 +271,34 @@ export default function FieldMappingStudio() {
             value={entityType}
             onChange={e => { setEntityType(e.target.value); setSelectedPath(null); setSelectedTarget(null); }}
             className="input"
-            style={{ minWidth: 160 }}
+            style={{ minWidth: 200 }}
           >
-            {['placement', 'person', 'company', 'contact', 'gl_account', 'journal_entry', 'bill', 'invoice', 'payment'].map(et =>
-              <option key={et} value={et}>{et}</option>)}
+            {(() => {
+              // Data-driven: anything the indexer has actually seen for the
+              // selected integration shows up first, with its path_count as
+              // a tooltip so the operator picks the richest source. Static
+              // fallbacks are appended so empty tenants can still pick the
+              // entity types JobDiva / QBO / Zoho / Airtable produce.
+              const seen = sources
+                .filter(s => s.integration === integration)
+                .map(s => ({ et: s.entity_type, count: Number(s.path_count) || 0 }));
+              const fallback = {
+                jobdiva:    ['placement', 'person', 'company', 'contact', 'jobdiva_customer', 'time_entry'],
+                quickbooks: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account', 'item'],
+                zoho_books: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account'],
+                airtable:   ['record'],
+              }[integration] || ['placement', 'person', 'company', 'contact'];
+              const seenKeys = new Set(seen.map(s => s.et));
+              const ordered = [
+                ...seen,
+                ...fallback.filter(et => !seenKeys.has(et)).map(et => ({ et, count: 0 })),
+              ];
+              return ordered.map(o => (
+                <option key={o.et} value={o.et} title={o.count > 0 ? `${o.count} indexed paths` : 'not yet indexed'}>
+                  {o.et}{o.count > 0 ? ` (${o.count})` : ''}
+                </option>
+              ));
+            })()}
           </select>
         </div>
       </header>
@@ -273,26 +366,91 @@ export default function FieldMappingStudio() {
               </p>
             </div>
           )}
-          <ul data-testid="fms-paths-list" style={scrollList}>
-            {filteredPaths.map(p => (
-              <li
-                key={p.source_path}
-                data-testid={`fms-path-${p.source_path}`}
-                onClick={() => setSelectedPath(p)}
-                style={{ ...listItem, ...(selectedPath?.source_path === p.source_path ? listItemActive : {}) }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                  <code style={{ fontSize: 12 }}>{p.source_path}</code>
-                  <span style={{ fontSize: 10, color: '#64748b' }}>{p.value_type} · ×{p.occurrence_count}</span>
+          {!loading && filteredPaths.length > 0 && (
+            <div data-testid="fms-paths-grouped" style={{ ...scrollList, padding: 0 }}>
+              {/* Helpful preamble so operators understand WHY paths come from
+                  joined entities like _jd_candidate (Person), _jd_job (Job),
+                  _jd_customer (End-client), _jd_start (Assignment). */}
+              {integration === 'jobdiva' && entityType === 'placement' && (
+                <div data-testid="fms-paths-explainer"
+                     style={{ fontSize: 11, color: '#475569', background: '#f8fafc',
+                              padding: '6px 10px', borderBottom: '1px solid #e2e8f0' }}>
+                  Placement records are <strong>enriched</strong> server-side with the joined
+                  Person, Job, End-client and Assignment detail. Pick any field from any group
+                  below — set <em>linked_entity</em> in the save bar to route it to the right
+                  CoreFlux row.
                 </div>
-                {p.sample_value && (
-                  <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>
-                    sample: <em>{p.sample_value}</em>
+              )}
+              {groupedPaths.map(grp => {
+                const isOpen = openGroups[grp.meta.key] !== undefined
+                  ? openGroups[grp.meta.key]
+                  : grp.meta.defaultOpen;
+                return (
+                  <div key={grp.meta.key}
+                       data-testid={`fms-paths-group-${grp.meta.key}`}
+                       data-open={isOpen ? 'yes' : 'no'}
+                       style={{ borderBottom: '1px solid #e2e8f0' }}>
+                    <button
+                      type="button"
+                      data-testid={`fms-paths-group-toggle-${grp.meta.key}`}
+                      onClick={() => setOpenGroups(s => ({ ...s, [grp.meta.key]: !isOpen }))}
+                      style={{
+                        width: '100%', textAlign: 'left', padding: '8px 10px',
+                        background: isOpen ? '#eff6ff' : '#f8fafc',
+                        border: 0, borderBottom: '1px solid #e2e8f0',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                        fontSize: 12, fontWeight: 600, color: '#1e293b',
+                      }}>
+                      <span style={{ fontSize: 14 }}>{grp.meta.icon}</span>
+                      <span style={{ flex: 1 }}>{grp.meta.label}</span>
+                      <span style={{ fontSize: 10, color: '#64748b', fontWeight: 400 }}>
+                        {grp.rows.length} {grp.rows.length === 1 ? 'field' : 'fields'}
+                        {grp.meta.linked !== 'self' && ` · linked_entity=${grp.meta.linked}`}
+                      </span>
+                      <span style={{ fontSize: 10, color: '#64748b' }}>{isOpen ? '▾' : '▸'}</span>
+                    </button>
+                    {isOpen && (
+                      <ul data-testid={`fms-paths-group-list-${grp.meta.key}`}
+                          style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+                        {grp.rows.map(p => (
+                          <li
+                            key={p.source_path}
+                            data-testid={`fms-path-${p.source_path}`}
+                            onClick={() => {
+                              setSelectedPath(p);
+                              // Smart-default linked_entity from the group so
+                              // operators don't have to remember "person fields
+                              // need linked_entity=person".
+                              if (grp.meta.linked && grp.meta.linked !== 'self') {
+                                setLinkedEntity(grp.meta.linked);
+                              }
+                            }}
+                            style={{
+                              ...listItem,
+                              ...(selectedPath?.source_path === p.source_path ? listItemActive : {}),
+                              paddingLeft: 22,
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                              <code style={{ fontSize: 12 }}>{p.source_path}</code>
+                              <span style={{ fontSize: 10, color: '#64748b' }}>
+                                {p.value_type} · ×{p.occurrence_count}
+                              </span>
+                            </div>
+                            {p.sample_value && (
+                              <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>
+                                sample: <em>{p.sample_value}</em>
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
-                )}
-              </li>
-            ))}
-          </ul>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* === RIGHT PANE: writable targets === */}
