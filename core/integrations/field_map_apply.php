@@ -306,3 +306,83 @@ function integrationFieldMapApplyAll(
 
     return $summary;
 }
+
+/**
+ * Dry-run evaluator for generalised mappings (Phase 2/3 shape).
+ *
+ * Mirrors tenantIntegrationFieldMapTestPayload() but resolves
+ * source_path (dotted) and surfaces the full target identity
+ * (target_module, target_table, target_column, linked_entity) for
+ * each row. UI uses this to render the side-by-side preview the
+ * operator sees BEFORE letting a sync run live.
+ *
+ * Each row in the result:
+ *   mapping_id     : tenant_integration_field_map.id
+ *   source_path    : the dotted path (or legacy external_field fallback)
+ *   raw_value      : pre-transform value (string|number|null)
+ *   resolved_value : post-transform value
+ *   matched        : bool — did the source path resolve?
+ *   target         : "{module}.{table}.{column} (linked={slug})" or
+ *                    "legacy: {internal_field}" for un-migrated rows
+ *   target_module/table/column/linked_entity
+ *   transform / enabled / resolved (Phase 2 flag)
+ *
+ * @return array{integration:string,entity_type:string,results:array<int,array<string,mixed>>,totals:array<string,int>}
+ */
+function integrationFieldMapTestPayloadGeneralised(
+    int $tenantId,
+    string $integration,
+    string $entityType,
+    array $payload
+): array {
+    $rows = integrationFieldMapResolveGeneralised($tenantId, $integration, $entityType);
+    $out  = []; $matched = 0; $unmatched = 0;
+    foreach ($rows as $m) {
+        $val = null; $raw = null;
+        if (!empty($m['source_path'])) {
+            $val = integrationPayloadResolvePath($payload, (string) $m['source_path']);
+            $raw = $val;
+        }
+        if ($val === null && !empty($m['external_field'])
+            && function_exists('tenantIntegrationFieldMapPluckPath')) {
+            $maybe = tenantIntegrationFieldMapPluckPath($payload, (string) $m['external_field']);
+            if ($maybe !== '') { $raw = $maybe; $val = $maybe; }
+        }
+        $isMatched = $val !== null && $val !== '';
+        if ($isMatched && !empty($m['transform'])
+            && function_exists('tenantIntegrationFieldMapApplyTransform')) {
+            $val = tenantIntegrationFieldMapApplyTransform($val, (string) $m['transform']);
+        }
+        if ($isMatched) $matched++; else $unmatched++;
+        $target = ($m['target_table'] ?? '') !== ''
+            ? sprintf('%s.%s.%s (linked=%s)',
+                $m['target_module'] ?? '?',
+                $m['target_table']  ?? '?',
+                $m['target_column'] ?? '?',
+                $m['linked_entity'] ?: 'self')
+            : sprintf('legacy: %s', $m['internal_field'] ?? '?');
+        $out[] = [
+            'mapping_id'     => (int) ($m['id'] ?? 0),
+            'source_path'    => ($m['source_path'] ?? '') !== ''
+                                  ? (string) $m['source_path']
+                                  : (string) ($m['external_field'] ?? ''),
+            'raw_value'      => $raw,
+            'resolved_value' => $val,
+            'matched'        => $isMatched,
+            'target'         => $target,
+            'target_module'  => $m['target_module'] ?? null,
+            'target_table'   => $m['target_table']  ?? null,
+            'target_column'  => $m['target_column'] ?? null,
+            'linked_entity'  => $m['linked_entity'] ?: 'self',
+            'transform'      => (string) ($m['transform'] ?? 'none'),
+            'enabled'        => !empty($m['enabled']),
+            'resolved'       => !empty($m['resolved']),
+        ];
+    }
+    return [
+        'integration' => $integration,
+        'entity_type' => $entityType,
+        'results'     => $out,
+        'totals'      => ['total' => count($out), 'matched' => $matched, 'unmatched' => $unmatched],
+    ];
+}

@@ -17,6 +17,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/integrations/field_map.php';
+require_once __DIR__ . '/../../../core/integrations/field_map_apply.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
@@ -56,6 +57,13 @@ try {
     tenantIntegrationFieldMapFlushCache();
 
     $result = tenantIntegrationFieldMapTestPayload($tid, $integration, $entityType, $payload);
+    // Phase 3 — also attach the generalised-shape evaluation so the
+    // Studio UI can render the full target identity per row. The two
+    // shapes coexist during cutover; the Studio reads from
+    // result.generalised, the legacy admin reads from result.resolved.
+    $result['generalised'] = integrationFieldMapTestPayloadGeneralised(
+        $tid, $integration, $entityType, $payload
+    );
     api_ok($result);
 } catch (\PDOException $e) {
     $msg = $e->getMessage();

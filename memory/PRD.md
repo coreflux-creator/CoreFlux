@@ -10124,3 +10124,78 @@ writes work, custom-field writes work, every JobDiva sync path
 applies the registry. Adding a new integration is now: persist
 its payload via mappingUpsert (auto-indexes), wire applyAll into
 its sync path, done.
+
+---
+
+## 2026-02 — Phase 3 Enhancement: Test Mappings Panel + Generalised Dry-Run
+
+### What shipped
+- **NEW `integrationFieldMapTestPayloadGeneralised()`** in
+  `field_map_apply.php` — dry-run evaluator that mirrors the legacy
+  `tenantIntegrationFieldMapTestPayload()` but resolves through the
+  Phase 2 generalised shape. Each result row surfaces:
+  - `source_path` (dotted) with legacy `external_field` fallback
+  - `raw_value` + post-transform `resolved_value`
+  - human-readable `target` string
+    (`"{module}.{table}.{column} (linked={slug})"` or `"legacy: ..."`)
+  - per-row `target_module`/`target_table`/`target_column`/`linked_entity`
+  - `matched`, `enabled`, `resolved`, `transform`
+  - totals block (`total`, `matched`, `unmatched`)
+
+- **EXTENDED `/api/admin/integrations/field_map_test.php`** —
+  attaches a `generalised: {results, totals, ...}` block alongside
+  the existing legacy `resolved/unmapped_internal_fields` shape so
+  BOTH the legacy admin AND the Studio can consume the same call.
+
+- **NEW Test Mappings panel** on `FieldMappingStudio.jsx`:
+  - Toggle button: "Test mappings…" in the Existing-mappings header.
+  - JSON textarea for paste-in payload (operators grab from "View
+    raw payload" affordance in LinkedExternalSystemsPanel).
+  - JSON.parse validation; bad JSON → friendly error.
+  - Side-by-side results table:
+    `Source path | Raw value | Transform | Resolved value | Target | Status`
+  - Rows colour-coded green ("would write") / red ("no value").
+  - Totals strip above the table — "X of Y mappings matched in
+    this payload".
+  - Per-row testid `fms-test-row-<id>` + `data-matched="yes|no"`
+    for regression hookability.
+- Vite bundle: `index-CI8PAAYV.js` synced.
+
+### Tests
+- **NEW `/app/tests/field_mapping_phase3_test_panel_smoke.php`** —
+  19 assertions across the evaluator shape, endpoint extension,
+  UI testids + JSON validation, totals header + status badges,
+  PHP syntax.
+- Full suite: **312/312 ✅**.
+
+### Why this matters
+Before this enhancement, the only way to know if a mapping
+configuration was correct was to wait for the next live sync and
+inspect the resulting CoreFlux record. With the Test panel, an
+operator can:
+1. Configure a mapping (or several).
+2. Paste a representative payload (or grab from a known synced
+   record).
+3. See in 1 second exactly what would be written to which row in
+   which table — including legacy + generalised mappings side by
+   side.
+
+This closes the confidence gap that made operators reluctant to
+change mappings in the past.
+
+### Files touched
+- MODIFIED: `/app/core/integrations/field_map_apply.php`
+  (new `integrationFieldMapTestPayloadGeneralised`)
+- MODIFIED: `/app/api/admin/integrations/field_map_test.php`
+  (attaches generalised block)
+- MODIFIED: `/app/dashboard/src/pages/FieldMappingStudio.jsx`
+  (Test panel)
+- NEW: `/app/tests/field_mapping_phase3_test_panel_smoke.php`
+
+### Field-mapping rebuild: 100% COMPLETE
+- Phase 1: persist full enriched payload + queryable field index ✓
+- Phase 2: generalised schema + cross-module apply + custom fields ✓
+- Phase 3: Studio UI (payload tree + target picker + save) ✓
+- Phase 3 enhancement: Test panel for confident mapping changes ✓
+- Apply step wired across every JobDiva sync path (placement,
+  company, contact, person) ✓

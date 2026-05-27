@@ -55,6 +55,12 @@ export default function FieldMappingStudio() {
   const [error, setError]             = useState(null);
   const [flash, setFlash]             = useState(null);
 
+  // -- Test-mapping panel state ----------------------------------------
+  const [testOpen, setTestOpen]       = useState(false);
+  const [testInput, setTestInput]     = useState('');
+  const [testBusy, setTestBusy]       = useState(false);
+  const [testResult, setTestResult]   = useState(null);
+
   // -- Load discovery + existing mappings ---------------------------------
   useEffect(() => {
     (async () => {
@@ -140,6 +146,28 @@ export default function FieldMappingStudio() {
       setFlash({ kind: 'success', msg: `Mapping removed.` });
       await reload();
     } catch (e) { setError(e.message || 'Delete failed'); }
+  };
+
+  // Test the configured mappings against a sample payload — no writes.
+  // Operator pastes a JobDiva (or other) record JSON and sees what each
+  // configured rule would resolve to with the actual target identity.
+  const handleTestRun = async () => {
+    setError(null); setTestResult(null);
+    let payload;
+    try {
+      payload = JSON.parse(testInput || '{}');
+    } catch (e) {
+      setError('Sample payload must be valid JSON: ' + (e.message || e));
+      return;
+    }
+    setTestBusy(true);
+    try {
+      const r = await api.post('/api/admin/integrations/field_map_test.php', {
+        integration, entity_type: entityType, payload,
+      });
+      setTestResult(r);
+    } catch (e) { setError(e.message || 'Test failed'); }
+    finally { setTestBusy(false); }
   };
 
   // -- Render -------------------------------------------------------------
@@ -333,8 +361,15 @@ export default function FieldMappingStudio() {
       </div>
 
       {/* === Existing mappings === */}
-      <div data-testid="fms-existing-pane" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12 }}>
-        <div style={{ marginBottom: 8, fontWeight: 600 }}>Existing mappings ({mappings.length})</div>
+      <div data-testid="fms-existing-pane" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ fontWeight: 600 }}>Existing mappings ({mappings.length})</div>
+          <button
+            type="button" className="btn"
+            data-testid="fms-test-toggle"
+            onClick={() => setTestOpen(o => !o)}
+          >{testOpen ? 'Hide test panel' : 'Test mappings…'}</button>
+        </div>
         {mappings.length === 0
           ? <p data-testid="fms-existing-empty" style={emptyHint}>No mappings yet for this (integration, entity_type).</p>
           : (
@@ -373,6 +408,82 @@ export default function FieldMappingStudio() {
             </table>
           )}
       </div>
+
+      {/* === Test panel === */}
+      {testOpen && (
+        <div data-testid="fms-test-pane" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12 }}>
+          <div style={{ marginBottom: 8, fontWeight: 600 }}>Test mappings against a sample payload</div>
+          <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 8px' }}>
+            Paste a raw <code>{integration}</code> <code>{entityType}</code> JSON record (e.g. from
+            the "View raw payload" affordance on any synced record). The configured mappings
+            evaluate read-only — no DB writes. Includes <code>_jd_candidate</code>, <code>_jd_job</code>,
+            <code>_jd_customer</code>, <code>_jd_contact</code> grafts the syncer adds during enrichment.
+          </p>
+          <textarea
+            data-testid="fms-test-input"
+            className="input"
+            rows={8}
+            placeholder='{"placementId": 27857851, "_jd_candidate": {"firstName": "Andrew"}, ...}'
+            value={testInput}
+            onChange={e => setTestInput(e.target.value)}
+            style={{ width: '100%', fontFamily: 'var(--cf-mono, ui-monospace)', fontSize: 12 }}
+          />
+          <div style={{ marginTop: 8, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button
+              type="button" className="btn"
+              onClick={() => { setTestInput(''); setTestResult(null); }}
+              data-testid="fms-test-clear"
+            >Clear</button>
+            <button
+              type="button" className="btn btn--primary"
+              onClick={handleTestRun}
+              disabled={testBusy || !testInput.trim()}
+              data-testid="fms-test-run"
+            >{testBusy ? 'Running…' : 'Run test'}</button>
+          </div>
+          {testResult && (
+            <div data-testid="fms-test-results" style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 12, color: '#475569', marginBottom: 6 }}>
+                <strong>{testResult.generalised?.totals?.matched ?? 0}</strong> of{' '}
+                <strong>{testResult.generalised?.totals?.total ?? 0}</strong> mappings matched in this payload.
+              </div>
+              <table className="data-table" style={{ width: '100%', fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th>#</th><th>Source</th><th>Raw value</th><th>Transform</th><th>Resolved</th><th>Target</th><th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(testResult.generalised?.results || []).map(r => (
+                    <tr
+                      key={r.mapping_id}
+                      data-testid={`fms-test-row-${r.mapping_id}`}
+                      data-matched={r.matched ? 'yes' : 'no'}
+                      style={{ background: r.matched ? '#f0fdf4' : '#fef2f2' }}
+                    >
+                      <td><code>#{r.mapping_id}</code></td>
+                      <td><code style={{ fontSize: 11 }}>{r.source_path}</code></td>
+                      <td style={{ fontSize: 11, color: '#475569' }}>
+                        {r.raw_value === null ? <em>—</em> : String(r.raw_value)}
+                      </td>
+                      <td style={{ fontSize: 11 }}>{r.transform}</td>
+                      <td style={{ fontSize: 11, fontWeight: 600 }}>
+                        {r.resolved_value === null ? <em>—</em> : String(r.resolved_value)}
+                      </td>
+                      <td><code style={{ fontSize: 11 }}>{r.target}</code></td>
+                      <td style={{ fontSize: 11 }}>
+                        {r.matched
+                          ? <span style={{ color: '#15803d' }}>✓ would write</span>
+                          : <span style={{ color: '#991b1b' }}>✗ no value</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }
