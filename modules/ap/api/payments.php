@@ -16,6 +16,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/payment_rails.php';
 require_once __DIR__ . '/../../../core/payment_rails/originate_helpers.php';
 require_once __DIR__ . '/../lib/ap.php';
+require_once __DIR__ . '/../lib/pwp.php';  // apPwpAllocatedBillsAwaitingAr() — 4-way match gate
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
@@ -96,6 +97,41 @@ if ($method === 'GET') {
         $mercuryConnected = $merc && ($merc['status'] ?? '') === 'active';
     } catch (\Throwable $e) {
         $mercuryConnected = false;
+    }
+    // 4-WAY MATCH GATE — attach `pwp_blocked` flag to each row so the
+    // UI can pre-warn / disable Send before the operator clicks. Single
+    // GROUP BY query keeps this O(N) instead of N+1.
+    if ($rows) {
+        try {
+            $pdo = getDB();
+            $ids = array_column($rows, 'id');
+            $place = implode(',', array_fill(0, count($ids), '?'));
+            $st = $pdo->prepare(
+                "SELECT a.payment_id, COUNT(*) AS blocked_count
+                   FROM ap_payment_allocations a
+                   JOIN ap_bills b ON b.id = a.bill_id
+                  WHERE b.tenant_id = ? AND b.pwp_status = 'awaiting_ar'
+                    AND a.payment_id IN ($place)
+                  GROUP BY a.payment_id"
+            );
+            $st->execute(array_merge([$tid], $ids));
+            $blocked = [];
+            foreach ($st->fetchAll(\PDO::FETCH_ASSOC) as $r) {
+                $blocked[(int) $r['payment_id']] = (int) $r['blocked_count'];
+            }
+            foreach ($rows as &$row) {
+                $row['pwp_blocked_count'] = $blocked[(int) $row['id']] ?? 0;
+                $row['pwp_blocked']       = ($row['pwp_blocked_count'] ?? 0) > 0;
+            }
+            unset($row);
+        } catch (\Throwable $e) {
+            // Non-fatal — degrade to "no PWP awareness on the list".
+            foreach ($rows as &$row) {
+                $row['pwp_blocked_count'] = 0;
+                $row['pwp_blocked']       = false;
+            }
+            unset($row);
+        }
     }
     api_ok([
         'rows'                  => $rows,
@@ -180,6 +216,24 @@ if ($method === 'POST' && $action === 'send') {
     $bad = $checkStmt->fetchAll(\PDO::FETCH_ASSOC);
     if ($bad) api_error('Cannot release: bill ' . $bad[0]['internal_ref'] . ' is ' . $bad[0]['status'], 409);
 
+    // 4-WAY MATCH GATE: refuse if any allocated bill is in PWP awaiting_ar.
+    // Pay-when-paid contractually requires the client's AR payment to land
+    // BEFORE the vendor disbursement leaves the building — the AP send/
+    // disburse step is the last enforceable point before money moves.
+    // The release is then automatic via billing.allocate() → apPwpReleaseForArInvoice().
+    $pwpBlocked = apPwpAllocatedBillsAwaitingAr($tid, $id);
+    if ($pwpBlocked) {
+        $first = $pwpBlocked[0];
+        $refs  = array_map(fn ($r) => (string) ($r['internal_ref'] ?? ('#' . $r['id'])), $pwpBlocked);
+        api_error(
+            'Pay-when-paid gate: bill ' . ($first['internal_ref'] ?? ('#' . $first['id']))
+            . ' is awaiting AR invoice #' . ($first['linked_ar_invoice_id'] ?? '?')
+            . '. Vendor disbursement is blocked until the client payment is received.',
+            409,
+            ['code' => 'pwp_awaiting_ar', 'blocked_bill_refs' => $refs, 'blocked_bill_ids' => array_column($pwpBlocked, 'id')]
+        );
+    }
+
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare('UPDATE ap_payments SET status = "sent", sent_at = NOW(), sent_by_user_id = :u WHERE id = :id')
         ->execute(['u' => $user['id'] ?? null, 'id' => $id]);
@@ -224,6 +278,28 @@ if ($method === 'POST' && $action === 'originate_batch') {
         if (!in_array($r['method'], ['ach','plaid'], true)) {
             api_error("Payment #{$r['id']} method={$r['method']} not eligible (must be ach|plaid)", 422);
         }
+    }
+
+    // 4-WAY MATCH GATE (batch path) — refuse the WHOLE batch if any
+    // payment carries a PWP-awaiting-AR bill. Failing fast keeps
+    // half-released batches from happening.
+    $pwpBatchBlocked = [];
+    foreach ($rows as $r) {
+        $blocked = apPwpAllocatedBillsAwaitingAr($tid, (int) $r['id']);
+        if ($blocked) {
+            $pwpBatchBlocked[] = [
+                'payment_id'        => (int) $r['id'],
+                'blocked_bill_refs' => array_map(fn ($b) => (string) ($b['internal_ref'] ?? ('#' . $b['id'])), $blocked),
+            ];
+        }
+    }
+    if ($pwpBatchBlocked) {
+        api_error(
+            'Pay-when-paid gate: ' . count($pwpBatchBlocked)
+            . ' payment(s) in this batch have bills awaiting AR collection. Resolve or de-select them and retry.',
+            409,
+            ['code' => 'pwp_awaiting_ar', 'blocked' => $pwpBatchBlocked]
+        );
     }
 
     // Build all RailItems before opening the transaction. Any failure here =>

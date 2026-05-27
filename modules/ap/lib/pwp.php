@@ -191,6 +191,29 @@ function apPwpClearLink(int $tenantId, int $billId, ?int $actorUserId = null): a
  * NOTE: caller decides when to invoke (full vs partial). We only trigger if
  * the AR invoice's amount_due rounds to 0.
  */
+/**
+ * Return any allocated bills on the given payment that are still
+ * `pwp_status='awaiting_ar'` — i.e. the linked AR invoice hasn't been
+ * fully paid by the client yet. Used as the 4-way match gate before
+ * AP `send` / `originate_batch` actually releases vendor cash.
+ *
+ * Returns rows shaped: [ {id, internal_ref, vendor_name, linked_ar_invoice_id}, ... ]
+ * Empty array means "clear to release".
+ */
+function apPwpAllocatedBillsAwaitingAr(int $tenantId, int $paymentId): array {
+    $pdo = getDB();
+    $st = $pdo->prepare(
+        'SELECT DISTINCT b.id, b.internal_ref, b.vendor_name, b.linked_ar_invoice_id
+           FROM ap_payment_allocations a
+           JOIN ap_bills b ON b.id = a.bill_id
+          WHERE a.payment_id = :p
+            AND b.tenant_id  = :t
+            AND b.pwp_status = "awaiting_ar"'
+    );
+    $st->execute(['p' => $paymentId, 't' => $tenantId]);
+    return $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+}
+
 function apPwpReleaseForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorUserId = null): array {
     $pdo = getDB();
     $inv = $pdo->prepare('SELECT id, amount_due, status FROM billing_invoices WHERE id = :id AND tenant_id = :t');

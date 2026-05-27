@@ -9691,3 +9691,62 @@ Each item: build → smoke → demo curl/screenshot → ✅ → PRD update → n
 - MODIFIED: `/app/modules/treasury/ui/TreasuryModule.jsx`
 - MODIFIED: `/app/modules/treasury/ui/SweepRulesAdmin.jsx`
 - MODIFIED: `/app/core/mercury_recipients.php`
+
+---
+
+## 2026-02 P1.5 — AP 4-Way Match (Pay-When-Paid) Gate Enforcement
+
+### Why
+The user's spec re-audit decision called for a 4th match beyond
+PO + receipt + bill: "Client payment must be received for the same
+hours before vendor payment is releasable." The PWP infrastructure
+(`apPwpAutoLinkForArInvoice`, `apPwpReleaseForArInvoice`,
+`payment_terms='PWP'/PWP_NETxx`, `pwp_status` column, etc.) was
+already mostly built — but the AP `send` / `originate_batch`
+endpoints did NOT actually refuse to release a payment whose
+allocations carried `pwp_status='awaiting_ar'`. Money could leak.
+
+### Fix shipped
+- **`/app/modules/ap/lib/pwp.php`** — new helper
+  `apPwpAllocatedBillsAwaitingAr(tenantId, paymentId)` returns the
+  list of bills allocated to the payment that are still awaiting
+  AR collection. Empty array = clear to release.
+- **`/app/modules/ap/api/payments.php`**:
+  - Requires `lib/pwp.php` at the top.
+  - **Single-action `send`** — after the disputed/void check, calls
+    `apPwpAllocatedBillsAwaitingAr`. Returns HTTP 409 with
+    `code='pwp_awaiting_ar'`, `blocked_bill_refs[]`, and a human
+    message naming the linked AR invoice. Fires BEFORE the row's
+    status flips to `sent`.
+  - **`originate_batch`** — refuses the WHOLE batch if any payment
+    carries an awaiting-AR bill. Failing fast keeps half-released
+    batches from happening. Gate fires BEFORE bank decryption.
+  - **GET list** — attaches `pwp_blocked` (bool) and
+    `pwp_blocked_count` (int) to every row via single GROUP BY
+    query so the UI can pre-warn / disable Send before the operator
+    clicks. Soft-degrades to `pwp_blocked=false` on PDO failure.
+
+### Flow now end-to-end gated
+```
+  AR invoice issued
+    → apPwpAutoLinkForArInvoice() — sibling PWP bills linked,
+      pwp_status='awaiting_ar'
+  → AP payment drafted + allocated
+    → ✘ send/originate_batch REFUSED (this fork's new gate)
+  → client cash lands → billingAllocatePayment()
+    → apPwpReleaseForArInvoice() — pwp_status='triggered',
+      due_date bumped, optional auto-approve
+  → AP payment can now be released. ✔
+```
+
+### Tests
+- New `/app/tests/ap_pwp_four_way_match_smoke.php` — 20 assertions
+  covering helper shape, gate wiring at both send paths, list
+  payload extension, graceful degrade, and traceability proof
+  (release path still wired in billing.php + invoices.php).
+- Full suite: **307/307 ✅**.
+
+### Files touched
+- MODIFIED: `/app/modules/ap/lib/pwp.php` (new helper)
+- MODIFIED: `/app/modules/ap/api/payments.php` (send gate + batch gate + list flag)
+- NEW: `/app/tests/ap_pwp_four_way_match_smoke.php`
