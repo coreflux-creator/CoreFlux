@@ -295,6 +295,12 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
     if ($existingId > 0) {
         // Bind the mapping so future syncs find this person directly.
         mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $existingId, $jd, 'pull', $userId);
+        try {
+            require_once __DIR__ . '/../integrations/field_map_apply.php';
+            integrationFieldMapApplyAll($tid, 'jobdiva', 'person', $jd, ['self' => $existingId]);
+        } catch (\Throwable $e) {
+            error_log('[jobdiva person sync] applyAll failed: ' . $e->getMessage());
+        }
         return $existingId;
     }
 
@@ -319,5 +325,11 @@ function jobdivaPlacementsAutoCreatePerson(int $tid, array $jd, ?int $userId): ?
     ]);
     $newId = (int) $pdo->lastInsertId();
     mappingUpsert($tid, 'jobdiva', 'person', $candidateExtId, $newId, $jd, 'pull', $userId);
+    try {
+        require_once __DIR__ . '/../integrations/field_map_apply.php';
+        integrationFieldMapApplyAll($tid, 'jobdiva', 'person', $jd, ['self' => $newId]);
+    } catch (\Throwable $e) {
+        error_log('[jobdiva person sync] applyAll failed: ' . $e->getMessage());
+    }
     return $newId;
 }

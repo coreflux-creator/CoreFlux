@@ -32,6 +32,7 @@ import RolesReference from './RolesReference';
 import AuditorTokensAdmin from './AuditorTokensAdmin';
 import CrossTenantAuditAdmin from './CrossTenantAuditAdmin';
 import IntegrationFieldMapAdmin from './IntegrationFieldMapAdmin';
+import FieldMappingStudio from './FieldMappingStudio';
 import ApprovalPoliciesAdmin from './ApprovalPoliciesAdmin';
 import GraphqlSandbox from './GraphqlSandbox';
 
@@ -179,6 +180,7 @@ const AdminModule = ({ session }) => {
           <Route path="/integrations/airtable" element={<AirtableSettings session={session} />} />
           <Route path="/integrations/jobdiva" element={<JobDivaSettings session={session} />} />
           <Route path="/integrations/field-map" element={<IntegrationFieldMapAdmin session={session} />} />
+          <Route path="/integrations/field-map/studio" element={<FieldMappingStudio session={session} />} />
           <Route path="/treasury/approval-policies" element={<ApprovalPoliciesAdmin session={session} />} />
           <Route path="/sso"               element={<SsoConfigAdmin session={session} />} />
           <Route path="/mail-branding"     element={<MailBrandingAdmin session={session} />} />

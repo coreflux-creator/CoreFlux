@@ -388,6 +388,13 @@ function jobdivaSyncCompanies(int $tid, ?int $userId, array $opts = []): array
             $companyId = companiesUpsertByName($tid, $name, $patch, ['client']);
 
             mappingUpsert($tid, 'jobdiva', 'company', $extId, $companyId, $jd, 'pull', $userId);
+            // Phase 2 — apply tenant mappings against the BI company payload.
+            try {
+                require_once __DIR__ . '/../integrations/field_map_apply.php';
+                integrationFieldMapApplyAll($tid, 'jobdiva', 'company', $jd, ['self' => $companyId]);
+            } catch (\Throwable $e) {
+                error_log('[jobdiva company sync] applyAll failed: ' . $e->getMessage());
+            }
             $processed++;
         } catch (\Throwable $e) {
             $failed++;
@@ -527,6 +534,12 @@ function jobdivaSyncContacts(int $tid, ?int $userId, array $opts = []): array
 
             $internalId = jobdivaSyncUpsertContact($tid, $companyId, $jd, $name);
             mappingUpsert($tid, 'jobdiva', 'contact', $extId, $internalId, $jd, 'pull', $userId);
+            try {
+                require_once __DIR__ . '/../integrations/field_map_apply.php';
+                integrationFieldMapApplyAll($tid, 'jobdiva', 'contact', $jd, ['self' => $internalId]);
+            } catch (\Throwable $e) {
+                error_log('[jobdiva contact sync] applyAll failed: ' . $e->getMessage());
+            }
             $processed++;
         } catch (\Throwable $e) {
             $failed++;

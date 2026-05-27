@@ -10035,3 +10035,92 @@ behaviour going forward, never a code edit.
 - Save handler posting `source_path` + target_module/table/column +
   linked_entity to the existing `/api/admin/integrations/
   field_map.php` upsert path.
+
+---
+
+## 2026-02 — Field-Mapping Rebuild Phase 2 Extension + Phase 3 UI
+
+### Phase 2 extension — applyAll on every JobDiva sync path
+The first Phase 2 commit only wired the apply step into the
+placement sync. Person, company, and contact BI syncs still wrote
+only the hardcoded columns. Now tenant mappings fire on EVERY
+JobDiva sync path:
+
+- **Company BI sync** (sync.php) — applyAll called with `{self}`
+  context after `mappingUpsert($tid, 'jobdiva', 'company', ...)`.
+- **Contact BI sync** (sync.php) — applyAll called with `{self}`
+  context after the contact upsert.
+- **Person sync** (sync_placements.php) — applyAll fires on BOTH
+  branches: found-existing-by-email AND auto-created-from-payload.
+
+All wrapped in try/catch — apply failures never block the sync.
+
+### Phase 3 — Field Mapping Studio UI
+- **NEW `/app/dashboard/src/pages/FieldMappingStudio.jsx`** —
+  two-pane mapping page wired into the Admin module at
+  `/admin/integrations/field-map/studio`:
+  - **Left pane**: payload tree from
+    `/api/admin/integrations/payload_fields.php` (Phase 1
+    endpoint). Filterable, ranked by occurrence_count, shows
+    sample value + value_type per path.
+  - **Right pane**: writable-targets list from
+    `/api/admin/integrations/writable_targets.php` (Phase 2
+    endpoint). Filterable across module/table/column/description.
+  - **Save bar**: source summary, target summary,
+    `linked_entity` dropdown (self / person / end_client_company
+    / vendor_company / placement_rates / placement_corp_details),
+    transform dropdown, single "Save mapping" button. POSTs the
+    Phase 2 generalised shape to the existing
+    `/api/admin/integrations/field_map.php` upsert path.
+  - **Custom-field branch**: when a target row's `target_column='*'`
+    (the custom_field_values escape hatch) the bar renders a
+    `custom_field_code` input so the operator names the code
+    inline.
+  - **Default linked_entity prefill** — picking a target row that
+    has a `default_linked_entity` pre-fills the linked_entity
+    selector. Operator can override.
+  - **Existing mappings table** at the bottom with per-row
+    Remove buttons.
+- **Banner link** added to the legacy
+  `IntegrationFieldMapAdmin.jsx` pointing operators at the new
+  Studio. Old page still works for tenants using the legacy
+  flat-field shape.
+- **AdminModule route** mounted at
+  `/admin/integrations/field-map/studio`.
+- Vite bundle: `index-CVeOModC.js` / `index-BC5g6YJu.css` synced.
+
+### Tests
+- **NEW `/app/tests/field_mapping_phase3_studio_smoke.php`** — 22
+  assertions covering UI testid coverage, route wiring, legacy-
+  page banner link, and applyAll invocations on every JobDiva
+  sync branch.
+- Full suite: **311/311 ✅**.
+
+### Files touched
+- NEW: `/app/dashboard/src/pages/FieldMappingStudio.jsx`
+- NEW: `/app/tests/field_mapping_phase3_studio_smoke.php`
+- MODIFIED: `/app/dashboard/src/pages/AdminModule.jsx`
+- MODIFIED: `/app/dashboard/src/pages/IntegrationFieldMapAdmin.jsx`
+- MODIFIED: `/app/core/jobdiva/sync.php` (company + contact applyAll)
+- MODIFIED: `/app/core/jobdiva/sync_placements.php` (person applyAll both branches)
+
+### How operators use this now
+1. Trigger any JobDiva sync at least once for the tenant.
+2. Navigate to Admin → Integrations → Field Map → "Open Studio →".
+3. Pick (integration, entity_type) — defaults jobdiva / placement.
+4. Filter the left pane to find the source field (e.g.
+   `_jd_customer.address.city`).
+5. Filter the right pane to find the target (e.g.
+   `companies.city`). Picker pre-fills `linked_entity` to
+   the column's natural owner.
+6. (Optional) Pick a transform.
+7. Click Save. Done — next sync writes the value through.
+
+### Field-mapping rebuild: COMPLETE
+Phases 1 + 2 + 3 ship the system the operator originally asked
+for: "mapping at the integration setting level, entire payload,
+allow mapping by selecting core module + field." Cross-module
+writes work, custom-field writes work, every JobDiva sync path
+applies the registry. Adding a new integration is now: persist
+its payload via mappingUpsert (auto-indexes), wire applyAll into
+its sync path, done.

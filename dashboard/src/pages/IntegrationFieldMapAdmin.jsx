@@ -186,6 +186,29 @@ export default function IntegrationFieldMapAdmin() {
           name and writes it into the chosen CoreFlux column.
         </p>
         <div
+          data-testid="field-map-studio-link-banner"
+          style={{
+            marginTop: '0.75rem', padding: '0.6rem 0.9rem',
+            background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 8,
+            color: '#3730a3', fontSize: 13,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+          }}
+        >
+          <span>
+            <strong>New:</strong> Field Mapping Studio — pick from the actual payload tree the
+            integration has been sending, target any writable column on any module, including
+            custom fields. Old form below still works.
+          </span>
+          <a
+            href="/admin/integrations/field-map/studio"
+            data-testid="field-map-studio-link"
+            style={{
+              padding: '4px 10px', background: '#4f46e5', color: '#fff',
+              borderRadius: 4, fontWeight: 600, textDecoration: 'none', fontSize: 12,
+            }}
+          >Open Studio →</a>
+        </div>
+        <div
           data-testid="field-map-status-banner"
           style={{
             marginTop: '0.75rem',
