@@ -1088,57 +1088,98 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
  */
 function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, array $opts = [], ?array &$diagnostics = null): array
 {
-    // (kind, id-pluck-keys, endpoint, id-body-key, inject-key, broken-flag).
-    // broken-flag is set to true on the first 4xx so subsequent items
-    // skip the endpoint — avoids hammering JobDiva with calls that
-    // can't possibly succeed on this tenant's configuration.
+    // Per-kind config. Each kind can declare MULTIPLE id_options so we
+    // can fall back to a string-based identifier when the numeric one
+    // isn't present in the payload (notably JobDiva's `jobRefNo`,
+    // e.g. "26-03327", when `jobId` itself isn't carried). Each option
+    // has its own body_key so the API call uses the matching parameter.
+    //
+    //   numeric=true   → reject non-digit strings (default for internal ids)
+    //   numeric=false  → accept any non-empty string (ref-style ids)
     $configs = [
         'job'       => [
-            'ids' => ['job id', 'jobId', 'job_id', 'jobID'],
+            'id_options' => [
+                // Preferred: numeric internal job id.
+                ['ids' => ['job id', 'jobId', 'job_id', 'jobID', 'JOBID'],
+                 'body_key' => 'jobId', 'numeric' => true],
+                // Fallback: human-readable JobDiva Job # (e.g. "26-03327").
+                // JobDiva's /apiv2/jobdiva/searchJob accepts {req: "..."}
+                // as an alternative to jobId.
+                ['ids' => ['jobRefNo', 'job ref no', 'job_ref_no', 'jobRefNumber',
+                           'reqNo', 'req_no', 'req'],
+                 'body_key' => 'req', 'numeric' => false],
+            ],
             'endpoint' => '/apiv2/jobdiva/searchJob',
-            'body_key' => 'jobId',
             'inject'   => '_jd_job',
         ],
         'candidate' => [
-            'ids' => ['candidate id', 'candidateId', 'candidate_id', 'employeeId'],
+            'id_options' => [
+                ['ids' => ['candidate id', 'candidateId', 'candidate_id', 'employeeId'],
+                 'body_key' => 'candidateId', 'numeric' => true],
+            ],
             'endpoint' => '/apiv2/jobdiva/searchCandidate',
-            'body_key' => 'candidateId',
             'inject'   => '_jd_candidate',
         ],
         'customer'  => [
-            'ids' => ['customer id', 'customerId', 'customer_id', 'clientId'],
+            'id_options' => [
+                ['ids' => ['customer id', 'customerId', 'customer_id', 'clientId'],
+                 'body_key' => 'customerId', 'numeric' => true],
+            ],
             'endpoint' => '/apiv2/jobdiva/searchCustomer',
-            'body_key' => 'customerId',
             'inject'   => '_jd_customer',
         ],
         'contact'   => [
-            'ids' => ['job contact id', 'jobContactId', 'contactId'],
+            'id_options' => [
+                ['ids' => ['job contact id', 'jobContactId', 'contactId'],
+                 'body_key' => 'contactId', 'numeric' => true],
+            ],
             'endpoint' => '/apiv2/jobdiva/searchContact',
-            'body_key' => 'contactId',
             'inject'   => '_jd_contact',
         ],
         'start'     => [
-            'ids' => ['id', 'startId', 'start_id', 'placementId'],
+            'id_options' => [
+                ['ids' => ['id', 'startId', 'start_id', 'placementId'],
+                 'body_key' => 'startId', 'numeric' => true],
+            ],
             'endpoint' => '/apiv2/jobdiva/searchStart',
-            'body_key' => 'startId',
             'inject'   => '_jd_start',
         ],
     ];
 
-    // Phase 1 — collect unique non-zero IDs per kind across the batch.
+    // Helper — try the kind's id_options in order against one payload.
+    // Returns ['id'=>..., 'body_key'=>...] or null.
+    $pluckIdOption = function (array $cfg, array $jd): ?array {
+        foreach ($cfg['id_options'] as $opt) {
+            $raw = jobdivaPluckField($jd, $opt['ids']);
+            if ($raw === '' || $raw === null) continue;
+            $raw = (string) $raw;
+            if (!empty($opt['numeric'])) {
+                if (!ctype_digit($raw) || (int) $raw <= 0) continue;
+            } else {
+                if (trim($raw) === '') continue;
+            }
+            return ['id' => $raw, 'body_key' => $opt['body_key']];
+        }
+        return null;
+    };
+
+    // Phase 1 — collect unique IDs per kind across the batch, paired
+    // with the body_key each one needs (e.g. "27857851" → "jobId",
+    // "26-03327" → "req").
     $idsByKind = [];
     foreach ($configs as $kind => $cfg) {
-        $idsByKind[$kind] = [];
+        $idsByKind[$kind] = []; // id_string => body_key
         foreach ($items as $jd) {
-            $raw = jobdivaPluckField($jd, $cfg['ids']);
-            if ($raw === '' || !ctype_digit($raw) || (int) $raw <= 0) continue;
-            $idsByKind[$kind][(int) $raw] = true;
+            $pick = $pluckIdOption($cfg, $jd);
+            if ($pick !== null) {
+                $idsByKind[$kind][$pick['id']] = $pick['body_key'];
+            }
         }
     }
 
     // Phase 2 — fetch each unique id once. Soft-fail per id; mark the
     // endpoint broken on first 4xx so we don't keep hammering it.
-    $cache = [];       // [kind][id] => row (assoc array) | null on miss
+    $cache = [];       // [kind][id_string] => row (assoc array) | null on miss
     $brokenEndpoint = [];
     // Per-kind diagnostics — surfaced to operators via the API so they
     // can see exactly which JobDiva endpoints worked vs returned 4xx /
@@ -1160,7 +1201,7 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
     }
     foreach ($configs as $kind => $cfg) {
         if (empty($idsByKind[$kind])) continue;
-        foreach (array_keys($idsByKind[$kind]) as $id) {
+        foreach ($idsByKind[$kind] as $id => $bodyKey) {
             // Don't re-call the start endpoint when the id matches the
             // own row's id (we already HAVE the searchStart payload —
             // it IS this row's payload). This avoids a 1:1 fan-out of
@@ -1179,7 +1220,7 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
             }
             $diag[$kind]['attempted']++;
             try {
-                $resp = jobdivaCall($tid, 'POST', $cfg['endpoint'], [$cfg['body_key'] => $id]);
+                $resp = jobdivaCall($tid, 'POST', $cfg['endpoint'], [$bodyKey => $id]);
                 $body = $resp['body'] ?? [];
                 $rows = $body['data'] ?? $body['items'] ?? (is_array($body) && isset($body[0]) ? $body : []);
                 if (is_array($rows) && count($rows) > 0 && is_array($rows[0])) {
@@ -1191,7 +1232,7 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
                 }
             } catch (\Throwable $e) {
                 $msg = $e->getMessage();
-                error_log("[jobdiva] enrich {$kind} id={$id} failed: {$msg}");
+                error_log("[jobdiva] enrich {$kind} id={$id} body_key={$bodyKey} failed: {$msg}");
                 $diag[$kind]['failed']++;
                 if ($diag[$kind]['sample_error'] === null) {
                     $diag[$kind]['sample_error'] = substr($msg, 0, 240);
@@ -1213,11 +1254,11 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
     // title pluck logic keeps working without changes.
     foreach ($items as &$jd) {
         foreach ($configs as $kind => $cfg) {
-            $raw = jobdivaPluckField($jd, $cfg['ids']);
-            if ($raw === '' || !ctype_digit($raw)) continue;
-            $id = (int) $raw;
-            if (!isset($cache[$kind][$id]) || $cache[$kind][$id] === null) continue;
-            $jd[$cfg['inject']] = $cache[$kind][$id];
+            $pick = $pluckIdOption($cfg, $jd);
+            if ($pick === null) continue;
+            $idStr = $pick['id'];
+            if (!isset($cache[$kind][$idStr]) || $cache[$kind][$idStr] === null) continue;
+            $jd[$cfg['inject']] = $cache[$kind][$idStr];
         }
         // Legacy convenience field for the title pluck chain.
         if (isset($jd['_jd_job']) && is_array($jd['_jd_job'])) {

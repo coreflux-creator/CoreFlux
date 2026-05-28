@@ -10921,3 +10921,75 @@ Root cause was two-fold:
    **Re-index again** pulls every field. **Auto-map** suggester
    then proposes targets for the hundred-plus new mappable paths.
 
+
+---
+
+## 2026-02 — Enricher now uses `jobRefNo → req` fallback to pull full Job records
+
+### Why
+Operator: "we're still only getting one job field. why can't we use
+the jobID to pull the job details?" with a screenshot showing
+**JobDiva Job # 26-03327** as the visible identifier.
+
+Root cause: the enricher's id-pluck pipeline required `ctype_digit`
+on every plucked value — a hard gate that **rejected JobDiva's
+`jobRefNo` because it contains a dash** (`"26-03327"`). So even when
+the placement payload carried a valid job identifier, the enricher
+discarded it, never called `/apiv2/jobdiva/searchJob`, `_jd_job`
+stayed empty, and the `job` entity ended up with just one path
+(`refNo`, from the flat-prefix extractor).
+
+### What shipped
+- **Multi-id-option per kind** in the enricher config. Each kind now
+  declares an ordered list of `id_options`, each with its own
+  `body_key` and `numeric` flag:
+  ```php
+  'job' => [
+      'id_options' => [
+          ['ids' => ['job id', 'jobId', 'job_id', 'jobID', 'JOBID'],
+           'body_key' => 'jobId', 'numeric' => true],
+          // NEW: JobDiva Job # fallback (e.g. "26-03327")
+          ['ids' => ['jobRefNo', 'job ref no', 'job_ref_no',
+                     'jobRefNumber', 'reqNo', 'req_no', 'req'],
+           'body_key' => 'req', 'numeric' => false],
+      ],
+      'endpoint' => '/apiv2/jobdiva/searchJob',
+      'inject'   => '_jd_job',
+  ],
+  ```
+- **`pluckIdOption()` helper** runs the options in order, returns the
+  first match with its `body_key`, soft-validates numeric vs string.
+- **`$idsByKind[$kind]` is now `id_string => body_key`** so each id
+  carries its own JobDiva API parameter name.
+- **Phase 2** uses the per-id `$bodyKey` when calling `jobdivaCall`
+  — same id can be sent as `{jobId: 27857851}` or `{req: "26-03327"}`
+  depending on what the payload had.
+- **Phase 3 (injection)** also uses `pluckIdOption()`, so a placement
+  whose payload had only `jobRefNo` still gets its `_jd_job` filled
+  with the searchJob response.
+
+### Tests
+- Updated `tests/jobdiva_related_enrich_smoke.php` — **20 ✓** with
+  five new assertions for the multi-id-option config shape,
+  `pluckIdOption` helper, per-id body_key call site, and Phase 3
+  injection.
+- Full suite: **322/323** stable (1 pre-existing DB-conn failure).
+- Vite bundle synced: `index-DGSh3UVR.js`.
+
+### Files touched
+- MODIFIED: `core/jobdiva/sync.php` (enricher Phase 1/2/3)
+- MODIFIED: `tests/jobdiva_related_enrich_smoke.php`
+
+### Net effect
+On the operator's next **Re-index again** click, JobDiva's
+`/apiv2/jobdiva/searchJob` is now called for every unique
+`jobRefNo` in their 58 placements (via `{req: "26-03327"}`). When
+the endpoint succeeds, `_jd_job` carries the FULL job record —
+title, description, department, dates, status, contacts, salary,
+required skills, posting URLs, etc. — and the extractor routes
+those fields under `entity_type='job'`. The Per-endpoint
+diagnostics table will now show `job · /apiv2/jobdiva/searchJob`
+with the actual ids_seen / succeeded / sample_error so the
+operator can confirm it worked (or escalate to JobDiva admin if it
+returns 4xx).
+

@@ -57,7 +57,7 @@ $assert('configs start kind for opt-in detail enrichment',
 
 echo "\njobdivaSyncEnrichRelatedEntities — fan-out hygiene\n";
 $assert('dedupes ids per kind so 100 placements at one client = 1 fetch',
-    strpos($sync, '$idsByKind[$kind][(int) $raw] = true;') !== false);
+    strpos($sync, '$idsByKind[$kind][$pick[\'id\']] = $pick[\'body_key\'];') !== false);
 $assert('skips start re-fetch by default, opt-in via opts.enrich_start',
     strpos($sync, "if (\$kind === 'start' && empty(\$opts['enrich_start']))") !== false
     && strpos($sync, "\$diag[\$kind]['skipped_self']++") !== false);
@@ -67,7 +67,7 @@ $assert('marks an endpoint broken on first 4xx so we stop hammering it',
 
 echo "\njobdivaSyncEnrichRelatedEntities — injection\n";
 $assert("each placement gets `_jd_<kind>` injected when cache has the row",
-    strpos($sync, "\$jd[\$cfg['inject']] = \$cache[\$kind][\$id];") !== false);
+    strpos($sync, "\$jd[\$cfg['inject']] = \$cache[\$kind][\$idStr];") !== false);
 $assert('preserves __cf_resolved_job_title legacy hint from _jd_job.title',
     strpos($sync, "if (isset(\$jd['_jd_job']) && is_array(\$jd['_jd_job']))") !== false
     && strpos($sync, "\$jd['__cf_resolved_job_title'] = \$title;") !== false);
@@ -84,6 +84,23 @@ $assert('bill_rate default falls through to _jd_start.finalBillRate',
     strpos($sync, "isset(\$jd['_jd_start']) && is_array(\$jd['_jd_start'])\n                ? jobdivaPluckField(\$jd['_jd_start'], [\n                    'finalBillRate', 'billRate', 'final_bill_rate', 'bill_rate',\n                ])") !== false);
 $assert('pay_rate default falls through to _jd_start.payRate',
     strpos($sync, "'payRate', 'agreedPayRate', 'pay_rate', 'agreed_pay_rate'") !== false);
+
+echo "\nMulti-id-option support — jobRefNo fallback to /searchJob via req\n";
+$assert('job kind declares id_options with numeric jobId + string req',
+    strpos($sync, "'job'       => [\n            'id_options' => [") !== false
+    && strpos($sync, "'body_key' => 'jobId', 'numeric' => true") !== false
+    && strpos($sync, "'body_key' => 'req', 'numeric' => false") !== false);
+$assert('req fallback pluck list includes jobRefNo + reqNo + req',
+    strpos($sync, "'jobRefNo', 'job ref no', 'job_ref_no', 'jobRefNumber'") !== false
+    && strpos($sync, "'reqNo', 'req_no', 'req'") !== false);
+$assert('shared pluckIdOption helper enforces numeric flag',
+    strpos($sync, '$pluckIdOption = function (array $cfg, array $jd)') !== false
+    && strpos($sync, 'if (!ctype_digit($raw) || (int) $raw <= 0) continue;') !== false);
+$assert('Phase 2 uses per-id body_key when calling jobdivaCall',
+    strpos($sync, 'jobdivaCall($tid, \'POST\', $cfg[\'endpoint\'], [$bodyKey => $id])') !== false);
+$assert('Phase 3 uses pluckIdOption helper for injection',
+    strpos($sync, '$pick = $pluckIdOption($cfg, $jd);') !== false
+    && strpos($sync, '$idStr = $pick[\'id\'];') !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);
