@@ -42,18 +42,20 @@ $a('payload_field_index.php required at top of sync',
     str_contains($sync, "require_once __DIR__ . '/../integrations/payload_field_index.php'"));
 $a('jobdivaIndexJoinedSubPayloads function declared',
     str_contains($sync, 'function jobdivaIndexJoinedSubPayloads(int $tenantId, array $enrichedPayload): void'));
-$a('helper maps _jd_candidate → person',
+$a('helper delegates to jobdivaExtractJoinedSubPayloads',
+    str_contains($sync, '$subs = jobdivaExtractJoinedSubPayloads($enrichedPayload);'));
+$a('extractor maps _jd_candidate → person',
     str_contains($sync, "'_jd_candidate' => 'person'"));
-$a('helper maps _jd_job → job',
+$a('extractor maps _jd_job → job',
     str_contains($sync, "'_jd_job'       => 'job'"));
-$a('helper maps _jd_customer → jobdiva_customer',
+$a('extractor maps _jd_customer → jobdiva_customer',
     str_contains($sync, "'_jd_customer'  => 'jobdiva_customer'"));
-$a('helper maps _jd_contact → contact',
+$a('extractor maps _jd_contact → contact',
     str_contains($sync, "'_jd_contact'   => 'contact'"));
-$a('helper maps _jd_start → assignment',
+$a('extractor maps _jd_start → assignment',
     str_contains($sync, "'_jd_start'     => 'assignment'"));
 $a('helper calls integrationPayloadFieldIndexRecord per sub-record',
-    str_contains($sync, "integrationPayloadFieldIndexRecord(\$tenantId, 'jobdiva', \$entityType, \$sub)"));
+    str_contains($sync, "integrationPayloadFieldIndexRecord(\$tenantId, 'jobdiva', \$entityType, \$subPayload)"));
 $a('helper swallows errors so indexing failures never block sync',
     preg_match('/jobdivaIndexJoinedSubPayloads.*?catch \(\\\\Throwable \$e\)/s', $sync) === 1);
 
@@ -66,15 +68,16 @@ $a('invocation wrapped in try/catch — best-effort',
 
 // 3) applyAll fires for each joined entity type with its sub-payload.
 echo "\n3. applyAll wired per joined entity\n";
-$a('JOINED_APPLY table declared with all five entities',
-    str_contains($sync, 'static $JOINED_APPLY = [')
-    && str_contains($sync, "['_jd_candidate', 'person',            'person'")
-    && str_contains($sync, "['_jd_job',       'job',               'self'")
-    && str_contains($sync, "['_jd_customer',  'jobdiva_customer',  'end_client_company'")
-    && str_contains($sync, "['_jd_contact',   'contact',           'self'")
-    && str_contains($sync, "['_jd_start',     'assignment',        'self'"));
-$a('per-entity applyAll invocation present',
-    str_contains($sync, "integrationFieldMapApplyAll(\$tid, 'jobdiva', \$joinedEntity, \$jd[\$subKey], \$ctx)"));
+$a('JOINED_CTX table declared with person/job/customer/contact/assignment',
+    str_contains($sync, 'static $JOINED_CTX = [')
+    && str_contains($sync, "'person'           => 'person'")
+    && str_contains($sync, "'job'              => 'self'")
+    && str_contains($sync, "'jobdiva_customer' => 'end_client_company'")
+    && str_contains($sync, "'contact'          => 'self'")
+    && str_contains($sync, "'assignment'       => 'self'"));
+$a('per-entity applyAll iterates extracted sub-payloads',
+    str_contains($sync, 'jobdivaExtractJoinedSubPayloads($jd)')
+    && str_contains($sync, "integrationFieldMapApplyAll(\$tid, 'jobdiva', \$joinedEntity, \$subPayload, \$ctx)"));
 $a('joined applyAll wrapped in try/catch',
     preg_match("/integrationFieldMapApplyAll\(\\\$tid, 'jobdiva', \\\$joinedEntity.*?catch \(\\\\Throwable \\\$e\)/s", $sync) === 1);
 

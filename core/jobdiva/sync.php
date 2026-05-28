@@ -966,35 +966,36 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
 
                 // Also apply mappings stored UNDER the joined entity
                 // types (person/job/jobdiva_customer/contact/assignment),
-                // treating each enriched sub-record as the source
-                // payload. This is how the Field Mapping Studio's
-                // entity-type dropdown becomes useful: an operator can
-                // pick entity_type='person', map `firstName → people.first_name`,
-                // and the placement sync will honour it because the
-                // _jd_candidate sub-record is the active payload.
-                static $JOINED_APPLY = [
-                    ['_jd_candidate', 'person',            'person',             ['person']],
-                    ['_jd_job',       'job',               'self',               []],
-                    ['_jd_customer',  'jobdiva_customer',  'end_client_company', ['end_client_company']],
-                    ['_jd_contact',   'contact',           'self',               []],
-                    ['_jd_start',     'assignment',        'self',               []],
+                // treating each EXTRACTED sub-record (from nested _jd_*
+                // OR flat prefix-keyed fields like candidate_first_name)
+                // as the source payload. This is how the Field Mapping
+                // Studio's entity-type dropdown becomes useful end-to-end:
+                // an operator picks entity_type='person', maps
+                // `first_name → people.first_name`, and the placement
+                // sync honours it because the extracted candidate sub-
+                // record is the active payload.
+                static $JOINED_CTX = [
+                    'person'           => 'person',
+                    'job'              => 'self',
+                    'jobdiva_customer' => 'end_client_company',
+                    'contact'          => 'self',
+                    'assignment'       => 'self',
                 ];
-                foreach ($JOINED_APPLY as [$subKey, $joinedEntity, $selfSlug, $extraSlugs]) {
-                    if (empty($jd[$subKey]) || !is_array($jd[$subKey])) continue;
+                $joinedSubs = jobdivaExtractJoinedSubPayloads($jd);
+                foreach ($joinedSubs as $joinedEntity => $subPayload) {
+                    if (empty($subPayload)) continue;
+                    $selfSlug = $JOINED_CTX[$joinedEntity] ?? 'self';
                     $ctx = [
-                        'self'               => $selfSlug === 'person'             ? ($personId ?? 0)
-                                              : ($selfSlug === 'end_client_company' ? ($endClientCompanyId ?? 0)
-                                              : $internalId),
-                        'person'             => $personId ?? 0,
-                        'end_client_company' => $endClientCompanyId ?? 0,
-                        // Placement context still reachable via these
-                        // for joined-entity mappings that want to write
-                        // back onto the placement row itself.
+                        'self'                   => ($selfSlug === 'person')             ? ($personId ?? 0)
+                                                  : (($selfSlug === 'end_client_company') ? ($endClientCompanyId ?? 0)
+                                                  : $internalId),
+                        'person'                 => $personId ?? 0,
+                        'end_client_company'     => $endClientCompanyId ?? 0,
                         'placement_rates'        => $internalId,
                         'placement_corp_details' => $internalId,
                     ];
                     try {
-                        integrationFieldMapApplyAll($tid, 'jobdiva', $joinedEntity, $jd[$subKey], $ctx);
+                        integrationFieldMapApplyAll($tid, 'jobdiva', $joinedEntity, $subPayload, $ctx);
                     } catch (\Throwable $e) {
                         error_log('[jobdiva placement sync] joined applyAll ' . $joinedEntity . ' failed: ' . $e->getMessage());
                     }
@@ -1215,52 +1216,209 @@ function jobdivaSyncResolveJobTitles(int $tid, array $items, ?int $userId): arra
 }
 
 /**
- * Index every joined sub-record (_jd_candidate, _jd_job, _jd_customer,
- * _jd_contact, _jd_start) of an enriched placement payload UNDER ITS
- * OWN entity_type, so the Field Mapping Studio surfaces paths for
- * `person`, `job`, `jobdiva_customer`, `contact`, `assignment` even
- * without separate top-level JobDiva endpoints for those entities.
+ * Extract every joined sub-record out of a JobDiva placement payload —
+ * BOTH from nested `_jd_*` enrichment objects AND from flat prefix-keyed
+ * fields that the BI feed already carries (`job_id`, `candidate_first_name`,
+ * `customer_address1`, etc.).
  *
- * Why this exists: JobDiva's V2 BI only ships
- * NewUpdatedCompanyRecords / NewUpdatedContactRecords / NewUpdated
- * TimesheetRecords + searchStart. There's no NewUpdatedJobRecords or
- * NewUpdatedCandidateRecords delta feed. But every placement we pull
- * is enriched with the full Job, Candidate, Customer, Contact, and
- * Start detail. By indexing each of those sub-records under its own
- * entity_type, the picker shows real, sample-rich paths for every
- * domain entity the operator might want to map — without needing a
- * separate sync driver per entity.
+ * Why both: JobDiva's V2 BI placement payload is already populated with
+ * `job_*` / `candidate_*` / `customer_*` flat fields about the joined
+ * entities. The optional `_jd_*` enrichment fans them out as nested
+ * objects when the per-entity REST endpoints are reachable, but those
+ * endpoints often 404 on a tenant's install. By extracting from both
+ * sources we make the Field Mapping Studio see joined-entity fields
+ * EVEN WITHOUT the optional enrichment endpoints.
  *
- * Side-effect only — never throws. Failures are logged + swallowed
- * because the indexer is best-effort.
+ * Returns an associative array keyed by CoreFlux entity_type:
+ *   [
+ *     'person'           => [first_name=>..., last_name=>..., email=>...],
+ *     'job'              => [id=>..., title=>..., contact_id=>..., dept=>...],
+ *     'jobdiva_customer' => [id=>..., name=>..., address1=>..., city=>...],
+ *     'contact'          => [id=>..., name=>..., email=>...],
+ *     'assignment'       => [pay_rate=>..., bill_rate=>..., start_date=>...],
+ *   ]
  *
- * Map sub-record → entity_type:
- *   _jd_candidate → 'person'
- *   _jd_job       → 'job'
- *   _jd_customer  → 'jobdiva_customer'
- *   _jd_contact   → 'contact'
- *   _jd_start     → 'assignment'
+ * Buckets with zero extracted fields are omitted entirely so callers can
+ * loop over the result without empty-check noise.
+ *
+ * Conservative prefix list — we only fan-out keys that are UNAMBIGUOUSLY
+ * about a joined entity. Placement-level fields that happen to MENTION
+ * a joined entity (e.g. `pay_rate` belongs to the placement, not the
+ * job) stay under entity_type=placement where they belong.
  */
-function jobdivaIndexJoinedSubPayloads(int $tenantId, array $enrichedPayload): void
+function jobdivaExtractJoinedSubPayloads(array $enriched): array
 {
-    if ($tenantId <= 0) return;
-    static $SUB_RECORD_TYPES = [
+    $out = [
+        'person'           => [],
+        'job'              => [],
+        'jobdiva_customer' => [],
+        'contact'          => [],
+        'assignment'       => [],
+    ];
+
+    // 1) Nested _jd_* enrichment objects (when available).
+    static $NESTED_MAP = [
         '_jd_candidate' => 'person',
         '_jd_job'       => 'job',
         '_jd_customer'  => 'jobdiva_customer',
         '_jd_contact'   => 'contact',
         '_jd_start'     => 'assignment',
     ];
-    foreach ($SUB_RECORD_TYPES as $key => $entityType) {
-        if (!isset($enrichedPayload[$key]) || !is_array($enrichedPayload[$key])) continue;
-        $sub = $enrichedPayload[$key];
-        if (empty($sub)) continue;
+    foreach ($NESTED_MAP as $nestKey => $entityType) {
+        if (isset($enriched[$nestKey]) && is_array($enriched[$nestKey]) && !empty($enriched[$nestKey])) {
+            // Merge nested-record fields into the bucket. The nested record
+            // is authoritative when both sources have the same key.
+            $out[$entityType] = $enriched[$nestKey] + $out[$entityType];
+        }
+    }
+
+    // 2) Flat prefix extraction — handles snake_case (job_id, candidate_first_name)
+    //    AND camelCase (jobId, candidateFirstName, customerName). The matching
+    //    list is intentionally narrow — only well-known joined-entity prefixes
+    //    that JobDiva BI uses.
+    static $PREFIX_MAP = [
+        // prefix (lowercase) → CoreFlux entity_type
+        'candidate' => 'person',
+        'employee'  => 'person',
+        'job'       => 'job',
+        'customer'  => 'jobdiva_customer',
+        // 'contact' is deliberately omitted from flat extraction — JobDiva
+        // uses `job_contact_*` which we want under entity_type='job' (the
+        // hiring contact is an attribute of the job, not a separate entity
+        // at the BI level).
+        // 'start' is deliberately omitted — `start_date` etc. are placement-
+        // level attributes, not assignment-record attributes.
+    ];
+
+    foreach ($enriched as $k => $v) {
+        if (!is_string($k)) continue;
+        // Skip nested objects (handled above) + skip CoreFlux-internal keys.
+        if (is_array($v)) continue;
+        if (str_starts_with($k, '_jd_')) continue;
+        if (str_starts_with($k, '__')) continue;
+
+        foreach ($PREFIX_MAP as $prefix => $entityType) {
+            $stripped = null;
+            // snake_case: candidate_first_name → first_name
+            if (str_starts_with($k, $prefix . '_')) {
+                $stripped = substr($k, strlen($prefix) + 1);
+            }
+            // camelCase: candidateFirstName → firstName
+            elseif (str_starts_with($k, $prefix)
+                    && strlen($k) > strlen($prefix)
+                    && ctype_upper($k[strlen($prefix)])) {
+                $tail = substr($k, strlen($prefix));
+                $stripped = lcfirst($tail);
+            }
+            if ($stripped !== null && $stripped !== '') {
+                // Don't overwrite an existing value (nested _jd_* wins).
+                if (!array_key_exists($stripped, $out[$entityType])) {
+                    $out[$entityType][$stripped] = $v;
+                }
+                break; // matched one prefix; don't try others.
+            }
+        }
+    }
+
+    // Drop empty buckets — callers shouldn't care about them.
+    return array_filter($out, fn($sub) => !empty($sub));
+}
+
+/**
+ * Index every joined sub-record of an enriched placement payload UNDER
+ * ITS OWN entity_type so the Field Mapping Studio surfaces paths for
+ * `person`, `job`, `jobdiva_customer`, `contact`, `assignment` even
+ * without separate top-level JobDiva endpoints for those entities.
+ *
+ * Side-effect only — never throws. Failures are logged + swallowed
+ * because the indexer is best-effort.
+ */
+function jobdivaIndexJoinedSubPayloads(int $tenantId, array $enrichedPayload): void
+{
+    if ($tenantId <= 0) return;
+    $subs = jobdivaExtractJoinedSubPayloads($enrichedPayload);
+    foreach ($subs as $entityType => $subPayload) {
+        if (empty($subPayload)) continue;
         try {
-            integrationPayloadFieldIndexRecord($tenantId, 'jobdiva', $entityType, $sub);
+            integrationPayloadFieldIndexRecord($tenantId, 'jobdiva', $entityType, $subPayload);
         } catch (\Throwable $e) {
             error_log('[jobdivaIndexJoinedSubPayloads] ' . $entityType . ' index failed: ' . $e->getMessage());
         }
     }
+}
+
+/**
+ * One-shot backfill: walk every existing placement `payload_snapshot`
+ * already stored in external_entity_mappings for this tenant, extract
+ * the joined sub-records, and index them under their own entity_types.
+ *
+ * Critical for operators on existing tenants: prior placement syncs
+ * stored full payloads but only indexed them under entity_type=placement.
+ * Without this backfill, the operator would have to trigger a brand
+ * new JobDiva sync just to populate the picker for person / job /
+ * customer / contact / assignment.
+ *
+ * Idempotent: re-running just bumps `occurrence_count` on existing
+ * indexed paths (via integrationPayloadFieldIndexRecord's UPSERT).
+ *
+ * @return array{placements_walked:int, sub_records_indexed:array<string,int>}
+ */
+function jobdivaBackfillJoinedIndexes(int $tenantId): array
+{
+    $summary = [
+        'placements_walked'   => 0,
+        'sub_records_indexed' => [
+            'person'           => 0,
+            'job'              => 0,
+            'jobdiva_customer' => 0,
+            'contact'          => 0,
+            'assignment'       => 0,
+        ],
+    ];
+    if ($tenantId <= 0) return $summary;
+
+    try {
+        $pdo = getDB();
+    } catch (\Throwable $e) {
+        error_log('[jobdivaBackfillJoinedIndexes] no_db: ' . $e->getMessage());
+        return $summary;
+    }
+
+    try {
+        $st = $pdo->prepare(
+            "SELECT payload_snapshot
+               FROM external_entity_mappings
+              WHERE tenant_id = :t
+                AND source_system = 'jobdiva'
+                AND internal_entity_type = 'placement'
+                AND payload_snapshot IS NOT NULL"
+        );
+        $st->execute(['t' => $tenantId]);
+    } catch (\Throwable $e) {
+        error_log('[jobdivaBackfillJoinedIndexes] query failed: ' . $e->getMessage());
+        return $summary;
+    }
+
+    while ($row = $st->fetch(\PDO::FETCH_ASSOC)) {
+        $snap = $row['payload_snapshot'];
+        if (!is_string($snap) || $snap === '') continue;
+        $payload = json_decode($snap, true);
+        if (!is_array($payload)) continue;
+        $summary['placements_walked']++;
+        $subs = jobdivaExtractJoinedSubPayloads($payload);
+        foreach ($subs as $entityType => $sub) {
+            if (empty($sub)) continue;
+            try {
+                $n = integrationPayloadFieldIndexRecord($tenantId, 'jobdiva', $entityType, $sub);
+                if ($n > 0 && isset($summary['sub_records_indexed'][$entityType])) {
+                    $summary['sub_records_indexed'][$entityType]++;
+                }
+            } catch (\Throwable $e) {
+                error_log('[jobdivaBackfillJoinedIndexes] index ' . $entityType . ': ' . $e->getMessage());
+            }
+        }
+    }
+    return $summary;
 }
 
 

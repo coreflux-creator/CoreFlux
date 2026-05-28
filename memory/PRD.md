@@ -10406,6 +10406,123 @@ fired with entity_type='placement', so the mapping never wrote.
    `(N indexed paths)` so the operator picks the richest source.
 3. Pick e.g. **entity_type=person**. Left pane shows the 👤 Person
    root group with real candidate fields — `firstName`, `lastName`,
+
+---
+
+## 2026-02 — JobDiva: extract joined sub-records from flat prefix fields + backfill from existing payloads
+
+### Why (root cause, finally)
+After three rounds of iterating, the user was still blocked:
+"Close, but you're still not getting it. This is a lot of iterations
+for something not that complicated."
+
+The screenshot showed `placement (58)` as the only indexed source
+even after multiple syncs. Two root causes were missed:
+
+1. **JobDiva V2 BI placements already carry joined-entity data as
+   FLAT prefix fields** (`job_id`, `job_contact_id`, `candidate_*`,
+   `customer_*`, `customerName`, `jobTitle`), regardless of whether
+   the optional `/apiv2/jobdiva/searchCandidate` / `searchJob` /
+   `searchCustomer` enrichment endpoints are reachable on the
+   tenant's install. Prior iterations only looked at the nested
+   `_jd_*` enrichment objects, which can be empty if those
+   endpoints 404.
+2. **Existing placement payloads were never re-indexed.** The
+   joined-entity indexing side-effect only fired on *new* placement
+   syncs, so a tenant with 58 placements already in the database
+   would never see Person / Job / Customer / Contact / Assignment
+   in the picker without triggering a fresh JobDiva HTTP sync.
+
+### What shipped
+- **NEW `jobdivaExtractJoinedSubPayloads(array $payload): array`**
+  in `core/jobdiva/sync.php` — fan-out that recognises BOTH:
+  - Flat snake_case prefixes (`candidate_first_name`, `job_id`,
+    `customer_address1`, `employee_phone`)
+  - Flat camelCase prefixes (`candidateFirstName`, `jobTitle`,
+    `customerCity`)
+  - Nested `_jd_*` enrichment objects (when available, they
+    override flat prefixes on key collisions)
+  Returns a per-entity-type sub-record dict:
+  `{person:{...}, job:{...}, jobdiva_customer:{...}, contact:{...}, assignment:{...}}`.
+  Empty buckets dropped.
+
+- **`jobdivaIndexJoinedSubPayloads()` rewritten** to delegate to
+  the extractor and index each non-empty bucket under its own
+  entity_type via `integrationPayloadFieldIndexRecord`.
+
+- **NEW `jobdivaBackfillJoinedIndexes(int $tenantId): array`** —
+  walks every existing `external_entity_mappings` row with
+  `source_system='jobdiva'`, `internal_entity_type='placement'`,
+  `payload_snapshot IS NOT NULL`, decodes the JSON, and indexes
+  each joined sub-record under its entity_type. Idempotent (just
+  bumps `occurrence_count`). Returns
+  `{placements_walked, sub_records_indexed:{person,job,jobdiva_customer,contact,assignment}}`.
+
+- **NEW `POST /api/admin/integrations/reindex_jobdiva_subpayloads.php`** —
+  thin endpoint over the backfill helper. RBAC-gated by
+  `tenant_admin.integrations`. Returns the same counter shape.
+
+- **Placement sync apply fan-out** now uses the extractor — every
+  placement sync calls `integrationFieldMapApplyAll` once per
+  joined entity type with the extracted sub-record as the source,
+  so mappings stored under `entity_type=person` (etc.) actually
+  write on every pull.
+
+- **Field Mapping Studio**:
+  - **NEW `fms-jobdiva-reindex-banner`** above the source/target
+    panes when integration=jobdiva. Yellow when joined entities
+    are unindexed (warning state), green once they're indexed.
+    Shows the placement path count and surfaces last-run counters
+    via `fms-jobdiva-reindex-result`.
+  - **NEW button `fms-jobdiva-reindex-btn`** (testid stable for
+    automation) — POSTs the re-index endpoint, refreshes sources +
+    pane, shows a flash with totals.
+  - **Auto-trigger** silent re-index on first Studio load if
+    JobDiva has `placement` paths indexed but no joined entity
+    sources — eliminates the need for the operator to know about
+    the button.
+  - `reloadSources()` helper factored so the auto-trigger and
+    manual button share a single refresh path.
+
+### Tests
+- NEW `/app/tests/jobdiva_subpayload_extraction_smoke.php` — **39 ✓**
+  with executable extractor assertions against synthetic flat /
+  nested / mixed payloads.
+- Updated `/app/tests/jobdiva_joined_entity_indexing_smoke.php` to
+  match the rewritten helper + extractor-based applyAll fan-out
+  (**23 ✓**).
+- Full suite: **319/320** stable (1 pre-existing DB-connection
+  failure, unrelated).
+- Vite bundle: `index-BC0Pkd6w.js` synced.
+
+### Files touched
+- MODIFIED: `core/jobdiva/sync.php` (extractor + backfill +
+  applyAll fan-out)
+- NEW:      `api/admin/integrations/reindex_jobdiva_subpayloads.php`
+- MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx` (banner +
+  button + auto re-index)
+- NEW:      `tests/jobdiva_subpayload_extraction_smoke.php`
+- MODIFIED: `tests/jobdiva_joined_entity_indexing_smoke.php`
+
+### How operators actually use it now
+1. Open Admin → Integrations → **Field Mapping Studio** (or the
+   JobDiva Settings CTA).
+2. If the tenant has any existing JobDiva placement payloads, the
+   Studio silently runs the backfill in the background AND surfaces
+   a banner offering an explicit "Re-index now" button.
+3. Within ~1 second, the entity-type dropdown surfaces
+   `person (N)`, `job (N)`, `jobdiva_customer (N)`, `assignment (N)`
+   (and `contact (N)` if the enrichment endpoint was reachable).
+4. Switch dropdown to `person`. Left pane shows real candidate
+   fields (`first_name`, `last_name`, `email`, `phone`, etc.) with
+   sample values pulled from real placement payloads.
+5. Map them to `people.first_name`, `people.email_primary`, etc.
+6. Same flow for `job` → `placements.title` (etc.),
+   `jobdiva_customer` → `companies.*` on the end-client,
+   `assignment` → `placement_rates.*`.
+7. The next JobDiva placement sync honours every joined-entity
+   mapping with the extracted sub-record as its source.
+
    `email`, `phone`, `address`, etc. — with sample values.
 4. Map `firstName → people.first_name`, `lastName → people.last_name`,
    etc. Save. Repeat for `job` (→ placements.title), `assignment`

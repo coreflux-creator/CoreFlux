@@ -132,15 +132,74 @@ export default function FieldMappingStudio() {
   const [testBusy, setTestBusy]       = useState(false);
   const [testResult, setTestResult]   = useState(null);
 
+  // -- Re-index existing JobDiva placements -----------------------------
+  const [reindexBusy, setReindexBusy] = useState(false);
+  const [reindexResult, setReindexResult] = useState(null);
+  const [reindexedThisSession, setReindexedThisSession] = useState(false);
+
+  const reloadSources = async () => {
+    try {
+      const r = await api.get('/api/admin/integrations/payload_fields.php');
+      setSources(r.sources || []);
+      return r.sources || [];
+    } catch (e) { setError(e.message); return []; }
+  };
+
+  const handleReindex = async (silent = false) => {
+    if (reindexBusy) return null;
+    setReindexBusy(true);
+    if (!silent) setError(null);
+    try {
+      const r = await api.post('/api/admin/integrations/reindex_jobdiva_subpayloads.php', {});
+      setReindexResult(r);
+      setReindexedThisSession(true);
+      // Refresh sources + current pane after the re-index so the
+      // operator immediately sees the new entity types.
+      await reloadSources();
+      await reload();
+      if (!silent) {
+        const tot = Object.values(r.sub_records_indexed || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+        setFlash({
+          kind: 'success',
+          msg: `Indexed joined sub-records from ${r.placements_walked || 0} placement(s) — ${tot} sub-records routed to Person/Job/Customer/Contact/Assignment.`,
+        });
+      }
+      return r;
+    } catch (e) {
+      if (!silent) setError(e.message || 'Re-index failed');
+      return null;
+    } finally {
+      setReindexBusy(false);
+    }
+  };
+
   // -- Load discovery + existing mappings ---------------------------------
   useEffect(() => {
-    (async () => {
-      try {
-        const r = await api.get('/api/admin/integrations/payload_fields.php');
-        setSources(r.sources || []);
-      } catch (e) { setError(e.message); }
-    })();
+    reloadSources();
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, []);
+
+  // Auto re-index for JobDiva tenants whose picker is stuck on placement-
+  // only: if we've loaded sources and the only jobdiva entity is
+  // 'placement' with paths, fire ONE silent re-index so the operator
+  // immediately sees Person/Job/Customer/Contact/Assignment populated
+  // without having to know about a button. Guarded so we never loop.
+  useEffect(() => {
+    if (integration !== 'jobdiva') return;
+    if (reindexedThisSession || reindexBusy) return;
+    if (!sources || sources.length === 0) return;
+    const jdSources = sources.filter(s => s.integration === 'jobdiva');
+    if (jdSources.length === 0) return;
+    const hasPlacement = jdSources.some(s => s.entity_type === 'placement' && Number(s.path_count) > 0);
+    const hasJoined    = jdSources.some(s =>
+      ['person', 'job', 'jobdiva_customer', 'contact', 'assignment'].includes(s.entity_type)
+      && Number(s.path_count) > 0
+    );
+    if (hasPlacement && !hasJoined) {
+      handleReindex(/*silent=*/true);
+    }
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [sources, integration]);
 
   const reload = async () => {
     setLoading(true); setError(null);
@@ -317,6 +376,65 @@ export default function FieldMappingStudio() {
           </select>
         </div>
       </header>
+
+      {/* JobDiva re-index banner — surfaces when the only jobdiva source
+          is `placement`. Lets the operator extract joined Person/Job/
+          Customer/Contact/Assignment sub-records out of every existing
+          placement payload WITHOUT triggering a fresh JobDiva HTTP sync. */}
+      {integration === 'jobdiva' && (() => {
+        const jdSources = sources.filter(s => s.integration === 'jobdiva');
+        const placementSrc = jdSources.find(s => s.entity_type === 'placement');
+        const joinedSrc = jdSources.filter(s =>
+          ['person', 'job', 'jobdiva_customer', 'contact', 'assignment'].includes(s.entity_type)
+          && Number(s.path_count) > 0
+        );
+        if (!placementSrc || Number(placementSrc.path_count) === 0) return null;
+        const placementCount = Number(placementSrc.path_count) || 0;
+        const joinedCount = joinedSrc.length;
+        return (
+          <div data-testid="fms-jobdiva-reindex-banner"
+               data-joined-source-count={joinedCount}
+               style={{ marginBottom: 14, padding: 12,
+                        background: joinedCount > 0
+                          ? 'linear-gradient(135deg,#ecfdf5,#f0fdf4)'
+                          : 'linear-gradient(135deg,#fef3c7,#fef9c3)',
+                        border: '1px solid ' + (joinedCount > 0 ? '#86efac' : '#fde68a'),
+                        borderRadius: 8,
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ flex: 1, fontSize: 12 }}>
+              <strong style={{ color: '#0f172a' }}>
+                {joinedCount > 0
+                  ? `JobDiva joined entities indexed (${joinedCount}/5).`
+                  : `Joined-entity fields not yet indexed.`}
+              </strong>
+              <div style={{ marginTop: 4, color: '#475569' }}>
+                {joinedCount > 0
+                  ? <>You have <strong>{placementCount}</strong> placement paths indexed plus joined sub-records. Re-run any time to refresh from the latest stored payloads.</>
+                  : <>You have <strong>{placementCount}</strong> placement paths indexed but none of the joined Person / Job / End-client / Contact / Assignment fields are in the picker yet. Click below to extract them from your existing placement payloads — no fresh sync needed.</>}
+              </div>
+              {reindexResult && (
+                <div data-testid="fms-jobdiva-reindex-result"
+                     style={{ marginTop: 6, fontSize: 11, color: '#0f172a' }}>
+                  Last run: walked <strong>{reindexResult.placements_walked}</strong> placements →
+                  {' '}{Object.entries(reindexResult.sub_records_indexed || {})
+                          .filter(([, n]) => Number(n) > 0)
+                          .map(([k, n]) => `${k} ×${n}`)
+                          .join(', ') || 'no joined sub-records found'}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              data-testid="fms-jobdiva-reindex-btn"
+              onClick={() => handleReindex(false)}
+              disabled={reindexBusy}
+              className="btn btn--primary"
+              style={{ whiteSpace: 'nowrap', fontSize: 13 }}>
+              {reindexBusy ? 'Re-indexing…' : (joinedCount > 0 ? 'Re-index again' : 'Re-index now')}
+            </button>
+          </div>
+        );
+      })()}
 
       {flash && (
         <div data-testid="fms-flash"
