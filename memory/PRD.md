@@ -10531,3 +10531,93 @@ even after multiple syncs. Two root causes were missed:
 5. On the next placement pull, every mapping fires — placement-level
    + all five joined-entity-level — with the right context.
 
+
+---
+
+## 2026-02 — Field Mapping Studio: AI auto-map suggestions (rule-based)
+
+### Why
+After the joined-entity extraction landed, the operator asked for the
+one-click auto-mapper preview from the previous suggestion: "Yes add
+the suggestions". With 5 joined entity types each carrying ~10-30
+fields, hand-mapping every column is tedious and error-prone. A
+deterministic auto-map closes the loop.
+
+### What shipped
+- **NEW `/app/core/integrations/mapping_suggester.php`** — pure
+  rule-based suggestion engine. Zero LLM dependency, zero network
+  calls, deterministic. Components:
+  - `mappingSuggesterNormalise()` — normalises both ends
+    (snake_case / camelCase / SCREAMING / dotted paths / array
+    suffixes) to a flat lowercase alphanumeric key.
+  - `mappingSuggesterSynonymMap()` — ~110-entry dictionary mapping
+    common JobDiva/QBO/Zoho field names to canonical CoreFlux
+    column names (`firstName→first_name`, `workEmail→email_primary`,
+    `mobilePhone→phone_primary`, `zipCode→postal_code`, `jobTitle→title`,
+    `agreedPayRate→pay_rate`, `finalBillRate→bill_rate`,
+    `customerName→name`, `startDate→start_date`, etc.).
+  - `mappingSuggesterEntityDefaults()` — per-entity-type preferred
+    CoreFlux module + linked_entity (person→people/person,
+    jobdiva_customer→companies/end_client_company,
+    assignment→placements/self, vendor→ap/self, invoice→billing/self,
+    journal_entry→accounting/self, etc.).
+  - `mappingSuggesterScore()` — 3-tier scoring: exact 0.95,
+    synonym 0.85, fuzzy substring (≥4 chars) 0.55.
+  - `mappingSuggesterDefaultTransform()` — auto-picks
+    `date_normalise` for `*_date` targets, `lowercase` for `status`,
+    `uppercase` for `currency`-to-`currency`.
+  - `mappingSuggesterSuggest()` — main entry. Reads indexed paths
+    + writable targets + existing mappings, returns ranked
+    suggestions excluding duplicates and intermediate object/array
+    nodes.
+
+- **NEW `POST /api/admin/integrations/suggest_mappings.php`** —
+  thin endpoint over the suggester. RBAC-gated by
+  `tenant_admin.integrations`. Accepts POST (json body) or GET
+  (query string for easy curl-testing). Returns
+  `{ok, integration, entity_type, count, suggestions:[…]}`.
+
+- **Field Mapping Studio UI**:
+  - **NEW `✨ Auto-map` button** in the header (testid
+    `fms-automap-btn`).
+  - **NEW review modal** (testid `fms-suggest-modal`) with:
+    - Reload, Select-all, Select-none, Apply controls
+      (all with stable testids).
+    - High-confidence rows (≥0.85) pre-selected; operator can
+      toggle individual checkboxes (`fms-suggest-check-{i}`).
+    - Per-row data: source path, sample, target column,
+      linked_entity, transform, confidence (colour-coded), reason.
+    - Empty state + error state surfaces.
+  - `applySuggestions()` posts each pick to the existing
+    `/api/admin/integrations/field_map.php` save endpoint, then
+    refreshes the mapping list and flashes the result count.
+
+### Tests
+- NEW `/app/tests/field_mapping_automap_suggestions_smoke.php` —
+  **62 ✓** with executable unit tests on the suggester internals
+  (normalise / score / synonyms / entity defaults / transforms /
+  target indexing) plus API + UI presence checks.
+- Full suite: **320/321** stable (1 = pre-existing DB-conn failure).
+- Vite bundle: `index-DgQCT0jx.js` synced.
+
+### Files touched
+- NEW:      `core/integrations/mapping_suggester.php`
+- NEW:      `api/admin/integrations/suggest_mappings.php`
+- MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx`
+- NEW:      `tests/field_mapping_automap_suggestions_smoke.php`
+
+### How operators use it now
+1. Open the Studio. Auto re-index runs silently for JobDiva.
+2. Pick any entity_type (e.g. `person`).
+3. Click **✨ Auto-map**. Within ~200ms the modal opens with all
+   suggested mappings — `first_name → people.first_name (95%)`,
+   `last_name → people.last_name (95%)`, `email →
+   people.email_primary (85% synonym)`, etc.
+4. High-confidence rows are pre-selected. Toggle anything you
+   don't want, then click **Apply selected**.
+5. Each row is saved via the existing `field_map.php` endpoint
+   so all existing audit + apply infrastructure carries over.
+6. Repeat for `job`, `jobdiva_customer`, `assignment` — usually
+   <20 seconds per entity type to go from zero mappings to a
+   fully-mapped tenant.
+

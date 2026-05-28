@@ -137,6 +137,14 @@ export default function FieldMappingStudio() {
   const [reindexResult, setReindexResult] = useState(null);
   const [reindexedThisSession, setReindexedThisSession] = useState(false);
 
+  // -- Auto-map suggestions panel state ---------------------------------
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestBusy, setSuggestBusy] = useState(false);
+  const [suggestList, setSuggestList] = useState([]);
+  const [suggestSelected, setSuggestSelected] = useState({}); // {index:true}
+  const [suggestApplying, setSuggestApplying] = useState(false);
+  const [suggestError, setSuggestError] = useState(null);
+
   const reloadSources = async () => {
     try {
       const r = await api.get('/api/admin/integrations/payload_fields.php');
@@ -170,6 +178,77 @@ export default function FieldMappingStudio() {
       return null;
     } finally {
       setReindexBusy(false);
+    }
+  };
+
+  // -- Auto-map suggestions -----------------------------------------------
+  const loadSuggestions = async () => {
+    setSuggestBusy(true); setSuggestError(null); setSuggestList([]); setSuggestSelected({});
+    try {
+      const r = await api.post('/api/admin/integrations/suggest_mappings.php', {
+        integration, entity_type: entityType,
+      });
+      const rows = Array.isArray(r.suggestions) ? r.suggestions : [];
+      setSuggestList(rows);
+      // Default-select all high-confidence rows (≥0.85). Operators can
+      // toggle individual rows or use Select all / none.
+      const sel = {};
+      rows.forEach((s, i) => { if ((s.confidence ?? 0) >= 0.85) sel[i] = true; });
+      setSuggestSelected(sel);
+    } catch (e) {
+      setSuggestError(e.message || 'Failed to load suggestions');
+    } finally {
+      setSuggestBusy(false);
+    }
+  };
+
+  const openSuggest = async () => {
+    setSuggestOpen(true);
+    if (suggestList.length === 0 && !suggestBusy) await loadSuggestions();
+  };
+
+  const applySuggestions = async () => {
+    const picks = suggestList.filter((_, i) => suggestSelected[i]);
+    if (picks.length === 0) {
+      setSuggestError('Pick at least one suggestion to apply.');
+      return;
+    }
+    setSuggestApplying(true); setSuggestError(null);
+    let ok = 0, failed = 0;
+    for (const s of picks) {
+      try {
+        await api.post('/api/admin/integrations/field_map.php', {
+          integration,
+          entity_type: entityType,
+          source_path:   s.source_path,
+          target_module: s.target_module,
+          target_table:  s.target_table,
+          target_column: s.target_column,
+          linked_entity: s.linked_entity,
+          transform:     s.transform,
+          enabled: true,
+        });
+        ok++;
+      } catch {
+        failed++;
+      }
+    }
+    setSuggestApplying(false);
+    setFlash({
+      kind: failed === 0 ? 'success' : 'error',
+      msg: `Applied ${ok} of ${picks.length} suggested mapping${picks.length === 1 ? '' : 's'}`
+            + (failed > 0 ? ` — ${failed} failed.` : '.'),
+    });
+    // Refresh mapping list + close the panel.
+    await reload();
+    if (failed === 0) {
+      setSuggestOpen(false);
+      setSuggestList([]);
+      setSuggestSelected({});
+    } else {
+      // Keep failed rows visible so operator can retry or remove.
+      setSuggestList(picks.filter((_, i) => i >= ok));
+      setSuggestSelected({});
     }
   };
 
@@ -374,6 +453,15 @@ export default function FieldMappingStudio() {
               ));
             })()}
           </select>
+          <button
+            type="button"
+            data-testid="fms-automap-btn"
+            onClick={openSuggest}
+            className="btn btn--primary"
+            title="Propose mappings automatically based on field-name matching."
+            style={{ whiteSpace: 'nowrap', fontSize: 13 }}>
+            ✨ Auto-map
+          </button>
         </div>
       </header>
 
@@ -822,6 +910,141 @@ export default function FieldMappingStudio() {
           )}
         </div>
       )}
+
+      {/* Auto-map suggestion modal — opens from the ✨ Auto-map button.
+          Rule-based proposals from /api/admin/integrations/suggest_mappings.php.
+          Operator can toggle individual suggestions, Select-all / none, and
+          apply the batch via the existing /field_map.php save endpoint. */}
+      {suggestOpen && (
+        <div data-testid="fms-suggest-modal"
+             style={{ position: 'fixed', inset: 0, zIndex: 200,
+                      background: 'rgba(15,23,42,0.45)',
+                      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+                      padding: '40px 20px', overflow: 'auto' }}>
+          <div style={{ background: '#fff', borderRadius: 12, width: '100%', maxWidth: 1080,
+                        padding: 18, boxShadow: '0 12px 40px rgba(15,23,42,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18 }}>
+                  ✨ Auto-mapping suggestions for <code>{integration}/{entityType}</code>
+                </h3>
+                <p style={{ margin: '4px 0 0', fontSize: 12, color: '#475569', maxWidth: 740 }}>
+                  Rule-based proposals based on normalised field names + a CoreFlux synonym
+                  dictionary (e.g. <code>firstName</code> → <code>first_name</code>,{' '}
+                  <code>zipCode</code> → <code>postal_code</code>). Each row is independently
+                  reviewable. High-confidence rows (≥ 0.85) are pre-selected — toggle anything
+                  you don't want before applying.
+                </p>
+              </div>
+              <button data-testid="fms-suggest-close" onClick={() => setSuggestOpen(false)}
+                      className="btn btn--ghost" style={{ fontSize: 13 }}>Close</button>
+            </div>
+
+            <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button data-testid="fms-suggest-reload" onClick={loadSuggestions}
+                      disabled={suggestBusy}
+                      className="btn btn--ghost" style={{ fontSize: 12 }}>
+                {suggestBusy ? 'Loading…' : 'Reload suggestions'}
+              </button>
+              <button data-testid="fms-suggest-select-all"
+                      onClick={() => {
+                        const all = {}; suggestList.forEach((_, i) => { all[i] = true; });
+                        setSuggestSelected(all);
+                      }}
+                      disabled={suggestBusy || suggestList.length === 0}
+                      className="btn btn--ghost" style={{ fontSize: 12 }}>Select all</button>
+              <button data-testid="fms-suggest-select-none"
+                      onClick={() => setSuggestSelected({})}
+                      disabled={suggestBusy || suggestList.length === 0}
+                      className="btn btn--ghost" style={{ fontSize: 12 }}>Select none</button>
+              <div style={{ flex: 1 }} />
+              <span data-testid="fms-suggest-count"
+                    style={{ fontSize: 12, color: '#475569' }}>
+                {Object.values(suggestSelected).filter(Boolean).length} of {suggestList.length} selected
+              </span>
+              <button data-testid="fms-suggest-apply"
+                      onClick={applySuggestions}
+                      disabled={suggestApplying || suggestBusy
+                                || Object.values(suggestSelected).filter(Boolean).length === 0}
+                      className="btn btn--primary" style={{ fontSize: 13 }}>
+                {suggestApplying ? 'Applying…' : 'Apply selected'}
+              </button>
+            </div>
+
+            {suggestError && (
+              <div data-testid="fms-suggest-error"
+                   style={{ marginTop: 10, color: '#b91c1c', fontSize: 13 }}>{suggestError}</div>
+            )}
+
+            <div data-testid="fms-suggest-list"
+                 style={{ marginTop: 12, maxHeight: 480, overflow: 'auto',
+                          border: '1px solid #e2e8f0', borderRadius: 8 }}>
+              {suggestList.length === 0 && !suggestBusy && (
+                <p data-testid="fms-suggest-empty"
+                   style={{ padding: 16, color: '#64748b', fontSize: 13 }}>
+                  No new suggestions for <code>{integration}/{entityType}</code>. Either nothing's
+                  been indexed yet, or every recognised field already has a mapping.
+                </p>
+              )}
+              {suggestList.length > 0 && (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+                    <tr>
+                      <th style={thStyle}></th>
+                      <th style={thStyle}>Source path</th>
+                      <th style={thStyle}>Sample</th>
+                      <th style={thStyle}>→ Target column</th>
+                      <th style={thStyle}>Linked entity</th>
+                      <th style={thStyle}>Transform</th>
+                      <th style={thStyle}>Confidence</th>
+                      <th style={thStyle}>Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {suggestList.map((s, i) => {
+                      const conf = Number(s.confidence) || 0;
+                      const confColor = conf >= 0.9 ? '#16a34a'
+                                       : conf >= 0.8 ? '#0ea5e9'
+                                       : conf >= 0.5 ? '#d97706'
+                                       : '#dc2626';
+                      return (
+                        <tr key={`${s.source_path}-${i}`}
+                            data-testid={`fms-suggest-row-${i}`}
+                            data-source-path={s.source_path}
+                            style={{ borderTop: '1px solid #e2e8f0' }}>
+                          <td style={tdStyle}>
+                            <input type="checkbox"
+                                   data-testid={`fms-suggest-check-${i}`}
+                                   checked={!!suggestSelected[i]}
+                                   onChange={e => setSuggestSelected(s2 => ({ ...s2, [i]: e.target.checked }))} />
+                          </td>
+                          <td style={tdStyle}><code>{s.source_path}</code></td>
+                          <td style={{ ...tdStyle, color: '#475569', maxWidth: 200,
+                                       whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                              title={s.sample_value || ''}>
+                            {s.sample_value || <em style={{ color: '#94a3b8' }}>—</em>}
+                          </td>
+                          <td style={tdStyle}>
+                            <code>{s.target_module}.{s.target_table}.{s.target_column}</code>
+                          </td>
+                          <td style={tdStyle}>{s.linked_entity}</td>
+                          <td style={tdStyle}>{s.transform === 'none'
+                              ? <em style={{ color: '#94a3b8' }}>none</em>
+                              : s.transform}</td>
+                          <td style={{ ...tdStyle, color: confColor, fontWeight: 600 }}>
+                            {(conf * 100).toFixed(0)}%
+                          </td>
+                          <td style={{ ...tdStyle, color: '#64748b' }}>{s.reason}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -846,3 +1069,11 @@ const listItemActive = {
 const emptyHint = {
   fontSize: 12, color: '#64748b', padding: '8px 0',
 };
+const thStyle = {
+  textAlign: 'left', padding: '8px 10px', fontSize: 11, fontWeight: 600,
+  color: '#475569', borderBottom: '1px solid #e2e8f0',
+};
+const tdStyle = {
+  padding: '8px 10px', verticalAlign: 'top', fontSize: 12, color: '#1e293b',
+};
+
