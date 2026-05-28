@@ -1025,12 +1025,99 @@ export default function FieldMappingStudio() {
                             {s.sample_value || <em style={{ color: '#94a3b8' }}>—</em>}
                           </td>
                           <td style={tdStyle}>
-                            <code>{s.target_module}.{s.target_table}.{s.target_column}</code>
+                            {(() => {
+                              // Inline-edit dropdown: any writable target can
+                              // be picked, scoped to the same target_module
+                              // first so the operator sees the most relevant
+                              // columns at the top.
+                              const currentKey = `${s.target_module}|${s.target_table}|${s.target_column}`;
+                              const allOpts = (targets || []).filter(t =>
+                                t.target_column && t.target_column !== '*'
+                              );
+                              const sameModule = allOpts.filter(t => t.target_module === s.target_module);
+                              const otherModule = allOpts.filter(t => t.target_module !== s.target_module);
+                              const opts = [...sameModule, ...otherModule];
+                              // Ensure the current selection is present even
+                              // if it isn't in the writable_targets list yet.
+                              const hasCurrent = opts.some(t =>
+                                `${t.target_module}|${t.target_table}|${t.target_column}` === currentKey);
+                              if (!hasCurrent) {
+                                opts.unshift({
+                                  target_module: s.target_module,
+                                  target_table:  s.target_table,
+                                  target_column: s.target_column,
+                                });
+                              }
+                              return (
+                                <select
+                                  data-testid={`fms-suggest-target-${i}`}
+                                  data-current={currentKey}
+                                  value={currentKey}
+                                  onChange={e => {
+                                    const [m, tbl, col] = e.target.value.split('|');
+                                    setSuggestList(list => list.map((row, idx) =>
+                                      idx === i
+                                        ? { ...row, target_module: m, target_table: tbl, target_column: col, _edited: true }
+                                        : row
+                                    ));
+                                  }}
+                                  className="input"
+                                  style={{ minWidth: 280, fontSize: 12, padding: '4px 6px' }}
+                                >
+                                  {opts.map(t => {
+                                    const key = `${t.target_module}|${t.target_table}|${t.target_column}`;
+                                    return (
+                                      <option key={key} value={key}>
+                                        {t.target_module}.{t.target_table}.{t.target_column}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              );
+                            })()}
+                            {s._edited && (
+                              <span data-testid={`fms-suggest-edited-${i}`}
+                                    style={{ marginLeft: 6, fontSize: 10, color: '#0ea5e9' }}>
+                                edited
+                              </span>
+                            )}
                           </td>
-                          <td style={tdStyle}>{s.linked_entity}</td>
-                          <td style={tdStyle}>{s.transform === 'none'
-                              ? <em style={{ color: '#94a3b8' }}>none</em>
-                              : s.transform}</td>
+                          <td style={tdStyle}>
+                            <select
+                              data-testid={`fms-suggest-linked-${i}`}
+                              value={s.linked_entity}
+                              onChange={e => {
+                                const v = e.target.value;
+                                setSuggestList(list => list.map((row, idx) =>
+                                  idx === i ? { ...row, linked_entity: v, _edited: true } : row
+                                ));
+                              }}
+                              className="input"
+                              style={{ fontSize: 12, padding: '4px 6px' }}
+                            >
+                              {Object.entries(LINKED_ENTITY_LABELS).map(([k, label]) =>
+                                <option key={k} value={k}>{k}</option>
+                              )}
+                            </select>
+                          </td>
+                          <td style={tdStyle}>
+                            <select
+                              data-testid={`fms-suggest-transform-${i}`}
+                              value={s.transform || 'none'}
+                              onChange={e => {
+                                const v = e.target.value;
+                                setSuggestList(list => list.map((row, idx) =>
+                                  idx === i ? { ...row, transform: v, _edited: true } : row
+                                ));
+                              }}
+                              className="input"
+                              style={{ fontSize: 12, padding: '4px 6px' }}
+                            >
+                              {['none', 'lowercase', 'uppercase', 'trim', 'date_normalise', 'json_decode'].map(t =>
+                                <option key={t} value={t}>{t}</option>
+                              )}
+                            </select>
+                          </td>
                           <td style={{ ...tdStyle, color: confColor, fontWeight: 600 }}>
                             {(conf * 100).toFixed(0)}%
                           </td>

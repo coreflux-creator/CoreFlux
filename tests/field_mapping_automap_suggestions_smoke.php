@@ -182,6 +182,31 @@ $a('shared <th>/<td> helpers declared',
     str_contains($fms, 'const thStyle = {')
     && str_contains($fms, 'const tdStyle = {'));
 
+// 8.5) Inline-edit per row — target column, linked_entity, transform.
+echo "\n8.5 Inline-editable suggestion rows\n";
+$a('per-row target dropdown rendered',
+    str_contains($fms, 'data-testid={`fms-suggest-target-${i}`}'));
+$a('target dropdown exposes data-current attribute',
+    str_contains($fms, "data-current={currentKey}"));
+$a('target dropdown options scoped to same module first',
+    str_contains($fms, 'sameModule = allOpts.filter(t => t.target_module === s.target_module)')
+    && str_contains($fms, 'const opts = [...sameModule, ...otherModule]'));
+$a('current selection injected when missing from writable list',
+    str_contains($fms, 'if (!hasCurrent) {')
+    && str_contains($fms, 'opts.unshift({'));
+$a('per-row linked_entity dropdown',
+    str_contains($fms, 'data-testid={`fms-suggest-linked-${i}`}'));
+$a('per-row transform dropdown with sane choices',
+    str_contains($fms, 'data-testid={`fms-suggest-transform-${i}`}')
+    && str_contains($fms, "'none', 'lowercase', 'uppercase', 'trim', 'date_normalise', 'json_decode'"));
+$a('edited rows flag _edited and surface a marker',
+    str_contains($fms, '_edited: true')
+    && str_contains($fms, 'data-testid={`fms-suggest-edited-${i}`}'));
+$a('apply pipeline uses the current row.target_module/table/column (post-edit)',
+    str_contains($fms, "target_module: s.target_module")
+    && str_contains($fms, "target_table:  s.target_table")
+    && str_contains($fms, "target_column: s.target_column"));
+
 // 9) PHP lint sanity.
 echo "\n9. PHP syntax\n";
 $lint = shell_exec('php -l ' . escapeshellarg("$root/core/integrations/mapping_suggester.php") . ' 2>&1');

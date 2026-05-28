@@ -10621,3 +10621,46 @@ deterministic auto-map closes the loop.
    <20 seconds per entity type to go from zero mappings to a
    fully-mapped tenant.
 
+
+---
+
+## 2026-02 — Auto-map suggestions: inline-edit per row
+
+### Why
+Operator follow-up after the auto-map shipped: "yes, edit inline. cool".
+If the suggester picks a near-miss target (low-confidence fuzzy match
+or wrong table within the right module), the operator previously had
+to uncheck the row and add the mapping manually — losing the
+suggested source path and confidence context. Inline editing turns a
+rejected suggestion into a 2-click fix.
+
+### What shipped (Studio modal only — backend unchanged)
+- **Per-row target dropdown** (`fms-suggest-target-{i}`) — any
+  writable target can be picked. Options scoped to the same
+  target_module first (most relevant), then everything else. The
+  current selection is always present (even if it isn't in
+  `writable_targets`, which can happen for legacy columns).
+- **Per-row linked_entity dropdown** (`fms-suggest-linked-{i}`) —
+  pick from `self / person / end_client_company / vendor_company /
+  placement_rates / placement_corp_details`.
+- **Per-row transform dropdown** (`fms-suggest-transform-{i}`) —
+  `none / lowercase / uppercase / trim / date_normalise / json_decode`.
+- **Edited marker** — any row touched gets `_edited: true` and a
+  small "edited" badge (`fms-suggest-edited-{i}`) so the operator
+  visually distinguishes their own changes from the suggester's
+  proposals.
+- The existing **Apply selected** button uses the row's CURRENT
+  values (post-edit), so changes flow straight through the
+  `field_map.php` save endpoint with no extra wiring.
+
+### Tests
+- `field_mapping_automap_suggestions_smoke.php` extended with
+  section 8.5 — **70 ✓** (8 new assertions for the inline-edit
+  surfaces + dropdown semantics + apply-uses-edited-values).
+- Full suite: **320/321** stable (1 pre-existing DB-conn failure).
+- Vite bundle: `index-DImT8lmj.js` synced.
+
+### Files touched
+- MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx`
+- MODIFIED: `tests/field_mapping_automap_suggestions_smoke.php`
+
