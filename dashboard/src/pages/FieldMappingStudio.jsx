@@ -145,6 +145,14 @@ export default function FieldMappingStudio() {
   const [suggestApplying, setSuggestApplying] = useState(false);
   const [suggestError, setSuggestError] = useState(null);
 
+  // -- CSV upload (joined-entity fallback) ------------------------------
+  const [csvOpen, setCsvOpen]       = useState(false);
+  const [csvFile, setCsvFile]       = useState(null);
+  const [csvEntity, setCsvEntity]   = useState('');
+  const [csvBusy, setCsvBusy]       = useState(false);
+  const [csvResult, setCsvResult]   = useState(null);
+  const [csvError, setCsvError]     = useState(null);
+
   const reloadSources = async () => {
     try {
       const r = await api.get('/api/admin/integrations/payload_fields.php');
@@ -249,6 +257,51 @@ export default function FieldMappingStudio() {
       // Keep failed rows visible so operator can retry or remove.
       setSuggestList(picks.filter((_, i) => i >= ok));
       setSuggestSelected({});
+    }
+  };
+
+  // -- CSV upload handlers ------------------------------------------------
+  const openCsv = () => {
+    setCsvOpen(true);
+    setCsvFile(null);
+    setCsvResult(null);
+    setCsvError(null);
+    // Pre-fill the entity dropdown with the one the operator is viewing
+    // so the most common path (open studio on `job`, upload jobs.csv)
+    // is zero-config.
+    setCsvEntity(entityType);
+  };
+
+  const submitCsv = async () => {
+    if (!csvFile) { setCsvError('Pick a CSV file first.'); return; }
+    if (!csvEntity) { setCsvError('Pick an entity type.'); return; }
+    setCsvBusy(true); setCsvError(null); setCsvResult(null);
+    try {
+      const form = new FormData();
+      form.append('integration', integration);
+      form.append('entity_type', csvEntity);
+      form.append('file', csvFile);
+      // Use raw fetch to send multipart — api.post serialises JSON.
+      const base = (window.__CF_API_BASE__ || '');
+      const res = await fetch(`${base}/api/admin/integrations/upload_csv.php`, {
+        method: 'POST', credentials: 'include', body: form,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || json.message || `Upload failed (${res.status})`);
+      }
+      setCsvResult(json);
+      // Refresh sources so the new entity type / paths appear in the
+      // dropdown + left pane immediately.
+      await reloadSources();
+      // Auto-switch to the entity type the operator just populated so
+      // they can see the result without another click.
+      if (csvEntity !== entityType) setEntityType(csvEntity);
+      await reload();
+    } catch (e) {
+      setCsvError(e.message || 'Upload failed');
+    } finally {
+      setCsvBusy(false);
     }
   };
 
@@ -461,6 +514,15 @@ export default function FieldMappingStudio() {
             title="Propose mappings automatically based on field-name matching."
             style={{ whiteSpace: 'nowrap', fontSize: 13 }}>
             ✨ Auto-map
+          </button>
+          <button
+            type="button"
+            data-testid="fms-csv-upload-btn"
+            onClick={openCsv}
+            className="btn btn--ghost"
+            title="Drop a CSV export from your integration to index every column as a mappable path."
+            style={{ whiteSpace: 'nowrap', fontSize: 13 }}>
+            📄 Upload CSV
           </button>
         </div>
       </header>
@@ -1142,6 +1204,114 @@ export default function FieldMappingStudio() {
                   </tbody>
                 </table>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CSV upload modal — fallback path for integrations whose REST
+          enrichment endpoints aren't reachable on the operator's
+          tenant. The operator drops a CSV export, every column
+          becomes a first-class indexed path under their chosen
+          entity_type, and the Auto-map suggester picks it up. */}
+      {csvOpen && (
+        <div data-testid="fms-csv-modal"
+             style={{ position: 'fixed', inset: 0, zIndex: 200,
+                      background: 'rgba(15,23,42,0.45)',
+                      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+                      padding: '60px 20px', overflow: 'auto' }}>
+          <div style={{ background: '#fff', borderRadius: 12, width: '100%', maxWidth: 640,
+                        padding: 18, boxShadow: '0 12px 40px rgba(15,23,42,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18 }}>📄 Upload a CSV export</h3>
+                <p style={{ margin: '4px 0 0', fontSize: 12, color: '#475569', maxWidth: 540 }}>
+                  Drop any CSV export (JobDiva Job list, Candidate list, Customer list, Airtable
+                  view, QBO report, anything). The header row becomes the field names, every column
+                  becomes a mappable path under the chosen entity type — exactly as if the data
+                  had come from a live API sync. Use this when an integration's REST endpoints
+                  aren't reachable on your tenant.
+                </p>
+              </div>
+              <button data-testid="fms-csv-close"
+                      onClick={() => setCsvOpen(false)}
+                      className="btn btn--ghost" style={{ fontSize: 13 }}>Close</button>
+            </div>
+
+            <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
+              <label style={{ fontSize: 12, color: '#475569' }}>
+                Integration
+                <input data-testid="fms-csv-integration"
+                       value={integration} disabled
+                       className="input"
+                       style={{ display: 'block', marginTop: 4, fontSize: 13, background: '#f8fafc' }} />
+              </label>
+              <label style={{ fontSize: 12, color: '#475569' }}>
+                Entity type
+                <input data-testid="fms-csv-entity"
+                       value={csvEntity}
+                       onChange={e => setCsvEntity(e.target.value.replace(/[^a-z0-9_]/g, '').toLowerCase())}
+                       placeholder="e.g. job, person, jobdiva_customer"
+                       className="input"
+                       style={{ display: 'block', marginTop: 4, fontSize: 13 }} />
+                <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                  lowercase letters / digits / underscores only — this is the key the picker
+                  groups paths under (will be created if it doesn't exist yet)
+                </span>
+              </label>
+              <label style={{ fontSize: 12, color: '#475569' }}>
+                CSV file
+                <input data-testid="fms-csv-file"
+                       type="file" accept=".csv,text/csv,text/plain"
+                       onChange={e => setCsvFile(e.target.files?.[0] || null)}
+                       style={{ display: 'block', marginTop: 4, fontSize: 13 }} />
+                <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                  max 25 MB · UTF-8 BOM accepted · header row required
+                </span>
+              </label>
+            </div>
+
+            {csvError && (
+              <div data-testid="fms-csv-error"
+                   style={{ marginTop: 10, color: '#b91c1c', fontSize: 13 }}>{csvError}</div>
+            )}
+
+            {csvResult && (
+              <div data-testid="fms-csv-result"
+                   style={{ marginTop: 12, padding: 10, background: '#ecfdf5',
+                            border: '1px solid #86efac', borderRadius: 8, fontSize: 12 }}>
+                <strong>Done.</strong> Indexed{' '}
+                <strong>{csvResult.rows_indexed}</strong> of {csvResult.rows_seen} row(s){' '}
+                · {csvResult.field_count} column(s) became mappable paths{' '}
+                under <code>{csvResult.integration}/{csvResult.entity_type}</code>.{' '}
+                {csvResult.rows_skipped > 0 && <em>({csvResult.rows_skipped} skipped)</em>}
+                {Array.isArray(csvResult.sample_headers) && csvResult.sample_headers.length > 0 && (
+                  <div style={{ marginTop: 6, color: '#475569' }}>
+                    Sample headers: {csvResult.sample_headers.map((h, i) =>
+                      <code key={i} style={{ marginRight: 6 }}>{h}</code>
+                    )}
+                  </div>
+                )}
+                {Array.isArray(csvResult.errors) && csvResult.errors.length > 0 && (
+                  <details style={{ marginTop: 6 }}>
+                    <summary style={{ cursor: 'pointer', color: '#b91c1c' }}>
+                      {csvResult.errors.length} row error(s) — click to see
+                    </summary>
+                    <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                      {csvResult.errors.map((er, i) => <li key={i} style={{ fontSize: 11 }}>{er}</li>)}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
+
+            <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button data-testid="fms-csv-submit"
+                      onClick={submitCsv}
+                      disabled={csvBusy || !csvFile || !csvEntity}
+                      className="btn btn--primary" style={{ fontSize: 13 }}>
+                {csvBusy ? 'Indexing…' : 'Index CSV'}
+              </button>
             </div>
           </div>
         </div>

@@ -10741,3 +10741,98 @@ mapping."
    prefix extraction still gives them whatever JobDiva does
    include in the BI placement payload.
 
+
+---
+
+## 2026-02 — Field Mapping Studio: CSV upload fallback for joined entities
+
+### Why
+The `/apiv2/jobdiva/search*` enrichment endpoints aren't reachable on
+every JobDiva tenant. When they 4xx, the picker can't see full Job /
+Candidate / Customer schemas. The fallback the operator approved:
+let them drop a JobDiva CSV export (Job list, Candidate list,
+Customer list — JobDiva's standard exports) directly into the Studio
+and have every column become a first-class mappable path. Same flow
+works for ANY integration whose REST endpoints we can't reach.
+
+### What shipped
+- **NEW `/app/core/integrations/csv_indexer.php`** — generic
+  CSV → `integration_payload_field_index` ingestor:
+  - Stream-parses with `fgetcsv()` (memory-bounded for 100k-row
+    exports).
+  - Strips UTF-8 BOM from the first header cell.
+  - Skips entirely-empty rows + drops trailing-empty header columns
+    (common from Excel exports).
+  - Pads / truncates rows to match header width so jagged CSVs
+    don't crash.
+  - Each data row → `integrationPayloadFieldIndexRecord()` under
+    the chosen `(tenant, integration, entity_type)`.
+  - Returns `{rows_seen, rows_indexed, rows_skipped, field_count,
+    sample_headers, errors[]}` for the UI to surface.
+
+- **NEW `POST /api/admin/integrations/upload_csv.php`** —
+  multipart/form-data endpoint:
+  - Fields: `integration` (text), `entity_type` (text), `file` (CSV).
+  - Validates integration / entity_type against `[a-z0-9_]{1,40}`
+    so stray writes can't escape the schema.
+  - Enforces 25 MB upload cap.
+  - RBAC-gated by `tenant_admin.integrations`.
+
+- **Studio UI**:
+  - **NEW 📄 Upload CSV button** in the header (`fms-csv-upload-btn`).
+  - **NEW upload modal** (`fms-csv-modal`) with:
+    - Integration name shown disabled (always the current selection).
+    - Entity-type text input — auto-strips non-alphanumeric and
+      lowercases, with helper text on the convention.
+    - File picker scoped to `.csv` / `text/csv`.
+    - Submit button (`fms-csv-submit`) does a real multipart fetch
+      (FormData, not the JSON `api.post` wrapper).
+    - Result panel (`fms-csv-result`) shows rows indexed, sample
+      headers, and a collapsible per-row error list.
+    - Error panel (`fms-csv-error`) for upload-level failures.
+  - On success, sources are reloaded AND the entity-type dropdown
+    auto-switches to the uploaded entity so the operator sees the
+    new paths immediately without an extra click.
+
+### Tests
+- NEW `/app/tests/field_mapping_csv_upload_smoke.php` — **28 ✓**:
+  - **Executable** end-to-end happy path against a synthetic CSV
+    (BOM strip, quoted fields, blank-row skip, mismatched-width
+    rows, trailing-empty headers).
+  - Invalid input rejection (empty integration, missing file,
+    empty file, all-empty header row).
+  - API endpoint structural checks (RBAC, regex whitelist,
+    `$_FILES` error code, size cap, response shape).
+  - Studio UI presence checks for every testid + multipart submit
+    + auto-switch behaviour.
+- Full suite: **321/322** stable (1 = pre-existing DB-conn failure).
+- Vite bundle synced: `index-Da33UgK2.js`.
+
+### Files touched
+- NEW:      `core/integrations/csv_indexer.php`
+- NEW:      `api/admin/integrations/upload_csv.php`
+- MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx`
+- NEW:      `tests/field_mapping_csv_upload_smoke.php`
+
+### How operators use it
+1. Export a JobDiva Job list (or Candidate / Customer / Contact)
+   to CSV via the JobDiva UI.
+2. Open Field Mapping Studio → click **📄 Upload CSV**.
+3. Type the entity_type (`job` / `person` / `jobdiva_customer` /
+   `contact` / `assignment`), pick the CSV, click **Index CSV**.
+4. Within seconds the modal shows "Indexed N of M rows · K columns
+   became mappable paths" with the sample headers listed.
+5. The Studio auto-switches to that entity_type — left pane shows
+   every CSV column as a real indexed path with sample values.
+6. Click **✨ Auto-map** → suggester proposes targets for the new
+   columns just like an API-sourced entity.
+
+### Coverage matrix (joined-entity sourcing options)
+| Joined entity     | Live REST (search*) | Flat BI prefix | CSV upload |
+|-------------------|---------------------|-----------------|------------|
+| Person/Candidate  | ✅ when reachable   | ✅              | ✅          |
+| Job               | ✅ when reachable   | ✅              | ✅          |
+| Customer/Client   | ✅ when reachable   | ✅              | ✅          |
+| Contact           | ✅ when reachable   | ❌              | ✅          |
+| Assignment/Start  | ✅ when reachable   | partial         | ✅          |
+
