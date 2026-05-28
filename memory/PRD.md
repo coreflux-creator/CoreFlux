@@ -10993,3 +10993,77 @@ with the actual ids_seen / succeeded / sample_error so the
 operator can confirm it worked (or escalate to JobDiva admin if it
 returns 4xx).
 
+
+---
+
+## 2026-02 — Batch (a, b, f, g) shipped
+
+Operator approved: "proceed with a b f g".
+
+### (a) Auto-built CoreFlux Assignment-screen clone
+- **NEW `GET /api/admin/integrations/placement_schema.php`** — returns
+  the live indexed schema for an integration grouped into sections
+  that mirror the JobDiva Assignment edit screen:
+  Assignment / Placement summary / Job / Person / End-client /
+  Contact. Each section carries `field_count` + every leaf path with
+  `value_type`, `sample_value`, `occurrence_count`.
+- **NEW `dashboard/src/pages/AssignmentSchemaPreview.jsx`** —
+  renders the schema as a read-only detail page with collapsible
+  sections, integration switcher, and a Studio link in every empty
+  section so the operator can fix gaps inline.
+- **Wired into AdminModule**: new sidebar entry "Assignment schema"
+  (FileText icon), new Admin Overview ActionCard, new route
+  `/admin/integrations/assignment-schema`.
+
+### (b) Reports Overhaul — minimal first pass (drilldown component)
+- **NEW `dashboard/src/components/GlDetailDrilldown.jsx`** —
+  reusable slide-over modal that hits the existing
+  `/api/gl_detail.php` endpoint and shows opening / debit / credit /
+  ending + every journal line with a "open JE" link. Any report
+  that wants to drill into an `(account, period)` intersection now
+  composes this component.
+- Existing `GLDetail.jsx` page already covers the standalone GL
+  Detail report — kept as-is; future overhaul work on P&L / BS /
+  TB drill-throughs will adopt the new modal.
+
+### (f) Mail diagnostic endpoint
+- **Discovered**: `ResendDriver` was already fully implemented
+  (`core/mail/ResendDriver.php`) and `mail_bootstrap.php` was
+  already wiring it as the default when `RESEND_API_KEY` is set.
+  The handoff was outdated.
+- **NEW `GET /api/admin/mail_status.php`** — diagnostic endpoint
+  that reports `default_driver`, `resend_configured`,
+  `resend_key_hint` (first 5 chars only, never the full key),
+  `resend_from_email`, `registered_drivers`, and the last 5
+  `mail_outbox` rows. Operator can verify in one call whether
+  Resend is recognised + how recent outbound emails fared.
+- **Action item for operator**: set `RESEND_API_KEY` (env var or
+  `define()` in `/app/core/config.local.php`) + `RESEND_FROM_EMAIL`
+  with a verified sender domain. Endpoint returns a hint string
+  guiding the configuration when the key isn't found.
+
+### (g) RBAC B3/B4 UI
+- **Discovered**: `RbacMembershipsAdmin.jsx` (438 LOC) was already
+  fully built and wired in `AdminModule`, including the "Copy
+  permissions from…" workflow. Handoff was outdated.
+- Smoke now asserts the page still mounts + still surfaces the
+  copy-permissions UX.
+
+### Tests
+- NEW `/app/tests/batch_a_b_f_g_smoke.php` — **35 ✓** covering all
+  four items end-to-end (RBAC gates, response shape, component
+  testids, sidebar/route wiring, PHP syntax).
+- Full suite: **321/324** (3 = pre-existing infra failures:
+  `accounting_phase2_a7` needs DB, `ai_platform` needs curl ext,
+  `plaid_integration` needs Plaid keys — all documented).
+- Vite bundle synced: `index-Cxjg7vPw.js`.
+
+### Files touched
+- NEW:      `api/admin/integrations/placement_schema.php`
+- NEW:      `api/admin/mail_status.php`
+- NEW:      `dashboard/src/pages/AssignmentSchemaPreview.jsx`
+- NEW:      `dashboard/src/components/GlDetailDrilldown.jsx`
+- MODIFIED: `dashboard/src/pages/AdminModule.jsx` (import, route,
+  sidebar entry, Admin Overview ActionCard)
+- NEW:      `tests/batch_a_b_f_g_smoke.php`
+

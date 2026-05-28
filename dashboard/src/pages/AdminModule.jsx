@@ -33,6 +33,7 @@ import AuditorTokensAdmin from './AuditorTokensAdmin';
 import CrossTenantAuditAdmin from './CrossTenantAuditAdmin';
 import IntegrationFieldMapAdmin from './IntegrationFieldMapAdmin';
 import FieldMappingStudio from './FieldMappingStudio';
+import AssignmentSchemaPreview from './AssignmentSchemaPreview';
 import ApprovalPoliciesAdmin from './ApprovalPoliciesAdmin';
 import GraphqlSandbox from './GraphqlSandbox';
 
@@ -70,6 +71,7 @@ const AdminOverview = () => (
         <ActionCard icon={FlaskConical} title="Rule sandbox" description="Dry-run posting rules without writing to the GL" href="/admin/rule-sandbox" />
         <ActionCard icon={PlugZap} title="Integrations" description="Connect Plaid, Mercury, JobDiva and other external systems" href="/admin/integrations" />
         <ActionCard icon={Sparkles} title="Field Mapping Studio" description="Route any integration payload field (JobDiva, QBO, Zoho, Airtable) into any CoreFlux column — including custom fields. Tenant overrides + dry-run test panel." href="/admin/integrations/field-map/studio" />
+        <ActionCard icon={FileText} title="Assignment schema preview" description="Auto-built CoreFlux clone of the JobDiva Assignment edit screen. Shows every indexed field grouped into Assignment / Placement / Job / Person / End-client / Contact sections." href="/admin/integrations/assignment-schema" />
         <ActionCard icon={KeyRound} title="SSO configuration" description="Register your Okta or Microsoft Entra identity provider" href="/admin/sso" />
         <ActionCard icon={Palette}  title="Email branding"     description="Logo, accent colour, and signature on every digest" href="/admin/mail-branding" />
         <ActionCard icon={CalendarClock} title="Digest schedules" description="When each weekly / daily email gets sent per tenant" href="/admin/digest-schedules" />
@@ -106,6 +108,7 @@ const AdminSidebar = () => {
     { to: '/admin/rule-sandbox',     label: 'Rule Sandbox',     icon: FlaskConical },
     { to: '/admin/integrations',     label: 'Integrations',     icon: PlugZap },
     { to: '/admin/integrations/field-map/studio', label: 'Field Mapping Studio', icon: Sparkles },
+    { to: '/admin/integrations/assignment-schema', label: 'Assignment schema',    icon: FileText },
     { to: '/admin/sso',              label: 'SSO',              icon: KeyRound },
     { to: '/admin/mail-branding',    label: 'Branding',         icon: Palette },
     { to: '/admin/digest-schedules', label: 'Digests',          icon: CalendarClock },
@@ -183,6 +186,7 @@ const AdminModule = ({ session }) => {
           <Route path="/integrations/jobdiva" element={<JobDivaSettings session={session} />} />
           <Route path="/integrations/field-map" element={<IntegrationFieldMapAdmin session={session} />} />
           <Route path="/integrations/field-map/studio" element={<FieldMappingStudio session={session} />} />
+          <Route path="/integrations/assignment-schema" element={<AssignmentSchemaPreview session={session} />} />
           <Route path="/treasury/approval-policies" element={<ApprovalPoliciesAdmin session={session} />} />
           <Route path="/sso"               element={<SsoConfigAdmin session={session} />} />
           <Route path="/mail-branding"     element={<MailBrandingAdmin session={session} />} />
