@@ -10664,3 +10664,80 @@ rejected suggestion into a 2-click fix.
 - MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx`
 - MODIFIED: `tests/field_mapping_automap_suggestions_smoke.php`
 
+
+---
+
+## 2026-02 — JobDiva backfill now pulls FULL joined records via search* enrichment
+
+### Why
+Operator screenshot: `job` entity-type was indexed but showed only
+ONE field (`refNo` ×672). Root cause: JobDiva's V2 BI placement
+payload is intentionally sparse — it carries `jobRefNo` and other
+flat reference stubs, but NOT the full joined record schema. Without
+calling the per-id `/apiv2/jobdiva/search*` endpoints, the indexer
+can only see ref numbers and IDs. Operator's literal ask: "once I
+link the job I want to be able to pull from the job fields and keep
+mapping."
+
+### What shipped
+- **`jobdivaBackfillJoinedIndexes()` rewritten** as a 3-phase pipeline:
+  1. **Phase 1 — load**: collect every stored placement payload
+     paired with its `external_entity_mappings.id`.
+  2. **Phase 2 — enrich**: filter to placements missing `_jd_job` /
+     `_jd_candidate` / `_jd_customer`, batch-fetch unique IDs via the
+     existing `jobdivaSyncEnrichRelatedEntities()` enricher (which
+     calls `/apiv2/jobdiva/searchJob`, `/searchCandidate`,
+     `/searchCustomer`, `/searchContact`, marks 4xx endpoints broken
+     after the first miss). **Re-saves the enriched payload back
+     to `payload_snapshot`** so subsequent backfills + future syncs
+     see the full record.
+  3. **Phase 3 — index**: extract joined sub-records via the
+     existing prefix + nested extractor, index each under its own
+     entity_type.
+- **API endpoint** returns extended counters:
+  `{placements_walked, sub_records_indexed, enrichment_ran_for, enrichment_errors[]}`.
+- **Studio re-index banner** now:
+  - Shows the enrichment-run counter next to the "Re-index again"
+    button: *"fetched full joined records for N placement(s) from
+    JobDiva"*.
+  - Surfaces a red error hint when the enrichment endpoints 4xx
+    (typical when the tenant's JobDiva account doesn't have the
+    `/apiv2/jobdiva/search*` endpoints exposed): "your JobDiva
+    account may not have access to the /apiv2/jobdiva/search*
+    endpoints. Flat-prefix fields are still indexed."
+
+### Tests
+- `tests/jobdiva_subpayload_extraction_smoke.php` extended with
+  section 4.5 — **45 ✓ total** (5 new assertions for enrichment
+  detection, batched call, payload re-save, summary counters, UI
+  enrichment + error rendering).
+- Full suite: **320/321** stable.
+- Vite bundle: `index-C40_-B9Q.js` synced.
+
+### Files touched
+- MODIFIED: `core/jobdiva/sync.php` (jobdivaBackfillJoinedIndexes)
+- MODIFIED: `api/admin/integrations/reindex_jobdiva_subpayloads.php`
+- MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx` (banner +
+  enrichment counters + error hint)
+- MODIFIED: `tests/jobdiva_subpayload_extraction_smoke.php`
+
+### How operators use it now
+1. Open Studio → click **Re-index again** (or the auto-trigger
+   handles it).
+2. The backfill walks every stored placement, fans out per-id
+   calls to JobDiva's `searchJob/searchCandidate/searchCustomer/
+   searchContact` endpoints, re-saves the enriched payloads, and
+   indexes the FULL joined records.
+3. Switch entity dropdown to `job` — now shows real job fields
+   (title, description, department, contact_id, contact_name,
+   primary_sales, dates, etc.) with sample values from real
+   JobDiva records, not just `refNo`.
+4. Same flow for `person` → full candidate record (first_name,
+   last_name, emails, phones, addresses, work history fields),
+   `jobdiva_customer` → full customer record, `contact` → full
+   contact record.
+5. If a tenant's JobDiva account doesn't expose the search*
+   endpoints, the operator sees a clear red hint — and the flat
+   prefix extraction still gives them whatever JobDiva does
+   include in the BI placement payload.
+

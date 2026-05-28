@@ -1386,7 +1386,7 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
 
     try {
         $st = $pdo->prepare(
-            "SELECT payload_snapshot
+            "SELECT id, payload_snapshot
                FROM external_entity_mappings
               WHERE tenant_id = :t
                 AND source_system = 'jobdiva'
@@ -1399,11 +1399,73 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
         return $summary;
     }
 
+    // Phase 1 — collect every stored placement payload paired with its
+    // mapping row id, so we can re-save the enriched payload back.
+    $placements = [];   // [ ['mapping_id'=>..., 'payload'=>[...] ], ... ]
     while ($row = $st->fetch(\PDO::FETCH_ASSOC)) {
         $snap = $row['payload_snapshot'];
         if (!is_string($snap) || $snap === '') continue;
         $payload = json_decode($snap, true);
         if (!is_array($payload)) continue;
+        $placements[] = ['mapping_id' => (int) $row['id'], 'payload' => $payload];
+    }
+    if (empty($placements)) return $summary;
+
+    // Phase 2 — enrich any placements that don't already carry the full
+    // joined sub-records. The enricher batches by unique id per kind,
+    // marks 4xx endpoints broken after the first miss, and short-circuits
+    // when nothing's missing. This is the step that pulls the FULL job /
+    // candidate / customer / contact rows out of JobDiva so the picker
+    // surfaces complete schemas instead of just flat ref-number stubs.
+    $needsEnrichment = array_filter($placements, function ($p) {
+        $jd = $p['payload'];
+        return empty($jd['_jd_job']) || empty($jd['_jd_candidate'])
+            || empty($jd['_jd_customer']);
+    });
+    $enrichmentRanFor = 0;
+    $enrichmentBroken = [];
+    if (!empty($needsEnrichment)) {
+        try {
+            $items = array_map(fn($p) => $p['payload'], $needsEnrichment);
+            $enriched = jobdivaSyncEnrichRelatedEntities($tenantId, $items, null, []);
+            // Re-stitch enriched results back into $placements by index +
+            // re-save the enriched payload to external_entity_mappings so
+            // the next backfill / sync sees the full record.
+            $i = 0;
+            foreach ($needsEnrichment as $idx => $p) {
+                if (!isset($enriched[$i])) { $i++; continue; }
+                $newPayload = $enriched[$i];
+                if (is_array($newPayload)) {
+                    $placements[$idx]['payload'] = $newPayload;
+                    // Persist enriched payload back so this is one-shot.
+                    try {
+                        $up = $pdo->prepare(
+                            'UPDATE external_entity_mappings
+                                SET payload_snapshot = :p, updated_at = NOW()
+                              WHERE id = :id AND tenant_id = :t'
+                        );
+                        $up->execute([
+                            'p'  => json_encode($newPayload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+                            'id' => $p['mapping_id'],
+                            't'  => $tenantId,
+                        ]);
+                    } catch (\Throwable $e) {
+                        error_log('[jobdivaBackfillJoinedIndexes] re-save failed: ' . $e->getMessage());
+                    }
+                    $enrichmentRanFor++;
+                }
+                $i++;
+            }
+        } catch (\Throwable $e) {
+            error_log('[jobdivaBackfillJoinedIndexes] enrich failed: ' . $e->getMessage());
+            $enrichmentBroken[] = $e->getMessage();
+        }
+    }
+
+    // Phase 3 — extract + index every placement's joined sub-records
+    // (now with any freshly-fetched _jd_* enrichment applied).
+    foreach ($placements as $p) {
+        $payload = $p['payload'];
         $summary['placements_walked']++;
         $subs = jobdivaExtractJoinedSubPayloads($payload);
         foreach ($subs as $entityType => $sub) {
@@ -1418,6 +1480,8 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
             }
         }
     }
+    $summary['enrichment_ran_for'] = $enrichmentRanFor;
+    $summary['enrichment_errors']  = $enrichmentBroken;
     return $summary;
 }
 

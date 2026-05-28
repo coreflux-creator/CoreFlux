@@ -162,6 +162,27 @@ $a('backfill returns placements_walked + sub_records_indexed counters',
     str_contains($syncSrc, "'placements_walked'")
     && str_contains($syncSrc, "'sub_records_indexed'"));
 
+// 4.5) Backfill now also pulls full joined records via the JobDiva
+// enrichment endpoints (searchJob / searchCandidate / searchCustomer /
+// searchContact). Operator complaint: "once I link the job I want to be
+// able to pull from the job fields and keep mapping" — the V2 BI
+// placement payload only carries flat ref-number stubs (jobRefNo,
+// candidateRefNo) so we have to hit the per-id search endpoints to
+// surface the full schema.
+echo "\n4.5 Backfill calls enricher + re-saves payload_snapshot\n";
+$a('backfill detects placements missing _jd_* enrichment',
+    str_contains($syncSrc, "empty(\$jd['_jd_job']) || empty(\$jd['_jd_candidate'])")
+    && str_contains($syncSrc, "empty(\$jd['_jd_customer'])"));
+$a('backfill invokes jobdivaSyncEnrichRelatedEntities on the missing batch',
+    str_contains($syncSrc, 'jobdivaSyncEnrichRelatedEntities($tenantId, $items, null, [])'));
+$a('backfill persists the enriched payload back to external_entity_mappings',
+    str_contains($syncSrc, 'UPDATE external_entity_mappings')
+    && str_contains($syncSrc, 'SET payload_snapshot = :p')
+    && str_contains($syncSrc, 'json_encode($newPayload'));
+$a('summary surfaces enrichment_ran_for + enrichment_errors',
+    str_contains($syncSrc, "\$summary['enrichment_ran_for'] = \$enrichmentRanFor")
+    && str_contains($syncSrc, "\$summary['enrichment_errors']  = \$enrichmentBroken"));
+
 // 5) Sync site uses extractor for applyAll fan-out (covers flat + nested).
 echo "\n5. Placement sync uses extractor for applyAll fan-out\n";
 $a('JOINED_CTX map present',
@@ -191,7 +212,9 @@ $a('endpoint calls jobdivaBackfillJoinedIndexes($tid)',
     str_contains($ep, 'jobdivaBackfillJoinedIndexes($tid)'));
 $a('endpoint returns ok + counters',
     str_contains($ep, "'placements_walked'")
-    && str_contains($ep, "'sub_records_indexed'"));
+    && str_contains($ep, "'sub_records_indexed'")
+    && str_contains($ep, "'enrichment_ran_for'")
+    && str_contains($ep, "'enrichment_errors'"));
 
 // 7) Studio surfaces re-index button + result + auto-trigger.
 echo "\n7. Field Mapping Studio re-index UI\n";
@@ -213,6 +236,12 @@ $a('Studio auto-triggers a silent re-index when only placement is indexed',
 $a('Studio reloads sources + pane after re-index',
     str_contains($fms, 'await reloadSources();')
     && str_contains($fms, 'await reload();'));
+$a('Studio surfaces enrichment counter line when enrichment_ran_for > 0',
+    str_contains($fms, 'data-testid="fms-jobdiva-reindex-enrichment"')
+    && str_contains($fms, 'fetched full joined records for'));
+$a('Studio surfaces enrichment-error hint when endpoints fail',
+    str_contains($fms, 'data-testid="fms-jobdiva-reindex-enrichment-error"')
+    && str_contains($fms, '/apiv2/jobdiva/search*'));
 
 // 8) PHP syntax sanity.
 echo "\n8. PHP syntax\n";

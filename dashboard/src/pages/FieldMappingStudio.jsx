@@ -497,8 +497,8 @@ export default function FieldMappingStudio() {
               </strong>
               <div style={{ marginTop: 4, color: '#475569' }}>
                 {joinedCount > 0
-                  ? <>You have <strong>{placementCount}</strong> placement paths indexed plus joined sub-records. Re-run any time to refresh from the latest stored payloads.</>
-                  : <>You have <strong>{placementCount}</strong> placement paths indexed but none of the joined Person / Job / End-client / Contact / Assignment fields are in the picker yet. Click below to extract them from your existing placement payloads — no fresh sync needed.</>}
+                  ? <>You have <strong>{placementCount}</strong> placement paths indexed plus joined sub-records. <strong>Re-index again</strong> any time to pull the latest full Job / Candidate / Customer records from JobDiva via <code>/apiv2/jobdiva/search*</code> and refresh the indexed paths.</>
+                  : <>You have <strong>{placementCount}</strong> placement paths indexed but none of the joined Person / Job / End-client / Contact / Assignment fields are in the picker yet. Click below to extract them from your existing placement payloads <em>and</em> fetch full joined records from JobDiva — no fresh sync needed.</>}
               </div>
               {reindexResult && (
                 <div data-testid="fms-jobdiva-reindex-result"
@@ -508,6 +508,20 @@ export default function FieldMappingStudio() {
                           .filter(([, n]) => Number(n) > 0)
                           .map(([k, n]) => `${k} ×${n}`)
                           .join(', ') || 'no joined sub-records found'}
+                  {Number(reindexResult.enrichment_ran_for) > 0 && (
+                    <span data-testid="fms-jobdiva-reindex-enrichment"
+                          style={{ marginLeft: 6, color: '#0369a1' }}>
+                      · fetched full joined records for <strong>{reindexResult.enrichment_ran_for}</strong> placement(s) from JobDiva
+                    </span>
+                  )}
+                  {Array.isArray(reindexResult.enrichment_errors) && reindexResult.enrichment_errors.length > 0 && (
+                    <div data-testid="fms-jobdiva-reindex-enrichment-error"
+                         style={{ marginTop: 4, color: '#b91c1c' }}>
+                      Enrichment had errors — your JobDiva account may not have access to the
+                      <code> /apiv2/jobdiva/search* </code>endpoints. Flat-prefix fields
+                      (<code>jobRefNo</code>, <code>candidateRefNo</code>, etc.) are still indexed.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
