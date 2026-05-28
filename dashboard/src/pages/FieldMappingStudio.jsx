@@ -584,6 +584,54 @@ export default function FieldMappingStudio() {
                       (<code>jobRefNo</code>, <code>candidateRefNo</code>, etc.) are still indexed.
                     </div>
                   )}
+                  {reindexResult.endpoint_diagnostics && Object.keys(reindexResult.endpoint_diagnostics).length > 0 && (
+                    <details data-testid="fms-jobdiva-endpoint-diagnostics"
+                             style={{ marginTop: 8 }}>
+                      <summary style={{ cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#0f172a' }}>
+                        Per-endpoint diagnostics ({Object.keys(reindexResult.endpoint_diagnostics).length} endpoints) — click to expand
+                      </summary>
+                      <table style={{ marginTop: 6, width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc' }}>
+                            <th style={{ ...thStyle, fontSize: 10 }}>Kind → Endpoint</th>
+                            <th style={{ ...thStyle, fontSize: 10, textAlign: 'right' }}>IDs seen</th>
+                            <th style={{ ...thStyle, fontSize: 10, textAlign: 'right' }}>Attempted</th>
+                            <th style={{ ...thStyle, fontSize: 10, textAlign: 'right' }}>OK</th>
+                            <th style={{ ...thStyle, fontSize: 10, textAlign: 'right' }}>Empty</th>
+                            <th style={{ ...thStyle, fontSize: 10, textAlign: 'right' }}>Failed</th>
+                            <th style={{ ...thStyle, fontSize: 10 }}>Sample error</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(reindexResult.endpoint_diagnostics).map(([kind, d]) => (
+                            <tr key={kind}
+                                data-testid={`fms-jobdiva-diag-${kind}`}
+                                data-broken={d.broken_endpoint ? 'yes' : 'no'}
+                                style={{ borderTop: '1px solid #e2e8f0',
+                                         background: d.broken_endpoint ? '#fef2f2'
+                                                   : d.succeeded > 0    ? '#f0fdf4'
+                                                   : 'transparent' }}>
+                              <td style={{ ...tdStyle, fontSize: 11 }}>
+                                <code>{kind}</code>{' '}
+                                <span style={{ color: '#94a3b8' }}>{d.endpoint}</span>
+                                {d.broken_endpoint && <span style={{ marginLeft: 4, color: '#b91c1c' }}> broken</span>}
+                              </td>
+                              <td style={{ ...tdStyle, fontSize: 11, textAlign: 'right' }}>{d.ids_seen ?? 0}</td>
+                              <td style={{ ...tdStyle, fontSize: 11, textAlign: 'right' }}>{d.attempted ?? 0}</td>
+                              <td style={{ ...tdStyle, fontSize: 11, textAlign: 'right', color: '#16a34a' }}>{d.succeeded ?? 0}</td>
+                              <td style={{ ...tdStyle, fontSize: 11, textAlign: 'right', color: '#94a3b8' }}>{d.empty_response ?? 0}</td>
+                              <td style={{ ...tdStyle, fontSize: 11, textAlign: 'right', color: '#dc2626' }}>{d.failed ?? 0}</td>
+                              <td style={{ ...tdStyle, fontSize: 10, color: '#64748b', maxWidth: 280,
+                                           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                  title={d.sample_error || ''}>
+                                {d.sample_error || <em style={{ color: '#cbd5e1' }}>—</em>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </details>
+                  )}
                 </div>
               )}
             </div>

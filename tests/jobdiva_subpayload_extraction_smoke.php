@@ -174,7 +174,7 @@ $a('backfill detects placements missing _jd_* enrichment',
     str_contains($syncSrc, "empty(\$jd['_jd_job']) || empty(\$jd['_jd_candidate'])")
     && str_contains($syncSrc, "empty(\$jd['_jd_customer'])"));
 $a('backfill invokes jobdivaSyncEnrichRelatedEntities on the missing batch',
-    str_contains($syncSrc, 'jobdivaSyncEnrichRelatedEntities($tenantId, $items, null, [])'));
+    str_contains($syncSrc, "jobdivaSyncEnrichRelatedEntities(\n                \$tenantId, \$items, null,\n                ['enrich_start' => 1],\n                \$enrichDiag\n            )"));
 $a('backfill persists the enriched payload back to external_entity_mappings',
     str_contains($syncSrc, 'UPDATE external_entity_mappings')
     && str_contains($syncSrc, 'SET payload_snapshot = :p')

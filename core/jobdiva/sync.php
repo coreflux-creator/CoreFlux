@@ -1086,7 +1086,7 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
  * doesn't expose one (404 / 400), the sync continues without that
  * enrichment for the rest of the batch. Cache is in-memory per run.
  */
-function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, array $opts = []): array
+function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, array $opts = [], ?array &$diagnostics = null): array
 {
     // (kind, id-pluck-keys, endpoint, id-body-key, inject-key, broken-flag).
     // broken-flag is set to true on the first 4xx so subsequent items
@@ -1140,6 +1140,24 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
     // endpoint broken on first 4xx so we don't keep hammering it.
     $cache = [];       // [kind][id] => row (assoc array) | null on miss
     $brokenEndpoint = [];
+    // Per-kind diagnostics — surfaced to operators via the API so they
+    // can see exactly which JobDiva endpoints worked vs returned 4xx /
+    // empty data vs were skipped.
+    $diag = [];
+    foreach (array_keys($configs) as $k) {
+        $diag[$k] = [
+            'endpoint'        => $configs[$k]['endpoint'],
+            'ids_seen'        => 0,
+            'attempted'       => 0,
+            'succeeded'       => 0,
+            'empty_response'  => 0,
+            'failed'          => 0,
+            'broken_endpoint' => false,
+            'sample_error'    => null,
+            'skipped_self'    => 0,
+        ];
+        $diag[$k]['ids_seen'] = count($idsByKind[$k] ?? []);
+    }
     foreach ($configs as $kind => $cfg) {
         if (empty($idsByKind[$kind])) continue;
         foreach (array_keys($idsByKind[$kind]) as $id) {
@@ -1150,33 +1168,45 @@ function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, 
             // who need a fuller searchStart (e.g. to pick up pay rate
             // that JobDiva's BI feed nulls out on the Assignment
             // payload) can flip `enrich_start=1` in the sync opts.
-            if ($kind === 'start' && empty($opts['enrich_start'])) continue;
+            if ($kind === 'start' && empty($opts['enrich_start'])) {
+                $diag[$kind]['skipped_self']++;
+                continue;
+            }
 
             if (!empty($brokenEndpoint[$cfg['endpoint']])) {
                 $cache[$kind][$id] = null;
                 continue;
             }
+            $diag[$kind]['attempted']++;
             try {
                 $resp = jobdivaCall($tid, 'POST', $cfg['endpoint'], [$cfg['body_key'] => $id]);
                 $body = $resp['body'] ?? [];
                 $rows = $body['data'] ?? $body['items'] ?? (is_array($body) && isset($body[0]) ? $body : []);
                 if (is_array($rows) && count($rows) > 0 && is_array($rows[0])) {
                     $cache[$kind][$id] = $rows[0];
+                    $diag[$kind]['succeeded']++;
                 } else {
                     $cache[$kind][$id] = null;
+                    $diag[$kind]['empty_response']++;
                 }
             } catch (\Throwable $e) {
                 $msg = $e->getMessage();
                 error_log("[jobdiva] enrich {$kind} id={$id} failed: {$msg}");
+                $diag[$kind]['failed']++;
+                if ($diag[$kind]['sample_error'] === null) {
+                    $diag[$kind]['sample_error'] = substr($msg, 0, 240);
+                }
                 // Heuristic: HTTP 4xx in the error message = endpoint
                 // unavailable on this tenant. Skip the rest of this kind.
                 if (preg_match('/\b4\d\d\b/', $msg)) {
                     $brokenEndpoint[$cfg['endpoint']] = true;
+                    $diag[$kind]['broken_endpoint'] = true;
                 }
                 $cache[$kind][$id] = null;
             }
         }
     }
+    if ($diagnostics !== null) $diagnostics = $diag;
 
     // Phase 3 — inject enriched rows back onto each placement item.
     // Also set the legacy `__cf_resolved_job_title` hint so existing
@@ -1424,10 +1454,24 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
     });
     $enrichmentRanFor = 0;
     $enrichmentBroken = [];
+    $enrichDiag = null;
     if (!empty($needsEnrichment)) {
         try {
             $items = array_map(fn($p) => $p['payload'], $needsEnrichment);
-            $enriched = jobdivaSyncEnrichRelatedEntities($tenantId, $items, null, []);
+            $enrichDiag = null;
+            // enrich_start=1 is CRITICAL — without it the searchStart
+            // endpoint is skipped (the optimistic "we already have it"
+            // path), and _jd_start stays empty. Without _jd_start the
+            // assignment entity has no rates / billing / pay / overhead
+            // / VMS / division fields. Operator's literal ask: "get all
+            // the fields so I can populate a screen like this!" (the
+            // JobDiva Assignment edit screen). Flipping this on adds
+            // ONE call per placement during backfill — acceptable.
+            $enriched = jobdivaSyncEnrichRelatedEntities(
+                $tenantId, $items, null,
+                ['enrich_start' => 1],
+                $enrichDiag
+            );
             // Re-stitch enriched results back into $placements by index +
             // re-save the enriched payload to external_entity_mappings so
             // the next backfill / sync sees the full record.
@@ -1460,6 +1504,10 @@ function jobdivaBackfillJoinedIndexes(int $tenantId): array
             error_log('[jobdivaBackfillJoinedIndexes] enrich failed: ' . $e->getMessage());
             $enrichmentBroken[] = $e->getMessage();
         }
+    }
+    // Surface per-endpoint diagnostics from the enricher (if it ran).
+    if (!empty($enrichDiag) && is_array($enrichDiag)) {
+        $summary['endpoint_diagnostics'] = $enrichDiag;
     }
 
     // Phase 3 — extract + index every placement's joined sub-records

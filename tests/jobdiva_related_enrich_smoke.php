@@ -32,8 +32,8 @@ $ROOT = realpath(__DIR__ . '/..');
 $sync = (string) file_get_contents("{$ROOT}/core/jobdiva/sync.php");
 
 echo "jobdivaSyncEnrichRelatedEntities — declaration + config\n";
-$assert('canonical signature accepts $opts for opt-in toggles',
-    strpos($sync, 'function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, array $opts = []): array') !== false);
+$assert('canonical signature accepts $opts + diagnostics ref param',
+    strpos($sync, 'function jobdivaSyncEnrichRelatedEntities(int $tid, array $items, ?int $userId, array $opts = [], ?array &$diagnostics = null): array') !== false);
 $assert('configs job kind → /searchJob with jobId body key',
     strpos($sync, "'job'       => [") !== false
     && strpos($sync, "'endpoint' => '/apiv2/jobdiva/searchJob',") !== false
@@ -59,7 +59,8 @@ echo "\njobdivaSyncEnrichRelatedEntities — fan-out hygiene\n";
 $assert('dedupes ids per kind so 100 placements at one client = 1 fetch',
     strpos($sync, '$idsByKind[$kind][(int) $raw] = true;') !== false);
 $assert('skips start re-fetch by default, opt-in via opts.enrich_start',
-    strpos($sync, "if (\$kind === 'start' && empty(\$opts['enrich_start'])) continue;") !== false);
+    strpos($sync, "if (\$kind === 'start' && empty(\$opts['enrich_start']))") !== false
+    && strpos($sync, "\$diag[\$kind]['skipped_self']++") !== false);
 $assert('marks an endpoint broken on first 4xx so we stop hammering it',
     strpos($sync, "preg_match('/\\b4\\d\\d\\b/', \$msg)") !== false
     && strpos($sync, '$brokenEndpoint[$cfg[\'endpoint\']] = true;') !== false);

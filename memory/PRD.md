@@ -10836,3 +10836,88 @@ works for ANY integration whose REST endpoints we can't reach.
 | Contact           | ✅ when reachable   | ❌              | ✅          |
 | Assignment/Start  | ✅ when reachable   | partial         | ✅          |
 
+
+---
+
+## 2026-02 — JobDiva backfill: enrich_start=1 + per-endpoint diagnostics
+
+### Why
+Operator showed the JobDiva Assignment edit screen (dozens of fields:
+Bill Rate, Pay Rate, Currency, Overtime, Division, Group Invoice,
+VMS Timesheet Website, Employment Category, Payment Frequency,
+Per Diem, Outside Commission, Payroll Profile ID, multiple overhead
+rows…) and asked: "no real change, get all the fields so I can
+populate a screen like this!"
+
+Root cause was two-fold:
+1. The backfill called the enricher WITHOUT `enrich_start=1`, so
+   `/apiv2/jobdiva/searchStart` was skipped. Without searchStart's
+   full detail response, `_jd_start` stayed empty, and the
+   `assignment` entity had no rate / billing / pay / overhead /
+   VMS / division fields.
+2. The enricher silently swallowed per-endpoint failures. The
+   operator had no signal for WHICH JobDiva endpoints worked vs
+   4xx'd on their account.
+
+### What shipped
+- **Enricher signature extended**: `jobdivaSyncEnrichRelatedEntities`
+  now takes an optional fifth ref param `?array &$diagnostics = null`.
+  When passed, it populates a per-kind diagnostics map with:
+  `endpoint`, `ids_seen`, `attempted`, `succeeded`, `empty_response`,
+  `failed`, `broken_endpoint`, `sample_error`, `skipped_self`.
+- **Backfill now passes `enrich_start=1`** + collects diagnostics:
+  `jobdivaSyncEnrichRelatedEntities($tenantId, $items, null, ['enrich_start' => 1], $enrichDiag)`.
+  Surfaces `endpoint_diagnostics` in the summary.
+- **API endpoint** bubbles the diagnostics map to the response.
+- **Studio re-index banner** now renders a **collapsible per-endpoint
+  diagnostics table** (`fms-jobdiva-endpoint-diagnostics`) with one
+  row per kind:
+  - `kind` + endpoint URL (e.g. `job · /apiv2/jobdiva/searchJob`).
+  - `ids_seen` / `attempted` / `succeeded` / `empty_response` /
+    `failed` columns.
+  - `sample_error` (truncated, with full text on hover).
+  - Row background colour-coded — red for `broken_endpoint`, green
+    when at least one call succeeded, transparent otherwise.
+  - `data-broken="yes|no"` attribute per row for automation.
+
+### Tests
+- NEW `/app/tests/jobdiva_enrich_diagnostics_smoke.php` — **20 ✓**:
+  enricher signature, diagnostics initialisation, per-counter
+  increment paths, broken-flag + sample-error capture, backfill
+  pass-through, API surface, Studio table render.
+- Updated `tests/jobdiva_related_enrich_smoke.php` to match the
+  new signature (**15 ✓**).
+- Updated `tests/jobdiva_subpayload_extraction_smoke.php` to match
+  the new enrichment call (**45 ✓**).
+- Full suite: **322/323** stable (1 = pre-existing DB-conn failure).
+- Vite bundle synced: `index-x9_n1luI.js`.
+
+### Files touched
+- MODIFIED: `core/jobdiva/sync.php` (enricher signature + diagnostics
+  + backfill passes enrich_start=1)
+- MODIFIED: `api/admin/integrations/reindex_jobdiva_subpayloads.php`
+- MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx`
+- NEW:      `tests/jobdiva_enrich_diagnostics_smoke.php`
+- MODIFIED: `tests/jobdiva_related_enrich_smoke.php`
+- MODIFIED: `tests/jobdiva_subpayload_extraction_smoke.php`
+
+### How operators see the result
+1. Open Field Mapping Studio → click **Re-index again**.
+2. Backfill now calls **searchStart** for every placement (one
+   extra API call per placement during the backfill). On a
+   well-configured JobDiva account, this floods the `assignment`
+   entity with rate / billing / pay / overhead / VMS / division
+   fields — exactly the JobDiva Assignment edit screen schema.
+3. Expand the new **"Per-endpoint diagnostics"** table to see
+   which endpoints worked. Example output:
+   - `job · /apiv2/jobdiva/searchJob` → ids_seen=58, attempted=58,
+     **succeeded=58** (green row). Operator knows job fields are
+     fully populated.
+   - `start · /apiv2/jobdiva/searchStart` → broken_endpoint=true
+     (red row), sample_error="HTTP 403 Forbidden". Operator knows
+     to escalate to their JobDiva admin to enable the
+     `/apiv2/jobdiva/searchStart` permission.
+4. Once endpoints are unbroken on the JobDiva side, one click of
+   **Re-index again** pulls every field. **Auto-map** suggester
+   then proposes targets for the hundred-plus new mappable paths.
+
