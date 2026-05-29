@@ -11067,3 +11067,183 @@ Operator approved: "proceed with a b f g".
   sidebar entry, Admin Overview ActionCard)
 - NEW:      `tests/batch_a_b_f_g_smoke.php`
 
+
+---
+
+## 2026-02 — P2 batch: CSV importers + verification (AP PWP, FSC)
+
+Operator requested: "P2 AP 3-way + 4th condition, CSV importers,
+live financial state cache".
+
+### Verification results — already shipped (no code change)
+- **AP 3-way HARD gate + 4-way (PWP) match** — `pay_when_paid_smoke.php`
+  **52 ✓** + `ap_pwp_four_way_match_smoke.php` **20 ✓**. Fully wired
+  from `apPwpLink()` through bill-pay gating with hold/release on
+  AR collection.
+- **Live Financial State Cache** — `financial_state_cache_smoke.php`
+  **73 ✓**. Cache mark-dirty + invalidation wired across JE post,
+  JE reverse, bill update, statement match, etc.
+
+Both items were in the backlog from earlier work; this batch
+re-validates they still hold green under the latest suite.
+
+### Treasury bank-statement CSV importer
+- **NEW `/app/modules/treasury/lib/csv_import.php`**:
+  - `treasuryCsvFindColumn()` — header-alias resolver tolerant to
+    case / whitespace / special chars. Covers common bank-export
+    column names (Date / Posting Date / Description / Memo /
+    Amount / Debit / Credit / Reference / Check Number).
+  - `treasuryCsvNormaliseDate()` — ISO / US-slash / dd-Mmm-yyyy.
+  - `treasuryCsvParseAmount()` — strips $/£/€/, handles
+    parentheses-negative, returns null on garbage.
+  - `treasuryImportBankCsv(PDO, tid, bank_account_id, file)` —
+    streams the CSV row by row, inserts into
+    `accounting_bank_statement_lines` with `match_status='unmatched'`
+    and a synthesised `fitid` (sha1 prefix of date|amount|desc|ref)
+    that doubles as the de-dup key. Re-uploading the same CSV is a
+    no-op. SQLite + MySQL portable (driver-aware `NOW()` /
+    `datetime('now')`). Foreign-key gated by tenant + account.
+- **NEW `/api/treasury/import_csv.php`** — multipart POST endpoint,
+  RBAC `accounting.bank.manage`, 25 MB cap, returns counters.
+- Imported lines flow into the existing matching / reconciliation
+  pipeline exactly as Plaid-sourced lines do.
+
+### Payroll register CSV importer
+- **NEW `/app/modules/payroll/lib/csv_import.php`**:
+  - `payrollCsvFindColumn()` + `payrollCsvParseDollarsToCents()` —
+    same tolerant resolution + cent-precision parsing.
+  - `payrollResolveEmployeeId(PDO, tid, idRaw, email, name)` —
+    matches by people.id → email_primary/secondary → "First Last"
+    name. Tenant-scoped.
+  - `payrollImportRunCsv(PDO, tid, pay_period_id, file, run_type)`:
+    1. Verifies pay_period belongs to tenant.
+    2. Creates ONE `payroll_runs` row in `status='computed'`.
+    3. Inserts one `payroll_line_items` per resolvable employee
+       row.
+    4. Rolls up totals (gross / taxes / deductions / net /
+       employer_taxes) back onto the run.
+    5. All inside a single PDO transaction — partial failures
+       roll back cleanly.
+  - SQLite + MySQL portable.
+- **NEW `/api/payroll/import_csv.php`** — multipart POST, RBAC
+  `payroll.run.compute`, whitelisted run_type
+  (regular / off_cycle / correction / final), 25 MB cap.
+- Imported runs land in `status='computed'` so the existing
+  approve/post/dispatch rails work end-to-end without changes.
+
+### Tests
+- NEW `tests/treasury_csv_import_smoke.php` — **31 ✓** with
+  **executable** end-to-end run against an SQLite in-memory schema
+  mirroring `accounting_bank_accounts` +
+  `accounting_bank_statement_lines`. Covers header aliases, date
+  normalisation, amount parsing, de-dup, Debit+Credit derivation,
+  foreign-key gating, endpoint contract.
+- NEW `tests/payroll_csv_import_smoke.php` — **38 ✓** with
+  **executable** end-to-end run against SQLite schemas mirroring
+  `people` / `payroll_pay_periods` / `payroll_runs` /
+  `payroll_line_items`. Covers employee resolver (id / email /
+  name), pay-period gating, transactional integrity, totals
+  roll-up, endpoint contract.
+- HY093 sentry caught a duplicate-placeholder bug in the employee
+  email lookup during this batch (`email_primary = :e OR
+  email_secondary = :e` → `:e1` / `:e2`) — fixed before shipping.
+- Full suite: **323/326** stable (3 = documented pre-existing infra
+  failures: `accounting_phase2_a7` needs DB, `ai_platform` needs
+  curl ext, `plaid_integration` needs Plaid keys).
+
+### Files touched
+- NEW:      `modules/treasury/lib/csv_import.php`
+- NEW:      `modules/treasury/api/import_csv.php`
+- NEW:      `modules/payroll/lib/csv_import.php`
+- NEW:      `modules/payroll/api/import_csv.php`
+- NEW:      `tests/treasury_csv_import_smoke.php`
+- NEW:      `tests/payroll_csv_import_smoke.php`
+
+### How operators use the importers
+**Treasury** — for any bank without a Plaid connection (small
+business accounts, foreign banks, BoA wire-only accounts, etc.):
+1. Export the bank statement to CSV (most banks support this from
+   the online portal).
+2. POST it to `/api/treasury/import_csv.php` with `bank_account_id`
+   set to the matching CoreFlux bank account.
+3. Lines land as `match_status='unmatched'` — the existing
+   reconciliation flow matches them against AP payments, expense
+   reports, etc.
+
+**Payroll** — for tenants not on Gusto, or for one-off corrections:
+1. Export the payroll register from your payroll provider to CSV
+   (or build one manually — see CSV format docs in `csv_import.php`).
+2. POST it to `/api/payroll/import_csv.php` with `pay_period_id`
+   and optional `run_type`.
+3. A `status='computed'` run appears, fully populated with
+   per-employee line items + totals — operator approves +
+   GL-posts via the existing flow.
+
+
+---
+
+## 2026-02 — Resend live: keys wired, end-to-end verified
+
+Operator handed us the live Resend API key + verified sender domain.
+
+### What's now live
+- `RESEND_API_KEY` = `re_L5QC…` set in `/app/core/config.local.php`
+  (gitignored — `.gitignore` line 40).
+- `RESEND_FROM_EMAIL` = `no-reply@mail.corefluxapp.com` (verified
+  domain in Resend dashboard).
+- `RESEND_FROM_NAME` = `CoreFlux Notifications`.
+
+### End-to-end verification (manual, this session)
+1. **Direct Resend API call** with the key + verified sender →
+   200 OK, message-id `0e69c604-dfad-4eac-95d2-f2062f299109`.
+2. **Local `Core\Mail\ResendDriver->send()` invocation** →
+   `status: sent`, provider_message_id
+   `e04d2942-92e4-4b46-bfae-dd9a9c38b50a`. Confirms the CoreFlux
+   driver wraps the Resend HTTP API correctly (Authorization
+   Bearer header, application/json payload, idempotency key
+   format `cf-{tid}-{purpose}-…`, from envelope `{name} <{email}>`).
+3. **`cf_mail_bootstrap()` introspection** confirmed
+   ResendDriver is the registered default driver with the key
+   visible from the constants.
+
+### What was already built (this session re-verified — no change)
+- `core/mail/ResendDriver.php` (171 LOC, complete).
+- `core/mail_bootstrap.php` picks Resend as default when key set.
+- `api/admin/mail_status.php` diagnostic endpoint (shipped in
+  the previous batch — confirms `resend_configured=true` once the
+  key is in place).
+- `mail_outbox` table tracking + tenant per-purpose `from` overrides.
+
+### Tests
+- NEW `tests/resend_wiring_smoke.php` — **25 ✓** with a mocked
+  HTTP transport that captures the actual request shape the
+  driver emits. Verifies:
+  - config.local.php constants are defined correctly.
+  - ResendDriver constructor accepts `(api_key, from_email, from_name)`.
+  - `send()` POSTs to `api.resend.com/emails` with
+    `Authorization: Bearer {key}`, `Content-Type: application/json`,
+    `Idempotency-Key: cf-{tid}-{purpose}-…`.
+  - `from` envelope formatted as `CoreFlux Notifications <no-reply@mail.corefluxapp.com>`.
+  - Tags + reply_to forwarded correctly.
+  - HTTP failure (402, etc.) surfaces `status=failed` with error
+    + null provider_message_id.
+  - `/api/admin/mail_status.php` never leaks the full key
+    (substr 0,5 only).
+- Full suite: **325/327** stable (2 pre-existing infra failures —
+  both need a live MySQL connection; documented in handoff).
+
+### Files touched
+- MODIFIED: `core/config.local.php` (added `RESEND_API_KEY` define;
+  file is gitignored so the secret stays out of the repo).
+- NEW:      `tests/resend_wiring_smoke.php`
+
+### What now delivers externally
+Every call to `mailerSend()` now routes through Resend instead of
+the LogDriver. That includes:
+- CFO Weekly Ops Memo digests.
+- Bill approval emails (tokenized signed link).
+- AP timesheet approver emails.
+- Payroll run notifications.
+- Any future `mailerSend(...)` call site — the shim is purpose-aware
+  and respects per-tenant overrides from `mail_senders.php`.
+
