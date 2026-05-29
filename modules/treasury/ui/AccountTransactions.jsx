@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtDate } from '../../../dashboard/src/lib/format';
+import CsvUploadWidget from '../../../dashboard/src/components/CsvUploadWidget';
 
 const fmtMoneyOriginal = (n) =>
   (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
@@ -145,6 +146,24 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
         <p className="error" data-testid={`treasury-${type}-sync-error`} style={{ marginBottom: 12 }}>
           {syncErr}
         </p>
+      )}
+
+      {/* CSV upload — for deposit (bank) accounts without a Plaid feed,
+          or for backfilling history beyond what Plaid retains. Lines
+          land in accounting_bank_statement_lines exactly like Plaid-
+          sourced rows, so the existing matching flow picks them up. */}
+      {type === 'deposit' && (
+        <CsvUploadWidget
+          testIdPrefix={`treasury-${type}-csv`}
+          endpoint="/api/treasury/import_csv.php"
+          extraFields={{ bank_account_id: accountId }}
+          accept=".csv,text/csv"
+          label={plaidItemExternalId
+            ? 'Import a CSV (e.g. older history beyond Plaid\'s retention window)'
+            : 'Import a bank statement CSV — this account isn\'t connected to Plaid'}
+          hint="Header row required. Accepted columns: Date / Posting Date · Description / Memo · Amount (or Debit + Credit) · optional Reference / Check Number. Re-uploading the same file is a no-op (deduped via synthesised fitid)."
+          onSuccess={() => reload()}
+        />
       )}
 
       {loading && <p>Loading…</p>}

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi, api } from '../../../dashboard/src/lib/api';
+import CsvUploadWidget from '../../../dashboard/src/components/CsvUploadWidget';
 
 export default function PayPeriods() {
   const periodsApi = useApi('/modules/payroll/api/pay_periods.php');
@@ -8,6 +9,7 @@ export default function PayPeriods() {
   const periods = periodsApi.data?.periods ?? [];
   const schedules = schedulesApi.data?.schedules ?? [];
   const [busy, setBusy] = useState(null);
+  const [csvPeriodId, setCsvPeriodId] = useState(null);
 
   const generateMore = async (scheduleId) => {
     setBusy(scheduleId);
@@ -64,27 +66,60 @@ export default function PayPeriods() {
           </thead>
           <tbody>
             {periods.map((p) => (
-              <tr key={p.id}>
+              <React.Fragment key={p.id}>
+              <tr>
                 <td>{p.period_number}</td>
                 <td>{p.period_start} → {p.period_end}</td>
                 <td>{p.pay_date}</td>
                 <td><span className={`badge badge--${p.status}`}>{p.status}</span></td>
                 <td>
                   {(p.status === 'draft' || p.status === 'open') && (
-                    <button
-                      className="btn btn--primary"
-                      disabled={busy === `run-${p.id}`}
-                      onClick={() => startRun(p.id)}
-                      data-testid={`payroll-period-start-run-${p.id}`}
-                    >
-                      Start run
-                    </button>
+                    <>
+                      <button
+                        className="btn btn--primary"
+                        disabled={busy === `run-${p.id}`}
+                        onClick={() => startRun(p.id)}
+                        data-testid={`payroll-period-start-run-${p.id}`}
+                      >
+                        Start run
+                      </button>
+                      <button
+                        className="btn btn--ghost"
+                        onClick={() => setCsvPeriodId(p.id === csvPeriodId ? null : p.id)}
+                        data-testid={`payroll-period-csv-toggle-${p.id}`}
+                        style={{ marginLeft: 6 }}
+                      >
+                        {csvPeriodId === p.id ? 'Hide CSV' : 'Import CSV'}
+                      </button>
+                    </>
                   )}
                   {(p.status === 'approved' || p.status === 'paid') && (
                     <span className="muted">Run created</span>
                   )}
                 </td>
               </tr>
+              {csvPeriodId === p.id && (p.status === 'draft' || p.status === 'open') && (
+                <tr data-testid={`payroll-period-csv-row-${p.id}`}>
+                  <td colSpan={5} style={{ background: '#fafafa', padding: 12 }}>
+                    <CsvUploadWidget
+                      testIdPrefix={`payroll-period-${p.id}-csv`}
+                      endpoint="/api/payroll/import_csv.php"
+                      extraFields={{ pay_period_id: p.id, run_type: 'regular' }}
+                      accept=".csv,text/csv"
+                      label={`Import payroll register CSV into period ${p.period_number}`}
+                      hint="Header row required. Columns: employee_email or employee_name (matched against people) · work_state · pay_type (salary/hourly) · pay_rate · gross_pay · employee_taxes · pretax_deductions · posttax_deductions · net_pay · employer_taxes. Creates one payroll_run in status='computed' — approve via the existing flow."
+                      onSuccess={(r) => {
+                        setCsvPeriodId(null);
+                        if (r?.run_id) {
+                          window.location.assign(`#/modules/payroll/runs/${r.run_id}`);
+                          window.location.reload();
+                        }
+                      }}
+                    />
+                  </td>
+                </tr>
+              )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>

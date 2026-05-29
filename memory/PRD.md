@@ -11247,3 +11247,84 @@ the LogDriver. That includes:
 - Any future `mailerSend(...)` call site — the shim is purpose-aware
   and respects per-tenant overrides from `mail_senders.php`.
 
+
+---
+
+## 2026-02 — CSV upload UI (Treasury + Payroll)
+
+Operator: "want a tiny CSV upload UI in Treasury (bank-account drawer)
+and Payroll (pay-period drawer)?" Both endpoints (shipped in the P2
+batch) were API-only; this slice gives non-technical finance team
+members a one-click path.
+
+### What shipped
+- **NEW `dashboard/src/components/CsvUploadWidget.jsx`** —
+  reusable file-picker → multipart POST → result panel. Props:
+  - `testIdPrefix` for stable automation testids.
+  - `endpoint` — the CSV-import API URL.
+  - `extraFields` — additional form fields (e.g. `bank_account_id`,
+    `pay_period_id`, `run_type`).
+  - `accept`, `label`, `hint` — picker UX hints.
+  - `onSuccess(result)` — callback to refresh the parent or
+    navigate to the new resource.
+  - Renders a yellow info-card with file input + submit button +
+    error surface + success panel that shows `rows_inserted` /
+    `rows_seen` / `rows_duplicate` / `rows_skipped` / `run_id` /
+    `date_range` and a collapsible per-row error list.
+
+- **Treasury — wired into `AccountTransactions.jsx`**:
+  - Renders ONLY for `type === 'deposit'` (the importer feeds
+    `accounting_bank_statement_lines`, irrelevant to liability
+    accounts).
+  - Passes the active `bank_account_id` automatically.
+  - Different copy when the account is Plaid-connected ("import
+    history beyond Plaid's retention window") vs not ("this
+    account isn't connected to Plaid") so the operator
+    understands when to use it.
+  - On success, calls `reload()` so freshly-imported lines appear
+    in the transaction list without a page refresh.
+
+- **Payroll — wired into `PayPeriods.jsx`**:
+  - Per-row **"Import CSV"** toggle button next to the existing
+    "Start run" button.
+  - Gated to `status='draft'` or `'open'` (you can't import into
+    a closed period).
+  - Toggle expands an inline `<tr>` with the widget pre-filled
+    with `pay_period_id` + `run_type=regular`.
+  - On success, navigates to the new run detail page (the run
+    was created in `status='computed'` by the importer).
+  - Uses `<React.Fragment>` to wrap the two `<tr>` rows under one
+    key.
+
+### Tests
+- NEW `tests/csv_upload_widget_smoke.php` — **26 ✓**:
+  - Component shape (props, FormData multipart, testids, onSuccess
+    callback, error details panel).
+  - Treasury wiring (deposit-only gate, endpoint URL,
+    `bank_account_id` extraField, copy variation,
+    `onSuccess→reload()`).
+  - Payroll wiring (state, toggle button, status gate, inline
+    widget render, endpoint URL, `pay_period_id`+`run_type`
+    extraFields, navigate-on-success).
+- Full suite: **326/328** stable (2 pre-existing infra failures
+  need live MySQL).
+- Vite bundle synced.
+
+### Files touched
+- NEW:      `dashboard/src/components/CsvUploadWidget.jsx`
+- MODIFIED: `modules/treasury/ui/AccountTransactions.jsx`
+- MODIFIED: `modules/payroll/ui/PayPeriods.jsx`
+- NEW:      `tests/csv_upload_widget_smoke.php`
+
+### How operators use it now
+**Treasury** — open a bank account → if it's not Plaid-connected (or
+you want to backfill older history), the yellow CSV upload card
+appears right above the transactions list. Pick the bank's CSV
+export, click **Upload CSV**, see the row counts + date range in
+seconds. Re-uploading the same CSV is a no-op (dedup via fitid).
+
+**Payroll** — open Pay Periods, click **Import CSV** next to any
+draft/open period. Pick the payroll register, click **Upload CSV**.
+A new payroll_run lands in `status='computed'` and the page
+navigates to it for approval.
+
