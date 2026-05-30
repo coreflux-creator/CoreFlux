@@ -104,7 +104,7 @@ $a('Bulk export drops tenant-private fields (id, audit timestamps)',
 
 echo "\n5. Bulk endpoint — GET + POST wiring\n";
 $a('field_map_bulk.php declares strict types', str_contains($bulk, 'declare(strict_types=1)'));
-$a('field_map_bulk.php requires RBAC',         str_contains($bulk, "rbac_legacy_require(\$user, 'integrations.field_map.manage')"));
+$a('field_map_bulk.php requires RBAC',         str_contains($bulk, "rbac_legacy_require_any(\$user, ['integrations.field_map.manage', 'tenant_admin.integrations'])"));
 $a('GET handler calls BulkExport',             str_contains($bulk, 'tenantIntegrationFieldMapBulkExport'));
 $a('POST handler calls BulkImport',            str_contains($bulk, 'tenantIntegrationFieldMapBulkImport'));
 $a('GET emits Content-Disposition for download',str_contains($bulk, 'Content-Disposition'));
@@ -112,7 +112,7 @@ $a('Method-not-allowed fallback present',      str_contains($bulk, 'Method not a
 
 echo "\n6. Test endpoint — POST-only, validation, RBAC\n";
 $a('field_map_test.php declares strict types', str_contains($test, 'declare(strict_types=1)'));
-$a('field_map_test.php requires RBAC',         str_contains($test, "rbac_legacy_require(\$user, 'integrations.field_map.manage')"));
+$a('field_map_test.php requires RBAC',         str_contains($test, "rbac_legacy_require_any(\$user, ['integrations.field_map.manage', 'tenant_admin.integrations'])"));
 $a('test endpoint rejects non-POST',           str_contains($test, "api_method() !== 'POST'"));
 $a('test endpoint validates integration',      str_contains($test, "api_error('integration required'"));
 $a('test endpoint validates entity_type',      str_contains($test, "api_error('entity_type required'"));

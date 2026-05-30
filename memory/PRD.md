@@ -11912,3 +11912,57 @@ extract `job id` / `candidate id` / `customer id`, then batch-call the
   - `🪞 JobDiva Job (full mirror)` → populated with hundreds of source paths (every field on every job)
   - `🪞 JobDiva Candidate (full mirror)` → every candidate field including resume URL, skills, work auth, etc.
   - `contact` (existing tab) → end-client contacts with phone/email/title/role
+
+
+## RBAC fix: tenant_admin.integrations divergence (2026-05)
+
+### Root cause of "Forbidden: missing permission 'tenant_admin.integrations'"
+The legacy permission resolver had `tenant_admin.integrations` falling
+through to the catch-all rule `(segs[0], 'write')` → `(tenant_admin, write)`.
+That's a module/action tuple that most role bundles don't grant.
+
+Meanwhile `integrations.field_map.manage` explicitly resolved to
+`(integrations, admin)`. Result: a user with `integrations:admin`
+scope (the natural tenant integration admin role) could call
+`field_map.php` but NOT `mirror_by_placements.php` even though they
+both gate the same logical scope.
+
+Operator diagnostic screenshot showed JobsDetail/CandidatesDetail/
+ContactsDetail all green but the Studio also rendered a red
+"Forbidden: missing permission 'tenant_admin.integrations'" toast.
+That's the exact divergence.
+
+### Shipped
+- `core/rbac/legacy_map.php`:
+  - Added `tenant_admin.integrations => ['integrations', 'admin']` to
+    the explicit resolve table so it lines up with
+    `integrations.field_map.manage`.
+  - NEW `rbac_legacy_can_any()` / `rbac_legacy_require_any()` helpers
+    for endpoints that should grant access if EITHER permission is
+    held. Future-proof against role-bundle divergence.
+- Updated all 4 field_map endpoints to use `_require_any` with both
+  perm strings (`integrations.field_map.manage`,
+  `tenant_admin.integrations`):
+  - `api/admin/integrations/field_map.php`
+  - `api/admin/integrations/field_map_bulk.php`
+  - `api/admin/integrations/field_map_suggest.php`
+  - `api/admin/integrations/field_map_test.php`
+- Smoke test: `tests/rbac_legacy_tenant_admin_integrations_smoke.php`
+  (5 cases — resolver tuple equality, granular-perm preservation,
+  helper signature, deny-empty-user, endpoint coverage).
+- 3 pre-existing tests updated to match the new `_require_any`
+  call signature: `field_map_bulk_and_test_smoke.php`,
+  `jobdiva_field_map_suggest_smoke.php`,
+  `jobdiva_field_mapping_slice1_smoke.php`.
+
+### Verification
+- Smoke: 5/5 cases pass.
+- Full suite: **331/335 stable** (same 4 unrelated pre-existing failures).
+- No JS bundle changes — backend-only fix.
+
+### Operator next step
+Hard refresh `/spa.php` (Ctrl+Shift+R) on production. The
+"Forbidden: missing permission 'tenant_admin.integrations'" toast
+should be gone, AND your saved field mappings will actually persist
+and be applied on the next sync (the prior silent 403 was why "no
+matter how many mappings I save nothing new sync").

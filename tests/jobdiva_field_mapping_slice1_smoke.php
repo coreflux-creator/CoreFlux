@@ -150,7 +150,7 @@ $apiPath = "{$ROOT}/api/admin/integrations/field_map.php";
 $apiSrc  = (string) file_get_contents($apiPath);
 $assert('parses',                                $lint($apiPath));
 $assert('requires integrations.field_map.manage RBAC',
-    strpos($apiSrc, "rbac_legacy_require(\$user, 'integrations.field_map.manage')") !== false);
+    strpos($apiSrc, "rbac_legacy_require_any(\$user, ['integrations.field_map.manage', 'tenant_admin.integrations'])") !== false);
 $assert('GET returns rows + allow-list + transforms',
     strpos($apiSrc, "'allowed_internal_fields'  => \$allow,") !== false
     && strpos($apiSrc, "'transforms'               => TENANT_INTEGRATION_FIELD_MAP_TRANSFORMS,") !== false);

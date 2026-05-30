@@ -36,7 +36,7 @@ $src     = (string) file_get_contents($apiPath);
 $assert('file exists',                              strlen($src) > 0);
 $assert('parses',                                   $lint($apiPath));
 $assert('RBAC gates on integrations.field_map.manage',
-    strpos($src, "rbac_legacy_require(\$user, 'integrations.field_map.manage')") !== false);
+    strpos($src, "rbac_legacy_require_any(\$user, ['integrations.field_map.manage', 'tenant_admin.integrations'])") !== false);
 $assert('rejects non-POST',                         strpos($src, "api_method() !== 'POST'") !== false);
 $assert('validates integration required (422)',     strpos($src, "api_error('integration required', 422)") !== false);
 $assert('validates entity_type required (422)',     strpos($src, "api_error('entity_type required', 422)") !== false);

@@ -104,6 +104,16 @@ final class RbacLegacyMap
             'integrations.field_map.manage'      => ['integrations', 'admin'],
             'integrations.field_map.view'        => ['integrations', 'admin'],
 
+            // Broad tenant-admin scope on integrations (used by mirror sync,
+            // probe diagnostic, raw payload viewer, reindex, etc). Same
+            // resolved (module, action) as the granular field_map perms so
+            // a role granting one inherits the other. Without this entry
+            // the resolver fell back to ('tenant_admin', 'write') which
+            // most role bundles do NOT grant — producing the operator-
+            // reported "Forbidden: missing permission 'tenant_admin.integrations'"
+            // even though the user is a tenant integrations admin.
+            'tenant_admin.integrations'          => ['integrations', 'admin'],
+
             // ── payroll ───────────────────────────────────────────────────
             'payroll.runs.approve'               => ['payroll', 'admin'],
 
@@ -311,5 +321,45 @@ function rbac_legacy_require(array $user, string $perm): void {
     }
     http_response_code(403);
     echo "Forbidden: missing permission '{$perm}'";
+    exit;
+}
+
+/**
+ * Bridge enforcer accepting ANY of multiple permissions — grants when at
+ * least one is held. Used by endpoints whose access is granted to two
+ * historically-distinct permission strings that resolve to different
+ * (module, action) tuples but represent the same admin scope.
+ *
+ * Example: field_map.php is gated by both `integrations.field_map.manage`
+ * (granular module-admin perm, resolves to `integrations:admin`) AND
+ * `tenant_admin.integrations` (broader tenant-admin scope, resolves to
+ * `tenant_admin:write`). A user holding either should be able to manage
+ * the field map — a strict AND-of-both check produces false-negatives
+ * for tenants whose role bundles map only one of the two.
+ */
+function rbac_legacy_can_any(array $user, array $perms): bool {
+    foreach ($perms as $p) {
+        if (rbac_legacy_can($user, (string) $p)) return true;
+    }
+    return false;
+}
+
+function rbac_legacy_require_any(array $user, array $perms): void {
+    if (rbac_legacy_can_any($user, $perms)) return;
+    $primary = (string) ($perms[0] ?? 'unknown');
+    if (function_exists('api_error')) {
+        [$module, $action] = RbacLegacyMap::resolve($primary);
+        api_error(
+            "Forbidden: missing permission '" . implode("' or '", $perms) . "'",
+            403,
+            [
+                'required_any'    => $perms,
+                'required_module' => $module,
+                'required_action' => $action,
+            ]
+        );
+    }
+    http_response_code(403);
+    echo "Forbidden: missing permission '" . implode("' or '", $perms) . "'";
     exit;
 }

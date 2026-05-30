@@ -79,7 +79,7 @@ $method = api_method();
 // master_admin and tenant_admin roles via the RBAC seed. Read access is
 // gated the same way for now; broaden later if a "viewer" role wants
 // read-only inspection.
-rbac_legacy_require($user, 'integrations.field_map.manage');
+rbac_legacy_require_any($user, ['integrations.field_map.manage', 'tenant_admin.integrations']);
 
 // All handler bodies are wrapped so any uncaught throwable surfaces as a
 // JSON error (default PHP 500s on this stack return an empty body in

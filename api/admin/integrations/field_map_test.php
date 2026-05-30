@@ -23,7 +23,7 @@ $ctx  = api_require_auth();
 $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
-rbac_legacy_require($user, 'integrations.field_map.manage');
+rbac_legacy_require_any($user, ['integrations.field_map.manage', 'tenant_admin.integrations']);
 
 if (api_method() !== 'POST') {
     api_error('Method not allowed', 405);

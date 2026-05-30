@@ -27,7 +27,7 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 $method = api_method();
 
-rbac_legacy_require($user, 'integrations.field_map.manage');
+rbac_legacy_require_any($user, ['integrations.field_map.manage', 'tenant_admin.integrations']);
 
 try {
     switch ($method) {
