@@ -12666,3 +12666,33 @@ The handoff summary marked RBAC Phase B3/B4 as outstanding, but on inspection **
 ### Files touched
 - `dashboard/src/pages/MailTestSendCard.jsx` — debounced suppression lookup + warning banner + un-suppress button.
 - `tests/mail_test_send_smoke.php` — 6 new assertions for the new affordances.
+
+
+## Airtable Slice 4 — Reconciliation queue + Promote-vault wizard (2026-02 — current fork)
+
+### Why
+Slice 3 surfaced stored-only records but offered no path out of the vault. Slice 4 closes the loop: operators can either triage rows one-by-one in the Reconciliation Queue or bulk-promote an entire mapping into a real CoreFlux entity with stub auto-creation.
+
+### What shipped
+- **`core/airtable/sync_slice4.php`** — three new helpers:
+  - `airtableSearchInternalEntities` — table-whitelisted, tenant-scoped LIKE search across placements / people / companies / ap_vendors_index. Shapes results as `{id, label, sublabel}` for typeaheads.
+  - `airtableCreateStubFromVault` — promotes a single vault row into a new CoreFlux row. Handles placement / contact / company / customer / vendor entities with alias-based field plucking (case + whitespace-insensitive). Falls back to splitting a combined "Name" field into first/last for contacts. Audited via `airtableAudit`.
+  - `airtablePromoteVaultMapping` — bulk version: upserts the mapping's new policy, migrates `external_entity_mappings.internal_entity_type` rows if entity changed, re-runs `airtableResolveLink` over every vault row, and (when opted) creates stubs for everything still unmatched. Returns `{scanned, linked, stubs_created, stubs_failed, still_unmatched, still_ambiguous}`.
+- **`api/airtable.php`** — three new actions (and shim files): `search_entities` (GET, typeahead), `create_stub` (POST, per-row), `promote_vault` (POST, bulk). All wired through the existing RBAC gates.
+- **`ReconciliationModal.jsx`** — per-mapping triage UI. Toggle between `unmatched` and `ambiguous` queues. Each row supports: expand payload, debounced 280ms typeahead against `/search_entities`, one-click "Pick" to link to existing row, one-click "Create stub" for spin-up-new. Successful actions slide the row out of the queue without a refresh.
+- **`PromoteVaultModal.jsx`** — bulk wizard. Pulls `top_fields` from the vault endpoint so the match-field picker is a dropdown of detected Airtable fields (not freehand). Strategy switch (`external_id` / `match_column` / `manual` / `none`) reveals the match-column inputs conditionally. Surfaces the full rollup on success with testid'd counts.
+- **`AirtableSettings.jsx`** — per-mapping row gains a `Reconcile` button (only renders when there are unmatched/ambiguous rows OR strategy ≠ none) with an amber badge showing the count, and a `Promote vault` button (only on storage-only mappings with stored_only > 0). Both modals reload the mapping list on close.
+
+### Test status
+- New `tests/airtable_slice4_smoke.php`: **73 ✓** covering helper APIs, endpoint contracts, RBAC, validation, every modal testid + wire.
+- Full suite: **343 ✓ / 2 baseline infra fails** (was 342/2 — net +1).
+- Vite rebuilt + `sync_bundle.sh` rotated hashes (`coreflux-BFIMoZ7U`).
+
+### Files touched
+- NEW: `core/airtable/sync_slice4.php`
+- NEW: `api/airtable/search_entities.php`, `create_stub.php`, `promote_vault.php`
+- `api/airtable.php` — three new case branches.
+- NEW: `dashboard/src/pages/ReconciliationModal.jsx`
+- NEW: `dashboard/src/pages/PromoteVaultModal.jsx`
+- `dashboard/src/pages/AirtableSettings.jsx` — Reconcile + Promote buttons, modal mounts.
+- NEW: `tests/airtable_slice4_smoke.php` (73 ✓)

@@ -3,7 +3,10 @@ import { useApi, api } from '../lib/api';
 import {
   CheckCircle2, XCircle, RefreshCw, ExternalLink, Save, Trash2,
   Database, Table2, AlertTriangle, Send, Plus, Eye, EyeOff, Copy, X,
+  GitMerge, Sparkles as PromoteIcon,
 } from 'lucide-react';
+import ReconciliationModal from './ReconciliationModal';
+import PromoteVaultModal   from './PromoteVaultModal';
 
 /**
  * AirtableSettings — Personal Access Token connect + per-(base, table)
@@ -1058,6 +1061,10 @@ function DiscoverTablesModal({ entities, busy, setBusy, setFlash, reload, onClos
 function MappingRow({ mapping, entities, directions, busy, setBusy, setFlash, reload }) {
   const [editing, setEditing] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
+  // Slice 4 — open the Reconciliation queue or Promote-vault wizard
+  // for this mapping in particular.
+  const [reconciling, setReconciling] = useState(false);
+  const [promoting, setPromoting]     = useState(false);
   // Slice 2 — fire-and-forget link stats fetch so the row badge surfaces
   // linked / unmatched / ambiguous counts inline.
   const [stats, setStats] = useState(null);
@@ -1176,6 +1183,37 @@ function MappingRow({ mapping, entities, directions, busy, setBusy, setFlash, re
             >
               Relink
             </button>
+            {(mapping.link_strategy !== 'none' || (stats && stats.unmatched + stats.ambiguous > 0)) && (
+              <button
+                type="button" className="btn"
+                data-testid={`airtable-reconcile-btn-${mapping.id}`}
+                onClick={() => setReconciling(true)} disabled={busy}
+                title="Manually triage unmatched / ambiguous rows"
+              >
+                <GitMerge size={13} style={{ marginRight: 4 }} />
+                Reconcile
+                {stats && (stats.unmatched + stats.ambiguous) > 0 && (
+                  <span data-testid={`airtable-reconcile-count-${mapping.id}`}
+                        style={{ marginLeft: 4, padding: '0 5px', borderRadius: 999,
+                                 background: '#fef3c7', color: '#92400e',
+                                 fontSize: 10, fontWeight: 700 }}>
+                    {stats.unmatched + stats.ambiguous}
+                  </span>
+                )}
+              </button>
+            )}
+            {mapping.link_strategy === 'none' && stats && stats.stored_only > 0 && (
+              <button
+                type="button" className="btn"
+                data-testid={`airtable-promote-btn-${mapping.id}`}
+                onClick={() => setPromoting(true)} disabled={busy}
+                title="Convert this storage-only mapping into a real CoreFlux entity"
+                style={{ background: '#7c3aed', color: '#fff', borderColor: '#7c3aed' }}
+              >
+                <PromoteIcon size={13} style={{ marginRight: 4 }} />
+                Promote vault
+              </button>
+            )}
             <button
               type="button" className="btn"
               data-testid={`airtable-duplicate-mapping-${mapping.id}`}
@@ -1213,6 +1251,20 @@ function MappingRow({ mapping, entities, directions, busy, setBusy, setFlash, re
           mapping={mapping} busy={busy} setBusy={setBusy}
           setFlash={setFlash} reload={reload}
           onClose={() => setDuplicating(false)}
+        />
+      )}
+      {reconciling && (
+        <ReconciliationModal
+          mappingId={mapping.id}
+          entity={mapping.internal_entity}
+          onClose={() => { setReconciling(false); reload(); }}
+        />
+      )}
+      {promoting && (
+        <PromoteVaultModal
+          mapping={mapping}
+          onClose={() => { setPromoting(false); reload(); }}
+          onComplete={() => reload()}
         />
       )}
     </div>

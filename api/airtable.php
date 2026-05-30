@@ -613,6 +613,112 @@ switch ($action) {
         api_ok(['ok' => true, 'mapping_row_id' => $rowId, 'internal_entity_id' => $internalId]);
     }
 
+    case 'search_entities': {
+        // Slice-4 — typeahead used by the Reconciliation Queue UI to
+        // populate a "Link to existing CoreFlux row" dropdown when the
+        // operator manually triages an unmatched vault row.
+        if ($method !== 'GET') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.airtable.view');
+        require_once __DIR__ . '/../core/airtable/sync_slice4.php';
+        $entity = (string) (api_query('entity') ?? '');
+        $q      = trim((string) (api_query('q') ?? ''));
+        $limit  = max(1, min(50, (int) (api_query('limit') ?? 20)));
+        if ($entity === '' || $q === '')                                     api_error('entity + q required', 422);
+        if (!in_array($entity, AIRTABLE_INTERNAL_ENTITIES, true))            api_error('Unknown entity', 422);
+        $results = airtableSearchInternalEntities($tid, $entity, $q, $limit);
+        api_ok(['entity' => $entity, 'q' => $q, 'rows' => $results]);
+    }
+
+    case 'create_stub': {
+        // Slice-4 — promote ONE unmatched vault row into a new CoreFlux
+        // entity row. Returns the new internal_id; operator can then
+        // see the row in its native module immediately.
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.airtable.manage');
+        require_once __DIR__ . '/../core/airtable/sync_slice4.php';
+        $body  = api_json_body();
+        $rowId = (int) ($body['mapping_row_id'] ?? 0);
+        if ($rowId <= 0) api_error('mapping_row_id required', 422);
+        // Fetch the vault row (tenant-scoped).
+        $stmt = getDB()->prepare(
+            "SELECT id, internal_entity_type, external_id, payload_snapshot
+               FROM external_entity_mappings
+              WHERE id = :id AND tenant_id = :t AND source_system = 'airtable'
+              LIMIT 1"
+        );
+        $stmt->execute(['id' => $rowId, 't' => $tid]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$row) api_error('Vault row not found', 404);
+        $payload = json_decode((string) ($row['payload_snapshot'] ?? '[]'), true);
+        if (!is_array($payload)) $payload = [];
+        $newId = airtableCreateStubFromVault(
+            $tid, (string) $row['internal_entity_type'], $payload,
+            (string) $row['external_id'], $user['id'] ?? null
+        );
+        if ($newId === null) {
+            api_error('Could not infer enough fields to create a stub for this row.', 422);
+        }
+        $upd = getDB()->prepare(
+            "UPDATE external_entity_mappings
+                SET internal_entity_id = :iid,
+                    sync_status = 'ok',
+                    last_synced_at = NOW()
+              WHERE id = :id AND tenant_id = :t"
+        );
+        $upd->execute(['iid' => $newId, 'id' => $rowId, 't' => $tid]);
+        api_ok([
+            'ok'                 => true,
+            'mapping_row_id'     => $rowId,
+            'internal_entity_id' => $newId,
+            'internal_entity'    => $row['internal_entity_type'],
+        ]);
+    }
+
+    case 'promote_vault': {
+        // Slice-4 — bulk-promote a mapping. Updates the mapping's
+        // (entity, link_strategy, match_field), re-runs linkage across
+        // every vault row, and optionally creates stubs for everything
+        // still unmatched after re-linking. Returns the full rollup so
+        // the UI can show "32 linked, 8 stubs created, 0 unmatched".
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.airtable.manage');
+        require_once __DIR__ . '/../core/airtable/sync_slice4.php';
+        $body = api_json_body();
+        $mid  = (int) ($body['mapping_id'] ?? 0);
+        if ($mid <= 0) api_error('mapping_id required', 422);
+        $mapping = airtableMappingGet($tid, $mid);
+        if (!$mapping) api_error('Mapping not found', 404);
+
+        $previousEntity = (string) $mapping['internal_entity'];
+
+        $policy = [
+            'internal_entity'             => (string) ($body['internal_entity'] ?? $mapping['internal_entity']),
+            'link_strategy'               => (string) ($body['link_strategy']   ?? 'external_id'),
+            'link_match_airtable_field'   => (string) ($body['link_match_airtable_field']  ?? '') ?: null,
+            'link_match_internal_column'  => (string) ($body['link_match_internal_column'] ?? '') ?: null,
+            'link_unmatched_action'       => (string) ($body['link_unmatched_action']      ?? 'park'),
+            '_previous_entity'            => $previousEntity,
+        ];
+        if (!in_array($policy['internal_entity'], AIRTABLE_INTERNAL_ENTITIES, true)) {
+            api_error('Unknown internal_entity', 422);
+        }
+        if (!in_array($policy['link_strategy'], AIRTABLE_LINK_STRATEGIES, true)) {
+            api_error('Unknown link_strategy', 422);
+        }
+        if (!in_array($policy['link_unmatched_action'], AIRTABLE_UNMATCHED_ACTIONS, true)) {
+            api_error('Unknown unmatched_action', 422);
+        }
+        $createStubs = (bool) ($body['create_stubs'] ?? false);
+        try {
+            $rollup = airtablePromoteVaultMapping(
+                $tid, $mid, $policy, $createStubs, $user['id'] ?? null
+            );
+        } catch (\Throwable $e) {
+            api_error('Promote failed: ' . $e->getMessage(), 500);
+        }
+        api_ok($rollup);
+    }
+
     case 'duplicate_targets': {
         // List candidate target tenants for a duplicate operation.
         // Returns every tenant the caller is authorised to manage,
