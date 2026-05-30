@@ -12573,3 +12573,25 @@ Operator reported confusion: Health panel showed "Linked to CoreFlux row: 2216 (
 - `dashboard/src/pages/AirtableSettings.jsx` — Stored-only tile, STORAGE ONLY badge, Records vault button per mapping, new `VaultBrowser` + `DiscoverTablesModal` components, "Sync more tables" button.
 - `tests/airtable_slice3_smoke.php` — assertion updated for renamed hint code.
 - `tests/airtable_slice3_1_smoke.php` — NEW (49 ✓).
+
+
+## Mail health tile + Integrations Hub Communications section (2026-02 — current fork)
+
+### Why
+After wiring the "Send test email" card on both Admin → Branding and tenant Mail Settings, the only way to spot a Resend outage / domain misconfig / surge of bounces was to scroll the mail_outbox by hand. The Mail health tile gives admins a single glance — failure %, driver split, 7d spark, and the actual error text from the most recent failures.
+
+### What shipped
+- **New endpoint `GET /api/admin/mail_health.php`** — tenant-scoped, RBAC-gated on `tenant_admin.integrations`. Returns: Resend config probe (without leaking the key), 24h rollup (sent / failed / queued / bounced / complaint), failure_pct, driver split, 7-day daily series (back-filled missing days), top 5 purposes, last 5 failures with truncated error text, and a derived `status` banner (`healthy` / `degraded` / `critical` / `silent`) with a human-readable hint. Soft-fails to `table_missing=true` if `mail_outbox` isn't deployed locally.
+- **`MailHealthCard.jsx` component** — drop-in card with status pill (✓/⚠/✕/—), 3 headline mini-tiles, config readout (RESEND key flag, from address, default driver), driver-split chips, 7-day spark bars (green sent + red failed stacked), top-purpose chips, last-3 failures with red panels, hint, and a "Manage & send test" deep-link to `/admin/mail-settings` (where MailTestSendCard lives).
+- **New "Communications" Section** on `IntegrationsHub.jsx` hosting the card. Cleanly slotted after Field Mapping.
+
+### Test status
+- New `tests/mail_health_tile_smoke.php`: **34 ✓** covering endpoint queries (24h GROUP BY, 7d daily, top purposes, recent failures), status derivation, table_missing graceful degrade, and every testid on the card + Hub mount.
+- Full suite: **341 ✓ / 2 known infra fails** (env/SMTP).
+- Vite rebuilt + sync_bundle.sh rotated hashes (`coreflux-VS3-LzY9`).
+
+### Files touched
+- NEW: `api/admin/mail_health.php`
+- NEW: `dashboard/src/pages/MailHealthCard.jsx`
+- `dashboard/src/pages/IntegrationsHub.jsx` — import + Communications section + card mount.
+- NEW: `tests/mail_health_tile_smoke.php` (34 ✓)

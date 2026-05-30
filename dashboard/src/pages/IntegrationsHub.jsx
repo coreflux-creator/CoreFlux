@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useApi } from '../lib/api';
 import { Section, ActionCardsGrid, ActionCard } from '../components/UIComponents';
 import { PlugZap, Building2, Banknote, BookOpen, Database, TrendingUp, ChevronRight, ShieldCheck, AlertTriangle, AlertOctagon, Sparkles } from 'lucide-react';
+import MailHealthCard from './MailHealthCard';
 
 /**
  * IntegrationsHub — tenant admin "single pane of glass" for every external
@@ -171,6 +172,12 @@ export default function IntegrationsHub() {
             href="/admin/integrations/field-map"
             status="connected"
           />
+        </ActionCardsGrid>
+      </Section>
+
+      <Section title="Communications">
+        <ActionCardsGrid>
+          <MailHealthCard />
         </ActionCardsGrid>
       </Section>
     </div>
