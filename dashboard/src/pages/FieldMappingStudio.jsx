@@ -646,14 +646,27 @@ export default function FieldMappingStudio() {
                 setFlash({ kind: 'info', text: 'Mirror sync running…' });
                 try {
                   const r = await api.post('/api/admin/integrations/jobdiva_mirror_by_placements.php', {});
+                  const a_ch = r.assignment_channel || 'none';
+                  const a_ch1_errs = Array.isArray(r.assignment_employee_records_errors) ? r.assignment_employee_records_errors.length : 0;
+                  const a_ch2_errs = Array.isArray(r.assignment_search_start_errors)     ? r.assignment_search_start_errors.length     : 0;
+                  const assignmentSummary =
+                    r.assignments_processed > 0
+                      ? `assignments ×${r.assignments_processed}/${r.unique_start_ids} via ${a_ch}`
+                      : `assignments 0/${r.unique_start_ids} — primary errors:${a_ch1_errs}, searchStart errors:${a_ch2_errs} (see Diagnose JobDiva)`;
                   setFlash({
-                    kind: 'ok',
+                    kind: r.assignments_processed > 0 ? 'ok' : 'info',
                     text: `Mirror done · scanned ${r.placements_scanned} placements → ` +
                           `jobs ×${r.jobs_processed}/${r.unique_job_ids}, ` +
                           `candidates ×${r.candidates_processed}/${r.unique_candidate_ids}, ` +
                           `contacts ×${r.customers_processed}/${r.unique_customer_ids}, ` +
-                          `assignments ×${r.assignments_processed}/${r.unique_start_ids}`,
+                          assignmentSummary,
                   });
+                  // Surface the raw envelope in console so the operator
+                  // can copy-paste it into a JobDiva support ticket.
+                  if (r.assignments_processed === 0) {
+                    // eslint-disable-next-line no-console
+                    console.warn('[JobDiva mirror] zero assignments — full diagnostic envelope:', r);
+                  }
                   await reload();
                 } catch (e) {
                   setFlash({ kind: 'err', text: 'Mirror sync failed: ' + (e.message || e) });

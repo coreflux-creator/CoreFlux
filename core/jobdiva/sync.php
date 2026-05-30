@@ -2521,6 +2521,10 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
         'candidates_processed'    => 0,
         'customers_processed'     => 0,
         'assignments_processed'   => 0,
+        'assignment_channel'      => 'none',
+        'assignment_employee_records_errors'   => [],
+        'assignment_search_start_attempts'     => 0,
+        'assignment_search_start_errors'       => [],
     ];
     $pdo = getDB();
     if (!$pdo) {
@@ -2640,19 +2644,25 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
 
     // ASSIGNMENTS — JobDiva calls placement records "Starts" in their
     // model. The placement payload's `id` field IS the startId. We pull
-    // full assignment-record detail via /apiv2/bi/EmployeeAssignmentRecordsDetail
-    // which takes a startId per call (no bulk ID-list variant exists per
-    // the official Swagger spec). Operator question: "are we mirroring
-    // assignments?" — now yes, under entity_type=jobdiva_assignment.
+    // full assignment-record detail via two channels with automatic
+    // fallback (operator's tenant Thunderhawk reported zero records
+    // from the primary endpoint — searchStart is documented to return
+    // the full start payload including pay rates):
+    //
+    //   1. GET  /apiv2/bi/EmployeeAssignmentRecordsDetail?startId=<id>  ← primary
+    //   2. POST /apiv2/jobdiva/searchStart  body={"startId": <id>}      ← fallback
+    //
+    // Per-call failures are absorbed and surfaced in stats so the
+    // operator can see exactly what JobDiva said. Records land under
+    // entity_type=jobdiva_assignment regardless of which channel.
     if ($startIds) {
-        // EmployeeAssignmentRecordsDetail takes ONE startId per call.
-        // For 118 placements that's 118 HTTP calls — keep the batch
-        // sequential with a soft cap so we don't run the request budget
-        // dry on first-ever runs. Per-call failures are absorbed and
-        // logged; we still index every successful response.
         $assignmentRecords = [];
         $cap = (int) ($opts['assignment_cap'] ?? 500);
-        foreach (array_slice($startIds, 0, $cap) as $sid) {
+        $batch = array_slice($startIds, 0, $cap);
+
+        // --- Channel 1: EmployeeAssignmentRecordsDetail ---------------
+        $ch1Errors = [];
+        foreach ($batch as $sid) {
             try {
                 $resp = jobdivaCall($tid, 'GET', '/apiv2/bi/EmployeeAssignmentRecordsDetail', null, [
                     'startId'        => (string) $sid,
@@ -2671,9 +2681,55 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
                     }
                 }
             } catch (\Throwable $e) {
-                error_log("[jobdiva EmployeeAssignmentRecordsDetail startId=$sid err] " . $e->getMessage());
+                $msg = $e->getMessage();
+                $ch1Errors[] = ['startId' => (string) $sid, 'error' => substr($msg, 0, 200)];
+                error_log("[jobdiva EmployeeAssignmentRecordsDetail startId=$sid err] " . $msg);
             }
         }
+        $stats['assignment_channel'] = 'employee_records';
+        $stats['assignment_employee_records_errors'] = $ch1Errors;
+
+        // --- Channel 2: POST /apiv2/jobdiva/searchStart fallback -----
+        //
+        // Triggered when Channel 1 returned zero records — this happens
+        // on tenants whose API user lacks BI-detail scope but still has
+        // searchStart access. searchStart returns the full Start
+        // payload (incl. pay rate, bill rate, dates) keyed by startId.
+        if (count($assignmentRecords) === 0) {
+            $ch2Errors  = [];
+            $ch2Attempts = 0;
+            foreach ($batch as $sid) {
+                $ch2Attempts++;
+                try {
+                    $resp = jobdivaCall($tid, 'POST', '/apiv2/jobdiva/searchStart', ['startId' => (string) $sid]);
+                    $list = [];
+                    if (is_array($resp)) {
+                        foreach (['data', 'items', 'starts', 'records', 'results'] as $k) {
+                            if (isset($resp[$k]) && is_array($resp[$k])) {
+                                $list = $resp[$k];
+                                break;
+                            }
+                        }
+                        if (!$list) {
+                            if (!empty($resp) && array_keys($resp) === range(0, count($resp) - 1)) {
+                                $list = $resp;
+                            } elseif (isset($resp['id']) || isset($resp['startId']) || isset($resp['placementId'])) {
+                                $list = [$resp];
+                            }
+                        }
+                    }
+                    foreach ($list as $row) $assignmentRecords[] = $row;
+                } catch (\Throwable $e) {
+                    $msg = $e->getMessage();
+                    $ch2Errors[] = ['startId' => (string) $sid, 'error' => substr($msg, 0, 200)];
+                    error_log("[jobdiva searchStart fallback startId=$sid err] " . $msg);
+                }
+            }
+            $stats['assignment_channel'] = count($assignmentRecords) > 0 ? 'search_start' : 'none';
+            $stats['assignment_search_start_attempts'] = $ch2Attempts;
+            $stats['assignment_search_start_errors']   = $ch2Errors;
+        }
+
         $stats['assignments_returned'] = count($assignmentRecords);
         $stored = jobdivaMirrorStoreAndIndex($tid, 'jobdiva_assignment', $assignmentRecords,
             ['id', 'startId', 'start_id', 'startID', 'STARTID', 'placementId', 'employeeId']);

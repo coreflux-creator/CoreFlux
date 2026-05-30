@@ -56,4 +56,18 @@ assert(str_contains($mbpSlice, 'EmployeeAssignmentRecordsDetail startId='),
     'per-call errors are error_log\'d with the failing startId');
 _ok('per-call errors absorbed without aborting the whole mirror');
 
+// Channel-2 fallback: POST /apiv2/jobdiva/searchStart when the BI
+// detail endpoint returns zero records (e.g. tenant's API user lacks
+// BI scope but still has searchStart access).
+assert(str_contains($mbpSlice, "/apiv2/jobdiva/searchStart"),
+    'searchStart fallback path wired');
+assert(str_contains($mbpSlice, "count(\$assignmentRecords) === 0"),
+    'fallback only fires when channel 1 yielded nothing');
+assert(str_contains($mbpSlice, "'assignment_channel'"),
+    'stats expose which channel actually produced the records (employee_records | search_start | none)');
+assert(str_contains($mbpSlice, "'assignment_search_start_attempts'")
+    && str_contains($mbpSlice, "'assignment_search_start_errors'"),
+    'fallback attempts + per-call errors surfaced for operator diagnosis');
+_ok('Channel-2 (searchStart) fallback wired and diagnosable');
+
 echo "\n🎯 jobdiva_assignment_mirror_smoke — ALL PASS\n";

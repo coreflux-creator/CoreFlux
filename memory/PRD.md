@@ -12029,3 +12029,63 @@ assignment-record detail (one record per call — no bulk-by-id variant).
    with the assignment-record fields per JobDiva's spec.
 4. Try saving a mapping NOW — should persist correctly through page
    refresh (bug #1 fix).
+
+
+
+## JobDiva Mirror — Assignment Channel-2 fallback (2026-02 — current fork)
+
+### Why
+Operator (Thunderhawk tenant) reported "still no" assignment fields to
+map even after wiring `EmployeeAssignmentRecordsDetail`. JobDiva's API
+behaviour varies by tenant scope — some API users have BI-detail
+access but not start-record scope, others vice versa. The earlier
+implementation silently returned zero records and the Studio source
+panel stayed empty.
+
+### Fix
+`jobdivaSyncMirrorByPlacements()` now runs **two-channel** assignment
+discovery with automatic failover:
+
+1. **Channel 1** — `GET /apiv2/bi/EmployeeAssignmentRecordsDetail?startId=<id>`
+   (primary, BI-detail scope).
+2. **Channel 2** — `POST /apiv2/jobdiva/searchStart` body `{startId:<id>}`
+   (fallback, fires only when Channel 1 yielded zero rows). This is the
+   same endpoint `sync_placements.php` uses; documented to return the
+   full Start payload incl. pay rate / bill rate / dates.
+
+The stats envelope now exposes:
+- `assignment_channel` — `employee_records` | `search_start` | `none`
+- `assignment_employee_records_errors[]`
+- `assignment_search_start_attempts`
+- `assignment_search_start_errors[]`
+
+Mirror toast in `FieldMappingStudio.jsx` now reports the channel used
+and per-channel error counts when assignments come back empty, and
+logs the full diagnostic envelope to console so the operator can paste
+it into a JobDiva support ticket. Both channel error lists are absorbed
+and logged so one bad startId never aborts the entire mirror.
+
+### Shipped
+- `core/jobdiva/sync.php` — two-channel assignment block + extended stats.
+- `dashboard/src/pages/FieldMappingStudio.jsx` — channel-aware toast +
+  console diagnostic dump on zero-rows.
+- `tests/jobdiva_assignment_mirror_smoke.php` — extended with channel-2
+  + diagnostic-stats assertions.
+
+### Verification
+- Full smoke suite: **333/337 stable** (same 4 pre-existing failures).
+- Vite bundle synced: `index-CQZTsVyi.js`.
+
+### Operator next step
+1. Deploy via `/update.php`.
+2. Open Field Mapping Studio → click **🪞 Mirror Jobs + Candidates**.
+3. Expect toast to show one of:
+   - `assignments ×N/118 via employee_records` (Channel 1 worked) — happy path
+   - `assignments ×N/118 via search_start` (fallback) — also fine
+   - `assignments 0/118 — primary errors:X, searchStart errors:Y` —
+     means BOTH channels failed; paste the console envelope into a
+     JobDiva support ticket (most likely scope/permission gap).
+4. If channel 1 or 2 returns rows, the **🪞 JobDiva Assignment (full
+   mirror)** entity tab in the Studio populates with the actual
+   assignment fields.
+
