@@ -133,15 +133,26 @@ export default function ExecutiveDashboard({ session, bandFilter = null }) {
 
   return (
     <div data-testid="executive-dashboard" style={{ padding: '0 0 48px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 'var(--cf-space-6)', flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h1 style={{ fontSize: 'var(--cf-text-2xl)', fontWeight: 700, marginBottom: 4 }}>
-            <BarChart3 size={22} style={{ display: 'inline', marginRight: 8 }} />
-            Executive snapshot
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
+        flexWrap: 'wrap', gap: 12,
+        position: 'sticky', top: 0, zIndex: 5,
+        background: 'linear-gradient(180deg, #fff 0%, #fff 88%, rgba(255,255,255,0) 100%)',
+        padding: '12px 0 14px',
+        borderBottom: '1px solid #e2e8f0',
+        marginBottom: 'var(--cf-space-5)',
+      }}>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <h1 data-testid="exec-title"
+              style={{ margin: 0, fontSize: 22, fontWeight: 700,
+                       color: '#0f172a', letterSpacing: '-0.01em',
+                       display: 'flex', alignItems: 'center', gap: 8 }}>
+            <BarChart3 size={20} />
+            Executive Snapshot
           </h1>
-          <p style={{ color: 'var(--cf-text-secondary)', fontSize: 14 }}>
+          <p style={{ color: '#64748b', fontSize: 13, margin: '4px 0 0' }}>
             {data?.range
-              ? <>Window: <strong>{data.range.from}</strong> → <strong>{data.range.to}</strong> ({data.range.weeks} weeks)</>
+              ? <>Window: <strong style={{ color: '#0f172a' }}>{data.range.from}</strong> → <strong style={{ color: '#0f172a' }}>{data.range.to}</strong> ({data.range.weeks} weeks)</>
               : 'Loading the snapshot…'}
           </p>
         </div>
@@ -424,25 +435,32 @@ function KpiGrid({ children }) {
 function KpiCard({ title, value, sub, trend, format, color, icon: Icon, href, testid }) {
   const Wrapper = href ? Link : 'div';
   const wrapperProps = href ? { to: href } : {};
+  const accent = color || '#334155';
   return (
     <Wrapper {...wrapperProps}
       data-testid={testid}
       style={{
         display: 'block', textDecoration: 'none', color: 'inherit',
-        background: '#fff', borderRadius: 10, padding: 16,
-        border: '1px solid #e2e8f0', transition: 'transform .15s, box-shadow .15s',
+        background: '#fff',
+        border: '1px solid #e2e8f0',
+        borderLeft: `3px solid ${accent}`,
+        borderRadius: 6, padding: '12px 14px',
+        transition: 'transform .15s, box-shadow .15s',
         cursor: href ? 'pointer' : 'default',
       }}
-      onMouseEnter={(e) => href && (e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,0.06)')}
+      onMouseEnter={(e) => href && (e.currentTarget.style.boxShadow = '0 4px 12px rgba(15,23,42,0.06)')}
       onMouseLeave={(e) => href && (e.currentTarget.style.boxShadow = 'none')}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-        <span style={{ fontSize: 12, color: 'var(--cf-text-secondary)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600,
+                       textTransform: 'uppercase', letterSpacing: 0.4 }}>
           {title}
         </span>
-        {Icon && <Icon size={14} style={{ color: color || 'var(--cf-text-secondary)' }} />}
+        {Icon && <Icon size={13} style={{ color: '#94a3b8' }} />}
       </div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: color || '#0f172a', marginBottom: 4 }}>{value}</div>
-      {sub && <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)', marginBottom: 8 }}>{sub}</div>}
+      <div style={{ fontSize: 22, fontWeight: 700, color: color || '#0f172a',
+                    letterSpacing: '-0.02em', lineHeight: 1.15,
+                    fontVariantNumeric: 'tabular-nums', marginBottom: 2 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>{sub}</div>}
       {trend && trend.length > 0 && (
         <div style={{ marginTop: 6 }}>
           <Sparkline data={trend} format={format} color={color || 'var(--cf-accent, #2563eb)'} height={42} />

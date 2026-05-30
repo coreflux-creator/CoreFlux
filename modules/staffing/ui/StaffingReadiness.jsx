@@ -47,11 +47,20 @@ export default function StaffingReadiness({ mode = 'payroll' }) {
   const totalRevenue = groups.reduce((s, g) => s + (parseFloat(g.revenue) || 0), 0);
 
   return (
-    <section className="people-directory" data-testid={`staffing-readiness-${mode}`}>
-      <header style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'var(--cf-space-3)', flexWrap:'wrap', gap:'var(--cf-space-3)' }}>
-        <div>
-          <h2>{isPayroll ? 'Payroll Readiness' : 'Billing Readiness'}</h2>
-          <p style={{ color:'var(--cf-text-secondary)' }}>
+    <section className="people-directory" data-testid={`staffing-readiness-${mode}`} style={{ paddingBottom: 32 }}>
+      <header style={{
+        display:'flex', justifyContent:'space-between', alignItems:'flex-end',
+        flexWrap:'wrap', gap:12,
+        position:'sticky', top:0, zIndex:5,
+        background:'linear-gradient(180deg, #fff 0%, #fff 88%, rgba(255,255,255,0) 100%)',
+        padding:'12px 0 14px', borderBottom:'1px solid #e2e8f0', marginBottom:16,
+      }}>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <h1 style={{ margin: 0, fontSize:22, fontWeight:700,
+                       color:'#0f172a', letterSpacing:'-0.01em' }}>
+            {isPayroll ? 'Payroll Readiness' : 'Billing Readiness'}
+          </h1>
+          <p style={{ color:'#64748b', margin:'4px 0 0', fontSize:13 }}>
             {isPayroll
               ? 'Approved timesheets ready to be pushed to payroll.'
               : 'Approved hours ready to be turned into client invoices.'}
@@ -125,11 +134,13 @@ export default function StaffingReadiness({ mode = 'payroll' }) {
 }
 
 function Metric({ label, value, emphasis }) {
-  const color = emphasis === 'good' ? '#059669' : 'inherit';
+  const color = emphasis === 'good' ? '#16a34a' : '#0f172a';
   return (
     <div>
-      <div style={{ fontSize:'0.7em', textTransform:'uppercase', color:'var(--cf-text-muted)', letterSpacing:'0.05em' }}>{label}</div>
-      <div style={{ fontSize:'1.4em', fontWeight: 600, color }}>{value}</div>
+      <div style={{ fontSize:11, textTransform:'uppercase', color:'#64748b',
+                    letterSpacing:0.4, fontWeight:600 }}>{label}</div>
+      <div style={{ fontSize:22, fontWeight:700, color, lineHeight:1.15,
+                    letterSpacing:'-0.02em', fontVariantNumeric:'tabular-nums' }}>{value}</div>
     </div>
   );
 }

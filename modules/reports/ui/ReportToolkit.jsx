@@ -35,27 +35,34 @@ import { Link } from 'react-router-dom';
 
 export function ReportFrame({ title, subtitle, actions, children, testid }) {
   return (
-    <section data-testid={testid} style={{ paddingBottom: 'var(--cf-space-6, 32px)' }}>
+    <section data-testid={testid} style={{ paddingBottom: 32 }}>
       <header
         style={{
-          display: 'flex', flexWrap: 'wrap', gap: 'var(--cf-space-3, 12px)',
-          justifyContent: 'space-between', alignItems: 'baseline',
-          marginBottom: 'var(--cf-space-5, 20px)',
-          paddingBottom: 'var(--cf-space-3, 12px)',
-          borderBottom: '1px solid var(--cf-border, #e5e7eb)',
+          display: 'flex', flexWrap: 'wrap', gap: 12,
+          justifyContent: 'space-between', alignItems: 'flex-end',
+          padding: '12px 0 14px',
+          borderBottom: '1px solid #e2e8f0',
+          marginBottom: 20,
           position: 'sticky', top: 0, zIndex: 5,
-          background: 'var(--cf-surface, #fff)',
+          background: 'linear-gradient(180deg, #fff 0%, #fff 88%, rgba(255,255,255,0) 100%)',
         }}
       >
-        <div>
-          <h1 style={{ margin: 0, fontSize: 24, letterSpacing: -0.2 }}>{title}</h1>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700,
+                       color: '#0f172a', letterSpacing: '-0.01em' }}>
+            {title}
+          </h1>
           {subtitle && (
-            <div style={{ color: 'var(--cf-text-muted, #6b7280)', fontSize: 13, marginTop: 4 }}>
+            <div style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>
               {subtitle}
             </div>
           )}
         </div>
-        {actions && <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>{actions}</div>}
+        {actions && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {actions}
+          </div>
+        )}
       </header>
       {children}
     </section>
@@ -79,10 +86,15 @@ export function KpiTile({
     <div
       data-testid={testid}
       style={{
-        border: '1px solid var(--cf-border, #e5e7eb)',
-        borderRadius: 10, padding: 'var(--cf-space-4, 16px)',
-        background: 'var(--cf-surface, #fff)',
-        display: 'flex', flexDirection: 'column', gap: 6,
+        border: '1px solid #e2e8f0',
+        borderLeft: `3px solid ${
+          resolvedTone === 'positive' ? '#16a34a'
+          : resolvedTone === 'negative' ? '#dc2626'
+          : '#334155'
+        }`,
+        borderRadius: 6, padding: '12px 14px',
+        background: '#fff',
+        display: 'flex', flexDirection: 'column', gap: 4,
         transition: 'transform 120ms ease, box-shadow 120ms ease',
         cursor: to ? 'pointer' : 'default',
       }}
@@ -97,14 +109,16 @@ export function KpiTile({
       }}
     >
       <div style={{
-        fontSize: 11, color: '#6b7280',
-        textTransform: 'uppercase', letterSpacing: 0.5,
+        fontSize: 11, color: '#64748b',
+        textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600,
       }}>{label}</div>
       <div style={{
         display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12,
       }}>
         <div data-testid={testid ? `${testid}-value` : undefined}
-             style={{ fontSize: 26, fontWeight: 700, color: valueColor, lineHeight: 1.1 }}>
+             style={{ fontSize: 22, fontWeight: 700, color: valueColor,
+                      lineHeight: 1.15, letterSpacing: '-0.02em',
+                      fontVariantNumeric: 'tabular-nums' }}>
           {value}
         </div>
         {spark && spark.length > 1 && (

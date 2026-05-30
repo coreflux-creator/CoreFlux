@@ -1,10 +1,21 @@
-import React, { useState } from 'react';
+/**
+ * Time → Reports — Reports Overhaul Pass 2 (Tier-2).
+ *
+ * Three views for a chosen pay period:
+ *  • Utilization KPI band (Billable / Non-billable / PTO / Total).
+ *  • By-placement breakdown.
+ *  • By-person breakdown.
+ *
+ * Lifted to the shared visual language.
+ */
+import React, { useState, useEffect } from 'react';
 import { useApi } from '../../../dashboard/src/lib/api';
+import MetricCard from '../../../dashboard/src/components/MetricCard';
 
 export default function Reports() {
   const periods = useApi('/modules/time/api/periods.php');
   const [periodId, setPeriodId] = useState(null);
-  React.useEffect(() => {
+  useEffect(() => {
     if (periods.data?.rows?.length && !periodId) setPeriodId(periods.data.rows[0].id);
   }, [periods.data, periodId]);
 
@@ -13,47 +24,87 @@ export default function Reports() {
   const util        = useApi(periodId ? `/modules/time/api/reports.php?type=utilization&period_id=${periodId}` : null);
 
   return (
-    <section className="people-directory" data-testid="time-reports">
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-3)' }}>
-        <h2>Time Reports</h2>
-        <select className="input" value={periodId || ''} onChange={e => setPeriodId(parseInt(e.target.value, 10))} data-testid="time-reports-period" style={{ maxWidth: '260px' }}>
+    <section data-testid="time-reports" style={{ paddingBottom: 32 }}>
+      <header style={stickyHeader}>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <h1 style={titleStyle}>Time Reports</h1>
+          <p style={subStyle}>Utilization + placement + person breakdowns per pay period</p>
+        </div>
+        <select
+          className="input"
+          value={periodId || ''}
+          onChange={e => setPeriodId(parseInt(e.target.value, 10))}
+          data-testid="time-reports-period"
+          style={{ maxWidth: 260, fontSize: 13, padding: '5px 8px' }}
+        >
           <option value="">— select period —</option>
-          {(periods.data?.rows ?? []).map(p => <option key={p.id} value={p.id}>{p.label} ({p.start_date} → {p.end_date})</option>)}
+          {(periods.data?.rows ?? []).map(p => (
+            <option key={p.id} value={p.id}>{p.label} ({p.start_date} → {p.end_date})</option>
+          ))}
         </select>
       </header>
 
       {util.data && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 'var(--cf-space-3)', marginBottom: 'var(--cf-space-5)' }}>
-          <Card label="Billable"     value={`${util.data.billable_pct}%`}    sub={`${util.data.totals?.billable ?? 0} hrs`}    t="time-reports-util-billable" />
-          <Card label="Non-billable" value={`${util.data.nonbillable_pct}%`} sub={`${util.data.totals?.nonbillable ?? 0} hrs`} t="time-reports-util-nonbillable" />
-          <Card label="PTO"          value={`${util.data.pto_pct}%`}         sub={`${util.data.totals?.pto ?? 0} hrs`}         t="time-reports-util-pto" />
-          <Card label="Total"        value={`${util.data.totals?.total ?? 0} hrs`} t="time-reports-util-total" />
+        <div style={kpiBand}>
+          <MetricCard label="Billable" testIdPrefix="time-reports-util-billable"
+                      value={`${util.data.billable_pct}%`}
+                      tone="positive" />
+          <MetricCard label="Non-billable" testIdPrefix="time-reports-util-nonbillable"
+                      value={`${util.data.nonbillable_pct}%`}
+                      tone="neutral" />
+          <MetricCard label="PTO" testIdPrefix="time-reports-util-pto"
+                      value={`${util.data.pto_pct}%`} />
+          <MetricCard label="Total hours" testIdPrefix="time-reports-util-total"
+                      value={util.data.totals?.total ?? 0}
+                      format={(n) => `${Number(n).toLocaleString(undefined, { maximumFractionDigits: 1 })} hrs`} />
         </div>
       )}
 
-      <h3>By placement</h3>
-      <table className="data-table" data-testid="time-reports-by-placement">
-        <thead><tr><th>Title</th><th>Client</th><th>Billable</th><th>Non-bill</th><th>PTO</th><th>Total</th></tr></thead>
+      <h3 style={sectLabel}>By placement</h3>
+      <table style={tableStyle} data-testid="time-reports-by-placement">
+        <thead><tr>
+          <th style={th}>Title</th><th style={th}>Client</th>
+          <th style={thR}>Billable</th><th style={thR}>Non-bill</th>
+          <th style={thR}>PTO</th><th style={thR}>Total</th>
+        </tr></thead>
         <tbody>
-          {(byPlacement.data?.rows ?? []).length === 0 && <tr><td colSpan={6} className="empty">No data.</td></tr>}
+          {(byPlacement.data?.rows ?? []).length === 0 && (
+            <tr><td colSpan={6} style={emptyCell}>No data.</td></tr>
+          )}
           {(byPlacement.data?.rows ?? []).map(r => (
-            <tr key={r.placement_id} data-testid={`time-reports-placement-${r.placement_id}`}>
-              <td>{r.title}</td><td>{r.end_client_name || '—'}</td>
-              <td>{r.billable}</td><td>{r.nonbillable}</td><td>{r.pto}</td><td><strong>{r.total}</strong></td>
+            <tr key={r.placement_id} data-testid={`time-reports-placement-${r.placement_id}`}
+                style={{ borderTop: '1px solid #f1f5f9' }}>
+              <td style={td}>{r.title}</td>
+              <td style={td}>{r.end_client_name || '—'}</td>
+              <td style={tdR}>{r.billable}</td>
+              <td style={tdR}>{r.nonbillable}</td>
+              <td style={tdR}>{r.pto}</td>
+              <td style={{ ...tdR, fontWeight: 700 }}>{r.total}</td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      <h3 style={{ marginTop: 'var(--cf-space-5)' }}>By person</h3>
-      <table className="data-table" data-testid="time-reports-by-person">
-        <thead><tr><th>Name</th><th>Email</th><th>Billable</th><th>Non-bill</th><th>PTO</th><th>Total</th></tr></thead>
+      <h3 style={{ ...sectLabel, marginTop: 24 }}>By person</h3>
+      <table style={tableStyle} data-testid="time-reports-by-person">
+        <thead><tr>
+          <th style={th}>Name</th><th style={th}>Email</th>
+          <th style={thR}>Billable</th><th style={thR}>Non-bill</th>
+          <th style={thR}>PTO</th><th style={thR}>Total</th>
+        </tr></thead>
         <tbody>
-          {(byPerson.data?.rows ?? []).length === 0 && <tr><td colSpan={6} className="empty">No data.</td></tr>}
+          {(byPerson.data?.rows ?? []).length === 0 && (
+            <tr><td colSpan={6} style={emptyCell}>No data.</td></tr>
+          )}
           {(byPerson.data?.rows ?? []).map(r => (
-            <tr key={r.person_id} data-testid={`time-reports-person-${r.person_id}`}>
-              <td>{r.first_name} {r.last_name}</td><td>{r.email_primary}</td>
-              <td>{r.billable}</td><td>{r.nonbillable}</td><td>{r.pto}</td><td><strong>{r.total}</strong></td>
+            <tr key={r.person_id} data-testid={`time-reports-person-${r.person_id}`}
+                style={{ borderTop: '1px solid #f1f5f9' }}>
+              <td style={td}>{r.first_name} {r.last_name}</td>
+              <td style={td}>{r.email_primary}</td>
+              <td style={tdR}>{r.billable}</td>
+              <td style={tdR}>{r.nonbillable}</td>
+              <td style={tdR}>{r.pto}</td>
+              <td style={{ ...tdR, fontWeight: 700 }}>{r.total}</td>
             </tr>
           ))}
         </tbody>
@@ -61,10 +112,28 @@ export default function Reports() {
     </section>
   );
 }
-const Card = ({ label, value, sub, t }) => (
-  <div style={{ background: 'var(--cf-surface)', padding: 'var(--cf-space-4)', borderRadius: 'var(--cf-radius-lg)', border: '1px solid var(--cf-border)' }} data-testid={t}>
-    <div style={{ fontSize: '0.85em', color: 'var(--cf-text-secondary)' }}>{label}</div>
-    <div style={{ fontSize: '1.5em', fontWeight: 600 }}>{value}</div>
-    {sub && <div style={{ fontSize: '0.85em', color: 'var(--cf-text-muted)' }}>{sub}</div>}
-  </div>
-);
+
+const stickyHeader = {
+  position: 'sticky', top: 0, zIndex: 5,
+  background: 'linear-gradient(180deg, #fff 0%, #fff 88%, rgba(255,255,255,0) 100%)',
+  padding: '12px 0 14px',
+  borderBottom: '1px solid #e2e8f0',
+  marginBottom: 16,
+  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
+  flexWrap: 'wrap', gap: 12,
+};
+const titleStyle = { margin: 0, fontSize: 22, fontWeight: 700, color: '#0f172a', letterSpacing: '-0.01em' };
+const subStyle   = { margin: '4px 0 0', fontSize: 13, color: '#64748b' };
+const kpiBand    = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 20 };
+const sectLabel  = { fontSize: 12, fontWeight: 700, color: '#475569',
+                     textTransform: 'uppercase', letterSpacing: 0.5,
+                     margin: '0 0 8px' };
+const tableStyle = { width: '100%', background: '#fff', border: '1px solid #e2e8f0',
+                     borderRadius: 6, borderCollapse: 'collapse', fontSize: 13 };
+const th  = { textAlign: 'left', padding: '8px 10px', fontSize: 10, fontWeight: 700,
+              color: '#475569', textTransform: 'uppercase', letterSpacing: 0.4,
+              borderBottom: '1px solid #e2e8f0' };
+const thR = { ...th, textAlign: 'right' };
+const td  = { padding: '8px 10px', color: '#1e293b' };
+const tdR = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
+const emptyCell = { textAlign: 'center', padding: 24, color: '#94a3b8' };

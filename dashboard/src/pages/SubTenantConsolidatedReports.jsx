@@ -43,8 +43,24 @@ export default function SubTenantConsolidatedReports() {
 
   return (
     <section data-testid="sub-tenant-consolidated-reports" style={{ padding: 'var(--cf-space-4)' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)', flexWrap: 'wrap', gap: 12 }}>
-        <h2 style={{ margin: 0 }}>Consolidated Reports <small style={{ color: 'var(--cf-text-secondary)', fontWeight: 400 }}>across all active sub-tenants</small></h2>
+      <header style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
+        flexWrap: 'wrap', gap: 12,
+        position: 'sticky', top: 0, zIndex: 5,
+        background: 'linear-gradient(180deg, #fff 0%, #fff 88%, rgba(255,255,255,0) 100%)',
+        padding: '12px 0 14px',
+        borderBottom: '1px solid #e2e8f0',
+        marginBottom: 16,
+      }}>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700,
+                       color: '#0f172a', letterSpacing: '-0.01em' }}>
+            Consolidated Reports
+          </h1>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+            Income statement · balance sheet · cash flow rolled up across all active sub-tenants.
+          </p>
+        </div>
       </header>
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 'var(--cf-space-4)' }}>
@@ -158,11 +174,21 @@ function CashFlowView({ data }) {
 }
 
 function KPI({ label, value, highlight }) {
-  const color = highlight === 'positive' ? '#065f46' : highlight === 'negative' ? '#991b1b' : 'inherit';
+  const accent = highlight === 'positive' ? '#16a34a' : highlight === 'negative' ? '#dc2626' : '#334155';
+  const color  = highlight === 'positive' ? '#16a34a' : highlight === 'negative' ? '#dc2626' : '#0f172a';
   return (
-    <div className="stat-card" data-testid={`cr-kpi-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`} style={{ padding: 14 }}>
-      <div style={{ fontSize: 11, color: 'var(--cf-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color, marginTop: 4 }}>{value}</div>
+    <div data-testid={`cr-kpi-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+         style={{
+           background:'#fff', border:'1px solid #e2e8f0',
+           borderLeft: `3px solid ${accent}`,
+           borderRadius: 6, padding: '12px 14px',
+         }}>
+      <div style={{ fontSize: 11, color: '#64748b',
+                    textTransform: 'uppercase', letterSpacing: 0.4,
+                    fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color, marginTop: 4,
+                    letterSpacing: '-0.02em', lineHeight: 1.15,
+                    fontVariantNumeric: 'tabular-nums' }}>{value}</div>
     </div>
   );
 }

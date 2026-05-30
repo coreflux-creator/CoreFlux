@@ -25,22 +25,33 @@ export default function WorkerMix() {
   const changes   = data?.classification_changes ?? [];
 
   return (
-    <section className="people-directory" data-testid="staffing-worker-mix">
-      <header style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'var(--cf-space-3)', flexWrap:'wrap', gap:'var(--cf-space-3)' }}>
-        <div>
-          <h2 style={{ margin: 0 }}>Worker Classification Mix</h2>
-          <p style={{ color:'var(--cf-text-secondary)', margin:'4px 0 0' }}>
-            Labor {metric} composition by engagement type. Flags workers with mixed classifications across the window.
+    <section className="people-directory" data-testid="staffing-worker-mix" style={{ paddingBottom: 32 }}>
+      <header style={{
+        display:'flex', justifyContent:'space-between', alignItems:'flex-end',
+        flexWrap:'wrap', gap:12,
+        position:'sticky', top:0, zIndex:5,
+        background:'linear-gradient(180deg, #fff 0%, #fff 88%, rgba(255,255,255,0) 100%)',
+        padding:'12px 0 14px', borderBottom:'1px solid #e2e8f0', marginBottom:16,
+      }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <h1 style={{ margin: 0, fontSize:22, fontWeight:700,
+                       color:'#0f172a', letterSpacing:'-0.01em' }}>
+            Worker Classification Mix
+          </h1>
+          <p style={{ color:'#64748b', margin:'4px 0 0', fontSize:13 }}>
+            Labor {metric} composition by engagement type · flags workers with mixed classifications across the window.
           </p>
         </div>
-        <div style={{ display:'flex', gap:'var(--cf-space-2)' }}>
+        <div style={{ display:'flex', gap:8 }}>
           <select value={metric} onChange={e => setMetric(e.target.value)} data-testid="worker-mix-metric"
-                  style={{ padding:'4px 8px', borderRadius: 4, border:'1px solid var(--cf-border, #e5e7eb)' }}>
+                  className="input"
+                  style={{ padding:'5px 8px', fontSize:13, borderRadius:4 }}>
             <option value="cost">By cost</option>
             <option value="hours">By hours</option>
           </select>
           <select value={weeks} onChange={e => setWeeks(parseInt(e.target.value, 10))} data-testid="worker-mix-weeks"
-                  style={{ padding:'4px 8px', borderRadius: 4, border:'1px solid var(--cf-border, #e5e7eb)' }}>
+                  className="input"
+                  style={{ padding:'5px 8px', fontSize:13, borderRadius:4 }}>
             <option value={4}>4 weeks</option>
             <option value={8}>8 weeks</option>
             <option value={12}>12 weeks</option>
@@ -166,7 +177,7 @@ function MixLegend({ rows, metric }) {
           <div key={t.k} style={{ display:'flex', alignItems:'center', gap: 8 }} data-testid={`worker-mix-legend-${t.k}`}>
             <span style={{ display:'inline-block', width: 12, height: 12, background: t.color, borderRadius: 2 }} />
             <strong>{t.label}</strong>
-            <span style={{ color:'var(--cf-text-muted)' }}>{fmt(t.value)} · {pct}%</span>
+            <span style={{ color:'#64748b', fontVariantNumeric:'tabular-nums' }}>{fmt(t.value)} · {pct}%</span>
           </div>
         );
       })}

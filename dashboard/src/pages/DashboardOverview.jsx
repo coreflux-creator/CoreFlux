@@ -113,17 +113,23 @@ function KpiSnapshotStrip() {
 }
 
 function SnapshotTile({ label, value, sub, tone, testid }) {
-  const color = tone === 'warn' ? '#b45309' : '#0f172a';
+  const accent = tone === 'warn' ? '#f59e0b' : '#334155';
+  const color  = tone === 'warn' ? '#b45309' : '#0f172a';
   return (
-    <div style={{
-      background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px',
-    }} data-testid={testid}>
+    <div data-testid={testid}
+         style={{
+           background: '#fff',
+           border: '1px solid #e2e8f0',
+           borderLeft: `3px solid ${accent}`,
+           borderRadius: 6, padding: '12px 14px',
+         }}>
       <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4,
-                    color: 'var(--cf-text-secondary)', marginBottom: 4 }}>
+                    color: '#64748b', marginBottom: 4 }}>
         {label}
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
-      {sub && <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)', marginTop: 2 }}>{sub}</div>}
+      <div style={{ fontSize: 22, fontWeight: 700, color, letterSpacing: '-0.02em',
+                    lineHeight: 1.15, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>{sub}</div>}
     </div>
   );
 }

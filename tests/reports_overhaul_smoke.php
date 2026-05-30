@@ -142,8 +142,26 @@ foreach ([
         strpos($code, '<PeriodSelector') !== false);
 }
 
-// --- Pass 3 (partial) — CFO Dashboard visual upgrade ---------------
-echo "\nPass 3 (partial) — CFO Dashboard surgical visual upgrade\n";
+// --- Pass 2 (continued) — Tier-2 surgical visual upgrades ----------
+echo "\nPass 2 (continued) — Tier-2 surgical visual upgrades\n";
+foreach ([
+    'reports/ui/StaffingOverview.jsx'       => 'rpt-staffing-overview',
+    'reports/ui/ReportToolkit.jsx'          => 'rpt-toolkit',
+    'staffing/ui/StaffingReadiness.jsx'     => 'rpt-readiness',
+    'staffing/ui/WorkerMix.jsx'             => 'rpt-workermix',
+    'staffing/ui/StaffingOverview.jsx'      => 'rpt-staffing-landing',
+    'time/ui/Reports.jsx'                   => 'rpt-time',
+    'placements/ui/Reports.jsx'             => 'rpt-placements',
+] as $relpath => $label) {
+    $code = (string) file_get_contents("{$ROOT}/modules/{$relpath}");
+    $a("{$label}: sticky header with gradient fade",
+        strpos($code, "position: 'sticky'") !== false || strpos($code, "position:'sticky'") !== false);
+    $a("{$label}: tabular-nums on values OR uses shared primitive",
+        strpos($code, 'tabular-nums') !== false || strpos($code, 'MetricCard') !== false);
+}
+
+// --- Pass 3 — Tier-3 dashboards ------------------------------------
+echo "\nPass 3 — Tier-3 dashboards surgical visual upgrades\n";
 $cfo = (string) file_get_contents("{$ROOT}/dashboard/src/pages/CFODashboard.jsx");
 $a('CFO header sticky',                              strpos($cfo, "position:'sticky'") !== false ||
                                                      strpos($cfo, "position: 'sticky'") !== false);
@@ -151,9 +169,30 @@ $a('CFO header title testid (cfo-title)',            strpos($cfo, 'data-testid="
 $a('CFO widget card has 3px accent border-left',     strpos($cfo, "borderLeft:'3px solid #334155'") !== false);
 $a('CFO scalar uses tabular-nums for crisp digits',  strpos($cfo, "fontVariantNumeric:'tabular-nums'") !== false);
 $a('CFO scalar tightened typography (24px / 700)',   strpos($cfo, 'fontSize:24, fontWeight:700') !== false);
-// Sparkline data prop fix — was passing array of numbers (Sparkline expects [{amount,week}]).
 $a('CFO Sparkline now passes raw trend (not .map .amount)',
     strpos($cfo, '<Sparkline data={trend} height={32} />') !== false);
+
+$exec = (string) file_get_contents("{$ROOT}/dashboard/src/pages/ExecutiveDashboard.jsx");
+$a('Exec header sticky',                             strpos($exec, "position: 'sticky'") !== false);
+$a('Exec header title testid (exec-title)',          strpos($exec, 'data-testid="exec-title"') !== false);
+$a('Exec KpiCard 3px accent border-left',            strpos($exec, 'borderLeft: `3px solid ${accent}`') !== false);
+$a('Exec KpiCard value uses tabular-nums',           strpos($exec, "fontVariantNumeric: 'tabular-nums'") !== false);
+
+$fin = (string) file_get_contents("{$ROOT}/dashboard/src/pages/FinanceReports.jsx");
+$a('FinanceReports header sticky',                   strpos($fin, "position: 'sticky'") !== false);
+$a('FinanceReports header title testid',             strpos($fin, 'data-testid="finance-title"') !== false);
+
+$staff = (string) file_get_contents("{$ROOT}/dashboard/src/pages/StaffingReports.jsx");
+$a('StaffingReports header sticky',                  strpos($staff, "position: 'sticky'") !== false);
+$a('StaffingReports header title testid',            strpos($staff, 'data-testid="staffing-rpt-title"') !== false);
+
+$cons = (string) file_get_contents("{$ROOT}/dashboard/src/pages/SubTenantConsolidatedReports.jsx");
+$a('Consolidated header sticky',                     strpos($cons, "position: 'sticky'") !== false);
+$a('Consolidated KPI 3px accent border-left',        strpos($cons, 'borderLeft: `3px solid ${accent}`') !== false);
+
+$dov = (string) file_get_contents("{$ROOT}/dashboard/src/pages/DashboardOverview.jsx");
+$a('DashboardOverview SnapshotTile 3px accent',      strpos($dov, 'borderLeft: `3px solid ${accent}`') !== false);
+$a('DashboardOverview SnapshotTile tabular-nums',    strpos($dov, "fontVariantNumeric: 'tabular-nums'") !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

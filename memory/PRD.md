@@ -12275,3 +12275,66 @@ visual passes preserving every feature:
   - `dashboard/src/pages/DashboardOverview.jsx` (131 LOC)
 
 
+
+
+## Reports Overhaul — Pass 2 + Pass 3 COMPLETE (2026-02 — current fork)
+
+### Pass 2 — Tier-2 operational reports (all 11 surfaces)
+Every report now shares the visual language: sticky header with
+22px/700/-0.01em title, 13px subtitle, 11px/600/0.4 uppercase section
+labels, KPI tiles with 3px coloured left-accent borders, tabular-nums
+on every value column, hover lift via shadow.
+
+- **Full rewrites** (KPI band + ComparisonTable adoption):
+  `ClientProfitability.jsx`, `OvertimeWatch.jsx`, `RateSpreadMonitor.jsx`,
+  `placements/ui/Reports.jsx`, `time/ui/Reports.jsx`.
+- **Surgical visual lifts** (preserve all behaviour, upgrade chrome):
+  `reports/ui/StaffingOverview.jsx`, `reports/ui/ReportToolkit.jsx`
+  (auto-cascades to `ExecutiveSnapshot.jsx`), `staffing/ui/WorkerMix.jsx`,
+  `staffing/ui/StaffingReadiness.jsx`, `staffing/ui/StaffingOverview.jsx`.
+
+Operator KPIs that previously rendered as raw `<div>` got
+`MetricCard`'s left-accent + tabular-nums treatment. The shared
+`ReportToolkit` KpiTile got the same upgrade in place — so every
+ExecutiveSnapshot tile (16 of them) inherits the new look without
+touching that file.
+
+### Pass 3 — Tier-3 top-level dashboards (all 6 surfaces)
+- **`CFODashboard.jsx`** (previous slice) — sticky header, 3px-accent
+  widget cards, tightened Scalar typography, latent Sparkline data-shape
+  bug fixed.
+- **`ExecutiveDashboard.jsx`** (this slice) — sticky header with 22px
+  title + `BarChart3` icon, KpiCard rebuilt with 3px coloured accent
+  border-left, tabular-nums values, tighter row chrome. All existing
+  LineChart x4 + filters + Saved Views machinery untouched.
+- **`FinanceReports.jsx`** — sticky header, `DollarSign` icon, `data-testid="finance-title"`.
+- **`StaffingReports.jsx`** — sticky header, `Users` icon, `data-testid="staffing-rpt-title"`.
+- **`SubTenantConsolidatedReports.jsx`** — sticky header, KPI tiles
+  upgraded with 3px accent + tabular-nums.
+- **`DashboardOverview.jsx`** — SnapshotTile upgraded with 3px accent
+  + tabular-nums + warn-tone amber accent for AR overdue.
+
+### Smoke + verification
+- `reports_overhaul_smoke.php`: **122 ✓** covering every primitive
+  contract, every Tier-1/2/3 adoption point, sticky-header / tabular-
+  nums / 3px-accent treatments across all dashboards.
+- Full suite: **336 pass / 2 fail** (vs handoff baseline of 334/4).
+  Net improvement: `ai_platform_smoke.php` and
+  `plaid_integration_smoke.php` now pass because the `php8.2-curl`
+  reinstall (needed when the fresh fork dropped the PHP CLI) re-enabled
+  curl_init. Remaining 2 fails are the original DB-connection /
+  SMTP-key infra ones that can't pass in this sandbox.
+- Vite bundle: `index-DLZeCIBM.js` synced. All four sync points
+  consistent.
+
+### Reports Overhaul — FINAL STATE
+- **24 reporting surfaces** lifted to the shared visual language
+  (5 foundation primitives, 4 Tier-1 statements, 11 Tier-2 reports,
+  6 Tier-3 dashboards).
+- **One-time breaking-change testid migration** complete (documented
+  earlier): `accounting-*` → `rpt-*` on Tier-1 reports.
+- **Latent bugs fixed in flight**: CFO sparkline data-shape mismatch
+  (flatlines on every Scalar) and the dead-code `GlDetailDrilldown`
+  component now wired into all 4 Tier-1 statements.
+
+

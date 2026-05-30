@@ -17,11 +17,20 @@ export default function StaffingOverview() {
   const { data, loading, error } = useApi(`/modules/reports/api/overview.php?period=${period}`);
 
   return (
-    <section data-testid="reports-overview">
+    <section data-testid="reports-overview" style={{ paddingBottom: 32 }}>
       <header style={headerStyle}>
-        <h1 style={{ margin: 0, fontSize: 24 }}>Reports — Staffing Overview</h1>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700,
+                       color: '#0f172a', letterSpacing: '-0.01em' }}>
+            Staffing Overview
+          </h1>
+          {data && (
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>
+              Period totals · {data.period.label} ({data.period.from} → {data.period.to})
+            </p>
+          )}
+        </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <span style={{ fontSize: 13, color: 'var(--cf-text-muted, #6b7280)' }}>Time period</span>
           <PeriodSelector value={period} onChange={setPeriod} testid="reports-overview-period" />
         </div>
       </header>
@@ -91,9 +100,13 @@ export default function StaffingOverview() {
 
 // -- Reusable sub-pieces (kept inline for the dashboard, exported for reuse if needed)
 const headerStyle = {
-  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  marginBottom: 'var(--cf-space-5)', paddingBottom: 'var(--cf-space-3)',
-  borderBottom: '1px solid var(--cf-border, #e5e7eb)',
+  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
+  flexWrap: 'wrap', gap: 12,
+  position: 'sticky', top: 0, zIndex: 5,
+  background: 'linear-gradient(180deg, #fff 0%, #fff 88%, rgba(255,255,255,0) 100%)',
+  padding: '12px 0 14px',
+  borderBottom: '1px solid #e2e8f0',
+  marginBottom: 16,
 };
 const kpiGrid = {
   display: 'grid',
@@ -110,20 +123,28 @@ const miniGrid = {
 const twoCol = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 'var(--cf-space-5)' };
 
 function Kpi({ label, value, sub, testid, tone, IconRight }) {
-  const color = tone === 'positive' ? '#16a34a' : tone === 'negative' ? '#dc2626' : 'var(--cf-text, #111827)';
+  const accent = tone === 'positive' ? '#16a34a' : tone === 'negative' ? '#dc2626' : '#334155';
+  const color  = tone === 'positive' ? '#16a34a' : tone === 'negative' ? '#dc2626' : '#0f172a';
   return (
     <div data-testid={testid} style={{
-      background: 'var(--cf-surface, #fff)',
-      border: '1px solid var(--cf-border, #e5e7eb)',
-      borderRadius: 8,
-      padding: 'var(--cf-space-4)',
+      background: '#fff',
+      border: '1px solid #e2e8f0',
+      borderLeft: `3px solid ${accent}`,
+      borderRadius: 6,
+      padding: '12px 14px',
     }}>
-      <div style={{ fontSize: 12, color: 'var(--cf-text-muted, #6b7280)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, color }}>
-        <div style={{ fontSize: 22, fontWeight: 700 }}>{value}</div>
-        {IconRight && <IconRight size={18} />}
+      <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4,
+                    textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>
+        {label}
       </div>
-      {sub && <div style={{ fontSize: 12, color: 'var(--cf-text-muted, #6b7280)', marginTop: 4 }}>{sub}</div>}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, color }}>
+        <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em',
+                      fontVariantNumeric: 'tabular-nums', lineHeight: 1.15 }}>
+          {value}
+        </div>
+        {IconRight && <IconRight size={16} />}
+      </div>
+      {sub && <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>{sub}</div>}
     </div>
   );
 }

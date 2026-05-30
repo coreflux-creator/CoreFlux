@@ -15,10 +15,19 @@ export default function StaffingOverview({ session }) {
   const rows = list.data?.rows ?? [];
 
   return (
-    <section className="people-directory" data-testid="staffing-overview">
-      <header style={{ marginBottom: 'var(--cf-space-4)' }}>
-        <h2>Staffing</h2>
-        <p style={{ color:'var(--cf-text-secondary)' }}>Client-facing labor, placements, and weekly timesheets.</p>
+    <section className="people-directory" data-testid="staffing-overview" style={{ paddingBottom: 32 }}>
+      <header style={{
+        position: 'sticky', top: 0, zIndex: 5,
+        background: 'linear-gradient(180deg, #fff 0%, #fff 88%, rgba(255,255,255,0) 100%)',
+        padding: '12px 0 14px',
+        borderBottom: '1px solid #e2e8f0',
+        marginBottom: 16,
+      }}>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700,
+                     color: '#0f172a', letterSpacing: '-0.01em' }}>Staffing</h1>
+        <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 13 }}>
+          Client-facing labor, placements, and weekly timesheets.
+        </p>
       </header>
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))', gap:'var(--cf-space-3)', marginBottom:'var(--cf-space-4)' }}>
@@ -40,7 +49,7 @@ export default function StaffingOverview({ session }) {
             {rows.map(r => (
               <tr key={r.id} data-testid={`staffing-ts-row-${r.id}`}>
                 <td>{r.period_start} → {r.period_end}</td>
-                <td>{parseFloat(r.total_hours).toFixed(2)}</td>
+                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{parseFloat(r.total_hours).toFixed(2)}</td>
                 <td><code>{r.status}</code></td>
                 <td><Link to="/modules/staffing/timesheets">Open →</Link></td>
               </tr>

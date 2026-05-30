@@ -63,14 +63,24 @@ export default function FinanceReports() {
 
   return (
     <div data-testid="finance-reports">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
-                    marginBottom: 'var(--cf-space-6)', flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h1 style={{ fontSize: 'var(--cf-text-2xl)', fontWeight: 700, marginBottom: 4 }}>
-            <DollarSign size={22} style={{ display: 'inline', marginRight: 8 }} />
-            Corporate finance
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
+        flexWrap: 'wrap', gap: 12,
+        position: 'sticky', top: 0, zIndex: 5,
+        background: 'linear-gradient(180deg, #fff 0%, #fff 88%, rgba(255,255,255,0) 100%)',
+        padding: '12px 0 14px',
+        borderBottom: '1px solid #e2e8f0',
+        marginBottom: 'var(--cf-space-5)',
+      }}>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <h1 data-testid="finance-title"
+              style={{ margin: 0, fontSize: 22, fontWeight: 700,
+                       color: '#0f172a', letterSpacing: '-0.01em',
+                       display: 'flex', alignItems: 'center', gap: 8 }}>
+            <DollarSign size={20} />
+            Corporate Finance
           </h1>
-          <p style={{ color: 'var(--cf-text-secondary)', fontSize: 14 }}>
+          <p style={{ color: '#64748b', fontSize: 13, margin: '4px 0 0' }}>
             P&amp;L · cash flow · AR / AP detail. Filter by date and toggle prior-year comparison.
           </p>
         </div>

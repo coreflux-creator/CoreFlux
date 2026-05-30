@@ -50,14 +50,24 @@ export default function StaffingReports() {
 
   return (
     <div data-testid="staffing-reports">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
-                    marginBottom: 'var(--cf-space-6)', flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h1 style={{ fontSize: 'var(--cf-text-2xl)', fontWeight: 700, marginBottom: 4 }}>
-            <Users size={22} style={{ display: 'inline', marginRight: 8 }} />
-            Staffing operations
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
+        flexWrap: 'wrap', gap: 12,
+        position: 'sticky', top: 0, zIndex: 5,
+        background: 'linear-gradient(180deg, #fff 0%, #fff 88%, rgba(255,255,255,0) 100%)',
+        padding: '12px 0 14px',
+        borderBottom: '1px solid #e2e8f0',
+        marginBottom: 'var(--cf-space-5)',
+      }}>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <h1 data-testid="staffing-rpt-title"
+              style={{ margin: 0, fontSize: 22, fontWeight: 700,
+                       color: '#0f172a', letterSpacing: '-0.01em',
+                       display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Users size={20} />
+            Staffing Operations
           </h1>
-          <p style={{ color: 'var(--cf-text-secondary)', fontSize: 14 }}>
+          <p style={{ color: '#64748b', fontSize: 13, margin: '4px 0 0' }}>
             Per-placement margins, recruiter leaderboard, headcount breakdown.
           </p>
         </div>
