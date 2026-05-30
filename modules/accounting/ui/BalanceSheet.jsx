@@ -114,6 +114,16 @@ export default function BalanceSheet() {
       testIdPrefix="rpt-bs"
       period={period}
       singleDate
+      snapshotEnvelope={current ? {
+        params:   { as_of: period.to, compareMode: period.compareMode },
+        envelope: { current, priorPeriod, priorYear },
+      } : null}
+      onReplayDrill={(d) => setDrill({
+        accountCode: d.account_code,
+        start: d.period_from || period.from,
+        end:   d.period_to   || period.to,
+        label: d.label,
+      })}
       kpis={safe && (
         <>
           <MetricCard label="Total assets"
@@ -181,7 +191,7 @@ export default function BalanceSheet() {
       )}
 
       {drill && (
-        <GlDetailDrilldown {...drill} onClose={() => setDrill(null)} />
+        <GlDetailDrilldown {...drill} reportKey="rpt-bs" onClose={() => setDrill(null)} />
       )}
     </ReportShell>
   );

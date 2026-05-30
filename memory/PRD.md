@@ -12338,3 +12338,103 @@ touching that file.
   component now wired into all 4 Tier-1 statements.
 
 
+
+
+## Reports Overhaul — Follow-up: Save Snapshot + Drill-through Audit Trail (2026-02)
+
+Two cross-report features layered on top of the completed overhaul.
+
+### 1. Save Report Snapshot
+One-click capture of the exact data envelope an operator is looking at,
+landed as a polymorphic `evidence_attachments` row tagged
+`document_type='report_snapshot'`. Auditors can later pull "exactly
+what the operator saw on Feb-19" by listing evidence rows where
+`subject_type='tenant' AND document_type='report_snapshot' AND
+attached_at BETWEEN ?`.
+
+- **New endpoint** `/api/admin/reports/save_snapshot.php`
+  - `POST` — `{report_key, label?, params, envelope}` → returns
+    `{id, label, attached_at, report_key}`. 256KB payload cap (anything
+    larger should spill to S3 — kept simple for MVP).
+  - `GET ?id=N` — returns full envelope for replay.
+  - `GET ?report_key=rpt-pnl&limit=20` — lists recent snapshots, light
+    response (omits envelope to keep response cheap).
+  - Reuses the existing `evidence_attachments` pivot — no new table.
+  - RBAC `accounting.coa.view` (same as gl_detail).
+- **ReportShell wiring** — when the caller passes `snapshotEnvelope=
+  {params, envelope}`, a "Save snapshot" button renders in the sticky
+  header (`data-testid="${prefix}-save-snapshot"`). On click, captures
+  the current data + URL params and POSTs the envelope; success/error
+  banners surface via a dismissible flash row.
+- **All 4 Tier-1 statements** pass their full envelope (current +
+  priorPeriod + priorYear).
+
+### 2. Drill-through Audit Trail
+Every `GlDetailDrilldown` open is now logged silently into a new
+`report_drilldown_log` table. The same data surfaces as a "Recent
+drills" popover in every report header for one-click replay of the
+same drill scope.
+
+- **New migration** `081_report_drilldown_log.sql`
+  - `(tenant_id, user_id, report_key, account_code, period_from,
+    period_to, label, opened_at)` — append-only, soft-rotatable.
+  - Composite index `idx_rdl_recent (tenant_id, user_id, report_key,
+    opened_at DESC)` for the "recent N by user" surface lookup.
+  - Second index `idx_rdl_account_window` for the audit answer
+    "which accounts inspected between Feb-14 and Feb-19?".
+  - Idempotent (`CREATE TABLE IF NOT EXISTS`).
+- **New endpoint** `/api/admin/reports/log_drilldown.php`
+  - `POST` — `{report_key, account_code?, period_from?, period_to?,
+    label?}` → 204 No Content. Write failures soft-fail (drill never
+    blocks).
+  - `GET ?report_key=rpt-pnl&limit=10` — returns operator's last N
+    *distinct* drill scopes (de-duped by GROUP BY, ordered by
+    MAX(opened_at) DESC), with `open_count` per scope for badge
+    display.
+  - RBAC `accounting.coa.view` (matches gl_detail).
+- **GlDetailDrilldown wiring** — accepts `reportKey` prop and fires a
+  fire-and-forget POST to the log endpoint when set. `.catch(() => {})`
+  ensures drill logging never blocks UX.
+- **ReportShell wiring** — when caller passes `onReplayDrill`, a
+  "Recent drills" picker renders next to Save Snapshot
+  (`data-testid="${prefix}-recent-drills"`). Click opens a popover
+  with the operator's last 10 distinct scopes; each item shows
+  label/account code + window + ×count badge if opened ≥2 times.
+  Click an item → calls `onReplayDrill({account_code, period_from,
+  period_to, label})` which the Tier-1 reports map back to `setDrill`.
+- **All 4 Tier-1 statements** wire both the `reportKey` on
+  `GlDetailDrilldown` AND the `onReplayDrill` callback on
+  `ReportShell`, so drills are logged AND replayable.
+
+### Smoke + verification
+- `reports_overhaul_followup_smoke.php`: **57 ✓** — migration
+  contract + both endpoint contracts (validation, dedup semantics,
+  RBAC, idempotency) + ReportShell wiring + GlDetailDrilldown fire-
+  and-forget + all 4 Tier-1 statements adopt both features.
+- Full suite: **337 pass / 2 fail** (vs 336/2 — net +1 from the new
+  smoke, same 2 known infra failures).
+- Vite bundle: `index-cAswOd_K.js` synced. Service worker
+  `coreflux-9Zz-Jia6`.
+
+### Files touched
+- `core/migrations/081_report_drilldown_log.sql` (NEW)
+- `api/admin/reports/log_drilldown.php` (NEW)
+- `api/admin/reports/save_snapshot.php` (NEW)
+- `dashboard/src/components/ReportShell.jsx`
+- `dashboard/src/components/GlDetailDrilldown.jsx`
+- `modules/accounting/ui/IncomeStatement.jsx`
+- `modules/accounting/ui/BalanceSheet.jsx`
+- `modules/accounting/ui/TrialBalance.jsx`
+- `modules/accounting/ui/CashFlowStatement.jsx`
+- `tests/reports_overhaul_followup_smoke.php` (NEW)
+
+### Pending / future hooks
+- Wiring `snapshotEnvelope` + `onReplayDrill` into Tier-2/3 reports
+  (CFO, ExecutiveDashboard, ClientProfitability, etc.) — each report
+  decides what its envelope+replay semantics should be. The shell
+  exposes the props, individual reports opt in.
+- Snapshot diff viewer — "show me the P&L diff between snapshot
+  #42 (Feb-14) and snapshot #87 (Feb-21)" — render two envelopes
+  side-by-side. Foundation is there; UI is the next layer.
+
+

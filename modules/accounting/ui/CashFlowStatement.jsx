@@ -133,6 +133,16 @@ export default function CashFlowStatement() {
       subtitle={`Indirect method · ${period.from} → ${period.to}`}
       testIdPrefix="rpt-cf"
       period={period}
+      snapshotEnvelope={current ? {
+        params:   { from: period.from, to: period.to, compareMode: period.compareMode },
+        envelope: { current, priorPeriod, priorYear },
+      } : null}
+      onReplayDrill={(d) => setDrill({
+        accountCode: d.account_code,
+        start: d.period_from || period.from,
+        end:   d.period_to   || period.to,
+        label: d.label,
+      })}
       kpis={safe && (
         <>
           <MetricCard label="Net change in cash"
@@ -213,7 +223,7 @@ export default function CashFlowStatement() {
       )}
 
       {drill && (
-        <GlDetailDrilldown {...drill} onClose={() => setDrill(null)} />
+        <GlDetailDrilldown {...drill} reportKey="rpt-cf" onClose={() => setDrill(null)} />
       )}
     </ReportShell>
   );

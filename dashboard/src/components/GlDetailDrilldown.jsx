@@ -25,6 +25,7 @@ export default function GlDetailDrilldown({
   end,
   entityId    = null,
   label       = null,
+  reportKey   = null,
   onClose,
 }) {
   const [data, setData]       = useState(null);
@@ -42,8 +43,20 @@ export default function GlDetailDrilldown({
       .then(r => { if (!cancelled) setData(r); })
       .catch(e => { if (!cancelled) setError(e.message || 'Failed to load GL detail'); })
       .finally(() => { if (!cancelled) setLoading(false); });
+
+    // Fire-and-forget drill-through audit log. Failures are intentionally
+    // silenced — drill logging must never block the drill itself.
+    if (reportKey) {
+      api.post('/api/admin/reports/log_drilldown.php', {
+        report_key:   reportKey,
+        account_code: accountCode || null,
+        period_from:  start,
+        period_to:    end,
+        label,
+      }).catch(() => {});
+    }
     return () => { cancelled = true; };
-  }, [accountId, accountCode, start, end, entityId]);
+  }, [accountId, accountCode, start, end, entityId, reportKey, label]);
 
   return (
     <div data-testid="gl-drilldown-modal"

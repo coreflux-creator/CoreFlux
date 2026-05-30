@@ -139,6 +139,16 @@ export default function IncomeStatement() {
       subtitle={`Revenue and expense activity · ${period.from} → ${period.to}`}
       testIdPrefix="rpt-pnl"
       period={period}
+      snapshotEnvelope={current ? {
+        params:   { from: period.from, to: period.to, compareMode: period.compareMode },
+        envelope: { current, priorPeriod, priorYear },
+      } : null}
+      onReplayDrill={(d) => setDrill({
+        accountCode: d.account_code,
+        start: d.period_from || period.from,
+        end:   d.period_to   || period.to,
+        label: d.label,
+      })}
       kpis={safe && (
         <>
           <MetricCard label="Revenue"
@@ -199,7 +209,7 @@ export default function IncomeStatement() {
       )}
 
       {drill && (
-        <GlDetailDrilldown {...drill} onClose={() => setDrill(null)} />
+        <GlDetailDrilldown {...drill} reportKey="rpt-pnl" onClose={() => setDrill(null)} />
       )}
     </ReportShell>
   );
