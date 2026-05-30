@@ -207,6 +207,13 @@ function jobdivaDisconnect(int $tenantId, ?int $userId): void
 function jobdivaAudit(int $tenantId, string $action, array $opts = []): void
 {
     $pdo = getDB();
+    if ($pdo === null) {
+        // No DB available (e.g. running under a CLI smoke test). Audit
+        // is best-effort — log + return without surfacing the failure
+        // to the caller.
+        error_log("[jobdiva audit no-db] tenant=$tenantId action=$action");
+        return;
+    }
     $pdo->prepare(
         'INSERT INTO jobdiva_sync_audit
             (tenant_id, action, entity_type, direction, ok,

@@ -120,9 +120,9 @@ $assert('two_way runs both pull AND push',
 $assert('time excluded → marked skipped_by_config',
     preg_match("/\\\$shouldPush\\(\\\$config, 'time'\\)\\)\\s*\\{[^}]+\\}\\s*else\\s*\\{\\s*\\\$skipped\\[\\]\\s*=\\s*'time'/s", $orch) === 1);
 $assert('time count included in counts envelope',
-    strpos($orch, "'time'      => \$timeResult['processed']") !== false);
+    strpos($orch, "'time'") !== false && strpos($orch, "=> \$timeResult['processed']") !== false);
 $assert('by_entity envelope includes time key',
-    strpos($orch, "'time'      => \$timeResult,") !== false);
+    strpos($orch, "'time'") !== false && strpos($orch, "=> \$timeResult,") !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

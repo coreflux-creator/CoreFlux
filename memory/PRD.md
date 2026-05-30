@@ -11681,3 +11681,94 @@ c) Add global search across every entity bucket in the Source
 3. Open **📋 Inspect sources** → tick **🌐 Search across every entity
    bucket** → type `pay` → every `pay`-flavor field across every
    bucket lists with the entity badge.
+
+
+## JobDiva FULL MIRROR sync — Jobs + Candidates via BI bulk endpoints (2026-05 — major fix)
+
+### Operator demand
+> "GET EVERY SINGLE BIT OF DATA FROM JOBDIVA. MIRROR JOB DIVA INTO
+> TENANT DATABASE IF THAT'S WHAT YOU NEED TO DO. WE'RE GETTING NOWHERE."
+
+### Root cause we'd been missing
+JobDiva's per-record search endpoints (`/searchJob`,
+`/searchCandidate`, `/searchCustomer`, `/searchContact`, `/searchStart`)
+return EMPTY for this tenant — the API user's auth scope doesn't grant
+those endpoints. That's why every previous attempt to enrich
+placement-level data with full job/candidate detail failed.
+
+BUT JobDiva's **bulk BI endpoints** (`/apiv2/bi/NewUpdated*Records`)
+DO return full records for the same tenant. Companies + Contacts have
+been using them all along. Jobs + Candidates were NEVER wired.
+
+### The Mirror approach (shipped)
+- **NEW** `jobdivaSyncMirrorEntity()` — generic helper. Pulls every
+  record from a JobDiva BI bulk endpoint, mirrors each row's FULL
+  payload into `external_entity_mappings`, AND indexes every field
+  into `payload_field_index`. No CoreFlux-side upsert — pure mirror.
+- **NEW** `jobdivaSyncJobs()` → hits `/apiv2/bi/NewUpdatedJobRecords`,
+  stores under `internal_entity_type='jobdiva_job'`.
+- **NEW** `jobdivaSyncCandidates()` → hits
+  `/apiv2/bi/NewUpdatedCandidateRecords`, stores under
+  `internal_entity_type='jobdiva_candidate'`.
+- **NEW** `/api/admin/integrations/jobdiva_mirror_sync.php` endpoint
+  (POST, `?entity=jobs|candidates|both&days=N`) triggers a backfill
+  on demand.
+- **Wired into `jobdivaSyncAll()`** — runs after placements when the
+  tenant has placements enabled (or when an explicit `jobdiva_job` /
+  `jobdiva_candidate` config row is set to pull).
+- **NEW** UI button "🪞 Mirror Jobs + Candidates" in the Field
+  Mapping Studio header (visible when integration=jobdiva). Confirms,
+  runs, then reloads the source-side index counts.
+- **Two new entity tabs** in the Studio: "🪞 JobDiva Job (full mirror)"
+  and "🪞 JobDiva Candidate (full mirror)" — populate with the FULL
+  JobDiva record fields once the mirror sync runs.
+
+### BI endpoint NPE workaround extended
+The `userFieldsName=` empty-string param workaround for JobDiva V2 BI's
+Spring NullPointer (already applied to Company + Contact endpoints) is
+now also applied to `NewUpdatedJobRecords` and `NewUpdatedCandidateRecords`.
+
+### Defensive guard added
+`jobdivaAudit()` in `core/jobdiva/client.php` was unguarded against a
+null `getDB()` — would NPE under CLI smoke runs. Now exits gracefully
+with an `error_log` line, matching the rest of the file's safe-fail
+pattern.
+
+### Verification
+- `tests/jobdiva_mirror_sync_smoke.php` (NEW): 6 cases — ID resolution
+  across snake/camel/space/ALLCAPS conventions for jobs + candidates,
+  counter accounting (processed/skipped/failed), empty-input handling,
+  BI endpoint workaround coverage, jobdivaSyncAll surfaces new
+  entities in by_entity.
+- 2 brittle pre-existing tests updated to not pin column alignment:
+  `sprint8a_a3_jobdiva_sync_smoke.php`,
+  `p1_a4_time_direction_wiring_smoke.php`.
+- Full suite: **331/333 stable** (2 unrelated pre-existing failures).
+- Vite bundle synced: `index-DCPMNJB7.js`.
+
+### Files touched
+- MODIFIED: `core/jobdiva/sync.php` (mirror helper + 2 wrappers +
+  syncAll wiring + BI endpoint workaround extension)
+- MODIFIED: `core/jobdiva/client.php` (jobdivaAudit null-DB guard)
+- NEW: `api/admin/integrations/jobdiva_mirror_sync.php`
+- NEW: `tests/jobdiva_mirror_sync_smoke.php`
+- MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx`
+  (🪞 Mirror Jobs + Candidates button + entity-tab labels)
+- MODIFIED: `tests/sprint8a_a3_jobdiva_sync_smoke.php` (alignment relax)
+- MODIFIED: `tests/p1_a4_time_direction_wiring_smoke.php` (alignment relax)
+- AUTO-UPDATED: `.deploy-version`, `dashboard/dist/index.html`,
+  `spa-assets/sw.js`, new `spa-assets/index-DCPMNJB7.js`.
+
+### Operator next step
+1. Deploy via `/update.php`.
+2. Open Field Mapping Studio → click **🪞 Mirror Jobs + Candidates**.
+   Should report processed counts like `jobs ×500, candidates ×800`
+   after 10-60 seconds.
+3. Click the new **JobDiva Job (full mirror)** tab — should populate
+   with EVERY job field JobDiva exposes (title, status, location,
+   description, pay rate range, custom fields, etc.).
+4. Click **JobDiva Candidate (full mirror)** tab — should populate
+   with EVERY candidate field (resume, skills, work auth, contact
+   details, custom fields).
+5. Use the existing "🌐 Search across every entity bucket" toggle
+   to search across the new buckets too.

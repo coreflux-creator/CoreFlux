@@ -633,6 +633,31 @@ export default function FieldMappingStudio() {
           {integration === 'jobdiva' && (
             <button
               type="button"
+              data-testid="fms-jobdiva-mirror-btn"
+              onClick={async () => {
+                if (!confirm('Mirror every JobDiva Job and Candidate into CoreFlux?\n\nThis hits /apiv2/bi/NewUpdatedJobRecords and /apiv2/bi/NewUpdatedCandidateRecords (last 365 days) and stores every record\'s full payload, so every field becomes mappable.\n\nWill take 10-60 seconds depending on volume.')) return;
+                setFlash({ kind: 'info', text: 'Mirror sync running…' });
+                try {
+                  const r = await api.post('/api/admin/integrations/jobdiva_mirror_sync.php?entity=both&days=365', {});
+                  setFlash({
+                    kind: 'ok',
+                    text: `Mirror complete · jobs ×${r.jobs?.processed ?? 0}, candidates ×${r.candidates?.processed ?? 0}` +
+                          ((r.jobs?.failed || r.candidates?.failed) ? ' (some failed — see network tab)' : '')
+                  });
+                  await reload();
+                } catch (e) {
+                  setFlash({ kind: 'err', text: 'Mirror sync failed: ' + (e.message || e) });
+                }
+              }}
+              className="btn btn--primary"
+              title="Pull every JobDiva Job and Candidate (full records) into CoreFlux via the bulk BI endpoints. Powers the jobdiva_job and jobdiva_candidate entity tabs in the studio."
+              style={{ whiteSpace: 'nowrap', fontSize: 13, background: '#0c4a6e', color: '#fff' }}>
+              🪞 Mirror Jobs + Candidates
+            </button>
+          )}
+          {integration === 'jobdiva' && (
+            <button
+              type="button"
               data-testid="fms-raw-payload-btn"
               onClick={openRawPayload}
               className="btn btn--ghost"
@@ -665,7 +690,7 @@ export default function FieldMappingStudio() {
           .filter(s => s.integration === integration)
           .map(s => ({ et: s.entity_type, count: Number(s.path_count) || 0 }));
         const fallback = {
-          jobdiva:    ['placement', 'person', 'job', 'jobdiva_customer', 'contact', 'assignment'],
+          jobdiva:    ['placement', 'person', 'job', 'jobdiva_customer', 'contact', 'assignment', 'jobdiva_job', 'jobdiva_candidate'],
           quickbooks: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account', 'item'],
           zoho_books: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account'],
           airtable:   ['record'],
@@ -685,6 +710,8 @@ export default function FieldMappingStudio() {
           contact:          'Contact',
           assignment:       'Assignment',
           company:          'Company',
+          jobdiva_job:       '🪞 JobDiva Job (full mirror)',
+          jobdiva_candidate: '🪞 JobDiva Candidate (full mirror)',
           journal_entry:    'Journal Entry',
           vendor:           'Vendor',
           invoice:          'Invoice',

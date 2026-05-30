@@ -2224,6 +2224,160 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     return true;
 }
 
+/**
+ * Generic JobDiva V2 BI "mirror" sync — pulls every record from one of
+ * JobDiva's `/apiv2/bi/NewUpdated*Records` endpoints and stores each
+ * row's FULL payload in `external_entity_mappings` (under
+ * source_system='jobdiva', internal_entity_type=$entityType).
+ *
+ * Unlike `jobdivaSyncCompanies()` / `…Contacts()`, this helper does
+ * NOT upsert into a paired CoreFlux table — the goal is purely to
+ * mirror JobDiva's data so the Field Mapping Studio's source-side
+ * picker has every record's every field available to map FROM.
+ *
+ * Why we need this:
+ *   - JobDiva's per-record `/searchJob`, `/searchCandidate`, etc.
+ *     endpoints return EMPTY for many tenants (account-scope auth).
+ *   - But JobDiva's bulk BI endpoints (`NewUpdatedJobRecords`,
+ *     `NewUpdatedCandidateRecords`) return full records reliably.
+ *   - Operators want every JobDiva field mappable — not just the
+ *     subset that survives the placement-level enrichment dance.
+ *
+ * The payload also feeds `payload_field_index` so the entity tabs in
+ * the Field Mapping Studio populate with `jobdiva_job (N)` /
+ * `jobdiva_candidate (N)` counts and the operator can map every
+ * column on demand.
+ *
+ * Internal_entity_id is a sentinel (cast of $extId or crc32 hash)
+ * because there is no paired CoreFlux row — the table's `uk_internal`
+ * unique key still gets a unique value per JobDiva record. Operator
+ * ask: "MIRROR JOB DIVA INTO TENANT DATABASE."
+ */
+function jobdivaSyncMirrorEntity(
+    int $tid,
+    string $entityType,
+    string $endpoint,
+    array $idCandidates,
+    ?int $userId,
+    array $opts = []
+): array {
+    require_once __DIR__ . '/../integrations/payload_field_index.php';
+
+    // First-ever mirror sync for this entity_type widens the window to
+    // 365 days so the operator backfills the full reachable history.
+    if (!isset($opts['items_override']) && !isset($opts['modified_since'])
+        && jobdivaSyncIsFirstSync($tid, $entityType)) {
+        $opts['default_window_days'] = 365;
+        jobdivaAudit($tid, 'sync_first_backfill', [
+            'ok'     => true,
+            'detail' => ['entity' => $entityType, 'window_days' => 365],
+            'actor_user_id' => $userId,
+        ]);
+    }
+
+    $items = isset($opts['items_override']) && is_array($opts['items_override'])
+        ? $opts['items_override']
+        : jobdivaSyncFetchWithRetry($tid, $endpoint, $opts);
+
+    $pdo = getDB();
+    $processed = 0; $skipped = 0; $failed = 0; $errors = [];
+
+    $upsert = $pdo ? $pdo->prepare(
+        "INSERT INTO external_entity_mappings
+            (tenant_id, source_system, internal_entity_type, internal_entity_id,
+             external_id, payload_snapshot, content_hash, sync_status, direction,
+             last_seen_at, last_synced_at, created_at, updated_at)
+         VALUES
+            (:t, 'jobdiva', :et, :iid, :eid, :payload, :hash, 'ok', 'pull',
+             NOW(), NOW(), NOW(), NOW())
+         ON DUPLICATE KEY UPDATE
+             payload_snapshot = VALUES(payload_snapshot),
+             content_hash     = VALUES(content_hash),
+             last_seen_at     = NOW(),
+             last_synced_at   = NOW(),
+             updated_at       = NOW()"
+    ) : null;
+
+    foreach ($items as $jd) {
+        try {
+            $extId = (string) jobdivaPluckField($jd, $idCandidates);
+            if ($extId === '') { $skipped++; continue; }
+
+            // 1) Mirror the full payload — feeds the "🔬 Raw payload"
+            // diagnostic so operators can see every field JobDiva sent.
+            if ($upsert !== null) {
+                $payloadJson      = json_encode($jd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '{}';
+                $internalSentinel = ctype_digit($extId) ? (int) $extId : abs(crc32($extId));
+                if ($internalSentinel <= 0) $internalSentinel = 1;
+                $upsert->execute([
+                    't'        => $tid,
+                    'et'       => $entityType,
+                    'iid'      => $internalSentinel,
+                    'eid'      => $extId,
+                    'payload'  => $payloadJson,
+                    'hash'     => hash('sha256', $payloadJson),
+                ]);
+            }
+
+            // 2) Index every field — feeds the Field Mapping Studio's
+            // source-side picker and entity-tab counts.
+            integrationPayloadFieldIndexRecord($tid, 'jobdiva', $entityType, $jd);
+
+            $processed++;
+        } catch (\Throwable $e) {
+            $failed++;
+            $errors[] = ['entity' => $entityType, 'external_id' => $extId ?? '?', 'error' => substr($e->getMessage(), 0, 240)];
+            error_log("[jobdiva $entityType mirror sync] " . $e->getMessage());
+            if (count($errors) >= 50) break;
+        }
+    }
+
+    jobdivaAudit($tid, 'sync', [
+        'entity_type'     => $entityType,
+        'direction'       => 'pull',
+        'ok'              => $failed === 0,
+        'items_processed' => $processed,
+        'items_skipped'   => $skipped,
+        'items_failed'    => $failed,
+        'actor_user_id'   => $userId,
+        'detail'          => ['errors' => array_slice($errors, 0, 5)],
+    ]);
+    return ['processed' => $processed, 'skipped' => $skipped, 'failed' => $failed, 'errors' => $errors];
+}
+
+/**
+ * Mirror every JobDiva Job record into `external_entity_mappings`
+ * under `internal_entity_type='jobdiva_job'`. Drives the Field Mapping
+ * Studio's `jobdiva_job` entity tab. JobDiva's `/apiv2/bi/NewUpdatedJobRecords`
+ * endpoint returns the full Job record (title, status, location, rate
+ * range, custom fields, etc.) — every field becomes mappable in the
+ * Studio without per-record enrichment.
+ */
+function jobdivaSyncJobs(int $tid, ?int $userId, array $opts = []): array
+{
+    return jobdivaSyncMirrorEntity(
+        $tid, 'jobdiva_job', '/apiv2/bi/NewUpdatedJobRecords',
+        ['id', 'jobId', 'job_id', 'jobID', 'JOBID', 'job id'],
+        $userId, $opts
+    );
+}
+
+/**
+ * Mirror every JobDiva Candidate record into `external_entity_mappings`
+ * under `internal_entity_type='jobdiva_candidate'`. Drives the
+ * `jobdiva_candidate` entity tab. JobDiva's
+ * `/apiv2/bi/NewUpdatedCandidateRecords` returns the full Candidate
+ * record (every contact field, work-auth, skills, custom fields, etc.).
+ */
+function jobdivaSyncCandidates(int $tid, ?int $userId, array $opts = []): array
+{
+    return jobdivaSyncMirrorEntity(
+        $tid, 'jobdiva_candidate', '/apiv2/bi/NewUpdatedCandidateRecords',
+        ['id', 'candidateId', 'candidate_id', 'candidateID', 'CANDIDATEID', 'candidate id', 'employeeId'],
+        $userId, $opts
+    );
+}
+
 function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
 {
     $start  = microtime(true);
@@ -2286,6 +2440,37 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
         $skipped[]  = 'placement';
     }
 
+    // 2026-05 — Mirror sync of JobDiva Jobs + Candidates so the Field
+    // Mapping Studio sees every Job and Candidate field directly,
+    // without depending on the per-record /searchJob and /searchCandidate
+    // endpoints (which return empty for many tenants' API scope).
+    // Operator ask: "GET EVERY SINGLE BIT OF DATA FROM JOBDIVA. MIRROR
+    // JOB DIVA INTO TENANT DATABASE IF THAT'S WHAT YOU NEED TO DO."
+    //
+    // Mirror sync runs whenever placements OR companies are configured
+    // to pull (since job/candidate are dependencies of placement
+    // mapping) AND respects an explicit `jobdiva_job`/`jobdiva_candidate`
+    // config entry if the operator wants finer control.
+    $shouldMirror = static function (array $cfg, string $entity) use ($shouldPull, $config): bool {
+        // explicit config row for jobdiva_job / jobdiva_candidate wins…
+        if (isset($cfg[$entity])) return $shouldPull($cfg, $entity);
+        // …otherwise default to ON when placements sync is on (jobs
+        // and candidates are the natural source-of-truth dependencies).
+        return $shouldPull($config, 'placement');
+    };
+    if ($shouldMirror($config, 'jobdiva_job')) {
+        $jobs = $safeRun('jobdiva_job', static fn() => jobdivaSyncJobs($tid, $userId, $opts['jobs'] ?? $opts));
+    } else {
+        $jobs = ['processed' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [], 'skipped_by_config' => true];
+        $skipped[] = 'jobdiva_job';
+    }
+    if ($shouldMirror($config, 'jobdiva_candidate')) {
+        $candidates = $safeRun('jobdiva_candidate', static fn() => jobdivaSyncCandidates($tid, $userId, $opts['candidates'] ?? $opts));
+    } else {
+        $candidates = ['processed' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [], 'skipped_by_config' => true];
+        $skipped[] = 'jobdiva_candidate';
+    }
+
     // Time direction wiring (Slice A4 follow-on). Pull, push, two_way honored.
     $timeResult = ['processed' => 0, 'skipped' => 0, 'failed' => 0, 'errors' => [], 'skipped_by_config' => true];
     if ($shouldPull($config, 'time') || $shouldPush($config, 'time')) {
@@ -2305,10 +2490,12 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
     }
 
     $counts = [
-        'company'   => $companies['processed'],
-        'contact'   => $contacts['processed'],
-        'placement' => $placements['processed'],
-        'time'      => $timeResult['processed'],
+        'company'           => $companies['processed'],
+        'contact'           => $contacts['processed'],
+        'placement'         => $placements['processed'],
+        'jobdiva_job'       => $jobs['processed'],
+        'jobdiva_candidate' => $candidates['processed'],
+        'time'              => $timeResult['processed'],
     ];
     $total      = array_sum($counts);
     $latencyMs  = (int) round((microtime(true) - $start) * 1000);
@@ -2324,10 +2511,12 @@ function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
         'latency_ms'         => $latencyMs,
         'skipped_by_config'  => $skipped,
         'by_entity'          => [
-            'company'   => $companies,
-            'contact'   => $contacts,
-            'placement' => $placements,
-            'time'      => $timeResult,
+            'company'           => $companies,
+            'contact'           => $contacts,
+            'placement'         => $placements,
+            'jobdiva_job'       => $jobs,
+            'jobdiva_candidate' => $candidates,
+            'time'              => $timeResult,
         ],
     ];
 }
@@ -2364,7 +2553,9 @@ function jobdivaSyncFetchItems(int $tid, string $path, array $opts): array
     // an empty list and avoids the NullPointer. Harmless on endpoints
     // that don't declare this param (Spring ignores unknown query params).
     if (str_starts_with($path, '/apiv2/bi/NewUpdatedCompanyRecords')
-     || str_starts_with($path, '/apiv2/bi/NewUpdatedContactRecords')) {
+     || str_starts_with($path, '/apiv2/bi/NewUpdatedContactRecords')
+     || str_starts_with($path, '/apiv2/bi/NewUpdatedJobRecords')
+     || str_starts_with($path, '/apiv2/bi/NewUpdatedCandidateRecords')) {
         if (!array_key_exists('userFieldsName', $query)) $query['userFieldsName'] = '';
     }
 

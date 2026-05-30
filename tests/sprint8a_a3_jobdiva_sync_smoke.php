@@ -175,13 +175,20 @@ $assert('per-entity errors isolated (one fail no longer aborts whole sync)',
     && strpos($src, "'processed' => 0, 'skipped' => 0, 'failed' => 1") !== false);
 $assert('measures latency_ms',                    strpos($src, '(int) round((microtime(true) - $start) * 1000)') !== false);
 $assert('returns counts {company,contact,placement}',
-    strpos($src, "'company'   => \$companies['processed']") !== false
-    && strpos($src, "'contact'   => \$contacts['processed']") !== false
-    && strpos($src, "'placement' => \$placements['processed']") !== false);
+    strpos($src, "'company'") !== false
+    && strpos($src, "=> \$companies['processed']") !== false
+    && strpos($src, "'contact'") !== false
+    && strpos($src, "=> \$contacts['processed']") !== false
+    && strpos($src, "'placement'") !== false
+    && strpos($src, "=> \$placements['processed']") !== false);
 $assert('total = sum of counts',                  strpos($src, '$total      = array_sum($counts)') !== false);
 $assert('bumps connection.last_sync_at',
     strpos($src, "'UPDATE jobdiva_connections SET last_sync_at = NOW()") !== false);
-$assert('returns by_entity envelope',             strpos($src, "'by_entity'") !== false && strpos($src, "=> [\n            'company'   => \$companies") !== false);
+$assert('returns by_entity envelope',
+    strpos($src, "'by_entity'") !== false
+    && strpos($src, "=> \$companies,")  !== false
+    && strpos($src, "=> \$contacts,")   !== false
+    && strpos($src, "=> \$placements,") !== false);
 
 echo "\nAPI wiring — api/jobdiva.php\n";
 $api = (string) file_get_contents("{$ROOT}/api/jobdiva.php");
