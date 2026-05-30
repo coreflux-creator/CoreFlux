@@ -12595,3 +12595,52 @@ After wiring the "Send test email" card on both Admin → Branding and tenant Ma
 - NEW: `dashboard/src/pages/MailHealthCard.jsx`
 - `dashboard/src/pages/IntegrationsHub.jsx` — import + Communications section + card mount.
 - NEW: `tests/mail_health_tile_smoke.php` (34 ✓)
+
+
+## Mail observability — Resend webhook + suppressions + outbox drill-down (2026-02 — current fork)
+
+### Why
+Mail Health tile surfaces failures, but operators had no way to: (a) act on Resend bounce/complaint events automatically, (b) prevent re-sending to known-bad addresses, or (c) jump from a red bar straight into the full failed message. This slice closes that loop end-to-end.
+
+### What shipped
+- **Migration 083_mail_observability.sql:** two new tables. `mail_webhook_events` audits every webhook payload (verified or not) with provider/event_type/message_id/recipient/payload indexes. `mail_recipient_suppressions` is the tenant-scoped deny list with soft-delete (so a re-suppression after manual removal preserves history).
+- **`core/mail/suppressions.php`:** `cf_mail_is_suppressed()`, `cf_mail_suppress()`, `cf_mail_unsuppress()`, `cf_mail_filter_suppressed()`, `cf_mail_list_suppressions()`. All helpers degrade gracefully if the table doesn't exist — they never block mail delivery on missing schema.
+- **`mailerSend()` integration:** filters every recipient list against the suppression table before the driver call. Returns `suppressed[]` on both success and failure paths. Short-circuits with `{ok:false, driver:'suppressed', error:'all_recipients_suppressed'}` when every recipient is dropped.
+- **`api/webhooks/resend.php`:** Svix-style signature receiver. HMAC-SHA256 over `${svix_id}.${svix_timestamp}.${raw_body}`, base64-decoded secret (handles `whsec_` prefix), 5-minute replay window, constant-time compare. Persists every event to `mail_webhook_events` regardless of verification (for debug). For verified events: flips `mail_outbox.status` forward only (never overwrites a bounce with a sent), auto-suppresses recipients on hard bounce + complaint events. Returns 200 always so Resend never retry-storms.
+- **`api/admin/mail_suppressions.php`:** GET/POST/DELETE for tenant-scoped suppression list. Reason whitelist + RBAC gate on `tenant_admin.integrations`. DELETE accepts id-via-query so the frontend `api.delete()` helper works.
+- **`api/admin/mail_outbox_show.php`:** single mail_outbox row drill-down with opt-in body content (`include_body=1`), associated `mail_webhook_events`, full PII tenant-scoped to the caller.
+- **`MailSuppressionsCard.jsx`:** Mounted on Mail Settings. Search + add (with notes) + per-row remove. Reason colour-coded pills (bounce / complaint / manual / api), empty-state copy that reads positive ("your mail is reaching every inbox").
+- **`MailOutboxDetailModal.jsx`:** Opens from Mail Health card's failure rows. Full envelope (status pill, driver, module/purpose, from/reply-to, to chips with one-click per-recipient ShieldOff suppress button, timestamps, Resend message_id), opt-in body (HTML raw OR sandboxed iframe preview), webhook event timeline.
+- **`MailHealthCard.jsx`:** Each failure row is now a button → opens the detail modal. Tile-to-modal-to-suppress flow is one click each.
+
+### Hardening landed alongside
+- `auth_gate_static_analyzer_smoke.php` now allow-lists `api/webhooks/resend.php` with a documented reason.
+- `tenant-leak-allow:` comments added to the legitimately tenant-discovering queries (provider_message_id is globally unique across tenants, so lookup-by-message-id is the very mechanism that resolves which tenant the webhook belongs to).
+- Webhook UPDATEs now redundantly include `AND tenant_id = :t` after the resolver so they're safe even if a stale outbox row gets re-keyed.
+- HY093 fix: renamed `:s` placeholder reuse to `:new_status` / `:guard_status`.
+
+### Test status
+- New `tests/mail_observability_smoke.php`: **72 ✓** covering migration shape, helper module behaviour, mailer integration, Svix verification (replay window + whsec_ prefix + constant-time compare), endpoint contracts, and full UI testid coverage.
+- Static analyzers (auth-gate / HY093 / tenant-leak) all green with the new endpoints documented inline.
+- Full suite: **341 ✓ / 2 baseline infra fails** + plaid_integration is intermittently flaky in batch (passes standalone — known environmental).
+- Vite rebuilt + `sync_bundle.sh` rotated hashes (`coreflux-B7ZX9lFk`).
+
+### Files touched
+- NEW: `core/migrations/083_mail_observability.sql`
+- NEW: `core/mail/suppressions.php`
+- NEW: `api/webhooks/resend.php`
+- NEW: `api/admin/mail_suppressions.php`
+- NEW: `api/admin/mail_outbox_show.php`
+- NEW: `dashboard/src/pages/MailSuppressionsCard.jsx`
+- NEW: `dashboard/src/pages/MailOutboxDetailModal.jsx`
+- `core/mailer.php` — suppression filter in mailerSend
+- `dashboard/src/pages/MailSettingsPage.jsx` — mounts MailSuppressionsCard
+- `dashboard/src/pages/MailHealthCard.jsx` — failure row → modal
+- `tests/auth_gate_static_analyzer_smoke.php` — allow-list Resend webhook
+- NEW: `tests/mail_observability_smoke.php` (72 ✓)
+
+### Configuration step required for production
+Operator must:
+1. Apply migration `083_mail_observability.sql` to the production DB.
+2. Add `define('RESEND_WEBHOOK_SECRET', 'whsec_…');` to `config.local.php` (Resend dashboard → Webhooks → Signing secret).
+3. Register the webhook URL in Resend: `https://<host>/api/webhooks/resend.php`.

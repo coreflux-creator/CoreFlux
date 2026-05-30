@@ -23,6 +23,7 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/sim_mock_bridge.php';
 require_once __DIR__ . '/tenant_mail.php';
+require_once __DIR__ . '/mail/suppressions.php';
 
 function sendEmail(array $args): array {
     if (empty($args['to']))       throw new InvalidArgumentException('sendEmail: to is required');
@@ -182,6 +183,27 @@ if (!function_exists('mailerSend')) {
             try { $tenantId = (int) (currentTenantId() ?? 0); } catch (\Throwable $_) {}
         }
 
+        // Tenant-scoped recipient suppression — Resend bounces /
+        // complaints + manual admin entries get filtered here. If every
+        // recipient ends up suppressed we short-circuit with a soft
+        // failure so the outbox doesn't accumulate ghost sends.
+        $suppressedDrops = [];
+        if ($tenantId > 0) {
+            $filter = cf_mail_filter_suppressed($tenantId, $toList);
+            if (!empty($filter['suppressed'])) {
+                $suppressedDrops = $filter['suppressed'];
+                $toList          = $filter['delivered'];
+            }
+        }
+        if (!$toList) {
+            return [
+                'ok'         => false,
+                'driver'     => 'suppressed',
+                'error'      => 'all_recipients_suppressed',
+                'suppressed' => $suppressedDrops,
+            ];
+        }
+
         // Resolve per-purpose sender (display name + reply-to + enabled mute).
         // Caller-supplied `from_name`/`reply_to` always win — the resolver only
         // fills in when caller didn't specify. `enabled=false` short-circuits
@@ -237,12 +259,14 @@ if (!function_exists('mailerSend')) {
                     'ok'         => true,
                     'message_id' => $res['provider_message_id'] ?? null,
                     'driver'     => $res['driver'] ?? 'unknown',
+                    'suppressed' => $suppressedDrops,
                 ];
             }
             return [
-                'ok'     => false,
-                'error'  => (string) ($res['error'] ?? 'unknown send failure'),
-                'driver' => $res['driver'] ?? 'unknown',
+                'ok'         => false,
+                'error'      => (string) ($res['error'] ?? 'unknown send failure'),
+                'driver'     => $res['driver'] ?? 'unknown',
+                'suppressed' => $suppressedDrops,
             ];
         } catch (\Throwable $e) {
             return _mailer_fallback_smtp($args, $toList, $bodyHtml, $bodyText, 'mail_service_threw:' . $e->getMessage());

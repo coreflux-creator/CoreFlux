@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/api';
 import { Mail, ChevronRight, CheckCircle2, AlertTriangle, AlertOctagon, MinusCircle } from 'lucide-react';
+import MailOutboxDetailModal from './MailOutboxDetailModal';
 
 /**
  * MailHealthCard — live "Mail health" tile for the Integrations Hub.
@@ -33,6 +34,8 @@ const DRIVER_TONE = {
 
 export default function MailHealthCard() {
   const { data, loading, error, reload } = useApi('/api/admin/mail_health.php');
+  // Slice 3.3 — clicked failure row's mail_outbox id; null = closed.
+  const [outboxOpen, setOutboxOpen] = useState(null);
 
   return (
     <div data-testid="integration-card-mail-health"
@@ -192,11 +195,25 @@ export default function MailHealthCard() {
                       style={{ marginBottom: 4, padding: '4px 6px',
                                background: '#fef2f2', borderRadius: 4,
                                border: '1px solid #fecaca' }}>
-                    <strong>{f.purpose}</strong>{' '}
-                    <span style={{ color: '#64748b' }}>· {f.driver} · {f.created_at}</span>
-                    <div style={{ color: '#991b1b', fontFamily: 'var(--cf-mono, ui-monospace)' }}>
-                      {f.error || '(no error message captured)'}
-                    </div>
+                    <button
+                      type="button"
+                      data-testid={`mail-health-failure-open-${f.id}`}
+                      onClick={() => setOutboxOpen(f.id)}
+                      title="Open this row in the mail outbox detail viewer"
+                      style={{
+                        background: 'transparent', border: 'none', padding: 0,
+                        textAlign: 'left', width: '100%', cursor: 'pointer',
+                        color: 'inherit', font: 'inherit',
+                      }}>
+                      <div>
+                        <strong>{f.purpose}</strong>{' '}
+                        <span style={{ color: '#64748b' }}>· {f.driver} · {f.created_at}</span>
+                        <ChevronRight size={11} style={{ verticalAlign: 'middle', marginLeft: 4, color: '#7c3aed' }} />
+                      </div>
+                      <div style={{ color: '#991b1b', fontFamily: 'var(--cf-mono, ui-monospace)' }}>
+                        {f.error || '(no error message captured)'}
+                      </div>
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -224,6 +241,13 @@ export default function MailHealthCard() {
             }}>
         Manage & send test <ChevronRight size={14} />
       </Link>
+
+      {outboxOpen !== null && (
+        <MailOutboxDetailModal
+          outboxId={outboxOpen}
+          onClose={() => setOutboxOpen(null)}
+        />
+      )}
     </div>
   );
 }
