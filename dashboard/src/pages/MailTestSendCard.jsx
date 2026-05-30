@@ -16,6 +16,32 @@ export default function MailTestSendCard({ canWrite = true }) {
   const [busy, setBusy]           = React.useState(false);
   const [result, setResult]       = React.useState(null);
   const [err, setErr]             = React.useState(null);
+  // Slice 3.3.1 — debounced lookup against the suppression list so the
+  // operator sees "this address would be dropped" BEFORE pressing Send.
+  const [suppressedHit, setSuppressedHit] = React.useState(null);
+
+  React.useEffect(() => {
+    const email = recipient.trim().toLowerCase();
+    if (!email || !email.includes('@')) {
+      setSuppressedHit(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const r = await api.get(
+          `/api/admin/mail_suppressions.php?q=${encodeURIComponent(email)}&limit=10`
+        );
+        if (cancelled) return;
+        const exact = (r.rows || []).find((row) => row.email === email);
+        setSuppressedHit(exact || null);
+      } catch {
+        // Suppression list unreachable — never block the test send.
+        if (!cancelled) setSuppressedHit(null);
+      }
+    }, 350);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [recipient]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -25,6 +51,19 @@ export default function MailTestSendCard({ canWrite = true }) {
       setResult(r);
     } catch (e2) {
       setErr(e2.message || 'Send failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unsuppress = async () => {
+    if (!suppressedHit) return;
+    setBusy(true);
+    try {
+      await api.delete(`/api/admin/mail_suppressions.php?id=${suppressedHit.id}`);
+      setSuppressedHit(null);
+    } catch (e2) {
+      setErr(e2.message || 'Un-suppress failed');
     } finally {
       setBusy(false);
     }
@@ -71,6 +110,34 @@ export default function MailTestSendCard({ canWrite = true }) {
           {busy ? 'Sending…' : 'Send test'}
         </button>
       </form>
+
+      {suppressedHit && (
+        <div
+          data-testid="admin-mail-test-send-suppression-warn"
+          style={{
+            marginTop: 10, padding: '8px 12px', borderRadius: 6,
+            background: '#fef3c7', color: '#92400e',
+            border: '1px solid #fde68a',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            gap: 12, flexWrap: 'wrap',
+          }}
+        >
+          <span style={{ fontSize: 13 }}>
+            ⚠ <code data-testid="admin-mail-test-send-suppression-email">{suppressedHit.email}</code> is on the
+            suppression list (<strong>{suppressedHit.reason}</strong>). Your test send will be dropped before delivery.
+            {suppressedHit.notes && <em style={{ marginLeft: 6, opacity: 0.8 }}>Note: {suppressedHit.notes}</em>}
+          </span>
+          <button
+            type="button" className="btn"
+            data-testid="admin-mail-test-send-unsuppress"
+            onClick={unsuppress}
+            disabled={busy}
+            style={{ fontSize: 12 }}
+          >
+            Un-suppress to allow this test
+          </button>
+        </div>
+      )}
 
       {!canWrite && (
         <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)', marginTop: 8 }}>

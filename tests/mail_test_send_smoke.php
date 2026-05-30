@@ -46,6 +46,8 @@ $a('returns recipient + subject for echo',               $c($ep, "'recipient'") 
 // Slice 3.2 — MailTestSendCard was extracted to its own file so it
 // can be mounted on both the admin Branding page AND the tenant
 // Mail Settings page.
+// Slice 3.3.1 — Card also warns when the recipient is on the
+// suppression list and offers a one-click un-suppress.
 echo "\nMailTestSendCard.jsx — shared component\n";
 $card = (string) file_get_contents($ROOT . '/dashboard/src/pages/MailTestSendCard.jsx');
 $a('MailTestSendCard default export',                    $c($card, 'export default function MailTestSendCard'));
@@ -62,6 +64,16 @@ $a('RESEND key on/off badges',                           $c($card, 'admin-mail-t
                                                          && $c($card, 'admin-mail-test-send-resend-off'));
 $a('POSTs to /api/admin/mail_test_send.php',             $c($card, "/api/admin/mail_test_send.php"));
 $a('disables form when not canWrite or busy',            $c($card, 'disabled={!canWrite || busy'));
+// Slice 3.3.1 — suppression warning surfaces
+$a('debounces suppression lookup',                       $c($card, 'setTimeout(async () => {')
+                                                         && $c($card, '350'));
+$a('queries mail_suppressions for exact match',          $c($card, '/api/admin/mail_suppressions.php?q=')
+                                                         && $c($card, '(r.rows || []).find((row) => row.email === email)'));
+$a('renders warning banner when suppressed',             $c($card, 'data-testid="admin-mail-test-send-suppression-warn"'));
+$a('exposes suppressed-email testid for assertions',     $c($card, 'data-testid="admin-mail-test-send-suppression-email"'));
+$a('un-suppress button calls DELETE with ?id=',          $c($card, 'data-testid="admin-mail-test-send-unsuppress"')
+                                                         && $c($card, "api.delete(`/api/admin/mail_suppressions.php?id=\${suppressedHit.id}`)"));
+$a('suppression check tolerates fetch failure',          $c($card, '// Suppression list unreachable — never block the test send.'));
 
 echo "\nMailBrandingAdmin.jsx — imports + mounts MailTestSendCard\n";
 $pg = (string) file_get_contents($ROOT . '/dashboard/src/pages/MailBrandingAdmin.jsx');

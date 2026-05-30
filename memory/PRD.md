@@ -12644,3 +12644,25 @@ Operator must:
 1. Apply migration `083_mail_observability.sql` to the production DB.
 2. Add `define('RESEND_WEBHOOK_SECRET', 'whsec_…');` to `config.local.php` (Resend dashboard → Webhooks → Signing secret).
 3. Register the webhook URL in Resend: `https://<host>/api/webhooks/resend.php`.
+
+
+## Polish — MailTestSendCard suppression warning + RBAC state verification (2026-02 — current fork)
+
+### Discovery
+The handoff summary marked RBAC Phase B3/B4 as outstanding, but on inspection **B1 through B5 are all already shipped** in this codebase:
+- `core/rbac/permissions.php` declares `final class RBACResolver` (no collision with the legacy `class RBAC`).
+- `RbacMembershipsAdmin.jsx` (437 lines) is routed at `/admin/memberships` with full list/add/edit/revoke + per-membership module access editor + copy-permissions action + MembershipDriftBanner + RbacBridgeHealthPanel.
+- All backend endpoints exist: `/api/admin/memberships.php`, `/api/admin/membership_access.php` (uses `RBACResolver::copyPermissions`), `/api/admin/user_effective_permissions.php`, `/api/admin/membership_drift.php`, `/api/admin/rbac_bridge_health.php`, `/api/admin/roles_reference.php`.
+- **All 13 RBAC smoke tests green** (`rbac_b1` through `rbac_b5`, `rbac_effective_permissions`, `rbac_ops_fixup`, `rbac_roles_reference`, `rbac_legacy_tenant_admin_integrations`, `membership_drift_inspector`, `provision_membership` ×2).
+
+### What shipped this slice
+- **`MailTestSendCard.jsx`** now does a 350ms-debounced lookup against `/api/admin/mail_suppressions.php?q=` whenever the recipient field changes. Exact-match against the active suppression list triggers an amber warning banner showing the reason + any operator note, plus a one-click "Un-suppress to allow this test" action that DELETEs the row and clears the warning. The Send button stays enabled — operators can still submit if they want to observe the `driver:'suppressed'` soft-fail behaviour from `mailerSend()`.
+
+### Test status
+- `tests/mail_test_send_smoke.php`: **39 ✓** (was 33; added 6 new assertions for the suppression-warning surface).
+- Full suite: **342 ✓ / 2 baseline infra fails**.
+- Vite rebuilt + `sync_bundle.sh` rotated hashes (`coreflux-TubrYVui`).
+
+### Files touched
+- `dashboard/src/pages/MailTestSendCard.jsx` — debounced suppression lookup + warning banner + un-suppress button.
+- `tests/mail_test_send_smoke.php` — 6 new assertions for the new affordances.
