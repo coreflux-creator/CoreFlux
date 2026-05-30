@@ -2557,14 +2557,56 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
     $stats['unique_candidate_ids'] = count($candIds);
     $stats['unique_customer_ids']  = count($custIds);
 
-    // 2. Bulk-fetch full records via the V2 BI `*Detail` endpoints.
+    // 2. Bulk-fetch full records via the V2 BI endpoints.
+    //
+    // JOBS — two-phase fetch:
+    //   (a) `OpenJobsList` (no params, no auth-scope, returns ALL open
+    //       jobs — diagnostic confirmed 1,715 records / 1.45 MB for
+    //       the operator's tenant).
+    //   (b) `JobsDetail?jobIds=…` to fill in any placement-referenced
+    //       job that's no longer in the open list (closed/archived).
+    // The two are merged and deduped by external_id so the open-list
+    // bulk doesn't drown out long-tail historic jobs.
+    $jobs = [];
+    try {
+        $openResp = jobdivaCall($tid, 'GET', '/apiv2/bi/OpenJobsList', null, []);
+        if (is_array($openResp)) {
+            if (isset($openResp['data']) && is_array($openResp['data'])) {
+                $jobs = $openResp['data'];
+            } elseif (isset($openResp['items']) && is_array($openResp['items'])) {
+                $jobs = $openResp['items'];
+            } elseif (!empty($openResp) && array_keys($openResp) === range(0, count($openResp) - 1)) {
+                $jobs = $openResp;
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log('[jobdiva OpenJobsList err] ' . $e->getMessage());
+    }
     if ($jobIds) {
-        $jobs = jobdivaCallBulkIds($tid, '/apiv2/bi/JobsDetail', 'jobIds', $jobIds);
+        $byId = jobdivaCallBulkIds($tid, '/apiv2/bi/JobsDetail', 'jobIds', $jobIds);
+        // Dedupe: prefer the more-recent record. Both responses share
+        // the same `id` key in JobDiva BI, so keep whichever lands first
+        // and skip duplicates by extId.
+        $seen = [];
+        foreach ($jobs as $j) {
+            $eid = (string) jobdivaPluckField($j, ['id', 'jobId', 'job_id', 'jobID', 'JOBID', 'job id']);
+            if ($eid !== '') $seen[$eid] = true;
+        }
+        foreach ($byId as $j) {
+            $eid = (string) jobdivaPluckField($j, ['id', 'jobId', 'job_id', 'jobID', 'JOBID', 'job id']);
+            if ($eid !== '' && empty($seen[$eid])) {
+                $jobs[] = $j;
+                $seen[$eid] = true;
+            }
+        }
+    }
+    if ($jobs) {
         $stats['jobs_returned'] = count($jobs);
         $stored = jobdivaMirrorStoreAndIndex($tid, 'jobdiva_job', $jobs,
             ['id', 'jobId', 'job_id', 'jobID', 'JOBID', 'job id']);
         $stats['jobs_processed'] = $stored['processed'];
     }
+
     if ($candIds) {
         $cands = jobdivaCallBulkIds($tid, '/apiv2/bi/CandidatesDetail', 'candidateIds', $candIds);
         $stats['candidates_returned'] = count($cands);
@@ -2572,11 +2614,17 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
             ['id', 'candidateId', 'candidate_id', 'candidateID', 'CANDIDATEID', 'candidate id', 'employeeId']);
         $stats['candidates_processed'] = $stored['processed'];
     }
+
+    // The `customer id` field in placement payloads is actually a CONTACT
+    // ID (the end-client contact, e.g. Patricia Moore), NOT a company
+    // ID — operator's diagnostic confirmed CompaniesDetail?companyIds=
+    // returns 0 items for these IDs, while ContactsDetail?contactIds=
+    // is the correct endpoint per the official Swagger spec.
     if ($custIds) {
-        $custs = jobdivaCallBulkIds($tid, '/apiv2/bi/CompaniesDetail', 'companyIds', $custIds);
-        $stats['customers_returned'] = count($custs);
-        $stored = jobdivaMirrorStoreAndIndex($tid, 'jobdiva_company', $custs,
-            ['id', 'companyId', 'company_id', 'companyID', 'CUSTOMERID', 'customerId']);
+        $contacts = jobdivaCallBulkIds($tid, '/apiv2/bi/ContactsDetail', 'contactIds', $custIds);
+        $stats['customers_returned'] = count($contacts);
+        $stored = jobdivaMirrorStoreAndIndex($tid, 'jobdiva_contact', $contacts,
+            ['id', 'contactId', 'contact_id', 'contactID', 'CONTACTID', 'contact id', 'customerId']);
         $stats['customers_processed'] = $stored['processed'];
     }
 

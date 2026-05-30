@@ -111,10 +111,16 @@ if ($pdo) {
                 }
                 if ($uId !== null && $uId !== '') {
                     $probes[] = [
-                        'name'  => "CompaniesDetail?companyIds=$uId",
+                        'name'  => "ContactsDetail?contactIds=$uId",
+                        'path'  => '/apiv2/bi/ContactsDetail',
+                        'query' => ['contactIds' => (string) $uId, 'userFieldsName' => ''],
+                        'note'  => 'The placement `customer id` is actually a CONTACT id (end-client contact). If 200+items here, Mirror-by-Placements will populate jobdiva_contact for customer-side contacts.',
+                    ];
+                    $probes[] = [
+                        'name'  => "CompaniesDetail?companyIds=$uId (control)",
                         'path'  => '/apiv2/bi/CompaniesDetail',
                         'query' => ['companyIds' => (string) $uId, 'userFieldsName' => ''],
-                        'note'  => 'Uses a real placement\'s customer_id. If 200+items, Mirror-by-Placements will work for Companies.',
+                        'note'  => 'Control test — if this returns 0 but ContactsDetail returns 1, confirms the placement.customer_id is a contact, not a company.',
                     ];
                 }
             }

@@ -11863,3 +11863,52 @@ extract `job id` / `candidate id` / `customer id`, then batch-call the
      support to widen access. We literally cannot fetch what they
      don't grant.
 3. The diagnostic IS the answer. We never fly blind again.
+
+
+## Mirror v3 — OpenJobsList + ContactsDetail (2026-05, after operator diagnostic)
+
+### Findings from operator's diagnostic screenshot
+| Endpoint | Status | Items | Outcome |
+|---|---|---|---|
+| OpenJobsList (no params) | **200** | **1,715** | ✓ FULL job list |
+| JobsDetail?jobIds=27857851 | 200 | 1 | ✓ Mirror-by-ID works for Jobs |
+| CandidatesDetail?candidateIds=… | 200 | 1 | ✓ Mirror-by-ID works for Candidates |
+| CompaniesDetail?companyIds=49290948 | 200 | 0 | ⚠️ wrong endpoint |
+| NewUpdated*Records | 200/0 or 500 | 0 | ✗ Date-delta scoped out |
+
+### Root-causes
+1. **Date-delta endpoints (`NewUpdated*Records`) are scoped out** of the tenant's API auth. Useless.
+2. **`OpenJobsList` returns ALL open jobs with NO params** — 1,715 records in one call (1.45 MB).
+3. **The placement-payload field `customer id` (49290948) is a CONTACT id, NOT a company id.** The placement's "customer name = Patricia Moore" is a person (end-client contact). The actual company is in the separate string field `companyName: "Thunderhawk Technology Partners LLC"`. Operator hit this exactly: `CompaniesDetail?companyIds=49290948` returned 0 items.
+
+### Shipped
+- `jobdivaSyncMirrorByPlacements()` now:
+  1. Pulls ALL open jobs via `/apiv2/bi/OpenJobsList` (no params).
+  2. Fills in closed/historic jobs by ID via `/apiv2/bi/JobsDetail?jobIds=…`.
+  3. Dedupes by external_id.
+  4. Mirrors candidates via `/apiv2/bi/CandidatesDetail?candidateIds=…`.
+  5. Mirrors end-client contacts via `/apiv2/bi/ContactsDetail?contactIds=…` (CORRECTED — was using CompaniesDetail).
+  6. Stores `customer id` records under `internal_entity_type='jobdiva_contact'`, NOT `jobdiva_company`.
+- `jobdiva_probe.php` now probes BOTH `ContactsDetail` and `CompaniesDetail` for the placement.customer_id, so the operator can see the control test side-by-side.
+- Smoke test extended (CASE 5 now asserts OpenJobsList wiring + ContactsDetail + contactIds param contract).
+
+### Verification
+- Smoke: 7/7 cases pass.
+- Full suite: **330/334 stable** (same 4 pre-existing unrelated failures).
+- Vite bundle synced: `index-DOOSF0sJ.js`.
+
+### Files touched
+- MODIFIED: `core/jobdiva/sync.php` (OpenJobsList + ContactsDetail wiring)
+- MODIFIED: `api/admin/integrations/jobdiva_probe.php`
+  (ContactsDetail + CompaniesDetail control test)
+- MODIFIED: `tests/jobdiva_mirror_by_placements_smoke.php`
+
+### Expected outcome after deploy
+- Click "🪞 Mirror Jobs + Candidates":
+  - `jobs_returned` ≈ 1,715 (from OpenJobsList) + N more from JobsDetail
+  - `candidates_returned` ≈ 100+ (one per placement candidate)
+  - `customers_returned` ≈ 50+ (renamed mentally to "contacts" — they're end-client people)
+- Field Mapping Studio entity tabs:
+  - `🪞 JobDiva Job (full mirror)` → populated with hundreds of source paths (every field on every job)
+  - `🪞 JobDiva Candidate (full mirror)` → every candidate field including resume URL, skills, work auth, etc.
+  - `contact` (existing tab) → end-client contacts with phone/email/title/role

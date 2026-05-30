@@ -63,8 +63,10 @@ _ok('jobdivaSyncMirrorByPlacements has stable result envelope shape');
 $src = (string) file_get_contents(__DIR__ . '/../core/jobdiva/sync.php');
 assert(str_contains($src, "/apiv2/bi/JobsDetail"),        'JobsDetail endpoint wired');
 assert(str_contains($src, "/apiv2/bi/CandidatesDetail"),  'CandidatesDetail endpoint wired');
-assert(str_contains($src, "/apiv2/bi/CompaniesDetail"),   'CompaniesDetail endpoint wired');
-_ok('mirror uses official V2 BI *Detail endpoints (per Swagger spec)');
+assert(str_contains($src, "/apiv2/bi/ContactsDetail"),    'ContactsDetail endpoint wired (placement.customer_id is a contact)');
+assert(str_contains($src, "/apiv2/bi/OpenJobsList"),      'OpenJobsList no-param endpoint wired (returns ALL open jobs)');
+assert(str_contains($src, "'contactIds'"),                'customer ids passed as contactIds (per Swagger contract)');
+_ok('mirror uses official V2 BI endpoints incl. OpenJobsList + ContactsDetail');
 
 // ─────────────────────────────────────────────────────────────────────
 // Spring `@RequestParam List<>` rejects PHP's default `param[]=v`
