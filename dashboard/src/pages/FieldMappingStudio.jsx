@@ -651,7 +651,8 @@ export default function FieldMappingStudio() {
                     text: `Mirror done · scanned ${r.placements_scanned} placements → ` +
                           `jobs ×${r.jobs_processed}/${r.unique_job_ids}, ` +
                           `candidates ×${r.candidates_processed}/${r.unique_candidate_ids}, ` +
-                          `customers ×${r.customers_processed}/${r.unique_customer_ids}`,
+                          `contacts ×${r.customers_processed}/${r.unique_customer_ids}, ` +
+                          `assignments ×${r.assignments_processed}/${r.unique_start_ids}`,
                   });
                   await reload();
                 } catch (e) {
@@ -723,7 +724,7 @@ export default function FieldMappingStudio() {
           .filter(s => s.integration === integration)
           .map(s => ({ et: s.entity_type, count: Number(s.path_count) || 0 }));
         const fallback = {
-          jobdiva:    ['placement', 'person', 'job', 'jobdiva_customer', 'contact', 'assignment', 'jobdiva_job', 'jobdiva_candidate'],
+          jobdiva:    ['placement', 'person', 'job', 'jobdiva_customer', 'contact', 'assignment', 'jobdiva_job', 'jobdiva_candidate', 'jobdiva_contact', 'jobdiva_assignment'],
           quickbooks: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account', 'item'],
           zoho_books: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account'],
           airtable:   ['record'],
@@ -743,8 +744,10 @@ export default function FieldMappingStudio() {
           contact:          'Contact',
           assignment:       'Assignment',
           company:          'Company',
-          jobdiva_job:       '🪞 JobDiva Job (full mirror)',
-          jobdiva_candidate: '🪞 JobDiva Candidate (full mirror)',
+          jobdiva_job:        '🪞 JobDiva Job (full mirror)',
+          jobdiva_candidate:  '🪞 JobDiva Candidate (full mirror)',
+          jobdiva_contact:    '🪞 JobDiva Contact (full mirror)',
+          jobdiva_assignment: '🪞 JobDiva Assignment (full mirror)',
           journal_entry:    'Journal Entry',
           vendor:           'Vendor',
           invoice:          'Invoice',

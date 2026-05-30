@@ -2508,16 +2508,19 @@ function jobdivaMirrorStoreAndIndex(
 function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = []): array
 {
     $stats = [
-        'placements_scanned'    => 0,
-        'unique_job_ids'        => 0,
-        'unique_candidate_ids'  => 0,
-        'unique_customer_ids'   => 0,
-        'jobs_returned'         => 0,
-        'candidates_returned'   => 0,
-        'customers_returned'    => 0,
-        'jobs_processed'        => 0,
-        'candidates_processed'  => 0,
-        'customers_processed'   => 0,
+        'placements_scanned'      => 0,
+        'unique_job_ids'          => 0,
+        'unique_candidate_ids'    => 0,
+        'unique_customer_ids'     => 0,
+        'unique_start_ids'        => 0,
+        'jobs_returned'           => 0,
+        'candidates_returned'     => 0,
+        'customers_returned'      => 0,
+        'assignments_returned'    => 0,
+        'jobs_processed'          => 0,
+        'candidates_processed'    => 0,
+        'customers_processed'     => 0,
+        'assignments_processed'   => 0,
     ];
     $pdo = getDB();
     if (!$pdo) {
@@ -2536,7 +2539,7 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
     );
     $st->execute(['t' => $tid]);
 
-    $jobIds = $candIds = $custIds = [];
+    $jobIds = $candIds = $custIds = $startIds = [];
     while ($row = $st->fetch(\PDO::FETCH_ASSOC)) {
         $stats['placements_scanned']++;
         $payload = json_decode((string) $row['payload_snapshot'], true);
@@ -2544,18 +2547,25 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
         $j = jobdivaPluckField($payload, ['job id', 'jobId', 'job_id', 'jobID', 'JOBID']);
         $c = jobdivaPluckField($payload, ['candidate id', 'candidateId', 'candidate_id', 'candidateID', 'CANDIDATEID', 'employeeId']);
         $u = jobdivaPluckField($payload, ['customer id', 'customerId', 'customer_id', 'customerID', 'CUSTOMERID']);
-        if ($j !== null) $jobIds[]  = (string) $j;
-        if ($c !== null) $candIds[] = (string) $c;
-        if ($u !== null) $custIds[] = (string) $u;
+        // JobDiva calls placement records "Starts" — the `id` field on
+        // a placement payload IS the startId for the assignment-record
+        // detail endpoint.
+        $s = jobdivaPluckField($payload, ['id', 'startId', 'start_id', 'startID', 'STARTID', 'placementId']);
+        if ($j !== null) $jobIds[]   = (string) $j;
+        if ($c !== null) $candIds[]  = (string) $c;
+        if ($u !== null) $custIds[]  = (string) $u;
+        if ($s !== null) $startIds[] = (string) $s;
     }
 
-    $jobIds  = array_values(array_unique(array_filter($jobIds,  static fn($v) => $v !== '' && $v !== '0')));
-    $candIds = array_values(array_unique(array_filter($candIds, static fn($v) => $v !== '' && $v !== '0')));
-    $custIds = array_values(array_unique(array_filter($custIds, static fn($v) => $v !== '' && $v !== '0')));
+    $jobIds   = array_values(array_unique(array_filter($jobIds,   static fn($v) => $v !== '' && $v !== '0')));
+    $candIds  = array_values(array_unique(array_filter($candIds,  static fn($v) => $v !== '' && $v !== '0')));
+    $custIds  = array_values(array_unique(array_filter($custIds,  static fn($v) => $v !== '' && $v !== '0')));
+    $startIds = array_values(array_unique(array_filter($startIds, static fn($v) => $v !== '' && $v !== '0')));
 
     $stats['unique_job_ids']       = count($jobIds);
     $stats['unique_candidate_ids'] = count($candIds);
     $stats['unique_customer_ids']  = count($custIds);
+    $stats['unique_start_ids']     = count($startIds);
 
     // 2. Bulk-fetch full records via the V2 BI endpoints.
     //
@@ -2626,6 +2636,48 @@ function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = [])
         $stored = jobdivaMirrorStoreAndIndex($tid, 'jobdiva_contact', $contacts,
             ['id', 'contactId', 'contact_id', 'contactID', 'CONTACTID', 'contact id', 'customerId']);
         $stats['customers_processed'] = $stored['processed'];
+    }
+
+    // ASSIGNMENTS — JobDiva calls placement records "Starts" in their
+    // model. The placement payload's `id` field IS the startId. We pull
+    // full assignment-record detail via /apiv2/bi/EmployeeAssignmentRecordsDetail
+    // which takes a startId per call (no bulk ID-list variant exists per
+    // the official Swagger spec). Operator question: "are we mirroring
+    // assignments?" — now yes, under entity_type=jobdiva_assignment.
+    if ($startIds) {
+        // EmployeeAssignmentRecordsDetail takes ONE startId per call.
+        // For 118 placements that's 118 HTTP calls — keep the batch
+        // sequential with a soft cap so we don't run the request budget
+        // dry on first-ever runs. Per-call failures are absorbed and
+        // logged; we still index every successful response.
+        $assignmentRecords = [];
+        $cap = (int) ($opts['assignment_cap'] ?? 500);
+        foreach (array_slice($startIds, 0, $cap) as $sid) {
+            try {
+                $resp = jobdivaCall($tid, 'GET', '/apiv2/bi/EmployeeAssignmentRecordsDetail', null, [
+                    'startId'        => (string) $sid,
+                    'userFieldsName' => '',
+                ]);
+                if (is_array($resp)) {
+                    if (isset($resp['data']) && is_array($resp['data'])) {
+                        $assignmentRecords = array_merge($assignmentRecords, $resp['data']);
+                    } elseif (isset($resp['items']) && is_array($resp['items'])) {
+                        $assignmentRecords = array_merge($assignmentRecords, $resp['items']);
+                    } elseif (!empty($resp) && array_keys($resp) === range(0, count($resp) - 1)) {
+                        $assignmentRecords = array_merge($assignmentRecords, $resp);
+                    } elseif (!empty($resp)) {
+                        // Some BI endpoints return a single record (object) not wrapped.
+                        $assignmentRecords[] = $resp;
+                    }
+                }
+            } catch (\Throwable $e) {
+                error_log("[jobdiva EmployeeAssignmentRecordsDetail startId=$sid err] " . $e->getMessage());
+            }
+        }
+        $stats['assignments_returned'] = count($assignmentRecords);
+        $stored = jobdivaMirrorStoreAndIndex($tid, 'jobdiva_assignment', $assignmentRecords,
+            ['id', 'startId', 'start_id', 'startID', 'STARTID', 'placementId', 'employeeId']);
+        $stats['assignments_processed'] = $stored['processed'];
     }
 
     jobdivaAudit($tid, 'sync_mirror_by_placements', [

@@ -11966,3 +11966,66 @@ Hard refresh `/spa.php` (Ctrl+Shift+R) on production. The
 should be gone, AND your saved field mappings will actually persist
 and be applied on the next sync (the prior silent 403 was why "no
 matter how many mappings I save nothing new sync").
+
+
+## Two real bugs fixed: save-doesn't-persist + assignment mirror (2026-05)
+
+### Operator findings post-RBAC-fix
+1. "Forbidden banner gone? — yes"
+2. "Can you save a mapping? — no"
+3. "are we mirroring assignments?"
+
+### Bug #1: field_map list query dropped Phase 2 columns
+`tenantIntegrationFieldMapList()` SELECTed only the legacy columns
+(`external_field, internal_field, transform, enabled, notes, …`) and
+omitted the Phase 2 columns added by migration 077 (`source_path`,
+`target_module`, `target_table`, `target_column`, `linked_entity`).
+
+Effect: when an operator saved a new-style mapping (source_path →
+target_table.target_column), the INSERT wrote every column correctly,
+but the subsequent GET that drives the UI returned the row with the
+Phase 2 fields stripped. UI rendered the row as legacy-only, and
+the operator interpreted that as "save didn't persist."
+
+**Fix**: extended the SELECT in `tenantIntegrationFieldMapList()` to
+include every Phase 2 column.
+
+### Bug #2: Assignments not mirrored
+JobDiva calls placement records "Starts" in their model. The placement
+payload's `id` field IS the startId. The Swagger spec exposes
+`GET /apiv2/bi/EmployeeAssignmentRecordsDetail?startId=N` for full
+assignment-record detail (one record per call — no bulk-by-id variant).
+
+**Fix**: `jobdivaSyncMirrorByPlacements()` now also:
+1. Extracts every placement's `id` into `startIds` (same single-pass walk).
+2. Calls `EmployeeAssignmentRecordsDetail?startId=…` per id with
+   capped sequential dispatch (default 500 ids, configurable via
+   `$opts['assignment_cap']`).
+3. Mirrors each response under `internal_entity_type='jobdiva_assignment'`.
+4. Indexes every field so the new **🪞 JobDiva Assignment (full
+   mirror)** entity tab populates with the actual assignment-record
+   fields (pay rate, bill rate, status history, etc.).
+
+### Shipped
+- `core/integrations/field_map.php` — list SELECT extended.
+- `core/jobdiva/sync.php` — startIds extraction in the consolidated
+  placement walk + assignment mirror block + stats envelope update.
+- `dashboard/src/pages/FieldMappingStudio.jsx` — `jobdiva_assignment`
+  added to entity-tab fallback + LABELS map; Mirror toast now reports
+  `assignments ×N/M`.
+- `tests/field_map_list_returns_phase2_columns_smoke.php` (NEW)
+- `tests/jobdiva_assignment_mirror_smoke.php` (NEW)
+
+### Verification
+- Two new smoke tests pass (2 + 6 cases respectively).
+- Full suite: **333/337 stable** (same 4 unrelated pre-existing failures).
+- Vite bundle synced: `index-DCRyOnXJ.js`.
+
+### Operator next step
+1. Deploy via `/update.php`.
+2. Open Field Mapping Studio → click **🪞 Mirror Jobs + Candidates**
+   again. Expect toast now showing `assignments ×N/118`.
+3. A new **🪞 JobDiva Assignment (full mirror)** entity tab appears
+   with the assignment-record fields per JobDiva's spec.
+4. Try saving a mapping NOW — should persist correctly through page
+   refresh (bug #1 fix).

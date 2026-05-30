@@ -252,7 +252,9 @@ function tenantIntegrationFieldMapList(int $tenantId, ?string $integration = nul
         $params['e'] = $entityType;
     }
     $stmt = $pdo->prepare(
-        'SELECT id, integration, entity_type, external_field, internal_field,
+        'SELECT id, integration, entity_type,
+                external_field, source_path,
+                internal_field, target_module, target_table, target_column, linked_entity,
                 transform, enabled, notes, updated_by_user_id, created_at, updated_at
            FROM tenant_integration_field_map
           WHERE ' . implode(' AND ', $where) . '
