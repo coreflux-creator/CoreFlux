@@ -171,6 +171,13 @@ export default function FieldMappingStudio() {
   const [rawError, setRawError]     = useState(null);
   const [rawShowJson, setRawShowJson] = useState(false);
 
+  // -- JobDiva endpoint probe diagnostic (🔎 Diagnose JobDiva) ----------
+  const [diagOpen, setDiagOpen]       = useState(false);
+  const [diagBusy, setDiagBusy]       = useState(false);
+  const [diagResults, setDiagResults] = useState(null);
+  const [diagError, setDiagError]     = useState(null);
+  const [diagExpanded, setDiagExpanded] = useState({});
+
   const reloadSources = async () => {
     try {
       const r = await api.get('/api/admin/integrations/payload_fields.php');
@@ -635,14 +642,16 @@ export default function FieldMappingStudio() {
               type="button"
               data-testid="fms-jobdiva-mirror-btn"
               onClick={async () => {
-                if (!confirm('Mirror every JobDiva Job and Candidate into CoreFlux?\n\nThis hits /apiv2/bi/NewUpdatedJobRecords and /apiv2/bi/NewUpdatedCandidateRecords (last 365 days) and stores every record\'s full payload, so every field becomes mappable.\n\nWill take 10-60 seconds depending on volume.')) return;
+                if (!confirm('Mirror every JobDiva Job, Candidate, and Customer referenced by your synced placements into CoreFlux?\n\nUses /apiv2/bi/JobsDetail, /CandidatesDetail, /CompaniesDetail (the by-ID endpoints from the official Swagger spec) so we don\'t rely on date-range guesswork. Will take 10-60 seconds depending on volume.')) return;
                 setFlash({ kind: 'info', text: 'Mirror sync running…' });
                 try {
-                  const r = await api.post('/api/admin/integrations/jobdiva_mirror_sync.php?entity=both&days=365', {});
+                  const r = await api.post('/api/admin/integrations/jobdiva_mirror_by_placements.php', {});
                   setFlash({
                     kind: 'ok',
-                    text: `Mirror complete · jobs ×${r.jobs?.processed ?? 0}, candidates ×${r.candidates?.processed ?? 0}` +
-                          ((r.jobs?.failed || r.candidates?.failed) ? ' (some failed — see network tab)' : '')
+                    text: `Mirror done · scanned ${r.placements_scanned} placements → ` +
+                          `jobs ×${r.jobs_processed}/${r.unique_job_ids}, ` +
+                          `candidates ×${r.candidates_processed}/${r.unique_candidate_ids}, ` +
+                          `customers ×${r.customers_processed}/${r.unique_customer_ids}`,
                   });
                   await reload();
                 } catch (e) {
@@ -650,9 +659,33 @@ export default function FieldMappingStudio() {
                 }
               }}
               className="btn btn--primary"
-              title="Pull every JobDiva Job and Candidate (full records) into CoreFlux via the bulk BI endpoints. Powers the jobdiva_job and jobdiva_candidate entity tabs in the studio."
+              title="Pull full Job, Candidate, and Customer records for every ID referenced by your placements via the /JobsDetail, /CandidatesDetail, /CompaniesDetail by-ID endpoints."
               style={{ whiteSpace: 'nowrap', fontSize: 13, background: '#0c4a6e', color: '#fff' }}>
               🪞 Mirror Jobs + Candidates
+            </button>
+          )}
+          {integration === 'jobdiva' && (
+            <button
+              type="button"
+              data-testid="fms-jobdiva-diagnose-btn"
+              onClick={async () => {
+                setDiagOpen(true);
+                setDiagBusy(true);
+                setDiagError(null);
+                setDiagResults(null);
+                try {
+                  const r = await api.post('/api/admin/integrations/jobdiva_probe.php', {});
+                  setDiagResults(r);
+                } catch (e) {
+                  setDiagError(e.message || 'Probe failed');
+                } finally {
+                  setDiagBusy(false);
+                }
+              }}
+              className="btn btn--ghost"
+              title="Probe 6-8 JobDiva endpoints and show the raw HTTP status + response size + body preview for each. Reveals exactly which endpoints your JobDiva auth scope grants."
+              style={{ whiteSpace: 'nowrap', fontSize: 13 }}>
+              🔎 Diagnose JobDiva
             </button>
           )}
           {integration === 'jobdiva' && (
@@ -2033,6 +2066,155 @@ export default function FieldMappingStudio() {
                     {JSON.stringify(rawData.payload, null, 2)}
                   </pre>
                 )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* === 🔎 JOBDIVA ENDPOINT PROBE ========================================
+          Runs the /api/admin/integrations/jobdiva_probe.php battery and
+          shows the raw HTTP status + item count + body preview for every
+          endpoint. Lets the operator see which endpoints JobDiva's
+          per-tenant auth scope actually grants — without us guessing. */}
+      {diagOpen && (
+        <div data-testid="fms-diag-overlay"
+             role="dialog" aria-modal="true"
+             style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      padding: 24, zIndex: 102 }}
+             onClick={(e) => { if (e.target === e.currentTarget) setDiagOpen(false); }}>
+          <div data-testid="fms-diag-modal"
+               style={{ background: '#fff', borderRadius: 12, padding: 20,
+                        width: 'min(1040px, 96vw)', maxHeight: '90vh',
+                        display: 'flex', flexDirection: 'column', gap: 12,
+                        boxShadow: '0 10px 40px rgba(0,0,0,0.18)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18 }}>🔎 JobDiva endpoint diagnostic</h3>
+                <p style={{ color: '#64748b', fontSize: 12, margin: '4px 0 0', maxWidth: 720 }}>
+                  Probes 6-8 JobDiva V2 BI endpoints with sample params and shows the raw HTTP
+                  response. Look for: <code>status=200</code> with <code>item_count &gt; 0</code> = endpoint live.
+                  <code> status=403</code> or <code>item_count = 0</code> with a body like
+                  <code style={{ margin: '0 4px' }}>{'"No records found"'}</code> = your JobDiva API user
+                  lacks scope on that endpoint (talk to your JobDiva admin).
+                </p>
+              </div>
+              <button data-testid="fms-diag-close"
+                      onClick={() => setDiagOpen(false)}
+                      className="btn btn--ghost"
+                      style={{ fontSize: 12, padding: '4px 10px' }}>✕</button>
+            </div>
+
+            {diagBusy && <div style={{ padding: 20, color: '#64748b', fontSize: 13 }}>Probing JobDiva endpoints…</div>}
+            {diagError && (
+              <div data-testid="fms-diag-error"
+                   style={{ padding: 12, background: '#fef2f2', color: '#991b1b',
+                            border: '1px solid #fca5a5', borderRadius: 6, fontSize: 12 }}>
+                {diagError}
+              </div>
+            )}
+
+            {!diagBusy && diagResults && (
+              <div data-testid="fms-diag-content"
+                   style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ fontSize: 12, color: '#475569' }}>
+                  Date range probed: <code>{diagResults.from_date}</code> → <code>{diagResults.to_date}</code>
+                  · <strong>{(diagResults.probes || []).length}</strong> endpoints
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc' }}>
+                      <th style={{ ...thStyle, width: '38%' }}>Endpoint</th>
+                      <th style={{ ...thStyle, width: '10%', textAlign: 'right' }}>Status</th>
+                      <th style={{ ...thStyle, width: '10%', textAlign: 'right' }}>Items</th>
+                      <th style={{ ...thStyle, width: '11%', textAlign: 'right' }}>Body size</th>
+                      <th style={{ ...thStyle, width: '11%', textAlign: 'right' }}>Latency</th>
+                      <th style={{ ...thStyle, width: '20%' }}>Outcome</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(diagResults.probes || []).map((p, i) => {
+                      const ok = p.status === 200 && (p.item_count ?? 0) > 0;
+                      const empty = p.status === 200 && (p.item_count ?? 0) === 0 && !p.error;
+                      const err = !!p.error || (p.status && p.status >= 400);
+                      const bg = ok ? '#f0fdf4' : err ? '#fef2f2' : empty ? '#fef9c3' : 'transparent';
+                      const outcome = ok ? '✓ live & populated' : err ? `✗ error${p.status ? ` (${p.status})` : ''}` : empty ? '⚠️ live but empty' : '—';
+                      const isExpanded = !!diagExpanded[i];
+                      return (
+                        <>
+                          <tr key={i}
+                              data-testid={`fms-diag-row-${i}`}
+                              data-outcome={ok ? 'ok' : err ? 'error' : 'empty'}
+                              onClick={() => setDiagExpanded(d => ({ ...d, [i]: !d[i] }))}
+                              style={{ borderTop: '1px solid #f1f5f9', background: bg, cursor: 'pointer' }}>
+                            <td style={{ ...tdStyle, fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
+                              <span style={{ marginRight: 4 }}>{isExpanded ? '▼' : '▶'}</span>
+                              {p.name || p.path}
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600,
+                                         color: ok ? '#15803d' : err ? '#b91c1c' : empty ? '#a16207' : '#64748b' }}>
+                              {p.status ?? '—'}
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}
+                                data-testid={`fms-diag-row-${i}-count`}>
+                              {p.item_count ?? '—'}
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: 'right', color: '#64748b' }}>
+                              {p.body_size ? `${p.body_size.toLocaleString()} B` : '—'}
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: 'right', color: '#64748b' }}>
+                              {p.latency_ms ? `${p.latency_ms} ms` : '—'}
+                            </td>
+                            <td style={{ ...tdStyle, fontSize: 11,
+                                         color: ok ? '#15803d' : err ? '#b91c1c' : empty ? '#a16207' : '#64748b' }}>
+                              {outcome}
+                            </td>
+                          </tr>
+                          {isExpanded && (
+                            <tr key={`${i}-detail`} style={{ background: '#fafafa' }}>
+                              <td colSpan={6} style={{ padding: 12, borderTop: '1px solid #f1f5f9' }}>
+                                <div style={{ fontSize: 11, color: '#475569', marginBottom: 6 }}>
+                                  <strong>GET</strong>{' '}
+                                  <code style={{ fontFamily: 'ui-monospace, monospace' }}>
+                                    {p.path}{p.query && Object.keys(p.query).length > 0 ? '?' + Object.entries(p.query).map(([k,v]) => `${k}=${v}`).join('&') : ''}
+                                  </code>
+                                  {p.li_uuid && <span style={{ marginLeft: 10, color: '#64748b' }}>li-uuid: <code>{p.li_uuid}</code></span>}
+                                </div>
+                                {p.note && (
+                                  <div style={{ fontSize: 11, color: '#0c4a6e', marginBottom: 6,
+                                                padding: 6, background: '#f0f9ff', borderRadius: 4 }}>
+                                    ℹ️ {p.note}
+                                  </div>
+                                )}
+                                {p.error && (
+                                  <pre data-testid={`fms-diag-row-${i}-error`}
+                                       style={{ background: '#7f1d1d', color: '#fecaca',
+                                                padding: 10, borderRadius: 4, fontSize: 11,
+                                                margin: 0, whiteSpace: 'pre-wrap', overflow: 'auto', maxHeight: 200 }}>
+                                    {p.error}
+                                  </pre>
+                                )}
+                                {p.body_preview && (
+                                  <pre data-testid={`fms-diag-row-${i}-body`}
+                                       style={{ background: '#0f172a', color: '#e2e8f0',
+                                                padding: 10, borderRadius: 4, fontSize: 11,
+                                                margin: 0, whiteSpace: 'pre-wrap', overflow: 'auto', maxHeight: 260 }}>
+                                    {p.body_preview}
+                                    {p.body_size > 800 && <span style={{ color: '#64748b' }}>{`\n…(${p.body_size - 800} more bytes truncated)`}</span>}
+                                  </pre>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <div style={{ fontSize: 11, color: '#64748b' }}>
+                  Click any row to expand the request URL + raw response body.
+                </div>
               </div>
             )}
           </div>

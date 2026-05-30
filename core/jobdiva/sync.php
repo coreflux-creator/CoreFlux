@@ -2378,6 +2378,217 @@ function jobdivaSyncCandidates(int $tid, ?int $userId, array $opts = []): array
     );
 }
 
+/**
+ * Bulk fetch JobDiva entity records by ID list via the V2 BI `*Detail`
+ * endpoints. Used for the "mirror by placements" sync: we already
+ * know every `job id` / `candidate id` / `customer id` from the
+ * placement payloads, so we fetch full detail records by ID instead
+ * of date-range crawling (which JobDiva auth doesn't grant for many
+ * tenants' Job/Candidate scopes).
+ *
+ * Spring V2 controllers accept `@RequestParam List<>` as either
+ * repeated params OR comma-joined. PHP's `http_build_query` produces
+ * `jobIds[]=...` which Spring rejects, so we explicitly comma-join.
+ *
+ * Batches into chunks of `$batchSize` IDs to keep URL length under
+ * the proxy limit (most CDNs cap at ~8K). Failures within a single
+ * batch are logged and continue — operator's "GET EVERY SINGLE BIT
+ * OF DATA" demand has us absorb partial errors rather than abort.
+ */
+function jobdivaCallBulkIds(
+    int $tid,
+    string $path,
+    string $idParamName,
+    array $ids,
+    array $extraQuery = [],
+    int $batchSize = 50
+): array {
+    if (empty($ids)) return [];
+
+    $unique = array_values(array_unique(array_filter(array_map('strval', $ids), static fn($v) => $v !== '')));
+    if (empty($unique)) return [];
+
+    $all = [];
+    foreach (array_chunk($unique, max(1, $batchSize)) as $batch) {
+        $query = $extraQuery + [
+            $idParamName     => implode(',', $batch),
+            'userFieldsName' => '',  // dodge the Spring NPE on optional array params
+        ];
+        try {
+            $resp = jobdivaCall($tid, 'GET', $path, null, $query);
+            if (is_array($resp)) {
+                if (isset($resp['data']) && is_array($resp['data'])) {
+                    $all = array_merge($all, $resp['data']);
+                } elseif (isset($resp['items']) && is_array($resp['items'])) {
+                    $all = array_merge($all, $resp['items']);
+                } elseif (!empty($resp) && array_keys($resp) === range(0, count($resp) - 1)) {
+                    $all = array_merge($all, $resp);
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log("[jobdiva bulk-ids $path batch=" . count($batch) . " err] " . $e->getMessage());
+        }
+    }
+    return $all;
+}
+
+/**
+ * Store + index a batch of raw JobDiva records under one entity_type.
+ * Extracted from jobdivaSyncMirrorEntity so the new ID-based mirror
+ * can reuse it.
+ */
+function jobdivaMirrorStoreAndIndex(
+    int $tid,
+    string $entityType,
+    array $items,
+    array $idKeys
+): array {
+    require_once __DIR__ . '/../integrations/payload_field_index.php';
+    $pdo = getDB();
+    $upsert = $pdo ? $pdo->prepare(
+        "INSERT INTO external_entity_mappings
+            (tenant_id, source_system, internal_entity_type, internal_entity_id,
+             external_id, payload_snapshot, content_hash, sync_status, direction,
+             last_seen_at, last_synced_at, created_at, updated_at)
+         VALUES
+            (:t, 'jobdiva', :et, :iid, :eid, :payload, :hash, 'ok', 'pull',
+             NOW(), NOW(), NOW(), NOW())
+         ON DUPLICATE KEY UPDATE
+             payload_snapshot = VALUES(payload_snapshot),
+             content_hash     = VALUES(content_hash),
+             last_seen_at     = NOW(), last_synced_at = NOW(), updated_at = NOW()"
+    ) : null;
+
+    $processed = 0; $skipped = 0; $failed = 0;
+    foreach ($items as $jd) {
+        try {
+            $extId = (string) jobdivaPluckField($jd, $idKeys);
+            if ($extId === '') { $skipped++; continue; }
+            if ($upsert !== null) {
+                $payloadJson      = json_encode($jd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '{}';
+                $internalSentinel = ctype_digit($extId) ? (int) $extId : abs(crc32($extId));
+                if ($internalSentinel <= 0) $internalSentinel = 1;
+                $upsert->execute([
+                    't' => $tid, 'et' => $entityType, 'iid' => $internalSentinel,
+                    'eid' => $extId, 'payload' => $payloadJson,
+                    'hash' => hash('sha256', $payloadJson),
+                ]);
+            }
+            integrationPayloadFieldIndexRecord($tid, 'jobdiva', $entityType, $jd);
+            $processed++;
+        } catch (\Throwable $e) {
+            $failed++;
+            error_log("[jobdiva mirror-store $entityType] " . $e->getMessage());
+        }
+    }
+    return ['processed' => $processed, 'skipped' => $skipped, 'failed' => $failed];
+}
+
+/**
+ * Operator-demanded "MIRROR JOB DIVA INTO TENANT DATABASE" sync, take 2.
+ *
+ * Strategy (built on the official V2 Swagger spec, not guesswork):
+ *  1. Read every stored placement's payload_snapshot.
+ *  2. Extract unique `job id` / `candidate id` / `customer id` from each.
+ *  3. Batch-call:
+ *       /apiv2/bi/JobsDetail?jobIds=…       → full Job records
+ *       /apiv2/bi/CandidatesDetail?…        → full Candidate records
+ *       /apiv2/bi/CompaniesDetail?…         → full Company records
+ *  4. Store each payload + index every field for the Field Mapping
+ *     Studio's source-side picker.
+ *
+ * Why this is better than NewUpdated*Records:
+ *  - No date-range guesswork. We use IDs we already have.
+ *  - Per-tenant API auth tends to grant *Detail-by-id access even when
+ *    the date-range delta endpoints are scoped out.
+ *  - Single round-trip per ID batch (up to 50 records each), so a
+ *    full mirror of 100 jobs + 100 candidates + 50 customers is
+ *    typically <10 HTTP calls total.
+ */
+function jobdivaSyncMirrorByPlacements(int $tid, ?int $userId, array $opts = []): array
+{
+    $stats = [
+        'placements_scanned'    => 0,
+        'unique_job_ids'        => 0,
+        'unique_candidate_ids'  => 0,
+        'unique_customer_ids'   => 0,
+        'jobs_returned'         => 0,
+        'candidates_returned'   => 0,
+        'customers_returned'    => 0,
+        'jobs_processed'        => 0,
+        'candidates_processed'  => 0,
+        'customers_processed'   => 0,
+    ];
+    $pdo = getDB();
+    if (!$pdo) {
+        $stats['error'] = 'no_database_connection';
+        return $stats;
+    }
+
+    // 1. Scan every jobdiva placement payload and collect IDs.
+    $st = $pdo->prepare(
+        "SELECT payload_snapshot
+           FROM external_entity_mappings
+          WHERE tenant_id = :t
+            AND source_system = 'jobdiva'
+            AND internal_entity_type = 'placement'
+            AND payload_snapshot IS NOT NULL"
+    );
+    $st->execute(['t' => $tid]);
+
+    $jobIds = $candIds = $custIds = [];
+    while ($row = $st->fetch(\PDO::FETCH_ASSOC)) {
+        $stats['placements_scanned']++;
+        $payload = json_decode((string) $row['payload_snapshot'], true);
+        if (!is_array($payload)) continue;
+        $j = jobdivaPluckField($payload, ['job id', 'jobId', 'job_id', 'jobID', 'JOBID']);
+        $c = jobdivaPluckField($payload, ['candidate id', 'candidateId', 'candidate_id', 'candidateID', 'CANDIDATEID', 'employeeId']);
+        $u = jobdivaPluckField($payload, ['customer id', 'customerId', 'customer_id', 'customerID', 'CUSTOMERID']);
+        if ($j !== null) $jobIds[]  = (string) $j;
+        if ($c !== null) $candIds[] = (string) $c;
+        if ($u !== null) $custIds[] = (string) $u;
+    }
+
+    $jobIds  = array_values(array_unique(array_filter($jobIds,  static fn($v) => $v !== '' && $v !== '0')));
+    $candIds = array_values(array_unique(array_filter($candIds, static fn($v) => $v !== '' && $v !== '0')));
+    $custIds = array_values(array_unique(array_filter($custIds, static fn($v) => $v !== '' && $v !== '0')));
+
+    $stats['unique_job_ids']       = count($jobIds);
+    $stats['unique_candidate_ids'] = count($candIds);
+    $stats['unique_customer_ids']  = count($custIds);
+
+    // 2. Bulk-fetch full records via the V2 BI `*Detail` endpoints.
+    if ($jobIds) {
+        $jobs = jobdivaCallBulkIds($tid, '/apiv2/bi/JobsDetail', 'jobIds', $jobIds);
+        $stats['jobs_returned'] = count($jobs);
+        $stored = jobdivaMirrorStoreAndIndex($tid, 'jobdiva_job', $jobs,
+            ['id', 'jobId', 'job_id', 'jobID', 'JOBID', 'job id']);
+        $stats['jobs_processed'] = $stored['processed'];
+    }
+    if ($candIds) {
+        $cands = jobdivaCallBulkIds($tid, '/apiv2/bi/CandidatesDetail', 'candidateIds', $candIds);
+        $stats['candidates_returned'] = count($cands);
+        $stored = jobdivaMirrorStoreAndIndex($tid, 'jobdiva_candidate', $cands,
+            ['id', 'candidateId', 'candidate_id', 'candidateID', 'CANDIDATEID', 'candidate id', 'employeeId']);
+        $stats['candidates_processed'] = $stored['processed'];
+    }
+    if ($custIds) {
+        $custs = jobdivaCallBulkIds($tid, '/apiv2/bi/CompaniesDetail', 'companyIds', $custIds);
+        $stats['customers_returned'] = count($custs);
+        $stored = jobdivaMirrorStoreAndIndex($tid, 'jobdiva_company', $custs,
+            ['id', 'companyId', 'company_id', 'companyID', 'CUSTOMERID', 'customerId']);
+        $stats['customers_processed'] = $stored['processed'];
+    }
+
+    jobdivaAudit($tid, 'sync_mirror_by_placements', [
+        'ok'            => true,
+        'detail'        => $stats,
+        'actor_user_id' => $userId,
+    ]);
+
+    return $stats;
+}
+
 function jobdivaSyncAll(int $tid, ?int $userId, array $opts = []): array
 {
     $start  = microtime(true);

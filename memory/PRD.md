@@ -11772,3 +11772,94 @@ pattern.
    details, custom fields).
 5. Use the existing "🌐 Search across every entity bucket" toggle
    to search across the new buckets too.
+
+
+## JobDiva Mirror v2 — Swagger-spec-correct + endpoint probe diagnostic (2026-05)
+
+### Why this iteration
+Mirror v1 (NewUpdated*Records) returned 0 items in production for this
+tenant. Operator: "ZERO MIRROR FIELDS. CAN WE DIG BACK INTO THE API
+DOCS AND UNDERSTAND EVERYTHING IN A SINGLE SHOT?"
+
+### What we now know (from official JobDiva V2 Swagger spec — 420 endpoints)
+Pulled `https://api.jobdiva.com/swagger?group=Version%202` (445 KB).
+Definitive endpoint shapes:
+
+- `GET /apiv2/bi/JobsDetail?jobIds=1,2,3&userFieldsName=`
+- `GET /apiv2/bi/CandidatesDetail?candidateIds=1,2,3&userFieldsName=`
+- `GET /apiv2/bi/CompaniesDetail?companyIds=1,2,3&userFieldsName=`
+- `GET /apiv2/bi/JobDetail?jobId=N&userFieldsName=`
+- `GET /apiv2/bi/OpenJobsList`               (no params)
+- `GET /apiv2/bi/NewUpdated{Job,Candidate,Company,Contact}Records?fromDate=&toDate=&userFieldsName=`
+
+Spring `@RequestParam List<>` rejects PHP's default `param[]=v`
+convention — must comma-join the IDs in the query string.
+
+### New approach
+Skip date-range guessing entirely. Walk every stored placement payload,
+extract `job id` / `candidate id` / `customer id`, then batch-call the
+`*Detail` endpoints with the IDs we already have:
+
+  Placements (118) → unique IDs → JobsDetail / CandidatesDetail /
+  CompaniesDetail batched 50-at-a-time → store + index every field.
+
+### Shipped
+- `core/jobdiva/sync.php`:
+  - **NEW** `jobdivaCallBulkIds()` — generic Spring-safe bulk-by-ID
+    fetch (comma-joined params, userFieldsName= NPE dodge, 50-id
+    batches, partial-failure absorption).
+  - **NEW** `jobdivaMirrorStoreAndIndex()` — extracted store+index
+    logic from v1 so the new mirror reuses it.
+  - **NEW** `jobdivaSyncMirrorByPlacements()` — the v2 mirror.
+- **NEW** `api/admin/integrations/jobdiva_mirror_by_placements.php` —
+  POST endpoint that triggers the v2 mirror sync.
+- **NEW** `api/admin/integrations/jobdiva_probe.php` — diagnostic probe
+  endpoint. Runs a 5–8-endpoint battery (baselines + the new
+  by-ID probes using real placement IDs) and returns raw HTTP
+  status, item count, body size, latency, and 800-char body preview
+  per endpoint. Lets operators see EXACTLY which endpoints their
+  JobDiva auth scope grants.
+- **UI:**
+  - "🪞 Mirror Jobs + Candidates" button repointed to the v2 endpoint;
+    toast now reports `placements_scanned`, `unique_*_ids`,
+    `*_returned`, `*_processed`.
+  - **NEW** "🔎 Diagnose JobDiva" button → modal with per-endpoint
+    expandable rows. Live & populated rows highlight green; live but
+    empty highlight yellow; 4xx errors highlight red. Click any row
+    to expand the request URL + raw response body + JobDiva's
+    `x-li-uuid` for support tickets.
+- **TEST:** `tests/jobdiva_mirror_by_placements_smoke.php` (NEW) —
+  7 cases incl. empty-input guards, ID-list filtering, Spring-array
+  comma-join contract, RBAC enforcement, probe coverage of all 5
+  baseline endpoints + dynamic by-ID probes.
+
+### Verification
+- Smoke suite: **330/334 stable** (4 pre-existing unrelated failures:
+  `accounting_phase2_a7` [needs MySQL], `ai_platform` [needs LLM
+  keys], `plaid_integration` [needs Plaid keys], `tenant_mail_senders`
+  [checks gitignored dev RESEND key file]).
+- Vite bundle synced: `index-CwDv_IGp.js`.
+
+### Files touched
+- MODIFIED: `core/jobdiva/sync.php` (jobdivaCallBulkIds +
+  jobdivaMirrorStoreAndIndex + jobdivaSyncMirrorByPlacements)
+- NEW: `api/admin/integrations/jobdiva_mirror_by_placements.php`
+- NEW: `api/admin/integrations/jobdiva_probe.php`
+- NEW: `tests/jobdiva_mirror_by_placements_smoke.php`
+- MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx`
+  (diag state + button + modal; mirror button repointed)
+- AUTO-UPDATED: `.deploy-version`, `dashboard/dist/index.html`,
+  `spa-assets/sw.js`, new `spa-assets/index-CwDv_IGp.js`.
+
+### Operator next step
+1. Deploy via `/update.php`.
+2. Open Field Mapping Studio → click **🔎 Diagnose JobDiva** FIRST.
+   Look at the result rows:
+   - **JobsDetail / CandidatesDetail / CompaniesDetail green** → click
+     "🪞 Mirror Jobs + Candidates" — every JobDiva job/candidate/company
+     field will populate the studio's source-side picker.
+   - ***Detail rows red (4xx)** → your JobDiva API user lacks scope on
+     those endpoints. Send the body_preview + li-uuid to JobDiva
+     support to widen access. We literally cannot fetch what they
+     don't grant.
+3. The diagnostic IS the answer. We never fly blind again.
