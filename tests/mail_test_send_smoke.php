@@ -43,23 +43,35 @@ $a('returns resend_configured flag',                     $c($ep, "'resend_config
 $a('returns recipient + subject for echo',               $c($ep, "'recipient'") && $c($ep, "'subject'"));
 
 // ----------------------------------------------------------------- React wiring
-echo "\nMailBrandingAdmin.jsx — MailTestSendCard\n";
+// Slice 3.2 — MailTestSendCard was extracted to its own file so it
+// can be mounted on both the admin Branding page AND the tenant
+// Mail Settings page.
+echo "\nMailTestSendCard.jsx — shared component\n";
+$card = (string) file_get_contents($ROOT . '/dashboard/src/pages/MailTestSendCard.jsx');
+$a('MailTestSendCard default export',                    $c($card, 'export default function MailTestSendCard'));
+$a('root testid',                                        $c($card, 'data-testid="admin-mail-test-send"'));
+$a('recipient input testid',                             $c($card, 'admin-mail-test-send-recipient'));
+$a('submit button testid',                               $c($card, 'admin-mail-test-send-submit'));
+$a('result panel testid',                                $c($card, 'admin-mail-test-send-result'));
+$a('status pill testid',                                 $c($card, 'admin-mail-test-send-status'));
+$a('driver pill testid',                                 $c($card, 'admin-mail-test-send-driver'));
+$a('message_id row testid',                              $c($card, 'admin-mail-test-send-msgid'));
+$a('fallback notice testid',                             $c($card, 'admin-mail-test-send-fallback'));
+$a('error message testid',                               $c($card, 'admin-mail-test-send-msg-error'));
+$a('RESEND key on/off badges',                           $c($card, 'admin-mail-test-send-resend-on')
+                                                         && $c($card, 'admin-mail-test-send-resend-off'));
+$a('POSTs to /api/admin/mail_test_send.php',             $c($card, "/api/admin/mail_test_send.php"));
+$a('disables form when not canWrite or busy',            $c($card, 'disabled={!canWrite || busy'));
+
+echo "\nMailBrandingAdmin.jsx — imports + mounts MailTestSendCard\n";
 $pg = (string) file_get_contents($ROOT . '/dashboard/src/pages/MailBrandingAdmin.jsx');
-$a('MailTestSendCard function defined',                  $c($pg, 'function MailTestSendCard'));
+$a('imports MailTestSendCard',                           $c($pg, "import MailTestSendCard from './MailTestSendCard'"));
 $a('embedded after the branding form',                   $c($pg, '<MailTestSendCard'));
-$a('root testid',                                        $c($pg, 'data-testid="admin-mail-test-send"'));
-$a('recipient input testid',                             $c($pg, 'admin-mail-test-send-recipient'));
-$a('submit button testid',                               $c($pg, 'admin-mail-test-send-submit'));
-$a('result panel testid',                                $c($pg, 'admin-mail-test-send-result'));
-$a('status pill testid',                                 $c($pg, 'admin-mail-test-send-status'));
-$a('driver pill testid',                                 $c($pg, 'admin-mail-test-send-driver'));
-$a('message_id row testid',                              $c($pg, 'admin-mail-test-send-msgid'));
-$a('fallback notice testid',                             $c($pg, 'admin-mail-test-send-fallback'));
-$a('error message testid',                               $c($pg, 'admin-mail-test-send-msg-error'));
-$a('RESEND key on/off badges',                           $c($pg, 'admin-mail-test-send-resend-on')
-                                                         && $c($pg, 'admin-mail-test-send-resend-off'));
-$a('POSTs to /api/admin/mail_test_send.php',             $c($pg, "/api/admin/mail_test_send.php"));
-$a('disables form when not canWrite or busy',            $c($pg, 'disabled={!canWrite || busy'));
+
+echo "\nMailSettingsPage.jsx — imports + mounts MailTestSendCard\n";
+$ms = (string) file_get_contents($ROOT . '/dashboard/src/pages/MailSettingsPage.jsx');
+$a('imports MailTestSendCard',                           $c($ms, "import MailTestSendCard from './MailTestSendCard'"));
+$a('embedded on tenant mail settings page',              $c($ms, '<MailTestSendCard'));
 
 // ----------------------------------------------------------------- summary
 echo "\n=========================================\n";

@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import { Section, Card } from '../components/UIComponents';
 import { Mail, CheckCircle2, AlertTriangle } from 'lucide-react';
 import MailConnectionsCard from './MailConnectionsCard';
+import MailTestSendCard from './MailTestSendCard';
 
 /**
  * Tenant self-service mail settings page — Model B scope:
@@ -173,6 +174,9 @@ const MailSettingsPage = () => {
 
           {/* Inbound mailbox connections (Phase B Slice 2a) */}
           <MailConnectionsCard flash={flash} />
+
+          {/* Slice 3.2 — Live confidence check for outbound mail. */}
+          <MailTestSendCard />
 
           {saved && (
             <div data-testid="mail-settings-saved" style={{ padding: 'var(--cf-space-3)', background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
