@@ -12438,3 +12438,78 @@ same drill scope.
   side-by-side. Foundation is there; UI is the next layer.
 
 
+
+
+## Airtable Integration — Slice 2: Real entity linkages (2026-02)
+
+### Why
+Slice 1 (migration 063) shipped a working pull pipeline but every
+Airtable record landed under a synthetic `internal_entity_id` (sha256
+of the Airtable rec id). The payload was stored, but no row was ever
+joined to a real `placements.id` / `companies.id` / `ap_vendors_index.id`.
+Operator goal: "broadly mappable, linked to entities by a unique ID."
+
+### What shipped
+**Per-mapping linkage policy** (4 new columns on `airtable_table_mappings`):
+- `link_strategy ENUM('external_id', 'match_column', 'manual', 'none')` — DEFAULT `none` (Slice-1-compatible).
+- `link_match_airtable_field VARCHAR(120)` — which Airtable column carries the natural-key value.
+- `link_match_internal_column VARCHAR(120)` — which CoreFlux column to match it against.
+- `link_unmatched_action ENUM('skip', 'park', 'create_stub')` — DEFAULT `park` (operator chose B).
+
+**Per-entity defaults** (filled by `airtableResolveLinkDefaults()` when the operator hasn't set a strategy — operator chose C):
+- `placement` → `external_id` (placements.external_id)
+- `contact`   → `match_column` (people.email_primary)
+- `company`   → `match_column` (companies.name)
+- `customer`  → `match_column` (companies.name)
+- `vendor`    → `match_column` (ap_vendors_index.vendor_name)
+- `note / task / opportunity / generic` → `none` (preserves Slice-1 synthetic behaviour)
+
+**Resolver semantics** (`airtableResolveLink()`):
+- `none` → returns sync_status='ok' with null id; sync loop falls back to synthetic id (BC).
+- `external_id` → SELECT FROM target_table WHERE external_id = Airtable_rec_id.
+- `match_column` → SELECT FROM target_table WHERE chosen_column = chosen_airtable_field_value. Unwraps Airtable linked-record arrays automatically.
+- `manual` → never auto-links; always returns 'unmatched' for operator review.
+- 0 matches → 'unmatched'. 2+ matches → 'ambiguous' (with `LIMIT 2` for cheap detection).
+- Column names are regex-sanitised (`/^[A-Za-z0-9_]+$/`) to block SQL-injection on the writable-targets path.
+- Tolerates missing lookup tables — parks gracefully instead of failing the entire sync.
+
+**Sync loop refactored** (`airtableSyncTable()`):
+- Each record now passes through resolver → `{action: 'skip'|'link', internal_id, sync_status}`.
+- `mappingUpsert()` always writes `sync_status='ok'`; we patch the row to `unmatched`/`ambiguous` post-upsert.
+- New stats surfaced in return envelope + audit detail: `linked / unmatched / ambiguous / skipped`.
+- `link_strategy` carried into audit detail for SOX-style traceability.
+
+**New endpoints** (under `/api/airtable/*` + router cases):
+- `POST /api/airtable/relink.php` — backfill resolver against existing `external_entity_mappings` rows.
+- `GET  /api/airtable/link_stats.php?mapping_id=N` — aggregate `linked/unmatched/ambiguous/stale/error/total`.
+- `GET  /api/airtable/unmatched.php?mapping_id=N&status=unmatched|ambiguous` — reconciliation queue.
+- `POST /api/airtable/link_manual.php` — operator-driven manual link of a single row to a chosen internal_entity_id.
+
+**Frontend** (AirtableSettings.jsx):
+- New "Entity linkage" fieldset in each mapping editor with strategy dropdown + unmatched-action dropdown + (when strategy=match_column) airtable-field + internal-column inputs.
+- Per-mapping-row badge surfacing `strategy=<x>` + live counts (linked/unmatched/ambiguous) fetched from `link_stats`.
+- Per-row "Relink" button — re-runs resolver across existing rows after the operator changes strategy.
+- Sync toast extended with `linked / unmatched / ambiguous` breakdown.
+
+### Smoke / verification
+- New `tests/airtable_slice2_link_strategy_smoke.php`: **65 ✓**
+  covering migration columns + sync_status widening + per-entity defaults map + resolver semantics + endpoint routing + RBAC + frontend wiring.
+- Existing `tests/airtable_foundation_smoke.php`: **105 ✓** — no regressions.
+- Full suite: **338 pass / 2 known infra fails** (vs 337/2 prior — net +1 from new smoke).
+- Vite bundle synced.
+
+### Files touched
+- `core/migrations/082_airtable_link_strategy.sql` (NEW)
+- `core/airtable/sync.php`
+- `api/airtable.php` (4 new cases)
+- `api/airtable/relink.php`, `link_stats.php`, `unmatched.php`, `link_manual.php` (NEW shims)
+- `dashboard/src/pages/AirtableSettings.jsx`
+- `tests/airtable_slice2_link_strategy_smoke.php` (NEW)
+
+### Still pending (Slice 3 backlog)
+- Reconciliation queue UI: surface the `/unmatched` endpoint as a drawer with one-click manual-link via internal-entity picker.
+- `create_stub` action wiring (auto-create a minimal CoreFlux entity when an Airtable record has no match).
+- Linked-system surface on entity drawers ("This vendor ↔ Airtable rec `rec123` since Feb-14"). The data is there in `external_entity_mappings`; `LinkedExternalSystemsPanel.jsx` already renders the join — just needs verification it pulls `sync_status` for badge tone.
+- Field-Mapping Studio: add `airtable` as a first-class SOURCE in the generalised suggester (today AirtableSettings.jsx has its own mapping UI; Studio integration would unify the experience).
+
+

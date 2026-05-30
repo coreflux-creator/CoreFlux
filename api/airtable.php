@@ -182,6 +182,108 @@ switch ($action) {
         api_ok($res);
     }
 
+    case 'relink': {
+        // Slice-2 — backfill internal_entity_id on existing
+        // external_entity_mappings rows after the operator changes
+        // linkage policy. Useful when switching from `none` (Slice-1
+        // synthetic) to `external_id` or `match_column`.
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.airtable.manage');
+        $body = api_json_body();
+        $mid = (int) ($body['mapping_id'] ?? 0);
+        if ($mid <= 0) api_error('mapping_id required', 422);
+        try {
+            $res = airtableRelinkExistingRows($tid, $mid, $user['id'] ?? null);
+        } catch (\Throwable $e) {
+            api_error('Relink failed: ' . $e->getMessage(), 502);
+        }
+        api_ok($res);
+    }
+
+    case 'link_stats': {
+        // Aggregate linkage counts for one mapping. Powers the
+        // linked/unmatched/ambiguous badge in AirtableSettings.
+        if ($method !== 'GET') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.airtable.view');
+        $mid = (int) (api_query('mapping_id') ?? 0);
+        if ($mid <= 0) api_error('mapping_id required', 422);
+        try {
+            $stats = airtableLinkStats($tid, $mid);
+        } catch (\Throwable $e) {
+            api_error('Link stats failed: ' . $e->getMessage(), 500);
+        }
+        api_ok($stats);
+    }
+
+    case 'unmatched': {
+        // List unmatched (or ambiguous) external_entity_mappings rows
+        // for one mapping — the reconciliation queue. Surfaces id,
+        // external_id, payload preview, and last_seen_at. Caller can
+        // then call mapping_link_manual to assign internal_entity_id.
+        if ($method !== 'GET') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.airtable.view');
+        $mid    = (int) (api_query('mapping_id') ?? 0);
+        $status = (string) (api_query('status') ?? 'unmatched');
+        $limit  = max(1, min(200, (int) (api_query('limit') ?? 50)));
+        if ($mid <= 0)                                            api_error('mapping_id required', 422);
+        if (!in_array($status, ['unmatched','ambiguous'], true))  api_error('status must be unmatched|ambiguous', 422);
+        $mapping = airtableMappingGet($tid, $mid);
+        if (!$mapping) api_error('Mapping not found', 404);
+        $stmt = getDB()->prepare(
+            "SELECT id, external_id, payload_snapshot,
+                    sync_status, last_seen_at, last_synced_at
+               FROM external_entity_mappings
+              WHERE tenant_id = :t
+                AND source_system = 'airtable'
+                AND internal_entity_type = :et
+                AND sync_status = :s
+           ORDER BY last_seen_at DESC
+              LIMIT {$limit}"
+        );
+        $stmt->execute(['t' => $tid, 'et' => $mapping['internal_entity'], 's' => $status]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        foreach ($rows as &$r) {
+            $r['id'] = (int) $r['id'];
+            $snap = json_decode((string) ($r['payload_snapshot'] ?? '[]'), true);
+            $r['payload_snapshot'] = is_array($snap) ? $snap : null;
+        }
+        unset($r);
+        api_ok([
+            'mapping_id'     => $mid,
+            'internal_entity'=> $mapping['internal_entity'],
+            'status'         => $status,
+            'rows'           => $rows,
+        ]);
+    }
+
+    case 'link_manual': {
+        // Manually link an unmatched/ambiguous external_entity_mappings
+        // row to a specific CoreFlux internal_entity_id. Operator-
+        // driven — used from the reconciliation queue UI.
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.airtable.manage');
+        $body = api_json_body();
+        $rowId      = (int) ($body['mapping_row_id']      ?? 0);
+        $internalId = (int) ($body['internal_entity_id']  ?? 0);
+        if ($rowId <= 0 || $internalId <= 0) api_error('mapping_row_id + internal_entity_id required', 422);
+        $st = getDB()->prepare(
+            "UPDATE external_entity_mappings
+                SET internal_entity_id = :iid,
+                    sync_status = 'ok',
+                    last_synced_at = NOW()
+              WHERE id = :id
+                AND tenant_id = :t
+                AND source_system = 'airtable'"
+        );
+        $st->execute(['iid' => $internalId, 'id' => $rowId, 't' => $tid]);
+        if ($st->rowCount() === 0) api_error('Row not found or wrong tenant', 404);
+        airtableAudit($tid, 'link_manual', [
+            'actor_user_id' => $user['id'] ?? null,
+            'detail' => ['mapping_row_id' => $rowId, 'internal_entity_id' => $internalId],
+        ]);
+        api_ok(['ok' => true, 'mapping_row_id' => $rowId, 'internal_entity_id' => $internalId]);
+    }
+
     case 'duplicate_targets': {
         // List candidate target tenants for a duplicate operation.
         // Returns every tenant the caller is authorised to manage,

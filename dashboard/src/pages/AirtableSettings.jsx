@@ -292,14 +292,43 @@ function MappingEditor({ mappings, entities, directions, busy, setBusy, setFlash
 function MappingRow({ mapping, entities, directions, busy, setBusy, setFlash, reload }) {
   const [editing, setEditing] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
+  // Slice 2 — fire-and-forget link stats fetch so the row badge surfaces
+  // linked / unmatched / ambiguous counts inline.
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    let mounted = true;
+    api.get(`/api/airtable/link_stats.php?action=link_stats&mapping_id=${mapping.id}`)
+       .then(r => { if (mounted) setStats(r); })
+       .catch(() => { if (mounted) setStats(null); });
+    return () => { mounted = false; };
+  }, [mapping.id, mapping.last_sync_at]);
 
   const handleSyncNow = async () => {
     setBusy(true); setFlash(null);
     try {
       const r = await api.post('/api/airtable/sync_now.php?action=sync_now', { mapping_id: mapping.id });
+      const linkBits = (r.link_strategy && r.link_strategy !== 'none')
+        ? ` · linked ${r.linked || 0}, unmatched ${r.unmatched || 0}, ambiguous ${r.ambiguous || 0}`
+        : '';
       setFlash({
         kind: r.failed > 0 ? 'error' : 'success',
-        msg: `Sync: ${r.records} records · ${r.created} created · ${r.updated} updated · ${r.unchanged} unchanged · ${r.failed} failed (${r.pages} page${r.pages === 1 ? '' : 's'}, ${r.latency_ms}ms)`,
+        msg: `Sync: ${r.records} records · ${r.created} created · ${r.updated} updated · ${r.unchanged} unchanged · ${r.failed} failed${linkBits} (${r.pages} page${r.pages === 1 ? '' : 's'}, ${r.latency_ms}ms)`,
+      });
+      reload();
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRelink = async () => {
+    setBusy(true); setFlash(null);
+    try {
+      const r = await api.post('/api/airtable/relink.php?action=relink', { mapping_id: mapping.id });
+      setFlash({
+        kind: 'success',
+        msg: `Relink (${r.link_strategy}): scanned ${r.scanned} · ${r.relinked} now linked · ${r.still_unmatched} unmatched · ${r.still_ambiguous} ambiguous.`,
       });
       reload();
     } catch (e) {
@@ -339,6 +368,25 @@ function MappingRow({ mapping, entities, directions, busy, setBusy, setFlash, re
               → <code>{mapping.internal_entity}</code> · {mapping.direction} · last sync: {mapping.last_sync_at || 'never'}
               {mapping.last_records > 0 && <> · {mapping.last_records} records</>}
             </div>
+            {/* Slice 2 linkage badge */}
+            <div data-testid={`airtable-link-badge-${mapping.id}`}
+                 style={{ fontSize: 11, marginTop: 4, display: 'flex',
+                          gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ color: '#475569', fontWeight: 600,
+                             textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                Linkage:
+              </span>
+              <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                strategy=<code>{mapping.link_strategy || 'none'}</code>
+              </span>
+              {stats && (
+                <>
+                  <Badge tone="ok"        label={`${stats.linked} linked`}        testid={`airtable-link-linked-${mapping.id}`} />
+                  {stats.unmatched > 0 && <Badge tone="warn" label={`${stats.unmatched} unmatched`} testid={`airtable-link-unmatched-${mapping.id}`} />}
+                  {stats.ambiguous > 0 && <Badge tone="warn" label={`${stats.ambiguous} ambiguous`} testid={`airtable-link-ambiguous-${mapping.id}`} />}
+                </>
+              )}
+            </div>
             {mapping.last_sync_error && (
               <div data-testid={`airtable-mapping-error-${mapping.id}`} style={{ fontSize: 12, color: 'var(--cf-red, #b91c1c)', marginTop: 2 }}>
                 <AlertTriangle size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
@@ -353,6 +401,14 @@ function MappingRow({ mapping, entities, directions, busy, setBusy, setFlash, re
               onClick={handleSyncNow} disabled={busy || mapping.direction !== 'pull'}
             >
               <Send size={13} style={{ marginRight: 4 }} />Sync now
+            </button>
+            <button
+              type="button" className="btn"
+              data-testid={`airtable-relink-${mapping.id}`}
+              onClick={handleRelink} disabled={busy}
+              title="Re-run the linkage resolver against every existing row for this mapping"
+            >
+              Relink
             </button>
             <button
               type="button" className="btn"
@@ -407,6 +463,13 @@ function MappingForm({ mapping, entities, directions, busy, setBusy, setFlash, r
   const [dir,      setDir]      = useState(mapping?.direction || 'pull');
   const [primary,  setPrimary]  = useState(mapping?.primary_field || '');
   const [fieldMap, setFieldMap] = useState(mapping?.field_map ? JSON.stringify(mapping.field_map, null, 2) : '{}');
+  // Slice 2 — linkage policy (defaults filled by backend on first save
+  // if left empty; we surface them here once the operator picks an
+  // entity so they understand what'll be applied).
+  const [linkStrategy,   setLinkStrategy]   = useState(mapping?.link_strategy   || '');
+  const [linkAirField,   setLinkAirField]   = useState(mapping?.link_match_airtable_field   || '');
+  const [linkIntColumn,  setLinkIntColumn]  = useState(mapping?.link_match_internal_column  || '');
+  const [linkUnmatched,  setLinkUnmatched]  = useState(mapping?.link_unmatched_action || 'park');
   const [bases, setBases] = useState([]);
   const [tables, setTables] = useState([]);
   const [loadingBases, setLoadingBases] = useState(false);
@@ -468,6 +531,10 @@ function MappingForm({ mapping, entities, directions, busy, setBusy, setFlash, r
         table_id: tableId, table_name: tableName,
         internal_entity: entity, direction: dir,
         field_map: parsed, primary_field: primary,
+        link_strategy:                 linkStrategy   || undefined,
+        link_match_airtable_field:     linkAirField   || undefined,
+        link_match_internal_column:    linkIntColumn  || undefined,
+        link_unmatched_action:         linkUnmatched  || undefined,
       });
       setFlash({ kind: 'success', msg: isNew ? 'Mapping created.' : 'Mapping updated.' });
       reload();
@@ -562,6 +629,77 @@ function MappingForm({ mapping, entities, directions, busy, setBusy, setFlash, r
           style={{ ...inputStyle, fontFamily: 'var(--cf-mono, ui-monospace)', resize: 'vertical' }}
         />
       </label>
+
+      {/* Slice 2 — Linkage policy. Connects this Airtable table to a
+          real CoreFlux entity row instead of the synthetic Slice-1 id. */}
+      <fieldset data-testid="airtable-linkage-section"
+                style={{
+                  gridColumn: '1 / 3',
+                  border: '1px solid var(--cf-border)',
+                  borderRadius: 6, padding: '10px 14px 12px',
+                  margin: '4px 0 0',
+                }}>
+        <legend style={{ fontSize: 11, fontWeight: 700, color: '#475569',
+                         textTransform: 'uppercase', letterSpacing: 0.4,
+                         padding: '0 6px' }}>
+          Entity linkage
+        </legend>
+        <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+          How should each Airtable row be linked to a real CoreFlux <code>{entity}</code> row?
+          Leave on default to auto-pick by entity type (placement → external_id,
+          vendor/company/customer → name, contact → email).
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+          <label style={{ fontSize: 12, fontWeight: 600 }}>
+            Strategy
+            <select data-testid="airtable-link-strategy"
+                    value={linkStrategy}
+                    onChange={(e) => setLinkStrategy(e.target.value)}
+                    style={inputStyle}>
+              <option value="">(default for {entity})</option>
+              <option value="external_id">External ID — match on target.external_id</option>
+              <option value="match_column">Match column — pick fields below</option>
+              <option value="manual">Manual — never auto-link</option>
+              <option value="none">None — Slice-1 synthetic ID (no real linkage)</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 12, fontWeight: 600 }}>
+            Unmatched action
+            <select data-testid="airtable-link-unmatched"
+                    value={linkUnmatched}
+                    onChange={(e) => setLinkUnmatched(e.target.value)}
+                    style={inputStyle}>
+              <option value="park">Park — keep in queue for manual review</option>
+              <option value="skip">Skip — drop the record from this sync</option>
+              <option value="create_stub">Create stub (Slice-3 future)</option>
+            </select>
+          </label>
+          {linkStrategy === 'match_column' && (
+            <>
+              <label style={{ fontSize: 12, fontWeight: 600 }}>
+                Airtable field (lookup value)
+                <input
+                  data-testid="airtable-link-airfield"
+                  value={linkAirField}
+                  onChange={(e) => setLinkAirField(e.target.value)}
+                  placeholder="e.g. Vendor ID, Email"
+                  style={inputStyle}
+                />
+              </label>
+              <label style={{ fontSize: 12, fontWeight: 600 }}>
+                CoreFlux column (target)
+                <input
+                  data-testid="airtable-link-intcolumn"
+                  value={linkIntColumn}
+                  onChange={(e) => setLinkIntColumn(e.target.value)}
+                  placeholder="e.g. vendor_name, name, email_primary"
+                  style={inputStyle}
+                />
+              </label>
+            </>
+          )}
+        </div>
+      </fieldset>
       <div style={{ gridColumn: '1 / 3', display: 'flex', gap: 8 }}>
         <button
           type="button" className="btn btn--primary"
@@ -586,6 +724,24 @@ const inputStyle = {
   width: '100%', padding: '6px 10px', borderRadius: 4,
   border: '1px solid var(--cf-border)', fontSize: 13, marginTop: 4,
 };
+
+function Badge({ tone, label, testid }) {
+  const palette = tone === 'warn'
+    ? { bg: '#fef3c7', fg: '#92400e' }
+    : tone === 'err'
+      ? { bg: '#fee2e2', fg: '#991b1b' }
+      : { bg: '#dcfce7', fg: '#166534' };
+  return (
+    <span data-testid={testid}
+          style={{ background: palette.bg, color: palette.fg,
+                   padding: '1px 8px', borderRadius: 10,
+                   fontSize: 10, fontWeight: 700,
+                   textTransform: 'uppercase', letterSpacing: 0.3,
+                   fontVariantNumeric: 'tabular-nums' }}>
+      {label}
+    </span>
+  );
+}
 
 /* ─────────────────────────────────────────────────────────── duplicate */
 

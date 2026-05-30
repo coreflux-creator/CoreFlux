@@ -37,12 +37,76 @@ const AIRTABLE_INTERNAL_ENTITIES = [
     'generic',
 ];
 const AIRTABLE_MAPPING_DIRECTIONS = ['pull', 'off'];
+const AIRTABLE_LINK_STRATEGIES   = ['external_id', 'match_column', 'manual', 'none'];
+const AIRTABLE_UNMATCHED_ACTIONS = ['skip', 'park', 'create_stub'];
+
+/**
+ * Per-entity default linkage strategy used when the operator hasn't
+ * explicitly chosen one on a new mapping. Each entry resolves to a
+ * tuple {strategy, internal_table, internal_column, unmatched_action}.
+ *
+ * Strategy = 'external_id'  → match on the CoreFlux table's
+ *                              `external_id` column (canonical natural
+ *                              key path; placements + people use this).
+ * Strategy = 'match_column' → match on whatever `internal_column`
+ *                              points to (e.g. companies.name).
+ * Strategy = 'none'         → preserve Slice-1 synthetic behaviour
+ *                              (no real linkage; payload stored only).
+ *
+ * Slice 2 defaults — selected per operator brief:
+ *   placement → external_id (placements.external_id)
+ *   contact   → match_column on people.email_primary
+ *   company   → match_column on companies.name
+ *   customer  → match_column on companies.name (same backing table)
+ *   vendor    → match_column on ap_vendors_index.vendor_name
+ *   others    → none
+ */
+const AIRTABLE_ENTITY_LINK_DEFAULTS = [
+    'placement'  => ['external_id',  'placements',        'external_id',  'park'],
+    'contact'    => ['match_column', 'people',            'email_primary','park'],
+    'company'    => ['match_column', 'companies',         'name',         'park'],
+    'customer'   => ['match_column', 'companies',         'name',         'park'],
+    'vendor'     => ['match_column', 'ap_vendors_index',  'vendor_name',  'park'],
+    'note'       => ['none',         null,                null,           'park'],
+    'task'       => ['none',         null,                null,           'park'],
+    'opportunity'=> ['none',         null,                null,           'park'],
+    'generic'    => ['none',         null,                null,           'park'],
+];
+
+/**
+ * Apply per-entity defaults onto a payload if the operator hasn't
+ * explicitly set a linkage policy on this mapping yet. Returns the
+ * tuple {strategy, table, column, unmatched_action} actually applied.
+ * Used by airtableMappingUpsert() and exposed for tests + the relink
+ * endpoint.
+ */
+function airtableResolveLinkDefaults(string $entity, array $payload): array
+{
+    $explicitStrategy = trim((string) ($payload['link_strategy'] ?? ''));
+    if ($explicitStrategy !== '') {
+        return [
+            'strategy'          => $explicitStrategy,
+            'match_at_field'    => trim((string) ($payload['link_match_airtable_field'] ?? '')) ?: null,
+            'match_int_column'  => trim((string) ($payload['link_match_internal_column'] ?? '')) ?: null,
+            'unmatched_action'  => trim((string) ($payload['link_unmatched_action'] ?? '')) ?: 'park',
+        ];
+    }
+    $defaults = AIRTABLE_ENTITY_LINK_DEFAULTS[$entity] ?? ['none', null, null, 'park'];
+    return [
+        'strategy'          => $defaults[0],
+        'match_at_field'    => null,
+        'match_int_column'  => $defaults[2],
+        'unmatched_action'  => $defaults[3],
+    ];
+}
 
 function airtableMappingList(int $tenantId): array
 {
     $stmt = getDB()->prepare(
         'SELECT id, tenant_id, base_id, base_name, table_id, table_name,
                 internal_entity, direction, field_map, primary_field,
+                link_strategy, link_match_airtable_field,
+                link_match_internal_column, link_unmatched_action,
                 last_sync_at, last_sync_error, last_records,
                 created_at, updated_at
            FROM airtable_table_mappings
@@ -103,6 +167,16 @@ function airtableMappingUpsert(int $tenantId, array $payload, ?int $userId): arr
     }
     if (!is_array($fieldMap)) throw new \InvalidArgumentException('field_map must be an object');
 
+    // Resolve linkage policy — explicit operator value wins; otherwise
+    // apply the per-entity defaults registered above.
+    $link = airtableResolveLinkDefaults($entity, $payload);
+    if (!in_array($link['strategy'], AIRTABLE_LINK_STRATEGIES, true)) {
+        throw new \InvalidArgumentException('link_strategy must be one of: ' . implode(',', AIRTABLE_LINK_STRATEGIES));
+    }
+    if (!in_array($link['unmatched_action'], AIRTABLE_UNMATCHED_ACTIONS, true)) {
+        throw new \InvalidArgumentException('link_unmatched_action must be one of: ' . implode(',', AIRTABLE_UNMATCHED_ACTIONS));
+    }
+
     $pdo = getDB();
     $existing = null;
     $stmt = $pdo->prepare(
@@ -118,7 +192,11 @@ function airtableMappingUpsert(int $tenantId, array $payload, ?int $userId): arr
             'UPDATE airtable_table_mappings
                 SET base_name = :bn, table_name = :tn,
                     internal_entity = :ent, direction = :d,
-                    field_map = :fm, primary_field = :pf
+                    field_map = :fm, primary_field = :pf,
+                    link_strategy = :ls,
+                    link_match_airtable_field  = :lmf,
+                    link_match_internal_column = :lic,
+                    link_unmatched_action      = :lua
               WHERE id = :id'
         )->execute([
             'bn'  => $baseName !== '' ? $baseName : null,
@@ -127,6 +205,10 @@ function airtableMappingUpsert(int $tenantId, array $payload, ?int $userId): arr
             'd'   => $dir,
             'fm'  => json_encode($fieldMap),
             'pf'  => $primary !== '' ? $primary : null,
+            'ls'  => $link['strategy'],
+            'lmf' => $link['match_at_field'],
+            'lic' => $link['match_int_column'],
+            'lua' => $link['unmatched_action'],
             'id'  => (int) $existing['id'],
         ]);
         $id = (int) $existing['id'];
@@ -135,8 +217,11 @@ function airtableMappingUpsert(int $tenantId, array $payload, ?int $userId): arr
             'INSERT INTO airtable_table_mappings
                 (tenant_id, base_id, base_name, table_id, table_name,
                  internal_entity, direction, field_map, primary_field,
+                 link_strategy, link_match_airtable_field,
+                 link_match_internal_column, link_unmatched_action,
                  created_by_user_id)
-             VALUES (:t, :b, :bn, :tb, :tn, :ent, :d, :fm, :pf, :uid)'
+             VALUES (:t, :b, :bn, :tb, :tn, :ent, :d, :fm, :pf,
+                     :ls, :lmf, :lic, :lua, :uid)'
         )->execute([
             't'   => $tenantId,
             'b'   => $baseId,
@@ -147,6 +232,10 @@ function airtableMappingUpsert(int $tenantId, array $payload, ?int $userId): arr
             'd'   => $dir,
             'fm'  => json_encode($fieldMap),
             'pf'  => $primary !== '' ? $primary : null,
+            'ls'  => $link['strategy'],
+            'lmf' => $link['match_at_field'],
+            'lic' => $link['match_int_column'],
+            'lua' => $link['unmatched_action'],
             'uid' => $userId,
         ]);
         $id = (int) $pdo->lastInsertId();
@@ -315,14 +404,234 @@ function airtableMappingDuplicate(
 }
 
 /**
+ * Resolve linkage for a single Airtable record. Returns:
+ *   ['action'      => 'link'|'skip',
+ *    'internal_id' => int|null,
+ *    'sync_status' => 'ok'|'unmatched'|'ambiguous']
+ *
+ * Strategy semantics:
+ *   • `none`         — always returns sync_status='ok' with internal_id=null
+ *                      so the sync loop falls back to the synthetic-id
+ *                      behaviour (Slice 1 compatibility).
+ *   • `external_id`  — looks up the target table by its `external_id`
+ *                      column with the Airtable record id. (Strict by
+ *                      design — operators picking this strategy are
+ *                      saying "the Airtable record id IS my CoreFlux
+ *                      external_id".)
+ *   • `match_column` — looks up the configured internal column with the
+ *                      value held in the configured Airtable field. If
+ *                      no match → 'unmatched'. If 2+ matches → 'ambiguous'.
+ *   • `manual`       — never auto-links; always returns 'unmatched' so
+ *                      the operator wires it manually via the relink UI.
+ *
+ * `unmatched_action` decides what happens when sync_status != 'ok':
+ *   • `skip`  → record never lands (action='skip')
+ *   • `park`  → record lands with the non-ok sync_status flag
+ *   • `create_stub` → same as 'park' for now (Slice-3 will auto-create
+ *                      a minimal entity row when the operator opts in).
+ */
+function airtableResolveLink(int $tenantId, array $mapping, string $externalId, array $fields): array
+{
+    $strategy = (string) ($mapping['link_strategy'] ?? 'none');
+    $entity   = (string) ($mapping['internal_entity'] ?? '');
+    $action   = (string) ($mapping['link_unmatched_action'] ?? 'park');
+
+    if ($strategy === 'none') {
+        return ['action' => 'link', 'internal_id' => null, 'sync_status' => 'ok'];
+    }
+
+    $atField  = (string) ($mapping['link_match_airtable_field']  ?? '');
+    $intCol   = (string) ($mapping['link_match_internal_column'] ?? '');
+
+    // Map entity → CoreFlux table for lookup.
+    $defaults  = AIRTABLE_ENTITY_LINK_DEFAULTS[$entity] ?? null;
+    $intTable  = $defaults[1] ?? null;
+    if ($intCol === '' && $defaults) $intCol = $defaults[2] ?? '';
+    if (!$intTable || $intCol === '') {
+        return _airtableUnmatched($action);
+    }
+
+    // Decide the lookup VALUE we're matching with.
+    if ($strategy === 'external_id') {
+        $needle = $externalId;            // Airtable rec ID itself
+        $lookupCol = 'external_id';       // canonical natural-key path
+    } elseif ($strategy === 'match_column') {
+        // Operator chose the Airtable field; pull the value from $fields.
+        if ($atField === '' || !array_key_exists($atField, $fields)) {
+            return _airtableUnmatched($action);
+        }
+        $raw = $fields[$atField];
+        if (is_array($raw)) $raw = $raw[0] ?? null;     // Airtable linked-records arrive as arrays
+        if ($raw === null || $raw === '')   return _airtableUnmatched($action);
+        $needle    = (string) $raw;
+        $lookupCol = $intCol;
+    } elseif ($strategy === 'manual') {
+        return _airtableUnmatched($action);
+    } else {
+        return _airtableUnmatched($action);
+    }
+
+    // Sanitize column identifier — only [A-Za-z0-9_] allowed; rejects
+    // SQL-injection attempts on the writable-targets path.
+    if (!preg_match('/^[A-Za-z0-9_]+$/', $lookupCol) || !preg_match('/^[A-Za-z0-9_]+$/', $intTable)) {
+        return _airtableUnmatched($action);
+    }
+
+    try {
+        $pdo  = getDB();
+        $stmt = $pdo->prepare(
+            "SELECT id FROM `{$intTable}`
+              WHERE tenant_id = :t AND `{$lookupCol}` = :v
+              LIMIT 2"
+        );
+        $stmt->execute(['t' => $tenantId, 'v' => $needle]);
+        $matches = $stmt->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+    } catch (\Throwable $e) {
+        // If the lookup table doesn't exist yet (e.g. fresh tenant, no
+        // ap module migrated), park gracefully — don't fail the sync.
+        error_log('[airtableResolveLink] ' . $e->getMessage());
+        return _airtableUnmatched($action);
+    }
+
+    if (count($matches) === 0) return _airtableUnmatched($action);
+    if (count($matches) >  1)  return _airtableAmbiguous($action);
+    return ['action' => 'link', 'internal_id' => (int) $matches[0], 'sync_status' => 'ok'];
+}
+
+function _airtableUnmatched(string $action): array
+{
+    if ($action === 'skip') return ['action' => 'skip', 'internal_id' => null, 'sync_status' => 'unmatched'];
+    return ['action' => 'link', 'internal_id' => null, 'sync_status' => 'unmatched'];
+}
+
+function _airtableAmbiguous(string $action): array
+{
+    if ($action === 'skip') return ['action' => 'skip', 'internal_id' => null, 'sync_status' => 'ambiguous'];
+    return ['action' => 'link', 'internal_id' => null, 'sync_status' => 'ambiguous'];
+}
+
+/**
+ * Relink existing external_entity_mappings rows for a given Airtable
+ * mapping after the operator changes the linkage policy. Iterates the
+ * current payload_snapshot of each row and re-runs the resolver.
+ *
+ * Returns { scanned, relinked, still_unmatched, still_ambiguous }.
+ */
+function airtableRelinkExistingRows(int $tenantId, int $mappingId, ?int $userId): array
+{
+    $mapping = airtableMappingGet($tenantId, $mappingId);
+    if (!$mapping) throw new \RuntimeException('Mapping not found');
+
+    $stmt = getDB()->prepare(
+        "SELECT id, external_id, payload_snapshot, internal_entity_id, sync_status
+           FROM external_entity_mappings
+          WHERE tenant_id = :t
+            AND source_system = 'airtable'
+            AND internal_entity_type = :et"
+    );
+    $stmt->execute(['t' => $tenantId, 'et' => $mapping['internal_entity']]);
+    $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $scanned = 0; $relinked = 0; $stillUnmatched = 0; $stillAmbiguous = 0;
+    $upd = getDB()->prepare(
+        "UPDATE external_entity_mappings
+            SET internal_entity_id = :iid,
+                sync_status = :s
+          WHERE id = :id AND tenant_id = :t"
+    );
+
+    // We work the snapshot back into a fields[] shape — the snapshot
+    // was already normalised via field_map at sync time, so we re-key
+    // by the operator's chosen 'link_match_airtable_field' if present.
+    foreach ($rows as $r) {
+        $scanned++;
+        $snap = json_decode((string) ($r['payload_snapshot'] ?? '[]'), true);
+        if (!is_array($snap)) $snap = [];
+
+        // Treat the snapshot AS the field map output — match_column
+        // strategy may need the original Airtable name; if the operator
+        // mapped airtable->core, we look up by core key too.
+        $resolved = airtableResolveLink($tenantId, $mapping, (string) $r['external_id'], $snap);
+        if ($resolved['action'] === 'skip') continue;
+
+        $newId     = $resolved['internal_id'] ?? (int) $r['internal_entity_id'];
+        $newStatus = $resolved['sync_status'];
+
+        $upd->execute([
+            'iid' => $newId,
+            's'   => $newStatus,
+            'id'  => (int) $r['id'],
+            't'   => $tenantId,
+        ]);
+        if      ($newStatus === 'ok')        $relinked++;
+        elseif  ($newStatus === 'unmatched') $stillUnmatched++;
+        elseif  ($newStatus === 'ambiguous') $stillAmbiguous++;
+    }
+
+    airtableAudit($tenantId, 'relink', [
+        'base_id' => $mapping['base_id'], 'table_id' => $mapping['table_id'],
+        'actor_user_id' => $userId,
+        'items_processed' => $scanned,
+        'items_skipped'   => 0,
+        'detail' => [
+            'mapping_id' => $mappingId,
+            'scanned' => $scanned, 'relinked' => $relinked,
+            'still_unmatched' => $stillUnmatched, 'still_ambiguous' => $stillAmbiguous,
+            'link_strategy'   => $mapping['link_strategy'],
+        ],
+    ]);
+
+    return [
+        'scanned'         => $scanned,
+        'relinked'        => $relinked,
+        'still_unmatched' => $stillUnmatched,
+        'still_ambiguous' => $stillAmbiguous,
+        'link_strategy'   => $mapping['link_strategy'],
+    ];
+}
+
+/**
+ * Aggregated linkage stats for a single mapping. Cheap GROUP BY on
+ * external_entity_mappings.sync_status. Used by the AirtableSettings
+ * mapping-row badge UI.
+ */
+function airtableLinkStats(int $tenantId, int $mappingId): array
+{
+    $mapping = airtableMappingGet($tenantId, $mappingId);
+    if (!$mapping) throw new \RuntimeException('Mapping not found');
+
+    $stmt = getDB()->prepare(
+        "SELECT sync_status, COUNT(*) AS n
+           FROM external_entity_mappings
+          WHERE tenant_id = :t
+            AND source_system = 'airtable'
+            AND internal_entity_type = :et
+       GROUP BY sync_status"
+    );
+    $stmt->execute(['t' => $tenantId, 'et' => $mapping['internal_entity']]);
+    $rows = $stmt->fetchAll(\PDO::FETCH_KEY_PAIR) ?: [];
+
+    return [
+        'mapping_id' => $mappingId,
+        'linked'     => (int) ($rows['ok']        ?? 0),
+        'unmatched'  => (int) ($rows['unmatched'] ?? 0),
+        'ambiguous'  => (int) ($rows['ambiguous'] ?? 0),
+        'stale'      => (int) ($rows['stale']     ?? 0),
+        'error'      => (int) ($rows['error']     ?? 0),
+        'total'      => array_sum(array_map('intval', $rows)),
+    ];
+}
+
+/**
  * Pull every record in an Airtable table through the field_map and
  * upsert into external_entity_mappings under source_system='airtable'.
- * The internal_entity_id is synthesised from the Airtable record id —
- * we DON'T touch any CoreFlux core table. That makes the worker safe
- * for any entity type the user picks; downstream features can join
- * external_entity_mappings on demand.
+ * Slice 2 — uses airtableResolveLink() to attach the internal_entity_id
+ * to a real CoreFlux row (companies, ap_vendors_index, placements,
+ * etc.) when the mapping has a strategy. Unmatched records park with
+ * sync_status='unmatched' for operator reconciliation.
  *
- * Returns { records, created, updated, unchanged, failed, pages }.
+ * Returns { records, created, updated, unchanged, failed, skipped,
+ *           linked, unmatched, ambiguous, link_strategy, pages }.
  */
 function airtableSyncTable(int $tenantId, int $mappingId, ?int $userId, int $maxPages = 20): array
 {
@@ -339,6 +648,7 @@ function airtableSyncTable(int $tenantId, int $mappingId, ?int $userId, int $max
     $offset = null;
     $pages = 0;
     $totalRecords = 0; $created = 0; $updated = 0; $unchanged = 0; $failed = 0;
+    $linked = 0; $unmatched = 0; $ambiguous = 0; $skipped = 0;
     $errors = [];
 
     try {
@@ -375,21 +685,47 @@ function airtableSyncTable(int $tenantId, int $mappingId, ?int $userId, int $max
                         $normalised['_airtable_created_time'] = $rec['createdTime'];
                     }
 
-                    // Synthetic internal_entity_id — sha256(externalId) ⇒ 31-bit int.
-                    // This is purely a placeholder to satisfy the
-                    // external_entity_mappings NOT NULL constraint; the
-                    // actual record lives in payload_snapshot. Once a
-                    // downstream feature wants the data inside a real
-                    // CoreFlux table, it remaps internal_entity_id via
-                    // mappingUpsert() with a real id.
-                    $synthetic = hexdec(substr(hash('sha256', $tenantId . ':' . $externalId), 0, 7)) | 0x1;
+                    // Slice-2 linkage resolution — find the real CoreFlux
+                    // row by the mapping's link policy. Returns null when
+                    // no match found OR ambiguous (multiple matches).
+                    $resolved = airtableResolveLink($tenantId, $mapping, $externalId, $fields);
 
+                    if ($resolved['action'] === 'skip') {
+                        $skipped++;
+                        continue;
+                    }
+
+                    // Synthetic id used as the fallback when resolver
+                    // didn't land on a real row but unmatched_action='park'.
+                    $synthetic   = hexdec(substr(hash('sha256', $tenantId . ':' . $externalId), 0, 7)) | 0x1;
                     $existingMap = mappingFindInternal($tenantId, 'airtable', $mapping['internal_entity'], $externalId);
-                    $internalId  = $existingMap ? (int) $existingMap['internal_entity_id'] : $synthetic;
+                    $internalId  = $resolved['internal_id']
+                                    ?? ($existingMap ? (int) $existingMap['internal_entity_id'] : $synthetic);
+
+                    $syncStatus = $resolved['sync_status'];   // 'ok'|'unmatched'|'ambiguous'
+
                     $upserted = mappingUpsert(
                         $tenantId, 'airtable', $mapping['internal_entity'],
                         $externalId, $internalId, $normalised, 'pull'
                     );
+                    // mappingUpsert always writes sync_status='ok'. When the
+                    // resolver flagged unmatched/ambiguous, patch the row.
+                    if ($syncStatus !== 'ok') {
+                        $stMark = getDB()->prepare(
+                            "UPDATE external_entity_mappings
+                                SET sync_status = :s
+                              WHERE tenant_id = :t
+                                AND source_system = 'airtable'
+                                AND internal_entity_type = :et
+                                AND external_id = :ext"
+                        );
+                        $stMark->execute([
+                            's'   => $syncStatus,
+                            't'   => $tenantId,
+                            'et'  => $mapping['internal_entity'],
+                            'ext' => $externalId,
+                        ]);
+                    }
                     if (!$existingMap) {
                         $created++;
                     } elseif (!empty($upserted['changed'])) {
@@ -397,6 +733,9 @@ function airtableSyncTable(int $tenantId, int $mappingId, ?int $userId, int $max
                     } else {
                         $unchanged++;
                     }
+                    if      ($syncStatus === 'ok')         $linked++;
+                    elseif  ($syncStatus === 'unmatched')  $unmatched++;
+                    elseif  ($syncStatus === 'ambiguous')  $ambiguous++;
                 } catch (\Throwable $e) {
                     $failed++;
                     if (count($errors) < 5) $errors[] = substr($e->getMessage(), 0, 200);
@@ -423,18 +762,22 @@ function airtableSyncTable(int $tenantId, int $mappingId, ?int $userId, int $max
             'direction' => 'pull',
             'actor_user_id' => $userId,
             'items_processed' => $created + $updated + $unchanged,
-            'items_skipped'   => 0,
+            'items_skipped'   => $skipped,
             'items_failed'    => $failed,
             'detail' => [
                 'records' => $totalRecords, 'created' => $created, 'updated' => $updated,
-                'unchanged' => $unchanged, 'failed' => $failed,
+                'unchanged' => $unchanged, 'failed' => $failed, 'skipped' => $skipped,
+                'linked'    => $linked,    'unmatched' => $unmatched, 'ambiguous' => $ambiguous,
+                'link_strategy' => $mapping['link_strategy'],
                 'pages' => $pages, 'latency_ms' => $latency, 'errors' => $errors,
             ],
         ]);
 
         return [
             'records' => $totalRecords, 'created' => $created, 'updated' => $updated,
-            'unchanged' => $unchanged, 'failed' => $failed,
+            'unchanged' => $unchanged, 'failed' => $failed, 'skipped' => $skipped,
+            'linked'    => $linked,    'unmatched' => $unmatched, 'ambiguous' => $ambiguous,
+            'link_strategy' => $mapping['link_strategy'],
             'pages' => $pages, 'latency_ms' => $latency, 'errors' => $errors,
         ];
     } catch (\Throwable $e) {
