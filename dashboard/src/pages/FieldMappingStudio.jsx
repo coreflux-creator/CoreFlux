@@ -153,6 +153,13 @@ export default function FieldMappingStudio() {
   const [csvResult, setCsvResult]   = useState(null);
   const [csvError, setCsvError]     = useState(null);
 
+  // -- Source Payload Inspector (read-only browse view across entities) --
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectorEntity, setInspectorEntity] = useState(entityType);
+  const [inspectorPaths, setInspectorPaths] = useState([]);
+  const [inspectorBusy, setInspectorBusy] = useState(false);
+  const [inspectorFilter, setInspectorFilter] = useState('');
+
   const reloadSources = async () => {
     try {
       const r = await api.get('/api/admin/integrations/payload_fields.php');
@@ -303,6 +310,45 @@ export default function FieldMappingStudio() {
     } finally {
       setCsvBusy(false);
     }
+  };
+
+  // -- Source Payload Inspector handlers ---------------------------------
+  const openInspector = async () => {
+    setInspectorOpen(true);
+    setInspectorEntity(entityType);
+    setInspectorFilter('');
+    await loadInspectorPaths(entityType);
+  };
+
+  const loadInspectorPaths = async (et) => {
+    setInspectorBusy(true);
+    try {
+      const r = await api.get(`/api/admin/integrations/payload_fields.php?integration=${integration}&entity_type=${et}&limit=2000`);
+      setInspectorPaths(r.paths || []);
+    } catch (e) {
+      setInspectorPaths([]);
+    } finally {
+      setInspectorBusy(false);
+    }
+  };
+
+  const switchInspectorEntity = async (et) => {
+    setInspectorEntity(et);
+    setInspectorFilter('');
+    await loadInspectorPaths(et);
+  };
+
+  // Apply an inspected path to the mapping form (closes inspector, pre-selects).
+  const useInspectedPath = (path) => {
+    if (inspectorEntity !== entityType) {
+      // Switch the main pane to the entity the user is browsing, then
+      // select the path after `reload()` repopulates `paths`. Setting
+      // selectedPath BEFORE reload is OK — handleSave reads the path
+      // string, not an identity.
+      setEntityType(inspectorEntity);
+    }
+    setSelectedPath(path);
+    setInspectorOpen(false);
   };
 
   // -- Load discovery + existing mappings ---------------------------------
@@ -517,6 +563,15 @@ export default function FieldMappingStudio() {
           </button>
           <button
             type="button"
+            data-testid="fms-inspect-btn"
+            onClick={openInspector}
+            className="btn btn--ghost"
+            title="Browse all indexed source fields across every entity bucket (read-only)."
+            style={{ whiteSpace: 'nowrap', fontSize: 13 }}>
+            📋 Inspect sources
+          </button>
+          <button
+            type="button"
             data-testid="fms-csv-upload-btn"
             onClick={openCsv}
             className="btn btn--ghost"
@@ -526,6 +581,98 @@ export default function FieldMappingStudio() {
           </button>
         </div>
       </header>
+
+      {/* Entity tab strip — clearer + more visible than the entity-type
+          dropdown above. Lists every (integration, entity_type) tuple
+          we've actually seen, with its indexed path count. Operator
+          asked: "clearer entity tabs in the Field Mapping Studio
+          (Person / Job / Customer / Contact / Assignment / Placement)
+          with a count of fields available in each". The dropdown
+          stays in place for power users + small screens. */}
+      {(() => {
+        const seen = sources
+          .filter(s => s.integration === integration)
+          .map(s => ({ et: s.entity_type, count: Number(s.path_count) || 0 }));
+        const fallback = {
+          jobdiva:    ['placement', 'person', 'job', 'jobdiva_customer', 'contact', 'assignment'],
+          quickbooks: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account', 'item'],
+          zoho_books: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account'],
+          airtable:   ['record'],
+        }[integration] || [];
+        const seenKeys = new Set(seen.map(s => s.et));
+        const ordered = [
+          ...seen,
+          ...fallback.filter(et => !seenKeys.has(et)).map(et => ({ et, count: 0 })),
+        ];
+        if (ordered.length === 0) return null;
+        const LABELS = {
+          placement:        'Placement',
+          person:           'Person',
+          job:              'Job',
+          jobdiva_customer: 'Customer',
+          customer:         'Customer',
+          contact:          'Contact',
+          assignment:       'Assignment',
+          company:          'Company',
+          journal_entry:    'Journal Entry',
+          vendor:           'Vendor',
+          invoice:          'Invoice',
+          bill:             'Bill',
+          payment:          'Payment',
+          gl_account:       'GL Account',
+          item:             'Item',
+          time_entry:       'Time Entry',
+          record:           'Record',
+        };
+        return (
+          <div data-testid="fms-entity-tabs"
+               role="tablist"
+               style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14,
+                        paddingBottom: 10, borderBottom: '1px solid #e2e8f0' }}>
+            {ordered.map(o => {
+              const active = o.et === entityType;
+              return (
+                <button
+                  key={o.et}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  data-testid={`fms-entity-tab-${o.et}`}
+                  data-active={active ? 'true' : 'false'}
+                  onClick={() => { setEntityType(o.et); setSelectedPath(null); setSelectedTarget(null); }}
+                  title={o.count > 0 ? `${o.count} indexed paths` : 'not yet indexed'}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 999,
+                    border: '1px solid ' + (active ? '#2563eb' : '#cbd5e1'),
+                    background: active ? '#2563eb' : '#fff',
+                    color: active ? '#fff' : (o.count > 0 ? '#0f172a' : '#94a3b8'),
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: active ? 600 : 500,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    whiteSpace: 'nowrap',
+                  }}>
+                  <span>{LABELS[o.et] || o.et}</span>
+                  <span
+                    data-testid={`fms-entity-tab-${o.et}-count`}
+                    style={{
+                      fontSize: 11,
+                      padding: '1px 7px',
+                      borderRadius: 999,
+                      background: active ? 'rgba(255,255,255,0.22)' : (o.count > 0 ? '#e0f2fe' : '#f1f5f9'),
+                      color: active ? '#fff' : (o.count > 0 ? '#0369a1' : '#94a3b8'),
+                    }}>
+                    {o.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* JobDiva re-index banner — surfaces when the only jobdiva source
           is `placement`. Lets the operator extract joined Person/Job/
@@ -1364,6 +1511,156 @@ export default function FieldMappingStudio() {
           </div>
         </div>
       )}
+
+      {/* === SOURCE PAYLOAD INSPECTOR (read-only) ============================
+          Browse every indexed source field across every entity bucket
+          for the current integration. Helps operators see what fields
+          are actually flowing in from JobDiva BEFORE picking what to
+          map. Selecting a row pre-fills the mapping form on close. */}
+      {inspectorOpen && (() => {
+        const seen = sources
+          .filter(s => s.integration === integration)
+          .map(s => ({ et: s.entity_type, count: Number(s.path_count) || 0 }))
+          .sort((a, b) => b.count - a.count);
+        const LABELS = {
+          placement: 'Placement', person: 'Person', job: 'Job',
+          jobdiva_customer: 'Customer', customer: 'Customer',
+          contact: 'Contact', assignment: 'Assignment', company: 'Company',
+          journal_entry: 'Journal Entry', vendor: 'Vendor', invoice: 'Invoice',
+          bill: 'Bill', payment: 'Payment', gl_account: 'GL Account',
+          item: 'Item', time_entry: 'Time Entry', record: 'Record',
+        };
+        const q = inspectorFilter.toLowerCase();
+        const visible = !q ? inspectorPaths : inspectorPaths.filter(p =>
+          (p.source_path || '').toLowerCase().includes(q)
+          || String(p.sample_value || '').toLowerCase().includes(q)
+        );
+        return (
+          <div data-testid="fms-inspector-overlay"
+               role="dialog" aria-modal="true"
+               style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        padding: 24, zIndex: 100 }}
+               onClick={(e) => { if (e.target === e.currentTarget) setInspectorOpen(false); }}>
+            <div data-testid="fms-inspector-modal"
+                 style={{ background: '#fff', borderRadius: 12, padding: 20,
+                          width: 'min(960px, 96vw)', maxHeight: '88vh',
+                          display: 'flex', flexDirection: 'column', gap: 12,
+                          boxShadow: '0 10px 40px rgba(0,0,0,0.18)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 18 }}>Source Payload Inspector</h3>
+                  <p style={{ color: '#64748b', fontSize: 12, margin: '4px 0 0' }}>
+                    Read-only browse of every indexed field across every entity bucket for{' '}
+                    <code style={{ background: '#f1f5f9', padding: '1px 6px', borderRadius: 4 }}>{integration}</code>.{' '}
+                    Click a row to use it in the main mapping form.
+                  </p>
+                </div>
+                <button data-testid="fms-inspector-close"
+                        onClick={() => setInspectorOpen(false)}
+                        className="btn btn--ghost"
+                        style={{ fontSize: 12, padding: '4px 10px' }}>✕</button>
+              </div>
+
+              {/* Inspector entity tabs */}
+              <div data-testid="fms-inspector-tabs"
+                   style={{ display: 'flex', flexWrap: 'wrap', gap: 6,
+                            paddingBottom: 8, borderBottom: '1px solid #e2e8f0' }}>
+                {seen.length === 0 && (
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                    No indexed payloads yet for <code>{integration}</code>. Trigger a sync first.
+                  </span>
+                )}
+                {seen.map(o => {
+                  const active = o.et === inspectorEntity;
+                  return (
+                    <button
+                      key={o.et}
+                      type="button"
+                      data-testid={`fms-inspector-tab-${o.et}`}
+                      data-active={active ? 'true' : 'false'}
+                      onClick={() => switchInspectorEntity(o.et)}
+                      style={{
+                        padding: '5px 11px', borderRadius: 999,
+                        border: '1px solid ' + (active ? '#2563eb' : '#cbd5e1'),
+                        background: active ? '#2563eb' : '#fff',
+                        color: active ? '#fff' : '#0f172a',
+                        cursor: 'pointer', fontSize: 12,
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                      }}>
+                      <span>{LABELS[o.et] || o.et}</span>
+                      <span style={{
+                        fontSize: 11, padding: '1px 7px', borderRadius: 999,
+                        background: active ? 'rgba(255,255,255,0.22)' : '#e0f2fe',
+                        color: active ? '#fff' : '#0369a1',
+                      }}>{o.count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <input
+                data-testid="fms-inspector-filter"
+                type="text" className="input"
+                placeholder="filter source paths or sample values…"
+                value={inspectorFilter}
+                onChange={e => setInspectorFilter(e.target.value)}
+                style={{ fontSize: 13 }}
+              />
+
+              <div data-testid="fms-inspector-list"
+                   style={{ flex: 1, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 6 }}>
+                {inspectorBusy && (
+                  <div style={{ padding: 20, color: '#64748b', fontSize: 13 }}>Loading paths…</div>
+                )}
+                {!inspectorBusy && visible.length === 0 && (
+                  <div data-testid="fms-inspector-empty"
+                       style={{ padding: 20, color: '#64748b', fontSize: 13 }}>
+                    No paths {inspectorFilter ? 'match this filter' : `indexed yet for ${inspectorEntity}`}.
+                  </div>
+                )}
+                {!inspectorBusy && visible.length > 0 && (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 1 }}>
+                      <tr>
+                        <th style={{ ...thStyle, width: '38%' }}>Source path</th>
+                        <th style={{ ...thStyle, width: '12%' }}>Type</th>
+                        <th style={{ ...thStyle, width: '40%' }}>Sample value</th>
+                        <th style={{ ...thStyle, width: '10%', textAlign: 'right' }}>Seen</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visible.map((p, i) => (
+                        <tr key={i}
+                            data-testid={`fms-inspector-row-${i}`}
+                            onClick={() => useInspectedPath(p)}
+                            style={{ borderTop: '1px solid #f1f5f9', cursor: 'pointer' }}
+                            onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                          <td style={{ ...tdStyle, fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>{p.source_path}</td>
+                          <td style={{ ...tdStyle, color: '#64748b' }}>{p.value_type || '—'}</td>
+                          <td style={{ ...tdStyle, color: '#475569',
+                                       whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 0 }}
+                              title={String(p.sample_value ?? '')}>
+                            {p.sample_value === null || p.sample_value === undefined || p.sample_value === ''
+                              ? <em style={{ color: '#94a3b8' }}>empty</em>
+                              : String(p.sample_value)}
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: 'right', color: '#94a3b8' }}>{p.occurrence_count ?? 0}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: '#64748b', textAlign: 'right' }}>
+                {visible.length} of {inspectorPaths.length} path{inspectorPaths.length === 1 ? '' : 's'}
+                {inspectorPaths.length > 0 && ' — click a row to use it in the mapping form'}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </section>
   );
 }

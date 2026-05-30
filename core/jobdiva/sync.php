@@ -1344,21 +1344,22 @@ function jobdivaExtractJoinedSubPayloads(array $enriched): array
     }
 
     // 2) Flat prefix extraction — handles snake_case (job_id, candidate_first_name)
-    //    AND camelCase (jobId, candidateFirstName, customerName). The matching
-    //    list is intentionally narrow — only well-known joined-entity prefixes
-    //    that JobDiva BI uses.
+    //    AND camelCase (jobId, candidateFirstName, customerName). JobDiva's BI
+    //    placement payload already carries joined-entity fields flat, so we
+    //    surface them all under their natural entity_type even when the optional
+    //    nested `_jd_*` enrichment endpoints fail (which is the common case).
     static $PREFIX_MAP = [
         // prefix (lowercase) → CoreFlux entity_type
-        'candidate' => 'person',
-        'employee'  => 'person',
-        'job'       => 'job',
-        'customer'  => 'jobdiva_customer',
+        'candidate'  => 'person',
+        'employee'   => 'person',
+        'job'        => 'job',
+        'customer'   => 'jobdiva_customer',
+        'start'      => 'assignment',  // JobDiva calls assignment records "starts" in BI; payRate / billRate / markup live here.
+        'assignment' => 'assignment',  // Some BI feeds prefix the same fields as `assignment_*` instead of `start_*`.
         // 'contact' is deliberately omitted from flat extraction — JobDiva
         // uses `job_contact_*` which we want under entity_type='job' (the
         // hiring contact is an attribute of the job, not a separate entity
         // at the BI level).
-        // 'start' is deliberately omitted — `start_date` etc. are placement-
-        // level attributes, not assignment-record attributes.
     ];
 
     foreach ($enriched as $k => $v) {

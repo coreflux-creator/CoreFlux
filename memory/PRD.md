@@ -11328,3 +11328,96 @@ draft/open period. Pick the payroll register, click **Upload CSV**.
 A new payroll_run lands in `status='computed'` and the page
 navigates to it for approval.
 
+
+
+## JobDiva assignment-field surface + Field Mapping Studio entity tabs + universal Person→Placement fan-out (2026-05 — current fork)
+
+### Operator-reported issue
+> "field mapping still isn't right. … we're still not getting the job
+> details containing the final pay rate, and other key details. we're
+> still not getting some of the details from people across to placements.
+> why isn't it universal?"
+
+### Root causes
+1. **`jobdivaExtractJoinedSubPayloads()` skipped `start_*` flat fields
+   entirely.** The previous decision was that `start_date` belonged to
+   the placement, not the assignment — but `start_payRate`,
+   `start_billRate`, `start_markup`, etc. on JobDiva's BI feed legitimately
+   belong to the assignment record. Without flat extraction, the
+   assignment bucket was populated ONLY by the optional `_jd_start`
+   enrichment endpoint, which 404s on many tenant installs.
+2. **`placementGet()` only joined a hand-picked subset of `people`
+   columns** (`first_name`, `email_primary`, `phone_primary`, etc.).
+   Any new column on `people` (linkedin_url, secondary_email, custom
+   fields…) silently did NOT surface on placement detail.
+3. **Field Mapping Studio entity selector was a dropdown.** Operators
+   couldn't see at-a-glance which entity buckets had data; counts were
+   in tooltips only.
+4. **No way to browse all source fields across every entity bucket
+   without flipping the dropdown back-and-forth.**
+
+### Fixes locked in
+- **`core/jobdiva/sync.php`** — flat-prefix map now includes
+  `'start' => 'assignment'` and `'assignment' => 'assignment'`. JobDiva
+  BI fields like `start_pay_rate`, `start_bill_rate`, `start_markup`,
+  `start_overtime_rate`, `start_doubletime_rate`, `start_salary`,
+  `start_status`, `start_pay_basis`, etc. now fan out under
+  `entity_type=assignment` even when `_jd_start` enrichment is absent.
+- **`modules/placements/lib/placements.php`** — new
+  `placementHydratePersonFields($row, ?callable $loader = null)` helper
+  fans out every column on the linked `people` row as `person_*`
+  (excluding system columns `id`, `tenant_id`, `deleted_at`). Hand-picked
+  aliases on the parent JOIN still win when both exist. Optional
+  `$loader` parameter lets unit tests inject a no-DB fake.
+- **`dashboard/src/pages/FieldMappingStudio.jsx`** — new horizontal
+  entity tab strip (Placement / Person / Job / Customer / Contact /
+  Assignment / …) with field-count badges, replacing the dropdown for
+  the common case. Tabs are data-driven from the indexer (seen entity
+  types first, fallback list appended). NEW "📋 Inspect sources"
+  modal — read-only browse view of every indexed source path per
+  entity bucket with sample values + occurrence counts + click-to-use
+  selection.
+
+### Verification
+- `tests/jobdiva_assignment_extraction_smoke.php` (NEW): 5 cases —
+  snake_case `start_*` → assignment, camelCase, `_jd_start` precedence,
+  placement-level `pay_rate` does NOT leak into assignment, "surface
+  everything" coverage of 15 known assignment fields.
+- `tests/placement_universal_person_fields_smoke.php` (NEW): 6 cases —
+  aliases preserved, new columns fan out, system columns excluded,
+  draft placement passes through, missing person row passes through,
+  throwing loader is swallowed.
+- All 16 JobDiva + field-mapping smoke tests still pass (regression
+  guard).
+- Full suite: **328/330** (the 2 failures —
+  `accounting_phase2_a7_smoke.php` + `tenant_mail_senders_smoke.php`
+  — are pre-existing infra/local-config issues unrelated to this
+  change).
+- Vite bundle: `index-DpExv6h4.js` synced via
+  `scripts/sync_bundle.sh`.
+
+### Files touched
+- MODIFIED: `core/jobdiva/sync.php` (PREFIX_MAP extended)
+- MODIFIED: `modules/placements/lib/placements.php` (placementGet +
+  new placementHydratePersonFields helper)
+- MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx`
+  (entity tab strip + Source Inspector modal + new state +
+  openInspector/loadInspectorPaths/switchInspectorEntity/useInspectedPath)
+- NEW: `tests/jobdiva_assignment_extraction_smoke.php`
+- NEW: `tests/placement_universal_person_fields_smoke.php`
+- AUTO-UPDATED: `.deploy-version`, `dashboard/dist/index.html`,
+  `spa-assets/sw.js`, new `spa-assets/index-DpExv6h4.js`.
+
+### How operators use it now
+1. **Field Mapping Studio header** — entity tabs visible at top with
+   live counts. Click "Assignment (15)" → the indexed `payRate`,
+   `billRate`, `markup`, `overtimeRate` etc. paths are immediately
+   present in the source picker.
+2. **"📋 Inspect sources" button** — opens a modal that lists every
+   entity bucket as a pill-tab with count, lets the operator filter
+   across `source_path` AND `sample_value`, and click any row to
+   pre-fill the main mapping form.
+3. **Placement detail page** — every column added to `people` later
+   (LinkedIn URL, secondary email, work-auth notes, custom field
+   blobs, etc.) automatically appears as `placement.person_<col>`
+   with zero UI code changes.

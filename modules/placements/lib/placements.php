@@ -49,6 +49,14 @@ function placementGet(int $id): ?array
     // JOINs are intentional: placements may be drafts without a person
     // assigned yet, and end_client_company_id is nullable when the
     // operator hasn't promoted the free-text name to a Company row.
+    //
+    // The hand-picked `pe.X AS person_X` aliases below cover the fields
+    // the Overview tab needs verbatim. Underneath that, `placementHydratePersonFields()`
+    // fans out the FULL row from `people` as `person_*` so any column
+    // we add to `people` later (linkedin_url, secondary_email, custom
+    // fields, etc.) shows up on placement detail automatically — operator
+    // ask: "why isn't it universal? we're still not getting some of the
+    // details from people across to placements."
     $sql = 'SELECT ' . placementsSafeFields() . ',
                    pe.first_name        AS person_first_name,
                    pe.last_name         AS person_last_name,
@@ -63,7 +71,46 @@ function placementGet(int $id): ?array
             LEFT JOIN people    pe ON pe.id = p.person_id          AND pe.tenant_id = p.tenant_id
             LEFT JOIN companies ec ON ec.id = p.end_client_company_id AND ec.tenant_id = p.tenant_id
             WHERE p.tenant_id = :tenant_id AND p.id = :id AND p.deleted_at IS NULL';
-    return scopedFind($sql, ['id' => $id]);
+    $row = scopedFind($sql, ['id' => $id]);
+    if (!$row) return null;
+    return placementHydratePersonFields($row);
+}
+
+/**
+ * Fan-out every column on the linked `people` row as `person_*` so the
+ * placement detail page automatically reflects new person columns with
+ * zero schema or UI work. Hand-picked aliases on the parent query still
+ * win — we only add keys that aren't already on the row.
+ *
+ * Intentionally narrow: ONLY pulls from the `people` table for the
+ * already-resolved `person_id`. Returns the row unchanged when there is
+ * no linked person (draft placement) or the people row is missing.
+ */
+function placementHydratePersonFields(array $row, ?callable $loader = null): array
+{
+    if (empty($row['person_id'])) return $row;
+    try {
+        if ($loader !== null) {
+            $person = $loader((int) $row['person_id']);
+        } else {
+            $person = scopedFind(
+                'SELECT * FROM people WHERE id = :id AND tenant_id = :tenant_id AND deleted_at IS NULL',
+                ['id' => (int) $row['person_id']]
+            );
+        }
+    } catch (\Throwable $e) {
+        error_log('[placementHydratePersonFields] ' . $e->getMessage());
+        return $row;
+    }
+    if (!$person) return $row;
+    foreach ($person as $k => $v) {
+        if ($k === 'id' || $k === 'tenant_id' || $k === 'deleted_at') continue;
+        $key = 'person_' . $k;
+        if (!array_key_exists($key, $row)) {
+            $row[$key] = $v;
+        }
+    }
+    return $row;
 }
 
 function placementsList(array $filters = []): array
