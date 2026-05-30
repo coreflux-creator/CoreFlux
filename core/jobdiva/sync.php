@@ -1375,6 +1375,19 @@ function jobdivaExtractJoinedSubPayloads(array $enriched): array
             if (str_starts_with($k, $prefix . '_')) {
                 $stripped = substr($k, strlen($prefix) + 1);
             }
+            // space-separated: `candidate first name` → `first name` → `first_name`.
+            //   JobDiva's V2 BI Placement endpoint returns flat keys with
+            //   SPACES (e.g. `candidate id`, `job id`, `start pay rate`,
+            //   `customer name`). Operators report this as "field mapping
+            //   isn't right — pay rate isn't there." The indexer would
+            //   normalize the spaces to `_` only at PATH level; the keys
+            //   themselves stay space-separated in the raw payload, which
+            //   is what we walk here. We must therefore match the space
+            //   convention explicitly.
+            elseif (str_starts_with($k, $prefix . ' ')) {
+                $stripped = substr($k, strlen($prefix) + 1);
+                $stripped = preg_replace('/\s+/', '_', trim($stripped)) ?? $stripped;
+            }
             // camelCase: candidateFirstName → firstName
             elseif (str_starts_with($k, $prefix)
                     && strlen($k) > strlen($prefix)

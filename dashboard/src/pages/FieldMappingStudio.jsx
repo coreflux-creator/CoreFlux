@@ -1795,7 +1795,7 @@ export default function FieldMappingStudio() {
                                                  : 'transparent' }}>
                             <td style={{ ...tdStyle }}>
                               <code style={{ fontSize: 11 }}>{bucket}</code>
-                              {!info.present && <span style={{ marginLeft: 6, color: '#b91c1c', fontSize: 11 }}>not returned</span>}
+                              {!info.present && <span style={{ marginLeft: 6, color: '#b91c1c', fontSize: 11 }}>not returned by JobDiva enrichment</span>}
                               {lowFields && <span style={{ marginLeft: 6, color: '#a16207', fontSize: 11 }}>sparse — JobDiva returned ≤2 fields</span>}
                             </td>
                             <td style={{ ...tdStyle, textAlign: 'right' }}>{info.present ? '✓' : '✗'}</td>
@@ -1813,12 +1813,59 @@ export default function FieldMappingStudio() {
                     </tbody>
                   </table>
                   <div style={{ marginTop: 10, fontSize: 11, color: '#64748b' }}>
-                    A row highlighted yellow means JobDiva returned a sparse response (≤2 fields) for that
-                    bucket — that's almost always a <strong>JobDiva account-permission issue</strong> on
-                    the <code>/apiv2/jobdiva/search*</code> endpoint for that entity. Ask your JobDiva
-                    admin to expand the API user's field access for that record type.
+                    Red rows = JobDiva's <code>/searchJob</code>, <code>/searchCandidate</code>, <code>/searchCustomer</code>,
+                    {' '}<code>/searchContact</code> or <code>/searchStart</code> endpoint didn't return data for this tenant.
+                    That's a JobDiva account-permission issue on those endpoints — but read the
+                    <strong> "What we extracted from flat fields" </strong>panel below: CoreFlux ALSO walks the placement's
+                    own flat top-level scalars to fan-out joined-entity data, so you're not necessarily stuck.
                   </div>
                 </div>
+
+                {/* What our flat extractor produced — the actual source of
+                    mappable fields when JobDiva enrichment is absent. */}
+                {rawData.stats?.extracted_into_buckets && (
+                  <div data-testid="fms-raw-extracted"
+                       style={{ border: '1px solid #bae6fd', borderRadius: 8, padding: 12, background: '#f0f9ff' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#0c4a6e' }}>
+                      What CoreFlux extracted from flat top-level keys
+                    </div>
+                    <div style={{ fontSize: 11, color: '#0c4a6e', marginBottom: 8 }}>
+                      JobDiva V2 BI carries joined-entity fields as flat keys (e.g.
+                      <code style={{ margin: '0 4px' }}>candidate id</code>,
+                      <code style={{ margin: '0 4px' }}>start pay rate</code>). CoreFlux strips the
+                      prefix and routes them into the right bucket — even when JobDiva's enrichment
+                      endpoints return nothing.
+                    </div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ background: '#e0f2fe' }}>
+                          <th style={{ ...thStyle, fontSize: 11 }}>Bucket</th>
+                          <th style={{ ...thStyle, fontSize: 11, textAlign: 'right' }}>Extracted</th>
+                          <th style={{ ...thStyle, fontSize: 11 }}>Keys</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(rawData.stats.extracted_into_buckets).map(([bucket, info]) => (
+                          <tr key={bucket}
+                              data-testid={`fms-raw-extracted-${bucket}`}
+                              style={{ borderTop: '1px solid #bae6fd' }}>
+                            <td style={{ ...tdStyle }}>
+                              <code style={{ fontSize: 11 }}>{bucket}</code>
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600,
+                                         color: info.field_count === 0 ? '#94a3b8' : '#0369a1' }}>
+                              {info.field_count}
+                            </td>
+                            <td style={{ ...tdStyle, color: '#0c4a6e', fontSize: 11 }}>
+                              {(info.keys || []).slice(0, 10).join(', ')}
+                              {(info.keys || []).length > 10 && ` …(+${info.keys.length - 10})`}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
 
                 <div>
                   <button

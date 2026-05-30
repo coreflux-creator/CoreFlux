@@ -42,6 +42,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/db.php';
+require_once __DIR__ . '/../../../core/jobdiva/sync.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
@@ -120,6 +121,22 @@ foreach ($payload as $k => $v) {
     if (is_scalar($v) || $v === null) $topFlat[] = $k;
 }
 
+// Run the extractor against the live payload and report what it would
+// route into each CoreFlux entity bucket. CRITICAL diagnostic when
+// `_jd_*` enrichment endpoints are absent: shows the operator that
+// flat-extraction (with the new space-separated key handling) is the
+// real source of mappable fields, not the missing enrichment buckets.
+$extracted = jobdivaExtractJoinedSubPayloads($payload);
+$extractedStats = [];
+foreach (['person', 'job', 'jobdiva_customer', 'contact', 'assignment'] as $b) {
+    $sub = $extracted[$b] ?? [];
+    $extractedStats[$b] = [
+        'field_count' => count($sub),
+        'keys'        => array_keys($sub),
+        'sample'      => array_slice($sub, 0, 6, true),
+    ];
+}
+
 api_ok([
     'ok'                   => true,
     'external_id'          => (string) $row['external_id'],
@@ -130,5 +147,6 @@ api_ok([
         'top_level_scalar_field_count' => count($topFlat),
         'top_level_scalar_keys'        => $topFlat,
         'buckets'                      => $bucketStats,
+        'extracted_into_buckets'       => $extractedStats,
     ],
 ]);

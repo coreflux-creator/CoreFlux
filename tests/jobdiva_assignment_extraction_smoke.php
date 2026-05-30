@@ -144,4 +144,63 @@ foreach ($mustHave as $f) {
 }
 _ok('CASE 5 — every known assignment-level field surfaces (' . count($mustHave) . ' fields)');
 
+// -----------------------------------------------------------------------------
+// CASE 6 — JobDiva V2 BI uses SPACE-separated keys. The operator-reported
+// payload showed `candidate id`, `job id`, `candidate name`, `candidate email`
+// etc. with literal spaces. We must extract them into the matching entity
+// bucket — otherwise the operator only sees `placement.candidate_id` (the
+// indexer-normalised flat path) and NOT the joined-entity fields.
+// -----------------------------------------------------------------------------
+$payload = [
+    'id'                  => 52147399,
+    'extRejectedBy'       => 'Mike',
+    // Space-separated joined-entity flat keys (the actual JobDiva BI shape)
+    'job id'              => 4242,
+    'job title'           => 'Senior Engineer',
+    'candidate id'        => 999,
+    'candidate first name'=> 'Jane',
+    'candidate last name' => 'Doe',
+    'candidate email'     => 'jane@example.com',
+    'customer id'         => 7,
+    'customer name'       => 'Acme Corp',
+    'customer address1'   => '123 Main',
+    // Assignment-level fields prefixed `start ` with literal space (the
+    // actual JobDiva V2 BI shape for pay-rate-class fields):
+    'start pay rate'      => 75.00,
+    'start bill rate'     => 150.00,
+    'start markup'        => 2.0,
+    'start overtime rate' => 112.50,
+    'start status'        => 'active',
+    'start date'          => '2026-01-01',
+];
+
+$subs = jobdivaExtractJoinedSubPayloads($payload);
+
+// person bucket
+$person = $subs['person'] ?? [];
+assert(($person['id'] ?? null) === 999,                    'space-keyed `candidate id` → person.id');
+assert(($person['first_name'] ?? null) === 'Jane',         'space-keyed `candidate first name` → person.first_name');
+assert(($person['last_name'] ?? null) === 'Doe',           'space-keyed `candidate last name` → person.last_name');
+assert(($person['email'] ?? null) === 'jane@example.com',  'space-keyed `candidate email` → person.email');
+
+// job bucket
+$job = $subs['job'] ?? [];
+assert(($job['id'] ?? null) === 4242,                      'space-keyed `job id` → job.id');
+assert(($job['title'] ?? null) === 'Senior Engineer',      'space-keyed `job title` → job.title');
+
+// customer bucket
+$cust = $subs['jobdiva_customer'] ?? [];
+assert(($cust['id'] ?? null) === 7,                        'space-keyed `customer id` → jobdiva_customer.id');
+assert(($cust['name'] ?? null) === 'Acme Corp',            'space-keyed `customer name` → jobdiva_customer.name');
+assert(($cust['address1'] ?? null) === '123 Main',         'space-keyed `customer address1` → jobdiva_customer.address1');
+
+// assignment bucket (THE operator's primary pain point)
+$asn = $subs['assignment'] ?? [];
+assert(($asn['pay_rate'] ?? null) === 75.00,               'space-keyed `start pay rate` → assignment.pay_rate');
+assert(($asn['bill_rate'] ?? null) === 150.00,             'space-keyed `start bill rate` → assignment.bill_rate');
+assert(($asn['markup'] ?? null) === 2.0,                   'space-keyed `start markup` → assignment.markup');
+assert(($asn['overtime_rate'] ?? null) === 112.50,         'space-keyed `start overtime rate` → assignment.overtime_rate');
+assert(($asn['status'] ?? null) === 'active',              'space-keyed `start status` → assignment.status');
+_ok('CASE 6 — JobDiva V2 BI space-keyed flat fields route to joined-entity buckets');
+
 echo "\n🎯 jobdiva_assignment_extraction_smoke — ALL PASS\n";

@@ -11493,3 +11493,94 @@ We CANNOT tell the difference without seeing the raw
    issue (escalate to JobDiva admin to widen API field access for
    that entity), NOT a CoreFlux extraction bug.
 4. Click **Show full JSON** to confirm with eyes the raw response.
+
+
+## JobDiva V2 BI: space-separated flat keys now extract correctly (2026-05 critical bug fix)
+
+### Root cause (proven via raw-payload diagnostic)
+Operator's diagnostic screenshot showed the live production payload:
+- 58 top-level scalars with keys like
+  `extRejectedBy, extDateRejected, extRejectId, id, job id, candidate id, candidate name, candidate email …`
+- All 5 `_jd_*` enrichment buckets returned **EMPTY** (the
+  `/apiv2/jobdiva/search*` endpoints don't return data for this tenant
+  — likely auth scope on the JobDiva account, ignored as out-of-scope
+  for us).
+
+The smoking gun: JobDiva V2 BI uses **literal-space-separated keys**
+(`candidate id`, `job id`, `customer name`, `start pay rate`,
+`start bill rate`, …). Our flat-prefix extractor handled
+`candidate_id` (snake) and `candidateId` (camel) but missed
+`candidate id` (space) entirely. So 99% of the flat top-level
+joined-entity fields were silently being skipped.
+
+That's why `assignment` had only 1 mappable path (`status`) and `job`
+had 1, while the indexer's path-normalisation (which DOES change
+spaces to `_`) made the raw fields look like they were "there" under
+`placement` but didn't route them into the joined-entity buckets.
+
+### Fix locked in
+- `core/jobdiva/sync.php` — `jobdivaExtractJoinedSubPayloads()` now
+  recognises a third matching convention:
+  ```
+  // space-separated: `candidate first name` → `first name` → `first_name`
+  elseif (str_starts_with($k, $prefix . ' ')) {
+      $stripped = substr($k, strlen($prefix) + 1);
+      $stripped = preg_replace('/\s+/', '_', trim($stripped)) ?? $stripped;
+  }
+  ```
+- Effect: every space-keyed joined-entity field
+  (`candidate id` → `person.id`,
+   `candidate first name` → `person.first_name`,
+   `job title` → `job.title`,
+   `customer name` → `jobdiva_customer.name`,
+   `start pay rate` → `assignment.pay_rate`,
+   `start bill rate` → `assignment.bill_rate`, etc.)
+  now routes into the right bucket on every placement sync AND on
+  every re-index. Operator's "I want every single available data
+  point to come across and become mappable" now applies to flat
+  fields too.
+
+### Diagnostic upgrade
+- `api/admin/integrations/jobdiva_raw_payload.php` now includes
+  `stats.extracted_into_buckets` — runs the extractor live against
+  the stored payload and reports per-bucket field counts + keys.
+  Lets the operator see "even though `_jd_start` came back empty from
+  JobDiva, CoreFlux extracted N assignment fields from the flat
+  `start *` keys."
+- The "🔬 Raw payload" modal in the Studio now renders a second
+  blue-tinted panel ("What CoreFlux extracted from flat top-level
+  keys") right under the JobDiva-bucket table.
+
+### Verification
+- `tests/jobdiva_assignment_extraction_smoke.php` extended with
+  CASE 6 — every JobDiva V2 BI space-keyed field (candidate id /
+  candidate first name / candidate last name / candidate email /
+  job id / job title / customer id / customer name / customer
+  address1 / start pay rate / start bill rate / start markup /
+  start overtime rate / start status) asserted to route into the
+  right bucket. All 6 cases pass.
+- Full suite: **329/331 stable** (2 unrelated pre-existing failures).
+- Vite bundle synced: `index-CtuBVGxj.js`.
+
+### Files touched
+- MODIFIED: `core/jobdiva/sync.php` (space-key match arm)
+- MODIFIED: `api/admin/integrations/jobdiva_raw_payload.php`
+  (extracted_into_buckets stats)
+- MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx`
+  (extracted-buckets panel in raw-payload modal)
+- MODIFIED: `tests/jobdiva_assignment_extraction_smoke.php`
+  (CASE 6 — space-keyed coverage)
+- AUTO-UPDATED: `.deploy-version`, `dashboard/dist/index.html`,
+  `spa-assets/sw.js`, new `spa-assets/index-CtuBVGxj.js`.
+
+### Operator next step
+1. Deploy via `/update.php`.
+2. Open Field Mapping Studio → **"Re-index again"** (so the existing
+   118 stored placements get re-processed with the new space-aware
+   extractor).
+3. Click **🔬 Raw payload**. The new blue "extracted into buckets"
+   panel will show how many fields the extractor routed into each
+   bucket (likely 15-30 per joined entity now).
+4. The Assignment / Job / Person / Customer entity tabs in the main
+   studio will now have a dramatically larger field count, including
+   `pay_rate`, `bill_rate`, `markup`, etc.
