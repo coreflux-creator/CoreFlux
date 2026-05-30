@@ -145,14 +145,26 @@ export default function CFODashboard({ session }) {
 
   return (
     <div className="cfo-dashboard" data-testid="cfo-dashboard" style={{ padding:'var(--cf-space-4, 24px)' }}>
-      <header style={{ display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:'var(--cf-space-3)' }}>
-        <div>
+      <header style={{
+        display:'flex', flexWrap:'wrap', alignItems:'flex-end',
+        justifyContent:'space-between', gap:12,
+        position:'sticky', top:0, zIndex:5,
+        background: 'linear-gradient(180deg, #fff 0%, #fff 88%, rgba(255,255,255,0) 100%)',
+        padding: '12px 0 14px',
+        borderBottom: '1px solid #e2e8f0',
+        marginBottom: 'var(--cf-space-3)',
+      }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
           <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-            <h1 style={{ margin:0, fontSize:'1.6rem' }}>CFO Dashboard</h1>
+            <h1 data-testid="cfo-title"
+                style={{ margin:0, fontSize:22, fontWeight:700,
+                         color:'#0f172a', letterSpacing:'-0.01em' }}>
+              CFO Dashboard
+            </h1>
             <CIStatusBadge />
           </div>
-          <p style={{ margin:'4px 0 0', color:'var(--cf-text-secondary, #64748b)', fontSize:14 }}>
-            Window: <strong>{data.range?.from} → {data.range?.to}</strong>
+          <p style={{ margin:'4px 0 0', color:'#64748b', fontSize:13 }}>
+            Window: <strong style={{ color:'#0f172a' }}>{data.range?.from} → {data.range?.to}</strong>
             {data.compare && <> &nbsp;·&nbsp; {COMPARE_LABELS[data.compare.mode]} ({data.compare.prev_from} → {data.compare.prev_to})</>}
           </p>
         </div>
@@ -276,12 +288,20 @@ function Widget({ spec, data, hidden, editMode, onToggle, onMoveUp, onMoveDown, 
              data-testid={`cfo-widget-${spec.key}`}
              data-hidden={hidden ? '1' : '0'}
              style={{
-                background:'#fff', border:'1px solid #e2e8f0', borderRadius:8,
-                padding:16, opacity: hidden ? 0.45 : 1,
+                background:'#fff',
+                border:'1px solid #e2e8f0',
+                borderLeft:'3px solid #334155',
+                borderRadius:6,
+                padding:'14px 16px',
+                opacity: hidden ? 0.45 : 1,
                 display:'flex', flexDirection:'column', gap:8,
-             }}>
+                transition: 'box-shadow 120ms ease, border-color 120ms ease',
+             }}
+             onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 4px 12px rgba(15,23,42,0.06)'; }}
+             onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
-        <h3 style={{ margin:0, fontSize:13, color:'#64748b', textTransform:'uppercase', letterSpacing:'.04em' }}>
+        <h3 style={{ margin:0, fontSize:11, color:'#64748b',
+                     textTransform:'uppercase', letterSpacing:0.4, fontWeight:600 }}>
           {spec.title}
         </h3>
         {editMode && (
@@ -387,13 +407,22 @@ function Scalar({ value, secondary, trend, delta, snapshot }) {
   return (
     <div data-snapshot={JSON.stringify(snapshot ?? {})}>
       <div style={{ display:'flex', alignItems:'baseline', gap:8 }}>
-        <div style={{ fontSize:26, fontWeight:600, color:'#0f172a' }} data-testid="cfo-scalar-value">{value}</div>
+        <div data-testid="cfo-scalar-value"
+             style={{ fontSize:24, fontWeight:700, color:'#0f172a',
+                      letterSpacing:'-0.02em', lineHeight:1.15,
+                      fontVariantNumeric:'tabular-nums' }}>
+          {value}
+        </div>
         {delta != null && <DeltaBadge value={delta} />}
       </div>
-      {secondary && <div style={{ fontSize:12, color:'#64748b' }}>{secondary}</div>}
+      {secondary && (
+        <div style={{ fontSize:11, color:'#64748b', marginTop:2 }}>
+          {secondary}
+        </div>
+      )}
       {trend && trend.length > 0 && (
-        <div style={{ marginTop:6 }}>
-          <Sparkline data={trend.map(p => p.amount)} width={220} height={28} />
+        <div style={{ marginTop:8 }}>
+          <Sparkline data={trend} height={32} />
         </div>
       )}
     </div>

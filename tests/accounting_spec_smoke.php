@@ -106,8 +106,8 @@ $a('JE reverse flow',                          strpos($je, 'accounting-journal-r
 $a('JE rejects unbalanced submit (disabled)',  strpos($je, '!balanced || busy') !== false);
 
 $tb  = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/TrialBalance.jsx');
-$a('Trial Balance as-of picker',               strpos($tb, 'accounting-trial-asof') !== false);
-$a('Trial Balance diff cell',                  strpos($tb, 'accounting-trial-diff') !== false);
+$a('Trial Balance as-of picker',               strpos($tb, 'rpt-tb-to') !== false);
+$a('Trial Balance diff cell',                  strpos($tb, 'rpt-tb-kpi-balanced') !== false);
 
 echo "\nSidebar + app routing\n";
 $mod = (string) file_get_contents(__DIR__ . '/../core/modules.php');

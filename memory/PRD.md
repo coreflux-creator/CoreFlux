@@ -12089,3 +12089,189 @@ and logged so one bad startId never aborts the entire mirror.
    mirror)** entity tab in the Studio populates with the actual
    assignment fields.
 
+
+
+
+## Reports Overhaul — Pass 0 (foundation) + Pass 1 (Tier-1 statements) (2026-02 — current fork)
+
+### Why
+Original P1 plan (PRD §"Reports overhaul"): "visual, sharp, responsive,
+drill-down on every metric. Current 5 reports get UX/IA pass before
+adding new ones." Earlier session shipped only a "minimal first pass"
+— a single `GlDetailDrilldown.jsx` component that was never adopted
+anywhere. Operator audit caught the gap: 24 reporting views (~5,600
+LOC) totally untouched, drill-through component sitting as dead code.
+
+### Pass 0 — Foundation primitives (NEW files)
+- `dashboard/src/components/ReportShell.jsx` — shared sticky header
+  primitive with title, subtitle, period range pickers, comparison-mode
+  toggle (none / prior period / prior year / both), KPI band slot,
+  actions slot. `singleDate` prop for point-in-time reports (BS, TB).
+- `dashboard/src/components/MetricCard.jsx` — KPI tile: label,
+  current value, optional prior-period + prior-year delta pills
+  (variance % with up/down arrows, favourable-direction-aware colour),
+  optional `<Sparkline>` slot, optional onClick → drill chevron.
+  `inverse` flag for expense KPIs (drops are favourable).
+- `dashboard/src/components/ComparisonTable.jsx` — financial-statement
+  row primitive. Up to 3 value columns (current / prior_period /
+  prior_year) + optional variance column. Row kinds: `row` (regular),
+  `subtotal` (top border + bold), `total` (double top border).
+  Depth-based indent. Per-row `onDrill` opens slide-over.
+- `dashboard/src/components/MetricDrilldown.jsx` — generic
+  right-side slide-over (extends the `GlDetailDrilldown` pattern) that
+  wraps arbitrary content. Used for non-GL drills (timesheets, AP,
+  placements, etc.) where the standard `GlDetailDrilldown` doesn't
+  apply.
+- `dashboard/src/lib/useReportPeriod.js` — period+comparison hook.
+  Owns `{from, to, compareMode}` and derives `priorFrom/priorTo`
+  (equal-length window immediately preceding) + `priorYearFrom/-To`
+  (1 year back). Exports `variance(curr, prior, {inverse})` helper.
+
+### Pass 1 — Tier-1 financial statements rewritten end-to-end
+Each report now uses `ReportShell` + `MetricCard` KPI band +
+`ComparisonTable` + `GlDetailDrilldown` slide-over. Comparison
+columns fetched in 2-3 parallel API calls and merged by account code
+client-side (zero backend change — endpoint contract unchanged).
+
+- **`modules/accounting/ui/IncomeStatement.jsx`** — 4 KPIs (Revenue,
+  Expenses, Net income, Margin) with prior-period + prior-year
+  deltas; revenue + expense ComparisonTables; bottom-line Net income
+  Total row.
+- **`modules/accounting/ui/BalanceSheet.jsx`** — 4 KPIs (Total assets
+  /liabilities/equity, Balanced indicator); single-date mode; three
+  sections (Assets / Liabilities / Equity) each with their own
+  ComparisonTable; tie-out table at the bottom; synthetic-row drills
+  refused (no GL detail for current-period-net-income line).
+- **`modules/accounting/ui/TrialBalance.jsx`** — 4 KPIs (Total debits,
+  Total credits, Tie-out indicator, Active account count); single
+  ComparisonTable with debit/credit/balance columns + per-comparison-
+  window balance columns; per-account drill into GL detail.
+- **`modules/accounting/ui/CashFlowStatement.jsx`** — 4 KPIs (Net
+  change, Cash ending, Cash beginning, Tie-out); three sections
+  (Operating, Investing, Financing) each as ComparisonTable; Untagged
+  warning + section when COA tags are missing; tie-out totals table;
+  GL drill on every leaf account.
+
+### Drill-through migration
+Old: `<Link to="/modules/accounting/journal-entries?account_code=…">`
+(full-route navigation away from the report).
+New: `onClick → setDrill({accountCode, start, end, label})` opens the
+`GlDetailDrilldown` slide-over in-place. Operator stays on the report
++ can drill multiple lines in one session. Synthetic rows (e.g. the
+"Current period net income" plug on the BS) refuse drill cleanly.
+
+### Smoke tests
+- NEW `tests/reports_overhaul_pass0_pass1_smoke.php` — **75 ✓**
+  covering all foundation contracts + Tier-1 adoption (ReportShell
+  + MetricCard + ComparisonTable + GlDetailDrilldown imports,
+  testIdPrefix, KPI band, parallel-fetch pattern, comparison
+  awareness).
+- UPDATED 4 pre-existing smoke tests that asserted old testid roots:
+  `sprint6g_financial_statements_smoke.php` (38 ✓ / was 27/11),
+  `accounting_phase2_a1_smoke.php` (73 ✓ / was 59/14),
+  `accounting_spec_smoke.php` (77 ✓ / was 75/2),
+  `accounting_phase1_smoke.php` (75 ✓ / was 71/6) — all green.
+
+### Verification
+- Full smoke suite: **334 pass / 4 pre-existing infra fails**
+  (same 4 fail-by-design as handoff baseline — no regressions).
+- Vite bundle rebuilt → `index-BzzeN29X.js`, `.deploy-version` +
+  service-worker updated by `sync_bundle.sh`.
+
+### testid prefix migration (one-time breaking change)
+Old → New. If any external automation relies on these, update:
+- `accounting-pnl*`            → `rpt-pnl*`
+- `accounting-balance*`        → `rpt-bs*`
+- `accounting-trial*`          → `rpt-tb*`
+- `accounting-cash-flow*` / `accounting-cf*` → `rpt-cf*`
+
+### Still pending (Pass 2 + 3 backlog)
+- **Pass 2 — Tier-2 operational reports** (~1,500 LOC, 12 files):
+  StaffingOverview (reports + staffing), ExecutiveSnapshot,
+  ClientProfitability, OvertimeWatch, RateSpreadMonitor, ReportToolkit,
+  StaffingProfitability, WorkerMix, StaffingReadiness, time/Reports,
+  placements/Reports. Each needs ReportShell adoption + MetricCard for
+  KPI tiles + ComparisonTable where tabular + drill-through where it
+  makes sense.
+- **Pass 3 — Tier-3 top-level dashboards** (~3,700 LOC, 6 files):
+  CFODashboard (794 LOC — minimal charts today, needs MetricCards +
+  drill-through on every metric), ExecutiveDashboard (845 LOC — already
+  has real LineChart x4, needs ReportShell wrap + MetricCard sweep),
+  StaffingReports (878 LOC), FinanceReports (381 LOC),
+  SubTenantConsolidatedReports (229 LOC), DashboardOverview (131 LOC).
+
+
+
+## Reports Overhaul — Pass 2 (Tier-2 partial) + Pass 3 (CFO partial) (2026-02 — current fork)
+
+### Pass 2 — Tier-2 table-heavy reports adopted the foundation
+Three highest-traffic operational reports rewritten through
+ReportShell + MetricCard. Period selector preserved (these endpoints
+use enum windows `4w|12w|26w`, not date ranges) but surfaced via the
+new `customControls` slot on ReportShell.
+
+- **`modules/reports/ui/ClientProfitability.jsx`** — 4-tile KPI band
+  (Revenue, Gross Profit, Blended GP %, Clients Flagged) + sharper
+  per-client table with tabular-nums + red-highlight when GP%<20%.
+- **`modules/reports/ui/OvertimeWatch.jsx`** — 6-tile KPI band
+  (OT hrs with sparkline, Total hrs, OT%, OT revenue, OT cost, OT
+  margin) + 3 drill tables (Weekly OT %, Top employees, Top clients)
+  in a responsive 2-col grid below.
+- **`modules/reports/ui/RateSpreadMonitor.jsx`** — 4-tile KPI band
+  (Active placements, Blended spread/hr, Flagged count, Revenue) +
+  cleaner flag-badge palette + tighter row chrome.
+
+`ReportShell` extended with a `customControls` slot so Tier-2 reports
+that don't use date-range pickers can still render the shared header.
+
+### Pass 3 (partial) — CFO Dashboard surgical visual upgrade
+Full ground-up rewrite of `CFODashboard.jsx` (794 LOC) would have
+risked breaking its sophisticated state machinery (saved views,
+formulas, notes, annotations, send-report flow). Instead, surgical
+visual passes preserving every feature:
+
+- **Sticky header** with crisp 22px / 700 / -0.01em title
+  (`data-testid="cfo-title"`), gradient fade, sharp border-bottom.
+- **Widget card** — 3px left-accent border, hover lift via shadow,
+  tighter padding (`14px 16px` from `16px`), uppercase 11px section
+  labels matching MetricCard.
+- **`Scalar`** tile — 24px / 700 / -0.02em / tabular-nums value;
+  tighter secondary line; smaller, taller sparkline.
+- **Sparkline bug fix** — was passing `trend.map(p => p.amount)`
+  (array of numbers) to a component expecting `[{amount, week}]`
+  objects. Result: sparklines silently rendered as flatlines on
+  every CFO scalar. Now passes `trend` directly so amplitude AND
+  per-bucket week-label tooltips work.
+
+### Smoke
+- `reports_overhaul_smoke.php` (renamed from `_pass0_pass1_smoke.php`):
+  **96 ✓** — Pass-0 contracts + Pass-1 (Tier-1) + Pass-2 (Tier-2 ×3)
+  + Pass-3 (CFO visual upgrade including the Sparkline data-shape fix).
+- Full suite: **334 pass / 4 pre-existing infra fails** — same
+  baseline, zero regressions.
+- Vite bundle: `index-C2GOhncQ.js` synced.
+
+### Still pending (Pass 2 + 3 backlog)
+- **Pass 2 remaining (~1,100 LOC, 8 files):**
+  - `modules/reports/ui/StaffingOverview.jsx` (184 LOC) — Reports
+    module landing; already has weekly chart, KPI grid, headcount
+    tiles. Needs ReportShell lift + MetricCard sweep.
+  - `modules/reports/ui/ExecutiveSnapshot.jsx` (164)
+  - `modules/reports/ui/ReportToolkit.jsx` (247) — has embedded
+    drilldown logic; would benefit from MetricDrilldown consolidation.
+  - `modules/staffing/ui/WorkerMix.jsx` (175)
+  - `modules/staffing/ui/StaffingReadiness.jsx` (135)
+  - `modules/staffing/ui/StaffingOverview.jsx` (112) — landing card,
+    not a "report" per se; minor visual lift only.
+  - `modules/time/ui/Reports.jsx` (70)
+  - `modules/placements/ui/Reports.jsx` (47)
+- **Pass 3 remaining (~3,000 LOC, 5 files):**
+  - `dashboard/src/pages/ExecutiveDashboard.jsx` (845 LOC) — already
+    has 4× real `<LineChart>` with prior-year overlay; needs the same
+    surgical header/widget upgrade CFO got.
+  - `dashboard/src/pages/StaffingReports.jsx` (878 LOC)
+  - `dashboard/src/pages/FinanceReports.jsx` (381 LOC)
+  - `dashboard/src/pages/SubTenantConsolidatedReports.jsx` (229 LOC)
+  - `dashboard/src/pages/DashboardOverview.jsx` (131 LOC)
+
+

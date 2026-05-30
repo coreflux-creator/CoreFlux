@@ -117,16 +117,16 @@ $a('module routes balance',                        strpos($mod, 'path="balance"'
 $a('module routes periods',                        strpos($mod, 'path="periods"') !== false);
 
 $is = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/IncomeStatement.jsx');
-$a('IncomeStatement page testid',                  strpos($is, 'data-testid="accounting-pnl"') !== false);
-$a('IS net-income testid',                         strpos($is, 'accounting-pnl-net-income') !== false);
-$a('IS from/to date pickers',                      strpos($is, 'accounting-pnl-from') !== false && strpos($is, 'accounting-pnl-to') !== false);
+$a('IncomeStatement page testid',                  strpos($is, 'testIdPrefix="rpt-pnl"') !== false);
+$a('IS net-income testid',                         strpos($is, 'rpt-pnl-net-income') !== false);
+$a('IS from/to date pickers',                      strpos($is, 'testIdPrefix="rpt-pnl"') !== false && strpos($is, 'period={period}') !== false);
 
 $bs = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/BalanceSheet.jsx');
-$a('BalanceSheet page testid',                     strpos($bs, 'data-testid="accounting-balance"') !== false);
-$a('BS sections assets/liabilities/equity',        strpos($bs, 'accounting-balance-assets-total') !== false
-                                                    && strpos($bs, 'accounting-balance-liabilities-total') !== false
-                                                    && strpos($bs, 'accounting-balance-equity-total') !== false);
-$a('BS shows balanced/diff',                       strpos($bs, 'accounting-balance-diff') !== false);
+$a('BalanceSheet page testid',                     strpos($bs, 'testIdPrefix="rpt-bs"') !== false);
+$a('BS sections assets/liabilities/equity',        strpos($bs, 'testIdPrefix="rpt-bs-assets"') !== false
+                                                    && strpos($bs, 'testIdPrefix="rpt-bs-liabilities"') !== false
+                                                    && strpos($bs, 'testIdPrefix="rpt-bs-equity"') !== false);
+$a('BS shows balanced/diff',                       strpos($bs, 'rpt-bs-balanced-line') !== false);
 
 $pp = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/Periods.jsx');
 $a('Periods page testid',                          strpos($pp, 'data-testid="accounting-periods"') !== false);

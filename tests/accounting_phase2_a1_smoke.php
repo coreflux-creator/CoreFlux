@@ -92,18 +92,18 @@ $a('JE create route /new',                             strpos($mod, 'path="journ
 
 echo "\nCashFlowStatement.jsx\n";
 $cf = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/CashFlowStatement.jsx');
-$a('section testid root',                              strpos($cf, 'data-testid="accounting-cash-flow"') !== false);
+$a('section testid root (ReportShell prefix)',         strpos($cf, 'testIdPrefix="rpt-cf"') !== false);
 $a('uses cash_flow_indirect API',                      strpos($cf, 'type=cash_flow_indirect') !== false);
-$a('renders operating section',                        strpos($cf, '"accounting-cf-operating"') !== false);
-$a('renders investing section',                        strpos($cf, '"accounting-cf-investing"') !== false);
-$a('renders financing section',                        strpos($cf, '"accounting-cf-financing"') !== false);
-$a('renders untagged warning',                         strpos($cf, 'accounting-cf-untagged-warning') !== false);
+$a('renders operating section',                        strpos($cf, '"rpt-cf-operating"') !== false);
+$a('renders investing section',                        strpos($cf, '"rpt-cf-investing"') !== false);
+$a('renders financing section',                        strpos($cf, '"rpt-cf-financing"') !== false);
+$a('renders untagged warning',                         strpos($cf, 'rpt-cf-untagged-warning') !== false);
 $a('renders net change + beginning + ending',
-    strpos($cf, 'accounting-cf-net-change') !== false &&
-    strpos($cf, 'accounting-cf-beginning')  !== false &&
-    strpos($cf, 'accounting-cf-ending')     !== false);
-$a('renders reconciliation row',                       strpos($cf, 'accounting-cf-recon') !== false);
-$a('renders balanced flag',                            strpos($cf, 'accounting-cf-balanced') !== false);
+    strpos($cf, 'rpt-cf-net-change') !== false &&
+    strpos($cf, 'rpt-cf-beginning')  !== false &&
+    strpos($cf, 'rpt-cf-ending')     !== false);
+$a('renders reconciliation row (tie-out kpi)',         strpos($cf, 'rpt-cf-kpi-balanced') !== false);
+$a('renders balanced flag',                            strpos($cf, 'rpt-cf-balanced') !== false);
 
 echo "\nJournalEntryCreate.jsx\n";
 $jc = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/JournalEntryCreate.jsx');
@@ -127,16 +127,17 @@ $a('maps ap_bills source',                             strpos($jd, 'ap_bills:') 
 $a('maps payroll_runs source',                         strpos($jd, "'payroll_runs'") !== false);
 $a('status pill renders',                              strpos($jd, 'accounting-je-status-') !== false);
 
-echo "\nIS / BS drill-through links\n";
+echo "\nIS / BS drill-through (Reports Overhaul Pass 2 — slide-over not route)\n";
 $is = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/IncomeStatement.jsx');
-$a('IS imports Link',                                  strpos($is, "from 'react-router-dom'") !== false);
-$a('IS account-code wrapped in Link',                  strpos($is, '/modules/accounting/journal-entries?account_code=') !== false);
-$a('IS drill testid',                                  strpos($is, '${testIdPrefix}-drill-${r.code}') !== false);
+$a('IS imports GlDetailDrilldown',                     strpos($is, 'GlDetailDrilldown') !== false);
+$a('IS row onDrill wires setDrill (slide-over modal)', strpos($is, 'setDrill({') !== false &&
+                                                       strpos($is, 'accountCode: code') !== false);
+$a('IS row drill chevron testid via ComparisonTable',  strpos($is, 'rpt-pnl-revenue') !== false &&
+                                                       strpos($is, 'rpt-pnl-expense')   !== false);
 $bs = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/BalanceSheet.jsx');
-$a('BS imports Link',                                  strpos($bs, "from 'react-router-dom'") !== false);
-$a('BS account-code wrapped in Link',                  strpos($bs, '/modules/accounting/journal-entries?account_code=') !== false);
-$a('BS drill skips synthetic rows',                    strpos($bs, 'r.synthetic') !== false &&
-                                                       strpos($bs, '? <code>{r.code}</code>') !== false);
+$a('BS imports GlDetailDrilldown',                     strpos($bs, 'GlDetailDrilldown') !== false);
+$a('BS row onDrill wires setDrill',                    strpos($bs, 'setDrill({') !== false);
+$a('BS drill skips synthetic rows',                    strpos($bs, 'synthetic ? null') !== false);
 
 echo "\nJournalEntries.jsx — URL filter pass-through\n";
 $jl = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/JournalEntries.jsx');

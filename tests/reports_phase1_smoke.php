@@ -138,15 +138,15 @@ foreach (['exec-revenue','exec-gp','exec-headcount','exec-rev-runrate'] as $tid)
 }
 
 $cp = (string) file_get_contents("{$uiDir}/ClientProfitability.jsx");
-$assert('ClientProfitability table testid',   stripos($cp, 'reports-client-table') !== false);
-$assert('ClientProfitability surfaces alerts', stripos($cp, 'reports-client-alerts') !== false);
+$assert('ClientProfitability table testid',   stripos($cp, 'rpt-clientprof-table') !== false);
+$assert('ClientProfitability surfaces alerts', stripos($cp, 'rpt-clientprof-alerts') !== false);
 
 $rs = (string) file_get_contents("{$uiDir}/RateSpreadMonitor.jsx");
-$assert('RateSpreadMonitor table testid', stripos($rs, 'reports-rate-spread-table') !== false);
+$assert('RateSpreadMonitor table testid', stripos($rs, 'rpt-spread-table') !== false);
 $assert('RateSpreadMonitor flags negative_spread', stripos($rs, 'negative_spread') !== false);
 
 $ow = (string) file_get_contents("{$uiDir}/OvertimeWatch.jsx");
-foreach (['ot-hours','ot-revenue','ot-cost','ot-margin','reports-overtime-employees-table','reports-overtime-clients-table'] as $tid) {
+foreach (['rpt-ot-kpi-hours','rpt-ot-kpi-revenue','rpt-ot-kpi-cost','rpt-ot-kpi-margin','rpt-ot-employees-table','rpt-ot-clients-table'] as $tid) {
     $assert("OvertimeWatch surface: {$tid}", stripos($ow, $tid) !== false);
 }
 

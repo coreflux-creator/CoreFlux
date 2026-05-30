@@ -45,29 +45,31 @@ $assert('trial_balance fallback emits data_warning',    preg_match("#action === 
 
 echo "\nFinancial statement UIs — DataWarning wired\n";
 foreach ([
-    'BalanceSheet'        => 'accounting-balance',
-    'IncomeStatement'     => 'accounting-pnl',
-    'TrialBalance'        => 'accounting-trial',
-    'CashFlowStatement'   => 'accounting-cash-flow',
+    'BalanceSheet'        => 'rpt-bs',
+    'IncomeStatement'     => 'rpt-pnl',
+    'TrialBalance'        => 'rpt-tb',
+    'CashFlowStatement'   => 'rpt-cf',
 ] as $component => $sectionTestid) {
     $code = (string) file_get_contents("{$ROOT}/modules/accounting/ui/{$component}.jsx");
     $assert("{$component}: imports DataWarning",
         stripos($code, "import DataWarning from '../../../dashboard/src/components/DataWarning'") !== false);
     $assert("{$component}: renders DataWarning when data_warning present",
-        preg_match('#data\?.data_warning\s*&&\s*<DataWarning#s', $code) === 1);
-    $assert("{$component}: still has section testid '{$sectionTestid}'",
-        stripos($code, "data-testid=\"{$sectionTestid}\"") !== false);
+        preg_match('#current\?.data_warning\s*&&\s*\(?\s*\n?\s*<DataWarning#s', $code) === 1);
+    // Pass-2 overhaul: every report renders ReportShell with a stable
+    // testIdPrefix so testids cascade under e.g. 'rpt-bs', 'rpt-pnl' etc.
+    $assert("{$component}: ReportShell testIdPrefix='{$sectionTestid}'",
+        stripos($code, "testIdPrefix=\"{$sectionTestid}\"") !== false);
 }
 
 $bs = (string) file_get_contents("{$ROOT}/modules/accounting/ui/BalanceSheet.jsx");
 $ic = (string) file_get_contents("{$ROOT}/modules/accounting/ui/IncomeStatement.jsx");
 $cf = (string) file_get_contents("{$ROOT}/modules/accounting/ui/CashFlowStatement.jsx");
 $assert('BalanceSheet uses array-shape guard before render',
-    stripos($bs, 'Array.isArray(data.assets)') !== false && stripos($bs, '{safe && (') !== false);
+    stripos($bs, 'Array.isArray(current.assets)') !== false && stripos($bs, '{safe && (') !== false);
 $assert('IncomeStatement uses array-shape guard',
-    stripos($ic, 'Array.isArray(data.revenue)') !== false && stripos($ic, '{safe && (') !== false);
+    stripos($ic, 'Array.isArray(current.revenue)') !== false && stripos($ic, '{safe && (') !== false);
 $assert('CashFlowStatement uses sections guard',
-    stripos($cf, 'data && data.sections') !== false && stripos($cf, '{safe && (') !== false);
+    stripos($cf, 'current.sections') !== false && stripos($cf, '{safe && (') !== false);
 
 echo "\nGlobal exception handler — clearer 500 messages\n";
 $ab = (string) file_get_contents("{$ROOT}/core/api_bootstrap.php");
