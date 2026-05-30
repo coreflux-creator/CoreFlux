@@ -1362,6 +1362,11 @@ function jobdivaExtractJoinedSubPayloads(array $enriched): array
         // at the BI level).
     ];
 
+    // PASS 1 — prefix matches. Routes prefixed keys (`candidate id`,
+    // `start pay rate`, `customerName`, …) into their joined-entity
+    // buckets. Tracks which top-level keys did NOT match any prefix
+    // so PASS 2 can apply the assignment-flavor heuristic to them.
+    $unprefixed = [];
     foreach ($enriched as $k => $v) {
         if (!is_string($k)) continue;
         // Skip nested objects (handled above) + skip CoreFlux-internal keys.
@@ -1369,6 +1374,7 @@ function jobdivaExtractJoinedSubPayloads(array $enriched): array
         if (str_starts_with($k, '_jd_')) continue;
         if (str_starts_with($k, '__')) continue;
 
+        $matchedPrefix = false;
         foreach ($PREFIX_MAP as $prefix => $entityType) {
             $stripped = null;
             // snake_case: candidate_first_name → first_name
@@ -1400,7 +1406,58 @@ function jobdivaExtractJoinedSubPayloads(array $enriched): array
                 if (!array_key_exists($stripped, $out[$entityType])) {
                     $out[$entityType][$stripped] = $v;
                 }
+                $matchedPrefix = true;
                 break; // matched one prefix; don't try others.
+            }
+        }
+        if (!$matchedPrefix) {
+            $unprefixed[$k] = $v;
+        }
+    }
+
+    // PASS 2 — assignment-flavor heuristic for unprefixed top-level
+    // scalars only. Runs AFTER the prefix pass so prefix-specific
+    // matches (e.g. `start pay rate` → assignment.pay_rate=88) win
+    // over generic top-level matches (`pay rate` → assignment.pay_rate).
+    //
+    // Operator ask: "I want every single available data point to
+    // come across and become mappable. a + c."
+    //
+    // JobDiva's V2 BI Placement payload flattens MANY assignment-
+    // record fields onto the placement WITHOUT any prefix —
+    // `final bill rate`, `agreed pay rate`, `quoted bill rate`,
+    // `pay rate currency/unit`, `pay agreed date`, `start date`,
+    // `end date`. Operators expect to find these under the
+    // `assignment` bucket (where JobDiva's UI shows them as
+    // Assignment-record fields), not buried in placement.
+    $assignmentKeywords = [
+        'rate', 'pay', 'bill', 'markup', 'salary', 'overtime',
+        'doubletime', 'commission', 'vms ', 'hourly', 'currency',
+    ];
+    $assignmentExactWhole = [
+        'start date', 'end date', 'hire date',
+        'pay agreed date', 'startstatus',
+    ];
+    foreach ($unprefixed as $k => $v) {
+        $lowerK = strtolower($k);
+        $isAssignmentFlavor = false;
+        foreach ($assignmentKeywords as $kw) {
+            if (str_contains($lowerK, $kw)) {
+                $isAssignmentFlavor = true;
+                break;
+            }
+        }
+        if (!$isAssignmentFlavor && in_array($lowerK, $assignmentExactWhole, true)) {
+            $isAssignmentFlavor = true;
+        }
+        if ($isAssignmentFlavor) {
+            // Normalize the key into a snake_case path safe for the
+            // indexer: lowercase, every non-alphanumeric → `_`,
+            // trimmed of leading/trailing `_`.
+            $norm = preg_replace('/[^A-Za-z0-9_]+/', '_', trim($lowerK)) ?? '';
+            $norm = trim($norm, '_');
+            if ($norm !== '' && !array_key_exists($norm, $out['assignment'])) {
+                $out['assignment'][$norm] = $v;
             }
         }
     }

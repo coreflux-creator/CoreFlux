@@ -11584,3 +11584,100 @@ spaces to `_`) made the raw fields look like they were "there" under
 4. The Assignment / Job / Person / Customer entity tabs in the main
    studio will now have a dramatically larger field count, including
    `pay_rate`, `bill_rate`, `markup`, etc.
+
+
+## Assignment-flavor heuristic + global Source Inspector search (2026-05 — a + c)
+
+### Operator-confirmed payload shape
+Operator pasted the raw `payload_snapshot` for one of their JobDiva
+placements. It contains:
+- 58 top-level scalar fields
+- ZERO `_jd_*` enrichment buckets (JobDiva's `/search*` endpoints
+  don't return data for this tenant — confirmed account-level)
+- Rate-family fields keyed WITHOUT a joined-entity prefix:
+  - `final bill rate` = 38
+  - `agreed pay rate` = null
+  - `quoted bill rate` = null
+  - `bill rate currency/unit` = "h"
+  - `pay rate currency/unit` = "USD/Hour"
+  - `final bill rate unit` = "USD/Hour"
+  - `final bill rate currency`, `hourly currency`, `hourly unit`
+  - `pay agreed date`
+- Date-family fields keyed WITHOUT a joined-entity prefix:
+  - `start date`, `end date`, `hire date`, `submittal date`, `interview date`
+
+Because these don't carry a `start ` / `candidate ` / `job ` /
+`customer ` prefix, the extractor (correctly) parked them under
+`entity_type=placement`. Operators expect them under `assignment`
+(matching JobDiva's UI labeling of these as Assignment-record fields).
+
+### Choice the operator made: a + c
+a) Duplicate rate/pay/bill-flavor unprefixed keys into BOTH
+   `assignment` AND `placement` buckets so they show up where
+   operators look.
+c) Add global search across every entity bucket in the Source
+   Inspector — `pay` typed once shows matching paths under every
+   bucket, no tab-flipping.
+
+### Shipped — option (a) — assignment-flavor heuristic
+- `core/jobdiva/sync.php` — `jobdivaExtractJoinedSubPayloads()` now
+  runs in two passes:
+  - **PASS 1**: original prefix matching (snake / space / camelCase
+    against `candidate`, `employee`, `job`, `customer`, `start`,
+    `assignment`).
+  - **PASS 2**: assignment-flavor heuristic for top-level scalars
+    that DIDN'T match any prefix. Substring keywords
+    (`rate`, `pay`, `bill`, `markup`, `salary`, `overtime`,
+    `doubletime`, `commission`, `vms `, `hourly`, `currency`)
+    OR whole-key matches (`start date`, `end date`, `hire date`,
+    `pay agreed date`, `startstatus`) duplicate the value into the
+    `assignment` bucket with normalized snake_case key. Prefix-
+    matched values from PASS 1 always win (the heuristic only
+    fills gaps).
+- False-positive safety: explicit assertions in CASE 7 guard against
+  `position type`, `is internal`, `recruited by`, `companyName`,
+  `extRejectedBy` leaking into assignment.
+
+### Shipped — option (c) — global Source Inspector search
+- `api/admin/integrations/payload_fields.php` — new mode:
+  `entity_type=*` (alias `all`). Returns `paths_by_entity`
+  (a `{ et: paths[] }` map) in one round-trip instead of forcing
+  per-bucket queries.
+- `dashboard/src/pages/FieldMappingStudio.jsx` — Source Inspector
+  now has a `🌐 Search across every entity bucket` checkbox. When
+  ON, the filter searches across every entity bucket and each row
+  is tagged with its `entity_type` badge. Clicking a row jumps to
+  that entity_type and pre-fills the mapping form with the
+  selected source path.
+- Smoke: `tests/payload_fields_all_entities_smoke.php` (new) +
+  `tests/jobdiva_assignment_extraction_smoke.php` CASE 7 (new).
+  Total: 7 cases passing in the extractor smoke.
+
+### Verification
+- Extractor smoke: 7/7 cases pass — incl. CASE 7's 13 assertions
+  covering the operator's actual payload key shapes.
+- New endpoint smoke: 2/2 cases pass.
+- Full suite: **330/332 stable** (2 unrelated pre-existing failures).
+- Vite bundle synced: `index-CBule8nU.js`.
+
+### Files touched
+- MODIFIED: `core/jobdiva/sync.php` (two-pass extractor)
+- MODIFIED: `api/admin/integrations/payload_fields.php` (entity_type=*)
+- MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx`
+  (global toggle + paths_by_entity rendering)
+- MODIFIED: `tests/jobdiva_assignment_extraction_smoke.php` (CASE 7)
+- NEW: `tests/payload_fields_all_entities_smoke.php`
+- AUTO-UPDATED: `.deploy-version`, `dashboard/dist/index.html`,
+  `spa-assets/sw.js`, new `spa-assets/index-CBule8nU.js`.
+
+### Operator next step
+1. Deploy via `/update.php`.
+2. Field Mapping Studio → **"Re-index again"** so the 118 stored
+   placement payloads re-extract with the new heuristic. Expected:
+   `assignment (1)` → `assignment (10-15)` with `final_bill_rate`,
+   `agreed_pay_rate`, `quoted_bill_rate`, `pay_rate_currency_unit`,
+   `bill_rate_currency_unit`, `pay_agreed_date`, `end_date`,
+   `hire_date`, `hourly_currency`, `hourly_unit`, etc.
+3. Open **📋 Inspect sources** → tick **🌐 Search across every entity
+   bucket** → type `pay` → every `pay`-flavor field across every
+   bucket lists with the entity badge.

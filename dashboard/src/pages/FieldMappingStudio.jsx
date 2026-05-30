@@ -159,6 +159,10 @@ export default function FieldMappingStudio() {
   const [inspectorPaths, setInspectorPaths] = useState([]);
   const [inspectorBusy, setInspectorBusy] = useState(false);
   const [inspectorFilter, setInspectorFilter] = useState('');
+  // Global-search mode: when ON, filter searches across every entity
+  // bucket (paths_by_entity from the all-buckets API endpoint).
+  const [inspectorGlobal, setInspectorGlobal] = useState(false);
+  const [inspectorGlobalMap, setInspectorGlobalMap] = useState({}); // { entity_type: [paths…] }
 
   // -- "What JobDiva actually returned" raw-payload diagnostic ----------
   const [rawOpen, setRawOpen]       = useState(false);
@@ -324,6 +328,7 @@ export default function FieldMappingStudio() {
     setInspectorOpen(true);
     setInspectorEntity(entityType);
     setInspectorFilter('');
+    setInspectorGlobal(false);
     await loadInspectorPaths(entityType);
   };
 
@@ -339,10 +344,33 @@ export default function FieldMappingStudio() {
     }
   };
 
+  // Load every bucket's paths in one round-trip for global-search mode.
+  const loadInspectorPathsGlobal = async () => {
+    setInspectorBusy(true);
+    try {
+      const r = await api.get(`/api/admin/integrations/payload_fields.php?integration=${integration}&entity_type=*&limit=2000`);
+      setInspectorGlobalMap(r.paths_by_entity || {});
+    } catch (e) {
+      setInspectorGlobalMap({});
+    } finally {
+      setInspectorBusy(false);
+    }
+  };
+
+  const toggleInspectorGlobal = async () => {
+    const next = !inspectorGlobal;
+    setInspectorGlobal(next);
+    if (next && Object.keys(inspectorGlobalMap).length === 0) {
+      await loadInspectorPathsGlobal();
+    }
+  };
+
   const switchInspectorEntity = async (et) => {
     setInspectorEntity(et);
     setInspectorFilter('');
-    await loadInspectorPaths(et);
+    // Don't reload if global mode is on — the entity tabs are just
+    // visual focus while the global map is already loaded.
+    if (!inspectorGlobal) await loadInspectorPaths(et);
   };
 
   // Apply an inspected path to the mapping form (closes inspector, pre-selects).
@@ -1573,11 +1601,6 @@ export default function FieldMappingStudio() {
           bill: 'Bill', payment: 'Payment', gl_account: 'GL Account',
           item: 'Item', time_entry: 'Time Entry', record: 'Record',
         };
-        const q = inspectorFilter.toLowerCase();
-        const visible = !q ? inspectorPaths : inspectorPaths.filter(p =>
-          (p.source_path || '').toLowerCase().includes(q)
-          || String(p.sample_value || '').toLowerCase().includes(q)
-        );
         return (
           <div data-testid="fms-inspector-overlay"
                role="dialog" aria-modal="true"
@@ -1645,60 +1668,158 @@ export default function FieldMappingStudio() {
               <input
                 data-testid="fms-inspector-filter"
                 type="text" className="input"
-                placeholder="filter source paths or sample values…"
+                placeholder={inspectorGlobal ? "search EVERY entity bucket… (e.g. 'pay rate')" : "filter source paths or sample values…"}
                 value={inspectorFilter}
                 onChange={e => setInspectorFilter(e.target.value)}
                 style={{ fontSize: 13 }}
               />
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label data-testid="fms-inspector-global-toggle-label"
+                       style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
+                                fontSize: 12, color: '#475569', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    data-testid="fms-inspector-global-toggle"
+                    checked={inspectorGlobal}
+                    onChange={toggleInspectorGlobal}
+                  />
+                  🌐 Search across <strong>every</strong> entity bucket
+                </label>
+                {inspectorGlobal && (
+                  <span style={{ fontSize: 11, color: '#0369a1' }}>
+                    Showing matches from {Object.keys(inspectorGlobalMap).length} bucket(s)
+                  </span>
+                )}
+              </div>
 
               <div data-testid="fms-inspector-list"
                    style={{ flex: 1, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 6 }}>
                 {inspectorBusy && (
                   <div style={{ padding: 20, color: '#64748b', fontSize: 13 }}>Loading paths…</div>
                 )}
-                {!inspectorBusy && visible.length === 0 && (
-                  <div data-testid="fms-inspector-empty"
-                       style={{ padding: 20, color: '#64748b', fontSize: 13 }}>
-                    No paths {inspectorFilter ? 'match this filter' : `indexed yet for ${inspectorEntity}`}.
-                  </div>
-                )}
-                {!inspectorBusy && visible.length > 0 && (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 1 }}>
-                      <tr>
-                        <th style={{ ...thStyle, width: '38%' }}>Source path</th>
-                        <th style={{ ...thStyle, width: '12%' }}>Type</th>
-                        <th style={{ ...thStyle, width: '40%' }}>Sample value</th>
-                        <th style={{ ...thStyle, width: '10%', textAlign: 'right' }}>Seen</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visible.map((p, i) => (
-                        <tr key={i}
-                            data-testid={`fms-inspector-row-${i}`}
-                            onClick={() => useInspectedPath(p)}
-                            style={{ borderTop: '1px solid #f1f5f9', cursor: 'pointer' }}
-                            onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                          <td style={{ ...tdStyle, fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>{p.source_path}</td>
-                          <td style={{ ...tdStyle, color: '#64748b' }}>{p.value_type || '—'}</td>
-                          <td style={{ ...tdStyle, color: '#475569',
-                                       whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 0 }}
-                              title={String(p.sample_value ?? '')}>
-                            {p.sample_value === null || p.sample_value === undefined || p.sample_value === ''
-                              ? <em style={{ color: '#94a3b8' }}>empty</em>
-                              : String(p.sample_value)}
-                          </td>
-                          <td style={{ ...tdStyle, textAlign: 'right', color: '#94a3b8' }}>{p.occurrence_count ?? 0}</td>
+
+                {/* Global mode — flatten paths_by_entity, filter, show entity column */}
+                {!inspectorBusy && inspectorGlobal && (() => {
+                  const q = inspectorFilter.toLowerCase();
+                  const rows = [];
+                  Object.entries(inspectorGlobalMap).forEach(([et, list]) => {
+                    (list || []).forEach(p => {
+                      if (!q
+                          || (p.source_path || '').toLowerCase().includes(q)
+                          || String(p.sample_value || '').toLowerCase().includes(q)) {
+                        rows.push({ ...p, _et: et });
+                      }
+                    });
+                  });
+                  if (rows.length === 0) {
+                    return (
+                      <div data-testid="fms-inspector-empty"
+                           style={{ padding: 20, color: '#64748b', fontSize: 13 }}>
+                        No paths match this filter across any bucket.
+                      </div>
+                    );
+                  }
+                  return (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 1 }}>
+                        <tr>
+                          <th style={{ ...thStyle, width: '15%' }}>Bucket</th>
+                          <th style={{ ...thStyle, width: '32%' }}>Source path</th>
+                          <th style={{ ...thStyle, width: '10%' }}>Type</th>
+                          <th style={{ ...thStyle, width: '35%' }}>Sample value</th>
+                          <th style={{ ...thStyle, width: '8%', textAlign: 'right' }}>Seen</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                      </thead>
+                      <tbody>
+                        {rows.slice(0, 500).map((p, i) => (
+                          <tr key={`${p._et}-${p.source_path}-${i}`}
+                              data-testid={`fms-inspector-global-row-${i}`}
+                              data-entity={p._et}
+                              onClick={() => {
+                                setInspectorEntity(p._et);
+                                useInspectedPath(p);
+                              }}
+                              style={{ borderTop: '1px solid #f1f5f9', cursor: 'pointer' }}
+                              onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                            <td style={{ ...tdStyle }}>
+                              <span style={{
+                                fontSize: 10, padding: '1px 6px', borderRadius: 999,
+                                background: '#e0f2fe', color: '#0369a1',
+                              }}>{p._et}</span>
+                            </td>
+                            <td style={{ ...tdStyle, fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>{p.source_path}</td>
+                            <td style={{ ...tdStyle, color: '#64748b' }}>{p.value_type || '—'}</td>
+                            <td style={{ ...tdStyle, color: '#475569',
+                                         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 0 }}
+                                title={String(p.sample_value ?? '')}>
+                              {p.sample_value === null || p.sample_value === undefined || p.sample_value === ''
+                                ? <em style={{ color: '#94a3b8' }}>empty</em>
+                                : String(p.sample_value)}
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: 'right', color: '#94a3b8' }}>{p.occurrence_count ?? 0}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  );
+                })()}
+
+                {/* Per-bucket mode — original behavior */}
+                {!inspectorBusy && !inspectorGlobal && (() => {
+                  const q = inspectorFilter.toLowerCase();
+                  const visible = !q ? inspectorPaths : inspectorPaths.filter(p =>
+                    (p.source_path || '').toLowerCase().includes(q)
+                    || String(p.sample_value || '').toLowerCase().includes(q)
+                  );
+                  if (visible.length === 0) {
+                    return (
+                      <div data-testid="fms-inspector-empty"
+                           style={{ padding: 20, color: '#64748b', fontSize: 13 }}>
+                        No paths {inspectorFilter ? 'match this filter' : `indexed yet for ${inspectorEntity}`}.
+                      </div>
+                    );
+                  }
+                  return (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 1 }}>
+                        <tr>
+                          <th style={{ ...thStyle, width: '38%' }}>Source path</th>
+                          <th style={{ ...thStyle, width: '12%' }}>Type</th>
+                          <th style={{ ...thStyle, width: '40%' }}>Sample value</th>
+                          <th style={{ ...thStyle, width: '10%', textAlign: 'right' }}>Seen</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visible.map((p, i) => (
+                          <tr key={i}
+                              data-testid={`fms-inspector-row-${i}`}
+                              onClick={() => useInspectedPath(p)}
+                              style={{ borderTop: '1px solid #f1f5f9', cursor: 'pointer' }}
+                              onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                            <td style={{ ...tdStyle, fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>{p.source_path}</td>
+                            <td style={{ ...tdStyle, color: '#64748b' }}>{p.value_type || '—'}</td>
+                            <td style={{ ...tdStyle, color: '#475569',
+                                         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 0 }}
+                                title={String(p.sample_value ?? '')}>
+                              {p.sample_value === null || p.sample_value === undefined || p.sample_value === ''
+                                ? <em style={{ color: '#94a3b8' }}>empty</em>
+                                : String(p.sample_value)}
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: 'right', color: '#94a3b8' }}>{p.occurrence_count ?? 0}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  );
+                })()}
               </div>
               <div style={{ fontSize: 11, color: '#64748b', textAlign: 'right' }}>
-                {visible.length} of {inspectorPaths.length} path{inspectorPaths.length === 1 ? '' : 's'}
-                {inspectorPaths.length > 0 && ' — click a row to use it in the mapping form'}
+                {inspectorGlobal
+                  ? `${Object.values(inspectorGlobalMap).reduce((sum, l) => sum + (l?.length || 0), 0)} total paths across ${Object.keys(inspectorGlobalMap).length} bucket(s) — click a row to use it`
+                  : `${inspectorPaths.length} path${inspectorPaths.length === 1 ? '' : 's'} ${inspectorPaths.length > 0 ? '— click a row to use it' : ''}`}
               </div>
             </div>
           </div>

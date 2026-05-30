@@ -48,6 +48,25 @@ if ($integration === '' || $entityType === '') {
     ]);
 }
 
+// "All-buckets" mode — entity_type=* returns paths from every entity
+// bucket for this integration in one round-trip. Drives the Source
+// Inspector's "global search across all entities" behavior (operator
+// types `pay` once and sees matching paths under every bucket).
+if ($entityType === '*' || $entityType === 'all') {
+    $sources = integrationPayloadFieldIndexSources($tid);
+    $perBucket = [];
+    foreach ($sources as $src) {
+        if ($src['integration'] !== $integration) continue;
+        $et = $src['entity_type'];
+        $perBucket[$et] = integrationPayloadFieldIndexList($tid, $integration, $et, $limit);
+    }
+    api_ok([
+        'integration'    => $integration,
+        'entity_type'    => '*',
+        'paths_by_entity'=> $perBucket,
+    ]);
+}
+
 // Path-listing mode: drive the picker tree.
 api_ok([
     'integration' => $integration,

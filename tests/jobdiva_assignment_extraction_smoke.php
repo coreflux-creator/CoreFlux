@@ -203,4 +203,70 @@ assert(($asn['overtime_rate'] ?? null) === 112.50,         'space-keyed `start o
 assert(($asn['status'] ?? null) === 'active',              'space-keyed `start status` → assignment.status');
 _ok('CASE 6 — JobDiva V2 BI space-keyed flat fields route to joined-entity buckets');
 
+// -----------------------------------------------------------------------------
+// CASE 7 — Assignment-flavor heuristic: top-level placement scalars whose
+// names contain "rate"/"pay"/"bill"/"markup"/"overtime"/"salary"/"hourly"/
+// "currency"/"vms" OR equal "start date"/"end date"/"hire date" get DUPLICATED
+// into the `assignment` bucket. This matches the actual JobDiva V2 BI payload
+// the operator shared, where pay/bill-rate fields sit at the top level WITHOUT
+// any prefix.
+// -----------------------------------------------------------------------------
+$payload = [
+    'id'                       => 55837652,
+    'extRejectedBy'            => null,
+    'job id'                   => 27857851,
+    'candidate id'             => 20619052329442,
+    // Assignment-flavor (no prefix) — MUST duplicate into assignment.
+    'final bill rate'          => 38,
+    'bill rate currency/unit'  => 'h',
+    'agreed pay rate'          => null,
+    'pay rate currency/unit'   => 'USD/Hour',
+    'quoted bill rate'         => null,
+    'final bill rate unit'     => 'USD/Hour',
+    'final bill rate currency' => null,
+    'hourly currency'          => null,
+    'hourly unit'              => null,
+    'pay agreed date'          => null,
+    'start date'               => 1779807600000,
+    'end date'                 => 1792195200000,
+    'hire date'                => null,
+    // Non-assignment top-level scalars — MUST NOT leak.
+    'position type'            => 'contract',
+    'is internal'              => null,
+    'recruited by'             => 'Mohammad Shadab(id:1629466)',
+    'companyName'              => 'Thunderhawk Technology Partners LLC',
+];
+
+$subs = jobdivaExtractJoinedSubPayloads($payload);
+$asn  = $subs['assignment'] ?? [];
+
+// rate/pay/bill-family routed into assignment with normalized snake_case path
+assert(($asn['final_bill_rate'] ?? 'missing') === 38,                  'final bill rate → assignment.final_bill_rate');
+assert(array_key_exists('agreed_pay_rate', $asn),                      'agreed pay rate → assignment.agreed_pay_rate (even when null)');
+assert(($asn['pay_rate_currency_unit'] ?? null) === 'USD/Hour',        'pay rate currency/unit → assignment.pay_rate_currency_unit');
+assert(($asn['bill_rate_currency_unit'] ?? null) === 'h',              'bill rate currency/unit → assignment.bill_rate_currency_unit');
+assert(array_key_exists('quoted_bill_rate', $asn),                     'quoted bill rate → assignment.quoted_bill_rate');
+assert(($asn['final_bill_rate_unit'] ?? null) === 'USD/Hour',          'final bill rate unit → assignment.final_bill_rate_unit');
+assert(array_key_exists('final_bill_rate_currency', $asn),             'final bill rate currency → assignment.final_bill_rate_currency');
+assert(array_key_exists('hourly_currency', $asn),                      'hourly currency → assignment.hourly_currency');
+assert(array_key_exists('hourly_unit', $asn),                          'hourly unit → assignment.hourly_unit');
+
+// date-flavor explicit whole-key matches routed into assignment
+// `start date` is the only exception: it gets prefix-matched in PASS 1
+// (start prefix → strip → assignment.date). The other date-flavor fields
+// have no prefix to match so they go through the heuristic.
+assert(($asn['date'] ?? null) === 1779807600000,                       'start date → assignment.date (via PASS 1 start prefix)');
+assert(($asn['end_date'] ?? null) === 1792195200000,                   'end date → assignment.end_date');
+assert(array_key_exists('hire_date', $asn),                            'hire date → assignment.hire_date');
+assert(array_key_exists('pay_agreed_date', $asn),                      'pay agreed date → assignment.pay_agreed_date');
+
+// FALSE POSITIVE CHECK — non-assignment-flavor keys MUST NOT leak.
+assert(!array_key_exists('position_type', $asn),                       'position type does not leak into assignment');
+assert(!array_key_exists('is_internal', $asn),                         'is internal does not leak into assignment');
+assert(!array_key_exists('recruited_by', $asn),                        'recruited by does not leak into assignment');
+assert(!array_key_exists('companyname', $asn),                         'companyName does not leak into assignment');
+assert(!array_key_exists('extrejectedby', $asn),                       'extRejectedBy does not leak into assignment');
+
+_ok('CASE 7 — assignment-flavor heuristic routes unprefixed rate/pay/bill/date fields into assignment AND blocks false positives');
+
 echo "\n🎯 jobdiva_assignment_extraction_smoke — ALL PASS\n";
