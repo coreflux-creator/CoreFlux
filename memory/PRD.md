@@ -12546,3 +12546,30 @@ Operator goal: "broadly mappable, linked to entities by a unique ID."
 - Reconciliation queue UI surfacing the `/unmatched` endpoint as a drawer with one-click manual link.
 - `create_stub` action wiring (auto-create minimal CoreFlux entity when Airtable record has no match).
 - Studio-side "ingest a sample Airtable record" affordance — the indexer already learns from every successful sync, but operators may want to preview one record's fields before running a full sync.
+
+
+## Airtable Slice 3.1 — Storage-only metric fix + Records Vault + Bulk-add tables (2026-02 — current fork)
+
+### Why
+Operator reported confusion: Health panel showed "Linked to CoreFlux row: 2216 (100%)" for a `link_strategy=none` / `entity=generic` mapping. Those records are actually stored as orphan rows in `external_entity_mappings` with synthetic hash-derived ids — never linked to a real CoreFlux row. The misleading metric obscured the fact that records had nowhere to flow to. Operator also wanted bulk-add of more Airtable tables instead of one-by-one.
+
+### What shipped
+- **Metric fix.** `airtableLinkStats()` now splits `ok` rows into `linked` (real entity link) vs `stored_only` (synthetic id because `link_strategy='none'`). Health endpoint rollup adds `stored_only` and `mappings_stored_only` totals. Hint code renamed `no_strategy` → `stored_only` with a stronger CTA pointing to the Records Vault.
+- **New "Stored only (no link)" Health tile** + **`STORAGE ONLY` badge** on the per-mapping detail row (also surfaced inside the Vault modal header).
+- **Records vault drill-down** (`/api/airtable/vault.php?action=vault`). For one mapping: paginated `external_entity_mappings` rows, text search across `external_id` + payload, per-row "Inspect" expander showing the raw payload JSON, "Open in Airtable" deep-link per row, and a top-25 detected-fields fingerprint so operators see what was actually synced.
+- **Bulk table discovery** (`/api/airtable/discover_tables.php?action=discover_tables`). Lists every base + table the tenant's PAT can read; flags already-mapped tuples; per-base failures degrade gracefully. Paired with `mapping_save_bulk` (capped at 50 items) for one-shot multi-mapping creation.
+- **AirtableSettings UI:** "Records vault" button on every per-mapping row in the Health panel; "Sync more tables" button on the Table mappings header opens a multi-select discover modal with default-entity picker, per-row entity override, and filter search.
+
+### Test status
+- New `tests/airtable_slice3_1_smoke.php`: **49 ✓** covering link-stats split, all 3 new API actions + their shims, health rollup additions, hint-code rename, VaultBrowser + DiscoverTablesModal UI surfaces.
+- Updated `tests/airtable_slice3_smoke.php` to match the hint-code rename.
+- Full suite: **340 pass / 2 known infra fails** (was 339/2 — net +1 from new smoke).
+- Vite rebuilt + sync_bundle.sh rotated hashes (`coreflux-BCCRF7y_`).
+
+### Files touched
+- `core/airtable/sync.php` — `airtableLinkStats()` now splits ok→linked/stored_only.
+- `api/airtable.php` — new `case 'vault'`, `'discover_tables'`, `'mapping_save_bulk'`. Health rollup extended; hint code renamed.
+- `api/airtable/vault.php`, `api/airtable/discover_tables.php`, `api/airtable/mapping_save_bulk.php` — NEW shims.
+- `dashboard/src/pages/AirtableSettings.jsx` — Stored-only tile, STORAGE ONLY badge, Records vault button per mapping, new `VaultBrowser` + `DiscoverTablesModal` components, "Sync more tables" button.
+- `tests/airtable_slice3_smoke.php` — assertion updated for renamed hint code.
+- `tests/airtable_slice3_1_smoke.php` — NEW (49 ✓).

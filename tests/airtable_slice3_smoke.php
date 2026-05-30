@@ -85,7 +85,8 @@ $a('hint code: not_connected',                 str_contains($api, "'code'     =>
 $a('hint code: sync_error',                    str_contains($api, "'code'     => 'sync_error'"));
 $a('hint code: ambiguous',                     str_contains($api, "'code'     => 'ambiguous'"));
 $a('hint code: unmatched',                     str_contains($api, "'code'     => 'unmatched'"));
-$a('hint code: no_strategy',                   str_contains($api, "'code'     => 'no_strategy'"));
+$a('hint code: stored_only (Slice 3.1 — was no_strategy)',
+                                              str_contains($api, "'code'     => 'stored_only'"));
 $a('queries tenant_integration_field_map for coverage',
                                               str_contains($api, "FROM tenant_integration_field_map")
                                             && str_contains($api, "integration = 'airtable'"));

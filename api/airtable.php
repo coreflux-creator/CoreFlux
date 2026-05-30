@@ -215,6 +215,189 @@ switch ($action) {
         api_ok($stats);
     }
 
+    case 'vault': {
+        // Slice-3.1 — browse the integrations vault for one Airtable
+        // mapping. Returns paginated external_entity_mappings rows
+        // with their payload snapshots so operators can SEE what was
+        // synced even when records aren't linked to a real CoreFlux
+        // row (the common case for entity='generic',
+        // link_strategy='none'). Powers the "Records vault" drill-down
+        // surfaced in AirtableSettings beneath the Health panel.
+        if ($method !== 'GET') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.airtable.view');
+        $mid    = (int) (api_query('mapping_id') ?? 0);
+        $limit  = max(1, min(200, (int) (api_query('limit')  ?? 50)));
+        $offset = max(0, (int) (api_query('offset') ?? 0));
+        $q      = trim((string) (api_query('q') ?? ''));
+        if ($mid <= 0) api_error('mapping_id required', 422);
+        $mapping = airtableMappingGet($tid, $mid);
+        if (!$mapping) api_error('Mapping not found', 404);
+
+        $params = ['t' => $tid, 'et' => $mapping['internal_entity']];
+        $where  = "tenant_id = :t AND source_system = 'airtable' AND internal_entity_type = :et";
+        if ($q !== '') {
+            $where        .= " AND (external_id LIKE :q OR payload_snapshot LIKE :q)";
+            $params['q']   = '%' . $q . '%';
+        }
+        // Count first (capped) so the UI can show "Showing 50 of 2,216".
+        $stCount = getDB()->prepare("SELECT COUNT(*) FROM external_entity_mappings WHERE {$where}");
+        $stCount->execute($params);
+        $total = (int) $stCount->fetchColumn();
+
+        $st = getDB()->prepare(
+            "SELECT id, external_id, internal_entity_id, sync_status,
+                    last_synced_at, last_seen_at, payload_snapshot
+               FROM external_entity_mappings
+              WHERE {$where}
+           ORDER BY last_seen_at DESC, id DESC
+              LIMIT {$limit} OFFSET {$offset}"
+        );
+        $st->execute($params);
+        $rows = $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+        // Decode payload + compute a field-key fingerprint per row so
+        // the UI can show "12 fields" without re-stringifying the JSON.
+        // Synthetic ids — when link_strategy='none' OR no real link —
+        // get flagged so we don't pretend the row is linked.
+        $fieldCounts = [];
+        foreach ($rows as &$r) {
+            $r['id']                 = (int) $r['id'];
+            $r['internal_entity_id'] = (int) $r['internal_entity_id'];
+            $payload = json_decode((string) ($r['payload_snapshot'] ?? '[]'), true);
+            $r['payload_snapshot']   = is_array($payload) ? $payload : null;
+            $r['field_count']        = is_array($payload)
+                ? count(array_filter(array_keys($payload), fn ($k) => $k[0] !== '_'))
+                : 0;
+            $r['airtable_record_url'] = is_array($payload)
+                ? ($payload['_airtable_record_url'] ?? null)
+                : null;
+            $r['is_stored_only']     = ((string) ($mapping['link_strategy'] ?? 'none')) === 'none';
+            if (is_array($payload)) {
+                foreach (array_keys($payload) as $k) {
+                    if ($k[0] === '_') continue;
+                    $fieldCounts[$k] = ($fieldCounts[$k] ?? 0) + 1;
+                }
+            }
+        }
+        unset($r);
+        arsort($fieldCounts);
+        $topFields = [];
+        foreach ($fieldCounts as $k => $n) {
+            $topFields[] = ['field' => $k, 'occurrences' => $n];
+            if (count($topFields) >= 25) break;
+        }
+
+        api_ok([
+            'mapping_id'      => $mid,
+            'internal_entity' => $mapping['internal_entity'],
+            'link_strategy'   => (string) ($mapping['link_strategy'] ?? 'none'),
+            'is_stored_only'  => ((string) ($mapping['link_strategy'] ?? 'none')) === 'none',
+            'total'           => $total,
+            'limit'           => $limit,
+            'offset'          => $offset,
+            'q'               => $q,
+            'rows'            => $rows,
+            'top_fields'      => $topFields,
+        ]);
+    }
+
+    case 'discover_tables': {
+        // Slice-3.1 — bulk-discovery surface for operators who want to
+        // sync more than just the one table they already configured.
+        // Lists every Airtable base + table the PAT can read, with a
+        // flag indicating which (base, table) tuples are already
+        // mapped in CoreFlux. Powers the "Sync more tables" picker in
+        // AirtableSettings.
+        if ($method !== 'GET') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.airtable.view');
+        try {
+            $bases = airtableListBases($tid);
+        } catch (\Throwable $e) {
+            api_error('Failed to list bases: ' . $e->getMessage(), 502);
+        }
+        // Map existing (base_id, table_id) → mapping_id for fast lookup.
+        $existing = [];
+        foreach (airtableMappingList($tid) as $m) {
+            $key = ($m['base_id'] ?? '') . '|' . ($m['table_id'] ?? '');
+            $existing[$key] = (int) ($m['id'] ?? 0);
+        }
+        $out = [];
+        $tableTotal   = 0;
+        $tableMapped  = 0;
+        foreach (($bases['bases'] ?? $bases) as $b) {
+            $bid = (string) ($b['id'] ?? '');
+            if ($bid === '') continue;
+            $tables = [];
+            try {
+                $bt = airtableListTables($tid, $bid);
+            } catch (\Throwable $e) {
+                $tables = []; // base may be inaccessible; skip silently
+                $out[] = [
+                    'id'     => $bid,
+                    'name'   => (string) ($b['name'] ?? $bid),
+                    'tables' => [],
+                    'error'  => substr($e->getMessage(), 0, 160),
+                ];
+                continue;
+            }
+            foreach (($bt['tables'] ?? []) as $t) {
+                $tid_  = (string) ($t['id'] ?? '');
+                if ($tid_ === '') continue;
+                $tableTotal++;
+                $key = $bid . '|' . $tid_;
+                $isMapped = isset($existing[$key]);
+                if ($isMapped) $tableMapped++;
+                $tables[] = [
+                    'id'           => $tid_,
+                    'name'         => (string) ($t['name'] ?? $tid_),
+                    'primary_field'=> (string) ($t['primaryFieldId'] ?? ''),
+                    'field_count'  => is_array($t['fields'] ?? null) ? count($t['fields']) : 0,
+                    'mapped'       => $isMapped,
+                    'mapping_id'   => $isMapped ? $existing[$key] : null,
+                ];
+            }
+            $out[] = [
+                'id'     => $bid,
+                'name'   => (string) ($b['name'] ?? $bid),
+                'tables' => $tables,
+            ];
+        }
+        api_ok([
+            'bases'         => $out,
+            'tables_total'  => $tableTotal,
+            'tables_mapped' => $tableMapped,
+        ]);
+    }
+
+    case 'mapping_save_bulk': {
+        // Slice-3.1 — create multiple mappings in one shot from the
+        // "Sync more tables" picker. Each row is independently upserted
+        // so a single bad row doesn't break the rest.
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.airtable.manage');
+        $body = api_json_body();
+        $items = $body['items'] ?? [];
+        if (!is_array($items) || count($items) === 0) api_error('items[] required', 422);
+        if (count($items) > 50)                       api_error('items[] may not exceed 50', 422);
+        $created = []; $skipped = []; $errors = [];
+        foreach ($items as $i => $row) {
+            try {
+                $saved = airtableMappingUpsert($tid, $row, $user['id'] ?? null);
+                $created[] = ['index' => $i, 'mapping_id' => (int) $saved['id'],
+                              'base_id' => $saved['base_id'], 'table_id' => $saved['table_id']];
+            } catch (\InvalidArgumentException $e) {
+                $skipped[] = ['index' => $i, 'reason' => $e->getMessage()];
+            } catch (\Throwable $e) {
+                $errors[] = ['index' => $i, 'error' => substr($e->getMessage(), 0, 200)];
+            }
+        }
+        api_ok([
+            'created' => $created,
+            'skipped' => $skipped,
+            'errors'  => $errors,
+        ]);
+    }
+
     case 'health': {
         // Slice-3 — tenant-wide health & troubleshooting summary.
         // Rolls up connection status, every mapping's linkage health,
@@ -229,6 +412,7 @@ switch ($action) {
         $rollup = [
             'total_records'   => 0,
             'linked'          => 0,
+            'stored_only'     => 0,
             'unmatched'       => 0,
             'ambiguous'       => 0,
             'errored'         => 0,
@@ -236,13 +420,14 @@ switch ($action) {
             'mappings_off'    => 0,
             'mappings_unrun'  => 0,
             'mappings_failed' => 0,
+            'mappings_stored_only' => 0,
         ];
         $perMapping = [];
         $hints = [];
 
         foreach ($mappings as $m) {
             $mid = (int) ($m['id'] ?? 0);
-            $stats = ['linked' => 0, 'unmatched' => 0, 'ambiguous' => 0, 'stale' => 0, 'error' => 0, 'total' => 0];
+            $stats = ['linked' => 0, 'stored_only' => 0, 'unmatched' => 0, 'ambiguous' => 0, 'stale' => 0, 'error' => 0, 'total' => 0];
             try { $stats = airtableLinkStats($tid, $mid); } catch (\Throwable $e) { /* mapping deletion race */ }
             $perMapping[] = [
                 'id'              => $mid,
@@ -260,15 +445,18 @@ switch ($action) {
                 'health_pct'      => $stats['total'] > 0
                     ? (int) round(100 * $stats['linked'] / max(1, $stats['total']))
                     : null,
+                'is_stored_only'  => ((string) ($m['link_strategy'] ?? 'none')) === 'none',
             ];
             $rollup['total_records'] += (int) $stats['total'];
             $rollup['linked']        += (int) $stats['linked'];
+            $rollup['stored_only']   += (int) ($stats['stored_only'] ?? 0);
             $rollup['unmatched']     += (int) $stats['unmatched'];
             $rollup['ambiguous']     += (int) $stats['ambiguous'];
             $rollup['errored']       += (int) $stats['error'];
             if (($m['direction'] ?? 'pull') !== 'pull')                 $rollup['mappings_off']++;
             if (empty($m['last_sync_at']))                              $rollup['mappings_unrun']++;
             if (!empty($m['last_sync_error']))                          $rollup['mappings_failed']++;
+            if (((string) ($m['link_strategy'] ?? 'none')) === 'none')  $rollup['mappings_stored_only']++;
 
             if (!empty($m['last_sync_error'])) {
                 $hints[] = [
@@ -303,11 +491,13 @@ switch ($action) {
             if (($m['link_strategy'] ?? 'none') === 'none' && (int) $stats['total'] > 0) {
                 $hints[] = [
                     'severity' => 'info',
-                    'code'     => 'no_strategy',
+                    'code'     => 'stored_only',
                     'mapping_id' => $mid,
                     'message'  => ($m['table_name'] ?: $m['table_id']) .
-                                  ' is configured with link_strategy=none — records are stored but never linked to ' .
-                                  $m['internal_entity'] . ' rows.',
+                                  ' has ' . (int) $stats['total'] .
+                                  ' record(s) stored in the integrations vault but never linked to a CoreFlux ' .
+                                  $m['internal_entity'] . ' row (link_strategy=none). ' .
+                                  'Browse them under "Records vault" below, or edit this mapping to pick a real entity + link strategy.',
                 ];
             }
         }

@@ -595,6 +595,13 @@ function airtableRelinkExistingRows(int $tenantId, int $mappingId, ?int $userId)
  * Aggregated linkage stats for a single mapping. Cheap GROUP BY on
  * external_entity_mappings.sync_status. Used by the AirtableSettings
  * mapping-row badge UI.
+ *
+ * Slice-3.1 — when link_strategy='none' the resolver returns
+ * sync_status='ok' even though the row is stored with a synthetic
+ * internal_entity_id (no real link). We split that out as
+ * `stored_only` so the "Linked to CoreFlux row" tile doesn't
+ * misleadingly show 100% green when records are actually orphaned
+ * in the integrations vault.
  */
 function airtableLinkStats(int $tenantId, int $mappingId): array
 {
@@ -612,14 +619,20 @@ function airtableLinkStats(int $tenantId, int $mappingId): array
     $stmt->execute(['t' => $tenantId, 'et' => $mapping['internal_entity']]);
     $rows = $stmt->fetchAll(\PDO::FETCH_KEY_PAIR) ?: [];
 
+    $okCount      = (int) ($rows['ok']        ?? 0);
+    $isStoredOnly = ((string) ($mapping['link_strategy'] ?? 'none')) === 'none';
+
     return [
-        'mapping_id' => $mappingId,
-        'linked'     => (int) ($rows['ok']        ?? 0),
-        'unmatched'  => (int) ($rows['unmatched'] ?? 0),
-        'ambiguous'  => (int) ($rows['ambiguous'] ?? 0),
-        'stale'      => (int) ($rows['stale']     ?? 0),
-        'error'      => (int) ($rows['error']     ?? 0),
-        'total'      => array_sum(array_map('intval', $rows)),
+        'mapping_id'  => $mappingId,
+        // When strategy=none, all 'ok' rows are synthetic-id rows that
+        // aren't actually linked to a real CoreFlux entity row.
+        'linked'      => $isStoredOnly ? 0           : $okCount,
+        'stored_only' => $isStoredOnly ? $okCount    : 0,
+        'unmatched'   => (int) ($rows['unmatched'] ?? 0),
+        'ambiguous'   => (int) ($rows['ambiguous'] ?? 0),
+        'stale'       => (int) ($rows['stale']     ?? 0),
+        'error'       => (int) ($rows['error']     ?? 0),
+        'total'       => array_sum(array_map('intval', $rows)),
     ];
 }
 

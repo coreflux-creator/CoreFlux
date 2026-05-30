@@ -249,6 +249,8 @@ function HealthPanel({ reload }) {
   // errors, Studio field-mapping coverage, and actionable hints.
   const health = useApi('/api/airtable/health.php?action=health');
   const [expanded, setExpanded] = useState(false);
+  // Slice-3.1 — mapping_id currently being browsed in the Records Vault.
+  const [vaultMappingId, setVaultMappingId] = useState(null);
 
   if (health.loading) {
     return (
@@ -314,6 +316,10 @@ function HealthPanel({ reload }) {
               label="Linked to CoreFlux row"
               value={`${rollup.linked || 0}${healthPct !== null ? ` (${healthPct}%)` : ''}`}
               tone={healthPct === null ? 'neutral' : healthPct >= 90 ? 'ok' : healthPct >= 70 ? 'warn' : 'err'} />
+        <Tile testid="airtable-health-tile-stored-only"
+              label="Stored only (no link)"
+              value={rollup.stored_only || 0}
+              tone={(rollup.stored_only || 0) > 0 ? 'warn' : 'neutral'} />
         <Tile testid="airtable-health-tile-unmatched"
               label="Unmatched" value={rollup.unmatched || 0}
               tone={(rollup.unmatched || 0) > 0 ? 'warn' : 'ok'} />
@@ -385,10 +391,12 @@ function HealthPanel({ reload }) {
                 <th style={{ padding: '4px 6px' }}>Entity</th>
                 <th style={{ padding: '4px 6px' }}>Strategy</th>
                 <th style={{ padding: '4px 6px', textAlign: 'right' }}>Linked</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>Stored only</th>
                 <th style={{ padding: '4px 6px', textAlign: 'right' }}>Unmatched</th>
                 <th style={{ padding: '4px 6px', textAlign: 'right' }}>Ambig.</th>
                 <th style={{ padding: '4px 6px', textAlign: 'right' }}>Health %</th>
                 <th style={{ padding: '4px 6px' }}>Last sync</th>
+                <th style={{ padding: '4px 6px' }}></th>
               </tr>
             </thead>
             <tbody>
@@ -396,10 +404,21 @@ function HealthPanel({ reload }) {
                 <tr key={m.id}
                     data-testid={`airtable-health-per-mapping-row-${m.id}`}
                     style={{ borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)' }}>
-                  <td style={{ padding: '4px 6px' }}>{m.base_name || m.base_id} / {m.table_name || m.table_id}</td>
+                  <td style={{ padding: '4px 6px' }}>
+                    {m.base_name || m.base_id} / {m.table_name || m.table_id}
+                    {m.is_stored_only && (
+                      <span data-testid={`airtable-health-stored-badge-${m.id}`}
+                            style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 4,
+                                     background: '#fef3c7', color: '#92400e',
+                                     fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>
+                        STORAGE ONLY
+                      </span>
+                    )}
+                  </td>
                   <td style={{ padding: '4px 6px', fontFamily: 'var(--cf-mono, ui-monospace)' }}>{m.internal_entity}</td>
                   <td style={{ padding: '4px 6px', fontFamily: 'var(--cf-mono, ui-monospace)' }}>{m.link_strategy}</td>
                   <td style={{ padding: '4px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.stats?.linked || 0}</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.stats?.stored_only || 0}</td>
                   <td style={{ padding: '4px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.stats?.unmatched || 0}</td>
                   <td style={{ padding: '4px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.stats?.ambiguous || 0}</td>
                   <td style={{ padding: '4px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
@@ -407,6 +426,17 @@ function HealthPanel({ reload }) {
                   </td>
                   <td style={{ padding: '4px 6px', fontFamily: 'var(--cf-mono, ui-monospace)' }}>
                     {m.last_sync_at || 'never'}
+                  </td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+                    <button
+                      type="button" className="btn"
+                      data-testid={`airtable-health-vault-btn-${m.id}`}
+                      onClick={() => setVaultMappingId(m.id)}
+                      style={{ fontSize: 11, padding: '2px 8px' }}
+                      title="Browse the raw Airtable records synced for this mapping"
+                    >
+                      Records vault
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -443,6 +473,235 @@ function HealthPanel({ reload }) {
           Status: {healthPct === null ? 'no data yet' : healthPct >= 90 ? 'healthy' : healthPct >= 70 ? 'mostly healthy' : 'needs attention'}
         </span>
       </p>
+      {vaultMappingId !== null && (
+        <VaultBrowser
+          mappingId={vaultMappingId}
+          onClose={() => setVaultMappingId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────── vault */
+
+function VaultBrowser({ mappingId, onClose }) {
+  // Slice-3.1 — drill-down into the integrations vault for one
+  // Airtable mapping. Shows the actual external_entity_mappings rows
+  // we synced so operators can see "what we stored", browse fields
+  // detected in the payload, and decide whether to wire field
+  // mappings / link strategies.
+  const [data, setData]   = useState(null);
+  const [busy, setBusy]   = useState(false);
+  const [error, setError] = useState(null);
+  const [q, setQ]         = useState('');
+  const [offset, setOffset] = useState(0);
+  const limit = 50;
+  const [expanded, setExpanded] = useState({}); // {row_id: true}
+
+  const load = async () => {
+    setBusy(true); setError(null);
+    try {
+      const params = new URLSearchParams({
+        action: 'vault',
+        mapping_id: String(mappingId),
+        limit: String(limit),
+        offset: String(offset),
+      });
+      if (q.trim()) params.set('q', q.trim());
+      const r = await api.get(`/api/airtable/vault.php?${params.toString()}`);
+      setData(r);
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [mappingId, offset]);
+
+  const rows = data?.rows || [];
+  const topFields = data?.top_fields || [];
+  const total = data?.total || 0;
+  const pageStart = offset + 1;
+  const pageEnd = Math.min(offset + rows.length, total);
+
+  return (
+    <div
+      data-testid="airtable-vault-modal"
+      role="dialog" aria-modal="true"
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 1000, padding: 24,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        style={{
+          background: 'var(--cf-surface, #fff)', borderRadius: 8,
+          width: 'min(960px, 96vw)', maxHeight: '92vh',
+          overflow: 'hidden', display: 'flex', flexDirection: 'column',
+          boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
+        }}
+      >
+        <header style={{ padding: '14px 20px', borderBottom: '1px solid var(--cf-border)',
+                         display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 600 }}>
+              Records vault
+              {data?.is_stored_only && (
+                <span style={{ marginLeft: 8, padding: '2px 8px',
+                               background: '#fef3c7', color: '#92400e',
+                               borderRadius: 4, fontSize: 11, fontWeight: 700,
+                               letterSpacing: 0.3 }}>
+                  STORAGE ONLY · link_strategy=none
+                </span>
+              )}
+            </h3>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+              Showing {rows.length > 0 ? `${pageStart}–${pageEnd}` : 0} of {total} record(s) from
+              the integrations vault for <code>{data?.internal_entity || ''}</code>.
+              {data?.is_stored_only && ' These rows are stored verbatim but never linked to a real CoreFlux entity. Adjust the mapping\u2019s entity type + link strategy, or wire Studio field mappings to make them useful.'}
+            </p>
+          </div>
+          <button type="button" className="btn"
+                  data-testid="airtable-vault-close"
+                  onClick={onClose} style={{ fontSize: 13 }}>
+            <X size={14} />
+          </button>
+        </header>
+
+        <div style={{ padding: '10px 20px', display: 'flex', gap: 10, alignItems: 'center',
+                      borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)' }}>
+          <input
+            data-testid="airtable-vault-search"
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { setOffset(0); load(); } }}
+            placeholder="Search external_id or payload content…"
+            style={{ flex: 1, padding: '6px 10px', borderRadius: 4,
+                     border: '1px solid var(--cf-border)', fontSize: 13 }}
+          />
+          <button type="button" className="btn"
+                  data-testid="airtable-vault-search-btn"
+                  onClick={() => { setOffset(0); load(); }}
+                  disabled={busy}>
+            Search
+          </button>
+        </div>
+
+        {topFields.length > 0 && (
+          <div data-testid="airtable-vault-top-fields"
+               style={{ padding: '8px 20px', borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#475569',
+                          textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 4 }}>
+              Detected Airtable fields ({topFields.length}{topFields.length === 25 ? '+ — top 25' : ''})
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {topFields.map((f) => (
+                <span key={f.field}
+                      data-testid={`airtable-vault-field-${f.field}`}
+                      title={`Appears in ${f.occurrences} record(s)`}
+                      style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999,
+                               background: '#eef2ff', color: '#3730a3',
+                               border: '1px solid #c7d2fe' }}>
+                  {f.field} <span style={{ opacity: 0.7 }}>({f.occurrences})</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ flex: 1, overflow: 'auto', padding: '0 20px' }}>
+          {busy && <p data-testid="airtable-vault-loading">Loading…</p>}
+          {error && <p data-testid="airtable-vault-error" style={{ color: 'var(--cf-red, #b91c1c)' }}>{error}</p>}
+          {!busy && !error && rows.length === 0 && (
+            <p data-testid="airtable-vault-empty" style={{ color: 'var(--cf-text-secondary)' }}>
+              No records found in the vault for this mapping.
+            </p>
+          )}
+          {!busy && !error && rows.length > 0 && (
+            <table data-testid="airtable-vault-table"
+                   style={{ width: '100%', fontSize: 12, marginTop: 10, borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ textAlign: 'left', color: 'var(--cf-text-secondary)',
+                             borderBottom: '1px solid var(--cf-border)', position: 'sticky', top: 0,
+                             background: 'var(--cf-surface, #fff)' }}>
+                  <th style={{ padding: '6px' }}>Airtable Rec</th>
+                  <th style={{ padding: '6px' }}>Status</th>
+                  <th style={{ padding: '6px', textAlign: 'right' }}>Fields</th>
+                  <th style={{ padding: '6px' }}>Last seen</th>
+                  <th style={{ padding: '6px' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <React.Fragment key={r.id}>
+                    <tr data-testid={`airtable-vault-row-${r.id}`}
+                        style={{ borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)' }}>
+                      <td style={{ padding: '6px', fontFamily: 'var(--cf-mono, ui-monospace)' }}>{r.external_id}</td>
+                      <td style={{ padding: '6px' }}>{r.sync_status}</td>
+                      <td style={{ padding: '6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.field_count}</td>
+                      <td style={{ padding: '6px', fontFamily: 'var(--cf-mono, ui-monospace)' }}>{r.last_seen_at || '—'}</td>
+                      <td style={{ padding: '6px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {r.airtable_record_url && (
+                          <a
+                            data-testid={`airtable-vault-open-${r.id}`}
+                            href={r.airtable_record_url}
+                            target="_blank" rel="noopener noreferrer"
+                            style={{ fontSize: 11, marginRight: 8, color: '#4338ca' }}>
+                            <ExternalLink size={11} style={{ verticalAlign: 'middle' }} /> Open
+                          </a>
+                        )}
+                        <button type="button" className="btn"
+                                data-testid={`airtable-vault-toggle-${r.id}`}
+                                onClick={() => setExpanded((s) => ({ ...s, [r.id]: !s[r.id] }))}
+                                style={{ fontSize: 11, padding: '2px 6px' }}>
+                          {expanded[r.id] ? 'Hide' : 'Inspect'}
+                        </button>
+                      </td>
+                    </tr>
+                    {expanded[r.id] && (
+                      <tr data-testid={`airtable-vault-detail-${r.id}`}>
+                        <td colSpan={5} style={{ padding: '6px 12px 12px', background: '#f8fafc' }}>
+                          <pre style={{ margin: 0, fontSize: 11, background: '#0f172a',
+                                        color: '#e2e8f0', padding: 10, borderRadius: 6,
+                                        maxHeight: 280, overflow: 'auto' }}>
+                            {JSON.stringify(r.payload_snapshot, null, 2)}
+                          </pre>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <footer style={{ padding: '10px 20px', borderTop: '1px solid var(--cf-border)',
+                         display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+            Page {Math.floor(offset / limit) + 1} of {Math.max(1, Math.ceil(total / limit))}
+          </span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button type="button" className="btn"
+                    data-testid="airtable-vault-prev"
+                    onClick={() => setOffset(Math.max(0, offset - limit))}
+                    disabled={busy || offset === 0}>
+              ← Prev
+            </button>
+            <button type="button" className="btn"
+                    data-testid="airtable-vault-next"
+                    onClick={() => setOffset(offset + limit)}
+                    disabled={busy || offset + limit >= total}>
+              Next →
+            </button>
+          </div>
+        </footer>
+      </div>
     </div>
   );
 }
@@ -476,6 +735,7 @@ function Tile({ testid, label, value, tone = 'neutral' }) {
 
 function MappingEditor({ mappings, entities, directions, busy, setBusy, setFlash, reload }) {
   const [adding, setAdding] = useState(false);
+  const [discoverOpen, setDiscoverOpen] = useState(false);
   return (
     <div data-testid="airtable-mappings" className="card" style={cardStyle}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -486,17 +746,29 @@ function MappingEditor({ mappings, entities, directions, busy, setBusy, setFlash
             (or via the per-row "Sync now" button). v1 is pull-only.
           </p>
         </div>
-        <button
-          type="button" className="btn btn--primary" data-testid="airtable-add-mapping-btn"
-          onClick={() => setAdding(true)} disabled={busy}
-        >
-          <Plus size={14} style={{ marginRight: 6 }} />Add mapping
-        </button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            type="button" className="btn"
+            data-testid="airtable-discover-tables-btn"
+            onClick={() => setDiscoverOpen(true)}
+            disabled={busy}
+            title="See every base + table the PAT can read and bulk-add mappings"
+          >
+            <Database size={14} style={{ marginRight: 6 }} />Sync more tables
+          </button>
+          <button
+            type="button" className="btn btn--primary" data-testid="airtable-add-mapping-btn"
+            onClick={() => setAdding(true)} disabled={busy}
+          >
+            <Plus size={14} style={{ marginRight: 6 }} />Add mapping
+          </button>
+        </div>
       </header>
 
       {mappings.length === 0 && !adding && (
         <p data-testid="airtable-no-mappings" style={{ fontSize: 13, color: 'var(--cf-text-secondary)', margin: '8px 0' }}>
-          No mappings yet. Click <strong>Add mapping</strong> to start syncing a table.
+          No mappings yet. Click <strong>Add mapping</strong> to start syncing a table, or
+          use <strong>Sync more tables</strong> to discover every base + table at once.
         </p>
       )}
 
@@ -517,6 +789,268 @@ function MappingEditor({ mappings, entities, directions, busy, setBusy, setFlash
           onClose={() => setAdding(false)}
         />
       )}
+
+      {discoverOpen && (
+        <DiscoverTablesModal
+          entities={entities}
+          busy={busy} setBusy={setBusy}
+          setFlash={setFlash} reload={reload}
+          onClose={() => setDiscoverOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────── discover */
+
+function DiscoverTablesModal({ entities, busy, setBusy, setFlash, reload, onClose }) {
+  // Slice-3.1 — bulk-discover every base + table reachable with the
+  // tenant's PAT and let the operator pick multiple at once. Drops
+  // them all into airtable_table_mappings via mapping_save_bulk.
+  const [data, setData]    = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]  = useState(null);
+  const [selected, setSelected] = useState({}); // key: 'base|table' → {entity, direction}
+  const [defaultEntity, setDefaultEntity] = useState('generic');
+  const [filter, setFilter] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    api.get('/api/airtable/discover_tables.php?action=discover_tables')
+      .then((r) => { if (mounted) { setData(r); setLoading(false); } })
+      .catch((e) => { if (mounted) { setError(e.message || String(e)); setLoading(false); } });
+    return () => { mounted = false; };
+  }, []);
+
+  const toggle = (baseId, baseName, table) => {
+    if (table.mapped) return;
+    const key = `${baseId}|${table.id}`;
+    setSelected((s) => {
+      const next = { ...s };
+      if (next[key]) {
+        delete next[key];
+      } else {
+        next[key] = {
+          base_id:     baseId,
+          base_name:   baseName,
+          table_id:    table.id,
+          table_name:  table.name,
+          internal_entity: defaultEntity,
+          direction:   'pull',
+        };
+      }
+      return next;
+    });
+  };
+
+  const updateEntityForRow = (key, entity) => {
+    setSelected((s) => ({ ...s, [key]: { ...s[key], internal_entity: entity } }));
+  };
+
+  const selectedKeys = Object.keys(selected);
+  const apply = async () => {
+    if (selectedKeys.length === 0) return;
+    setBusy(true);
+    try {
+      const r = await api.post('/api/airtable/mapping_save_bulk.php?action=mapping_save_bulk', {
+        items: selectedKeys.map((k) => selected[k]),
+      });
+      const created = (r.created || []).length;
+      const errors  = (r.errors  || []).length;
+      const skipped = (r.skipped || []).length;
+      setFlash({
+        kind: errors > 0 ? 'error' : 'success',
+        msg:  `Bulk add: ${created} created · ${skipped} skipped · ${errors} errors`,
+      });
+      reload();
+      if (errors === 0) onClose();
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const filt = filter.trim().toLowerCase();
+  const bases = data?.bases || [];
+
+  return (
+    <div
+      data-testid="airtable-discover-modal"
+      role="dialog" aria-modal="true"
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 1000, padding: 24,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{
+        background: 'var(--cf-surface, #fff)', borderRadius: 8,
+        width: 'min(880px, 96vw)', maxHeight: '92vh',
+        overflow: 'hidden', display: 'flex', flexDirection: 'column',
+        boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
+      }}>
+        <header style={{ padding: '14px 20px', borderBottom: '1px solid var(--cf-border)',
+                         display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 600 }}>Sync more tables</h3>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+              Every base + table reachable with this tenant's PAT. Tick the ones you want to start
+              syncing — they'll be added as new pull-only mappings under the entity you pick.
+              {data && (
+                <> · <code data-testid="airtable-discover-stats">{data.tables_mapped}/{data.tables_total} tables already mapped</code></>
+              )}
+            </p>
+          </div>
+          <button type="button" className="btn"
+                  data-testid="airtable-discover-close" onClick={onClose}>
+            <X size={14} />
+          </button>
+        </header>
+
+        <div style={{ padding: '10px 20px', display: 'flex', gap: 10, alignItems: 'center',
+                      borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)' }}>
+          <label style={{ fontSize: 12, fontWeight: 600 }}>
+            Default entity for new mappings:
+            <select
+              data-testid="airtable-discover-default-entity"
+              value={defaultEntity}
+              onChange={(e) => {
+                const next = e.target.value;
+                setDefaultEntity(next);
+                // Update every already-selected row that's still on the previous default.
+                setSelected((s) => {
+                  const out = { ...s };
+                  for (const k of Object.keys(out)) {
+                    if (out[k].internal_entity === defaultEntity) {
+                      out[k] = { ...out[k], internal_entity: next };
+                    }
+                  }
+                  return out;
+                });
+              }}
+              style={{ marginLeft: 6, padding: '4px 8px', fontSize: 12 }}
+            >
+              {entities.map((en) => <option key={en} value={en}>{en}</option>)}
+            </select>
+          </label>
+          <input
+            type="search"
+            data-testid="airtable-discover-filter"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter base or table name…"
+            style={{ flex: 1, padding: '6px 10px', borderRadius: 4,
+                     border: '1px solid var(--cf-border)', fontSize: 13 }}
+          />
+        </div>
+
+        <div style={{ flex: 1, overflow: 'auto', padding: '8px 20px' }}>
+          {loading && <p data-testid="airtable-discover-loading">Loading bases…</p>}
+          {error && <p data-testid="airtable-discover-error" style={{ color: 'var(--cf-red, #b91c1c)' }}>{error}</p>}
+          {!loading && !error && bases.length === 0 && (
+            <p data-testid="airtable-discover-empty" style={{ color: 'var(--cf-text-secondary)' }}>
+              No bases reachable with this PAT. Check that the token grants <code>schema.bases:read</code> + access to the bases you want.
+            </p>
+          )}
+          {!loading && !error && bases.map((b) => {
+            const matchesBase = filt === '' || b.name.toLowerCase().includes(filt);
+            const tables = (b.tables || []).filter(
+              (t) => matchesBase || t.name.toLowerCase().includes(filt)
+            );
+            if (tables.length === 0) return null;
+            return (
+              <section key={b.id}
+                       data-testid={`airtable-discover-base-${b.id}`}
+                       style={{ marginBottom: 14 }}>
+                <header style={{ display: 'flex', alignItems: 'center', gap: 8,
+                                 fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                  <Database size={13} />
+                  <span>{b.name}</span>
+                  <code style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>{b.id}</code>
+                  {b.error && (
+                    <span style={{ fontSize: 11, color: 'var(--cf-red, #b91c1c)' }}>
+                      {b.error}
+                    </span>
+                  )}
+                </header>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0,
+                             border: '1px solid var(--cf-border-muted, #f1f5f9)', borderRadius: 6 }}>
+                  {tables.map((t) => {
+                    const key = `${b.id}|${t.id}`;
+                    const isSel = !!selected[key];
+                    const disabled = t.mapped;
+                    return (
+                      <li key={t.id}
+                          data-testid={`airtable-discover-table-${t.id}`}
+                          style={{ padding: '6px 10px',
+                                   borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)',
+                                   display: 'flex', alignItems: 'center', gap: 8,
+                                   opacity: disabled ? 0.55 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}
+                          onClick={() => toggle(b.id, b.name, t)}>
+                        <input
+                          type="checkbox"
+                          data-testid={`airtable-discover-check-${t.id}`}
+                          checked={isSel}
+                          disabled={disabled}
+                          onChange={() => {}}
+                          style={{ pointerEvents: 'none' }}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500 }}>
+                            <Table2 size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                            {t.name}
+                            {disabled && (
+                              <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--cf-green, #047857)' }}>
+                                already mapped
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>
+                            {t.field_count} field(s) · <code>{t.id}</code>
+                          </div>
+                        </div>
+                        {isSel && (
+                          <select
+                            data-testid={`airtable-discover-entity-${t.id}`}
+                            value={selected[key].internal_entity}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => updateEntityForRow(key, e.target.value)}
+                            style={{ fontSize: 12, padding: '2px 6px' }}>
+                            {entities.map((en) => <option key={en} value={en}>{en}</option>)}
+                          </select>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
+
+        <footer style={{ padding: '12px 20px', borderTop: '1px solid var(--cf-border)',
+                         display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+            {selectedKeys.length} table(s) selected
+          </span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button type="button" className="btn"
+                    data-testid="airtable-discover-cancel" onClick={onClose} disabled={busy}>
+              Cancel
+            </button>
+            <button type="button" className="btn btn--primary"
+                    data-testid="airtable-discover-apply"
+                    onClick={apply}
+                    disabled={busy || selectedKeys.length === 0}>
+              {busy ? 'Adding…' : `Add ${selectedKeys.length} mapping${selectedKeys.length === 1 ? '' : 's'}`}
+            </button>
+          </div>
+        </footer>
+      </div>
     </div>
   );
 }
