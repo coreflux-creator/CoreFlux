@@ -771,6 +771,17 @@ function DetailRow({ mapping, entityType }) {
   const payload = mapping.payload_snapshot || {};
   const idFields = SOURCE_ID_FIELDS[mapping.source_system]?.[entityType] || [];
 
+  // Slice-3 — surface the source-system deep-link when the payload
+  // carries one. Airtable populates `_airtable_record_url` during
+  // sync; QBO/Zoho can graft similar links in the future without
+  // a UI change.
+  const externalUrl = pluckPayloadValue(payload, [
+    '_airtable_record_url',
+    '_external_url',
+    'externalUrl',
+    'permalink',
+  ]) || null;
+
   return (
     <tr data-testid={`linked-systems-detail-${mapping.source_system}`}>
       <td colSpan={6} style={{ background: '#f8fafc', padding: '12px 16px', borderTop: '1px solid #e2e8f0' }}>
@@ -801,6 +812,23 @@ function DetailRow({ mapping, entityType }) {
               );
             })}
           </dl>
+        )}
+        {externalUrl && (
+          <a
+            data-testid={`linked-systems-external-url-${mapping.source_system}`}
+            href={externalUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              marginTop: idFields.length > 0 ? 8 : 0,
+              fontSize: 12, color: '#4338ca',
+              padding: '3px 8px', border: '1px solid #c7d2fe',
+              borderRadius: 6, textDecoration: 'none',
+            }}
+          >
+            <ExternalLink size={11} /> Open in {SOURCE_LABEL[mapping.source_system] || mapping.source_system}
+          </a>
         )}
         <FieldMapEditor
           integration={mapping.source_system}

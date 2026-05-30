@@ -71,6 +71,7 @@ export default function AirtableSettings() {
             data={data} busy={busy} setBusy={setBusy}
             setFlash={setFlash} reload={status.reload}
           />
+          <HealthPanel reload={status.reload} />
           <MappingEditor
             mappings={mappings} entities={entities} directions={directions}
             busy={busy} setBusy={setBusy}
@@ -235,6 +236,237 @@ function ConnectedSummary({ data, busy, setBusy, setFlash, reload }) {
         <button type="button" className="btn" onClick={handleDisconnect} disabled={busy} data-testid="airtable-disconnect-btn">
           <XCircle size={14} style={{ marginRight: 6 }} />Disconnect
         </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────── health */
+
+function HealthPanel({ reload }) {
+  // Slice-3 — tenant-wide Airtable health & troubleshooting roll-up.
+  // Surfaces connection state, per-mapping linkage %, recent sync
+  // errors, Studio field-mapping coverage, and actionable hints.
+  const health = useApi('/api/airtable/health.php?action=health');
+  const [expanded, setExpanded] = useState(false);
+
+  if (health.loading) {
+    return (
+      <div data-testid="airtable-health-loading" className="card" style={cardStyle}>
+        Loading health…
+      </div>
+    );
+  }
+  if (health.error) {
+    return (
+      <div data-testid="airtable-health-error" className="card" style={cardStyle}>
+        <strong style={{ color: 'var(--cf-red, #b91c1c)' }}>Could not load health:</strong>{' '}
+        {health.error.message || String(health.error)}
+      </div>
+    );
+  }
+  const d = health.data || {};
+  const rollup    = d.rollup || {};
+  const perMap    = d.per_mapping || [];
+  const hints     = d.hints || [];
+  const coverage  = d.field_map_coverage || [];
+
+  const healthPct = rollup.total_records > 0
+    ? Math.round(100 * (rollup.linked || 0) / Math.max(1, rollup.total_records))
+    : null;
+
+  const healthBg = healthPct === null
+    ? '#f1f5f9'
+    : healthPct >= 90 ? '#ecfdf5'
+    : healthPct >= 70 ? '#fef3c7'
+    : '#fef2f2';
+  const healthFg = healthPct === null
+    ? '#475569'
+    : healthPct >= 90 ? '#065f46'
+    : healthPct >= 70 ? '#92400e'
+    : '#991b1b';
+
+  return (
+    <div data-testid="airtable-health" className="card" style={cardStyle}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div>
+          <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Health & troubleshooting</h4>
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+            Tenant-wide rollup of Airtable linkage health, recent sync errors, and Studio field-mapping coverage.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            type="button" className="btn"
+            data-testid="airtable-health-refresh"
+            onClick={() => { health.reload && health.reload(); reload && reload(); }}
+            style={{ fontSize: 12 }}
+          >
+            <RefreshCw size={13} style={{ marginRight: 4 }} />Refresh
+          </button>
+        </div>
+      </header>
+
+      {/* Rollup tiles */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginTop: 12 }}>
+        <Tile testid="airtable-health-tile-records" label="Records synced"   value={rollup.total_records || 0} />
+        <Tile testid="airtable-health-tile-linked"
+              label="Linked to CoreFlux row"
+              value={`${rollup.linked || 0}${healthPct !== null ? ` (${healthPct}%)` : ''}`}
+              tone={healthPct === null ? 'neutral' : healthPct >= 90 ? 'ok' : healthPct >= 70 ? 'warn' : 'err'} />
+        <Tile testid="airtable-health-tile-unmatched"
+              label="Unmatched" value={rollup.unmatched || 0}
+              tone={(rollup.unmatched || 0) > 0 ? 'warn' : 'ok'} />
+        <Tile testid="airtable-health-tile-ambiguous"
+              label="Ambiguous" value={rollup.ambiguous || 0}
+              tone={(rollup.ambiguous || 0) > 0 ? 'warn' : 'ok'} />
+        <Tile testid="airtable-health-tile-mappings"
+              label="Mappings configured"
+              value={`${rollup.mappings || 0}${(rollup.mappings_failed || 0) > 0 ? ` (${rollup.mappings_failed} failing)` : ''}`}
+              tone={(rollup.mappings_failed || 0) > 0 ? 'err' : 'neutral'} />
+        <Tile testid="airtable-health-tile-fieldmaps"
+              label="Studio field mappings"
+              value={coverage.reduce((acc, c) => acc + (c.field_mappings || 0), 0)} />
+      </div>
+
+      {/* Hints */}
+      {hints.length > 0 && (
+        <div data-testid="airtable-health-hints" style={{ marginTop: 16 }}>
+          <strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
+            {hints.length} thing{hints.length === 1 ? '' : 's'} to look at
+          </strong>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+            {hints.map((h, i) => (
+              <li key={i}
+                  data-testid={`airtable-health-hint-${h.code}`}
+                  style={{
+                    fontSize: 12, padding: '8px 10px', marginBottom: 4,
+                    borderRadius: 6,
+                    background: h.severity === 'error' ? 'var(--cf-red-bg, #fef2f2)'
+                              : h.severity === 'warn'  ? 'var(--cf-amber-bg, #fef3c7)'
+                              :                          'var(--cf-blue-bg, #eff6ff)',
+                    color:      h.severity === 'error' ? 'var(--cf-red, #b91c1c)'
+                              : h.severity === 'warn'  ? 'var(--cf-amber, #92400e)'
+                              :                          'var(--cf-blue, #1e3a8a)',
+                    border: '1px solid',
+                    borderColor: h.severity === 'error' ? 'var(--cf-red-border, #fecaca)'
+                               : h.severity === 'warn'  ? 'var(--cf-amber-border, #fde68a)'
+                               :                          'var(--cf-blue-border, #bfdbfe)',
+                  }}>
+                <strong style={{ marginRight: 4, textTransform: 'uppercase', letterSpacing: 0.3, fontSize: 10 }}>
+                  {h.severity}
+                </strong>
+                {h.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Per-mapping detail (collapsible) */}
+      <details data-testid="airtable-health-per-mapping-details"
+               open={expanded} onToggle={(e) => setExpanded(e.target.open)}
+               style={{ marginTop: 16 }}>
+        <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+          Per-mapping detail ({perMap.length})
+        </summary>
+        {perMap.length === 0 && (
+          <p data-testid="airtable-health-per-mapping-empty"
+             style={{ fontSize: 12, color: 'var(--cf-text-secondary)', margin: '8px 0' }}>
+            No mappings yet.
+          </p>
+        )}
+        {perMap.length > 0 && (
+          <table data-testid="airtable-health-per-mapping-table"
+                 style={{ width: '100%', marginTop: 8, fontSize: 12, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: 'var(--cf-text-secondary)', borderBottom: '1px solid var(--cf-border)' }}>
+                <th style={{ padding: '4px 6px' }}>Table</th>
+                <th style={{ padding: '4px 6px' }}>Entity</th>
+                <th style={{ padding: '4px 6px' }}>Strategy</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>Linked</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>Unmatched</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>Ambig.</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>Health %</th>
+                <th style={{ padding: '4px 6px' }}>Last sync</th>
+              </tr>
+            </thead>
+            <tbody>
+              {perMap.map((m) => (
+                <tr key={m.id}
+                    data-testid={`airtable-health-per-mapping-row-${m.id}`}
+                    style={{ borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)' }}>
+                  <td style={{ padding: '4px 6px' }}>{m.base_name || m.base_id} / {m.table_name || m.table_id}</td>
+                  <td style={{ padding: '4px 6px', fontFamily: 'var(--cf-mono, ui-monospace)' }}>{m.internal_entity}</td>
+                  <td style={{ padding: '4px 6px', fontFamily: 'var(--cf-mono, ui-monospace)' }}>{m.link_strategy}</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.stats?.linked || 0}</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.stats?.unmatched || 0}</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.stats?.ambiguous || 0}</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {m.health_pct === null ? '—' : `${m.health_pct}%`}
+                  </td>
+                  <td style={{ padding: '4px 6px', fontFamily: 'var(--cf-mono, ui-monospace)' }}>
+                    {m.last_sync_at || 'never'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </details>
+
+      {/* Field-map coverage */}
+      {coverage.length > 0 && (
+        <div data-testid="airtable-health-coverage" style={{ marginTop: 16 }}>
+          <strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
+            Studio field-mapping coverage
+          </strong>
+          <p style={{ fontSize: 11, color: 'var(--cf-text-secondary)', margin: '0 0 6px' }}>
+            How many Studio mappings will run on each Airtable sync to write into CoreFlux columns.
+          </p>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0,
+                       display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {coverage.map((c, i) => (
+              <li key={i}
+                  data-testid={`airtable-health-coverage-${c.entity_type}`}
+                  style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999,
+                           background: '#eef2ff', color: '#3730a3',
+                           border: '1px solid #c7d2fe' }}>
+                <code>{c.entity_type}</code>: {c.field_mappings}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <p style={{ fontSize: 11, color: 'var(--cf-text-secondary)', margin: '12px 0 0' }}>
+        Use the Health rollup before running large back-fills. <span style={{ color: healthFg, background: healthBg, padding: '1px 6px', borderRadius: 4 }}>
+          Status: {healthPct === null ? 'no data yet' : healthPct >= 90 ? 'healthy' : healthPct >= 70 ? 'mostly healthy' : 'needs attention'}
+        </span>
+      </p>
+    </div>
+  );
+}
+
+function Tile({ testid, label, value, tone = 'neutral' }) {
+  const palette = tone === 'ok'   ? { bg: '#ecfdf5', fg: '#065f46', border: '#a7f3d0' }
+                : tone === 'warn' ? { bg: '#fef3c7', fg: '#92400e', border: '#fde68a' }
+                : tone === 'err'  ? { bg: '#fef2f2', fg: '#991b1b', border: '#fecaca' }
+                :                   { bg: '#f8fafc', fg: '#0f172a', border: '#e2e8f0' };
+  return (
+    <div data-testid={testid}
+         style={{
+           padding: '10px 12px',
+           background: palette.bg,
+           border: `1px solid ${palette.border}`,
+           borderRadius: 6,
+         }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: palette.fg,
+                    textTransform: 'uppercase', letterSpacing: 0.4 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: palette.fg,
+                    fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
+        {value}
       </div>
     </div>
   );

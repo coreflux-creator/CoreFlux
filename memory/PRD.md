@@ -12513,3 +12513,36 @@ Operator goal: "broadly mappable, linked to entities by a unique ID."
 - Field-Mapping Studio: add `airtable` as a first-class SOURCE in the generalised suggester (today AirtableSettings.jsx has its own mapping UI; Studio integration would unify the experience).
 
 
+
+
+## Airtable Slice 3 — Entity drawer + Studio wiring + Health (2026-02 — current fork)
+
+### What shipped
+- **Sync stamps deep-link metadata onto every Airtable payload snapshot:** `_airtable_record_url` (https://airtable.com/{base}/{table}/{rec}), `_airtable_mapping_id`, `_airtable_base_name`, `_airtable_table_name`. The entity drawer (`LinkedExternalSystemsPanel.jsx`) now renders an "Open in Airtable" CTA whenever a CoreFlux row is linked to an Airtable record.
+- **Studio field mappings now apply on Airtable sync.** After `airtableResolveLink()` finds a real CoreFlux row, the sync calls `integrationFieldMapApplyAll(tenantId, 'airtable', entityType, $fields, context)` so tenant-defined mappings flow into actual columns (placements.notes ← Airtable "Notes", companies.industry ← Airtable "Industry", etc.). Field-map failures are isolated (try/catch) and reported in `field_map_errors[]` — they never tank the sync.
+- **Tenant-wide Health & Troubleshooting endpoint** (`/api/airtable/health.php` → `case 'health'` on `/api/airtable.php`). Returns connection state, rollup totals (records / linked / unmatched / ambiguous / errored), per-mapping detail with health %, Studio field-map coverage per entity, and a derived `hints[]` list with severity codes (`not_connected`, `sync_error`, `ambiguous`, `unmatched`, `no_strategy`).
+- **`AirtableSettings.jsx` HealthPanel:** 6 rollup tiles (records / linked / unmatched / ambiguous / mappings / Studio fieldmaps), severity-coloured hints list, collapsible per-mapping detail table, Studio field-map coverage chips, refresh button.
+- **`FieldMappingStudio.jsx`:** Airtable fallback entity-types expanded from `['record']` to the full `AIRTABLE_INTERNAL_ENTITIES` set so operators can pick `placement / person / company / vendor / customer / contact / note / task / opportunity / generic` even before their first sync runs.
+- **`api/integrations/mappings.php` RBAC widened** from `integrations.jobdiva.view` only → `rbac_legacy_require_any([jobdiva.view, airtable.view, qbo.view, zoho.view])` so Airtable-only tenants see their linkage drawer.
+
+### Test status
+- New `tests/airtable_slice3_smoke.php`: 55 ✓ covering payload stamping, field-map application, health endpoint payload shape, drawer deep-link rendering, HealthPanel tiles/hints/coverage, Studio fallback, and RBAC widening.
+- Full suite: **339 pass / 2 known infra fails** (was 338/2 — net +1).
+- Vite bundle rebuilt + `sync_bundle.sh` rotated hashes.
+- Existing `tests/airtable_slice2_link_strategy_smoke.php`, `tests/sprint8a_a2_external_entity_mappings_smoke.php` (one assertion updated to match the widened RBAC) all green.
+
+### Files touched
+- `core/airtable/sync.php` — `_airtable_*` payload stamps + `integrationFieldMapApplyAll` invocation + field-map rollup metrics in sync result.
+- `api/airtable.php` — new `case 'health'`.
+- `api/airtable/health.php` — NEW thin shim.
+- `api/integrations/mappings.php` — RBAC widened.
+- `dashboard/src/components/LinkedExternalSystemsPanel.jsx` — "Open in <source>" deep-link.
+- `dashboard/src/pages/AirtableSettings.jsx` — new `HealthPanel` + `Tile` components.
+- `dashboard/src/pages/FieldMappingStudio.jsx` — Airtable fallback entity list.
+- `tests/airtable_slice3_smoke.php` — NEW.
+- `tests/sprint8a_a2_external_entity_mappings_smoke.php` — single assertion updated for widened RBAC.
+
+### Still pending (Slice 4+ backlog)
+- Reconciliation queue UI surfacing the `/unmatched` endpoint as a drawer with one-click manual link.
+- `create_stub` action wiring (auto-create minimal CoreFlux entity when Airtable record has no match).
+- Studio-side "ingest a sample Airtable record" affordance — the indexer already learns from every successful sync, but operators may want to preview one record's fields before running a full sync.

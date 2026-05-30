@@ -31,7 +31,16 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
-rbac_legacy_require($user, 'integrations.jobdiva.view');
+// Sprint 8a originally required `integrations.jobdiva.view`; we now have
+// QBO + Airtable + Zoho all surfacing into this read-only mapping
+// drawer, so the gate is relaxed to "any integrations.*.view".
+// master_admin's `*` continues to satisfy this.
+rbac_legacy_require_any($user, [
+    'integrations.jobdiva.view',
+    'integrations.airtable.view',
+    'integrations.qbo.view',
+    'integrations.zoho.view',
+]);
 
 $action = strtolower(str_replace('-', '_', (string) (api_query('action') ?? 'list_for_internal')));
 

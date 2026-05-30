@@ -215,6 +215,145 @@ switch ($action) {
         api_ok($stats);
     }
 
+    case 'health': {
+        // Slice-3 — tenant-wide health & troubleshooting summary.
+        // Rolls up connection status, every mapping's linkage health,
+        // recent sync errors, applied Studio field-mapping counts,
+        // and a derived list of actionable troubleshooting hints.
+        if ($method !== 'GET') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.airtable.view');
+
+        $conn = airtableConnection($tid);
+        $mappings = airtableMappingList($tid);
+
+        $rollup = [
+            'total_records'   => 0,
+            'linked'          => 0,
+            'unmatched'       => 0,
+            'ambiguous'       => 0,
+            'errored'         => 0,
+            'mappings'        => count($mappings),
+            'mappings_off'    => 0,
+            'mappings_unrun'  => 0,
+            'mappings_failed' => 0,
+        ];
+        $perMapping = [];
+        $hints = [];
+
+        foreach ($mappings as $m) {
+            $mid = (int) ($m['id'] ?? 0);
+            $stats = ['linked' => 0, 'unmatched' => 0, 'ambiguous' => 0, 'stale' => 0, 'error' => 0, 'total' => 0];
+            try { $stats = airtableLinkStats($tid, $mid); } catch (\Throwable $e) { /* mapping deletion race */ }
+            $perMapping[] = [
+                'id'              => $mid,
+                'base_id'         => (string) ($m['base_id'] ?? ''),
+                'base_name'       => (string) ($m['base_name'] ?? ''),
+                'table_id'        => (string) ($m['table_id'] ?? ''),
+                'table_name'      => (string) ($m['table_name'] ?? ''),
+                'internal_entity' => (string) ($m['internal_entity'] ?? ''),
+                'direction'       => (string) ($m['direction'] ?? 'pull'),
+                'link_strategy'   => (string) ($m['link_strategy'] ?? 'none'),
+                'last_sync_at'    => $m['last_sync_at']    ?? null,
+                'last_sync_error' => $m['last_sync_error'] ?? null,
+                'last_records'    => (int) ($m['last_records'] ?? 0),
+                'stats'           => $stats,
+                'health_pct'      => $stats['total'] > 0
+                    ? (int) round(100 * $stats['linked'] / max(1, $stats['total']))
+                    : null,
+            ];
+            $rollup['total_records'] += (int) $stats['total'];
+            $rollup['linked']        += (int) $stats['linked'];
+            $rollup['unmatched']     += (int) $stats['unmatched'];
+            $rollup['ambiguous']     += (int) $stats['ambiguous'];
+            $rollup['errored']       += (int) $stats['error'];
+            if (($m['direction'] ?? 'pull') !== 'pull')                 $rollup['mappings_off']++;
+            if (empty($m['last_sync_at']))                              $rollup['mappings_unrun']++;
+            if (!empty($m['last_sync_error']))                          $rollup['mappings_failed']++;
+
+            if (!empty($m['last_sync_error'])) {
+                $hints[] = [
+                    'severity' => 'error',
+                    'code'     => 'sync_error',
+                    'mapping_id' => $mid,
+                    'message'  => 'Last sync for ' . ($m['table_name'] ?: $m['table_id']) .
+                                  ' failed: ' . substr((string) $m['last_sync_error'], 0, 160),
+                ];
+            }
+            if (($stats['ambiguous'] ?? 0) > 0) {
+                $hints[] = [
+                    'severity' => 'warn',
+                    'code'     => 'ambiguous',
+                    'mapping_id' => $mid,
+                    'message'  => $stats['ambiguous'] . ' record(s) on ' .
+                                  ($m['table_name'] ?: $m['table_id']) .
+                                  ' matched multiple CoreFlux rows — visit Reconciliation to pick the right one.',
+                ];
+            }
+            if (($stats['unmatched'] ?? 0) > 0 && ($m['link_strategy'] ?? 'none') !== 'none') {
+                $hints[] = [
+                    'severity' => 'warn',
+                    'code'     => 'unmatched',
+                    'mapping_id' => $mid,
+                    'message'  => $stats['unmatched'] . ' record(s) on ' .
+                                  ($m['table_name'] ?: $m['table_id']) .
+                                  ' could not be matched to a CoreFlux row using ' .
+                                  ($m['link_strategy'] ?? 'none') . '. Adjust the link match field or pick a different strategy.',
+                ];
+            }
+            if (($m['link_strategy'] ?? 'none') === 'none' && (int) $stats['total'] > 0) {
+                $hints[] = [
+                    'severity' => 'info',
+                    'code'     => 'no_strategy',
+                    'mapping_id' => $mid,
+                    'message'  => ($m['table_name'] ?: $m['table_id']) .
+                                  ' is configured with link_strategy=none — records are stored but never linked to ' .
+                                  $m['internal_entity'] . ' rows.',
+                ];
+            }
+        }
+
+        if (empty($conn) || ($conn['status'] ?? null) !== 'active') {
+            array_unshift($hints, [
+                'severity' => 'error',
+                'code'     => 'not_connected',
+                'mapping_id' => null,
+                'message'  => 'Airtable is not connected — paste a PAT under Integration Settings → Airtable to begin syncing.',
+            ]);
+        }
+
+        // Field-mapping coverage from the Studio (cross-entity rollup).
+        $coverage = [];
+        try {
+            $st = getDB()->prepare(
+                "SELECT internal_entity_type AS entity_type,
+                        COUNT(*) AS field_mappings
+                   FROM tenant_integration_field_map
+                  WHERE tenant_id = :t
+                    AND integration = 'airtable'
+                    AND enabled = 1
+               GROUP BY internal_entity_type"
+            );
+            $st->execute(['t' => $tid]);
+            $coverage = $st->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+            foreach ($coverage as &$c) { $c['field_mappings'] = (int) $c['field_mappings']; }
+            unset($c);
+        } catch (\Throwable $e) {
+            // pre-migration tenants — skip silently
+        }
+
+        api_ok([
+            'connected'        => (bool) ($conn && $conn['status'] === 'active'),
+            'pat_last4'        => $conn['pat_last4']        ?? null,
+            'workspace_label'  => $conn['workspace_label']  ?? null,
+            'last_probe_at'    => $conn['last_probe_at']    ?? null,
+            'last_probe_error' => $conn['last_probe_error'] ?? null,
+            'rollup'           => $rollup,
+            'per_mapping'      => $perMapping,
+            'field_map_coverage' => $coverage,
+            'hints'            => $hints,
+        ]);
+    }
+
     case 'unmatched': {
         // List unmatched (or ambiguous) external_entity_mappings rows
         // for one mapping — the reconciliation queue. Surfaces id,

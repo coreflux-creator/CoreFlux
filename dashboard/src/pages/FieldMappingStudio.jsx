@@ -605,7 +605,7 @@ export default function FieldMappingStudio() {
                 jobdiva:    ['placement', 'person', 'company', 'contact', 'jobdiva_customer', 'time_entry'],
                 quickbooks: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account', 'item'],
                 zoho_books: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account'],
-                airtable:   ['record'],
+                airtable:   ['placement', 'person', 'company', 'vendor', 'customer', 'contact', 'note', 'task', 'opportunity', 'generic'],
               }[integration] || ['placement', 'person', 'company', 'contact'];
               const seenKeys = new Set(seen.map(s => s.et));
               const ordered = [
@@ -740,7 +740,7 @@ export default function FieldMappingStudio() {
           jobdiva:    ['placement', 'person', 'job', 'jobdiva_customer', 'contact', 'assignment', 'jobdiva_job', 'jobdiva_candidate', 'jobdiva_contact', 'jobdiva_assignment'],
           quickbooks: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account', 'item'],
           zoho_books: ['journal_entry', 'customer', 'vendor', 'invoice', 'bill', 'payment', 'gl_account'],
-          airtable:   ['record'],
+          airtable:   ['placement', 'person', 'company', 'vendor', 'customer', 'contact', 'note', 'task', 'opportunity', 'generic'],
         }[integration] || [];
         const seenKeys = new Set(seen.map(s => s.et));
         const ordered = [

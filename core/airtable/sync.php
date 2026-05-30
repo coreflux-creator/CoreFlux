@@ -19,6 +19,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
+require_once __DIR__ . '/../integrations/field_map_apply.php';
 
 const AIRTABLE_INTERNAL_ENTITIES = [
     // The pull worker is generic — it never writes to a core table.
@@ -649,6 +650,8 @@ function airtableSyncTable(int $tenantId, int $mappingId, ?int $userId, int $max
     $pages = 0;
     $totalRecords = 0; $created = 0; $updated = 0; $unchanged = 0; $failed = 0;
     $linked = 0; $unmatched = 0; $ambiguous = 0; $skipped = 0;
+    // Slice-3 — Studio field-mapping application rollup.
+    $fieldMapAttempted = 0; $fieldMapWritten = 0; $fieldMapErrors = [];
     $errors = [];
 
     try {
@@ -684,6 +687,18 @@ function airtableSyncTable(int $tenantId, int $mappingId, ?int $userId, int $max
                     if (isset($rec['createdTime'])) {
                         $normalised['_airtable_created_time'] = $rec['createdTime'];
                     }
+                    // Slice-3 — record a deep-link back to Airtable so the
+                    // entity drawer can render an "Open in Airtable" CTA.
+                    // base_id / table_id are tenant-validated above via
+                    // airtableMappingGet().
+                    $normalised['_airtable_record_url'] =
+                        'https://airtable.com/'
+                        . rawurlencode($mapping['base_id'])
+                        . '/' . rawurlencode($mapping['table_id'])
+                        . '/' . rawurlencode($externalId);
+                    $normalised['_airtable_mapping_id']  = (int) $mapping['id'];
+                    $normalised['_airtable_base_name']   = (string) ($mapping['base_name']  ?? '');
+                    $normalised['_airtable_table_name']  = (string) ($mapping['table_name'] ?? '');
 
                     // Slice-2 linkage resolution — find the real CoreFlux
                     // row by the mapping's link policy. Returns null when
@@ -736,6 +751,46 @@ function airtableSyncTable(int $tenantId, int $mappingId, ?int $userId, int $max
                     if      ($syncStatus === 'ok')         $linked++;
                     elseif  ($syncStatus === 'unmatched')  $unmatched++;
                     elseif  ($syncStatus === 'ambiguous')  $ambiguous++;
+
+                    // Slice-3 — apply tenant Studio field mappings onto
+                    // the real CoreFlux row. Only fires when the resolver
+                    // produced a real internal_id (NOT the synthetic
+                    // hash-derived id used for parked rows); otherwise we
+                    // could clobber column data on a sha-collided row.
+                    if ($syncStatus === 'ok' && !empty($resolved['internal_id'])) {
+                        try {
+                            // Pass the RAW Airtable fields as the payload
+                            // so Studio mappings can reference field names
+                            // exactly as they appear in Airtable.
+                            // Provide both 'self' and a per-entity slug so
+                            // operators can route to sibling rows (e.g.
+                            // placement_rates) once those are wired in
+                            // future slices.
+                            $context = ['self' => (int) $resolved['internal_id']];
+                            $context[$mapping['internal_entity']] = (int) $resolved['internal_id'];
+                            $fma = integrationFieldMapApplyAll(
+                                $tenantId, 'airtable',
+                                (string) $mapping['internal_entity'],
+                                $fields, $context
+                            );
+                            $fieldMapAttempted += (int) ($fma['attempted'] ?? 0);
+                            $fieldMapWritten   += (int) ($fma['written']   ?? 0);
+                            if (!empty($fma['errors']) && count($fieldMapErrors) < 5) {
+                                foreach ($fma['errors'] as $em) {
+                                    if (count($fieldMapErrors) >= 5) break;
+                                    $fieldMapErrors[] = substr((string) $em, 0, 200);
+                                }
+                            }
+                        } catch (\Throwable $e) {
+                            // Field-map failures must never tank the sync
+                            // — they're a layered enrichment, not a
+                            // required write. Surface in errors[] for
+                            // operator visibility.
+                            if (count($fieldMapErrors) < 5) {
+                                $fieldMapErrors[] = 'apply_throw: ' . substr($e->getMessage(), 0, 200);
+                            }
+                        }
+                    }
                 } catch (\Throwable $e) {
                     $failed++;
                     if (count($errors) < 5) $errors[] = substr($e->getMessage(), 0, 200);
@@ -769,6 +824,9 @@ function airtableSyncTable(int $tenantId, int $mappingId, ?int $userId, int $max
                 'unchanged' => $unchanged, 'failed' => $failed, 'skipped' => $skipped,
                 'linked'    => $linked,    'unmatched' => $unmatched, 'ambiguous' => $ambiguous,
                 'link_strategy' => $mapping['link_strategy'],
+                'field_map_attempted' => $fieldMapAttempted,
+                'field_map_written'   => $fieldMapWritten,
+                'field_map_errors'    => $fieldMapErrors,
                 'pages' => $pages, 'latency_ms' => $latency, 'errors' => $errors,
             ],
         ]);
@@ -778,6 +836,9 @@ function airtableSyncTable(int $tenantId, int $mappingId, ?int $userId, int $max
             'unchanged' => $unchanged, 'failed' => $failed, 'skipped' => $skipped,
             'linked'    => $linked,    'unmatched' => $unmatched, 'ambiguous' => $ambiguous,
             'link_strategy' => $mapping['link_strategy'],
+            'field_map_attempted' => $fieldMapAttempted,
+            'field_map_written'   => $fieldMapWritten,
+            'field_map_errors'    => $fieldMapErrors,
             'pages' => $pages, 'latency_ms' => $latency, 'errors' => $errors,
         ];
     } catch (\Throwable $e) {
