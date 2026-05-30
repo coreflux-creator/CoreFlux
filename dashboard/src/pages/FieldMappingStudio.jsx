@@ -160,6 +160,13 @@ export default function FieldMappingStudio() {
   const [inspectorBusy, setInspectorBusy] = useState(false);
   const [inspectorFilter, setInspectorFilter] = useState('');
 
+  // -- "What JobDiva actually returned" raw-payload diagnostic ----------
+  const [rawOpen, setRawOpen]       = useState(false);
+  const [rawBusy, setRawBusy]       = useState(false);
+  const [rawData, setRawData]       = useState(null);
+  const [rawError, setRawError]     = useState(null);
+  const [rawShowJson, setRawShowJson] = useState(false);
+
   const reloadSources = async () => {
     try {
       const r = await api.get('/api/admin/integrations/payload_fields.php');
@@ -349,6 +356,31 @@ export default function FieldMappingStudio() {
     }
     setSelectedPath(path);
     setInspectorOpen(false);
+  };
+
+  // -- Raw JobDiva payload diagnostic -------------------------------------
+  // Pulls the most-recent placement's stored payload + _jd_* enrichment
+  // buckets so the operator can SEE what JobDiva actually returned. This
+  // is the only way to tell "JobDiva's /searchStart only returned status
+  // for our tenant" from "our extractor isn't surfacing what JobDiva sent".
+  const openRawPayload = async () => {
+    setRawOpen(true);
+    setRawBusy(true);
+    setRawError(null);
+    setRawData(null);
+    setRawShowJson(false);
+    try {
+      const r = await api.get('/api/admin/integrations/jobdiva_raw_payload.php?internal_entity_type=placement');
+      if (r && r.ok === false) {
+        setRawError(r.message || r.reason || 'no record');
+      } else {
+        setRawData(r);
+      }
+    } catch (e) {
+      setRawError(e.message || 'Failed to load raw payload');
+    } finally {
+      setRawBusy(false);
+    }
   };
 
   // -- Load discovery + existing mappings ---------------------------------
@@ -570,6 +602,17 @@ export default function FieldMappingStudio() {
             style={{ whiteSpace: 'nowrap', fontSize: 13 }}>
             📋 Inspect sources
           </button>
+          {integration === 'jobdiva' && (
+            <button
+              type="button"
+              data-testid="fms-raw-payload-btn"
+              onClick={openRawPayload}
+              className="btn btn--ghost"
+              title="See exactly what JobDiva returned for the most-recent placement — every _jd_* enrichment bucket with field counts. Use this when an entity bucket has surprisingly few mappable paths."
+              style={{ whiteSpace: 'nowrap', fontSize: 13 }}>
+              🔬 Raw payload
+            </button>
+          )}
           <button
             type="button"
             data-testid="fms-csv-upload-btn"
@@ -1661,6 +1704,146 @@ export default function FieldMappingStudio() {
           </div>
         );
       })()}
+      {/* === RAW JOBDIVA PAYLOAD DIAGNOSTIC ==================================
+          Shows what JobDiva actually returned for the most-recent
+          placement. Critical when an entity bucket has surprisingly
+          few mappable paths — proves whether the gap is on the
+          JobDiva side (account permissions / sparse response) or
+          ours (extractor missing fields). */}
+      {rawOpen && (
+        <div data-testid="fms-raw-overlay"
+             role="dialog" aria-modal="true"
+             style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      padding: 24, zIndex: 101 }}
+             onClick={(e) => { if (e.target === e.currentTarget) setRawOpen(false); }}>
+          <div data-testid="fms-raw-modal"
+               style={{ background: '#fff', borderRadius: 12, padding: 20,
+                        width: 'min(880px, 96vw)', maxHeight: '88vh',
+                        display: 'flex', flexDirection: 'column', gap: 12,
+                        boxShadow: '0 10px 40px rgba(0,0,0,0.18)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18 }}>What JobDiva actually returned</h3>
+                <p style={{ color: '#64748b', fontSize: 12, margin: '4px 0 0', maxWidth: 620 }}>
+                  Raw <code>payload_snapshot</code> from the most-recent placement sync — including every{' '}
+                  <code>_jd_*</code> enrichment bucket. If a bucket shows few keys here, that's what
+                  JobDiva sent us. The fix is on the JobDiva side (account field permissions / endpoint
+                  scope), not in CoreFlux.
+                </p>
+              </div>
+              <button data-testid="fms-raw-close"
+                      onClick={() => setRawOpen(false)}
+                      className="btn btn--ghost"
+                      style={{ fontSize: 12, padding: '4px 10px' }}>✕</button>
+            </div>
+
+            {rawBusy && <div style={{ padding: 20, color: '#64748b', fontSize: 13 }}>Loading raw payload…</div>}
+            {rawError && (
+              <div data-testid="fms-raw-error"
+                   style={{ padding: 12, background: '#fef2f2', color: '#991b1b',
+                            border: '1px solid #fca5a5', borderRadius: 6, fontSize: 12 }}>
+                {rawError}
+              </div>
+            )}
+
+            {!rawBusy && rawData && (
+              <div data-testid="fms-raw-content"
+                   style={{ flex: 1, overflowY: 'auto', display: 'flex',
+                            flexDirection: 'column', gap: 12 }}>
+                <div style={{ fontSize: 12, color: '#475569' }}>
+                  Showing placement <strong data-testid="fms-raw-extid">{rawData.external_id}</strong>{' '}
+                  · last updated <code style={{ fontSize: 11 }}>{rawData.updated_at}</code>
+                </div>
+
+                <div data-testid="fms-raw-stats"
+                     style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+                    Per-bucket breakdown
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc' }}>
+                        <th style={{ ...thStyle, fontSize: 11 }}>Bucket</th>
+                        <th style={{ ...thStyle, fontSize: 11, textAlign: 'right' }}>Present?</th>
+                        <th style={{ ...thStyle, fontSize: 11, textAlign: 'right' }}>Field count</th>
+                        <th style={{ ...thStyle, fontSize: 11 }}>Top keys</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr style={{ borderTop: '1px solid #f1f5f9' }}>
+                        <td style={{ ...tdStyle }}><strong>Placement (top-level scalars)</strong></td>
+                        <td style={{ ...tdStyle, textAlign: 'right' }}>✓</td>
+                        <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}
+                            data-testid="fms-raw-top-count">
+                          {rawData.stats?.top_level_scalar_field_count ?? '—'}
+                        </td>
+                        <td style={{ ...tdStyle, color: '#475569', fontSize: 11 }}>
+                          {(rawData.stats?.top_level_scalar_keys || []).slice(0, 8).join(', ')}
+                          {(rawData.stats?.top_level_scalar_keys || []).length > 8 && ' …'}
+                        </td>
+                      </tr>
+                      {Object.entries(rawData.stats?.buckets || {}).map(([bucket, info]) => {
+                        const lowFields = info.present && info.field_count <= 2;
+                        return (
+                          <tr key={bucket}
+                              data-testid={`fms-raw-bucket-${bucket}`}
+                              data-low-fields={lowFields ? 'yes' : 'no'}
+                              style={{ borderTop: '1px solid #f1f5f9',
+                                       background: !info.present ? '#fef2f2'
+                                                 : lowFields    ? '#fef9c3'
+                                                 : 'transparent' }}>
+                            <td style={{ ...tdStyle }}>
+                              <code style={{ fontSize: 11 }}>{bucket}</code>
+                              {!info.present && <span style={{ marginLeft: 6, color: '#b91c1c', fontSize: 11 }}>not returned</span>}
+                              {lowFields && <span style={{ marginLeft: 6, color: '#a16207', fontSize: 11 }}>sparse — JobDiva returned ≤2 fields</span>}
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: 'right' }}>{info.present ? '✓' : '✗'}</td>
+                            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: lowFields ? 700 : 500,
+                                         color: lowFields ? '#a16207' : '#0f172a' }}>
+                              {info.field_count}
+                            </td>
+                            <td style={{ ...tdStyle, color: '#475569', fontSize: 11 }}>
+                              {(info.keys || []).slice(0, 8).join(', ')}
+                              {(info.keys || []).length > 8 && ' …'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <div style={{ marginTop: 10, fontSize: 11, color: '#64748b' }}>
+                    A row highlighted yellow means JobDiva returned a sparse response (≤2 fields) for that
+                    bucket — that's almost always a <strong>JobDiva account-permission issue</strong> on
+                    the <code>/apiv2/jobdiva/search*</code> endpoint for that entity. Ask your JobDiva
+                    admin to expand the API user's field access for that record type.
+                  </div>
+                </div>
+
+                <div>
+                  <button
+                    type="button"
+                    data-testid="fms-raw-toggle-json"
+                    onClick={() => setRawShowJson(s => !s)}
+                    className="btn btn--ghost"
+                    style={{ fontSize: 12 }}>
+                    {rawShowJson ? 'Hide full JSON' : 'Show full JSON'}
+                  </button>
+                </div>
+                {rawShowJson && (
+                  <pre data-testid="fms-raw-json"
+                       style={{ background: '#0f172a', color: '#e2e8f0', padding: 14,
+                                borderRadius: 8, fontSize: 11, overflow: 'auto',
+                                maxHeight: 360, margin: 0 }}>
+                    {JSON.stringify(rawData.payload, null, 2)}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </section>
   );
 }

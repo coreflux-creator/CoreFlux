@@ -11421,3 +11421,75 @@ navigates to it for approval.
    (LinkedIn URL, secondary email, work-auth notes, custom field
    blobs, etc.) automatically appears as `placement.person_<col>`
    with zero UI code changes.
+
+
+## Raw JobDiva payload diagnostic — "🔬 Raw payload" button (2026-05 follow-up)
+
+### Why
+After shipping the entity tabs + Source Inspector, the operator's
+screenshot proved the actual symptom: re-index says
+`assignment ×118` (118 placements indexed an assignment sub-record),
+BUT only **1 distinct mappable path** (`status`) shows up under
+`entity_type=assignment`. Same for `job` (1 field) versus
+`jobdiva_customer` (58 fields) and `person` (59 fields).
+
+That asymmetry can have only two root causes:
+  (A) JobDiva's `/apiv2/jobdiva/searchStart` and `searchJob` return
+      sparse data for this tenant (account permission scope), OR
+  (B) Our extractor isn't surfacing what JobDiva sent.
+
+We CANNOT tell the difference without seeing the raw
+`payload_snapshot` JSON. So we built that diagnostic.
+
+### Shipped
+- **NEW endpoint:** `/api/admin/integrations/jobdiva_raw_payload.php`
+  (GET). Returns the most-recent placement's stored
+  `payload_snapshot` plus per-bucket stats:
+  ```
+  {
+    external_id: "27857851",
+    payload: { ... full enriched JSON ... },
+    stats: {
+      top_level_scalar_field_count: N,
+      top_level_scalar_keys: [...],
+      buckets: {
+        _jd_job:       { present, field_count, keys: [...] },
+        _jd_candidate: { ... },
+        _jd_customer:  { ... },
+        _jd_contact:   { ... },
+        _jd_start:     { ... }
+      }
+    }
+  }
+  ```
+- **NEW UI:** "🔬 Raw payload" button in the Field Mapping Studio
+  header (visible when `integration=jobdiva`). Opens a modal that
+  renders the bucket stats table — buckets with ≤2 fields highlight
+  yellow with "sparse — JobDiva returned ≤2 fields" hint pointing at
+  the JobDiva account-permission root cause. A "Show full JSON" toggle
+  dumps the raw payload pretty-printed.
+
+### Verification
+- `tests/jobdiva_raw_payload_smoke.php` (NEW): 3 cases — healthy
+  payload counts, sparse-bucket flagging (replicates operator's
+  symptom: `_jd_start` field_count=1), empty payload graceful.
+- Full suite: 328 stable pass / 3 known/flaky failures (all pre-existing
+  and unrelated to this change).
+- Vite bundle synced: `index-DMQbEhYy.js`.
+
+### Files touched
+- NEW: `api/admin/integrations/jobdiva_raw_payload.php`
+- NEW: `tests/jobdiva_raw_payload_smoke.php`
+- MODIFIED: `dashboard/src/pages/FieldMappingStudio.jsx`
+  (button + modal + state + openRawPayload handler)
+- AUTO-UPDATED: `.deploy-version`, `dashboard/dist/index.html`,
+  `spa-assets/sw.js`, new `spa-assets/index-DMQbEhYy.js`.
+
+### How the operator uses it
+1. Deploy via `/update.php`.
+2. Open Field Mapping Studio → click **🔬 Raw payload**.
+3. Read the bucket table. Yellow rows = JobDiva sent us
+   essentially nothing for that bucket → JobDiva account-permission
+   issue (escalate to JobDiva admin to widen API field access for
+   that entity), NOT a CoreFlux extraction bug.
+4. Click **Show full JSON** to confirm with eyes the raw response.
