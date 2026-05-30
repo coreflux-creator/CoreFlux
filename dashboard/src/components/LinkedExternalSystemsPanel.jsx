@@ -58,6 +58,37 @@ const SOURCE_ID_FIELDS = {
       ['Email',          ['email']],
     ],
   },
+  // Airtable Slice-3 — surface the natural-key field operators most
+  // often pick as the linkage match column, plus the Airtable rec id.
+  airtable: {
+    placement: [
+      ['Airtable Rec',    ['_airtable_id', 'id', 'rec_id']],
+      ['Placement ID',    ['external_id', 'placement_id', 'placementId']],
+      ['Title',           ['title', 'job_title', 'Job Title']],
+      ['Client',          ['client_name', 'end_client_name', 'Client']],
+      ['Created',         ['_airtable_created_time']],
+    ],
+    company: [
+      ['Airtable Rec',    ['_airtable_id', 'id', 'rec_id']],
+      ['Name',            ['name', 'company_name', 'Name']],
+      ['Domain',          ['domain', 'website', 'Domain']],
+      ['DUNS',            ['duns', 'DUNS']],
+    ],
+    customer: [
+      ['Airtable Rec',    ['_airtable_id', 'id', 'rec_id']],
+      ['Name',            ['name', 'customer_name', 'Name']],
+    ],
+    vendor: [
+      ['Airtable Rec',    ['_airtable_id', 'id', 'rec_id']],
+      ['Vendor Name',     ['vendor_name', 'name', 'Vendor', 'Name']],
+      ['Tax ID',          ['tax_id', 'ein', 'Tax ID']],
+    ],
+    contact: [
+      ['Airtable Rec',    ['_airtable_id', 'id', 'rec_id']],
+      ['Email',           ['email_primary', 'email', 'Email']],
+      ['Phone',           ['phone', 'Phone']],
+    ],
+  },
 };
 
 const STATUS_PALETTE = {
@@ -65,6 +96,11 @@ const STATUS_PALETTE = {
   stale:             { bg: '#fef3c7', fg: '#92400e', border: '#fde68a', icon: Clock,         label: 'Stale' },
   error:             { bg: '#fef2f2', fg: '#991b1b', border: '#fecaca', icon: AlertCircle,   label: 'Error' },
   deleted_in_source: { bg: '#f1f5f9', fg: '#475569', border: '#cbd5e1', icon: AlertCircle,   label: 'Deleted in source' },
+  // Airtable Slice-2 — unmatched/ambiguous when the resolver couldn't
+  // link to a real CoreFlux row. Operator should reconcile via the
+  // Airtable Settings → Reconciliation tab.
+  unmatched:         { bg: '#fff7ed', fg: '#9a3412', border: '#fed7aa', icon: AlertCircle,   label: 'Needs linkage' },
+  ambiguous:         { bg: '#fdf2f8', fg: '#9d174d', border: '#fbcfe8', icon: AlertCircle,   label: 'Ambiguous match' },
 };
 
 const DIRECTION_LABEL = {
