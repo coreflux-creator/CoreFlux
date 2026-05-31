@@ -156,7 +156,7 @@ $a('mpAdvance() dispatcher exported',            $c($svc, 'function mpAdvance(in
 $a('mpAdvance() requires active Mercury connection',
     $c($svc, "'no active Mercury connection'"));
 $a('mpAdvance() routes Approved → originate funding',
-    $c($svc, "case 'Approved': return mpOriginateFunding"));
+    $c($svc, "return mpOriginateFunding(\$tenantId, \$row, \$apiToken, \$defaults);"));
 $a('mpAdvance() routes Funding → verify + originate payout',
     $c($svc, "case 'Funding':  return mpVerifyAndOriginatePayout"));
 $a('mpAdvance() routes Submitted → poll',

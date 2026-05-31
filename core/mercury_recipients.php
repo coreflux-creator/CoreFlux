@@ -209,6 +209,9 @@ function mercuryRecipientPushToMercury(int $tenantId, int $id, ?int $userId = nu
     if ($rec['kind'] === 'funding_source') {
         throw new \RuntimeException('funding_source recipients are not pushed via API — link inside Mercury web UI and paste the external_account id when setting as default.');
     }
+    if ($rec['kind'] === 'sweep_destination') {
+        throw new \RuntimeException('sweep_destination recipients are not pushed via API — link inside Mercury web UI and paste the counterparty id via "Set Mercury counterparty".');
+    }
     $conn = mercuryGetConnection($tenantId);
     if (!$conn || $conn['status'] !== 'active') {
         throw new MercuryApiException('no active Mercury connection for tenant');
@@ -265,6 +268,48 @@ function mercuryRecipientPushToMercury(int $tenantId, int $id, ?int $userId = nu
 
     return [
         'mercury_id'   => $mercuryId,
+        'mercury_kind' => 'counterparty',
+    ];
+}
+
+/**
+ * Designate the Mercury counterparty id for a sweep_destination recipient.
+ *
+ * Sweep destinations point at *another* Mercury account in the same
+ * org, so there's no external bank to push via mercuryCreateCounterparty.
+ * The operator establishes the internal-transfer relationship inside
+ * the Mercury web UI once and pastes the resulting counterparty (a.k.a.
+ * recipient) id here. mpAdvance reads this mapping to set the
+ * `recipientId` field on the Mercury POST /account/.../transactions call.
+ *
+ * Idempotent — re-pasting the same id is a no-op; pasting a new id
+ * replaces the prior mapping.
+ */
+function mercurySweepDestinationSetCounterparty(int $tenantId, int $recipientId, string $counterpartyId, ?int $userId = null): array
+{
+    $rec = mercuryRecipientGet($tenantId, $recipientId);
+    if (!$rec || $rec['kind'] !== 'sweep_destination') {
+        throw new \InvalidArgumentException('recipient must exist and be of kind=sweep_destination');
+    }
+    $counterpartyId = trim($counterpartyId);
+    if ($counterpartyId === '') {
+        throw new \InvalidArgumentException('counterparty_id required (paste the value from Mercury)');
+    }
+
+    $pdo = getDB();
+    $pdo->prepare(
+        'INSERT INTO mercury_recipient_mappings
+            (tenant_id, recipient_id, mercury_id, mercury_kind, pushed_at, last_synced_at)
+         VALUES (:t, :r, :mid, "counterparty", NOW(), NOW())
+         ON DUPLICATE KEY UPDATE
+            mercury_id      = VALUES(mercury_id),
+            last_synced_at  = NOW(),
+            last_sync_error = NULL'
+    )->execute(['t' => $tenantId, 'r' => $recipientId, 'mid' => $counterpartyId]);
+
+    return [
+        'recipient_id' => $recipientId,
+        'mercury_id'   => $counterpartyId,
         'mercury_kind' => 'counterparty',
     ];
 }

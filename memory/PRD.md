@@ -10,6 +10,130 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Treasury Sweep go-live — internal-transfer recipient model (2026-02 — current fork)
+
+### Why
+The sweep worker has shipped as DRY-RUN-only since the policy/rule layer
+landed. Live execution was gated by the "Layer 3c" comment in
+`treasury_sweep_engine.php`: Mercury treats every money movement as a
+payment to a counterparty, so sweeping between two Mercury accounts
+inside the same org requires modelling the destination as a recipient.
+The dual-leg pipeline (`mpOriginateFunding` → `mpVerifyAndOriginatePayout`)
+also doesn't apply — there's no external pull leg because the source
+already lives in Mercury. Closing the gap meant: collapse the dual-leg
+flow to a single hop for `sweep_destination` recipients, wire the
+operator-paste counterparty model, and surface both in the UI.
+
+### What shipped
+- **Migration `086_payment_instruction_internal_transfer.sql`** — adds
+  `is_internal_transfer TINYINT(1) NOT NULL DEFAULT 0` to
+  `payment_instructions`, idempotent via `information_schema` guard.
+- **`core/mercury_recipients.php`** —
+  - New `mercurySweepDestinationSetCounterparty($tid, $rid, $cpId, $userId)`:
+    validates the recipient is `sweep_destination`, idempotently upserts a
+    `mercury_recipient_mappings` row with `mercury_kind='counterparty'`.
+  - `mercuryRecipientPushToMercury` now also rejects `sweep_destination`
+    (same paste model as `funding_source`).
+- **`core/mercury_payments.php`** —
+  - `mpCreate()` detects `sweep_destination` kind, requires + validates
+    `source_mercury_account_id` against `mercury_accounts`, stamps it on
+    `operating_mercury_account_id`, sets `is_internal_transfer=1`.
+  - `mpAdvance()` branches: when `is_internal_transfer=1` at the
+    `Approved` state, routes through the new `mpOriginateInternalTransfer()`
+    instead of `mpOriginateFunding()`.
+  - New `mpOriginateInternalTransfer()` — looks up the destination's
+    counterparty mapping, calls `mercuryCreatePayment(source, {recipientId: cpId, ...})`
+    with idempotency suffix `:transfer`, transitions Approved → Submitted
+    in a single hop. Stamps `funding_settled_at` + a
+    `funding_mercury_status='internal_transfer_skip'` marker so reporting
+    queries that key off funding timestamps don't mistake an internal
+    transfer for a stalled vendor payment.
+  - The standard `mpPollPayoutStatus` poller covers the single Mercury
+    leg from there on; no changes needed.
+- **`core/sweep_rules.php`** — fixed pre-existing bug: `destination_recipient_id`
+  (column added by migration 075) was never wired into the upsert. Now
+  wired into `SELECT`, `INSERT`, `UPDATE`, plus server-side validation
+  that the chosen recipient exists AND has `kind='sweep_destination'`.
+- **`core/treasury_sweep_engine.php`** — Layer 3c now passes
+  `source_mercury_account_id` (from `rule.source_account_id`) into
+  `mpCreate`, completing the originate path.
+- **API** (`/api/mercury_recipients.php`) — new
+  `?action=set_sweep_counterparty` POST action; validates inputs,
+  delegates to the helper, audits `mercury.sweep_destination.counterparty_set`.
+- **UI** — `modules/treasury/ui/MercuryRecipients.jsx`:
+  - Adds `sweep_destination` kind option to the create modal + a violet
+    "sweep dest" badge.
+  - Per-row "Set Mercury counterparty" / "Update counterparty" button
+    (testid `mercury-set-sweep-counterparty-{id}`).
+  - New `SetSweepCounterpartyModal` — pastes the counterparty id from
+    Mercury web UI, monospace input, idempotent save.
+- **UI** — `modules/treasury/ui/SweepRulesAdmin.jsx`:
+  - Loads tenant's `sweep_destination` recipients on mount via
+    `/api/mercury_recipients.php?kind=sweep_destination`.
+  - Form field replaces the "raw integer" expectation with a typed
+    picker (R-{id} · name · counterparty preview). Recipients without
+    a Mercury counterparty id are listed but disabled with a clear
+    label so operators know what's missing.
+  - Empty-state CTA points operators at the Mercury Recipients page
+    when no `sweep_destination` exists yet.
+  - Table row flags `⚠ no counterparty linked` next to the destination
+    account when the rule still lacks a recipient.
+  - Save payload posts `destination_recipient_id` (null on blank).
+
+### Operator workflow (now end-to-end)
+1. **Recipients page** → New recipient → kind=`sweep_destination`,
+   fill bank-detail fields with the destination Mercury account's
+   ACH routing/number (the form requires them, but they're informational
+   for sweep_destination — Mercury internal transfers use the pasted
+   counterparty id, not these details).
+2. In Mercury web UI: Transfers → Send between your accounts → set up
+   the destination account once. Copy the resulting counterparty/recipient id.
+3. Back in CoreFlux: click **Set Mercury counterparty** → paste the id.
+4. **Sweep Rules** page → New rule → pick source/destination Mercury
+   account ids + the typed Destination recipient (picker now lists
+   active sweep destinations with their counterparty id status).
+5. Set `TREASURY_SWEEP_LIVE=1` in env → the next cron tick (08:30 daily)
+   originates a real `payment_instructions` row that flows through the
+   full approval engine (if `require_approval_policy_id` is set) or
+   advances directly to Submitted.
+
+### Tests
+- New: `tests/treasury_sweep_live_smoke.php` — **63 ✓ / 0 ✗** covering
+  migration, helper, mpCreate validation, mpAdvance branching,
+  mpOriginateInternalTransfer (idempotency, transitions, error paths),
+  sweep_rules wiring + recipient-kind guard, engine source-account
+  passthrough, API action, both UI files.
+- Updated: `mercury_dual_leg_approval_smoke.php` +
+  `mercury_payments_smoke.php` — `Approved → mpOriginateFunding`
+  assertion bumped to match the new branching arm.
+- **Full suite: 345/347** — only the 2 documented sandbox-bound
+  failures remain.
+
+### Bundle
+- `index-BfW3vUo9.js` + `index-BC5g6YJu.css`. SW
+  `CACHE_VERSION=coreflux-BfW3vUo9`. `.deploy-version` synced.
+
+### Deploy note
+PHP + React both touched. Cloudways deploy + `update.php` will apply
+migration 086 and pick up the new bundle. **`TREASURY_SWEEP_LIVE=1`
+must be set in env** before the cron actually originates real transfers
+(safe default: stay in dry-run, verify a sample rule, then flip).
+
+### Files touched
+- `core/migrations/086_payment_instruction_internal_transfer.sql` (new)
+- `core/mercury_recipients.php` — sweep counterparty helper + push guard
+- `core/mercury_payments.php` — internal-transfer branching + originator
+- `core/sweep_rules.php` — destination_recipient_id wiring + validation
+- `core/treasury_sweep_engine.php` — Layer 3c source account passthrough
+- `api/mercury_recipients.php` — set_sweep_counterparty action
+- `modules/treasury/ui/MercuryRecipients.jsx` — kind option + modal
+- `modules/treasury/ui/SweepRulesAdmin.jsx` — recipient picker
+- `tests/treasury_sweep_live_smoke.php` (new)
+- `tests/mercury_dual_leg_approval_smoke.php`,
+  `tests/mercury_payments_smoke.php` (assertion updates)
+
+
+
 ## Airtable Slice 5 — Push Direction & Bidirectional Sync (2026-02 — current fork)
 
 ### Why

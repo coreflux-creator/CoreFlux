@@ -31,6 +31,7 @@ function sweepRuleList(int $tid): array
         $pdo = getDB();
         $stmt = $pdo->prepare(
             'SELECT id, name, enabled, source_account_id, destination_account_id,
+                    destination_recipient_id,
                     target_min_balance_cents, sweep_above_cents, frequency,
                     require_approval_policy_id,
                     last_run_at, last_outcome, last_run_amount_cents,
@@ -47,8 +48,9 @@ function sweepRuleList(int $tid): array
             foreach ([
                 'target_min_balance_cents','sweep_above_cents',
                 'last_run_amount_cents','require_approval_policy_id',
+                'destination_recipient_id',
             ] as $k) {
-                if ($r[$k] !== null) $r[$k] = (int) $r[$k];
+                if (array_key_exists($k, $r) && $r[$k] !== null) $r[$k] = (int) $r[$k];
             }
             $r['sort_order'] = (int) $r['sort_order'];
         }
@@ -103,11 +105,32 @@ function sweepRuleUpsert(int $tid, array $data, ?int $actor): array
     }
 
     $pdo = getDB();
+    $destRecipientId = !empty($data['destination_recipient_id'])
+        ? (int) $data['destination_recipient_id'] : null;
+    if ($destRecipientId !== null) {
+        // Validate the destination_recipient_id is a real
+        // sweep_destination recipient in this tenant — surfaces a 422
+        // before save instead of letting the worker fail at run time.
+        $chk = $pdo->prepare(
+            "SELECT kind FROM mercury_recipients
+              WHERE tenant_id = :t AND id = :r AND deleted_at IS NULL LIMIT 1"
+        );
+        $chk->execute(['t' => $tid, 'r' => $destRecipientId]);
+        $kind = $chk->fetchColumn();
+        if (!$kind) {
+            throw new \InvalidArgumentException('destination_recipient_id not found in this tenant');
+        }
+        if ($kind !== 'sweep_destination') {
+            throw new \InvalidArgumentException('destination_recipient_id must point at a recipient of kind=sweep_destination');
+        }
+    }
+
     if (!empty($data['id'])) {
         $pdo->prepare(
             'UPDATE tenant_sweep_rules
                 SET name = :n, enabled = :en,
                     source_account_id = :src, destination_account_id = :dst,
+                    destination_recipient_id = :drid,
                     target_min_balance_cents = :mn, sweep_above_cents = :ab,
                     frequency = :f,
                     require_approval_policy_id = :pol,
@@ -117,6 +140,7 @@ function sweepRuleUpsert(int $tid, array $data, ?int $actor): array
             'n'  => $name,
             'en' => isset($data['enabled']) ? (int) (bool) $data['enabled'] : 1,
             'src'=> $src, 'dst' => $dst,
+            'drid'=> $destRecipientId,
             'mn' => $minBal, 'ab' => $above, 'f' => $freq,
             'pol'=> !empty($data['require_approval_policy_id']) ? (int) $data['require_approval_policy_id'] : null,
             'so' => (int) ($data['sort_order'] ?? 100),
@@ -128,13 +152,15 @@ function sweepRuleUpsert(int $tid, array $data, ?int $actor): array
         $pdo->prepare(
             'INSERT INTO tenant_sweep_rules
                 (tenant_id, name, enabled, source_account_id, destination_account_id,
+                 destination_recipient_id,
                  target_min_balance_cents, sweep_above_cents, frequency,
                  require_approval_policy_id, sort_order, notes)
-             VALUES (:t, :n, :en, :src, :dst, :mn, :ab, :f, :pol, :so, :nt)'
+             VALUES (:t, :n, :en, :src, :dst, :drid, :mn, :ab, :f, :pol, :so, :nt)'
         )->execute([
             't'  => $tid, 'n' => $name,
             'en' => isset($data['enabled']) ? (int) (bool) $data['enabled'] : 1,
             'src'=> $src, 'dst' => $dst,
+            'drid'=> $destRecipientId,
             'mn' => $minBal, 'ab' => $above, 'f' => $freq,
             'pol'=> !empty($data['require_approval_policy_id']) ? (int) $data['require_approval_policy_id'] : null,
             'so' => (int) ($data['sort_order'] ?? 100),

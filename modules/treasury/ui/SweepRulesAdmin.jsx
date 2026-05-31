@@ -20,6 +20,7 @@ const blankForm = {
   enabled: true,
   source_account_id: '',
   destination_account_id: '',
+  destination_recipient_id: '',
   target_min_balance_cents: '',
   sweep_above_cents: '',
   frequency: 'weekly_fri',
@@ -47,6 +48,19 @@ export default function SweepRulesAdmin() {
   };
   useEffect(() => { reload(); }, []);
 
+  // Treasury Sweep go-live: load tenant's sweep_destination recipients
+  // so the rule form can present a typed picker instead of a raw
+  // integer input. Empty list → operator hasn't created any yet; we
+  // surface a CTA pointing at the recipients page.
+  const [sweepRecipients, setSweepRecipients] = useState([]);
+  useEffect(() => {
+    let mounted = true;
+    api.get('/api/mercury_recipients.php?kind=sweep_destination')
+      .then(r => { if (mounted) setSweepRecipients(r.rows || []); })
+      .catch(() => { if (mounted) setSweepRecipients([]); });
+    return () => { mounted = false; };
+  }, []);
+
   const editRow = (r) => {
     setForm({
       ...blankForm,
@@ -54,6 +68,7 @@ export default function SweepRulesAdmin() {
       target_min_balance_cents: r.target_min_balance_cents ?? '',
       sweep_above_cents:        r.sweep_above_cents        ?? '',
       require_approval_policy_id: r.require_approval_policy_id ?? '',
+      destination_recipient_id:   r.destination_recipient_id   ?? '',
       notes: r.notes ?? '',
     });
   };
@@ -67,6 +82,7 @@ export default function SweepRulesAdmin() {
         target_min_balance_cents: form.target_min_balance_cents === '' ? null : Math.round(Number(form.target_min_balance_cents) * 100),
         sweep_above_cents:        form.sweep_above_cents        === '' ? null : Math.round(Number(form.sweep_above_cents)        * 100),
         require_approval_policy_id: form.require_approval_policy_id === '' ? null : Number(form.require_approval_policy_id),
+        destination_recipient_id:   form.destination_recipient_id   === '' ? null : Number(form.destination_recipient_id),
       };
       await api.post('/api/admin/treasury/sweep_rules.php', payload);
       setForm(blankForm);
@@ -135,7 +151,15 @@ export default function SweepRulesAdmin() {
                     <strong>{r.name}</strong> {r.enabled ? '' : <span style={{ color: '#94a3b8', fontSize: 11 }}>(disabled)</span>}
                   </td>
                   <td style={{ padding: '8px', fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>{r.source_account_id}</td>
-                  <td style={{ padding: '8px', fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>{r.destination_account_id}</td>
+                  <td style={{ padding: '8px', fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
+                    {r.destination_account_id}
+                    {!r.destination_recipient_id && (
+                      <div data-testid={`sweep-rule-missing-recipient-${r.id}`}
+                           style={{ color: '#b91c1c', fontSize: 10, marginTop: 2, fontFamily: 'inherit' }}>
+                        ⚠ no counterparty linked
+                      </div>
+                    )}
+                  </td>
                   <td style={{ padding: '8px' }}>{formatCents(r.target_min_balance_cents)}</td>
                   <td style={{ padding: '8px' }}>{formatCents(r.sweep_above_cents)}</td>
                   <td style={{ padding: '8px' }}>{r.frequency}</td>
@@ -174,6 +198,34 @@ export default function SweepRulesAdmin() {
               <input className="input" required value={form.destination_account_id}
                      onChange={(e) => setForm(f => ({ ...f, destination_account_id: e.target.value }))}
                      data-testid="sweep-rule-destination-input" />
+            </Field>
+            <Field label="Destination recipient (Mercury counterparty)" wide>
+              {sweepRecipients.length === 0 ? (
+                <div data-testid="sweep-rule-no-recipients" style={{
+                  fontSize: 12, padding: '6px 10px', background: '#fef3c7',
+                  border: '1px solid #fde68a', borderRadius: 4, color: '#92400e',
+                }}>
+                  No <code>sweep_destination</code> recipients yet. Create one on the{' '}
+                  <a href="/treasury/recipients" style={{ color: '#92400e', textDecoration: 'underline' }}>
+                    Mercury Recipients
+                  </a>{' '}page (Kind = sweep destination) and paste its Mercury counterparty id.
+                  Live mode requires this — the worker will fail with <code>failed_execute</code> without it.
+                </div>
+              ) : (
+                <select className="input" value={form.destination_recipient_id}
+                        onChange={(e) => setForm(f => ({ ...f, destination_recipient_id: e.target.value }))}
+                        data-testid="sweep-rule-destination-recipient-select">
+                  <option value="">— select sweep destination recipient —</option>
+                  {sweepRecipients.map(rec => (
+                    <option key={rec.id} value={rec.id} disabled={!rec.mercury_id}>
+                      R-{rec.id} · {rec.name}
+                      {rec.mercury_id
+                        ? ` (counterparty ${rec.mercury_id.slice(0, 16)}${rec.mercury_id.length > 16 ? '…' : ''})`
+                        : ' — Mercury counterparty id missing'}
+                    </option>
+                  ))}
+                </select>
+              )}
             </Field>
             <Field label="Keep at least (USD)">
               <input className="input" type="number" step="0.01" min="0"

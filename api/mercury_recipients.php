@@ -118,6 +118,26 @@ if ($method === 'POST' && $action === 'set_funding_default') {
     api_ok(['ok' => true]);
 }
 
+// Treasury Sweep go-live: paste the Mercury counterparty id that
+// represents an internal destination account so the sweep worker can
+// originate the transfer via mercuryCreatePayment().
+if ($method === 'POST' && $action === 'set_sweep_counterparty') {
+    $body = api_json_body();
+    $recipientId    = (int) ($body['recipient_id'] ?? 0);
+    $counterpartyId = trim((string) ($body['counterparty_id'] ?? ''));
+    if ($recipientId <= 0)        api_error('recipient_id required', 422);
+    if ($counterpartyId === '')   api_error('counterparty_id required', 422);
+    try {
+        $res = mercurySweepDestinationSetCounterparty($tenantId, $recipientId, $counterpartyId, $user['id'] ?? null);
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 422);
+    }
+    mrAudit('mercury.sweep_destination.counterparty_set', [
+        'recipient_id' => $recipientId, 'mercury_id' => $res['mercury_id'],
+    ], $tenantId, $user['id'] ?? null);
+    api_ok(['ok' => true] + $res);
+}
+
 if ($method === 'POST') {
     $body = api_json_body();
     try {

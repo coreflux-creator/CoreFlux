@@ -258,6 +258,12 @@ function treasurySweepRunRule(
             'currency'        => 'USD',
             'source_module'   => 'treasury_sweep',
             'source_ref'      => (string) $ruleId,
+            // Internal-transfer wiring: the source Mercury account is
+            // already inside Mercury, so mpCreate stamps it onto
+            // operating_mercury_account_id and flips
+            // is_internal_transfer=1 so mpAdvance skips the funding
+            // pull leg and originates a single transfer.
+            'source_mercury_account_id' => (string) $rule['source_account_id'],
             // Idempotency: one instruction per (rule, calendar-day). A
             // double-fired worker tick on the same day returns the
             // existing instruction without double-spending. We do NOT

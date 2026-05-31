@@ -154,6 +154,30 @@ function mpCreate(int $tenantId, array $data, ?int $userId = null): array
     $amount = (int) $data['amount_cents'];
     if ($amount <= 0) throw new \InvalidArgumentException('amount_cents must be > 0');
 
+    // Internal-transfer (treasury sweep) wiring. For sweep_destination
+    // recipients we collapse the dual-leg flow: source IS already a
+    // Mercury account, so no funding pull is needed. The source account
+    // is reused via the existing operating_mercury_account_id column
+    // ("the Mercury account I'm debiting"). The flag tells mpAdvance to
+    // route through mpOriginateInternalTransfer() instead of
+    // mpOriginateFunding() at the Approved-state branch.
+    $isInternalTransfer = $rec['kind'] === 'sweep_destination' ? 1 : 0;
+    $sourceMercuryAccountId = null;
+    if ($isInternalTransfer) {
+        $sourceMercuryAccountId = trim((string) ($data['source_mercury_account_id'] ?? ''));
+        if ($sourceMercuryAccountId === '') {
+            throw new \InvalidArgumentException('source_mercury_account_id required for sweep_destination instructions');
+        }
+        // Validate the Mercury account belongs to this tenant.
+        $chk = getDB()->prepare(
+            'SELECT id FROM mercury_accounts WHERE tenant_id = :t AND mercury_account_id = :m LIMIT 1'
+        );
+        $chk->execute(['t' => $tenantId, 'm' => $sourceMercuryAccountId]);
+        if (!$chk->fetchColumn()) {
+            throw new \InvalidArgumentException('source_mercury_account_id is not in the tenant\'s synced accounts; run Refresh accounts first');
+        }
+    }
+
     $idem = (string) ($data['idempotency_key'] ?? '');
     if ($idem === '') {
         $idem = 'pi_' . date('Ymd-His') . '_' . substr(bin2hex(random_bytes(6)), 0, 10);
@@ -162,19 +186,22 @@ function mpCreate(int $tenantId, array $data, ?int $userId = null): array
     $pdo = getDB();
     $pdo->prepare(
         'INSERT INTO payment_instructions
-            (tenant_id, idempotency_key, state, source_module, source_ref,
-             recipient_id, amount_cents, currency, description, notes, created_by_user_id)
-         VALUES (:t, :ik, "Draft", :sm, :sr, :r, :a, :cur, :d, :n, :u)'
+            (tenant_id, idempotency_key, state, source_module, source_ref, is_internal_transfer,
+             recipient_id, amount_cents, currency, description, notes,
+             operating_mercury_account_id, created_by_user_id)
+         VALUES (:t, :ik, "Draft", :sm, :sr, :it, :r, :a, :cur, :d, :n, :oma, :u)'
     )->execute([
         't'   => $tenantId,
         'ik'  => $idem,
         'sm'  => (string) ($data['source_module'] ?? 'manual'),
         'sr'  => $data['source_ref'] ?? null,
+        'it'  => $isInternalTransfer,
         'r'   => (int) $data['recipient_id'],
         'a'   => $amount,
         'cur' => (string) ($data['currency'] ?? 'USD'),
         'd'   => $data['description'] ?? null,
         'n'   => $data['notes'] ?? null,
+        'oma' => $sourceMercuryAccountId,
         'u'   => $userId,
     ]);
     return mpGet($tenantId, (int) $pdo->lastInsertId());
@@ -655,11 +682,91 @@ function mpAdvance(int $tenantId, int $instructionId): string
     $defaults = mercuryRecipientGetFundingDefault($tenantId);
 
     switch ($row['state']) {
-        case 'Approved': return mpOriginateFunding($tenantId, $row, $apiToken, $defaults);
+        case 'Approved':
+            // Internal transfers (treasury sweep) collapse to a single
+            // Submitted leg — source is already a Mercury account so no
+            // funding pull is needed. Vendor payments still go through
+            // the full dual-leg pull + payout flow.
+            if ((int) ($row['is_internal_transfer'] ?? 0) === 1) {
+                return mpOriginateInternalTransfer($tenantId, $row, $apiToken);
+            }
+            return mpOriginateFunding($tenantId, $row, $apiToken, $defaults);
         case 'Funding':  return mpVerifyAndOriginatePayout($tenantId, $row, $apiToken, $defaults);
         case 'Submitted': return mpPollPayoutStatus($tenantId, $row, $apiToken);
         default: return (string) $row['state'];
     }
+}
+
+/**
+ * Single-leg internal transfer for sweep_destination instructions.
+ *
+ * The destination's Mercury counterparty id was pasted into
+ * mercury_recipient_mappings via mercurySweepDestinationSetCounterparty().
+ * The source Mercury account was stamped onto operating_mercury_account_id
+ * at mpCreate() time. Approved → Submitted in one hop, then the
+ * standard mpPollPayoutStatus path tracks settlement.
+ */
+function mpOriginateInternalTransfer(int $tenantId, array $row, string $apiToken): string
+{
+    $sourceAcctId = (string) ($row['operating_mercury_account_id'] ?? '');
+    if ($sourceAcctId === '') {
+        mpTransition($tenantId, (int) $row['id'], 'Failed',
+            'internal transfer missing source Mercury account', null, [], ['stage' => 'originate_internal_transfer']);
+        return 'Failed';
+    }
+
+    $destMapping = getDB()->prepare(
+        'SELECT mercury_id FROM mercury_recipient_mappings
+          WHERE tenant_id = :t AND recipient_id = :r AND mercury_kind = "counterparty" LIMIT 1'
+    );
+    $destMapping->execute(['t' => $tenantId, 'r' => (int) $row['recipient_id']]);
+    $destCounterpartyId = (string) ($destMapping->fetchColumn() ?: '');
+    if ($destCounterpartyId === '') {
+        mpTransition($tenantId, (int) $row['id'], 'Failed',
+            'sweep_destination has no Mercury counterparty mapping; paste the counterparty id via "Set Mercury counterparty" first',
+            null, [], ['stage' => 'originate_internal_transfer']);
+        return 'Failed';
+    }
+
+    $idemTransfer = 'pi:' . $row['idempotency_key'] . ':transfer';
+    try {
+        $resp = mercuryCreatePayment($apiToken, $sourceAcctId, [
+            'recipientId'    => $destCounterpartyId,
+            'amount'         => number_format($row['amount_cents'] / 100, 2, '.', ''),
+            'paymentMethod'  => 'ach',
+            'idempotencyKey' => $idemTransfer,
+            'note'           => substr((string) ($row['description'] ?? ('CoreFlux sweep #' . $row['id'])), 0, 50),
+        ]);
+    } catch (MercuryApiException $e) {
+        mpTransition($tenantId, (int) $row['id'], 'Failed',
+            'internal transfer originate failed: ' . substr($e->getMessage(), 0, 180),
+            null, [], ['stage' => 'originate_internal_transfer', 'http_status' => $e->httpStatus]);
+        return 'Failed';
+    }
+
+    $txnId  = (string) ($resp['id'] ?? '');
+    $status = (string) ($resp['status'] ?? 'pending');
+    if ($txnId === '') {
+        mpTransition($tenantId, (int) $row['id'], 'Failed',
+            'Mercury did not return a transaction id for internal transfer',
+            null, [], ['stage' => 'originate_internal_transfer']);
+        return 'Failed';
+    }
+
+    // Skip the Funding state — no funding pull happened. Stamp both
+    // funding_settled_at and funding_initiated_at to NOW() so reporting
+    // and reconciliation queries that join on funding timestamps don't
+    // mistake an internal transfer for a stalled vendor payment. The
+    // payout_* columns then track the single Mercury leg.
+    mpTransition($tenantId, (int) $row['id'], 'Submitted', 'internal transfer originated', null, [
+        'funding_initiated_at'   => date('Y-m-d H:i:s'),
+        'funding_settled_at'     => date('Y-m-d H:i:s'),
+        'funding_mercury_status' => 'internal_transfer_skip',
+        'payout_mercury_txn_id'  => $txnId,
+        'payout_mercury_status'  => $status,
+        'payout_initiated_at'    => date('Y-m-d H:i:s'),
+    ], ['mercury_txn_id' => $txnId, 'status' => $status]);
+    return 'Submitted';
 }
 
 /** Stage 1: originate the funding pull (debit external, credit Mercury op). */

@@ -48,7 +48,7 @@ $a('comment cites the user requirement verbatim (dual-leg framing)',
 
 echo "\n2. mpAdvance() — leg 1 (funding pull) wiring intact\n";
 $a('Approved branch dispatches to mpOriginateFunding',
-    str_contains($svc, "case 'Approved': return mpOriginateFunding"));
+    str_contains($svc, "return mpOriginateFunding(\$tenantId, \$row, \$apiToken, \$defaults);"));
 $a('originate funding hits mercuryCreatePayment with funding idempotency key',
     str_contains($svc, "':funding'")
     && str_contains($svc, 'mercuryCreatePayment($apiToken, (string) $defaults[\'mercury_account_id\']'));

@@ -24,6 +24,7 @@ export default function MercuryRecipients() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [showSetDefault, setShowSetDefault] = useState(null); // recipient row
+  const [showSetCounterparty, setShowSetCounterparty] = useState(null); // sweep_destination row
   const [flash, setFlash] = useState(null);
   const [pushingId, setPushingId] = useState(null);
 
@@ -193,9 +194,9 @@ export default function MercuryRecipients() {
               <tr key={r.id} data-testid={`mercury-recipient-row-${r.id}`}>
                 <td><IdBadge id={r.id} prefix="R" /></td>
                 <td>
-                  <span className={`badge badge--${r.kind === 'funding_source' ? 'amber' : 'blue'}`}
+                  <span className={`badge badge--${r.kind === 'funding_source' ? 'amber' : r.kind === 'sweep_destination' ? 'violet' : 'blue'}`}
                         style={{ padding: '2px 6px', borderRadius: 4, fontSize: 11 }}>
-                    {r.kind === 'funding_source' ? 'funding' : 'vendor'}
+                    {r.kind === 'funding_source' ? 'funding' : r.kind === 'sweep_destination' ? 'sweep dest' : 'vendor'}
                   </span>
                 </td>
                 <td>{r.name}</td>
@@ -230,6 +231,17 @@ export default function MercuryRecipients() {
                       Set as funding default
                     </button>
                   )}
+                  {r.kind === 'sweep_destination' && r.status === 'active' && (
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      onClick={() => setShowSetCounterparty(r)}
+                      data-testid={`mercury-set-sweep-counterparty-${r.id}`}
+                      title="Paste the Mercury counterparty id that represents this internal destination account"
+                    >
+                      {r.mercury_id ? 'Update counterparty' : 'Set Mercury counterparty'}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="btn btn--ghost"
@@ -262,6 +274,18 @@ export default function MercuryRecipients() {
             setShowSetDefault(null);
             setFlash({ kind: 'success', msg: 'Funding default updated.' });
             reloadAll();
+          }}
+        />
+      )}
+
+      {showSetCounterparty && (
+        <SetSweepCounterpartyModal
+          recipient={showSetCounterparty}
+          onClose={() => setShowSetCounterparty(null)}
+          onSaved={(mid) => {
+            setShowSetCounterparty(null);
+            setFlash({ kind: 'success', msg: `Mercury counterparty ${mid} linked to ${showSetCounterparty.name}.` });
+            list.reload();
           }}
         />
       )}
@@ -311,6 +335,7 @@ function CreateRecipientModal({ onClose, onCreated }) {
           >
             <option value="vendor">Vendor (you pay them)</option>
             <option value="funding_source">Funding source (Mercury debits this account to pre-fund payouts)</option>
+            <option value="sweep_destination">Sweep destination (another Mercury account in the same org)</option>
           </select>
         </Field>
         <Field label="Name">
@@ -410,6 +435,66 @@ function Field({ label, children }) {
       {label}
       <div style={{ marginTop: 4 }}>{children}</div>
     </label>
+  );
+}
+
+// ============================================================================
+// SetSweepCounterpartyModal — paste the Mercury counterparty id that
+// represents this internal sweep destination account. Mercury doesn't
+// expose an internal-transfer endpoint that takes raw account ids; the
+// operator establishes the relationship in Mercury web UI once and we
+// store the resulting counterparty id locally.
+function SetSweepCounterpartyModal({ recipient, onClose, onSaved }) {
+  const [counterpartyId, setCounterpartyId] = useState(recipient.mercury_id || '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState(null);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      const res = await api.post('/api/mercury_recipients.php?action=set_sweep_counterparty', {
+        recipient_id: recipient.id,
+        counterparty_id: counterpartyId.trim(),
+      });
+      onSaved?.(res.mercury_id);
+    } catch (er) { setErr(er.message || String(er)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div data-testid="mercury-set-sweep-counterparty-modal" style={modalOverlay}
+         onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
+      <form onSubmit={submit} style={modalCard}>
+        <h4 style={{ margin: '0 0 8px' }}>Set Mercury counterparty for {recipient.name}</h4>
+        <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--cf-text-secondary)' }}>
+          Mercury treats internal transfers as payments to a counterparty
+          that represents the destination account. Establish the
+          relationship once in the Mercury web UI (Transfers → Send between
+          your accounts), then paste the resulting <code>recipient/counterparty id</code> here.
+          The treasury sweep worker reuses this id on every run.
+        </p>
+        {err && <div className="error" data-testid="mercury-set-sweep-counterparty-error" style={{ marginBottom: 8 }}>{err}</div>}
+        <Field label="Mercury counterparty id">
+          <input
+            className="input"
+            value={counterpartyId}
+            onChange={(e) => setCounterpartyId(e.target.value)}
+            required
+            placeholder="e.g. cpid_abc123 (from Mercury)"
+            data-testid="mercury-sweep-counterparty-input"
+            style={{ fontFamily: 'ui-monospace, monospace' }}
+          />
+        </Field>
+        <div style={{ marginTop: 16, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" className="btn btn--primary" disabled={busy || !counterpartyId.trim()}
+                  data-testid="mercury-set-sweep-counterparty-save">
+            {busy ? 'Saving…' : 'Save counterparty'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
