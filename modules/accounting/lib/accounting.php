@@ -319,6 +319,25 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
                 $actorUserId
             );
         } catch (\Throwable $_) { /* never block the post */ }
+
+        // Jaz hook (Slice 3) — enqueue a draft accounting command for
+        // the newly posted JE. Best-effort, no-op when no Jaz wiring;
+        // never blocks the post.
+        try {
+            require_once __DIR__ . '/../../../core/accounting/command_service.php';
+            accountingTryEnqueueDraft($tenantId, 'journal', [
+                'id'           => $jeId,
+                'entity_id'    => $entityId,
+                'je_number'    => $jeNumber,
+                'posting_date' => $postingDate,
+                'currency'     => $currency,
+                'total_debit'  => $totalDebit,
+                'total_credit' => $totalCredit,
+                'memo'         => $je['memo'] ?? null,
+                'lines'        => $resolved,
+                'updated_at'   => date('Y-m-d H:i:s'),
+            ], $actorUserId);
+        } catch (\Throwable $_) { /* never block the post */ }
     }
 
     return [

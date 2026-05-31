@@ -552,6 +552,15 @@ if ($method === 'POST' && $action === 'approve') {
     getDB()->prepare('UPDATE ap_bills SET status = "approved", approved_by_user_id = :u, approved_at = NOW() WHERE id = :id')
         ->execute(['u' => $user['id'] ?? null, 'id' => $id]);
     apAudit('ap.bill.approved', ['bill_id' => $id, 'internal_ref' => $row['internal_ref']], $id);
+
+    // Jaz hook (Slice 3) — enqueue a draft accounting command for the
+    // newly approved bill. Best-effort: no-op when no Jaz connection
+    // is wired or the entity is ambiguous; never blocks the approval.
+    require_once __DIR__ . '/../../../core/accounting/command_service.php';
+    $row['status']      = 'approved';
+    $row['approved_at'] = date('Y-m-d H:i:s');
+    accountingTryEnqueueDraft($tid, 'bill', $row, $user['id'] ?? null);
+
     api_ok(['ok' => true]);
 }
 

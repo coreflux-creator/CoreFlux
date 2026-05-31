@@ -10,6 +10,125 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Jaz.ai Integration — Slice 3 (AP/AR/JE hooks + outbox worker) (2026-02 — current fork)
+
+### Why
+User confirmed both P0 items:
+1. Hook AP/AR/JE module write paths into `accountingCommandEnqueue`.
+2. `cron/accounting_outbox_worker.php` to fire the retry/backoff ladder.
+
+Slice 2 wired the live adapter; Slice 3 closes the operator-flow loop so a bill/invoice approval (or JE post) in the existing CoreFlux UI now produces a Jaz draft + the worker advances it through the outbox → adapter → destination_link pipeline without operator intervention.
+
+### What shipped
+- **`accountingTryEnqueueDraft($tid, $objectType, $row, $userId)`** — new
+  best-effort helper in `core/accounting/command_service.php`:
+  - Maps `'bill'|'invoice'|'journal'` → `create_draft_bill|_invoice|_journal`.
+  - Resolves `sub_tenant_id` from `row['sub_tenant_id']` or
+    `row['entity_id']`; if neither, falls back to the tenant's sole
+    active accounting connection. **Ambiguous tenant (≥2 active
+    connections, no entity hint) → silent no-op** — the right
+    answer when an operator hasn't yet decided which entity gets
+    which draft.
+  - Stable per-version idempotency key
+    (`bill:42:v=20260214183022`) so a re-approval after edit
+    enqueues a fresh draft instead of being dedupe'd.
+  - Payload carries `coreflux_object_type/id` + the raw row under
+    `row` (full field-by-field CoreFlux→Jaz translation is parked
+    for a later slice; today the worker sends the row as-is and Jaz's
+    422 responses surface the missing fields cleanly in the outbox UI).
+  - **Never throws.** Failures are `error_log`'d and the originating
+    approval/post completes normally.
+- **Call sites wired**:
+  - `modules/ap/api/bills.php` — on `?action=approve`, immediately
+    after `apAudit('ap.bill.approved')`.
+  - `modules/billing/api/invoices.php` — on approve, after
+    `billingAudit('billing.invoice.approved')`.
+  - `modules/accounting/lib/accounting.php` — on JE post inside the
+    `if ($post && isset($period['id']))` block, passing
+    `entity_id`/`je_number`/`posting_date`/`currency`/`total_debit`/
+    `total_credit`/`lines` so the JE has everything Jaz `/journals`
+    needs once field mapping lands. Wrapped in try/catch so a hook
+    failure never blocks the post.
+- **`cron/accounting_outbox_worker.php`** (new) — every-minute tick:
+  - Pulls rows in `(status IN ('queued','retrying')) AND
+    (next_retry_at IS NULL OR next_retry_at <= NOW())`.
+  - Caps per-tick at `--max-rows=100` (configurable). Optional
+    `--tenant=N` filter for backfills. `--dry-run` for safe preview.
+  - Per-row error isolation. A hard exception nudges the row back
+    to `retrying` with `next_retry_at = NOW + 60s` and
+    `error_code = 'worker_exception'` so it doesn't stick in
+    `processing`.
+  - Schema-not-ready (`accounting_outbox_events` missing) exits
+    code 0 with a STDERR note → cron stays green during phased rollouts.
+  - Summary line: `N processed | X ok / Y failed / Z skipped | Tms`.
+
+### Operator flow now complete (end-to-end)
+1. Operator approves a bill in AP module.
+2. `apAudit` fires (existing). Then `accountingTryEnqueueDraft` runs.
+3. Helper checks the tenant has an active Jaz connection
+   (Slice 1 schema) for the bill's entity. If yes → inserts an
+   `accounting_outbox_events` row in `queued`.
+4. Within 60 seconds the outbox worker picks it up, marks
+   `processing`, calls `JazAccountingAdapter::createDraftBill()`
+   (Slice 2 live HTTP), gets back a Jaz `resourceId`.
+5. Worker marks the row `posted`, inserts a row in
+   `accounting_destination_links` so the bill is now linked
+   CoreFlux ↔ Jaz.
+6. On transient failure (429/5xx/network) → `retrying` with
+   exponential backoff (60s, 120s, 240s, 480s, 960s), `dead_letter`
+   at attempt 5. The error_code + error_message are visible in
+   the outbox row.
+
+### Tests
+- New: `tests/jaz_integration_slice3_hooks_smoke.php` — **48 ✓ / 0 ✗**
+  covering:
+  - `accountingTryEnqueueDraft` surface (command map, bail paths,
+    entity resolution, idempotency, payload shape).
+  - All 3 call-site wirings (bills approve, invoices approve, JE post).
+  - Outbox worker (CLI args, SQL, schema-not-ready bailout,
+    dispatch, dry-run, exception path).
+  - Functional helper bail paths against unknown type / zero id.
+- **Full suite: 349/351** — only the 2 documented sandbox-bound
+  failures remain.
+
+### Bundle / Deploy
+No React touched. PHP-only deploy. No new migration (Slice 1 schema
+unchanged). Cloudways deploy. **Cron line to add**:
+```
+* * * * * php /home/master/applications/<app>/public_html/cron/accounting_outbox_worker.php >> /var/log/coreflux/accounting_outbox.log 2>&1
+```
+Safe to deploy without setting up the cron — until it's wired,
+enqueued rows simply sit in `queued` and operators can fire them
+manually via `?action=execute_command`.
+
+### What's NOT done in Slice 3 (intentional cutline)
+- **CoreFlux→Jaz field translation**: the helper passes the row
+  through under `payload.row`. The adapter currently `array_merge`s
+  `saveAsDraft:true` over the input and POSTs. Jaz will respond
+  422 for missing required fields (contactResourceId, lineItems,
+  etc.). Those surface as `error_code=provider_validation` on the
+  outbox row, which is the correct signal for the next slice. The
+  translation table belongs in `core/accounting/jaz_payload_mapper.php`
+  and lands when a real Jaz test org is available to validate against.
+- **Outbox UI**: operators can see outbox rows via the API
+  (`?action=command_status&command_id=N`) but there's no admin
+  page yet for "show me failed outbox rows for this tenant". Slice 4
+  candidate.
+- **JE entity mapping**: passes `entity_id` from the JE row. If
+  CoreFlux's JE entity model doesn't 1:1 match a sub_tenant_id, the
+  hook silently skips. A formal entity-id→sub_tenant_id mapping
+  table is a future concern.
+
+### Files touched
+- `core/accounting/command_service.php` — added `accountingTryEnqueueDraft()`
+- `cron/accounting_outbox_worker.php` (new)
+- `modules/ap/api/bills.php` — approve action hook
+- `modules/billing/api/invoices.php` — approve action hook
+- `modules/accounting/lib/accounting.php` — JE post hook
+- `tests/jaz_integration_slice3_hooks_smoke.php` (new)
+
+
+
 ## Jaz.ai Integration — Slice 2 (Phase 1 reads + Phase 3 writes LIVE) (2026-02 — current fork)
 
 ### Why

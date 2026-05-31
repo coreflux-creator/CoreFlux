@@ -291,3 +291,98 @@ function accountingOutboxRowDecode(array $row): array
     }
     return $row;
 }
+
+/**
+ * accountingTryEnqueueDraft — best-effort hook called by AP/AR/JE
+ * module write paths. Resolves the legal entity (sub_tenant_id) from
+ * the row itself OR from the tenant's sole active accounting
+ * connection; enqueues a draft command; NEVER throws. Designed so
+ * existing module code can call it with one line:
+ *
+ *     accountingTryEnqueueDraft($tid, 'invoice', $row, $user['id'] ?? null);
+ *
+ * Returns the enqueued outbox row on success, null on skip
+ * (no connection / ambiguous entity / disabled / missing id).
+ *
+ * Idempotency key is stable per (object_type, object_id, version).
+ * The `version` comes from `updated_at` so a re-approval after edit
+ * enqueues a fresh draft instead of being dedupe'd against the prior
+ * one.
+ */
+function accountingTryEnqueueDraft(int $tenantId, string $objectType, array $row, ?int $userId = null): ?array
+{
+    static $commandMap = [
+        'bill'    => 'create_draft_bill',
+        'invoice' => 'create_draft_invoice',
+        'journal' => 'create_draft_journal',
+    ];
+    if (!isset($commandMap[$objectType])) return null;
+    $commandType = $commandMap[$objectType];
+
+    $rowId = (int) ($row['id'] ?? 0);
+    if ($rowId <= 0) return null;
+
+    // Resolve the sub_tenant. Row.entity_id (JEs) or row.sub_tenant_id
+    // wins. Otherwise: tenant must have exactly ONE active connection.
+    $subTenantId = (int) ($row['sub_tenant_id'] ?? $row['entity_id'] ?? 0);
+    try {
+        if ($subTenantId > 0) {
+            $chk = getDB()->prepare(
+                "SELECT 1 FROM accounting_provider_connections
+                  WHERE tenant_id = :t AND sub_tenant_id = :st
+                    AND connection_status = 'active' LIMIT 1"
+            );
+            $chk->execute(['t' => $tenantId, 'st' => $subTenantId]);
+            if (!$chk->fetchColumn()) return null;
+        } else {
+            $stmt = getDB()->prepare(
+                "SELECT sub_tenant_id FROM accounting_provider_connections
+                  WHERE tenant_id = :t AND connection_status = 'active'
+                  LIMIT 2"
+            );
+            $stmt->execute(['t' => $tenantId]);
+            $rows = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+            if (count($rows) !== 1) return null; // 0 = nothing wired, 2+ = ambiguous
+            $subTenantId = (int) $rows[0];
+        }
+    } catch (\Throwable $e) {
+        return null;
+    }
+
+    // Stable idempotency key. Includes a version derived from
+    // updated_at (or status) so a re-approval after edit produces a
+    // distinct command instead of being dedupe'd. Falls back to a
+    // wall-clock fingerprint when the row has no updated_at.
+    $version = (string) ($row['updated_at'] ?? $row['approved_at']
+              ?? $row['posting_date'] ?? date('Y-m-d-H:i:s'));
+    $idem = sprintf('%s:%d:v=%s', $objectType, $rowId, preg_replace('/[^0-9]/', '', $version) ?: '0');
+
+    // Payload: pass the CoreFlux row through with coreflux_object_*
+    // markers. Field-by-field CoreFlux→Jaz translation lives in a
+    // later slice; today the worker will hit Jaz with this shape and
+    // any missing required fields surface as `provider_validation`
+    // on the outbox row (visible in the outbox UI).
+    $payload = [
+        'coreflux_object_type' => $objectType,
+        'coreflux_object_id'   => $rowId,
+        'source_system'        => 'manual',
+        'source_object_id'     => (string) $rowId,
+        'row'                  => $row,
+    ];
+
+    try {
+        return accountingCommandEnqueue(
+            $tenantId, $subTenantId, $commandType,
+            $payload, $idem,
+            sprintf('%s:%d:approve', $objectType, $rowId),
+            $userId
+        );
+    } catch (\Throwable $e) {
+        // Per-spec: the hook is best-effort. Failures here MUST NOT
+        // block the originating CoreFlux operation (approving a bill,
+        // posting a JE). Log and move on; the operator can re-trigger
+        // from the outbox UI when the cause is fixed.
+        error_log('[accountingTryEnqueueDraft] ' . $e->getMessage());
+        return null;
+    }
+}
