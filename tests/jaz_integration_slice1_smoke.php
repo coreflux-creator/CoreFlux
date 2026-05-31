@@ -287,7 +287,8 @@ echo "\ndashboard/src/pages/IntegrationsHub.jsx\n";
 $ih = $read("{$ROOT}/dashboard/src/pages/IntegrationsHub.jsx");
 $a('Jaz tile has testid integration-card-jaz',    str_contains($ih, 'testid="integration-card-jaz"'));
 $a('Jaz tile points at /admin/integrations/jaz',  str_contains($ih, 'href="/admin/integrations/jaz"'));
-$a('Jaz tile status="pending"',                   str_contains($ih, 'status="pending"'));
+$a('Jaz tile status="pending" or dynamic',         str_contains($ih, 'status="pending"')
+                                                || str_contains($ih, "jaz.data?.connected ? 'connected'"));
 
 // --- PHP syntax checks ------------------------------------------
 echo "\nPHP syntax checks\n";

@@ -13415,3 +13415,37 @@ Slice 3 surfaced stored-only records but offered no path out of the vault. Slice
 - NEW: `dashboard/src/pages/PromoteVaultModal.jsx`
 - `dashboard/src/pages/AirtableSettings.jsx` — Reconcile + Promote buttons, modal mounts.
 - NEW: `tests/airtable_slice4_smoke.php` (73 ✓)
+
+
+## 2026-02 — Jaz.ai Integration Slice 4 (COMPLETE)
+
+### Scope
+Finish the Jaz.ai accounting backend integration:
+1. CoreFlux row → Jaz API payload translator (with link-resolution + validation messages).
+2. Operator-facing Accounting Outbox admin UI (filter / inspect payload + provider_result / retry / cancel).
+3. Discoverability: sidebar nav link, Admin Overview ActionCard, link from Jaz settings page.
+
+### Implementation
+- **`core/accounting/jaz_payload_mapper.php`** — `mapBillToJaz`, `mapInvoiceToJaz`, `mapJournalToJaz`, `mapCorefluxRowToJaz` dispatcher. Resolves CoreFlux foreign keys (vendor/customer/account/tax_rate) to Jaz `resourceId` via `accounting_destination_links`. Raises `AccountingAdapterValidationException` with clear field-level messages on missing links / missing account_id on line / unbalanced JE / no line items.
+- **`core/accounting/command_service.php`** — `accountingCommandExecute()` now invokes the mapper for `jaz` + `bill|invoice|journal` commands before calling the adapter. Mapper exceptions route to `accountingCommandMarkFailure` so the outbox row marks `failed` / `provider_validation` instead of 500-ing.
+- **`api/admin/accounting/outbox.php`** — RBAC-gated operator API. `GET` list with status filter + `by_status` rollup, `GET ?action=detail`, `POST ?action=retry` (resets attempts on `dead_letter`, kicks `accountingCommandExecute` inline), `POST ?action=cancel`.
+- **`dashboard/src/pages/AccountingOutbox.jsx`** — filterable table with per-status badge counts, retry/cancel buttons, detail modal exposing `command_payload` + `provider_result` + last error code/message.
+- **`dashboard/src/pages/AdminModule.jsx`** — Inbox icon import, route + sidebar nav entry + Admin Overview ActionCard at `/admin/accounting/outbox`.
+- **`dashboard/src/pages/JazIntegrationSettings.jsx`** — header link to the outbox for fast operator drill-in.
+
+### Test status
+- NEW `tests/jaz_integration_slice4_smoke.php`: **89 ✓** (file presence, RBAC wiring, mapper functional bail paths, syntax).
+- Stale Slice 1 assertion updated (Jaz tile status went from `pending` placeholder → dynamic in Slice 2).
+- Full suite: **351 ✓ / 2 baseline infra fails** (`accounting_phase2_a7_smoke.php`, `tenant_mail_senders_smoke.php`).
+- Vite rebuilt + `sync_bundle.sh` rotated hashes (`coreflux-QTFnsSu4`).
+
+### Files touched
+- NEW: `core/accounting/jaz_payload_mapper.php`
+- `core/accounting/command_service.php` — mapper invocation in execute path
+- NEW: `api/admin/accounting/outbox.php`
+- NEW: `dashboard/src/pages/AccountingOutbox.jsx`
+- `dashboard/src/pages/AdminModule.jsx` — route, sidebar link, ActionCard, Inbox icon
+- `dashboard/src/pages/JazIntegrationSettings.jsx` — outbox link in header
+- NEW: `tests/jaz_integration_slice4_smoke.php` (89 ✓)
+- `tests/jaz_integration_slice1_smoke.php` — Slice-2 status assertion update
+

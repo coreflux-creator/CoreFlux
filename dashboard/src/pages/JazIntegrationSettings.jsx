@@ -121,6 +121,13 @@ export default function JazIntegrationSettings() {
           (chart of accounts, GL, trial balance, posting). CoreFlux still owns the UI,
           workflows, approvals, and audit trail.
         </p>
+        <p style={{ margin: '8px 0 0', fontSize: 12 }}>
+          <a href="/admin/accounting/outbox"
+             data-testid="jaz-link-outbox"
+             style={{ color: '#2563eb', textDecoration: 'none' }}>
+            → View accounting outbox (drafts queued to Jaz)
+          </a>
+        </p>
       </header>
 
       {error && <div className="error" data-testid="jaz-error" style={{ marginBottom: 12 }}>{error}</div>}
