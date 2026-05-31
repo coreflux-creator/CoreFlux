@@ -45,7 +45,7 @@ ci_classify_lane() {
         sprint6_mobile_*|sprint6b_*|sprint6d_*|sprint6e_*|sprint6f_*|sprint6g_*|\
         sprint6h_*|sprint6i_*|sprint6j_*|sprint6k_*|sprint7_reports_drill_*|\
         sprint7e1_*|sprint7e2_*|sprint7e3_*|sprint7g_*|sprint_distribution_polish*|\
-        ai_confidence_moat_*|ai_extract_*|p1_linked_external_systems_*|\
+        ai_confidence_moat_*|ai_extract_*|ai_gateway_*|p1_linked_external_systems_*|\
         p2_admin_surfaces_*|p3_treasury_scenario_*)
             echo "ui"; return 0 ;;
 

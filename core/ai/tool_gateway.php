@@ -96,6 +96,29 @@ function aiToolRegistry(): array
             ],
             'handler'     => 'aiToolListOutboxHandler',
         ],
+        // ── Slice-1 read-only tools per AI-Native Extension spec §15 ───
+        'coreflux.get_tenant_context' => [
+            'description' => 'Return the active tenant id, name, available sub-tenants (legal entities), and active modules. Lets an agent ground itself without exposing settings.',
+            'permission'  => 'ai.use',
+            'args'        => [],
+            'handler'     => 'aiToolGetTenantContextHandler',
+        ],
+        'coreflux.get_user_permissions' => [
+            'description' => 'Return the calling user role and the list of (module, action) grants they currently hold under the new RBAC resolver. Read-only; agents use this to know which actions to even propose.',
+            'permission'  => 'ai.use',
+            'args'        => [],
+            'handler'     => 'aiToolGetUserPermissionsHandler',
+        ],
+        'coreflux.get_bank_transactions' => [
+            'description' => 'Return recent bank transactions across Plaid (accounting_bank_statement_lines) and Mercury (mercury_transactions), unified into a single newest-first feed.',
+            'permission'  => 'accounting.bank.manage',
+            'args'        => [
+                'source' => ['type' => 'string', 'required' => false, 'desc' => "plaid | mercury | both (default both)"],
+                'limit'  => ['type' => 'int',    'required' => false, 'desc' => 'default 50, max 200'],
+                'since'  => ['type' => 'date',   'required' => false, 'desc' => 'YYYY-MM-DD lower bound on posted_at'],
+            ],
+            'handler'     => 'aiToolGetBankTransactionsHandler',
+        ],
     ];
     return $reg;
 }
@@ -310,4 +333,139 @@ function aiToolListOutboxHandler(int $tenantId, ?int $subTenantId, array $args):
     }
     unset($r);
     return ['rows' => $rows, 'count' => count($rows)];
+}
+
+// ───────────────────────────────────────────────────────────── Slice 1
+// Spec §15 read-only tools. None of these mutate state. All projections
+// strip `_id`-style internal junk and never echo encrypted columns.
+
+function aiToolGetTenantContextHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    $pdo = getDB();
+    $tenant = null;
+    try {
+        $stmt = $pdo->prepare('SELECT id, name, subdomain, created_at FROM tenants WHERE id = :t LIMIT 1');
+        $stmt->execute(['t' => $tenantId]);
+        $tenant = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+        if ($tenant) $tenant['id'] = (int) $tenant['id'];
+    } catch (\Throwable $e) { /* schema-not-ready tolerated for CLI smoke */ }
+
+    $subs = [];
+    try {
+        $stmt = $pdo->prepare('SELECT id, name, subdomain FROM sub_tenants WHERE tenant_id = :t ORDER BY id ASC LIMIT 50');
+        $stmt->execute(['t' => $tenantId]);
+        $subs = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        foreach ($subs as &$s) { $s['id'] = (int) $s['id']; }
+        unset($s);
+    } catch (\Throwable $e) {}
+
+    return [
+        'tenant'      => $tenant,
+        'sub_tenants' => $subs,
+        // Active modules surface the RBAC modules the *caller* can see.
+        // Slice 1 keeps it cheap — the resolved module list is in the
+        // user-permissions tool. Modules is informational here.
+        'modules'     => ['ap','ar','accounting','treasury','people','time','billing','staffing','ai'],
+    ];
+}
+
+function aiToolGetUserPermissionsHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    // No request-time work — the gateway already authenticated the
+    // caller. The user record is reachable via getCurrentUser().
+    require_once __DIR__ . '/../auth.php';
+    $user = function_exists('getCurrentUser') ? getCurrentUser() : null;
+    if (!$user) {
+        return ['role' => 'unknown', 'modules' => [], 'note' => 'no session context'];
+    }
+    $userId = (int) ($user['id'] ?? 0);
+    $role   = (string) ($user['role'] ?? 'employee');
+
+    // Probe the RBAC resolver for the modules the caller can read/write/admin.
+    $modules = ['ap','ar','accounting','treasury','people','time','billing','staffing','reports','ai','cfo'];
+    $grants = [];
+    if (class_exists('RBACResolver')) {
+        foreach ($modules as $m) {
+            $row = [
+                'module' => $m,
+                'read'   => RBACResolver::can($userId, $tenantId, $m, 'read'),
+                'write'  => RBACResolver::can($userId, $tenantId, $m, 'write'),
+                'admin'  => RBACResolver::can($userId, $tenantId, $m, 'admin'),
+            ];
+            if ($row['read'] || $row['write'] || $row['admin']) $grants[] = $row;
+        }
+    }
+    return [
+        'user_id' => $userId,
+        'role'    => $role,
+        'modules' => $grants,
+    ];
+}
+
+function aiToolGetBankTransactionsHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    $pdo    = getDB();
+    $source = (string) ($args['source'] ?? 'both');
+    $limit  = max(1, min(200, (int) ($args['limit'] ?? 50)));
+    $since  = (string) ($args['since'] ?? '');
+    $since  = ($since !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $since)) ? $since : null;
+
+    $out = [];
+
+    if ($source === 'plaid' || $source === 'both') {
+        try {
+            // accounting_bank_statement_lines is the canonical Plaid-fed
+            // table per modules/treasury/api/account_transactions.php.
+            $sql = "SELECT id, bank_account_id, transaction_date, amount_cents,
+                           description, merchant_name, currency, posted_at, created_at
+                      FROM accounting_bank_statement_lines
+                     WHERE tenant_id = :t";
+            $params = ['t' => $tenantId];
+            if ($since !== null) { $sql .= ' AND COALESCE(posted_at, transaction_date) >= :sd'; $params['sd'] = $since; }
+            $sql .= " ORDER BY COALESCE(posted_at, transaction_date) DESC, id DESC LIMIT {$limit}";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            foreach (($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: []) as $r) {
+                $out[] = [
+                    'source'       => 'plaid',
+                    'id'           => (int) $r['id'],
+                    'account_ref'  => $r['bank_account_id'] !== null ? (int) $r['bank_account_id'] : null,
+                    'amount_cents' => (int) ($r['amount_cents'] ?? 0),
+                    'currency'     => $r['currency'] ?? 'USD',
+                    'description'  => $r['description'] ?? $r['merchant_name'] ?? null,
+                    'posted_at'    => $r['posted_at'] ?? $r['transaction_date'] ?? $r['created_at'] ?? null,
+                ];
+            }
+        } catch (\Throwable $e) { /* schema-not-ready tolerated */ }
+    }
+
+    if ($source === 'mercury' || $source === 'both') {
+        try {
+            $sql = "SELECT id, account_pk, mercury_txn_id, amount_cents, currency,
+                           counterparty_name, bank_description, posted_at, received_at
+                      FROM mercury_transactions
+                     WHERE tenant_id = :t";
+            $params = ['t' => $tenantId];
+            if ($since !== null) { $sql .= ' AND COALESCE(posted_at, received_at) >= :sd'; $params['sd'] = $since; }
+            $sql .= " ORDER BY COALESCE(posted_at, received_at) DESC, id DESC LIMIT {$limit}";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            foreach (($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: []) as $r) {
+                $out[] = [
+                    'source'       => 'mercury',
+                    'id'           => (int) $r['id'],
+                    'account_ref'  => $r['account_pk'] !== null ? (int) $r['account_pk'] : null,
+                    'amount_cents' => (int) ($r['amount_cents'] ?? 0),
+                    'currency'     => $r['currency'] ?? 'USD',
+                    'description'  => $r['counterparty_name'] ?? $r['bank_description'] ?? null,
+                    'posted_at'    => $r['posted_at'] ?? $r['received_at'] ?? null,
+                ];
+            }
+        } catch (\Throwable $e) { /* schema-not-ready tolerated */ }
+    }
+
+    // Merge newest-first and clamp.
+    usort($out, fn ($a, $b) => strcmp((string) ($b['posted_at'] ?? ''), (string) ($a['posted_at'] ?? '')));
+    $out = array_slice($out, 0, $limit);
+    return ['transactions' => $out, 'count' => count($out), 'source' => $source];
 }

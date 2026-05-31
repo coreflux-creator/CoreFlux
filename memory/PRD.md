@@ -13522,3 +13522,86 @@ Build the actual event infrastructure:
 
 ### Phase exit criteria + permission matrix + audit catalog
 See spec §15. Key permissions: `ai.use`, `ai.audit.view`, `accounting.write`, `accounting.approve`, `treasury.approve`, `payroll.approve`, `tax.review`, `platform.ai.admin`.
+
+
+## 2026-02 — AI Tool Gateway Slice 1 (COMPLETE)
+
+### Scope
+Phase 1 of the AI-Native Extension spec (v1.2) — Foundation layer only. Plumbing,
+no LLM calls. The LLM planner ships in Slice 2; LangGraph runtime in Slice 3+.
+
+### Implementation
+- **Migration `090_ai_runs.sql`** — `ai_runs` table (UUID PK, tenant-scoped, status
+  enum covers all spec values: queued / running / completed / failed / cancelled /
+  awaiting_approval). Also ALTERs `ai_tool_invocations` (089) to add a `ai_run_id`
+  back-link column so the admin trace UI can render a single run with its
+  tool calls.
+- **`core/ai/gateway.php`** — central control plane:
+  `aiGatewayCreateRun`, `aiGatewayCompleteRun`, `aiGatewayInvokeTool`,
+  `aiGatewayGetRun`, `aiGatewayListRuns`, `aiGatewayAuditEvent`. UUIDv4
+  via `_aiGatewayUuid()`. All audit events reuse the existing
+  `audit_log` table per spec §15 (`ai_run_created`, `ai_tool_call_requested`,
+  `ai_tool_call_executed`, `ai_tool_call_blocked`). Run UPDATE is tenant-scoped
+  (defense-in-depth even though run id is a UUID).
+- **`core/ai/tool_gateway.php`** — extended (NOT replaced) with three new
+  read-only tools per spec §15:
+    - `coreflux.get_tenant_context` (RBAC: `ai.use`)
+    - `coreflux.get_user_permissions` (RBAC: `ai.use`)
+    - `coreflux.get_bank_transactions` (RBAC: `accounting.bank.manage`) —
+      unified newest-first feed across Plaid (`accounting_bank_statement_lines`)
+      and Mercury (`mercury_transactions`).
+- **API endpoints** — RBAC-gated:
+    - `POST /api/ai/runs.php` (`ai.use`) — create run + chain tool calls.
+      Defensive 20-call cap per request.
+    - `GET /api/ai/runs.php?id=<uuid>` (`ai.audit.view`) — run + tool_calls[].
+    - `GET /api/ai/runs.php?list=…` (`ai.audit.view`) — recent runs filtered by
+      agent / status / user.
+    - `GET /api/ai/tools.php` (preserved from prior slice) — discovery catalog.
+    - `GET /api/ai/audit.php?ai_run_id=…` (`ai.audit.view`) — spec §15 events
+      drilldown via `JSON_EXTRACT(meta_json, '$.ai_run_id')`.
+- **`core/rbac/legacy_map.php`** — three new permissions mapped to the existing
+  `ai` module: `ai.use → (ai, read)`, `ai.audit.view → (ai, read)`,
+  `platform.ai.admin → (ai, admin)`.
+- **`dashboard/src/pages/AiGatewayAdmin.jsx`** — admin trace explorer:
+  filterable runs list, run detail (tool calls + audit events in order),
+  tool registry catalog. Gated by `ai.audit.view`.
+- **`dashboard/src/pages/AskAiPanel.jsx`** — feature-flagged Slice 1 shell:
+  POSTs a single deterministic tool call through the gateway and renders the
+  envelope. The actual LLM planner ships in Slice 2. Admin-only for now.
+- **`AdminModule.jsx`** — Bot icon, route + sidebar + ActionCard for both
+  `/admin/ai-gateway` and `/admin/ai-gateway/ask`.
+- **`scripts/ci_lane_classifier.sh`** — added `ai_gateway_*` pattern to the
+  UI lane to keep CI lane distribution balanced.
+
+### Test status
+- NEW `tests/ai_gateway_slice1_smoke.php`: **124 ✓** (migration, gateway
+  contract, tool registry extension, API endpoints, RBAC, frontend testids,
+  UUID v4 shape, syntax checks).
+- Full suite: **352 ✓ / 2 baseline infra fails** (`accounting_phase2_a7_smoke.php`,
+  `tenant_mail_senders_smoke.php`).
+- Tenant-leak sentry: still green (5/0 ✓). All UPDATE/SELECTs on `ai_runs` are
+  doubly-scoped by `tenant_id`.
+- Vite rebuilt + `sync_bundle.sh` rotated hashes (`coreflux-Ba--PyIt`).
+
+### Out of scope for Slice 1 (Slice 2+ work)
+- LLM provider wiring (direct OpenAI + provider-neutral abstraction)
+- LangGraph workflow runtime
+- Write-tools (drafts, exceptions)
+- Artifact Layer / Network
+- AI Worker Runtime
+- Approval interrupts (Risk Level 4/5 actions)
+- Knowledge graph / pgvector
+
+### Files touched
+- NEW: `core/migrations/090_ai_runs.sql`
+- NEW: `core/ai/gateway.php`
+- `core/ai/tool_gateway.php` — three new tools + handlers
+- NEW: `api/ai/runs.php`
+- NEW: `api/ai/audit.php`
+- `core/rbac/legacy_map.php` — three new permissions
+- NEW: `dashboard/src/pages/AiGatewayAdmin.jsx`
+- NEW: `dashboard/src/pages/AskAiPanel.jsx`
+- `dashboard/src/pages/AdminModule.jsx` — routes, sidebar, ActionCards, imports
+- `scripts/ci_lane_classifier.sh` — `ai_gateway_*` → UI lane
+- NEW: `tests/ai_gateway_slice1_smoke.php` (124 ✓)
+

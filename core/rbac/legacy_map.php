@@ -67,6 +67,9 @@ final class RbacLegacyMap
 
             // ── ai ────────────────────────────────────────────────────────
             'ai.config.manage'                   => ['ai', 'admin'],
+            'ai.use'                             => ['ai', 'read'],
+            'ai.audit.view'                      => ['ai', 'read'],
+            'platform.ai.admin'                  => ['ai', 'admin'],
 
             // ── ap ────────────────────────────────────────────────────────
             'ap.1099.generate'                   => ['ap', 'admin'],
