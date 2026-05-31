@@ -10,6 +10,105 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Airtable Slice 5 — Push Direction & Bidirectional Sync (2026-02 — current fork)
+
+### Why
+User requested matching the placement-link column to existing placements,
+integrating more tables, and supporting **bidirectional sync** with three
+distinct push semantics: pull-only, push-only, or both. Each mapping
+also needs a **`reverse_field_map`** column independent of the pull-side
+map so push can write a subset of columns back without inverting the
+pull-side configuration.
+
+### What shipped this fork (completing previous agent's work in progress)
+- **Migration `084_airtable_push_direction.sql`** — adds `reverse_field_map`
+  JSON, `push_unmatched_action` VARCHAR(16) DEFAULT 'create_new',
+  `last_push_at` DATETIME, `last_push_error` TEXT, `last_push_records`
+  INT UNSIGNED to `airtable_table_mappings`. (Created prior session.)
+- **`core/airtable/sync.php`** — `AIRTABLE_MAPPING_DIRECTIONS` extended
+  to `['pull','push','both','off']`; `AIRTABLE_PUSH_UNMATCHED_ACTIONS =
+  ['create_new','update_only','error']`. `airtableMappingUpsert()`
+  validates + persists the new fields. `airtableMappingList` /
+  `airtableMappingGet` decode `reverse_field_map` JSON and surface
+  `last_push_*` columns. `airtableSyncTable()` direction guard accepts
+  `pull` and `both` (was `pull` only).
+- **`core/airtable/sync_push.php`** — `airtablePushMapping($tenantId,
+  $mappingId, $opts)` worker:
+  - Iterates CoreFlux rows of the mapping's entity, scoped to a
+    whitelist (`AIRTABLE_PUSH_ENTITY_TABLES`: placement, contact,
+    company, customer, vendor) with safe column lists.
+  - Builds the Airtable fields payload via the operator's
+    `reverse_field_map`.
+  - Looks up `external_entity_mappings` for an existing linked
+    Airtable record. If found → PATCH `/v0/{base}/{table}/{rec}`. If
+    not found, branches on `push_unmatched_action`:
+      - `create_new` (default) → POST a new Airtable record and
+        write the linkage row back into `external_entity_mappings`.
+      - `update_only` → skip, counted as `skipped_unmatched`.
+      - `error` → mark the row as failed.
+  - Respects `last_push_at` as the default `since` watermark + caps
+    `limit` at 2000. Writes `last_push_at`, `last_push_error`,
+    `last_push_records` on every run + emits an `airtableAudit(..,
+    'push', ..)` row.
+- **`api/airtable.php?action=push_now`** (+ `api/airtable/push_now.php`
+  shim) — gated by `integrations.airtable.manage`, validates
+  `mapping_id`, calls the worker, returns the rollup.
+- **`cron/airtable_sync.php`** rewritten — now selects mappings
+  `IN ('pull','push','both')`, runs the pull leg for `pull`/`both` and
+  the push leg for `push`/`both`. Skips push when `reverse_field_map`
+  is empty (operator hasn't configured it yet). Summary line surfaces
+  both pull + push counts.
+- **UI** (`dashboard/src/pages/AirtableSettings.jsx`):
+  - `MappingForm` now shows a **Push fieldset** (cyan tint) whenever
+    direction is `push` or `both` — JSON textarea for
+    `reverse_field_map` + dropdown for `push_unmatched_action`.
+  - `MappingRow` surfaces `last_push_at` / `last_push_records` /
+    `last_push_error` for push-enabled mappings.
+  - **Sync now** button enabled for `pull` or `both` (was `pull` only).
+  - **Push now** button appears alongside Sync now for `push`/`both`
+    mappings (cyan, rotated send icon, `data-testid=
+    "airtable-push-now-{id}"`).
+  - Submit handler validates `reverse_field_map` as JSON object when
+    direction is `push`/`both` and POSTs both new fields to
+    `mapping_save`.
+
+### Tests
+- New: `tests/airtable_slice5_push_smoke.php` — **79 ✓ / 0 ✗** covering
+  migration columns, constants, upsert validation paths, sync-table
+  direction widening, push worker behaviour (descriptors, PATCH /
+  POST branches, unmatched action handling, linkage write-back,
+  rollup + audit), API + shim wiring, cron dual-leg execution, and
+  every UI surface (testids, gating, form submission).
+- Updated: `tests/airtable_foundation_smoke.php` — direction enum
+  assertion bumped to the new 4-value list.
+- **Full suite: 344/346** — only the 2 documented sandbox-bound
+  failures (`accounting_phase2_a7_smoke.php`,
+  `tenant_mail_senders_smoke.php`) remain.
+
+### Bundle
+- `index-DKadf9Ph.js` + `index-BC5g6YJu.css` — `.deploy-version`,
+  `spa-assets/`, SW `CACHE_VERSION=coreflux-DKadf9Ph` all in sync via
+  postbuild `sync_bundle.sh`.
+
+### Files touched
+- `core/airtable/sync.php` — list/get/upsert wiring + direction guard
+- `core/airtable/sync_push.php` — reverse_field_map array/json tolerance
+- `cron/airtable_sync.php` — full rewrite for dual-leg execution
+- `dashboard/src/pages/AirtableSettings.jsx` — Push UI, Push now button
+- `tests/airtable_slice5_push_smoke.php` (new)
+- `tests/airtable_foundation_smoke.php` (assertion update)
+
+### Deploy note
+PHP + React both touched. Cloudways deploy + `update.php` to apply
+migration 084 + pick up the new bundle. After deploy, operators can:
+1. Open Airtable Settings → edit a mapping → flip direction to
+   `push` or `both`.
+2. Author `reverse_field_map` (e.g. `{"status": "Status",
+   "start_date": "Start Date"}`).
+3. Click **Push now** to backfill, or rely on the 15-min cron.
+
+
+
 ## CSV ID-prefix stripper + DB-side whitespace defense (2026-02 — current fork)
 
 ### Why

@@ -1095,6 +1095,24 @@ function MappingRow({ mapping, entities, directions, busy, setBusy, setFlash, re
     }
   };
 
+  const handlePushNow = async () => {
+    // Slice 5 — push CoreFlux rows to Airtable. Direction must be
+    // 'push' or 'both' AND reverse_field_map must be non-empty.
+    setBusy(true); setFlash(null);
+    try {
+      const r = await api.post('/api/airtable/push_now.php?action=push_now', { mapping_id: mapping.id });
+      setFlash({
+        kind: r.errored > 0 ? 'error' : 'success',
+        msg: `Push: scanned ${r.scanned} · ${r.pushed} pushed (${r.created} created · ${r.updated} updated) · ${r.skipped_unmatched} skipped · ${r.errored} errored.`,
+      });
+      reload();
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleRelink = async () => {
     setBusy(true); setFlash(null);
     try {
@@ -1141,6 +1159,21 @@ function MappingRow({ mapping, entities, directions, busy, setBusy, setFlash, re
               → <code>{mapping.internal_entity}</code> · {mapping.direction} · last sync: {mapping.last_sync_at || 'never'}
               {mapping.last_records > 0 && <> · {mapping.last_records} records</>}
             </div>
+            {/* Slice 5 — last push metadata. Only render for mappings
+                that actually have push enabled. */}
+            {(mapping.direction === 'push' || mapping.direction === 'both') && (
+              <div data-testid={`airtable-push-meta-${mapping.id}`}
+                   style={{ fontSize: 12, color: 'var(--cf-text-secondary)', marginTop: 2 }}>
+                last push: {mapping.last_push_at || 'never'}
+                {mapping.last_push_records > 0 && <> · {mapping.last_push_records} pushed</>}
+                {mapping.last_push_error && (
+                  <span style={{ color: 'var(--cf-red, #b91c1c)', marginLeft: 6 }}>
+                    <AlertTriangle size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />
+                    {mapping.last_push_error}
+                  </span>
+                )}
+              </div>
+            )}
             {/* Slice 2 linkage badge */}
             <div data-testid={`airtable-link-badge-${mapping.id}`}
                  style={{ fontSize: 11, marginTop: 4, display: 'flex',
@@ -1171,10 +1204,26 @@ function MappingRow({ mapping, entities, directions, busy, setBusy, setFlash, re
             <button
               type="button" className="btn btn--primary"
               data-testid={`airtable-sync-now-${mapping.id}`}
-              onClick={handleSyncNow} disabled={busy || mapping.direction !== 'pull'}
+              onClick={handleSyncNow}
+              disabled={busy || !(mapping.direction === 'pull' || mapping.direction === 'both')}
+              title={(mapping.direction === 'pull' || mapping.direction === 'both')
+                ? 'Pull Airtable records into CoreFlux now'
+                : 'Sync now only runs when direction is pull or both'}
             >
               <Send size={13} style={{ marginRight: 4 }} />Sync now
             </button>
+            {(mapping.direction === 'push' || mapping.direction === 'both') && (
+              <button
+                type="button" className="btn"
+                data-testid={`airtable-push-now-${mapping.id}`}
+                onClick={handlePushNow} disabled={busy}
+                title="Push CoreFlux rows to Airtable now"
+                style={{ background: '#0ea5e9', color: '#fff', borderColor: '#0ea5e9' }}
+              >
+                <Send size={13} style={{ marginRight: 4, transform: 'rotate(180deg)' }} />
+                Push now
+              </button>
+            )}
             <button
               type="button" className="btn"
               data-testid={`airtable-relink-${mapping.id}`}
@@ -1281,6 +1330,13 @@ function MappingForm({ mapping, entities, directions, busy, setBusy, setFlash, r
   const [dir,      setDir]      = useState(mapping?.direction || 'pull');
   const [primary,  setPrimary]  = useState(mapping?.primary_field || '');
   const [fieldMap, setFieldMap] = useState(mapping?.field_map ? JSON.stringify(mapping.field_map, null, 2) : '{}');
+  // Slice 5 — push direction config. Independent of the pull field_map.
+  const [reverseFieldMap, setReverseFieldMap] = useState(
+    mapping?.reverse_field_map && Object.keys(mapping.reverse_field_map).length > 0
+      ? JSON.stringify(mapping.reverse_field_map, null, 2)
+      : '{}'
+  );
+  const [pushUnmatched, setPushUnmatched] = useState(mapping?.push_unmatched_action || 'create_new');
   // Slice 2 — linkage policy (defaults filled by backend on first save
   // if left empty; we surface them here once the operator picks an
   // entity so they understand what'll be applied).
@@ -1342,6 +1398,14 @@ function MappingForm({ mapping, entities, directions, busy, setBusy, setFlash, r
     let parsed = {};
     try { parsed = JSON.parse(fieldMap || '{}'); }
     catch { setFlash({ kind: 'error', msg: 'field_map must be valid JSON.' }); return; }
+    let parsedReverse = null;
+    if (dir === 'push' || dir === 'both') {
+      try { parsedReverse = JSON.parse(reverseFieldMap || '{}'); }
+      catch { setFlash({ kind: 'error', msg: 'reverse_field_map must be valid JSON.' }); return; }
+      if (!parsedReverse || typeof parsedReverse !== 'object' || Array.isArray(parsedReverse)) {
+        setFlash({ kind: 'error', msg: 'reverse_field_map must be a JSON object.' }); return;
+      }
+    }
     setBusy(true); setFlash(null);
     try {
       await api.post('/api/airtable/mapping_save.php?action=mapping_save', {
@@ -1349,6 +1413,8 @@ function MappingForm({ mapping, entities, directions, busy, setBusy, setFlash, r
         table_id: tableId, table_name: tableName,
         internal_entity: entity, direction: dir,
         field_map: parsed, primary_field: primary,
+        reverse_field_map:    parsedReverse,
+        push_unmatched_action: pushUnmatched,
         link_strategy:                 linkStrategy   || undefined,
         link_match_airtable_field:     linkAirField   || undefined,
         link_match_internal_column:    linkIntColumn  || undefined,
@@ -1447,6 +1513,52 @@ function MappingForm({ mapping, entities, directions, busy, setBusy, setFlash, r
           style={{ ...inputStyle, fontFamily: 'var(--cf-mono, ui-monospace)', resize: 'vertical' }}
         />
       </label>
+
+      {/* Slice 5 — Push direction configuration. Only shown when
+          the mapping pushes CoreFlux rows back into Airtable. */}
+      {(dir === 'push' || dir === 'both') && (
+        <fieldset data-testid="airtable-push-section"
+                  style={{
+                    gridColumn: '1 / 3',
+                    border: '1px solid #0ea5e9',
+                    borderRadius: 6, padding: '10px 14px 12px',
+                    margin: '4px 0 0', background: '#f0f9ff',
+                  }}>
+          <legend style={{ fontSize: 11, fontWeight: 700, color: '#0369a1',
+                           textTransform: 'uppercase', letterSpacing: 0.4,
+                           padding: '0 6px' }}>
+            Push (CoreFlux → Airtable)
+          </legend>
+          <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+            Map CoreFlux column → Airtable field for the push leg. Independent
+            of the pull-side field map so push can write a subset of columns
+            back (e.g. push only status, pull everything).
+          </p>
+          <label style={{ fontSize: 12, fontWeight: 600, display: 'block' }}>
+            Reverse field map (JSON object: <code>{`{ "coreflux_col": "Airtable Field" }`}</code>)
+            <textarea
+              data-testid="airtable-reverse-fieldmap-input"
+              value={reverseFieldMap}
+              onChange={(e) => setReverseFieldMap(e.target.value)}
+              rows={5}
+              spellCheck={false}
+              placeholder={`{\n  "status": "Status",\n  "start_date": "Start Date"\n}`}
+              style={{ ...inputStyle, fontFamily: 'var(--cf-mono, ui-monospace)', resize: 'vertical' }}
+            />
+          </label>
+          <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginTop: 10 }}>
+            When a CoreFlux row has no linked Airtable record
+            <select data-testid="airtable-push-unmatched"
+                    value={pushUnmatched}
+                    onChange={(e) => setPushUnmatched(e.target.value)}
+                    style={inputStyle}>
+              <option value="create_new">Create a new Airtable record (default)</option>
+              <option value="update_only">Skip — only update existing linked records</option>
+              <option value="error">Error — mark the row as failed</option>
+            </select>
+          </label>
+        </fieldset>
+      )}
 
       {/* Slice 2 — Linkage policy. Connects this Airtable table to a
           real CoreFlux entity row instead of the synthetic Slice-1 id. */}

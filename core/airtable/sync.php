@@ -109,7 +109,9 @@ function airtableMappingList(int $tenantId): array
                 internal_entity, direction, field_map, primary_field,
                 link_strategy, link_match_airtable_field,
                 link_match_internal_column, link_unmatched_action,
+                reverse_field_map, push_unmatched_action,
                 last_sync_at, last_sync_error, last_records,
+                last_push_at, last_push_error, last_push_records,
                 created_at, updated_at
            FROM airtable_table_mappings
           WHERE tenant_id = :t
@@ -121,11 +123,18 @@ function airtableMappingList(int $tenantId): array
         $r['id'] = (int) $r['id'];
         $r['tenant_id'] = (int) $r['tenant_id'];
         $r['last_records'] = (int) $r['last_records'];
+        $r['last_push_records'] = (int) ($r['last_push_records'] ?? 0);
         if (!empty($r['field_map'])) {
             $decoded = json_decode((string) $r['field_map'], true);
             $r['field_map'] = is_array($decoded) ? $decoded : new \stdClass();
         } else {
             $r['field_map'] = new \stdClass();
+        }
+        if (!empty($r['reverse_field_map'])) {
+            $rdec = json_decode((string) $r['reverse_field_map'], true);
+            $r['reverse_field_map'] = is_array($rdec) ? $rdec : new \stdClass();
+        } else {
+            $r['reverse_field_map'] = new \stdClass();
         }
     }
     unset($r);
@@ -143,8 +152,15 @@ function airtableMappingGet(int $tenantId, int $id): ?array
     $row['id'] = (int) $row['id'];
     $row['tenant_id'] = (int) $row['tenant_id'];
     $row['last_records'] = (int) $row['last_records'];
+    $row['last_push_records'] = (int) ($row['last_push_records'] ?? 0);
     $decoded = !empty($row['field_map']) ? json_decode((string) $row['field_map'], true) : null;
     $row['field_map'] = is_array($decoded) ? $decoded : [];
+    if (!empty($row['reverse_field_map'])) {
+        $rdec = json_decode((string) $row['reverse_field_map'], true);
+        $row['reverse_field_map'] = is_array($rdec) ? $rdec : [];
+    } else {
+        $row['reverse_field_map'] = [];
+    }
     return $row;
 }
 
@@ -670,10 +686,13 @@ function airtableSyncTable(int $tenantId, int $mappingId, ?int $userId, int $max
 {
     $mapping = airtableMappingGet($tenantId, $mappingId);
     if (!$mapping) throw new \RuntimeException('Mapping not found');
-    if ($mapping['direction'] !== 'pull') {
+    // Slice 5 — allow 'pull' and 'both' to run the pull leg. 'push' and
+    // 'off' skip the pull entirely (push leg runs via airtablePushMapping).
+    if (!in_array($mapping['direction'], ['pull', 'both'], true)) {
         return [
             'records' => 0, 'created' => 0, 'updated' => 0, 'unchanged' => 0,
-            'failed' => 0, 'pages' => 0, 'skipped' => true, 'reason' => 'direction is off',
+            'failed' => 0, 'pages' => 0, 'skipped' => true,
+            'reason' => "direction is {$mapping['direction']}",
         ];
     }
 

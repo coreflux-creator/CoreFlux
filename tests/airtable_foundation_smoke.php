@@ -73,7 +73,7 @@ foreach ([
 }
 $a('routes through mappingUpsert',               $c($sync, 'mappingUpsert('));
 $a('source_system airtable',                     $c($sync, "'airtable'"));
-$a('direction guard',                            $c($sync, "AIRTABLE_MAPPING_DIRECTIONS = ['pull', 'off']"));
+$a('direction guard',                            $c($sync, "AIRTABLE_MAPPING_DIRECTIONS = ['pull', 'push', 'both', 'off']"));
 $a('entity allowlist constant',                  $c($sync, 'AIRTABLE_INTERNAL_ENTITIES'));
 
 // ----------------------------------------------------------------- api dispatch

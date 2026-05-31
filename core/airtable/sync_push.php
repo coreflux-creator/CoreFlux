@@ -70,7 +70,12 @@ function airtablePushMapping(int $tenantId, int $mappingId, array $opts = []): a
         throw new \RuntimeException('Push descriptor table name failed allowlist');
     }
 
-    $reverseMap = json_decode((string) ($mapping['reverse_field_map'] ?? 'null'), true);
+    $reverseMapRaw = $mapping['reverse_field_map'] ?? null;
+    if (is_array($reverseMapRaw)) {
+        $reverseMap = $reverseMapRaw;
+    } else {
+        $reverseMap = json_decode((string) ($reverseMapRaw ?? 'null'), true);
+    }
     if (!is_array($reverseMap) || empty($reverseMap)) {
         throw new \RuntimeException('reverse_field_map is empty — set CoreFlux→Airtable column mappings before running push.');
     }
