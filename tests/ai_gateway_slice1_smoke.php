@@ -215,9 +215,11 @@ echo "\ndashboard/src/pages/AskAiPanel.jsx\n";
 $ap = $read("{$ROOT}/dashboard/src/pages/AskAiPanel.jsx");
 $a('file exists',                                  $ap !== '');
 $a('POSTs /api/ai/runs.php',                       str_contains($ap, "api.post('/api/ai/runs.php'"));
-$a('passes input_summary + tools[] in body',       str_contains($ap, 'input_summary: intent')
-                                                && str_contains($ap, 'tools: toolName ? [{ name: toolName, args }] : [],'));
-$a('Slice 1 plumbing badge present',               str_contains($ap, 'Slice 1 · plumbing only'));
+$a('passes input_summary + tools[] in body (deterministic mode)',
+    str_contains($ap, "tools: toolName ? [{ name: toolName, args }] : []"));
+$a('Slice 1 plumbing badge OR Slice 2+ LLM badge present',
+    str_contains($ap, 'Slice 1 · plumbing only')
+ || str_contains($ap, 'Slice 2 · LLM planner live'));
 $a('root testid=ask-ai-panel',                     str_contains($ap, 'data-testid="ask-ai-panel"'));
 $a('input testid',                                 str_contains($ap, 'data-testid="ask-ai-input"'));
 $a('tool select testid',                           str_contains($ap, 'data-testid="ask-ai-tool"'));

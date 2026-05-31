@@ -13605,3 +13605,92 @@ no LLM calls. The LLM planner ships in Slice 2; LangGraph runtime in Slice 3+.
 - `scripts/ci_lane_classifier.sh` — `ai_gateway_*` → UI lane
 - NEW: `tests/ai_gateway_slice1_smoke.php` (124 ✓)
 
+
+## 2026-02 — AI Tool Gateway Slice 2 (COMPLETE) — LLM Provider Wiring
+
+### Scope
+Wire a real LLM into the Slice 1 plumbing. Per user steer: "direct OpenAI with
+existing config key + provider-neutral abstraction". The gateway now plans tool
+calls via an LLM and loops until the model returns a final assistant answer.
+
+### Implementation
+- **Provider abstraction** (`core/ai/providers/`):
+  - `llm_adapter.php` — abstract `AiLlmAdapter`, `AiLlmConfigException`,
+    `AiLlmProviderException`, plus `aiLlmFormatToolsForProvider()` that
+    converts the existing `aiToolRegistry()` shape into OpenAI function-calling
+    JSON schema (other providers can transform from this baseline).
+  - `openai_adapter.php` — hits `/v1/chat/completions` with `tools` +
+    `tool_choice: auto`. Reuses existing `OPENAI_API_KEY` from
+    `core/config.local.php` (no new credential store). Normalises tool-call
+    arguments from JSON-string → PHP array before returning.
+  - `factory.php` — `aiLlmProviderFor('openai')` + `aiLlmDefaultProvider()`.
+    Mirrors the shape of `core/accounting/provider_adapter.php` so adding
+    Claude/Gemini later is a one-file change.
+
+- **Migration `091_ai_prompt_versions.sql`** — `ai_prompt_versions` table
+  (deferred from Slice 1's engineering backlog). UNIQUE per (agent, version),
+  fast-lookup index on (agent, is_active).
+
+- **`core/ai/prompt_versions.php`** — built-in defaults + DB override resolver.
+  Ships one agent — `orchestrator/2026-02-default` — with a system prompt that
+  enforces tool-only execution, permission inheritance, no-hallucinating-numbers,
+  and "never claim execution without a tool result confirming it" (spec §15 +
+  Appendix B). DB rows in `ai_prompt_versions` with `is_active = 1` override
+  the floor.
+
+- **`core/ai/gateway.php`** — new `aiGatewayRunWithLlm()`:
+  - Resolves prompt + model + params.
+  - Builds OpenAI-shape messages (`system` → optional `developer` → `user`).
+  - Hands `aiToolRegistry()` to the provider as function specs.
+  - Loops up to `AI_GATEWAY_MAX_LLM_TURNS = 5` turns; caps each turn at
+    `AI_GATEWAY_MAX_TOOLS_PER_TURN = 8` tools.
+  - Every tool call routes via `aiGatewayInvokeTool()` so Slice 1 RBAC, audit,
+    and `ai_tool_invocations.ai_run_id` back-link all still apply.
+  - Feeds tool result back to the LLM as `role: tool` per OpenAI contract.
+  - Provider exception → marks run `failed` with code `provider_or_budget`.
+  - Budget exhausted → marks run `failed` with same code.
+  - Completes run with usage summary (`turns=… tool_calls=… tokens=…`).
+
+- **`api/ai/runs.php`** — POST now dispatches between two modes:
+  - LLM mode (default when `intent` set + no `tools`): hands to
+    `aiGatewayRunWithLlm`. `AiLlmConfigException` → 503.
+  - Deterministic mode (Slice 1 contract): preserved verbatim for the
+    Ask-AI tool tab + smoke tests.
+
+- **`dashboard/src/pages/AskAiPanel.jsx`** — full rewrite:
+  - Mode tabs: "LLM planner" (default) vs "Deterministic tool".
+  - LLM mode: free-text intent → `{agent, intent, mode: 'llm'}` → renders
+    `assistant_text` + collapsible tool-calls list + turns / tokens / model.
+  - Deterministic mode: Slice-1 tool-picker preserved.
+
+### Test status
+- NEW `tests/ai_gateway_slice2_smoke.php`: **95 ✓** (migration, adapter
+  interface, OpenAI adapter, factory, prompt resolver, gateway LLM loop, API
+  mode dispatch, frontend UX, functional probes for tool-format conversion +
+  prompt resolution + `AiLlmConfigException` pre-flight, syntax).
+- `ai_gateway_slice1_smoke.php`: still **124 ✓** (2 stale assertions updated
+  to accept either Slice-1 or Slice-2 badge / body shape).
+- Full suite: **353 ✓ / 2 baseline infra fails** (same 2 documented).
+- Tenant-leak sentry: still green.
+- Vite rebuilt + `sync_bundle.sh` rotated hashes (`coreflux-WwnLrJQe`).
+
+### Notes
+- No live OpenAI call is made by smoke (no network in CI). Adapter is
+  HTTP-mockable / curl-stubbable for integration tests in Slice 3.
+- No tenant rate-limit yet — that's a Slice 2b option (offered in finish).
+- One agent prompt shipped (`orchestrator`). Module agents (accounting,
+  treasury, payroll, …) land in Slice 3+ alongside their LangGraph workflows.
+
+### Files touched
+- NEW: `core/migrations/091_ai_prompt_versions.sql`
+- NEW: `core/ai/providers/llm_adapter.php`
+- NEW: `core/ai/providers/openai_adapter.php`
+- NEW: `core/ai/providers/factory.php`
+- NEW: `core/ai/prompt_versions.php`
+- `core/ai/gateway.php` — Slice 2 LLM loop (`aiGatewayRunWithLlm`)
+- `api/ai/runs.php` — mode dispatch (LLM vs deterministic)
+- `dashboard/src/pages/AskAiPanel.jsx` — LLM-mode UX (rewrite)
+- `tests/ai_gateway_slice1_smoke.php` — 2 assertions updated for Slice 2 evolution
+- NEW: `tests/ai_gateway_slice2_smoke.php` (95 ✓)
+
+

@@ -47,6 +47,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/tool_gateway.php';
+require_once __DIR__ . '/prompt_versions.php';
+require_once __DIR__ . '/providers/factory.php';
 
 /**
  * Cheap RFC4122-v4 UUID. We don't need cryptographic strength here;
@@ -292,4 +294,177 @@ function aiGatewayAuditEvent(int $tenantId, ?int $userId, string $event, array $
     } catch (\Throwable $e) {
         error_log('[aiGatewayAuditEvent] ' . $event . ': ' . $e->getMessage());
     }
+}
+
+// ───────────────────────────────────────────────────────────── Slice 2
+// LLM-driven run loop. The gateway feeds the user's intent to the
+// configured LLM provider with the tool registry as function specs,
+// then loops on the returned tool_calls — each one routes through
+// aiGatewayInvokeTool() so RBAC, audit, and the back-link onto
+// ai_tool_invocations all still apply. The loop terminates when the
+// LLM responds with a final assistant message or we hit the iteration
+// budget (defensive cap on runaway loops).
+
+/**
+ * Max LLM round-trips per single run. 5 = enough for plan → tool →
+ * refine → answer with one retry, hard-stops a wedge.
+ */
+const AI_GATEWAY_MAX_LLM_TURNS = 5;
+
+/**
+ * Max tool calls per single LLM turn. OpenAI can return multiple
+ * tool_calls in a single response; we cap at 8 so a runaway model
+ * can't fan out.
+ */
+const AI_GATEWAY_MAX_TOOLS_PER_TURN = 8;
+
+/**
+ * Run an LLM-driven intent through the gateway. The full life-cycle
+ * — create run, build messages, loop on tool calls, complete run —
+ * lives here so callers (api/ai/runs.php, AI workers in Phase 7)
+ * have a single function to invoke.
+ *
+ * Inputs:
+ *   $tenantId   tenant scope
+ *   $userId     requesting user (NULL for worker-originated)
+ *   $intent     the user's natural-language request
+ *   $callerCtx  for tool RBAC: ['user' => $user, 'session_id' => …]
+ *   $opts       ['agent' => 'orchestrator', 'provider' => 'openai',
+ *                'model' => override?, 'sub_tenant_id' => int?,
+ *                'temperature' => float?]
+ *
+ * Returns:
+ *   ['ai_run_id' => string, 'status' => 'completed'|'failed',
+ *    'assistant_text' => string|null, 'tool_calls' => [...envelopes],
+ *    'turns' => int, 'usage' => {prompt_tokens, completion_tokens, total_tokens},
+ *    'model' => string]
+ *
+ * Throws:
+ *   AiLlmConfigException   provider not configured (caller → 500)
+ *   AiLlmProviderException upstream provider refused; run marked failed
+ *
+ * Note: this does NOT add a tenant-level rate-limit. That lands as a
+ * separate Slice 2b once we see real cost data.
+ */
+function aiGatewayRunWithLlm(
+    int $tenantId,
+    ?int $userId,
+    string $intent,
+    array $callerCtx,
+    array $opts = []
+): array {
+    $agent       = (string) ($opts['agent']    ?? 'orchestrator');
+    $providerKey = (string) ($opts['provider'] ?? aiLlmDefaultProvider());
+    $subTenantId = isset($opts['sub_tenant_id']) ? (int) $opts['sub_tenant_id'] : null;
+
+    // Resolve prompt + model + LLM params.
+    $prompt   = aiPromptVersionResolve($agent);
+    $params   = $prompt['params'] ?? [];
+    $modelOpt = (string) ($opts['model'] ?? '');
+    $llmOpts = [
+        'model'       => $modelOpt !== '' ? $modelOpt : ($params['model'] ?? null),
+        'temperature' => $opts['temperature'] ?? ($params['temperature'] ?? 0.2),
+        'max_tokens'  => (int) ($opts['max_tokens'] ?? ($params['max_tokens'] ?? 1200)),
+    ];
+    // Drop nulls so the provider's own defaults can fire.
+    foreach ($llmOpts as $k => $v) if ($v === null) unset($llmOpts[$k]);
+
+    $runId = aiGatewayCreateRun(
+        $tenantId, $userId, $agent,
+        $prompt['version'], $subTenantId, $intent, $llmOpts['model'] ?? null
+    );
+
+    $adapter   = aiLlmProviderFor($providerKey);
+    $toolSpecs = aiLlmFormatToolsForProvider(aiToolRegistry());
+
+    // OpenAI-shape conversation. Developer prompt goes before user.
+    $messages = [
+        ['role' => 'system', 'content' => $prompt['system_prompt']],
+    ];
+    if (!empty($prompt['developer_prompt'])) {
+        $messages[] = ['role' => 'system', 'content' => $prompt['developer_prompt']];
+    }
+    $messages[] = ['role' => 'user', 'content' => $intent];
+
+    $allToolCalls = [];
+    $usage = ['prompt_tokens' => 0, 'completion_tokens' => 0, 'total_tokens' => 0];
+    $modelUsed = null;
+    $turns = 0;
+    $finalText = null;
+    $runFailed = false;
+
+    for (; $turns < AI_GATEWAY_MAX_LLM_TURNS; $turns++) {
+        try {
+            $env = $adapter->chatWithTools($messages, $toolSpecs, $llmOpts);
+        } catch (AiLlmProviderException $e) {
+            $runFailed = true;
+            $finalText = '[provider error] ' . $e->getMessage();
+            break;
+        }
+        $modelUsed = $env['model'] ?? $modelUsed;
+        foreach (['prompt_tokens','completion_tokens','total_tokens'] as $k) {
+            $usage[$k] += (int) ($env['usage'][$k] ?? 0);
+        }
+
+        $toolCalls = $env['tool_calls'] ?? [];
+        if (empty($toolCalls)) {
+            // Model finished — assistant text is the answer.
+            $finalText = $env['assistant_text'];
+            break;
+        }
+
+        // Push assistant message with tool_calls back into history so
+        // OpenAI's API contract is preserved for the next turn.
+        $messages[] = [
+            'role'       => 'assistant',
+            'content'    => $env['assistant_text'],
+            'tool_calls' => array_map(fn ($tc) => [
+                'id'       => $tc['id'],
+                'type'     => 'function',
+                'function' => [
+                    'name'      => $tc['name'],
+                    'arguments' => json_encode($tc['arguments'], JSON_UNESCAPED_SLASHES) ?: '{}',
+                ],
+            ], $toolCalls),
+        ];
+
+        // Execute each requested tool, cap fan-out.
+        $perTurn = 0;
+        foreach ($toolCalls as $tc) {
+            if (++$perTurn > AI_GATEWAY_MAX_TOOLS_PER_TURN) break;
+            $name = (string) $tc['name'];
+            $args = is_array($tc['arguments']) ? $tc['arguments'] : [];
+            $toolEnv = aiGatewayInvokeTool($runId, $name, $args, $callerCtx);
+            $allToolCalls[] = ['name' => $name, 'envelope' => $toolEnv];
+            $messages[] = [
+                'role'         => 'tool',
+                'tool_call_id' => $tc['id'],
+                'name'         => $name,
+                'content'      => json_encode($toolEnv, JSON_UNESCAPED_SLASHES) ?: '{}',
+            ];
+        }
+    }
+
+    if ($turns >= AI_GATEWAY_MAX_LLM_TURNS && $finalText === null) {
+        $runFailed = true;
+        $finalText = sprintf('[budget] hit max %d LLM turns without final answer', AI_GATEWAY_MAX_LLM_TURNS);
+    }
+
+    aiGatewayCompleteRun(
+        $tenantId, $runId, $runFailed ? 'failed' : 'completed',
+        sprintf('turns=%d tool_calls=%d tokens=%d', $turns + ($finalText !== null ? 1 : 0),
+                count($allToolCalls), $usage['total_tokens']),
+        $runFailed ? 'provider_or_budget' : null,
+        $runFailed ? ($finalText ? mb_substr($finalText, 0, 240) : null) : null
+    );
+
+    return [
+        'ai_run_id'      => $runId,
+        'status'         => $runFailed ? 'failed' : 'completed',
+        'assistant_text' => $finalText,
+        'tool_calls'     => $allToolCalls,
+        'turns'          => $turns,
+        'usage'          => $usage,
+        'model'          => $modelUsed,
+    ];
 }

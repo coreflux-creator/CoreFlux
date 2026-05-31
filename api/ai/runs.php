@@ -42,25 +42,58 @@ if ($method === 'POST') {
     $subTenantId = isset($body['sub_tenant_id']) && (int) $body['sub_tenant_id'] > 0
         ? (int) $body['sub_tenant_id'] : null;
 
-    $runId = aiGatewayCreateRun(
-        $tid,
-        (int) ($user['id'] ?? 0) ?: null,
-        $agent,
-        isset($body['prompt_version']) ? (string) $body['prompt_version'] : null,
-        $subTenantId,
-        isset($body['input_summary']) ? (string) $body['input_summary'] : null,
-        isset($body['model_name']) ? (string) $body['model_name'] : null
-    );
-
-    $toolCalls = [];
-    $hadBlocked = false; $hadFail = false;
     $callerCtx = [
         'tenant_id'  => $tid,
         'user_id'    => (int) ($user['id'] ?? 0) ?: null,
         'user'       => $user,
         'session_id' => session_id() ?: '',
     ];
-    if (isset($body['tools']) && is_array($body['tools'])) {
+
+    // Two modes:
+    //   1. LLM mode — body.intent present, no body.tools.
+    //      The gateway hands intent to the LLM with the tool catalog
+    //      as function specs; the LLM plans + executes tools itself.
+    //   2. Deterministic mode (Slice 1 path) — body.tools is a
+    //      caller-controlled list. No LLM call. Useful for the
+    //      Slice-1 Ask-AI shell and for smoke testing.
+    $intent       = trim((string) ($body['intent'] ?? ''));
+    $hasTools     = isset($body['tools']) && is_array($body['tools']) && !empty($body['tools']);
+    $mode         = $body['mode'] ?? null;
+    $useLlm       = $mode === 'llm' || ($mode === null && $intent !== '' && !$hasTools);
+
+    if ($useLlm) {
+        if ($intent === '') api_error('intent required for LLM mode', 422);
+        try {
+            $opts = [
+                'agent'        => $agent,
+                'sub_tenant_id' => $subTenantId,
+            ];
+            if (isset($body['provider']))    $opts['provider']    = (string) $body['provider'];
+            if (isset($body['model']))       $opts['model']       = (string) $body['model'];
+            if (isset($body['temperature'])) $opts['temperature'] = (float)  $body['temperature'];
+            $res = aiGatewayRunWithLlm($tid, $callerCtx['user_id'], $intent, $callerCtx, $opts);
+        } catch (AiLlmConfigException $e) {
+            api_error('LLM provider not configured: ' . $e->getMessage(), 503);
+        } catch (\Throwable $e) {
+            api_error('LLM run failed: ' . $e->getMessage(), 500);
+        }
+        api_ok($res, 201);
+    }
+
+    // Deterministic mode (Slice 1 contract preserved).
+    $runId = aiGatewayCreateRun(
+        $tid,
+        (int) ($user['id'] ?? 0) ?: null,
+        $agent,
+        isset($body['prompt_version']) ? (string) $body['prompt_version'] : null,
+        $subTenantId,
+        isset($body['input_summary']) ? (string) $body['input_summary'] : ($intent !== '' ? $intent : null),
+        isset($body['model_name']) ? (string) $body['model_name'] : null
+    );
+
+    $toolCalls = [];
+    $hadBlocked = false; $hadFail = false;
+    if ($hasTools) {
         foreach ($body['tools'] as $idx => $t) {
             $name = trim((string) ($t['name'] ?? ''));
             if ($name === '') continue;
@@ -78,8 +111,8 @@ if ($method === 'POST') {
                 }
             }
             // Defensive cap — never let one POST chain more than 20
-            // tool calls. The LLM planner in Slice 2 will respect its
-            // own budget; this is the floor.
+            // tool calls. The LLM planner respects its own budget;
+            // this is the floor for the deterministic path.
             if ($idx >= 19) break;
         }
     }
