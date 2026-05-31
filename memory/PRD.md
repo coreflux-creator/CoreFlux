@@ -10,6 +10,123 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Jaz.ai Integration — Slice 2 (Phase 1 reads + Phase 3 writes LIVE) (2026-02 — current fork)
+
+### Why
+User shared Jaz API docs (`https://jaz-api.readme.io/`). The full
+endpoint catalog landed via the docs' `llms.txt`. Slice 1 had wired
+the foundation with `not_implemented_yet` stubs; Slice 2 replaces
+every stub with live HTTP calls per user-confirmed defaults:
+- **(1)** Bearer auth assumed (`Authorization: Bearer <key>`)
+- **(2)** Writes wired in this slice (createDraftBill/Invoice/Journal + postObject)
+- **(3)** Wire it without waiting for a key (key paste lands in UI)
+- **(4)** Auto-fetch `provider_org_id` + `base_currency` from
+  `GET /organization` on validate
+
+### Endpoint mappings shipped
+| Canonical | Jaz endpoint |
+|---|---|
+| `validateConnection` | `GET /api/v1/organization` |
+| `getChartOfAccounts` | `GET /api/v1/chart-of-accounts` (paginated page/pageSize, caps 20 pages) |
+| `getTrialBalance`    | `POST /api/v1/reports/trial-balance` |
+| `getGeneralLedger`   | `POST /api/v1/reports/general-ledger` |
+| `getProfitAndLoss`   | `POST /api/v1/reports/profit-and-loss` |
+| `getBalanceSheet`    | `POST /api/v1/reports/balance-sheet` |
+| `getArAging`         | `POST /api/v1/reports/ar-report` |
+| `getApAging`         | `POST /api/v1/reports/ap-report` |
+| `createDraftBill`    | `POST /api/v1/bills` with `saveAsDraft:true, submitForApproval:false` |
+| `createDraftInvoice` | `POST /api/v1/invoices` (same) |
+| `createDraftJournal` | `POST /api/v1/journals` (`saveAsDraft:true`) |
+| `postObject` (draft → active) | `POST /api/v1/draft/convert-to-active` `{resourceIds:[id], businessTransactionType:"BILL"}` |
+| `getObject`          | `GET /api/v1/{type}/{id}` (with pluralisation table) |
+
+### What shipped
+- **`core/accounting/jaz_http.php`** (new) — `jazCall($apiKey, $method,
+  $path, $body, $query)` curl client mirroring the Mercury adapter:
+  - Base `https://api.getjaz.com/api/v1` (override via `JAZ_API_BASE`).
+  - Bearer auth header, JSON content-type/accept, SSL pinned.
+  - `$GLOBALS['__jaz_transport']` test seam for offline smoke tests.
+  - `JazApiException` with `httpStatus` + `raw` body slice.
+- **`core/accounting/jaz_adapter.php`** (rewrite) — replaces every
+  Slice 1 stub with live HTTP. Real response normalisation into the
+  canonical PHP shapes already consumed by the Command Service +
+  read endpoints. `amountToCents()` handles Jaz's decimal amounts.
+  `normalizeCoaRow()` tolerates both string + object currency shapes.
+  `validateConnection()` auto-fetches + persists `provider_org_id` +
+  `base_currency` on the connection row.
+- **`normalizeProviderError()`** — full HTTP code matrix:
+  401→`auth_invalid`, 403→`auth_forbidden`, 404→`not_found`,
+  409→`conflict`, 422→`provider_validation`, 429→`rate_limited`,
+  5xx→`provider_unavailable`. Stable codes so the outbox row
+  records a clean error_code the worker / UI can branch on.
+- **UI** — `JazIntegrationSettings.jsx` "Partner diligence pending"
+  banner now ONLY shows when validate explicitly carries
+  `not_implemented_yet=true` (legacy + forward-compat for future
+  not-yet-wired methods). With live wiring, a successful validate
+  flips status to `active` and the banner disappears.
+
+### Tests
+- New: `tests/jaz_integration_slice2_live_smoke.php` — **85 ✓ / 0 ✗**
+  including FUNCTIONAL exercises against the `__jaz_transport` stub:
+  - `validateConnection`: captures Authorization header, asserts
+    URL, parses `resourceId`/`name`/`baseCurrency.code`, 401 path.
+  - `getChartOfAccounts`: 2-row response → normalised accounts
+    array; tolerates both `currency:{code:'USD'}` and `currency:'USD'`;
+    pagination query string verified.
+  - `getTrialBalance`: amount→cents conversion (1234.56 → 123456),
+    body shape, URL.
+  - `getGeneralLedger`: accountResourceId conditional inclusion,
+    `array_filter` drops null filter keys.
+  - `createDraftBill/Invoice/Journal`: URL, `saveAsDraft:true`,
+    `submitForApproval:false`, caller-supplied fields preserved,
+    response normalisation (`resourceId` → `provider_object_id`),
+    idempotency key carried.
+  - `postObject`: bulk `resourceIds:[id]` shape + uppercased
+    `businessTransactionType`; empty id → `Validation`.
+  - Error matrix: 9 status codes mapped to stable codes.
+- Updated: `tests/jaz_integration_slice1_smoke.php` — assertions
+  now check live wiring (writes raise `Validation` when no
+  credential, reads probe Jaz, validate persists org/currency)
+  instead of the old `not_implemented_yet` markers.
+- **Full suite: 348/350** — only the 2 documented sandbox-bound
+  failures remain.
+
+### Bundle
+- `index-ruPAgJcz.js` + `index-BC5g6YJu.css`. SW
+  `CACHE_VERSION=coreflux-ruPAgJcz`. `.deploy-version` synced.
+
+### Deploy note
+PHP + React touched. Cloudways deploy + `update.php` (no new
+migration — schema unchanged from Slice 1). After deploy:
+1. Operator pastes Jaz API key in `/admin/integrations/jaz`.
+2. Click Validate → live `GET /organization` runs; on 2xx, status
+   flips to `active` and the org id + base currency are auto-stored.
+3. Reads return real Jaz data immediately.
+4. Writes go through Command Service → outbox → adapter → Jaz
+   `/bills|/invoices|/journals` with `saveAsDraft:true`. The
+   `accounting.commands.approve` + `.execute` RBAC gates from
+   Slice 1 are in force.
+
+### What's still NOT live
+- AP/AR/JE module call sites that enqueue commands (Phase 3 UI
+  integration — `bills.php`, `invoices.php`, `journal_entries.php`
+  need to call `accountingCommandEnqueue('create_draft_bill', …)`
+  when they currently call legacy paths).
+- Outbox worker cron (today the API endpoint `execute_command` runs
+  synchronously; a background tick is needed for the retry/backoff
+  ladder to fire — `cron/accounting_outbox_worker.php`).
+- AI Tool Gateway (spec §18).
+- Migration package destination adapter (Phase 2).
+
+### Files touched
+- `core/accounting/jaz_http.php` (new)
+- `core/accounting/jaz_adapter.php` (full rewrite — Slice 1 stubs replaced)
+- `dashboard/src/pages/JazIntegrationSettings.jsx` (banner gating refined)
+- `tests/jaz_integration_slice1_smoke.php` (assertion updates)
+- `tests/jaz_integration_slice2_live_smoke.php` (new — 85 functional tests)
+
+
+
 ## Jaz.ai Integration — Slice 1 (foundation + Phase 1 read-only backend) (2026-02 — current fork)
 
 ### Why

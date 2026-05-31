@@ -106,9 +106,11 @@ export default function JazIntegrationSettings() {
     finally { setBusy(false); }
   };
 
-  const notReady = connection?.api_scope_summary?.not_implemented_yet === true
-                || (connection?.connection_status === 'pending'
-                    && connection?.api_scope_summary?.not_implemented_yet !== false);
+  // Slice 2 — Phase 1 live wiring now ships. Reads + writes hit
+  // Jaz directly; the "partner diligence pending" banner only shows
+  // when validate explicitly reports the legacy not_implemented_yet
+  // marker (kept for forward-compat with future not-yet-wired methods).
+  const notReady = connection?.api_scope_summary?.not_implemented_yet === true;
 
   return (
     <section data-testid="jaz-integration-settings" style={{ padding: 'var(--cf-space-3, 1rem)' }}>

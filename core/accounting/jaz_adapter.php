@@ -1,43 +1,43 @@
 <?php
 /**
- * core/accounting/jaz_adapter.php — Jaz.ai destination adapter.
+ * core/accounting/jaz_adapter.php — Jaz.ai live destination adapter.
  *
- * Slice 1 scope (per user confirmation): SKELETON ONLY. Per spec §2,
- * Jaz's endpoint-level API contracts are NOT publicly documented, so
- * live HTTP calls are gated behind Phase 0 partner diligence. This
- * class implements the AccountingProviderAdapter surface so the rest
- * of the system (Command Service, API endpoints, UI) can be built and
- * tested end-to-end against a deterministic stub; the moment the
- * partner contract lands, the only file that changes is THIS one.
+ * Slice 2 — Phase 1 (live reads) + Phase 3 (live drafted writes).
  *
- * Reads return empty canonical shapes with a `not_implemented_yet`
- * marker so the UI can render "Connect Jaz to populate" states
- * without blowing up. Writes throw AccountingAdapterNotReadyException
- * so the Command Service marks the outbox row failed → dead_letter
- * after max_attempts (correct behaviour until Jaz endpoints are wired).
+ * Every method now makes a real Jaz HTTP call via jazCall(). Responses
+ * are normalised into the canonical CoreFlux shapes the rest of the
+ * platform consumes — when QBO/Xero adapters land later, only the
+ * shape-mapping code in THIS file differs; consumers don't change.
  *
- * Credential resolution is real (encrypted at rest, decrypted on read,
- * never logged) — the security spine in spec §11 is implemented
- * end-to-end in Slice 1 so Phase 0 diligence only adds the actual
- * HTTP call sites.
+ * Spec endpoint mappings (user-confirmed):
+ *   validateConnection   → GET  /organization
+ *   getChartOfAccounts   → GET  /chart-of-accounts
+ *   getTrialBalance      → POST /reports/trial-balance
+ *   getGeneralLedger     → POST /reports/general-ledger
+ *   getProfitAndLoss     → POST /reports/profit-and-loss
+ *   getBalanceSheet      → POST /reports/balance-sheet
+ *   getArAging           → POST /reports/ar-report
+ *   getApAging           → POST /reports/ap-report
+ *   createDraftBill      → POST /bills     (saveAsDraft: true)
+ *   createDraftInvoice   → POST /invoices  (saveAsDraft: true)
+ *   createDraftJournal   → POST /journals
+ *   postObject           → POST /{type}/{id}/convert-to-active  (for draft → active)
+ *   getObject            → GET  /{type}/{id}
+ *
+ * Auth: Authorization: Bearer <api_key>. Credential resolution unchanged
+ * from Slice 1 — decrypted on each call, never logged.
  */
 declare(strict_types=1);
 
 require_once __DIR__ . '/provider_adapter.php';
+require_once __DIR__ . '/jaz_http.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../encryption.php';
 
 class JazAccountingAdapter extends AccountingProviderAdapter
 {
-    public function providerKey(): string
-    {
-        return 'jaz';
-    }
+    public function providerKey(): string { return 'jaz'; }
 
-    /**
-     * Returns the decrypted Jaz API key for an entity, or null if no
-     * active connection exists. Never logs or echoes the key.
-     */
     protected function resolveCredential(int $tenantId, int $subTenantId): ?string
     {
         try {
@@ -60,116 +60,251 @@ class JazAccountingAdapter extends AccountingProviderAdapter
     }
 
     /**
-     * Probe the stored credential. Slice 1: validates we CAN decrypt
-     * the stored secret and that it looks like a Jaz key (non-empty,
-     * ≥ 24 chars matching Jaz's publicly visible key shape). Returns
-     * 'pending_diligence' status until the live /me-style probe is
-     * wired in Phase 0.
+     * Probe with a real GET /organization. On 2xx, captures the org's
+     * resource id + name + base currency for storage on the connection
+     * row (auto-fetched per user-confirmed default). On non-2xx,
+     * returns ok=false with a normalised error.
      */
     public function validateConnection(int $tenantId, int $subTenantId): array
     {
         $key = $this->resolveCredential($tenantId, $subTenantId);
         if ($key === null) {
-            return [
-                'ok' => false, 'status' => 'failed',
-                'scope' => null, 'org' => null,
-                'error' => 'no credential stored for this entity',
-            ];
+            return ['ok' => false, 'status' => 'failed', 'scope' => null, 'org' => null,
+                    'error' => 'no credential stored for this entity'];
         }
-        if (strlen($key) < 24) {
-            return [
-                'ok' => false, 'status' => 'failed',
-                'scope' => null, 'org' => null,
-                'error' => 'credential too short to be a valid Jaz key',
-            ];
+        try {
+            $resp = jazCall($key, 'GET', 'organization');
+        } catch (JazApiException $e) {
+            $status = $e->httpStatus === 401 || $e->httpStatus === 403 ? 'failed' : 'failed';
+            return ['ok' => false, 'status' => $status, 'scope' => null, 'org' => null,
+                    'error' => substr($e->getMessage(), 0, 240)];
         }
-        // Phase 0 placeholder. When the Jaz `/v1/me` (or equivalent)
-        // endpoint is documented, swap this block for a real probe and
-        // flip the status to 'active' on a 2xx.
+        // Persist the resolved org id + currency so reads/writes don't
+        // need to re-fetch every call. We update the row directly here
+        // (validateConnection is the canonical place to do it; spec
+        // §15.1 also lists scope-summary capture as part of validate).
+        $orgRoot   = is_array($resp['organization'] ?? null) ? $resp['organization'] : $resp;
+        $orgId     = (string) ($orgRoot['resourceId'] ?? $orgRoot['id']     ?? '');
+        $orgName   = (string) ($orgRoot['name']       ?? $orgRoot['legalName'] ?? '');
+        $baseCcy   = (string) ($orgRoot['baseCurrency']['code'] ?? $orgRoot['currency'] ?? 'USD');
+        try {
+            getDB()->prepare(
+                "UPDATE accounting_provider_connections
+                    SET provider_org_id = COALESCE(NULLIF(:org, ''), provider_org_id),
+                        base_currency   = COALESCE(NULLIF(:bc, ''), base_currency)
+                  WHERE tenant_id = :t AND sub_tenant_id = :st AND provider = 'jaz'"
+            )->execute(['org' => $orgId, 'bc' => $baseCcy, 't' => $tenantId, 'st' => $subTenantId]);
+        } catch (\Throwable $e) { /* non-fatal */ }
+
         return [
-            'ok' => true,
-            'status' => 'pending_diligence',
-            'scope' => [
-                'permissions' => ['unknown_until_partner_diligence'],
-                'shadow_user' => null,
-            ],
-            'org' => [
-                'id' => null, 'name' => null, 'base_currency' => null,
-            ],
+            'ok' => true, 'status' => 'active',
+            'scope' => ['permissions' => ['organization.read'], 'shadow_user' => null],
+            'org'   => ['id' => $orgId, 'name' => $orgName, 'base_currency' => $baseCcy],
             'error' => null,
-            'not_implemented_yet' => true,
         ];
     }
 
-    private function emptyReadResult(string $kind, array $filters): array
+    /** Decrypt + return key OR throw — used by read/write methods. */
+    private function keyOrThrow(int $tenantId, int $subTenantId): string
     {
-        return [
-            'as_of'                => $filters['asOf'] ?? $filters['to'] ?? date('Y-m-d'),
-            'from'                 => $filters['from'] ?? null,
-            'to'                   => $filters['to'] ?? null,
-            'currency'             => 'USD',
-            'accounts'             => [],
-            'lines'                => [],
-            'total_debit_cents'    => 0,
-            'total_credit_cents'   => 0,
-            'provider'             => 'jaz',
-            'report_type'          => $kind,
-            'not_implemented_yet'  => true,
-            'message'              => 'Jaz live HTTP calls land in Phase 0 — see CoreFlux_Jaz_AI_Integration_Specification §2.',
-        ];
+        $k = $this->resolveCredential($tenantId, $subTenantId);
+        if ($k === null) throw new AccountingAdapterValidationException('Jaz credential not configured for this entity');
+        return $k;
     }
 
+    // ============================================================ READS
     public function getChartOfAccounts(int $tenantId, int $subTenantId, array $filters = []): array
-    { return $this->emptyReadResult('chart_of_accounts', $filters); }
+    {
+        $key = $this->keyOrThrow($tenantId, $subTenantId);
+        // Paginate: Jaz uses ?page=N&pageSize=M on list endpoints.
+        $accounts = []; $page = 1; $pageSize = 200; $maxPages = 20;
+        while ($page <= $maxPages) {
+            $resp = jazCall($key, 'GET', 'chart-of-accounts', [], ['page' => $page, 'pageSize' => $pageSize]);
+            $rows = $resp['data'] ?? $resp['items'] ?? $resp['results'] ?? [];
+            if (!is_array($rows)) $rows = [];
+            foreach ($rows as $r) {
+                $accounts[] = $this->normalizeCoaRow($r);
+            }
+            $hasMore = (bool) ($resp['hasMore'] ?? $resp['hasNextPage']
+                          ?? (count($rows) === $pageSize));
+            if (!$hasMore || count($rows) < $pageSize) break;
+            $page++;
+        }
+        return [
+            'as_of'    => date('Y-m-d'),
+            'accounts' => $accounts,
+            'provider' => 'jaz',
+        ];
+    }
 
     public function getTrialBalance(int $tenantId, int $subTenantId, array $filters): array
-    { return $this->emptyReadResult('trial_balance', $filters); }
+    {
+        $key  = $this->keyOrThrow($tenantId, $subTenantId);
+        $asOf = $filters['asOf'] ?? $filters['to'] ?? date('Y-m-d');
+        $resp = jazCall($key, 'POST', 'reports/trial-balance', ['endDate' => $asOf]);
+        $lines = []; $totalDr = 0; $totalCr = 0;
+        foreach (($resp['lines'] ?? $resp['rows'] ?? []) as $row) {
+            $dr = $this->amountToCents($row['debit'] ?? $row['debitAmount'] ?? 0);
+            $cr = $this->amountToCents($row['credit'] ?? $row['creditAmount'] ?? 0);
+            $lines[] = [
+                'account_code' => (string) ($row['accountCode'] ?? $row['code'] ?? ''),
+                'account_name' => (string) ($row['accountName'] ?? $row['name'] ?? ''),
+                'debit_cents'  => $dr,
+                'credit_cents' => $cr,
+            ];
+            $totalDr += $dr; $totalCr += $cr;
+        }
+        return [
+            'as_of' => $asOf, 'currency' => $resp['currency'] ?? 'USD',
+            'lines' => $lines,
+            'total_debit_cents'  => $totalDr,
+            'total_credit_cents' => $totalCr,
+            'provider' => 'jaz',
+        ];
+    }
 
     public function getGeneralLedger(int $tenantId, int $subTenantId, array $filters): array
-    { return $this->emptyReadResult('general_ledger', $filters); }
+    {
+        $key  = $this->keyOrThrow($tenantId, $subTenantId);
+        $body = [
+            'startDate' => $filters['from'] ?? null,
+            'endDate'   => $filters['to']   ?? null,
+        ];
+        if (!empty($filters['account'])) $body['accountResourceId'] = $filters['account'];
+        $resp = jazCall($key, 'POST', 'reports/general-ledger', array_filter($body));
+        $lines = [];
+        foreach (($resp['lines'] ?? $resp['rows'] ?? []) as $row) {
+            $lines[] = [
+                'posted_at'        => (string) ($row['postedDate'] ?? $row['date'] ?? ''),
+                'account_code'     => (string) ($row['accountCode'] ?? ''),
+                'account_name'     => (string) ($row['accountName'] ?? ''),
+                'memo'             => (string) ($row['memo']        ?? $row['narration'] ?? ''),
+                'debit_cents'      => $this->amountToCents($row['debit']  ?? $row['debitAmount']  ?? 0),
+                'credit_cents'     => $this->amountToCents($row['credit'] ?? $row['creditAmount'] ?? 0),
+                'reference'        => (string) ($row['reference']        ?? ''),
+                'provider_txn_id'  => (string) ($row['transactionResourceId'] ?? $row['txnId'] ?? ''),
+            ];
+        }
+        return [
+            'from' => $body['startDate'], 'to' => $body['endDate'],
+            'currency' => $resp['currency'] ?? 'USD',
+            'lines' => $lines, 'provider' => 'jaz',
+        ];
+    }
 
     public function getProfitAndLoss(int $tenantId, int $subTenantId, array $filters): array
-    { return $this->emptyReadResult('pnl', $filters); }
+    {
+        $key  = $this->keyOrThrow($tenantId, $subTenantId);
+        $resp = jazCall($key, 'POST', 'reports/profit-and-loss', array_filter([
+            'startDate' => $filters['from'] ?? null,
+            'endDate'   => $filters['to']   ?? null,
+        ]));
+        return ['report_type' => 'pnl', 'from' => $filters['from'] ?? null,
+                'to' => $filters['to'] ?? null, 'jaz_payload' => $resp, 'provider' => 'jaz'];
+    }
 
     public function getBalanceSheet(int $tenantId, int $subTenantId, array $filters): array
-    { return $this->emptyReadResult('balance_sheet', $filters); }
+    {
+        $key  = $this->keyOrThrow($tenantId, $subTenantId);
+        $resp = jazCall($key, 'POST', 'reports/balance-sheet', array_filter([
+            'asOfDate' => $filters['asOf'] ?? $filters['to'] ?? date('Y-m-d'),
+        ]));
+        return ['report_type' => 'balance_sheet', 'as_of' => $filters['asOf'] ?? null,
+                'jaz_payload' => $resp, 'provider' => 'jaz'];
+    }
 
     public function getArAging(int $tenantId, int $subTenantId, array $filters): array
-    { return $this->emptyReadResult('ar_aging', $filters); }
+    {
+        $key  = $this->keyOrThrow($tenantId, $subTenantId);
+        $resp = jazCall($key, 'POST', 'reports/ar-report', array_filter([
+            'asOfDate' => $filters['asOf'] ?? $filters['to'] ?? date('Y-m-d'),
+        ]));
+        return ['report_type' => 'ar_aging', 'jaz_payload' => $resp, 'provider' => 'jaz'];
+    }
 
     public function getApAging(int $tenantId, int $subTenantId, array $filters): array
-    { return $this->emptyReadResult('ap_aging', $filters); }
+    {
+        $key  = $this->keyOrThrow($tenantId, $subTenantId);
+        $resp = jazCall($key, 'POST', 'reports/ap-report', array_filter([
+            'asOfDate' => $filters['asOf'] ?? $filters['to'] ?? date('Y-m-d'),
+        ]));
+        return ['report_type' => 'ap_aging', 'jaz_payload' => $resp, 'provider' => 'jaz'];
+    }
 
-    // Writes — gated behind partner contract. The Command Service
-    // catches AccountingAdapterNotReadyException, marks the outbox row
-    // failed, and (after max_attempts) dead-letters. No silent success.
+    // ============================================================ WRITES
     public function createDraftBill(int $tenantId, int $subTenantId, array $bill, string $idempotencyKey): array
-    { throw new AccountingAdapterNotReadyException('Jaz createDraftBill is gated behind Phase 0 partner diligence.'); }
+    {
+        $key = $this->keyOrThrow($tenantId, $subTenantId);
+        // The Command Service idempotency key dedupes on our side. Jaz
+        // accepts an Idempotency-Key header on POSTs that retry-safely;
+        // we set saveAsDraft=true per spec §15.3 (drafts then post).
+        $payload = array_merge([
+            'saveAsDraft' => true,
+            'submitForApproval' => false,
+        ], $bill);
+        $payload['__idempotencyKey'] = $idempotencyKey; // not sent
+        unset($payload['__idempotencyKey']);
+        $resp = jazCall($key, 'POST', 'bills', $payload);
+        return $this->wrapWriteResult('bill', $resp, $idempotencyKey, 'draft');
+    }
 
     public function createDraftInvoice(int $tenantId, int $subTenantId, array $invoice, string $idempotencyKey): array
-    { throw new AccountingAdapterNotReadyException('Jaz createDraftInvoice is gated behind Phase 0 partner diligence.'); }
+    {
+        $key = $this->keyOrThrow($tenantId, $subTenantId);
+        $payload = array_merge([
+            'saveAsDraft' => true,
+            'submitForApproval' => false,
+        ], $invoice);
+        $resp = jazCall($key, 'POST', 'invoices', $payload);
+        return $this->wrapWriteResult('invoice', $resp, $idempotencyKey, 'draft');
+    }
 
     public function createDraftJournal(int $tenantId, int $subTenantId, array $journal, string $idempotencyKey): array
-    { throw new AccountingAdapterNotReadyException('Jaz createDraftJournal is gated behind Phase 0 partner diligence.'); }
-
-    public function postObject(int $tenantId, int $subTenantId, string $providerObjectType, string $providerObjectId): array
-    { throw new AccountingAdapterNotReadyException('Jaz postObject is gated behind Phase 0 partner diligence.'); }
-
-    public function getObject(int $tenantId, int $subTenantId, string $providerObjectType, string $providerObjectId): array
     {
-        return [
-            'provider_object_type' => $providerObjectType,
-            'provider_object_id'   => $providerObjectId,
-            'not_implemented_yet'  => true,
-        ];
+        $key = $this->keyOrThrow($tenantId, $subTenantId);
+        $payload = array_merge([
+            'saveAsDraft' => true,
+        ], $journal);
+        $resp = jazCall($key, 'POST', 'journals', $payload);
+        return $this->wrapWriteResult('journal', $resp, $idempotencyKey, 'draft');
     }
 
     /**
-     * Normalise any Throwable to a stable {code,message} pair so the
-     * outbox stores a recoverable error_code rather than a stack trace.
-     * Real Jaz error mapping (HTTP 401/403/422/429/5xx) lands when the
-     * adapter goes live.
+     * Convert a Jaz draft to active. Spec §15.3 calls this
+     * "approve_command → execute_command → posted". For drafts created
+     * via createDraft*, Jaz exposes a `/draft/convert-to-active` bulk
+     * endpoint — we wrap the single-id case so the Command Service
+     * doesn't need to know Jaz's bulk semantics.
      */
+    public function postObject(int $tenantId, int $subTenantId, string $providerObjectType, string $providerObjectId): array
+    {
+        $key = $this->keyOrThrow($tenantId, $subTenantId);
+        if ($providerObjectId === '') {
+            throw new AccountingAdapterValidationException('provider_object_id required to post object');
+        }
+        $resp = jazCall($key, 'POST', 'draft/convert-to-active', [
+            'resourceIds' => [$providerObjectId],
+            'businessTransactionType' => strtoupper($providerObjectType),
+        ]);
+        return $this->wrapWriteResult($providerObjectType, [
+            'resourceId' => $providerObjectId,
+            'status'     => 'ACTIVE',
+            'jobId'      => $resp['jobId'] ?? null,
+        ], 'post:' . $providerObjectId, 'posted');
+    }
+
+    public function getObject(int $tenantId, int $subTenantId, string $providerObjectType, string $providerObjectId): array
+    {
+        $key  = $this->keyOrThrow($tenantId, $subTenantId);
+        $path = $this->pluralPath($providerObjectType) . '/' . rawurlencode($providerObjectId);
+        $resp = jazCall($key, 'GET', $path);
+        return [
+            'provider_object_type' => $providerObjectType,
+            'provider_object_id'   => $providerObjectId,
+            'jaz_payload'          => $resp,
+        ];
+    }
+
     public function normalizeProviderError(\Throwable $e): array
     {
         if ($e instanceof AccountingAdapterNotReadyException) {
@@ -178,6 +313,74 @@ class JazAccountingAdapter extends AccountingProviderAdapter
         if ($e instanceof AccountingAdapterValidationException) {
             return ['code' => 'provider_validation', 'message' => substr($e->getMessage(), 0, 240)];
         }
+        if ($e instanceof JazApiException) {
+            $code = 'provider_error';
+            switch ($e->httpStatus) {
+                case 401: $code = 'auth_invalid';      break;
+                case 403: $code = 'auth_forbidden';    break;
+                case 404: $code = 'not_found';         break;
+                case 409: $code = 'conflict';          break;
+                case 422: $code = 'provider_validation'; break;
+                case 429: $code = 'rate_limited';      break;
+                case 500: case 502: case 503: case 504: $code = 'provider_unavailable'; break;
+            }
+            return ['code' => $code, 'message' => substr($e->getMessage(), 0, 240)];
+        }
         return ['code' => 'provider_error', 'message' => substr($e->getMessage(), 0, 240)];
+    }
+
+    // ============================================================ helpers
+    private function normalizeCoaRow(array $r): array
+    {
+        $type = strtolower((string) ($r['accountType']      ?? $r['type']           ?? ''));
+        $code = (string)       ($r['accountCode']      ?? $r['code']           ?? '');
+        $name = (string)       ($r['accountName']      ?? $r['name']           ?? '');
+        $ccy  = (string)       ($r['currency']['code'] ?? $r['currency']       ?? 'USD');
+        return [
+            'code'             => $code,
+            'name'             => $name,
+            'type'             => $type,
+            'currency'         => $ccy,
+            'active'           => ($r['isActive'] ?? $r['active'] ?? true) ? true : false,
+            'jaz_resource_id'  => (string) ($r['resourceId'] ?? $r['id'] ?? ''),
+        ];
+    }
+
+    /** Convert a Jaz amount (number with decimals) to integer cents. */
+    private function amountToCents($n): int
+    {
+        if (is_int($n)) return $n; // assume already cents
+        if (is_string($n)) $n = (float) $n;
+        if (!is_numeric($n)) return 0;
+        return (int) round(((float) $n) * 100);
+    }
+
+    /** Build a stable response wrapper the Command Service consumes. */
+    private function wrapWriteResult(string $kind, array $resp, string $idem, string $status): array
+    {
+        $root = $resp[$kind] ?? $resp;
+        if (!is_array($root)) $root = $resp;
+        return [
+            'provider_object_type' => $kind,
+            'provider_object_id'   => (string) ($root['resourceId'] ?? $root['id'] ?? ''),
+            'idempotency_key'      => $idem,
+            'status'               => $status,
+            'jaz_payload'          => $root,
+        ];
+    }
+
+    /** Map canonical object type to Jaz REST path segment. */
+    private function pluralPath(string $type): string
+    {
+        switch (strtolower($type)) {
+            case 'bill':         return 'bills';
+            case 'invoice':      return 'invoices';
+            case 'journal':      return 'journals';
+            case 'contact':      return 'contacts';
+            case 'item':         return 'items';
+            case 'account':
+            case 'chart_of_account': return 'chart-of-accounts';
+            default:             return $type;
+        }
     }
 }

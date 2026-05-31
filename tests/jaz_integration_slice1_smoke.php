@@ -102,14 +102,19 @@ $a('JazAccountingAdapter extends AccountingProviderAdapter',
 $a('providerKey() returns "jaz"',                 str_contains($ja, "return 'jaz';"));
 $a('resolveCredential uses decryptField',         str_contains($ja, 'decryptField($ct)'));
 $a('resolveCredential filters out revoked',       str_contains($ja, "if (!\$row || \$row['connection_status'] === 'revoked')"));
-$a('validateConnection returns pending_diligence',str_contains($ja, "'status' => 'pending_diligence',"));
-$a('validateConnection emits not_implemented_yet',str_contains($ja, "'not_implemented_yet' => true,"));
-$a('reads return canonical empty shape',          str_contains($ja, "'not_implemented_yet'  => true,"));
-$a('createDraftBill throws NotReady',             str_contains($ja, 'createDraftBill is gated behind Phase 0'));
-$a('createDraftInvoice throws NotReady',          str_contains($ja, 'createDraftInvoice is gated behind Phase 0'));
-$a('createDraftJournal throws NotReady',          str_contains($ja, 'createDraftJournal is gated behind Phase 0'));
-$a('postObject throws NotReady',                  str_contains($ja, 'postObject is gated behind Phase 0'));
-$a('normalizeProviderError → adapter_not_ready',  str_contains($ja, "'code' => 'adapter_not_ready'"));
+$a('validateConnection probes GET /organization', str_contains($ja, "jazCall(\$key, 'GET', 'organization')"));
+$a('validateConnection persists provider_org_id', str_contains($ja, 'UPDATE accounting_provider_connections'));
+$a('reads use live jazCall',                      str_contains($ja, "jazCall(\$key, 'GET', 'chart-of-accounts'")
+                                               && str_contains($ja, "jazCall(\$key, 'POST', 'reports/trial-balance'")
+                                               && str_contains($ja, "jazCall(\$key, 'POST', 'reports/general-ledger'"));
+$a('createDraftBill POSTs to /bills saveAsDraft', str_contains($ja, "jazCall(\$key, 'POST', 'bills', \$payload)")
+                                               && str_contains($ja, "'saveAsDraft' => true,"));
+$a('createDraftInvoice POSTs to /invoices',       str_contains($ja, "jazCall(\$key, 'POST', 'invoices', \$payload)"));
+$a('createDraftJournal POSTs to /journals',       str_contains($ja, "jazCall(\$key, 'POST', 'journals', \$payload)"));
+$a('postObject POSTs to draft/convert-to-active', str_contains($ja, "jazCall(\$key, 'POST', 'draft/convert-to-active'"));
+$a('normalizeProviderError maps Jaz HTTP codes',  str_contains($ja, "case 401: \$code = 'auth_invalid';")
+                                               && str_contains($ja, "case 422: \$code = 'provider_validation';")
+                                               && str_contains($ja, "case 429: \$code = 'rate_limited';"));
 
 // --- functional adapter contract tests --------------------------
 echo "\nFunctional adapter contract\n";
@@ -121,25 +126,33 @@ $adapter = new JazAccountingAdapter();
 $a('  inherits AccountingProviderAdapter',        $adapter instanceof AccountingProviderAdapter);
 $a('  providerKey() === "jaz"',                   $adapter->providerKey() === 'jaz');
 
-// Reads return canonical empty result.
-$coa = $adapter->getChartOfAccounts(1, 1, []);
-$a('  getChartOfAccounts returns array',          is_array($coa));
-$a('  COA has not_implemented_yet=true marker',   ($coa['not_implemented_yet'] ?? false) === true);
-$a('  COA contains "accounts" key',               array_key_exists('accounts', $coa));
+// Reads — without credentials, the live adapter raises
+// AccountingAdapterValidationException. The "canonical empty shape"
+// path from Slice 1 is gone; Slice 2 always probes Jaz.
+$threw = false;
+try { $adapter->getChartOfAccounts(1, 1, []); }
+catch (AccountingAdapterValidationException $e) { $threw = true; }
+$a('  getChartOfAccounts raises Validation when no credential', $threw);
 
-$tb = $adapter->getTrialBalance(1, 1, ['asOf' => '2026-01-31']);
-$a('  TB returns array with total_debit_cents',   isset($tb['total_debit_cents']) && $tb['total_debit_cents'] === 0);
+$threw = false;
+try { $adapter->getTrialBalance(1, 1, ['asOf' => '2026-01-31']); }
+catch (AccountingAdapterValidationException $e) { $threw = true; }
+$a('  getTrialBalance raises Validation when no credential',    $threw);
 
-// Writes throw NotReady.
+// Writes — with no credentials configured for tenant=1/entity=1, the
+// adapter throws AccountingAdapterValidationException (credential
+// resolver returns null → keyOrThrow). When a real key is present,
+// these would hit Jaz live (smoke test for that lives in
+// jaz_integration_slice2_live_smoke.php with a stubbed transport).
 $threw = false;
 try { $adapter->createDraftBill(1, 1, ['x' => 1], 'idem-1'); }
-catch (AccountingAdapterNotReadyException $e) { $threw = true; }
-$a('  createDraftBill raises AccountingAdapterNotReadyException', $threw);
+catch (AccountingAdapterValidationException $e) { $threw = true; }
+$a('  createDraftBill raises Validation when no credential',     $threw);
 
 $threw = false;
 try { $adapter->postObject(1, 1, 'bill', 'jaz_123'); }
-catch (AccountingAdapterNotReadyException $e) { $threw = true; }
-$a('  postObject raises AccountingAdapterNotReadyException',    $threw);
+catch (AccountingAdapterValidationException $e) { $threw = true; }
+$a('  postObject raises Validation when no credential',          $threw);
 
 // normalizeProviderError shape.
 $norm = $adapter->normalizeProviderError(new AccountingAdapterNotReadyException('test'));
