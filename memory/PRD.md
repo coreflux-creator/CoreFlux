@@ -13449,3 +13449,76 @@ Finish the Jaz.ai accounting backend integration:
 - NEW: `tests/jaz_integration_slice4_smoke.php` (89 ✓)
 - `tests/jaz_integration_slice1_smoke.php` — Slice-2 status assertion update
 
+
+
+
+---
+
+## ROADMAP — AI-Native Extension (per spec v1.2 dated 2026-05-31)
+
+> Source spec: `CoreFlux AI-Native Extension Specification v1.2 (artifacts + network + AI workers)`. Status: targeted refactor on top of existing platform — does not replace any module spec; adds the artifact layer, artifact network, AI gateway, AI workers, tool registry, LangGraph runtime, and knowledge graph.
+
+### Phase 1 — Foundation (AI Gateway + Tool Registry) — **NEXT**
+- `ai_runs`, `ai_tool_calls`, `ai_prompt_versions`, `ai_tool_registry`, `ai_tool_permissions` tables
+- AI Gateway POST `/api/ai/runs` (tenant/user-scoped)
+- Tool Registry loader + schema validation
+- Read-only tools: `getTenantContext`, `getUserPermissions`, `getChartOfAccounts`, `getBankTransactions`
+- Audit event writer for AI run + tool call events
+- Prompt version storage and active-version resolution
+- React Ask AI Panel shell with context provider
+- RBAC: `ai.use`, `ai.audit.view`, `platform.ai.admin`
+
+### Phase 2 — LangGraph MVP
+- `workflow_runs`, `workflow_checkpoints`, `workflow_approvals` tables
+- Transaction-classification graph (vendor resolution → retrieval → classify → confidence gate → draft/exception branch)
+- Approval interrupt protocol
+
+### Phase 3 — Accounting MVP
+- Accounting Agent + JE draft graph
+- Reconciliation packet artifact
+- Exception queue UI
+
+### Phase 4 — Close MVP
+- Close Agent, close checklist, close dashboard
+- Close packet artifact generation
+
+### Phase 5 — AP / Treasury / Payroll
+- Invoice review graph
+- Cash forecast graph (13-week)
+- Payroll review graph
+
+### Phase 6 — Vertical Extensions
+- Staffing margin / funding agents
+- Restaurant prime-cost / menu agents
+- CPA review / tax intake agents
+
+### Phase 7 — Advanced Operations
+- Knowledge graph (`knowledge_documents`, `knowledge_embeddings`, `knowledge_entities`, `knowledge_edges`)
+- CoreFlux Orchestrator Agent (cross-module routing)
+- Cross-module autonomous drafts
+- Expanded autonomy controls
+
+### Phase 8 — Business Event Layer and Event-Native Accounting — **LATER**
+Business Events are a future platform layer that will eventually sit beneath workflows, artifacts, AI workers, accounting automation, treasury forecasting, and module orchestration.
+
+Build the actual event infrastructure:
+- `business_events` table
+- Event taxonomy
+- Event emitter
+- Event subscribers
+- Event replay
+- Worker triggers
+- Accounting interpretation from events
+
+### First-Class Artifact Layer (cross-cutting from Phase 3 onward)
+- `artifacts`, `artifact_versions`, `artifact_events`, `artifact_network_edges`
+- Lifecycle: draft → in_review → awaiting_approval → approved → finalized → superseded / archived
+- Provenance: `source_workflow_run_id`, `source_ai_run_id`, `created_by_agent`, `generation_context_json`
+- Artifact-network panel in React (upstream / downstream / supersession lineage)
+
+### AI Worker Runtime (cross-cutting)
+- AI workers registered, permissioned, restricted to assigned job types + tool allowlists
+- Workers cannot bypass Tool Registry, approvals, or audit log
+
+### Phase exit criteria + permission matrix + audit catalog
+See spec §15. Key permissions: `ai.use`, `ai.audit.view`, `accounting.write`, `accounting.approve`, `treasury.approve`, `payroll.approve`, `tax.review`, `platform.ai.admin`.
