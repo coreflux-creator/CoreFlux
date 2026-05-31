@@ -41,6 +41,7 @@ function _authGateAllowedUnauthEndpoints(): array {
         'api/qbo_oauth_callback.php'      => 'QBO OAuth callback — verified by state nonce + token exchange',
         'api/qbo.php'                     => 'QBO endpoint dispatches to sub-actions; each enforces auth internally',
         'api/webhooks/resend.php'         => 'Resend webhook — verified by Svix-style HMAC signature + replay window',
+        'api/webhooks/mercury.php'        => 'Mercury webhook — verified by HMAC-SHA256 signature + 5min replay window',
 
         // ── Public-facing endpoints (deliberate; consumed by recipients without accounts) ──
         'api/billing/invoice_public.php'  => 'Public invoice viewer — auth via single-use token_hash in URL',

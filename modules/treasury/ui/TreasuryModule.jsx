@@ -9,6 +9,7 @@ import MercuryPayments from './MercuryPayments';
 import ReconciliationWorkbench from './ReconciliationWorkbench';
 import SweepRulesAdmin        from './SweepRulesAdmin';
 import SweepDestinations      from './SweepDestinations';
+import MercuryWebhookConfig   from './MercuryWebhookConfig';
 import LiquidityForecast        from '../../../dashboard/src/pages/LiquidityForecast';
 import TreasuryScenario         from '../../../dashboard/src/pages/TreasuryScenario';
 import TreasuryScenarioCompare  from '../../../dashboard/src/pages/TreasuryScenarioCompare';
@@ -41,6 +42,7 @@ export default function TreasuryModule({ session }) {
         <TreasuryTab to="reconciliation"   label="Reconciliation" />
         <TreasuryTab to="sweep-rules"      label="Sweep Rules" />
         <TreasuryTab to="sweep-destinations" label="Sweep Destinations" />
+        <TreasuryTab to="mercury-webhooks"   label="Webhooks" />
       </nav>
       <Routes>
         <Route index                element={<Navigate to="overview" replace />} />
@@ -61,6 +63,7 @@ export default function TreasuryModule({ session }) {
         <Route path="reconciliation"   element={<ReconciliationWorkbench />} />
         <Route path="sweep-rules"      element={<SweepRulesAdmin />} />
         <Route path="sweep-destinations" element={<SweepDestinations />} />
+        <Route path="mercury-webhooks"   element={<MercuryWebhookConfig />} />
         {/* Back-compat: anyone deep-linked into the old payout-rails tab
             (AP PaymentsList CTA, bookmarks) lands on Admin → Integrations
             where the connection settings now live. */}

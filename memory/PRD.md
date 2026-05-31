@@ -10,6 +10,110 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Mercury Webhooks — push-based payment state advancement (2026-02 — current fork)
+
+### Why
+Until now the payment worker advanced `payment_instructions` by polling
+Mercury on every cron tick. The poll cycle introduced ~1-minute latency
+between Mercury settling a funding leg and CoreFlux originating the
+vendor payout. Mercury exposes signed push webhooks; wiring them
+collapses the funding-cleared → vendor-payout delay to seconds without
+changing the dual-leg pipeline semantics. The cron stays as a safety
+net for missed events.
+
+### What shipped
+- **Migration `087_mercury_webhooks.sql`** — two tables:
+  - `mercury_webhook_endpoints` (one row per tenant): AES-256-GCM
+    encrypted signing secret, last4 for display, status
+    `active|paused|error`, `last_event_at`, `last_error`.
+  - `mercury_webhook_events` (event_id PK = natural dedupe of
+    Mercury's at-least-once delivery): resource type/id, event type,
+    operation type, verification result, processed_at + outcome,
+    `payment_instruction_id` linkage when matched, MEDIUMTEXT raw
+    payload for forensics.
+- **`core/mercury_webhooks.php`** — full helper surface:
+  - `mercuryWebhookSaveSecret()` / `mercuryWebhookGet()` /
+    `mercuryWebhookGetSecret()` / `mercuryWebhookPause()`.
+  - **`mercuryWebhookVerifySignature()`** — parses Mercury's
+    `t=<unix>,v1=<hex>` header, enforces 5-minute replay tolerance,
+    HMAC-SHA256 over `<t>.<raw_body>` with constant-time `hash_equals`
+    compare. Returns `{ok, error, timestamp}`. Tolerates uppercase
+    hex.
+  - `mercuryWebhookRecordEvent()` — idempotent on event_id, returns
+    `true` only on a fresh INSERT (so duplicates don't re-fire
+    side-effects). Synthesises an id when Mercury omits one so even
+    garbage bodies leave an audit trail.
+  - `mercuryWebhookProcessEvent()` — only acts on
+    `transaction.update` events where `mergePatch.status` flipped;
+    looks up the matching `payment_instructions` by
+    `funding_mercury_txn_id` OR `payout_mercury_txn_id` (separate
+    placeholders — HY093 sentry compliant); calls `mpAdvance()` to
+    push the state machine forward; finalises the event row with
+    outcome (`advanced` | `no_match` | `skipped_no_status` | `error`)
+    and the matched PI id.
+- **`api/webhooks/mercury.php`** — POST receiver. Skips
+  `api_require_auth` (Mercury is the caller; allow-listed in the
+  `auth_gate_static_analyzer_smoke`). Tenant id arrives via `?t=<id>`;
+  signature must verify against THAT tenant's secret. Always returns
+  200 (even on bad signature) so Mercury doesn't retry-storm. GETs
+  return 200 for Mercury's liveness probe.
+- **`api/admin/treasury/mercury_webhook.php`** — admin CRUD gated by
+  `accounting.bank.manage`. GET → endpoint metadata + most recent 50
+  events + canonical delivery URL. POST → store/rotate the signing
+  secret (encrypted). PATCH → pause/resume without touching the secret.
+- **`modules/treasury/ui/MercuryWebhookConfig.jsx`** — three-step admin
+  page: (1) copy the per-tenant delivery URL, (2) paste the signing
+  secret Mercury reveals once, (3) inspect the live events feed with
+  verification + outcome badges. Pause/resume toggle for emergencies.
+- **`modules/treasury/ui/TreasuryModule.jsx`** — new "Webhooks" tab +
+  `/treasury/mercury-webhooks` route.
+
+### Tests
+- New: `tests/mercury_webhooks_smoke.php` — **100 ✓ / 0 ✗** including
+  **8 functional HMAC verification tests** (valid sig, bad sig, body
+  tampering, replay rejection at >5min, missing t=, empty header,
+  uppercase hex tolerance). Plus migration, helper surface, receiver
+  endpoint, admin endpoint, UI testids, and TreasuryModule wiring.
+- Updated:
+  - `auth_gate_static_analyzer_smoke.php` allow-list now includes
+    `api/webhooks/mercury.php` with the rationale documented.
+- **Full suite: 346/348** — only the 2 documented sandbox-bound
+  failures remain.
+
+### Bundle
+- `index-lvj2Bdqo.js` + `index-BC5g6YJu.css`. SW
+  `CACHE_VERSION=coreflux-lvj2Bdqo`. `.deploy-version` synced.
+
+### Operator workflow
+1. **Treasury → Webhooks** tab → copy the per-tenant delivery URL.
+2. In Mercury (Settings → Developers → Webhooks → New endpoint):
+   - Paste URL.
+   - Subscribe to `transaction.created` + `transaction.updated`.
+   - Copy the revealed `whsec_…` secret.
+3. Back in CoreFlux: paste the secret → Save. Status flips to active.
+4. Mercury delivers; the events feed populates within seconds. The
+   payment worker polling continues as a safety net but instructions
+   will be advancing via push.
+
+### Deploy note
+PHP + React both touched. Cloudways deploy + `update.php` will apply
+migration 087 and pick up the new bundle. No env-flag gating — the
+receiver works the moment the secret is saved, and existing tenants
+without a secret simply persist events as `no_active_endpoint` until
+configured.
+
+### Files touched
+- `core/migrations/087_mercury_webhooks.sql` (new)
+- `core/mercury_webhooks.php` (new)
+- `api/webhooks/mercury.php` (new)
+- `api/admin/treasury/mercury_webhook.php` (new)
+- `modules/treasury/ui/MercuryWebhookConfig.jsx` (new)
+- `modules/treasury/ui/TreasuryModule.jsx` — tab + route
+- `tests/mercury_webhooks_smoke.php` (new)
+- `tests/auth_gate_static_analyzer_smoke.php` — allow-list update
+
+
+
 ## Treasury Sweep go-live — internal-transfer recipient model (2026-02 — current fork)
 
 ### Why
