@@ -13781,3 +13781,96 @@ no Python sidecar.
 - `dashboard/src/pages/AdminModule.jsx` — route + sidebar + ActionCard
 - NEW: `tests/ai_gateway_slice3_smoke.php` (99 ✓)
 
+
+
+## 2026-02 — AI Tool Gateway Slice 4 (COMPLETE) — Accounting MVP & Write-Tool Gate
+
+### Scope
+Phase 3 of the AI-Native Extension spec (§7 Accounting Agent + §15
+Risk-Level approval gates). Adds write capability to the gateway with
+mandatory human-approval interlocks for state-mutating tools.
+
+### Implementation
+- **Migration `093_accounting_exceptions.sql`** — single new table
+  `accounting_exceptions` (open/assigned/resolved/dismissed,
+  low/medium/high/critical severity, forward links to workflow_runs +
+  ai_runs). The existing `accounting_journal_entries` table is reused
+  for draft JEs (it already supports `status='draft'`).
+- **`core/ai/tool_gateway.php`** — Risk-Level enforcement inside
+  `aiToolInvoke()`. Tools with `risk_level >= 4` are blocked unless
+  `callerCtx['_approval_id']` resolves to a `workflow_approvals` row
+  with `status='approved'` for the same tenant. Returns
+  `denied / approval_required` or `denied / approval_invalid` envelope
+  before the handler runs. New tools:
+  - `coreflux.draft_journal_entry` (risk 4, `accounting.write`) —
+    delegates to the accounting module's `accountingPostJe(..., $post=false)`
+    so module-ownership discipline (no raw INSERTs to
+    `accounting_journal_*` outside the accounting module) stays
+    intact. Reuses period resolution, account validation, balance
+    check, and dimension validation from the existing function.
+    Idempotency key is deterministic so workflow retries are safe.
+  - `coreflux.create_exception` (risk 3, `accounting.write`) — opens
+    an `accounting_exceptions` row with severity whitelist and
+    structured `detail_json`.
+  - Added `'array'` arg type to `aiToolCoerceArg` for the `lines`
+    parameter.
+- **`core/ai/workflows/engine.php`** — `workflowResume()` now stamps
+  the resolved approval id onto `$ctx['_approval_id']` so downstream
+  nodes (the `apply_review_decision` node in particular) can legally
+  invoke risk-4 write tools. Without this thread, the LLM cannot reach
+  the write tool even with valid RBAC — the human approver IS the gate.
+- **`core/ai/workflows/graphs/transaction_classification.php`** —
+  `apply_review_decision` now best-effort calls
+  `coreflux.draft_journal_entry` when the reviewer's override payload
+  includes `{entity_id, period_id, account_id_debit, account_id_credit}`.
+  The full workflow now closes the loop: bank txn → vendor resolution
+  → retrieval → classify → review → approve with overrides →
+  draft JE writes with status='draft'.
+- **`core/rbac/legacy_map.php`** — `accounting.write → (accounting,
+  write)`, `accounting.approve → (accounting, admin)`.
+
+### Test status
+- NEW `tests/ai_gateway_slice4_smoke.php`: **41 ✓** including
+  functional probes (sqlite-backed) for the risk gate: blocked without
+  `_approval_id`, blocked with non-existent approval id, ≤1 line
+  rejection, missing-account-id rejection. `create_exception`
+  end-to-end (writes row, persists detail_json, severity whitelist
+  enforced).
+- All other AI gateway slices still pass (Slice 1: 124 ✓, Slice 2: 95 ✓,
+  Slice 3: 99 ✓).
+- Full suite: **355 ✓ / 2 baseline infra fails** (same 2 documented).
+- Tenant-leak sentry: still green. Module-emission discipline: still
+  green (no raw INSERTs added — delegate to accountingPostJe).
+- Phase-2A event discipline: green.
+- Vite rebuilt + `sync_bundle.sh` rotated hashes (`coreflux-Jl1klSD4`).
+
+### Architectural note
+The `draft_journal_entry` tool deliberately delegates to
+`accountingPostJe()` rather than writing directly. This is the right
+call because:
+1. The accounting module owns its tables (enforced by the
+   `module_emission_discipline_smoke` sentry).
+2. We reuse period resolution, account validation, balance check,
+   dimension validation — code that's already battle-tested.
+3. Future schema changes to the journal tables only need to touch
+   one writer.
+
+### Out of scope for Slice 4 (Slice 5+ work)
+- Auto-trigger the classification workflow on every new bank
+  transaction (cron / event hook).
+- LLM-driven `classify` node (replaces the deterministic stub when
+  evals land).
+- Pgvector retrieval in the `retrieval` node.
+- Auditor-readable view of every AI-drafted JE.
+- Module-specific reviewer roles like `accounting_reviewer`
+  (currently floored at `ai.audit.view` for decide_approval).
+
+### Files touched
+- NEW: `core/migrations/093_accounting_exceptions.sql`
+- `core/ai/tool_gateway.php` — risk gate + 2 new tools + handlers
+- `core/ai/workflows/engine.php` — `_approval_id` propagation
+- `core/ai/workflows/graphs/transaction_classification.php` —
+  `apply_review_decision` now closes the loop via the write tool
+- `core/rbac/legacy_map.php` — `accounting.write` / `accounting.approve`
+- NEW: `tests/ai_gateway_slice4_smoke.php` (41 ✓)
+

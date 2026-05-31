@@ -202,7 +202,13 @@ workflowRegisterGraph([
         // ── apply_review_decision ─────────────────────────────────
         // Runs after a reviewer approves a low-confidence
         // suggestion. Merges any reviewer overrides onto the
-        // classification before the run completes.
+        // classification, then (Slice 4) attempts to draft the JE
+        // via the risk-4 write tool. The workflow engine has stamped
+        // the approval id onto $ctx['_approval_id'] during resume —
+        // which is what the gateway's risk-level gate is looking for.
+        // If the draft tool call is denied or errors, we still
+        // complete the workflow with the suggestion + a note,
+        // because the human suggestion is preserved on the run state.
         'apply_review_decision' => function (array $state, array $ctx): array {
             $approval = $state['_approval'] ?? [];
             $override = is_array($approval['decision_payload'] ?? null) ? $approval['decision_payload'] : [];
@@ -212,6 +218,48 @@ workflowRegisterGraph([
             }
             $cls['reviewed_by_user_id'] = $approval['decision_payload']['reviewer_id'] ?? null;
             $state['classification'] = $cls;
+
+            // Optional Slice 4 wiring: if the override carries
+            // {entity_id, period_id, account_id_debit, account_id_credit},
+            // call draft_journal_entry with the approval token. Pure
+            // best-effort — failure is captured into state.draft_error.
+            $txn = $state['transaction'] ?? [];
+            $amt = (int) ($txn['amount_cents'] ?? 0);
+            $draftAttempt = null;
+            if ($amt > 0
+                && !empty($override['entity_id'])
+                && !empty($override['period_id'])
+                && !empty($override['account_id_debit'])
+                && !empty($override['account_id_credit'])
+                && function_exists('aiToolInvoke')) {
+                $debit  = round($amt / 100, 2);
+                $credit = $debit;
+                $env = aiToolInvoke('coreflux.draft_journal_entry', [
+                    'entity_id'       => (int) $override['entity_id'],
+                    'period_id'       => (int) $override['period_id'],
+                    'posting_date'    => (string) ($txn['posted_at'] ?? date('Y-m-d')),
+                    'source_ref_type' => 'workflow_run',
+                    'source_ref_id'   => null,
+                    'memo'            => sprintf('Auto-drafted from approval #%d: %s', $approval['id'] ?? 0, $cls['memo'] ?? ''),
+                    'lines'           => [
+                        ['account_id' => (int) $override['account_id_debit'],  'debit' => $debit,  'credit' => 0,      'memo' => $cls['memo'] ?? null],
+                        ['account_id' => (int) $override['account_id_credit'], 'debit' => 0,       'credit' => $credit, 'memo' => $cls['memo'] ?? null],
+                    ],
+                ], [
+                    'tenant_id'    => (int) ($ctx['_tenant_id'] ?? 0),
+                    'user_id'      => null,
+                    'user'         => $ctx['user'] ?? ['role' => 'system'],
+                    'session_id'   => (string) ($ctx['session_id'] ?? ''),
+                    '_approval_id' => (int) ($ctx['_approval_id'] ?? 0),
+                ]);
+                $draftAttempt = $env;
+                if ($env['ok']) {
+                    $state['draft_je'] = $env['result'];
+                } else {
+                    $state['draft_error'] = $env['error'] ?? ['code' => 'unknown'];
+                }
+            }
+
             $state['_output'] = [
                 'kind'           => 'suggestion',
                 'route'          => 'review_required',
@@ -221,6 +269,9 @@ workflowRegisterGraph([
                 'transaction'    => $state['transaction']    ?? null,
                 'requires_human_review' => false, // already reviewed
                 'approval_id'    => $approval['id'] ?? null,
+                'draft_je'       => $state['draft_je']    ?? null,
+                'draft_error'    => $state['draft_error'] ?? null,
+                'draft_attempt'  => $draftAttempt,
             ];
             return $state;
         },

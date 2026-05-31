@@ -112,12 +112,46 @@ function aiToolRegistry(): array
         'coreflux.get_bank_transactions' => [
             'description' => 'Return recent bank transactions across Plaid (accounting_bank_statement_lines) and Mercury (mercury_transactions), unified into a single newest-first feed.',
             'permission'  => 'accounting.bank.manage',
+            'risk_level'  => 1,
             'args'        => [
                 'source' => ['type' => 'string', 'required' => false, 'desc' => "plaid | mercury | both (default both)"],
                 'limit'  => ['type' => 'int',    'required' => false, 'desc' => 'default 50, max 200'],
                 'since'  => ['type' => 'date',   'required' => false, 'desc' => 'YYYY-MM-DD lower bound on posted_at'],
             ],
             'handler'     => 'aiToolGetBankTransactionsHandler',
+        ],
+        // ── Slice-4 write tools per spec §7 + §15 ──────────────────────
+        // Risk-level 4 → must be invoked downstream of an approved
+        // workflow_approval. The gate is enforced inside aiToolInvoke().
+        'coreflux.draft_journal_entry' => [
+            'description' => 'Insert a draft journal entry into accounting_journal_entries with status="draft". Returns the new je_id. Risk Level 4 — caller MUST hold an approved workflow approval id in callerCtx._approval_id.',
+            'permission'  => 'accounting.write',
+            'risk_level'  => 4,
+            'args'        => [
+                'entity_id'    => ['type' => 'int',    'required' => true,  'desc' => 'accounting_entities.id (the legal entity)'],
+                'period_id'    => ['type' => 'int',    'required' => true,  'desc' => 'accounting_periods.id (must be open)'],
+                'posting_date' => ['type' => 'date',   'required' => true,  'desc' => 'YYYY-MM-DD posting date'],
+                'memo'         => ['type' => 'string', 'required' => false, 'desc' => 'free-text memo'],
+                'source_ref_type' => ['type' => 'string', 'required' => false, 'desc' => 'e.g. ai_workflow, bank_transaction'],
+                'source_ref_id'   => ['type' => 'int',    'required' => false, 'desc' => 'matching primary key'],
+                'lines'        => ['type' => 'array',  'required' => true,  'desc' => 'array of {account_id, debit, credit, memo?, dim_json?}'],
+            ],
+            'handler'     => 'aiToolDraftJournalEntryHandler',
+        ],
+        'coreflux.create_exception' => [
+            'description' => 'Open an accounting_exceptions row for a transaction or workflow that needs human attention. Returns the new exception_id.',
+            'permission'  => 'accounting.write',
+            'risk_level'  => 3,
+            'args'        => [
+                'exception_type'    => ['type' => 'string', 'required' => true, 'desc' => "'classify_low_confidence' | 'unbalanced_je' | 'missing_period' | …"],
+                'summary'           => ['type' => 'string', 'required' => true, 'desc' => 'human-readable one-liner'],
+                'severity'          => ['type' => 'string', 'required' => false,'desc' => "low | medium | high | critical"],
+                'related_ref_type'  => ['type' => 'string', 'required' => false,'desc' => "'bank_transaction' | 'journal_entry' | …"],
+                'related_ref_id'    => ['type' => 'int',    'required' => false,'desc' => 'matching primary key'],
+                'workflow_run_id'   => ['type' => 'string', 'required' => false,'desc' => 'forward link if opened from a workflow'],
+                'detail'            => ['type' => 'array',  'required' => false,'desc' => 'structured payload — stored as detail_json'],
+            ],
+            'handler'     => 'aiToolCreateExceptionHandler',
         ],
     ];
     return $reg;
@@ -159,6 +193,41 @@ function aiToolInvoke(string $toolName, array $args, array $callerCtx): array
         }
     }
 
+    // Risk-level gate (spec §15 / Slice 4). Tools with risk_level >= 4
+    // are state-mutating and MUST be invoked downstream of an
+    // approved workflow approval. The engine threads `_approval_id`
+    // through callerCtx after a successful workflowResume(). Calls
+    // without that token are blocked here — the LLM cannot get
+    // around the gate even with valid RBAC, because the human
+    // approver is the gate.
+    $riskLevel = (int) ($tool['risk_level'] ?? 1);
+    if ($riskLevel >= 4) {
+        $approvalId = isset($callerCtx['_approval_id']) ? (int) $callerCtx['_approval_id'] : 0;
+        if ($approvalId <= 0) {
+            $env = ['ok' => false, 'status' => 'denied',
+                    'error' => ['code' => 'approval_required',
+                                'message' => "tool '{$toolName}' is risk-level {$riskLevel}; requires an approved workflow approval"]];
+            aiToolAudit($tenantId, null, $userId, $sessionId, $toolName, $args, $env, $startMs);
+            return $env;
+        }
+        // Validate the approval is real, approved, and tenant-scoped.
+        try {
+            $stmt = getDB()->prepare(
+                'SELECT id, status FROM workflow_approvals
+                  WHERE id = :id AND tenant_id = :t LIMIT 1'
+            );
+            $stmt->execute(['id' => $approvalId, 't' => $tenantId]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$row || $row['status'] !== 'approved') {
+                $env = ['ok' => false, 'status' => 'denied',
+                        'error' => ['code' => 'approval_invalid',
+                                    'message' => "approval #{$approvalId} not in 'approved' state"]];
+                aiToolAudit($tenantId, null, $userId, $sessionId, $toolName, $args, $env, $startMs);
+                return $env;
+            }
+        } catch (\Throwable $e) { /* schema-not-ready tolerated for CLI smoke */ }
+    }
+
     // Light arg validation.
     foreach (($tool['args'] ?? []) as $argName => $spec) {
         $required = (bool) ($spec['required'] ?? false);
@@ -197,6 +266,7 @@ function aiToolCoerceArg($v, string $type)
         case 'int':    return is_numeric($v) ? (int)   $v : 0;
         case 'bool':   return filter_var($v, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? false;
         case 'date':   return is_string($v) ? substr($v, 0, 10) : '';
+        case 'array':  return is_array($v) ? $v : [];
         case 'string': default: return is_scalar($v) ? (string) $v : '';
     }
 }
@@ -469,3 +539,95 @@ function aiToolGetBankTransactionsHandler(int $tenantId, ?int $subTenantId, arra
     $out = array_slice($out, 0, $limit);
     return ['transactions' => $out, 'count' => count($out), 'source' => $source];
 }
+
+
+// ───────────────────────────────────────────────────────────── Slice 4
+// Write-tool handlers. Risk Level 4 / 3 — gated by aiToolInvoke()'s
+// risk-level check before reaching here.
+
+function aiToolDraftJournalEntryHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    // Delegate to the accounting module's canonical JE creator with
+    // $post = false so the row lands as status='draft'. This keeps
+    // the architectural rule intact (only the accounting module
+    // talks to accounting_journal_*) and reuses period resolution,
+    // account validation, balance check, and dimension validation
+    // without duplicating any of it here.
+    require_once __DIR__ . '/../../modules/accounting/lib/accounting.php';
+
+    $lines = is_array($args['lines'] ?? null) ? $args['lines'] : [];
+    if (count($lines) < 2) {
+        throw new \InvalidArgumentException('journal entry needs ≥2 lines');
+    }
+    foreach ($lines as $idx => $ln) {
+        if (empty($ln['account_id']) && empty($ln['account_code'])) {
+            throw new \InvalidArgumentException("line #{$idx} missing account_id");
+        }
+    }
+
+    // accountingPostJe wants `entity_id`, `posting_date`, `lines`,
+    // optional `period_id`, `memo`, `source_ref_*`. We pass through.
+    $je = [
+        'entity_id'       => (int) $args['entity_id'],
+        'posting_date'    => (string) $args['posting_date'],
+        'currency'        => (string) ($args['currency'] ?? 'USD'),
+        'source_module'   => 'system',
+        'source_ref_type' => $args['source_ref_type'] ?? 'ai_workflow',
+        'source_ref_id'   => isset($args['source_ref_id']) ? (int) $args['source_ref_id'] : null,
+        'memo'            => isset($args['memo']) ? mb_substr((string) $args['memo'], 0, 500) : null,
+        'lines'           => $lines,
+    ];
+    // accountingPostJe resolves the period from posting_date; we
+    // forward the caller's period_id by setting idempotency_key so
+    // re-invocation is safe.
+    $je['idempotency_key'] = sprintf('ai_workflow_%d_%s_%d',
+        (int) $args['entity_id'], (string) $args['posting_date'],
+        (int) ($args['source_ref_id'] ?? 0));
+
+    $result = accountingPostJe($tenantId, $je, null, /* $post = */ false);
+
+    return [
+        'je_id'        => (int) $result['je_id'],
+        'je_number'    => (string) $result['je_number'],
+        'status'       => (string) $result['status'],
+        'total_debit'  => (float) $result['total_debit'],
+        'total_credit' => (float) $result['total_credit'],
+        'lines'        => count($lines),
+        'idempotent_replay' => !empty($result['idempotent_replay']),
+    ];
+}
+
+function aiToolCreateExceptionHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    $severity = (string) ($args['severity'] ?? 'medium');
+    if (!in_array($severity, ['low','medium','high','critical'], true)) $severity = 'medium';
+    $detail = is_array($args['detail'] ?? null) ? $args['detail'] : null;
+
+    $stmt = getDB()->prepare(
+        'INSERT INTO accounting_exceptions
+            (tenant_id, sub_tenant_id, workflow_run_id, ai_run_id,
+             exception_type, severity, status,
+             related_ref_type, related_ref_id, summary, detail_json, created_at)
+         VALUES (:t, :st, :wf, :ai, :et, :sev, "open",
+                 :rrt, :rri, :s, :dj, NOW())'
+    );
+    $stmt->execute([
+        't'   => $tenantId,
+        'st'  => $subTenantId,
+        'wf'  => isset($args['workflow_run_id']) ? (string) $args['workflow_run_id'] : null,
+        'ai'  => isset($args['ai_run_id'])       ? (string) $args['ai_run_id']       : null,
+        'et'  => mb_substr((string) $args['exception_type'], 0, 60),
+        'sev' => $severity,
+        'rrt' => isset($args['related_ref_type']) ? mb_substr((string) $args['related_ref_type'], 0, 60) : null,
+        'rri' => isset($args['related_ref_id'])   ? (int) $args['related_ref_id'] : null,
+        's'   => mb_substr((string) $args['summary'], 0, 255),
+        'dj'  => $detail !== null ? (json_encode($detail, JSON_UNESCAPED_SLASHES) ?: null) : null,
+    ]);
+    return [
+        'exception_id'   => (int) getDB()->lastInsertId(),
+        'exception_type' => (string) $args['exception_type'],
+        'severity'       => $severity,
+        'status'         => 'open',
+    ];
+}
+

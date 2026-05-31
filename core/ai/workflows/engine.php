@@ -262,6 +262,11 @@ function workflowResume(int $tenantId, string $workflowRunId, array $ctx = []): 
     if ($nextNode === '__end__') {
         return _workflowCompleteRun($tenantId, $workflowRunId, $state, []);
     }
+    // Slice 4: thread the approval id into node ctx so write-tools
+    // (risk_level >= 4) can prove they were invoked downstream of an
+    // approved approval. aiToolInvoke()'s risk gate reads
+    // callerCtx['_approval_id'].
+    $ctx['_approval_id'] = (int) $appr['id'];
     return _workflowDrive($tenantId, $workflowRunId, $graph, $state, $nextNode, $ctx);
 }
 

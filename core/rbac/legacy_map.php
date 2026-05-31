@@ -39,7 +39,10 @@ final class RbacLegacyMap
             'accounting.close_task.complete'     => ['accounting', 'write'],
             'accounting.close_workflow.manage'   => ['accounting', 'admin'],
             'accounting.coa.edit'                => ['accounting', 'write'],
-            'accounting.coa.manage'              => ['accounting', 'admin'],
+            'accounting.coa.manage'               => ['accounting', 'admin'],
+            // Slice 4 — write-tool gates.
+            'accounting.write'                    => ['accounting', 'write'],
+            'accounting.approve'                  => ['accounting', 'admin'],
             'accounting.coa.view'                => ['accounting', 'read'],
             'accounting.create_entry'            => ['accounting', 'write'],
             'accounting.dimensions.manage'       => ['accounting', 'admin'],
