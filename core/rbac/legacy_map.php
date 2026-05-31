@@ -43,6 +43,8 @@ final class RbacLegacyMap
             // Slice 4 — write-tool gates.
             'accounting.write'                    => ['accounting', 'write'],
             'accounting.approve'                  => ['accounting', 'admin'],
+            // Slice 5 — module-specific reviewer role.
+            'accounting.review'                    => ['accounting', 'read'],
             'accounting.coa.view'                => ['accounting', 'read'],
             'accounting.create_entry'            => ['accounting', 'write'],
             'accounting.dimensions.manage'       => ['accounting', 'admin'],

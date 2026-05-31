@@ -13874,3 +13874,88 @@ call because:
 - `core/rbac/legacy_map.php` — `accounting.write` / `accounting.approve`
 - NEW: `tests/ai_gateway_slice4_smoke.php` (41 ✓)
 
+
+
+## 2026-02 — AI Tool Gateway Slice 5 (COMPLETE) — Reviewer Cockpit + LLM Classify + Reviewer Role
+
+### Scope
+Two adjacent wins shipped together:
+1. The CFO-style reviewer cockpit you asked for — one landing page
+   surfacing everything the gateway has parked for human attention.
+2. LLM-driven `classify` node — completes Slice 3's deliberate
+   deterministic stub by routing through Slice 2's adapter.
+
+### Implementation
+- **`api/ai/dashboard.php`** — single envelope for the reviewer page:
+  `open_exceptions: {count, recent[]}`, `pending_approvals:
+  {count, recent[]}`, `recent_drafts: {count, recent[]}`, plus
+  `counts_by_severity` breakdown. Exceptions are ranked
+  critical → high → medium → low. Approvals JOINed to
+  `workflow_runs` so the page can show graph names without an extra
+  round-trip. Gated by `ai.audit.view` OR `accounting.review`.
+- **`dashboard/src/pages/AiReviewerDashboard.jsx`** — three count
+  tiles (color-coded by severity), three drill-in tables, refresh
+  button. Pending-approval rows cross-link to
+  `/admin/ai-gateway/workflows` for decision.
+- **`core/ai/workflows/graphs/transaction_classification.php`** —
+  `classify` node now opts into the LLM when
+  `state.use_llm === true` AND the OpenAI provider is configured.
+  Sends transaction + vendor + prior classifications as a single
+  user message, expects strict JSON
+  (`{account_code, account_name, memo, confidence, rationale}`),
+  strips `\`\`\`json` fences, clamps confidence to [0,1], tags
+  classification with `source: 'llm'` + model + token usage.
+  Falls through to the deterministic stub on:
+  - missing provider key (`AiLlmConfigException`)
+  - provider HTTP error (`AiLlmProviderException`)
+  - unparseable JSON (records `_llm_parse_failed` for audit)
+  - any other `\\Throwable` (records `_llm_error`)
+  Deterministic stub now tagged `source: 'deterministic'` so the
+  reviewer UI can distinguish AI suggestions from rule-based ones.
+- **`core/rbac/legacy_map.php`** — new `accounting.review →
+  (accounting, read)` permission so accounting reviewers can open
+  the cockpit without needing platform admin rights.
+- **`AdminModule.jsx`** — route + sidebar + ActionCard at
+  `/admin/ai-gateway/reviewer`.
+
+### Test status
+- NEW `tests/ai_gateway_slice5_smoke.php`: **41 ✓** — includes a
+  sqlite functional probe of the dashboard SQL with seeded data:
+  excludes resolved/dismissed exceptions, excludes other tenants
+  (decoy rows), excludes manual + posted JEs, severity breakdown
+  groups correctly, ranking order holds (critical first), JOIN to
+  `workflow_runs` surfaces graph names.
+- All previous slices still passing (1: 124 ✓, 2: 95 ✓, 3: 99 ✓,
+  4: 41 ✓, 5: 41 ✓).
+- Full suite: **356 ✓ / 2 baseline infra fails**.
+- Vite rebuilt + `sync_bundle.sh` rotated hashes
+  (`coreflux-Bes7jKex`).
+
+### Notes on the LLM classify path
+- Defensive: any failure mode falls back to the deterministic stub
+  rather than blocking the workflow. The audit trail still captures
+  what happened (`_llm_parse_failed` / `_llm_error` end up in
+  `workflow_runs.state_json`).
+- No live LLM call in smoke (offline CI). The probe verifies the
+  code shape; the actual round-trip is exercised when a tenant flips
+  `state.use_llm` in production.
+- Slice 6 would add an eval harness that compares
+  deterministic-vs-LLM suggestions on a golden set before flipping
+  the flag globally.
+
+### Out of scope for Slice 5
+- Auto-trigger workflow on every new bank transaction (cron / event
+  hook) — operationally bigger; deferred to its own slice.
+- Pgvector retrieval — same.
+- Eval harness for deterministic-vs-LLM diff — Slice 6.
+
+### Files touched
+- NEW: `api/ai/dashboard.php`
+- NEW: `dashboard/src/pages/AiReviewerDashboard.jsx`
+- `core/ai/workflows/graphs/transaction_classification.php` —
+  LLM-aware `classify` node + source-tagging on classifications
+- `core/rbac/legacy_map.php` — `accounting.review` permission
+- `dashboard/src/pages/AdminModule.jsx` — import, route, sidebar,
+  ActionCard
+- NEW: `tests/ai_gateway_slice5_smoke.php` (41 ✓)
+

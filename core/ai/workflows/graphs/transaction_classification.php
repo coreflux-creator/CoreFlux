@@ -107,21 +107,76 @@ workflowRegisterGraph([
         },
 
         // ── classify ──────────────────────────────────────────────
-        // Slice 3 keeps this DETERMINISTIC for testability:
-        //   - if a prior classification exists, copy the most recent
-        //     one with confidence = max(0.9, prior.confidence).
-        //   - else if vendor matched but no prior, suggest a
-        //     placeholder account ('6000-MISC') with confidence 0.5.
-        //   - else (unknown vendor), confidence 0.2.
+        // Slice 5 upgrade: when `state.use_llm === true` AND the
+        // OpenAI provider is configured, route through the Slice 2
+        // adapter to get a real LLM proposal. Otherwise fall back to
+        // the deterministic Slice 3 stub so smoke tests + the offline
+        // CLI environment keep working.
         //
-        // The LLM-driven version mounts as an alternative node in
-        // Slice 5+ once we have evals on prior-classification
-        // accuracy and a clear prompt. Keeping the deterministic
-        // path lets us land + test the engine WITHOUT a live
-        // OpenAI call.
+        // The LLM is given the transaction + prior classifications +
+        // vendor as a single user message and asked to produce a
+        // strict JSON object {account_code, account_name, memo,
+        // confidence (0..1), rationale}. We parse it defensively and
+        // fall through to the stub on any failure.
         'classify' => function (array $state, array $ctx): array {
             $prior  = $state['prior']  ?? [];
             $vendor = $state['vendor'] ?? [];
+            $txn    = $state['transaction'] ?? [];
+
+            // Optional LLM path.
+            if (!empty($state['use_llm'])
+                && file_exists(__DIR__ . '/../../providers/factory.php')) {
+                try {
+                    require_once __DIR__ . '/../../providers/factory.php';
+                    require_once __DIR__ . '/../../prompt_versions.php';
+                    $provider = aiLlmDefaultProvider();      // throws AiLlmConfigException if no key
+                    $adapter  = aiLlmProviderFor($provider);
+
+                    $prompt = "You are CoreFlux's accounting classifier. Given a bank "
+                            . "transaction and any prior classifications for that vendor, "
+                            . "propose a single GL account.\n\n"
+                            . 'Transaction: ' . json_encode($txn, JSON_UNESCAPED_SLASHES) . "\n"
+                            . 'Vendor:      ' . json_encode($vendor, JSON_UNESCAPED_SLASHES) . "\n"
+                            . 'Prior:       ' . json_encode(array_slice($prior, 0, 5), JSON_UNESCAPED_SLASHES) . "\n\n"
+                            . "Respond ONLY with a JSON object: "
+                            . '{"account_code": string, "account_name": string, '
+                            . '"memo": string, "confidence": number (0..1), '
+                            . '"rationale": string}. No prose, no markdown.';
+                    $messages = [
+                        ['role' => 'system', 'content' => 'You return strict JSON. No prose.'],
+                        ['role' => 'user',   'content' => $prompt],
+                    ];
+                    $env = $adapter->chatWithTools($messages, /* no tools */ [], [
+                        'temperature' => 0.1, 'max_tokens' => 400,
+                    ]);
+                    $text = (string) ($env['assistant_text'] ?? '');
+                    // Strip ```json fences if the model adds them.
+                    $text = trim(preg_replace('/^```(?:json)?|```$/m', '', $text));
+                    $parsed = json_decode($text, true);
+                    if (is_array($parsed)
+                        && isset($parsed['account_code'], $parsed['confidence'])) {
+                        $state['classification'] = [
+                            'account_code' => (string) $parsed['account_code'],
+                            'account_name' => (string) ($parsed['account_name'] ?? ''),
+                            'memo'         => (string) ($parsed['memo']         ?? ''),
+                            'confidence'   => max(0.0, min(1.0, (float) $parsed['confidence'])),
+                            'rationale'    => (string) ($parsed['rationale']    ?? ''),
+                            'source'       => 'llm',
+                            'model'        => (string) ($env['model'] ?? ''),
+                            'tokens'       => (int)    ($env['usage']['total_tokens'] ?? 0),
+                        ];
+                        return $state;
+                    }
+                    // Bad JSON — fall through to deterministic stub
+                    // but record the failure for the audit trail.
+                    $state['_llm_parse_failed'] = mb_substr($text, 0, 240);
+                } catch (\Throwable $e) {
+                    // Provider unavailable / config missing / network — fall through.
+                    $state['_llm_error'] = mb_substr($e->getMessage(), 0, 240);
+                }
+            }
+
+            // Deterministic Slice-3 stub (fallback / default).
             if (!empty($prior)) {
                 $top = $prior[0];
                 $state['classification'] = [
@@ -131,6 +186,7 @@ workflowRegisterGraph([
                     'confidence'   => max(0.9, (float) ($top['confidence'] ?? 0.9)),
                     'rationale'    => sprintf('Matches %d prior classification(s) for vendor #%s',
                                               count($prior), (string) ($vendor['vendor_id'] ?? '?')),
+                    'source'       => 'deterministic',
                 ];
             } elseif (!empty($vendor['matched'])) {
                 $state['classification'] = [
@@ -139,6 +195,7 @@ workflowRegisterGraph([
                     'memo'         => 'Vendor known but no prior classification — please review.',
                     'confidence'   => 0.5,
                     'rationale'    => 'Vendor matched by exact name but no historical mapping.',
+                    'source'       => 'deterministic',
                 ];
             } else {
                 $state['classification'] = [
@@ -147,6 +204,7 @@ workflowRegisterGraph([
                     'memo'         => 'Unknown counterparty — please review.',
                     'confidence'   => 0.2,
                     'rationale'    => 'No vendor match and no prior classification.',
+                    'source'       => 'deterministic',
                 ];
             }
             return $state;
