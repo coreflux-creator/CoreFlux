@@ -13694,3 +13694,90 @@ calls via an LLM and loops until the model returns a final assistant answer.
 - NEW: `tests/ai_gateway_slice2_smoke.php` (95 ✓)
 
 
+
+
+## 2026-02 — AI Tool Gateway Slice 3 (COMPLETE) — Workflow Runtime
+
+### Scope
+Phase 2 of the AI-Native Extension spec (§6, LangGraph MVP). LangGraph
+is Python; CoreFlux is PHP. Built a PHP-native state-machine runtime
+with the same operational semantics — nodes, conditional edges, persisted
+state, approval interrupts, resume-after-pause. Same observable contract,
+no Python sidecar.
+
+### Implementation
+- **Migration `092_workflow_runtime.sql`** — `workflow_runs` (UUID PK,
+  tenant-scoped, status enum: queued / running / awaiting_approval /
+  completed / failed / cancelled, forward-link `ai_run_id` to Slice 1),
+  `workflow_checkpoints` (per-node state snapshot + sha256 state_hash +
+  duration), `workflow_approvals` (pending → approved/rejected/expired/
+  cancelled, risk_level 1–5).
+- **`core/ai/workflows/engine.php`** — generic runtime:
+  - `workflowRegisterGraph()` — registers `{name, version, entry, nodes,
+    edges}`. Nodes are `callable(array $state, array $ctx): array`. Edges
+    can be string (target node), `'__end__'`, or callable that returns
+    one of those.
+  - `workflowStart()` — creates the run row + drives the engine until
+    completion or first approval pause.
+  - `workflowResume()` — picks up after an approval decision, applies
+    `decision_payload` into `state._approval`, walks to next node per
+    edge map. Rejected approval → run marked `failed` with
+    `approval_rejected`.
+  - `workflowRequireApproval()` — sentinel-exception (`WorkflowAwaitingApproval`)
+    that any node can throw to park the workflow.
+  - `workflowDecideApproval()` — records reviewer decision, validates
+    `pending → approved|rejected|cancelled` transition.
+  - Defensive caps: 30 nodes/run, 500 limit on list. Checkpoint writes
+    are best-effort (errors logged, never thrown).
+- **`core/ai/workflows/graphs/transaction_classification.php`** —
+  reference spec graph: `vendor_resolution → retrieval → classify →
+  confidence_gate → (auto_suggest | review_required → apply_review_decision)`.
+  Slice 3 keeps `classify` deterministic (≥0.85 confidence with prior
+  classifications, 0.5 with vendor-match-only, 0.2 unknown) so the
+  engine is testable without live OpenAI calls. LLM-driven `classify`
+  swaps in cleanly in Slice 5+.
+- **`api/ai/workflows.php`** — RBAC-gated surface:
+  - `GET /` — graph catalog.
+  - `GET ?action=list` — workflow runs (filter graph/status/user).
+  - `GET ?id=<uuid>` — full trace (run + checkpoints + approvals).
+  - `POST ?action=start` (RBAC `ai.use`) — start a workflow.
+  - `POST ?action=resume` (RBAC `ai.use`) — resume after approval.
+  - `POST ?action=decide_approval` (RBAC `ai.audit.view`) — record decision.
+- **`dashboard/src/pages/WorkflowTimeline.jsx`** — admin timeline UI:
+  filterable runs list + per-node timeline + paused approvals with
+  Approve / Reject buttons that automatically resume the workflow on
+  decision.
+- **`AdminModule.jsx`** — route + sidebar + ActionCard at
+  `/admin/ai-gateway/workflows`.
+
+### Test status
+- NEW `tests/ai_gateway_slice3_smoke.php`: **99 ✓** including an
+  end-to-end engine probe against an in-memory sqlite that covers
+  the high-confidence path (completes in one drive), the
+  low-confidence path (parks with `pending_approval_id`), approve +
+  resume (override flows into final output), reject path (run flips
+  to `failed` / `approval_rejected`), and the InvalidArgumentException
+  rejections for unknown graphs / non-paused resumes / non-pending
+  decisions.
+- Full suite: **354 ✓ / 2 baseline infra fails** (same 2 documented).
+- Tenant-leak sentry: still green. All workflow_runs writes/reads
+  are doubly-scoped by `tenant_id`.
+- Vite rebuilt + `sync_bundle.sh` rotated hashes (`coreflux-Jl1klSD4`).
+
+### Out of scope for Slice 3 (Slice 4+ work)
+- Write-tools (`draftJournalEntry`) that the approved suggestion would
+  call to actually post — gated by Risk Level 4 approvals per spec.
+- LLM-driven `classify` node (Slice 5+, swaps in alongside evals).
+- Workflow scheduling / cron triggers (auto-classify every new bank txn).
+- Module-specific reviewer roles (e.g. `accounting_reviewer`) — Slice 3
+  currently floors on `ai.audit.view` for decide_approval.
+
+### Files touched
+- NEW: `core/migrations/092_workflow_runtime.sql`
+- NEW: `core/ai/workflows/engine.php`
+- NEW: `core/ai/workflows/graphs/transaction_classification.php`
+- NEW: `api/ai/workflows.php`
+- NEW: `dashboard/src/pages/WorkflowTimeline.jsx`
+- `dashboard/src/pages/AdminModule.jsx` — route + sidebar + ActionCard
+- NEW: `tests/ai_gateway_slice3_smoke.php` (99 ✓)
+
