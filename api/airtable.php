@@ -719,6 +719,24 @@ switch ($action) {
         api_ok($rollup);
     }
 
+    case 'push_now': {
+        // Slice-4.1 — run the push worker for ONE mapping right now.
+        // Only fires if the mapping's direction is 'push' or 'both'.
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.airtable.manage');
+        require_once __DIR__ . '/../core/airtable/sync_push.php';
+        $body  = api_json_body();
+        $mid   = (int) ($body['mapping_id'] ?? 0);
+        $limit = max(1, min(2000, (int) ($body['limit'] ?? 500)));
+        if ($mid <= 0) api_error('mapping_id required', 422);
+        try {
+            $rollup = airtablePushMapping($tid, $mid, ['limit' => $limit]);
+        } catch (\Throwable $e) {
+            api_error('Push failed: ' . $e->getMessage(), 500);
+        }
+        api_ok($rollup);
+    }
+
     case 'duplicate_targets': {
         // List candidate target tenants for a duplicate operation.
         // Returns every tenant the caller is authorised to manage,

@@ -233,6 +233,42 @@ function airtableCall(int $tenantId, string $method, string $path, ?array $query
 }
 
 /**
+ * Slice 4.1 — body-accepting variant for POST/PATCH/PUT used by the
+ * push worker. Same retry-on-429 + error-promotion as airtableCall().
+ * Returns the decoded JSON body or ['_raw' => string] for non-JSON
+ * responses.
+ */
+function airtableCallWithBody(int $tenantId, string $method, string $path, array $body): array
+{
+    $token = airtablePAT($tenantId);
+    $url   = airtableApiBase() . $path;
+    $headers = [
+        'Accept: application/json',
+        'Content-Type: application/json',
+        'Authorization: Bearer ' . $token,
+    ];
+    $raw  = json_encode($body, JSON_UNESCAPED_SLASHES);
+    $resp = airtableRawRequest($method, $url, $raw, $headers);
+
+    if ($resp['status'] === 429) {
+        usleep(1100 * 1000);
+        $resp = airtableRawRequest($method, $url, $raw, $headers);
+    }
+
+    if ($resp['status'] >= 400) {
+        $msg = is_array($resp['body'])
+            ? json_encode($resp['body']['error'] ?? $resp['body'])
+            : (string) $resp['body'];
+        throw new \RuntimeException(
+            'Airtable ' . $method . ' ' . $path . ' returned HTTP ' . $resp['status']
+            . ': ' . substr((string) $msg, 0, 300)
+        );
+    }
+    if (!is_array($resp['body'])) return ['_raw' => $resp['body']];
+    return $resp['body'];
+}
+
+/**
  * Low-level HTTP. Test override: set $GLOBALS['__airtable_transport']
  * to a callable for unit tests — same shape as qboRawRequest.
  *

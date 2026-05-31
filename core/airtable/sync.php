@@ -37,7 +37,8 @@ const AIRTABLE_INTERNAL_ENTITIES = [
     'opportunity',
     'generic',
 ];
-const AIRTABLE_MAPPING_DIRECTIONS = ['pull', 'off'];
+const AIRTABLE_MAPPING_DIRECTIONS = ['pull', 'push', 'both', 'off'];
+const AIRTABLE_PUSH_UNMATCHED_ACTIONS = ['create_new', 'update_only', 'error'];
 const AIRTABLE_LINK_STRATEGIES   = ['external_id', 'match_column', 'manual', 'none'];
 const AIRTABLE_UNMATCHED_ACTIONS = ['skip', 'park', 'create_stub'];
 
@@ -157,6 +158,11 @@ function airtableMappingUpsert(int $tenantId, array $payload, ?int $userId): arr
     $dir       = trim((string) ($payload['direction'] ?? 'pull'));
     $primary   = trim((string) ($payload['primary_field'] ?? ''));
     $fieldMap  = $payload['field_map'] ?? [];
+    // Slice 4.1 — push direction columns. Independent of the pull-
+    // side field_map so operators can run an asymmetric mapping
+    // (e.g. pull everything but only push the status column back).
+    $reverseFieldMap     = $payload['reverse_field_map']     ?? null;
+    $pushUnmatchedAction = trim((string) ($payload['push_unmatched_action'] ?? 'create_new'));
 
     if (!preg_match('/^app[A-Za-z0-9]{10,}$/', $baseId))   throw new \InvalidArgumentException('base_id invalid');
     if (!preg_match('/^tbl[A-Za-z0-9]{10,}$/', $tableId))  throw new \InvalidArgumentException('table_id invalid');
@@ -164,9 +170,15 @@ function airtableMappingUpsert(int $tenantId, array $payload, ?int $userId): arr
         throw new \InvalidArgumentException('internal_entity must be one of: ' . implode(',', AIRTABLE_INTERNAL_ENTITIES));
     }
     if (!in_array($dir, AIRTABLE_MAPPING_DIRECTIONS, true)) {
-        throw new \InvalidArgumentException('direction must be pull or off');
+        throw new \InvalidArgumentException('direction must be one of: ' . implode(',', AIRTABLE_MAPPING_DIRECTIONS));
     }
     if (!is_array($fieldMap)) throw new \InvalidArgumentException('field_map must be an object');
+    if ($reverseFieldMap !== null && !is_array($reverseFieldMap)) {
+        throw new \InvalidArgumentException('reverse_field_map must be an object');
+    }
+    if (!in_array($pushUnmatchedAction, AIRTABLE_PUSH_UNMATCHED_ACTIONS, true)) {
+        throw new \InvalidArgumentException('push_unmatched_action must be one of: ' . implode(',', AIRTABLE_PUSH_UNMATCHED_ACTIONS));
+    }
 
     // Resolve linkage policy — explicit operator value wins; otherwise
     // apply the per-entity defaults registered above.
@@ -197,7 +209,9 @@ function airtableMappingUpsert(int $tenantId, array $payload, ?int $userId): arr
                     link_strategy = :ls,
                     link_match_airtable_field  = :lmf,
                     link_match_internal_column = :lic,
-                    link_unmatched_action      = :lua
+                    link_unmatched_action      = :lua,
+                    reverse_field_map          = :rfm,
+                    push_unmatched_action      = :pua
               WHERE id = :id'
         )->execute([
             'bn'  => $baseName !== '' ? $baseName : null,
@@ -210,6 +224,8 @@ function airtableMappingUpsert(int $tenantId, array $payload, ?int $userId): arr
             'lmf' => $link['match_at_field'],
             'lic' => $link['match_int_column'],
             'lua' => $link['unmatched_action'],
+            'rfm' => $reverseFieldMap !== null ? json_encode($reverseFieldMap) : null,
+            'pua' => $pushUnmatchedAction,
             'id'  => (int) $existing['id'],
         ]);
         $id = (int) $existing['id'];
@@ -220,9 +236,10 @@ function airtableMappingUpsert(int $tenantId, array $payload, ?int $userId): arr
                  internal_entity, direction, field_map, primary_field,
                  link_strategy, link_match_airtable_field,
                  link_match_internal_column, link_unmatched_action,
+                 reverse_field_map, push_unmatched_action,
                  created_by_user_id)
              VALUES (:t, :b, :bn, :tb, :tn, :ent, :d, :fm, :pf,
-                     :ls, :lmf, :lic, :lua, :uid)'
+                     :ls, :lmf, :lic, :lua, :rfm, :pua, :uid)'
         )->execute([
             't'   => $tenantId,
             'b'   => $baseId,
@@ -237,6 +254,8 @@ function airtableMappingUpsert(int $tenantId, array $payload, ?int $userId): arr
             'lmf' => $link['match_at_field'],
             'lic' => $link['match_int_column'],
             'lua' => $link['unmatched_action'],
+            'rfm' => $reverseFieldMap !== null ? json_encode($reverseFieldMap) : null,
+            'pua' => $pushUnmatchedAction,
             'uid' => $userId,
         ]);
         $id = (int) $pdo->lastInsertId();
