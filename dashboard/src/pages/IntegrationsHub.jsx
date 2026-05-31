@@ -131,6 +131,14 @@ export default function IntegrationsHub() {
             status={zohoStatus}
           />
           <IntegrationCard
+            testid="integration-card-jaz"
+            icon={BookOpen}
+            title="Jaz.ai (Accounting backend)"
+            description="Provider-neutral accounting backend per entity. Jaz becomes the live ledger while CoreFlux keeps the UI, workflows, approvals, and audit trail. Slice 1: connection + read APIs scaffolded; partner diligence pending for live posting."
+            href="/admin/integrations/jaz"
+            status="pending"
+          />
+          <IntegrationCard
             testid="integration-card-accounting-sync"
             icon={TrendingUp}
             title="Sync Dashboard"

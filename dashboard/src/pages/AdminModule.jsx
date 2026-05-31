@@ -25,6 +25,7 @@ import RbacBridgeHealthPanel from './RbacBridgeHealthPanel';
 import PlaidTransferSettings from '../../../modules/treasury/ui/PlaidTransferSettings';
 import MercurySettings from '../../../modules/treasury/ui/MercurySettings';
 import QboSettings from './QboSettings';
+import JazIntegrationSettings from './JazIntegrationSettings';
 import ZohoBooksSettings from './ZohoBooksSettings';
 import AirtableSettings from './AirtableSettings';
 import AccountingSyncDashboard from './AccountingSyncDashboard';
@@ -181,6 +182,7 @@ const AdminModule = ({ session }) => {
           <Route path="/integrations/plaid"    element={<PlaidTransferSettings session={session} />} />
           <Route path="/integrations/mercury"  element={<MercurySettings session={session} />} />
           <Route path="/integrations/qbo"      element={<QboSettings session={session} />} />
+          <Route path="/integrations/jaz"      element={<JazIntegrationSettings session={session} />} />
           <Route path="/integrations/zoho-books" element={<ZohoBooksSettings session={session} />} />
           <Route path="/integrations/airtable" element={<AirtableSettings session={session} />} />
           <Route path="/integrations/jobdiva" element={<JobDivaSettings session={session} />} />

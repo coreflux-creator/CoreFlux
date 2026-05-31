@@ -10,6 +10,162 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Jaz.ai Integration — Slice 1 (foundation + Phase 1 read-only backend) (2026-02 — current fork)
+
+### Why
+Per user direction, Gusto + QBO are PARKED. New direction: build a
+provider-neutral accounting backend per the attached
+`CoreFlux_Jaz_AI_Integration_Specification.docx`. The core design rule
+(spec §7): CoreFlux remains the operating layer — UI, workflows,
+permissions, approvals, audit. Jaz becomes ONE accounting destination
+behind a generic `AccountingProviderAdapter`. Slice 1 builds the
+foundation that all future accounting backends (QBO, Xero,
+CoreFlux-Native) will sit behind, with Jaz as the first concrete
+adapter (skeleton until Phase 0 partner diligence lands the live
+endpoint contracts).
+
+### User decisions locked in for Slice 1
+- **A.** `entity_id` from spec → CoreFlux `sub_tenant_id` (sub-tenants
+  ARE legal entities in our model; matches the RBAC overhaul).
+- **B.** Provider-neutral RBAC codes (`accounting.connection.view`,
+  `.manage`, `accounting.commands.draft`, `.approve`, `.execute`) —
+  NOT spec's `accounting.jaz.*` (those would couple permissions to a
+  provider and fight the swap-providers goal).
+- **C.** Synchronous PHP signatures (no `Promise<X>` — translated to
+  PHP arrays).
+
+### What shipped
+- **Migration `088_jaz_integration_foundation.sql`** — 4 provider-neutral
+  tables verbatim from spec §10/§20 (adapted to MySQL):
+  - `accounting_provider_connections` — per (tenant, sub_tenant,
+    provider). AES-256-GCM `credential_secret_ct` + last4 display.
+    `connection_status` ENUM 5-state. `api_scope_summary` JSON.
+  - `accounting_destination_links` — CoreFlux object ↔ provider object
+    id mapping. `idempotency_key` UNIQUE (cross-provider). UNIQUE on
+    `(tenant, sub_tenant, provider, provider_object_type,
+    provider_object_id)` so the same provider object can't double-link.
+  - `accounting_outbox_events` — queued accounting commands with
+    `attempts`/`max_attempts=5`, exponential `next_retry_at`,
+    `dead_letter` terminal state. Index on `(status, next_retry_at)`
+    for the worker pull pattern. Idempotency key globally UNIQUE.
+  - `accounting_report_snapshots` — cached canonical report JSON +
+    pointer to raw provider response.
+- **`core/accounting/provider_adapter.php`** — `AccountingProviderAdapter`
+  abstract base. 16 abstract methods covering connection probe, 7
+  reads (COA/TB/GL/PnL/BS/AR/AP aging), 4 writes (draft bill/invoice/
+  journal + post), generic object fetch, error normalisation.
+  `AccountingAdapterNotReadyException` + `AccountingAdapterValidationException`.
+  `accountingProviderAdapterFor()` factory — throws on unknown
+  provider (no silent fallback).
+- **`core/accounting/jaz_adapter.php`** — `JazAccountingAdapter`
+  skeleton implementing every abstract method:
+  - **Real**: credential resolution (decrypts via `decryptField`,
+    filters revoked rows, never logs the key); shape validation;
+    error normalisation.
+  - **Stubbed (Phase 0 pending)**: validateConnection returns
+    `pending_diligence` + `not_implemented_yet=true`; reads return
+    canonical empty shapes carrying the same marker; writes throw
+    `AccountingAdapterNotReadyException` (the only file that changes
+    once Jaz's endpoint contract is published).
+- **`core/accounting/command_service.php`** — provider-neutral
+  Accounting Command Service:
+  - `accountingResolveProvider()` reads the active connection.
+  - `accountingCommandEnqueue()` — `INSERT IGNORE` on the UNIQUE
+    idempotency key; duplicate calls return the existing row WITHOUT
+    a second provider attempt. Tenant-scoped SELECT (caught + fixed
+    by the tenant-leak sentry).
+  - `accountingCommandExecute()` — dispatches to the right adapter
+    method by `command_type`, marks `processing` → `posted` on
+    success + writes `accounting_destination_links` row; failure
+    path marks `retrying` with exponential backoff (60s × 2^attempts)
+    and `dead_letter` at `max_attempts=5`.
+  - `accountingCommandApprove()` — Slice 1: stamps approval metadata
+    in `provider_result.approval`; the SoD policy gate will be
+    layered in a later slice without touching the outbox shape.
+- **`core/accounting/connection_service.php`** — connect / validate /
+  disconnect. Validates the adapter probe, persists status + scope +
+  last_validated_at + error. Maps `pending_diligence` → DB `pending`
+  (ENUM-compatible) while preserving the distinction in
+  `api_scope_summary.not_implemented_yet` for the UI banner.
+- **`/api/accounting.php`** — single router file, 13 actions:
+  - Connection (§15.1): `status`, `connect`, `validate`, `rotate_key`
+    (alias), `disconnect`.
+  - Reads (§15.2): `chart_of_accounts`, `trial_balance`,
+    `general_ledger`, `pnl`, `balance_sheet`, `ar_aging`, `ap_aging`.
+  - Commands (§15.3): `create_draft_bill`, `create_draft_invoice`,
+    `create_draft_journal`, `approve_command`, `execute_command`,
+    `command_status`.
+  - All gated by the 5 provider-neutral RBAC codes.
+- **`core/rbac/legacy_map.php`** — 5 new permission rows mapped to
+  `(accounting, read/write/admin)` levels.
+- **UI** — `dashboard/src/pages/JazIntegrationSettings.jsx`:
+  3-step admin page (Pick legal entity → Paste credentials → Status
+  + Validate/Disconnect). Includes a "Partner diligence pending"
+  amber banner that explains why reads return placeholder shapes —
+  operators see exactly why nothing's flowing yet.
+- **Routing** — `AdminModule.jsx` mounts `/admin/integrations/jaz`;
+  `IntegrationsHub.jsx` adds a Jaz tile in the Accounting section
+  with status="pending".
+
+### Tests
+- New: `tests/jaz_integration_slice1_smoke.php` — **139 ✓ / 0 ✗**
+  including **8 functional adapter-contract tests** (instantiation,
+  inheritance, read shape, write methods raise NotReady, error
+  normalisation, factory swap behaviour). Covers all 4 migrations,
+  every helper signature, RBAC mapping, API actions + RBAC gates,
+  UI testids, route mounting, hub tile.
+- **Sentries caught + fixed**:
+  - **Tenant-leak sentry** caught my un-scoped
+    `SELECT … WHERE idempotency_key = :ik` — fixed to filter by
+    `tenant_id` (otherwise a forged key could read another tenant's
+    row even though UNIQUE).
+  - Other sentries (auth-gate, HY093) passed clean on first try.
+- **Full suite: 347/349** — only the 2 documented sandbox-bound
+  failures remain.
+
+### Bundle
+- `index-DSlt8TRp.js` + `index-BC5g6YJu.css`. SW
+  `CACHE_VERSION=coreflux-DSlt8TRp`. `.deploy-version` synced.
+
+### Files touched
+- `core/migrations/088_jaz_integration_foundation.sql` (new)
+- `core/accounting/provider_adapter.php` (new)
+- `core/accounting/jaz_adapter.php` (new)
+- `core/accounting/command_service.php` (new)
+- `core/accounting/connection_service.php` (new)
+- `api/accounting.php` (new)
+- `core/rbac/legacy_map.php` (5 permissions added)
+- `dashboard/src/pages/JazIntegrationSettings.jsx` (new)
+- `dashboard/src/pages/AdminModule.jsx` (import + route)
+- `dashboard/src/pages/IntegrationsHub.jsx` (Jaz tile)
+- `tests/jaz_integration_slice1_smoke.php` (new)
+
+### Deploy note
+PHP + React touched. Cloudways deploy + `update.php` will apply
+migration 088 and pick up the new bundle. Slice 1 is **safe to ship**
+— no provider HTTP calls are made; the UI surfaces the
+"partner diligence pending" status loud and clear.
+
+### Spec phases NOT done in Slice 1 (parked per user-confirmed cutline)
+- **Phase 0** — Obtain Jaz API docs, sample API key, test org,
+  endpoint list, rate limits, webhooks, partner terms. (External
+  diligence — user/legal task, not engineering.)
+- **Phase 1 full** — Wire live Jaz HTTP calls inside
+  `JazAccountingAdapter` (the only file that changes when Phase 0
+  lands). Replace `not_implemented_yet` stubs with real responses
+  normalised to canonical shape.
+- **Phase 2** — Migration package destination adapter (CSV →
+  CoreFlux staging → Jaz).
+- **Phase 3** — Draft creation surface in AP/AR/JE modules calling
+  `accountingCommandEnqueue('create_draft_*', …)`.
+- **Phase 4** — Approval-gated posting (tie into existing SoD
+  approval policy engine for `accounting.commands.approve`).
+- **Phase 5+** — AI Tool Gateway with curated CoreFlux tool catalog
+  (spec §18) — agent orchestrator wraps Jaz tools behind
+  `coreflux.get_trial_balance` style names.
+
+
+
 ## Mercury Webhooks — push-based payment state advancement (2026-02 — current fork)
 
 ### Why

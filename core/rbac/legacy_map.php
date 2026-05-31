@@ -56,6 +56,15 @@ final class RbacLegacyMap
             'accounting.reports.export'          => ['accounting', 'write'],
             'accounting.reports.view'            => ['accounting', 'read'],
 
+            // ── accounting connection (spec §15 — provider-neutral backend) ─
+            // Jaz / QBO / Xero / CoreFlux-Native all gated by the same 5
+            // codes so swapping providers later doesn't reshuffle RBAC.
+            'accounting.connection.view'         => ['accounting', 'read'],
+            'accounting.connection.manage'       => ['accounting', 'admin'],
+            'accounting.commands.draft'          => ['accounting', 'write'],
+            'accounting.commands.approve'        => ['accounting', 'admin'],
+            'accounting.commands.execute'        => ['accounting', 'admin'],
+
             // ── ai ────────────────────────────────────────────────────────
             'ai.config.manage'                   => ['ai', 'admin'],
 
