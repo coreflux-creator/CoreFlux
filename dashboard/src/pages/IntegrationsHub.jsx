@@ -22,6 +22,7 @@ export default function IntegrationsHub() {
   const qbo      = useApi('/api/qbo/status.php?action=status');
   const zoho     = useApi('/api/zoho_books/status.php?action=status');
   const airtable = useApi('/api/airtable/status.php?action=status');
+  const jaz      = useApi('/api/accounting.php?action=tenant_status&provider=jaz');
   const health   = useApi('/api/admin/schema_health.php');
 
   const plaidStatus = plaid.loading
@@ -134,9 +135,14 @@ export default function IntegrationsHub() {
             testid="integration-card-jaz"
             icon={BookOpen}
             title="Jaz.ai (Accounting backend)"
-            description="Provider-neutral accounting backend per entity. Jaz becomes the live ledger while CoreFlux keeps the UI, workflows, approvals, and audit trail. Slice 1: connection + read APIs scaffolded; partner diligence pending for live posting."
+            description="Provider-neutral accounting backend per legal entity. Approvals in AP/AR/JE flow into Jaz drafts via the accounting outbox. Live HTTP wiring shipped; field translator landing per slice."
             href="/admin/integrations/jaz"
-            status="pending"
+            status={jaz.loading ? 'loading' :
+                    jaz.data?.connected ? 'connected' :
+                    jaz.data?.configured ? 'not_connected' : 'not_configured'}
+            meta={jaz.data?.entities_total > 0
+                  ? `${jaz.data.entities_active}/${jaz.data.entities_total} entities active`
+                  : null}
           />
           <IntegrationCard
             testid="integration-card-accounting-sync"

@@ -182,14 +182,34 @@ function accountingCommandExecute(int $tenantId, int $commandId): array
     $subTenantId = (int) $row['sub_tenant_id'];
     $idem = (string) $row['idempotency_key'];
 
+    // Slice 4 — CoreFlux row → provider payload translation. The
+    // Slice 3 hook enqueued the raw row under payload.row; here we
+    // map it to the shape the adapter actually POSTs. Translation
+    // failures (missing vendor link, unbalanced JE, …) raise
+    // AccountingAdapterValidationException → outbox row marks
+    // 'retrying' with code='provider_validation' so the operator
+    // sees the exact field gap.
+    $objectType = (string) ($payload['coreflux_object_type'] ?? '');
+    $rawRow     = is_array($payload['row'] ?? null) ? $payload['row'] : null;
+    $mappedDraft = null;
+    if ($rawRow !== null && in_array($objectType, ['bill','invoice','journal'], true)
+        && (string) $row['provider'] === 'jaz') {
+        try {
+            require_once __DIR__ . '/jaz_payload_mapper.php';
+            $mappedDraft = mapCorefluxRowToJaz($objectType, $tenantId, $subTenantId, $rawRow);
+        } catch (\Throwable $e) {
+            return accountingCommandMarkFailure($tenantId, $commandId, $row, $adapter, $e);
+        }
+    }
+
     try {
         switch ($row['command_type']) {
             case 'create_draft_bill':
-                $res = $adapter->createDraftBill($tenantId, $subTenantId, $payload, $idem); break;
+                $res = $adapter->createDraftBill($tenantId, $subTenantId, $mappedDraft ?? $payload, $idem); break;
             case 'create_draft_invoice':
-                $res = $adapter->createDraftInvoice($tenantId, $subTenantId, $payload, $idem); break;
+                $res = $adapter->createDraftInvoice($tenantId, $subTenantId, $mappedDraft ?? $payload, $idem); break;
             case 'create_draft_journal':
-                $res = $adapter->createDraftJournal($tenantId, $subTenantId, $payload, $idem); break;
+                $res = $adapter->createDraftJournal($tenantId, $subTenantId, $mappedDraft ?? $payload, $idem); break;
             case 'post_object':
                 $res = $adapter->postObject(
                     $tenantId, $subTenantId,

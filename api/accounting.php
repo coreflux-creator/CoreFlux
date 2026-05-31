@@ -79,6 +79,39 @@ if ($method === 'GET' && $action === 'status') {
     $sub = _accSubTenant();
     api_ok(['connection' => accountingConnectionGet($tid, $sub, $provider)]);
 }
+
+// Tenant-wide rollup for the Integrations Hub badge. Returns whether
+// ANY entity in the tenant has an active accounting connection +
+// count by status. Does NOT leak secrets or per-entity detail.
+if ($method === 'GET' && $action === 'tenant_status') {
+    rbac_legacy_require($user, 'accounting.connection.view');
+    try {
+        $stmt = getDB()->prepare(
+            'SELECT connection_status, COUNT(*) c
+               FROM accounting_provider_connections
+              WHERE tenant_id = :t AND provider = :p
+              GROUP BY connection_status'
+        );
+        $stmt->execute(['t' => $tid, 'p' => $provider]);
+        $by = []; $total = 0; $active = 0;
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $r) {
+            $by[$r['connection_status']] = (int) $r['c'];
+            $total += (int) $r['c'];
+            if ($r['connection_status'] === 'active') $active = (int) $r['c'];
+        }
+        api_ok([
+            'configured'         => $total > 0,
+            'connected'          => $active > 0,
+            'entities_total'     => $total,
+            'entities_active'    => $active,
+            'by_status'          => $by,
+        ]);
+    } catch (\Throwable $e) {
+        api_ok(['configured' => false, 'connected' => false,
+                'entities_total' => 0, 'entities_active' => 0,
+                'by_status' => []]);
+    }
+}
 if ($method === 'POST' && in_array($action, ['connect', 'rotate_key'], true)) {
     rbac_legacy_require($user, 'accounting.connection.manage');
     $body = api_json_body();
