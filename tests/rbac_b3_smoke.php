@@ -123,6 +123,16 @@ $a('Access grid issues op:grant',                $c($rbacPage, "op: 'grant'"));
 $a('Access grid issues op:revoke',               $c($rbacPage, "op: 'revoke'"));
 $a('Page has data-testid root',                  $c($rbacPage, 'data-testid="rbac-memberships-admin"'));
 
+// B3 sub-tenant scope picker — backend already accepted sub_tenant_scope;
+// these assertions lock the UI delta that surfaces it (per-grant scope
+// chooser, "All sub-tenants" default, GET /api/sub_tenants.php load).
+$a('Access grid loads sub-tenants list',         $c($rbacPage, "'/api/sub_tenants.php'"));
+$a('Access grid exposes scope toggle button',    $c($rbacPage, 'data-testid={`access-scope-toggle-${m}`}'));
+$a('Access grid renders ScopePicker component',  $c($rbacPage, 'function ScopePicker'));
+$a('Scope picker has "All sub-tenants" option',  $c($rbacPage, 'data-testid={`${testIdPrefix}-all`}'));
+$a('Scope picker emits per-sub-tenant testids',  $c($rbacPage, 'data-testid={`${testIdPrefix}-st-${st.id}`}'));
+$a('Grant body forwards sub_tenant_scope',       $c($rbacPage, 'body.sub_tenant_scope = scope'));
+
 $a('Panel calls /api/admin/membership_audit.php',
     $c($panel, '/api/admin/membership_audit.php'));
 $a('Panel has data-testid root',                 $c($panel, 'data-testid="recent-access-changes"'));

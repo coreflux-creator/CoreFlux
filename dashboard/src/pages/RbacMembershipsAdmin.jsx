@@ -136,10 +136,84 @@ function MembershipForm({ initial, users, onSave, onCancel }) {
   );
 }
 
+function ScopePicker({ subTenants, value, onSave, onCancel, testIdPrefix }) {
+  // `value` is null (all) or an array of sub_tenant IDs.
+  const allMode = value === null;
+  const [draft, setDraft] = useState(() => allMode ? [] : value.slice());
+  const [draftAll, setDraftAll] = useState(allMode);
+
+  const toggle = (id) => {
+    if (draftAll) setDraftAll(false);
+    setDraft(d => d.includes(id) ? d.filter(x => x !== id) : [...d, id]);
+  };
+
+  const save = () => {
+    if (draftAll) onSave(null);
+    else if (draft.length === 0) {
+      alert('Pick at least one sub-tenant, or choose "All sub-tenants".');
+      return;
+    }
+    else onSave(draft.map(Number));
+  };
+
+  return (
+    <div
+      data-testid={`${testIdPrefix}-picker`}
+      style={{
+        position: 'absolute', top: '100%', left: 0, zIndex: 5,
+        background: 'var(--cf-surface, #fff)', border: '1px solid var(--cf-border, #ddd)',
+        padding: 10, borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+        minWidth: 220, marginTop: 4,
+      }}
+    >
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 13 }}>
+        <input
+          type="checkbox"
+          checked={draftAll}
+          onChange={(e) => { setDraftAll(e.target.checked); if (e.target.checked) setDraft([]); }}
+          data-testid={`${testIdPrefix}-all`}
+        />
+        <strong>All sub-tenants</strong>
+      </label>
+      <div style={{ maxHeight: 180, overflowY: 'auto', borderTop: '1px solid var(--cf-border, #eee)', paddingTop: 6 }}>
+        {subTenants.map(st => (
+          <label key={st.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0', fontSize: 12 }}>
+            <input
+              type="checkbox"
+              checked={!draftAll && draft.includes(st.id)}
+              onChange={() => toggle(st.id)}
+              disabled={draftAll}
+              data-testid={`${testIdPrefix}-st-${st.id}`}
+            />
+            <span style={{ color: st.is_active ? 'inherit' : 'var(--cf-text-secondary)' }}>
+              {st.name}{!st.is_active && ' (inactive)'}
+            </span>
+          </label>
+        ))}
+        {subTenants.length === 0 && (
+          <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>No sub-tenants yet.</div>
+        )}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 8 }}>
+        <button onClick={onCancel} className="btn btn--ghost btn--sm" data-testid={`${testIdPrefix}-cancel`}>Cancel</button>
+        <button onClick={save} className="btn btn--primary btn--sm" data-testid={`${testIdPrefix}-save`}>Save</button>
+      </div>
+    </div>
+  );
+}
+
 function AccessGrid({ membership, allMemberships, onClose }) {
   const [access, setAccess] = useState([]);
   const [loading, setLoading] = useState(true);
   const [copyFrom, setCopyFrom] = useState('');
+  // RBAC B3 — sub-tenant scope picker.
+  // Backend supports a per-grant `sub_tenant_scope` JSON array (NULL = all
+  // sub-tenants under the parent tenant). We surface that here so a
+  // controller can be granted `accounting:write` for only the EAST division
+  // and not WEST. Loaded once per tenant; suppressed when the tenant has
+  // no sub-tenants (single-tenant case stays uncluttered).
+  const [subTenants, setSubTenants]   = useState([]);
+  const [scopePickerFor, setScopePickerFor] = useState(null); // module_key or null
 
   const reload = async () => {
     setLoading(true);
@@ -150,21 +224,44 @@ function AccessGrid({ membership, allMemberships, onClose }) {
   };
 
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [membership.id]);
+  useEffect(() => {
+    // Best-effort — endpoint 403's for non-master-tenant callers; we just
+    // don't show the picker in that case.
+    api.get('/api/sub_tenants.php')
+      .then(r => setSubTenants(Array.isArray(r?.sub_tenants) ? r.sub_tenants : []))
+      .catch(() => setSubTenants([]));
+  }, []);
 
-  const levelFor = (module_key) => {
-    const row = access.find(r => r.module_key === module_key);
-    return row?.access_level || 'none';
+  const rowFor = (module_key) => access.find(r => r.module_key === module_key);
+  const levelFor = (module_key) => rowFor(module_key)?.access_level || 'none';
+  const scopeFor = (module_key) => {
+    const s = rowFor(module_key)?.sub_tenant_scope;
+    return Array.isArray(s) ? s : null; // null = all sub-tenants
   };
 
-  const grant = async (module_key, level) => {
+  const grant = async (module_key, level, scope) => {
     if (level === 'none') {
       try { await api.post('/api/admin/membership_access.php', { op: 'revoke', membership_id: membership.id, module_key }); }
       catch (e) { alert(e.message || 'Revoke failed'); return; }
     } else {
-      try { await api.post('/api/admin/membership_access.php', { op: 'grant', membership_id: membership.id, module_key, access_level: level }); }
+      // `sub_tenant_scope === undefined` → backend leaves existing scope
+      // untouched. `null` → reset to "all sub-tenants". Array → restrict.
+      const body = { op: 'grant', membership_id: membership.id, module_key, access_level: level };
+      if (scope !== undefined) body.sub_tenant_scope = scope;
+      try { await api.post('/api/admin/membership_access.php', body); }
       catch (e) { alert(e.message || 'Grant failed'); return; }
     }
     reload();
+  };
+
+  const setScope = async (module_key, scope) => {
+    // Only meaningful when the module is already granted at something
+    // other than 'none'. We re-issue grant with the current level + new
+    // scope; backend ON DUPLICATE KEY UPDATE makes this an upsert.
+    const level = levelFor(module_key);
+    if (level === 'none') { alert('Grant access first, then choose scope.'); return; }
+    await grant(module_key, level, scope);
+    setScopePickerFor(null);
   };
 
   const copy = async () => {
@@ -226,23 +323,59 @@ function AccessGrid({ membership, allMemberships, onClose }) {
             <tr style={{ textAlign: 'left', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
               <th style={{ padding: '6px 4px' }}>Module</th>
               <th style={{ padding: '6px 4px' }}>Access</th>
+              {subTenants.length > 0 && <th style={{ padding: '6px 4px' }}>Sub-tenant scope</th>}
             </tr>
           </thead>
           <tbody>
-            {MODULES.map(m => (
-              <tr key={m} style={{ borderTop: '1px solid var(--cf-border)' }}>
-                <td style={{ padding: '8px 4px', fontWeight: 500 }}>{m}</td>
-                <td style={{ padding: '8px 4px' }}>
-                  <select
-                    value={levelFor(m)}
-                    onChange={(e) => grant(m, e.target.value)}
-                    data-testid={`access-level-${m}`}
-                  >
-                    {LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
-                  </select>
-                </td>
-              </tr>
-            ))}
+            {MODULES.map(m => {
+              const level = levelFor(m);
+              const scope = scopeFor(m);
+              const allScope = scope === null;
+              return (
+                <tr key={m} style={{ borderTop: '1px solid var(--cf-border)' }}>
+                  <td style={{ padding: '8px 4px', fontWeight: 500 }}>{m}</td>
+                  <td style={{ padding: '8px 4px' }}>
+                    <select
+                      value={level}
+                      onChange={(e) => grant(m, e.target.value)}
+                      data-testid={`access-level-${m}`}
+                    >
+                      {LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                  </td>
+                  {subTenants.length > 0 && (
+                    <td style={{ padding: '8px 4px', position: 'relative' }}>
+                      {level === 'none' ? (
+                        <span style={{ fontSize: 11, color: 'var(--cf-text-secondary)' }}>—</span>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setScopePickerFor(scopePickerFor === m ? null : m)}
+                            className="btn btn--ghost btn--sm"
+                            data-testid={`access-scope-toggle-${m}`}
+                            style={{ fontSize: 12, padding: '2px 8px' }}
+                          >
+                            {allScope
+                              ? 'All sub-tenants'
+                              : `${scope.length} of ${subTenants.length}`}
+                          </button>
+                          {scopePickerFor === m && (
+                            <ScopePicker
+                              subTenants={subTenants}
+                              value={scope}
+                              onSave={(next) => setScope(m, next)}
+                              onCancel={() => setScopePickerFor(null)}
+                              testIdPrefix={`access-scope-${m}`}
+                            />
+                          )}
+                        </>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}

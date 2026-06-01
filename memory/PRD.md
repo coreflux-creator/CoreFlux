@@ -10,7 +10,7 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
-## Session — 2026-02 (RBAC B2 verification + AI Gateway Slice 6 frontend wire-up)
+## Session — 2026-02 (RBAC B2 verification + AI Gateway Slice 6 frontend + B3 sub-tenant scope picker)
 
 ### Verified
 - **RBAC Phase B2 already in place.** `class RBACResolver` (renamed from the original collision risk) at `/app/core/rbac/permissions.php` is wired into `core/auth.php` (membership hydration) and `core/api_bootstrap.php` (`api_can` / `api_require`). `copyPermissions(from, to)` implemented for the admin "Copy permissions from…" flow. B1–B5 smoke tests all green.
@@ -23,6 +23,21 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 ### Test status
 - Full PHP CLI smoke suite: **357 / 359 passing**. The 2 documented sandbox-only failures remain: `accounting_phase2_a7_smoke.php`, `tenant_mail_senders_smoke.php` (SMTP / live-DB sockets unavailable here).
 - `ai_gateway_slice6_smoke.php`: **50 / 50 ✓** (was 47/50 before this session).
+- `rbac_b3_smoke.php`: **73 / 73 ✓** (was 67; +6 assertions locking the sub-tenant scope picker delta).
+
+### RBAC Phase B3/B4 — sub-tenant scope picker (P1, this session)
+- **`RbacMembershipsAdmin.jsx → AccessGrid`** — added a per-grant sub-tenant scope picker. Backend already accepted `sub_tenant_scope?:[<int>,...]` on `/api/admin/membership_access.php`; the UI was silently leaving it `null` (= "all sub-tenants") and there was no way for a tenant admin to restrict, e.g., `accounting:write` to only the EAST division.
+  - New `Sub-tenant scope` column renders next to the level dropdown. Suppressed entirely when the tenant has no sub-tenants (single-tenant case stays uncluttered).
+  - Click on a row's "All sub-tenants" / "N of M" button opens the `ScopePicker` popover with: one "All sub-tenants" master checkbox + a scrollable list of per-sub-tenant checkboxes (inactive sub-tenants shown dimmed and labelled).
+  - Save flow re-issues `op:'grant'` with the same `access_level` + new `sub_tenant_scope` (`null` for all, array for restricted). Backend `ON DUPLICATE KEY UPDATE` makes it a clean upsert; existing `RBACResolver::grantModule()` audit fires `module_grant` with the scope payload.
+  - Sub-tenants loaded once per `AccessGrid` mount via `GET /api/sub_tenants.php`; failure is non-fatal (picker just stays hidden).
+- New testids for E2E coverage: `access-scope-toggle-{module}`, `access-scope-{module}-picker`, `access-scope-{module}-all`, `access-scope-{module}-st-{id}`, `access-scope-{module}-save`, `access-scope-{module}-cancel`.
+- Vite build → `coreflux-aJ5u6g_F`. `scripts/sync_bundle.sh` updated `.deploy-version`, service-worker `CACHE_VERSION`, and `spa-assets/`.
+
+### Remaining B3/B4 backlog (not in scope this session)
+- **Invite-by-email** flow. Schema already supports it (`tenant_memberships.invited_by_user_id / invited_at / accepted_at`), but no dedicated endpoint/UI yet. Will land alongside the Resend wiring (P2 in the roadmap) so the invite mail actually leaves the box.
+
+### Test status
 
 
 
