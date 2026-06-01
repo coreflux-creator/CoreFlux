@@ -10,6 +10,9 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+
+> **Resend wiring status (correction, 2026-02):** Resend is **fully wired end-to-end**, not mocked. `core/mail/ResendDriver.php` is a real REST-API driver; `core/mail_bootstrap.php` auto-registers it as the default outbound driver whenever `RESEND_API_KEY` is set (env or `define()` in `config.local.php`) and falls back to `LogDriver` only when the key is absent. Inbound delivery events handled at `api/webhooks/resend.php`. Mail observability + tenant-scoped suppression list both live. Earlier session notes calling `mailerSend()` "mocked locally" are stale — please disregard.
+
 ## Session — 2026-02 (RBAC B2 verification + AI Gateway Slice 6 frontend + B3 sub-tenant scope picker)
 
 ### Verified
@@ -35,7 +38,7 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - Vite build → `coreflux-aJ5u6g_F`. `scripts/sync_bundle.sh` updated `.deploy-version`, service-worker `CACHE_VERSION`, and `spa-assets/`.
 
 ### Remaining B3/B4 backlog (not in scope this session)
-- **Invite-by-email** flow. Schema already supports it (`tenant_memberships.invited_by_user_id / invited_at / accepted_at`), but no dedicated endpoint/UI yet. Will land alongside the Resend wiring (P2 in the roadmap) so the invite mail actually leaves the box.
+- **Invite-by-email** flow. Schema already supports it (`tenant_memberships.invited_by_user_id / invited_at / accepted_at`); needs a `/api/admin/memberships.php?action=invite` endpoint that creates the user row + membership + sends a magic-link email via the already-wired Resend driver, plus the "Accept invite" onboarding page.
 
 ### Test status
 
