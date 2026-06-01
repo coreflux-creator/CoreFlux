@@ -10,6 +10,22 @@ Refactor a monolithic PHP application, CoreFlux, into a modular architecture. Th
 - **Hosting:** Cloudways
 
 
+## Session — 2026-02 (RBAC B2 verification + AI Gateway Slice 6 frontend wire-up)
+
+### Verified
+- **RBAC Phase B2 already in place.** `class RBACResolver` (renamed from the original collision risk) at `/app/core/rbac/permissions.php` is wired into `core/auth.php` (membership hydration) and `core/api_bootstrap.php` (`api_can` / `api_require`). `copyPermissions(from, to)` implemented for the admin "Copy permissions from…" flow. B1–B5 smoke tests all green.
+- Legacy `class RBAC` in `core/RBAC.php` remains for the ~30 endpoints still calling `RBAC::hasPermission()` directly; `core/rbac/legacy_map.php` bridges them through `rbac_legacy_can()` / `rbac_legacy_require()` and routes the resolved (module, action) tuple to the new resolver in dual-check mode.
+
+### Shipped this session
+- **AI Gateway Slice 6 — frontend resolve/dismiss helper.** Added `resolveException(id, action)` `useCallback` in `dashboard/src/pages/AiReviewerDashboard.jsx`. Prompts for an optional `resolution_note`, POSTs to `/api/ai/exceptions.php?action=resolve|dismiss`, reloads the dashboard on success, surfaces backend errors via `alert()`. Wires up the existing Resolve / Dismiss buttons in the exceptions table.
+- Ran `yarn --cwd /app/dashboard build` → new bundle `index-CRrbVKmc.js` / `index-BC5g6YJu.css`, `scripts/sync_bundle.sh` updated `.deploy-version` + service worker `CACHE_VERSION` to `coreflux-CRrbVKmc`.
+
+### Test status
+- Full PHP CLI smoke suite: **357 / 359 passing**. The 2 documented sandbox-only failures remain: `accounting_phase2_a7_smoke.php`, `tenant_mail_senders_smoke.php` (SMTP / live-DB sockets unavailable here).
+- `ai_gateway_slice6_smoke.php`: **50 / 50 ✓** (was 47/50 before this session).
+
+
+
 ## Jaz.ai Integration — Slice 3 (AP/AR/JE hooks + outbox worker) (2026-02 — current fork)
 
 ### Why

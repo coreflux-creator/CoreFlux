@@ -32,6 +32,19 @@ export default function AiReviewerDashboard() {
     finally { setLoading(false); }
   }, []);
 
+  const resolveException = useCallback(async (id, action) => {
+    const verb = action === 'dismiss' ? 'Dismiss' : 'Resolve';
+    // eslint-disable-next-line no-alert
+    const note = prompt(`${verb} exception #${id}. Optional note:`) ?? '';
+    try {
+      await api.post(`/api/ai/exceptions.php?action=${action}`, { id, resolution_note: note });
+      reload();
+    } catch (e) {
+      // eslint-disable-next-line no-alert
+      alert(`Failed to ${action} exception: ${e.message || e}`);
+    }
+  }, [reload]);
+
   useEffect(() => { reload(); }, [reload]);
 
   if (loading) return <p data-testid="reviewer-loading" style={{ padding: 16, fontSize: 12, color: '#64748b' }}>Loading reviewer dashboard…</p>;
