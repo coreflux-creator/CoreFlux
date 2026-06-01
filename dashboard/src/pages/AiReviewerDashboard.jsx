@@ -122,7 +122,7 @@ export default function AiReviewerDashboard() {
           <table className="data-table" data-testid="reviewer-exceptions-table" style={{ width: '100%', fontSize: 12 }}>
             <thead><tr style={{ color: '#64748b', textAlign: 'left' }}>
               <th style={th}>Type</th><th style={th}>Severity</th><th style={th}>Summary</th>
-              <th style={th}>Reference</th><th style={th}>Created</th>
+              <th style={th}>Reference</th><th style={th}>Created</th><th style={th}>Action</th>
             </tr></thead>
             <tbody>
               {oe.recent.map(ex => (
@@ -134,6 +134,20 @@ export default function AiReviewerDashboard() {
                     {ex.related_ref_type ? `${ex.related_ref_type}#${ex.related_ref_id ?? '?'}` : '—'}
                   </td>
                   <td style={{ ...td, color: '#64748b', fontSize: 11 }}>{ex.created_at}</td>
+                  <td style={td}>
+                    <button className="btn btn--primary"
+                            onClick={() => resolveException(ex.id, 'resolve')}
+                            data-testid={`reviewer-exception-resolve-${ex.id}`}
+                            style={{ fontSize: 11, padding: '2px 8px' }}>
+                      Resolve
+                    </button>
+                    <button className="btn btn--ghost"
+                            onClick={() => resolveException(ex.id, 'dismiss')}
+                            data-testid={`reviewer-exception-dismiss-${ex.id}`}
+                            style={{ fontSize: 11, padding: '2px 8px', marginLeft: 4 }}>
+                      Dismiss
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
