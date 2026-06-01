@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { Card } from '../components/UIComponents';
-import { Users, Shield, Plus, X, Copy, Save, Trash2, RefreshCw } from 'lucide-react';
+import { Users, Shield, Plus, X, Copy, Save, Trash2, RefreshCw, Mail } from 'lucide-react';
 import RecentAccessChangesPanel from './RecentAccessChangesPanel';
 import RbacBridgeHealthPanel from './RbacBridgeHealthPanel';
 
@@ -383,6 +383,129 @@ function AccessGrid({ membership, allMemberships, onClose }) {
   );
 }
 
+function InviteForm({ onSent, onCancel }) {
+  const [form, setForm] = useState({
+    email: '', name: '', persona_label: 'Primary',
+    persona_type: 'employee', ttl_minutes: 60 * 24 * 7, // 7 days
+  });
+  const [sending, setSending] = useState(false);
+  const [result,  setResult]  = useState(null); // { ok, mailer:{driver,...}, magic_link_url? }
+  const [error,   setError]   = useState(null);
+
+  const submit = async () => {
+    setError(null); setResult(null);
+    if (!form.email.includes('@')) { setError('A valid email is required'); return; }
+    setSending(true);
+    try {
+      const r = await api.post('/api/admin/memberships.php?action=invite', form);
+      setResult(r);
+    } catch (e) { setError(e.message || 'Invite failed'); }
+    finally { setSending(false); }
+  };
+
+  // Once sent, show a success card with the resolved mailer outcome.
+  if (result?.ok) {
+    const driver = result?.mailer?.driver || 'unknown';
+    const mailedOk = !!result?.mailer?.ok;
+    return (
+      <Card data-testid="invite-result">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <strong><Mail size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Invite sent</strong>
+          <button onClick={() => { onSent(); }} className="btn btn--ghost btn--sm" data-testid="invite-result-close">
+            <X size={14} />
+          </button>
+        </div>
+        <p style={{ fontSize: 13, margin: '4px 0' }} data-testid="invite-result-summary">
+          {mailedOk
+            ? <>Email sent via <strong>{driver}</strong> to <code>{result.email}</code>. Link expires <strong>{result.expires_at}</strong> UTC.</>
+            : <>Membership created but email delivery returned an error via <strong>{driver}</strong>: {result?.mailer?.error || 'unknown'}.</>}
+        </p>
+        {result.magic_link_url && (
+          <div data-testid="invite-result-magic-link" style={{
+            marginTop: 8, padding: 8, background: 'var(--cf-surface-alt, #fafafa)',
+            borderRadius: 6, fontSize: 12, wordBreak: 'break-all',
+          }}>
+            <strong>Recovery link (admin-only):</strong><br />
+            <code>{result.magic_link_url}</code>
+          </div>
+        )}
+      </Card>
+    );
+  }
+
+  return (
+    <Card data-testid="invite-form">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <strong><Mail size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Invite by email</strong>
+        <button onClick={onCancel} className="btn btn--ghost btn--sm" aria-label="Close" data-testid="invite-form-close">
+          <X size={14} />
+        </button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>Email</span>
+          <input
+            type="email"
+            value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+            placeholder="jane@acme.com"
+            data-testid="invite-email"
+          />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>Name (optional)</span>
+          <input
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            placeholder="Jane Doe"
+            data-testid="invite-name"
+          />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>Persona label</span>
+          <input
+            value={form.persona_label}
+            onChange={(e) => setForm({ ...form, persona_label: e.target.value })}
+            placeholder="Primary, Controller, Recruiter…"
+            data-testid="invite-persona-label"
+          />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>Persona type</span>
+          <select
+            value={form.persona_type}
+            onChange={(e) => setForm({ ...form, persona_type: e.target.value })}
+            data-testid="invite-persona-type"
+          >
+            {PERSONA_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>Link valid for</span>
+          <select
+            value={form.ttl_minutes}
+            onChange={(e) => setForm({ ...form, ttl_minutes: Number(e.target.value) })}
+            data-testid="invite-ttl"
+          >
+            <option value={60 * 24}>24 hours</option>
+            <option value={60 * 24 * 3}>3 days</option>
+            <option value={60 * 24 * 7}>7 days</option>
+            <option value={60 * 24 * 14}>14 days</option>
+            <option value={60 * 24 * 30}>30 days</option>
+          </select>
+        </label>
+      </div>
+      {error && <div style={{ marginTop: 10, color: '#b94a4a', fontSize: 13 }} data-testid="invite-form-error">{error}</div>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+        <button onClick={onCancel} className="btn btn--ghost" data-testid="invite-form-cancel" disabled={sending}>Cancel</button>
+        <button onClick={submit} className="btn btn--primary" data-testid="invite-form-send" disabled={sending}>
+          <Mail size={14} style={{ marginRight: 6 }} />{sending ? 'Sending…' : 'Send invite'}
+        </button>
+      </div>
+    </Card>
+  );
+}
+
 export default function RbacMembershipsAdmin() {
   const [memberships, setMemberships]   = useState([]);
   const [users,       setUsers]         = useState([]);
@@ -390,6 +513,7 @@ export default function RbacMembershipsAdmin() {
   const [error,       setError]         = useState(null);
   const [editing,     setEditing]       = useState(null);
   const [grid,        setGrid]          = useState(null);
+  const [inviting,    setInviting]      = useState(false);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [filter,      setFilter]        = useState('');
 
@@ -455,6 +579,9 @@ export default function RbacMembershipsAdmin() {
             </label>
             <button onClick={load} className="btn btn--ghost btn--sm" data-testid="memberships-refresh">
               <RefreshCw size={14} />
+            </button>
+            <button onClick={() => setInviting(true)} className="btn btn--ghost btn--sm" data-testid="memberships-invite-btn">
+              <Mail size={14} style={{ marginRight: 4 }} /> Invite by email
             </button>
             <button onClick={() => setEditing({ _new: true })} className="btn btn--primary btn--sm" data-testid="memberships-new-btn">
               <Plus size={14} style={{ marginRight: 4 }} /> New membership
@@ -544,6 +671,15 @@ export default function RbacMembershipsAdmin() {
           </Card>
         </div>
       </div>
+
+      {inviting && (
+        <div style={{ marginTop: 'var(--cf-space-4)' }}>
+          <InviteForm
+            onSent={() => { setInviting(false); load(); }}
+            onCancel={() => setInviting(false)}
+          />
+        </div>
+      )}
 
       {editing && (
         <div style={{ marginTop: 'var(--cf-space-4)' }}>

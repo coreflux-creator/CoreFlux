@@ -72,6 +72,34 @@ if ($tenantId) {
             'status'        => 'active',
         ]);
     } catch (\Throwable $_) { /* link still valid even if attach fails */ }
+
+    // RBAC B3/B4 — stamp accepted_at + audit when this consume completes a
+    // pending invite. Best-effort: a missed audit never blocks sign-in.
+    try {
+        $acc = $pdo->prepare(
+            'UPDATE tenant_memberships
+                SET accepted_at = NOW(), status = "active"
+              WHERE user_id = :u AND tenant_id = :t
+                AND status IN ("pending","suspended")
+                AND accepted_at IS NULL'
+        );
+        $acc->execute(['u' => (int) $userId, 't' => (int) $tenantId]);
+        if ($acc->rowCount() > 0 && class_exists('RBACResolver')) {
+            $find = $pdo->prepare(
+                'SELECT id FROM tenant_memberships
+                  WHERE user_id = :u AND tenant_id = :t AND status = "active"
+                  ORDER BY accepted_at DESC LIMIT 1'
+            );
+            $find->execute(['u' => (int) $userId, 't' => (int) $tenantId]);
+            $mid = (int) $find->fetchColumn();
+            if ($mid > 0) {
+                RBACResolver::auditMembership($mid, 'invite_accepted', (int) $userId, [
+                    'email'     => $email,
+                    'tenant_id' => $tenantId,
+                ]);
+            }
+        }
+    } catch (\Throwable $_) { /* best effort */ }
 }
 
 // Session handoff. Mirror the shape used by core/auth.php password login.

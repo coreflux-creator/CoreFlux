@@ -87,6 +87,183 @@ if ($method === 'GET') {
     api_ok(['memberships' => $rows]);
 }
 
+if ($method === 'POST' && (string) (api_query('action') ?? '') === 'invite') {
+    // Invite-by-email — RBAC B3/B4.
+    //
+    // Body:
+    //   {
+    //     email:           "controller@acme.com",       // required
+    //     name:            "Jane Doe",                  // optional, splits → first/last
+    //     persona_label:   "Controller",                // optional, default "Primary"
+    //     persona_type:    "admin",                     // optional, default "employee"
+    //     modules:         [{ module_key, access_level, sub_tenant_scope? }, ...], // optional starter grants
+    //     ttl_minutes:     10080,                       // optional, default 7 days
+    //     redirect_path:   "/admin/memberships",        // optional, where to land after consume
+    //   }
+    //
+    // Behaviour:
+    //   1. Find or JIT-create the user (no password — they sign in via magic link).
+    //   2. Upsert tenant_memberships row with status='pending', invited_by, invited_at.
+    //   3. Seed membership_module_access rows if `modules` is provided.
+    //   4. Issue a magic link bound to the current tenant + invite redirect path.
+    //   5. Send the invite mail via mailerSend() (Resend in prod, LogDriver in dev).
+    //   6. Audit via RBACResolver::auditMembership('invited').
+    //
+    // Returns: { ok, membership_id, user_id, email, expires_at, magic_link_url?, mailer:{ok,driver,error?} }
+    //   magic_link_url is only included for platform global admins so they can
+    //   retrieve a fresh link out-of-band when an invitee can't find the email.
+    require_once __DIR__ . '/../../core/magic_link.php';
+    require_once __DIR__ . '/../../core/mailer.php';
+
+    $body  = api_json_body();
+    $email = strtolower(trim((string) ($body['email'] ?? '')));
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        api_error('A valid email is required', 422);
+    }
+
+    $personaLabel = trim((string) ($body['persona_label'] ?? 'Primary')) ?: 'Primary';
+    $personaType  = (string) ($body['persona_type']  ?? 'employee');
+    if (!in_array($personaType, _ALLOWED_PERSONA_TYPES, true)) {
+        api_error('Invalid persona_type', 422, ['allowed' => _ALLOWED_PERSONA_TYPES]);
+    }
+    $ttlMinutes   = max(15, min(60 * 24 * 30, (int) ($body['ttl_minutes'] ?? 60 * 24 * 7))); // 15min..30d, default 7d
+    $redirectPath = (string) ($body['redirect_path'] ?? '/admin/memberships');
+    $modules      = is_array($body['modules'] ?? null) ? $body['modules'] : [];
+    $nameRaw      = trim((string) ($body['name'] ?? ''));
+    [$firstName, $lastName] = (static function (string $n): array {
+        if ($n === '') return ['', ''];
+        $parts = preg_split('/\s+/', $n, 2);
+        return [(string) $parts[0], (string) ($parts[1] ?? '')];
+    })($nameRaw);
+
+    // 1) Find or JIT-create the user.
+    $st = $pdo->prepare('SELECT id, first_name, last_name FROM users WHERE email = :e LIMIT 1');
+    $st->execute(['e' => $email]);
+    $existing = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
+    if ($existing) {
+        $invitedUserId = (int) $existing['id'];
+    } else {
+        $ins = $pdo->prepare(
+            "INSERT INTO users (email, first_name, last_name, role, status, created_at)
+             VALUES (:e, :f, :l, :r, 'active', NOW())"
+        );
+        $ins->execute([
+            'e' => $email,
+            'f' => $firstName,
+            'l' => $lastName,
+            'r' => in_array($personaType, ['tenant_admin','admin','manager','employee','contractor'], true)
+                   ? $personaType : 'employee',
+        ]);
+        $invitedUserId = (int) $pdo->lastInsertId();
+    }
+
+    // 2) Upsert membership in 'pending' state.
+    $up = $pdo->prepare(
+        'INSERT INTO tenant_memberships
+            (user_id, tenant_id, persona_label, persona_type, is_primary, status,
+             invited_by_user_id, invited_at)
+         VALUES (:u, :t, :pl, :pt, 0, "pending", :ib, NOW())
+         ON DUPLICATE KEY UPDATE
+            persona_type       = VALUES(persona_type),
+            status             = IF(status = "revoked", "pending", status),
+            invited_by_user_id = VALUES(invited_by_user_id),
+            invited_at         = NOW()'
+    );
+    $up->execute([
+        'u'  => $invitedUserId, 't' => $tenantId,
+        'pl' => $personaLabel,  'pt' => $personaType,
+        'ib' => $actorId,
+    ]);
+    $find = $pdo->prepare(
+        'SELECT id FROM tenant_memberships
+          WHERE user_id = :u AND tenant_id = :t AND persona_label = :pl LIMIT 1'
+    );
+    $find->execute(['u' => $invitedUserId, 't' => $tenantId, 'pl' => $personaLabel]);
+    $membershipId = (int) $find->fetchColumn();
+
+    // 3) Seed module grants if provided.
+    foreach ($modules as $g) {
+        if (!is_array($g)) continue;
+        $mk = (string) ($g['module_key'] ?? '');
+        $al = (string) ($g['access_level'] ?? 'none');
+        if ($mk === '' || !in_array($al, ['none','read','write','admin'], true)) continue;
+        if ($al === 'none') continue;
+        $scope = isset($g['sub_tenant_scope']) && is_array($g['sub_tenant_scope'])
+            ? array_values(array_map('intval', $g['sub_tenant_scope']))
+            : null;
+        try { RBACResolver::grantModule($membershipId, $mk, $al, $scope, $actorId); }
+        catch (\Throwable $_) { /* ignore — invite still completes */ }
+    }
+
+    // 4) Issue magic link.
+    $link = magicLinkIssue(
+        $email,
+        $tenantId,
+        $redirectPath,
+        $_SERVER['REMOTE_ADDR'] ?? null,
+        $_SERVER['HTTP_USER_AGENT'] ?? null,
+        $ttlMinutes
+    );
+    $linkUrl = magicLinkUrl($link['raw_token']);
+
+    // 5) Resolve tenant name + inviter name for the email body.
+    $tName  = (string) ($pdo->query('SELECT name FROM tenants WHERE id = ' . (int) $tenantId)->fetchColumn() ?: 'CoreFlux');
+    $invStmt = $pdo->prepare('SELECT first_name, last_name, email FROM users WHERE id = :id LIMIT 1');
+    $invStmt->execute(['id' => $actorId]);
+    $inviter   = $invStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+    $invName   = trim((string) ($inviter['first_name'] ?? '') . ' ' . (string) ($inviter['last_name'] ?? ''))
+                 ?: ((string) ($inviter['email'] ?? 'A teammate'));
+    $expiresIso = (string) $link['expires_at'];
+
+    $subject  = "You've been invited to {$tName} on CoreFlux";
+    $linkSafe = htmlspecialchars($linkUrl, ENT_QUOTES, 'UTF-8');
+    $bodyHtml = "<p>Hi" . ($firstName !== '' ? ' ' . htmlspecialchars($firstName, ENT_QUOTES, 'UTF-8') : '') . ",</p>"
+              . "<p><strong>" . htmlspecialchars($invName, ENT_QUOTES, 'UTF-8') . "</strong> has invited you to join "
+              . "<strong>" . htmlspecialchars($tName, ENT_QUOTES, 'UTF-8') . "</strong> on CoreFlux as "
+              . "<em>" . htmlspecialchars($personaLabel, ENT_QUOTES, 'UTF-8') . " ({$personaType})</em>.</p>"
+              . "<p><a href=\"{$linkSafe}\" style=\"display:inline-block;padding:10px 18px;background:#1f6feb;color:#fff;text-decoration:none;border-radius:6px;\">Accept invite & sign in</a></p>"
+              . "<p style=\"font-size:12px;color:#666\">Or paste this link into your browser:<br><code>{$linkSafe}</code></p>"
+              . "<p style=\"font-size:12px;color:#666\">This invite expires on {$expiresIso} (UTC). If you weren't expecting this, you can safely ignore it.</p>";
+    $bodyText = "{$invName} has invited you to join {$tName} on CoreFlux as {$personaLabel} ({$personaType}).\n\n"
+              . "Accept your invite:\n{$linkUrl}\n\n"
+              . "This invite expires on {$expiresIso} (UTC).";
+
+    $mailRes = mailerSend([
+        'to'        => $email,
+        'subject'   => $subject,
+        'body_html' => $bodyHtml,
+        'body_text' => $bodyText,
+        'tenant_id' => $tenantId,
+        'module'    => 'admin',
+        'purpose'   => 'membership_invite',
+    ]);
+
+    RBACResolver::auditMembership($membershipId, 'invited', $actorId, [
+        'email'         => $email,
+        'persona_label' => $personaLabel,
+        'persona_type'  => $personaType,
+        'mailer_driver' => $mailRes['driver'] ?? null,
+        'mailer_ok'     => (bool) ($mailRes['ok'] ?? false),
+        'expires_at'    => $expiresIso,
+    ]);
+    RBACResolver::resetCache();
+
+    $resp = [
+        'ok'             => true,
+        'membership_id'  => $membershipId,
+        'user_id'        => $invitedUserId,
+        'email'          => $email,
+        'expires_at'     => $expiresIso,
+        'mailer'         => [
+            'ok'     => (bool) ($mailRes['ok'] ?? false),
+            'driver' => (string) ($mailRes['driver'] ?? 'unknown'),
+            'error'  => $mailRes['error'] ?? null,
+        ],
+    ];
+    if ($isGlobalAdmin) $resp['magic_link_url'] = $linkUrl;
+    api_ok($resp, 201);
+}
+
 if ($method === 'POST') {
     $body = api_json_body();
     api_require_fields($body, ['user_id']);
