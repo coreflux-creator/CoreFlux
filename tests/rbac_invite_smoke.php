@@ -25,7 +25,10 @@ $a('action=invite branch present',
 $a('loads magic_link.php',                $c($mems, "require_once __DIR__ . '/../../core/magic_link.php'"));
 $a('loads mailer.php',                    $c($mems, "require_once __DIR__ . '/../../core/mailer.php'"));
 $a('validates email with FILTER_VALIDATE_EMAIL', $c($mems, 'FILTER_VALIDATE_EMAIL'));
-$a('JIT-creates the user',                $c($mems, "INSERT INTO users (email, first_name, last_name, role, status, created_at)"));
+$a('JIT-creates the user',                $c($mems, 'SHOW COLUMNS FROM users'));
+$a('schema-tolerant: handles name column',          $c($mems, "if (in_array('name', \$cols, true))"));
+$a('schema-tolerant: handles is_active flag',       $c($mems, "if (in_array('is_active', \$cols, true))"));
+$a('seeds placeholder password for NOT NULL cols',  $c($mems, 'password_hash(bin2hex(random_bytes(16))'));
 $a('upserts membership in pending state', $c($mems, '"pending"') && $c($mems, 'invited_by_user_id, invited_at'));
 $a('un-revokes via IF on status',         $c($mems, 'IF(status = "revoked", "pending", status)'));
 $a('seeds module grants via RBACResolver::grantModule',
@@ -47,6 +50,12 @@ $a('audits invite_accepted via RBACResolver',
     $c($consume, "RBACResolver::auditMembership(\$mid, 'invite_accepted'"));
 $a('matches only pending/suspended invites',
     $c($consume, 'status IN ("pending","suspended")'));
+$a('JIT user-create is schema-tolerant',
+    $c($consume, 'SHOW COLUMNS FROM users'));
+$a('handles missing first_name/last_name on hydrate',
+    $c($consume, 'SELECT * FROM users WHERE id = :id'));
+$a('disabled check tolerates is_active=0',
+    $c($consume, "(isset(\$user['is_active']) && (int) \$user['is_active'] === 0)"));
 
 // ------------------------------------------------------------------ syntax
 echo "\nSyntax sanity\n";

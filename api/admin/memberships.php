@@ -137,23 +137,54 @@ if ($method === 'POST' && (string) (api_query('action') ?? '') === 'invite') {
     })($nameRaw);
 
     // 1) Find or JIT-create the user.
-    $st = $pdo->prepare('SELECT id, first_name, last_name FROM users WHERE email = :e LIMIT 1');
+    $st = $pdo->prepare('SELECT id FROM users WHERE email = :e LIMIT 1');
     $st->execute(['e' => $email]);
     $existing = $st->fetch(\PDO::FETCH_ASSOC) ?: null;
     if ($existing) {
         $invitedUserId = (int) $existing['id'];
     } else {
-        $ins = $pdo->prepare(
-            "INSERT INTO users (email, first_name, last_name, role, status, created_at)
-             VALUES (:e, :f, :l, :r, 'active', NOW())"
-        );
-        $ins->execute([
-            'e' => $email,
-            'f' => $firstName,
-            'l' => $lastName,
-            'r' => in_array($personaType, ['tenant_admin','admin','manager','employee','contractor'], true)
-                   ? $personaType : 'employee',
-        ]);
+        // Schema-tolerant insert: the canonical `users` table here carries a
+        // single `name` column + `is_active` flag; some forks also have
+        // `first_name`/`last_name`/`status`. Introspect once and INSERT only
+        // the columns that actually exist.
+        $colStmt = $pdo->query('SHOW COLUMNS FROM users');
+        $cols    = array_column($colStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [], 'Field');
+        $cols    = array_map('strval', $cols);
+        $row     = ['email' => $email];
+        if (in_array('name', $cols, true)) {
+            $row['name'] = trim($firstName . ' ' . $lastName) ?: $email;
+        }
+        if (in_array('first_name', $cols, true)) $row['first_name'] = $firstName;
+        if (in_array('last_name',  $cols, true)) $row['last_name']  = $lastName;
+        if (in_array('role', $cols, true)) {
+            $row['role'] = in_array($personaType, ['tenant_admin','admin','manager','employee','contractor'], true)
+                           ? $personaType : 'employee';
+        }
+        if (in_array('status',    $cols, true)) $row['status']    = 'active';
+        if (in_array('is_active', $cols, true)) $row['is_active'] = 1;
+        if (in_array('created_at', $cols, true)) $row['__created_at_now'] = true;
+        // password/password_hash are NOT NULL in the legacy schema. Seed a
+        // placeholder bcrypt of a 32-byte random secret so the row is valid
+        // but unusable for password login (invitee must complete magic-link
+        // sign-in and then set a real password via the profile flow).
+        $placeholder = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
+        if (in_array('password',      $cols, true)) $row['password']      = $placeholder;
+        if (in_array('password_hash', $cols, true)) $row['password_hash'] = $placeholder;
+
+        $insertCols = []; $placeholders = []; $bind = [];
+        foreach ($row as $k => $v) {
+            if ($k === '__created_at_now') continue;
+            $insertCols[]  = $k;
+            $placeholders[] = ':' . $k;
+            $bind[$k]      = $v;
+        }
+        if (!empty($row['__created_at_now'])) {
+            $insertCols[]   = 'created_at';
+            $placeholders[] = 'NOW()';
+        }
+        $sql = 'INSERT INTO users (' . implode(', ', $insertCols) . ') VALUES (' . implode(', ', $placeholders) . ')';
+        $ins = $pdo->prepare($sql);
+        $ins->execute($bind);
         $invitedUserId = (int) $pdo->lastInsertId();
     }
 

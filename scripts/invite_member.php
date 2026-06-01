@@ -78,15 +78,29 @@ $st = $pdo->prepare('SELECT id FROM users WHERE email = :e LIMIT 1');
 $st->execute(['e' => $email]);
 $invitedUserId = (int) ($st->fetchColumn() ?: 0);
 if ($invitedUserId <= 0) {
-    $ins = $pdo->prepare(
-        "INSERT INTO users (email, first_name, last_name, role, status, created_at)
-         VALUES (:e, :f, :l, :r, 'active', NOW())"
-    );
-    $ins->execute([
-        'e' => $email, 'f' => $firstName, 'l' => $lastName,
-        'r' => in_array($personaType, ['tenant_admin','admin','manager','employee','contractor'], true)
-               ? $personaType : 'employee',
-    ]);
+    // Schema-tolerant insert — mirrors api/admin/memberships.php?action=invite.
+    $colStmt = $pdo->query('SHOW COLUMNS FROM users');
+    $cols    = array_column($colStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [], 'Field');
+    $cols    = array_map('strval', $cols);
+    $row     = ['email' => $email];
+    if (in_array('name',       $cols, true)) $row['name']       = trim($firstName . ' ' . $lastName) ?: $email;
+    if (in_array('first_name', $cols, true)) $row['first_name'] = $firstName;
+    if (in_array('last_name',  $cols, true)) $row['last_name']  = $lastName;
+    if (in_array('role',       $cols, true)) {
+        $row['role'] = in_array($personaType, ['tenant_admin','admin','manager','employee','contractor'], true)
+                       ? $personaType : 'employee';
+    }
+    if (in_array('status',    $cols, true)) $row['status']    = 'active';
+    if (in_array('is_active', $cols, true)) $row['is_active'] = 1;
+    $placeholder = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
+    if (in_array('password',      $cols, true)) $row['password']      = $placeholder;
+    if (in_array('password_hash', $cols, true)) $row['password_hash'] = $placeholder;
+
+    $insertCols = []; $placeholders = []; $bind = [];
+    foreach ($row as $k => $v) { $insertCols[] = $k; $placeholders[] = ':' . $k; $bind[$k] = $v; }
+    if (in_array('created_at', $cols, true)) { $insertCols[] = 'created_at'; $placeholders[] = 'NOW()'; }
+    $sql = 'INSERT INTO users (' . implode(', ', $insertCols) . ') VALUES (' . implode(', ', $placeholders) . ')';
+    $pdo->prepare($sql)->execute($bind);
     $invitedUserId = (int) $pdo->lastInsertId();
 }
 

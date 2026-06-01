@@ -44,23 +44,52 @@ $pdo = getDB();
 // JIT-create user row if no match and DB is available.
 if (!$userId) {
     try {
-        $ins = $pdo->prepare(
-            "INSERT INTO users (email, first_name, last_name, role, status, created_at)
-             VALUES (:e, '', '', 'employee', 'active', NOW())"
-        );
-        $ins->execute(['e' => $email]);
+        // Schema-tolerant: prod `users` carries `name` + `is_active`; legacy
+        // forks may also have first_name/last_name/status. Insert only the
+        // columns that actually exist. Password columns are NOT NULL on the
+        // legacy schema → seed an unusable bcrypt placeholder so the row is
+        // valid but only magic-link sign-in works until the user sets a
+        // real password.
+        $colStmt = $pdo->query('SHOW COLUMNS FROM users');
+        $cols    = array_column($colStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [], 'Field');
+        $cols    = array_map('strval', $cols);
+        $row     = ['email' => $email];
+        if (in_array('name',       $cols, true)) $row['name']       = $email;
+        if (in_array('first_name', $cols, true)) $row['first_name'] = '';
+        if (in_array('last_name',  $cols, true)) $row['last_name']  = '';
+        if (in_array('role',       $cols, true)) $row['role']       = 'employee';
+        if (in_array('status',     $cols, true)) $row['status']     = 'active';
+        if (in_array('is_active',  $cols, true)) $row['is_active']  = 1;
+        $placeholder = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
+        if (in_array('password',      $cols, true)) $row['password']      = $placeholder;
+        if (in_array('password_hash', $cols, true)) $row['password_hash'] = $placeholder;
+
+        $insertCols = []; $bindParts = []; $bind = [];
+        foreach ($row as $k => $v) {
+            $insertCols[] = $k;
+            $bindParts[]  = ':' . $k;
+            $bind[$k]     = $v;
+        }
+        if (in_array('created_at', $cols, true)) { $insertCols[] = 'created_at'; $bindParts[] = 'NOW()'; }
+
+        $sql = 'INSERT INTO users (' . implode(', ', $insertCols) . ') VALUES (' . implode(', ', $bindParts) . ')';
+        $pdo->prepare($sql)->execute($bind);
         $userId = (int) $pdo->lastInsertId();
     } catch (\Throwable $e) {
         api_error('Could not provision account: ' . $e->getMessage(), 500);
     }
 }
 
-// Hydrate the user row.
-$st = $pdo->prepare('SELECT id, email, first_name, last_name, role, status FROM users WHERE id = :id LIMIT 1');
+// Hydrate the user row. SELECT *  so we don't trip on first_name/last_name
+// columns that aren't in the legacy schema; downstream only needs id/email/role/status|is_active.
+$st = $pdo->prepare('SELECT * FROM users WHERE id = :id LIMIT 1');
 $st->execute(['id' => $userId]);
 $user = $st->fetch();
 if (!$user) api_error('User not found after JIT', 500);
-if (($user['status'] ?? 'active') === 'disabled') api_error('Account disabled', 403);
+// Accept either `status='disabled'` (legacy fork) or `is_active=0` (canonical).
+if (($user['status'] ?? null) === 'disabled' || (isset($user['is_active']) && (int) $user['is_active'] === 0)) {
+    api_error('Account disabled', 403);
+}
 
 // If link bound to a tenant, ensure membership rows exist (idempotent).
 // provisionMembership() dual-writes both user_tenants + tenant_memberships.
@@ -103,11 +132,22 @@ if ($tenantId) {
 }
 
 // Session handoff. Mirror the shape used by core/auth.php password login.
+// Schema-tolerant name handling: `name` is the canonical column on the prod
+// schema; some forks carry `first_name`/`last_name` instead. Split or join
+// as needed so the SPA always gets a consistent {first_name,last_name} shape.
 initSession();
+$displayName = (string) ($user['name'] ?? '');
+$firstNm     = (string) ($user['first_name'] ?? '');
+$lastNm      = (string) ($user['last_name']  ?? '');
+if ($firstNm === '' && $lastNm === '' && $displayName !== '') {
+    $parts   = preg_split('/\s+/', trim($displayName), 2);
+    $firstNm = (string) ($parts[0] ?? '');
+    $lastNm  = (string) ($parts[1] ?? '');
+}
 $sessionUser = [
     'id'         => (int) $user['id'],
-    'first_name' => (string) ($user['first_name'] ?? ''),
-    'last_name'  => (string) ($user['last_name']  ?? ''),
+    'first_name' => $firstNm,
+    'last_name'  => $lastNm,
     'email'      => (string) $user['email'],
     'role'       => (string) ($user['role']       ?? 'employee'),
     'avatar'     => null,
