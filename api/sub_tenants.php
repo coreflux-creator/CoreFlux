@@ -115,7 +115,24 @@ if ($method === 'GET') {
        ORDER BY is_active DESC, name ASC"
     );
     $stmt->execute(['p' => $parentId]);
-    api_ok(['parent_tenant_id' => $parentId, 'sub_tenants' => $stmt->fetchAll()]);
+    $subs = $stmt->fetchAll();
+
+    // Also surface the parent tenant's own row so the SPA can treat it as
+    // a selectable legal entity (the parent keeps its own books — it is
+    // NOT just a consolidation layer over the sub-tenants).
+    $pstmt = $pdo->prepare(
+        "SELECT id, name, slug, tenant_type, is_active, primary_color, logo_url
+           FROM tenants
+          WHERE id = :p LIMIT 1"
+    );
+    $pstmt->execute(['p' => $parentId]);
+    $parentRow = $pstmt->fetch() ?: null;
+
+    api_ok([
+        'parent_tenant_id' => $parentId,
+        'parent'           => $parentRow,
+        'sub_tenants'      => $subs,
+    ]);
 }
 
 if ($method === 'POST') {

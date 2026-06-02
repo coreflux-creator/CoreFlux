@@ -270,6 +270,17 @@ $a('POSTs validate',                              str_contains($jsx, 'action=val
 $a('POSTs disconnect with confirm()',             str_contains($jsx, 'action=disconnect&provider=jaz')
                                                && str_contains($jsx, "confirm('Disconnect Jaz"));
 $a('entity selector testid',                      str_contains($jsx, 'data-testid="jaz-entity-select"'));
+// Parent entity must be selectable — the parent tenant keeps its own books,
+// it is NOT just a consolidation layer over sub-tenants.
+$a('parent entity included in selector',          str_contains($jsx, "kind === 'parent'")
+                                               && str_contains($jsx, "parent: parentRow") === false ? str_contains($jsx, 'r?.parent') : true);
+$a('parent-entity label & note rendered',         str_contains($jsx, "' — parent entity'")
+                                               && str_contains($jsx, 'data-testid="jaz-parent-entity-note"'));
+$a('sub_tenants endpoint surfaces parent row',    (function () use ($ROOT): bool {
+    $api = (string) @file_get_contents("{$ROOT}/api/sub_tenants.php");
+    return str_contains($api, "'parent'           => \$parentRow")
+        && str_contains($api, 'WHERE id = :p LIMIT 1');
+})());
 $a('connection status testid',                    str_contains($jsx, 'data-testid="jaz-connection-status"'));
 $a('api key input testid + ≥16 enforced',         str_contains($jsx, 'data-testid="jaz-api-key-input"')
                                                && str_contains($jsx, 'apiKey.length < 16'));

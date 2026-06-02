@@ -19,7 +19,15 @@ import { api } from '../lib/api';
  * QBO/Xero adapters land.
  */
 export default function JazIntegrationSettings() {
-  const [subTenants, setSubTenants] = useState([]);
+  // `entities` is the flat dropdown list — parent tenant + sub-tenants.
+  // The parent's own books are a legitimate legal entity (it is NOT just a
+  // consolidation layer over the sub-tenants). We model that by adding the
+  // parent tenant as the first entry and letting the connection storage
+  // use `sub_tenant_id = parent_tenant_id` for the parent row — no schema
+  // change needed since accounting_provider_connections doesn't FK-constrain
+  // sub_tenant_id and the (tenant_id, sub_tenant_id, provider) unique key
+  // happily accepts parent_tenant_id in both columns.
+  const [entities, setEntities]       = useState([]);    // [{id,name,kind:'parent'|'sub'}]
   const [subTenantId, setSubTenantId] = useState(null);
   const [connection, setConnection] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -30,19 +38,28 @@ export default function JazIntegrationSettings() {
   const [baseCurrency, setBaseCurrency] = useState('USD');
   const [busy, setBusy] = useState(false);
 
-  // Load sub-tenants (legal entities). Falls back to current tenant
-  // when none exist so first-time tenants aren't blocked from connecting.
+  // Load parent + sub-tenants as legal entities. Parent comes first so
+  // first-time tenants without any sub-tenants can still connect their
+  // own books.
   useEffect(() => {
     let mounted = true;
     api.get('/api/sub_tenants.php')
       .then(r => {
         if (!mounted) return;
-        // sub_tenants endpoint returns the list directly OR wrapped in {rows} / {sub_tenants}
-        const rows = Array.isArray(r) ? r : (r.rows || r.sub_tenants || r.tenants || []);
-        setSubTenants(rows);
-        if (rows.length > 0) setSubTenantId(rows[0].id);
+        const subs = Array.isArray(r) ? r : (r.rows || r.sub_tenants || r.tenants || []);
+        const parent = r?.parent || null;
+        const parentId = r?.parent_tenant_id ?? parent?.id ?? null;
+        const list = [];
+        if (parent && parentId) {
+          list.push({ id: parentId, name: parent.name || `Tenant ${parentId}`, kind: 'parent' });
+        }
+        for (const st of subs) {
+          list.push({ id: st.id, name: st.name || st.subdomain || `Entity ${st.id}`, kind: 'sub' });
+        }
+        setEntities(list);
+        if (list.length > 0) setSubTenantId(list[0].id);
       })
-      .catch(() => mounted && setSubTenants([]));
+      .catch(() => mounted && setEntities([]));
     return () => { mounted = false; };
   }, []);
 
@@ -144,22 +161,32 @@ export default function JazIntegrationSettings() {
       <fieldset style={fieldsetStyle}>
         <legend style={legendStyle}>Step 1 — Legal entity</legend>
         <p style={{ margin: '0 0 8px', fontSize: 12, color: '#64748b' }}>
-          Connect Jaz <strong>per entity</strong>. Each sub-tenant gets its own Jaz
-          organisation + API key so the books stay separate.
+          Connect Jaz <strong>per entity</strong>. The parent tenant keeps its own books too — pick it
+          if your books live at the top level, or pick a sub-tenant for division-specific books.
         </p>
-        {subTenants.length === 0 ? (
+        {entities.length === 0 ? (
           <p style={{ fontSize: 12, color: '#92400e' }} data-testid="jaz-no-entities">
-            No sub-tenants exist yet. Provision a legal entity in Admin → Sub-tenants first.
+            No legal entities resolved. Make sure you're signed in to an active tenant.
           </p>
         ) : (
-          <select data-testid="jaz-entity-select"
-                  value={subTenantId || ''}
-                  onChange={(e) => setSubTenantId(parseInt(e.target.value, 10) || null)}
-                  className="input" style={{ minWidth: 260 }}>
-            {subTenants.map(st => (
-              <option key={st.id} value={st.id}>{st.name || st.subdomain || `Entity ${st.id}`}</option>
-            ))}
-          </select>
+          <>
+            <select data-testid="jaz-entity-select"
+                    value={subTenantId || ''}
+                    onChange={(e) => setSubTenantId(parseInt(e.target.value, 10) || null)}
+                    className="input" style={{ minWidth: 260 }}>
+              {entities.map(ent => (
+                <option key={ent.id} value={ent.id}>
+                  {ent.name}{ent.kind === 'parent' ? ' — parent entity' : ''}
+                </option>
+              ))}
+            </select>
+            {entities.find(e => e.id === subTenantId)?.kind === 'parent' && (
+              <p data-testid="jaz-parent-entity-note"
+                 style={{ margin: '6px 0 0', fontSize: 11, color: '#0369a1' }}>
+                Books for the parent entity. Sub-tenants (if any) keep their own separate Jaz organisations.
+              </p>
+            )}
+          </>
         )}
       </fieldset>
 
