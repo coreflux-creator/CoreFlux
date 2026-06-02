@@ -94,8 +94,10 @@ if ($method === 'GET') {
     $where = ['v.tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['q'])) {
-        $where[] = '(v.vendor_name LIKE :q OR c.name LIKE :q)';
-        $params['q'] = '%' . str_replace(['%','_'], ['\\%','\\_'], $_GET['q']) . '%';
+        // Distinct placeholders required by PDO_MYSQL native prepares.
+        $where[]      = '(v.vendor_name LIKE :q OR c.name LIKE :q2)';
+        $params['q']  = '%' . str_replace(['%','_'], ['\\%','\\_'], $_GET['q']) . '%';
+        $params['q2'] = $params['q'];
     }
     if (!empty($_GET['type'])) { $where[] = 'v.vendor_type = :vt'; $params['vt'] = $_GET['type']; }
     if (!empty($_GET['category'])) { $where[] = 'v.vendor_category = :cat'; $params['cat'] = $_GET['category']; }

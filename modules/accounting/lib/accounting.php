@@ -92,7 +92,7 @@ function accountingResolvePeriod(int $tenantId, int $entityId, string $postingDa
          ON DUPLICATE KEY UPDATE id = id'
     )->execute(['t' => $tenantId, 'e' => $entityId, 'n' => $pnum, 's' => $first, 'x' => $last]);
 
-    $stmt->execute(['t' => $tenantId, 'e' => $entityId, 'd' => $postingDate]);
+    $stmt->execute(['t' => $tenantId, 'e' => $entityId, 'd_lo' => $postingDate, 'd_hi' => $postingDate]);
     $row = $stmt->fetch(\PDO::FETCH_ASSOC);
     if (!$row) throw new \RuntimeException('Failed to resolve/create accounting period');
     return $row;
@@ -437,8 +437,10 @@ function accountingReverseJe(int $tenantId, int $jeId, string $reason, ?int $act
 function accountingTrialBalance(int $tenantId, string $asOf, ?int $entityId = null): array
 {
     $pdo = getDB();
-    $where  = ['je.tenant_id = :t', 'je.status = "posted"', 'je.posting_date <= :d'];
-    $params = ['t' => $tenantId, 'd' => $asOf];
+    // Note: `:t` was previously used twice in the same SQL — that throws
+    // HY093 with PDO_MYSQL native prepares. Use distinct placeholders.
+    $where  = ['je.tenant_id = :t2', 'je.status = "posted"', 'je.posting_date <= :d'];
+    $params = ['t' => $tenantId, 't2' => $tenantId, 'd' => $asOf];
     if ($entityId) { $where[] = 'je.entity_id = :e'; $params['e'] = $entityId; }
 
     $sql = 'SELECT a.code, a.name, a.account_type, a.normal_side,

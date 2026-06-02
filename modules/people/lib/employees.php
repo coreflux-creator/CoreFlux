@@ -21,8 +21,12 @@ function peopleListActiveEmployees(?string $search = null, ?string $department =
     $where = ['tenant_id = :tenant_id', "status = 'active'"];
     $params = [];
     if ($search) {
-        $where[] = '(legal_last_name LIKE :q OR legal_first_name LIKE :q OR preferred_name LIKE :q OR work_email LIKE :q OR employee_number = :eq)';
+        // Distinct placeholders required by PDO_MYSQL native prepares.
+        $where[]      = '(legal_last_name LIKE :q OR legal_first_name LIKE :q2 OR preferred_name LIKE :q3 OR work_email LIKE :q4 OR employee_number = :eq)';
         $params['q']  = '%' . $search . '%';
+        $params['q2'] = $params['q'];
+        $params['q3'] = $params['q'];
+        $params['q4'] = $params['q'];
         $params['eq'] = $search;
     }
     if ($department) {
@@ -82,6 +86,8 @@ function peopleActiveFederalTax(int $employeeId): ?array {
  * Return all active state tax rows (an employee can have multi-state withholding).
  */
 function peopleActiveStateTaxes(int $employeeId): array {
+    // Distinct placeholders required by PDO_MYSQL native prepares.
+    // The subquery + outer SELECT need their own copies of tenant/emp.
     return scopedQuery(
         'SELECT t1.* FROM people_tax_state t1
          JOIN (
@@ -90,8 +96,8 @@ function peopleActiveStateTaxes(int $employeeId): array {
              WHERE tenant_id = :tenant_id AND employee_id = :emp
              GROUP BY state_code
          ) t2 ON t2.state_code = t1.state_code AND t2.max_eff = t1.effective_date
-         WHERE t1.tenant_id = :tenant_id AND t1.employee_id = :emp',
-        ['emp' => $employeeId]
+         WHERE t1.tenant_id = :tenant_id2 AND t1.employee_id = :emp2',
+        ['emp' => $employeeId, 'emp2' => $employeeId, 'tenant_id2' => effectiveTenantIdForRequest()]
     );
 }
 

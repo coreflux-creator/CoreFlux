@@ -183,9 +183,9 @@ $arRows = _rfFetch($pdo,
             DATEDIFF(:today, i.due_date) AS days_overdue
        FROM billing_invoices i
       WHERE i.tenant_id = :t AND i.status IN ('sent','partially_paid')
-   ORDER BY DATEDIFF(:today, i.due_date) DESC, i.total DESC
+   ORDER BY DATEDIFF(:today2, i.due_date) DESC, i.total DESC
       LIMIT 500",
-    ['t' => $tenantId, 'today' => $today->format('Y-m-d')]);
+    ['t' => $tenantId, 'today' => $today->format('Y-m-d'), 'today2' => $today->format('Y-m-d')]);
 foreach ($arRows as &$r) {
     $r['outstanding'] = round((float) $r['total'] - (float) $r['amount_paid'], 2);
     $r['total']       = (float) $r['total'];
@@ -203,9 +203,9 @@ $apRows = _rfFetch($pdo,
             DATEDIFF(:today, b.due_date) AS days_overdue
        FROM ap_bills b
       WHERE b.tenant_id = :t AND b.status IN ('approved','partially_paid')
-   ORDER BY DATEDIFF(:today, b.due_date) DESC, b.total DESC
+   ORDER BY DATEDIFF(:today2, b.due_date) DESC, b.total DESC
       LIMIT 500",
-    ['t' => $tenantId, 'today' => $today->format('Y-m-d')]);
+    ['t' => $tenantId, 'today' => $today->format('Y-m-d'), 'today2' => $today->format('Y-m-d')]);
 foreach ($apRows as &$r) {
     $r['outstanding'] = round((float) $r['total'] - (float) $r['amount_paid'], 2);
     $r['total']       = (float) $r['total'];

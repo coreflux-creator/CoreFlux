@@ -73,12 +73,17 @@ function aiSuggestCounterpartAccount(
         return ((int) ($a['is_postable'] ?? 1)) === 1 && (int) $a['id'] !== $sideAccountId;
     }));
 
-    $suggestion = aiCategorizationFromHistory($tenantId, $merchant, $pfcat, $eligible);
-    $source     = 'history';
+    $suggestion = aiCategorizationFromInterAccountTransfer($tenantId, $line, $type, $sideAccountId, $eligible);
+    $source     = $suggestion ? 'transfer' : null;
+
+    if (!$suggestion) {
+        $suggestion = aiCategorizationFromHistory($tenantId, $merchant, $pfcat, $eligible);
+        $source     = $suggestion ? 'history' : null;
+    }
 
     if (!$suggestion) {
         $suggestion = aiCategorizationFromPfcRules($pfcat, $amount, $type, $eligible);
-        $source     = $suggestion ? 'rules' : null;
+        $source     = $suggestion ? 'rules' : $source;
     }
 
     if (!$suggestion) {
@@ -207,6 +212,153 @@ function aiRecordCategorizationOutcome(
 }
 
 // ───────────────────────────── private helpers ─────────────────────────────
+
+/**
+ * Detect bank-to-bank transfers between two CoreFlux-tracked accounts.
+ *
+ * Heuristics in priority order:
+ *   1. Merchant/description name match against another bank account
+ *      nickname/last4 in this tenant (Plaid enriches merchant_name on
+ *      Mercury for inter-account moves: "First Citizens Bank - Checking
+ *      ••9793", "Transfer from another bank account", etc.).
+ *   2. Mirror-amount match: a row of the OPPOSITE sign + same |amount|
+ *      on a different bank account within ±5 days.
+ *
+ * Returns the *other* bank's GL account (one of the eligible candidates)
+ * with confidence 0.92 (merchant match) or 0.85 (mirror match) so the
+ * suggestion auto-accepts under the 0.90 threshold for merchant-name
+ * hits but stays draft for amount-only matches.
+ */
+function aiCategorizationFromInterAccountTransfer(
+    int $tenantId,
+    array $line,
+    string $type,
+    int $sideAccountId,
+    array $eligible
+): ?array {
+    $merchant = strtolower(trim((string) ($line['merchant_name'] ?? '')));
+    $desc     = strtolower(trim((string) ($line['description']    ?? '')));
+    $amount   = (float) ($line['amount'] ?? 0);
+    $date     = (string) ($line['posted_date'] ?? '');
+    if (abs($amount) < 0.005) return null;
+
+    $haystack = $merchant . ' ' . $desc;
+    $transferKeywords = ['transfer', 'xfer', 'wire', 'ach in', 'ach out',
+                         'internal transfer', 'between accounts',
+                         'transfer from another bank', 'auto-routing',
+                         'transfer in', 'transfer out'];
+    $isTransferLike = false;
+    foreach ($transferKeywords as $kw) {
+        if (strpos($haystack, $kw) !== false) { $isTransferLike = true; break; }
+    }
+
+    $pdo = getDB();
+    if (!$pdo) return null;
+
+    // Load this tenant's bank accounts so we can recognise the other side
+    // by nickname / last4 (the Plaid merchant_name carries something like
+    // "First Citizens Bank - Checking ••9793").
+    try {
+        $stBanks = $pdo->prepare(
+            'SELECT ba.id, ba.name, ba.last4, ba.gl_account_code,
+                    aa.id AS gl_account_id, aa.code AS gl_code, aa.name AS gl_name,
+                    aa.account_type
+               FROM accounting_bank_accounts ba
+               LEFT JOIN accounting_accounts aa
+                      ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
+              WHERE ba.tenant_id = :t AND ba.id != :self'
+        );
+        $stBanks->execute(['t' => $tenantId, 'self' => $sideAccountId]);
+        $otherBanks = $stBanks->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $_) {
+        $otherBanks = [];
+    }
+
+    $eligibleById = [];
+    foreach ($eligible as $a) { $eligibleById[(int) $a['id']] = $a; }
+
+    foreach ($otherBanks as $bank) {
+        $glId = (int) ($bank['gl_account_id'] ?? 0);
+        if (!$glId || !isset($eligibleById[$glId])) continue;
+        $nick     = strtolower((string) ($bank['name']  ?? ''));
+        $last4    = (string) ($bank['last4'] ?? '');
+        $hitName  = $nick !== '' && strpos($haystack, $nick) !== false;
+        $hitLast4 = $last4 !== '' && (strpos($haystack, $last4) !== false
+                                   || strpos($haystack, '••' . $last4) !== false
+                                   || strpos($haystack, '****' . $last4) !== false);
+        if ($hitName || $hitLast4) {
+            $reason = $hitName
+                ? "Matches the nickname of your other bank \"{$bank['name']}\" — this looks like a bank-to-bank transfer, not income or an expense."
+                : "Last 4 digits \"{$last4}\" match your other bank \"{$bank['name']}\" — transfer between your own accounts.";
+            return [
+                'account_id' => $glId,
+                'confidence' => 0.92,
+                'reasoning'  => $reason,
+            ];
+        }
+    }
+
+    // Generic transfer-keyword hit (e.g. "Transfer from another bank account")
+    // without a name match. If we only have ONE other bank, we can confidently
+    // point to it; otherwise we surface the keyword evidence as 0.75 + the
+    // first eligible bank so the operator gets a useful starting point.
+    if ($isTransferLike && !empty($otherBanks)) {
+        $candidate = null;
+        foreach ($otherBanks as $bank) {
+            $glId = (int) ($bank['gl_account_id'] ?? 0);
+            if ($glId && isset($eligibleById[$glId])) { $candidate = $bank; break; }
+        }
+        if ($candidate) {
+            $glId = (int) $candidate['gl_account_id'];
+            return [
+                'account_id' => $glId,
+                'confidence' => count($otherBanks) === 1 ? 0.88 : 0.75,
+                'reasoning'  => 'Description contains a transfer keyword; the other CoreFlux-tracked bank "'
+                              . $candidate['name'] . '" is the most likely counterpart.',
+            ];
+        }
+    }
+
+    // Mirror-amount probe — opposite-sign line within ±5 days on a different
+    // bank in this tenant. This catches transfers even when the description
+    // doesn't carry the other bank's name (e.g. a wire).
+    if ($date !== '') {
+        try {
+            $stMirror = $pdo->prepare(
+                "SELECT bsl.id, bsl.bank_account_id, bsl.amount, bsl.posted_date,
+                        aa.id AS gl_account_id
+                   FROM accounting_bank_statement_lines bsl
+                   JOIN accounting_bank_accounts ba ON ba.id = bsl.bank_account_id AND ba.tenant_id = bsl.tenant_id
+                   LEFT JOIN accounting_accounts aa ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
+                  WHERE bsl.tenant_id = :t
+                    AND bsl.bank_account_id != :self
+                    AND ABS(bsl.amount + :amt) < 0.005
+                    AND bsl.posted_date BETWEEN DATE_SUB(:d, INTERVAL 5 DAY) AND DATE_ADD(:d2, INTERVAL 5 DAY)
+                  LIMIT 1"
+            );
+            $stMirror->execute([
+                't'    => $tenantId,
+                'self' => $sideAccountId,
+                'amt'  => $amount,
+                'd'    => $date,
+                'd2'   => $date,
+            ]);
+            $mirror = $stMirror->fetch(PDO::FETCH_ASSOC);
+            if ($mirror) {
+                $glId = (int) ($mirror['gl_account_id'] ?? 0);
+                if ($glId && isset($eligibleById[$glId])) {
+                    return [
+                        'account_id' => $glId,
+                        'confidence' => 0.85,
+                        'reasoning'  => 'Mirror transaction (opposite-sign, same amount) found on another bank within 5 days — transfer between your own accounts.',
+                    ];
+                }
+            }
+        } catch (\Throwable $_) { /* schema may differ on legacy tenants */ }
+    }
+
+    return null;
+}
 
 function aiCategorizationFromHistory(int $tenantId, string $merchant, string $pfcat, array $eligible): ?array
 {

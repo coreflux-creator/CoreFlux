@@ -259,6 +259,10 @@ function bankRecAutoSuggestMatches(int $tenantId, array $bankLine, int $bankAcco
 {
     $amount = (float) ($bankLine['amount'] ?? 0);
     if ($amount === 0.0) return [];
+    // Use distinct :d_lo / :d_hi placeholders. The previous `:d` repeat
+    // broke under PDO_MYSQL native prepares (EMULATE_PREPARES=false) and
+    // returned zero matches every time → treasury entries stayed
+    // permanently "unmatched" on the bank reconciliation screen.
     return scopedQuery(
         'SELECT je.id AS je_id, je.je_number, je.posting_date, je.memo,
                 je.source_module, je.source_ref_id,
@@ -269,13 +273,18 @@ function bankRecAutoSuggestMatches(int $tenantId, array $bankLine, int $bankAcco
          WHERE l.tenant_id = :tenant_id
            AND je.status = "posted"
            AND ABS(l.debit - l.credit) = :abs_amt
-           AND je.posting_date BETWEEN DATE_SUB(:d, INTERVAL 3 DAY) AND DATE_ADD(:d, INTERVAL 3 DAY)
+           AND je.posting_date BETWEEN DATE_SUB(:d_lo, INTERVAL 3 DAY) AND DATE_ADD(:d_hi, INTERVAL 3 DAY)
            AND je.id NOT IN (
                SELECT matched_je_id FROM accounting_bank_statement_lines
-               WHERE tenant_id = :tenant_id AND matched_je_id IS NOT NULL
+               WHERE tenant_id = :tenant_id_sub AND matched_je_id IS NOT NULL
            )
          ORDER BY je.posting_date DESC LIMIT 20',
-        ['abs_amt' => abs($amount), 'd' => $bankLine['posted_date']]
+        [
+            'abs_amt'       => abs($amount),
+            'd_lo'          => $bankLine['posted_date'],
+            'd_hi'          => $bankLine['posted_date'],
+            'tenant_id_sub' => $tenantId,
+        ]
     );
 }
 

@@ -16,6 +16,8 @@ export default function Periods() {
   const rows = data?.rows ?? [];
   const [busy, setBusy] = useState(null);
   const [err2, setErr2] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState({ start_date: '', end_date: '', status: 'open' });
 
   const act = async (id, action) => {
     let body = {};
@@ -34,19 +36,99 @@ export default function Periods() {
     finally     { setBusy(null); }
   };
 
+  const createPeriod = async (e) => {
+    e?.preventDefault?.();
+    if (!activeEntityId) { setErr2(new Error('Select an entity in the header first.')); return; }
+    if (!createForm.start_date || !createForm.end_date) {
+      setErr2(new Error('Start and end dates required.'));
+      return;
+    }
+    setBusy('create'); setErr2(null);
+    try {
+      await api.post('/modules/accounting/api/periods.php?action=create', {
+        entity_id: activeEntityId,
+        start_date: createForm.start_date,
+        end_date:   createForm.end_date,
+        status:     createForm.status,
+      });
+      setShowCreate(false);
+      setCreateForm({ start_date: '', end_date: '', status: 'open' });
+      reload();
+    } catch (e) { setErr2(e); }
+    finally     { setBusy(null); }
+  };
+
   return (
     <section data-testid="accounting-periods">
-      <header style={{ marginBottom: 12 }}>
-        <h2 style={{ margin: 0 }}>Periods</h2>
-        <p style={{ margin: '4px 0 0', fontSize: 13, color: '#666' }}>
-          Auto-created on first post per month. Close monthly to lock the books; reopens are audit-logged with a required reason.
-        </p>
-        {activeEntity && (
-          <p style={{ margin: '4px 0 0', fontSize: 12, color: '#1e40af' }} data-testid="accounting-periods-entity-scope">
-            Scoped to entity <code>{activeEntity.code}</code> — switch entity in the header to see another set.
+      <header style={{ marginBottom: 12, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div>
+          <h2 style={{ margin: 0 }}>Periods</h2>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#666' }}>
+            Auto-created on first post per month, or define one explicitly with the button on the right. Close monthly to lock the books; reopens are audit-logged with a required reason.
           </p>
-        )}
+          {activeEntity && (
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: '#1e40af' }} data-testid="accounting-periods-entity-scope">
+              Scoped to entity <code>{activeEntity.code}</code> — switch entity in the header to see another set.
+            </p>
+          )}
+        </div>
+        <button
+          className="btn btn--primary"
+          onClick={() => setShowCreate(s => !s)}
+          data-testid="accounting-periods-define-btn"
+          style={{ fontSize: 13, whiteSpace: 'nowrap' }}
+        >
+          {showCreate ? 'Cancel' : 'Define period'}
+        </button>
       </header>
+
+      {showCreate && (
+        <form
+          onSubmit={createPeriod}
+          data-testid="accounting-periods-define-form"
+          style={{ marginBottom: 12, padding: 12, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}
+        >
+          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
+            Start date
+            <input
+              type="date"
+              value={createForm.start_date}
+              onChange={(e) => setCreateForm(f => ({ ...f, start_date: e.target.value }))}
+              data-testid="accounting-periods-define-start"
+              style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: 4 }}
+              required
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
+            End date
+            <input
+              type="date"
+              value={createForm.end_date}
+              onChange={(e) => setCreateForm(f => ({ ...f, end_date: e.target.value }))}
+              data-testid="accounting-periods-define-end"
+              style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: 4 }}
+              required
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', fontSize: 12 }}>
+            Status
+            <select
+              value={createForm.status}
+              onChange={(e) => setCreateForm(f => ({ ...f, status: e.target.value }))}
+              data-testid="accounting-periods-define-status"
+              style={{ padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: 4 }}
+            >
+              <option value="open">open</option>
+              <option value="soft_closed">soft_closed</option>
+              <option value="closed">closed</option>
+            </select>
+          </label>
+          <button type="submit" className="btn btn--primary" disabled={busy === 'create'} data-testid="accounting-periods-define-submit">
+            {busy === 'create' ? 'Creating…' : 'Create'}
+          </button>
+        </form>
+      )}
+
       {loading && <p>Loading…</p>}
       {error   && <p className="error">Error: {error.message}</p>}
       {err2    && <p className="error" data-testid="accounting-periods-action-error">Error: {err2.message}</p>}

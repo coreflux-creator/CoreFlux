@@ -73,12 +73,11 @@ class ResendDriver implements MailDriver
             return $this->fail('No recipients');
         }
 
-        $fromEmail = $envelope['from'] ?? $this->defaultFromEmail;
+        $fromEmail = !empty($envelope['from']) ? $envelope['from'] : $this->defaultFromEmail;
         if (!$fromEmail) {
             return $this->fail('From address not configured (set RESEND_FROM_EMAIL)');
         }
-        $fromName = $envelope['from_name'] ?? $this->defaultFromName;
-        if ($fromName === '') $fromName = $this->defaultFromName;
+        $fromName = !empty($envelope['from_name']) ? $envelope['from_name'] : $this->defaultFromName;
         $fromHeader = $fromName
             ? sprintf('%s <%s>', $fromName, $fromEmail)
             : $fromEmail;

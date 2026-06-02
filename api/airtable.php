@@ -236,8 +236,10 @@ switch ($action) {
         $params = ['t' => $tid, 'et' => $mapping['internal_entity']];
         $where  = "tenant_id = :t AND source_system = 'airtable' AND internal_entity_type = :et";
         if ($q !== '') {
-            $where        .= " AND (external_id LIKE :q OR payload_snapshot LIKE :q)";
+            // Distinct placeholders required by PDO_MYSQL native prepares.
+            $where        .= " AND (external_id LIKE :q OR payload_snapshot LIKE :q2)";
             $params['q']   = '%' . $q . '%';
+            $params['q2']  = $params['q'];
         }
         // Count first (capped) so the UI can show "Showing 50 of 2,216".
         $stCount = getDB()->prepare("SELECT COUNT(*) FROM external_entity_mappings WHERE {$where}");

@@ -71,9 +71,13 @@ function peopleList(array $filters = []): array
     $params = [];
 
     if (!empty($filters['q'])) {
-        $where[] = '(p.first_name LIKE :q OR p.last_name LIKE :q OR p.preferred_name LIKE :q '
-                 . 'OR p.email_primary LIKE :q OR p.external_id = :qexact)';
+        // Distinct placeholders required by PDO_MYSQL native prepares.
+        $where[] = '(p.first_name LIKE :q OR p.last_name LIKE :q2 OR p.preferred_name LIKE :q3 '
+                 . 'OR p.email_primary LIKE :q4 OR p.external_id = :qexact)';
         $params['q']      = '%' . $filters['q'] . '%';
+        $params['q2']     = $params['q'];
+        $params['q3']     = $params['q'];
+        $params['q4']     = $params['q'];
         $params['qexact'] = $filters['q'];
     }
     if (!empty($filters['classification'])) {

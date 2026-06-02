@@ -73,8 +73,16 @@ if ($action === 'switch' && $method === 'POST') {
 $parentId = subTenantResolveParent($activeTid, $role);
 if (!$parentId) api_error('No master tenant context', 400);
 
-if (!subTenantUserCanManageParent($userId, $parentId, $role)) {
-    api_error('Forbidden — only master_admin or tenant_admin of the master tenant can manage sub-tenants', 403);
+// READ (GET list and GET scope) is open to any authenticated member of the
+// parent tenant — these are dropdown sources for many screens, and locking
+// them to master/tenant_admin makes the entire SPA's "pick a sub-tenant"
+// affordance silently empty for ordinary users. Writes (POST/PATCH/DELETE)
+// and scope MUTATION still require admin via the existing gate below.
+$isReadCall = $method === 'GET';
+if (!$isReadCall) {
+    if (!subTenantUserCanManageParent($userId, $parentId, $role)) {
+        api_error('Forbidden — only master_admin or tenant_admin of the master tenant can manage sub-tenants', 403);
+    }
 }
 
 // ---------- scope subresource ----------

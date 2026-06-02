@@ -101,7 +101,14 @@ if ($method === 'GET') {
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['type']))   { $where[] = 'account_type = :t'; $params['t'] = $_GET['type']; }
-    if (!empty($_GET['q']))      { $where[] = '(code LIKE :q OR name LIKE :q)'; $params['q'] = '%' . $_GET['q'] . '%'; }
+    if (!empty($_GET['q']))      {
+        // PDO MySQL with EMULATE_PREPARES=false does not allow re-using
+        // the same named placeholder. Use distinct names bound to the
+        // same value to avoid HY093 "Invalid parameter number".
+        $where[] = '(code LIKE :q OR name LIKE :q2)';
+        $params['q']  = '%' . $_GET['q'] . '%';
+        $params['q2'] = $params['q'];
+    }
     if (!empty($_GET['active'])) { $where[] = 'active = :a'; $params['a'] = (int) !!$_GET['active']; }
     $rows = scopedQuery(
         'SELECT id, code, name, account_type, normal_side, parent_account_id, is_postable, active

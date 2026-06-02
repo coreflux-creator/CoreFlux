@@ -286,6 +286,39 @@ if ($action === 'exchange') {
                 $bankName  = $instLabel !== '' ? $instLabel : ($name ?: 'Bank');
                 $insName   = trim(($instLabel ? "{$instLabel} — " : '') . ($name ?: 'Account'));
 
+                // 3a) Ensure the COMPANION COA (accounting_accounts) row exists
+                // so the bank shows up on the Chart of Accounts page. Without
+                // this, accounting_bank_accounts has a gl_account_code that
+                // doesn't resolve to a real GL account and the CoA list is empty.
+                $aaCheck = $pdo->prepare(
+                    'SELECT id FROM accounting_accounts
+                      WHERE tenant_id = :t AND code = :c LIMIT 1'
+                );
+                $aaCheck->execute(['t' => $tenantId, 'c' => $glCode]);
+                $aaExisting = (int) $aaCheck->fetchColumn();
+                if ($aaExisting === 0) {
+                    $glLabel = $insName !== '' ? $insName : ($name ?: 'Bank account');
+                    $aaTypeName = $subtype === 'savings' ? 'Cash — Savings' : 'Cash — Checking';
+                    // Default name for the GL row carries the institution +
+                    // account nickname + last4, so the operator can identify it
+                    // on Chart of Accounts at a glance.
+                    $glFull = $glLabel . ($mask ? " …{$mask}" : '');
+                    try {
+                        $pdo->prepare(
+                            "INSERT INTO accounting_accounts
+                                (tenant_id, code, name, account_type, normal_side,
+                                 is_postable, parent_account_id, active, created_at)
+                             VALUES (:t, :c, :n, 'asset', 'debit', 1, NULL, 1, NOW())"
+                        )->execute(['t' => $tenantId, 'c' => $glCode, 'n' => $glFull]);
+                    } catch (\Throwable $e) {
+                        // If we lose a race on the UNIQUE (tenant, code) constraint
+                        // we re-resolve below; otherwise re-throw so the outer
+                        // catch records it in $itemErrors.
+                        $aaCheck->execute(['t' => $tenantId, 'c' => $glCode]);
+                        if ((int) $aaCheck->fetchColumn() === 0) throw $e;
+                    }
+                }
+
                 $pdo->prepare(
                     'INSERT INTO accounting_bank_accounts
                         (tenant_id, name, gl_account_code, bank_name, last4, currency,

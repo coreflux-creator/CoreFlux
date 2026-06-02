@@ -70,8 +70,10 @@ function companiesList(array $filters = []): array
     $params = [];
 
     if (!empty($filters['q'])) {
-        $where[] = '(c.name LIKE :q OR c.legal_name LIKE :q)';
-        $params['q'] = '%' . str_replace(['%','_'], ['\\%','\\_'], $filters['q']) . '%';
+        // Distinct placeholders required by PDO_MYSQL native prepares.
+        $where[]      = '(c.name LIKE :q OR c.legal_name LIKE :q2)';
+        $params['q']  = '%' . str_replace(['%','_'], ['\\%','\\_'], $filters['q']) . '%';
+        $params['q2'] = $params['q'];
     }
     if (!empty($filters['role'])) {
         $where[] = 'EXISTS (SELECT 1 FROM company_roles cr WHERE cr.company_id = c.id AND cr.role = :role)';

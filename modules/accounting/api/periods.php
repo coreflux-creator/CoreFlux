@@ -40,6 +40,70 @@ if ($method === 'GET') {
     api_ok(['rows' => $rows]);
 }
 
+if ($method === 'POST' && $action === 'create') {
+    // Explicit period creation — operators wanted "Define a period" UI
+    // alongside the auto-create-on-post path that `accountingResolvePeriod`
+    // uses. Tenant-scoped, audit-logged, idempotent on overlap.
+    rbac_legacy_require($user, 'accounting.period.close'); // same gate as close — admin-ish
+    $body = api_json_body();
+    $entityId  = (int) ($body['entity_id'] ?? 0);
+    $startDate = trim((string) ($body['start_date'] ?? ''));
+    $endDate   = trim((string) ($body['end_date']   ?? ''));
+    $statusIn  = trim((string) ($body['status']     ?? 'open'));
+    $pnumIn    = (int) ($body['period_number'] ?? 0);
+    if ($entityId <= 0)                                api_error('entity_id required', 422);
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate)) api_error('start_date must be YYYY-MM-DD', 422);
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDate))   api_error('end_date must be YYYY-MM-DD',   422);
+    if ($startDate > $endDate)                          api_error('start_date must be <= end_date', 422);
+    $allowed = ['open','soft_closed','closed','locked','reopened'];
+    if (!in_array($statusIn, $allowed, true)) api_error('Invalid status', 422, ['allowed' => $allowed]);
+
+    $pdo = getDB();
+
+    // Reject overlap on the same entity (overlap = any date intersection).
+    $overlap = $pdo->prepare(
+        'SELECT id, period_number, start_date, end_date, status
+           FROM accounting_periods
+          WHERE tenant_id = :t AND entity_id = :e
+            AND start_date <= :ed AND end_date >= :sd
+          LIMIT 1'
+    );
+    $overlap->execute(['t' => $tid, 'e' => $entityId, 'sd' => $startDate, 'ed' => $endDate]);
+    if ($existing = $overlap->fetch(\PDO::FETCH_ASSOC)) {
+        api_error('Overlapping period already defined', 409, ['existing' => $existing]);
+    }
+
+    // Auto-compute period_number from end_date.month if not supplied.
+    $periodNumber = $pnumIn > 0 ? $pnumIn : (int) date('n', strtotime($endDate));
+
+    try {
+        $pdo->prepare(
+            'INSERT INTO accounting_periods
+               (tenant_id, entity_id, period_number, start_date, end_date, status, created_at)
+             VALUES (:t, :e, :n, :s, :x, :st, NOW())'
+        )->execute([
+            't'  => $tid, 'e' => $entityId, 'n' => $periodNumber,
+            's'  => $startDate, 'x' => $endDate, 'st' => $statusIn,
+        ]);
+    } catch (\Throwable $e) {
+        // Older schemas may not have a created_at column — retry without it.
+        $pdo->prepare(
+            'INSERT INTO accounting_periods
+               (tenant_id, entity_id, period_number, start_date, end_date, status)
+             VALUES (:t, :e, :n, :s, :x, :st)'
+        )->execute([
+            't'  => $tid, 'e' => $entityId, 'n' => $periodNumber,
+            's'  => $startDate, 'x' => $endDate, 'st' => $statusIn,
+        ]);
+    }
+    $newId = (int) $pdo->lastInsertId();
+    accountingAudit('accounting.period.created', [
+        'period_id' => $newId, 'entity_id' => $entityId,
+        'start_date' => $startDate, 'end_date' => $endDate, 'status' => $statusIn,
+    ], $newId);
+    api_ok(['id' => $newId, 'period_number' => $periodNumber, 'status' => $statusIn], 201);
+}
+
 if ($method === 'POST' && in_array($action, ['soft_close','close','lock','reopen'], true)) {
     $perm = $action === 'reopen' ? 'accounting.period.reopen'
           : ($action === 'lock'  ? 'accounting.period.lock'

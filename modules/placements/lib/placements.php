@@ -118,8 +118,10 @@ function placementsList(array $filters = []): array
     $where  = ['p.tenant_id = :tenant_id', 'p.deleted_at IS NULL'];
     $params = [];
     if (!empty($filters['q'])) {
-        $where[] = '(p.title LIKE :q OR p.end_client_name LIKE :q OR p.external_id = :qexact)';
+        // Distinct placeholders required by PDO_MYSQL native prepares.
+        $where[]          = '(p.title LIKE :q OR p.end_client_name LIKE :q2 OR p.external_id = :qexact)';
         $params['q']      = '%' . $filters['q'] . '%';
+        $params['q2']     = $params['q'];
         $params['qexact'] = $filters['q'];
     }
     if (!empty($filters['status'])) {

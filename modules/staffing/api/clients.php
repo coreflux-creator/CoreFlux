@@ -23,8 +23,13 @@ if ($method === 'GET' && $action === 'list') {
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['status'])) { $where[] = 'status = :s'; $params['s'] = $_GET['status']; }
-    if (!empty($_GET['q']))      { $where[] = '(name LIKE :q OR legal_name LIKE :q OR primary_contact_email LIKE :q)';
-                                   $params['q'] = '%' . $_GET['q'] . '%'; }
+    if (!empty($_GET['q']))      {
+        // Distinct placeholders required by PDO_MYSQL native prepares.
+        $where[]      = '(name LIKE :q OR legal_name LIKE :q2 OR primary_contact_email LIKE :q3)';
+        $params['q']  = '%' . $_GET['q'] . '%';
+        $params['q2'] = $params['q'];
+        $params['q3'] = $params['q'];
+    }
     $limit = max(1, min(500, (int) ($_GET['limit'] ?? 100)));
     $sql = "SELECT c.id, c.name, c.legal_name, c.industry, c.status, c.payment_terms_days,
                    c.primary_contact_name, c.primary_contact_email,

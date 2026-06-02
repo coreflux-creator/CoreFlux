@@ -151,11 +151,12 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
             if ($placementId <= 0 || $workDate === '') continue;
 
             // Resolve period_id (legacy NOT-NULL column on time_entries).
+            // Distinct :wd_lo/:wd_hi to satisfy PDO_MYSQL native prepares.
             $period = scopedFind(
                 "SELECT id FROM time_periods
-                  WHERE tenant_id = :tenant_id AND start_date <= :wd AND end_date >= :wd AND status != 'closed'
+                  WHERE tenant_id = :tenant_id AND start_date <= :wd_lo AND end_date >= :wd_hi AND status != 'closed'
                   ORDER BY start_date DESC LIMIT 1",
-                ['wd' => $workDate]
+                ['wd_lo' => $workDate, 'wd_hi' => $workDate]
             );
             if (!$period) {
                 // Auto-create a weekly period if missing — keeps the UX flowing

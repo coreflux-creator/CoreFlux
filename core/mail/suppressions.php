@@ -193,8 +193,10 @@ function cf_mail_list_suppressions(int $tenantId, int $limit = 50, int $offset =
         $params = ['t' => $tenantId];
         $where  = 'tenant_id = :t AND removed_at IS NULL';
         if ($q !== '') {
-            $where .= ' AND (email_normalized LIKE :q OR notes LIKE :q)';
-            $params['q'] = '%' . $q . '%';
+            // Distinct placeholders required by PDO_MYSQL native prepares.
+            $where        .= ' AND (email_normalized LIKE :q OR notes LIKE :q2)';
+            $params['q']   = '%' . $q . '%';
+            $params['q2']  = $params['q'];
         }
         $stC = $pdo->prepare("SELECT COUNT(*) FROM mail_recipient_suppressions WHERE {$where}");
         $stC->execute($params);

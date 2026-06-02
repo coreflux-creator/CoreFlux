@@ -1,5 +1,57 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-06 (HY093 sweep, AI transfer detection, period UI, audit log fix, Plaid → CoA)
+
+User reported a wide-impact P0/P1 regression report (search broken, JE posting broken, sub-tenant dropdowns empty, audit-log missing event, AI categorizer mis-classifying inter-account transfers as "Accounts Receivable", Plaid bank not appearing on Chart of Accounts, posted JEs not showing in P&L / BS / Cash Flow, treasury entries staying unmatched on bank rec, cannot define periods, email not sending). All addressed in a single batch:
+
+### Root cause — repeated named placeholders under PDO_MYSQL native prepares
+`core/db.php` sets `PDO::ATTR_EMULATE_PREPARES => false`. The driver then translates `:foo` → `?` one-to-one; reusing the same name twice inside one SQL string surfaces as `SQLSTATE[HY093] Invalid parameter number`. This bug surfaced in 10+ places after the recent CSV/external_id waves added pressure on these code paths:
+- `modules/accounting/api/accounts.php`, `modules/staffing/api/clients.php`, `modules/people/lib/companies.php`, `modules/people/lib/people.php`, `modules/people/lib/employees.php` (search), `modules/ap/api/vendors.php`, `modules/placements/lib/placements.php`, `api/airtable.php`, `core/mail/suppressions.php` — search filters used `LIKE :q OR LIKE :q`.
+- `modules/accounting/lib/accounting.php::accountingResolvePeriod` — execute() bound `:d` but SQL expected `:d_lo`/`:d_hi` → JE posting fell over the second any month required period auto-creation.
+- `modules/accounting/lib/accounting.php::accountingTrialBalance` — `:t` repeated → every P&L / Balance Sheet / Trial Balance report came back empty.
+- `modules/accounting/lib/bank_rec.php::bankRecAutoSuggestMatches` — `:d` + `:tenant_id` repeated → treasury entries never auto-matched on bank rec.
+- `api/reports_finance.php` (AR/AP aging) — `:today` repeated.
+- `modules/staffing/lib/timesheets.php` — `:wd` repeated in period lookup.
+- `modules/people/lib/employees.php::peopleActiveStateTaxes` — `:tenant_id` + `:emp` repeated.
+
+Pattern fix: introduce distinct named placeholders (`:q`/`:q2`, `:d_lo`/`:d_hi`, `:tenant_id`/`:tenant_id2`, `:today`/`:today2`, etc.) bound to the same value. Each affected file got an inline comment explaining the constraint so future edits don't regress.
+
+### Other fixes shipped
+- **AI inter-account transfer detection** (`core/ai_categorization.php::aiCategorizationFromInterAccountTransfer`) — runs BEFORE history/rules/LLM. Heuristics:
+  1. Merchant/description contains another CoreFlux bank's nickname → 0.92 confidence
+  2. Description carries the other bank's last-4 → 0.92 confidence
+  3. Generic transfer keywords + only one other bank → 0.88 confidence
+  4. Mirror-amount probe (opposite sign, same |amount|, ±5 days) on a different bank → 0.85 confidence
+  Wired into the orchestrator with a new `source = 'transfer'` tag so the UI can label it. Resolves the screenshot complaint where Mercury inflows from First Citizens were being mis-tagged "Accounts Receivable".
+- **Plaid bank → Chart of Accounts** (`api/plaid_bank_link.php`, `api/plaid_diagnostics.php`) — depository branch now ensures a companion `accounting_accounts` row (`asset` / `debit` / `is_postable=1`) is inserted alongside `accounting_bank_accounts`. New diagnostics action `POST /api/plaid_diagnostics.php?action=backfill_gl_for_banks` populates the COA rows for any legacy bank already connected before this fix shipped.
+- **Audit log schema parity** (`core/migrations/097_audit_log_event_column.sql`) — idempotently CREATE TABLE IF NOT EXISTS with the canonical shape `(tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)`. Adds missing columns on legacy installs and backfills `event` from old `action` column. Master-admin Audit Log view (`core/views/admin/audit_log.php`) updated to read the canonical columns with legacy column fallback via COALESCE.
+- **Define-a-period endpoint + UI** (`modules/accounting/api/periods.php`, `modules/accounting/ui/Periods.jsx`) — new `POST ?action=create` with overlap rejection (HTTP 409) + audit-logged via `accounting.period.created`. Periods page gets a "Define period" button + inline form (start/end/status). RBAC gated under the same `accounting.period.close` permission.
+- **`GET /api/sub_tenants.php` read-open** — any authenticated member of the parent tenant can now list sub-tenants for dropdown population. Writes (POST/PATCH/DELETE/scope) still gated to master_admin / tenant_admin of the master tenant. Resolves "sub-tenant dropdowns are empty across the app".
+- **`ResendDriver::send()` empty-from defensive fix** — `$envelope['from']` being `""` (vs `null`) no longer bypasses the default-from fallback.
+
+### Test status
+- New smoke: `tests/hy093_repeated_placeholder_smoke.php` — 28 ✓ / 0 ✗ locks every fix above.
+- Full suite: **361 / 363 passing**. The 2 documented sandbox-only failures remain: `accounting_phase2_a7_smoke.php` and `tenant_mail_senders_smoke.php` (no MySQL/SMTP in this container).
+- Vite rebuild → bundle `index-BAay8Yua.js` / `index-BC5g6YJu.css`; `scripts/sync_bundle.sh` synced `.deploy-version`, service-worker CACHE_VERSION, `spa-assets/`, and `dashboard/dist/index.html`.
+
+### Operator next steps (production)
+1. Deploy and run migration 097 (`core/migrations/097_audit_log_event_column.sql`).
+2. After Cloudways pulls the new bundle, hit `POST /api/plaid_diagnostics.php?action=backfill_gl_for_banks` once per master tenant to surface already-connected banks on the CoA.
+3. Confirm `RESEND_API_KEY` + `RESEND_FROM_EMAIL` are set in the Cloudways env so production mail starts flowing (the driver fell back to LogDriver because the key is missing).
+
+### Backlog (unchanged priority)
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P1) Mercury Webhooks hardening.
+- (P2) Gusto integration / QBO hardening (parked).
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module (Fixed-fee project accounting).
+- (P3) AI Digest Scheduler.
+- (P3) External Auditor view.
+
+---
+
 ## Original Problem Statement
 Refactor a monolithic PHP application, CoreFlux, into a modular architecture. The core application provides a standardized shell, design system, and services (auth, multi-tenancy). Each business function (Accounting, People, Finance, Payroll) is a separate, self-contained module that "plugs into" this core shell. A React SPA (`spa.php`) is the primary frontend, authenticating via the existing PHP backend.
 

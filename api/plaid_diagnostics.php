@@ -91,6 +91,20 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
                 $bankName = $instName !== '' ? $instName : ($name ?: 'Bank');
                 $insName  = trim(($instName ? "{$instName} — " : '') . ($name ?: 'Account'));
 
+                // Ensure the COMPANION COA row exists so the bank shows up
+                // on Chart of Accounts. Bug fix 2026-06.
+                $aaCheck = $pdo->prepare('SELECT id FROM accounting_accounts WHERE tenant_id = :t AND code = :c LIMIT 1');
+                $aaCheck->execute(['t' => $tenantId, 'c' => $glCode]);
+                if ((int) $aaCheck->fetchColumn() === 0) {
+                    $glFull = $insName . ($mask ? " …{$mask}" : '');
+                    $pdo->prepare(
+                        "INSERT INTO accounting_accounts
+                            (tenant_id, code, name, account_type, normal_side,
+                             is_postable, parent_account_id, active, created_at)
+                         VALUES (:t, :c, :n, 'asset', 'debit', 1, NULL, 1, NOW())"
+                    )->execute(['t' => $tenantId, 'c' => $glCode, 'n' => $glFull ?: ($name ?: 'Bank account')]);
+                }
+
                 $pdo->prepare(
                     'INSERT INTO accounting_bank_accounts
                         (tenant_id, name, gl_account_code, bank_name, last4, currency,
@@ -164,6 +178,55 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
         'liability_accounts_created' => $createdLiab,
         'skipped'                    => $skipped,
         'errors'                     => $errors,
+    ]);
+}
+
+if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill_gl_for_banks') {
+    // Backfill missing accounting_accounts (COA) rows for banks that
+    // already have rows in accounting_bank_accounts (legacy data before
+    // the Plaid → CoA wiring was completed). Idempotent — only creates
+    // GL rows for codes that don't already exist.
+    $pdo = getDB();
+    $rows = $pdo->prepare(
+        "SELECT ba.id, ba.name, ba.gl_account_code, ba.bank_name, ba.last4
+           FROM accounting_bank_accounts ba
+      LEFT JOIN accounting_accounts aa
+                 ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
+          WHERE ba.tenant_id = :t
+            AND ba.gl_account_code IS NOT NULL
+            AND aa.id IS NULL"
+    );
+    $rows->execute(['t' => $tenantId]);
+    $missing = $rows->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $created = [];
+    $errs    = [];
+    foreach ($missing as $row) {
+        $code   = (string) $row['gl_account_code'];
+        $label  = trim((string) ($row['name'] ?? ($row['bank_name'] ?? '')));
+        $last4  = (string) ($row['last4'] ?? '');
+        $glName = $label !== '' ? $label : ($row['bank_name'] ?? 'Bank account');
+        if ($last4 !== '' && stripos($glName, $last4) === false) $glName .= " …{$last4}";
+        try {
+            $pdo->prepare(
+                "INSERT INTO accounting_accounts
+                    (tenant_id, code, name, account_type, normal_side,
+                     is_postable, parent_account_id, active, created_at)
+                 VALUES (:t, :c, :n, 'asset', 'debit', 1, NULL, 1, NOW())"
+            )->execute(['t' => $tenantId, 'c' => $code, 'n' => $glName]);
+            $created[] = ['bank_account_id' => (int) $row['id'], 'code' => $code, 'name' => $glName];
+        } catch (\Throwable $e) {
+            $errs[] = "bank '{$label}' code {$code}: " . $e->getMessage();
+        }
+    }
+    if (function_exists('plaidAudit')) {
+        plaidAudit('accounting.coa.bank_backfill', [
+            'created'  => $created, 'errors' => $errs,
+        ], null);
+    }
+    api_ok([
+        'missing_count'   => count($missing),
+        'created'         => $created,
+        'errors'          => $errs,
     ]);
 }
 
