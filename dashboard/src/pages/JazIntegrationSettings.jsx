@@ -306,6 +306,10 @@ export default function JazIntegrationSettings() {
                 entities={entities}
                 onFlash={setFlash}
               />
+              <JazSyncNowCard
+                subTenantId={subTenantId}
+                onFlash={setFlash}
+              />
               <JazAccountMappingCard
                 subTenantId={subTenantId}
                 onFlash={setFlash}
@@ -396,9 +400,11 @@ function JazSyncConfigCard({ subTenantId, onFlash }) {
           {Object.keys(JAZ_ENTITY_LABELS).map((entity) => {
             const dir = current[entity] || 'off';
             const meta = JAZ_DIR_META[dir] || JAZ_DIR_META.off;
-            const allowed = entity === 'chart_of_accounts'
-              ? ['pull', 'off']
-              : allowedDirs;
+            // chart_of_accounts is now bi-directional capable — operator
+            // can push CoreFlux's CoA to Jaz (creating any missing accounts
+            // upstream) and pull mappings back at the same time.
+            // (Restriction lifted 2026-02 per Kunal's direction.)
+            const allowed = allowedDirs;
             return (
               <tr key={entity} data-testid={`jaz-sync-row-${entity}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '8px 4px', fontWeight: 500 }}>{JAZ_ENTITY_LABELS[entity]}</td>
@@ -509,6 +515,120 @@ function JazCopyConfigCard({ subTenantId, entities, onFlash }) {
           {busy ? 'Copying…' : 'Copy settings'}
         </button>
       </div>
+    </fieldset>
+  );
+}
+
+
+/* -------------------------------------------------------------------
+   Manual sync trigger.  Runs the currently-configured sync_config
+   immediately (no cron wait).  Surfaces a per-entity result strip
+   so the operator can see exactly what got pulled / pushed.
+
+   For chart_of_accounts:
+     · pull    → refreshes the Jaz → CoreFlux mapping (auto-map by code)
+     · push    → creates the missing accounts on Jaz from CoreFlux's CoA
+     · two_way → does both, pull-side first to dedupe by code
+
+   Other entity types flow via the async Command Service outbox; this
+   card surfaces a pointer to where to view them rather than re-running
+   them inline (which would race with the cron worker).
+-------------------------------------------------------------------- */
+function JazSyncNowCard({ subTenantId, onFlash }) {
+  const [busy,    setBusy]    = useState(false);
+  const [result,  setResult]  = useState(null);
+  const [error,   setError]   = useState(null);
+
+  const runSync = async (entityTypes = null) => {
+    if (!subTenantId) return;
+    setBusy(true); setError(null); setResult(null);
+    try {
+      const payload = { sub_tenant_id: subTenantId };
+      if (entityTypes) payload.entity_types = entityTypes;
+      const r = await api.post('/api/accounting.php?action=sync_now&provider=jaz', payload);
+      setResult(r);
+      const coa  = r?.results?.chart_of_accounts;
+      const pull = coa?.pull?.mapped         ?? 0;
+      const push = coa?.push?.pushed         ?? 0;
+      const skp  = coa?.push?.skipped_existing ?? 0;
+      onFlash?.({
+        type: 'success',
+        msg:  `Synced. CoA · ${pull} mapped from Jaz · ${push} pushed to Jaz (${skp} already existed).`,
+      });
+    } catch (e) {
+      setError(e.message || 'Sync failed');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <fieldset style={fieldsetStyle} data-testid="jaz-sync-now-card">
+      <legend style={legendStyle}>Step 3b — Sync now</legend>
+      <p style={{ margin: 0, color: 'var(--cf-text-secondary)', fontSize: 13 }}>
+        Run the configured sync immediately instead of waiting for the cron worker.
+        Chart-of-accounts entries flow inline (pull, push, or both depending on the
+        direction picker above).  Bills / Invoices / Payments / Journals flow via the
+        Command Service async outbox — this button surfaces a pointer to
+        <code> /api/accounting.php?action=command_status</code> for those.
+      </p>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+        <button
+          onClick={() => runSync(null)}
+          disabled={busy || !subTenantId}
+          className="btn btn--primary"
+          data-testid="jaz-sync-now-all"
+        >
+          {busy ? 'Syncing…' : 'Sync everything now'}
+        </button>
+        <button
+          onClick={() => runSync(['chart_of_accounts'])}
+          disabled={busy || !subTenantId}
+          className="btn btn--ghost"
+          data-testid="jaz-sync-now-coa"
+        >
+          {busy ? 'Syncing…' : 'CoA only'}
+        </button>
+      </div>
+      {error && (
+        <p data-testid="jaz-sync-now-error" style={{ marginTop: 10, color: '#b94a4a', fontSize: 13 }}>
+          {error}
+        </p>
+      )}
+      {result?.results && (
+        <table data-testid="jaz-sync-now-results" style={{ width: '100%', marginTop: 12, fontSize: 12, borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ textAlign: 'left', color: 'var(--cf-text-secondary)' }}>
+              <th style={{ padding: '4px 6px' }}>Entity</th>
+              <th style={{ padding: '4px 6px' }}>Direction</th>
+              <th style={{ padding: '4px 6px' }}>Outcome</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(result.results).map(([entity, r]) => {
+              let outcome = '';
+              if (entity === 'chart_of_accounts') {
+                const pull = r.pull?.mapped ?? null;
+                const push = r.push?.pushed ?? null;
+                const skp  = r.push?.skipped_existing ?? null;
+                const errs = (r.push?.errors?.length || 0) + (r.pull?.error ? 1 : 0);
+                outcome = [
+                  pull !== null ? `pull: ${pull} mapped` : null,
+                  push !== null ? `push: ${push} created${skp ? ` (${skp} skipped)` : ''}` : null,
+                  errs ? `${errs} error${errs === 1 ? '' : 's'}` : null,
+                ].filter(Boolean).join(' · ') || 'no-op';
+              } else {
+                outcome = r.note || 'queued via outbox';
+              }
+              return (
+                <tr key={entity} data-testid={`jaz-sync-row-${entity}`} style={{ borderTop: '1px solid var(--cf-border, #eee)' }}>
+                  <td style={{ padding: '4px 6px' }}>{entity}</td>
+                  <td style={{ padding: '4px 6px' }}>{r.direction}</td>
+                  <td style={{ padding: '4px 6px' }}>{outcome}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </fieldset>
   );
 }

@@ -72,6 +72,18 @@ abstract class AccountingProviderAdapter
     abstract public function createDraftBill(int $tenantId, int $subTenantId, array $bill, string $idempotencyKey): array;
     abstract public function createDraftInvoice(int $tenantId, int $subTenantId, array $invoice, string $idempotencyKey): array;
     abstract public function createDraftJournal(int $tenantId, int $subTenantId, array $journal, string $idempotencyKey): array;
+
+    /**
+     * Create (or upsert) an account on the destination ledger.  Returns a
+     * row with `provider_account_id`, `code`, `name`, and `type` so callers
+     * can immediately persist an `accounting_account_mappings` row.
+     *
+     * Adapters that do not yet support outbound CoA push should override
+     * this with a thrown `AccountingAdapterValidationException` so the
+     * sync-now pipeline degrades gracefully rather than corrupting state.
+     */
+    abstract public function createAccount(int $tenantId, int $subTenantId, array $account, string $idempotencyKey): array;
+
     abstract public function postObject(int $tenantId, int $subTenantId, string $providerObjectType, string $providerObjectId): array;
 
     // -------- Generic fetch + error normalisation --------

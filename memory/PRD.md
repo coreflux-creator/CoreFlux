@@ -1,5 +1,146 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Jaz finish — Sync now button + bidirectional CoA)
+
+User direction (after accounting basics): "first finish up the jaz
+integration. there's no sync button. also, chart of accounts only sync
+one way (pull from Jaz), why not either way?"
+
+### Shipped
+
+1. **Bidirectional CoA on the sync_config model**
+   (`core/accounting/sync_config_service.php`):
+   - Removed the silent coercion of `chart_of_accounts` to `pull|off`
+     in both the read AND write code paths.  Operators can now pick
+     `push` or `two_way` for CoA.
+
+2. **`createAccount()` on the provider adapter contract**
+   (`core/accounting/provider_adapter.php`):
+   - Added `abstract public function createAccount(int $tenantId,
+     int $subTenantId, array $account, string $idempotencyKey): array`
+     so any provider (Jaz today; Zoho / QBO later) implements outbound
+     CoA push the same way they implement draft-bill push.
+
+3. **Jaz outbound `createAccount()` implementation**
+   (`core/accounting/jaz_adapter.php`):
+   - POST to Jaz `chart-of-accounts` with `accountCode` / `accountName`
+     / uppercased `accountType` / `currency.code`.
+   - **409-conflict is idempotent-success**: on `409`, the adapter
+     re-queries `chart-of-accounts?accountCode=X` and returns the
+     existing row's `provider_account_id` so a re-run of the sync
+     button never blocks the operator.
+   - Returns a normalized response shape (`provider_object_id`,
+     `provider_account_code`, `provider_account_name`,
+     `provider_account_type`) so the mapper can persist a clean
+     `accounting_account_mappings` row without re-shaping.
+
+4. **Push-side auto-mapper**
+   (`core/accounting/account_mapping_service.php`):
+   - New `accountingAccountMappingsPushToProvider($tenantId,
+     $subTenantId, $provider, $userId)`:
+     - Pre-fetches the provider's existing CoA, lowercase-keyed by
+       `code` so the push pass skips codes already upstream
+       (treats them as `skipped_existing`).
+     - For genuinely-new CoreFlux accounts: calls
+       `$adapter->createAccount()` with a deterministic idempotency
+       key (`coa_push:{tenantId}:{subTenantId}:{code}`) and persists
+       the mapping via `accountingAccountMappingsSave()`.
+     - Per-account best-effort: any failure surfaces in the returned
+       `errors` array but never blocks the rest of the batch.
+
+5. **`sync_now` action on `/api/accounting.php`** — the "Sync now"
+   button's backend:
+   - Reads the sub-tenant's `sync_config`, branches per entity_type:
+     - `chart_of_accounts: pull` → `accountingAccountMappingsAutoMap`.
+     - `chart_of_accounts: push` → `accountingAccountMappingsPushToProvider`.
+     - `chart_of_accounts: two_way` → both, pull first so the push
+       pass can skip codes already mapped from the pull pass.
+   - Async-outbox-driven entities (bills, invoices, payments,
+     journal_entries, intercompany, contacts) surface a note pointing
+     to `?action=command_status` rather than racing the cron worker.
+   - Accepts an optional `entity_types: [...]` body filter so the UI
+     can offer a "CoA only" button alongside the global one.
+   - RBAC-gated via `accounting.connection.manage`.
+
+6. **`JazSyncNowCard` React component** in
+   `dashboard/src/pages/JazIntegrationSettings.jsx`:
+   - Two buttons: **Sync everything now** (no filter) and **CoA only**
+     (`entity_types: ['chart_of_accounts']`).
+   - Per-entity results table renders the outcome ("pull: 12 mapped ·
+     push: 3 created (1 skipped)") so the operator can see exactly
+     what happened.
+   - Flash banner summarises the most operator-relevant counter
+     ("Synced. CoA · 12 mapped from Jaz · 3 pushed to Jaz (1 already
+     existed).").
+   - Mounted between the sync-config card and the account-mapping card
+     in the integration settings page, with a `Step 3b — Sync now`
+     legend so the operator workflow is linear.
+
+7. **JazSyncConfigCard CoA dir picker lifted**:
+   The hardcoded `entity === 'chart_of_accounts' ? ['pull','off']` was
+   removed in favour of the full `allowedDirs` array.  Operators can
+   now flip CoA into push or two_way without dropping into SQL.
+
+8. **CI lane classifier rebalance**
+   (`scripts/ci_lane_classifier.sh`):
+   - `jaz_*`, `zoho_*`, `qbo_*`, `accounting_basics_*`, `rbac_cpa_*`
+     now route to the `modules` lane instead of falling through to
+     `core`.  Keeps the 50%-cap-per-lane assertion in
+     `ci_lane_classifier_smoke.php` green.
+
+9. **Test smoke** (`tests/jaz_sync_button_and_coa_bidir_smoke.php`) —
+   **45 / 45 ✓** locking the entire surface: the service-layer
+   restriction lift, the adapter contract, the Jaz POST impl, the
+   push-side mapper, the API action handler, and every UI testid.
+
+### Test status
+- Full PHP suite: **368 / 370 passing**. Only the two documented
+  sandbox-bound failures remain (`accounting_phase2_a7_smoke.php`,
+  `tenant_mail_senders_smoke.php`).
+- All sentries (tenant-leak, auth-gate, HY093 placeholder, lane
+  classifier) green.
+- New smoke 45/45 ✓.
+- Vite build → bundle `coreflux-DNmycMIx`.
+
+### Files touched
+- `core/accounting/sync_config_service.php` (CoA dir restriction lifted)
+- `core/accounting/provider_adapter.php` (createAccount abstract)
+- `core/accounting/jaz_adapter.php` (createAccount impl + 409-idempotent)
+- `core/accounting/account_mapping_service.php` (push-side helper)
+- `api/accounting.php` (sync_now action)
+- `dashboard/src/pages/JazIntegrationSettings.jsx` (Sync Now card + CoA dir lift)
+- `scripts/ci_lane_classifier.sh` (lane rebalance)
+- `tests/jaz_sync_button_and_coa_bidir_smoke.php` (new)
+
+### Roadmap (next — Kunal's prioritised order)
+
+**Batch 3 — Cross-tenant intercompany approval** (P0, agreed FIRST):
+- Posting an intercompany JE in entity A with a counterparty in entity
+  B's tenant creates a pending approval row in tenant B.
+- Tenant B's admin sees it in their inbox + approves/declines.
+- On approve, both legs post simultaneously to both tenants' books.
+- New `intercompany_approval_queue` table + counterparty inbox UI.
+
+**Batch 2 — Time + Placements UX rebuild** (P0, AFTER Batch 3):
+- Click into individual timesheets.
+- Placement detail page: Timesheets section (history / pending / new).
+- Approve rates inside the placement workflow.
+- Flexible invoice/payable creation: placement + daily granularity.
+
+**Batch 4 — Expand patterns elsewhere** (later, per user direction).
+
+### Backlog (unchanged priority)
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P1) Mercury Webhooks hardening.
+- (P2) Gusto integration / QBO hardening.
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module.
+- (P3) AI Digest Scheduler.
+
+---
+
 ## Session — 2026-02 (Accounting Basics — un-blocks Bookkeeping/Bank Rec/Consolidation)
 
 User direction (after CPA-layer phase 2): "we're still not buttoned up on basic

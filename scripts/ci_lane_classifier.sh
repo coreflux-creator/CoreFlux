@@ -57,7 +57,8 @@ ci_classify_lane() {
         tenant_mail_*|mailer_*|mail_service_*|bugfix_*|storage_service_*|\
         m365_graph_*|sprint3_staffing_loop_*|sprint6c_*|sprint7c_treasury_*|\
         sprint8*|sprint9_*|p0_ap_bill_liquidity_*|p1_a4_time_direction_*|\
-        p2_liquidity_and_auto_reverse_*|approval_reminders_daily_*)
+        p2_liquidity_and_auto_reverse_*|approval_reminders_daily_*|\
+        jaz_*|zoho_*|qbo_*|accounting_basics_*|rbac_cpa_*)
             echo "modules"; return 0 ;;
 
         # ── core (~50 tests) — everything else (default lane) ──

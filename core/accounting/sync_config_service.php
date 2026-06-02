@@ -60,12 +60,11 @@ function accountingSyncConfigGet(int $tenantId, int $subTenantId, string $provid
     foreach (ACC_SYNC_ENTITY_TYPES as $entity) {
         $val = $raw[$entity] ?? 'off';
         if (!in_array($val, ACC_SYNC_DIRECTIONS, true)) $val = 'off';
-        // chart_of_accounts can't be "push" or "two_way" — the destination
-        // owns its CoA. Coerce silently rather than reject so legacy rows
-        // don't trap operators.
-        if ($entity === 'chart_of_accounts' && !in_array($val, ['pull','off'], true)) {
-            $val = 'pull';
-        }
+        // chart_of_accounts is now bi-directional capable — operators
+        // commonly want to author the CoA in CoreFlux and push it to
+        // the destination ledger (Jaz, Zoho, QBO). Previously this was
+        // coerced to 'pull'|'off' because the destination was assumed
+        // to own its CoA; lifted 2026-02 per direction.
         $config[$entity] = $val;
     }
     return $config;
@@ -82,9 +81,7 @@ function accountingSyncConfigSave(int $tenantId, int $subTenantId, string $provi
     foreach (ACC_SYNC_ENTITY_TYPES as $entity) {
         $val = $config[$entity] ?? 'off';
         if (!in_array($val, ACC_SYNC_DIRECTIONS, true)) $val = 'off';
-        if ($entity === 'chart_of_accounts' && !in_array($val, ['pull','off'], true)) {
-            $val = 'pull';
-        }
+        // CoA bi-directional lifted 2026-02; see read-side comment above.
         $normalized[$entity] = $val;
     }
     getDB()->prepare(

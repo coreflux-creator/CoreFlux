@@ -228,6 +228,109 @@ function accountingAccountMappingsAutoMap(int $tenantId, int $subTenantId, strin
 }
 
 /**
+ * Push-side counterpart of accountingAccountMappingsAutoMap().
+ *
+ * For every unmapped CoreFlux account that does NOT yet have a provider
+ * counterpart with the matching code, create one on the provider via
+ * the adapter's createAccount() method and persist the mapping.
+ *
+ * Per-account best-effort: a failure on any one account never blocks
+ * the rest of the batch.  The returned `errors` array surfaces them so
+ * the UI can flag rows that didn't take.
+ *
+ * Returns:
+ *   - pushed:           int — how many provider rows were created
+ *   - skipped_existing: int — how many CF accounts already had a code-match upstream
+ *   - errors:           list — per-account error rows
+ *   - new_mappings:     list — freshly created mapping rows
+ */
+function accountingAccountMappingsPushToProvider(int $tenantId, int $subTenantId, string $provider, ?int $userId = null): array
+{
+    require_once __DIR__ . '/provider_adapter.php';
+    $adapter = accountingProviderAdapterFor($provider);
+
+    // Snapshot the provider's existing CoA so we can skip codes that
+    // already live on the destination (treat that as "skipped_existing"
+    // rather than re-creating it — the auto-pull mapper would have
+    // mapped those anyway).
+    try {
+        $report = $adapter->getChartOfAccounts($tenantId, $subTenantId, []);
+    } catch (\Throwable $e) {
+        return ['error' => 'Provider CoA pre-fetch failed: ' . $e->getMessage(), 'pushed' => 0];
+    }
+    $providerCodes = [];
+    foreach (($report['accounts'] ?? []) as $pa) {
+        $code = strtolower((string) ($pa['code'] ?? ''));
+        if ($code !== '') $providerCodes[$code] = $pa;
+    }
+
+    $unmapped = accountingAccountMappingsUnmapped($tenantId, $subTenantId, $provider);
+    $skippedExisting = 0;
+    $errors          = [];
+    $newMappings     = [];
+    foreach ($unmapped as $cf) {
+        $code = strtolower((string) ($cf['code'] ?? ''));
+        if ($code === '') continue;
+        if (isset($providerCodes[$code])) {
+            // Provider already has this code — map to the existing one
+            // (the same thing the pull auto-mapper would have done).
+            $pa = $providerCodes[$code];
+            $newMappings[] = accountingAccountMappingsSave(
+                $tenantId, $subTenantId, $provider,
+                [
+                    'coreflux_account_id'   => (int) $cf['id'],
+                    'provider_account_id'   => (string) ($pa['id']   ?? $pa['provider_id'] ?? ''),
+                    'provider_account_code' => (string) ($pa['code'] ?? ''),
+                    'provider_account_name' => (string) ($pa['name'] ?? ''),
+                    'provider_account_type' => (string) ($pa['type'] ?? ''),
+                    'source'                => 'auto_code',
+                    'confidence'            => 80,
+                ],
+                $userId
+            );
+            $skippedExisting++;
+            continue;
+        }
+        try {
+            $idem = 'coa_push:' . $tenantId . ':' . $subTenantId . ':' . $cf['code'];
+            $created = $adapter->createAccount($tenantId, $subTenantId, [
+                'code'        => (string) ($cf['code']  ?? ''),
+                'name'        => (string) ($cf['name']  ?? ''),
+                'type'        => (string) ($cf['account_type'] ?? 'asset'),
+                'currency'    => 'USD',
+                'description' => 'Pushed from CoreFlux',
+            ], $idem);
+            $newMappings[] = accountingAccountMappingsSave(
+                $tenantId, $subTenantId, $provider,
+                [
+                    'coreflux_account_id'   => (int) $cf['id'],
+                    'provider_account_id'   => (string) $created['provider_object_id'],
+                    'provider_account_code' => (string) ($created['provider_account_code'] ?? $cf['code']),
+                    'provider_account_name' => (string) ($created['provider_account_name'] ?? $cf['name']),
+                    'provider_account_type' => (string) ($created['provider_account_type'] ?? $cf['account_type']),
+                    'source'                => 'imported',
+                    'confidence'            => 100,
+                ],
+                $userId
+            );
+        } catch (\Throwable $e) {
+            $errors[] = [
+                'coreflux_account_id' => (int) $cf['id'],
+                'code'                => (string) ($cf['code'] ?? ''),
+                'error'               => $e->getMessage(),
+            ];
+        }
+    }
+
+    return [
+        'pushed'           => count($newMappings) - $skippedExisting,
+        'skipped_existing' => $skippedExisting,
+        'errors'           => $errors,
+        'new_mappings'     => $newMappings,
+    ];
+}
+
+/**
  * Look up the provider-side account id given a CoreFlux account id.
  * Returns null if unmapped — outbox enqueue should then route to the
  * "needs mapping" dead-letter queue instead of failing the push.

@@ -282,6 +282,73 @@ class JazAccountingAdapter extends AccountingProviderAdapter
     }
 
     /**
+     * Push a CoreFlux account into Jaz's Chart of Accounts.
+     *
+     * Required fields on $account: code, name, type ('asset'|'liability'|
+     * 'equity'|'revenue'|'expense').  Optional: currency (defaults USD),
+     * description, parent_account_code.
+     *
+     * Jaz accepts `chart-of-accounts` POST with `accountCode`, `accountName`,
+     * `accountType` (uppercase ENUM), `currency.code`.  We tolerate Jaz
+     * returning either the freshly-created resource OR a 409 with the
+     * existing one — the latter is the desired idempotent path.
+     */
+    public function createAccount(int $tenantId, int $subTenantId, array $account, string $idempotencyKey): array
+    {
+        $key  = $this->keyOrThrow($tenantId, $subTenantId);
+        $code = trim((string) ($account['code'] ?? ''));
+        $name = trim((string) ($account['name'] ?? ''));
+        if ($code === '' || $name === '') {
+            throw new AccountingAdapterValidationException('createAccount requires code + name');
+        }
+        // Jaz uses the same vocabulary CoreFlux does, but uppercased.
+        $type = strtoupper((string) ($account['type'] ?? 'asset'));
+        if (!in_array($type, ['ASSET','LIABILITY','EQUITY','REVENUE','EXPENSE'], true)) {
+            $type = 'ASSET';
+        }
+        $payload = [
+            'accountCode' => $code,
+            'accountName' => $name,
+            'accountType' => $type,
+            'isActive'    => true,
+            'currency'    => ['code' => (string) ($account['currency'] ?? 'USD')],
+        ];
+        if (!empty($account['description'])) $payload['description'] = (string) $account['description'];
+
+        try {
+            $resp = jazCall($key, 'POST', 'chart-of-accounts', $payload);
+        } catch (\Throwable $e) {
+            // 409 (already exists) is idempotent-success — look up the
+            // existing row by code so the caller still gets a usable
+            // provider_account_id.  Any other failure bubbles.
+            $isConflict = false;
+            if ($e instanceof \RuntimeException && method_exists($e, 'getCode')) {
+                $isConflict = ((int) $e->getCode()) === 409;
+            }
+            if (!$isConflict) throw $e;
+            $resp = jazCall($key, 'GET', 'chart-of-accounts', [], [
+                'page' => 1, 'pageSize' => 50, 'accountCode' => $code,
+            ]);
+            $hit = ($resp['data'][0] ?? $resp['items'][0] ?? $resp['results'][0] ?? null);
+            if (!$hit) {
+                throw new \RuntimeException("Jaz rejected createAccount({$code}) and lookup returned nothing");
+            }
+            $resp = $hit;
+        }
+        $normalized = $this->normalizeCoaRow(is_array($resp) ? $resp : ['data' => $resp]);
+        return [
+            'provider_object_type' => 'account',
+            'provider_object_id'   => (string) $normalized['provider_id'],
+            'provider_account_code'=> (string) $normalized['code'],
+            'provider_account_name'=> (string) $normalized['name'],
+            'provider_account_type'=> (string) $normalized['type'],
+            'idempotency_key'      => $idempotencyKey,
+            'status'               => 'posted',
+            'jaz_payload'          => $resp,
+        ];
+    }
+
+    /**
      * Convert a Jaz draft to active. Spec §15.3 calls this
      * "approve_command → execute_command → posted". For drafts created
      * via createDraft*, Jaz exposes a `/draft/convert-to-active` bulk

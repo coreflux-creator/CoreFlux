@@ -228,6 +228,84 @@ if ($method === 'POST' && $action === 'account_mapping_auto') {
     }
 }
 
+if ($method === 'POST' && $action === 'sync_now') {
+    /**
+     * Manual sync trigger — operator-facing "Sync now" button.
+     *
+     * Reads the sub-tenant's sync_config and, for each entity type the
+     * operator opted into, runs the matching pull / push pipeline:
+     *
+     *   - chart_of_accounts:
+     *       'pull'    → re-runs auto-map (Jaz → CoreFlux mapping refresh)
+     *       'push'    → creates Jaz accounts for unmapped CoreFlux rows
+     *       'two_way' → does both (pull-side first so we skip codes
+     *                   that already exist upstream)
+     *
+     *   Other entity types (invoices, bills, payments, journal_entries,
+     *   intercompany, contacts) currently no-op here — those flow via
+     *   the Command Service async outbox.  We surface a `queued: 0`
+     *   counter for them so the UI can still show "Nothing to sync" or
+     *   route the operator to the outbox.  Future scope: tap the outbox
+     *   to drain pending commands inline.
+     *
+     * Returns a per-entity result map plus an aggregate ok flag.
+     */
+    rbac_legacy_require($user, 'accounting.connection.manage');
+    require_once __DIR__ . '/../core/accounting/account_mapping_service.php';
+    require_once __DIR__ . '/../core/accounting/sync_config_service.php';
+
+    $body = api_json_body();
+    $sub  = (int) ($body['sub_tenant_id'] ?? 0);
+    if ($sub <= 0) api_error('sub_tenant_id required', 422);
+    $entityFilter = is_array($body['entity_types'] ?? null) ? $body['entity_types'] : null;
+
+    $config  = accountingSyncConfigGet($tid, $sub, $provider);
+    $userId  = (int) ($user['id'] ?? 0) ?: null;
+    $results = [];
+
+    foreach ($config as $entity => $direction) {
+        if ($direction === 'off') continue;
+        if ($entityFilter !== null && !in_array($entity, $entityFilter, true)) continue;
+
+        if ($entity === 'chart_of_accounts') {
+            $entityResult = ['direction' => $direction];
+            if (in_array($direction, ['pull', 'two_way'], true)) {
+                try {
+                    $entityResult['pull'] = accountingAccountMappingsAutoMap($tid, $sub, $provider, $userId);
+                } catch (\Throwable $e) {
+                    $entityResult['pull'] = ['error' => $e->getMessage()];
+                }
+            }
+            if (in_array($direction, ['push', 'two_way'], true)) {
+                try {
+                    $entityResult['push'] = accountingAccountMappingsPushToProvider($tid, $sub, $provider, $userId);
+                } catch (\Throwable $e) {
+                    $entityResult['push'] = ['error' => $e->getMessage()];
+                }
+            }
+            $results[$entity] = $entityResult;
+            continue;
+        }
+
+        // Async-outbox-driven entities: surface a pointer rather than
+        // sync inline.  The Command Service is the canonical path for
+        // these — a manual "drain" here would race with the cron worker.
+        $results[$entity] = [
+            'direction' => $direction,
+            'queued'    => 0,
+            'note'      => 'Streams via Command Service outbox — surfaces in /api/accounting.php?action=command_status.',
+        ];
+    }
+
+    api_ok([
+        'sync_at'   => date('c'),
+        'provider'  => $provider,
+        'sub_tenant_id' => $sub,
+        'config'    => $config,
+        'results'   => $results,
+    ]);
+}
+
 // ============================================================================
 // Read APIs — spec §15.2
 // ============================================================================
