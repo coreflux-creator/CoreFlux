@@ -322,3 +322,400 @@ function accountingReverseCrossTenantIntercompany(
         'reversals'        => $reversals,
     ];
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+//                    APPROVAL-WORKFLOW VARIANT (2026-02)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// The functions above post BOTH legs immediately on the source admin's
+// authority.  This block adds the propose → counterparty-approve → post
+// pattern: from-leg lands on source's books at propose-time, a pending
+// row goes onto `intercompany_xtenant_queue`, and only the target tenant's
+// admin can promote it onto their own books (or decline it, which
+// reverses the source leg).
+//
+// Public surface:
+//   accountingProposeCrossTenantIntercompany(from, to, amount, memo, opts, actor) → queue row
+//   accountingApproveCrossTenantIntercompany(queueId, actor)                       → posts to-leg
+//   accountingDeclineCrossTenantIntercompany(queueId, actor, reason)               → reverses from-leg
+//   accountingListCrossTenantIntercompanyInbox(tenantId, status)                   → for the UI
+//   accountingListCrossTenantIntercompanyOutbox(tenantId, status)                  → for the UI
+//
+// ─────────────────────────────────────────────────────────────────────────
+
+function _cxIcQueueRow(\PDO $pdo, int $queueId): ?array {
+    // tenant-leak-allow: caller filters on source_/target_tenant_id; this
+    //   one-by-id fetch is the canonical lookup.
+    $st = $pdo->prepare('SELECT * FROM intercompany_xtenant_queue WHERE id = :id LIMIT 1');
+    $st->execute(['id' => $queueId]);
+    $row = $st->fetch(\PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+/**
+ * Step 1 — Source admin proposes a cross-tenant IC entry.
+ *
+ *   - Posts the FROM leg on the source tenant's books immediately.
+ *   - Stamps a `pending` row on `intercompany_xtenant_queue` carrying
+ *     enough metadata for the target tenant's admin to approve or
+ *     decline without re-typing anything.
+ *   - Does NOT post the to-leg yet.
+ *
+ * Same option vocabulary as accountingPostCrossTenantIntercompany() so
+ * callers can swap one for the other.  Returns the queue row id +
+ * source JE info for the UI to confirm the proposal.
+ */
+function accountingProposeCrossTenantIntercompany(
+    int $fromTenantId,
+    int $toTenantId,
+    float $amount,
+    string $memo,
+    array $opts = [],
+    ?int $actorUserId = null
+): array {
+    if ($fromTenantId === $toTenantId) throw new \InvalidArgumentException('from and to tenant must differ');
+    if ($amount <= 0)                  throw new \InvalidArgumentException('amount must be > 0');
+
+    // Same master-parent sanity check as the immediate-post variant.
+    $from = subTenantLookup($fromTenantId);
+    $to   = subTenantLookup($toTenantId);
+    if (!$from || !$to) throw new \InvalidArgumentException('tenant not found');
+    $fromMaster = $from['tenant_type'] === 'master' ? (int) $from['id'] : (int) ($from['parent_id'] ?? 0);
+    $toMaster   = $to['tenant_type']   === 'master' ? (int) $to['id']   : (int) ($to['parent_id']   ?? 0);
+    if ($fromMaster !== $toMaster || !$fromMaster) {
+        throw new \InvalidArgumentException('cross-tenant intercompany requires the same master parent');
+    }
+
+    $fromAccountCode = (string) ($opts['from_account_code'] ?? '1700');
+    $toAccountCode   = (string) ($opts['to_account_code']   ?? '2700');
+    $fromOffsetCode  = (string) ($opts['from_offset_code']  ?? '1000');
+    $toOffsetCode    = (string) ($opts['to_offset_code']    ?? '1000');
+    $postingDate     = (string) ($opts['posting_date']      ?? date('Y-m-d'));
+
+    $fromCurrency = strtoupper((string) ($opts['from_currency'] ?? $opts['currency'] ?? 'USD'));
+    $toCurrency   = strtoupper((string) ($opts['to_currency']   ?? $fromCurrency));
+    $fxRate       = (float) ($opts['fx_rate'] ?? 1.0);
+    if ($fromCurrency !== $toCurrency && $fxRate <= 0) {
+        throw new \InvalidArgumentException("fx_rate must be > 0 when currencies differ");
+    }
+    if ($fxRate <= 0) $fxRate = 1.0;
+    $toAmount = round($amount * $fxRate, 2);
+    if ($toAmount <= 0) throw new \InvalidArgumentException("computed to-leg amount must be > 0");
+
+    $ref = (string) ($opts['intercompany_ref']
+        ?? sprintf('IC-%s-%s', date('Y'), strtoupper(bin2hex(random_bytes(3)))));
+    if (!preg_match('/^[A-Za-z0-9_-]{4,64}$/', $ref)) {
+        throw new \InvalidArgumentException("intercompany_ref must match /^[A-Za-z0-9_-]{4,64}$/");
+    }
+
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No database connection');
+
+    // TTL — operator can override; default 14 days.
+    $ttlDays   = max(1, min(60, (int) ($opts['ttl_days'] ?? 14)));
+    $expiresAt = date('Y-m-d H:i:s', strtotime("+{$ttlDays} days"));
+
+    $fxNote = $fromCurrency === $toCurrency
+        ? ''
+        : sprintf(' [FX %s→%s @ %.6f]', $fromCurrency, $toCurrency, $fxRate);
+
+    // Post the FROM leg immediately.
+    $fromJe = accountingPostJe($fromTenantId, [
+        'posting_date'    => $postingDate,
+        'currency'        => $fromCurrency,
+        'source_module'   => 'cross_tenant_intercompany',
+        'description'     => $memo . " [{$ref}] [pending counterparty approval]" . $fxNote,
+        'memo'            => $memo . " [{$ref}]" . $fxNote,
+        'idempotency_key' => "cross_intercompany_propose:{$ref}:from",
+        'lines' => [
+            ['account_code' => $fromAccountCode, 'debit'  => $amount, 'memo' => $memo . $fxNote],
+            ['account_code' => $fromOffsetCode,  'credit' => $amount, 'memo' => $memo . $fxNote],
+        ],
+    ], $actorUserId, true);
+    _cxIcStampGroupId($pdo, $fromTenantId, (int) $fromJe['je_id'], $ref);
+
+    // Best-effort entity ids — pulled by the existing accountingPostJe
+    // path via the entity_resolver.  Fetch them back for the queue row.
+    try {
+        $eSt = $pdo->prepare('SELECT entity_id FROM accounting_journal_entries WHERE id = :id AND tenant_id = :t LIMIT 1');
+        $eSt->execute(['id' => $fromJe['je_id'], 't' => $fromTenantId]);
+        $sourceEntityId = (int) ($eSt->fetchColumn() ?: 0);
+    } catch (\Throwable $_) { $sourceEntityId = 0; }
+    $targetEntityId = (int) ($opts['target_entity_id'] ?? 0);
+
+    // Insert the queue row.  Idempotency-key on intercompany_ref ensures
+    // a re-call with the same ref is a no-op.
+    try {
+        $ins = $pdo->prepare(
+            'INSERT INTO intercompany_xtenant_queue
+                (intercompany_ref, source_tenant_id, source_entity_id, source_je_id,
+                 source_account_code, source_offset_code,
+                 target_tenant_id, target_entity_id,
+                 target_account_code, target_offset_code,
+                 amount, currency, fx_rate, target_amount, target_currency,
+                 memo, posting_date, status, requested_by_user_id, expires_at)
+             VALUES
+                (:ref, :stid, :seid, :sjeid, :sac, :soc,
+                 :ttid, :teid, :tac, :toc,
+                 :amt, :cur, :fx, :tamt, :tcur,
+                 :memo, :pdate, "pending", :uid, :exp)'
+        );
+        $ins->execute([
+            'ref'   => $ref,
+            'stid'  => $fromTenantId,
+            'seid'  => $sourceEntityId ?: null,
+            'sjeid' => (int) $fromJe['je_id'],
+            'sac'   => $fromAccountCode, 'soc' => $fromOffsetCode,
+            'ttid'  => $toTenantId,
+            'teid'  => $targetEntityId ?: null,
+            'tac'   => $toAccountCode,   'toc' => $toOffsetCode,
+            'amt'   => $amount, 'cur'  => $fromCurrency, 'fx' => $fxRate,
+            'tamt'  => $toAmount, 'tcur' => $toCurrency,
+            'memo'  => $memo, 'pdate' => $postingDate,
+            'uid'   => $actorUserId, 'exp' => $expiresAt,
+        ]);
+        $queueId = (int) $pdo->lastInsertId();
+    } catch (\Throwable $e) {
+        // Roll back the source leg if the queue insert failed.
+        try {
+            accountingReverseJe($fromTenantId, (int) $fromJe['je_id'],
+                "Cross-tenant IC {$ref} aborted: queue insert failed (" . $e->getMessage() . ')', $actorUserId);
+        } catch (\Throwable $_) { /* swallow — already error-pathing */ }
+        throw $e;
+    }
+
+    // Symmetric audit on both sides (master sees a proposed + awaiting row).
+    try {
+        subTenantAudit($fromMaster, $fromTenantId, $actorUserId, 'cross_tenant.intercompany.proposed', [
+            'ref' => $ref, 'queue_id' => $queueId, 'direction' => 'out',
+            'amount' => $amount, 'currency' => $fromCurrency,
+            'to_tenant' => $toTenantId, 'fx_rate' => $fxRate,
+            'from_je_id' => $fromJe['je_id'],
+        ]);
+        subTenantAudit($toMaster, $toTenantId, $actorUserId, 'cross_tenant.intercompany.awaiting_approval', [
+            'ref' => $ref, 'queue_id' => $queueId, 'direction' => 'in',
+            'amount' => $toAmount, 'currency' => $toCurrency,
+            'from_tenant' => $fromTenantId, 'fx_rate' => $fxRate,
+        ]);
+    } catch (\Throwable $auditErr) {
+        error_log("cross_tenant_intercompany_propose audit failed for {$ref}: " . $auditErr->getMessage());
+    }
+
+    return [
+        'queue_id'         => $queueId,
+        'intercompany_ref' => $ref,
+        'status'           => 'pending',
+        'amount'           => $amount,
+        'target_amount'    => $toAmount,
+        'fx_rate'          => $fxRate,
+        'expires_at'       => $expiresAt,
+        'from' => [
+            'tenant_id' => $fromTenantId,
+            'je_id'     => (int) $fromJe['je_id'],
+            'je_number' => $fromJe['je_number'],
+            'currency'  => $fromCurrency,
+        ],
+        'to' => [
+            'tenant_id' => $toTenantId,
+            'currency'  => $toCurrency,
+        ],
+    ];
+}
+
+/**
+ * Step 2 — Target admin approves: post the to-leg on target's books.
+ * Idempotent: an already-approved row returns the existing target_je_id.
+ *
+ * Authority is enforced by the API layer (target_tenant must equal the
+ * caller's active tenant AND the caller must hold an admin role).  This
+ * helper trusts the caller checked that and focuses on the posting.
+ */
+function accountingApproveCrossTenantIntercompany(int $queueId, ?int $actorUserId = null): array {
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No database connection');
+    $row = _cxIcQueueRow($pdo, $queueId);
+    if (!$row) throw new \InvalidArgumentException("queue row {$queueId} not found");
+    if ($row['status'] === 'approved' && (int) $row['target_je_id'] > 0) {
+        return [
+            'queue_id' => $queueId, 'idempotent_replay' => true,
+            'intercompany_ref' => $row['intercompany_ref'],
+            'target_je_id' => (int) $row['target_je_id'],
+            'status' => 'approved',
+        ];
+    }
+    if ($row['status'] !== 'pending') {
+        throw new \RuntimeException("queue row in status '{$row['status']}' — cannot approve");
+    }
+
+    $ref         = (string) $row['intercompany_ref'];
+    $toTenantId  = (int) $row['target_tenant_id'];
+    $memo        = (string) $row['memo'];
+    $toCurrency  = (string) $row['target_currency'];
+    $fromCurrency= (string) $row['currency'];
+    $fxRate      = (float)  $row['fx_rate'];
+    $toAmount    = (float)  $row['target_amount'];
+    $fxNote      = $fromCurrency === $toCurrency
+        ? ''
+        : sprintf(' [FX %s→%s @ %.6f]', $fromCurrency, $toCurrency, $fxRate);
+
+    $toJe = accountingPostJe($toTenantId, [
+        'posting_date'    => (string) $row['posting_date'],
+        'currency'        => $toCurrency,
+        'source_module'   => 'cross_tenant_intercompany',
+        'description'     => $memo . " [{$ref}]" . $fxNote,
+        'memo'            => $memo . " [{$ref}]" . $fxNote,
+        'idempotency_key' => "cross_intercompany_approve:{$ref}:to",
+        'lines' => [
+            ['account_code' => (string) $row['target_offset_code'],  'debit'  => $toAmount, 'memo' => $memo . $fxNote],
+            ['account_code' => (string) $row['target_account_code'], 'credit' => $toAmount, 'memo' => $memo . $fxNote],
+        ],
+    ], $actorUserId, true);
+    _cxIcStampGroupId($pdo, $toTenantId, (int) $toJe['je_id'], $ref);
+
+    // Stamp the queue row approved.
+    $upd = $pdo->prepare(
+        'UPDATE intercompany_xtenant_queue
+            SET status = "approved", target_je_id = :tje,
+                decided_by_user_id = :uid, decided_at = NOW()
+          WHERE id = :id'
+    );
+    $upd->execute(['tje' => (int) $toJe['je_id'], 'uid' => $actorUserId, 'id' => $queueId]);
+
+    try {
+        subTenantAudit(0, $toTenantId, $actorUserId, 'cross_tenant.intercompany.approved', [
+            'ref' => $ref, 'queue_id' => $queueId,
+            'target_je_id' => $toJe['je_id'],
+            'source_tenant' => (int) $row['source_tenant_id'],
+        ]);
+    } catch (\Throwable $_) { /* best effort */ }
+
+    return [
+        'queue_id'         => $queueId,
+        'intercompany_ref' => $ref,
+        'status'           => 'approved',
+        'target_je_id'     => (int) $toJe['je_id'],
+        'target_je_number' => $toJe['je_number'],
+    ];
+}
+
+/**
+ * Step 2 (alt) — Target admin declines: reverse the source-leg as a
+ * compensating JE.  The queue row is marked `declined`; the source
+ * tenant's books reflect a zero net effect.
+ */
+function accountingDeclineCrossTenantIntercompany(int $queueId, ?int $actorUserId, string $reason): array {
+    if (trim($reason) === '') throw new \InvalidArgumentException('decline reason is required');
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No database connection');
+    $row = _cxIcQueueRow($pdo, $queueId);
+    if (!$row) throw new \InvalidArgumentException("queue row {$queueId} not found");
+    if ($row['status'] === 'declined') {
+        return [
+            'queue_id' => $queueId, 'idempotent_replay' => true,
+            'intercompany_ref' => $row['intercompany_ref'], 'status' => 'declined',
+        ];
+    }
+    if ($row['status'] !== 'pending') {
+        throw new \RuntimeException("queue row in status '{$row['status']}' — cannot decline");
+    }
+
+    $ref          = (string) $row['intercompany_ref'];
+    $sourceTenant = (int) $row['source_tenant_id'];
+    $sourceJeId   = (int) $row['source_je_id'];
+    try {
+        accountingReverseJe($sourceTenant, $sourceJeId,
+            "Cross-tenant IC {$ref} declined: {$reason}", $actorUserId);
+    } catch (\Throwable $e) {
+        // If the source JE was already reversed (e.g. via the immediate
+        // reverse path), keep going — the queue row still needs to flip.
+        error_log("Decline reverse of source JE {$sourceJeId} failed: " . $e->getMessage());
+    }
+
+    $upd = $pdo->prepare(
+        'UPDATE intercompany_xtenant_queue
+            SET status = "declined", decline_reason = :r,
+                decided_by_user_id = :uid, decided_at = NOW()
+          WHERE id = :id'
+    );
+    $upd->execute(['r' => $reason, 'uid' => $actorUserId, 'id' => $queueId]);
+
+    try {
+        subTenantAudit(0, (int) $row['target_tenant_id'], $actorUserId,
+            'cross_tenant.intercompany.declined', [
+            'ref' => $ref, 'queue_id' => $queueId, 'reason' => $reason,
+        ]);
+    } catch (\Throwable $_) { /* best effort */ }
+
+    return [
+        'queue_id'         => $queueId,
+        'intercompany_ref' => $ref,
+        'status'           => 'declined',
+    ];
+}
+
+/**
+ * Inbox lister — rows where THIS tenant is on the target side.
+ *
+ * Designed to power the "Pending intercompany approvals" UI under the
+ * Accounting module — defaults to `status='pending'`.
+ */
+function accountingListCrossTenantIntercompanyInbox(int $tenantId, string $status = 'pending', int $limit = 100): array {
+    $pdo = getDB();
+    if (!$pdo) return [];
+    $allowed = ['pending','approved','declined','expired','reversed','all'];
+    if (!in_array($status, $allowed, true)) $status = 'pending';
+    $limit = max(1, min(500, $limit));
+
+    $sql = 'SELECT q.*,
+                   ts.name AS source_tenant_name,
+                   tt.name AS target_tenant_name
+              FROM intercompany_xtenant_queue q
+         LEFT JOIN tenants ts ON ts.id = q.source_tenant_id
+         LEFT JOIN tenants tt ON tt.id = q.target_tenant_id
+             WHERE q.target_tenant_id = :t';
+    $params = ['t' => $tenantId];
+    if ($status !== 'all') { $sql .= ' AND q.status = :s'; $params['s'] = $status; }
+    $sql .= ' ORDER BY q.requested_at DESC LIMIT ' . $limit;
+    $st = $pdo->prepare($sql);
+    $st->execute($params);
+    return _cxIcHydrate($st->fetchAll(\PDO::FETCH_ASSOC) ?: []);
+}
+
+/** Outbox lister — rows where THIS tenant is on the source side. */
+function accountingListCrossTenantIntercompanyOutbox(int $tenantId, string $status = 'pending', int $limit = 100): array {
+    $pdo = getDB();
+    if (!$pdo) return [];
+    $allowed = ['pending','approved','declined','expired','reversed','all'];
+    if (!in_array($status, $allowed, true)) $status = 'pending';
+    $limit = max(1, min(500, $limit));
+
+    $sql = 'SELECT q.*,
+                   ts.name AS source_tenant_name,
+                   tt.name AS target_tenant_name
+              FROM intercompany_xtenant_queue q
+         LEFT JOIN tenants ts ON ts.id = q.source_tenant_id
+         LEFT JOIN tenants tt ON tt.id = q.target_tenant_id
+             WHERE q.source_tenant_id = :t';
+    $params = ['t' => $tenantId];
+    if ($status !== 'all') { $sql .= ' AND q.status = :s'; $params['s'] = $status; }
+    $sql .= ' ORDER BY q.requested_at DESC LIMIT ' . $limit;
+    $st = $pdo->prepare($sql);
+    $st->execute($params);
+    return _cxIcHydrate($st->fetchAll(\PDO::FETCH_ASSOC) ?: []);
+}
+
+/** Coerce numerics for the JSON wire. */
+function _cxIcHydrate(array $rows): array {
+    foreach ($rows as &$r) {
+        foreach (['id','source_tenant_id','source_entity_id','source_je_id',
+                  'target_tenant_id','target_entity_id','target_je_id',
+                  'requested_by_user_id','decided_by_user_id'] as $k) {
+            if (isset($r[$k]) && $r[$k] !== null) $r[$k] = (int) $r[$k];
+        }
+        foreach (['amount','target_amount','fx_rate'] as $k) {
+            if (isset($r[$k])) $r[$k] = (float) $r[$k];
+        }
+    }
+    unset($r);
+    return $rows;
+}
