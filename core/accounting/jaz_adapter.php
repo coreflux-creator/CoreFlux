@@ -75,9 +75,22 @@ class JazAccountingAdapter extends AccountingProviderAdapter
         try {
             $resp = jazCall($key, 'GET', 'organization');
         } catch (JazApiException $e) {
-            $status = $e->httpStatus === 401 || $e->httpStatus === 403 ? 'failed' : 'failed';
-            return ['ok' => false, 'status' => $status, 'scope' => null, 'org' => null,
-                    'error' => substr($e->getMessage(), 0, 240)];
+            // Surface enough context for an admin to diagnose Jaz-side rejection
+            // without a round-trip: HTTP status, request URL, the auth scheme we
+            // sent. Critical because Jaz docs (Apr 2026, Q11) say authentication
+            // is JWT-based — an opaque "jaz_…" key handed as a Bearer token
+            // returns 403 / "Unauthorized Credentials" until exchanged.
+            $hint = '';
+            if ($e->httpStatus === 401 || $e->httpStatus === 403) {
+                $hint = ' [request: GET ' . jazApiBase() . '/organization · auth: Authorization: Bearer <key>'
+                      . ' · if your key starts with "jaz_" Jaz may require a JWT-exchange — see Jaz Settings → Access Management → API → View API Doc]';
+            } elseif ($e->httpStatus === 404) {
+                $hint = ' [request: GET ' . jazApiBase() . '/organization — set JAZ_API_BASE if your tenant lives at a different host]';
+            }
+            return [
+                'ok' => false, 'status' => 'failed', 'scope' => null, 'org' => null,
+                'error' => substr($e->getMessage() . $hint, 0, 480),
+            ];
         }
         // Persist the resolved org id + currency so reads/writes don't
         // need to re-fetch every call. We update the row directly here
