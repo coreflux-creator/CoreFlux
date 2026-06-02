@@ -85,6 +85,16 @@ final class CpaFirmService
      * Upsert a firm↔client link. INSERT … ON DUPLICATE KEY UPDATE on the
      * `uq_firm_client` unique constraint. Returns the link id.
      *
+     * Bulk-seat: when $input['seed_memberships'] is a non-empty array,
+     * each entry triggers a `tenant_memberships` upsert ON THE CLIENT
+     * TENANT (not the firm) so the firm's CPA roster gets seated on the
+     * client in one POST. Each seed may optionally specify a
+     * `profile_key` which is applied via `PermissionProfileService::apply`
+     * immediately after the membership row is created. The seed phase is
+     * best-effort per-row: a failure on one row never blocks the link
+     * upsert itself, but is surfaced via the returned `seeded` array so
+     * the UI can flag rows that didn't take.
+     *
      * @param array{
      *   client_tenant_id:int,
      *   relationship_type?:string,
@@ -92,10 +102,20 @@ final class CpaFirmService
      *   primary_cpa_user_id?:?int,
      *   engagement_start_date?:?string,
      *   engagement_end_date?:?string,
-     *   notes?:?string
+     *   notes?:?string,
+     *   seed_memberships?:array<int,array{
+     *     user_id:int,
+     *     persona_label?:string,
+     *     persona_type?:string,
+     *     profile_key?:string
+     *   }>
      * } $input
+     *
+     * @return int|array{id:int, seeded:array} link id (back-compat) when
+     *                    no seed_memberships supplied, otherwise a struct
+     *                    so callers can surface per-row outcomes.
      */
-    public static function upsert(array $input, int $firmTenantId, ?int $actorUserId = null): int
+    public static function upsert(array $input, int $firmTenantId, ?int $actorUserId = null): int|array
     {
         $clientId = (int) ($input['client_tenant_id'] ?? 0);
         if ($clientId <= 0) throw new \InvalidArgumentException('client_tenant_id is required');
@@ -151,7 +171,106 @@ final class CpaFirmService
             'link_id' => $linkId, 'client_tenant_id' => $clientId,
             'relationship_type' => $rt, 'status' => $st,
         ]);
+
+        // Bulk-seat phase. Per-row best-effort: a failure on any one row
+        // never blocks the link upsert or the rest of the seeding.
+        $seeded = [];
+        $seedRows = is_array($input['seed_memberships'] ?? null) ? $input['seed_memberships'] : [];
+        if ($seedRows) {
+            require_once __DIR__ . '/permission_profiles.php';
+        }
+        foreach ($seedRows as $row) {
+            $userId = isset($row['user_id']) ? (int) $row['user_id'] : 0;
+            if ($userId <= 0) {
+                $seeded[] = ['user_id' => $userId, 'error' => 'invalid_user_id'];
+                continue;
+            }
+            $personaLabel = trim((string) ($row['persona_label'] ?? 'CPA'));
+            if ($personaLabel === '') $personaLabel = 'CPA';
+            $personaType  = (string) ($row['persona_type']  ?? 'cpa_staff');
+            $profileKey   = (string) ($row['profile_key']   ?? '');
+            try {
+                self::seatMembershipOnClient(
+                    $clientId, $userId, $personaLabel, $personaType, $actorUserId
+                );
+                // Resolve the freshly-upserted membership id.
+                $mFind = $pdo->prepare(
+                    'SELECT id FROM tenant_memberships
+                      WHERE user_id = :u AND tenant_id = :t AND persona_label = :pl LIMIT 1'
+                );
+                $mFind->execute(['u' => $userId, 't' => $clientId, 'pl' => $personaLabel]);
+                $mid = (int) $mFind->fetchColumn();
+                $appliedCount = null;
+                if ($mid > 0 && $profileKey !== '') {
+                    $profile = PermissionProfileService::getByKey($profileKey, $clientId);
+                    if ($profile) {
+                        $appliedCount = PermissionProfileService::apply(
+                            $mid, (int) $profile['id'], $clientId, $actorUserId, false, null
+                        );
+                    }
+                }
+                $seeded[] = [
+                    'user_id'        => $userId,
+                    'membership_id'  => $mid,
+                    'persona_label'  => $personaLabel,
+                    'persona_type'   => $personaType,
+                    'profile_key'    => $profileKey !== '' ? $profileKey : null,
+                    'grants_applied' => $appliedCount,
+                ];
+            } catch (\Throwable $e) {
+                $seeded[] = ['user_id' => $userId, 'error' => $e->getMessage()];
+            }
+        }
+        if ($seedRows) {
+            self::audit($firmTenantId, $actorUserId, 'cpa_link_seed', [
+                'link_id' => $linkId, 'client_tenant_id' => $clientId,
+                'seeded_count' => count($seedRows),
+                'seeded_ok'    => count(array_filter($seeded, fn($r) => empty($r['error']))),
+            ]);
+            return ['id' => $linkId, 'seeded' => $seeded];
+        }
         return $linkId;
+    }
+
+    /**
+     * Internal helper — upsert a `tenant_memberships` row on the CLIENT
+     * tenant for a CPA roster member. Status is forced to 'active' (the
+     * firm admin's invite IS the consent); persona_type whitelist matches
+     * `api/admin/memberships.php::_ALLOWED_PERSONA_TYPES`.
+     */
+    private static function seatMembershipOnClient(
+        int $clientTenantId, int $userId, string $personaLabel,
+        string $personaType, ?int $actorUserId
+    ): void {
+        static $whitelist = [
+            'master_admin','tenant_admin','admin','manager','employee',
+            'contractor','client','vendor','platform_staff','custom',
+            'cpa','cpa_partner','cpa_staff',
+            'bookkeeper','client_advisor','external_auditor',
+        ];
+        if (!in_array($personaType, $whitelist, true)) {
+            throw new \InvalidArgumentException("Invalid persona_type: {$personaType}");
+        }
+        $pdo = getDB();
+        // Confirm the user exists.
+        $uCheck = $pdo->prepare('SELECT id FROM users WHERE id = :u LIMIT 1');
+        $uCheck->execute(['u' => $userId]);
+        if (!$uCheck->fetchColumn()) throw new \InvalidArgumentException('user_id not found');
+
+        $up = $pdo->prepare(
+            'INSERT INTO tenant_memberships
+                (user_id, tenant_id, persona_label, persona_type, is_primary, status,
+                 invited_by_user_id, invited_at, accepted_at)
+             VALUES (:u, :t, :pl, :pt, 0, "active", :ib, NOW(), NOW())
+             ON DUPLICATE KEY UPDATE
+                persona_type       = VALUES(persona_type),
+                status             = IF(status = "revoked", "active", status)'
+        );
+        $up->execute([
+            'u' => $userId, 't' => $clientTenantId,
+            'pl' => $personaLabel, 'pt' => $personaType,
+            'ib' => $actorUserId,
+        ]);
     }
 
     /** Soft-end a link (status='ended') — keeps the row for audit history. */
@@ -262,6 +381,58 @@ final class CpaFirmService
             $out[] = $r;
         }
         return $out;
+    }
+
+    /**
+     * Resolve every CLIENT tenant id reachable from the user via any
+     * firm membership. Used by the CPA-scoped audit page + firm dashboard
+     * to scope queries to the user's portfolio without re-joining the
+     * full graph at every query site.
+     *
+     * @return array<int> client_tenant_id list (de-duped, no order).
+     */
+    public static function linkedClientTenantIdsForUser(int $userId): array
+    {
+        if ($userId <= 0) return [];
+        $firmPersonas = "('master_admin','tenant_admin','admin','cpa','cpa_partner','cpa_staff','bookkeeper','client_advisor')";
+        $sql = 'SELECT DISTINCT l.client_tenant_id
+                  FROM cpa_firm_client_links l
+                 WHERE l.status IN ("active","paused","pending")
+                   AND l.firm_tenant_id IN (
+                        SELECT tenant_id FROM tenant_memberships
+                         WHERE user_id = :u AND status = "active"
+                           AND persona_type IN ' . $firmPersonas . '
+                   )';
+        try {
+            $st = getDB()->prepare($sql);
+            $st->execute(['u' => $userId]);
+            return array_map('intval', $st->fetchAll(\PDO::FETCH_COLUMN) ?: []);
+        } catch (\Throwable $_) { return []; }
+    }
+
+    /**
+     * Resolve every FIRM tenant id the user is a member of with firm-side
+     * persona. Mirrors the inner subquery of linkedClientTenantIdsForUser()
+     * but yields the firm side. Used by the firm-admin gate of endpoints
+     * that need to know "is this user actually a firm admin somewhere?"
+     * without taking a roundtrip per tenant.
+     *
+     * @return array<int>
+     */
+    public static function firmTenantIdsForUser(int $userId): array
+    {
+        if ($userId <= 0) return [];
+        $firmPersonas = "('master_admin','tenant_admin','admin','cpa','cpa_partner','cpa_staff','bookkeeper','client_advisor')";
+        try {
+            $st = getDB()->prepare(
+                'SELECT DISTINCT tenant_id FROM tenant_memberships
+                  WHERE user_id = :u AND status = "active"
+                    AND persona_type IN ' . $firmPersonas . '
+                    AND tenant_id IN (SELECT firm_tenant_id FROM cpa_firm_client_links)'
+            );
+            $st->execute(['u' => $userId]);
+            return array_map('intval', $st->fetchAll(\PDO::FETCH_COLUMN) ?: []);
+        } catch (\Throwable $_) { return []; }
     }
 
     // ─────────────────────────────────────────────────────────── helpers

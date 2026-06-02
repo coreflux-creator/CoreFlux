@@ -98,13 +98,17 @@ if ($method === 'GET') {
 if ($method === 'POST' && $action === 'save') {
     $body = api_json_body();
     try {
-        $id = CpaFirmService::upsert($body, $tenantId, $actorId);
+        $result = CpaFirmService::upsert($body, $tenantId, $actorId);
     } catch (\InvalidArgumentException $e) {
         api_error($e->getMessage(), 422);
     } catch (\Throwable $e) {
         api_error('Save failed: ' . $e->getMessage(), 500);
     }
-    api_ok(['id' => $id, 'saved' => true], 201);
+    if (is_array($result)) {
+        // Bulk-seat happened — surface the per-row outcomes.
+        api_ok(['id' => (int) $result['id'], 'saved' => true, 'seeded' => $result['seeded']], 201);
+    }
+    api_ok(['id' => (int) $result, 'saved' => true], 201);
 }
 
 // ─────────────────────────────────────────────────────── POST end (soft)

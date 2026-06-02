@@ -1,5 +1,149 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (CPA-layer Phase 2 — Bulk-seat + Cross-tenant audit + Firm dashboard)
+
+User direction (after CPA-layer kickoff): "yeah, next items go." → ship all three
+items from the previous roadmap (bulk-seat onboarding, CPA-scoped audit, firm
+dashboard KPIs) in one batch.
+
+### Shipped
+
+1. **Bulk-seat onboarding** on `CpaFirmService::upsert()`:
+   - New `seed_memberships: [{ user_id, persona_label?, persona_type?, profile_key? }]`
+     accepted on the input array. After the link upserts, each seed row
+     triggers a `tenant_memberships` upsert ON THE CLIENT TENANT
+     (status=active, invited_at/accepted_at=NOW), and if `profile_key` is
+     set, `PermissionProfileService::apply()` immediately stamps that
+     profile's grants. Per-row best-effort: a failing seed row never
+     blocks the link upsert or the rest of the roster.
+   - Return type widened to `int | array{id, seeded[]}` — the seeded
+     array surfaces per-row outcomes (membership_id, grants_applied, or
+     `error` string) so the UI can show "Seeded X of Y" with failure
+     callouts.
+   - Endpoint passthrough: `/api/admin/cpa_firms.php?action=save` now
+     returns the `seeded` block when present (back-compat with int-only).
+   - `CpaFirmService::linkedClientTenantIdsForUser($userId)` + companion
+     `firmTenantIdsForUser($userId)` helpers added — used by the audit
+     endpoint + firm dashboard to scope queries to the user's portfolio
+     in one SQL hop.
+
+2. **CPA-scoped audit endpoint** (`/api/admin/cpa_audit.php`):
+   - Auth: any authenticated user (the portfolio resolver gates by
+     firm membership). No admin gate.
+   - Unions `cross_tenant_accounting_audit` rows AND `membership_audit`
+     rows where any tenant in the user's CPA portfolio is involved
+     (acting tenant OR left OR right). Each row is tagged with
+     `source: accounting | membership` so the UI can pivot.
+   - Optional `since=YYYY-MM-DD`, `action=…`, `limit` (1–500) filters.
+   - Migration-absent path returns 200 + empty `rows` (not 503) so a
+     fresh tenant with no CPA scope doesn't error-banner.
+   - Tenant-leak sentry green by construction (cross-tenant by design;
+     `tenant-leak-allow:` comment documents the portfolio scope).
+
+3. **Firm dashboard KPI endpoint** (`/api/admin/cpa_firm_dashboard.php`):
+   - Three KPIs per client tenant:
+     - `open_exceptions` — `accounting_exceptions` where
+       `status IN ('open','assigned')`
+     - `draft_outbox` — `accounting_outbox_events` where
+       `status IN ('queued','retrying','dead_letter')`
+     - `late_close_periods` — `accounting_periods` where
+       `end_date < CURDATE() AND status IN ('open','soft_closed')`
+   - Per-client `needs_attention = sum(all 3)`. Per-firm + portfolio-wide
+     totals computed server-side so the UI is a pure read.
+   - Each KPI query is wrapped in try/catch so a missing migration on
+     any one of the three module tables degrades to 0 for that KPI
+     without 5xx-ing the request.
+   - Optional `firm_tenant_id=N` filter narrows the rollup to one firm.
+
+4. **`CpaFirmClientsAdmin.jsx`** — firm-side admin (mounted at
+   `/admin/cpa-clients`):
+   - CRUD list over `cpa_firm_client_links`.
+   - "Link client" form with relationship_type + status + primary CPA
+     dropdown + engagement start date + notes.
+   - **Bulk-seat sub-form**: roster table where each row is a
+     {user, persona_label, persona_type, profile_key} tuple. Submit posts
+     the whole array in one request; the seed-outcome card surfaces
+     "Seeded X of Y" with failure callouts inline.
+   - "End engagement" button per row (soft `status=ended`).
+
+5. **`CpaFirmDashboard.jsx`** — multi-tenant rollup (mounted at
+   `/admin/cpa-dashboard`):
+   - Portfolio totals strip (Firms / Clients / Exceptions / Outbox /
+     Late close).
+   - Per-firm card with a per-client table sorted by
+     `needs_attention DESC` so the worst client floats to the top.
+   - `NeedsAttentionPill` — green ("all clear") vs amber (1–9) vs red
+     (10+) at a glance.
+   - "Open" button per row → `/api/sub_tenants.php?action=switch` +
+     full SPA reload to flip into the client's books in one click.
+     Disabled when the user has no membership on the destination client.
+   - Firm filter dropdown (only shown when ≥2 firms).
+
+6. **`CpaAuditPage.jsx`** — CPA-scoped audit feed (mounted at
+   `/admin/cpa-audit`):
+   - Filter strip: `since` (date), `action` (text + datalist of distinct
+     actions seen in the current page), `limit` (50/100/200/500), Apply
+     button.
+   - Table with `Source` badge (accounting / membership), action,
+     acting tenant, counterparty, actor user, occurred_at timestamp.
+   - YYYY-MM-DD client-side validation on `since`.
+
+7. **AdminModule wiring** — imports, routes, sidebar links, and
+   overview `ActionCard` tiles for all three new pages.
+
+8. **Test smoke** (`tests/rbac_cpa_layer_phase2_smoke.php`) —
+   **106 / 106 ✓** locking the bulk-seat service contract, both new
+   endpoints, all three React pages with every testid, and AdminModule
+   wiring.
+
+### Test status
+- Full PHP suite: **366 / 368 passing**. Documented sandbox-bound failures:
+  `accounting_phase2_a7_smoke.php`, `tenant_mail_senders_smoke.php`.
+- All sentries (tenant-leak, auth-gate, HY093 placeholder) green.
+- New smoke `rbac_cpa_layer_phase2_smoke.php` → 106/106 ✓.
+- Prior CPA-kickoff smoke (`rbac_cpa_layer_kickoff_smoke.php`) → 89/89 ✓.
+- Prior B6 smoke (`rbac_b6_profiles_smoke.php`) → 88/88 ✓.
+
+### Bundle / Deploy
+- Vite build → bundle `index-K6jUooWI.js`. `scripts/sync_bundle.sh` synced
+  `.deploy-version`, `spa-assets/`, `dashboard/dist/index.html`, and
+  service-worker `CACHE_VERSION` → `coreflux-K6jUooWI`.
+- **Zero new SQL migrations** in this session — re-uses the schema from
+  migration 100. Deploys with no DBA action required.
+
+### Files touched
+- `core/rbac/cpa_firms.php` (bulk-seat + helpers)
+- `api/admin/cpa_firms.php` (seeded passthrough)
+- `api/admin/cpa_audit.php` (new)
+- `api/admin/cpa_firm_dashboard.php` (new)
+- `dashboard/src/pages/CpaFirmClientsAdmin.jsx` (new)
+- `dashboard/src/pages/CpaFirmDashboard.jsx` (new)
+- `dashboard/src/pages/CpaAuditPage.jsx` (new)
+- `dashboard/src/pages/AdminModule.jsx` (3 imports / routes / sidebar / overview)
+- `tests/rbac_cpa_layer_phase2_smoke.php` (new)
+
+### Roadmap (next)
+- **Per-firm sharable invite link** for brand-new clients whose tenant
+  doesn't exist yet (signed URL that walks them through tenant
+  creation AND auto-creates the firm↔client link).
+- **Drill-through from dashboard** to a per-client exceptions queue
+  / outbox review screen — currently the dashboard surfaces counts
+  but not the underlying rows.
+- **Resend / Slack notifications**: send the firm's primary CPA a
+  daily digest of `needs_attention` deltas across their portfolio.
+
+### Backlog (unchanged priority)
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P1) Mercury Webhooks hardening.
+- (P2) Gusto integration / QBO hardening (parked).
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module (Fixed-fee project accounting).
+- (P3) AI Digest Scheduler.
+
+---
+
 ## Session — 2026-02 (CPA-layer kickoff + Tenant profile builder UI)
 
 User direction (after RBAC B6 closeout): "yes, tenant level profile builder.
