@@ -150,7 +150,7 @@ function ScopePicker({ subTenants, value, onSave, onCancel, testIdPrefix }) {
   const save = () => {
     if (draftAll) onSave(null);
     else if (draft.length === 0) {
-      alert('Pick at least one sub-tenant, or choose "All sub-tenants".');
+      alert('Pick at least one entity, or choose "All entities".');
       return;
     }
     else onSave(draft.map(Number));
@@ -173,7 +173,7 @@ function ScopePicker({ subTenants, value, onSave, onCancel, testIdPrefix }) {
           onChange={(e) => { setDraftAll(e.target.checked); if (e.target.checked) setDraft([]); }}
           data-testid={`${testIdPrefix}-all`}
         />
-        <strong>All sub-tenants</strong>
+        <strong>All entities</strong>
       </label>
       <div style={{ maxHeight: 180, overflowY: 'auto', borderTop: '1px solid var(--cf-border, #eee)', paddingTop: 6 }}>
         {subTenants.map(st => (
@@ -186,12 +186,14 @@ function ScopePicker({ subTenants, value, onSave, onCancel, testIdPrefix }) {
               data-testid={`${testIdPrefix}-st-${st.id}`}
             />
             <span style={{ color: st.is_active ? 'inherit' : 'var(--cf-text-secondary)' }}>
-              {st.name}{!st.is_active && ' (inactive)'}
+              {st.name}
+              {st.kind === 'parent' && <em style={{ color: '#0369a1', marginLeft: 4 }}> (parent)</em>}
+              {!st.is_active && ' (inactive)'}
             </span>
           </label>
         ))}
         {subTenants.length === 0 && (
-          <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>No sub-tenants yet.</div>
+          <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>No entities yet.</div>
         )}
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 8 }}>
@@ -226,9 +228,19 @@ function AccessGrid({ membership, allMemberships, onClose }) {
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [membership.id]);
   useEffect(() => {
     // Best-effort — endpoint 403's for non-master-tenant callers; we just
-    // don't show the picker in that case.
+    // don't show the picker in that case. Includes the parent tenant as a
+    // selectable scope entry because the parent keeps its own books too —
+    // parent-as-entity applies everywhere, not just integrations.
     api.get('/api/sub_tenants.php')
-      .then(r => setSubTenants(Array.isArray(r?.sub_tenants) ? r.sub_tenants : []))
+      .then(r => {
+        const subs = Array.isArray(r?.sub_tenants) ? r.sub_tenants : [];
+        const parent = r?.parent || null;
+        const parentId = r?.parent_tenant_id ?? parent?.id ?? null;
+        const list = [];
+        if (parent && parentId) list.push({ id: parentId, name: parent.name || `Tenant ${parentId}`, is_active: 1, kind: 'parent' });
+        for (const st of subs) list.push({ ...st, kind: 'sub' });
+        setSubTenants(list);
+      })
       .catch(() => setSubTenants([]));
   }, []);
 
@@ -323,7 +335,7 @@ function AccessGrid({ membership, allMemberships, onClose }) {
             <tr style={{ textAlign: 'left', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
               <th style={{ padding: '6px 4px' }}>Module</th>
               <th style={{ padding: '6px 4px' }}>Access</th>
-              {subTenants.length > 0 && <th style={{ padding: '6px 4px' }}>Sub-tenant scope</th>}
+              {subTenants.length > 0 && <th style={{ padding: '6px 4px' }}>Entity scope</th>}
             </tr>
           </thead>
           <tbody>
@@ -357,7 +369,7 @@ function AccessGrid({ membership, allMemberships, onClose }) {
                             style={{ fontSize: 12, padding: '2px 8px' }}
                           >
                             {allScope
-                              ? 'All sub-tenants'
+                              ? 'All entities'
                               : `${scope.length} of ${subTenants.length}`}
                           </button>
                           {scopePickerFor === m && (

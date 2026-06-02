@@ -125,12 +125,18 @@ $a('Page has data-testid root',                  $c($rbacPage, 'data-testid="rba
 
 // B3 sub-tenant scope picker — backend already accepted sub_tenant_scope;
 // these assertions lock the UI delta that surfaces it (per-grant scope
-// chooser, "All sub-tenants" default, GET /api/sub_tenants.php load).
+// chooser, "All entities" default, GET /api/sub_tenants.php load).
+// Parent-as-entity applies everywhere — the parent keeps its own books and
+// must be selectable as a scope target, not just sub-tenants.
 $a('Access grid loads sub-tenants list',         $c($rbacPage, "'/api/sub_tenants.php'"));
 $a('Access grid exposes scope toggle button',    $c($rbacPage, 'data-testid={`access-scope-toggle-${m}`}'));
 $a('Access grid renders ScopePicker component',  $c($rbacPage, 'function ScopePicker'));
-$a('Scope picker has "All sub-tenants" option',  $c($rbacPage, 'data-testid={`${testIdPrefix}-all`}'));
-$a('Scope picker emits per-sub-tenant testids',  $c($rbacPage, 'data-testid={`${testIdPrefix}-st-${st.id}`}'));
+$a('Scope picker has "All entities" option',     $c($rbacPage, 'data-testid={`${testIdPrefix}-all`}')
+                                              && $c($rbacPage, '>All entities</strong>'));
+$a('Scope picker emits per-entity testids',      $c($rbacPage, 'data-testid={`${testIdPrefix}-st-${st.id}`}'));
+$a('Scope picker labels parent entity',          $c($rbacPage, "st.kind === 'parent'")
+                                              && $c($rbacPage, '(parent)</em>'));
+$a('Access grid column reads "Entity scope"',    $c($rbacPage, '>Entity scope</th>'));
 $a('Grant body forwards sub_tenant_scope',       $c($rbacPage, 'body.sub_tenant_scope = scope'));
 
 $a('Panel calls /api/admin/membership_audit.php',
@@ -139,6 +145,9 @@ $a('Panel has data-testid root',                 $c($panel, 'data-testid="recent
 $a('Panel renders empty state',                  $c($panel, 'data-testid="recent-access-empty"'));
 $a('Panel supports sub-tenant filter prop',      $c($panel, 'showSubTenantFilter'));
 $a('Panel exposes sub-tenant filter testid',     $c($panel, 'recent-access-subtenant-filter'));
+$a('Panel filter includes parent entity',        $c($panel, "kind: 'parent'")
+                                              && $c($panel, "ent.kind === 'parent' ? ' — parent' : ''"));
+$a('Panel filter "All entities" label',          $c($panel, '<option value="">All entities</option>'));
 $a('Membership page enables sub-tenant filter',  $c($rbacPage, 'showSubTenantFilter={true}'));
 
 // ----------------------------------------------------------------- summary

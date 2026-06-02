@@ -70,7 +70,7 @@ export default function RecentAccessChangesPanel({ limit = 10, compact = false, 
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
-  const [subTenants, setSubTenants] = useState([]);
+  const [entities, setEntities] = useState([]); // [{id,name,kind:'parent'|'sub'}]
   const [subTenantId, setSubTenantId] = useState('');
 
   const load = async () => {
@@ -89,13 +89,23 @@ export default function RecentAccessChangesPanel({ limit = 10, compact = false, 
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [limit, subTenantId]);
 
-  // Lazy-load sub-tenants the first time the filter is shown.
+  // Lazy-load entities (parent + sub-tenants) the first time the filter
+  // is shown. Parent-as-entity applies everywhere — the parent keeps its
+  // own books and its own audit-able access changes too.
   useEffect(() => {
-    if (!showSubTenantFilter || subTenants.length) return;
+    if (!showSubTenantFilter || entities.length) return;
     api.get('/api/sub_tenants.php')
-      .then((r) => setSubTenants(r?.sub_tenants || r?.tenants || []))
+      .then((r) => {
+        const subs = r?.sub_tenants || r?.tenants || [];
+        const parent = r?.parent || null;
+        const parentId = r?.parent_tenant_id ?? parent?.id ?? null;
+        const list = [];
+        if (parent && parentId) list.push({ id: parentId, name: parent.name || `Tenant ${parentId}`, kind: 'parent' });
+        for (const st of subs) list.push({ id: st.id, name: st.name, kind: 'sub' });
+        setEntities(list);
+      })
       .catch(() => { /* silent — filter just stays empty */ });
-  }, [showSubTenantFilter, subTenants.length]);
+  }, [showSubTenantFilter, entities.length]);
 
   return (
     <Card data-testid="recent-access-changes">
@@ -105,17 +115,19 @@ export default function RecentAccessChangesPanel({ limit = 10, compact = false, 
           <strong style={{ fontSize: 14 }}>Recent access changes</strong>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {showSubTenantFilter && subTenants.length > 0 && (
+          {showSubTenantFilter && entities.length > 0 && (
             <select
               value={subTenantId}
               onChange={(e) => setSubTenantId(e.target.value)}
               data-testid="recent-access-subtenant-filter"
               style={{ fontSize: 12, maxWidth: 180 }}
-              aria-label="Filter by sub-tenant"
+              aria-label="Filter by entity"
             >
-              <option value="">All sub-tenants</option>
-              {subTenants.map((st) => (
-                <option key={st.id} value={st.id}>{st.name}</option>
+              <option value="">All entities</option>
+              {entities.map((ent) => (
+                <option key={ent.id} value={ent.id}>
+                  {ent.name}{ent.kind === 'parent' ? ' — parent' : ''}
+                </option>
               ))}
             </select>
           )}
