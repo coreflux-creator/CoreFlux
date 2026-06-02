@@ -41,7 +41,7 @@ $a('  httpStatus property',                       str_contains($h, 'public int $
 $a('  raw property',                              str_contains($h, 'public array $raw = [];'));
 $a('jazApiBase default getjaz.com',               str_contains($h, "return 'https://api.getjaz.com/api/v1';"));
 $a('jazApiBase honors JAZ_API_BASE env',          str_contains($h, "getenv('JAZ_API_BASE')"));
-$a('jazCall sets Authorization: Bearer header',   str_contains($h, "'Authorization: Bearer ' . \$apiKey,"));
+$a('jazCall sets x-jk-api-key header',           str_contains($h, "'x-jk-api-key: ' . \$apiKey,"));
 $a('jazCall sets Accept + Content-Type JSON',     str_contains($h, "'Accept: application/json',")
                                                && str_contains($h, "'Content-Type: application/json',"));
 $a('jazCall honors transport test seam',          str_contains($h, "isset(\$GLOBALS['__jaz_transport'])"));
@@ -118,8 +118,8 @@ $a('  org.base_currency from baseCurrency.code',   ($v['org']['base_currency'] ?
 $a('  captured method=GET, path=organization',
     $captured[0]['method'] === 'GET'
     && str_ends_with($captured[0]['url'], '/api/v1/organization'));
-$a('  Authorization header present + bearer',
-    in_array('Authorization: Bearer jaz_test_key_minimum_24_chars_xyz', $captured[0]['headers'], true));
+$a('  x-jk-api-key header present',
+    in_array('x-jk-api-key: jaz_test_key_minimum_24_chars_xyz', $captured[0]['headers'], true));
 
 // validateConnection — bad key (401)
 $captured = []; $nextResp = ['status' => 401, 'body' => json_encode(['message' => 'invalid_token'])];

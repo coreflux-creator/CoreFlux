@@ -24,7 +24,7 @@
  *   postObject           → POST /{type}/{id}/convert-to-active  (for draft → active)
  *   getObject            → GET  /{type}/{id}
  *
- * Auth: Authorization: Bearer <api_key>. Credential resolution unchanged
+ * Auth: x-jk-api-key: <api_key>. Credential resolution unchanged
  * from Slice 1 — decrypted on each call, never logged.
  */
 declare(strict_types=1);
@@ -77,13 +77,12 @@ class JazAccountingAdapter extends AccountingProviderAdapter
         } catch (JazApiException $e) {
             // Surface enough context for an admin to diagnose Jaz-side rejection
             // without a round-trip: HTTP status, request URL, the auth scheme we
-            // sent. Critical because Jaz docs (Apr 2026, Q11) say authentication
-            // is JWT-based — an opaque "jaz_…" key handed as a Bearer token
-            // returns 403 / "Unauthorized Credentials" until exchanged.
+            // sent. Jaz expects `x-jk-api-key: <key>` (OpenAPI ApiKeyAuth scheme)
+            // — not a Bearer header.
             $hint = '';
             if ($e->httpStatus === 401 || $e->httpStatus === 403) {
-                $hint = ' [request: GET ' . jazApiBase() . '/organization · auth: Authorization: Bearer <key>'
-                      . ' · if your key starts with "jaz_" Jaz may require a JWT-exchange — see Jaz Settings → Access Management → API → View API Doc]';
+                $hint = ' [request: GET ' . jazApiBase() . '/organization · auth: x-jk-api-key: <key>'
+                      . ' · double-check the key is active in Jaz Settings → Access Management → API Keys and has organization.read]';
             } elseif ($e->httpStatus === 404) {
                 $hint = ' [request: GET ' . jazApiBase() . '/organization — set JAZ_API_BASE if your tenant lives at a different host]';
             }

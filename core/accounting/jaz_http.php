@@ -7,7 +7,13 @@
  * normalisation, with a $GLOBALS['__jaz_transport'] test seam so
  * smoke tests can stub the wire without external dependencies.
  *
- *   Auth:    Authorization: Bearer <api_key>   (per user-confirmed default)
+ *   Auth:    x-jk-api-key: <api_key>            (Jaz OpenAPI securityScheme
+ *                                                 `ApiKeyAuth`, header
+ *                                                 `x-jk-api-key`. NOT a
+ *                                                 Bearer JWT — sending the
+ *                                                 key as `Authorization:
+ *                                                 Bearer …` returns 403
+ *                                                 "Unauthorized Credentials".)
  *   Base:    https://api.getjaz.com/api/v1     (override via JAZ_API_BASE)
  *
  * Errors map to JazApiException with httpStatus + raw body slice so
@@ -47,7 +53,7 @@ function jazCall(string $apiKey, string $method, string $path, array $body = [],
         $url .= (str_contains($url, '?') ? '&' : '?') . http_build_query($query);
     }
     $headers = [
-        'Authorization: Bearer ' . $apiKey,
+        'x-jk-api-key: ' . $apiKey,
         'Accept: application/json',
         'Content-Type: application/json',
         'User-Agent: CoreFlux/1.0 (+jaz_adapter.php)',
