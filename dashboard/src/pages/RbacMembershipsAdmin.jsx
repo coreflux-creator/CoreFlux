@@ -25,6 +25,9 @@ import RbacBridgeHealthPanel from './RbacBridgeHealthPanel';
 const PERSONA_TYPES = [
   'tenant_admin', 'admin', 'manager', 'employee',
   'contractor', 'client', 'vendor', 'platform_staff', 'custom',
+  // CPA-firm-side personas (migration 100 / RBAC B6).
+  'cpa', 'cpa_partner', 'cpa_staff',
+  'bookkeeper', 'client_advisor', 'external_auditor',
 ];
 const STATUSES = ['active', 'pending', 'suspended', 'revoked'];
 const LEVELS   = ['none', 'read', 'write', 'admin'];
@@ -44,10 +47,85 @@ function StatusBadge({ status }) {
   );
 }
 
+/**
+ * Inline picker for an RBAC permission profile (migration 100 / RBAC B6).
+ *
+ *  - Pulls profiles from /api/admin/permission_profiles.php on mount.
+ *  - Filters to ones whose `applies_to_persona` matches `personaType`,
+ *    plus any profile with applies_to_persona === null (generic).
+ *  - Surfaces system + tenant-private profiles with a small "system" /
+ *    "tenant" badge so the admin knows what they're picking.
+ *  - Calls `onChange(profileKey | '')` so the parent can stamp it into
+ *    the form payload it POSTs.
+ *
+ * The picker is intentionally OPTIONAL — leaving it blank just skips
+ * the bulk-apply step, preserving the pre-B6 flow.
+ */
+function ProfilePicker({ personaType, value, onChange, testIdPrefix }) {
+  const [profiles, setProfiles] = useState(null); // null = loading
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await api.get('/api/admin/permission_profiles.php');
+        if (cancelled) return;
+        setProfiles(Array.isArray(r?.profiles) ? r.profiles : []);
+      } catch (e) {
+        if (cancelled) return;
+        // 503 when migration 100 hasn't run yet — degrade gracefully.
+        setProfiles([]);
+        setError(e?.message || 'profiles unavailable');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const visible = useMemo(() => {
+    if (!Array.isArray(profiles)) return [];
+    const persona = (personaType || '').toLowerCase();
+    return profiles.filter(p => !p.applies_to_persona || p.applies_to_persona === persona);
+  }, [profiles, personaType]);
+
+  if (profiles === null) {
+    return (
+      <span data-testid={`${testIdPrefix}-loading`} style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+        Loading profiles…
+      </span>
+    );
+  }
+  if (visible.length === 0) {
+    return (
+      <span data-testid={`${testIdPrefix}-empty`} style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+        {error ? `(${error})` : 'No profiles available for this persona'}
+      </span>
+    );
+  }
+  return (
+    <select
+      value={value || ''}
+      onChange={(e) => onChange(e.target.value)}
+      data-testid={testIdPrefix}
+    >
+      <option value="">— skip / configure modules manually —</option>
+      {visible.map(p => (
+        <option
+          key={p.id}
+          value={p.profile_key}
+          data-testid={`${testIdPrefix}-opt-${p.profile_key}`}
+        >
+          {p.label} {p.is_system ? '· system' : '· tenant'} ({p.grants.length} modules)
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function MembershipForm({ initial, users, onSave, onCancel }) {
   const [form, setForm] = useState(initial || {
     user_id: '', persona_label: 'Primary', persona_type: 'employee',
-    status: 'active', is_primary: false,
+    status: 'active', is_primary: false, profile_key: '',
   });
   const isNew = !initial?.id;
   const submit = async () => {
@@ -125,6 +203,19 @@ function MembershipForm({ initial, users, onSave, onCancel }) {
           />
           <span style={{ fontSize: 13 }}>Primary persona for this user in this tenant</span>
         </label>
+        {isNew && (
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
+            <span style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+              Apply permission profile <em style={{ opacity: 0.7 }}>(optional — pre-seeds module access)</em>
+            </span>
+            <ProfilePicker
+              personaType={form.persona_type}
+              value={form.profile_key || ''}
+              onChange={(v) => setForm({ ...form, profile_key: v })}
+              testIdPrefix="membership-profile-picker"
+            />
+          </label>
+        )}
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
         <button onClick={onCancel} className="btn btn--ghost" data-testid="membership-form-cancel">Cancel</button>
@@ -208,6 +299,13 @@ function AccessGrid({ membership, allMemberships, onClose }) {
   const [access, setAccess] = useState([]);
   const [loading, setLoading] = useState(true);
   const [copyFrom, setCopyFrom] = useState('');
+  // RBAC B6 — apply a named permission profile (system or tenant-private)
+  // to bulk-write module grants without round-tripping the per-module
+  // selects. Empty string = no profile picked; once chosen + applied we
+  // reload() to surface the new rows in the table below.
+  const [profileKey, setProfileKey] = useState('');
+  const [overwrite, setOverwrite]   = useState(false);
+  const [profileBusy, setProfileBusy] = useState(false);
   // RBAC B3 — sub-tenant scope picker.
   // Backend supports a per-grant `sub_tenant_scope` JSON array (NULL = all
   // sub-tenants under the parent tenant). We surface that here so a
@@ -287,6 +385,36 @@ function AccessGrid({ membership, allMemberships, onClose }) {
     } catch (e) { alert(e.message || 'Copy failed'); }
   };
 
+  // RBAC B6 — apply a named profile to this membership. Uses
+  // /api/admin/permission_profiles.php?action=apply. When `overwrite=1` is
+  // checked, the server-side service revokes every existing module grant
+  // that is NOT in the profile before re-applying.
+  const applyProfile = async () => {
+    if (!profileKey) return alert('Pick a profile first');
+    setProfileBusy(true);
+    try {
+      // Resolve profile_key → profile_id via the list endpoint. We do
+      // this here rather than in the picker so the apply button can
+      // remain a clean single-click action with no extra state.
+      const r1 = await api.get('/api/admin/permission_profiles.php');
+      const match = (r1?.profiles || []).find(p => p.profile_key === profileKey);
+      if (!match) { alert('Profile not found'); return; }
+      const r2 = await api.post('/api/admin/permission_profiles.php?action=apply', {
+        profile_id: match.id,
+        membership_id: membership.id,
+        overwrite: overwrite ? 1 : 0,
+      });
+      alert(`Applied ${r2?.applied || 0} module grants from "${match.label}"`);
+      setProfileKey('');
+      setOverwrite(false);
+      reload();
+    } catch (e) {
+      alert(e.message || 'Apply failed');
+    } finally {
+      setProfileBusy(false);
+    }
+  };
+
   const copyCandidates = allMemberships.filter(m => m.id !== membership.id && m.status === 'active');
 
   return (
@@ -325,6 +453,44 @@ function AccessGrid({ membership, allMemberships, onClose }) {
         </select>
         <button onClick={copy} disabled={!copyFrom} className="btn btn--primary btn--sm" data-testid="access-copy-btn">
           Copy
+        </button>
+      </div>
+
+      {/* RBAC B6 — apply a named permission profile (CPA bundle, etc.). */}
+      <div
+        data-testid="access-apply-profile-card"
+        style={{
+          display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
+          padding: 10, background: 'var(--cf-surface-alt, #fafafa)',
+          borderRadius: 6, marginBottom: 12,
+        }}
+      >
+        <Shield size={14} />
+        <span style={{ fontSize: 13 }}>Apply profile</span>
+        <div style={{ flex: 1, minWidth: 240, maxWidth: 360 }}>
+          <ProfilePicker
+            personaType={membership.persona_type}
+            value={profileKey}
+            onChange={setProfileKey}
+            testIdPrefix="access-apply-profile-picker"
+          />
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+          <input
+            type="checkbox"
+            checked={overwrite}
+            onChange={(e) => setOverwrite(e.target.checked)}
+            data-testid="access-apply-profile-overwrite"
+          />
+          <span>Overwrite other modules</span>
+        </label>
+        <button
+          onClick={applyProfile}
+          disabled={!profileKey || profileBusy}
+          className="btn btn--primary btn--sm"
+          data-testid="access-apply-profile-btn"
+        >
+          {profileBusy ? 'Applying…' : 'Apply'}
         </button>
       </div>
 
@@ -399,6 +565,7 @@ function InviteForm({ onSent, onCancel }) {
   const [form, setForm] = useState({
     email: '', name: '', persona_label: 'Primary',
     persona_type: 'employee', ttl_minutes: 60 * 24 * 7, // 7 days
+    profile_key: '',
   });
   const [sending, setSending] = useState(false);
   const [result,  setResult]  = useState(null); // { ok, mailer:{driver,...}, magic_link_url? }
@@ -505,6 +672,17 @@ function InviteForm({ onSent, onCancel }) {
             <option value={60 * 24 * 14}>14 days</option>
             <option value={60 * 24 * 30}>30 days</option>
           </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
+          <span style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+            Apply permission profile <em style={{ opacity: 0.7 }}>(optional — pre-seeds module access on invite)</em>
+          </span>
+          <ProfilePicker
+            personaType={form.persona_type}
+            value={form.profile_key || ''}
+            onChange={(v) => setForm({ ...form, profile_key: v })}
+            testIdPrefix="invite-profile-picker"
+          />
         </label>
       </div>
       {error && <div style={{ marginTop: 10, color: '#b94a4a', fontSize: 13 }} data-testid="invite-form-error">{error}</div>}

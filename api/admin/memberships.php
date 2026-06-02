@@ -47,8 +47,15 @@ try {
 }
 
 const _ALLOWED_PERSONA_TYPES = [
+    // Legacy persona types (pre-migration 100).
     'master_admin','tenant_admin','admin','manager','employee',
     'contractor','client','vendor','platform_staff','custom',
+    // CPA-firm-side personas (migration 100). These let a CPA user be
+    // modelled with the right "title" inside a client tenant so that
+    // permission profiles + the future CPA portal can pivot off
+    // persona_type rather than yet another column.
+    'cpa','cpa_partner','cpa_staff',
+    'bookkeeper','client_advisor','external_auditor',
 ];
 const _ALLOWED_STATUS = ['active','pending','suspended','revoked'];
 
@@ -114,6 +121,7 @@ if ($method === 'POST' && (string) (api_query('action') ?? '') === 'invite') {
     //   retrieve a fresh link out-of-band when an invitee can't find the email.
     require_once __DIR__ . '/../../core/magic_link.php';
     require_once __DIR__ . '/../../core/mailer.php';
+    require_once __DIR__ . '/../../core/rbac/permission_profiles.php';
 
     $body  = api_json_body();
     $email = strtolower(trim((string) ($body['email'] ?? '')));
@@ -226,6 +234,33 @@ if ($method === 'POST' && (string) (api_query('action') ?? '') === 'invite') {
         catch (\Throwable $_) { /* ignore — invite still completes */ }
     }
 
+    // 3b) Apply named permission profile if provided (RBAC B6 / migration 100).
+    // Operators onboarding a CPA pick "cpa_partner.default" once and the
+    // invite endpoint stamps every module grant in one shot — no need to
+    // round-trip /membership_access.php for each module after the user
+    // accepts the invite.
+    $profileKey = trim((string) ($body['profile_key'] ?? ''));
+    $profileApplied = null;
+    if ($profileKey !== '' && $membershipId > 0) {
+        try {
+            $profile = PermissionProfileService::getByKey($profileKey, $tenantId);
+            if ($profile) {
+                $appliedCount = PermissionProfileService::apply(
+                    $membershipId, (int) $profile['id'], $tenantId, $actorId, false, null
+                );
+                $profileApplied = [
+                    'profile_key'    => $profile['profile_key'],
+                    'profile_id'     => $profile['id'],
+                    'grants_applied' => $appliedCount,
+                ];
+            }
+        } catch (\Throwable $e) {
+            // Surfaced on the response so the operator knows the invite
+            // succeeded but the profile didn't seat — non-fatal.
+            $profileApplied = ['profile_key' => $profileKey, 'error' => $e->getMessage()];
+        }
+    }
+
     // 4) Issue magic link.
     $link = magicLinkIssue(
         $email,
@@ -291,6 +326,7 @@ if ($method === 'POST' && (string) (api_query('action') ?? '') === 'invite') {
             'error'  => $mailRes['error'] ?? null,
         ],
     ];
+    if ($profileApplied !== null) $resp['profile_applied'] = $profileApplied;
     if ($isGlobalAdmin) $resp['magic_link_url'] = $linkUrl;
     api_ok($resp, 201);
 }
@@ -361,7 +397,38 @@ if ($method === 'POST') {
         'status' => $status, 'is_primary' => $isPrimary,
     ]);
     RBACResolver::resetCache();
-    api_ok(['id' => $newId, 'created' => true], 201);
+
+    // Optional permission profile application (RBAC B6).
+    // Lets the admin onboard a CPA-staff / bookkeeper / cpa_partner in one
+    // POST without a follow-up round-trip to /membership_access.php for
+    // each module. Non-fatal: a bad profile_key just surfaces in the
+    // response payload while the membership row itself still ships.
+    $profileKey = trim((string) ($body['profile_key'] ?? ''));
+    $profileApplied = null;
+    if ($profileKey !== '' && $newId > 0) {
+        require_once __DIR__ . '/../../core/rbac/permission_profiles.php';
+        try {
+            $profile = PermissionProfileService::getByKey($profileKey, $tenantId);
+            if ($profile) {
+                $appliedCount = PermissionProfileService::apply(
+                    $newId, (int) $profile['id'], $tenantId, $actorId, false, null
+                );
+                $profileApplied = [
+                    'profile_key'    => $profile['profile_key'],
+                    'profile_id'     => $profile['id'],
+                    'grants_applied' => $appliedCount,
+                ];
+            } else {
+                $profileApplied = ['profile_key' => $profileKey, 'error' => 'profile_not_found'];
+            }
+        } catch (\Throwable $e) {
+            $profileApplied = ['profile_key' => $profileKey, 'error' => $e->getMessage()];
+        }
+    }
+
+    $resp = ['id' => $newId, 'created' => true];
+    if ($profileApplied !== null) $resp['profile_applied'] = $profileApplied;
+    api_ok($resp, 201);
 }
 
 if ($method === 'PATCH') {
