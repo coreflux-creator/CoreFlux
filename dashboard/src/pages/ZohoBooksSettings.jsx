@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useApi, api } from '../lib/api';
 import {
   CheckCircle2, ExternalLink, RefreshCw, XCircle,
@@ -7,24 +7,51 @@ import {
 
 /**
  * ZohoBooksSettings — Zoho Books OAuth connection + per-entity sync
- * direction picker. Mounted at /admin/integrations/zoho-books.
+ * direction picker + per-entity account mapping. Mounted at
+ * /admin/integrations/zoho-books.
  *
- * Slice 1 (Foundation) scope: connect / disconnect / ping / per-entity
- * direction selector. Actual push/pull workers ship in subsequent
- * slices, so the "Manual sync" card from QboSettings is intentionally
- * absent here.
- *
- * Render branches keyed off /api/zoho_books/status:
- *   - configured=false               → "Pod not configured" notice
- *   - configured=true, connected=false → "Connect to Zoho Books" CTA
- *   - configured=true, connected=true  → org info + Ping + Disconnect
- *                                        + per-entity sync direction table
+ * Per migration 099 every (master tenant, sub-tenant) pair gets its own
+ * Zoho Books connection. The legal-entity picker at the top scopes
+ * every read + write on this page. "Copy sync config from another
+ * entity" lets an admin clone a fully-tuned entity's settings into a
+ * newly-connected one in a single click.
  */
 export default function ZohoBooksSettings() {
-  const status = useApi('/api/zoho_books/status.php?action=status');
+  // 1) Sub-tenant list (parent + active sub-tenants). The endpoint
+  //    returns the parent as a first-class entity so the picker covers
+  //    every legal entity an operator might want to connect.
+  const subTenants = useApi('/api/sub_tenants.php');
+  const subs = useMemo(() => {
+    const r = subTenants.data;
+    if (!r) return [];
+    const list = Array.isArray(r) ? r : (r.rows || r.sub_tenants || r.tenants || []);
+    const parent = r && !Array.isArray(r) ? (r.parent || null) : null;
+    if (parent && !list.find(s => Number(s.id) === Number(parent.id))) {
+      return [parent, ...list];
+    }
+    return list;
+  }, [subTenants.data]);
+
+  // Default entity: from ?entity=N query param (post-OAuth redirect) or
+  // the parent. Falls back to the first sub-tenant when no parent row.
+  const [subTenantId, setSubTenantId] = useState(() => {
+    const fromQs = new URLSearchParams(window.location.search).get('entity');
+    return fromQs ? Number(fromQs) : null;
+  });
+  useEffect(() => {
+    if (subTenantId == null && subs.length) {
+      setSubTenantId(Number(subs[0].id));
+    }
+  }, [subs, subTenantId]);
+
+  const statusUrl = subTenantId
+    ? `/api/zoho_books/status.php?action=status&sub_tenant_id=${subTenantId}`
+    : null;
+  const status = useApi(statusUrl);
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState(parseFlashFromUrl());
   const [draft, setDraft] = useState(null);
+  const [copyFrom, setCopyFrom] = useState('');
 
   const data       = status.data || {};
   const configured = !!data.configured;
@@ -32,10 +59,17 @@ export default function ZohoBooksSettings() {
   const config     = draft ?? data.sync_config ?? {};
   const dirty      = draft !== null && JSON.stringify(draft) !== JSON.stringify(data.sync_config || {});
 
+  // Other entities in this tenant that ALREADY have a Zoho connection
+  // (used by the "Copy sync config from" picker).
+  const otherConnections = useMemo(() => {
+    const list = Array.isArray(data.all_connections) ? data.all_connections : [];
+    return list.filter(c => Number(c.sub_tenant_id) !== Number(subTenantId) && c.status === 'active');
+  }, [data.all_connections, subTenantId]);
+
   const handleConnect = async () => {
     setBusy(true); setFlash(null);
     try {
-      const r = await api.get('/api/zoho_books/oauth_start.php?action=oauth_start');
+      const r = await api.get(`/api/zoho_books/oauth_start.php?action=oauth_start&sub_tenant_id=${subTenantId}`);
       window.location.href = r.authorize_url;
     } catch (e) {
       setFlash({ kind: 'error', msg: e.message || String(e) });
@@ -44,11 +78,11 @@ export default function ZohoBooksSettings() {
   };
 
   const handleDisconnect = async () => {
-    if (!window.confirm('Disconnect Zoho Books? Cached tokens will be revoked. No data is deleted from Zoho.')) return;
+    if (!window.confirm('Disconnect Zoho Books for THIS entity? Cached tokens will be revoked. No data is deleted from Zoho.')) return;
     setBusy(true); setFlash(null);
     try {
-      await api.post('/api/zoho_books/disconnect.php?action=disconnect', {});
-      setFlash({ kind: 'success', msg: 'Zoho Books disconnected.' });
+      await api.post('/api/zoho_books/disconnect.php?action=disconnect', { sub_tenant_id: subTenantId });
+      setFlash({ kind: 'success', msg: 'Zoho Books disconnected for this entity.' });
       status.reload();
     } catch (e) {
       setFlash({ kind: 'error', msg: e.message || String(e) });
@@ -60,7 +94,7 @@ export default function ZohoBooksSettings() {
   const handlePing = async () => {
     setBusy(true); setFlash(null);
     try {
-      const r = await api.post('/api/zoho_books/ping.php?action=ping', {});
+      const r = await api.post('/api/zoho_books/ping.php?action=ping', { sub_tenant_id: subTenantId });
       setFlash({
         kind: r.ok ? 'success' : 'error',
         msg: r.ok
@@ -78,7 +112,8 @@ export default function ZohoBooksSettings() {
   const handleSaveConfig = async () => {
     setBusy(true); setFlash(null);
     try {
-      await api.post('/api/zoho_books/sync_config_set.php?action=sync_config_set', { sync_config: config });
+      await api.post('/api/zoho_books/sync_config_set.php?action=sync_config_set',
+                     { sub_tenant_id: subTenantId, sync_config: config });
       setFlash({ kind: 'success', msg: 'Sync settings saved.' });
       setDraft(null);
       status.reload();
@@ -89,20 +124,76 @@ export default function ZohoBooksSettings() {
     }
   };
 
-  if (status.loading) return <div data-testid="zoho-books-settings-loading">Loading…</div>;
+  const handleCopyConfig = async () => {
+    const from = Number(copyFrom);
+    if (!from || from === Number(subTenantId)) {
+      setFlash({ kind: 'error', msg: 'Pick a different source entity first.' });
+      return;
+    }
+    const sourceName = otherConnections.find(c => Number(c.sub_tenant_id) === from)?.organization_name || `entity #${from}`;
+    if (!window.confirm(`Replace this entity's sync settings + account mappings with those from "${sourceName}"? Existing settings on this entity will be overwritten.`)) {
+      return;
+    }
+    setBusy(true); setFlash(null);
+    try {
+      const r = await api.post('/api/zoho_books.php?action=sync_config_copy', {
+        from_sub_tenant_id: from,
+        to_sub_tenant_id:   subTenantId,
+        overwrite_existing: true,
+      });
+      setFlash({
+        kind: 'success',
+        msg: `Copied: sync config replaced · ${r.mappings_copied} account mappings imported · ${r.mappings_skipped} skipped.`,
+      });
+      setCopyFrom('');
+      setDraft(null);
+      status.reload();
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally { setBusy(false); }
+  };
+
+  if (status.loading || subTenants.loading) return <div data-testid="zoho-books-settings-loading">Loading…</div>;
 
   return (
     <section data-testid="zoho-books-settings" style={{ maxWidth: 880 }}>
       <header style={{ marginBottom: 16 }}>
         <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>Zoho Books — Connection</h3>
         <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--cf-text-secondary)' }}>
-          Connect your tenant's Zoho Books organization via OAuth 2.0. CoreFlux stores the
-          access + refresh tokens AES-256-GCM encrypted and auto-refreshes them before expiry.
+          One connection per legal entity. Pick the entity to configure
+          below. Each entity's sync direction matrix + account map is
+          independent; <strong>Copy sync config</strong> below lets you
+          clone the rules from any already-configured entity in one click.
           {data.dc && (
             <> Region: <code data-testid="zoho-books-dc">{data.dc}</code>.</>
           )}
         </p>
       </header>
+
+      {/* Step 0 — Legal entity picker. Every API call on this page scopes
+          by the value selected here. */}
+      <div data-testid="zoho-books-entity-picker"
+           style={{ marginBottom: 16, padding: 12, background: '#f8fafc',
+                    border: '1px solid #e2e8f0', borderRadius: 8 }}>
+        <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 6 }}>
+          Step 1 — Legal entity
+        </label>
+        <select
+          value={subTenantId || ''}
+          onChange={(e) => { setSubTenantId(Number(e.target.value)); setDraft(null); }}
+          data-testid="zoho-books-entity-select"
+          className="input"
+          style={{ width: '100%', maxWidth: 380, fontSize: 13 }}
+        >
+          {subs.length === 0 && <option value="">— no entities visible —</option>}
+          {subs.map(s => (
+            <option key={s.id} value={s.id}>
+              {s.name || s.tenant_name || `Entity #${s.id}`}
+              {s.is_parent ? ' (master)' : ''}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {flash && (
         <div
@@ -213,8 +304,54 @@ export default function ZohoBooksSettings() {
             busy={busy}
           />
 
+          {/* Step 3 — Copy sync config from another entity. Hidden when
+              this is the only configured entity. */}
+          {otherConnections.length > 0 && (
+            <div data-testid="zoho-books-copy-config-card"
+                 className="card"
+                 style={{ padding: 12, marginBottom: 16, background: '#f0f9ff',
+                          border: '1px solid #bae6fd', borderRadius: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, color: '#075985' }}>
+                Copy sync config from another entity
+              </div>
+              <p style={{ fontSize: 12, color: '#0c4a6e', margin: '0 0 8px' }}>
+                Replace this entity's sync direction matrix + account
+                mappings with those of another entity. Useful when you
+                want every sub-entity to behave identically.
+              </p>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <select
+                  value={copyFrom}
+                  onChange={(e) => setCopyFrom(e.target.value)}
+                  className="input"
+                  style={{ fontSize: 13, padding: '4px 8px', minWidth: 240 }}
+                  data-testid="zoho-books-copy-from-select"
+                >
+                  <option value="">— pick source entity —</option>
+                  {otherConnections.map(c => (
+                    <option key={c.sub_tenant_id} value={c.sub_tenant_id}>
+                      {c.organization_name || `Entity #${c.sub_tenant_id}`}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" className="btn"
+                        onClick={handleCopyConfig}
+                        disabled={busy || !copyFrom}
+                        data-testid="zoho-books-copy-config-btn">
+                  Copy settings
+                </button>
+              </div>
+            </div>
+          )}
+
+          <ZohoAccountMappingCard
+            subTenantId={subTenantId}
+            onFlash={setFlash}
+          />
+
           <ManualSyncCard
             currentConfig={data.sync_config || {}}
+            subTenantId={subTenantId}
             busy={busy} setBusy={setBusy}
             setFlash={setFlash} reload={status.reload}
           />
@@ -319,7 +456,7 @@ function SyncConfigCard({ entities, config, onChange, onSave, onReset, dirty, bu
   );
 }
 
-function ManualSyncCard({ currentConfig, busy, setBusy, setFlash, reload }) {
+function ManualSyncCard({ currentConfig, subTenantId, busy, setBusy, setFlash, reload }) {
   const jeDir  = currentConfig.journal_entries || 'off';
   const invDir = currentConfig.invoices        || 'off';
   const billDir= currentConfig.bills           || 'off';
@@ -332,7 +469,7 @@ function ManualSyncCard({ currentConfig, busy, setBusy, setFlash, reload }) {
   const handleJe = async ({ dryRun }) => {
     setBusy(true); setFlash(null);
     try {
-      const r = await api.post('/api/zoho_books/sync_je.php?action=sync_je', { limit: 50, dry_run: !!dryRun });
+      const r = await api.post('/api/zoho_books/sync_je.php?action=sync_je', { limit: 50, dry_run: !!dryRun, sub_tenant_id: subTenantId });
       const parts = [
         `${r.pushed} ${dryRun ? 'would-push' : 'pushed'}`,
         `${r.skipped_unmapped} skipped (unmapped accounts)`,
@@ -355,7 +492,7 @@ function ManualSyncCard({ currentConfig, busy, setBusy, setFlash, reload }) {
   const handlePush = async (label, action, { dryRun }) => {
     setBusy(true); setFlash(null);
     try {
-      const r = await api.post(`/api/zoho_books/${action}.php?action=${action}`, { limit: 50, dry_run: !!dryRun });
+      const r = await api.post(`/api/zoho_books/${action}.php?action=${action}`, { limit: 50, dry_run: !!dryRun, sub_tenant_id: subTenantId });
       const parts = [
         `${r.pushed} ${dryRun ? 'would-push' : 'pushed'}`,
         `${r.skipped} skipped`,
@@ -465,4 +602,213 @@ function parseFlashFromUrl() {
     return { kind: 'error', msg: 'Zoho reported: ' + err };
   }
   return null;
+}
+
+
+/* ---------------------------------------------------------------
+   Account mapping card — reuses the provider-neutral
+   accounting_account_mappings table via /api/accounting.php
+   with provider=zoho_books. Mirrors the Jaz UI verbatim so
+   operators have one mental model across destinations.
+--------------------------------------------------------------- */
+function ZohoAccountMappingCard({ subTenantId, onFlash }) {
+  const [mappings, setMappings] = useState([]);
+  const [unmapped, setUnmapped] = useState([]);
+  const [loading, setLoading]   = useState(false);
+  const [error,   setError]     = useState(null);
+  const [busy,    setBusy]      = useState(false);
+  const [addRow,  setAddRow]    = useState(null);
+
+  const reload = useCallback(async () => {
+    if (!subTenantId) return;
+    setLoading(true); setError(null);
+    try {
+      const r = await api.get(`/api/accounting.php?action=account_mappings&sub_tenant_id=${subTenantId}&provider=zoho_books`);
+      setMappings(r.mappings || []);
+      setUnmapped(r.unmapped || []);
+    } catch (e) { setError(e.message || 'Failed to load'); }
+    finally     { setLoading(false); }
+  }, [subTenantId]);
+  useEffect(() => { reload(); }, [reload]);
+
+  const handleAutoMap = async () => {
+    setBusy(true); setError(null);
+    try {
+      const r = await api.post('/api/accounting.php?action=account_mapping_auto&provider=zoho_books', {
+        sub_tenant_id: subTenantId,
+      });
+      const created = r.mapped ?? r.new_mappings?.length ?? 0;
+      const noMatch = r.no_provider_match ?? 0;
+      onFlash?.({
+        kind: created > 0 ? 'success' : 'error',
+        msg:  `Auto-map: ${created} mapped · ${noMatch} CoreFlux accounts had no match in Zoho Books.`,
+      });
+      reload();
+    } catch (e) { setError(e.message || 'Auto-map failed'); }
+    finally     { setBusy(false); }
+  };
+
+  const handleDelete = async (mappingId) => {
+    if (!window.confirm('Remove this mapping?')) return;
+    setBusy(true);
+    try {
+      await api.post('/api/accounting.php?action=account_mapping_delete&provider=zoho_books', {
+        sub_tenant_id: subTenantId, mapping_id: mappingId,
+      });
+      reload();
+    } catch (e) { setError(e.message || 'Delete failed'); }
+    finally     { setBusy(false); }
+  };
+
+  const handleSaveAdd = async (e) => {
+    e?.preventDefault?.();
+    if (!addRow || !addRow.coreflux_account_id || !addRow.provider_account_id) return;
+    setBusy(true); setError(null);
+    try {
+      await api.post('/api/accounting.php?action=account_mapping_save&provider=zoho_books', {
+        sub_tenant_id:         subTenantId,
+        coreflux_account_id:   addRow.coreflux_account_id,
+        provider_account_id:   addRow.provider_account_id,
+        provider_account_code: addRow.provider_account_code || null,
+        provider_account_name: addRow.provider_account_name || null,
+        source:                'manual',
+      });
+      setAddRow(null);
+      reload();
+    } catch (e) { setError(e.message || 'Save failed'); }
+    finally     { setBusy(false); }
+  };
+
+  return (
+    <div className="card"
+         data-testid="zoho-books-account-mapping-card"
+         style={{ padding: 16, marginBottom: 16, border: '1px solid #e5e7eb', borderRadius: 8 }}>
+      <h4 style={{ margin: '0 0 8px', fontSize: 14, fontWeight: 600 }}>Step 4 — Account mapping</h4>
+      <p style={{ margin: '0 0 12px', fontSize: 12, color: '#64748b' }}>
+        Map each CoreFlux account to a Zoho Books account. The outbox
+        consults this map when push/two-way is enabled. "Auto-map by
+        code" fills in exact-code matches Zoho exposes; the rest you can
+        add manually below.
+      </p>
+      <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button type="button" className="btn" onClick={handleAutoMap}
+                disabled={busy || loading}
+                data-testid="zoho-books-account-mapping-automap">
+          {busy ? 'Auto-mapping…' : 'Auto-map by code'}
+        </button>
+        <button type="button" className="btn"
+                onClick={() => setAddRow({ coreflux_account_id: '', provider_account_id: '' })}
+                disabled={busy || unmapped.length === 0}
+                data-testid="zoho-books-account-mapping-add">
+          + Add mapping
+        </button>
+        <span style={{ fontSize: 12, color: '#64748b' }}>
+          {mappings.length} mapped · {unmapped.length} unmapped
+        </span>
+      </div>
+      {error && <p className="error" style={{ fontSize: 12 }} data-testid="zoho-books-account-mapping-error">{error}</p>}
+
+      {addRow && (
+        <form onSubmit={handleSaveAdd}
+              data-testid="zoho-books-account-mapping-add-form"
+              style={{ marginBottom: 12, padding: 10, background: '#f8fafc',
+                       border: '1px solid #e2e8f0', borderRadius: 6,
+                       display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+          <label style={{ fontSize: 11, fontWeight: 600, flex: '1 1 200px' }}>
+            CoreFlux account
+            <select className="input" value={addRow.coreflux_account_id}
+                    onChange={(e) => setAddRow({ ...addRow, coreflux_account_id: e.target.value })}
+                    data-testid="zoho-books-mapping-add-cf-select"
+                    style={{ display: 'block', width: '100%', marginTop: 4 }}
+                    required>
+              <option value="">— pick unmapped account —</option>
+              {unmapped.map(a => (
+                <option key={a.id} value={a.id}>{a.code} · {a.name}</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ fontSize: 11, fontWeight: 600, flex: '1 1 180px' }}>
+            Zoho account id
+            <input className="input" value={addRow.provider_account_id}
+                   onChange={(e) => setAddRow({ ...addRow, provider_account_id: e.target.value })}
+                   placeholder="9999000000000123"
+                   data-testid="zoho-books-mapping-add-provider-id"
+                   style={{ display: 'block', width: '100%', marginTop: 4 }} required />
+          </label>
+          <label style={{ fontSize: 11, fontWeight: 600, flex: '1 1 110px' }}>
+            Zoho code
+            <input className="input" value={addRow.provider_account_code || ''}
+                   onChange={(e) => setAddRow({ ...addRow, provider_account_code: e.target.value })}
+                   placeholder="1100"
+                   data-testid="zoho-books-mapping-add-provider-code"
+                   style={{ display: 'block', width: '100%', marginTop: 4 }} />
+          </label>
+          <label style={{ fontSize: 11, fontWeight: 600, flex: '1 1 200px' }}>
+            Zoho name
+            <input className="input" value={addRow.provider_account_name || ''}
+                   onChange={(e) => setAddRow({ ...addRow, provider_account_name: e.target.value })}
+                   placeholder="Accounts Receivable"
+                   data-testid="zoho-books-mapping-add-provider-name"
+                   style={{ display: 'block', width: '100%', marginTop: 4 }} />
+          </label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button type="submit" className="btn btn--primary" disabled={busy}
+                    data-testid="zoho-books-mapping-add-save">Save</button>
+            <button type="button" className="btn" onClick={() => setAddRow(null)}
+                    data-testid="zoho-books-mapping-add-cancel">Cancel</button>
+          </div>
+        </form>
+      )}
+
+      {loading ? <p style={{ fontSize: 12 }}>Loading…</p> : (
+        <table data-testid="zoho-books-account-mapping-table"
+               style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ textAlign: 'left', color: '#64748b', borderBottom: '1px solid #e2e8f0' }}>
+              <th style={{ padding: '6px 4px' }}>CoreFlux</th>
+              <th style={{ padding: '6px 4px' }}>Zoho Books</th>
+              <th style={{ padding: '6px 4px' }}>Source</th>
+              <th style={{ padding: '6px 4px', width: 60 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {mappings.length === 0 && (
+              <tr><td colSpan={4} style={{ padding: '12px 4px', color: '#94a3b8', fontStyle: 'italic' }}
+                      data-testid="zoho-books-account-mapping-empty">
+                No mappings yet. Click "Auto-map by code" or "+ Add mapping" to start.
+              </td></tr>
+            )}
+            {mappings.map(m => (
+              <tr key={m.id} data-testid={`zoho-books-mapping-row-${m.id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '6px 4px' }}>
+                  <code style={{ fontSize: 12 }}>{m.coreflux_account_code}</code>
+                  <span style={{ color: '#64748b' }}> · {m.coreflux_account_name || '—'}</span>
+                </td>
+                <td style={{ padding: '6px 4px' }}>
+                  <code style={{ fontSize: 12 }}>{m.provider_account_code || m.provider_account_id}</code>
+                  <span style={{ color: '#64748b' }}> · {m.provider_account_name || '—'}</span>
+                </td>
+                <td style={{ padding: '6px 4px' }}>
+                  <span style={{
+                    fontSize: 10, padding: '2px 6px', borderRadius: 8,
+                    background: m.source === 'manual' ? '#dbeafe' : '#fef3c7',
+                    color:      m.source === 'manual' ? '#1e40af' : '#92400e',
+                  }}>{m.source}</span>
+                </td>
+                <td style={{ padding: '6px 4px', textAlign: 'right' }}>
+                  <button type="button" className="btn btn--ghost"
+                          onClick={() => handleDelete(m.id)}
+                          disabled={busy}
+                          data-testid={`zoho-books-mapping-delete-${m.id}`}
+                          style={{ fontSize: 11, padding: '2px 6px' }}>
+                    Remove
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
 }

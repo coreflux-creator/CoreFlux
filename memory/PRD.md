@@ -1,5 +1,43 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-06 (Zoho Books per-entity + Copy sync config)
+
+User direction: **option b** — skip the speculative multi-entity destination scaffolding, go straight to **Zoho Books per-entity** (same pattern as Jaz), and **add the "Copy sync config from another entity" affordance**.
+
+### Architectural rule confirmed
+For accounting integrations that are **per-entity by nature** (Jaz, Zoho Books standard, QBO Online single-realm, Xero standard): one connection per CoreFlux legal entity. Multi-entity-capable destinations (NetSuite, Sage Intacct, Workday, QBO Advanced) will get their own master-tenant-level model when the first one is onboarded — scaffolding deferred until then.
+
+### Shipped
+1. **Migration 099** (`core/migrations/099_zoho_books_per_entity.sql`):
+   - `zoho_books_connections.sub_tenant_id` added (idempotent), `UNIQUE(tenant_id)` swapped for `UNIQUE(tenant_id, sub_tenant_id)`.
+   - `zoho_books_oauth_state.sub_tenant_id` so the callback can route to the right entity.
+   - `zoho_books_sync_audit.sub_tenant_id` (+ `ix_zoho_audit_entity` index) so per-entity audit queries don't need a JOIN.
+   - Legacy rows backfilled with `sub_tenant_id = tenant_id` (parent self-entity).
+2. **`core/zoho_books/client.php`** — every public helper is now per-entity-aware while staying back-compat: `zohoBooksConnection`, `Disconnect`, `AccessToken`, `RefreshAccessToken`, `Ping`, `Call`, `SyncConfigRead`, `SyncConfigWrite`, `BuildAuthorizeUrl`, `ExchangeCode`, `ConsumeOAuthState` (now returns the int sub_tenant_id), `Audit`, plus new:
+   - `zohoBooksConnectionsForTenant()` — list all connections in a master tenant.
+   - `zohoBooksSyncConfigCopy()` — clone sync_config + account mappings from one entity to another with overwrite gate.
+3. **Sync workers** (`core/zoho_books/sync_{accounts,bills,billables,contacts,invoices,je,payments}.php`) — each one reads `$opts['sub_tenant_id']` and sets `$GLOBALS['__zb_sub_tenant_id']` at the top so every nested `zohoBooksCall()` automatically scopes to the right entity. Avoids threading sub_tenant_id through 12 internal call sites.
+4. **`api/zoho_books.php`** — `_zbSub()` helper resolves the entity from query/body (default = parent). New `sync_config_copy` action. Existing `status` returns the full list of active connections (`all_connections`) so the UI can populate the Copy-From dropdown without a second round-trip. OAuth callback consumes `sub_tenant_id` from the state row and threads it into the token exchange + connection row.
+5. **`/api/accounting.php?action=sync_config_copy&provider=jaz`** — provider-neutral generic copier for adapters living on the shared `accounting_provider_connections` table (Jaz today, future multi-entity destinations). Body: `{from_sub_tenant_id, to_sub_tenant_id, include_account_mappings, overwrite_existing}`. Account-mapping copies write `source='imported'` so the operator can spot inherited rows.
+6. **`accountingSyncConfigCopy()`** in `core/accounting/sync_config_service.php` — overwrite gate, sub-tenant CoA reuse safety, audit-friendly notes (`Copied from entity #N`), returns `{sync_config, mappings_copied, mappings_skipped, from, to}`.
+7. **`ZohoBooksSettings.jsx`** — new "Step 1 — Legal entity" picker at the top, every API call now carries `sub_tenant_id`. New "Copy sync config from another entity" card (visible only when ≥2 active connections exist in the master tenant). New "Step 4 — Account mapping" card (`ZohoAccountMappingCard`) wired to the provider-neutral mapping endpoints with `provider=zoho_books`. ManualSyncCard threads sub_tenant_id into every sync_* invocation so push/pull obey the active entity.
+8. **`JazIntegrationSettings.jsx`** — `JazCopyConfigCard` slotted between sync_config and account_mapping cards. Hidden when only one entity is visible.
+
+### Test status
+- New smoke `tests/zoho_per_entity_smoke.php` — **50 / 50 ✓** (migration schema, every signature change, sync-worker globals, generic + Zoho-specific copy routes, JSX entity picker / copy / mapping testids).
+- Full PHP suite: **363 / 365 passing**. Pre-existing sandbox-only fails: `accounting_phase2_a7_smoke.php`, `tenant_mail_senders_smoke.php`.
+- Vite rebuild → bundle `index-BfDGDrUw.js` (CACHE_VERSION → `coreflux-BfDGDrUw`); `scripts/sync_bundle.sh` synced all four sync points.
+
+### Operator next steps (production)
+1. Pull deploy → run migration `099_zoho_books_per_entity.sql`. Existing single-entity Zoho connections are automatically backfilled to `sub_tenant_id = tenant_id` (parent self-entity) — zero-downtime.
+2. For each additional legal entity an admin wants to connect to Zoho: open the Zoho Books settings page → Step 1 pick the entity → "Connect to Zoho Books" → after callback, optionally use "Copy sync config from another entity" to inherit the matrix + account mappings in one click.
+
+### Roadmap (next)
+- **QBO per-entity**: same surgery as this session — drop UNIQUE(tenant_id) on `qbo_connections`, add `sub_tenant_id`, thread through the OAuth + sync workers, surface entity picker in QBO Settings UI.
+- **Multi-entity destination scaffolding** — deferred until the first real onboarding ask (NetSuite / Sage Intacct / QBO Advanced). When it lands, `accounting_entity_dimension_mappings` + `supportsMultiEntity()` on the adapter will be the entry points.
+
+---
+
 ## Session — 2026-06 (Jaz parity: per-entity sync_config + account mappings + intercompany rules)
 
 Per user direction: "Jaz integration mappable like the others. For the accounting integrations, it'll be per entity. The consolidation layer on top if it is only within platform. The intercompany, and other related transactions still need to sync from individual entity to integrated accounting software. Consolidation and elimination are the only two that won't. After we perfect Jaz, we build out ZOHO books integration."

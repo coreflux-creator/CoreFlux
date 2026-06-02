@@ -301,6 +301,11 @@ export default function JazIntegrationSettings() {
                 subTenantId={subTenantId}
                 onFlash={setFlash}
               />
+              <JazCopyConfigCard
+                subTenantId={subTenantId}
+                entities={entities}
+                onFlash={setFlash}
+              />
               <JazAccountMappingCard
                 subTenantId={subTenantId}
                 onFlash={setFlash}
@@ -433,6 +438,81 @@ function JazSyncConfigCard({ subTenantId, onFlash }) {
     </fieldset>
   );
 }
+
+/* -------------------------------------------------------------------
+   Copy sync config from another entity. Hidden when only one entity
+   is visible. Replaces this entity's sync_config + account mappings
+   with the source entity's in a single click.
+-------------------------------------------------------------------- */
+function JazCopyConfigCard({ subTenantId, entities, onFlash }) {
+  const [copyFrom, setCopyFrom] = useState('');
+  const [busy, setBusy]         = useState(false);
+  const otherEntities = (entities || []).filter(e => Number(e.id) !== Number(subTenantId));
+  if (otherEntities.length === 0) return null;
+
+  const doCopy = async () => {
+    const from = Number(copyFrom);
+    if (!from || from === Number(subTenantId)) {
+      onFlash?.({ kind: 'error', msg: 'Pick a different source entity first.' });
+      return;
+    }
+    const srcName = otherEntities.find(e => Number(e.id) === from)?.name || `entity #${from}`;
+    if (!window.confirm(`Replace this entity's Jaz sync settings + account mappings with those from "${srcName}"? Existing settings on this entity will be overwritten.`)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await api.post('/api/accounting.php?action=sync_config_copy&provider=jaz', {
+        from_sub_tenant_id: from,
+        to_sub_tenant_id:   subTenantId,
+        include_account_mappings: true,
+        overwrite_existing:       true,
+      });
+      onFlash?.({
+        kind: 'success',
+        msg:  `Copied: sync config replaced · ${r.mappings_copied} account mappings imported · ${r.mappings_skipped} skipped.`,
+      });
+      setCopyFrom('');
+    } catch (e) {
+      onFlash?.({ kind: 'error', msg: e.message || String(e) });
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <fieldset style={fieldsetStyle} data-testid="jaz-copy-config-card">
+      <legend style={legendStyle}>Copy sync config from another entity</legend>
+      <p style={{ margin: '0 0 8px', fontSize: 12, color: '#64748b' }}>
+        Tenants with multiple legal entities usually want identical
+        Jaz sync rules across all of them. This clones the source
+        entity's sync direction matrix <em>and</em> its account
+        mappings into THIS entity in one click. Existing settings on
+        the current entity are overwritten.
+      </p>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <select
+          value={copyFrom}
+          onChange={(e) => setCopyFrom(e.target.value)}
+          className="input"
+          style={{ fontSize: 13, padding: '4px 8px', minWidth: 240 }}
+          data-testid="jaz-copy-from-select"
+        >
+          <option value="">— pick source entity —</option>
+          {otherEntities.map(e => (
+            <option key={e.id} value={e.id}>{e.name}{e.kind === 'parent' ? ' (master)' : ''}</option>
+          ))}
+        </select>
+        <button type="button"
+                className="btn"
+                onClick={doCopy}
+                disabled={busy || !copyFrom}
+                data-testid="jaz-copy-config-btn">
+          {busy ? 'Copying…' : 'Copy settings'}
+        </button>
+      </div>
+    </fieldset>
+  );
+}
+
 
 /* -------------------------------------------------------------------
    Account mapping table — Jaz mapping like Zoho Books / QBO have.

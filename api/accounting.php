@@ -169,6 +169,20 @@ if ($method === 'POST' && $action === 'sync_config_set') {
     $saved  = accountingSyncConfigSave($tid, $sub, $provider, $config);
     api_ok(['sync_config' => $saved]);
 }
+if ($method === 'POST' && $action === 'sync_config_copy') {
+    rbac_legacy_require($user, 'accounting.connection.manage');
+    $body = api_json_body();
+    $from = (int) ($body['from_sub_tenant_id'] ?? 0);
+    $to   = (int) ($body['to_sub_tenant_id']   ?? 0);
+    $includeMappings   = (bool) ($body['include_account_mappings'] ?? true);
+    $overwriteExisting = (bool) ($body['overwrite_existing']       ?? true);
+    if ($from <= 0 || $to <= 0) api_error('from_sub_tenant_id and to_sub_tenant_id required', 422);
+    try {
+        api_ok(accountingSyncConfigCopy($tid, $from, $to, $provider, $includeMappings, $overwriteExisting));
+    } catch (\InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
+    }
+}
 
 // ============================================================================
 // Per-entity Account Mapping — provider-neutral COA mapping table

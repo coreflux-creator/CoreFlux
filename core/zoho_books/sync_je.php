@@ -139,6 +139,8 @@ function zohoBooksBuildJournalPayload(array $je, array $lines, callable $resolve
  */
 function zohoBooksSyncJournalEntries(int $tenantId, ?int $userId, array $opts = []): array
 {
+    $__zbSub = isset($opts["sub_tenant_id"]) && (int) $opts["sub_tenant_id"] > 0 ? (int) $opts["sub_tenant_id"] : null;
+    $GLOBALS["__zb_sub_tenant_id"] = $__zbSub ?? 0;
     $start = microtime(true);
     $limit    = max(1, min(500, (int) ($opts['limit'] ?? 50)));
     $dryRun   = !empty($opts['dry_run']);
@@ -146,7 +148,7 @@ function zohoBooksSyncJournalEntries(int $tenantId, ?int $userId, array $opts = 
         ? array_values(array_filter(array_map('intval', $opts['je_ids'])))
         : [];
 
-    $conn = zohoBooksConnection($tenantId);
+    $conn = zohoBooksConnection($tenantId, isset($opts["sub_tenant_id"]) && (int) $opts["sub_tenant_id"] > 0 ? (int) $opts["sub_tenant_id"] : null);
     if (!$conn || $conn['status'] !== 'active' || (string) $conn['organization_id'] === 'pending') {
         throw new \RuntimeException('Zoho Books is not connected for this tenant');
     }

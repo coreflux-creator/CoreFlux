@@ -29,11 +29,13 @@ require_once __DIR__ . '/../integrations/entity_mappings.php';
 
 function zohoBooksSyncChartOfAccounts(int $tenantId, ?int $userId, array $opts = []): array
 {
+    $__zbSub = isset($opts["sub_tenant_id"]) && (int) $opts["sub_tenant_id"] > 0 ? (int) $opts["sub_tenant_id"] : null;
+    $GLOBALS["__zb_sub_tenant_id"] = $__zbSub ?? 0;
     $start    = microtime(true);
     $limit    = max(1, min(5000, (int) ($opts['limit']     ?? 2000)));
     $maxPages = max(1, min(100,  (int) ($opts['max_pages'] ?? 20)));
 
-    $conn = zohoBooksConnection($tenantId);
+    $conn = zohoBooksConnection($tenantId, isset($opts["sub_tenant_id"]) && (int) $opts["sub_tenant_id"] > 0 ? (int) $opts["sub_tenant_id"] : null);
     if (!$conn || $conn['status'] !== 'active' || (string) $conn['organization_id'] === 'pending') {
         throw new \RuntimeException('Zoho Books is not connected for this tenant');
     }

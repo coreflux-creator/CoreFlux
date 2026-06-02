@@ -68,7 +68,7 @@ if ($action === 'oauth_callback') {
     if ($code === '' || $state === '') {
         api_error('code and state are required', 400);
     }
-    if (!zohoBooksConsumeOAuthState($tid, $state)) {
+    if (!($sub = zohoBooksConsumeOAuthState($tid, $state))) {
         zohoBooksAudit($tid, 'oauth_state_rejected', [
             'ok' => false, 'actor_user_id' => $user['id'] ?? null,
             'detail' => ['state' => substr($state, 0, 8) . '…'],
@@ -76,11 +76,11 @@ if ($action === 'oauth_callback') {
         api_error('Invalid or expired OAuth state. Click "Connect to Zoho Books" again.', 400);
     }
     try {
-        zohoBooksExchangeCode($tid, $code, $accountsServer, $user['id'] ?? null);
+        zohoBooksExchangeCode($tid, $code, $accountsServer, $user['id'] ?? null, $sub);
     } catch (\Throwable $e) {
         api_error('Zoho Books token exchange failed: ' . $e->getMessage(), 502);
     }
-    header('Location: /admin/integrations/zoho-books?connected=1');
+    header('Location: /admin/integrations/zoho-books?connected=1&entity=' . $sub);
     exit;
 }
 
@@ -89,21 +89,38 @@ $ctx  = api_require_auth();
 $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
+/**
+ * Per-entity guard — resolves the sub_tenant_id from query/body. Defaults
+ * to the parent self-entity (sub_tenant_id = tenant_id) when omitted so
+ * legacy single-entity callers keep working without any code changes.
+ */
+function _zbSub(int $tid): int {
+    $raw = api_query('sub_tenant_id');
+    if ($raw === null) {
+        $body = $_SERVER['REQUEST_METHOD'] === 'POST' ? api_json_body() : [];
+        $raw  = $body['sub_tenant_id'] ?? null;
+    }
+    $n = (int) $raw;
+    return $n > 0 ? $n : $tid;
+}
+
 switch ($action) {
     case 'status': {
         if ($method !== 'GET') api_error('Method not allowed', 405);
         rbac_legacy_require($user, 'integrations.zoho_books.view');
-        $row = zohoBooksConnection($tid);
+        $sub = _zbSub($tid);
+        $row = zohoBooksConnection($tid, $sub);
         $audit = getDB()->prepare(
             'SELECT id, action, entity_type, direction, ok,
                     items_processed, items_skipped, items_failed,
                     detail, occurred_at
                FROM zoho_books_sync_audit
               WHERE tenant_id = :t
+                AND (sub_tenant_id IS NULL OR sub_tenant_id = :st)
            ORDER BY occurred_at DESC
               LIMIT 25'
         );
-        $audit->execute(['t' => $tid]);
+        $audit->execute(['t' => $tid, 'st' => $sub]);
         $rows = $audit->fetchAll(\PDO::FETCH_ASSOC) ?: [];
         foreach ($rows as &$r) {
             $r['id'] = (int) $r['id'];
@@ -119,9 +136,13 @@ switch ($action) {
         unset($r);
 
         $isConnected = $row && $row['status'] === 'active' && (string) $row['organization_id'] !== 'pending';
+        // List every Zoho connection in the master tenant so the UI can
+        // render an entity picker without a second round-trip.
+        $allConns = zohoBooksConnectionsForTenant($tid);
         api_ok([
             'configured'        => zohoBooksConfigured(),
             'connected'         => $isConnected,
+            'sub_tenant_id'     => $sub,
             'status'            => $row['status'] ?? null,
             'organization_id'   => $row['organization_id'] ?? null,
             'organization_name' => $row['organization_name'] ?? null,
@@ -130,18 +151,20 @@ switch ($action) {
             'access_token_exp'  => $row['access_token_exp'] ?? null,
             'last_probe_at'     => $row['last_probe_at']    ?? null,
             'last_probe_error'  => $row['last_probe_error'] ?? null,
-            'sync_config'       => zohoBooksSyncConfigRead($tid),
+            'sync_config'       => zohoBooksSyncConfigRead($tid, $sub),
             'entities'          => ZOHO_BOOKS_SYNC_ENTITIES,
             'directions'        => ZOHO_BOOKS_SYNC_DIRECTIONS,
             'audit'             => $rows,
+            'all_connections'   => $allConns,
         ]);
     }
 
     case 'oauth_start': {
         if ($method !== 'GET') api_error('Method not allowed', 405);
         rbac_legacy_require($user, 'integrations.zoho_books.manage');
+        $sub = _zbSub($tid);
         try {
-            $res = zohoBooksBuildAuthorizeUrl($tid, $user['id'] ?? null);
+            $res = zohoBooksBuildAuthorizeUrl($tid, $user['id'] ?? null, $sub);
         } catch (\Throwable $e) {
             api_error($e->getMessage(), 422);
         }
@@ -151,21 +174,24 @@ switch ($action) {
     case 'disconnect': {
         if ($method !== 'POST') api_error('Method not allowed', 405);
         rbac_legacy_require($user, 'integrations.zoho_books.manage');
-        zohoBooksDisconnect($tid, $user['id'] ?? null);
+        $sub = _zbSub($tid);
+        zohoBooksDisconnect($tid, $user['id'] ?? null, $sub);
         api_ok(['ok' => true]);
     }
 
     case 'ping': {
         if ($method !== 'POST') api_error('Method not allowed', 405);
         rbac_legacy_require($user, 'integrations.zoho_books.manage');
-        api_ok(zohoBooksPing($tid, $user['id'] ?? null));
+        $sub = _zbSub($tid);
+        api_ok(zohoBooksPing($tid, $user['id'] ?? null, $sub));
     }
 
     case 'sync_config_get': {
         if ($method !== 'GET') api_error('Method not allowed', 405);
         rbac_legacy_require($user, 'integrations.zoho_books.view');
+        $sub = _zbSub($tid);
         api_ok([
-            'sync_config' => zohoBooksSyncConfigRead($tid),
+            'sync_config' => zohoBooksSyncConfigRead($tid, $sub),
             'entities'    => ZOHO_BOOKS_SYNC_ENTITIES,
             'directions'  => ZOHO_BOOKS_SYNC_DIRECTIONS,
         ]);
@@ -175,16 +201,34 @@ switch ($action) {
         if ($method !== 'POST') api_error('Method not allowed', 405);
         rbac_legacy_require($user, 'integrations.zoho_books.manage');
         $body = api_json_body();
+        $sub  = _zbSub($tid);
         $cfg  = $body['sync_config'] ?? [];
         if (!is_array($cfg)) api_error('sync_config must be an object', 422);
         try {
-            $saved = zohoBooksSyncConfigWrite($tid, $cfg, $user['id'] ?? null);
+            $saved = zohoBooksSyncConfigWrite($tid, $cfg, $user['id'] ?? null, $sub);
         } catch (\InvalidArgumentException $e) {
             api_error($e->getMessage(), 422);
         } catch (\Throwable $e) {
             api_error('sync_config_set failed: ' . $e->getMessage(), 500);
         }
         api_ok(['sync_config' => $saved]);
+    }
+
+    case 'sync_config_copy': {
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.zoho_books.manage');
+        $body = api_json_body();
+        $from = (int) ($body['from_sub_tenant_id'] ?? 0);
+        $to   = (int) ($body['to_sub_tenant_id']   ?? 0);
+        if ($from <= 0 || $to <= 0) api_error('from_sub_tenant_id and to_sub_tenant_id required', 422);
+        try {
+            $res = zohoBooksSyncConfigCopy($tid, $from, $to, (bool) ($body['overwrite_existing'] ?? true));
+        } catch (\InvalidArgumentException $e) {
+            api_error($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            api_error('sync_config_copy failed: ' . $e->getMessage(), 500);
+        }
+        api_ok($res);
     }
 
     case 'sync_je': {
@@ -196,7 +240,7 @@ switch ($action) {
         if (!empty($body['dry_run'])) $opts['dry_run'] = true;
         if (isset($body['je_ids']) && is_array($body['je_ids'])) $opts['je_ids'] = $body['je_ids'];
         try {
-            $res = zohoBooksSyncJournalEntries($tid, $user['id'] ?? null, $opts);
+            $_zbo = is_array($opts) ? $opts : []; $_zbo["sub_tenant_id"] = _zbSub($tid); $res = zohoBooksSyncJournalEntries($tid, $user['id'] ?? null, $_zbo);
         } catch (\Throwable $e) {
             api_error('sync_je failed: ' . $e->getMessage(), 502);
         }
@@ -207,7 +251,7 @@ switch ($action) {
         if ($method !== 'POST') api_error('Method not allowed', 405);
         rbac_legacy_require($user, 'integrations.zoho_books.manage');
         try {
-            $res = zohoBooksSyncChartOfAccounts($tid, $user['id'] ?? null, []);
+            $_zbo = is_array([]) ? [] : []; $_zbo["sub_tenant_id"] = _zbSub($tid); $res = zohoBooksSyncChartOfAccounts($tid, $user['id'] ?? null, $_zbo);
         } catch (\Throwable $e) {
             api_error('sync_accounts failed: ' . $e->getMessage(), 502);
         }
@@ -218,7 +262,7 @@ switch ($action) {
         if ($method !== 'POST') api_error('Method not allowed', 405);
         rbac_legacy_require($user, 'integrations.zoho_books.manage');
         try {
-            $res = zohoBooksSyncContactsCustomers($tid, $user['id'] ?? null, []);
+            $_zbo = is_array([]) ? [] : []; $_zbo["sub_tenant_id"] = _zbSub($tid); $res = zohoBooksSyncContactsCustomers($tid, $user['id'] ?? null, $_zbo);
         } catch (\Throwable $e) {
             api_error('sync_customers failed: ' . $e->getMessage(), 502);
         }
@@ -229,7 +273,7 @@ switch ($action) {
         if ($method !== 'POST') api_error('Method not allowed', 405);
         rbac_legacy_require($user, 'integrations.zoho_books.manage');
         try {
-            $res = zohoBooksSyncContactsVendors($tid, $user['id'] ?? null, []);
+            $_zbo = is_array([]) ? [] : []; $_zbo["sub_tenant_id"] = _zbSub($tid); $res = zohoBooksSyncContactsVendors($tid, $user['id'] ?? null, $_zbo);
         } catch (\Throwable $e) {
             api_error('sync_vendors failed: ' . $e->getMessage(), 502);
         }
@@ -244,7 +288,7 @@ switch ($action) {
         if (isset($body['limit']))   $opts['limit']   = (int) $body['limit'];
         if (!empty($body['dry_run'])) $opts['dry_run'] = true;
         try {
-            $res = zohoBooksSyncInvoices($tid, $user['id'] ?? null, $opts);
+            $_zbo = is_array($opts) ? $opts : []; $_zbo["sub_tenant_id"] = _zbSub($tid); $res = zohoBooksSyncInvoices($tid, $user['id'] ?? null, $_zbo);
         } catch (\Throwable $e) {
             api_error('sync_invoices failed: ' . $e->getMessage(), 502);
         }
@@ -259,7 +303,7 @@ switch ($action) {
         if (isset($body['limit']))   $opts['limit']   = (int) $body['limit'];
         if (!empty($body['dry_run'])) $opts['dry_run'] = true;
         try {
-            $res = zohoBooksSyncBills($tid, $user['id'] ?? null, $opts);
+            $_zbo = is_array($opts) ? $opts : []; $_zbo["sub_tenant_id"] = _zbSub($tid); $res = zohoBooksSyncBills($tid, $user['id'] ?? null, $_zbo);
         } catch (\Throwable $e) {
             api_error('sync_bills failed: ' . $e->getMessage(), 502);
         }
@@ -274,7 +318,7 @@ switch ($action) {
         if (isset($body['limit']))   $opts['limit']   = (int) $body['limit'];
         if (!empty($body['dry_run'])) $opts['dry_run'] = true;
         try {
-            $res = zohoBooksSyncVendorPayments($tid, $user['id'] ?? null, $opts);
+            $_zbo = is_array($opts) ? $opts : []; $_zbo["sub_tenant_id"] = _zbSub($tid); $res = zohoBooksSyncVendorPayments($tid, $user['id'] ?? null, $_zbo);
         } catch (\Throwable $e) {
             api_error('sync_payments failed: ' . $e->getMessage(), 502);
         }

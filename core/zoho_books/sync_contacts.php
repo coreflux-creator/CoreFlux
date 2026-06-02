@@ -32,6 +32,8 @@ require_once __DIR__ . '/../integrations/entity_mappings.php';
 
 function zohoBooksSyncContactsCustomers(int $tenantId, ?int $userId, array $opts = []): array
 {
+    $__zbSub = isset($opts["sub_tenant_id"]) && (int) $opts["sub_tenant_id"] > 0 ? (int) $opts["sub_tenant_id"] : null;
+    $GLOBALS["__zb_sub_tenant_id"] = $__zbSub ?? 0;
     return _zohoBooksSyncContactKind($tenantId, $userId, $opts, [
         'kind'   => 'customer',
         'cfgKey' => 'contacts',
@@ -41,6 +43,8 @@ function zohoBooksSyncContactsCustomers(int $tenantId, ?int $userId, array $opts
 
 function zohoBooksSyncContactsVendors(int $tenantId, ?int $userId, array $opts = []): array
 {
+    $__zbSub = isset($opts["sub_tenant_id"]) && (int) $opts["sub_tenant_id"] > 0 ? (int) $opts["sub_tenant_id"] : null;
+    $GLOBALS["__zb_sub_tenant_id"] = $__zbSub ?? 0;
     return _zohoBooksSyncContactKind($tenantId, $userId, $opts, [
         'kind'   => 'vendor',
         'cfgKey' => 'contacts',
@@ -54,7 +58,7 @@ function _zohoBooksSyncContactKind(int $tenantId, ?int $userId, array $opts, arr
     $limit    = max(1, min(5000, (int) ($opts['limit']     ?? 1000)));
     $maxPages = max(1, min(50,   (int) ($opts['max_pages'] ?? 10)));
 
-    $conn = zohoBooksConnection($tenantId);
+    $conn = zohoBooksConnection($tenantId, isset($opts["sub_tenant_id"]) && (int) $opts["sub_tenant_id"] > 0 ? (int) $opts["sub_tenant_id"] : null);
     if (!$conn || $conn['status'] !== 'active' || (string) $conn['organization_id'] === 'pending') {
         throw new \RuntimeException('Zoho Books is not connected for this tenant');
     }
