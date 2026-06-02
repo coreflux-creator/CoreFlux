@@ -1,5 +1,147 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (CPA-layer kickoff + Tenant profile builder UI)
+
+User direction (after RBAC B6 closeout): "yes, tenant level profile builder.
+proceed with next items." → ship the tenant-private profile editor PLUS the
+first three CPA-layer surfaces in one batch.
+
+### Shipped
+
+1. **`CpaFirmService`** (`/app/core/rbac/cpa_firms.php`) — wraps the
+   `cpa_firm_client_links` table that migration 100 stood up:
+   - `listClientsForFirm($firmTenantId, ?$status)` — joins `tenants` for
+     human-readable names + `users` for the primary CPA contact.
+   - `getForFirm($linkId, $firmTenantId)` — visibility-checked single row.
+   - `upsert($input, $firmTenantId, $actor)` — INSERT … ON DUPLICATE KEY
+     UPDATE on the `uq_firm_client` unique constraint. Validates
+     `relationship_type` + `status`, blocks self-link (firm ↔ firm).
+   - `endLink($linkId, $firmTenantId, $actor)` — soft `status='ended'`
+     with a `engagement_end_date = CURDATE()` default.
+   - `deleteLink($linkId, $firmTenantId, $actor)` — hard delete for the
+     mistakenly-created case.
+   - `portfolioForUser($userId)` — given a user, returns every client
+     tenant they can reach via any firm they're a member of (master_admin
+     / tenant_admin / cpa* / bookkeeper / client_advisor persona). The
+     result includes both their firm persona AND their client-side
+     persona so the UI can warn when the user has no membership on the
+     destination client tenant yet.
+   - Every write appends a `membership_audit` row so the existing Recent
+     Access Changes panel surfaces firm-management events too.
+   - Tenant-leak sentry green by construction (every SELECT/UPDATE/DELETE
+     filters on `firm_tenant_id` or `client_tenant_id`).
+
+2. **`/api/admin/cpa_firms.php`** — admin CRUD + portfolio endpoint:
+   - `GET ?action=portfolio` — any authenticated user; groups by firm.
+   - `GET` (no action) — list links for the active (firm) tenant.
+   - `GET ?id=N` — fetch one link.
+   - `POST ?action=save` — upsert.
+   - `POST ?action=end` body `{ id }` — soft-end.
+   - `DELETE ?id=N` — hard delete.
+   - Admin gate (`master_admin` / `tenant_admin` / global admin) applies
+     to every action EXCEPT `portfolio`, which only requires auth.
+   - 503 when migration 100 hasn't been applied yet.
+
+3. **External-auditor auto-apply** (`api/auth/consume_magic_link.php`):
+   When a magic-link consume completes a pending invite AND the accepted
+   membership's `persona_type` is `external_auditor`, the consume flow now
+   auto-applies the `external_auditor.default` profile. Non-fatal: a
+   missing profile or apply error never blocks sign-in. Auditors land in
+   a working SPA with the right read-only grants instead of an empty one.
+
+4. **`PermissionProfileBuilder.jsx`** — tenant-private profile editor
+   (mounted at `/admin/permission-profiles`):
+   - Lists every profile visible to the active tenant with `SYSTEM` /
+     `GLOBAL` / `TENANT` badges. System rows are view-only; tenant rows
+     are edit + delete.
+   - New-profile flow: `profile_key`, `label`, `description`,
+     `applies_to_persona` (any / employee / cpa / cpa_partner /
+     cpa_staff / bookkeeper / client_advisor / external_auditor / admin
+     / manager / contractor), plus a full module-grants matrix
+     (people, placements, time, billing, ap, ar, accounting, payroll,
+     treasury, cfo, reports, staffing, integrations, rbac × none/read/
+     write/admin).
+   - Save → `POST /api/admin/permission_profiles.php?action=save`.
+   - Delete → `DELETE /api/admin/permission_profiles.php?id=N` (system
+     blocked at the service layer).
+   - Newly-authored profiles surface immediately in the existing
+     `ProfilePicker` on the Memberships admin page (no extra wiring).
+
+5. **`CpaPortfolio.jsx`** — "My CPA clients" landing page (mounted at
+   `/admin/cpa-portfolio`):
+   - Summary card: # firms + # clients across all firms.
+   - Per-firm card: client table with `status`, `relationship_type`,
+     and the user's `client_persona` (if they have a membership on that
+     client).
+   - "Jump in" button per row → `POST /api/sub_tenants.php?action=switch`
+     to flip the active tenant + full SPA reload so the new context
+     bootstraps cleanly. Disabled when the user has no membership on
+     the destination client, with a tooltip explaining how to get one.
+
+6. **AdminModule wiring** — sidebar links, route mounts, and overview
+   `ActionCard` tiles for both new pages. The "My CPA clients" tile is
+   visible to every admin; it simply renders the empty state when the
+   user belongs to zero firms with linked clients.
+
+7. **Smoke test** (`tests/rbac_cpa_layer_kickoff_smoke.php`) —
+   **89 / 89 ✓** locks every layer (service surface, endpoint contract,
+   external-auditor branch, both React pages with every testid, and the
+   AdminModule wiring).
+
+### Test status
+- Full PHP suite: **365 / 367 passing**. Documented sandbox-bound failures:
+  `accounting_phase2_a7_smoke.php`, `tenant_mail_senders_smoke.php`.
+- All sentries (tenant-leak, auth-gate, HY093 placeholder) still green.
+- Vite build → bundle `index-CBbv_ozJ.js`. `scripts/sync_bundle.sh` synced
+  `.deploy-version`, `spa-assets/`, `dashboard/dist/index.html`, and
+  service-worker `CACHE_VERSION` → `coreflux-CBbv_ozJ`.
+
+### Operator next steps (production)
+1. Deploy and ensure migration 100 has been applied (no new migration
+   in this session — re-uses the schema from the prior session).
+2. Tenant admins → Admin → Permission profiles → click "New profile" to
+   author firm-private bundles ("Senior Bookkeeper", "Industry overlay").
+3. Tenant admins on a CPA firm → Admin → My CPA clients → wire client
+   tenants by inviting the client's master_admin or by having a
+   platform global admin run the `?action=save` endpoint with the
+   `client_tenant_id`.
+4. Auditor links flow: when issuing a tokenized auditor URL, set the
+   destination membership's `persona_type` to `external_auditor` — the
+   consume flow now auto-grants read-only access on every audit-relevant
+   module via the seeded `external_auditor.default` profile.
+
+### Files touched
+- `core/rbac/cpa_firms.php` (new)
+- `api/admin/cpa_firms.php` (new)
+- `api/auth/consume_magic_link.php` (external_auditor auto-apply branch)
+- `dashboard/src/pages/PermissionProfileBuilder.jsx` (new)
+- `dashboard/src/pages/CpaPortfolio.jsx` (new)
+- `dashboard/src/pages/AdminModule.jsx` (imports + routes + sidebar + overview cards)
+- `tests/rbac_cpa_layer_kickoff_smoke.php` (new)
+
+### Roadmap (next)
+- **Bulk-seat onboarding**: extend `cpa_firms.php` upsert with an
+  optional `seed_memberships` array so a single firm-admin action can
+  link the client tenant AND seat every CPA partner / staff on it with
+  the right default profile.
+- **CPA-side audit page**: cross-tenant view of every CPA-actor change
+  across all client tenants (already-built `cross_tenant_audit.php`
+  surface — needs RBAC scoping for the new firm personas).
+- **Multi-tenant firm dashboard**: roll up KPIs (open exceptions, draft
+  JEs awaiting approval, late-close clients) across every linked client.
+
+### Backlog (unchanged priority)
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P1) Mercury Webhooks hardening.
+- (P2) Gusto integration / QBO hardening (parked).
+- (P2) CFO Dashboard role/access gating (now plug-in-able with new RBAC).
+- (P3) Customer portal Phase A.
+- (P3) Engagements module (Fixed-fee project accounting).
+- (P3) AI Digest Scheduler.
+
+---
+
 ## Session — 2026-02 (RBAC B6 — CPA personas + Permission profiles)
 
 User direction: "next we finish RBAC so we can move to CPA layer." → P0 closeout

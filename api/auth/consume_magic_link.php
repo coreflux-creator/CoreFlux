@@ -115,17 +115,36 @@ if ($tenantId) {
         $acc->execute(['u' => (int) $userId, 't' => (int) $tenantId]);
         if ($acc->rowCount() > 0 && class_exists('RBACResolver')) {
             $find = $pdo->prepare(
-                'SELECT id FROM tenant_memberships
+                'SELECT id, persona_type FROM tenant_memberships
                   WHERE user_id = :u AND tenant_id = :t AND status = "active"
                   ORDER BY accepted_at DESC LIMIT 1'
             );
             $find->execute(['u' => (int) $userId, 't' => (int) $tenantId]);
-            $mid = (int) $find->fetchColumn();
+            $row = $find->fetch(\PDO::FETCH_ASSOC) ?: [];
+            $mid     = (int) ($row['id'] ?? 0);
+            $persona = (string) ($row['persona_type'] ?? '');
             if ($mid > 0) {
                 RBACResolver::auditMembership($mid, 'invite_accepted', (int) $userId, [
                     'email'     => $email,
                     'tenant_id' => $tenantId,
                 ]);
+
+                // RBAC B6 — auto-apply the matching default profile if the
+                // accepted membership is an `external_auditor`. The auditor
+                // tokenized URL flow seats them with this persona but no
+                // module grants; without this auto-apply the auditor would
+                // sign in to a totally empty SPA. Best-effort + non-fatal.
+                if ($persona === 'external_auditor') {
+                    try {
+                        require_once __DIR__ . '/../../core/rbac/permission_profiles.php';
+                        $profile = PermissionProfileService::getByKey('external_auditor.default', (int) $tenantId);
+                        if ($profile) {
+                            PermissionProfileService::apply(
+                                $mid, (int) $profile['id'], (int) $tenantId, (int) $userId, false, null
+                            );
+                        }
+                    } catch (\Throwable $_) { /* best effort — sign-in still succeeds */ }
+                }
             }
         }
     } catch (\Throwable $_) { /* best effort */ }

@@ -22,6 +22,8 @@ import IntegrationsHub from './IntegrationsHub';
 import RbacMembershipsAdmin from './RbacMembershipsAdmin';
 import RecentAccessChangesPanel from './RecentAccessChangesPanel';
 import RbacBridgeHealthPanel from './RbacBridgeHealthPanel';
+import PermissionProfileBuilder from './PermissionProfileBuilder';
+import CpaPortfolio from './CpaPortfolio';
 import PlaidTransferSettings from '../../../modules/treasury/ui/PlaidTransferSettings';
 import MercurySettings from '../../../modules/treasury/ui/MercurySettings';
 import QboSettings from './QboSettings';
@@ -68,6 +70,8 @@ const AdminOverview = () => (
         <ActionCard icon={BarChart3} title="Consolidated reports" description="Roll-up P&L / BS / CF across all sub-tenants" href="/admin/consolidated-reports" />
         <ActionCard icon={Users}     title="Users"          description="Add users, assign roles, reset passwords" href="/admin/users" />
         <ActionCard icon={Shield}    title="Memberships & access" description="Granular per-tenant RBAC — personas, modules, copy permissions" href="/admin/memberships" />
+        <ActionCard icon={Shield}    title="Permission profiles" description="Author tenant-private grant bundles you can apply to a membership in one click" href="/admin/permission-profiles" />
+        <ActionCard icon={Building2} title="My CPA clients"  description="Every client tenant any firm you belong to manages — jump into a client's books in one click" href="/admin/cpa-portfolio" />
         <ActionCard icon={ScrollText} title="Roles reference" description="What each persona_type grants — quick lookup before assigning a role" href="/admin/roles" />
         <ActionCard icon={Package}   title="Module access"  description="Toggle which apps a tenant can see" href="/admin/modules" />
         <ActionCard icon={FileText}  title="Export templates" description="CSV templates for any module" href="/admin/export-templates" />
@@ -110,6 +114,8 @@ const AdminSidebar = () => {
     { to: '/admin/consolidated-reports', label: 'Consolidated Reports', icon: BarChart3 },
     { to: '/admin/users',            label: 'Users',            icon: Users },
     { to: '/admin/memberships',      label: 'Memberships & access', icon: Shield },
+    { to: '/admin/permission-profiles', label: 'Permission profiles', icon: Shield },
+    { to: '/admin/cpa-portfolio',    label: 'My CPA clients',   icon: Building2 },
     { to: '/admin/roles',            label: 'Roles reference',  icon: ScrollText },
     { to: '/admin/modules',          label: 'Module access',    icon: Package },
     { to: '/admin/export-templates', label: 'Export Templates', icon: FileText },
@@ -185,6 +191,8 @@ const AdminModule = ({ session }) => {
           <Route path="/consolidated-reports" element={<SubTenantConsolidatedReports session={session} />} />
           <Route path="/users"             element={<UsersAdmin        session={session} />} />
           <Route path="/memberships"       element={<RbacMembershipsAdmin session={session} />} />
+          <Route path="/permission-profiles" element={<PermissionProfileBuilder session={session} />} />
+          <Route path="/cpa-portfolio"     element={<CpaPortfolio session={session} />} />
           <Route path="/roles"             element={<RolesReference session={session} />} />
           <Route path="/modules"           element={<ModuleAccessAdmin session={session} />} />
           <Route path="/export-templates"  element={<ExportTemplatesAdmin session={session} />} />
