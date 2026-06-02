@@ -199,6 +199,47 @@ function subTenantProvision(int $parentTenantId, array $opts, ?int $actorUserId 
             'invited' => $invited,
         ], $pdo);
 
+        // ── B-fix (2026-02): every sub-tenant gets its own
+        //    `accounting_entities` row at provisioning time.  Prevents
+        //    the "Main Entity · <parent name>" mis-naming that bit us
+        //    when entities were hand-created.  We point parent_entity_id
+        //    at the parent tenant's primary entity so Consolidation /
+        //    intercompany already see the hierarchy on day one.
+        try {
+            $existingEntity = $pdo->prepare(
+                'SELECT id FROM accounting_entities WHERE tenant_id = :t LIMIT 1'
+            );
+            $existingEntity->execute(['t' => $newId]);
+            if (!$existingEntity->fetchColumn()) {
+                $parentEntity = $pdo->prepare(
+                    'SELECT MIN(id) FROM accounting_entities WHERE tenant_id = :p AND active = 1'
+                );
+                $parentEntity->execute(['p' => $parentTenantId]);
+                $parentEntityId = (int) ($parentEntity->fetchColumn() ?: 0);
+
+                // 4-letter code from the slug (alphanumerics only).  We
+                // intentionally mirror migration 102's derivation so a
+                // hand-rerun of the migration is a no-op.
+                $codeSrc = $slug !== '' ? $slug : ($name !== '' ? $name : 'MAIN');
+                $code = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $codeSrc), 0, 4));
+                if ($code === '') $code = 'MAIN';
+
+                $pdo->prepare(
+                    "INSERT INTO accounting_entities
+                        (tenant_id, code, legal_name, country, base_currency,
+                         parent_entity_id, active, created_at, updated_at)
+                     VALUES (:t, :c, :n, 'US', 'USD', :p, 1, NOW(), NOW())
+                     ON DUPLICATE KEY UPDATE legal_name = VALUES(legal_name)"
+                )->execute([
+                    't' => $newId, 'c' => $code, 'n' => $name,
+                    'p' => $parentEntityId > 0 ? $parentEntityId : null,
+                ]);
+            }
+        } catch (\Throwable $_) {
+            // Best-effort.  Migration 102 will catch this on next deploy
+            // even if the inline seed failed.
+        }
+
         $pdo->commit();
         return $newId;
     } catch (Throwable $e) {

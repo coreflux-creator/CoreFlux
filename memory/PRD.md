@@ -1,5 +1,168 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Accounting Basics — un-blocks Bookkeeping/Bank Rec/Consolidation)
+
+User direction (after CPA-layer phase 2): "we're still not buttoned up on basic
+accounting functions and errors? […]" — Kunal called out NINE concrete grievances
+across the screens he was actually using.  This session ships the **first 4**:
+
+  1. Bookkeeping page crashes with `Couldn't load books health: Database
+     column 'statement_end_date' is missing — a migration probably needs to run.`
+  2. Connected accounts (Plaid + Mercury) show up in Treasury / Bank Rec
+     but **not in Chart of Accounts** (or anywhere downstream that reads CoA).
+  3. The parent-tenant entity is mis-modelled — sub-tenant entities were
+     hand-named after the parent ("Main Entity · Arabella Talent Partners"
+     under the Seven Generations sub-tenant), and parent users can't see
+     sub-tenant entities in the Consolidation parent/child picker.
+  4. Mercury exists as a *secondary* "Send via Mercury" action button on
+     AP payment rows — not as a first-class **method option from the
+     Record-payment modal itself**.  Kunal also asked to fold the separate
+     Treasury Mercury payment screen into a single AP-anchored pay flow.
+
+The remaining 5 grievances (timesheet drill-in, placement-level rates +
+timesheet sub-page, flexible invoice/payable creation at placement &
+daily granularity, cross-tenant intercompany approval workflow) are
+queued as Batch 2 in the roadmap.
+
+### Shipped
+
+1. **Migration 101 — recon column aliases + CoA backfill**
+   (`core/migrations/101_accounting_recon_aliases_and_coa_backfill.sql`):
+   - Adds `statement_end_date DATE` and `reconciled_through_date DATE`
+     to `accounting_reconciliations` (idempotent via information_schema
+     guard).  Backfills both from `period_end` for every existing row.
+   - Adds index `idx_arec_tenant_status_end (tenant_id, status,
+     statement_end_date)` so the `books_health.php` query stops
+     scanning the whole table.
+   - **CoA backfill**: for every `accounting_bank_accounts` row whose
+     `gl_account_code` does NOT have a matching `accounting_accounts`
+     row, INSERTs one with `account_type=asset`, `normal_side=debit`,
+     `is_postable=1`, and a human-readable name like "Mercury Checking …7793".
+   - Same pass for `treasury_liability_accounts` → `liability` /
+     `credit`.  Idempotent (NOT EXISTS guard).
+
+2. **Migration 102 — sub-tenant entity seed**
+   (`core/migrations/102_subtenant_entity_seed_and_parent_wiring.sql`):
+   - INSERT IGNORE one `accounting_entities` row per tenant (master AND
+     sub) using the tenant's OWN name.  Derives a 4-letter `code` via
+     nested `REPLACE()` calls (MySQL 5.7 compatible, no
+     `REGEXP_REPLACE`).
+   - Renames any single-entity tenant whose `legal_name` doesn't match
+     the tenant's name (catches the hand-named "Arabella Talent
+     Partners" under Seven Generations).
+   - Wires `parent_entity_id` on sub-tenant entities to the parent
+     tenant's lowest-id active entity.  Idempotent: only touches NULL
+     parent_entity_id rows.
+
+3. **Inline entity seed at provisioning**
+   (`core/sub_tenants.php::subTenantProvision()`): every new sub-tenant
+   now gets its own `accounting_entities` row synchronously inside the
+   provisioning transaction, with `parent_entity_id` pre-wired.
+   Mirrors migration 102's code derivation so a hand-re-run is a no-op.
+
+4. **Cross-tenant entity surface** (`core/active_entity.php`):
+   - Surface widened: when the active tenant is a **master**, the
+     dropdown now lists entities across the entire active sub-tenant
+     tree (Seven Generations parent → Arabella + every other sub).
+     When the active tenant is a sub, the dropdown stays narrow to its
+     own entities (no parent leakage).
+   - Every result row now carries `tenant_id`, `tenant_name`,
+     `tenant_kind` (`master`/`sub`), `tenant_parent_id`, and an
+     `is_active_tenant` flag so the SPA can render labels like
+     "Seven Generations · Main Entity" and group the picker by tenant.
+   - New helper `activeEntityResolveAllowedTenantIds()` is reused by
+     both `activeEntityAvailable()` (rendering) and `activeEntitySet()`
+     (validation), so the picker can't be tricked into setting an
+     entity outside the allowed set.
+   - `tenant-leak-allow:` comment documents the cross-tenant scope so
+     the static analyzer stays green.
+
+5. **Mercury as a first-class AP payment method**:
+   - Migration 103 extends `ap_payments.method` and
+     `ap_vendors_index.payment_method` ENUMs to include `mercury`
+     (idempotent via information_schema guards).
+   - `modules/ap/ui/PaymentsList.jsx::RecordPaymentModal` now accepts
+     `mercuryEnabled` prop (passed from the parent's existing
+     `mercuryConnected` flag).  Adds a `<option value="mercury">`
+     entry to the method dropdown, gated `disabled` when Mercury isn't
+     connected.  Surfaces an inline helper card explaining that a
+     Mercury `payment_instruction` will be queued in **Draft** so
+     treasury ops still approves before money moves.
+   - Best-effort post-create hook: when method=mercury and the
+     connection is wired, the modal automatically POSTs
+     `?action=send_via_mercury` right after create so the operator
+     doesn't need a second click.  Failure here is non-fatal — the
+     row's "Send via Mercury" chip is still available.
+
+6. **Test smoke** (`tests/accounting_basics_2026_02_smoke.php`) —
+   **51 / 51 ✓** locking all four fixes (migration SQL shape,
+   `subTenantProvision()` inline seed, the new `active_entity.php`
+   surface, and the React UI testids).
+
+### Test status
+- Full PHP suite: **367 / 369 passing**. Only the two documented
+  sandbox-bound failures remain (`accounting_phase2_a7_smoke.php`,
+  `tenant_mail_senders_smoke.php` — no live MySQL / SMTP socket).
+- New smoke 51/51 ✓.
+- All sentries (tenant-leak, auth-gate, HY093 placeholder) green.
+- Vite build → bundle `coreflux-DqARW7om`. All four sync points consistent.
+
+### Files touched
+- `core/migrations/101_accounting_recon_aliases_and_coa_backfill.sql` (new)
+- `core/migrations/102_subtenant_entity_seed_and_parent_wiring.sql` (new)
+- `core/migrations/103_ap_payments_method_mercury.sql` (new)
+- `core/sub_tenants.php` (inline entity seed at provisioning)
+- `core/active_entity.php` (cross-tenant entity surface + helper)
+- `modules/ap/ui/PaymentsList.jsx` (Mercury option + helper card + auto-route)
+- `tests/accounting_basics_2026_02_smoke.php` (new)
+
+### Deploy notes for ops
+1. Push to Cloudways → `update.php` applies migrations 101 / 102 / 103.
+   All three are idempotent via `information_schema` guards.
+2. After deploy, hit Bookkeeping → "Books health" should load without
+   the `statement_end_date` error.
+3. Open Accounting → Chart of Accounts → Mercury Checking, Mercury
+   Savings, First Citizens should appear with their existing GL codes.
+4. As the master tenant (Seven Generations), the Entity ▾ dropdown will
+   show the parent's entities + every sub-tenant's entity grouped by
+   tenant.  As a sub-tenant the dropdown stays scoped to its own.
+5. AP → Record payment → Method dropdown now shows "Mercury" when the
+   Mercury connection is wired.
+
+### Roadmap (next — Kunal's remaining grievances)
+
+**Batch 2 — Time + Placements UX rebuild (P0)**:
+- Click into individual timesheets (per-week, per-placement drill-in).
+- Placement detail page: "Timesheets — history, pending approvals,
+  create new" section.
+- Approve rates inside the placement workflow.
+- Create invoice from approved hours: placement + daily granularity.
+- Create payable from approved hours: same picker reused.
+
+**Batch 3 — Cross-tenant intercompany approval (P0)**:
+- Posting an intercompany JE in one entity creates a pending
+  approval row in the counterparty entity's tenant.
+- Counterparty admin sees it in their inbox + approves/declines.
+- On approve, both legs post simultaneously to both entities' books.
+- Uses the existing `tenant_memberships` + audit infrastructure +
+  a new `intercompany_approval_queue` table.
+
+**Batch 4 — Expand the patterns to anywhere applicable**:
+- Apply the same flexible-picker logic to other invoice/payable
+  creation surfaces the user calls out.
+
+### Backlog (unchanged priority)
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P1) Mercury Webhooks hardening.
+- (P2) Gusto integration / QBO hardening (parked).
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module (Fixed-fee project accounting).
+- (P3) AI Digest Scheduler.
+
+---
+
 ## Session — 2026-02 (CPA-layer Phase 2 — Bulk-seat + Cross-tenant audit + Firm dashboard)
 
 User direction (after CPA-layer kickoff): "yeah, next items go." → ship all three

@@ -257,7 +257,7 @@ export default function PaymentsList() {
         </tbody>
       </table>
 
-      {showRecord && <RecordPaymentModal onClose={() => setShowRecord(false)} onCreated={() => { setShowRecord(false); reload(); }} plaidEnabled={plaidEnabled} />}
+      {showRecord && <RecordPaymentModal onClose={() => setShowRecord(false)} onCreated={() => { setShowRecord(false); reload(); }} plaidEnabled={plaidEnabled} mercuryEnabled={mercuryConnected} />}
       {showAllocate && <AllocateModal payment={showAllocate} onClose={() => setShowAllocate(null)} onDone={() => { setShowAllocate(null); reload(); }} />}
     </section>
   );
@@ -269,7 +269,7 @@ const bulkBar = {
   marginBottom: 12, flexWrap: 'wrap',
 };
 
-function RecordPaymentModal({ onClose, onCreated, plaidEnabled }) {
+function RecordPaymentModal({ onClose, onCreated, plaidEnabled, mercuryEnabled }) {
   const [form, setForm] = useState({
     vendor_name: '', pay_date: new Date().toISOString().slice(0, 10), method: 'ach',
     amount: '', reference: '', currency: 'USD', auto_allocate: true, notes: '',
@@ -279,7 +279,17 @@ function RecordPaymentModal({ onClose, onCreated, plaidEnabled }) {
   const submit = async () => {
     setBusy(true); setError(null);
     try {
-      await api.post('/modules/ap/api/payments.php', { ...form, amount: Number(form.amount) });
+      const r = await api.post('/modules/ap/api/payments.php', { ...form, amount: Number(form.amount) });
+      // If the operator chose Mercury and the connection is wired up,
+      // auto-queue the Mercury instruction right after create so they
+      // don't need a second click on the row to fire it.  Best-effort:
+      // a 4xx here is non-fatal — the payment exists and the operator
+      // can still hit "Send via Mercury" on the row.
+      if (form.method === 'mercury' && mercuryEnabled && r?.id) {
+        try {
+          await api.post(`/modules/ap/api/payments.php?action=send_via_mercury&id=${r.id}`, {});
+        } catch (_) { /* surfaced on row-level chip anyway */ }
+      }
       onCreated?.();
     } catch (e) { setError(e); } finally { setBusy(false); }
   };
@@ -298,9 +308,19 @@ function RecordPaymentModal({ onClose, onCreated, plaidEnabled }) {
               <option value="card">Card</option>
               <option value="cash">Cash</option>
               <option value="plaid" disabled={!plaidEnabled}>Plaid Transfer{plaidEnabled ? '' : ' (not configured)'}</option>
+              <option value="mercury" disabled={!mercuryEnabled}>Mercury{mercuryEnabled ? '' : ' (not connected)'}</option>
               <option value="other">Other</option>
             </select>
           </Field>
+          {form.method === 'mercury' && mercuryEnabled && (
+            <div data-testid="ap-pay-mercury-helper" style={{
+              padding: 10, background: '#0c4a6e0d', borderRadius: 6, fontSize: 12,
+              borderLeft: '3px solid #0c4a6e',
+            }}>
+              A Mercury payment_instruction will be queued in <strong>Draft</strong> right after this payment
+              is saved. Treasury ops still approves before money moves.
+            </div>
+          )}
           <Field label="Amount"><input className="input" type="number" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} data-testid="ap-pay-amount" /></Field>
           <Field label="Reference (check #, wire ref)"><input className="input" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} data-testid="ap-pay-reference" /></Field>
           <label style={{ display: 'inline-flex', gap: 6, fontSize: 14 }}>
