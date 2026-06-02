@@ -33,6 +33,13 @@ CsvImportService::registerSchema('ap_payments', [
         'method'      => ['label' => 'Method',
                           'enum'  => ['ach','wire','check','card','cash','plaid','other']],
         'reference'   => ['label' => 'Reference'],
+        // external_id + source_system: stable per-row id from the
+        // source-of-truth payment system (Mercury/Plaid txn id, QBO
+        // bill payment id, etc.). When supplied, becomes the upsert
+        // key so re-uploading the same export does not duplicate.
+        'external_id'  => ['label' => 'External ID (audit / integration)'],
+        'source_system'=> ['label' => 'Source system',
+                          'enum'  => ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other']],
         'amount'      => ['label' => 'Amount',       'required' => true, 'type' => 'number'],
         'currency'    => ['label' => 'Currency'],
         'status'      => ['label' => 'Status',
@@ -41,6 +48,7 @@ CsvImportService::registerSchema('ap_payments', [
         'sent_at'     => ['label' => 'Sent at',      'type' => 'date'],
         'notes'       => ['label' => 'Notes'],
     ],
+    'unique_within_batch' => ['external_id'],
 ]);
 
 $ctx    = api_require_auth();
@@ -123,11 +131,42 @@ if ($method === 'POST' && $action === 'commit') {
 
     $result = CsvImportService::commit('ap_payments', $csv, function (array $row) use ($user) {
         $amount = (float) $row['amount'];
+        $externalId   = isset($row['external_id'])   && $row['external_id']   !== '' ? (string) $row['external_id']   : null;
+        $sourceSystem = isset($row['source_system']) && $row['source_system'] !== '' ? (string) $row['source_system'] : 'manual';
+
+        // Idempotent re-import: when external_id is supplied, update the
+        // existing (tenant, source_system, external_id) row instead of
+        // duplicating. Falls through to a plain INSERT for manual imports.
+        if ($externalId !== null) {
+            $existing = scopedFind(
+                'SELECT id FROM ap_payments
+                  WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
+                ['s' => $sourceSystem, 'e' => $externalId]
+            );
+            if ($existing) {
+                scopedUpdate('ap_payments', (int) $existing['id'], [
+                    'vendor_name'        => $row['vendor_name'],
+                    'pay_date'           => $row['pay_date'],
+                    'method'             => $row['method']     ?? 'ach',
+                    'reference'          => $row['reference']  ?? null,
+                    'amount'             => $amount,
+                    'currency'           => $row['currency']   ?? 'USD',
+                    'status'             => $row['status']     ?? 'cleared',
+                    'cleared_at'         => $row['cleared_at'] ?? null,
+                    'sent_at'            => $row['sent_at']    ?? null,
+                    'notes'              => $row['notes']      ?? null,
+                ]);
+                return (int) $existing['id'];
+            }
+        }
+
         return scopedInsert('ap_payments', [
             'vendor_name'        => $row['vendor_name'],
             'pay_date'           => $row['pay_date'],
             'method'             => $row['method']     ?? 'ach',
             'reference'          => $row['reference']  ?? null,
+            'external_id'        => $externalId,
+            'source_system'      => $sourceSystem,
             'amount'             => $amount,
             'currency'           => $row['currency']   ?? 'USD',
             'unallocated_amount' => $amount,  // imported payments start fully unallocated

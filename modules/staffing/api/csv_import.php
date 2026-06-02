@@ -26,6 +26,13 @@ CsvImportService::registerSchema('staffing_clients', [
         // update-existing rows.
         'client_id'             => ['label' => 'Client ID',             'type' => 'integer'],
         'name'                  => ['label' => 'Client name',           'required' => true],
+        // external_id + source_system: stable per-row id from the
+        // source-of-truth ATS/CRM (JobDiva client id, Bullhorn id,
+        // HubSpot company id, etc.). When supplied, becomes the upsert
+        // key so re-uploading the same export doesn't duplicate firms.
+        'external_id'           => ['label' => 'External ID (audit / integration)'],
+        'source_system'         => ['label' => 'Source system',
+                                    'enum'  => ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other']],
         'legal_name'            => ['label' => 'Legal name'],
         'industry'              => ['label' => 'Industry'],
         'primary_contact_name'  => ['label' => 'Primary contact name'],
@@ -42,7 +49,7 @@ CsvImportService::registerSchema('staffing_clients', [
                                     'enum'  => ['active','prospect','on_hold','inactive','closed']],
         'notes'                 => ['label' => 'Notes'],
     ],
-    'unique_within_batch' => ['name'],
+    'unique_within_batch' => ['external_id', 'name'],
 ]);
 
 $ctx    = api_require_auth();
@@ -158,15 +165,36 @@ if ($method === 'POST' && $action === 'commit') {
     $updateExisting = !empty($_GET['update_existing']);
 
     $result = CsvImportService::commit('staffing_clients', $csv, function (array $row) use ($updateExisting) {
-        $existing = scopedFind(
-            'SELECT id FROM staffing_clients WHERE tenant_id = :tenant_id AND name = :n',
-            ['n' => $row['name']]
-        );
-        if ($existing && !$updateExisting) {
+        $externalId   = isset($row['external_id'])   && $row['external_id']   !== '' ? (string) $row['external_id']   : null;
+        $sourceSystem = isset($row['source_system']) && $row['source_system'] !== '' ? (string) $row['source_system'] : 'manual';
+
+        // Existing-row resolution: prefer (source_system, external_id)
+        // when supplied; fall back to fuzzy (tenant, name) for legacy
+        // / manual rows without an external_id.
+        $existing = null;
+        if ($externalId !== null) {
+            $existing = scopedFind(
+                'SELECT id FROM staffing_clients
+                  WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
+                ['s' => $sourceSystem, 'e' => $externalId]
+            );
+        }
+        if (!$existing) {
+            $existing = scopedFind(
+                'SELECT id FROM staffing_clients WHERE tenant_id = :tenant_id AND name = :n',
+                ['n' => $row['name']]
+            );
+        }
+        if ($existing && !$updateExisting && $externalId === null) {
+            // Manual import where we'd otherwise duplicate a same-named
+            // firm — surface a row error instead of silent upsert. With
+            // an external_id present we always upsert (idempotent feed).
             throw new \RuntimeException("Client '{$row['name']}' already exists (id={$existing['id']}) — skipped");
         }
         $payload = [
             'name'                  => $row['name'],
+            'external_id'           => $externalId,
+            'source_system'         => $sourceSystem,
             'legal_name'            => $row['legal_name']            ?? null,
             'industry'              => $row['industry']              ?? null,
             'primary_contact_name'  => $row['primary_contact_name']  ?? null,
@@ -182,7 +210,7 @@ if ($method === 'POST' && $action === 'commit') {
             'status'                => $row['status']                ?? 'active',
             'notes'                 => $row['notes']                 ?? null,
         ];
-        if ($existing && $updateExisting) {
+        if ($existing) {
             scopedUpdate('staffing_clients', (int) $existing['id'], $payload);
             return (int) $existing['id'];
         }

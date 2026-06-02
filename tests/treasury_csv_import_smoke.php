@@ -82,6 +82,8 @@ $pdo->exec(
         description TEXT NULL,
         amount NUMERIC NOT NULL,
         bank_reference TEXT NULL,
+        external_id TEXT NULL,
+        source_system TEXT NOT NULL DEFAULT "manual",
         fitid TEXT NULL,
         match_status TEXT NOT NULL DEFAULT "unmatched",
         created_at TEXT,

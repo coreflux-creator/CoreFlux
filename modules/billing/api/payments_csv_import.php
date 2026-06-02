@@ -31,10 +31,19 @@ CsvImportService::registerSchema('billing_payments', [
         'method'      => ['label' => 'Method',
                           'enum'  => ['ach','wire','check','card','cash','other']],
         'reference'   => ['label' => 'Reference'],
+        // external_id + source_system: stable per-row id from the
+        // source-of-truth receipts feed (Mercury/Plaid txn id, QBO
+        // receipt id, lockbox file id, etc.). When supplied, becomes
+        // the upsert key so re-uploading the same export does not
+        // double-credit the client.
+        'external_id'  => ['label' => 'External ID (audit / integration)'],
+        'source_system'=> ['label' => 'Source system',
+                          'enum'  => ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other']],
         'amount'      => ['label' => 'Amount',      'required' => true, 'type' => 'number'],
         'currency'    => ['label' => 'Currency'],
         'notes'       => ['label' => 'Notes'],
     ],
+    'unique_within_batch' => ['external_id'],
 ]);
 
 $ctx    = api_require_auth();
@@ -117,11 +126,40 @@ if ($method === 'POST' && $action === 'commit') {
 
     $result = CsvImportService::commit('billing_payments', $csv, function (array $row) use ($user) {
         $amount = (float) $row['amount'];
+        $externalId   = isset($row['external_id'])   && $row['external_id']   !== '' ? (string) $row['external_id']   : null;
+        $sourceSystem = isset($row['source_system']) && $row['source_system'] !== '' ? (string) $row['source_system'] : 'manual';
+
+        // Idempotent re-import: when external_id is supplied, update the
+        // existing (tenant, source_system, external_id) row instead of
+        // double-crediting the client. Falls through to a plain INSERT
+        // for manual one-offs.
+        if ($externalId !== null) {
+            $existing = scopedFind(
+                'SELECT id FROM billing_payments
+                  WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
+                ['s' => $sourceSystem, 'e' => $externalId]
+            );
+            if ($existing) {
+                scopedUpdate('billing_payments', (int) $existing['id'], [
+                    'client_name'        => $row['client_name'],
+                    'received_at'        => $row['received_at'],
+                    'method'             => $row['method']    ?? 'ach',
+                    'reference'          => $row['reference'] ?? null,
+                    'amount'             => $amount,
+                    'currency'           => $row['currency']  ?? 'USD',
+                    'notes'              => $row['notes']     ?? null,
+                ]);
+                return (int) $existing['id'];
+            }
+        }
+
         return scopedInsert('billing_payments', [
             'client_name'        => $row['client_name'],
             'received_at'        => $row['received_at'],
             'method'             => $row['method']    ?? 'ach',
             'reference'          => $row['reference'] ?? null,
+            'external_id'        => $externalId,
+            'source_system'      => $sourceSystem,
             'amount'             => $amount,
             'currency'           => $row['currency']  ?? 'USD',
             'unallocated_amount' => $amount,

@@ -136,6 +136,15 @@ function treasuryImportBankCsv(
     $debitCol  = treasuryCsvFindColumn($headers, ['debit', 'withdrawal', 'debit amount']);
     $creditCol = treasuryCsvFindColumn($headers, ['credit', 'deposit', 'credit amount']);
     $refCol    = treasuryCsvFindColumn($headers, ['bank_reference', 'reference', 'check number', 'check_no', 'fitid', 'transaction id']);
+    // Audit / integration columns — when present, the bank's own
+    // transaction id is stored as `external_id` so downstream reports
+    // can correlate CoreFlux rows back to Mercury / Plaid / OFX
+    // statements without re-hashing the description+amount+date tuple.
+    // When external_id is provided we use it as the fitid base instead
+    // of the auto-computed sha1, making re-imports of the same export
+    // deterministically idempotent on the bank's own id.
+    $extIdCol  = treasuryCsvFindColumn($headers, ['external_id', 'source_id', 'mercury_id', 'plaid_transaction_id', 'transaction_id']);
+    $srcSysCol = treasuryCsvFindColumn($headers, ['source_system', 'source']);
 
     if ($dateCol === null) { fclose($h); $summary['errors'][] = 'no date column found'; return $summary; }
     if ($descCol === null) { fclose($h); $summary['errors'][] = 'no description column found'; return $summary; }
@@ -158,9 +167,9 @@ function treasuryImportBankCsv(
     $ins = $pdo->prepare(
         'INSERT INTO accounting_bank_statement_lines
             (tenant_id, bank_account_id, posted_date, description, amount,
-             bank_reference, fitid, match_status, created_at)
+             bank_reference, external_id, source_system, fitid, match_status, created_at)
          VALUES
-            (:tid, :acc, :dt, :desc, :amt, :ref, :fitid, "unmatched", ' .
+            (:tid, :acc, :dt, :desc, :amt, :ref, :ext, :src, :fitid, "unmatched", ' .
              ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? "datetime('now')" : 'NOW()') .
             ')'
     );
@@ -214,8 +223,24 @@ function treasuryImportBankCsv(
         $ref = $refCol !== null ? trim((string) ($row[$refCol] ?? '')) : '';
         if ($ref === '') $ref = null;
 
-        $fitidSeed = $date . '|' . number_format($amount, 2, '.', '') . '|' . $rawDesc . '|' . ($ref ?? '');
-        $fitid = 'csv_' . substr(sha1($fitidSeed), 0, 24);
+        $extId = $extIdCol !== null ? trim((string) ($row[$extIdCol] ?? '')) : '';
+        if ($extId === '') $extId = null;
+        $srcSys = $srcSysCol !== null ? trim((string) ($row[$srcSysCol] ?? '')) : '';
+        if ($srcSys === '' || !in_array($srcSys, ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other'], true)) {
+            $srcSys = 'manual';
+        }
+
+        // When the bank/feed provides its own transaction id, use it as
+        // the fitid seed — re-imports of the same Mercury / Plaid
+        // export are then deterministically idempotent on that id,
+        // not on the (date + amount + desc + ref) hash which can shift
+        // when descriptions get re-formatted upstream.
+        if ($extId !== null) {
+            $fitid = $srcSys . '_' . substr(sha1($extId), 0, 24);
+        } else {
+            $fitidSeed = $date . '|' . number_format($amount, 2, '.', '') . '|' . $rawDesc . '|' . ($ref ?? '');
+            $fitid = 'csv_' . substr(sha1($fitidSeed), 0, 24);
+        }
 
         try {
             $check->execute([
@@ -234,6 +259,8 @@ function treasuryImportBankCsv(
                 'desc'  => mb_substr($rawDesc, 0, 255),
                 'amt'   => $amount,
                 'ref'   => $ref !== null ? mb_substr($ref, 0, 120) : null,
+                'ext'   => $extId !== null ? mb_substr($extId, 0, 128) : null,
+                'src'   => $srcSys,
                 'fitid' => $fitid,
             ]);
             $summary['rows_inserted']++;
