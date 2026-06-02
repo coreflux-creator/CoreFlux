@@ -43,6 +43,8 @@ require_once __DIR__ . '/../core/rbac/legacy_map.php';
 require_once __DIR__ . '/../core/accounting/connection_service.php';
 require_once __DIR__ . '/../core/accounting/command_service.php';
 require_once __DIR__ . '/../core/accounting/provider_adapter.php';
+require_once __DIR__ . '/../core/accounting/sync_config_service.php';
+require_once __DIR__ . '/../core/accounting/account_mapping_service.php';
 
 $ctx     = api_require_auth();
 $user    = $ctx['user'];
@@ -144,6 +146,72 @@ if ($method === 'POST' && $action === 'disconnect') {
     if ($sub <= 0) api_error('sub_tenant_id required', 422);
     accountingConnectionDisconnect($tid, $sub, $provider);
     api_ok(['ok' => true]);
+}
+
+// ============================================================================
+// Per-entity Sync Configuration — "mappable like the others"
+// ============================================================================
+if ($method === 'GET' && $action === 'sync_config') {
+    rbac_legacy_require($user, 'accounting.connection.view');
+    $sub = _accSubTenant();
+    api_ok([
+        'sync_config'         => accountingSyncConfigGet($tid, $sub, $provider),
+        'entity_types'        => ACC_SYNC_ENTITY_TYPES,
+        'allowed_directions'  => ACC_SYNC_DIRECTIONS,
+    ]);
+}
+if ($method === 'POST' && $action === 'sync_config_set') {
+    rbac_legacy_require($user, 'accounting.connection.manage');
+    $body = api_json_body();
+    $sub  = (int) ($body['sub_tenant_id'] ?? 0);
+    if ($sub <= 0) api_error('sub_tenant_id required', 422);
+    $config = is_array($body['sync_config'] ?? null) ? $body['sync_config'] : [];
+    $saved  = accountingSyncConfigSave($tid, $sub, $provider, $config);
+    api_ok(['sync_config' => $saved]);
+}
+
+// ============================================================================
+// Per-entity Account Mapping — provider-neutral COA mapping table
+// ============================================================================
+if ($method === 'GET' && $action === 'account_mappings') {
+    rbac_legacy_require($user, 'accounting.connection.view');
+    $sub = _accSubTenant();
+    api_ok([
+        'mappings' => accountingAccountMappingsList($tid, $sub, $provider),
+        'unmapped' => accountingAccountMappingsUnmapped($tid, $sub, $provider),
+    ]);
+}
+if ($method === 'POST' && $action === 'account_mapping_save') {
+    rbac_legacy_require($user, 'accounting.connection.manage');
+    $body = api_json_body();
+    $sub  = (int) ($body['sub_tenant_id'] ?? 0);
+    if ($sub <= 0) api_error('sub_tenant_id required', 422);
+    try {
+        $row = accountingAccountMappingsSave($tid, $sub, $provider, $body, (int) ($user['id'] ?? 0) ?: null);
+    } catch (\InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
+    }
+    api_ok(['mapping' => $row]);
+}
+if ($method === 'POST' && $action === 'account_mapping_delete') {
+    rbac_legacy_require($user, 'accounting.connection.manage');
+    $body = api_json_body();
+    $sub  = (int) ($body['sub_tenant_id'] ?? 0);
+    $mid  = (int) ($body['mapping_id']    ?? 0);
+    if ($sub <= 0 || $mid <= 0) api_error('sub_tenant_id and mapping_id required', 422);
+    accountingAccountMappingsDelete($tid, $sub, $provider, $mid);
+    api_ok(['ok' => true]);
+}
+if ($method === 'POST' && $action === 'account_mapping_auto') {
+    rbac_legacy_require($user, 'accounting.connection.manage');
+    $body = api_json_body();
+    $sub  = (int) ($body['sub_tenant_id'] ?? 0);
+    if ($sub <= 0) api_error('sub_tenant_id required', 422);
+    try {
+        api_ok(accountingAccountMappingsAutoMap($tid, $sub, $provider, (int) ($user['id'] ?? 0) ?: null));
+    } catch (\Throwable $e) {
+        api_error('auto-map failed: ' . $e->getMessage(), 500);
+    }
 }
 
 // ============================================================================

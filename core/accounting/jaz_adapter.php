@@ -348,13 +348,20 @@ class JazAccountingAdapter extends AccountingProviderAdapter
         $code = (string)       ($r['accountCode']      ?? $r['code']           ?? '');
         $name = (string)       ($r['accountName']      ?? $r['name']           ?? '');
         $ccy  = (string)       ($r['currency']['code'] ?? $r['currency']       ?? 'USD');
+        $jazId = (string) ($r['resourceId'] ?? $r['id'] ?? '');
         return [
+            // `id` / `provider_id` carry the destination's stable identifier in
+            // a provider-neutral key the auto-mapper consumes. We keep
+            // `jaz_resource_id` for backward compatibility with existing
+            // consumers that pinned to it.
+            'id'               => $jazId,
+            'provider_id'      => $jazId,
             'code'             => $code,
             'name'             => $name,
             'type'             => $type,
             'currency'         => $ccy,
             'active'           => ($r['isActive'] ?? $r['active'] ?? true) ? true : false,
-            'jaz_resource_id'  => (string) ($r['resourceId'] ?? $r['id'] ?? ''),
+            'jaz_resource_id'  => $jazId,
         ];
     }
 

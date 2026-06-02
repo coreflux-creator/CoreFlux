@@ -38,6 +38,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/provider_adapter.php';
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/sync_config_service.php';
 
 const ACCOUNTING_OUTBOX_BACKOFF_BASE_SECONDS = 60;     // 60s, 120s, 240s, 480s, 960s — capped 16min
 const ACCOUNTING_OUTBOX_MAX_ATTEMPTS         = 5;
@@ -342,31 +343,62 @@ function accountingTryEnqueueDraft(int $tenantId, string $objectType, array $row
     $rowId = (int) ($row['id'] ?? 0);
     if ($rowId <= 0) return null;
 
+    // ── Hard skip: consolidation / elimination JEs are CoreFlux-platform-only
+    // by user spec — they must NEVER hit the destination accounting system.
+    // We detect via the explicit flag (preferred) plus a memo fallback for
+    // legacy rows posted before migration 098 added the flag.
+    if ($objectType === 'journal') {
+        if ((int) ($row['is_consolidation_entry'] ?? 0) === 1) return null;
+        $memo = strtolower((string) ($row['memo'] ?? ''));
+        if (strpos($memo, 'consolidation') !== false || strpos($memo, 'elimination') !== false) {
+            return null;
+        }
+    }
+
     // Resolve the sub_tenant. Row.entity_id (JEs) or row.sub_tenant_id
     // wins. Otherwise: tenant must have exactly ONE active connection.
     $subTenantId = (int) ($row['sub_tenant_id'] ?? $row['entity_id'] ?? 0);
+    $provider    = '';
     try {
         if ($subTenantId > 0) {
             $chk = getDB()->prepare(
-                "SELECT 1 FROM accounting_provider_connections
+                "SELECT provider FROM accounting_provider_connections
                   WHERE tenant_id = :t AND sub_tenant_id = :st
                     AND connection_status = 'active' LIMIT 1"
             );
             $chk->execute(['t' => $tenantId, 'st' => $subTenantId]);
-            if (!$chk->fetchColumn()) return null;
+            $provider = (string) $chk->fetchColumn();
+            if ($provider === '') return null;
         } else {
             $stmt = getDB()->prepare(
-                "SELECT sub_tenant_id FROM accounting_provider_connections
+                "SELECT sub_tenant_id, provider FROM accounting_provider_connections
                   WHERE tenant_id = :t AND connection_status = 'active'
                   LIMIT 2"
             );
             $stmt->execute(['t' => $tenantId]);
-            $rows = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
             if (count($rows) !== 1) return null; // 0 = nothing wired, 2+ = ambiguous
-            $subTenantId = (int) $rows[0];
+            $subTenantId = (int) $rows[0]['sub_tenant_id'];
+            $provider    = (string) $rows[0]['provider'];
         }
     } catch (\Throwable $e) {
         return null;
+    }
+
+    // ── Per-entity sync_config gate. The connection table now carries a
+    // sync_config JSON that says push / pull / two_way / off per entity
+    // type. We only enqueue when the operator has explicitly opted this
+    // entity type in for push. Intercompany JEs go through a distinct
+    // 'intercompany' toggle so admins can sync ordinary JEs without
+    // intercompany or vice versa.
+    if (function_exists('accountingShouldSyncJournalEntry')) {
+        if ($objectType === 'journal') {
+            if (!accountingShouldSyncJournalEntry($tenantId, $subTenantId, $provider, $row)) return null;
+        } elseif ($objectType === 'bill') {
+            if (!accountingShouldSync($tenantId, $subTenantId, $provider, 'bills', 'push')) return null;
+        } elseif ($objectType === 'invoice') {
+            if (!accountingShouldSync($tenantId, $subTenantId, $provider, 'invoices', 'push')) return null;
+        }
     }
 
     // Stable idempotency key. Includes a version derived from

@@ -294,9 +294,349 @@ export default function JazIntegrationSettings() {
               </p>
             </fieldset>
           )}
+
+          {connection && connection.connection_status === 'active' && (
+            <>
+              <JazSyncConfigCard
+                subTenantId={subTenantId}
+                onFlash={setFlash}
+              />
+              <JazAccountMappingCard
+                subTenantId={subTenantId}
+                onFlash={setFlash}
+              />
+            </>
+          )}
         </>
       )}
     </section>
+  );
+}
+
+/* -------------------------------------------------------------------
+   Sync direction picker (per-entity, per-entity-type).
+   Mirrors the affordance Zoho Books + QBO already expose so an admin
+   can opt each entity TYPE in / out independently.
+-------------------------------------------------------------------- */
+const JAZ_DIR_META = {
+  push:    { label: 'Push',     blurb: 'CoreFlux → Jaz' },
+  pull:    { label: 'Pull',     blurb: 'Jaz → CoreFlux' },
+  two_way: { label: 'Two-way',  blurb: 'Bidirectional (last-write-wins)' },
+  off:     { label: 'Off',      blurb: 'No sync' },
+};
+const JAZ_ENTITY_LABELS = {
+  journal_entries:   'Journal Entries (excludes consolidation + elimination)',
+  intercompany:      'Intercompany JEs (per-entity legs)',
+  contacts:          'Contacts (Customers + Vendors)',
+  invoices:          'Invoices',
+  bills:             'Bills',
+  payments:          'Payments',
+  chart_of_accounts: 'Chart of Accounts',
+};
+
+function JazSyncConfigCard({ subTenantId, onFlash }) {
+  const [config, setConfig]   = useState(null);
+  const [draft,  setDraft]    = useState(null);
+  const [busy,   setBusy]     = useState(false);
+  const [error,  setError]    = useState(null);
+  const [allowedDirs, setAllowedDirs] = useState(Object.keys(JAZ_DIR_META));
+
+  const reload = useCallback(async () => {
+    if (!subTenantId) return;
+    try {
+      const r = await api.get(`/api/accounting.php?action=sync_config&sub_tenant_id=${subTenantId}&provider=jaz`);
+      setConfig(r.sync_config || {});
+      setDraft(null);
+      if (Array.isArray(r.allowed_directions)) setAllowedDirs(r.allowed_directions);
+    } catch (e) { setError(e.message || 'Failed to load'); }
+  }, [subTenantId]);
+  useEffect(() => { reload(); }, [reload]);
+
+  const current = draft ?? config ?? {};
+  const dirty   = draft !== null && JSON.stringify(draft) !== JSON.stringify(config || {});
+
+  const save = async () => {
+    setBusy(true); setError(null);
+    try {
+      const r = await api.post('/api/accounting.php?action=sync_config_set&provider=jaz', {
+        sub_tenant_id: subTenantId,
+        sync_config:   current,
+      });
+      setConfig(r.sync_config || current);
+      setDraft(null);
+      onFlash?.({ kind: 'success', msg: 'Sync settings saved for this entity.' });
+    } catch (e) { setError(e.message || 'Save failed'); }
+    finally     { setBusy(false); }
+  };
+
+  if (!config) return null;
+
+  return (
+    <fieldset style={fieldsetStyle} data-testid="jaz-sync-config-card">
+      <legend style={legendStyle}>Step 3 — Sync direction (per entity-type)</legend>
+      <p style={{ margin: '0 0 12px', fontSize: 12, color: '#64748b' }}>
+        Pick which kinds of records flow to / from Jaz. <strong>Consolidation and elimination
+        JEs never sync</strong> — those live in CoreFlux only. Intercompany JEs <em>do</em> sync
+        from each leg's own books to Jaz; toggle them on the dedicated row below.
+      </p>
+      <table data-testid="jaz-sync-config-table" style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ textAlign: 'left', color: '#64748b', borderBottom: '1px solid #e2e8f0' }}>
+            <th style={{ padding: '6px 4px' }}>Entity type</th>
+            <th style={{ padding: '6px 4px' }}>Direction</th>
+            <th style={{ padding: '6px 4px' }}>Behaviour</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Object.keys(JAZ_ENTITY_LABELS).map((entity) => {
+            const dir = current[entity] || 'off';
+            const meta = JAZ_DIR_META[dir] || JAZ_DIR_META.off;
+            const allowed = entity === 'chart_of_accounts'
+              ? ['pull', 'off']
+              : allowedDirs;
+            return (
+              <tr key={entity} data-testid={`jaz-sync-row-${entity}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '8px 4px', fontWeight: 500 }}>{JAZ_ENTITY_LABELS[entity]}</td>
+                <td style={{ padding: '8px 4px' }}>
+                  <select
+                    value={dir}
+                    onChange={(e) => setDraft({ ...(draft ?? config), [entity]: e.target.value })}
+                    data-testid={`jaz-sync-dir-${entity}`}
+                    className="input"
+                    style={{ padding: '4px 8px', fontSize: 13, minWidth: 110 }}
+                  >
+                    {allowed.map((k) => (
+                      <option key={k} value={k}>{JAZ_DIR_META[k]?.label ?? k}</option>
+                    ))}
+                  </select>
+                </td>
+                <td style={{ padding: '8px 4px', color: '#64748b' }}>{meta.blurb}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {error && <p className="error" style={{ marginTop: 8, fontSize: 12 }} data-testid="jaz-sync-config-error">{error}</p>}
+      <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+        <button type="button" className="btn btn--primary" onClick={save}
+                disabled={!dirty || busy}
+                data-testid="jaz-sync-config-save">
+          {busy ? 'Saving…' : 'Save settings'}
+        </button>
+        {dirty && (
+          <button type="button" className="btn" onClick={() => setDraft(null)}
+                  disabled={busy} data-testid="jaz-sync-config-reset">
+            Discard changes
+          </button>
+        )}
+      </div>
+    </fieldset>
+  );
+}
+
+/* -------------------------------------------------------------------
+   Account mapping table — Jaz mapping like Zoho Books / QBO have.
+-------------------------------------------------------------------- */
+function JazAccountMappingCard({ subTenantId, onFlash }) {
+  const [mappings, setMappings] = useState([]);
+  const [unmapped, setUnmapped] = useState([]);
+  const [loading, setLoading]   = useState(false);
+  const [error,   setError]     = useState(null);
+  const [busy,    setBusy]      = useState(false);
+  const [addRow,  setAddRow]    = useState(null);
+
+  const reload = useCallback(async () => {
+    if (!subTenantId) return;
+    setLoading(true); setError(null);
+    try {
+      const r = await api.get(`/api/accounting.php?action=account_mappings&sub_tenant_id=${subTenantId}&provider=jaz`);
+      setMappings(r.mappings || []);
+      setUnmapped(r.unmapped || []);
+    } catch (e) { setError(e.message || 'Failed to load'); }
+    finally     { setLoading(false); }
+  }, [subTenantId]);
+  useEffect(() => { reload(); }, [reload]);
+
+  const handleAutoMap = async () => {
+    setBusy(true); setError(null);
+    try {
+      const r = await api.post('/api/accounting.php?action=account_mapping_auto&provider=jaz', {
+        sub_tenant_id: subTenantId,
+      });
+      const created = r.mapped ?? r.new_mappings?.length ?? 0;
+      const noMatch = r.no_provider_match ?? 0;
+      onFlash?.({
+        kind: created > 0 ? 'success' : 'error',
+        msg:  `Auto-map: ${created} mapped · ${noMatch} CoreFlux accounts had no match in Jaz.`,
+      });
+      reload();
+    } catch (e) {
+      setError(e.message || 'Auto-map failed');
+    } finally { setBusy(false); }
+  };
+
+  const handleDelete = async (mappingId) => {
+    if (!confirm('Remove this mapping? Unmapped accounts can still post in CoreFlux but won\'t sync to Jaz.')) return;
+    setBusy(true);
+    try {
+      await api.post('/api/accounting.php?action=account_mapping_delete&provider=jaz', {
+        sub_tenant_id: subTenantId, mapping_id: mappingId,
+      });
+      reload();
+    } catch (e) { setError(e.message || 'Delete failed'); }
+    finally     { setBusy(false); }
+  };
+
+  const handleSaveAdd = async (e) => {
+    e?.preventDefault?.();
+    if (!addRow || !addRow.coreflux_account_id || !addRow.provider_account_id) return;
+    setBusy(true); setError(null);
+    try {
+      await api.post('/api/accounting.php?action=account_mapping_save&provider=jaz', {
+        sub_tenant_id:        subTenantId,
+        coreflux_account_id:  addRow.coreflux_account_id,
+        provider_account_id:  addRow.provider_account_id,
+        provider_account_code: addRow.provider_account_code || null,
+        provider_account_name: addRow.provider_account_name || null,
+        source:                'manual',
+      });
+      setAddRow(null);
+      reload();
+    } catch (e) { setError(e.message || 'Save failed'); }
+    finally     { setBusy(false); }
+  };
+
+  return (
+    <fieldset style={fieldsetStyle} data-testid="jaz-account-mapping-card">
+      <legend style={legendStyle}>Step 4 — Account mapping</legend>
+      <p style={{ margin: '0 0 12px', fontSize: 12, color: '#64748b' }}>
+        Map each CoreFlux account to a Jaz account. When sync direction
+        is push or two-way, the outbox uses this map to render the
+        destination payload. <strong>Auto-map by code</strong> fills in
+        any exact-code matches Jaz currently exposes.
+      </p>
+
+      <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button type="button" className="btn" onClick={handleAutoMap}
+                disabled={busy || loading}
+                data-testid="jaz-account-mapping-automap">
+          {busy ? 'Auto-mapping…' : 'Auto-map by code'}
+        </button>
+        <button type="button" className="btn"
+                onClick={() => setAddRow({ coreflux_account_id: '', provider_account_id: '' })}
+                disabled={busy || unmapped.length === 0}
+                data-testid="jaz-account-mapping-add">
+          + Add mapping
+        </button>
+        <span style={{ fontSize: 12, color: '#64748b' }}>
+          {mappings.length} mapped · {unmapped.length} unmapped
+        </span>
+      </div>
+
+      {error && <p className="error" style={{ fontSize: 12 }} data-testid="jaz-account-mapping-error">{error}</p>}
+
+      {addRow && (
+        <form onSubmit={handleSaveAdd}
+              data-testid="jaz-account-mapping-add-form"
+              style={{ marginBottom: 12, padding: 10, background: '#f8fafc',
+                       border: '1px solid #e2e8f0', borderRadius: 6,
+                       display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+          <label style={{ fontSize: 11, fontWeight: 600, flex: '1 1 200px' }}>
+            CoreFlux account
+            <select className="input" value={addRow.coreflux_account_id}
+                    onChange={(e) => setAddRow({ ...addRow, coreflux_account_id: e.target.value })}
+                    data-testid="jaz-mapping-add-cf-select"
+                    style={{ display: 'block', width: '100%', marginTop: 4 }}
+                    required>
+              <option value="">— pick unmapped account —</option>
+              {unmapped.map(a => (
+                <option key={a.id} value={a.id}>{a.code} · {a.name}</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ fontSize: 11, fontWeight: 600, flex: '1 1 180px' }}>
+            Jaz account id (resourceId)
+            <input className="input" value={addRow.provider_account_id}
+                   onChange={(e) => setAddRow({ ...addRow, provider_account_id: e.target.value })}
+                   placeholder="acct_…"
+                   data-testid="jaz-mapping-add-provider-id"
+                   style={{ display: 'block', width: '100%', marginTop: 4 }} required />
+          </label>
+          <label style={{ fontSize: 11, fontWeight: 600, flex: '1 1 110px' }}>
+            Jaz code
+            <input className="input" value={addRow.provider_account_code || ''}
+                   onChange={(e) => setAddRow({ ...addRow, provider_account_code: e.target.value })}
+                   placeholder="1100"
+                   data-testid="jaz-mapping-add-provider-code"
+                   style={{ display: 'block', width: '100%', marginTop: 4 }} />
+          </label>
+          <label style={{ fontSize: 11, fontWeight: 600, flex: '1 1 200px' }}>
+            Jaz name
+            <input className="input" value={addRow.provider_account_name || ''}
+                   onChange={(e) => setAddRow({ ...addRow, provider_account_name: e.target.value })}
+                   placeholder="Accounts Receivable"
+                   data-testid="jaz-mapping-add-provider-name"
+                   style={{ display: 'block', width: '100%', marginTop: 4 }} />
+          </label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button type="submit" className="btn btn--primary" disabled={busy}
+                    data-testid="jaz-mapping-add-save">Save</button>
+            <button type="button" className="btn" onClick={() => setAddRow(null)}
+                    data-testid="jaz-mapping-add-cancel">Cancel</button>
+          </div>
+        </form>
+      )}
+
+      {loading ? <p style={{ fontSize: 12 }}>Loading…</p> : (
+        <table data-testid="jaz-account-mapping-table"
+               style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ textAlign: 'left', color: '#64748b', borderBottom: '1px solid #e2e8f0' }}>
+              <th style={{ padding: '6px 4px' }}>CoreFlux</th>
+              <th style={{ padding: '6px 4px' }}>Jaz</th>
+              <th style={{ padding: '6px 4px' }}>Source</th>
+              <th style={{ padding: '6px 4px', width: 60 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {mappings.length === 0 && (
+              <tr><td colSpan={4} style={{ padding: '12px 4px', color: '#94a3b8', fontStyle: 'italic' }}
+                      data-testid="jaz-account-mapping-empty">
+                No mappings yet. Click "Auto-map by code" to start, or "+ Add mapping" for manual control.
+              </td></tr>
+            )}
+            {mappings.map(m => (
+              <tr key={m.id} data-testid={`jaz-mapping-row-${m.id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '6px 4px' }}>
+                  <code style={{ fontSize: 12 }}>{m.coreflux_account_code}</code>
+                  <span style={{ color: '#64748b' }}> · {m.coreflux_account_name || '—'}</span>
+                </td>
+                <td style={{ padding: '6px 4px' }}>
+                  <code style={{ fontSize: 12 }}>{m.provider_account_code || m.provider_account_id}</code>
+                  <span style={{ color: '#64748b' }}> · {m.provider_account_name || '—'}</span>
+                </td>
+                <td style={{ padding: '6px 4px' }}>
+                  <span style={{
+                    fontSize: 10, padding: '2px 6px', borderRadius: 8,
+                    background: m.source === 'manual' ? '#dbeafe' : '#fef3c7',
+                    color:      m.source === 'manual' ? '#1e40af' : '#92400e',
+                  }}>{m.source}</span>
+                </td>
+                <td style={{ padding: '6px 4px', textAlign: 'right' }}>
+                  <button type="button" className="btn btn--ghost"
+                          onClick={() => handleDelete(m.id)}
+                          disabled={busy}
+                          data-testid={`jaz-mapping-delete-${m.id}`}
+                          style={{ fontSize: 11, padding: '2px 6px' }}>
+                    Remove
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </fieldset>
   );
 }
 

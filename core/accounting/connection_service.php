@@ -18,6 +18,7 @@ function accountingConnectionGet(int $tenantId, int $subTenantId, string $provid
     $stmt = getDB()->prepare(
         'SELECT id, tenant_id, sub_tenant_id, provider, provider_org_id,
                 credential_last4, connection_status, base_currency,
+                sync_config,
                 api_scope_summary, last_validated_at, last_validation_error,
                 created_by_user_id, created_at, updated_at
            FROM accounting_provider_connections
@@ -33,6 +34,12 @@ function accountingConnectionGet(int $tenantId, int $subTenantId, string $provid
     if (!empty($row['api_scope_summary'])) {
         $d = json_decode((string) $row['api_scope_summary'], true);
         $row['api_scope_summary'] = is_array($d) ? $d : null;
+    }
+    if (!empty($row['sync_config'])) {
+        $d = json_decode((string) $row['sync_config'], true);
+        $row['sync_config'] = is_array($d) ? $d : null;
+    } else {
+        $row['sync_config'] = null;
     }
     return $row;
 }

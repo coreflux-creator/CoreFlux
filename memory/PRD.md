@@ -1,5 +1,50 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-06 (Jaz parity: per-entity sync_config + account mappings + intercompany rules)
+
+Per user direction: "Jaz integration mappable like the others. For the accounting integrations, it'll be per entity. The consolidation layer on top if it is only within platform. The intercompany, and other related transactions still need to sync from individual entity to integrated accounting software. Consolidation and elimination are the only two that won't. After we perfect Jaz, we build out ZOHO books integration."
+
+### Architectural rule shipped
+- Accounting integrations (Jaz today, Zoho Books next) are **per legal entity** — each (tenant, sub_tenant, provider) row in `accounting_provider_connections` carries its own `sync_config` JSON describing per-entity-type direction (push / pull / two_way / off).
+- **Consolidation + elimination JEs never sync** to the destination — they're CoreFlux-platform-only.
+- **Intercompany JEs DO sync** from each entity's own books to its destination, governed by a dedicated `intercompany` toggle separate from `journal_entries`. Operators can therefore sync ordinary JEs without intercompany or vice versa.
+
+### Shipped
+1. **Migration 098** (`core/migrations/098_jaz_sync_config_and_account_mappings.sql`):
+   - Adds `sync_config` JSON column on `accounting_provider_connections` (per-entity).
+   - Creates `accounting_account_mappings` table — provider-neutral per-entity CoreFlux↔destination account mapping (one row per (tenant, sub_tenant, provider, coreflux_account_id)).
+   - Adds `is_consolidation_entry` flag on `accounting_journal_entries` so the outbox skip is a single column lookup rather than memo parsing.
+2. **`core/accounting/sync_config_service.php`**: get/save helpers + `accountingShouldSync` and `accountingShouldSyncJournalEntry` predicates. Defaults every entity type to "off" so an admin opts in deliberately.
+3. **`core/accounting/account_mapping_service.php`**: CRUD + auto-map-by-code (fetches the provider's CoA via the adapter, matches by exact code, creates `source=auto_code` rows at confidence 80). Returns the unmapped CoreFlux account list for the UI.
+4. **API surface** (`api/accounting.php` extended):
+   - `GET    ?action=sync_config&sub_tenant_id=N&provider=jaz`
+   - `POST   ?action=sync_config_set`            body: `{sub_tenant_id, sync_config}`
+   - `GET    ?action=account_mappings&sub_tenant_id=N&provider=jaz`
+   - `POST   ?action=account_mapping_save`       body: `{sub_tenant_id, coreflux_account_id, provider_account_id, …}`
+   - `POST   ?action=account_mapping_delete`     body: `{sub_tenant_id, mapping_id}`
+   - `POST   ?action=account_mapping_auto`       body: `{sub_tenant_id}` → bulk auto-map by code
+5. **Command service gate** (`core/accounting/command_service.php::accountingTryEnqueueDraft`): now hard-skips consolidation/elimination JEs AND consults the sync_config before enqueueing — bills/invoices push only when the operator opted them in, journal_entries vs intercompany use the right toggle.
+6. **Jaz adapter** (`core/accounting/jaz_adapter.php::normalizeCoaRow`): emits a provider-neutral `id`/`provider_id` so the auto-map service is provider-agnostic.
+7. **JazIntegrationSettings UI** (`dashboard/src/pages/JazIntegrationSettings.jsx`):
+   - **Step 3 — Sync direction (per entity-type)**: scrolling table with push/pull/two_way/off per row, save/discard. `chart_of_accounts` row is constrained to pull/off (the destination owns its CoA). Inline spec callout explaining the consolidation/elimination skip rule.
+   - **Step 4 — Account mapping**: list of existing mappings (with source badge), "Auto-map by code" button, "+ Add mapping" inline form sourced from the unmapped CoA, per-row remove. Counts of mapped/unmapped surfaced inline.
+8. **Connection DTO**: `accountingConnectionGet` now decodes and returns `sync_config` so the UI can drive its picker without a second round-trip.
+
+### Test status
+- New smoke: `tests/jaz_parity_smoke.php` — **45 / 45 ✓** locks every layer (migration shape, service surface, JE skip rule, route wiring, command gate, adapter normalizer, JSX testids, and a functional SQLite round-trip on sync_config + UPSERT mappings + unmapped probe).
+- Full PHP smoke suite: **362 / 364 passing**. Documented sandbox-only fails: `accounting_phase2_a7_smoke.php`, `tenant_mail_senders_smoke.php`.
+- Vite build → bundle `index-1MKnTtOq.js`. `scripts/sync_bundle.sh` synced `.deploy-version`, service-worker `CACHE_VERSION` → `coreflux-1MKnTtOq`, `spa-assets/`, `dashboard/dist/index.html`.
+
+### Operator next steps (production)
+1. Pull deploy → run migration `core/migrations/098_jaz_sync_config_and_account_mappings.sql`.
+2. For each entity already connected to Jaz: open the Jaz settings page, flip the desired entity types on under "Step 3 — Sync direction", then hit "Auto-map by code" under "Step 4 — Account mapping" to populate the bulk of the CoA matches. Manual rows fill the rest.
+
+### Roadmap (next)
+- **Zoho Books per-entity refactor**: take the same per-entity model that now ships for Jaz and re-platform Zoho Books on top of it (today Zoho is per-master-tenant). Reuses every piece of plumbing above — `accounting_provider_connections`, `accounting_account_mappings`, `sync_config_service`, `account_mapping_service`, and the same UI components. Specifically the user wants: connection per entity, sync_config per entity, account mappings per entity, with the same consolidation/elimination skip + intercompany sync rule.
+- After Zoho parity: revisit QBO to take it per-entity too (currently UNIQUE(tenant_id) — one realm per master tenant). The schema already supports it; UI + sync workers need updates.
+
+---
+
 ## Session — 2026-06 (HY093 sweep, AI transfer detection, period UI, audit log fix, Plaid → CoA)
 
 User reported a wide-impact P0/P1 regression report (search broken, JE posting broken, sub-tenant dropdowns empty, audit-log missing event, AI categorizer mis-classifying inter-account transfers as "Accounts Receivable", Plaid bank not appearing on Chart of Accounts, posted JEs not showing in P&L / BS / Cash Flow, treasury entries staying unmatched on bank rec, cannot define periods, email not sending). All addressed in a single batch:
