@@ -30,6 +30,12 @@ CsvImportService::registerSchema('billing_invoices', [
         // invoices.
         'invoice_id'       => ['label' => 'Invoice ID',      'type' => 'integer'],
         'invoice_number'   => ['label' => 'Invoice #',       'required' => true],
+        // external_id + source_system: correlate back to the system of
+        // record (QBO, Zoho, etc.). When supplied, becomes the upsert
+        // key so re-imports don't duplicate invoices.
+        'external_id'      => ['label' => 'External ID (audit / integration)'],
+        'source_system'    => ['label' => 'Source system',
+                               'enum'  => ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other']],
         'client_name'      => ['label' => 'Client name'],
         'issue_date'       => ['label' => 'Issue date',      'type' => 'date'],
         'due_date'         => ['label' => 'Due date',        'type' => 'date'],
@@ -182,7 +188,22 @@ if ($method === 'POST' && $action === 'commit') {
 
     foreach ($groups as $inv => $rows) {
         $header = $rows[0];
-        $existing = scopedFind('SELECT id FROM billing_invoices WHERE tenant_id = :tenant_id AND invoice_number = :n', ['n' => $inv]);
+        $externalId   = isset($header['external_id'])   && $header['external_id']   !== '' ? (string) $header['external_id']   : null;
+        $sourceSystem = isset($header['source_system']) && $header['source_system'] !== '' ? (string) $header['source_system'] : 'manual';
+
+        // Idempotency on re-import: prefer (source_system, external_id)
+        // when supplied; fall back to (tenant, invoice_number) for
+        // legacy/manual imports without an external_id.
+        $existing = null;
+        if ($externalId !== null) {
+            $existing = scopedFind(
+                'SELECT id FROM billing_invoices WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
+                ['s' => $sourceSystem, 'e' => $externalId]
+            );
+        }
+        if (!$existing) {
+            $existing = scopedFind('SELECT id FROM billing_invoices WHERE tenant_id = :tenant_id AND invoice_number = :n', ['n' => $inv]);
+        }
         if ($existing) {
             $errors['__invoice_' . $inv] = ['Invoice # ' . $inv . ' already exists; skipped'];
             continue;
@@ -200,6 +221,8 @@ if ($method === 'POST' && $action === 'commit') {
         try {
             $invId = scopedInsert('billing_invoices', [
                 'invoice_number'     => $inv,
+                'external_id'        => $externalId,
+                'source_system'      => $sourceSystem,
                 'client_name'        => (string) $header['client_name'],
                 'currency'           => $header['currency']  ?? 'USD',
                 'issue_date'         => $header['issue_date'],
@@ -208,7 +231,7 @@ if ($method === 'POST' && $action === 'commit') {
                 'period_end'         => $header['period_end']   ?? null,
                 'subtotal'           => $subtotal,
                 'tax_total'          => $tax,
-                'total'              => $total,
+                'total'               => $total,
                 'amount_due'         => $total,
                 'status'             => 'draft',
                 'po_number'          => $header['po_number']    ?? null,

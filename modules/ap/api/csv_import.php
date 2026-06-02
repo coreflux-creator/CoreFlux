@@ -28,6 +28,13 @@ CsvImportService::registerSchema('ap_vendors', [
         // for update-existing rows. Copy from the Vendors list UI.
         'vendor_id'        => ['label' => 'Vendor ID',           'type' => 'integer'],
         'vendor_name'      => ['label' => 'Vendor name',         'required' => true],
+        // external_id + source_system: per-row correlation back to the
+        // system of record (JobDiva, QBO, Mercury, …). When supplied,
+        // becomes the upsert key so re-imports don't duplicate rows.
+        // Optional — manual one-off imports still work without it.
+        'external_id'      => ['label' => 'External ID (audit / integration)'],
+        'source_system'    => ['label' => 'Source system',
+                               'enum'  => ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other']],
         'vendor_type'      => ['label' => 'Vendor type',
                                'enum'  => ['1099_individual','c2c_corp','w9_business','utility','other']],
         'vendor_category'  => ['label' => 'Vendor category',
@@ -40,7 +47,7 @@ CsvImportService::registerSchema('ap_vendors', [
         'tax_id_last4'     => ['label' => 'Tax ID last 4'],
         'requires_1099'    => ['label' => 'Requires 1099',       'type' => 'boolean'],
     ],
-    'unique_within_batch' => ['vendor_name'],
+    'unique_within_batch' => ['external_id', 'vendor_name'],
 ]);
 
 $ctx    = api_require_auth();
@@ -160,15 +167,21 @@ if ($method === 'POST' && $action === 'commit') {
         $vendorType = (string) ($row['vendor_type'] ?? 'other');
         $vendorCat  = (string) ($row['vendor_category']
             ?? (in_array($vendorType, ['1099_individual','c2c_corp'], true) ? 'hourly_labor' : 'service_provider'));
+        $externalId   = isset($row['external_id'])   && $row['external_id']   !== '' ? (string) $row['external_id']   : null;
+        $sourceSystem = isset($row['source_system']) && $row['source_system'] !== '' ? (string) $row['source_system'] : 'manual';
 
         $pdo = getDB();
         $pdo->prepare(
             'INSERT INTO ap_vendors_index
-               (tenant_id, vendor_name, vendor_type, vendor_category,
+               (tenant_id, vendor_name, external_id, source_system,
+                vendor_type, vendor_category,
                 payment_method, remit_to_email, remit_to_phone,
                 default_terms, tax_id_last4, requires_1099)
-             VALUES (:t, :v, :vt, :cat, :pm, :rmail, :rphone, :terms, :last4, :r)
+             VALUES (:t, :v, :ext, :src, :vt, :cat, :pm, :rmail, :rphone, :terms, :last4, :r)
              ON DUPLICATE KEY UPDATE
+               vendor_name     = VALUES(vendor_name),
+               external_id     = COALESCE(VALUES(external_id), external_id),
+               source_system   = VALUES(source_system),
                vendor_type     = VALUES(vendor_type),
                vendor_category = VALUES(vendor_category),
                payment_method  = COALESCE(VALUES(payment_method), payment_method),
@@ -180,6 +193,8 @@ if ($method === 'POST' && $action === 'commit') {
         )->execute([
             't'      => $tid,
             'v'      => (string) $row['vendor_name'],
+            'ext'    => $externalId,
+            'src'    => $sourceSystem,
             'vt'     => $vendorType,
             'cat'    => $vendorCat,
             'pm'     => $row['payment_method'] ?? null,
@@ -191,9 +206,23 @@ if ($method === 'POST' && $action === 'commit') {
         ]);
         $id = (int) $pdo->lastInsertId();
         if ($id === 0) {
-            $findStmt = $pdo->prepare('SELECT id FROM ap_vendors_index WHERE tenant_id = :t AND vendor_name = :v');
-            $findStmt->execute(['t' => $tid, 'v' => (string) $row['vendor_name']]);
-            $id = (int) $findStmt->fetchColumn();
+            // Hit ON DUPLICATE KEY — resolve the existing row id.
+            // Prefer the (source_system, external_id) match (the new
+            // canonical upsert key); fall back to (tenant, name) for
+            // legacy rows or when no external_id was supplied.
+            if ($externalId !== null) {
+                $findStmt = $pdo->prepare(
+                    'SELECT id FROM ap_vendors_index
+                      WHERE tenant_id = :t AND source_system = :s AND external_id = :e'
+                );
+                $findStmt->execute(['t' => $tid, 's' => $sourceSystem, 'e' => $externalId]);
+                $id = (int) $findStmt->fetchColumn();
+            }
+            if ($id === 0) {
+                $findStmt = $pdo->prepare('SELECT id FROM ap_vendors_index WHERE tenant_id = :t AND vendor_name = :v');
+                $findStmt->execute(['t' => $tid, 'v' => (string) $row['vendor_name']]);
+                $id = (int) $findStmt->fetchColumn();
+            }
         }
         return $id;
     }, $opts);

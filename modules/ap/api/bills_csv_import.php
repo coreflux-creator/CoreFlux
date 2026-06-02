@@ -31,6 +31,12 @@ CsvImportService::registerSchema('ap_bills', [
         // Optional; leave blank for new bills.
         'bill_id'          => ['label' => 'Bill ID',        'type' => 'integer'],
         'bill_number'      => ['label' => 'Bill #',         'required' => true],
+        // external_id + source_system: per-row correlation back to the
+        // system of record (QBO, JobDiva, etc.). When supplied, becomes
+        // the upsert key so re-imports don't duplicate. Optional.
+        'external_id'      => ['label' => 'External ID (audit / integration)'],
+        'source_system'    => ['label' => 'Source system',
+                               'enum'  => ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other']],
         'vendor_name'      => ['label' => 'Vendor name'],
         'vendor_type'      => ['label' => 'Vendor type',
                                'enum'  => ['1099_individual','c2c_corp','w9_business','utility','other']],
@@ -189,8 +195,22 @@ if ($method === 'POST' && $action === 'commit') {
 
     foreach ($groups as $bn => $rows) {
         $header = $rows[0];
-        // Skip if bill_number already exists in tenant (idempotent)
-        $existing = scopedFind('SELECT id FROM ap_bills WHERE tenant_id = :tenant_id AND bill_number = :n', ['n' => $bn]);
+        $externalId   = isset($header['external_id'])   && $header['external_id']   !== '' ? (string) $header['external_id']   : null;
+        $sourceSystem = isset($header['source_system']) && $header['source_system'] !== '' ? (string) $header['source_system'] : 'manual';
+
+        // Idempotency on re-import: prefer (source_system, external_id)
+        // when supplied; fall back to (tenant, bill_number) for legacy
+        // rows or manual imports without an external_id.
+        $existing = null;
+        if ($externalId !== null) {
+            $existing = scopedFind(
+                'SELECT id FROM ap_bills WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
+                ['s' => $sourceSystem, 'e' => $externalId]
+            );
+        }
+        if (!$existing) {
+            $existing = scopedFind('SELECT id FROM ap_bills WHERE tenant_id = :tenant_id AND bill_number = :n', ['n' => $bn]);
+        }
         if ($existing) {
             $errors['__bill_' . $bn] = ['Bill # ' . $bn . ' already exists; skipped'];
             continue;
@@ -211,6 +231,8 @@ if ($method === 'POST' && $action === 'commit') {
         try {
             $billId = scopedInsert('ap_bills', [
                 'bill_number'        => $bn,
+                'external_id'        => $externalId,
+                'source_system'      => $sourceSystem,
                 'internal_ref'       => apNextInternalRef($tid),
                 'vendor_name'        => (string) $header['vendor_name'],
                 'vendor_type'        => (string) ($header['vendor_type'] ?? 'other'),

@@ -16,12 +16,21 @@ CsvImportService::registerSchema('time', [
     'fields' => [
         'placement_external_id' => ['label' => 'Placement external ID', 'required' => true],
         'work_date'             => ['label' => 'Work date',             'required' => true, 'type' => 'date'],
+        // external_id + source_system: stable per-row id from the
+        // source-of-truth timesheet system (JobDiva, Beeline, ATS, etc.)
+        // — becomes the upsert key so daily re-imports refresh the
+        // same row instead of duplicating. Optional but strongly
+        // recommended for any system-driven feed.
+        'external_id'           => ['label' => 'External ID (audit / integration)'],
+        'source_system'         => ['label' => 'Source system',
+                                    'enum'  => ['manual','jobdiva','qbo','mercury','plaid','jaz','zoho','airtable','gusto','other']],
         'category'               => ['label' => 'Category',              'required' => true,
                                      'enum' => ['regular_billable','regular_nonbillable','OT_billable','OT_nonbillable',
                                                 'holiday','vacation','sick','bereavement','unpaid_leave']],
         'hours'                  => ['label' => 'Hours',                 'required' => true, 'type' => 'number'],
         'description'            => ['label' => 'Description'],
     ],
+    'unique_within_batch' => ['external_id'],
 ]);
 
 $ctx = api_require_auth();
@@ -154,12 +163,28 @@ if ($method === 'POST' && $action === 'commit') {
         );
         if (!$period) throw new \RuntimeException("No open period covers work_date {$row['work_date']}");
 
-        // Update-existing: dedupe on (placement, person, work_date, category).
+        $externalId   = isset($row['external_id'])   && $row['external_id']   !== '' ? (string) $row['external_id']   : null;
+        $sourceSystem = isset($row['source_system']) && $row['source_system'] !== '' ? (string) $row['source_system'] : 'manual';
+
+        // Update-existing: prefer (source_system, external_id) when the
+        // row carries one (system-driven feeds reposting a corrected
+        // entry); fall back to (placement, person, work_date, category)
+        // for legacy / manual rows.
         // Only allow updating entries that are NOT yet approved — once approved
         // the entry is part of an audit-locked time bundle and must be voided
         // explicitly, not silently overwritten.
         $existing = null;
-        if ($updateExisting) {
+        if ($externalId !== null) {
+            $existing = scopedFind(
+                'SELECT id, status FROM time_entries
+                  WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
+                ['s' => $sourceSystem, 'e' => $externalId]
+            );
+            if ($existing && $existing['status'] === 'approved') {
+                throw new \RuntimeException("entry already approved — cannot update; void first");
+            }
+        }
+        if (!$existing && $updateExisting) {
             $existing = scopedFind(
                 'SELECT id, status FROM time_entries
                   WHERE tenant_id = :tenant_id
@@ -178,12 +203,14 @@ if ($method === 'POST' && $action === 'commit') {
         }
 
         $payload = [
-            'placement_id' => (int) $pl['id'],
-            'person_id'    => (int) $pl['person_id'],
-            'period_id'    => (int) $period['id'],
-            'work_date'    => $row['work_date'],
-            'category'     => $row['category'],
-            'hours'        => (float) $row['hours'],
+            'placement_id'  => (int) $pl['id'],
+            'person_id'     => (int) $pl['person_id'],
+            'period_id'     => (int) $period['id'],
+            'work_date'     => $row['work_date'],
+            'external_id'   => $externalId,
+            'source_system' => $sourceSystem,
+            'category'      => $row['category'],
+            'hours'         => (float) $row['hours'],
             'description'  => $row['description'] ?? null,
             'source'       => 'bulk_upload',
             'status'       => $preApproved ? 'approved' : 'pending_review',

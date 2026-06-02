@@ -429,12 +429,23 @@ export default function CsvImportPage({
                           style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid var(--cf-border, #e5e7eb)', minWidth: 240 }}
                         >
                           <option value="">— skip this column —</option>
-                          {(inspect.fields || []).map(f => (
-                            <option key={f.key} value={f.key}>
-                              {f.label}{f.required ? ' *' : ''}
-                            </option>
-                          ))}
+                          {(inspect.fields || []).map(f => {
+                            const isAuditField = f.key === 'external_id' || f.key === 'source_system';
+                            return (
+                              <option key={f.key} value={f.key}>
+                                {f.label}{f.required ? ' *' : ''}{isAuditField ? ' ★' : ''}
+                              </option>
+                            );
+                          })}
                         </select>
+                        {mapped === 'external_id' && (
+                          <div
+                            data-testid={`${testidPrefix}-external-id-hint-${i}`}
+                            style={{ fontSize: 11, color: '#0369a1', marginTop: 4 }}
+                          >
+                            ★ Mapping this enables idempotent re-imports + audit-trail correlation to the source system.
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
