@@ -127,6 +127,21 @@ $v = $ad->validateConnection(1, 1);
 $a('validateConnection ok=false on 401',          ($v['ok'] ?? true) === false);
 $a('  status=failed on 401',                       ($v['status'] ?? '') === 'failed');
 
+// Regression — Jaz sometimes returns `{message: [...]}` or `{error: {...}}`.
+// Older code stringified the array to literal "Array", surfacing useless
+// "Validation failed: Jaz GET organization: Array" toasts to admins. The
+// jaz_http error extractor must json_encode nested structures so the real
+// payload reaches the admin.
+$nextResp = ['status' => 422, 'body' => json_encode(['message' => ['First reason', 'Second reason']])];
+$v = $ad->validateConnection(1, 1);
+$a('array message NOT stringified to "Array"',     !str_contains((string) ($v['error'] ?? ''), ': Array'));
+$a('  array message JSON-encoded in error',        str_contains((string) ($v['error'] ?? ''), 'First reason'));
+
+$nextResp = ['status' => 500, 'body' => json_encode(['error' => ['code' => 'srv', 'detail' => 'db down']])];
+$v = $ad->validateConnection(1, 1);
+$a('nested error object NOT stringified to "Array"', !str_contains((string) ($v['error'] ?? ''), ': Array'));
+$a('  nested error JSON-encoded into message',     str_contains((string) ($v['error'] ?? ''), 'db down'));
+
 // getChartOfAccounts — single page (no hasMore)
 $captured = []; $nextResp = ['status' => 200, 'body' => json_encode([
     'data' => [

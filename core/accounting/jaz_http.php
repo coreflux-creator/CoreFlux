@@ -89,7 +89,32 @@ function jazCall(string $apiKey, string $method, string $path, array $body = [],
     }
 
     if ($status < 200 || $status >= 300) {
-        $msg = is_array($data) ? (string) ($data['message'] ?? $data['error'] ?? "HTTP {$status}") : "HTTP {$status}";
+        // Jaz error payloads vary: sometimes `{message: "..."}`, sometimes
+        // `{error: {...}}`, sometimes `{errors: [...]}`. Stringify whichever
+        // we find robustly — a flat `(string)` cast on a nested array yields
+        // the literal text "Array" which is useless in an admin error toast.
+        $extract = static function ($val) {
+            if ($val === null) return null;
+            if (is_scalar($val)) {
+                $s = trim((string) $val);
+                return $s === '' ? null : $s;
+            }
+            // Nested array/object — flatten to a compact JSON-ish summary.
+            $j = json_encode($val, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            return $j !== false ? $j : null;
+        };
+        $msg = "HTTP {$status}";
+        if (is_array($data)) {
+            $msg = $extract($data['message'] ?? null)
+                ?? $extract($data['error']   ?? null)
+                ?? $extract($data['errors']  ?? null)
+                ?? $extract($data['detail']  ?? null)
+                ?? "HTTP {$status}";
+        } elseif ($rawBody !== '') {
+            // Non-JSON response body — surface the first 200 chars so admins
+            // can see what the upstream actually said (HTML error page, etc.).
+            $msg = substr($rawBody, 0, 200);
+        }
         $e = new JazApiException('Jaz ' . $method . ' ' . $path . ': ' . substr($msg, 0, 200));
         $e->httpStatus = $status;
         $e->raw = ['body' => substr($rawBody, 0, 600)];
