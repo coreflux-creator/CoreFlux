@@ -5,6 +5,7 @@ import { useBulkSelection } from '../../../dashboard/src/lib/useBulkSelection';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import BillFromTimeBundleModal from './BillFromTimeBundleModal';
 import BillFromTimeEntriesModal from './BillFromTimeEntriesModal';
+import SuggestPaymentRunModal from './SuggestPaymentRunModal';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 const STATUS_FILTERS = ['all','pending_approval','approved','partially_paid','paid','disputed','void'];
@@ -13,6 +14,7 @@ export default function BillsList() {
   const [status, setStatus] = useState('all');
   const [showFromBundle, setShowFromBundle] = useState(false);
   const [showFromEntries, setShowFromEntries] = useState(false);
+  const [showSuggestRun, setShowSuggestRun] = useState(false);
   const { activeEntityId, activeEntity } = useActiveEntity();
   const qs = new URLSearchParams();
   if (status !== 'all')    qs.set('status', status);
@@ -61,6 +63,11 @@ export default function BillsList() {
           </button>
           <button className="btn btn--ghost" onClick={() => setShowFromEntries(true)} data-testid="ap-bills-new-from-time-entries">
             New from approved hours (day-level)
+          </button>
+          <button className="btn btn--primary" onClick={() => setShowSuggestRun(true)}
+                  style={{ background: 'linear-gradient(135deg, #059669, #2563eb)', border: 0 }}
+                  data-testid="ap-bills-suggest-payment-run">
+            ✨ Suggest payment run
           </button>
           <Link to="csv_import" className="btn" data-testid="ap-bills-import-csv">Import CSV</Link>
           <a className="btn" href={`/modules/ap/api/bills_csv_export.php${status ? `?status=${status}` : ''}`} data-testid="ap-bills-export-all-csv">Export all (CSV)</a>
@@ -136,6 +143,13 @@ export default function BillsList() {
         <BillFromTimeEntriesModal
           onClose={() => setShowFromEntries(false)}
           onCreated={() => { setShowFromEntries(false); reload(); }}
+        />
+      )}
+
+      {showSuggestRun && (
+        <SuggestPaymentRunModal
+          onClose={() => setShowSuggestRun(false)}
+          onCreated={() => { setShowSuggestRun(false); reload(); }}
         />
       )}
     </section>

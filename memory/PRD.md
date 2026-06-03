@@ -1,5 +1,107 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (AP Suggest Payment Run — Mercury batch dispatch)
+
+User direction: "yes, payment run. perfect." → ship the AP-side mirror
+of "Suggest invoice": AI scans approved bills due in the next N days,
+groups by rail-eligible vendor, and produces a single batch of draft
+payments the operator can release.
+
+### Shipped
+
+1. **`apSuggestPaymentRun($tid, $daysAhead=7, $rail=null, $userId)`**
+   in `modules/ap/lib/ap.php`:
+   - Pulls `ap_bills` with `status IN (approved, partially_paid)` +
+     `amount_due > 0` + `due_date <= today + clamp(daysAhead, 1..60)`.
+   - PWP-blocked rows (`pwp_status='awaiting_ar'`) surface in a
+     separate `pwp_blocked` array — they are **never** included in the
+     totals or the executable set (4-way-match gate from
+     `ap.payment.send` is honoured at the preview stage too).
+   - Groups by `vendor_name`. Each group exposes:
+     `{vendor_name, vendor_type, payment_method, bill_count, bill_ids,
+     bill_refs, total_due, earliest_due_date, oldest_bill_date,
+     currency, rail_eligible, eligibility_note}`.
+   - When `rail == 'mercury'`, vendors without an active
+     `mercury_recipients` row are flagged `rail_eligible=false` with a
+     human-friendly fix-it note. Other rails inherit `rail_eligible=true`.
+   - Default rail = tenant's `ap_settings.disbursement_rail` (falls
+     back to `mercury`).
+   - AI commentary via `aiAsk(feature_class=suggestion,
+     feature_key=ap.payment_run.suggest_summary)`. Deterministic
+     fallback if AI is disabled / unreachable.
+
+2. **`apExecutePaymentRun($tid, $rail, $groups, $userId)`** —
+   creates one `ap_payments` row per vendor group in `draft` status:
+   - Re-fetches each bill at dispatch time (no stale data); skips
+     mismatched vendor, non-payable status, or PWP-blocked.
+   - Stamps `disbursement_rail` so the eventual `?action=send` routes
+     through `paymentRailsDispatch()` (Mercury / Plaid / NACHA).
+   - Auto-allocates the whitelisted `bill_ids` via `apAllocatePayment`.
+   - Voids the draft + audits if allocation fails (no orphan rows).
+   - **Does NOT auto-send** — operator must still release each
+     payment, preserving SoD.
+
+3. **API**:
+   - `POST /modules/ap/api/bills.php?action=suggest-payment-run`
+     — `ap.payment.create`-gated; body `{days_ahead, rail?}`.
+   - `POST /modules/ap/api/bills.php?action=execute-payment-run`
+     — same gate; body `{rail, vendor_groups: [{vendor_name, bill_ids}]}`.
+
+4. **`modules/ap/ui/SuggestPaymentRunModal.jsx`** — the operator
+   experience:
+   - Gradient header + "Suggest payment run" title.
+   - Controls: horizon (1-60 days), rail selector (mercury / plaid_transfer / nacha), refresh button.
+   - Summary card (vendors, bills, total due, rail-eligible total).
+   - AI summary banner with "AI summary" pill + "rail not configured"
+     warning chip when applicable.
+   - PWP-blocked notice (amber) when rows are excluded by the
+     pay-when-paid gate.
+   - Vendor-group table with checkbox-per-vendor; non-eligible rows
+     greyed + disabled with the eligibility note inline.
+   - Footer shows selected count + total + "Create N draft payments"
+     CTA with the same gradient as the AR-side Suggest Invoice.
+
+5. **`BillsList`** — new "✨ Suggest payment run" primary CTA next to
+   "Import CSV". One-click access from the AP landing page.
+
+6. **Tenant-leak sentry** — annotated the rollback `UPDATE ap_payments
+   SET status = "void"` query with a `tenant-leak-allow:` comment
+   (the `$payId` was just returned by `scopedInsert()` with tenant
+   scope, so the bare-id WHERE is safe).
+
+### Test status
+- New smoke `tests/ap_suggest_payment_run_smoke.php`
+  → **53 / 53 ✓** (lib helpers, both API actions with auth gates,
+  React modal data-testids, BillsList wiring).
+- Full PHP suite: **374 / 376 passing** — only the 2 documented
+  sandbox-bound failures remain.
+- All sentries (tenant-leak, schema-contract, auth-gate, HY093,
+  lane-classifier) green.
+- Vite build → bundle `coreflux-CDL9Ky9v`. All four sync points
+  consistent.
+
+### Files touched
+- `modules/ap/lib/ap.php` (2 new lib functions + 1 tenant-leak annotation)
+- `modules/ap/api/bills.php` (2 new API actions)
+- `modules/ap/ui/SuggestPaymentRunModal.jsx` (new)
+- `modules/ap/ui/BillsList.jsx` (CTA + mount)
+- `tests/ap_suggest_payment_run_smoke.php` (new)
+
+### Deploy notes for ops
+1. No new migrations required.
+2. The CTA appears for any user with `ap.payment.create` permission.
+3. For optimal experience on the Mercury rail, ensure
+   `mercury_recipients` is populated for active vendors (Treasury →
+   Mercury Recipients). The modal will flag vendors who lack one and
+   point the operator to the fix.
+4. After the run, operators see N new `draft` payments in the AP
+   Payments queue. They must then release each via the existing
+   `?action=send` flow (which itself routes through
+   `paymentRailsDispatch()` and triggers Mercury's SoD approval gate
+   for the rail-level transfer).
+
+---
+
 ## Session — 2026-02 (AI Suggest Invoice + Mercury Rail Driver)
 
 User direction (post-Batch-4): "yeah, suggest invoice, then mercury

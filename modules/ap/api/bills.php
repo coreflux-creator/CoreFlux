@@ -271,6 +271,30 @@ if ($method === 'GET') {
     api_ok(['rows' => $rows, 'total' => (int) ($cnt[0]['c'] ?? 0), 'page' => $page, 'per_page' => $perPage]);
 }
 
+if ($method === 'POST' && $action === 'suggest-payment-run') {
+    rbac_legacy_require($user, 'ap.payment.create');
+    $body = api_json_body();
+    $days = (int) ($body['days_ahead'] ?? 7);
+    $rail = isset($body['rail']) && $body['rail'] !== '' ? (string) $body['rail'] : null;
+    try {
+        $sug = apSuggestPaymentRun($tid, $days, $rail, $user['id'] ?? null);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 422); }
+    api_ok($sug);
+}
+
+if ($method === 'POST' && $action === 'execute-payment-run') {
+    rbac_legacy_require($user, 'ap.payment.create');
+    $body = api_json_body();
+    $rail = trim((string) ($body['rail'] ?? ''));
+    if ($rail === '') api_error('rail required', 422);
+    $groups = (array) ($body['vendor_groups'] ?? []);
+    if (empty($groups)) api_error('vendor_groups required', 422);
+    try {
+        $res = apExecutePaymentRun($tid, $rail, $groups, $user['id'] ?? null);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 422); }
+    api_ok($res, 201);
+}
+
 if ($method === 'POST' && $action === 'from-time-entries') {
     rbac_legacy_require($user, 'ap.bill.create');
     $body = api_json_body();

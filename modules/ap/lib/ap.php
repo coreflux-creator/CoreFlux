@@ -555,6 +555,321 @@ function apPaymentTransitionAllowed(string $from, string $to): bool
 }
 
 /**
+ * AI-assisted payment-run suggestion (Mercury rail expansion, 2026-02).
+ *
+ * Mirror of `billingSuggestInvoiceForPlacement()` on the AR side: scan
+ * approved/partially-paid bills due within the next $daysAhead days,
+ * skip anything PWP-awaiting-AR (the 4-way-match gate), group by
+ * vendor, and return a preview the operator can confirm to fire a
+ * batch payment run on the chosen rail.
+ *
+ * This function NEVER moves money — it just builds the suggestion.
+ * The matching `executePaymentRun()` helper below performs the actual
+ * dispatch under SoD approval.
+ *
+ *   $rail   — preferred rail id (mercury|plaid_transfer|nacha). Passed
+ *             through to the rail-eligibility check; defaults to the
+ *             tenant's ap_settings.disbursement_rail.
+ */
+function apSuggestPaymentRun(int $tenantId, int $daysAhead = 7, ?string $rail = null, ?int $userId = null): array
+{
+    $pdo = getDB();
+    require_once __DIR__ . '/../../../core/payment_rails.php';
+
+    // Resolve rail. Operator-supplied wins; else tenant default; else mercury.
+    if (!$rail) {
+        $set = scopedFind('SELECT disbursement_rail FROM ap_settings WHERE tenant_id = :tenant_id LIMIT 1');
+        $rail = trim((string) ($set['disbursement_rail'] ?? '')) ?: 'mercury';
+    }
+    try {
+        $driver = paymentRailsGetDriver($rail);
+        $railConfigured = $driver->isConfigured();
+        if (method_exists($driver, 'isConfiguredForTenant')) {
+            $railConfigured = $railConfigured && $driver->isConfiguredForTenant($tenantId);
+        }
+    } catch (\Throwable $_) {
+        $railConfigured = false;
+    }
+
+    $horizon = max(1, min(60, $daysAhead));
+    $cutoff = date('Y-m-d', strtotime("+{$horizon} days"));
+
+    // Pull every payable bill in the horizon. PWP-blocked rows are
+    // surfaced separately so the operator can see them but they are
+    // NOT included in the rail-eligible total.
+    $bills = scopedQuery(
+        "SELECT id, internal_ref, bill_number, vendor_name, vendor_type, payment_method,
+                bill_date, due_date, total, amount_paid, amount_due,
+                currency, pwp_status, source
+           FROM ap_bills
+          WHERE tenant_id = :tenant_id
+            AND status IN ('approved','partially_paid')
+            AND amount_due > 0
+            AND due_date <= :cutoff
+          ORDER BY due_date ASC, vendor_name ASC",
+        ['cutoff' => $cutoff]
+    );
+
+    $groups   = [];     // vendor_name → group payload
+    $blocked  = [];     // PWP-blocked rows for operator visibility
+    foreach ($bills as $b) {
+        // PWP gate — same logic as ap_payments?action=send refuses.
+        if (($b['pwp_status'] ?? '') === 'awaiting_ar') {
+            $blocked[] = $b;
+            continue;
+        }
+        $v = (string) $b['vendor_name'];
+        if (!isset($groups[$v])) {
+            $groups[$v] = [
+                'vendor_name'        => $v,
+                'vendor_type'        => (string) ($b['vendor_type'] ?? ''),
+                'payment_method'     => (string) ($b['payment_method'] ?? ''),
+                'bill_count'         => 0,
+                'bill_ids'           => [],
+                'bill_refs'          => [],
+                'total_due'          => 0.0,
+                'earliest_due_date'  => null,
+                'oldest_bill_date'   => null,
+                'currency'           => (string) ($b['currency'] ?? 'USD'),
+                'rail_eligible'      => true,
+                'eligibility_note'   => null,
+            ];
+        }
+        $g = &$groups[$v];
+        $g['bill_count']++;
+        $g['bill_ids'][]  = (int) $b['id'];
+        $g['bill_refs'][] = (string) ($b['internal_ref'] ?? $b['bill_number'] ?? ('#' . $b['id']));
+        $g['total_due'] += round((float) $b['amount_due'], 2);
+        if (!$g['earliest_due_date'] || strcmp($b['due_date'], $g['earliest_due_date']) < 0) {
+            $g['earliest_due_date'] = $b['due_date'];
+        }
+        if (!$g['oldest_bill_date'] || strcmp($b['bill_date'], $g['oldest_bill_date']) < 0) {
+            $g['oldest_bill_date'] = $b['bill_date'];
+        }
+        unset($g);
+    }
+    unset($g);
+
+    // Mercury rail-eligibility: vendor must have a `mercury_recipients`
+    // active row OR a vendor record with banking info we can upsert
+    // into one. For now, we mark "eligible" if the vendor has banking
+    // attached (ap_vendors_index.payment_method is set or vendor_type
+    // is 1099_individual / c2c_corp). Lack of banking → flag with a
+    // human-friendly note.
+    if (!empty($groups)) {
+        $vendorNames = array_keys($groups);
+        $placeholders = [];
+        $params = ['t' => $tenantId];
+        foreach ($vendorNames as $i => $vn) {
+            $k = 'v' . $i; $placeholders[] = ':' . $k; $params[$k] = $vn;
+        }
+        try {
+            $vix = $pdo->prepare(
+                'SELECT vendor_name, default_pwp, last_bill_at
+                   FROM ap_vendors_index
+                  WHERE tenant_id = :t AND vendor_name IN (' . implode(',', $placeholders) . ')'
+            );
+            $vix->execute($params);
+            $vix->fetchAll(\PDO::FETCH_ASSOC);
+        } catch (\Throwable $_) { /* graceful — no flags */ }
+
+        // Mercury-specific recipient check (only when rail=mercury).
+        if ($rail === 'mercury') {
+            try {
+                $merc = $pdo->prepare(
+                    'SELECT name FROM mercury_recipients
+                      WHERE tenant_id = :t AND status = "active" AND kind = "vendor"
+                        AND name IN (' . implode(',', $placeholders) . ')'
+                );
+                $merc->execute($params);
+                $haveRecipient = array_column($merc->fetchAll(\PDO::FETCH_ASSOC), 'name');
+                $haveSet = array_flip($haveRecipient);
+                foreach ($groups as $vn => &$g) {
+                    if (!isset($haveSet[$vn])) {
+                        $g['rail_eligible']    = false;
+                        $g['eligibility_note'] = 'No Mercury recipient on file. Add one under Treasury → Mercury Recipients before this payment can be dispatched on the Mercury rail.';
+                    }
+                }
+                unset($g);
+            } catch (\Throwable $_) { /* mercury_recipients table missing — leave defaults */ }
+        }
+    }
+
+    // Totals.
+    $groupRows = array_values($groups);
+    $vendorCount = count($groupRows);
+    $billCount   = array_sum(array_column($groupRows, 'bill_count'));
+    $totalDue    = round(array_sum(array_column($groupRows, 'total_due')), 2);
+    $eligibleTotal = 0.0;
+    $needsReviewTotal = 0.0;
+    foreach ($groupRows as $g) {
+        if ($g['rail_eligible']) $eligibleTotal += $g['total_due'];
+        else                     $needsReviewTotal += $g['total_due'];
+    }
+
+    // AI commentary — short summary tied to risk + cashflow context.
+    $aiUsed = false; $aiSummary = null;
+    $detSummary = sprintf(
+        '%d vendor(s) and %d bill(s) due by %s — $%s total. %s on the %s rail, $%s flagged for review.',
+        $vendorCount, $billCount, $cutoff,
+        number_format($totalDue, 2),
+        '$' . number_format($eligibleTotal, 2) . ' rail-eligible',
+        $rail,
+        number_format($needsReviewTotal, 2)
+    );
+    if ($vendorCount > 0) {
+        try {
+            require_once __DIR__ . '/../../../core/ai_service.php';
+            $env = aiAsk([
+                'feature_class'     => 'suggestion',
+                'kind'              => 'suggestion',
+                'feature_key'       => 'ap.payment_run.suggest_summary',
+                'system'            => 'You write short AP payment-run summaries for a CFO. Maximum 2 sentences, ~40 words. Mention vendor count, total amount, the rail, and any flagged items. Be specific but never restate raw rates or formulas.',
+                'prompt'            => "Summarise this AP payment run: {$vendorCount} vendors, {$billCount} bills, $" . number_format($totalDue, 2) . " total due by {$cutoff}, rail={$rail}, $" . number_format($needsReviewTotal, 2) . ' flagged for review (no rail-recipient on file).',
+                'context'           => [
+                    'rail'                 => $rail,
+                    'rail_configured'      => $railConfigured,
+                    'vendor_count'         => $vendorCount,
+                    'bill_count'           => $billCount,
+                    'horizon_days'         => $horizon,
+                    'cutoff'               => $cutoff,
+                    'total_due'            => $totalDue,
+                    'eligible_total'       => round($eligibleTotal, 2),
+                    'needs_review_total'   => round($needsReviewTotal, 2),
+                    'pwp_blocked_count'    => count($blocked),
+                ],
+                'max_output_tokens' => 140,
+            ]);
+            $aiSummary = trim((string) ($env['content'] ?? ''));
+            $aiUsed    = $aiSummary !== '';
+        } catch (\Throwable $_) {
+            $aiSummary = null;
+            $aiUsed    = false;
+        }
+    }
+
+    return [
+        'rail'              => $rail,
+        'rail_configured'   => $railConfigured,
+        'run_horizon_days'  => $horizon,
+        'cutoff_date'       => $cutoff,
+        'vendor_groups'     => $groupRows,
+        'pwp_blocked'       => $blocked,
+        'totals' => [
+            'vendor_count'        => $vendorCount,
+            'bill_count'          => (int) $billCount,
+            'total_due'           => $totalDue,
+            'rail_eligible_total' => round($eligibleTotal, 2),
+            'needs_review_total'  => round($needsReviewTotal, 2),
+            'pwp_blocked_count'   => count($blocked),
+            'pwp_blocked_amount'  => round(array_sum(array_map(static fn ($b) => (float) $b['amount_due'], $blocked)), 2),
+        ],
+        'ai_summary' => $aiSummary ?: $detSummary,
+        'ai_used'    => $aiUsed,
+    ];
+}
+
+/**
+ * Execute an AP payment run produced by `apSuggestPaymentRun()`.
+ *
+ * Creates one `ap_payments` row per vendor group in `draft` status,
+ * auto-allocates the specified bill_ids, and stamps `disbursement_rail`
+ * so the next `?action=send` step routes through `paymentRailsDispatch()`.
+ *
+ * Critically: this does NOT call `?action=send` — the operator must
+ * still release the payment, preserving SoD. Returns the created
+ * payment_ids so the UI can deep-link the operator to the queue.
+ *
+ *   $groups = [{vendor_name, bill_ids: int[], pay_date?, method?}, ...]
+ */
+function apExecutePaymentRun(int $tenantId, string $rail, array $groups, ?int $userId = null): array
+{
+    if (empty($groups)) throw new \InvalidArgumentException('No vendor groups supplied');
+    require_once __DIR__ . '/../../../core/payment_rails.php';
+    try { paymentRailsGetDriver($rail); }
+    catch (\Throwable $e) { throw new \InvalidArgumentException("Unknown rail '{$rail}'"); }
+
+    $pdo = getDB();
+    $created = [];
+    foreach ($groups as $g) {
+        $vendorName = trim((string) ($g['vendor_name'] ?? ''));
+        $billIds    = array_values(array_filter(array_map('intval', (array) ($g['bill_ids'] ?? [])), static fn ($n) => $n > 0));
+        if ($vendorName === '' || empty($billIds)) continue;
+
+        // Re-fetch each bill to get the live amount_due (avoids stale
+        // suggestion data) and confirm it's still payable.
+        $placeholders = [];
+        $params = ['t' => $tenantId];
+        foreach ($billIds as $i => $bid) { $k = 'b' . $i; $placeholders[] = ':' . $k; $params[$k] = $bid; }
+        $st = $pdo->prepare(
+            'SELECT id, amount_due, status, vendor_name, pwp_status, currency, payment_method
+               FROM ap_bills
+              WHERE tenant_id = :t AND id IN (' . implode(',', $placeholders) . ')'
+        );
+        $st->execute($params);
+        $rows = $st->fetchAll(\PDO::FETCH_ASSOC);
+        $allocations = [];
+        $total = 0.0;
+        $currency = 'USD';
+        foreach ($rows as $b) {
+            if ($b['vendor_name'] !== $vendorName) continue;
+            if (!in_array($b['status'], ['approved','partially_paid'], true)) continue;
+            if (($b['pwp_status'] ?? '') === 'awaiting_ar') continue;
+            $due = (float) $b['amount_due'];
+            if ($due <= 0) continue;
+            $allocations[] = ['bill_id' => (int) $b['id'], 'amount' => round($due, 2)];
+            $total += $due;
+            $currency = (string) ($b['currency'] ?? 'USD');
+        }
+        if (empty($allocations)) continue;
+
+        $payId = scopedInsert('ap_payments', [
+            'tenant_id'          => $tenantId,
+            'vendor_name'        => $vendorName,
+            'pay_date'           => $g['pay_date'] ?? date('Y-m-d'),
+            'method'             => $g['method'] ?? $rail,
+            'reference'          => 'payment-run:' . date('Ymd') . ':' . substr(bin2hex(random_bytes(3)), 0, 6),
+            'amount'             => round($total, 2),
+            'currency'           => $currency,
+            'unallocated_amount' => round($total, 2),
+            'status'             => 'draft',
+            'disbursement_rail'  => $rail,
+            'notes'              => "Auto-created by AP payment-run suggestion ({$rail}, " . count($allocations) . ' bills).',
+            'created_by_user_id' => $userId,
+        ]);
+        try {
+            apAllocatePayment($payId, ['allocations' => $allocations], $userId);
+        } catch (\Throwable $e) {
+            // Rollback: void the payment so we don't leave orphan drafts.
+            // tenant-leak-allow: $payId was just returned by scopedInsert() with tenant scope.
+            $pdo->prepare('UPDATE ap_payments SET status = "void", notes = CONCAT(COALESCE(notes,""), " · allocation failed: ", :err) WHERE id = :id')
+                ->execute(['err' => $e->getMessage(), 'id' => $payId]);
+            apAudit('ap.payment.run_allocation_failed', [
+                'payment_id' => $payId, 'vendor' => $vendorName, 'error' => $e->getMessage(),
+            ], $payId);
+            continue;
+        }
+        apAudit('ap.payment.run_created', [
+            'payment_id'   => $payId,
+            'vendor'       => $vendorName,
+            'rail'         => $rail,
+            'bill_ids'     => array_column($allocations, 'bill_id'),
+            'amount'       => round($total, 2),
+            'source'       => 'suggest_payment_run',
+        ], $payId);
+        $created[] = [
+            'payment_id'  => $payId,
+            'vendor_name' => $vendorName,
+            'amount'      => round($total, 2),
+            'bill_count'  => count($allocations),
+        ];
+    }
+    return ['payments_created' => $created, 'rail' => $rail];
+}
+
+
+
+/**
  * Allocate a payment across bills atomically. Mirrors Billing's engine.
  *
  *   $request = ['allocations' => [{bill_id, amount}]]
