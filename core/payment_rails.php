@@ -119,6 +119,9 @@ function paymentRailsGetDriver(string $rail): PaymentRailsDriver
         case 'plaid_transfer':
             require_once __DIR__ . '/payment_rails/plaid_transfer_driver.php';
             return new PlaidTransferDriver();
+        case 'mercury':
+            require_once __DIR__ . '/payment_rails/mercury_driver.php';
+            return new MercuryRailDriver();
         default:
             throw new \InvalidArgumentException("Unknown payment rail: {$rail}");
     }
@@ -133,8 +136,9 @@ function paymentRailsGetDriver(string $rail): PaymentRailsDriver
  */
 function paymentRailsList(): array
 {
-    $nacha = paymentRailsGetDriver('nacha');
-    $plaid = paymentRailsGetDriver('plaid_transfer');
+    $nacha   = paymentRailsGetDriver('nacha');
+    $plaid   = paymentRailsGetDriver('plaid_transfer');
+    $mercury = paymentRailsGetDriver('mercury');
     return [
         [
             'id'          => 'nacha',
@@ -149,6 +153,13 @@ function paymentRailsList(): array
             'configured'  => $plaid->isConfigured(),
             'description' => 'Programmatic ACH origination via Plaid. Requires Plaid Transfer pre-approval (1-2 weeks) and PLAID_CLIENT_ID + PLAID_SECRET_* env vars. Tenant must link a funding account through Plaid Link first.',
             'metadata'    => $plaid->metadata(),
+        ],
+        [
+            'id'          => 'mercury',
+            'name'        => 'Mercury (ACH)',
+            'configured'  => $mercury->isConfigured(),
+            'description' => 'Originate ACH via the tenant\'s connected Mercury operating account. Per-tenant API token + default funding source required; SoD approval gate built into the existing payment_instructions engine.',
+            'metadata'    => $mercury->metadata(),
         ],
     ];
 }

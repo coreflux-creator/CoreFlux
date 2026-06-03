@@ -404,6 +404,179 @@ function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, st
 }
 
 /**
+ * Batch 4+ (2026-02) — AI-assisted invoice suggestion per placement.
+ *
+ * Given a placement, find every approved billable entry since the last
+ * invoice was raised for that placement, then propose:
+ *   - An aggregation strategy (rule-based, not AI):
+ *       • span ≤ 7 days       → per_placement (consolidated weekly)
+ *       • > 7 days, 1 worker  → per_day        (each day billable)
+ *       • > 7 days, multiple  → per_placement  (still consolidated)
+ *   - A human-friendly memo (AI when available, deterministic fallback).
+ *   - A preview of the total amount + entry breakdown.
+ *
+ * The function does NOT create the invoice — it returns a suggestion the
+ * operator confirms via the existing from-time-entries POST.
+ */
+function billingSuggestInvoiceForPlacement(int $tenantId, int $placementId, ?int $userId = null): array
+{
+    require_once __DIR__ . '/../../placements/lib/placements.php';
+    $pdo = getDB();
+
+    // Resolve the placement (and quietly fail if it doesn't exist or
+    // belongs to a different tenant).
+    $pl = scopedFind(
+        'SELECT id, title, end_client_name, person_id, engagement_type
+           FROM placements WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+        ['id' => $placementId]
+    );
+    if (!$pl) throw new \RuntimeException('Placement not found');
+
+    // Look up the last invoice for this placement (via any line that
+    // referenced one of its bundles or entries) so we don't double-bill.
+    $lastInv = scopedFind(
+        'SELECT MAX(i.issue_date) AS last_invoice_date
+           FROM billing_invoices i
+           JOIN billing_invoice_lines l ON l.invoice_id = i.id
+          WHERE i.tenant_id = :tenant_id
+            AND l.placement_id = :pid
+            AND i.status NOT IN ("void")',
+        ['pid' => $placementId]
+    );
+    $cutoff = $lastInv['last_invoice_date'] ?? null;
+
+    // Pull every approved billable entry for this placement since the
+    // cutoff. Same status filter as the from-time-entries flow.
+    $where  = [
+        'te.tenant_id = :tenant_id',
+        'te.placement_id = :pid',
+        "te.status IN ('approved','locked','billing_ready','payroll_ready')",
+        'te.billable = 1',
+        'te.hours > 0',
+    ];
+    $params = ['pid' => $placementId];
+    if ($cutoff) { $where[] = 'te.work_date > :cutoff'; $params['cutoff'] = $cutoff; }
+    $entries = scopedQuery(
+        'SELECT te.id, te.work_date, te.hour_type, te.hours, te.person_id, te.description,
+                p.first_name, p.last_name
+           FROM time_entries te
+      LEFT JOIN people p ON p.id = te.person_id AND p.tenant_id = te.tenant_id
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY te.work_date ASC, te.id ASC
+          LIMIT 500',
+        $params
+    );
+
+    // Compute previews using placementCurrentRate per (placement, work_date).
+    $rateCache = [];
+    $totalHours = 0.0; $estSubtotal = 0.0;
+    $workersSeen = [];
+    $minDate = null; $maxDate = null;
+    foreach ($entries as $e) {
+        $key = $placementId . ':' . $e['work_date'];
+        if (!isset($rateCache[$key])) {
+            $rateCache[$key] = placementCurrentRate($placementId, (string) $e['work_date']);
+        }
+        $rate = $rateCache[$key];
+        $base = (float) ($rate['bill_rate'] ?? 0);
+        $ot   = (float) ($rate['ot_multiplier'] ?? 1.5);
+        $dt   = (float) ($rate['dt_multiplier'] ?? 2.0);
+        $mult = match ((string) $e['hour_type']) {
+            'overtime'   => $ot,
+            'doubletime' => $dt,
+            default      => 1.0,
+        };
+        $billRate = round($base * $mult, 4);
+        $hours    = (float) $e['hours'];
+        $totalHours += $hours;
+        $estSubtotal += round($hours * $billRate, 2);
+        if ($e['person_id']) $workersSeen[(int) $e['person_id']] = true;
+        if (!$minDate || strcmp($e['work_date'], $minDate) < 0) $minDate = $e['work_date'];
+        if (!$maxDate || strcmp($e['work_date'], $maxDate) > 0) $maxDate = $e['work_date'];
+    }
+
+    // Rule-based aggregation pick.
+    $daySpan = ($minDate && $maxDate)
+        ? max(1, (int) ((strtotime($maxDate) - strtotime($minDate)) / 86400) + 1)
+        : 1;
+    $distinctDays = count(array_unique(array_column($entries, 'work_date')));
+    $workerCount  = count($workersSeen);
+    if ($daySpan <= 7) {
+        $aggregation = 'per_placement';
+        $reasoning   = "Entries span {$daySpan} day(s) with {$distinctDays} working day(s) — recommend a single consolidated invoice for the period.";
+    } elseif ($workerCount === 1 && $distinctDays > 7) {
+        $aggregation = 'per_day';
+        $reasoning   = "{$distinctDays} working days across {$daySpan} day(s) for a single worker — recommend one invoice per day so the client can match against their own time logs.";
+    } else {
+        $aggregation = 'per_placement';
+        $reasoning   = "{$distinctDays} working days, {$workerCount} worker(s), {$daySpan}-day span — recommend a single consolidated invoice grouped by placement (lines split by day + hour-type).";
+    }
+
+    // Build the deterministic memo as a guaranteed fallback. AI step
+    // augments it when the tenant has AI enabled.
+    $clientName = (string) ($pl['end_client_name'] ?? 'Client');
+    $plTitle    = (string) ($pl['title'] ?? 'Engagement');
+    $detMemo = sprintf(
+        'Services rendered for %s — %s (%s → %s, %d entries, %.2fh).',
+        $clientName, $plTitle, $minDate ?? '—', $maxDate ?? '—',
+        count($entries), $totalHours
+    );
+
+    $aiUsed = false;
+    $aiMemo = null;
+    if (count($entries) > 0) {
+        try {
+            require_once __DIR__ . '/../../../core/ai_service.php';
+            $env = aiAsk([
+                'feature_class'     => 'suggestion',
+                'kind'              => 'suggestion',
+                'feature_key'       => 'billing.invoice.suggest_memo',
+                'system'            => 'You write short professional invoice memos. Maximum 2 sentences, ~30 words. Reference the client by name, mention the engagement, and the period range. Do NOT include dollar amounts or rates.',
+                'prompt'            => "Draft an invoice memo for client {$clientName} for engagement '{$plTitle}', period {$minDate} to {$maxDate}, covering {$distinctDays} working days.",
+                'context'           => [
+                    'client_name'     => $clientName,
+                    'placement_title' => $plTitle,
+                    'period_start'    => $minDate,
+                    'period_end'      => $maxDate,
+                    'distinct_days'   => $distinctDays,
+                    'workers'         => $workerCount,
+                ],
+                'max_output_tokens' => 120,
+            ]);
+            $aiMemo = trim((string) ($env['content'] ?? ''));
+            $aiUsed = $aiMemo !== '' && empty($env['sim']) === false ? true : true;
+        } catch (\Throwable $_) {
+            $aiUsed = false;
+        }
+    }
+
+    return [
+        'placement' => [
+            'id'              => (int) $pl['id'],
+            'title'           => $plTitle,
+            'client_name'     => $clientName,
+            'engagement_type' => $pl['engagement_type'] ?? null,
+        ],
+        'last_invoice_date' => $cutoff,
+        'period' => [
+            'min_date'      => $minDate,
+            'max_date'      => $maxDate,
+            'day_span'      => $daySpan,
+            'distinct_days' => $distinctDays,
+            'worker_count'  => $workerCount,
+        ],
+        'candidate_entries'    => $entries,
+        'candidate_entry_ids'  => array_map(static fn ($e) => (int) $e['id'], $entries),
+        'total_hours'          => round($totalHours, 2),
+        'estimated_subtotal'   => round($estSubtotal, 2),
+        'suggested_aggregation'=> $aggregation,
+        'suggested_reasoning'  => $reasoning,
+        'suggested_memo'       => $aiMemo ?: $detMemo,
+        'ai_used'              => $aiUsed && $aiMemo !== null && $aiMemo !== '',
+    ];
+}
+
+/**
  * Apply a flat tax rate to each line, returning recomputed totals.
  * Used when manually editing draft lines (PATCH) before approve.
  */

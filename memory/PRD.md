@@ -1,5 +1,126 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (AI Suggest Invoice + Mercury Rail Driver)
+
+User direction (post-Batch-4): "yeah, suggest invoice, then mercury
+expansion" → ship the AI-powered one-click invoice per placement, then
+elevate Mercury from "AP-only payment method" to a first-class
+PaymentRailsDriver alongside NACHA + Plaid Transfer.
+
+### Shipped (Phase A — AI Suggest Invoice)
+
+1. **`billingSuggestInvoiceForPlacement($tid, $placementId, $userId)`**
+   in `modules/billing/lib/billing.php`:
+   - Looks up the placement's last invoice issue_date (cutoff) and pulls
+     every approved/billable entry past it.
+   - Picks aggregation rule-based (NOT via AI — code is deterministic):
+     • ≤ 7-day span → `per_placement` (consolidated weekly)
+     • > 7 days, 1 worker → `per_day` (daily billables)
+     • > 7 days, multi-worker → `per_placement` (consolidated)
+   - Resolves bill rate per entry via `placementCurrentRate()` so the
+     UI shows a real estimated subtotal (not zero).
+   - Calls `aiAsk(feature_class='suggestion', kind='suggestion')` for
+     the memo. Silent fallback to deterministic memo when AI is
+     disabled / unreachable.
+   - Returns `{placement, period, candidate_entries, candidate_entry_ids,
+     total_hours, estimated_subtotal, suggested_aggregation,
+     suggested_reasoning, suggested_memo, ai_used}`.
+
+2. **`POST /modules/billing/api/invoices.php?action=suggest-from-placement`**
+   — `billing.invoice.draft`-gated, body `{placement_id}`, returns the
+   suggestion above.
+
+3. **`modules/billing/ui/SuggestInvoiceModal.jsx`** —
+   one-click "Suggest invoice" experience:
+   - Gradient header + "AI memo" pill when the AI generated the memo.
+   - Summary card (client, working days, hours, est. subtotal).
+   - Reasoning banner explaining the aggregation pick.
+   - Aggregation override radios (per_day / per_placement / per_client).
+   - Editable memo textarea.
+   - Entries picker with checkbox-per-row (default all selected).
+   - Confirm → existing `from-time-entries` POST → returns to list.
+
+4. **`PlacementTimesheetsTab`** mounts a gradient "✨ Suggest invoice"
+   CTA in the page header, passing `placement.title` so the modal can
+   show the placement name in the prompt.
+
+### Shipped (Phase B — Mercury as a PaymentRailsDriver)
+
+1. **`core/payment_rails/mercury_driver.php`** — new
+   `MercuryRailDriver implements PaymentRailsDriver`:
+   - `isConfigured()` → `true` globally (driver lives in core, always
+     loadable). Per-tenant readiness exposed via `isConfiguredForTenant($tid)`.
+   - `originate($items, $opts)`:
+     • Requires `opts.tenant_id`; rejects un-connected tenants with
+       `PaymentRailsNotConfiguredException`.
+     • Upserts a `mercury_recipients` row per item (match by tenant +
+       name + last4; delegates create to `mercuryRecipientCreate()` so
+       encryption-at-rest is preserved).
+     • Calls `mpCreate()` then `mpSubmitForApproval()` for each item,
+       so the SoD approval gate from the existing engine still
+       applies — nothing moves without human approval.
+     • Returns each item with `rail_external_ref = mercury:instruction:N`
+       and `status='queued'` (or `'pending'` / `'failed'`).
+     • Idempotency key derived from `tenant + external_ref + batch_id`.
+   - `getStatus($ref)` parses `mercury:instruction:N` and maps the
+     internal state machine (`Draft/PendingApproval/Approved/Funding →
+     pending`, `Submitted → submitted`, `Settled/Reconciled → settled`,
+     etc.) to the canonical rail enum.
+   - `metadata()` populates the rail-card UI: 0 cost, 1-3 BD
+     settlement, free ACH, needs_funding_link, fallback_to nacha.
+
+2. **`paymentRailsGetDriver()` / `paymentRailsList()`** in
+   `core/payment_rails.php` now include the `mercury` rail.
+
+3. **AP + Payroll settings UIs automatically pick it up** — both
+   validate against `paymentRailsList()` (no code changes required).
+   Setting `disbursement_rail = 'mercury'` on a tenant routes the next
+   batch through the Mercury engine end-to-end.
+
+4. **Tenant-leak sentry** — annotated the single `getStatus()` query
+   with `tenant-leak-allow:` because the `rail_external_ref` is itself
+   tenant-scoped (callers only receive refs for instructions they
+   originated) and the PK lookup is globally unique.
+
+### Test status
+- New smoke `tests/billing_suggest_invoice_smoke.php`
+  → **42 / 42 ✓** (lib + API + modal + wiring).
+- New smoke `tests/mercury_rail_driver_smoke.php`
+  → **30 / 30 ✓** (source + behavioural; instantiates real driver,
+  calls getStatus, asserts registry inclusion).
+- Updated `tests/payment_rails_enhancements_smoke.php` legacy
+  assertion from "2 rails" → "3 rails".
+- Full PHP suite: **373 / 375 passing** — only the 2 documented
+  sandbox-bound failures (`accounting_phase2_a7`, `tenant_mail_senders`).
+- All sentries green: tenant-leak, schema-contract, auth-gate, HY093,
+  lane-classifier.
+- Vite build → bundle `coreflux-BDjnSgcg`. All four sync points
+  consistent.
+
+### Files touched
+- `modules/billing/lib/billing.php` (new suggestion helper)
+- `modules/billing/api/invoices.php` (new action)
+- `modules/billing/ui/SuggestInvoiceModal.jsx` (new)
+- `modules/placements/ui/PlacementTimesheetsTab.jsx` (Suggest button)
+- `modules/placements/ui/PlacementDetail.jsx` (placement prop)
+- `core/payment_rails.php` (driver registry expanded)
+- `core/payment_rails/mercury_driver.php` (new)
+- `tests/billing_suggest_invoice_smoke.php` (new)
+- `tests/mercury_rail_driver_smoke.php` (new)
+- `tests/payment_rails_enhancements_smoke.php` (rail count update)
+
+### Deploy notes for ops
+1. No new migrations required.
+2. Tenants who want to use Mercury as their disbursement rail:
+   Treasury → Mercury Settings (connect API token) → AP/Payroll
+   Settings → set `disbursement_rail` to `mercury`. From there every
+   batch flows through the existing SoD approval queue.
+3. "Suggest invoice" requires the tenant to have AI enabled for the
+   `suggestion` feature class. Without AI it still works — the memo
+   just falls back to a deterministic string.
+
+---
+
 ## Session — 2026-02 (Batch 4 — Flexible Invoicing & Payables, day-level)
 
 User direction: "Apply same flexibility to creating payables" — make

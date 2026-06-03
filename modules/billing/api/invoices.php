@@ -88,6 +88,17 @@ if ($method === 'GET') {
     api_ok(['rows' => $rows, 'total' => (int) ($cnt[0]['c'] ?? 0), 'page' => $page, 'per_page' => $perPage]);
 }
 
+if ($method === 'POST' && $action === 'suggest-from-placement') {
+    rbac_legacy_require($user, 'billing.invoice.draft');
+    $body = api_json_body();
+    $placementId = (int) ($body['placement_id'] ?? 0);
+    if ($placementId <= 0) api_error('placement_id required', 422);
+    try {
+        $sug = billingSuggestInvoiceForPlacement($tid, $placementId, $user['id'] ?? null);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 422); }
+    api_ok($sug);
+}
+
 if ($method === 'POST' && $action === 'from-time-entries') {
     rbac_legacy_require($user, 'billing.invoice.draft');
     $body = api_json_body();

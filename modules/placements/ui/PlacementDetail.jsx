@@ -113,7 +113,7 @@ export default function PlacementDetail({ session }) {
         <Route path="referrals"  element={<ReferralsTab   pid={placement.id} rows={referrals} reload={reload} />} />
         <Route path="corp"       element={<CorpTab        pid={placement.id} />} />
         <Route path="cycles"     element={<CyclesTab      placement={placement} reload={reload} />} />
-        <Route path="timesheets" element={<PlacementTimesheetsTab pid={placement.id} />} />
+        <Route path="timesheets" element={<PlacementTimesheetsTab pid={placement.id} placement={placement} />} />
         <Route path="documents"  element={<DocumentsTab   pid={placement.id} rows={documents} reload={reload} />} />
         <Route path="approval"   element={<ApprovalTab    pid={placement.id} placement={placement} reload={reload} />} />
         <Route path="margin"     element={<MarginTab      currentRate={currentRate} chain={chain} />} />

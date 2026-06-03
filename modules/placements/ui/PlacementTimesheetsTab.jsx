@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
+import SuggestInvoiceModal from '../../billing/ui/SuggestInvoiceModal';
 
 /**
  * PlacementTimesheetsTab — Batch 2 (2026-02).
@@ -17,8 +18,9 @@ import { useApi } from '../../../dashboard/src/lib/api';
  * timesheet grid; the worker can then enter hours that include this
  * placement.
  */
-export default function PlacementTimesheetsTab({ pid }) {
-  const { data, loading, error } = useApi(
+export default function PlacementTimesheetsTab({ pid, placement }) {
+  const [showSuggest, setShowSuggest] = useState(false);
+  const { data, loading, error, reload } = useApi(
     `/modules/staffing/api/timesheets.php?action=list_for_placement&placement_id=${pid}`,
     [pid]
   );
@@ -36,13 +38,24 @@ export default function PlacementTimesheetsTab({ pid }) {
             Every timesheet that logged hours against this placement, split into pending approvals and history.
           </p>
         </div>
-        <Link
-          to="/modules/staffing/timesheets/week"
-          className="btn btn--primary"
-          data-testid="placement-timesheets-create-new"
-        >
-          Open current week →
-        </Link>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => setShowSuggest(true)}
+            style={{ background: 'linear-gradient(135deg, #2563eb, #7c3aed)', border: 0 }}
+            data-testid="placement-timesheets-suggest-invoice"
+          >
+            ✨ Suggest invoice
+          </button>
+          <Link
+            to="/modules/staffing/timesheets/week"
+            className="btn btn--ghost"
+            data-testid="placement-timesheets-create-new"
+          >
+            Open current week →
+          </Link>
+        </div>
       </header>
 
       {loading && <p data-testid="placement-timesheets-loading">Loading…</p>}
@@ -68,6 +81,15 @@ export default function PlacementTimesheetsTab({ pid }) {
         </p>
       ) : (
         <SectionTable rows={history} pid={pid} mode="history" />
+      )}
+
+      {showSuggest && (
+        <SuggestInvoiceModal
+          placementId={pid}
+          placementTitle={placement?.title}
+          onClose={() => setShowSuggest(false)}
+          onCreated={() => { setShowSuggest(false); reload(); }}
+        />
       )}
     </div>
   );

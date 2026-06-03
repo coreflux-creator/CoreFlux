@@ -45,7 +45,8 @@ $a('plaid fallback_to = nacha',                $pm['fallback_to'] === 'nacha');
 
 echo "\npaymentRailsList includes metadata\n";
 $list = paymentRailsList();
-$a('list returns 2 rails',                     count($list) === 2);
+$a('list returns 3 rails (nacha, plaid_transfer, mercury — Batch 2026-02)',
+    count($list) === 3);
 $a('every list entry has metadata key',
     !array_filter($list, fn($r) => !isset($r['metadata']) || !is_array($r['metadata'])));
 $nachaRow = array_values(array_filter($list, fn($r) => $r['id'] === 'nacha'))[0];
