@@ -478,6 +478,49 @@ register_shutdown_function(static function (): void {
 });
 
 /**
+ * Belt-and-braces shutdown handler that rolls back any dangling DB
+ * transaction.  Defends against handlers that throw mid-INSERT without
+ * a matching rollback (the Feb-2026 "There is already an active
+ * transaction" report on /api/ap/bills was traced to a prior handler
+ * exiting with `api_error()` before its rollback line ran — the next
+ * request would have started fine on a fresh PDO, but the SAME request
+ * with chained handlers would carry the dangling tx into the next
+ * `beginTransaction()` call).
+ *
+ * Cheap, idempotent, runs after the response is flushed so it never
+ * delays the user.
+ */
+register_shutdown_function(static function (): void {
+    try {
+        if (function_exists('getDB')) {
+            $pdo = @getDB();
+            if ($pdo && $pdo->inTransaction()) {
+                error_log('[api/tx] shutdown: rolling back dangling transaction (handler missed rollback)');
+                @$pdo->rollBack();
+            }
+        }
+    } catch (\Throwable $_) { /* best effort */ }
+});
+
+/**
+ * Safe `beginTransaction()` wrapper.  Use in any new handler that
+ * starts a transaction — protects against the "already an active
+ * transaction" failure mode by first rolling back any inherited tx.
+ *
+ * Returns the PDO so the caller can chain.
+ */
+function cf_begin_transaction(): \PDO {
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No database connection');
+    if ($pdo->inTransaction()) {
+        error_log('[api/tx] cf_begin_transaction: rolling back stale active transaction before begin');
+        $pdo->rollBack();
+    }
+    $pdo->beginTransaction();
+    return $pdo;
+}
+
+/**
  * Self-heal a known schema-drift column reference. Returns true if the
  * column was missing and has now been added (or skipped because the host
  * table doesn't exist on this tenant). Returns false if we don't have a

@@ -303,6 +303,135 @@ if ($method === 'GET' && $action === 'approved_entries') {
     api_ok(['rows' => $rows, 'purpose' => $purpose]);
 }
 
+// ─── Approved-hours-ready dashboard widget (Batch 4+, 2026-02) ─────────
+//
+// Surfaces "X hours ready to invoice / Y hours ready to bill / Z hours
+// ready for payroll" tiles on every consumer dashboard.  An entry is
+// "ready" when:
+//
+//   - Status is approved-ish (approved | locked | billing_ready | payroll_ready)
+//   - hours > 0
+//   - billable=1 (for AR) / payable=1 (for AP) / payable=1 + W-2 worker (for payroll)
+//   - NOT YET referenced by an existing invoice/bill line
+//     (billing_invoice_lines/ap_bill_lines.source_type='time_entry')
+//
+// Returns aggregates only — the picker UI calls `approved_entries`
+// with placement/date filters when the operator clicks through.
+if ($method === 'GET' && $action === 'approved_hours_ready') {
+    $base = "FROM time_entries te
+        LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
+        LEFT JOIN people     pe ON pe.id = te.person_id   AND pe.tenant_id = te.tenant_id
+            WHERE te.tenant_id = :tenant_id
+              AND te.status IN ('approved','locked','billing_ready','payroll_ready')
+              AND te.hours > 0";
+
+    // Billing — approved billable entries not yet referenced by any
+    // billing_invoice_line.
+    $billingSql = "SELECT
+            COALESCE(SUM(te.hours), 0)                       AS hours,
+            COUNT(DISTINCT te.id)                             AS entry_count,
+            COUNT(DISTINCT te.placement_id)                   AS placements,
+            COUNT(DISTINCT pl.end_client_name)                AS clients,
+            MIN(te.work_date)                                 AS earliest_date,
+            MAX(te.work_date)                                 AS latest_date
+        {$base}
+              AND te.billable = 1
+              AND NOT EXISTS (
+                  SELECT 1 FROM billing_invoice_lines bil
+                   WHERE bil.tenant_id = te.tenant_id
+                     AND bil.source_type = 'time_entry'
+                     AND bil.source_ref_id = te.id
+              )";
+
+    // AP — approved payable entries not yet referenced by any
+    // ap_bill_line.
+    $apSql = "SELECT
+            COALESCE(SUM(te.hours), 0)                       AS hours,
+            COUNT(DISTINCT te.id)                             AS entry_count,
+            COUNT(DISTINCT te.placement_id)                   AS placements,
+            COUNT(DISTINCT CASE
+                WHEN UPPER(COALESCE(pl.engagement_type, '')) = 'C2C'
+                  THEN pl.id
+                ELSE pe.id END)                               AS vendors,
+            MIN(te.work_date)                                 AS earliest_date,
+            MAX(te.work_date)                                 AS latest_date
+        {$base}
+              AND te.payable = 1
+              AND NOT EXISTS (
+                  SELECT 1 FROM ap_bill_lines abl
+                   WHERE abl.tenant_id = te.tenant_id
+                     AND abl.source_type = 'time_entry'
+                     AND abl.source_ref_id = te.id
+              )";
+
+    // Payroll — payable entries where the worker is W-2.
+    // (Same dedup against ap_bill_lines is intentionally NOT applied
+    // — payroll & 1099 paying are mutually exclusive populations.)
+    $payrollSql = "SELECT
+            COALESCE(SUM(te.hours), 0)                       AS hours,
+            COUNT(DISTINCT te.id)                             AS entry_count,
+            COUNT(DISTINCT te.person_id)                      AS employees,
+            MIN(te.work_date)                                 AS earliest_date,
+            MAX(te.work_date)                                 AS latest_date
+        {$base}
+              AND te.payable = 1
+              AND UPPER(COALESCE(pe.classification, '')) = 'W2'";
+
+    try {
+        $billing  = scopedQuery($billingSql)[0]  ?? [];
+        $ap       = scopedQuery($apSql)[0]       ?? [];
+        $payroll  = scopedQuery($payrollSql)[0]  ?? [];
+    } catch (\Throwable $e) { api_error($e->getMessage(), 500); }
+
+    // Rough $-amount estimate per bucket using a cached avg bill/pay
+    // rate per placement.  Cheap to compute and good enough for
+    // dashboard headlines (the picker recomputes precisely at draft).
+    $estBilling = (float) ($billing['hours'] ?? 0) * 100.0;
+    $estAp      = (float) ($ap['hours']      ?? 0) * 75.0;
+    try {
+        // Refine with an actual average bill rate across approved
+        // placement_rates if available — coarse but realistic.
+        $row = scopedQuery(
+            "SELECT AVG(NULLIF(bill_rate, 0)) AS avg_bill, AVG(NULLIF(pay_rate, 0)) AS avg_pay
+               FROM placement_rates
+              WHERE tenant_id = :tenant_id AND approved_at IS NOT NULL"
+        );
+        $r = $row[0] ?? null;
+        if ($r) {
+            if (!empty($r['avg_bill'])) $estBilling = round((float) ($billing['hours'] ?? 0) * (float) $r['avg_bill'], 2);
+            if (!empty($r['avg_pay']))  $estAp      = round((float) ($ap['hours']      ?? 0) * (float) $r['avg_pay'], 2);
+        }
+    } catch (\Throwable $_) { /* keep heuristic */ }
+
+    api_ok([
+        'billing' => [
+            'hours'             => (float) ($billing['hours'] ?? 0),
+            'entry_count'       => (int)   ($billing['entry_count'] ?? 0),
+            'placements'        => (int)   ($billing['placements'] ?? 0),
+            'clients'           => (int)   ($billing['clients'] ?? 0),
+            'estimated_amount'  => round($estBilling, 2),
+            'earliest_date'     => $billing['earliest_date'] ?? null,
+            'latest_date'       => $billing['latest_date']   ?? null,
+        ],
+        'ap' => [
+            'hours'             => (float) ($ap['hours'] ?? 0),
+            'entry_count'       => (int)   ($ap['entry_count'] ?? 0),
+            'placements'        => (int)   ($ap['placements'] ?? 0),
+            'vendors'           => (int)   ($ap['vendors'] ?? 0),
+            'estimated_amount'  => round($estAp, 2),
+            'earliest_date'     => $ap['earliest_date'] ?? null,
+            'latest_date'       => $ap['latest_date']   ?? null,
+        ],
+        'payroll' => [
+            'hours'             => (float) ($payroll['hours'] ?? 0),
+            'entry_count'       => (int)   ($payroll['entry_count'] ?? 0),
+            'employees'         => (int)   ($payroll['employees'] ?? 0),
+            'earliest_date'     => $payroll['earliest_date'] ?? null,
+            'latest_date'       => $payroll['latest_date']   ?? null,
+        ],
+    ]);
+}
+
 if ($method === 'POST' && $action === 'bulk_save') {
     $body = api_json_body();
     try {

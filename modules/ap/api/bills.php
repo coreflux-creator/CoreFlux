@@ -309,7 +309,7 @@ if ($method === 'POST' && $action === 'from-time-entries') {
 
     $pdo = getDB();
     $created = [];
-    $pdo->beginTransaction();
+    cf_begin_transaction();
     try {
         foreach ($drafts as $d) {
             $bill = $d['bill'];
@@ -406,7 +406,7 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
 
     $pdo = getDB();
     $created = [];
-    $pdo->beginTransaction();
+    cf_begin_transaction();
     try {
         foreach ($drafts as $d) {
             $bill = $d['bill'];
@@ -523,7 +523,7 @@ if ($method === 'POST' && $action === '') {
 
     $computed = apComputeTotals($body['lines'], $taxPct);
 
-    $pdo->beginTransaction();
+    cf_begin_transaction();
     try {
         $internalRef = apNextInternalRef($tid);
         $vendorType = (string) ($body['vendor_type'] ?? 'other');
@@ -696,7 +696,7 @@ if ($method === 'POST' && $action === 'void') {
     if ($reason === '') api_error('reason required', 422);
 
     $pdo = getDB();
-    $pdo->beginTransaction();
+    cf_begin_transaction();
     try {
         $allocCount = $pdo->prepare('SELECT COUNT(*) FROM ap_payment_allocations WHERE bill_id = :id');
         $allocCount->execute(['id' => $id]);

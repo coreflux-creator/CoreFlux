@@ -5,6 +5,7 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import LineItemEditor, { blankLine, ITEM_TYPES } from '../../../dashboard/src/components/LineItemEditor';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
+import VendorTypeahead from './VendorTypeahead';
 import VendorQuickCreate from './VendorQuickCreate';
 
 const ITEM_TYPE_FALLBACK = ITEM_TYPES.map((t) => t.value);
@@ -100,7 +101,10 @@ export default function BillCreate() {
       const payload = {
         entity_id: entityId,
         vendor_name: vendor.name,
-        vendor_company_id: vendor.id,
+        // vendor.id is ap_vendors_index.id; vendor.company_id is companies.id
+        // (null for 1099 individuals). Send only company_id — server will
+        // upsert if missing for non-individual types.
+        vendor_company_id: vendor.company_id || null,
         vendor_type: vendorType,
         bill_number: billNumber || null,
         bill_date: billDate,
@@ -160,13 +164,15 @@ export default function BillCreate() {
       <form onSubmit={submit}>
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
           <Field label="Vendor *">
-            <CompanyTypeahead
-              role="vendor"
+            <VendorTypeahead
               value={vendor}
-              onChange={setVendor}
+              onChange={(v) => {
+                setVendor(v);
+                if (v?.vendor_type) setVendorType(v.vendor_type);
+              }}
               onCreate={(typedName) => { setPendingVendorName(typedName); setShowCreateVendor(true); }}
               testId="ap-bill-create-vendor"
-              placeholder="Search vendors or type a new name…"
+              placeholder="Search vendors (1099 individuals, c2c corps, w9 vendors)…"
             />
           </Field>
           <Field label="Vendor type">
@@ -272,7 +278,20 @@ export default function BillCreate() {
         <VendorQuickCreate
           initialName={pendingVendorName}
           onCancel={() => setShowCreateVendor(false)}
-          onCreated={(v) => { setVendor({ id: v.company_id || v.id, name: v.name }); setShowCreateVendor(false); }}
+          onCreated={(v) => {
+            // VendorQuickCreate returns ap_vendors_index payload with
+            // company_id (may be null for 1099 individual). Preserve both
+            // so the bill submit can route the correct foreign key.
+            setVendor({
+              id: v.id || null,
+              name: v.vendor_name || v.name,
+              vendor_type: v.vendor_type,
+              company_id: v.company_id || null,
+              tax_id_last4: v.tax_id_last4 || null,
+            });
+            if (v.vendor_type) setVendorType(v.vendor_type);
+            setShowCreateVendor(false);
+          }}
         />
       )}
     </section>

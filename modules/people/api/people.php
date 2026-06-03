@@ -157,6 +157,17 @@ if ($method === 'POST') {
         );
     }
     peopleAudit('people.created', ['id' => $id, 'classification' => $insert['classification']], $id);
+
+    // Auto-bridge: if the new person is an active W-2, ensure a paired
+    // people_employees row exists so Payroll sees them immediately.
+    if (
+        ($insert['status'] ?? 'active') === 'active'
+        && strtoupper((string) ($insert['classification'] ?? '')) === 'W2'
+    ) {
+        require_once __DIR__ . '/../lib/employees.php';
+        try { peopleEnsureEmployeesFromW2(); } catch (\Throwable $_) { /* dashboard backfill is the fallback */ }
+    }
+
     api_ok(['person' => peopleGet($id)], 201);
 }
 

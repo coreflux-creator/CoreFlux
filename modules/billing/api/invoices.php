@@ -114,7 +114,7 @@ if ($method === 'POST' && $action === 'from-time-entries') {
     $pdo = getDB();
     $created = [];
     require_once __DIR__ . '/../../people/lib/companies.php';
-    $pdo->beginTransaction();
+    cf_begin_transaction();
     try {
         foreach ($drafts as $d) {
             $inv  = $d['invoice'];
@@ -183,7 +183,7 @@ if ($method === 'POST' && $action === 'from-time-bundle') {
     $pdo = getDB();
     $created = [];
     require_once __DIR__ . '/../../people/lib/companies.php';
-    $pdo->beginTransaction();
+    cf_begin_transaction();
     try {
         foreach ($drafts as $d) {
             $inv  = $d['invoice'];
@@ -280,7 +280,7 @@ if ($method === 'POST' && $action === '') {
 
     $computed = billingComputeTax($body['lines'], $taxPct);
 
-    $pdo->beginTransaction();
+    cf_begin_transaction();
     try {
         // Resolve/auto-create the unified companies.id for the billed client.
         require_once __DIR__ . '/../../people/lib/companies.php';
@@ -501,7 +501,7 @@ if ($method === 'POST' && $action === 'void') {
     if ($reason === '') api_error('reason required', 422);
 
     $pdo = getDB();
-    $pdo->beginTransaction();
+    cf_begin_transaction();
     try {
         // If no payments allocated, free up consumed bundles back to ready.
         $allocCount = $pdo->prepare('SELECT COUNT(*) FROM billing_payment_allocations WHERE invoice_id = :id');

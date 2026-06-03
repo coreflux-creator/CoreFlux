@@ -18,6 +18,11 @@ require_once __DIR__ . '/../../../core/tenant_scope.php';
  * employment fields. Never includes PII (no SSN, no bank).
  */
 function peopleListActiveEmployees(?string $search = null, ?string $department = null): array {
+    // Best-effort sync: any active W-2 row in `people` that doesn't yet
+    // have a paired `people_employees` row gets materialised here.
+    // Idempotent + fast (typically zero rows after first pass).
+    try { peopleEnsureEmployeesFromW2(); } catch (\Throwable $_) { /* never block dashboard */ }
+
     $where = ['tenant_id = :tenant_id', "status = 'active'"];
     $params = [];
     if ($search) {
@@ -137,4 +142,108 @@ function peoplePayrollReadiness(int $employeeId): array {
     if (!$i9 || $i9['status'] !== 'verified')           $gaps[] = 'i9_verified';
 
     return $gaps;
+}
+
+
+/**
+ * Bridge — promote active W-2 rows from the unified `people` directory
+ * into the W-2-specific `people_employees` table (2026-02).
+ *
+ * Why this exists:
+ *   `people` is the global directory (contains every consultant,
+ *   1099, c2c-corp principal, W-2 employee, etc.) with a single
+ *   `classification` field.  `people_employees` is the W-2-specific
+ *   table that Payroll reads from (employee_number, FLSA class, work
+ *   email, etc.).  Before this bridge, the two tables drifted: a CFO
+ *   adding "Andrew Verma" to the People Directory with
+ *   classification='W2' would NOT see him on the Payroll dashboard
+ *   because no `people_employees` row existed.
+ *
+ * Match strategy (in order, first hit wins):
+ *   1. work_email == people.email_primary
+ *   2. (legal_first_name, legal_last_name) == (people.first_name, people.last_name)
+ *
+ * Idempotent: rerun is a no-op after the first pass; the WHERE clause
+ * filters out anything already paired.
+ *
+ * The created `people_employees` row carries safe defaults:
+ *   status='active', employment_type='full_time', flsa_class='non_exempt'.
+ * Operator fills in the W-2-specific fields (FLSA classification,
+ * exempt status, comp rate, federal W-4, I-9 verification) via the
+ * existing employee detail UI.
+ *
+ * Returns a summary `{scanned, materialised, errors}` for diagnostics.
+ */
+function peopleEnsureEmployeesFromW2(): array {
+    $tenantId = currentTenantId();
+    if (!$tenantId) return ['scanned' => 0, 'materialised' => 0, 'errors' => []];
+
+    $pdo = getDB();
+    if (!$pdo) return ['scanned' => 0, 'materialised' => 0, 'errors' => []];
+
+    // Some installs have an older `people` schema without
+    // `classification` — guard the column check before issuing the join.
+    static $schemaSupported = null;
+    if ($schemaSupported === null) {
+        try {
+            $col = $pdo->query("SHOW COLUMNS FROM people LIKE 'classification'");
+            $schemaSupported = $col && $col->fetch(\PDO::FETCH_ASSOC) !== false;
+        } catch (\Throwable $_) { $schemaSupported = false; }
+    }
+    if (!$schemaSupported) return ['scanned' => 0, 'materialised' => 0, 'errors' => []];
+
+    // Find active W-2 people without a paired employees row.
+    $candidates = scopedQuery(
+        "SELECT p.id, p.first_name, p.last_name, p.email_primary, p.date_of_birth
+           FROM people p
+      LEFT JOIN people_employees pe
+             ON pe.tenant_id = p.tenant_id
+            AND ( (p.email_primary IS NOT NULL AND p.email_primary != '' AND pe.work_email = p.email_primary)
+               OR (pe.legal_first_name = p.first_name AND pe.legal_last_name = p.last_name) )
+          WHERE p.tenant_id = :tenant_id
+            AND UPPER(p.classification) = 'W2'
+            AND p.status = 'active'
+            AND pe.id IS NULL
+          LIMIT 100",
+        []
+    );
+    $scanned = count($candidates);
+    if ($scanned === 0) return ['scanned' => 0, 'materialised' => 0, 'errors' => []];
+
+    $made = 0; $errors = [];
+    foreach ($candidates as $c) {
+        try {
+            $first = trim((string) ($c['first_name'] ?? '')) ?: 'Unknown';
+            $last  = trim((string) ($c['last_name']  ?? '')) ?: 'Employee';
+
+            // employee_number is "E-<tenant>-<sequential>"; reuse the
+            // tenant-scoped sequence rather than allocating a fresh one.
+            $next = $pdo->prepare(
+                "SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(employee_number, '-', -1) AS UNSIGNED)), 0) + 1
+                   FROM people_employees WHERE tenant_id = :t"
+            );
+            $next->execute(['t' => $tenantId]);
+            $n = (int) $next->fetchColumn();
+            $empNumber = 'E-' . $tenantId . '-' . str_pad((string) $n, 4, '0', STR_PAD_LEFT);
+
+            scopedInsert('people_employees', [
+                'employee_number'  => $empNumber,
+                'legal_first_name' => $first,
+                'legal_last_name'  => $last,
+                'work_email'       => $c['email_primary'] ?: null,
+                'date_of_birth'    => $c['date_of_birth'] ?: null,
+                'status'           => 'active',
+                'employment_type'  => 'full_time',
+                'flsa_class'       => 'non_exempt',
+            ]);
+            $made++;
+        } catch (\Throwable $e) {
+            $errors[] = ['person_id' => $c['id'], 'error' => $e->getMessage()];
+            error_log('peopleEnsureEmployeesFromW2: person ' . $c['id'] . ': ' . $e->getMessage());
+        }
+    }
+    if ($made > 0) {
+        error_log("[people/employees] materialised {$made} people_employees row(s) from W-2 people directory entries (idempotent backfill)");
+    }
+    return ['scanned' => $scanned, 'materialised' => $made, 'errors' => $errors];
 }
