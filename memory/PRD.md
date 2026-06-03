@@ -1,5 +1,102 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Resend integration verification — wired & live)
+
+User direction: "wire resend" → verify the existing Resend wiring and
+confirm it's live end-to-end so CFO reports / timesheet approver
+emails / vendor portal invites / AP bill approvals actually leave the
+box instead of just logging locally.
+
+### Outcome — already wired, now verified live
+
+Discovered the full Resend pipeline was implemented in earlier
+sessions but the prior fork's P2 backlog still listed it as a TODO.
+Live HTTP probe against `https://api.resend.com/domains` with the
+key in `/app/core/config.local.php` returned **HTTP 200** with
+`mail.corefluxapp.com` in `status: verified`, `sending: enabled`.
+The wiring is live; nothing additional shipped this session — just
+verification + PRD reconciliation.
+
+### Wiring inventory (verified)
+
+1. **Driver — `core/mail/ResendDriver.php`** (170 LOC):
+   - POSTs to `https://api.resend.com/emails`.
+   - `Authorization: Bearer ${RESEND_API_KEY}`.
+   - Custom `Idempotency-Key: cf-{tenant}-{module}-{sha256_24}` header
+     so dual-clicks / retries don't double-send.
+   - Payload: `from: "Name <email>", to[], subject, html?, text?, reply_to?, tags?`.
+   - Decodes Resend's success `{id}` into the canonical envelope shape.
+   - Maps non-2xx responses into a soft `{status: 'failed', error}`.
+
+2. **Bootstrap — `core/mail_bootstrap.php`**:
+   - Reads `RESEND_API_KEY` from `getenv()` first, falls back to
+     `define()` in `config.local.php`. Both paths supported.
+   - When key set → ResendDriver becomes the default outbound driver,
+     LogDriver kept as a co-registered fallback.
+   - When key missing → LogDriver remains default, ResendDriver still
+     registered (fails cleanly if invoked).
+   - Outbox writer persists every send attempt into `mail_outbox`
+     (status, provider_message_id, sent_at, error, etc.).
+
+3. **Shim — `core/mailer.php::mailerSend()`** (lines 161-275):
+   - Suppression list filter via `cf_mail_filter_suppressed()`.
+   - Per-purpose sender resolution via `cf_tenant_mail_sender()`
+     (display name + reply-to override + hard-mute per purpose).
+   - Routes through `MailService::send()` → driver registry.
+   - Soft-fails to legacy PHPMailer SMTP if MailService can't boot
+     (no tenant context, DB down, etc.) — preserves backwards
+     compatibility with existing callers.
+
+4. **Config — `core/config.local.php`** (lines 17-19):
+   - `RESEND_API_KEY     = re_L5QC6Z8...` (valid, HTTP 200 probe).
+   - `RESEND_FROM_EMAIL  = no-reply@mail.corefluxapp.com`.
+   - `RESEND_FROM_NAME   = CoreFlux Notifications`.
+   - Domain `mail.corefluxapp.com` verified on the Resend dashboard
+     (region us-east-1, sending enabled).
+
+5. **Call sites (12+ files use `mailerSend()`)**:
+   - `modules/staffing/api/timesheet_email_approver.php` — approver request emails.
+   - `modules/ap/api/vendor_portal.php` — vendor invites.
+   - `modules/ap/api/bill_approvals.php` — bill approval routing.
+   - `cron/treasury_sweep_divergence_alert.php` — daily Mercury reconciliation alert.
+   - `api/admin/mail_test_send.php` — one-click admin test send endpoint.
+   - `api/admin/memberships.php` — magic-link invites.
+   - `api/cfo_send_report.php` — CFO PDF reports.
+   - `core/mercury_payments.php` — payment status notifications.
+
+6. **Admin UX**: `api/admin/mail_test_send.php` exposes a "send a
+   real test email" button (rate-limited 1/10s per actor) so any
+   tenant_admin / master_admin can confirm Resend delivery without
+   developer involvement.
+
+### Test status
+- `tests/resend_wiring_smoke.php`         → 25/25 ✓
+- `tests/mailer_send_shim_smoke.php`      → 43/43 ✓
+- `tests/mailer_smoke.php`                → all ✓
+- `tests/mail_service_smoke.php`          → 38/38 ✓
+- `tests/mail_test_send_smoke.php`        → 39/39 ✓
+- Full PHP suite: 376/378 (only the 2 documented sandbox-bound
+  failures remain — `accounting_phase2_a7`, `tenant_mail_senders`).
+- **Live HTTP probe**: `GET https://api.resend.com/domains` →
+  200 OK, domain verified.
+
+### Backlog update
+- (✅ DONE — verified live this session) Wire `mailerSend()` to a
+  Resend driver so CFO reports and timesheet approver emails deliver
+  externally.  Removed from P2 backlog.
+
+### Roadmap (unchanged after this verification)
+- (P1) Mercury Webhooks hardening.
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P2) Gusto integration / QBO hardening.
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module.
+- (P3) AI Digest Scheduler (now unblocked — Resend is the rail).
+
+---
+
 ## Session — 2026-02 (Jaz CoA push fix + Approved-hours-ready tile mount)
 
 User direction (after screenshots of Step 3B showing
