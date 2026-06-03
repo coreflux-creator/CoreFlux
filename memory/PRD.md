@@ -1,5 +1,115 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Plaid bank-link — shared-GL by default)
+
+User direction: "p2 plaid bank link" → close the P2 backlog item
+flagged when we added the Remove affordance: future bank connections
+must STOP silently seeding `accounting_accounts` rows per Plaid
+sub-account.  Should be opt-in via a "create GL line per bank
+account?" toggle on the link step.
+
+### Behaviour change
+
+**Before** (any tenant connecting a bank since the Plaid integration
+shipped):
+  - Each Plaid depository account → 1 `accounting_accounts` row at
+    code `1000-{last4}` (e.g. "1000-1348 First Citizens Bank —
+    Operating …1348").
+  - Each Plaid credit card → 1 row at `2100-{last4}`.
+  - Each Plaid loan → 1 row at `2200-{last4}`.
+  - Connecting 15 sub-accounts ⇒ 15 bank-shaped GL rows in the CoA.
+
+**After** (default since 2026-02):
+  - Every Plaid depository account points its
+    `accounting_bank_accounts.gl_account_code` at a SHARED row:
+    `1000 Cash — Checking` (or `1010 Cash — Savings` for savings).
+  - Every Plaid credit card → shared `2100 Credit Card Payable`.
+  - Every Plaid loan → shared `2200 Notes Payable`.
+  - Treasury still tracks each bank as its own
+    `accounting_bank_accounts` sub-ledger row (per-bank balances,
+    feeds, transactions all unchanged).
+  - The CoA stays clean — typically ≤ 4 bank-related GL rows
+    regardless of how many sub-accounts the operator connects.
+
+Operators who reconcile per-bank in the trial balance can flip a
+checkbox in the picker modal ("Create a separate Chart-of-Accounts
+line per bank account") to restore the legacy behaviour for that
+specific connection.
+
+### Shipped
+
+1. **`core/plaid_service.php::plaidEnsureSharedGlAccount()`** (NEW):
+   - Signature `(PDO $pdo, int $tenantId, string $baseCode, string $name,
+     string $accountType, string $normalSide): string`.
+   - Find-or-create one shared row at the exact base code (no
+     suffix).  `is_postable=1` so manual JEs can still post against
+     it.  UNIQUE-race tolerant.
+
+2. **`api/plaid_bank_link.php?action=exchange`** — request body now
+   reads `create_gl_per_account` (boolean, default `false`):
+   - Default `false` (shared GL) → new behaviour.
+   - `true` → fall through to the legacy `plaidAllocateBankGlCode()`
+     per-account code allocator.
+   - Both the deposit (`asset/debit`) and credit-or-loan
+     (`liability/credit`) branches honour the flag uniformly.
+
+3. **Picker modal** in `TreasuryOverview.jsx::BankConnectCard`:
+   - New checkbox under the account list: "Create a separate
+     Chart-of-Accounts line per bank account *(advanced — for
+     tenants who reconcile per-bank in the trial balance)*".
+   - Default unchecked.  Resets to unchecked after every
+     successful exchange so the next bank connection starts clean.
+   - Helper text explains what the default shared rows are called
+     so operators understand the trade-off.
+
+4. **Backwards compatibility**:
+   - `plaidAllocateBankGlCode()` still exported and still used by
+     `api/plaid_diagnostics.php?action=backfill` (orphan adoption
+     keeps per-account semantics — if a tenant already has 15
+     bank-shaped GL rows, the backfill won't change that
+     unilaterally).
+   - The pre-existing Step 3B "Remove" affordance lets operators
+     sweep historical per-account rows when they want.
+
+### Test status
+- `tests/plaid_bank_link_shared_gl_opt_in_smoke.php` → 24/24 ✓ (NEW)
+- Full PHP suite: **381 / 383 passing** (only the 2 documented
+  sandbox-bound failures remain).
+- Vite bundle: **`coreflux-ByR0GNDs`** (frontend changed — picker
+  modal got the new toggle).
+- Lint clean.
+
+### Files touched
+- `core/plaid_service.php` (added `plaidEnsureSharedGlAccount`)
+- `api/plaid_bank_link.php` (read `create_gl_per_account`, branch
+  both deposit + credit/loan paths)
+- `modules/treasury/ui/TreasuryOverview.jsx` (createGlPerAccount
+  React state, doExchange body field, picker-modal toggle UI,
+  reset on success)
+- `tests/plaid_bank_link_shared_gl_opt_in_smoke.php` (NEW, 24
+  assertions)
+
+### Operator action (production)
+1. Deploy bundle `coreflux-ByR0GNDs`.
+2. Existing tenants — no migrations, no auto-reorg.  Use the
+   Step 3B "Remove" affordance from the prior session to sweep any
+   historical per-bank GL rows you don't want anymore.
+3. Future Plaid connections — the toggle in the picker modal
+   controls per-bank GL granularity.  The default (off) keeps the
+   CoA clean.
+
+### Roadmap (unchanged)
+- (P1) Mercury Webhooks hardening.
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P2) Gusto integration / QBO hardening.
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module.
+- (P3) AI Digest Scheduler (Resend rail live).
+
+---
+
 ## Session — 2026-02 (Account lifecycle — Remove from CoA)
 
 User direction (with screenshot of 15 `1000-XXXX First Citizens Bank

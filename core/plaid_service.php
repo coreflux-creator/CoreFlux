@@ -525,6 +525,53 @@ function plaidAllocateBankGlCode(PDO $pdo, int $tenantId, string $base, ?string 
 }
 
 /**
+ * Find-or-create ONE shared GL account row for an entire account class
+ * (e.g. all Plaid checking accounts → "1000 Cash — Checking", all credit
+ * cards → "2100 Credit Card Payable").
+ *
+ * Used when the operator opted OUT of "create a GL line per bank
+ * account" — every new Plaid bank/liability row points its
+ * `gl_account_code` at this shared row instead of polluting the CoA
+ * with one row per sub-account.
+ *
+ * Re-uses an existing row at `{base_code}` if one already exists (no
+ * matter who created it).  Otherwise inserts a fresh row at the exact
+ * base code (no suffix) so the chart stays tidy.
+ */
+function plaidEnsureSharedGlAccount(
+    PDO $pdo, int $tenantId,
+    string $baseCode, string $name,
+    string $accountType, string $normalSide
+): string {
+    $check = $pdo->prepare(
+        "SELECT id FROM accounting_accounts
+          WHERE tenant_id = :t AND code = :c LIMIT 1"
+    );
+    $check->execute(['t' => $tenantId, 'c' => $baseCode]);
+    if ($check->fetchColumn()) return $baseCode;
+
+    // Code not taken yet — insert the shared GL row.  is_postable=1 so
+    // operators can still post manual JEs against it.
+    try {
+        $pdo->prepare(
+            "INSERT INTO accounting_accounts
+                (tenant_id, code, name, account_type, normal_side,
+                 is_postable, parent_account_id, active, created_at)
+             VALUES (:t, :c, :n, :ty, :ns, 1, NULL, 1, NOW())"
+        )->execute([
+            't' => $tenantId, 'c' => $baseCode, 'n' => $name,
+            'ty' => $accountType, 'ns' => $normalSide,
+        ]);
+    } catch (\Throwable $e) {
+        // Race on the UNIQUE (tenant, code) constraint — re-resolve and
+        // accept whatever now sits at that code.
+        $check->execute(['t' => $tenantId, 'c' => $baseCode]);
+        if (!$check->fetchColumn()) throw $e;
+    }
+    return $baseCode;
+}
+
+/**
  * Persist /accounts/get balance data into plaid_accounts so the Treasury
  * list pages can render a live "Bank balance" column without firing Plaid
  * on every GET. Safe to call multiple times — uses UPDATE + runtime

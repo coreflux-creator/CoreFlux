@@ -410,6 +410,7 @@ function BankConnectCard({ onLinked }) {
   // Post-Link account picker state
   const [picker, setPicker] = React.useState(null); // { publicToken, institution, accounts:[{id,name,mask,subtype,type}] }
   const [pickerSelected, setPickerSelected] = React.useState({}); // accountId -> bool
+  const [createGlPerAccount, setCreateGlPerAccount] = React.useState(false);
   const [exchanging, setExchanging] = React.useState(false);
 
   const link = async () => {
@@ -459,6 +460,11 @@ function BankConnectCard({ onLinked }) {
           name:           institution?.name           || null,
           institution_id: institution?.institution_id || null,
         },
+        // Default OFF since 2026-02 — every connected bank shares one
+        // "Cash — Checking" / "Cash — Savings" GL row instead of one row
+        // per sub-account.  Operators who reconcile per-bank flip the
+        // checkbox in the picker modal.
+        create_gl_per_account: createGlPerAccount,
       };
       if (Array.isArray(selectedIds)) body.selected_account_ids = selectedIds;
       const res = await fetch('/api/plaid_bank_link.php?action=exchange', {
@@ -482,6 +488,7 @@ function BankConnectCard({ onLinked }) {
         setErr('Some accounts could not be added:\n• ' + errs.join('\n• '));
       }
       setPicker(null);
+      setCreateGlPerAccount(false);
       if ((dep || lia) && onLinked) setTimeout(onLinked, 1200);
     } catch (e) { setErr(e.message); }
     finally { setExchanging(false); }
@@ -651,6 +658,34 @@ function BankConnectCard({ onLinked }) {
                   </div>
                 </label>
               ))}
+            </div>
+            <div style={{
+              marginTop: 12, padding: '10px 12px',
+              background: '#f8fafc', border: '1px solid var(--cf-border, #e2e8f0)',
+              borderRadius: 6,
+            }}>
+              <label
+                data-testid="plaid-create-gl-per-account-toggle"
+                style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={createGlPerAccount}
+                  onChange={(e) => setCreateGlPerAccount(e.target.checked)}
+                  data-testid="plaid-create-gl-per-account-cb"
+                  style={{ marginTop: 3 }}
+                />
+                <div style={{ fontSize: 13, lineHeight: 1.4 }}>
+                  <strong>Create a separate Chart-of-Accounts line per bank account</strong>{' '}
+                  <span className="muted">(advanced — for tenants who reconcile per-bank in the trial balance)</span>
+                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                    By default, every connected bank shares one <code>1000 Cash — Checking</code>
+                    {' '}/{' '}<code>1010 Cash — Savings</code>{' '}GL row (and one
+                    {' '}<code>2100 Credit Card Payable</code>{' '}/{' '}<code>2200 Notes Payable</code>{' '}
+                    row for cards / loans). Treasury still tracks each bank as its own sub-ledger row.
+                    Turn this on only if your accountant wants a per-bank breakdown directly on the trial balance.
+                  </div>
+                </div>
+              </label>
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
               <button

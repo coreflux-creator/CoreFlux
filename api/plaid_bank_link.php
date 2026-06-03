@@ -105,6 +105,30 @@ if ($action === 'exchange') {
     }
     $selectedSet = $selectedIds ? array_flip($selectedIds) : null;
 
+    // 2026-02: changed default from per-account GL allocation to shared.
+    //
+    // Pre-2026 every Plaid sub-account got its own `accounting_accounts`
+    // row (e.g. "1000-1348 First Citizens Bank — Operating") so the trial
+    // balance broke down per bank.  Operators with 15+ sub-accounts
+    // complained that this polluted the CoA with rows they didn't intend
+    // to map / sync to their external accounting provider (Jaz, QBO,
+    // etc.).
+    //
+    // New default: every Plaid deposit shares ONE "1000 Cash — Checking"
+    // GL row (and "1010 Cash — Savings" for savings).  Each Plaid card /
+    // loan shares one "2100 Credit Card Payable" / "2200 Notes Payable"
+    // row.  Operators who explicitly want per-account granularity flip
+    // the `create_gl_per_account` flag in the picker UI before exchange.
+    //
+    // We honour the explicit boolean either direction; absence defaults
+    // to false (shared).  The legacy backfill endpoint
+    // (/api/plaid_diagnostics.php?action=backfill) keeps per-account
+    // semantics to avoid silently changing behaviour for tenants who
+    // historically relied on the per-bank chart layout.
+    $createGlPerAccount = isset($body['create_gl_per_account'])
+        ? (bool) $body['create_gl_per_account']
+        : false;
+
     try {
         $exchange = plaidExchangePublicToken($publicToken);
     } catch (PlaidApiException $e) {
@@ -277,11 +301,26 @@ if ($action === 'exchange') {
                 }
 
                 // 3) Brand-new bank account — allocate a fresh row.
-                // GL codes are UNIQUE per (tenant, code), so derive a unique
-                // suffix per Plaid account so multiple checking accounts don't
-                // collide on '1000'. Pattern: 1000 / 1000-{last4} / 1000-{last8 of accId}.
+                // GL codes are UNIQUE per (tenant, code).
+                // Modes:
+                //   - $createGlPerAccount === true: derive a unique
+                //     code per Plaid account (`1000-{last4}` etc.) so
+                //     every sub-account has its own GL row.
+                //   - $createGlPerAccount === false (default 2026-02+):
+                //     all deposit accounts of the same subtype share
+                //     ONE GL row ("1000 Cash — Checking" /
+                //     "1010 Cash — Savings").  Keeps the CoA clean for
+                //     tenants who don't care about per-bank
+                //     reconciliation at the GL level.
                 $baseCode = $subtype === 'savings' ? '1010' : '1000';
-                $glCode   = plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);
+                if ($createGlPerAccount) {
+                    $glCode   = plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);
+                } else {
+                    $sharedName = $subtype === 'savings' ? 'Cash — Savings' : 'Cash — Checking';
+                    $glCode = plaidEnsureSharedGlAccount(
+                        $pdo, $tenantId, $baseCode, $sharedName, 'asset', 'debit'
+                    );
+                }
 
                 $bankName  = $instLabel !== '' ? $instLabel : ($name ?: 'Bank');
                 $insName   = trim(($instLabel ? "{$instLabel} — " : '') . ($name ?: 'Account'));
@@ -290,6 +329,9 @@ if ($action === 'exchange') {
                 // so the bank shows up on the Chart of Accounts page. Without
                 // this, accounting_bank_accounts has a gl_account_code that
                 // doesn't resolve to a real GL account and the CoA list is empty.
+                //
+                // In shared-GL mode `plaidEnsureSharedGlAccount()` already
+                // created the row, so this block falls through as a no-op.
                 $aaCheck = $pdo->prepare(
                     'SELECT id FROM accounting_accounts
                       WHERE tenant_id = :t AND code = :c LIMIT 1'
@@ -393,9 +435,17 @@ if ($action === 'exchange') {
                 }
 
                 // 3) Brand-new card / loan — allocate a fresh COA + companion row.
+                // See deposit branch above for the per-account vs shared
+                // mode rationale; default is shared since 2026-02.
                 $baseCode = $type === 'loan' ? '2200' : '2100';
                 $glName   = $type === 'loan' ? 'Notes Payable' : 'Credit Card Payable';
-                $glCode   = plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);
+                if ($createGlPerAccount) {
+                    $glCode = plaidAllocateBankGlCode($pdo, $tenantId, $baseCode, $mask, $accId);
+                } else {
+                    $glCode = plaidEnsureSharedGlAccount(
+                        $pdo, $tenantId, $baseCode, $glName, 'liability', 'credit'
+                    );
+                }
 
                 $treasurySubtype = match (true) {
                     $subtype === 'credit card'                  => 'credit_card',
