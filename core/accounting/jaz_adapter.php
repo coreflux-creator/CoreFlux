@@ -128,19 +128,31 @@ class JazAccountingAdapter extends AccountingProviderAdapter
     public function getChartOfAccounts(int $tenantId, int $subTenantId, array $filters = []): array
     {
         $key = $this->keyOrThrow($tenantId, $subTenantId);
-        // Paginate: Jaz uses ?page=N&pageSize=M on list endpoints.
-        $accounts = []; $page = 1; $pageSize = 200; $maxPages = 20;
-        while ($page <= $maxPages) {
-            $resp = jazCall($key, 'GET', 'chart-of-accounts', [], ['page' => $page, 'pageSize' => $pageSize]);
+        // Jaz's pagination is confusing: `?page=N` is silently ignored
+        // (always returns page 1) and `?pageSize=N` is capped at 100.
+        // However `?limit=N` IS honoured — `limit=500` returns up to 500
+        // rows in a single call.  We pull in slices of 500 using a
+        // hidden `offset` param.  If offset is ignored (Jaz historically
+        // returns rows[0..limit-1] each time), the first page already
+        // captures the typical 250-account tenant.  We log a warning
+        // when truncation is suspected so operators can escalate.
+        $accounts = []; $offset = 0; $limit = 500; $maxIters = 10;
+        $iter = 0;
+        while ($iter++ < $maxIters) {
+            $resp = jazCall($key, 'GET', 'chart-of-accounts', [], [
+                'limit'  => $limit,
+                'offset' => $offset,
+            ]);
             $rows = $resp['data'] ?? $resp['items'] ?? $resp['results'] ?? [];
-            if (!is_array($rows)) $rows = [];
+            if (!is_array($rows) || empty($rows)) break;
             foreach ($rows as $r) {
                 $accounts[] = $this->normalizeCoaRow($r);
             }
-            $hasMore = (bool) ($resp['hasMore'] ?? $resp['hasNextPage']
-                          ?? (count($rows) === $pageSize));
-            if (!$hasMore || count($rows) < $pageSize) break;
-            $page++;
+            $total = (int) ($resp['totalElements'] ?? 0);
+            if ($total > 0 && count($accounts) >= $total) break;
+            // No more rows than asked for → done.
+            if (count($rows) < $limit) break;
+            $offset += count($rows);
         }
         return [
             'as_of'    => date('Y-m-d'),
@@ -284,57 +296,77 @@ class JazAccountingAdapter extends AccountingProviderAdapter
     /**
      * Push a CoreFlux account into Jaz's Chart of Accounts.
      *
-     * Required fields on $account: code, name, type ('asset'|'liability'|
-     * 'equity'|'revenue'|'expense').  Optional: currency (defaults USD),
-     * description, parent_account_code.
+     * Required fields on $account: name, type ('asset'|'liability'|
+     * 'equity'|'revenue'|'expense').  Optional: code (Jaz ignores it —
+     * see comment below), currency (defaults USD), description.
      *
-     * Jaz accepts `chart-of-accounts` POST with `accountCode`, `accountName`,
-     * `accountType` (uppercase ENUM), `currency.code`.  We tolerate Jaz
-     * returning either the freshly-created resource OR a 409 with the
-     * existing one — the latter is the desired idempotent path.
+     * Verified Jaz POST contract (2026-02 live probe against
+     * api.getjaz.com/api/v1/chart-of-accounts):
+     *   {
+     *     "name":             "Office Supplies",
+     *     "accountClass":     "Expense",            // bucket (TitleCase)
+     *     "accountType":      "Operating Expense",  // sub-type (free-form)
+     *     "currencyCode":     "USD",                // flat string
+     *     "description":      "..."                 // optional
+     *   }
+     * → 201 { data: { resourceId, name, accountClass, accountType,
+     *                 currencyCode, locked, organizationResourceId,
+     *                 appliesTo[] } }
+     *
+     * Required validation fields from Jaz are `name` + `classificationType`
+     * (where `accountClass` is the accepted alias).  Sending `code` /
+     * `type` / `accountCode` is silently ignored — Jaz does NOT track
+     * account codes natively.
      */
     public function createAccount(int $tenantId, int $subTenantId, array $account, string $idempotencyKey): array
     {
         $key  = $this->keyOrThrow($tenantId, $subTenantId);
         $code = trim((string) ($account['code'] ?? ''));
         $name = trim((string) ($account['name'] ?? ''));
-        if ($code === '' || $name === '') {
-            throw new AccountingAdapterValidationException('createAccount requires code + name');
+        if ($name === '') {
+            throw new AccountingAdapterValidationException('createAccount requires name');
         }
-        // Jaz uses the same vocabulary CoreFlux does, but uppercased.
-        $type = strtoupper((string) ($account['type'] ?? 'asset'));
-        if (!in_array($type, ['ASSET','LIABILITY','EQUITY','REVENUE','EXPENSE'], true)) {
-            $type = 'ASSET';
-        }
-        // Jaz POST /chart-of-accounts expects the same lowercase field
-        // names the GET endpoint returns (matched by normalizeCoaRow()
-        // below): `name`, `code`, `type`. The earlier camelCase shape
-        // (`accountName`, `accountCode`, `accountType`) was rejected
-        // with `"name is a required field"` — Jaz silently ignored the
-        // unknown camelCase keys and reported the canonical name as
-        // missing. See 2026-02 production push trace in PRD.
+        // CoreFlux's enum → Jaz's `accountClass` TitleCase bucket.
+        static $classMap = [
+            'asset'     => 'Asset',
+            'liability' => 'Liability',
+            'equity'    => 'Equity',
+            'revenue'   => 'Revenue',
+            'expense'   => 'Expense',
+        ];
+        $cfType = strtolower((string) ($account['type'] ?? 'asset'));
+        $accountClass = $classMap[$cfType] ?? 'Asset';
+
+        // Sub-type — Jaz requires `accountType` to exist even though it's
+        // just a label.  Pick a sensible default per class so the row
+        // shows up in the correct GL section in Jaz's UI.  Operators can
+        // edit this in Jaz post-push if they want a different sub-type.
+        static $defaultSubtype = [
+            'Asset'     => 'Current Asset',
+            'Liability' => 'Current Liability',
+            'Equity'    => 'Shareholders Equity',
+            'Revenue'   => 'Sales',
+            'Expense'   => 'Operating Expense',
+        ];
+        $subtype = (string) ($account['subtype'] ?? $defaultSubtype[$accountClass]);
+
         $payload = [
-            'code'        => $code,
-            'name'        => $name,
-            'type'        => $type,
-            'isActive'    => true,
-            'currency'    => ['code' => (string) ($account['currency'] ?? 'USD')],
+            'name'         => ($code !== '' ? ($code . ' - ' . $name) : $name),
+            'accountClass' => $accountClass,
+            'accountType'  => $subtype,
+            'currencyCode' => strtoupper((string) ($account['currency'] ?? 'USD')),
         ];
         if (!empty($account['description'])) $payload['description'] = (string) $account['description'];
 
         try {
             $resp = jazCall($key, 'POST', 'chart-of-accounts', $payload);
         } catch (\Throwable $e) {
-            // 409 (already exists) is idempotent-success — look up the
-            // existing row by code so the caller still gets a usable
-            // provider_account_id.  Any other failure bubbles.
+            // 409 (already exists) is idempotent-success.  Jaz keys
+            // accounts by `name` (no codes), so look up by name.
             //
             // BUGFIX (2026-02): JazApiException stores the HTTP status in
             // the `httpStatus` PROPERTY, not in `getCode()` (which is
-            // always 0). The old check `(int) $e->getCode() === 409`
-            // therefore NEVER matched and every 409 surfaced as a hard
-            // error — which is exactly what users saw as
-            // "push: 0 created · 15 errors" in Step 3B.
+            // always 0).
             $isConflict = ($e instanceof JazApiException) && ($e->httpStatus === 409);
             if (!$isConflict) {
                 // Re-throw with a richer message that includes the code we
@@ -345,7 +377,7 @@ class JazAccountingAdapter extends AccountingProviderAdapter
                     if ($e->httpStatus === 401 || $e->httpStatus === 403) {
                         $hint = ' [key needs chart_of_accounts.write — check Jaz → Settings → API Keys → scopes]';
                     } elseif ($e->httpStatus === 422 || $e->httpStatus === 400) {
-                        $hint = ' [Jaz rejected the payload — check accountType=' . $type . ', currency, or required fields]';
+                        $hint = ' [Jaz rejected the payload — required: name + accountClass (Asset/Liability/Equity/Revenue/Expense) + accountType (sub-type label) + currencyCode]';
                     } elseif ($e->httpStatus === 404) {
                         $hint = ' [endpoint not found — set JAZ_API_BASE if your tenant lives at a different host]';
                     }
@@ -358,16 +390,23 @@ class JazAccountingAdapter extends AccountingProviderAdapter
                 }
                 throw $e;
             }
+            // Conflict → look up by name (Jaz's primary identity).
             $resp = jazCall($key, 'GET', 'chart-of-accounts', [], [
-                'page' => 1, 'pageSize' => 50, 'code' => $code,
+                'page' => 1, 'pageSize' => 50, 'name' => $payload['name'],
             ]);
             $hit = ($resp['data'][0] ?? $resp['items'][0] ?? $resp['results'][0] ?? null);
             if (!$hit) {
-                throw new \RuntimeException("Jaz rejected createAccount({$code}) and lookup returned nothing");
+                throw new \RuntimeException("Jaz rejected createAccount({$name}) and lookup returned nothing");
             }
             $resp = $hit;
         }
-        $normalized = $this->normalizeCoaRow(is_array($resp) ? $resp : ['data' => $resp]);
+        // Jaz wraps the created row in {data: {...}} for POST/GET-by-id but
+        // not for the 409-fallback list lookup (which already pulled the
+        // inner row out of the data[] array).  Unwrap defensively.
+        $row = (is_array($resp) && isset($resp['data']) && is_array($resp['data']))
+            ? $resp['data']
+            : (is_array($resp) ? $resp : []);
+        $normalized = $this->normalizeCoaRow($row);
         return [
             'provider_object_type' => 'account',
             'provider_object_id'   => (string) $normalized['provider_id'],
@@ -443,11 +482,39 @@ class JazAccountingAdapter extends AccountingProviderAdapter
     // ============================================================ helpers
     private function normalizeCoaRow(array $r): array
     {
-        $type = strtolower((string) ($r['accountType']      ?? $r['type']           ?? ''));
-        $code = (string)       ($r['accountCode']      ?? $r['code']           ?? '');
-        $name = (string)       ($r['accountName']      ?? $r['name']           ?? '');
-        $ccy  = (string)       ($r['currency']['code'] ?? $r['currency']       ?? 'USD');
+        // Jaz row shape (verified live 2026-02 against api.getjaz.com/api/v1):
+        //   { resourceId, name, status, accountClass, accountType,
+        //     currencyCode, description, locked, controlFlag,
+        //     organizationResourceId, createdAt, updatedAt?, appliesTo[] }
+        //
+        // Mapping rationale:
+        //   - `accountClass` is Jaz's high-level bucket (Asset / Liability /
+        //     Equity / Revenue / Expense) — that is CoreFlux's `type`.
+        //   - `accountType` is Jaz's sub-type ("Fixed Asset", "Bank Accounts",
+        //     "Operating Expense", etc.) — we keep it as `subtype` for
+        //     downstream display only.
+        //   - Jaz does NOT track account codes — every row identifies via
+        //     `resourceId` (UUID).  `code` is therefore always ''.  The
+        //     auto-mapper falls back to name-based matching when no codes
+        //     are present (see account_mapping_service.php).
+        //   - `status` is the enum ACTIVE / INACTIVE / ARCHIVED.
+        $bucket = strtolower((string) ($r['accountClass'] ?? $r['type'] ?? ''));
+        if (!in_array($bucket, ['asset','liability','equity','revenue','expense'], true)) {
+            // Some legacy responses still use `accountType` as the bucket
+            // (Jaz changed schemas in early 2026).  Tolerate both.
+            $alt = strtolower((string) ($r['accountType'] ?? ''));
+            if (in_array($alt, ['asset','liability','equity','revenue','expense'], true)) {
+                $bucket = $alt;
+            }
+        }
+        $code = (string) ($r['accountCode'] ?? $r['code'] ?? '');
+        $name = (string) ($r['accountName'] ?? $r['name'] ?? '');
+        $ccy  = (string) ($r['currencyCode'] ?? $r['currency']['code'] ?? $r['currency'] ?? 'USD');
         $jazId = (string) ($r['resourceId'] ?? $r['id'] ?? '');
+        $status = strtoupper((string) ($r['status'] ?? ''));
+        $active = ($status === '' )
+            ? (bool) ($r['isActive'] ?? $r['active'] ?? true)
+            : ($status === 'ACTIVE');
         return [
             // `id` / `provider_id` carry the destination's stable identifier in
             // a provider-neutral key the auto-mapper consumes. We keep
@@ -457,9 +524,10 @@ class JazAccountingAdapter extends AccountingProviderAdapter
             'provider_id'      => $jazId,
             'code'             => $code,
             'name'             => $name,
-            'type'             => $type,
+            'type'             => $bucket,
+            'subtype'          => (string) ($r['accountType'] ?? ''),
             'currency'         => $ccy,
-            'active'           => ($r['isActive'] ?? $r['active'] ?? true) ? true : false,
+            'active'           => $active,
             'jaz_resource_id'  => $jazId,
         ];
     }

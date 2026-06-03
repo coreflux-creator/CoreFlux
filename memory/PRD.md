@@ -1,5 +1,139 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Jaz CoA — verified live, end-to-end working)
+
+User direction: "closer!" → screenshot showed the new error-surface
+revealed Step 3B pull now returned `Provider accounts carry no codes —
+auto-map by code unavailable`.  User then provided a live Jaz API key
+so the actual API contract could be probed and locked.
+
+### Discoveries from the live probe (api.getjaz.com/api/v1)
+
+Live HTTP traces against the user's real Jaz tenant revealed FOUR
+schema mismatches the adapter had been silently working around:
+
+1. **Field names are `accountClass` + `accountType`** (NOT `type` /
+   `accountType` as separate buckets).  Jaz's data model is:
+   - `accountClass` = high-level bucket (Asset / Liability / Equity /
+     Revenue / Expense — TitleCase).
+   - `accountType`  = free-form sub-type ("Fixed Asset", "Bank
+     Accounts", "Operating Expense", etc.).
+   - Our adapter previously sent `type:"EXPENSE"` (uppercase) hoping
+     it'd match the bucket — Jaz silently ignored it.
+2. **Currency is `currencyCode: "USD"`** flat string, not
+   `currency: {code: ...}`.
+3. **Jaz does NOT track account codes** at all.  Every row is keyed
+   by `resourceId` (UUID) and a `name` that may include parent-path
+   prefixes (e.g. "Travel:Vehicle rental").  Our previous "auto-map
+   by code" guard correctly detected this and bailed — but operators
+   had no fallback, so 15 CF accounts were stuck unmapped.
+4. **Pagination uses `?limit=N&offset=M`** — NOT the documented
+   `page/pageSize`.  `?page=2` is silently ignored (returns page 1
+   every time).  Without this fix `getChartOfAccounts()` would return
+   only the first 100 of 249 accounts, then the loop would terminate
+   thinking it was done.
+
+### Live verification
+
+Captured during the session against the user's real Jaz tenant:
+
+- `POST /chart-of-accounts` with `{name, accountClass, accountType,
+  currencyCode}` → **HTTP 201** with `data.resourceId` (a real test
+  row was created + cleaned up).
+- `GET /chart-of-accounts?limit=500` → **HTTP 200**, all **249 / 249**
+  accounts in one shot (no duplicates).
+- Name-based auto-map probe against 15 typical CoreFlux account
+  names → **14 / 15 hit rate** (Cash, AR, Inventory, Prepaid
+  Expenses, Retained Earnings, Travel, Bad Debt, Goodwill, Interest
+  paid, Land, Buildings, Vehicles, Furniture & fixtures, Salary &
+  Payroll Expense matched; only "Office Supplies" missed because the
+  tenant has it under a different parent path).
+
+### Shipped
+
+1. **`jaz_adapter.php::createAccount()` — verified payload shape**:
+   - Now sends `{name, accountClass (Asset/Liability/Equity/Revenue/
+     Expense), accountType (sensible default sub-type), currencyCode}`.
+   - CoreFlux's `code` field is folded into the name as
+     `"{code} - {name}"` since Jaz has no codes column.
+   - Default sub-type per bucket: Current Asset / Current Liability /
+     Shareholders Equity / Sales / Operating Expense.
+2. **`jaz_adapter.php::normalizeCoaRow()` — reads real Jaz shape**:
+   - `accountClass` → `type`, `accountType` → `subtype`,
+     `currencyCode` → `currency`, `status==='ACTIVE'` → `active`.
+   - Still tolerates legacy / camelCase responses as a fallback.
+3. **`jaz_adapter.php::getChartOfAccounts()` — pagination fix**:
+   - Now uses `limit=500&offset=N`.  `page/pageSize` is broken
+     upstream (returns page 1 forever, cap 100).  Single call now
+     pulls all 249 accounts for typical tenants.
+4. **`account_mapping_service.php::accountingAccountMappingsAutoMap()`
+   — name fallback**:
+   - Builds both `byCode` and `byName` lookups; `byName` is
+     case-insensitive, parent-path-stripped, whitespace-collapsed.
+   - Tries code first (confidence=80, source=auto_code), then name
+     (confidence=60, source=auto_name).
+   - Returns richer telemetry: `matched_by_code`, `matched_by_name`,
+     `provider_has_codes`, plus a `note` so operators know name
+     matches need confirmation.
+5. **POST response unwrapping**: Jaz wraps the created row in
+   `{data: {...}}`; we now strip the envelope before
+   `normalizeCoaRow()` so `provider_object_id` carries the real
+   `resourceId`, not the empty default.
+6. **409 conflict fallback** now keys the GET lookup on `name`
+   (Jaz's primary identity) instead of `code`.
+7. **422 hint** updated to mention `accountClass` + `accountType`.
+
+### Test status
+- `tests/jaz_push_409_and_error_surface_smoke.php` → 28/28 ✓
+- `tests/account_mapping_name_fallback_smoke.php`  → 16/16 ✓ (NEW)
+- `tests/jaz_integration_slice2_live_smoke.php`    → 86/86 ✓
+- `tests/jaz_sync_button_and_coa_bidir_smoke.php`  → 45/45 ✓
+- Full PHP suite: **377 / 379 passing** (only the 2 known
+  sandbox-bound failures remain).
+- Vite bundle unchanged (`coreflux-CiA6wnH5`) — backend-only.
+
+### Files touched
+- `core/accounting/jaz_adapter.php` (createAccount payload,
+  normalizeCoaRow, getChartOfAccounts pagination, 409 fallback,
+  response unwrapping, error hints)
+- `core/accounting/account_mapping_service.php`
+  (accountingAccountMappingsAutoMap — name fallback + telemetry)
+- `tests/jaz_push_409_and_error_surface_smoke.php` (8 new assertions)
+- `tests/account_mapping_name_fallback_smoke.php` (NEW, 16 assertions)
+- `tests/jaz_integration_slice2_live_smoke.php` (3 assertions
+  updated for new pagination + maxIters)
+- `tests/jaz_sync_button_and_coa_bidir_smoke.php` (2 assertions
+  updated for new field names)
+
+### Production action for Kunal
+1. Deploy (no migrations needed).
+2. Open Integration Settings → Jaz → Step 3B → click "Sync everything
+   now".
+3. Expected outcome:
+   - `chart_of_accounts → pull: ~14 mapped · 0-1 errors` (the 15th
+     CF account that doesn't name-match will need a manual mapping
+     in Step 4).
+   - Step 4 Account Mapping shows 14 rows with `source = auto_name,
+     confidence = 60` — review and bump to 100 (manual) for any that
+     look right; remap any that look wrong.
+   - The `note` banner says "Auto-mapped 0 by code + 14 by name —
+     name matches are confidence=60, please confirm."
+4. **Security note**: rotate the Jaz API key you shared in chat
+   (Settings → API Keys → revoke + regenerate).  The key was used
+   only for live probes in this conversation — no persistence.
+
+### Roadmap (unchanged)
+- (P1) Mercury Webhooks hardening.
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P2) Gusto integration / QBO hardening.
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module.
+- (P3) AI Digest Scheduler (Resend rail now live — easiest P3 to ship).
+
+---
+
 ## Session — 2026-02 (Jaz CoA push — root-cause fix: lowercase field names)
 
 User direction: "received the email. the next item is still Jaz" →

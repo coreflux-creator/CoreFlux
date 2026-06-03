@@ -187,24 +187,52 @@ function accountingAccountMappingsAutoMap(int $tenantId, int $subTenantId, strin
     if (empty($providerAccounts)) {
         return ['error' => 'Provider returned no accounts', 'mapped' => 0];
     }
-    // Build code→row lookup (case-insensitive).
+    // Build code→row + name→row lookups.  Some providers (Jaz) don't
+    // expose account codes at all and rely on name as the natural key —
+    // we fall back to case-insensitive name matching when no codes are
+    // present.  Both maps are case-insensitive.
     $byCode = [];
+    $byName = [];
+    $nameNorm = static function (string $s): string {
+        $s = strtolower(trim($s));
+        // Strip provider parent-path prefixes (e.g. "Travel:Vehicle rental"
+        // → "vehicle rental") so a CoreFlux "Vehicle Rental" matches Jaz's
+        // nested-path naming convention.
+        $tail = strrchr($s, ':');
+        if ($tail !== false) $s = ltrim($tail, ':');
+        $s = preg_replace('/\s+/', ' ', $s) ?? $s;
+        return $s;
+    };
     foreach ($providerAccounts as $pa) {
         $code = strtolower((string) ($pa['code'] ?? ''));
         if ($code !== '') $byCode[$code] = $pa;
+        $n = $nameNorm((string) ($pa['name'] ?? ''));
+        if ($n !== '' && !isset($byName[$n])) {
+            $byName[$n] = $pa; // first-write wins (skip duplicate-name shadows)
+        }
     }
-    if (empty($byCode)) {
-        return ['error' => 'Provider accounts carry no codes — auto-map by code unavailable', 'mapped' => 0];
-    }
+    $hasCodes = !empty($byCode);
 
     // 2. Walk unmapped CF accounts.
     $unmapped = accountingAccountMappingsUnmapped($tenantId, $subTenantId, $provider);
-    $newMappings = [];
-    $noMatch     = 0;
+    $newMappings   = [];
+    $noMatch       = 0;
+    $matchedByName = 0;
+    $matchedByCode = 0;
     foreach ($unmapped as $cf) {
-        $code = strtolower((string) ($cf['code'] ?? ''));
-        if (!isset($byCode[$code])) { $noMatch++; continue; }
-        $pa = $byCode[$code];
+        $cfCode = strtolower((string) ($cf['code'] ?? ''));
+        $cfName = $nameNorm((string) ($cf['name'] ?? ''));
+
+        $pa = null; $source = ''; $confidence = 0;
+        if ($cfCode !== '' && isset($byCode[$cfCode])) {
+            $pa = $byCode[$cfCode]; $source = 'auto_code'; $confidence = 80;
+            $matchedByCode++;
+        } elseif ($cfName !== '' && isset($byName[$cfName])) {
+            $pa = $byName[$cfName]; $source = 'auto_name'; $confidence = 60;
+            $matchedByName++;
+        }
+        if (!$pa) { $noMatch++; continue; }
+
         $newMappings[] = accountingAccountMappingsSave(
             $tenantId, $subTenantId, $provider,
             [
@@ -213,18 +241,30 @@ function accountingAccountMappingsAutoMap(int $tenantId, int $subTenantId, strin
                 'provider_account_code' => (string) ($pa['code'] ?? ''),
                 'provider_account_name' => (string) ($pa['name'] ?? ''),
                 'provider_account_type' => (string) ($pa['type'] ?? ''),
-                'source'                => 'auto_code',
-                'confidence'            => 80,
+                'source'                => $source,
+                'confidence'            => $confidence,
             ],
             $userId
         );
     }
 
-    return [
-        'mapped'           => count($newMappings),
-        'no_provider_match' => $noMatch,
-        'new_mappings'     => $newMappings,
+    $out = [
+        'mapped'             => count($newMappings),
+        'no_provider_match'  => $noMatch,
+        'matched_by_code'    => $matchedByCode,
+        'matched_by_name'    => $matchedByName,
+        'provider_has_codes' => $hasCodes,
+        'new_mappings'       => $newMappings,
     ];
+    // Operators benefit from knowing WHY a run was empty.
+    if (count($newMappings) === 0 && !$hasCodes && empty($byName)) {
+        $out['error'] = 'Provider accounts carry no codes or names — auto-map unavailable';
+    } elseif (count($newMappings) === 0 && !$hasCodes) {
+        $out['note'] = 'Provider has no account codes; tried name-match against ' . count($byName) . ' provider rows but found no matches — review the Step 4 list and map manually';
+    } elseif ($matchedByName > 0) {
+        $out['note'] = "Auto-mapped {$matchedByCode} by code + {$matchedByName} by name — name matches are confidence=60, please confirm.";
+    }
+    return $out;
 }
 
 /**

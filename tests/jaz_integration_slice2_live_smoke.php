@@ -57,8 +57,9 @@ $a('validateConnection probes GET /organization', str_contains($ja, "jazCall(\$k
 $a('  401/403 mapped → status=failed',            str_contains($ja, "\$e->httpStatus === 401 || \$e->httpStatus === 403"));
 $a('  persists provider_org_id via UPDATE',       str_contains($ja, 'UPDATE accounting_provider_connections')
                                                && str_contains($ja, 'provider_org_id = COALESCE'));
-$a('getChartOfAccounts paginates page/pageSize',  str_contains($ja, "['page' => \$page, 'pageSize' => \$pageSize]"));
-$a('  caps at maxPages=20',                       str_contains($ja, '$maxPages = 20'));
+$a('getChartOfAccounts paginates via Jaz `limit/offset` (page/pageSize are broken upstream)',
+   str_contains($ja, "'limit'") && str_contains($ja, "'offset'"));
+$a('  caps at maxIters=10',                       str_contains($ja, '$maxIters = 10'));
 $a('getTrialBalance POSTs /reports/trial-balance',str_contains($ja, "jazCall(\$key, 'POST', 'reports/trial-balance', ['endDate' => \$asOf])"));
 $a('getGeneralLedger filters out null body keys', str_contains($ja, "array_filter(\$body)"));
 $a('  passes account filter as accountResourceId',str_contains($ja, "\$body['accountResourceId'] = \$filters['account'];"));
@@ -161,7 +162,8 @@ $a('  currency falls back to string when not object',
     $coa['accounts'][1]['currency'] === 'USD');
 $a('  active flag preserved',                      $coa['accounts'][0]['active'] === true);
 $a('  jaz_resource_id captured',                   $coa['accounts'][0]['jaz_resource_id'] === 'acc_1');
-$a('  query string carries page=1&pageSize=200',   str_contains($captured[0]['url'], 'page=1&pageSize=200'));
+$a('  query string carries Jaz `limit` (not legacy page/pageSize)',
+   str_contains($captured[0]['url'], 'limit=500'));
 
 // getTrialBalance — amount→cents
 $captured = []; $nextResp = ['status' => 200, 'body' => json_encode([
