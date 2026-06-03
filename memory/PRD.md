@@ -1,5 +1,125 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Account lifecycle — Remove from CoA)
+
+User direction (with screenshot of 15 `1000-XXXX First Citizens Bank
+— XXX` rows): "why would I pull the chart of accounts to then
+manually map it to existing items? also, I need to be able to
+remove accounts. the bank connection brought it all the accounts."
+
+### Diagnosis
+
+Plaid's bank-link flow (`api/plaid_bank_link.php:308 + 430`) writes
+one `accounting_accounts` row per bank sub-account so journal
+entries can debit/credit each Plaid account directly.  For a tenant
+with 15 First Citizens sub-accounts, that means 15 bank-shaped GL
+lines polluting the CoA — none of which the operator wants to map
+to Jaz's 249 generic CoA rows.
+
+The correct workflow is to either:
+  (a) Map all 15 bank-shaped CF rows to ONE Jaz "Cash" / "Bank
+      Accounts" row (multi-to-one mapping is already supported by
+      the unique constraint shape — `coreflux_account_id` is the
+      PK side, not `provider_account_id`).
+  (b) Remove the unwanted rows from the CoA entirely if the
+      operator never intends to post to them at the GL level.
+
+### Shipped
+
+1. **`core/accounting/account_lifecycle.php`** (NEW):
+   - `accountingAccountDelete($tenantId, $accountId)` — hard delete.
+     Refuses (throws `AccountingAccountDeleteBlockedException`) if:
+     * any posted journal lines reference the account
+       (`accounting_journal_entry_lines.account_id` JOIN-scoped via
+       `accounting_journal_entries.tenant_id` for the static-leak
+       sentry), OR
+     * any active `accounting_bank_accounts` row points its
+       `gl_account_code` at this account (status != archived/removed).
+     The exception carries a `reasons` array (e.g.
+     `{journal_lines: 12, active_bank_accounts: 1}`) so the API can
+     return per-reason counts to the UI.
+     Cascade-drops `accounting_account_mappings` rows (tenant-scoped
+     DELETE) before deleting the parent row.
+   - `accountingAccountDeactivate($tenantId, $accountId)` — soft
+     path that flips `active = 0` and stamps `updated_at`.  Always
+     permitted.
+
+2. **`api/accounting.php`** endpoints:
+   - `POST ?action=account_delete`     — wraps the hard delete.
+     Returns 409 with `{reasons: {...}}` extras on blocked.
+   - `POST ?action=account_deactivate` — wraps the soft archive.
+   - Both require `accounting.connection.manage` RBAC, both accept
+     `coreflux_account_id` (with `account_id` as alias for
+     symmetry with Step 4's existing API surface).
+
+3. **JazSyncNowCard inline Remove button**:
+   - Per-row Remove button alongside the existing "Map this to…"
+     dropdown.  Hover hint: "Permanently delete this CF account
+     from the Chart of Accounts (only if no posted journal lines
+     and no active bank feed)."
+   - On 409 → confirm fallback offers "Deactivate instead?"  If
+     accepted, the helper re-fires with `account_deactivate`.
+   - Local `removedNow` state tracks `coreflux_account_id →
+     'deleted' | 'deactivated'`.  Removed rows fade to opacity 0.5
+     and replace the dropdown/button with "✓ Removed from CoA" or
+     "✓ Deactivated".  State resets on every fresh sync run.
+   - Per-row testids:
+     `jaz-sync-unmapped-remove-{i}`,
+     `jaz-sync-unmapped-removed-{i}`.
+
+4. **Tenant-leak sentry compliance**: both `account_lifecycle.php`
+   queries explicitly JOIN to a parent tenant_id column or scope by
+   `tenant_id = :t` directly — the static analyzer in
+   `tests/tenant_leak_static_analyzer_smoke.php` certifies zero
+   leaks.
+
+### Test status
+- `tests/account_lifecycle_remove_smoke.php`         → 27/27 ✓ (NEW)
+- `tests/tenant_leak_static_analyzer_smoke.php`      → 5/5 ✓
+- `tests/jaz_unmapped_inline_dropdown_smoke.php`     → 29/29 ✓
+- Full PHP suite: **380 / 382 passing** (only the 2 documented
+  sandbox-bound failures remain).
+- Vite bundle: **`coreflux-BN1FpXAW`**, lint clean, all 4 sync
+  points consistent.
+
+### Files touched
+- `core/accounting/account_lifecycle.php` (NEW, ~140 LOC)
+- `api/accounting.php` (added 2 endpoints in a shared in_array gate)
+- `dashboard/src/pages/JazIntegrationSettings.jsx` (removedNow state,
+  removeAccount() helper, Remove button + 409 fallback, fade-out
+  row state)
+- `tests/account_lifecycle_remove_smoke.php` (NEW, 27 assertions)
+
+### Operator action (production)
+1. Deploy bundle `coreflux-BN1FpXAW`.
+2. Open Jaz → Step 3B → Sync now.
+3. For each of the 15 unwanted `1000-XXXX First Citizens Bank — XXX`
+   rows, click **Remove**.  Confirmation dialog reminds you that
+   the system will refuse if the account has posted journal lines
+   or backs an active bank feed.
+4. If a row is blocked → confirm the inline fallback to soft-
+   deactivate instead.  Ledger history stays intact; the row just
+   hides from active-account pickers.
+5. (Optional follow-up) Once the chart is clean, re-run Sync now
+   — the auto-mapper telemetry should report only the GL-shaped
+   accounts you actually care about syncing.
+
+### Roadmap (unchanged)
+- (P1) Mercury Webhooks hardening.
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P2) Audit the Plaid bank-link flow so future bank connections
+  DON'T silently seed `accounting_accounts` rows the operator
+  didn't ask for — should be opt-in via a "create GL line per
+  bank account?" toggle.
+- (P2) Gusto integration / QBO hardening.
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module.
+- (P3) AI Digest Scheduler (Resend rail live).
+
+---
+
 ## Session — 2026-02 (Inline "Map this to..." dropdown in Step 3B)
 
 User direction: "Yeah, dropdown!" → wire an inline mapping resolver

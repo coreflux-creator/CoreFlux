@@ -547,6 +547,10 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
   // resolved rows in place but greyed-out so the operator sees their
   // progress without losing the original telemetry context.
   const [mappedNow,  setMappedNow]  = useState({});
+  // Tracks rows the operator removed/deactivated inline so they fade
+  // out of the resolver but the request envelope is preserved for
+  // re-runs.  Map: coreflux_account_id → 'deleted' | 'deactivated'.
+  const [removedNow, setRemovedNow] = useState({});
   const [savingId,   setSavingId]   = useState(null);
 
   const saveMapping = async (cfId, cfName, providerOption) => {
@@ -580,9 +584,52 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
     } finally { setSavingId(null); }
   };
 
+  // Hard-delete or soft-deactivate a CF account from the CoA.  Plaid /
+  // imports occasionally seed rows the operator didn't actually want
+  // in the chart (e.g. one row per bank sub-account) — this lets them
+  // sweep without leaving the sync screen.
+  const removeAccount = async (cfId, cfName, mode /* 'delete' | 'deactivate' */) => {
+    if (!cfId) return;
+    const confirmMsg = mode === 'delete'
+      ? `Permanently delete "${cfName}" from the Chart of Accounts?\n\nThis will also drop any provider mappings tied to it.\n\nWe will refuse if the account has posted journal lines or backs an active bank feed.`
+      : `Hide "${cfName}" from active-account pickers (active=0)?\n\nLedger history is preserved.`;
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(confirmMsg)) return;
+    setSavingId(cfId);
+    try {
+      const action = mode === 'delete' ? 'account_delete' : 'account_deactivate';
+      await api.post(`/api/accounting.php?action=${action}&provider=jaz`, {
+        coreflux_account_id: cfId,
+      });
+      setRemovedNow((prev) => ({ ...prev, [cfId]: mode === 'delete' ? 'deleted' : 'deactivated' }));
+      onFlash?.({
+        kind: 'success',
+        msg:  mode === 'delete'
+          ? `Removed "${cfName}" from the Chart of Accounts.`
+          : `Deactivated "${cfName}" — no longer shown in active-account pickers.`,
+      });
+    } catch (e) {
+      // 409 means the account has references; fall back to offering
+      // soft-deactivate instead so the operator isn't stuck.
+      const status = e?.status ?? e?.response?.status;
+      const msg    = e?.message || 'unknown error';
+      if (status === 409 && mode === 'delete') {
+        // eslint-disable-next-line no-alert
+        const fallback = window.confirm(
+          `Cannot delete "${cfName}" — ${msg}\n\nDeactivate instead?`
+        );
+        if (fallback) { await removeAccount(cfId, cfName, 'deactivate'); return; }
+      }
+      onFlash?.({
+        kind: 'error',
+        msg:  `Failed to ${mode} "${cfName}": ${msg}`,
+      });
+    } finally { setSavingId(null); }
+  };
+
   const runSync = async (entityTypes = null) => {
     if (!subTenantId) return;
-    setBusy(true); setError(null); setResult(null); setMappedNow({});
+    setBusy(true); setError(null); setResult(null); setMappedNow({}); setRemovedNow({});
     try {
       const payload = { sub_tenant_id: subTenantId };
       if (entityTypes) payload.entity_types = entityTypes;
@@ -773,47 +820,72 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
                                     const cfId   = u.coreflux_account_id;
                                     const opts   = r.pull.provider_options || [];
                                     const done   = mappedNow[cfId];
+                                    const gone   = removedNow[cfId];
                                     const saving = savingId === cfId;
                                     return (
                                       <tr key={cfId || ui}
                                           data-testid={`jaz-sync-unmapped-row-${ui}`}
-                                          style={{ borderTop: '1px dashed #cbd5e1' }}>
+                                          style={{
+                                            borderTop: '1px dashed #cbd5e1',
+                                            opacity: gone ? 0.5 : 1,
+                                          }}>
                                         <td style={{ padding: '4px 6px', color: '#1e3a8a', whiteSpace: 'nowrap' }}>
                                           <strong>{u.code ? `${u.code} · ` : ''}{u.name}</strong>
                                           <span style={{ marginLeft: 6, color: '#64748b' }}>(norm: <code>{u.normalized}</code>)</span>
                                         </td>
                                         <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-                                          {done ? (
+                                          {gone ? (
+                                            <span style={{ color: '#64748b', fontStyle: 'italic' }}
+                                                  data-testid={`jaz-sync-unmapped-removed-${ui}`}>
+                                              {gone === 'deleted' ? '✓ Removed from CoA' : '✓ Deactivated'}
+                                            </span>
+                                          ) : done ? (
                                             <span style={{ color: '#047857', fontWeight: 600 }}
                                                   data-testid={`jaz-sync-unmapped-mapped-${ui}`}>
                                               ✓ Mapped → {done.name}
                                             </span>
                                           ) : (
-                                            <select
-                                              data-testid={`jaz-sync-unmapped-select-${ui}`}
-                                              disabled={saving}
-                                              defaultValue=""
-                                              onChange={(e) => {
-                                                const pid = e.target.value;
-                                                if (!pid) return;
-                                                const picked = opts.find((o) => o.provider_id === pid);
-                                                if (!picked) return;
-                                                saveMapping(cfId, u.name, picked);
-                                              }}
-                                              style={{
-                                                fontSize: 11, padding: '2px 6px',
-                                                border: '1px solid #93c5fd', borderRadius: 4,
-                                                background: 'white', maxWidth: 320,
-                                              }}>
-                                              <option value="">
-                                                {saving ? 'Saving…' : `Map this to… (${opts.length} Jaz rows)`}
-                                              </option>
-                                              {opts.map((o) => (
-                                                <option key={o.provider_id} value={o.provider_id}>
-                                                  {o.name}{o.subtype ? ` · ${o.subtype}` : ''}{o.type ? ` (${o.type})` : ''}
+                                            <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                              <select
+                                                data-testid={`jaz-sync-unmapped-select-${ui}`}
+                                                disabled={saving}
+                                                defaultValue=""
+                                                onChange={(e) => {
+                                                  const pid = e.target.value;
+                                                  if (!pid) return;
+                                                  const picked = opts.find((o) => o.provider_id === pid);
+                                                  if (!picked) return;
+                                                  saveMapping(cfId, u.name, picked);
+                                                }}
+                                                style={{
+                                                  fontSize: 11, padding: '2px 6px',
+                                                  border: '1px solid #93c5fd', borderRadius: 4,
+                                                  background: 'white', maxWidth: 280,
+                                                }}>
+                                                <option value="">
+                                                  {saving ? 'Saving…' : `Map this to… (${opts.length} Jaz rows)`}
                                                 </option>
-                                              ))}
-                                            </select>
+                                                {opts.map((o) => (
+                                                  <option key={o.provider_id} value={o.provider_id}>
+                                                    {o.name}{o.subtype ? ` · ${o.subtype}` : ''}{o.type ? ` (${o.type})` : ''}
+                                                  </option>
+                                                ))}
+                                              </select>
+                                              <button
+                                                type="button"
+                                                disabled={saving || !cfId}
+                                                onClick={() => removeAccount(cfId, u.name, 'delete')}
+                                                data-testid={`jaz-sync-unmapped-remove-${ui}`}
+                                                title="Permanently delete this CF account from the Chart of Accounts (only if no posted journal lines and no active bank feed)."
+                                                style={{
+                                                  fontSize: 11, padding: '2px 8px',
+                                                  border: '1px solid #fca5a5', borderRadius: 4,
+                                                  background: 'white', color: '#b91c1c',
+                                                  cursor: saving ? 'wait' : 'pointer',
+                                                }}>
+                                                Remove
+                                              </button>
+                                            </div>
                                           )}
                                         </td>
                                       </tr>

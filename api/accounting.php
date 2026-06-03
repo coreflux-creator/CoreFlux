@@ -228,6 +228,33 @@ if ($method === 'POST' && $action === 'account_mapping_auto') {
     }
 }
 
+// Account lifecycle — remove (hard) or deactivate (soft).  Used by the
+// Step 3B unmapped-row resolver and Step 4 mapping list so operators
+// can clean up CoA rows that Plaid / imports seeded incorrectly.
+if ($method === 'POST' && in_array($action, ['account_delete', 'account_deactivate'], true)) {
+    rbac_legacy_require($user, 'accounting.connection.manage');
+    require_once __DIR__ . '/../core/accounting/account_lifecycle.php';
+    $body = api_json_body();
+    $acctId = (int) ($body['coreflux_account_id'] ?? $body['account_id'] ?? 0);
+    if ($acctId <= 0) api_error('coreflux_account_id required', 422);
+    try {
+        if ($action === 'account_delete') {
+            api_ok(accountingAccountDelete($tid, $acctId));
+        } else {
+            api_ok(accountingAccountDeactivate($tid, $acctId));
+        }
+    } catch (AccountingAccountDeleteBlockedException $e) {
+        // 409 is the right semantics — the request is well-formed but
+        // the resource state forbids deletion.  Return the reasons
+        // structured so the UI can offer "Deactivate instead" inline.
+        api_error($e->getMessage(), 409, ['reasons' => $e->reasons]);
+    } catch (\InvalidArgumentException $e) {
+        api_error($e->getMessage(), 422);
+    } catch (\Throwable $e) {
+        api_error('account ' . $action . ' failed: ' . $e->getMessage(), 500);
+    }
+}
+
 if ($method === 'POST' && $action === 'sync_now') {
     /**
      * Manual sync trigger — operator-facing "Sync now" button.
