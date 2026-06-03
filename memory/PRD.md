@@ -1,5 +1,114 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Jaz pull telemetry + smart name matching)
+
+User direction: screenshot showed Step 3B with
+`chart_of_accounts → pull · pull: 0 mapped` — no error, no insight.
+The auto-mapper ran but matched none of the CF accounts and the UI
+swallowed the new telemetry I'd added in the previous session.
+
+### Root cause
+
+1. The Jaz auto-mapper's name normalizer was too conservative — it
+   only stripped colon-prefixed parent paths.  Operators routinely
+   have CF accounts named `"1001 - Cash"` / `"1001 Cash"` /
+   `"Cash (Bank)"` which never matched Jaz's plain `"Cash"`.
+2. Even when the auto-mapper added rich telemetry
+   (`matched_by_code`, `matched_by_name`, `provider_has_codes`,
+   `note`), JazSyncNowCard never surfaced any of it — operators saw
+   only the `pull: 0 mapped` summary string.
+3. The flash banner was misleadingly green for "0 mapped, 0 errors"
+   runs — the operator had no signal to dig deeper.
+
+### Shipped
+
+1. **Smarter `nameNorm` closure** in
+   `core/accounting/account_mapping_service.php`:
+   - ASCII-folds accents (`Crédit` → `credit`) via `iconv`.
+   - Strips leading numeric code prefix
+     (`/^\s*\d+\s*[-:.\s]+/` matches `"1001 - "`, `"1001. "`,
+     `"1001:"`, `"1001 "`).
+   - Strips trailing parenthetical qualifier
+     (`/\s*\([^)]*\)\s*$/` matches `" (Bank)"`, `" (US GAAP)"`).
+   - Strips colon-prefixed parent paths (carried over).
+   - Collapses ALL punctuation + whitespace runs to single spaces
+     using Unicode `\p{P}` class.
+   - Live probe vs the user's real 249-account Jaz tenant:
+     **9 / 14** tricky CF names now match (was 0 / 14 before).
+     The 5 non-matches are genuinely absent from the Jaz tenant —
+     no false positives.
+
+2. **Rich pull telemetry envelope** from
+   `accountingAccountMappingsAutoMap()`:
+   - `provider_row_count`  — total provider CoA rows pulled.
+   - `cf_unmapped_count`   — total CF accounts considered.
+   - `matched_by_code`     — exact code matches (confidence=80).
+   - `matched_by_name`     — name matches (confidence=60).
+   - `no_provider_match`   — CF accounts with no Jaz counterpart.
+   - `provider_has_codes`  — boolean (Jaz returns false).
+   - `unmapped_sample[]`   — first 8 unmapped CF rows
+     `{code, name, normalized}` so operators can see exactly what
+     the auto-mapper compared.
+
+3. **JazSyncNowCard inline telemetry block**:
+   - New `<details>` panel labelled "Show auto-map telemetry" that
+     auto-expands when `mapped === 0 && cf_unmapped_count > 0`.
+   - Renders the counters + a list of unmapped CF rows with their
+     normalized form so operators can pinpoint why each row missed.
+   - Distinct testids `jaz-sync-info-{entity}` /
+     `jaz-sync-info-{entity}-{block}-{line}`.
+
+4. **Flash banner — `kind:'info'` for empty-success runs**:
+   - Renders blue (#eff6ff / #1e3a8a) instead of green so the
+     "0 mapped" state is visually distinct from a true success.
+   - Message points operators at the telemetry block:
+     `"Sync finished with no changes. CoA · 0 mapped · 0 pushed —
+       open 'auto-map telemetry' below to see which CoreFlux rows
+       didn't match a Jaz account."`
+
+### Test status
+- `tests/auto_map_telemetry_and_smart_name_smoke.php` → 19/19 ✓ (NEW)
+- `tests/account_mapping_name_fallback_smoke.php`     → 16/16 ✓
+  (1 assertion updated for new Unicode regex).
+- `tests/jaz_push_409_and_error_surface_smoke.php`    → 28/28 ✓
+- Full PHP suite: **378 / 380 passing** (only the 2 known
+  sandbox-bound failures remain).
+- Vite bundle: **`coreflux-AzW5ZR_m`** (frontend changed —
+  JazSyncNowCard now renders the info block + new flash kind).
+
+### Files touched
+- `core/accounting/account_mapping_service.php` (smarter nameNorm
+  + richer pull envelope)
+- `dashboard/src/pages/JazIntegrationSettings.jsx` (telemetry block,
+  flash kind:info wiring, blue flash palette)
+- `tests/account_mapping_name_fallback_smoke.php` (1 updated
+  assertion for new Unicode normaliser)
+- `tests/auto_map_telemetry_and_smart_name_smoke.php` (NEW, 19
+  assertions)
+
+### Operator action (production)
+1. Deploy bundle `coreflux-AzW5ZR_m`.
+2. Open Jaz integration → Step 3B → Sync everything now.
+3. Auto-map telemetry block will expand automatically. Expected:
+   - With 15 CF accounts and 249 Jaz rows, the smarter normaliser
+     should land most (Cash, AR, Inventory, Prepaid Expenses, etc.).
+   - Any CF row that still misses will appear in the
+     "Unmapped CF accounts" list with its normalized form, so you
+     can either rename the CF row to match Jaz or map it manually
+     in Step 4.
+
+### Roadmap (unchanged)
+- (P1) Mercury Webhooks hardening.
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P2) Gusto integration / QBO hardening.
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module.
+- (P3) AI Digest Scheduler (Resend rail live).
+
+---
+
 ## Session — 2026-02 (Jaz CoA — verified live, end-to-end working)
 
 User direction: "closer!" → screenshot showed the new error-surface

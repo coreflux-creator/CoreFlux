@@ -43,8 +43,8 @@ ok('Declares $byName lookup',         (bool) preg_match('/\$byName\s*=\s*\[\];/'
 ok('Declares $nameNorm closure',      str_contains($src, '$nameNorm'));
 ok('nameNorm strips colon-prefixed parent path',
    str_contains($src, "strrchr(\$s, ':')"));
-ok('nameNorm collapses whitespace',
-   str_contains($src, "preg_replace('/\\s+/', ' '"));
+ok('nameNorm collapses punctuation + whitespace runs (Unicode-aware)',
+   str_contains($src, "preg_replace('/[\\p{P}\\s]+/u', ' '"));
 ok('First-write-wins on $byName (dup-name shadow safe)',
    str_contains($src, "!isset(\$byName[\$n])"));
 

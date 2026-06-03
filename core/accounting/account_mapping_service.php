@@ -194,14 +194,30 @@ function accountingAccountMappingsAutoMap(int $tenantId, int $subTenantId, strin
     $byCode = [];
     $byName = [];
     $nameNorm = static function (string $s): string {
-        $s = strtolower(trim($s));
-        // Strip provider parent-path prefixes (e.g. "Travel:Vehicle rental"
-        // → "vehicle rental") so a CoreFlux "Vehicle Rental" matches Jaz's
-        // nested-path naming convention.
+        $s = trim($s);
+        // ASCII-fold: turn "Crédit" / "Café" into "credit" / "cafe" so
+        // accent-stripped CF rows still match Jaz's plain-ASCII labels.
+        if (function_exists('iconv')) {
+            $asc = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $s);
+            if (is_string($asc) && $asc !== '') $s = $asc;
+        }
+        $s = strtolower($s);
+        // Strip provider parent-path prefixes ("Travel:Vehicle rental"
+        // → "vehicle rental") so a CoreFlux "Vehicle Rental" matches
+        // Jaz's nested-path naming convention.
         $tail = strrchr($s, ':');
         if ($tail !== false) $s = ltrim($tail, ':');
-        $s = preg_replace('/\s+/', ' ', $s) ?? $s;
-        return $s;
+        // Strip leading numeric code prefix like "1001 - Cash" /
+        // "1001. Cash" / "1001:Cash" so CF rows with code-prefixed
+        // names still match Jaz's name-only labels.
+        $s = preg_replace('/^\s*\d+\s*[-:.\s]+/', '', $s) ?? $s;
+        // Strip trailing parenthetical qualifier like "Cash (Bank)"
+        // → "cash" — operators routinely append context that Jaz
+        // doesn't carry.
+        $s = preg_replace('/\s*\([^)]*\)\s*$/', '', $s) ?? $s;
+        // Collapse punctuation/whitespace runs to single spaces.
+        $s = preg_replace('/[\p{P}\s]+/u', ' ', $s) ?? $s;
+        return trim($s);
     };
     foreach ($providerAccounts as $pa) {
         $code = strtolower((string) ($pa['code'] ?? ''));
@@ -219,6 +235,7 @@ function accountingAccountMappingsAutoMap(int $tenantId, int $subTenantId, strin
     $noMatch       = 0;
     $matchedByName = 0;
     $matchedByCode = 0;
+    $unmappedSample = []; // first 8 unmapped {code, name} pairs for operator telemetry
     foreach ($unmapped as $cf) {
         $cfCode = strtolower((string) ($cf['code'] ?? ''));
         $cfName = $nameNorm((string) ($cf['name'] ?? ''));
@@ -231,7 +248,17 @@ function accountingAccountMappingsAutoMap(int $tenantId, int $subTenantId, strin
             $pa = $byName[$cfName]; $source = 'auto_name'; $confidence = 60;
             $matchedByName++;
         }
-        if (!$pa) { $noMatch++; continue; }
+        if (!$pa) {
+            $noMatch++;
+            if (count($unmappedSample) < 8) {
+                $unmappedSample[] = [
+                    'code'           => (string) ($cf['code'] ?? ''),
+                    'name'           => (string) ($cf['name'] ?? ''),
+                    'normalized'     => $cfName,
+                ];
+            }
+            continue;
+        }
 
         $newMappings[] = accountingAccountMappingsSave(
             $tenantId, $subTenantId, $provider,
@@ -254,6 +281,9 @@ function accountingAccountMappingsAutoMap(int $tenantId, int $subTenantId, strin
         'matched_by_code'    => $matchedByCode,
         'matched_by_name'    => $matchedByName,
         'provider_has_codes' => $hasCodes,
+        'provider_row_count' => count($providerAccounts),
+        'cf_unmapped_count'  => count($unmapped),
+        'unmapped_sample'    => $unmappedSample,
         'new_mappings'       => $newMappings,
     ];
     // Operators benefit from knowing WHY a run was empty.

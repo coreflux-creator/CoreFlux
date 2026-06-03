@@ -152,8 +152,12 @@ export default function JazIntegrationSettings() {
         <div data-testid={`jaz-flash-${flash.kind}`}
              style={{
                padding: '8px 12px', borderRadius: 6, marginBottom: 12,
-               background: flash.kind === 'success' ? '#ecfdf5' : '#fef2f2',
-               color:      flash.kind === 'success' ? '#047857' : '#b91c1c',
+               background: flash.kind === 'success' ? '#ecfdf5'
+                         : flash.kind === 'info'    ? '#eff6ff'
+                         : '#fef2f2',
+               color:      flash.kind === 'success' ? '#047857'
+                         : flash.kind === 'info'    ? '#1e3a8a'
+                         : '#b91c1c',
                fontSize: 13,
              }}>{flash.msg}</div>
       )}
@@ -560,6 +564,14 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
           kind: 'error',
           msg: `Sync finished with issues. CoA · ${pull} mapped · ${push} pushed (${skp} already existed) · ${errs} error${errs === 1 ? '' : 's'} — expand the row below for details.`,
         });
+      } else if (pull === 0 && push === 0 && skp === 0) {
+        // No errors, but also no work done — surface that politely so
+        // the operator scrolls down to the auto-map telemetry block
+        // instead of trusting the silent green banner.
+        onFlash?.({
+          kind: 'info',
+          msg:  `Sync finished with no changes. CoA · 0 mapped · 0 pushed — open "auto-map telemetry" below to see which CoreFlux rows didn't match a Jaz account.`,
+        });
       } else {
         onFlash?.({
           kind: 'success',
@@ -617,6 +629,7 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
             {Object.entries(result.results).map(([entity, r]) => {
               let outcome = '';
               const errorList = [];
+              const infoList  = [];
               if (entity === 'chart_of_accounts') {
                 const pull = r.pull?.mapped ?? null;
                 const push = r.push?.pushed ?? null;
@@ -639,6 +652,30 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
                 }
                 if (r.pull?.error) {
                   errorList.push({ code: 'pull', error: r.pull.error });
+                }
+                // Pull-side telemetry — show the operator WHAT happened
+                // when the count is non-actionable (e.g. "pull: 0 mapped"
+                // with no error).  This is the only way they can see
+                // that the auto-mapper compared N CF accounts against M
+                // provider rows and found zero matches.
+                const pullR = r.pull;
+                if (pullR && pullR.cf_unmapped_count !== undefined) {
+                  const parts = [];
+                  parts.push(`CoreFlux unmapped: ${pullR.cf_unmapped_count}`);
+                  parts.push(`Jaz CoA rows: ${pullR.provider_row_count ?? '?'}`);
+                  parts.push(`matched by code: ${pullR.matched_by_code ?? 0}`);
+                  parts.push(`matched by name: ${pullR.matched_by_name ?? 0}`);
+                  parts.push(`no match: ${pullR.no_provider_match ?? 0}`);
+                  if (pullR.note) parts.push(`note: ${pullR.note}`);
+                  infoList.push({ heading: 'Auto-map summary', lines: parts });
+                  if (Array.isArray(pullR.unmapped_sample) && pullR.unmapped_sample.length > 0) {
+                    infoList.push({
+                      heading: `Unmapped CF accounts (first ${pullR.unmapped_sample.length}) — review in Step 4`,
+                      lines: pullR.unmapped_sample.map((u) =>
+                        `${u.code ? u.code + ' · ' : ''}${u.name}  →  no Jaz row matches "${u.normalized}"`
+                      ),
+                    });
+                  }
                 }
               } else {
                 outcome = r.note || 'queued via outbox';
@@ -665,6 +702,30 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
                               </li>
                             ))}
                           </ul>
+                        </details>
+                      </td>
+                    </tr>
+                  )}
+                  {infoList.length > 0 && (
+                    <tr data-testid={`jaz-sync-info-${entity}`}>
+                      <td colSpan={3} style={{ padding: '4px 6px 10px 6px', background: '#f0f9ff' }}>
+                        <details open={(r.pull?.mapped ?? 0) === 0 && (r.pull?.cf_unmapped_count ?? 0) > 0}>
+                          <summary style={{ cursor: 'pointer', color: '#1e40af', fontWeight: 600, fontSize: 12 }}>
+                            Show auto-map telemetry
+                          </summary>
+                          {infoList.map((block, bi) => (
+                            <div key={bi} style={{ marginTop: 8 }}>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: '#1e3a8a', marginBottom: 4 }}>
+                                {block.heading}
+                              </div>
+                              <ul style={{ margin: '0 0 0 18px', padding: 0, fontSize: 11, color: '#1e3a8a' }}>
+                                {block.lines.map((ln, li) => (
+                                  <li key={li} style={{ marginBottom: 2 }}
+                                      data-testid={`jaz-sync-info-${entity}-${bi}-${li}`}>{ln}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
                         </details>
                       </td>
                     </tr>
