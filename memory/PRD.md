@@ -1,5 +1,80 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Inline "Map this to..." dropdown in Step 3B)
+
+User direction: "Yeah, dropdown!" → wire an inline mapping resolver
+so operators can complete the auto-map workflow directly from the
+Step 3B telemetry block instead of jumping to Step 4 for each row.
+
+### Shipped
+
+1. **Backend response** in `accountingAccountMappingsAutoMap()`
+   (`core/accounting/account_mapping_service.php`):
+   - Every `unmapped_sample[]` row now carries `coreflux_account_id`
+     so the frontend can target the correct CF row on save.
+   - When any CF row was unmapped, the envelope additionally
+     includes `provider_options[]` — a compact list (capped at 500
+     entries) of every provider account with
+     `{provider_id, code, name, type, subtype}`.
+
+2. **Inline dropdown** in `JazSyncNowCard` (`JazIntegrationSettings.jsx`):
+   - Each unmapped row now renders an inline `<select>` populated
+     from `provider_options[]`.  Option label: `"name · subtype (type)"`.
+   - On change → POST `?action=account_mapping_save&provider=jaz`
+     with `source='manual', confidence=100`.
+   - Optimistic resolution: the row swaps to `"✓ Mapped → {name}"`
+     after a successful save; further interaction is disabled.
+   - Per-flash signal: a success toast confirms each mapping
+     ("Mapped X → Y · visible in Step 4") and an error toast
+     surfaces any save failure with the offending row name.
+   - `mappedNow` state resets on every new runSync so the resolver
+     starts clean.
+   - Local `savingId` state disables the select while in flight.
+
+3. **Test coverage** in
+   `tests/jaz_unmapped_inline_dropdown_smoke.php` (NEW, 29
+   assertions) — locks the backend envelope, the frontend state
+   machine, the testid scheme, the POST contract, and the section
+   gating (chart_of_accounts only, only when unmapped_sample is
+   non-empty).
+
+### Test status
+- `tests/jaz_unmapped_inline_dropdown_smoke.php` → 29/29 ✓
+- Full PHP suite: **379 / 381** (only the 2 known sandbox-bound
+  failures remain).
+- Vite bundle: **`coreflux-CTMp7TzW`** (frontend changed).
+- Lint clean.
+
+### Files touched
+- `core/accounting/account_mapping_service.php` (provider_options
+  envelope + coreflux_account_id on unmapped_sample)
+- `dashboard/src/pages/JazIntegrationSettings.jsx` (mappedNow /
+  savingId state, saveMapping POST, per-row dropdown row,
+  optimistic ✓ Mapped state)
+- `tests/jaz_unmapped_inline_dropdown_smoke.php` (NEW, 29 assertions)
+
+### Operator action (production)
+1. Deploy `coreflux-CTMp7TzW`.
+2. Click Sync now → telemetry block auto-expands when any CF row is
+   unmapped.
+3. For each row, pick the right Jaz account from the dropdown — the
+   mapping persists immediately with `source=manual, confidence=100`
+   and the row marks itself ✓ Mapped.
+4. Step 4 list still shows the same mappings — both surfaces share
+   the same backing table.
+
+### Roadmap (unchanged)
+- (P1) Mercury Webhooks hardening.
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P2) Gusto integration / QBO hardening.
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module.
+- (P3) AI Digest Scheduler (Resend rail live).
+
+---
+
 ## Session — 2026-02 (Jaz pull telemetry + smart name matching)
 
 User direction: screenshot showed Step 3B with

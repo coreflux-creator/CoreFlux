@@ -539,13 +539,50 @@ function JazCopyConfigCard({ subTenantId, entities, onFlash }) {
    them inline (which would race with the cron worker).
 -------------------------------------------------------------------- */
 function JazSyncNowCard({ subTenantId, onFlash }) {
-  const [busy,    setBusy]    = useState(false);
-  const [result,  setResult]  = useState(null);
-  const [error,   setError]   = useState(null);
+  const [busy,       setBusy]       = useState(false);
+  const [result,     setResult]     = useState(null);
+  const [error,      setError]      = useState(null);
+  // Map of coreflux_account_id → { provider_id, name } once the operator
+  // resolves an unmapped row via the inline dropdown.  Keeps the
+  // resolved rows in place but greyed-out so the operator sees their
+  // progress without losing the original telemetry context.
+  const [mappedNow,  setMappedNow]  = useState({});
+  const [savingId,   setSavingId]   = useState(null);
+
+  const saveMapping = async (cfId, cfName, providerOption) => {
+    if (!cfId || !providerOption?.provider_id) return;
+    setSavingId(cfId);
+    try {
+      const body = {
+        sub_tenant_id:         subTenantId,
+        coreflux_account_id:   cfId,
+        provider_account_id:   providerOption.provider_id,
+        provider_account_code: providerOption.code   || '',
+        provider_account_name: providerOption.name   || '',
+        provider_account_type: providerOption.type   || '',
+        source:                'manual',
+        confidence:            100,
+      };
+      await api.post('/api/accounting.php?action=account_mapping_save&provider=jaz', body);
+      setMappedNow((prev) => ({
+        ...prev,
+        [cfId]: { provider_id: providerOption.provider_id, name: providerOption.name },
+      }));
+      onFlash?.({
+        kind: 'success',
+        msg:  `Mapped "${cfName}" → "${providerOption.name}" (source=manual, confidence=100). Visible in Step 4.`,
+      });
+    } catch (e) {
+      onFlash?.({
+        kind: 'error',
+        msg:  `Failed to save mapping for "${cfName}": ${e.message || 'unknown error'}`,
+      });
+    } finally { setSavingId(null); }
+  };
 
   const runSync = async (entityTypes = null) => {
     if (!subTenantId) return;
-    setBusy(true); setError(null); setResult(null);
+    setBusy(true); setError(null); setResult(null); setMappedNow({});
     try {
       const payload = { sub_tenant_id: subTenantId };
       if (entityTypes) payload.entity_types = entityTypes;
@@ -668,14 +705,11 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
                   parts.push(`no match: ${pullR.no_provider_match ?? 0}`);
                   if (pullR.note) parts.push(`note: ${pullR.note}`);
                   infoList.push({ heading: 'Auto-map summary', lines: parts });
-                  if (Array.isArray(pullR.unmapped_sample) && pullR.unmapped_sample.length > 0) {
-                    infoList.push({
-                      heading: `Unmapped CF accounts (first ${pullR.unmapped_sample.length}) — review in Step 4`,
-                      lines: pullR.unmapped_sample.map((u) =>
-                        `${u.code ? u.code + ' · ' : ''}${u.name}  →  no Jaz row matches "${u.normalized}"`
-                      ),
-                    });
-                  }
+                  // Note: the unmapped_sample block is rendered separately
+                  // below (NOT in infoList) so we can include an inline
+                  // <select> dropdown per row.  Keeping it out of the
+                  // string-only `lines` array lets that renderer stay
+                  // simple.
                 }
               } else {
                 outcome = r.note || 'queued via outbox';
@@ -726,6 +760,69 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
                               </ul>
                             </div>
                           ))}
+                          {entity === 'chart_of_accounts'
+                            && Array.isArray(r.pull?.unmapped_sample)
+                            && r.pull.unmapped_sample.length > 0 && (
+                            <div style={{ marginTop: 10 }} data-testid="jaz-sync-unmapped-resolver">
+                              <div style={{ fontSize: 11, fontWeight: 600, color: '#1e3a8a', marginBottom: 4 }}>
+                                Map unmapped CoreFlux accounts (first {r.pull.unmapped_sample.length}) — pick a Jaz row to lock the mapping inline:
+                              </div>
+                              <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                                <tbody>
+                                  {r.pull.unmapped_sample.map((u, ui) => {
+                                    const cfId   = u.coreflux_account_id;
+                                    const opts   = r.pull.provider_options || [];
+                                    const done   = mappedNow[cfId];
+                                    const saving = savingId === cfId;
+                                    return (
+                                      <tr key={cfId || ui}
+                                          data-testid={`jaz-sync-unmapped-row-${ui}`}
+                                          style={{ borderTop: '1px dashed #cbd5e1' }}>
+                                        <td style={{ padding: '4px 6px', color: '#1e3a8a', whiteSpace: 'nowrap' }}>
+                                          <strong>{u.code ? `${u.code} · ` : ''}{u.name}</strong>
+                                          <span style={{ marginLeft: 6, color: '#64748b' }}>(norm: <code>{u.normalized}</code>)</span>
+                                        </td>
+                                        <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+                                          {done ? (
+                                            <span style={{ color: '#047857', fontWeight: 600 }}
+                                                  data-testid={`jaz-sync-unmapped-mapped-${ui}`}>
+                                              ✓ Mapped → {done.name}
+                                            </span>
+                                          ) : (
+                                            <select
+                                              data-testid={`jaz-sync-unmapped-select-${ui}`}
+                                              disabled={saving}
+                                              defaultValue=""
+                                              onChange={(e) => {
+                                                const pid = e.target.value;
+                                                if (!pid) return;
+                                                const picked = opts.find((o) => o.provider_id === pid);
+                                                if (!picked) return;
+                                                saveMapping(cfId, u.name, picked);
+                                              }}
+                                              style={{
+                                                fontSize: 11, padding: '2px 6px',
+                                                border: '1px solid #93c5fd', borderRadius: 4,
+                                                background: 'white', maxWidth: 320,
+                                              }}>
+                                              <option value="">
+                                                {saving ? 'Saving…' : `Map this to… (${opts.length} Jaz rows)`}
+                                              </option>
+                                              {opts.map((o) => (
+                                                <option key={o.provider_id} value={o.provider_id}>
+                                                  {o.name}{o.subtype ? ` · ${o.subtype}` : ''}{o.type ? ` (${o.type})` : ''}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
                         </details>
                       </td>
                     </tr>

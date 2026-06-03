@@ -252,9 +252,11 @@ function accountingAccountMappingsAutoMap(int $tenantId, int $subTenantId, strin
             $noMatch++;
             if (count($unmappedSample) < 8) {
                 $unmappedSample[] = [
-                    'code'           => (string) ($cf['code'] ?? ''),
-                    'name'           => (string) ($cf['name'] ?? ''),
-                    'normalized'     => $cfName,
+                    'coreflux_account_id' => (int) ($cf['id'] ?? 0),
+                    'code'                => (string) ($cf['code'] ?? ''),
+                    'name'                => (string) ($cf['name'] ?? ''),
+                    'type'                => (string) ($cf['type'] ?? ''),
+                    'normalized'          => $cfName,
                 ];
             }
             continue;
@@ -286,6 +288,27 @@ function accountingAccountMappingsAutoMap(int $tenantId, int $subTenantId, strin
         'unmapped_sample'    => $unmappedSample,
         'new_mappings'       => $newMappings,
     ];
+    // When the run leaves CF rows unmapped, ship a compact list of every
+    // provider account so the UI can render an inline "Map this to..."
+    // dropdown next to each unmapped row.  We cap at 500 to keep the
+    // payload sane — typical tenants live under 250.
+    if ($noMatch > 0) {
+        $opts = [];
+        $i = 0;
+        foreach ($providerAccounts as $pa) {
+            if (++$i > 500) break;
+            $pid = (string) ($pa['id'] ?? $pa['provider_id'] ?? '');
+            if ($pid === '') continue;
+            $opts[] = [
+                'provider_id'   => $pid,
+                'code'          => (string) ($pa['code']    ?? ''),
+                'name'          => (string) ($pa['name']    ?? ''),
+                'type'          => (string) ($pa['type']    ?? ''),
+                'subtype'       => (string) ($pa['subtype'] ?? ''),
+            ];
+        }
+        $out['provider_options'] = $opts;
+    }
     // Operators benefit from knowing WHY a run was empty.
     if (count($newMappings) === 0 && !$hasCodes && empty($byName)) {
         $out['error'] = 'Provider accounts carry no codes or names — auto-map unavailable';
