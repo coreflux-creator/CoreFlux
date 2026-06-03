@@ -7,6 +7,7 @@ import BillFromTimeBundleModal from './BillFromTimeBundleModal';
 import BillFromTimeEntriesModal from './BillFromTimeEntriesModal';
 import SuggestPaymentRunModal from './SuggestPaymentRunModal';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
+import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile';
 
 const STATUS_FILTERS = ['all','pending_approval','approved','partially_paid','paid','disputed','void'];
 
@@ -40,6 +41,7 @@ export default function BillsList() {
           Scoped to entity <code>{activeEntity.code}</code> — switch in the header to see another.
         </div>
       )}
+      <ApprovedHoursReadyTile variant="ap" onPick={() => setShowFromEntries(true)} />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)', flexWrap: 'wrap', gap: 8 }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {STATUS_FILTERS.map(s => (

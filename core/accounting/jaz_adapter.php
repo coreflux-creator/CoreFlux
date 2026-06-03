@@ -321,11 +321,36 @@ class JazAccountingAdapter extends AccountingProviderAdapter
             // 409 (already exists) is idempotent-success — look up the
             // existing row by code so the caller still gets a usable
             // provider_account_id.  Any other failure bubbles.
-            $isConflict = false;
-            if ($e instanceof \RuntimeException && method_exists($e, 'getCode')) {
-                $isConflict = ((int) $e->getCode()) === 409;
+            //
+            // BUGFIX (2026-02): JazApiException stores the HTTP status in
+            // the `httpStatus` PROPERTY, not in `getCode()` (which is
+            // always 0). The old check `(int) $e->getCode() === 409`
+            // therefore NEVER matched and every 409 surfaced as a hard
+            // error — which is exactly what users saw as
+            // "push: 0 created · 15 errors" in Step 3B.
+            $isConflict = ($e instanceof JazApiException) && ($e->httpStatus === 409);
+            if (!$isConflict) {
+                // Re-throw with a richer message that includes the code we
+                // were trying to push so the operator can see "which account
+                // failed and why" instead of just a count.
+                if ($e instanceof JazApiException) {
+                    $hint = '';
+                    if ($e->httpStatus === 401 || $e->httpStatus === 403) {
+                        $hint = ' [key needs chart_of_accounts.write — check Jaz → Settings → API Keys → scopes]';
+                    } elseif ($e->httpStatus === 422 || $e->httpStatus === 400) {
+                        $hint = ' [Jaz rejected the payload — check accountType=' . $type . ', currency, or required fields]';
+                    } elseif ($e->httpStatus === 404) {
+                        $hint = ' [endpoint not found — set JAZ_API_BASE if your tenant lives at a different host]';
+                    }
+                    $wrapped = new JazApiException(
+                        'createAccount(code=' . $code . ', name=' . substr($name, 0, 60) . '): ' . $e->getMessage() . $hint
+                    );
+                    $wrapped->httpStatus = $e->httpStatus;
+                    $wrapped->raw = $e->raw;
+                    throw $wrapped;
+                }
+                throw $e;
             }
-            if (!$isConflict) throw $e;
             $resp = jazCall($key, 'GET', 'chart-of-accounts', [], [
                 'page' => 1, 'pageSize' => 50, 'accountCode' => $code,
             ]);

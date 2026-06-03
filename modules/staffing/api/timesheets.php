@@ -338,7 +338,8 @@ if ($method === 'GET' && $action === 'approved_hours_ready') {
               AND te.billable = 1
               AND NOT EXISTS (
                   SELECT 1 FROM billing_invoice_lines bil
-                   WHERE bil.tenant_id = te.tenant_id
+                   INNER JOIN billing_invoices binv ON binv.id = bil.invoice_id
+                   WHERE binv.tenant_id = te.tenant_id
                      AND bil.source_type = 'time_entry'
                      AND bil.source_ref_id = te.id
               )";
@@ -359,7 +360,8 @@ if ($method === 'GET' && $action === 'approved_hours_ready') {
               AND te.payable = 1
               AND NOT EXISTS (
                   SELECT 1 FROM ap_bill_lines abl
-                   WHERE abl.tenant_id = te.tenant_id
+                   INNER JOIN ap_bills apb ON apb.id = abl.bill_id
+                   WHERE apb.tenant_id = te.tenant_id
                      AND abl.source_type = 'time_entry'
                      AND abl.source_ref_id = te.id
               )";

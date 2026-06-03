@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
+import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile';
 
 const fmtMoney = (cents) =>
   ((cents || 0) / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
@@ -31,6 +32,8 @@ export default function PayrollOverview() {
           deterministically — AI provides narrative review only.
         </p>
       </header>
+
+      <ApprovedHoursReadyTile variant="payroll" to="../pay_periods" />
 
       <div className="payroll-stats" data-testid="payroll-overview-stats">
         <div className="stat-card">

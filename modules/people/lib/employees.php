@@ -194,7 +194,7 @@ function peopleEnsureEmployeesFromW2(): array {
 
     // Find active W-2 people without a paired employees row.
     $candidates = scopedQuery(
-        "SELECT p.id, p.first_name, p.last_name, p.email_primary, p.date_of_birth
+        "SELECT p.id, p.first_name, p.last_name, p.email_primary, p.dob
            FROM people p
       LEFT JOIN people_employees pe
              ON pe.tenant_id = p.tenant_id
@@ -231,7 +231,7 @@ function peopleEnsureEmployeesFromW2(): array {
                 'legal_first_name' => $first,
                 'legal_last_name'  => $last,
                 'work_email'       => $c['email_primary'] ?: null,
-                'date_of_birth'    => $c['date_of_birth'] ?: null,
+                'date_of_birth'    => $c['dob'] ?: null,
                 'status'           => 'active',
                 'employment_type'  => 'full_time',
                 'flsa_class'       => 'non_exempt',

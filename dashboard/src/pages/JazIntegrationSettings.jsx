@@ -551,10 +551,21 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
       const pull = coa?.pull?.mapped         ?? 0;
       const push = coa?.push?.pushed         ?? 0;
       const skp  = coa?.push?.skipped_existing ?? 0;
-      onFlash?.({
-        type: 'success',
-        msg:  `Synced. CoA · ${pull} mapped from Jaz · ${push} pushed to Jaz (${skp} already existed).`,
-      });
+      const errs = (coa?.push?.errors?.length || 0) + (coa?.pull?.error ? 1 : 0);
+      if (errs > 0) {
+        // Operators were getting a success-coloured "Synced." banner even
+        // when every push failed. Flip the flash to a warning so they
+        // realise the run had errors and scroll to the expandable details.
+        onFlash?.({
+          kind: 'error',
+          msg: `Sync finished with issues. CoA · ${pull} mapped · ${push} pushed (${skp} already existed) · ${errs} error${errs === 1 ? '' : 's'} — expand the row below for details.`,
+        });
+      } else {
+        onFlash?.({
+          kind: 'success',
+          msg:  `Synced. CoA · ${pull} mapped from Jaz · ${push} pushed to Jaz (${skp} already existed).`,
+        });
+      }
     } catch (e) {
       setError(e.message || 'Sync failed');
     } finally { setBusy(false); }
@@ -605,25 +616,60 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
           <tbody>
             {Object.entries(result.results).map(([entity, r]) => {
               let outcome = '';
+              const errorList = [];
               if (entity === 'chart_of_accounts') {
                 const pull = r.pull?.mapped ?? null;
                 const push = r.push?.pushed ?? null;
                 const skp  = r.push?.skipped_existing ?? null;
-                const errs = (r.push?.errors?.length || 0) + (r.pull?.error ? 1 : 0);
+                const pushErrs = Array.isArray(r.push?.errors) ? r.push.errors : [];
+                const errs = pushErrs.length + (r.pull?.error ? 1 : 0);
                 outcome = [
                   pull !== null ? `pull: ${pull} mapped` : null,
                   push !== null ? `push: ${push} created${skp ? ` (${skp} skipped)` : ''}` : null,
                   errs ? `${errs} error${errs === 1 ? '' : 's'}` : null,
                 ].filter(Boolean).join(' · ') || 'no-op';
+                // Carry the per-row errors out for the expandable detail block
+                // so operators can finally see WHY each account failed instead
+                // of just a count.
+                for (const er of pushErrs.slice(0, 25)) {
+                  errorList.push({
+                    code: er.code || er.coreflux_account_code || `acct ${er.coreflux_account_id ?? '?'}`,
+                    error: er.error || 'unknown error',
+                  });
+                }
+                if (r.pull?.error) {
+                  errorList.push({ code: 'pull', error: r.pull.error });
+                }
               } else {
                 outcome = r.note || 'queued via outbox';
               }
               return (
-                <tr key={entity} data-testid={`jaz-sync-row-${entity}`} style={{ borderTop: '1px solid var(--cf-border, #eee)' }}>
-                  <td style={{ padding: '4px 6px' }}>{entity}</td>
-                  <td style={{ padding: '4px 6px' }}>{r.direction}</td>
-                  <td style={{ padding: '4px 6px' }}>{outcome}</td>
-                </tr>
+                <React.Fragment key={entity}>
+                  <tr data-testid={`jaz-sync-row-${entity}`} style={{ borderTop: '1px solid var(--cf-border, #eee)' }}>
+                    <td style={{ padding: '4px 6px' }}>{entity}</td>
+                    <td style={{ padding: '4px 6px' }}>{r.direction}</td>
+                    <td style={{ padding: '4px 6px' }}>{outcome}</td>
+                  </tr>
+                  {errorList.length > 0 && (
+                    <tr data-testid={`jaz-sync-errors-${entity}`}>
+                      <td colSpan={3} style={{ padding: '4px 6px 10px 6px', background: '#fef2f2' }}>
+                        <details>
+                          <summary style={{ cursor: 'pointer', color: '#b91c1c', fontWeight: 600, fontSize: 12 }}>
+                            Show {errorList.length} error detail{errorList.length === 1 ? '' : 's'}
+                          </summary>
+                          <ul style={{ margin: '6px 0 0 18px', padding: 0, fontSize: 11, color: '#7f1d1d' }}>
+                            {errorList.map((er, i) => (
+                              <li key={i} style={{ marginBottom: 2 }}
+                                  data-testid={`jaz-sync-error-${entity}-${i}`}>
+                                <strong>{er.code}</strong>: {er.error}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               );
             })}
           </tbody>

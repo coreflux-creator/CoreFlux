@@ -1,5 +1,139 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Jaz CoA push fix + Approved-hours-ready tile mount)
+
+User direction (after screenshots of Step 3B showing
+`chart_of_accounts → push: 0 created · 15 errors`): "See Jaz error
+screenshots [first]. Complete after [the approved-hours mount]" →
+diagnose the silent-failure mode of the Jaz CoA push pipeline THEN
+mount the approved-hours-ready tile on AP/Billing/Payroll so the
+operator can finally see the cross-module flow.
+
+### Bug 1 — Jaz CoA push silent failure
+
+**Root cause:** `core/accounting/jaz_adapter.php::createAccount()`
+detected 409 (already exists / idempotent success) via
+`(int) $e->getCode() === 409`.  But `JazApiException::getCode()` is
+ALWAYS 0 — the HTTP status is stored in the `httpStatus` PROPERTY.
+So every 409 fell through to `throw $e`, the push helper caught it,
+counted it as an error, and the run reported `0 created · 15 errors`
+even though Jaz had successfully recognised the codes as already
+existing.
+
+**Secondary issue:** the JazSyncNowCard UI showed only "15 errors"
+with no detail.  Even though the per-row `errors[]` array had the
+exact provider message, the React table collapsed it to a count.
+
+### Shipped
+
+1. **`jaz_adapter.php::createAccount()` fix**:
+   - 409 detection now uses `$e instanceof JazApiException && $e->httpStatus === 409`.
+   - Non-conflict errors are re-thrown with a richer message that
+     includes the code we tried to push + an HTTP-status-specific
+     hint (401/403 → check API key scopes; 404 → set JAZ_API_BASE;
+     422/400 → check accountType / payload).
+
+2. **`JazSyncNowCard.jsx` upgrade**:
+   - New expandable `<details>` block per entity row showing the
+     actual error message + offending code for the first 25 errors
+     (`jaz-sync-errors-{entity}` + `jaz-sync-error-{entity}-{i}` testids).
+   - Flash banner now flips to `kind: 'error'` when the run had
+     errors (previously stayed `success`-coloured even when zero
+     accounts pushed).
+
+3. **Schema-contract bugs from the prior session — fixed**:
+   - `staffing/api/timesheets.php` `approved_hours_ready` query
+     referenced `bil.tenant_id` / `abl.tenant_id` — but neither
+     `billing_invoice_lines` nor `ap_bill_lines` has a `tenant_id`
+     column (tenant scope flows through the parent invoice/bill).
+     Replaced with `INNER JOIN billing_invoices binv ON binv.id = bil.invoice_id`
+     and the mirror for `ap_bills apb`.
+   - `people/lib/employees.php::peopleEnsureEmployeesFromW2()` read
+     `p.date_of_birth FROM people` — but migration 003 renamed it to
+     `dob` on the unified directory table.  Now reads `p.dob` and
+     still stamps `people_employees.date_of_birth` (the W-2 table
+     keeps the long-form column name).
+   - `line_item_types_smoke.php` had a stale assertion expecting
+     `BillCreate.jsx` to use `CompanyTypeahead role="vendor"` —
+     updated to expect the new `VendorTypeahead testId="ap-bill-create-vendor"`.
+
+### Bug 2 — Approved-hours-ready tile not mounted
+
+**Root cause:** `ApprovedHoursReadyTile.jsx` was built in a prior
+session AND the `approved_hours_ready` aggregator endpoint already
+returned correct billing/ap/payroll buckets.  But the tile was never
+imported into `BillsList`, `InvoicesList`, or `PayrollOverview` — so
+operators on those pages had no visible indicator of how many
+approved hours were waiting to flow downstream.
+
+### Shipped
+
+1. **AP `BillsList.jsx`**:
+   - `import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile'`.
+   - Renders `<ApprovedHoursReadyTile variant="ap" onPick={() => setShowFromEntries(true)} />`
+     above the filter row.  Clicking the CTA opens the existing
+     `BillFromTimeEntriesModal`.
+
+2. **Billing `InvoicesList.jsx`**:
+   - Same import + mount as AP, `variant="billing"`.
+   - Pick handler opens the existing `InvoiceFromTimeEntriesModal`.
+
+3. **Payroll `PayrollOverview.jsx`**:
+   - Imports the tile, mounts `<ApprovedHoursReadyTile variant="payroll" to="../pay_periods" />`
+     between the header and the stat cards.
+   - Uses the `to` prop instead of `onPick` so the CTA renders as a
+     react-router `<Link>` straight to the pay-period list.
+
+### Test status
+- New: `tests/jaz_push_409_and_error_surface_smoke.php` — **16 / 16 ✓**
+  (locks the 409-via-httpStatus fix, error-wrapping with hints, the
+  expandable error UI, and the warning-flash branch).
+- New: `tests/approved_hours_ready_tile_mounted_smoke.php` — **19 / 19 ✓**
+  (locks the three mount sites, the tile component contract, and
+  the aggregator endpoint shape).
+- Fixed: `tests/line_item_types_smoke.php` — 56/56 ✓.
+- Fixed: `tests/schema_contract_smoke.php` — 3/3 ✓ (no NEW violations).
+- Full PHP suite: **376 / 378 passing**.  Only the two documented
+  sandbox-bound failures remain (`accounting_phase2_a7_smoke.php`,
+  `tenant_mail_senders_smoke.php` — no live MySQL / SMTP socket).
+- Vite build → bundle `coreflux-CiA6wnH5`. All four sync points
+  consistent (`.deploy-version`, `spa-assets/`, `dashboard/dist/index.html`,
+  service-worker `CACHE_VERSION`).
+
+### Files touched
+- `core/accounting/jaz_adapter.php` (409 detection + error wrapping)
+- `dashboard/src/pages/JazIntegrationSettings.jsx` (expandable errors + warning flash)
+- `modules/ap/ui/BillsList.jsx` (tile import + mount)
+- `modules/billing/ui/InvoicesList.jsx` (tile import + mount)
+- `modules/payroll/ui/PayrollOverview.jsx` (tile import + mount)
+- `modules/staffing/api/timesheets.php` (tenant_id JOIN fix for both buckets)
+- `modules/people/lib/employees.php` (`p.dob` instead of `p.date_of_birth`)
+- `tests/line_item_types_smoke.php` (VendorTypeahead assertion update)
+- `tests/jaz_push_409_and_error_surface_smoke.php` (new — 16 assertions)
+- `tests/approved_hours_ready_tile_mounted_smoke.php` (new — 19 assertions)
+
+### Operator next steps (production)
+1. Deploy → `update.php` (no new migrations).
+2. Re-run Jaz → Step 3B → "Sync everything now".  If push errors
+   still appear, click "Show N error details" — the actual Jaz
+   message will be inline.  Most 409 errors should now resolve to
+   `(N skipped — already existed)` automatically.
+3. AP / Billing / Payroll landing pages now surface the gradient
+   "Approved hours ready" tile pointing at the relevant create-from-
+   entries modal or pay-period list.
+
+### Roadmap (unchanged)
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P1) Mercury Webhooks hardening.
+- (P2) Gusto integration / QBO hardening.
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module.
+- (P3) AI Digest Scheduler.
+
+---
+
 ## Session — 2026-02 (AP Suggest Payment Run — Mercury batch dispatch)
 
 User direction: "yes, payment run. perfect." → ship the AP-side mirror

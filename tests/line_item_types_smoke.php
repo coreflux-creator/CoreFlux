@@ -68,7 +68,7 @@ $a('item-type change resets default unit',      strpos($ed, "setLine(i, { item_t
 echo "\nReact BillCreate page\n";
 $bc = (string) file_get_contents(__DIR__ . '/../modules/ap/ui/BillCreate.jsx');
 $a('page testid',                               strpos($bc, 'data-testid="ap-bill-create"') !== false);
-$a('vendor typeahead',                          strpos($bc, 'CompanyTypeahead') !== false && strpos($bc, 'role="vendor"') !== false);
+$a('vendor typeahead',                          strpos($bc, 'VendorTypeahead') !== false && strpos($bc, 'testId="ap-bill-create-vendor"') !== false);
 $a('uses LineItemEditor',                       strpos($bc, "import LineItemEditor") !== false);
 $a('passes glField=gl_expense_account_code',    strpos($bc, 'glField="gl_expense_account_code"') !== false);
 $a('fetches expense accounts only',             strpos($bc, '/modules/accounting/api/accounts.php?type=expense') !== false);

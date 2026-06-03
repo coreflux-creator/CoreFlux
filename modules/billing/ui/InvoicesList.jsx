@@ -5,6 +5,7 @@ import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import InvoiceFromTimeBundleModal from './InvoiceFromTimeBundleModal';
 import InvoiceFromTimeEntriesModal from './InvoiceFromTimeEntriesModal';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
+import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile';
 
 const STATUS_FILTERS = ['all','draft','approved','sent','partially_paid','paid','void'];
 
@@ -28,6 +29,7 @@ export default function InvoicesList() {
           Scoped to entity <code>{activeEntity.code}</code> — switch in the header to see another.
         </div>
       )}
+      <ApprovedHoursReadyTile variant="billing" onPick={() => setShowEntries(true)} />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--cf-space-4)' }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {STATUS_FILTERS.map(s => (
