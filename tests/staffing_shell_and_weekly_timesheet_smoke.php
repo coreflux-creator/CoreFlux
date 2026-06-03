@@ -93,7 +93,10 @@ $a('App.jsx keeps /modules/time/* back-compat',  str_contains($app, '<Route path
 $a('App.jsx keeps /modules/placements/* back-compat', str_contains($app, '<Route path="/modules/placements/*"'));
 
 $sm = $read(__DIR__ . '/../modules/staffing/ui/StaffingModule.jsx');
-$a('StaffingModule routes timesheets',           str_contains($sm, 'path="timesheets/*"'));
+$a('StaffingModule routes timesheets (list/detail/week sub-routes — Batch 2 rebuild)',
+    str_contains($sm, 'path="timesheets"')
+    && str_contains($sm, 'path="timesheets/week"')
+    && str_contains($sm, 'path="timesheets/:id"'));
 $a('StaffingModule routes approvals',            str_contains($sm, 'path="approvals/*"'));
 $a('StaffingModule routes placements (umbrella)', str_contains($sm, 'path="placements/*"'));
 $a('StaffingModule has settings page',           str_contains($sm, 'path="settings"'));

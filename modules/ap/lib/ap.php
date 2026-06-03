@@ -241,6 +241,215 @@ function apBuildDraftFromBundle(int $tenantId, int $periodId, array $placementId
 }
 
 /**
+ * Batch 4 (2026-02) — Build draft AP bill(s) from a flat list of
+ * `time_entries` IDs, bypassing the bundle abstraction.  Mirrors
+ * billingBuildDraftFromTimeEntries(): day-level granularity for
+ * payables, without waiting for period-close bundle build.
+ *
+ *   $aggregation = 'per_day'        → one bill per (placement, work_date)
+ *                = 'per_placement'  → one bill per placement
+ *                = 'per_vendor'     → one bill per vendor (1099 / corp)
+ *
+ * Pay-rate is looked up via placementCurrentRate(); OT/DT multipliers
+ * apply to the entry's hour_type. Returns the same shape as
+ * apBuildDraftFromBundle() with `bundle_ids: []` and an extra
+ * `entry_ids` array for the audit trail.
+ */
+function apBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string $aggregation = 'per_day'): array
+{
+    if (!in_array($aggregation, ['per_day', 'per_placement', 'per_vendor'], true)) {
+        throw new \InvalidArgumentException("invalid aggregation: {$aggregation}");
+    }
+    $ids = array_values(array_unique(array_map('intval', $timeEntryIds)));
+    $ids = array_values(array_filter($ids, static fn ($n) => $n > 0));
+    if (empty($ids)) throw new \InvalidArgumentException('time_entry_ids required');
+    if (count($ids) > 500) throw new \InvalidArgumentException('Too many time_entry_ids (max 500 per call)');
+
+    require_once __DIR__ . '/../../placements/lib/placements.php';
+
+    $pdo = getDB();
+    $tenant = $pdo->prepare('SELECT ap_default_terms FROM tenants WHERE id = :id');
+    $tenant->execute(['id' => $tenantId]);
+    $tcfg = $tenant->fetch(\PDO::FETCH_ASSOC) ?: [];
+    $terms = (string) ($tcfg['ap_default_terms'] ?? 'NET30');
+    $netDays = 30;
+    if (preg_match('/^NET(\d+)$/i', $terms, $m)) $netDays = (int) $m[1];
+
+    $placeholders = [];
+    $params = [];
+    foreach ($ids as $i => $id) {
+        $k = 'e' . $i;
+        $placeholders[] = ':' . $k;
+        $params[$k] = $id;
+    }
+    $entries = scopedQuery(
+        'SELECT te.id, te.placement_id, te.person_id, te.work_date, te.hour_type,
+                te.hours, te.billable, te.payable, te.status, te.description,
+                p.title AS placement_title, p.engagement_type,
+                pcd.corp_name,
+                pe.first_name, pe.last_name
+           FROM time_entries te
+      LEFT JOIN placements p   ON p.id = te.placement_id AND p.tenant_id = te.tenant_id
+      LEFT JOIN placement_corp_details pcd ON pcd.placement_id = p.id
+      LEFT JOIN people pe ON pe.id = te.person_id AND pe.tenant_id = te.tenant_id
+          WHERE te.tenant_id = :tenant_id
+            AND te.id IN (' . implode(',', $placeholders) . ')
+          ORDER BY te.placement_id, te.work_date, te.id',
+        $params
+    );
+    if (empty($entries)) throw new \RuntimeException('No matching time_entries found');
+
+    $payable = [];
+    foreach ($entries as $e) {
+        if ((int) $e['payable'] !== 1) continue;
+        if (!in_array((string) $e['status'], ['approved','locked','payroll_ready','billing_ready'], true)) {
+            throw new \RuntimeException(
+                "Entry #{$e['id']} (placement {$e['placement_id']}, {$e['work_date']}) status '{$e['status']}' — only approved entries can be paid."
+            );
+        }
+        if ((float) $e['hours'] <= 0) continue;
+        $payable[] = $e;
+    }
+    if (empty($payable)) throw new \RuntimeException('Selected entries have no payable hours');
+
+    // Resolve rate per (placement, work_date), cached.
+    $rateCache = [];
+    foreach ($payable as &$e) {
+        $key = $e['placement_id'] . ':' . $e['work_date'];
+        if (!isset($rateCache[$key])) {
+            $rateCache[$key] = placementCurrentRate((int) $e['placement_id'], (string) $e['work_date']);
+        }
+        $rate = $rateCache[$key];
+        $base = (float) ($rate['pay_rate'] ?? 0);
+        $ot   = (float) ($rate['ot_multiplier'] ?? 1.5);
+        $dt   = (float) ($rate['dt_multiplier'] ?? 2.0);
+        $mult = match ((string) $e['hour_type']) {
+            'overtime'   => $ot,
+            'doubletime' => $dt,
+            default      => 1.0,
+        };
+        $e['_pay_rate']         = round($base * $mult, 4);
+        $e['_rate_snapshot_id'] = $rate['id'] ?? null;
+        $engType    = strtolower((string) ($e['engagement_type'] ?? ''));
+        $e['_is_corp']    = ($engType === 'c2c' || !empty($e['corp_name']));
+        $e['_vendor_name']= $e['_is_corp']
+            ? (string) ($e['corp_name'] ?? 'Unknown Corp')
+            : (trim(($e['first_name'] ?? '') . ' ' . ($e['last_name'] ?? '')) ?: 'Unknown Vendor');
+        $e['_vendor_type']= $e['_is_corp'] ? 'c2c_corp' : '1099_individual';
+    }
+    unset($e);
+
+    $groups = [];
+    foreach ($payable as $e) {
+        $key = match ($aggregation) {
+            'per_day'       => 'D:' . $e['placement_id'] . ':' . $e['work_date'] . ':' . $e['_vendor_name'],
+            'per_placement' => 'P:' . $e['placement_id'],
+            'per_vendor'    => 'V:' . $e['_vendor_name'],
+        };
+        $groups[$key][] = $e;
+    }
+
+    $today   = date('Y-m-d');
+    $dueDate = date('Y-m-d', strtotime("+{$netDays} days"));
+    $bills   = [];
+
+    foreach ($groups as $rows) {
+        $first = $rows[0];
+        $vendorName = $first['_vendor_name'];
+        $vendorType = $first['_vendor_type'];
+        $is1099     = ($vendorType === '1099_individual');
+        $minDate = null; $maxDate = null;
+
+        $linesByKey = [];
+        foreach ($rows as $r) {
+            $lk = $r['placement_id'] . '|' . $r['work_date'] . '|' . $r['hour_type'];
+            if (!isset($linesByKey[$lk])) {
+                $linesByKey[$lk] = [
+                    'placement_id'    => (int) $r['placement_id'],
+                    'work_date'       => (string) $r['work_date'],
+                    'hour_type'       => (string) $r['hour_type'],
+                    'placement_title' => (string) ($r['placement_title'] ?? ''),
+                    'first_name'      => (string) ($r['first_name'] ?? ''),
+                    'last_name'       => (string) ($r['last_name'] ?? ''),
+                    'pay_rate'        => (float) $r['_pay_rate'],
+                    'rate_snapshot_id'=> $r['_rate_snapshot_id'] ?? null,
+                    'hours'           => 0.0,
+                    'source_refs'     => [],
+                ];
+            }
+            $linesByKey[$lk]['hours']       += (float) $r['hours'];
+            $linesByKey[$lk]['source_refs'][]= (int) $r['id'];
+            if (!$minDate || strcmp((string) $r['work_date'], $minDate) < 0) $minDate = (string) $r['work_date'];
+            if (!$maxDate || strcmp((string) $r['work_date'], $maxDate) > 0) $maxDate = (string) $r['work_date'];
+        }
+        ksort($linesByKey);
+
+        $lines = []; $lineNo = 1; $subtotal = 0.0;
+        foreach ($linesByKey as $ld) {
+            $sub = round($ld['hours'] * $ld['pay_rate'], 2);
+            $consultant = trim($ld['first_name'] . ' ' . $ld['last_name']) ?: 'Consultant';
+            $desc = sprintf(
+                '%s — %s · %s · %s',
+                $ld['placement_title'] ?: ('Placement #' . $ld['placement_id']),
+                $consultant,
+                $ld['work_date'],
+                $ld['hour_type']
+            );
+            $primaryRef = $ld['source_refs'][0];
+            $lines[] = [
+                'line_no'                 => $lineNo++,
+                'source_type'             => 'time_entry',
+                'item_type'               => 'labor',
+                'source_ref_id'           => $primaryRef,
+                'placement_id'            => $ld['placement_id'],
+                'rate_snapshot_id'        => $ld['rate_snapshot_id'] ? (int) $ld['rate_snapshot_id'] : null,
+                'description'             => $desc . (count($ld['source_refs']) > 1 ? ' (' . count($ld['source_refs']) . ' entries)' : ''),
+                'quantity'                => round($ld['hours'], 4),
+                'unit'                    => 'hour',
+                'unit_price'              => $ld['pay_rate'],
+                'subtotal'                => $sub,
+                'tax_rate_pct'            => 0,
+                'tax_amount'              => 0,
+                'total'                   => $sub,
+                'gl_expense_account_code' => null,
+                'is_1099_eligible'        => $is1099 ? 1 : 0,
+                '_entry_ids'              => $ld['source_refs'],
+            ];
+            $subtotal += $sub;
+        }
+        if (empty($lines)) continue;
+
+        $bills[] = [
+            'bill' => [
+                'vendor_name'    => $vendorName,
+                'vendor_type'    => $vendorType,
+                'received_at'    => $today,
+                'bill_date'      => $today,
+                'due_date'       => $dueDate,
+                'period_start'   => $minDate ?? $today,
+                'period_end'     => $maxDate ?? $today,
+                'currency'       => 'USD',
+                'subtotal'       => round($subtotal, 2),
+                'tax_total'      => 0,
+                'total'          => round($subtotal, 2),
+                'amount_due'     => round($subtotal, 2),
+                'status'         => 'pending_approval',
+                'source'         => 'time_entries',
+                'notes_internal' => null,
+                'payment_terms'  => null,
+                'pwp_status'     => 'not_pwp',
+            ],
+            'lines'      => $lines,
+            'bundle_ids' => [],
+            'entry_ids'  => array_merge(...array_column($lines, '_entry_ids')),
+        ];
+    }
+
+    return $bills;
+}
+
+
+/**
  * Whitelist for the item_type ENUM on ap_bill_lines / billing_invoice_lines.
  * Single source of truth — both modules import this list.
  */

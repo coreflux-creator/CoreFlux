@@ -4,6 +4,7 @@ import { api, useApi } from '../../../dashboard/src/lib/api'; // eslint-disable-
 import { useBulkSelection } from '../../../dashboard/src/lib/useBulkSelection';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import BillFromTimeBundleModal from './BillFromTimeBundleModal';
+import BillFromTimeEntriesModal from './BillFromTimeEntriesModal';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 const STATUS_FILTERS = ['all','pending_approval','approved','partially_paid','paid','disputed','void'];
@@ -11,6 +12,7 @@ const STATUS_FILTERS = ['all','pending_approval','approved','partially_paid','pa
 export default function BillsList() {
   const [status, setStatus] = useState('all');
   const [showFromBundle, setShowFromBundle] = useState(false);
+  const [showFromEntries, setShowFromEntries] = useState(false);
   const { activeEntityId, activeEntity } = useActiveEntity();
   const qs = new URLSearchParams();
   if (status !== 'all')    qs.set('status', status);
@@ -56,6 +58,9 @@ export default function BillsList() {
           <Link to="new" className="btn btn--primary" data-testid="ap-new-bill">+ New bill</Link>
           <button className="btn btn--ghost" onClick={() => setShowFromBundle(true)} data-testid="ap-new-from-time-bundle">
             New from time bundle
+          </button>
+          <button className="btn btn--ghost" onClick={() => setShowFromEntries(true)} data-testid="ap-bills-new-from-time-entries">
+            New from approved hours (day-level)
           </button>
           <Link to="csv_import" className="btn" data-testid="ap-bills-import-csv">Import CSV</Link>
           <a className="btn" href={`/modules/ap/api/bills_csv_export.php${status ? `?status=${status}` : ''}`} data-testid="ap-bills-export-all-csv">Export all (CSV)</a>
@@ -124,6 +129,13 @@ export default function BillsList() {
         <BillFromTimeBundleModal
           onClose={() => setShowFromBundle(false)}
           onCreated={() => { setShowFromBundle(false); reload(); }}
+        />
+      )}
+
+      {showFromEntries && (
+        <BillFromTimeEntriesModal
+          onClose={() => setShowFromEntries(false)}
+          onCreated={() => { setShowFromEntries(false); reload(); }}
         />
       )}
     </section>

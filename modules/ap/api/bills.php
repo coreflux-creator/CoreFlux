@@ -271,6 +271,103 @@ if ($method === 'GET') {
     api_ok(['rows' => $rows, 'total' => (int) ($cnt[0]['c'] ?? 0), 'page' => $page, 'per_page' => $perPage]);
 }
 
+if ($method === 'POST' && $action === 'from-time-entries') {
+    rbac_legacy_require($user, 'ap.bill.create');
+    $body = api_json_body();
+    api_require_fields($body, ['time_entry_ids']);
+    $entryIds    = (array) $body['time_entry_ids'];
+    $aggregation = (string) ($body['aggregation'] ?? 'per_day');
+
+    try {
+        $drafts = apBuildDraftFromTimeEntries($tid, $entryIds, $aggregation);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 422); }
+    if (empty($drafts)) api_error('No bills could be built (no payable entries)', 422);
+
+    $pdo = getDB();
+    $created = [];
+    $pdo->beginTransaction();
+    try {
+        foreach ($drafts as $d) {
+            $bill = $d['bill'];
+            $bill['tenant_id']          = $tid;
+            $bill['internal_ref']       = apNextInternalRef($tid);
+            $bill['bill_number']        = $bill['internal_ref'];
+            $bill['created_by_user_id'] = $user['id'] ?? null;
+
+            $billId = scopedInsert('ap_bills', $bill);
+
+            foreach ($d['lines'] as $l) {
+                unset($l['_entry_ids']);
+                $l['bill_id']   = $billId;
+                $l['item_type'] = apNormalizeItemType($l['item_type'] ?? null, $l['source_type'] ?? 'time_entry');
+                $stmt = $pdo->prepare(
+                    'INSERT INTO ap_bill_lines
+                      (bill_id, line_no, source_type, item_type, source_ref_id, placement_id, rate_snapshot_id,
+                       description, quantity, unit, unit_price, subtotal, tax_rate_pct, tax_amount, total,
+                       gl_expense_account_code, is_1099_eligible)
+                     VALUES
+                      (:bill_id, :line_no, :source_type, :item_type, :source_ref_id, :placement_id, :rate_snapshot_id,
+                       :description, :quantity, :unit, :unit_price, :subtotal, :tax_rate_pct, :tax_amount, :total,
+                       :gl_expense_account_code, :is_1099_eligible)'
+                );
+                $stmt->execute($l);
+            }
+
+            // Upsert vendors_index + companies for corporate vendors.
+            $companyId = null;
+            if (in_array($bill['vendor_type'], ['c2c_corp','w9_business','utility','other'], true)) {
+                require_once __DIR__ . '/../../people/lib/companies.php';
+                $companyId = companiesUpsertByName($tid, (string) $bill['vendor_name'], [
+                    'created_by_user_id' => $user['id'] ?? null,
+                ], ['vendor']);
+                companiesBumpUsage($companyId);
+                // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
+                $pdo->prepare('UPDATE ap_bills SET vendor_company_id = :cid WHERE id = :id')
+                    ->execute(['cid' => $companyId, 'id' => $billId]);
+            }
+            $pdo->prepare(
+                'INSERT INTO ap_vendors_index (tenant_id, vendor_name, company_id, vendor_type, requires_1099, last_bill_at, placement_id_last)
+                 VALUES (:t, :v, :cid, :vt, :r, NOW(), :pid)
+                 ON DUPLICATE KEY UPDATE
+                   company_id = COALESCE(VALUES(company_id), company_id),
+                   vendor_type = VALUES(vendor_type),
+                   requires_1099 = GREATEST(requires_1099, VALUES(requires_1099)),
+                   last_bill_at = NOW(),
+                   placement_id_last = VALUES(placement_id_last)'
+            )->execute([
+                't'  => $tid,
+                'v'  => $bill['vendor_name'],
+                'cid'=> $companyId,
+                'vt' => $bill['vendor_type'],
+                'r'  => $bill['vendor_type'] === '1099_individual' ? 1 : 0,
+                'pid'=> !empty($d['lines'][0]['placement_id']) ? (int) $d['lines'][0]['placement_id'] : null,
+            ]);
+
+            apAudit('ap.bill.created', [
+                'bill_id'     => $billId,
+                'internal_ref'=> $bill['internal_ref'],
+                'vendor'      => $bill['vendor_name'],
+                'source'      => 'time_entries',
+                'aggregation' => $aggregation,
+                'entry_ids'   => $d['entry_ids'],
+            ], $billId);
+
+            $created[] = [
+                'id'           => $billId,
+                'internal_ref' => $bill['internal_ref'],
+                'vendor_name'  => $bill['vendor_name'],
+                'total'        => $bill['total'],
+                'entry_count'  => count($d['entry_ids']),
+            ];
+        }
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error('Bill create failed: ' . $e->getMessage(), 500);
+    }
+    api_ok(['bills_created' => $created], 201);
+}
+
 if ($method === 'POST' && $action === 'from-time-bundle') {
     rbac_legacy_require($user, 'ap.bill.create');
     $body = api_json_body();

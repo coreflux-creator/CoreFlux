@@ -146,6 +146,163 @@ if ($method === 'GET' && $action === 'week_economics') {
     api_ok(['rows' => $rows, 'total' => $total]);
 }
 
+// ─── Single-timesheet drill-in (Batch 2 — 2026-02) ─────────────────────
+//
+// Click into a single timesheet from the list/queue instead of re-deriving
+// it from (person_id, period_start, period_end). Returns the full header
+// + every entry, with placement title + client name joined for the row
+// renderer. Read-only on the API — the existing bulk_save path handles
+// edits.
+if ($method === 'GET' && $action === 'detail') {
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 400);
+    $header = scopedFind(
+        'SELECT t.id, t.person_id, t.period_start, t.period_end, t.status,
+                t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
+                t.created_at, t.updated_at,
+                p.first_name, p.last_name, p.email_primary
+           FROM staffing_timesheets t
+      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = t.tenant_id
+          WHERE t.tenant_id = :tenant_id AND t.id = :id LIMIT 1',
+        ['id' => $id]
+    );
+    if (!$header) api_error('timesheet not found', 404);
+    $entries = scopedQuery(
+        "SELECT te.id, te.placement_id, te.work_date, te.hour_type, te.category,
+                te.hours, te.billable, te.payable, te.description, te.status,
+                pl.title AS placement_title,
+                COALESCE(pl.end_client_name, '') AS client_name
+           FROM time_entries te
+      LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
+          WHERE te.tenant_id = :tenant_id
+            AND te.timesheet_id = :tid
+            AND te.status != 'superseded'
+          ORDER BY te.work_date, te.placement_id, te.id",
+        ['tid' => $id]
+    );
+    api_ok(['timesheet' => $header, 'entries' => $entries]);
+}
+
+// ─── Placement-scoped timesheets list (Batch 2 — 2026-02) ──────────────
+//
+// "Show me every timesheet that touched THIS placement." Used by the new
+// PlacementDetail → Timesheets tab to surface history + pending + create
+// new affordances at the placement granularity.
+if ($method === 'GET' && $action === 'list_for_placement') {
+    $placementId = (int) ($_GET['placement_id'] ?? 0);
+    if ($placementId <= 0) api_error('placement_id required', 400);
+    $where  = ['t.tenant_id = :tenant_id', 'te.placement_id = :plid'];
+    $params = ['plid' => $placementId];
+    if (!empty($_GET['status'])) { $where[] = 't.status = :s'; $params['s'] = $_GET['status']; }
+    if (!empty($_GET['period_start']))  { $where[] = 't.period_start >= :ps';    $params['ps'] = $_GET['period_start']; }
+    if (!empty($_GET['period_end']))    { $where[] = 't.period_end <= :pe';      $params['pe'] = $_GET['period_end']; }
+    $whereSql = implode(' AND ', $where);
+
+    $rows = scopedQuery(
+        "SELECT t.id, t.person_id, t.period_start, t.period_end, t.status,
+                t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
+                p.first_name, p.last_name, p.email_primary,
+                SUM(te.hours) AS placement_hours,
+                SUM(CASE WHEN te.billable = 1 THEN te.hours ELSE 0 END) AS billable_hours
+           FROM staffing_timesheets t
+           JOIN time_entries te ON te.timesheet_id = t.id AND te.tenant_id = t.tenant_id
+                                AND te.status != 'superseded'
+      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = t.tenant_id
+          WHERE {$whereSql}
+          GROUP BY t.id, t.person_id, t.period_start, t.period_end, t.status,
+                   t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
+                   p.first_name, p.last_name, p.email_primary
+          ORDER BY t.period_start DESC, t.id DESC
+          LIMIT 500",
+        $params
+    );
+    api_ok(['rows' => $rows, 'placement_id' => $placementId]);
+}
+
+// ─── Placement-scoped single-timesheet detail (Batch 2 — 2026-02) ──────
+//
+// View a single timesheet's entries filtered to just one placement.
+// Useful when the timesheet covers multiple placements but the operator
+// only cares about THIS one's hours (e.g. for billing or pay rec).
+if ($method === 'GET' && $action === 'detail_for_placement') {
+    $id          = (int) ($_GET['id'] ?? 0);
+    $placementId = (int) ($_GET['placement_id'] ?? 0);
+    if ($id <= 0)          api_error('id required', 400);
+    if ($placementId <= 0) api_error('placement_id required', 400);
+    $header = scopedFind(
+        'SELECT t.id, t.person_id, t.period_start, t.period_end, t.status,
+                t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
+                p.first_name, p.last_name, p.email_primary
+           FROM staffing_timesheets t
+      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = t.tenant_id
+          WHERE t.tenant_id = :tenant_id AND t.id = :id LIMIT 1',
+        ['id' => $id]
+    );
+    if (!$header) api_error('timesheet not found', 404);
+    $entries = scopedQuery(
+        "SELECT te.id, te.placement_id, te.work_date, te.hour_type, te.category,
+                te.hours, te.billable, te.payable, te.description, te.status,
+                pl.title AS placement_title,
+                COALESCE(pl.end_client_name, '') AS client_name
+           FROM time_entries te
+      LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
+          WHERE te.tenant_id = :tenant_id
+            AND te.timesheet_id = :tid
+            AND te.placement_id = :plid
+            AND te.status != 'superseded'
+          ORDER BY te.work_date, te.id",
+        ['tid' => $id, 'plid' => $placementId]
+    );
+    // Per-placement total so the UI can show "8h of 40h total for this person"
+    $plHours = 0.0;
+    foreach ($entries as $e) $plHours += (float) $e['hours'];
+    api_ok([
+        'timesheet'           => $header,
+        'entries'             => $entries,
+        'placement_id'        => $placementId,
+        'placement_hours'     => $plHours,
+    ]);
+}
+
+// ─── Approved-entry picker (Batch 4 — 2026-02) ─────────────────────────
+//
+// Surfaces approved/billable time entries matching a placement + date
+// range so the operator can hand-pick rows for the new flexible
+// invoice/payable creation flow. Returns lightweight rows (no rate
+// resolution — that happens server-side at draft time).
+if ($method === 'GET' && $action === 'approved_entries') {
+    $where  = [
+        'te.tenant_id = :tenant_id',
+        "te.status IN ('approved','locked','payroll_ready','billing_ready')",
+        "te.hours > 0",
+    ];
+    $params = [];
+    if (!empty($_GET['placement_id']))  { $where[] = 'te.placement_id = :plid';  $params['plid'] = (int) $_GET['placement_id']; }
+    if (!empty($_GET['person_id']))     { $where[] = 'te.person_id = :pid';      $params['pid']  = (int) $_GET['person_id']; }
+    if (!empty($_GET['date_from']))     { $where[] = 'te.work_date >= :df';      $params['df']   = $_GET['date_from']; }
+    if (!empty($_GET['date_to']))       { $where[] = 'te.work_date <= :dt';      $params['dt']   = $_GET['date_to']; }
+    $purpose = $_GET['purpose'] ?? 'billable';
+    if ($purpose === 'payable')   $where[] = 'te.payable = 1';
+    elseif ($purpose === 'billable') $where[] = 'te.billable = 1';
+    $whereSql = implode(' AND ', $where);
+
+    $rows = scopedQuery(
+        "SELECT te.id, te.placement_id, te.person_id, te.work_date, te.hour_type,
+                te.hours, te.billable, te.payable, te.status, te.description,
+                pl.title AS placement_title,
+                COALESCE(pl.end_client_name, '') AS client_name,
+                p.first_name, p.last_name, p.email_primary
+           FROM time_entries te
+      LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
+      LEFT JOIN people p ON p.id = te.person_id AND p.tenant_id = te.tenant_id
+          WHERE {$whereSql}
+          ORDER BY te.work_date ASC, te.placement_id, te.id
+          LIMIT 500",
+        $params
+    );
+    api_ok(['rows' => $rows, 'purpose' => $purpose]);
+}
+
 if ($method === 'POST' && $action === 'bulk_save') {
     $body = api_json_body();
     try {

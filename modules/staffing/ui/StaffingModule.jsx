@@ -1,6 +1,8 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import TimesheetWeek from './TimesheetWeek';
+import TimesheetsList from './TimesheetsList';
+import TimesheetDetail from './TimesheetDetail';
 import StaffingOverview from './StaffingOverview';
 import StaffingApprovals from './StaffingApprovals';
 import StaffingSettings from './StaffingSettings';
@@ -22,6 +24,10 @@ import PlacementsModule from '../../placements/ui/PlacementsModule';
  * Phase 1 (this sprint): module shell + weekly timesheet grid.
  * Reuses existing Placements UI verbatim. Clients/Jobs/Readiness pages
  * are "coming soon" stubs that ship in Phase 2.
+ *
+ * Phase 2 — Batch 2 (2026-02): timesheets is now a proper list/detail
+ *   sub-router so operators can drill into individual timesheets and
+ *   land on a placement-scoped detail view from the placement page.
  */
 export default function StaffingModule({ session }) {
   return (
@@ -29,7 +35,9 @@ export default function StaffingModule({ session }) {
       <Routes>
         <Route index               element={<Navigate to="overview" replace />} />
         <Route path="overview"     element={<StaffingOverview session={session} />} />
-        <Route path="timesheets/*" element={<TimesheetWeek session={session} />} />
+        <Route path="timesheets"            element={<TimesheetsList session={session} />} />
+        <Route path="timesheets/week"       element={<TimesheetWeek session={session} />} />
+        <Route path="timesheets/:id"        element={<TimesheetDetail session={session} />} />
         <Route path="approvals/*"  element={<StaffingApprovals session={session} />} />
         <Route path="placements/*" element={<PlacementsModule session={session} />} />
         <Route path="settings"     element={<StaffingSettings session={session} />} />

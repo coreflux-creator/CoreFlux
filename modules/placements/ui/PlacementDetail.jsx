@@ -5,6 +5,7 @@ import { uploadFileViaPresignedPost } from '../../../dashboard/src/lib/uploads';
 import LinkedExternalSystemsPanel from '../../../dashboard/src/components/LinkedExternalSystemsPanel';
 import SyncHistoryDrawer from '../../../dashboard/src/components/SyncHistoryDrawer';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
+import PlacementTimesheetsTab from './PlacementTimesheetsTab';
 
 /**
  * Placement Detail — SPEC §7 tabs.
@@ -36,6 +37,7 @@ export default function PlacementDetail({ session }) {
     { slug: 'referrals',   label: 'Referrals' },
     ...(placement.engagement_type === 'c2c' ? [{ slug: 'corp', label: 'Corp (C2C)' }] : []),
     { slug: 'cycles',      label: 'Cycles' },
+    { slug: 'timesheets',  label: 'Timesheets' },
     { slug: 'documents',   label: 'Documents' },
     { slug: 'approval',    label: 'Approval' },
     { slug: 'margin',      label: 'Margin' },
@@ -111,6 +113,7 @@ export default function PlacementDetail({ session }) {
         <Route path="referrals"  element={<ReferralsTab   pid={placement.id} rows={referrals} reload={reload} />} />
         <Route path="corp"       element={<CorpTab        pid={placement.id} />} />
         <Route path="cycles"     element={<CyclesTab      placement={placement} reload={reload} />} />
+        <Route path="timesheets" element={<PlacementTimesheetsTab pid={placement.id} />} />
         <Route path="documents"  element={<DocumentsTab   pid={placement.id} rows={documents} reload={reload} />} />
         <Route path="approval"   element={<ApprovalTab    pid={placement.id} placement={placement} reload={reload} />} />
         <Route path="margin"     element={<MarginTab      currentRate={currentRate} chain={chain} />} />

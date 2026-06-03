@@ -188,6 +188,222 @@ function billingBuildDraftFromBundle(int $tenantId, int $periodId, array $placem
 }
 
 /**
+ * Batch 4 (2026-02) — Build draft invoice(s) from a flat list of
+ * `time_entries` IDs, bypassing the bundle abstraction.  Gives operators
+ * day-level granularity: "bill these specific approved entries", without
+ * needing to wait for period-close bundle build.
+ *
+ * Each entry's bill rate is looked up via `placementCurrentRate()` for
+ * its `work_date`.  Entries that are not approved-and-billable are
+ * rejected.
+ *
+ *   $aggregation = 'per_day'        → one invoice per (placement, work_date)
+ *                = 'per_placement'  → one invoice per placement (lines per day)
+ *                = 'per_client'     → one invoice per client (lines per placement)
+ *
+ * Returns the same shape as `billingBuildDraftFromBundle()` so the
+ * controller can reuse the persist loop.  `bundle_ids` is empty for
+ * entry-driven drafts; lines carry `source_type='time_entry'` +
+ * `source_ref_id=time_entries.id` instead so the audit trail still tells
+ * the post-close auditor which entries fed the invoice.
+ */
+function billingBuildDraftFromTimeEntries(int $tenantId, array $timeEntryIds, string $aggregation = 'per_day'): array
+{
+    if (!in_array($aggregation, ['per_day', 'per_placement', 'per_client'], true)) {
+        throw new \InvalidArgumentException("invalid aggregation: {$aggregation}");
+    }
+    $ids = array_values(array_unique(array_map('intval', $timeEntryIds)));
+    $ids = array_values(array_filter($ids, static fn ($n) => $n > 0));
+    if (empty($ids)) throw new \InvalidArgumentException('time_entry_ids required');
+    if (count($ids) > 500) throw new \InvalidArgumentException('Too many time_entry_ids (max 500 per call)');
+
+    require_once __DIR__ . '/../../placements/lib/placements.php';
+
+    $pdo = getDB();
+    $tenant = $pdo->prepare('SELECT billing_tax_rate_pct, billing_invoice_terms FROM tenants WHERE id = :id');
+    $tenant->execute(['id' => $tenantId]);
+    $tcfg   = $tenant->fetch(\PDO::FETCH_ASSOC) ?: [];
+    $taxPct = (float) ($tcfg['billing_tax_rate_pct'] ?? 0);
+    $terms  = (string) ($tcfg['billing_invoice_terms'] ?? 'NET30');
+    $netDays = 30;
+    if (preg_match('/^NET(\d+)$/i', $terms, $m)) $netDays = (int) $m[1];
+
+    // Fetch entries + placement + person joined.
+    $placeholders = [];
+    $params = [];
+    foreach ($ids as $i => $id) {
+        $k = 'e' . $i;
+        $placeholders[] = ':' . $k;
+        $params[$k] = $id;
+    }
+    $entries = scopedQuery(
+        'SELECT te.id, te.placement_id, te.person_id, te.work_date, te.hour_type,
+                te.hours, te.billable, te.payable, te.status, te.description,
+                p.title AS placement_title, p.end_client_name,
+                pe.first_name, pe.last_name
+           FROM time_entries te
+      LEFT JOIN placements p  ON p.id = te.placement_id AND p.tenant_id = te.tenant_id
+      LEFT JOIN people     pe ON pe.id = te.person_id   AND pe.tenant_id = te.tenant_id
+          WHERE te.tenant_id = :tenant_id
+            AND te.id IN (' . implode(',', $placeholders) . ')
+          ORDER BY te.placement_id, te.work_date, te.id',
+        $params
+    );
+    if (empty($entries)) throw new \RuntimeException('No matching time_entries found');
+
+    // Validate every entry is approved + billable. Non-billable rows are
+    // silently dropped (not an error — operator probably selected them by
+    // accident from a mixed picker).
+    $billable = [];
+    foreach ($entries as $e) {
+        if ((int) $e['billable'] !== 1) continue;
+        if (!in_array((string) $e['status'], ['approved','locked','billing_ready','payroll_ready'], true)) {
+            throw new \RuntimeException(
+                "Entry #{$e['id']} (placement {$e['placement_id']}, {$e['work_date']}) status '{$e['status']}' — only approved entries can be invoiced."
+            );
+        }
+        if ((float) $e['hours'] <= 0) continue;
+        $billable[] = $e;
+    }
+    if (empty($billable)) throw new \RuntimeException('Selected entries have no billable hours');
+
+    // Resolve rate for each entry (cached per placement+date).
+    $rateCache = [];
+    foreach ($billable as &$e) {
+        $key = $e['placement_id'] . ':' . $e['work_date'];
+        if (!isset($rateCache[$key])) {
+            $rateCache[$key] = placementCurrentRate((int) $e['placement_id'], (string) $e['work_date']);
+        }
+        $rate = $rateCache[$key];
+        $base = (float) ($rate['bill_rate'] ?? 0);
+        $ot   = (float) ($rate['ot_multiplier'] ?? 1.5);
+        $dt   = (float) ($rate['dt_multiplier'] ?? 2.0);
+        $mult = match ((string) $e['hour_type']) {
+            'overtime'   => $ot,
+            'doubletime' => $dt,
+            default      => 1.0,
+        };
+        $e['_bill_rate']       = round($base * $mult, 4);
+        $e['_rate_snapshot_id']= $rate['id'] ?? null;
+    }
+    unset($e);
+
+    // Group keys
+    $groups = [];
+    foreach ($billable as $e) {
+        $key = match ($aggregation) {
+            'per_day'       => 'D:' . $e['placement_id'] . ':' . $e['work_date'],
+            'per_placement' => 'P:' . $e['placement_id'],
+            'per_client'    => 'C:' . ((string) ($e['end_client_name'] ?? 'Unknown Client')),
+        };
+        $groups[$key][] = $e;
+    }
+
+    $today   = date('Y-m-d');
+    $dueDate = date('Y-m-d', strtotime("+{$netDays} days"));
+    $invoices = [];
+    foreach ($groups as $key => $rows) {
+        $first = $rows[0];
+        $client = (string) ($first['end_client_name'] ?? 'Unknown Client');
+        $billTo = null;  // bill-to address json populated server-side by approval gate, not at draft time.
+
+        $lines = [];
+        $lineNo = 1;
+        $subtotal = 0.0; $taxTotal = 0.0;
+        $minDate = null; $maxDate = null;
+
+        // Day-grouping → one line per hour_type (so OT/regular show separately).
+        // Placement / client grouping → one line per (placement, work_date, hour_type)
+        // collapsed.
+        $linesByKey = [];
+        foreach ($rows as $r) {
+            $lk = $r['placement_id'] . '|' . $r['work_date'] . '|' . $r['hour_type'];
+            if (!isset($linesByKey[$lk])) {
+                $linesByKey[$lk] = [
+                    'placement_id'    => (int) $r['placement_id'],
+                    'work_date'       => (string) $r['work_date'],
+                    'hour_type'       => (string) $r['hour_type'],
+                    'placement_title' => (string) ($r['placement_title'] ?? ''),
+                    'first_name'      => (string) ($r['first_name'] ?? ''),
+                    'last_name'       => (string) ($r['last_name'] ?? ''),
+                    'bill_rate'       => (float) $r['_bill_rate'],
+                    'rate_snapshot_id'=> $r['_rate_snapshot_id'] ?? null,
+                    'hours'           => 0.0,
+                    'source_refs'     => [],
+                ];
+            }
+            $linesByKey[$lk]['hours']      += (float) $r['hours'];
+            $linesByKey[$lk]['source_refs'][] = (int) $r['id'];
+            if (!$minDate || strcmp((string) $r['work_date'], $minDate) < 0) $minDate = (string) $r['work_date'];
+            if (!$maxDate || strcmp((string) $r['work_date'], $maxDate) > 0) $maxDate = (string) $r['work_date'];
+        }
+        ksort($linesByKey);
+
+        foreach ($linesByKey as $lk => $ld) {
+            $sub   = round($ld['hours'] * $ld['bill_rate'], 2);
+            $tax   = round($sub * ($taxPct / 100), 2);
+            $total = round($sub + $tax, 2);
+            $consultant = trim($ld['first_name'] . ' ' . $ld['last_name']) ?: 'Consultant';
+            $desc = sprintf(
+                '%s — %s · %s · %s',
+                $ld['placement_title'] ?: ('Placement #' . $ld['placement_id']),
+                $consultant,
+                $ld['work_date'],
+                $ld['hour_type']
+            );
+            // Each entry is a separate source_ref row so the audit trail
+            // preserves entry → line mapping. The first entry in the
+            // (placement, day, hour_type) bucket is the "primary" line
+            // source_ref; supplementary refs ride along in the
+            // description for visibility.
+            $primaryRef = $ld['source_refs'][0];
+            $lines[] = [
+                'line_no'          => $lineNo++,
+                'source_type'      => 'time_entry',
+                'item_type'        => 'labor',
+                'source_ref_id'    => $primaryRef,
+                'placement_id'     => $ld['placement_id'],
+                'rate_snapshot_id' => $ld['rate_snapshot_id'] ? (int) $ld['rate_snapshot_id'] : null,
+                'description'      => $desc . (count($ld['source_refs']) > 1 ? ' (' . count($ld['source_refs']) . ' entries)' : ''),
+                'quantity'         => round($ld['hours'], 4),
+                'unit'             => 'hour',
+                'unit_price'       => $ld['bill_rate'],
+                'subtotal'         => $sub,
+                'tax_rate_pct'     => $taxPct,
+                'tax_amount'       => $tax,
+                'total'            => $total,
+                '_entry_ids'       => $ld['source_refs'],
+            ];
+            $subtotal += $sub;
+            $taxTotal += $tax;
+        }
+        if (empty($lines)) continue;
+
+        $invoices[] = [
+            'invoice' => [
+                'client_name'   => $client,
+                'bill_to_json'  => $billTo,
+                'currency'      => 'USD',
+                'issue_date'    => $today,
+                'due_date'      => $dueDate,
+                'period_start'  => $minDate ?? $today,
+                'period_end'    => $maxDate ?? $today,
+                'subtotal'      => round($subtotal, 2),
+                'tax_total'     => round($taxTotal, 2),
+                'total'         => round($subtotal + $taxTotal, 2),
+                'amount_due'    => round($subtotal + $taxTotal, 2),
+                'aggregation'   => $aggregation,
+                'status'        => 'draft',
+            ],
+            'lines'        => $lines,
+            'bundle_ids'   => [],   // entry-driven, no bundle consumption
+            'entry_ids'    => array_merge(...array_column($lines, '_entry_ids')),
+        ];
+    }
+    return $invoices;
+}
+
+/**
  * Apply a flat tax rate to each line, returning recomputed totals.
  * Used when manually editing draft lines (PATCH) before approve.
  */

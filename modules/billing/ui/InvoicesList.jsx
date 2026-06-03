@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import InvoiceFromTimeBundleModal from './InvoiceFromTimeBundleModal';
+import InvoiceFromTimeEntriesModal from './InvoiceFromTimeEntriesModal';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 const STATUS_FILTERS = ['all','draft','approved','sent','partially_paid','paid','void'];
@@ -10,6 +11,7 @@ const STATUS_FILTERS = ['all','draft','approved','sent','partially_paid','paid',
 export default function InvoicesList() {
   const [status, setStatus] = useState('all');
   const [showCreate, setShowCreate] = useState(false);
+  const [showEntries, setShowEntries] = useState(false);
   const { activeEntityId, activeEntity } = useActiveEntity();
   const qs = new URLSearchParams();
   if (status !== 'all') qs.set('status', status);
@@ -47,6 +49,9 @@ export default function InvoicesList() {
           <button className="btn btn--ghost" onClick={() => setShowCreate(true)} data-testid="billing-new-from-time-bundle">
             New from time bundle
           </button>
+          <button className="btn btn--ghost" onClick={() => setShowEntries(true)} data-testid="billing-new-from-time-entries">
+            New from approved hours (day-level)
+          </button>
           <Link to="csv_import" className="btn" data-testid="billing-invoices-import-csv">Import CSV</Link>
           <a className="btn" href={`/modules/billing/api/csv_export.php${status !== 'all' ? `?status=${status}` : ''}`} data-testid="billing-invoices-export-csv">Export CSV</a>
         </div>
@@ -78,6 +83,13 @@ export default function InvoicesList() {
         <InvoiceFromTimeBundleModal
           onClose={() => setShowCreate(false)}
           onCreated={() => { setShowCreate(false); reload(); }}
+        />
+      )}
+
+      {showEntries && (
+        <InvoiceFromTimeEntriesModal
+          onClose={() => setShowEntries(false)}
+          onCreated={() => { setShowEntries(false); reload(); }}
         />
       )}
     </section>

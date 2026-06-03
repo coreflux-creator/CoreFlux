@@ -1,5 +1,165 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Batch 4 — Flexible Invoicing & Payables, day-level)
+
+User direction: "Apply same flexibility to creating payables" — make
+invoice/payable creation work directly from `time_entries` (day-level)
+in addition to the existing bundle-driven (period-close) flow.
+
+### Shipped
+
+1. **Backend lib helpers**:
+   - `billingBuildDraftFromTimeEntries($tenantId, $timeEntryIds, $aggregation)`
+     in `modules/billing/lib/billing.php` — accepts a flat list of
+     approved/billable time entry IDs; looks up `placementCurrentRate()`
+     per entry's `work_date`; applies OT/DT multipliers per
+     `hour_type`; groups per `per_day` / `per_placement` /
+     `per_client`; emits the same invoice + lines structure as the
+     bundle helper with `source_type='time_entry'`, `bundle_ids=[]`,
+     and an `entry_ids` audit trail. Hard cap 500 entries / call.
+   - `apBuildDraftFromTimeEntries($tenantId, $timeEntryIds, $aggregation)`
+     in `modules/ap/lib/ap.php` — mirror for AP: `per_day` /
+     `per_placement` / `per_vendor`; joins
+     `placement_corp_details` to surface corp name for c2c vendors;
+     stamps `is_1099_eligible` per individual vs corp.
+
+2. **API surface**:
+   - `POST /modules/billing/api/invoices.php?action=from-time-entries`
+     — `billing.invoice.draft`-gated; body
+     `{ time_entry_ids: [...], aggregation }`; persists each draft
+     invoice in a transaction, upserts the companies directory client,
+     emits `billing.invoice.created` audit with `source=time_entries` +
+     `entry_ids`.
+   - `POST /modules/ap/api/bills.php?action=from-time-entries`
+     — `ap.bill.create`-gated; same pattern; upserts vendor in
+     `ap_vendors_index`; audits as `source=time_entries`.
+   - `GET /modules/staffing/api/timesheets.php?action=approved_entries`
+     — surfaces the candidate-entry picker rows; filters
+     `placement_id`, `person_id`, `date_from`, `date_to`; `purpose`
+     switches between `billable` and `payable` to drive the AR vs AP
+     modal.
+
+3. **React modals**:
+   - `modules/billing/ui/InvoiceFromTimeEntriesModal.jsx` — date range
+     + placement (optional) + aggregation radio buttons; auto-fetches
+     candidates with a 250ms debounce; checkbox-per-row picker with
+     select-all; shows selected hours + count footer; posts to the
+     billing API; calls `onCreated` callback to close + reload list.
+   - `modules/ap/ui/BillFromTimeEntriesModal.jsx` — mirror for AP
+     payables (per_day / per_placement / per_vendor).
+
+4. **List wiring**:
+   - `InvoicesList` — new "New from approved hours (day-level)" CTA
+     between the bundle CTA and the CSV import.
+   - `BillsList` — same CTA pattern under "New from time bundle".
+
+5. **Schema-contract sentry**: dropped the `p.bill_to_address_json`
+   column reference from the new draft builder (column doesn't exist
+   on `placements`; client bill-to is populated at approval time, not
+   draft time).
+
+### Test status
+- New smoke `tests/invoicing_payables_from_time_entries_smoke.php`
+  → **59 / 59 ✓** locking lib + API + modals + list wiring.
+- Full PHP suite: **371 / 373 passing** — only the two documented
+  sandbox-bound failures remain (`accounting_phase2_a7_smoke.php`,
+  `tenant_mail_senders_smoke.php`).
+- Schema contract sentry, tenant-leak sentry, auth-gate, HY093 sentries
+  all green.
+- Vite build → bundle `coreflux-Dp_1ptkf`. All four sync points
+  consistent.
+
+### Files touched
+- `modules/billing/lib/billing.php` (new helper)
+- `modules/ap/lib/ap.php` (new helper)
+- `modules/billing/api/invoices.php` (new action)
+- `modules/ap/api/bills.php` (new action)
+- `modules/staffing/api/timesheets.php` (approved_entries action)
+- `modules/billing/ui/InvoiceFromTimeEntriesModal.jsx` (new)
+- `modules/ap/ui/BillFromTimeEntriesModal.jsx` (new)
+- `modules/billing/ui/InvoicesList.jsx` (CTA wiring)
+- `modules/ap/ui/BillsList.jsx` (CTA wiring)
+- `tests/invoicing_payables_from_time_entries_smoke.php` (new)
+
+### Deploy notes for ops
+1. No new migrations required — uses existing `time_entries`,
+   `billing_invoices`, `billing_invoice_lines`, `ap_bills`,
+   `ap_bill_lines`.
+2. CTA appears for any user with `billing.invoice.draft` /
+   `ap.bill.create` permissions respectively.
+
+---
+
+## Session — 2026-02 (Batch 2 — Time & Placements UX Rebuild)
+
+User direction: "Click into individual timesheets instead of submitting
+the full week. Approve rates inside the placement workflow. Build a
+timesheet view at the placement level (history / pending / create
+new)."
+
+### Shipped
+
+1. **New backend GET actions** on
+   `modules/staffing/api/timesheets.php`:
+   - `detail&id=N` — fetch one timesheet header + all entries joined
+     to placement title / client name.
+   - `list_for_placement&placement_id=N` — every timesheet that
+     touched THIS placement, with per-placement hours + billable hours
+     aggregated. Filters: status, period_start, period_end.
+   - `detail_for_placement&id=N&placement_id=N` — single timesheet
+     filtered to one placement's entries; returns aggregated
+     `placement_hours`.
+
+2. **React pages**:
+   - `modules/staffing/ui/TimesheetsList.jsx` — index page over every
+     visible timesheet, with status / period / person filters, status
+     pill, and "Open" link routing to the drill-in.
+   - `modules/staffing/ui/TimesheetDetail.jsx` — single-timesheet
+     read-only view with by-placement summary section, action buttons
+     gated by status: `draft` → "Edit this week" link; `submitted` →
+     Approve + Reject (with reason input); `approved/rejected` →
+     read-only. Supports `?placement_id=N` URL param to scope the
+     entries display.
+   - `modules/placements/ui/PlacementTimesheetsTab.jsx` — embedded
+     "Timesheets" tab inside PlacementDetail; splits results into
+     "Pending approval" + "History" sections; per-row link to the
+     placement-scoped detail view.
+
+3. **Routing & wiring**:
+   - `StaffingModule.jsx` — `timesheets/` now resolves to
+     TimesheetsList; `timesheets/week` → existing TimesheetWeek;
+     `timesheets/:id` → TimesheetDetail.
+   - `PlacementDetail.jsx` — new "Timesheets" tab between "Cycles" and
+     "Documents".
+
+4. **Rate approval surfacing**: the existing RatesTab inside
+   PlacementDetail already exposes per-row Approve buttons + a
+   "Approve all drafts" CTA — Batch 2 confirms this is functional and
+   does not require new wiring.
+
+### Test status
+- New smoke `tests/timesheets_drill_in_and_placement_smoke.php`
+  → **70 / 70 ✓** locking API actions, list page, detail page,
+  placement tab, route wiring.
+- Updated `tests/staffing_shell_and_weekly_timesheet_smoke.php` to
+  match the new explicit-route structure (list, week, :id).
+- Full PHP suite: **370 / 372 passing** (only the two known sandbox
+  failures).
+
+### Files touched
+- `modules/staffing/api/timesheets.php` (detail, list_for_placement,
+  detail_for_placement)
+- `modules/staffing/ui/TimesheetsList.jsx` (new)
+- `modules/staffing/ui/TimesheetDetail.jsx` (new)
+- `modules/placements/ui/PlacementTimesheetsTab.jsx` (new)
+- `modules/staffing/ui/StaffingModule.jsx` (sub-routes)
+- `modules/placements/ui/PlacementDetail.jsx` (Timesheets tab)
+- `tests/timesheets_drill_in_and_placement_smoke.php` (new)
+- `tests/staffing_shell_and_weekly_timesheet_smoke.php` (assertion
+  updated)
+
+---
+
 ## Session — 2026-02 (Batch 3 — Cross-tenant Intercompany Approval Workflow)
 
 User direction (after Jaz finish, prioritising 3→2→4): "to batch 3 then

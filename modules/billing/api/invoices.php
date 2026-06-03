@@ -88,6 +88,75 @@ if ($method === 'GET') {
     api_ok(['rows' => $rows, 'total' => (int) ($cnt[0]['c'] ?? 0), 'page' => $page, 'per_page' => $perPage]);
 }
 
+if ($method === 'POST' && $action === 'from-time-entries') {
+    rbac_legacy_require($user, 'billing.invoice.draft');
+    $body = api_json_body();
+    api_require_fields($body, ['time_entry_ids']);
+    $entryIds = (array) $body['time_entry_ids'];
+    $aggregation = (string) ($body['aggregation'] ?? 'per_day');
+
+    try {
+        $drafts = billingBuildDraftFromTimeEntries($tid, $entryIds, $aggregation);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 422); }
+    if (empty($drafts)) api_error('No invoices could be built (no billable entries)', 422);
+
+    $pdo = getDB();
+    $created = [];
+    require_once __DIR__ . '/../../people/lib/companies.php';
+    $pdo->beginTransaction();
+    try {
+        foreach ($drafts as $d) {
+            $inv  = $d['invoice'];
+            $inv['tenant_id']          = $tid;
+            $inv['invoice_number']     = billingNextInvoiceNumber($tid);
+            $inv['created_by_user_id'] = $user['id'] ?? null;
+
+            $clientCid = companiesUpsertByName($tid, (string) $inv['client_name'], [
+                'created_by_user_id' => $user['id'] ?? null,
+            ], ['client']);
+            companiesBumpUsage($clientCid);
+            $inv['client_company_id'] = $clientCid;
+
+            $invId = scopedInsert('billing_invoices', $inv);
+
+            foreach ($d['lines'] as $l) {
+                unset($l['_entry_ids']);
+                $l['invoice_id'] = $invId;
+                $l['item_type']  = apNormalizeItemType($l['item_type'] ?? null, $l['source_type'] ?? 'time_entry');
+                $stmt = $pdo->prepare(
+                    'INSERT INTO billing_invoice_lines
+                      (invoice_id, line_no, source_type, item_type, source_ref_id, placement_id, rate_snapshot_id,
+                       description, quantity, unit, unit_price, subtotal, tax_rate_pct, tax_amount, total)
+                     VALUES
+                      (:invoice_id, :line_no, :source_type, :item_type, :source_ref_id, :placement_id, :rate_snapshot_id,
+                       :description, :quantity, :unit, :unit_price, :subtotal, :tax_rate_pct, :tax_amount, :total)'
+                );
+                $stmt->execute($l);
+            }
+
+            billingAudit('billing.invoice.created', [
+                'invoice_id'      => $invId,
+                'invoice_number'  => $inv['invoice_number'],
+                'source'          => 'time_entries',
+                'aggregation'     => $aggregation,
+                'entry_ids'       => $d['entry_ids'],
+            ], $invId);
+
+            $created[] = [
+                'id' => $invId, 'invoice_number' => $inv['invoice_number'],
+                'client_name' => $inv['client_name'], 'total' => $inv['total'],
+                'entry_count' => count($d['entry_ids']),
+            ];
+        }
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        api_error('Invoice create failed: ' . $e->getMessage(), 500);
+    }
+
+    api_ok(['invoices_created' => $created], 201);
+}
+
 if ($method === 'POST' && $action === 'from-time-bundle') {
     rbac_legacy_require($user, 'billing.invoice.draft');
     $body = api_json_body();
