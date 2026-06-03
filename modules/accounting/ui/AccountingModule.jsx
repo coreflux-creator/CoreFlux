@@ -13,6 +13,7 @@ import RecurringJournalEntries from './RecurringJournalEntries';
 import StandardReports from './StandardReports';
 import AccountingImport from './AccountingImport';
 import IntercompanyMappings from './IntercompanyMappings';
+import XTenantIntercompany from './XTenantIntercompany';
 import EliminationWorksheet from './EliminationWorksheet';
 import Consolidation from './Consolidation';
 import Periods from './Periods';
@@ -51,6 +52,7 @@ export default function AccountingModule({ session }) {
         <Tab to="tax-export" label="Tax export" />
         <Tab to="import"    label="Import" />
         <Tab to="intercompany" label="Intercompany" />
+        <Tab to="xtenant-ic"   label="Cross-tenant IC" />
         <Tab to="elimination"  label="Elimination" />
         <Tab to="consolidation" label="Consolidation" />
         <Tab to="periods"  label="Periods" />
@@ -84,6 +86,7 @@ export default function AccountingModule({ session }) {
         <Route path="tax-export" element={<TaxExport />} />
         <Route path="import"   element={<AccountingImport session={session} />} />
         <Route path="intercompany" element={<IntercompanyMappings session={session} />} />
+        <Route path="xtenant-ic"   element={<XTenantIntercompany session={session} />} />
         <Route path="elimination"  element={<EliminationWorksheet session={session} />} />
         <Route path="consolidation" element={<Consolidation session={session} />} />
         <Route path="periods"  element={<Periods         session={session} />} />

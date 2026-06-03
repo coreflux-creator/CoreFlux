@@ -14,6 +14,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/accounting.php';
 require_once __DIR__ . '/../lib/intercompany.php';
+require_once __DIR__ . '/../lib/cross_tenant_intercompany.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -153,6 +154,117 @@ if ($method === 'POST' && $action === 'narrate_elimination') {
         'summary' => $worksheet['summary'],
     ], null);
     api_ok($env);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Cross-tenant intercompany approval workflow (Batch 3)
+// ─────────────────────────────────────────────────────────────────────────
+// Distinct from the entity-level split above: these endpoints move money
+// across SEPARATE tenant_ids that share the same master parent (e.g.
+// Seven Generations posting against Arabella).  Each leg lands on a
+// different tenant's books and the counterparty must approve before the
+// to-leg posts.  The source leg posts immediately at propose-time and is
+// reversed via a compensating JE on decline / expire.
+
+// ── GET ?action=xtenant_inbox — rows awaiting MY approval (I'm the target)
+if ($method === 'GET' && $action === 'xtenant_inbox') {
+    rbac_legacy_require($user, 'accounting.intercompany.manage');
+    $status = (string) ($_GET['status'] ?? 'pending');
+    $limit  = (int)    ($_GET['limit']  ?? 100);
+    try {
+        $rows = accountingListCrossTenantIntercompanyInbox($tid, $status, $limit);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 422); }
+    api_ok(['status' => $status, 'rows' => $rows]);
+}
+
+// ── GET ?action=xtenant_outbox — rows I PROPOSED (I'm the source)
+if ($method === 'GET' && $action === 'xtenant_outbox') {
+    rbac_legacy_require($user, 'accounting.intercompany.manage');
+    $status = (string) ($_GET['status'] ?? 'pending');
+    $limit  = (int)    ($_GET['limit']  ?? 100);
+    try {
+        $rows = accountingListCrossTenantIntercompanyOutbox($tid, $status, $limit);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 422); }
+    api_ok(['status' => $status, 'rows' => $rows]);
+}
+
+// ── POST ?action=xtenant_propose — source admin proposes a new IC entry
+if ($method === 'POST' && $action === 'xtenant_propose') {
+    rbac_legacy_require($user, 'accounting.je.post');
+    $body = api_json_body();
+    api_require_fields($body, ['to_tenant_id','amount','memo']);
+    $toTenantId = (int) $body['to_tenant_id'];
+    $amount     = (float) $body['amount'];
+    $memo       = trim((string) $body['memo']);
+    if ($toTenantId === $tid) api_error('to_tenant_id must differ from the active tenant', 422);
+    $opts = [];
+    foreach ([
+        'from_account_code','to_account_code','from_offset_code','to_offset_code',
+        'from_currency','to_currency','fx_rate','posting_date',
+        'intercompany_ref','ttl_days','target_entity_id',
+    ] as $k) {
+        if (isset($body[$k]) && $body[$k] !== '' && $body[$k] !== null) $opts[$k] = $body[$k];
+    }
+    try {
+        $res = accountingProposeCrossTenantIntercompany($tid, $toTenantId, $amount, $memo, $opts, $uid);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 422); }
+    api_ok($res, 201);
+}
+
+// ── POST ?action=xtenant_approve — counterparty approves; to-leg posts
+if ($method === 'POST' && $action === 'xtenant_approve') {
+    rbac_legacy_require($user, 'accounting.je.post');
+    $body = api_json_body();
+    $queueId = (int) ($body['queue_id'] ?? 0);
+    if ($queueId <= 0) api_error('queue_id required', 400);
+    // Authority gate: the active tenant MUST be the row's target_tenant.
+    $pdo = getDB();
+    $st  = $pdo->prepare('SELECT target_tenant_id, status FROM intercompany_xtenant_queue WHERE id = :id LIMIT 1');
+    $st->execute(['id' => $queueId]);
+    $row = $st->fetch(\PDO::FETCH_ASSOC);
+    if (!$row) api_error('queue row not found', 404);
+    if ((int) $row['target_tenant_id'] !== $tid) {
+        api_error('Only the counterparty tenant can approve this entry', 403);
+    }
+    try {
+        $res = accountingApproveCrossTenantIntercompany($queueId, $uid);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 422); }
+    api_ok($res);
+}
+
+// ── POST ?action=xtenant_decline — counterparty declines; source-leg reversed
+if ($method === 'POST' && $action === 'xtenant_decline') {
+    rbac_legacy_require($user, 'accounting.je.post');
+    $body = api_json_body();
+    $queueId = (int) ($body['queue_id'] ?? 0);
+    $reason  = trim((string) ($body['reason'] ?? ''));
+    if ($queueId <= 0) api_error('queue_id required', 400);
+    if ($reason === '') api_error('reason required', 422);
+    $pdo = getDB();
+    $st  = $pdo->prepare('SELECT target_tenant_id FROM intercompany_xtenant_queue WHERE id = :id LIMIT 1');
+    $st->execute(['id' => $queueId]);
+    $row = $st->fetch(\PDO::FETCH_ASSOC);
+    if (!$row) api_error('queue row not found', 404);
+    if ((int) $row['target_tenant_id'] !== $tid) {
+        api_error('Only the counterparty tenant can decline this entry', 403);
+    }
+    try {
+        $res = accountingDeclineCrossTenantIntercompany($queueId, $uid, $reason);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 422); }
+    api_ok($res);
+}
+
+// ── POST ?action=xtenant_expire_sweep — admin-only, also reachable from cron
+if ($method === 'POST' && $action === 'xtenant_expire_sweep') {
+    if (($user['role'] ?? '') !== 'master_admin'
+        && ($user['role'] ?? '') !== 'tenant_admin'
+        && (int) ($user['is_global_admin'] ?? 0) !== 1) {
+        api_error('Forbidden — admin only', 403);
+    }
+    try {
+        $res = accountingExpireCrossTenantIntercompanyPending($uid);
+    } catch (\Throwable $e) { api_error($e->getMessage(), 500); }
+    api_ok($res);
 }
 
 api_error('Method not allowed', 405);

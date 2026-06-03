@@ -573,6 +573,7 @@ function accountingApproveCrossTenantIntercompany(int $queueId, ?int $actorUserI
     _cxIcStampGroupId($pdo, $toTenantId, (int) $toJe['je_id'], $ref);
 
     // Stamp the queue row approved.
+    // tenant-leak-allow: queue row PK is globally unique; cross-tenant by design (source+target tenants).
     $upd = $pdo->prepare(
         'UPDATE intercompany_xtenant_queue
             SET status = "approved", target_je_id = :tje,
@@ -631,6 +632,7 @@ function accountingDeclineCrossTenantIntercompany(int $queueId, ?int $actorUserI
         error_log("Decline reverse of source JE {$sourceJeId} failed: " . $e->getMessage());
     }
 
+    // tenant-leak-allow: queue row PK is globally unique; cross-tenant by design (source+target tenants).
     $upd = $pdo->prepare(
         'UPDATE intercompany_xtenant_queue
             SET status = "declined", decline_reason = :r,
@@ -702,6 +704,84 @@ function accountingListCrossTenantIntercompanyOutbox(int $tenantId, string $stat
     $st = $pdo->prepare($sql);
     $st->execute($params);
     return _cxIcHydrate($st->fetchAll(\PDO::FETCH_ASSOC) ?: []);
+}
+
+/**
+ * Cron-driven expiry sweep — invoked from
+ * `cron/intercompany_xtenant_expire_worker.php` daily.  Walks every
+ * pending row whose `expires_at` has elapsed: marks status='expired'
+ * and reverses the source leg as a compensating JE so the source
+ * tenant's books are flat once again.
+ *
+ * Idempotent: a second pass on the same row sees status='expired' and
+ * is a no-op (the WHERE clause filters status='pending').
+ *
+ * Returns a summary `{ scanned, expired, errors }` for the cron log.
+ *
+ * tenant-leak-allow: cron is platform-driver; expire_sweep walks every
+ *   pending row across all tenants by design.
+ */
+function accountingExpireCrossTenantIntercompanyPending(?int $actorUserId = null, ?\DateTimeImmutable $now = null): array {
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No database connection');
+    $now = $now ?? new \DateTimeImmutable('now');
+    $nowStr = $now->format('Y-m-d H:i:s');
+
+    $sel = $pdo->prepare(
+        'SELECT id, intercompany_ref, source_tenant_id, source_je_id, target_tenant_id
+           FROM intercompany_xtenant_queue
+          WHERE status = "pending" AND expires_at IS NOT NULL AND expires_at <= :now
+          ORDER BY expires_at ASC
+          LIMIT 500'
+    );
+    $sel->execute(['now' => $nowStr]);
+    $rows = $sel->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+
+    $expired = 0;
+    $errors  = [];
+    foreach ($rows as $r) {
+        $qid    = (int) $r['id'];
+        $ref    = (string) $r['intercompany_ref'];
+        $stid   = (int) $r['source_tenant_id'];
+        $sjeid  = (int) $r['source_je_id'];
+        try {
+            try {
+                accountingReverseJe($stid, $sjeid,
+                    "Cross-tenant IC {$ref} expired without counterparty response",
+                    $actorUserId);
+            } catch (\Throwable $e) {
+                // Source leg may already be reversed; keep going.
+                error_log("xtenant expire: reverse JE {$sjeid} skipped: " . $e->getMessage());
+            }
+            // tenant-leak-allow: queue row PK is globally unique; cron-driver expire-sweep walks rows across tenants by design.
+            $upd = $pdo->prepare(
+                'UPDATE intercompany_xtenant_queue
+                    SET status = "expired", decided_at = NOW(),
+                        decline_reason = "auto-expired: counterparty did not respond before TTL"
+                  WHERE id = :id AND status = "pending"'
+            );
+            $upd->execute(['id' => $qid]);
+            if ($upd->rowCount() > 0) $expired++;
+
+            try {
+                subTenantAudit(0, (int) $r['target_tenant_id'], $actorUserId,
+                    'cross_tenant.intercompany.expired', [
+                        'ref' => $ref, 'queue_id' => $qid,
+                        'source_tenant' => $stid,
+                    ]);
+            } catch (\Throwable $_) { /* best effort */ }
+        } catch (\Throwable $e) {
+            $errors[] = ['queue_id' => $qid, 'ref' => $ref, 'error' => $e->getMessage()];
+            error_log("xtenant expire failed for queue {$qid} ref {$ref}: " . $e->getMessage());
+        }
+    }
+
+    return [
+        'scanned' => count($rows),
+        'expired' => $expired,
+        'errors'  => $errors,
+        'as_of'   => $nowStr,
+    ];
 }
 
 /** Coerce numerics for the JSON wire. */

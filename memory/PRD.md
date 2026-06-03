@@ -1,5 +1,153 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Batch 3 — Cross-tenant Intercompany Approval Workflow)
+
+User direction (after Jaz finish, prioritising 3→2→4): "to batch 3 then
+2 then 4" → ship the propose → counterparty-approve → post-to-leg
+workflow for cross-tenant intercompany so each entity's CFO controls
+what lands on their books, mirroring the SoD model the rest of CoreFlux
+runs on.
+
+### Shipped
+
+1. **Migration 104 — `intercompany_xtenant_queue`**
+   (`core/migrations/104_intercompany_xtenant_queue.sql`):
+   - Holds one row per pending cross-tenant IC proposal: shared
+     `intercompany_ref`, source side (`source_tenant_id`,
+     `source_entity_id`, `source_je_id`, account codes), target side
+     (mirror columns, `target_je_id` deferred), full money trail
+     (`amount`, `currency`, `fx_rate`, `target_amount`, `target_currency`),
+     and workflow state (`status` ENUM
+     `pending/approved/declined/expired/reversed`,
+     `requested_by_user_id`, `decided_by_user_id`, `decline_reason`,
+     `expires_at`).
+   - `UNIQUE(intercompany_ref)` + per-side status indexes for the inbox
+     /outbox queries + a `status,expires_at` index for the daily cron.
+
+2. **Workflow helpers**
+   (`modules/accounting/lib/cross_tenant_intercompany.php`):
+   - `accountingProposeCrossTenantIntercompany()` — posts the source
+     leg immediately (Dr IC Receivable / Cr cash on source's books),
+     stamps the JE with the shared `intercompany_group_id`, and inserts
+     a `pending` row carrying everything the target needs to act.
+     `ttl_days` (default 14) computes `expires_at`. Same-tenant +
+     same-master guards retained. Idempotency keys distinct from the
+     immediate-post variant: `cross_intercompany_propose:{ref}:from`.
+   - `accountingApproveCrossTenantIntercompany()` — posts the target
+     leg (Dr cash / Cr IC Payable on target's books), stamps the queue
+     row `approved`, records `target_je_id`. Idempotent on already-
+     approved rows (returns the stored target_je_id).
+   - `accountingDeclineCrossTenantIntercompany()` — reverses the source
+     leg via `accountingReverseJe()`, stamps the queue row `declined`,
+     persists `decline_reason`.
+   - `accountingListCrossTenantIntercompanyInbox()` /
+     `accountingListCrossTenantIntercompanyOutbox()` — list helpers
+     joining `tenants` for human-readable names, status filter, limit
+     (1–500). Numeric hydration on the JSON wire.
+   - `accountingExpireCrossTenantIntercompanyPending()` — daily cron
+     driver: walks pending rows past `expires_at`, reverses the source
+     leg, stamps `expired`. Idempotent + per-row error isolation.
+
+3. **API surface** (`modules/accounting/api/intercompany.php`):
+   - `GET ?action=xtenant_inbox&status=…` — pending counterparty approvals.
+   - `GET ?action=xtenant_outbox&status=…` — entries this tenant proposed.
+   - `POST ?action=xtenant_propose` — `accounting.je.post` gated. Rejects
+     same-tenant proposals; passes through the full opts vocabulary
+     (codes, currency, fx, posting_date, ttl_days, target_entity_id).
+   - `POST ?action=xtenant_approve` — authority gate: caller's active
+     tenant MUST match the row's `target_tenant_id`.
+   - `POST ?action=xtenant_decline` — same authority gate + required
+     `reason`.
+   - `POST ?action=xtenant_expire_sweep` — admin-only manual trigger;
+     same code path the cron worker uses.
+
+4. **Cron worker**
+   (`cron/intercompany_xtenant_expire_worker.php`): runs daily at 09:00,
+   calls `accountingExpireCrossTenantIntercompanyPending()`, emits a
+   `scanned=N expired=M` log line. Per-row error isolation.
+
+5. **Counterparty inbox UI**
+   (`modules/accounting/ui/XTenantIntercompany.jsx`): mounted at
+   `/modules/accounting/xtenant-ic` (between "Intercompany" and
+   "Elimination" tabs):
+   - **Inbox** sub-tab — rows where THIS tenant is the target. Approve
+     button (with money confirmation) + Decline button (opens inline
+     reason input). Status filter strip.
+   - **Outbox** sub-tab — rows THIS tenant proposed (visibility into
+     awaiting/decided rows).
+   - **Propose new** sub-tab — counterparty dropdown (sibling/parent
+     from `/api/sub_tenants.php`), amount + memo + posting_date +
+     account codes (1700/2700/1000/1000 defaults), currency pair + FX
+     rate, TTL days. On success the page auto-flips to Outbox to show
+     the new pending row.
+   - Status pills colour-coded (amber pending / green approved / red
+     declined / grey expired/reversed). Multi-currency rows render
+     `from → to @ fx` on the amount column.
+
+6. **AccountingModule wiring** — new "Cross-tenant IC" nav tab + route
+   between Intercompany and Elimination.
+
+7. **Tenant-leak sentry green**: three UPDATEs on the new queue table
+   are annotated with `// tenant-leak-allow:` comments noting the
+   table is cross-tenant by design (source+target tenants).
+
+8. **Test smoke**
+   (`tests/intercompany_xtenant_workflow_smoke.php`) — **89 / 89 ✓**
+   locking every layer (migration schema, all six lib helpers, all six
+   API actions with their authority gates, cron worker shape, every
+   React testid, AccountingModule wiring).
+
+### Test status
+- Full PHP suite: **369 / 371 passing**. Only the two documented
+  sandbox-bound failures remain (`accounting_phase2_a7_smoke.php`,
+  `tenant_mail_senders_smoke.php` — no live MySQL / SMTP socket).
+- New smoke 89/89 ✓.
+- All sentries (tenant-leak, auth-gate, HY093 placeholder, lane
+  classifier) green.
+- Vite build → bundle `coreflux-DSobN1kW`. `scripts/sync_bundle.sh`
+  synced `.deploy-version`, `spa-assets/`, `dashboard/dist/index.html`,
+  and service-worker `CACHE_VERSION`.
+
+### Files touched
+- `core/migrations/104_intercompany_xtenant_queue.sql` (already present)
+- `modules/accounting/lib/cross_tenant_intercompany.php` (expire sweep + tenant-leak annotations)
+- `modules/accounting/api/intercompany.php` (xtenant_* actions)
+- `modules/accounting/ui/XTenantIntercompany.jsx` (new — counterparty inbox)
+- `modules/accounting/ui/AccountingModule.jsx` (route + tab wiring)
+- `cron/intercompany_xtenant_expire_worker.php` (new)
+- `tests/intercompany_xtenant_workflow_smoke.php` (new)
+
+### Deploy notes for ops
+1. Push to Cloudways → `update.php` applies migration 104.
+2. Schedule the cron: `0 9 * * * php /home/master/applications/<app>/public_html/cron/intercompany_xtenant_expire_worker.php`.
+3. Operators see the new "Cross-tenant IC" tab inside the Accounting
+   module. Inbox shows pending counterparty approvals; Outbox shows
+   what they've proposed.
+
+### Roadmap (next — Kunal's prioritised order continues)
+
+**Batch 2 — Time + Placements UX rebuild (P0, NEXT)**:
+- Click into individual timesheets (per-week, per-placement drill-in).
+- Placement detail page: Timesheets section (history / pending /
+  create new).
+- Approve rates inside the placement workflow.
+
+**Batch 4 — Flexible invoicing & payables (P1, AFTER Batch 2)**:
+- Create invoice from approved hours: placement + daily granularity.
+- Create payable from approved hours: same picker reused.
+
+### Backlog (unchanged priority)
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P1) Mercury Webhooks hardening.
+- (P2) Gusto integration / QBO hardening (parked).
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module.
+- (P3) AI Digest Scheduler.
+
+---
+
 ## Session — 2026-02 (Jaz finish — Sync now button + bidirectional CoA)
 
 User direction (after accounting basics): "first finish up the jaz
