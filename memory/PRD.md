@@ -1,5 +1,76 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Jaz CoA push — root-cause fix: lowercase field names)
+
+User direction: "received the email. the next item is still Jaz" →
+the prior session shipped the error-surface UI which let Kunal see
+the actual Jaz rejection message: **`{"error_type":"validation_error","errors":["name is a required field"]}`**
+for every single account.  This session ships the actual payload fix.
+
+### Root cause
+
+`JazAccountingAdapter::createAccount()` was sending camelCase field
+names — `accountCode`, `accountName`, `accountType` — but Jaz's
+POST `/chart-of-accounts` endpoint expects the same **lowercase**
+canonical names its GET endpoint returns: `code`, `name`, `type`.
+
+The smoking gun: `normalizeCoaRow()` (line 441 of `jaz_adapter.php`)
+already reads via `$r['accountName'] ?? $r['name']` — a defensive
+fallback added when both shapes were unknown.  Jaz's real shape is
+the second alternative.  Jaz silently dropped the unknown camelCase
+keys on writes, then complained that `name` was missing.
+
+### Shipped
+
+1. **`createAccount()` payload renamed to canonical Jaz shape**:
+   - `accountCode` → `code`
+   - `accountName` → `name`
+   - `accountType` → `type` (still uppercased enum: ASSET / LIABILITY
+     / EQUITY / REVENUE / EXPENSE)
+   - `isActive`, `currency.code`, `description` unchanged (Jaz
+     accepted these silently — no error mentioned them).
+2. **409-fallback GET lookup** query param renamed `accountCode` →
+   `code` to match the same canonical shape (otherwise Jaz would
+   ignore the filter and return the first 50 accounts).
+3. **Smoke test extended** (`jaz_push_409_and_error_surface_smoke.php`):
+   - 4 new assertions lock the new field names on both POST + GET
+     and explicitly guard against regression to the camelCase shape.
+   - Total now 20/20 ✓.
+
+### Test status
+- `tests/jaz_push_409_and_error_surface_smoke.php` → 20/20 ✓
+- `tests/jaz_sync_button_and_coa_bidir_smoke.php` → 45/45 ✓
+- Full PHP suite: **376 / 378 passing** (only the 2 documented
+  sandbox-bound failures remain — `accounting_phase2_a7_smoke.php`,
+  `tenant_mail_senders_smoke.php`).
+- Vite build: bundle `coreflux-CiA6wnH5` (unchanged — backend-only fix).
+
+### Operator next step (production)
+1. Deploy → no migrations.
+2. Open Jaz integration page → "Sync everything now" again.
+3. Expected: `chart_of_accounts → push: 15 created · 0 errors`
+   (or partial if any names collide with existing Jaz CoA — 409s
+   are now idempotent thanks to the prior fix).
+4. Step 4 (Account mapping) should auto-populate with the 15 new
+   `accounting_account_mappings` rows, source = `imported`,
+   confidence = 100.
+
+### Files touched
+- `core/accounting/jaz_adapter.php` (POST payload + GET filter renamed)
+- `tests/jaz_push_409_and_error_surface_smoke.php` (4 new assertions)
+
+### Roadmap (unchanged)
+- (P1) Mercury Webhooks hardening.
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P2) Gusto integration / QBO hardening.
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module.
+- (P3) AI Digest Scheduler (Resend rail now live — easiest P3 to ship next).
+
+---
+
 ## Session — 2026-02 (Resend integration verification — wired & live)
 
 User direction: "wire resend" → verify the existing Resend wiring and

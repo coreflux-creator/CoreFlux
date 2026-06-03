@@ -55,7 +55,19 @@ ok('404 hint mentions JAZ_API_BASE',
    str_contains($adapter, 'JAZ_API_BASE'));
 
 ok('409 path still falls through to GET chart-of-accounts lookup',
-   (bool) preg_match("/jazCall.*'GET',\s*'chart-of-accounts'.*accountCode/s", $adapter));
+   (bool) preg_match("/jazCall.*'GET',\s*'chart-of-accounts'.*code/s", $adapter));
+
+ok('POST payload uses canonical Jaz field name `name` (not `accountName`)',
+   (bool) preg_match("/'name'\s*=>\s*\\\$name/", $adapter) && !str_contains($adapter, "'accountName' =>"));
+
+ok('POST payload uses canonical Jaz field name `code` (not `accountCode`)',
+   (bool) preg_match("/'code'\s*=>\s*\\\$code/", $adapter) && !str_contains($adapter, "'accountCode' =>"));
+
+ok('POST payload uses canonical Jaz field name `type` (not `accountType`)',
+   (bool) preg_match("/'type'\s*=>\s*\\\$type/", $adapter) && !str_contains($adapter, "'accountType' =>"));
+
+ok('409 GET lookup uses canonical `code` query param (not `accountCode`)',
+   (bool) preg_match("/'code'\s*=>\s*\\\$code,?\s*\]/", $adapter) && !str_contains($adapter, "'accountCode' => \$code"));
 
 echo "── JazSyncNowCard — error surface ──\n";
 $ui = read('dashboard/src/pages/JazIntegrationSettings.jsx');

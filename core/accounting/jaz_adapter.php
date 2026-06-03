@@ -306,10 +306,17 @@ class JazAccountingAdapter extends AccountingProviderAdapter
         if (!in_array($type, ['ASSET','LIABILITY','EQUITY','REVENUE','EXPENSE'], true)) {
             $type = 'ASSET';
         }
+        // Jaz POST /chart-of-accounts expects the same lowercase field
+        // names the GET endpoint returns (matched by normalizeCoaRow()
+        // below): `name`, `code`, `type`. The earlier camelCase shape
+        // (`accountName`, `accountCode`, `accountType`) was rejected
+        // with `"name is a required field"` — Jaz silently ignored the
+        // unknown camelCase keys and reported the canonical name as
+        // missing. See 2026-02 production push trace in PRD.
         $payload = [
-            'accountCode' => $code,
-            'accountName' => $name,
-            'accountType' => $type,
+            'code'        => $code,
+            'name'        => $name,
+            'type'        => $type,
             'isActive'    => true,
             'currency'    => ['code' => (string) ($account['currency'] ?? 'USD')],
         ];
@@ -352,7 +359,7 @@ class JazAccountingAdapter extends AccountingProviderAdapter
                 throw $e;
             }
             $resp = jazCall($key, 'GET', 'chart-of-accounts', [], [
-                'page' => 1, 'pageSize' => 50, 'accountCode' => $code,
+                'page' => 1, 'pageSize' => 50, 'code' => $code,
             ]);
             $hit = ($resp['data'][0] ?? $resp['items'][0] ?? $resp['results'][0] ?? null);
             if (!$hit) {
