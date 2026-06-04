@@ -115,7 +115,7 @@ foreach ([
     'timesheet-detail-title',
     'timesheet-detail-meta',
     'timesheet-detail-back',
-    'timesheet-detail-edit',
+    'timesheet-detail-open-week',
     'timesheet-detail-approve',
     'timesheet-detail-reject-open',
     'timesheet-detail-reject-form',

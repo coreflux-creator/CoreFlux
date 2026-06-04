@@ -69,7 +69,10 @@ $a('staffingTimesheetUpsert idempotent on (person, period_start)', str_contains(
 $a('staffingTimesheetWeek joins placements + reads end_client_name', str_contains($lib, 'LEFT JOIN placements') && str_contains($lib, 'end_client_name'));
 $a('staffingTimesheetBulkSave wraps in transaction', str_contains($lib, '$pdo->beginTransaction()'));
 $a('zero hours → delete existing row',           str_contains($lib, '$hours <= 0 && !empty($r[\'id\'])') && str_contains($lib, "scopedDelete('time_entries'"));
-$a('refuses edits when status approved/locked',  str_contains($lib, "in_array(\$header['status'] ?? 'draft', ['approved','locked','payroll_ready','billing_ready']"));
+$a('auto-reopens when status is submitted/approved/rejected/payroll_ready/billing_ready',
+   str_contains($lib, "in_array(\$header['status'] ?? 'draft', ['submitted','approved','rejected','payroll_ready','billing_ready']"));
+$a('still hard-blocks edits on truly locked sheets (downstream JEs)',
+   str_contains($lib, "Timesheet is locked"));
 $a('submit() flips header + cascades rows',      str_contains($lib, "scopedUpdate('staffing_timesheets', \$headerId, [") && str_contains($lib, "'submitted'") && str_contains($lib, "status = 'pending_review'"));
 $a('approve() guards two-eye control',           str_contains($lib, 'Two-eye control'));
 $a('reject() requires reason on header',         str_contains($lib, "'rejection_reason'    => \$reason"));

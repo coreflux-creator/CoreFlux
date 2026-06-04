@@ -1,5 +1,115 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Timesheet inline-edit — fixing the "can't edit them" bug)
+
+User direction: "we're back to issues with timesheets. I see where
+they're available individually, but they don't do what they need to,
+can't edit them. go back through the logic and fix it." → after
+agreement on option (b), ship row-level inline editing on the detail
+page + re-anchor the weekly grid from URL params.
+
+### Root cause
+
+`TimesheetDetail.jsx` was read-only with a single "Edit this week"
+button that routed to `../week` (TimesheetWeek). But TimesheetWeek
+hard-coded `anchor = new Date()` and
+`personId = session.user.person_id || 1`, so opening ANY historical
+timesheet or someone else's timesheet and clicking edit silently
+dumped you on your own current week — nothing of the source
+timesheet was visible or editable.
+
+The backend already had row-level `entry_save` / `entry_delete`
+endpoints with auto-reopen built into `staffingTimeEntrySave()` /
+`staffingTimeEntryDelete()` (they call `staffingTimesheetReopen()`
+when the parent isn't draft).  The fix was purely UX wiring.
+
+### Shipped
+
+1. **`TimesheetDetail.jsx`** — full row-level inline editor:
+   - Each row's `work_date`, `placement_id`, `hour_type`, `hours`,
+     `description` are editable cells (input / select). Dirty rows
+     highlight in amber; per-row **Save** + **×** delete buttons.
+   - "Add entry" form (collapsed by default) — picks a placement
+     from the worker's active placements (fetched off
+     `ts.person_id`, NOT the session user), constrains the date
+     input to `[period_start, period_end]`, defaults hour_type to
+     `regular`.
+   - Status-aware action surface:
+     - `draft` / `rejected` → inline edits + Submit / Re-submit.
+     - `submitted` → Approve + Reject + inline edits (auto-reopen
+       happens server-side).
+     - `approved` → Re-open for edit button + read-only rows; once
+       reopened, becomes draft.
+     - `locked` / `payroll_ready` / `billing_ready` → read-only
+       notice ("reverse downstream journal entries first").
+   - "Open weekly grid" button now passes
+     `?period_start=YYYY-MM-DD&person_id=N` so the grid lands on
+     the correct context (fixes the root bug).
+   - Defensive: ended/inactive placements still render in the
+     dropdown as `(inactive)` so historical timesheets stay editable.
+
+2. **`TimesheetWeek.jsx`** — reads URL params at module entry:
+   - `urlPersonId` overrides `session.user.person_id` when valid.
+   - `urlPeriodStart` (YYYY-MM-DD) seeds `anchor` via
+     `new Date(y, m-1, d)` (local midnight — no timezone drift).
+   - Falls back to today + session user when no params (the "My
+     time" entry point still works).
+
+3. **`tests/staffing_shell_and_weekly_timesheet_smoke.php`** —
+   updated 1 stale assertion that was checking for a "refuses
+   edits when approved/locked" pattern in `staffingTimesheetBulkSave`.
+   That pattern was replaced by the auto-reopen flow in a prior
+   session but the test was never updated. Now asserts both the
+   auto-reopen list AND the "locked sheets stay frozen" guard.
+
+### Test status
+- `tests/timesheet_inline_edit_smoke.php` → **50 / 50 ✓** (NEW —
+  locks inline editor surface, URL anchor behaviour, RBAC gates,
+  auto-reopen lib functions).
+- `tests/timesheets_drill_in_and_placement_smoke.php` → **70 / 70 ✓**
+  (1 testid renamed `timesheet-detail-edit` → `timesheet-detail-open-week`).
+- `tests/staffing_shell_and_weekly_timesheet_smoke.php` → **66 / 66 ✓**
+  (stale assertion fixed; previously was 64/65).
+- Full PHP suite: **383 / 385 passing** — only the 2 documented
+  sandbox-bound failures remain (`accounting_phase2_a7_smoke.php`,
+  `tenant_mail_senders_smoke.php`).
+- Vite bundle: **`coreflux-CKYkik5e`** (frontend changed). All four
+  sync points consistent (`.deploy-version`, `spa-assets/`,
+  `dashboard/dist/index.html`, service-worker `CACHE_VERSION`).
+- Lint clean.
+
+### Files touched
+- `modules/staffing/ui/TimesheetDetail.jsx` (full rewrite — inline
+  editor + add-entry form + status-aware controls + URL-anchored
+  weekly grid link)
+- `modules/staffing/ui/TimesheetWeek.jsx` (URL param anchor)
+- `tests/timesheet_inline_edit_smoke.php` (NEW, 50 assertions)
+- `tests/timesheets_drill_in_and_placement_smoke.php` (1 testid update)
+- `tests/staffing_shell_and_weekly_timesheet_smoke.php` (stale
+  assertion replaced with the auto-reopen + locked-guard pair)
+
+### Operator action (production)
+1. Deploy bundle `coreflux-CKYkik5e`.
+2. Open Staffing → Timesheets → click any row to drill in.
+3. Edit cells directly; "Save" per row commits via `entry_save`.
+   Submitted/approved sheets auto-reopen on save — the operator
+   sees the status badge flip to `draft`, then can Re-submit when
+   done.
+4. "Open weekly grid" deep-link now lands on the correct
+   `(person, week)` — historical timesheets remain editable.
+
+### Roadmap (unchanged)
+- (P1) Mercury Webhooks hardening.
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P2) Gusto integration / QBO hardening.
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module.
+- (P3) AI Digest Scheduler (Resend rail live).
+
+---
+
 ## Session — 2026-02 (PULL = true copy — import Jaz CoA into CoreFlux)
 
 User direction (with screenshot of 1 mapped row + telemetry showing

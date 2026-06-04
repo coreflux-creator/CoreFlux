@@ -41,15 +41,32 @@ function weekStartOf(date, startsOn /* 0=Sun, 1=Mon */) {
 }
 
 export default function TimesheetWeek({ session }) {
-  // ── session resolves person_id for "My Time" mode ──
-  const personId = session?.user?.person_id || session?.user?.id || 1;
+  // ── session resolves person_id for "My Time" mode, but URL ?person_id
+  //    overrides for the "edit timesheet #N belonging to worker X" flow.
+  //    Same story for ?period_start — when the operator drills in from
+  //    TimesheetDetail / TimesheetsList we anchor on THAT week, not today.
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlPersonId    = parseInt(urlParams.get('person_id') || '', 10);
+  const urlPeriodStart = urlParams.get('period_start') || '';
+  const personId = Number.isFinite(urlPersonId) && urlPersonId > 0
+    ? urlPersonId
+    : (session?.user?.person_id || session?.user?.id || 1);
 
   // Pull settings first so we can compute the right week-start.
   const settingsApi = useApi('/modules/staffing/api/timesheets.php?action=settings');
   const weekStartsOn = settingsApi.data?.settings?.week_starts_on ?? 1;
   const contracted   = settingsApi.data?.settings?.contracted_hours_per_week ?? 40;
 
-  const [anchor, setAnchor] = useState(new Date());
+  const [anchor, setAnchor] = useState(() => {
+    // urlPeriodStart wins so the deep-link from TimesheetDetail lands
+    // exactly on the right week.
+    if (urlPeriodStart && /^\d{4}-\d{2}-\d{2}$/.test(urlPeriodStart)) {
+      // Parse as local midnight (avoid timezone shifting the week by a day).
+      const [y, m, d] = urlPeriodStart.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    }
+    return new Date();
+  });
   const weekStart = useMemo(() => weekStartOf(anchor, weekStartsOn), [anchor, weekStartsOn]);
   const periodStart = toISO(weekStart);
   const periodEnd   = toISO(addDays(weekStart, 6));
