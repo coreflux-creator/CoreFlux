@@ -59,8 +59,9 @@ $a('QBO_REDIRECT_URI define present',  $c($cfg, "define('QBO_REDIRECT_URI',"));
 $a('QBO_ENV define present',           $c($cfg, "define('QBO_ENV',"));
 $a('QBO_SCOPES define present',        $c($cfg, "define('QBO_SCOPES',"));
 $a('QBO_ENV is sandbox (not production yet)', $c($cfg, "define('QBO_ENV',           'sandbox')"));
-$a('redirect uri points at /api/qbo.php?action=oauth_callback',
-    $c($cfg, '/api/qbo.php?action=oauth_callback'));
+$a('redirect uri points at /api/qbo/oauth_callback.php (path-style; Intuit rejects query strings)',
+    $c($cfg, '/api/qbo/oauth_callback.php')
+    && !$c($cfg, '?action=oauth_callback'));
 
 // ──────────────────────────────────────────────────────────────────────
 // 3) Functional smoke — load the file in this CLI and verify the
@@ -77,7 +78,12 @@ $a('qboEnvironment() returns sandbox',                  qboEnvironment() === 'sa
 $a('qboApiBase() routes to sandbox endpoint',           qboApiBase() === 'https://sandbox-quickbooks.api.intuit.com');
 $a('QBO_CLIENT_ID is non-empty',                        qboCfg('QBO_CLIENT_ID') !== '');
 $a('QBO_REDIRECT_URI matches production host',
-    qboCfg('QBO_REDIRECT_URI') === 'https://www.corefluxapp.com/api/qbo.php?action=oauth_callback');
+    qboCfg('QBO_REDIRECT_URI') === 'https://www.corefluxapp.com/api/qbo/oauth_callback.php');
+
+// Path-style shim must exist and delegate to the main router.
+$shim = (string) file_get_contents('/app/api/qbo/oauth_callback.php');
+$a('oauth_callback.php shim exists and delegates to /api/qbo.php',
+    $shim !== '' && strpos($shim, "require") !== false && strpos($shim, "qbo.php") !== false);
 
 // ──────────────────────────────────────────────────────────────────────
 echo "\n=========================================\n";

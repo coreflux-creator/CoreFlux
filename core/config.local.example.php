@@ -65,9 +65,10 @@ define('OPENAI_API_KEY', 'sk-proj-REPLACE_ME');
 //    review). Each environment has its own client_id + client_secret.
 //
 // 3) On the same screen, add a Redirect URI **exactly** matching:
-//        https://YOUR_HOST/api/qbo.php?action=oauth_callback
-//    The trailing `?action=oauth_callback` query string IS part of the URI
-//    Intuit will compare against — it must be registered verbatim.
+//        https://YOUR_HOST/api/qbo/oauth_callback.php
+//    Intuit does NOT accept Redirect URIs containing query strings, so
+//    the callback is exposed at a path-style shim that delegates to
+//    /api/qbo.php (the main router extracts the action from the URL).
 //
 // 4) For sandbox testing, every Intuit developer account auto-provisions
 //    a free sandbox company at
@@ -82,6 +83,6 @@ define('OPENAI_API_KEY', 'sk-proj-REPLACE_ME');
 // =========================================================================
 // define('QBO_CLIENT_ID',     'ABxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
 // define('QBO_CLIENT_SECRET', 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
-// define('QBO_REDIRECT_URI',  'https://yourdomain.com/api/qbo.php?action=oauth_callback');
+// define('QBO_REDIRECT_URI',  'https://yourdomain.com/api/qbo/oauth_callback.php');
 // define('QBO_ENV',           'sandbox');  // 'sandbox' | 'production'
 // define('QBO_SCOPES',        'com.intuit.quickbooks.accounting');
