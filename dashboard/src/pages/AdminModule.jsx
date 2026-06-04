@@ -34,6 +34,7 @@ import JazIntegrationSettings from './JazIntegrationSettings';
 import AccountingOutbox from './AccountingOutbox';
 import AiGatewayAdmin from './AiGatewayAdmin';
 import AskAiPanel from './AskAiPanel';
+import ArtifactsAdmin from './ArtifactsAdmin';
 import WorkflowTimeline from './WorkflowTimeline';
 import AiReviewerDashboard from './AiReviewerDashboard';
 import ZohoBooksSettings from './ZohoBooksSettings';
@@ -91,6 +92,7 @@ const AdminOverview = () => (
         <ActionCard icon={Sparkles} title="Ask AI (Slice 1)" description="Plumbing-only Ask-AI shell. Sends a deterministic tool call through the gateway. LLM planner ships in Slice 2." href="/admin/ai-gateway/ask" />
         <ActionCard icon={Activity} title="Workflow runtime" description="Durable workflow graphs (LangGraph-style): per-node timeline, paused approvals, output. Spec §6." href="/admin/ai-gateway/workflows" />
         <ActionCard icon={Shield}   title="AI Reviewer cockpit" description="Single landing page: open exceptions, pending approvals, recently drafted JEs. The reviewer's home." href="/admin/ai-gateway/reviewer" />
+        <ActionCard icon={FileText}  title="Artifacts" description="First-class platform artifacts: close packets, recon packets, JE drafts, forecasts. Lifecycle + lineage + event history. Spec §2A." href="/admin/ai/artifacts" />
         <ActionCard icon={Sparkles} title="Field Mapping Studio" description="Route any integration payload field (JobDiva, QBO, Zoho, Airtable) into any CoreFlux column — including custom fields. Tenant overrides + dry-run test panel." href="/admin/integrations/field-map/studio" />
         <ActionCard icon={FileText} title="Assignment schema preview" description="Auto-built CoreFlux clone of the JobDiva Assignment edit screen. Shows every indexed field grouped into Assignment / Placement / Job / Person / End-client / Contact sections." href="/admin/integrations/assignment-schema" />
         <ActionCard icon={KeyRound} title="SSO configuration" description="Register your Okta or Microsoft Entra identity provider" href="/admin/sso" />
@@ -138,6 +140,7 @@ const AdminSidebar = () => {
     { to: '/admin/ai-gateway/ask',   label: 'Ask AI (Slice 1)', icon: Sparkles },
     { to: '/admin/ai-gateway/workflows', label: 'Workflow runtime', icon: Activity },
     { to: '/admin/ai-gateway/reviewer',  label: 'AI Reviewer',     icon: Shield },
+    { to: '/admin/ai/artifacts',         label: 'Artifacts',        icon: FileText },
     { to: '/admin/integrations/field-map/studio', label: 'Field Mapping Studio', icon: Sparkles },
     { to: '/admin/integrations/assignment-schema', label: 'Assignment schema',    icon: FileText },
     { to: '/admin/sso',              label: 'SSO',              icon: KeyRound },
@@ -223,6 +226,7 @@ const AdminModule = ({ session }) => {
           <Route path="/ai-gateway/ask"        element={<AskAiPanel session={session} />} />
           <Route path="/ai-gateway/workflows"  element={<WorkflowTimeline session={session} />} />
           <Route path="/ai-gateway/reviewer"   element={<AiReviewerDashboard session={session} />} />
+          <Route path="/ai/artifacts"          element={<ArtifactsAdmin session={session} />} />
           <Route path="/integrations/zoho-books" element={<ZohoBooksSettings session={session} />} />
           <Route path="/integrations/airtable" element={<AirtableSettings session={session} />} />
           <Route path="/integrations/jobdiva" element={<JobDivaSettings session={session} />} />

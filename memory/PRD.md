@@ -1,5 +1,138 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (AI-Native Extension · Slice A · Tool Registry + Artifact Layer)
+
+User direction: After the spec-compliance scan landed at
+`/app/memory/SPEC_COMPLIANCE_SCAN.md`, user committed to slices A–E
+in sequence ("No keep Postgres. Start A-E"). This session ships
+Slice A.
+
+### Scope (Slice A)
+Phase 1 — Foundation: DB-backed Tool Registry + first-class Artifact
+Layer + AI audit-style admin UI for artifacts.
+
+### What shipped
+
+1. **Migration 105 — `core/migrations/105_ai_phase1_tool_registry_and_artifact_layer.sql`**
+   - `tool_registry`: durable catalog above `ai_tool_invocations`.
+     Columns: `tool_name` (UNIQUE), `description`, `permission_required`,
+     `risk_level` ENUM(`read`,`draft`,`transactional`,`irreversible`),
+     `args_schema` JSON, `handler_ref`, `idempotency_args` JSON,
+     `active`, `source`, timestamps.
+   - `tool_permissions`: per-tenant per-tool overrides. Can hard-disable
+     a tool or force approval for that tool/tenant pair, optional rate
+     limit. UNIQUE (tenant_id, tool_name).
+   - `artifact_objects`: CHAR(36) UUIDv4 id (matches `ai_runs.artifact_id`),
+     `artifact_type`, `title`, `status`
+     ENUM(`draft`,`review`,`approved`,`final`,`archived`,`rejected`),
+     `version` counter, source provenance
+     (`source_module`+`source_record_type`+`source_record_id`),
+     `payload_json`, `storage_uri`+`storage_bytes`+`storage_mime` for
+     binary payloads, `created_by_user_id`+`created_by_ai_run`, timestamps,
+     `archived_at`.
+   - `artifact_events`: immutable lifecycle ledger.
+   - `artifact_relationships`: edges; target = either another artifact
+     or an arbitrary (table, record_id) — enforced exclusive at the lib
+     layer.
+
+2. **`core/ai/artifacts.php` (lifecycle helper surface)**
+   - `ARTIFACT_TRANSITIONS` state-machine constant
+     (draft → review → approved → final; rejected → draft; final →
+     archived; archived/final are closed states).
+   - `artifactCreate`, `artifactUpdate` (bumps version, writes
+     `updated` event), `artifactTransition` (refuses illegal moves;
+     idempotent on same-status; sets `archived_at` automatically),
+     `artifactLink` (refuses ambiguous targets), `artifactGet`,
+     `artifactList`, `artifactLineage` (returns outgoing + incoming
+     + event_history), `artifactWriteEvent` (internal),
+     `artifactGenerateUuid` (RFC 4122 v4).
+
+3. **`core/ai/tool_gateway.php` — registry mirror**
+   - `aiToolRegistrySync()`: idempotent mirror of the PHP
+     `aiToolRegistry()` array → DB `tool_registry` table. Static-cached
+     within request. Treats missing table as no-op (works on pods that
+     haven't run mig 105). Uses `INSERT … ON DUPLICATE KEY UPDATE` so
+     re-runs don't churn rows.
+   - `aiToolInferRiskLevel()`: maps tool name to the spec enum
+     (`.draft_`/`.propose_` → draft, `.post_`/`.approve_` →
+     transactional, `.release_`/`.send_`/`.file_` → irreversible,
+     default read). Explicit `risk_level` on the array entry wins.
+
+4. **`api/ai/admin.php` — 6 read endpoints**
+   GET-only, RBAC-gated on `ai.audit.view`. Calls `aiToolRegistrySync()`
+   on every request to keep the DB row set fresh:
+   - `list_runs`        — paginated ai_runs scroll
+   - `get_run`          — single run + tool_calls envelope
+   - `list_tools`       — `tool_registry` rows + 30-day invocation
+                          counts per tool
+   - `list_invocations` — recent `ai_tool_invocations` (optionally
+                          filtered by tool_name)
+   - `list_artifacts`   — paginated artifacts + distribution by
+                          (artifact_type, status)
+   - `get_artifact`     — artifact + outgoing/incoming/event_history
+
+5. **`dashboard/src/pages/ArtifactsAdmin.jsx` — operator UI**
+   - Mounted at `/admin/ai/artifacts` (route added to AdminModule).
+   - Distribution strip — per-type cards with status breakdown.
+   - Filter bar — type / status / source_module selectors.
+   - Two-column layout — filtered list (left) + drill-down panel (right).
+   - Drill-down sections — body / event history / outgoing edges /
+     incoming edges.
+   - Linked from AdminOverview ActionCard tile + sidebar nav.
+
+6. **`tests/ai_phase1_slice_a_smoke.php`** → **93 / 93 ✓** locking
+   migration shape, lifecycle state machine, link helper guards,
+   `aiToolRegistrySync` idempotency, all 6 API actions, full UI
+   surface (16 testids + 5 template testids), AdminModule routing.
+
+### Test status
+- Slice A smoke: **93 / 93 ✓**
+- Full PHP suite: **386 / 388 ✓** — only the 2 documented
+  sandbox-bound failures remain.
+- Vite bundle: **`coreflux-Cu5EaWOS`**. Lint clean. PHP syntax
+  clean on all touched files.
+
+### Operator action (production)
+
+1. **Deploy migration 105.** Either run via the standard migration
+   runner OR copy/paste the SQL into your MySQL session. Idempotent
+   (every `CREATE TABLE IF NOT EXISTS`).
+2. **Deploy bundle `coreflux-Cu5EaWOS`** — pulls in ArtifactsAdmin
+   + AdminModule routing.
+3. Sign in → **Admin → Artifacts** (or paste
+   `https://www.corefluxapp.com/admin/ai/artifacts`).
+   Distribution strip will show "No artifacts yet" until Slices
+   C/D wire the close packets / recon packets / JE drafts emitters
+   into `artifactCreate()`.
+4. **Sanity check** that the DB-backed tool registry seeded
+   correctly:
+   ```sql
+   SELECT tool_name, risk_level, source FROM tool_registry ORDER BY tool_name;
+   ```
+   Expected: 6 rows (the existing tools in `aiToolRegistry()`), all
+   with `source='php_array_seed'`.
+
+### Next slices (per the user-committed sequence)
+
+- **Slice B** ~2 hr — `vendor_aliases` table, `resolveVendorAlias`
+  tool, `TransactionRecommendationCard` component,
+  `AccountingExceptionQueue` component.
+- **Slice C** ~3 hr — `journal_entry_drafts`, `validateJournalEntry`
+  tool, approval gate on post.
+- **Slice D** ~3 hr — `accounting_close_runs` orchestrator,
+  `CloseDashboard`.
+- **Slice E** ~5 hr — AP invoice review + cash forecast +
+  anomaly detection tools.
+
+### Why we stopped at A before continuing
+
+Slice B doesn't depend on Slice A's DB schema, but Slices C/D both
+write into `artifact_objects` (close packets, JE drafts). Verifying
+that mig 105 lands cleanly on production before piling on more
+schema gives a clean rollback point if anything in Slice A misbehaves.
+
+---
+
 ## Session — 2026-02 (QBO ↔ Jaz CoA parity — true PULL for QBO)
 
 User direction: "QBO" → after option (a) was selected, ship the

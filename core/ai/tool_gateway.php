@@ -158,6 +158,100 @@ function aiToolRegistry(): array
 }
 
 /**
+ * Mirror the in-memory tool registry to the persisted `tool_registry`
+ * table.  Idempotent — INSERT … ON DUPLICATE KEY UPDATE keeps the row
+ * in sync with the PHP array on every call without churning rows.
+ *
+ * Spec §1 Phase 1 — the DB-backed catalog is what later phases (admin
+ * UI, per-tenant policies, audit drill-in) query.  PHP array remains
+ * source of truth for handler resolution today; promoting handler
+ * dispatch to DB happens once admin-UI tool registration ships.
+ *
+ * Safe to call multiple times per request; the static cache + the
+ * fact that we only sync if the table exists keeps this cheap.
+ */
+function aiToolRegistrySync(?\PDO $pdo = null): array
+{
+    static $synced = false;
+    if ($synced) return ['synced' => true, 'cached' => true];
+
+    $pdo = $pdo ?? getDB();
+
+    // Be defensive — old pods may not have run mig 105 yet.  Treat a
+    // missing table as a no-op so the existing PHP-array gateway keeps
+    // working until the operator runs migrations.
+    try {
+        $pdo->query('SELECT 1 FROM tool_registry LIMIT 1');
+    } catch (\Throwable $e) {
+        return ['synced' => false, 'reason' => 'tool_registry table missing — run migration 105'];
+    }
+
+    $registry = aiToolRegistry();
+    $stmt = $pdo->prepare(
+        'INSERT INTO tool_registry
+            (tool_name, description, permission_required, risk_level,
+             args_schema, handler_ref, idempotency_args, active, source,
+             created_at, updated_at)
+         VALUES
+            (:n, :d, :p, :rl, :as, :h, :ik, 1, "php_array_seed", NOW(), NOW())
+         ON DUPLICATE KEY UPDATE
+            description          = VALUES(description),
+            permission_required  = VALUES(permission_required),
+            risk_level           = VALUES(risk_level),
+            args_schema          = VALUES(args_schema),
+            handler_ref          = VALUES(handler_ref),
+            idempotency_args     = VALUES(idempotency_args),
+            active               = 1,
+            source               = "php_array_seed",
+            updated_at           = NOW()'
+    );
+
+    $written = 0;
+    foreach ($registry as $toolName => $tool) {
+        $stmt->execute([
+            'n'  => $toolName,
+            'd'  => (string) ($tool['description'] ?? ''),
+            'p'  => (string) ($tool['permission']  ?? ''),
+            'rl' => aiToolInferRiskLevel((string) $toolName, $tool),
+            'as' => json_encode($tool['args'] ?? [], JSON_UNESCAPED_SLASHES),
+            'h'  => (string) ($tool['handler']     ?? ''),
+            'ik' => isset($tool['idempotency_args'])
+                       ? json_encode($tool['idempotency_args'], JSON_UNESCAPED_SLASHES)
+                       : null,
+        ]);
+        $written++;
+    }
+
+    $synced = true;
+    return ['synced' => true, 'tools_written' => $written];
+}
+
+/**
+ * Derive a risk_level for the spec's enum from the PHP array shape.
+ *  - 'read'           = pure read (default)
+ *  - 'draft'          = creates a draft / proposal, doesn't post yet
+ *  - 'transactional'  = creates a posted/committed record
+ *  - 'irreversible'   = external effect (payment, filing, email send)
+ *
+ * Hand-curated tool name patterns until the PHP array carries the
+ * field natively — keeps the mirror lossless without forcing every
+ * existing entry to be edited.
+ */
+function aiToolInferRiskLevel(string $toolName, array $tool): string
+{
+    if (!empty($tool['risk_level']) && is_string($tool['risk_level'])) {
+        return (string) $tool['risk_level'];
+    }
+    $n = strtolower($toolName);
+    if (str_contains($n, '.draft_') || str_contains($n, '.propose_'))      return 'draft';
+    if (str_contains($n, '.create_exception'))                              return 'draft';
+    if (str_contains($n, '.post_') || str_contains($n, '.approve_'))        return 'transactional';
+    if (str_contains($n, '.release_') || str_contains($n, '.send_'))        return 'irreversible';
+    if (str_contains($n, '.file_'))                                         return 'irreversible';
+    return 'read';
+}
+
+/**
  * Invoke a tool by name. Returns a structured envelope so callers
  * never have to second-guess the shape:
  *   { ok: bool, status: 'ok'|'denied'|...,
