@@ -36,7 +36,24 @@ Format per item:
 
 ## Integrations
 
-(none deferred yet)
+### LP-002 — QBO sandbox keys missing from production `config.local.php`
+- **What**: Production `/app/core/config.local.php` has Plaid +
+  Resend + OpenAI keys but no QBO ones, so `qboConfigured()` returns
+  false and the OAuth flow short-circuits before redirecting to
+  Intuit. Need to add `QBO_CLIENT_ID` / `QBO_CLIENT_SECRET` /
+  `QBO_REDIRECT_URI` (and `QBO_ENV='sandbox'` for testing).
+- **Why**: Without these, "Connect to QuickBooks" throws
+  `"QBO is not configured on this pod"`. We've already shipped
+  every downstream feature; the credentials are the only blocker.
+- **Where**: `core/config.local.php` on the deploy host (or env
+  vars: `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_REDIRECT_URI`,
+  `QBO_ENV`, `QBO_SCOPES`). Reference template is now in
+  `core/config.local.example.php` (2026-02 update).
+- **Estimate**: ~10 min (after operator pastes their Intuit dev
+  keys + registers the redirect URI in the Intuit dashboard).
+- **Surfaced**: 2026-02 — user: "need to test QB in intuit
+  developer sandbox".
+- **Status**: OPEN (operator action — needs Intuit dev account)
 
 ---
 

@@ -49,3 +49,39 @@ define('OPENAI_API_KEY', 'sk-proj-REPLACE_ME');
 // define('RESEND_API_KEY',     're_REPLACE_ME');
 // define('RESEND_FROM_EMAIL',  'no-reply@yourdomain.com');
 // define('RESEND_FROM_NAME',   'CoreFlux Notifications');
+
+// =========================================================================
+// QuickBooks Online (QBO) — Intuit AppCenter OAuth 2.0
+// -------------------------------------------------------------------------
+// Used by /app/core/qbo/client.php and the /app/api/qbo.php router.
+// Per-tenant connection model — each tenant connects their own Intuit
+// company; CoreFlux never holds a partner-level token.
+//
+// 1) Create an app at https://developer.intuit.com/app/developer/dashboard
+//    → "Just start creating an app" → pick scope "Accounting".
+//
+// 2) From the app's "Keys & OAuth" section, grab the **Development Keys**
+//    (for sandbox testing) or **Production Keys** (after Intuit security
+//    review). Each environment has its own client_id + client_secret.
+//
+// 3) On the same screen, add a Redirect URI **exactly** matching:
+//        https://YOUR_HOST/api/qbo.php?action=oauth_callback
+//    The trailing `?action=oauth_callback` query string IS part of the URI
+//    Intuit will compare against — it must be registered verbatim.
+//
+// 4) For sandbox testing, every Intuit developer account auto-provisions
+//    a free sandbox company at
+//        https://developer.intuit.com/app/developer/sandbox
+//    Connect to it from CoreFlux → Admin → QuickBooks Online → "Connect
+//    to QuickBooks". After OAuth, qboPing() probes /companyinfo and
+//    populates the company name on the connection row.
+//
+// 5) Flip QBO_ENV to 'production' AFTER Intuit approves the app for
+//    production keys. Sandbox companies will NOT accept production keys
+//    and vice-versa.
+// =========================================================================
+// define('QBO_CLIENT_ID',     'ABxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
+// define('QBO_CLIENT_SECRET', 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
+// define('QBO_REDIRECT_URI',  'https://yourdomain.com/api/qbo.php?action=oauth_callback');
+// define('QBO_ENV',           'sandbox');  // 'sandbox' | 'production'
+// define('QBO_SCOPES',        'com.intuit.quickbooks.accounting');
