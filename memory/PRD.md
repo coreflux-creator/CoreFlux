@@ -63,9 +63,9 @@ when the parent isn't draft).  The fix was purely UX wiring.
    auto-reopen list AND the "locked sheets stay frozen" guard.
 
 ### Test status
-- `tests/timesheet_inline_edit_smoke.php` → **50 / 50 ✓** (NEW —
+- `tests/timesheet_inline_edit_smoke.php` → **68 / 68 ✓** (NEW —
   locks inline editor surface, URL anchor behaviour, RBAC gates,
-  auto-reopen lib functions).
+  auto-reopen lib functions, **live running totals**).
 - `tests/timesheets_drill_in_and_placement_smoke.php` → **70 / 70 ✓**
   (1 testid renamed `timesheet-detail-edit` → `timesheet-detail-open-week`).
 - `tests/staffing_shell_and_weekly_timesheet_smoke.php` → **66 / 66 ✓**
@@ -73,10 +73,39 @@ when the parent isn't draft).  The fix was purely UX wiring.
 - Full PHP suite: **383 / 385 passing** — only the 2 documented
   sandbox-bound failures remain (`accounting_phase2_a7_smoke.php`,
   `tenant_mail_senders_smoke.php`).
-- Vite bundle: **`coreflux-CKYkik5e`** (frontend changed). All four
+- Vite bundle: **`coreflux-BNzUKtT_`** (frontend changed). All four
   sync points consistent (`.deploy-version`, `spa-assets/`,
   `dashboard/dist/index.html`, service-worker `CACHE_VERSION`).
 - Lint clean.
+
+### Follow-up — live running totals (same session)
+
+After the operator confirmed the inline editor works, the next ask
+was a live running total so workers see the impact of each cell
+edit before saving.  Shipped:
+
+- `useMemo` aggregator now computes over MERGED rows
+  (`{ ...e, ...edits[e.id] }`) keyed on `[entries, edits]` so every
+  keystroke re-runs the math.
+- Summary card surfaces: **Total hours**, **Billable**,
+  **Non-billable**, **Entry count**, and (when edits buffer is
+  non-empty) **Unsaved delta**.  Card background flips to amber
+  when there are pending edits.
+- Hour-type breakdown chip row beneath the card: e.g.
+  `Regular: 32.00h · Overtime: 5.00h · PTO: 8.00h`.
+- Header meta line now shows the LIVE total (not the stale
+  `total_hours` column) with a `+Xh pending save` chip when delta
+  ≥ 0.005h.
+- `LiveCell` helper component (`{label, value, testId, emphasis, color}`).
+- New testids: `timesheet-detail-live-totals`,
+  `timesheet-detail-live-total`, `timesheet-detail-live-billable`,
+  `timesheet-detail-live-nonbillable`,
+  `timesheet-detail-live-entry-count`, `timesheet-detail-live-delta`,
+  `timesheet-detail-live-by-hour-type`,
+  `timesheet-detail-live-ht-{hour_type}`,
+  `timesheet-detail-header-total`,
+  `timesheet-detail-header-total-pending`.
+- Smoke test grew from 50 to 68 assertions; all green.
 
 ### Files touched
 - `modules/staffing/ui/TimesheetDetail.jsx` (full rewrite — inline

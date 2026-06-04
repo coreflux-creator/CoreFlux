@@ -150,15 +150,32 @@ export default function TimesheetDetail({ session }) {
   };
 
   // Per-placement summary (only when timesheet spans multiple placements).
-  const byPlacement = useMemo(() => {
+  // Computed over the MERGED rows so unsaved edits flow into the totals
+  // live — operators see the impact of each cell change before committing.
+  const { byPlacement, liveTotal, liveByCategory, liveByHourType } = useMemo(() => {
     const m = {};
+    let total = 0;
+    const byCat = { billable: 0, nonbillable: 0 };
+    const byHt = {};
     entries.forEach(e => {
-      const k = e.placement_id;
+      const row = { ...e, ...(edits[e.id] || {}) };
+      const h = Number(row.hours || 0);
+      const k = row.placement_id;
       if (!m[k]) m[k] = { title: e.placement_title || `Placement #${k}`, client: e.client_name, hours: 0 };
-      m[k].hours += Number(e.hours || 0);
+      m[k].hours += h;
+      total += h;
+      // Billable flag follows hour_type per STAFFING_HOUR_TYPE_TO_CATEGORY
+      // rules — keep the UI in sync with what the backend will compute.
+      const ht = HOUR_TYPES.find(t => t.v === row.hour_type) || HOUR_TYPES[0];
+      byCat[ht.billable ? 'billable' : 'nonbillable'] += h;
+      byHt[row.hour_type] = (byHt[row.hour_type] || 0) + h;
     });
-    return m;
-  }, [entries]);
+    return { byPlacement: m, liveTotal: total, liveByCategory: byCat, liveByHourType: byHt };
+  }, [entries, edits]);
+
+  const serverTotal = Number(ts.total_hours || 0);
+  const delta = liveTotal - serverTotal;
+  const hasUnsavedEdits = Object.keys(edits).length > 0;
 
   const isSubmitted = ts.status === 'submitted';
   const isRejected  = ts.status === 'rejected';
@@ -181,7 +198,13 @@ export default function TimesheetDetail({ session }) {
             {ts.email_primary && <> · {ts.email_primary}</>}
             {' · '}{ts.period_start} → {ts.period_end}
             {' · '}<StatusBadge status={ts.status} />
-            {' · '}{Number(ts.total_hours || 0).toFixed(2)}h total
+            {' · '}<span data-testid="timesheet-detail-header-total">{liveTotal.toFixed(2)}h total</span>
+            {hasUnsavedEdits && Math.abs(delta) >= 0.005 && (
+              <span data-testid="timesheet-detail-header-total-pending"
+                    style={{ color: '#d97706', fontSize: 11, marginLeft: 6 }}>
+                ({delta >= 0 ? '+' : ''}{delta.toFixed(2)}h pending save)
+              </span>
+            )}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -268,6 +291,55 @@ export default function TimesheetDetail({ session }) {
            data-testid="timesheet-detail-rejection-reason">
           <strong>Rejection reason:</strong> {ts.rejection_reason}
         </p>
+      )}
+
+      {/* Live running total — reflects unsaved edits in real time. */}
+      <div data-testid="timesheet-detail-live-totals"
+           style={{
+             marginTop: 16,
+             padding: 12,
+             background: hasUnsavedEdits ? '#fffbeb' : '#f8fafc',
+             border: `1px solid ${hasUnsavedEdits ? '#fbbf24' : '#e2e8f0'}`,
+             borderRadius: 6,
+             display: 'grid',
+             gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+             gap: 12,
+           }}>
+        <LiveCell label="Total hours"
+                  value={`${liveTotal.toFixed(2)}h`}
+                  testId="timesheet-detail-live-total"
+                  emphasis />
+        <LiveCell label="Billable"
+                  value={`${liveByCategory.billable.toFixed(2)}h`}
+                  testId="timesheet-detail-live-billable" />
+        <LiveCell label="Non-billable"
+                  value={`${liveByCategory.nonbillable.toFixed(2)}h`}
+                  testId="timesheet-detail-live-nonbillable" />
+        <LiveCell label="Entries"
+                  value={entries.length}
+                  testId="timesheet-detail-live-entry-count" />
+        {hasUnsavedEdits && (
+          <LiveCell label="Unsaved delta"
+                    value={`${delta >= 0 ? '+' : ''}${delta.toFixed(2)}h`}
+                    testId="timesheet-detail-live-delta"
+                    color={Math.abs(delta) < 0.005 ? '#475569' : (delta > 0 ? '#d97706' : '#dc2626')} />
+        )}
+      </div>
+      {Object.keys(liveByHourType).length > 0 && (
+        <div data-testid="timesheet-detail-live-by-hour-type"
+             style={{ marginTop: 6, fontSize: 11, color: '#64748b', display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+          {Object.entries(liveByHourType)
+            .filter(([, h]) => h > 0)
+            .sort((a, b) => b[1] - a[1])
+            .map(([ht, h]) => {
+              const label = (HOUR_TYPES.find(t => t.v === ht) || {}).l || ht;
+              return (
+                <span key={ht} data-testid={`timesheet-detail-live-ht-${ht}`}>
+                  <strong>{label}:</strong> {h.toFixed(2)}h
+                </span>
+              );
+            })}
+        </div>
       )}
 
       {/* Per-placement summary */}
@@ -528,6 +600,24 @@ function AddEntryRow({ timesheet, placements, defaultPlacementId, onSaved }) {
                 data-testid="timesheet-detail-add-entry-cancel">
           Cancel
         </button>
+      </div>
+    </div>
+  );
+}
+
+function LiveCell({ label, value, testId, emphasis, color }) {
+  return (
+    <div data-testid={testId}>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', color: '#94a3b8', letterSpacing: '0.05em', fontWeight: 600 }}>
+        {label}
+      </div>
+      <div style={{
+        fontSize: emphasis ? 22 : 16,
+        fontWeight: emphasis ? 700 : 600,
+        color: color || (emphasis ? '#0f172a' : '#334155'),
+        marginTop: 2,
+      }}>
+        {value}
       </div>
     </div>
   );

@@ -104,6 +104,60 @@ $a('dirty row highlights via background',
 $a('save button disabled until row is dirty',
     str_contains($det, 'disabled={!dirty || saving}'));
 
+// ──────────────────────────────────────────────────────────────────────
+// Live running total — updates as the operator edits, before save.
+// ──────────────────────────────────────────────────────────────────────
+echo "\n── Live running totals ──\n";
+$a('liveTotal computed from merged (edit + server) rows',
+    str_contains($det, 'const row = { ...e, ...(edits[e.id] || {}) }')
+    && str_contains($det, 'total += h'));
+$a('liveByCategory splits billable vs non-billable from HOUR_TYPES table',
+    str_contains($det, "byCat[ht.billable ? 'billable' : 'nonbillable']"));
+$a('liveByHourType aggregates per hour_type',
+    str_contains($det, 'byHt[row.hour_type] = (byHt[row.hour_type] || 0) + h'));
+$a('useMemo dependency includes edits (live updates as user types)',
+    str_contains($det, '[entries, edits]'));
+$a('delta computed against server total_hours',
+    str_contains($det, 'const delta = liveTotal - serverTotal'));
+$a('hasUnsavedEdits flag tracks whether edits buffer is non-empty',
+    str_contains($det, 'const hasUnsavedEdits = Object.keys(edits).length > 0'));
+
+// Card surface — `LiveCell` passes testId via prop, the wrapping div
+// uses data-testid directly. Accept either form for the assertion.
+$liveCellMatch = function(string $tid) use ($det): bool {
+    return str_contains($det, "data-testid=\"{$tid}\"")
+        || str_contains($det, "testId=\"{$tid}\"");
+};
+foreach ([
+    'timesheet-detail-live-totals',
+    'timesheet-detail-live-total',
+    'timesheet-detail-live-billable',
+    'timesheet-detail-live-nonbillable',
+    'timesheet-detail-live-entry-count',
+    'timesheet-detail-live-delta',
+    'timesheet-detail-live-by-hour-type',
+    'timesheet-detail-header-total',
+] as $tid) {
+    $a("live-total testid '{$tid}' present", $liveCellMatch($tid));
+}
+foreach ([
+    'timesheet-detail-live-ht-${ht}',
+] as $template) {
+    $a("template testid '{$template}' present",
+        str_contains($det, "data-testid={`{$template}`}"));
+}
+
+// The pending-save chip surfaces only when there is an unsaved delta.
+$a('header surfaces pending-save chip when delta exists',
+    str_contains($det, 'timesheet-detail-header-total-pending'));
+$a('delta-only render is gated on Math.abs(delta) >= 0.005',
+    str_contains($det, 'Math.abs(delta) >= 0.005')
+    || str_contains($det, 'Math.abs(delta) < 0.005'));
+
+// LiveCell helper component must exist + accept the standard props.
+$a('LiveCell helper component declared',
+    preg_match('/function LiveCell\(\s*\{\s*label,\s*value,\s*testId,\s*emphasis,\s*color\s*\}/', $det) === 1);
+
 // Placements dropdown is keyed off ts.person_id so we ALWAYS fetch the
 // owner's placements (not the logged-in operator's).
 $a('placements fetch keyed off ts.person_id (not session user)',
