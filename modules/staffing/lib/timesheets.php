@@ -119,8 +119,17 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
     $header = staffingTimesheetUpsert($personId, $periodStart, $periodEnd);
     $headerId = (int) $header['id'];
 
-    if (in_array($header['status'] ?? 'draft', ['approved','locked','payroll_ready','billing_ready'], true)) {
-        throw new \RuntimeException("Timesheet is {$header['status']} — cannot edit");
+    // Per product direction (2026-02): operators with timesheets.write
+    // may edit any timesheet — including ones already submitted /
+    // approved / payroll_ready / billing_ready.  Auto-reopen so the
+    // existing draft-only constraints in the row loop still apply.
+    // Truly `locked` headers (status='locked') stay frozen because
+    // their entries are referenced by posted journal lines; the
+    // operator must reverse the JE first.
+    if (in_array($header['status'] ?? 'draft', ['submitted','approved','rejected','payroll_ready','billing_ready'], true)) {
+        $header = staffingTimesheetReopen($userId, $headerId, 'bulk edit');
+    } elseif (($header['status'] ?? 'draft') === 'locked') {
+        throw new \RuntimeException("Timesheet is locked — reverse downstream journal entries first");
     }
 
     $pdo = getDB();
@@ -426,3 +435,207 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): voi
         error_log("[staffing] accounting event emit failed for ts #{$headerId}: " . $e->getMessage());
     }
 }
+
+// ─── Per-entry edit lifecycle (2026-02 — Batch 5) ──────────────────────────
+//
+// Operators told us the weekly-grid-only edit flow was too coarse: they
+// want to click into ONE timesheet row from People / Placement views and
+// fix a single entry, even after submission or approval, without
+// rebuilding the whole week.  These helpers add row-level CRUD with an
+// automatic "reopen" semantic — the parent header flips back to `draft`
+// the moment its first entry is touched, so the downstream
+// billing/payroll/journal pipeline re-evaluates on the next submission.
+//
+// Anyone with `staffing.timesheets.write` (enforced at the API layer)
+// may edit any timesheet — original worker OR a manager fixing it
+// in-place, per product direction (2026-02).
+
+/**
+ * Re-open a timesheet header so its entries can be edited.  Cascades to
+ * a flat re-stage of every non-superseded entry back to `draft` and
+ * records an audit row so we can prove the manager touched it.
+ */
+function staffingTimesheetReopen(int $userId, int $timesheetId, string $reason = ''): array {
+    $header = scopedFind(
+        'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+        ['id' => $timesheetId]
+    );
+    if (!$header) throw new \RuntimeException("timesheet #{$timesheetId} not found");
+    if ($header['status'] === 'draft') return $header; // already editable, no-op
+
+    // `locked`, `payroll_ready`, `billing_ready` and `approved` all
+    // reopen back to `draft` so the entry update path can land cleanly.
+    // We DON'T reopen entries that already flowed downstream into
+    // posted journal lines — those carry status `locked` per the
+    // existing settlement code and the journal_entry_lines reference
+    // them by id.  Operators must reverse the JE first.
+    $pdo = getDB();
+    $pdo->beginTransaction();
+    try {
+        scopedUpdate('staffing_timesheets', $timesheetId, [
+            'status'           => 'draft',
+            'rejection_reason' => $reason !== '' ? $reason : null,
+            'rejected_at'      => $reason !== '' ? date('Y-m-d H:i:s') : null,
+            'rejected_by_user_id' => $reason !== '' ? $userId : null,
+        ]);
+        $upd = $pdo->prepare(
+            "UPDATE time_entries
+                SET status = 'draft', rejected_reason = NULL
+              WHERE tenant_id = :t AND timesheet_id = :tid
+                AND status IN ('pending_review','approved','rejected','payroll_ready','billing_ready')"
+        );
+        $upd->execute(['t' => currentTenantId(), 'tid' => $timesheetId]);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+    return scopedFind(
+        'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+        ['id' => $timesheetId]
+    );
+}
+
+/**
+ * Save (insert or update) a single `time_entries` row.  Auto-reopens the
+ * parent timesheet if it's not already draft — operators get a single
+ * "edit and save" flow even on previously-submitted rows.
+ *
+ * @return array The updated/inserted row + the parent header.
+ */
+function staffingTimeEntrySave(int $userId, array $payload): array {
+    $entryId   = (int) ($payload['id'] ?? 0);
+    $tsId      = (int) ($payload['timesheet_id'] ?? 0);
+    if ($entryId <= 0 && $tsId <= 0) {
+        throw new \RuntimeException('Either id or timesheet_id is required');
+    }
+
+    // Resolve the parent timesheet so we can auto-reopen.
+    $existing = null;
+    if ($entryId > 0) {
+        $existing = scopedFind(
+            'SELECT * FROM time_entries WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+            ['id' => $entryId]
+        );
+        if (!$existing) throw new \RuntimeException("time_entry #{$entryId} not found");
+        $tsId = (int) $existing['timesheet_id'];
+    }
+    if ($tsId <= 0) throw new \RuntimeException('timesheet_id could not be resolved');
+
+    $header = scopedFind(
+        'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+        ['id' => $tsId]
+    );
+    if (!$header) throw new \RuntimeException("timesheet #{$tsId} not found");
+
+    // Per product direction (2026-02): anyone with timesheets.write can
+    // edit any timesheet, including ones already submitted/approved.
+    // We auto-reopen so the existing draft-only constraints below stay
+    // intact without forcing the operator to click twice.
+    if ($header['status'] !== 'draft') {
+        $header = staffingTimesheetReopen($userId, $tsId, 'edited inline');
+    }
+
+    $hourType = $payload['hour_type'] ?? ($existing['hour_type'] ?? 'regular');
+    if (!in_array($hourType, STAFFING_HOUR_TYPES, true)) {
+        throw new \RuntimeException("Invalid hour_type: {$hourType}");
+    }
+    $hours = isset($payload['hours']) ? (float) $payload['hours'] : (float) ($existing['hours'] ?? 0);
+    if ($hours < 0) throw new \RuntimeException('hours cannot be negative');
+
+    $placementId = (int) ($payload['placement_id'] ?? ($existing['placement_id'] ?? 0));
+    $workDate    = (string) ($payload['work_date']    ?? ($existing['work_date']    ?? ''));
+    $personId    = (int) ($header['person_id']);
+    if ($placementId <= 0) throw new \RuntimeException('placement_id required');
+    if ($workDate === '')  throw new \RuntimeException('work_date required');
+
+    // Period resolution (same logic as bulk_save).
+    $period = scopedFind(
+        "SELECT id FROM time_periods
+          WHERE tenant_id = :tenant_id AND start_date <= :wd_lo AND end_date >= :wd_hi AND status != 'closed'
+          ORDER BY start_date DESC LIMIT 1",
+        ['wd_lo' => $workDate, 'wd_hi' => $workDate]
+    );
+    $periodId = $period ? (int) $period['id'] : (int) scopedInsert('time_periods', [
+        'period_type' => 'weekly',
+        'start_date'  => (string) $header['period_start'],
+        'end_date'    => (string) $header['period_end'],
+        'label'       => 'Week of ' . $header['period_start'],
+        'status'      => 'open',
+    ]);
+
+    $category = STAFFING_HOUR_TYPE_TO_CATEGORY[$hourType] ?? 'regular_billable';
+    $billable = in_array($hourType, ['regular','overtime','doubletime'], true) ? 1 : 0;
+    $payable  = 1;
+
+    $row = [
+        'placement_id' => $placementId,
+        'person_id'    => $personId,
+        'period_id'    => $periodId,
+        'timesheet_id' => $tsId,
+        'work_date'    => $workDate,
+        'hour_type'    => $hourType,
+        'category'     => $category,
+        'hours'        => $hours,
+        'billable'     => $billable,
+        'payable'      => $payable,
+        'description'  => array_key_exists('description', $payload)
+                            ? $payload['description']
+                            : ($existing['description'] ?? null),
+        'source'       => 'manual_entry',
+        'status'       => 'draft',
+    ];
+
+    if ($entryId > 0) {
+        scopedUpdate('time_entries', $entryId, $row);
+        $finalId = $entryId;
+    } else {
+        $row['created_by_user_id'] = $userId;
+        $finalId = (int) scopedInsert('time_entries', $row);
+    }
+
+    // Recompute header total_hours.
+    $sum = scopedFind(
+        "SELECT COALESCE(SUM(hours), 0) AS h FROM time_entries
+          WHERE tenant_id = :tenant_id AND timesheet_id = :tid AND status != 'superseded'",
+        ['tid' => $tsId]
+    );
+    scopedUpdate('staffing_timesheets', $tsId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
+
+    $saved = scopedFind(
+        'SELECT * FROM time_entries WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+        ['id' => $finalId]
+    );
+    return ['entry' => $saved, 'timesheet' => scopedFind(
+        'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+        ['id' => $tsId]
+    )];
+}
+
+/** Delete a single time entry.  Auto-reopens the parent if needed. */
+function staffingTimeEntryDelete(int $userId, int $entryId): array {
+    $row = scopedFind(
+        'SELECT id, timesheet_id FROM time_entries WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+        ['id' => $entryId]
+    );
+    if (!$row) throw new \RuntimeException("time_entry #{$entryId} not found");
+    $tsId = (int) $row['timesheet_id'];
+    $header = scopedFind(
+        'SELECT * FROM staffing_timesheets WHERE tenant_id = :tenant_id AND id = :id LIMIT 1',
+        ['id' => $tsId]
+    );
+    if ($header && $header['status'] !== 'draft') {
+        staffingTimesheetReopen($userId, $tsId, 'entry deleted inline');
+    }
+    scopedDelete('time_entries', $entryId);
+
+    // Recompute header total_hours.
+    $sum = scopedFind(
+        "SELECT COALESCE(SUM(hours), 0) AS h FROM time_entries
+          WHERE tenant_id = :tenant_id AND timesheet_id = :tid AND status != 'superseded'",
+        ['tid' => $tsId]
+    );
+    scopedUpdate('staffing_timesheets', $tsId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
+    return ['deleted' => $entryId, 'timesheet_id' => $tsId];
+}
+

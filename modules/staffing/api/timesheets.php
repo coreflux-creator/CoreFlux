@@ -264,6 +264,95 @@ if ($method === 'GET' && $action === 'detail_for_placement') {
     ]);
 }
 
+// ─── Per-entry CRUD (Batch 5 — 2026-02) ─────────────────────────────
+//
+// Operators want to edit a single time entry from any drill-in (People,
+// Placement, or the timesheet detail page) without rebuilding the whole
+// week.  These endpoints back the inline edit row + delete button.
+// Auto-reopen handles the previously-submitted/approved case in
+// `staffingTimeEntrySave()`.
+if ($method === 'POST' && $action === 'entry_save') {
+    rbac_legacy_require($user, 'staffing.timesheets.write');
+    $body  = api_json_body();
+    try {
+        $result = staffingTimeEntrySave((int) ($user['id'] ?? 0), $body);
+        api_ok($result);
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 400);
+    }
+}
+if ($method === 'POST' && $action === 'entry_delete') {
+    rbac_legacy_require($user, 'staffing.timesheets.write');
+    $body    = api_json_body();
+    $entryId = (int) ($body['id'] ?? 0);
+    if ($entryId <= 0) api_error('id required', 400);
+    try {
+        api_ok(staffingTimeEntryDelete((int) ($user['id'] ?? 0), $entryId));
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 400);
+    }
+}
+
+// ─── Explicit reopen — used by the "Re-open for edit" button.
+if ($method === 'POST' && $action === 'reopen') {
+    rbac_legacy_require($user, 'staffing.timesheets.write');
+    $body   = api_json_body();
+    $tsId   = (int) ($body['id'] ?? 0);
+    $reason = (string) ($body['reason'] ?? '');
+    if ($tsId <= 0) api_error('id required', 400);
+    try {
+        api_ok(['timesheet' => staffingTimesheetReopen((int) ($user['id'] ?? 0), $tsId, $reason)]);
+    } catch (\Throwable $e) {
+        api_error($e->getMessage(), 400);
+    }
+}
+
+// ─── List timesheets for a person (used by People → Timesheets tab).
+if ($method === 'GET' && $action === 'list_for_person') {
+    rbac_legacy_require($user, 'staffing.timesheets.read');
+    $personId = (int) ($_GET['person_id'] ?? 0);
+    if ($personId <= 0) api_error('person_id required', 400);
+    $limit = max(1, min(200, (int) ($_GET['limit'] ?? 50)));
+    $rows = scopedQuery(
+        "SELECT t.id, t.person_id, t.period_start, t.period_end, t.status,
+                t.total_hours, t.submitted_at, t.approved_at, t.rejection_reason,
+                p.first_name, p.last_name, p.email_primary
+           FROM staffing_timesheets t
+      LEFT JOIN people p ON p.id = t.person_id AND p.tenant_id = t.tenant_id
+          WHERE t.tenant_id = :tenant_id AND t.person_id = :pid
+          ORDER BY t.period_start DESC, t.id DESC
+          LIMIT {$limit}",
+        ['pid' => $personId]
+    );
+    api_ok(['rows' => $rows, 'person_id' => $personId]);
+}
+
+// ─── Bulk-save a set of entries (used by the "select rows + edit batch"
+// flow on the people/placement drill-ins — operates per-entry, NOT a
+// whole-week wipe).  Each row must include `id` (existing) OR
+// (placement_id + work_date + hours).
+if ($method === 'POST' && $action === 'entries_bulk_save') {
+    rbac_legacy_require($user, 'staffing.timesheets.write');
+    $body = api_json_body();
+    $rows = is_array($body['rows'] ?? null) ? $body['rows'] : [];
+    if (empty($rows)) api_error('rows[] required', 400);
+    $results = [];
+    $errors  = [];
+    foreach ($rows as $i => $row) {
+        try {
+            $results[] = staffingTimeEntrySave((int) ($user['id'] ?? 0), $row);
+        } catch (\Throwable $e) {
+            $errors[] = ['index' => $i, 'error' => $e->getMessage(), 'row' => $row];
+        }
+    }
+    api_ok([
+        'saved'  => count($results),
+        'errors' => $errors,
+        'rows'   => $results,
+    ]);
+}
+
+
 // ─── Approved-entry picker (Batch 4 — 2026-02) ─────────────────────────
 //
 // Surfaces approved/billable time entries matching a placement + date
