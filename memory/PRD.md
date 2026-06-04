@@ -1,5 +1,128 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (QBO ↔ Jaz CoA parity — true PULL for QBO)
+
+User direction: "QBO" → after option (a) was selected, ship the
+same import / inline-map / safe-remove affordances the Jaz
+integration already has, so pulling QBO's chart of accounts
+actually populates the CoreFlux CoA instead of leaving an inbox of
+"things you need to map manually".
+
+### Background
+
+Jaz integration already supported: (1) auto-map by name, (2) full
+IMPORT of unmapped Jaz rows into `accounting_accounts`, (3) inline
+"Map to existing CF" dropdown, (4) "Remove from CoA" safe-delete.
+QBO Slices 1–5 stopped at step (1) — unmapped rows were logged in
+an audit row and shown in the skipped-JE inbox, but the operator
+had to MANUALLY create CF rows AND wire the mapping with no UI.
+
+Compounding issue: QBO and Jaz use two separate mapping registries
+(`external_entity_mappings` vs `accounting_account_mappings`), so
+the Jaz importer can't be re-used directly. Needed a parallel
+importer that writes the QBO-side store.
+
+### Shipped
+
+1. **`core/qbo/account_import.php`** (NEW, 305 lines)
+   - `qboImportUnmappedAccounts(tenant, samples, user)` →
+     `{imported, errors[], allocated_codes}`. Bucket-allocator
+     identical to Jaz (1000/2000/3000/4000/5000 base + cursor).
+     Prefers QBO's `AcctNum` when free; else allocates the next
+     unused code in the right bucket. Pre-loads taken codes in ONE
+     query (no N round-trips). INSERTs the CF row, then seeds
+     `external_entity_mappings` via `mappingUpsert()` so the JE
+     pusher's `qboResolveAccountRef` finds it on the next push.
+     Rolls back the CF row if the mapping save fails (idempotent
+     on retry).
+   - `qboAccountCreateManualMapping(tenant, qboId, cfId, user)` —
+     inline-dropdown helper. Refuses to overwrite an existing
+     mapping silently (operator must remove the old one first).
+   - `qboClassificationToBucket(classification)` — QBO enum
+     (Asset/Liability/Equity/Revenue/Expense) → CF bucket; handles
+     the legacy "Income" alias.
+   - Writes `import_qbo_accounts` + `manual_account_map` audit
+     rows so the activity feed shows the work.
+
+2. **`core/qbo/sync_accounts.php`** — third pass
+   - New `opts.import_unmapped` flag triggers the importer after
+     the auto-match passes.
+   - Richer `unmapped_samples` envelope: now carries
+     `classification`, `account_type`, `currency`, full QBO
+     `payload` → importer needs zero additional QBO round-trips.
+   - Sample buffer grew 20 → 100 (audit row still trims to 20 for
+     storage, but the controller envelope returns the first 20).
+   - Envelope adds `imported`, `import_errors[]`, `imported_codes`
+     (qbo_id → CF code) so the UI can show per-row outcomes.
+   - `unmapped_in_qbo` tally subtracts successful imports.
+
+3. **`api/qbo.php`** — two endpoints
+   - `sync_accounts` now accepts `import_unmapped: bool` in the
+     POST body and forwards it as an opt.
+   - **NEW** `account_map_manual` action: validates `qbo_id` +
+     `cf_account_id`, RBAC-gated on `integrations.qbo.manage`,
+     maps `RuntimeException → 409` (e.g. mapping collision),
+     `Throwable → 500`.
+
+4. **`dashboard/src/pages/QboSettings.jsx`** — UI surface
+   - Renamed solo "Pull chart of accounts" → pair of CTAs:
+     `[Pull CoA]` (ghost, audit-only) + `[Pull & import unmapped]`
+     (primary).
+   - **NEW** `UnmappedQboAccountsCard` mounts after first pull:
+     per-row table with `QBO account · Classification · Map-to
+     dropdown · Import button`. Shows per-row status chips
+     (✓ Imported as CF 5018 / ✓ Mapped → 1010 Cash). Expandable
+     `<details>` strip surfaces import errors. Footer
+     `<details>` houses a "Remove a CF account" advanced
+     dropdown that calls `account_delete` and falls back to
+     `account_deactivate` on 409 (offering the soft-delete via
+     `confirm()` — same UX as the Jaz cleanup affordance).
+   - `cfAccounts` API loaded lazily off
+     `/modules/accounting/api/accounts.php?active=1`, refreshed on
+     every successful import / map / remove.
+
+5. **Tests / parity**
+   - **NEW** `tests/qbo_account_import_jaz_parity_smoke.php` →
+     **72 / 72 ✓** (importer surface, manual-mapping helper,
+     classification map, bucket allocator, sync_accounts third
+     pass + envelope, api dispatch + RBAC + error mapping, full
+     UI surface with all testids).
+   - Updated `tests/qbo_slice4a_smoke.php`: sample cap assertion
+     `< 20` → `< 100`.
+   - Full PHP suite: **384 / 386 ✓** — only the 2 documented
+     sandbox-bound failures.
+   - Vite bundle: **`coreflux-39k2Yp6q`**. Lint clean.
+
+### Operator action (production)
+1. Deploy bundle `coreflux-39k2Yp6q`.
+2. Open Admin → QuickBooks Online.
+3. Click **Pull & import unmapped**. CoreFlux now:
+   - Pulls every account from the QBO file.
+   - Auto-maps by `AcctNum ↔ code`.
+   - For every QBO row still without a CF counterpart, allocates a
+     fresh bucket-appropriate code, INSERTs the CF row, seeds the
+     mapping. The next JE push picks them up — no skipped-JE inbox
+     entries for the imported accounts.
+4. For QBO rows the operator wants to map to an existing CF
+   account (renamed, merged, etc.), the inline dropdown in the
+   unmapped card writes a single mapping row.
+5. For CF rows that shouldn't exist (over-eager Plaid import, stale
+   migration), the **Remove a CoreFlux account** dropdown
+   safe-deletes (refuses if any posted JE lines reference it;
+   offers deactivate as fallback).
+
+### Roadmap (unchanged)
+- (P1) Mercury Webhooks hardening.
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P2) Gusto integration.
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module (fixed-fee project accounting).
+- (P3) AI Digest Scheduler (Resend rail live).
+
+---
+
 ## Session — 2026-02 (Timesheet inline-edit — fixing the "can't edit them" bug)
 
 User direction: "we're back to issues with timesheets. I see where

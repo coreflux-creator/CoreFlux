@@ -18,6 +18,15 @@ export default function QboSettings() {
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState(parseFlashFromUrl());
   const [draft, setDraft] = useState(null); // editable sync_config
+  // Live result of the most recent CoA pull — drives the unmapped-
+  // accounts card below.  Reset on disconnect.
+  const [coaPullResult, setCoaPullResult] = useState(null);
+  // CF accounts list for the inline "Map to existing CF account"
+  // dropdown.  Loaded lazily on first render of the unmapped card.
+  const cfAccounts = useApi('/modules/accounting/api/accounts.php?active=1');
+  // Per-row "Removed/Imported/Mapped" status so the operator sees
+  // immediate feedback without re-pulling.  Keyed on QBO id.
+  const [accountRowAction, setAccountRowAction] = useState({});
 
   const data       = status.data || {};
   const configured = !!data.configured;
@@ -96,17 +105,112 @@ export default function QboSettings() {
     }
   };
 
-  const handlePullMaster = async (entity) => {
+  const handlePullMaster = async (entity, opts = {}) => {
     setBusy(true); setFlash(null);
     try {
-      const r = await api.post(`/api/qbo/sync_${entity}.php?action=sync_${entity}`, { limit: 1000 });
-      const msg = entity === 'accounts'
-        ? `Pulled COA: ${r.matched} matched · ${r.newly_mapped} newly mapped · ${r.unmapped_in_qbo} unmapped in QBO (${r.pulled} from ${r.pages} page${r.pages === 1 ? '' : 's'}, ${r.latency_ms}ms)`
-        : `Pulled ${entity}: ${r.created} created · ${r.updated} updated · ${r.unchanged} unchanged · ${r.failed} failed (${r.pulled} from ${r.pages} page${r.pages === 1 ? '' : 's'}, ${r.latency_ms}ms)`;
-      setFlash({ kind: (r.failed || 0) > 0 ? 'error' : 'success', msg });
+      const body = { limit: 1000, ...opts };
+      const r = await api.post(`/api/qbo/sync_${entity}.php?action=sync_${entity}`, body);
+      let msg;
+      if (entity === 'accounts') {
+        const importPart = (r.imported || 0) > 0
+          ? ` · ${r.imported} imported into CoreFlux`
+          : '';
+        const errPart = (r.import_errors || []).length > 0
+          ? ` · ${r.import_errors.length} import errors`
+          : '';
+        msg = `Pulled COA: ${r.matched} matched · ${r.newly_mapped} newly mapped${importPart} · ${r.unmapped_in_qbo} still unmapped${errPart} (${r.pulled} from ${r.pages} page${r.pages === 1 ? '' : 's'}, ${r.latency_ms}ms)`;
+        setCoaPullResult(r);
+        setAccountRowAction({}); // fresh pull → reset per-row toasts
+        cfAccounts.reload();     // newly-imported rows are now in CF too
+      } else {
+        msg = `Pulled ${entity}: ${r.created} created · ${r.updated} updated · ${r.unchanged} unchanged · ${r.failed} failed (${r.pulled} from ${r.pages} page${r.pages === 1 ? '' : 's'}, ${r.latency_ms}ms)`;
+      }
+      const errored = (r.failed || 0) > 0 || (r.import_errors || []).length > 0;
+      setFlash({ kind: errored ? 'error' : 'success', msg });
       status.reload();
     } catch (e) {
       setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // ── Inline per-row actions for the unmapped-accounts card ─────────
+  const handleImportOneAccount = async (sample) => {
+    setBusy(true); setFlash(null);
+    try {
+      const r = await api.post('/api/qbo/sync_accounts.php?action=sync_accounts', {
+        // Single-shot: tell the puller to import unmapped rows. Since
+        // we just pulled, the rows are still flagged unmapped in QBO —
+        // a fresh pull with import_unmapped will allocate codes for the
+        // remainder.  Operator can scope to just one by removing the
+        // others first or running this once and letting the batch handle
+        // everything.
+        import_unmapped: true,
+      });
+      const imported = (r.imported_codes || {})[sample.qbo_id];
+      setCoaPullResult(r);
+      cfAccounts.reload();
+      if (imported) {
+        setAccountRowAction(prev => ({ ...prev, [sample.qbo_id]: { kind: 'imported', code: imported } }));
+        setFlash({ kind: 'success', msg: `Imported ${sample.name} as CF code ${imported}.` });
+      } else {
+        setFlash({ kind: 'success', msg: `Imported ${r.imported} account(s) from QBO.` });
+      }
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleMapAccountManual = async (sample, cfAccountId) => {
+    if (!cfAccountId) return;
+    setBusy(true); setFlash(null);
+    try {
+      const r = await api.post('/api/qbo/account_map_manual.php?action=account_map_manual', {
+        qbo_id: sample.qbo_id,
+        cf_account_id: parseInt(cfAccountId, 10),
+      });
+      const cf = r.cf_account || {};
+      setAccountRowAction(prev => ({
+        ...prev,
+        [sample.qbo_id]: { kind: 'mapped', cf_code: cf.code, cf_name: cf.name },
+      }));
+      setFlash({ kind: 'success', msg: `Mapped QBO "${sample.name}" → CF ${cf.code || ''} ${cf.name || ''}.` });
+    } catch (e) {
+      setFlash({ kind: 'error', msg: e.message || String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRemoveCfAccount = async (cfAccountId, cfLabel) => {
+    if (!cfAccountId) return;
+    if (!window.confirm(`Permanently delete CF account "${cfLabel}"? Refused if any posted journal lines reference it.`)) return;
+    setBusy(true); setFlash(null);
+    try {
+      await api.post('/api/accounting.php?action=account_delete', {
+        coreflux_account_id: cfAccountId,
+      });
+      setFlash({ kind: 'success', msg: `Removed CF account "${cfLabel}".` });
+      cfAccounts.reload();
+    } catch (e) {
+      // 409 → offer deactivate fallback (matches the Jaz UX).
+      const status409 = (e.status === 409) || /409/.test(String(e.message || ''));
+      if (status409 && window.confirm(`${e.message}\n\nDeactivate "${cfLabel}" instead (soft archive)?`)) {
+        try {
+          await api.post('/api/accounting.php?action=account_deactivate', {
+            coreflux_account_id: cfAccountId,
+          });
+          setFlash({ kind: 'success', msg: `Deactivated CF account "${cfLabel}".` });
+          cfAccounts.reload();
+        } catch (e2) {
+          setFlash({ kind: 'error', msg: e2.message || String(e2) });
+        }
+      } else {
+        setFlash({ kind: 'error', msg: e.message || String(e) });
+      }
     } finally {
       setBusy(false);
     }
@@ -266,10 +370,26 @@ export default function QboSettings() {
             onPullCustomers={() => handlePullMaster('customers')}
             onPullVendors={() => handlePullMaster('vendors')}
             onPullAccounts={() => handlePullMaster('accounts')}
+            onPullAccountsAndImport={() => handlePullMaster('accounts', { import_unmapped: true })}
             onPullItems={() => handleGenericSync('sync_items', 'Items', false)}
             onPushBills={() => handleGenericSync('sync_bills', 'Bills', false)}
             onPushInvoices={() => handleGenericSync('sync_invoices', 'Invoices', false)}
             onPushPayments={() => handleGenericSync('sync_payments', 'Payments', false)}
+          />
+
+          {/* Unmapped QBO accounts inbox — Jaz-parity surface. Lets the
+              operator import any QBO row that has no CF counterpart,
+              hand-map it to an existing CF account, or remove the
+              over-eager CF row entirely. Hidden until the operator has
+              run a pull at least once during this session. */}
+          <UnmappedQboAccountsCard
+            result={coaPullResult}
+            cfAccounts={cfAccounts.data?.rows || []}
+            rowAction={accountRowAction}
+            busy={busy}
+            onImportOne={handleImportOneAccount}
+            onMapManual={handleMapAccountManual}
+            onRemoveCf={handleRemoveCfAccount}
           />
 
           {/* Skipped JE inbox — surfaces JEs the cron has had to skip
@@ -389,7 +509,7 @@ function parseFlashFromUrl() {
   return null;
 }
 
-function ManualSyncCard({ config, busy, onPushJe, onDryRunJe, onPullCustomers, onPullVendors, onPullAccounts, onPullItems, onPushBills, onPushInvoices, onPushPayments }) {
+function ManualSyncCard({ config, busy, onPushJe, onDryRunJe, onPullCustomers, onPullVendors, onPullAccounts, onPullAccountsAndImport, onPullItems, onPushBills, onPushInvoices, onPushPayments }) {
   const jeDir   = config.journal_entries;
   const custDir = config.customers;
   const vendDir = config.vendors;
@@ -467,16 +587,29 @@ function ManualSyncCard({ config, busy, onPushJe, onDryRunJe, onPullCustomers, o
           </button>
         )}
         {showCoa && (
-          <button
-            type="button"
-            className="btn"
-            onClick={onPullAccounts}
-            disabled={busy}
-            data-testid="qbo-sync-accounts-btn"
-          >
-            <ArrowLeft size={14} style={{ marginRight: 6 }} />
-            Pull chart of accounts
-          </button>
+          <>
+            <button
+              type="button"
+              className="btn"
+              onClick={onPullAccounts}
+              disabled={busy}
+              data-testid="qbo-sync-accounts-btn"
+            >
+              <ArrowLeft size={14} style={{ marginRight: 6 }} />
+              Pull chart of accounts
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={onPullAccountsAndImport}
+              disabled={busy}
+              data-testid="qbo-sync-accounts-import-btn"
+              title="Pulls QBO chart of accounts AND imports any unmapped QBO row into CoreFlux. Mirrors Jaz 'true pull' behaviour."
+            >
+              <ArrowLeft size={14} style={{ marginRight: 6 }} />
+              Pull & import unmapped
+            </button>
+          </>
         )}
         {showInv && (
           <button type="button" className="btn" onClick={onPullItems} disabled={busy} data-testid="qbo-sync-items-btn">
@@ -565,6 +698,184 @@ function SkippedJeInbox({ data, loading }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------- */
+
+function UnmappedQboAccountsCard({ result, cfAccounts, rowAction, busy, onImportOne, onMapManual, onRemoveCf }) {
+  if (!result) return null;
+  const samples = result.unmapped_samples || [];
+  const importErrors = result.import_errors || [];
+  const importedCount = result.imported || 0;
+  const importedCodes = result.imported_codes || {};
+
+  // Build a friendly index of CF accounts so the dropdown can show
+  // "code · name (type)" labels.
+  const cfOptions = (cfAccounts || []).map(a => ({
+    id: a.id,
+    label: `${a.code || '—'} · ${a.name || '(no name)'} (${a.account_type || ''})`,
+  }));
+
+  return (
+    <div
+      data-testid="qbo-unmapped-accounts-card"
+      className="card"
+      style={{
+        marginTop: 24, padding: 16, borderRadius: 8,
+        background: importedCount > 0 ? '#ecfdf5' : '#f8fafc',
+        border: `1px solid ${importedCount > 0 ? '#10b981' : '#e5e7eb'}`,
+      }}
+    >
+      <header style={{ marginBottom: 12 }}>
+        <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}
+            data-testid="qbo-unmapped-accounts-title">
+          {importedCount > 0
+            ? <>✓ Imported {importedCount} QBO account{importedCount === 1 ? '' : 's'} into CoreFlux</>
+            : <>{samples.length === 0 ? 'No unmapped QBO accounts' : `${result.unmapped_in_qbo || samples.length} unmapped QBO account${(result.unmapped_in_qbo || samples.length) === 1 ? '' : 's'}`}</>}
+        </h4>
+        <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--cf-text-secondary)' }}>
+          QBO returned these rows but they have no CoreFlux counterpart. Either <strong>import</strong> them
+          as new CF accounts (one-click), <strong>map</strong> them to an existing CF account, or
+          <strong> remove</strong> a CF account that shouldn't have been created in the first place.
+        </p>
+      </header>
+
+      {importErrors.length > 0 && (
+        <details data-testid="qbo-unmapped-import-errors"
+                 style={{ background: '#fef2f2', padding: 8, borderRadius: 4, fontSize: 12, marginBottom: 12 }}>
+          <summary style={{ cursor: 'pointer', color: '#991b1b', fontWeight: 600 }}>
+            Show {importErrors.length} import error{importErrors.length === 1 ? '' : 's'}
+          </summary>
+          <ul style={{ margin: '6px 0 0 20px', padding: 0 }}>
+            {importErrors.map((err, i) => (
+              <li key={i} data-testid={`qbo-unmapped-import-error-${i}`} style={{ marginBottom: 4 }}>
+                <code>{err.qbo_id}</code> — {err.name || ''} — {err.error}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {samples.length === 0 && (
+        <p style={{ fontSize: 13, color: '#475569', margin: 0 }}
+           data-testid="qbo-unmapped-empty">
+          Every QBO account is now linked to a CoreFlux row.
+        </p>
+      )}
+
+      {samples.length > 0 && (
+        <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}
+               data-testid="qbo-unmapped-table">
+          <thead>
+            <tr style={{ textAlign: 'left', color: 'var(--cf-text-secondary)', borderBottom: '1px solid var(--cf-border)' }}>
+              <th style={{ padding: '6px 4px' }}>QBO account</th>
+              <th style={{ padding: '6px 4px' }}>Classification</th>
+              <th style={{ padding: '6px 4px' }}>Map to existing CF</th>
+              <th style={{ padding: '6px 4px', textAlign: 'right' }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {samples.map((s, idx) => {
+              const action = rowAction[s.qbo_id];
+              const importedCode = importedCodes[s.qbo_id] || (action?.kind === 'imported' ? action.code : null);
+              return (
+                <tr key={s.qbo_id}
+                    data-testid={`qbo-unmapped-row-${idx}`}
+                    style={{
+                      borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)',
+                      opacity: (action || importedCode) ? 0.6 : 1,
+                    }}>
+                  <td style={{ padding: '8px 4px' }}>
+                    <div style={{ fontWeight: 500 }}>
+                      {s.acct_num && <code style={{ marginRight: 6, color: '#64748b' }}>{s.acct_num}</code>}
+                      {s.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#64748b', fontFamily: 'var(--cf-mono, ui-monospace)' }}>
+                      QBO id: {s.qbo_id}
+                    </div>
+                  </td>
+                  <td style={{ padding: '8px 4px', fontSize: 12 }}>
+                    {s.classification || '—'}
+                    {s.account_type && <span style={{ display: 'block', color: '#64748b' }}>{s.account_type}</span>}
+                  </td>
+                  <td style={{ padding: '8px 4px' }}>
+                    {importedCode ? (
+                      <span data-testid={`qbo-unmapped-imported-${idx}`}
+                            style={{ fontSize: 12, color: '#047857', fontWeight: 600 }}>
+                        ✓ Imported as CF {importedCode}
+                      </span>
+                    ) : action?.kind === 'mapped' ? (
+                      <span data-testid={`qbo-unmapped-mapped-${idx}`}
+                            style={{ fontSize: 12, color: '#047857', fontWeight: 600 }}>
+                        ✓ Mapped → {action.cf_code || ''} {action.cf_name || ''}
+                      </span>
+                    ) : (
+                      <select
+                        disabled={busy || cfOptions.length === 0}
+                        defaultValue=""
+                        onChange={(e) => { if (e.target.value) onMapManual(s, e.target.value); }}
+                        data-testid={`qbo-unmapped-map-select-${idx}`}
+                        style={{ fontSize: 12, padding: '4px 6px', maxWidth: 280 }}
+                      >
+                        <option value="">— pick an existing CF account —</option>
+                        {cfOptions.map(opt => (
+                          <option key={opt.id} value={opt.id}>{opt.label}</option>
+                        ))}
+                      </select>
+                    )}
+                  </td>
+                  <td style={{ padding: '8px 4px', textAlign: 'right' }}>
+                    {!importedCode && action?.kind !== 'mapped' && (
+                      <button
+                        type="button"
+                        className="btn btn--primary"
+                        onClick={() => onImportOne(s)}
+                        disabled={busy}
+                        data-testid={`qbo-unmapped-import-${idx}`}
+                        style={{ fontSize: 11, padding: '4px 10px', marginRight: 4 }}
+                        title="Import this QBO account into CoreFlux. Allocates a fresh CF code in the right bucket (asset/liability/etc.) and seeds the QBO mapping so the next JE push picks it up."
+                      >
+                        Import
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+
+      {cfAccounts && cfAccounts.length > 0 && (
+        <details style={{ marginTop: 12, fontSize: 12 }}>
+          <summary style={{ cursor: 'pointer', color: '#64748b' }}
+                   data-testid="qbo-unmapped-remove-toggle">
+            Remove a CoreFlux account from the chart of accounts (advanced)
+          </summary>
+          <p style={{ fontSize: 12, color: '#64748b', margin: '6px 0' }}>
+            Picks a CF account and hard-deletes it. Refused automatically if any posted journal lines reference it
+            (offers a soft-deactivate fallback instead).
+          </p>
+          <select
+            defaultValue=""
+            onChange={(e) => {
+              const cfId = parseInt(e.target.value, 10);
+              const cf = (cfAccounts || []).find(a => a.id === cfId);
+              if (cf) onRemoveCf(cfId, `${cf.code} · ${cf.name}`);
+              e.target.value = '';
+            }}
+            data-testid="qbo-unmapped-remove-select"
+            style={{ fontSize: 12, padding: '4px 6px', maxWidth: 320 }}
+          >
+            <option value="">— pick a CF account to remove —</option>
+            {cfOptions.map(opt => (
+              <option key={opt.id} value={opt.id}>{opt.label}</option>
+            ))}
+          </select>
+        </details>
+      )}
     </div>
   );
 }

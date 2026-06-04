@@ -52,6 +52,7 @@ function qboSyncAccounts(int $tenantId, ?int $userId, array $opts = []): array
 
     $matched = 0; $newlyMapped = 0; $unmapped = 0; $unchanged = 0;
     $unmappedSamples = [];
+    $importUnmapped  = !empty($opts['import_unmapped']);
     $startPos = 1;
     $pulled = 0;
     $pages = 0;
@@ -97,11 +98,20 @@ function qboSyncAccounts(int $tenantId, ?int $userId, array $opts = []): array
                 $newlyMapped++; $matched++;
             } else {
                 $unmapped++;
-                if (count($unmappedSamples) < 20) {
+                // Capture up to 100 samples (importer needs the full
+                // batch; controllers only see the first 20 in the audit
+                // detail row).  Classification + currency come straight
+                // from the QBO payload so the importer doesn't have to
+                // round-trip to fetch them.
+                if (count($unmappedSamples) < 100) {
                     $unmappedSamples[] = [
-                        'qbo_id'   => $qboId,
-                        'name'     => $name,
-                        'acct_num' => $acctNum !== '' ? $acctNum : null,
+                        'qbo_id'         => $qboId,
+                        'name'           => $name,
+                        'acct_num'       => $acctNum !== '' ? $acctNum : null,
+                        'classification' => (string) ($qbo['Classification'] ?? ''),
+                        'account_type'   => (string) ($qbo['AccountType']    ?? ''),
+                        'currency'       => (string) ($qbo['CurrencyRef']['value'] ?? 'USD'),
+                        'payload'        => $qbo,
                     ];
                 }
             }
@@ -118,20 +128,41 @@ function qboSyncAccounts(int $tenantId, ?int $userId, array $opts = []): array
             'ok' => true, 'actor_user_id' => $userId,
             'entity_type' => 'account', 'direction' => 'pull',
             'items_skipped' => $unmapped,
-            'detail' => ['samples' => $unmappedSamples, 'total_unmapped' => $unmapped],
+            'detail' => ['samples' => array_slice($unmappedSamples, 0, 20), 'total_unmapped' => $unmapped],
         ]);
+    }
+
+    // Third pass — when opts.import_unmapped is set, import every
+    // unmapped QBO row into accounting_accounts + external_entity_mappings
+    // so the JE pusher's resolver picks them up on the next run.  This
+    // mirrors the Jaz "true PULL" semantics: pulling the CoA from QBO
+    // should populate the CF CoA, not just dump a list of "things you
+    // need to map manually".
+    $imported = 0;
+    $importErrors = [];
+    $importedCodes = [];
+    if ($importUnmapped && $unmapped > 0 && $unmappedSamples) {
+        require_once __DIR__ . '/account_import.php';
+        $impRes = qboImportUnmappedAccounts($tenantId, $unmappedSamples, $userId);
+        $imported      = $impRes['imported'];
+        $importErrors  = $impRes['errors'];
+        $importedCodes = $impRes['allocated_codes'];
+        // Imported rows are no longer "unmapped" for the operator-facing
+        // tally — they now have CF rows AND external_entity_mappings rows.
+        $unmapped = max(0, $unmapped - $imported);
     }
 
     $latency = (int) round((microtime(true) - $start) * 1000);
     qboAudit($tenantId, 'sync_accounts', [
         'entity_type' => 'account', 'direction' => 'pull',
         'ok' => true, 'actor_user_id' => $userId,
-        'items_processed' => $newlyMapped,
+        'items_processed' => $newlyMapped + $imported,
         'items_skipped'   => $unchanged + $unmapped,
-        'items_failed'    => 0,
+        'items_failed'    => count($importErrors),
         'detail' => [
             'matched_total' => $matched, 'newly_mapped' => $newlyMapped,
             'unchanged'     => $unchanged, 'unmapped_in_qbo' => $unmapped,
+            'imported'      => $imported, 'import_errors' => count($importErrors),
             'pulled'        => $pulled, 'pages' => $pages, 'latency_ms' => $latency,
         ],
     ]);
@@ -141,7 +172,10 @@ function qboSyncAccounts(int $tenantId, ?int $userId, array $opts = []): array
         'newly_mapped'    => $newlyMapped,
         'unchanged'       => $unchanged,
         'unmapped_in_qbo' => $unmapped,
-        'unmapped_samples'=> $unmappedSamples,
+        'unmapped_samples'=> array_slice($unmappedSamples, 0, 20),
+        'imported'        => $imported,
+        'import_errors'   => $importErrors,
+        'imported_codes'  => $importedCodes,
         'pulled'          => $pulled,
         'pages'           => $pages,
         'latency_ms'      => $latency,

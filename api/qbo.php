@@ -246,18 +246,45 @@ switch ($action) {
         // Slice 4a — pull QBO Chart of Accounts and populate the
         // external_entity_mappings table so the Slice 2 JE pusher hits
         // the cache instead of doing an ad-hoc query per line.
+        // 2026-02 parity update: optional `import_unmapped` body field
+        // tells the puller to also IMPORT unmapped QBO accounts into
+        // accounting_accounts (mirrors Jaz "true PULL" behaviour).
         if ($method !== 'POST') api_error('Method not allowed', 405);
         rbac_legacy_require($user, 'integrations.qbo.manage');
         $body = api_json_body();
         $opts = [];
-        if (isset($body['limit']))     $opts['limit']     = (int) $body['limit'];
-        if (isset($body['max_pages'])) $opts['max_pages'] = (int) $body['max_pages'];
+        if (isset($body['limit']))           $opts['limit']           = (int) $body['limit'];
+        if (isset($body['max_pages']))       $opts['max_pages']       = (int) $body['max_pages'];
+        if (isset($body['import_unmapped'])) $opts['import_unmapped'] = (bool) $body['import_unmapped'];
         try {
             $res = qboSyncAccounts($tid, $user['id'] ?? null, $opts);
         } catch (\RuntimeException $e) {
             api_error($e->getMessage(), 409);
         } catch (\Throwable $e) {
             api_error('COA sync failed: ' . $e->getMessage(), 502);
+        }
+        api_ok($res);
+    }
+
+    case 'account_map_manual': {
+        // 2026-02 parity — inline "Map this to existing CF account"
+        // dropdown on QboSettings. Writes one external_entity_mappings
+        // row so qboResolveAccountRef picks the operator's pick up on
+        // the next JE push.
+        if ($method !== 'POST') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.qbo.manage');
+        $body  = api_json_body();
+        $qboId = trim((string) ($body['qbo_id'] ?? ''));
+        $cfId  = (int) ($body['cf_account_id'] ?? 0);
+        if ($qboId === '') api_error('qbo_id required', 422);
+        if ($cfId <= 0)    api_error('cf_account_id required', 422);
+        require_once __DIR__ . '/../core/qbo/account_import.php';
+        try {
+            $res = qboAccountCreateManualMapping($tid, $qboId, $cfId, $user['id'] ?? null);
+        } catch (\RuntimeException $e) {
+            api_error($e->getMessage(), 409);
+        } catch (\Throwable $e) {
+            api_error('Manual mapping failed: ' . $e->getMessage(), 500);
         }
         api_ok($res);
     }

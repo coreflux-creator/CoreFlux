@@ -35,7 +35,7 @@ $a('paginates via STARTPOSITION + MAXRESULTS',   $c($src, 'STARTPOSITION') && $c
 $a('match tier 1: existing mapping',             $c($src, 'mappingFindInternal'));
 $a('match tier 2: AcctNum → CoreFlux code',      $c($src, 'AcctNum') && $c($src, 'isset($byCode[$acctNum])'));
 $a('match tier 3: audits unmapped_qbo_accounts', $c($src, "'unmapped_qbo_accounts'"));
-$a('records up to 20 unmapped samples',          $c($src, 'count($unmappedSamples) < 20'));
+$a('records up to 100 unmapped samples',         $c($src, 'count($unmappedSamples) < 100'));
 $a('writes summary audit row sync_accounts',     $c($src, "qboAudit") && $c($src, "'sync_accounts'"));
 
 // ----------------------------------------------------------------- API: sync_accounts + sync_health
