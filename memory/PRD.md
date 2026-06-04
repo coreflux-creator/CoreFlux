@@ -107,6 +107,36 @@ edit before saving.  Shipped:
   `timesheet-detail-header-total-pending`.
 - Smoke test grew from 50 to 68 assertions; all green.
 
+### Follow-up — Save all (one round-trip bulk save)
+
+User: "yes, save all." → ship a one-click batch commit so a
+multi-row edit session no longer fires N independent
+`entry_save` POSTs.
+
+- `saveAll()` handler collects every dirty row from the edit
+  buffer, builds a single payload of merged rows, and POSTs to the
+  existing `?action=entries_bulk_save` endpoint (already RBAC-gated
+  on `staffing.timesheets.write`, already returns
+  `{saved, errors[], rows[]}`).
+- Per-row error preservation: the response's `errors[]` carries the
+  index of each failing row.  We DROP successfully-saved rows from
+  the edit buffer but KEEP failed rows so the operator can fix +
+  retry without losing typed edits.
+- `bulkResult` state renders inline:
+  - Green strip: `Saved 17 rows · 2 failed (kept in edit buffer for retry)`.
+  - Collapsible `<details>` panel: per-row error with offending
+    `work_date · placement_id` + the actual exception message.
+- Save-all CTA mounts inside the live-totals card, right-aligned,
+  visible only when `canEditRows && hasUnsavedEdits`.  Label =
+  `Save all changes (N)` where N updates live as cells turn dirty.
+- Per-row Save buttons disable while bulk save is in flight (no
+  double-fire / no race against the bulk POST).
+- New testids: `timesheet-detail-save-all`,
+  `timesheet-detail-bulk-result`, `timesheet-detail-bulk-errors`,
+  `timesheet-detail-bulk-error-{i}`.
+- Smoke test now **85 / 85 ✓** (+17 assertions for Save-all).
+- Vite bundle: **`coreflux-cBp52wEt`**.
+
 ### Files touched
 - `modules/staffing/ui/TimesheetDetail.jsx` (full rewrite — inline
   editor + add-entry form + status-aware controls + URL-anchored

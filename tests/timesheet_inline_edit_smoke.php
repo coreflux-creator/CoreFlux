@@ -119,8 +119,8 @@ $a('useMemo dependency includes edits (live updates as user types)',
     str_contains($det, '[entries, edits]'));
 $a('delta computed against server total_hours',
     str_contains($det, 'const delta = liveTotal - serverTotal'));
-$a('hasUnsavedEdits flag tracks whether edits buffer is non-empty',
-    str_contains($det, 'const hasUnsavedEdits = Object.keys(edits).length > 0'));
+$a('hasUnsavedEdits flag tracks whether dirtyCount is non-zero',
+    str_contains($det, 'const hasUnsavedEdits = dirtyCount > 0'));
 
 // Card surface — `LiveCell` passes testId via prop, the wrapping div
 // uses data-testid directly. Accept either form for the assertion.
@@ -157,6 +157,49 @@ $a('delta-only render is gated on Math.abs(delta) >= 0.005',
 // LiveCell helper component must exist + accept the standard props.
 $a('LiveCell helper component declared',
     preg_match('/function LiveCell\(\s*\{\s*label,\s*value,\s*testId,\s*emphasis,\s*color\s*\}/', $det) === 1);
+
+// ──────────────────────────────────────────────────────────────────────
+// Save-all — bulk dispatch into entries_bulk_save (one round-trip).
+// ──────────────────────────────────────────────────────────────────────
+echo "\n── Save-all bulk dispatch ──\n";
+$a('saveAll handler declared',
+    str_contains($det, 'const saveAll = async ()'));
+$a('saveAll POSTs to entries_bulk_save',
+    str_contains($det, '?action=entries_bulk_save'));
+$a('saveAll builds rows from edits buffer (merged with server row)',
+    str_contains($det, 'const merged = entry ? { ...entry, ...edits[idStr] }'));
+$a('saveAll preserves edits buffer for failed rows (no data loss)',
+    str_contains($det, 'failedIdxSet = new Set((result.errors || []).map')
+    && str_contains($det, 'if (!failedIdxSet.has(i)) delete next[idStr]'));
+$a('bulkSaving state declared',
+    str_contains($det, 'const [bulkSaving, setBulkSaving]'));
+$a('bulkResult state captures saved + errors envelope',
+    str_contains($det, 'const [bulkResult, setBulkResult]'));
+$a('dirtyCount exposed for the CTA label',
+    str_contains($det, 'const dirtyCount = dirtyIds.length'));
+$a('per-row saving flag honours bulkSaving (no double-fire)',
+    str_contains($det, 'const saving = savingRowId === e.id || bulkSaving'));
+$a('bulkResult resets on timesheet reload',
+    str_contains($det, 'setEdits({}); setBulkResult(null)'));
+
+// CTA + feedback surface
+foreach ([
+    'timesheet-detail-save-all',
+    'timesheet-detail-bulk-result',
+    'timesheet-detail-bulk-errors',
+] as $tid) {
+    $a("save-all testid '{$tid}' present", str_contains($det, "data-testid=\"{$tid}\""));
+}
+foreach ([
+    'timesheet-detail-bulk-error-${i}',
+] as $template) {
+    $a("template testid '{$template}' present",
+        str_contains($det, "data-testid={`{$template}`}"));
+}
+$a('Save-all button label includes the dirty count',
+    str_contains($det, 'Save all changes (${dirtyCount})'));
+$a('Save-all button only renders when canEditRows && hasUnsavedEdits',
+    str_contains($det, '{canEditRows && hasUnsavedEdits && ('));
 
 // Placements dropdown is keyed off ts.person_id so we ALWAYS fetch the
 // owner's placements (not the logged-in operator's).
@@ -206,6 +249,11 @@ $a('entry_delete is RBAC-gated on staffing.timesheets.write',
     preg_match("/'POST' && \\\$action === 'entry_delete'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.timesheets\\.write'\\)/", $api) === 1);
 $a('reopen is RBAC-gated on staffing.timesheets.write',
     preg_match("/'POST' && \\\$action === 'reopen'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.timesheets\\.write'\\)/", $api) === 1);
+$a('entries_bulk_save is RBAC-gated on staffing.timesheets.write',
+    preg_match("/'POST' && \\\$action === 'entries_bulk_save'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.timesheets\\.write'\\)/", $api) === 1);
+$a('entries_bulk_save returns {saved, errors[], rows[]} envelope',
+    str_contains($api, "'saved'  => count(\$results)")
+    && str_contains($api, "'errors' => \$errors"));
 
 $lib = file_get_contents('/app/modules/staffing/lib/timesheets.php');
 $a('staffingTimeEntrySave auto-reopens non-draft sheets',

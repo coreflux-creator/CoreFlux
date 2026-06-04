@@ -61,6 +61,8 @@ export default function TimesheetDetail({ session }) {
   const [actionError, setActionError] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const [savingRowId, setSavingRowId] = useState(null);
+  const [bulkSaving, setBulkSaving]   = useState(false);
+  const [bulkResult, setBulkResult]   = useState(null); // { saved, errors[] } | null
   // Per-row local edit buffer keyed by entry id; populated lazily when a
   // field changes so untouched rows render the server values verbatim.
   const [edits, setEdits] = useState({});
@@ -75,8 +77,8 @@ export default function TimesheetDetail({ session }) {
   );
   const placements = placementsApi.data?.rows ?? [];
 
-  // Reset edit buffer whenever the timesheet reloads (post-save).
-  useEffect(() => { setEdits({}); }, [data?.timesheet?.id, entries.length]);
+  // Reset edit buffer + bulk result whenever the timesheet reloads.
+  useEffect(() => { setEdits({}); setBulkResult(null); }, [data?.timesheet?.id, entries.length]);
 
   if (loading) return <p data-testid="timesheet-detail-loading">Loading timesheet…</p>;
   if (error)   return <p className="error" data-testid="timesheet-detail-error">Error: {error.message}</p>;
@@ -149,6 +151,48 @@ export default function TimesheetDetail({ session }) {
     finally { setSavingRowId(null); }
   };
 
+  // ── Save-all — batches every dirty row into one entries_bulk_save POST.
+  // The backend handler keeps each row independent (errors surface
+  // per-row, the rest still commit), so a single bad cell doesn't roll
+  // back a 40-row save.
+  const saveAll = async () => {
+    const dirtyIds = Object.keys(edits).filter(id => Object.keys(edits[id] || {}).length > 0);
+    if (dirtyIds.length === 0) return;
+    setBulkSaving(true); setSaveError(null); setBulkResult(null);
+    const rows = dirtyIds.map(idStr => {
+      const entry  = entries.find(e => String(e.id) === idStr);
+      const merged = entry ? { ...entry, ...edits[idStr] } : { id: parseInt(idStr, 10), ...edits[idStr] };
+      return {
+        id:           parseInt(idStr, 10),
+        placement_id: merged.placement_id,
+        work_date:    merged.work_date,
+        hour_type:    merged.hour_type,
+        hours:        parseFloat(merged.hours) || 0,
+        description:  merged.description ?? '',
+      };
+    });
+    try {
+      const result = await api.post('/modules/staffing/api/timesheets.php?action=entries_bulk_save', { rows });
+      // Drop the edit buffer for rows that committed cleanly; keep
+      // failed rows in the buffer so the operator can fix them.
+      const failedIdxSet = new Set((result.errors || []).map(e => e.index));
+      setEdits(prev => {
+        const next = { ...prev };
+        dirtyIds.forEach((idStr, i) => { if (!failedIdxSet.has(i)) delete next[idStr]; });
+        return next;
+      });
+      setBulkResult({ saved: result.saved || 0, errors: result.errors || [] });
+      if ((result.errors || []).length > 0) {
+        setSaveError(`${result.errors.length} row${result.errors.length === 1 ? '' : 's'} failed to save — see details below.`);
+      }
+      reload();
+    } catch (e) {
+      setSaveError(`Bulk save failed: ${e.message}`);
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
   // Per-placement summary (only when timesheet spans multiple placements).
   // Computed over the MERGED rows so unsaved edits flow into the totals
   // live — operators see the impact of each cell change before committing.
@@ -175,7 +219,9 @@ export default function TimesheetDetail({ session }) {
 
   const serverTotal = Number(ts.total_hours || 0);
   const delta = liveTotal - serverTotal;
-  const hasUnsavedEdits = Object.keys(edits).length > 0;
+  const dirtyIds = Object.keys(edits).filter(id => Object.keys(edits[id] || {}).length > 0);
+  const dirtyCount = dirtyIds.length;
+  const hasUnsavedEdits = dirtyCount > 0;
 
   const isSubmitted = ts.status === 'submitted';
   const isRejected  = ts.status === 'rejected';
@@ -286,6 +332,28 @@ export default function TimesheetDetail({ session }) {
       )}
       {actionError && <p className="error" data-testid="timesheet-detail-action-error">{actionError}</p>}
       {saveError && <p className="error" data-testid="timesheet-detail-save-error">{saveError}</p>}
+      {bulkResult && bulkResult.saved > 0 && (
+        <p data-testid="timesheet-detail-bulk-result"
+           style={{ background: '#ecfdf5', padding: 8, borderRadius: 4, fontSize: 13, color: '#065f46' }}>
+          Saved <strong>{bulkResult.saved}</strong> row{bulkResult.saved === 1 ? '' : 's'}
+          {bulkResult.errors.length > 0 && <> · <span style={{ color: '#b91c1c' }}>{bulkResult.errors.length} failed (kept in edit buffer for retry)</span></>}
+        </p>
+      )}
+      {bulkResult && bulkResult.errors && bulkResult.errors.length > 0 && (
+        <details data-testid="timesheet-detail-bulk-errors"
+                 style={{ background: '#fef2f2', padding: 8, borderRadius: 4, fontSize: 12, marginTop: 4 }}>
+          <summary style={{ cursor: 'pointer', color: '#991b1b', fontWeight: 600 }}>
+            Show {bulkResult.errors.length} failed row{bulkResult.errors.length === 1 ? '' : 's'}
+          </summary>
+          <ul style={{ margin: '6px 0 0 20px', padding: 0 }}>
+            {bulkResult.errors.map((err, i) => (
+              <li key={i} data-testid={`timesheet-detail-bulk-error-${i}`} style={{ marginBottom: 4 }}>
+                <code>{err.row?.work_date || '?'} · {err.row?.placement_id || '?'}</code> — {err.error}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {ts.rejection_reason && (
         <p style={{ background: '#fee2e2', padding: 8, borderRadius: 4, fontSize: 13 }}
            data-testid="timesheet-detail-rejection-reason">
@@ -304,6 +372,7 @@ export default function TimesheetDetail({ session }) {
              display: 'grid',
              gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
              gap: 12,
+             alignItems: 'center',
            }}>
         <LiveCell label="Total hours"
                   value={`${liveTotal.toFixed(2)}h`}
@@ -323,6 +392,18 @@ export default function TimesheetDetail({ session }) {
                     value={`${delta >= 0 ? '+' : ''}${delta.toFixed(2)}h`}
                     testId="timesheet-detail-live-delta"
                     color={Math.abs(delta) < 0.005 ? '#475569' : (delta > 0 ? '#d97706' : '#dc2626')} />
+        )}
+        {canEditRows && hasUnsavedEdits && (
+          <div style={{ textAlign: 'right' }}>
+            <button type="button" className="btn btn--primary"
+                    disabled={bulkSaving || savingRowId !== null}
+                    onClick={saveAll}
+                    data-testid="timesheet-detail-save-all">
+              {bulkSaving
+                ? `Saving ${dirtyCount}…`
+                : `Save all changes (${dirtyCount})`}
+            </button>
+          </div>
         )}
       </div>
       {Object.keys(liveByHourType).length > 0 && (
@@ -386,7 +467,7 @@ export default function TimesheetDetail({ session }) {
           {entries.map(e => {
             const row = editedRow(e);
             const dirty = isDirty(e.id);
-            const saving = savingRowId === e.id;
+            const saving = savingRowId === e.id || bulkSaving;
             return (
               <tr key={e.id} data-testid={`timesheet-detail-entry-${e.id}`}
                   style={{ background: dirty ? '#fffbeb' : undefined }}>
