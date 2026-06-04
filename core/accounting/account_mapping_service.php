@@ -229,6 +229,18 @@ function accountingAccountMappingsAutoMap(int $tenantId, int $subTenantId, strin
     }
     $hasCodes = !empty($byCode);
 
+    // Track which provider accounts get consumed during this run so we
+    // know which Jaz rows still need importing into the CoreFlux CoA.
+    // Keys are provider_account_id strings (Jaz resourceId).
+    $consumed = [];
+    // Seed with provider rows that are ALREADY mapped from prior runs —
+    // we should never import the same Jaz account twice.
+    $existing = accountingAccountMappingsList($tenantId, $subTenantId, $provider);
+    foreach ($existing as $m) {
+        $pid = (string) ($m['provider_account_id'] ?? '');
+        if ($pid !== '') $consumed[$pid] = true;
+    }
+
     // 2. Walk unmapped CF accounts.
     $unmapped = accountingAccountMappingsUnmapped($tenantId, $subTenantId, $provider);
     $newMappings   = [];
@@ -275,19 +287,43 @@ function accountingAccountMappingsAutoMap(int $tenantId, int $subTenantId, strin
             ],
             $userId
         );
+        $pid = (string) ($pa['id'] ?? $pa['provider_id'] ?? '');
+        if ($pid !== '') $consumed[$pid] = true;
     }
 
+    // 3. IMPORT — for every provider account that has NO CF
+    //    counterpart yet, create a fresh `accounting_accounts` row in
+    //    CoreFlux's CoA and save an `imported` mapping.  This is the
+    //    actual point of a PULL — operators shouldn't have to type the
+    //    chart of accounts by hand if their accounting backend already
+    //    has it.
+    //
+    //    Code generation: providers like Jaz don't expose account
+    //    codes, so we allocate per-bucket sequentially starting at
+    //    the bucket base (1000/2000/3000/4000/5000) and skipping
+    //    codes already taken in the tenant's CoA.  Existing CF rows
+    //    keep their codes — we never renumber.
+    require_once __DIR__ . '/account_import.php';
+    $importResult = accountingImportProviderAccounts(
+        $tenantId, $subTenantId, $provider,
+        $providerAccounts, $consumed, $userId
+    );
+    $matchedByImport = (int) ($importResult['imported'] ?? 0);
+    $importErrors    = (array) ($importResult['errors']  ?? []);
+
     $out = [
-        'mapped'             => count($newMappings),
-        'no_provider_match'  => $noMatch,
+        'mapped'             => count($newMappings) + $matchedByImport,
         'matched_by_code'    => $matchedByCode,
         'matched_by_name'    => $matchedByName,
+        'matched_by_import'  => $matchedByImport,
+        'no_provider_match'  => $noMatch,
         'provider_has_codes' => $hasCodes,
         'provider_row_count' => count($providerAccounts),
         'cf_unmapped_count'  => count($unmapped),
         'unmapped_sample'    => $unmappedSample,
         'new_mappings'       => $newMappings,
     ];
+    if (!empty($importErrors)) $out['import_errors'] = $importErrors;
     // When the run leaves CF rows unmapped, ship a compact list of every
     // provider account so the UI can render an inline "Map this to..."
     // dropdown next to each unmapped row.  We cap at 500 to keep the
@@ -310,10 +346,14 @@ function accountingAccountMappingsAutoMap(int $tenantId, int $subTenantId, strin
         $out['provider_options'] = $opts;
     }
     // Operators benefit from knowing WHY a run was empty.
-    if (count($newMappings) === 0 && !$hasCodes && empty($byName)) {
+    if (count($newMappings) === 0 && $matchedByImport === 0 && !$hasCodes && empty($byName)) {
         $out['error'] = 'Provider accounts carry no codes or names — auto-map unavailable';
-    } elseif (count($newMappings) === 0 && !$hasCodes) {
+    } elseif (count($newMappings) === 0 && $matchedByImport === 0 && !$hasCodes) {
         $out['note'] = 'Provider has no account codes; tried name-match against ' . count($byName) . ' provider rows but found no matches — review the Step 4 list and map manually';
+    } elseif ($matchedByImport > 0 && $matchedByName > 0) {
+        $out['note'] = "Auto-mapped {$matchedByCode} by code + {$matchedByName} by name + imported {$matchedByImport} new account" . ($matchedByImport === 1 ? '' : 's') . " from " . strtoupper($provider) . ".";
+    } elseif ($matchedByImport > 0) {
+        $out['note'] = "Imported {$matchedByImport} new account" . ($matchedByImport === 1 ? '' : 's') . " from " . strtoupper($provider) . " (no CoreFlux matches found).";
     } elseif ($matchedByName > 0) {
         $out['note'] = "Auto-mapped {$matchedByCode} by code + {$matchedByName} by name — name matches are confidence=60, please confirm.";
     }

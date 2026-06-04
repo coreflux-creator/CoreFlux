@@ -1,5 +1,132 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (PULL = true copy — import Jaz CoA into CoreFlux)
+
+User direction (with screenshot of 1 mapped row + telemetry showing
+"244 unmatched Jaz rows"): "We're still missing the point! The
+reason to pull the chart of accounts from Jaz so that I don't have
+to enter it manually. But he only gives me the option to map
+existing account. So I map the one account, so it doesn't get
+duplicated. Now I want the rest of the Jaz accounts to populate the
+CoreFlux chart of accounts."
+
+### Root cause
+
+`accountingAccountMappingsAutoMap()` had only TWO passes:
+  1. Match by code (Jaz has no codes → 0 hits)
+  2. Match by name (matched what it could → the rest were "no match")
+
+It NEVER imported provider rows that lacked a CF counterpart.
+Operators expected PULL to populate the CF CoA from the provider —
+that's the whole point of pulling.  The prior "Map this to..."
+dropdown forced them to manually pick a Jaz row for each CF account
+AND left the rest of Jaz's CoA invisible to CoreFlux.
+
+### Shipped — true PULL semantics
+
+1. **`core/accounting/account_import.php`** (NEW, ~190 LOC):
+   `accountingImportProviderAccounts($tid, $sub, $provider, $providerAccounts, $consumed, $userId)`:
+   - Pre-loads every taken CF code in one round-trip
+     (`SELECT code FROM accounting_accounts WHERE tenant_id = :t`).
+   - Per-bucket sequential allocator with collision skip:
+       asset     → 1001, 1002, …
+       liability → 2001, …
+       equity    → 3001, …
+       revenue   → 4001, …
+       expense   → 5001, …
+     Caps at 9999 attempts per bucket to prevent infinite loops.
+   - Uses provider native code verbatim when present (truncated to
+     the CHAR(40) column).  Falls back to bucket allocator on
+     collision.
+   - INSERTs `accounting_accounts` row with `is_postable=1,
+     active=1, parent_account_id=NULL`, then saves
+     `accounting_account_mappings` row with `source='imported',
+     confidence=100`.
+   - If the mapping save fails, the parent INSERT is rolled back so
+     re-runs are idempotent.
+   - Returns `{imported, errors[], allocated_codes{}}`.
+
+2. **`accountingAccountMappingsAutoMap()` integration**:
+   - Seeds a `consumed[]` set from `accountingAccountMappingsList()`
+     before the run — guarantees Jaz rows already mapped from prior
+     runs don't get re-imported.
+   - Adds `consumed[pid] = true` after every successful CF→provider
+     mapping in the auto-map loop.
+   - Calls the importer as a third pass after the code + name
+     passes.
+   - New envelope fields: `matched_by_import`, `import_errors[]`.
+   - `mapped` total now includes imports
+     (`count(newMappings) + matchedByImport`).
+   - Operator-facing note now mentions imports:
+     `"Auto-mapped N by code + M by name + imported K new accounts
+       from JAZ."` (or simpler permutations).
+
+3. **UI surfacing** in JazSyncNowCard:
+   - Auto-map telemetry block shows:
+     - `imported new from Jaz: N`
+     - `no match (still unmapped): M`
+   - Each `import_errors[]` row is also piped into the red
+     errorList block so operators see exactly what failed (e.g. a
+     name longer than 255 chars, an unknown account_type).
+   - Success flash text now reads:
+     `"Synced. CoA · N mapped (K imported into CoreFlux) · P pushed
+       to Jaz (S already existed)."`
+
+4. **Live verification against Kunal's real Jaz tenant**:
+   - All **249 / 249** accounts would be imported correctly into a
+     hypothetical clean tenant.
+   - Per-bucket distribution: 45 asset, 34 liability, 28 equity,
+     20 revenue, 122 expense.
+   - Sample first 10 codes: `1001 Accumulated depreciation`,
+     `1002 Cash`, `1003 Startup & organizational costs`,
+     `1004 Deferred income taxes:Income Tax:Georgia`, …
+   - Zero unknown buckets, zero missing names.
+
+### Test status
+- `tests/account_import_from_provider_smoke.php` → 29/29 ✓ (NEW)
+- `tests/jaz_sync_button_and_coa_bidir_smoke.php` → 45/45 ✓
+  (1 assertion updated for the new flash text)
+- Full PHP suite: **382 / 384 passing** (only the 2 documented
+  sandbox-bound failures remain).
+- Vite bundle: **`coreflux-BWrc9GIV`** (frontend changed —
+  telemetry block + success flash).
+- Lint clean.
+
+### Files touched
+- `core/accounting/account_import.php` (NEW, ~190 LOC)
+- `core/accounting/account_mapping_service.php` (seeded `consumed`
+  set, third import pass, new envelope fields, richer note)
+- `dashboard/src/pages/JazIntegrationSettings.jsx` (telemetry
+  counters, import_errors → errorList, success flash copy)
+- `tests/account_import_from_provider_smoke.php` (NEW, 29 assertions)
+- `tests/jaz_sync_button_and_coa_bidir_smoke.php` (1 assertion
+  updated for new flash text)
+
+### Operator action (production)
+1. Deploy bundle `coreflux-BWrc9GIV`.
+2. Open Jaz integration → Step 3B → "Sync everything now".
+3. Expected for Kunal's tenant:
+   - `pull: ~245 mapped (244 imported into CoreFlux)` — every Jaz
+     row that didn't already match a CF row becomes a fresh CF row
+     with a sensible sequential code.
+   - Step 4 Account Mapping list now shows 249 rows total — 1
+     manually mapped + 244 imported + a few auto-name matches.
+   - The leftover unmapped CF rows are just the Plaid bank-shaped
+     rows that have no Jaz counterpart — surface in the resolver
+     dropdown for manual mapping or Remove.
+
+### Roadmap (unchanged)
+- (P1) Mercury Webhooks hardening.
+- (P1) Per-tenant AI feature flag UI (`use_llm` admin toggle).
+- (P1) Phase 8 — Business Event Layer infrastructure.
+- (P2) Gusto integration / QBO hardening.
+- (P2) CFO Dashboard role/access gating.
+- (P3) Customer portal Phase A.
+- (P3) Engagements module.
+- (P3) AI Digest Scheduler (Resend rail live).
+
+---
+
 ## Session — 2026-02 (Plaid bank-link — shared-GL by default)
 
 User direction: "p2 plaid bank link" → close the P2 backlog item

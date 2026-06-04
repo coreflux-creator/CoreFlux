@@ -639,14 +639,15 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
       const pull = coa?.pull?.mapped         ?? 0;
       const push = coa?.push?.pushed         ?? 0;
       const skp  = coa?.push?.skipped_existing ?? 0;
-      const errs = (coa?.push?.errors?.length || 0) + (coa?.pull?.error ? 1 : 0);
+      const imp  = coa?.pull?.matched_by_import ?? 0;
+      const errs = (coa?.push?.errors?.length || 0) + (coa?.pull?.error ? 1 : 0) + (coa?.pull?.import_errors?.length || 0);
       if (errs > 0) {
         // Operators were getting a success-coloured "Synced." banner even
         // when every push failed. Flip the flash to a warning so they
         // realise the run had errors and scroll to the expandable details.
         onFlash?.({
           kind: 'error',
-          msg: `Sync finished with issues. CoA · ${pull} mapped · ${push} pushed (${skp} already existed) · ${errs} error${errs === 1 ? '' : 's'} — expand the row below for details.`,
+          msg: `Sync finished with issues. CoA · ${pull} mapped (incl. ${imp} imported) · ${push} pushed (${skp} already existed) · ${errs} error${errs === 1 ? '' : 's'} — expand the row below for details.`,
         });
       } else if (pull === 0 && push === 0 && skp === 0) {
         // No errors, but also no work done — surface that politely so
@@ -659,7 +660,7 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
       } else {
         onFlash?.({
           kind: 'success',
-          msg:  `Synced. CoA · ${pull} mapped from Jaz · ${push} pushed to Jaz (${skp} already existed).`,
+          msg:  `Synced. CoA · ${pull} mapped (${imp} imported into CoreFlux) · ${push} pushed to Jaz (${skp} already existed).`,
         });
       }
     } catch (e) {
@@ -745,12 +746,23 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
                 const pullR = r.pull;
                 if (pullR && pullR.cf_unmapped_count !== undefined) {
                   const parts = [];
-                  parts.push(`CoreFlux unmapped: ${pullR.cf_unmapped_count}`);
+                  parts.push(`CoreFlux unmapped before run: ${pullR.cf_unmapped_count}`);
                   parts.push(`Jaz CoA rows: ${pullR.provider_row_count ?? '?'}`);
                   parts.push(`matched by code: ${pullR.matched_by_code ?? 0}`);
                   parts.push(`matched by name: ${pullR.matched_by_name ?? 0}`);
-                  parts.push(`no match: ${pullR.no_provider_match ?? 0}`);
+                  parts.push(`imported new from Jaz: ${pullR.matched_by_import ?? 0}`);
+                  parts.push(`no match (still unmapped): ${pullR.no_provider_match ?? 0}`);
                   if (pullR.note) parts.push(`note: ${pullR.note}`);
+                  if (Array.isArray(pullR.import_errors) && pullR.import_errors.length > 0) {
+                    parts.push(`import errors: ${pullR.import_errors.length} (see errors row above)`);
+                    // surface each import error in the red errorList block
+                    for (const ie of pullR.import_errors.slice(0, 25)) {
+                      errorList.push({
+                        code: `import ${ie.name || ie.provider_id || '?'}`,
+                        error: ie.error || 'unknown',
+                      });
+                    }
+                  }
                   infoList.push({ heading: 'Auto-map summary', lines: parts });
                   // Note: the unmapped_sample block is rendered separately
                   // below (NOT in infoList) so we can include an inline

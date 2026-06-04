@@ -103,7 +103,7 @@ $a('Sync now passes entity_types filter',                 $c($ui, "payload.entit
 $a('Sync now results table testid',                       $c($ui, 'data-testid="jaz-sync-now-results"'));
 $a('per-entity row testid',                               $c($ui, 'data-testid={`jaz-sync-row-${entity}`}'));
 $a('error surface testid',                                $c($ui, 'data-testid="jaz-sync-now-error"'));
-$a('flash surfaces pushed + mapped + skipped counts',     $c($ui, "mapped from Jaz") && $c($ui, "pushed to Jaz"));
+$a('flash surfaces pushed + mapped + skipped counts',     $c($ui, "imported into CoreFlux") && $c($ui, "pushed to Jaz"));
 $a('CoA dir picker no longer pinned to pull/off',         !$c($ui, "entity === 'chart_of_accounts'\n              ? ['pull', 'off']"));
 $a('Restriction-lift comment annotates 2026-02',          $c($ui, 'Restriction lifted 2026-02'));
 
