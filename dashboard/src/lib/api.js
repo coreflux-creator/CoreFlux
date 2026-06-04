@@ -107,7 +107,15 @@ export function useApi(path, { enabled = true } = {}) {
 
   useEffect(() => { load(); }, [load]);
 
-  return { data, error, loading, elapsedMs, reload: load };
+  // `mutate` lets callers patch the cached data in place without
+  // triggering a refetch — used for optimistic updates after a POST
+  // that returns the canonical row(s). Accepts either a value or an
+  // updater function `(prev) => next`, matching React's setState shape.
+  const mutate = useCallback((updater) => {
+    setData(prev => (typeof updater === 'function' ? updater(prev) : updater));
+  }, []);
+
+  return { data, error, loading, elapsedMs, reload: load, mutate };
 }
 
 export default api;

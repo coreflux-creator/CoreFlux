@@ -137,6 +137,40 @@ multi-row edit session no longer fires N independent
 - Smoke test now **85 / 85 ✓** (+17 assertions for Save-all).
 - Vite bundle: **`coreflux-cBp52wEt`**.
 
+### Follow-up — Optimistic merge (no reload flash)
+
+User: "yes, add that improvement" → kill the full-timesheet refetch
+that fired after every successful save.
+
+- **`useApi`** (`dashboard/src/lib/api.js`) now exposes a `mutate`
+  setter (value-or-updater, matches React setState semantics) so
+  any module can patch cached data in place without a network
+  round-trip.
+- **TimesheetDetail** wraps three helpers around `mutate`:
+  - `applyEntryUpdate(entry, header)` — upserts an entry into
+    `data.entries[]`, preserves JOIN columns (`placement_title`,
+    `client_name`, `person_*`) from the existing row so a row
+    doesn't flicker to "Placement #N" after save, re-sorts by
+    `work_date`, patches the timesheet header.
+  - `applyEntryDelete(entryId, header)` — drops the entry and
+    recomputes `total_hours` locally.
+  - `applyHeaderUpdate(header)` — patches only the header (used by
+    submit / approve / reject / reopen).
+- All five mutation paths now skip the reload on the happy path:
+  `saveRow`, `deleteRow`, `saveAll`, `act` (submit/approve/reject),
+  `reopenForEdit`. They fall back to `reload()` only if the
+  response is shaped unexpectedly.
+- `AddEntryRow.onSaved` now receives the server result; the parent
+  enriches the new row with the chosen placement's label so the
+  newly-inserted row renders identically to pre-existing rows (no
+  placeholder flash).
+- Edit-buffer reset effect narrowed from
+  `[data?.timesheet?.id, entries.length]` to `[data?.timesheet?.id]`
+  so optimistic patches no longer wipe failed-row edits.
+- Smoke test now **101 / 101 ✓** (+16 assertions for the merge
+  helpers, mutate hook, per-action wiring, regression guard).
+- Vite bundle: **`coreflux-BYgebCnH`**.
+
 ### Files touched
 - `modules/staffing/ui/TimesheetDetail.jsx` (full rewrite — inline
   editor + add-entry form + status-aware controls + URL-anchored

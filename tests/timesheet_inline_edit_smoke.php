@@ -255,6 +255,58 @@ $a('entries_bulk_save returns {saved, errors[], rows[]} envelope',
     str_contains($api, "'saved'  => count(\$results)")
     && str_contains($api, "'errors' => \$errors"));
 
+// ──────────────────────────────────────────────────────────────────────
+// Optimistic merge — skip the reload flash on the happy path.
+// ──────────────────────────────────────────────────────────────────────
+echo "\n── Optimistic merge ──\n";
+$apiLib = file_get_contents('/app/dashboard/src/lib/api.js');
+$a('useApi exposes a `mutate` setter for optimistic patches',
+    str_contains($apiLib, 'const mutate = useCallback((updater) =>')
+    && preg_match("/return \{ data, error, loading, elapsedMs, reload: load, mutate \}/", $apiLib) === 1);
+$a('mutate accepts value-or-updater (matches setState semantics)',
+    str_contains($apiLib, "typeof updater === 'function' ? updater(prev) : updater"));
+
+$a('TimesheetDetail destructures `mutate` from useApi',
+    str_contains($det, "useApi(apiPath, [apiPath]);")
+    && preg_match('/const \{ data, loading, error, reload, mutate \} = useApi/', $det) === 1);
+$a('applyEntryUpdate helper preserves JOIN columns (placement_title etc.)',
+    str_contains($det, 'placement_title: existing.placement_title')
+    && str_contains($det, 'client_name:     existing.client_name'));
+$a('applyEntryUpdate sorts entries by work_date',
+    str_contains($det, "nextEntries.sort((a, b) => (a.work_date || '').localeCompare"));
+$a('applyEntryDelete drops the row + optionally patches header',
+    str_contains($det, 'const applyEntryDelete = (deletedId, newHeader)')
+    && str_contains($det, 'filter(e => e.id !== deletedId)'));
+$a('applyHeaderUpdate patches only the timesheet header',
+    str_contains($det, 'const applyHeaderUpdate = (newHeader)'));
+
+// saveRow / deleteRow / saveAll / act all skip reload on the happy path.
+$a('saveRow applies optimistic patch when result.entry present',
+    str_contains($det, 'if (result?.entry) applyEntryUpdate(result.entry, result.timesheet)'));
+$a('deleteRow applies optimistic patch when result.deleted present',
+    str_contains($det, 'if (result?.deleted) {')
+    && str_contains($det, 'applyEntryDelete(entry.id, null)'));
+$a('deleteRow recomputes total_hours locally after delete',
+    str_contains($det, 'const total = (prev.entries || []).reduce')
+    && str_contains($det, 'timesheet: { ...prev.timesheet, total_hours: total }'));
+$a('act() (submit/approve/reject) patches header without reload',
+    str_contains($det, 'if (result?.timesheet) applyHeaderUpdate(result.timesheet)'));
+$a('reopenForEdit patches header without reload',
+    str_contains($det, "?action=reopen")
+    && preg_match('/const reopenForEdit = async \(\) => \{[\s\S]{0,500}applyHeaderUpdate\(result\.timesheet\)/', $det) === 1);
+$a('saveAll applies bulk optimistic merge from result.rows',
+    str_contains($det, 'Array.isArray(result.rows) && result.rows.length > 0')
+    && str_contains($det, 'result.rows.at(-1)?.timesheet'));
+$a('AddEntryRow forwards the server result to onSaved (no auto-reload)',
+    str_contains($det, 'onSaved(result)'));
+$a('AddEntryRow enriches new row with placement labels for instant display',
+    str_contains($det, 'const p = placements.find(pp => pp.id === result.entry.placement_id)'));
+
+// Regression guard — edit-buffer reset effect must no longer fire on
+// `entries.length` change (that wiped failed-row edits after bulk save).
+$a('edit buffer reset keyed ONLY on timesheet id (not entries.length)',
+    str_contains($det, 'useEffect(() => { setEdits({}); setBulkResult(null); }, [data?.timesheet?.id]);'));
+
 $lib = file_get_contents('/app/modules/staffing/lib/timesheets.php');
 $a('staffingTimeEntrySave auto-reopens non-draft sheets',
     preg_match("/function staffingTimeEntrySave[\s\S]{0,2000}staffingTimesheetReopen\\(\\\$userId, \\\$tsId, 'edited inline'\\)/", $lib) === 1);

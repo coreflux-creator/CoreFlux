@@ -51,9 +51,58 @@ export default function TimesheetDetail({ session }) {
   const apiPath = placementId
     ? `/modules/staffing/api/timesheets.php?action=detail_for_placement&id=${id}&placement_id=${placementId}`
     : `/modules/staffing/api/timesheets.php?action=detail&id=${id}`;
-  const { data, loading, error, reload } = useApi(apiPath, [apiPath]);
+  const { data, loading, error, reload, mutate } = useApi(apiPath, [apiPath]);
   const ts      = data?.timesheet;
   const entries = data?.entries ?? [];
+
+  // Helper: build an optimistic patch into `data`. Server returns the
+  // bare time_entries row + the updated header; the page also needs
+  // placement_title / client_name / person_* fields which came from the
+  // JOIN. We preserve those from the existing row.
+  const applyEntryUpdate = (savedEntry, savedHeader) => {
+    mutate(prev => {
+      if (!prev) return prev;
+      const prevEntries = prev.entries || [];
+      const existing = prevEntries.find(e => e.id === savedEntry.id) || {};
+      const nextRow = {
+        // join columns aren't in the bare server row — keep them.
+        placement_title: existing.placement_title,
+        client_name:     existing.client_name,
+        end_client_name: existing.end_client_name,
+        person_first_name: existing.person_first_name,
+        person_last_name:  existing.person_last_name,
+        ...savedEntry,
+      };
+      const nextEntries = prevEntries.some(e => e.id === savedEntry.id)
+        ? prevEntries.map(e => e.id === savedEntry.id ? nextRow : e)
+        : [...prevEntries, nextRow];
+      // Keep entries ordered by work_date for the by-placement summary.
+      nextEntries.sort((a, b) => (a.work_date || '').localeCompare(b.work_date || '') || a.id - b.id);
+      return {
+        ...prev,
+        entries: nextEntries,
+        timesheet: { ...prev.timesheet, ...(savedHeader || {}) },
+      };
+    });
+  };
+
+  const applyEntryDelete = (deletedId, newHeader) => {
+    mutate(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        entries: (prev.entries || []).filter(e => e.id !== deletedId),
+        timesheet: newHeader ? { ...prev.timesheet, ...newHeader } : prev.timesheet,
+      };
+    });
+  };
+
+  const applyHeaderUpdate = (newHeader) => {
+    mutate(prev => {
+      if (!prev || !newHeader) return prev;
+      return { ...prev, timesheet: { ...prev.timesheet, ...newHeader } };
+    });
+  };
 
   const [busy, setBusy]           = useState(false);
   const [rejecting, setRejecting] = useState(false);
@@ -77,8 +126,9 @@ export default function TimesheetDetail({ session }) {
   );
   const placements = placementsApi.data?.rows ?? [];
 
-  // Reset edit buffer + bulk result whenever the timesheet reloads.
-  useEffect(() => { setEdits({}); setBulkResult(null); }, [data?.timesheet?.id, entries.length]);
+  // Reset edit buffer + bulk result only when a different timesheet
+  // is loaded (don't wipe pending edits on optimistic patches).
+  useEffect(() => { setEdits({}); setBulkResult(null); }, [data?.timesheet?.id]);
 
   if (loading) return <p data-testid="timesheet-detail-loading">Loading timesheet…</p>;
   if (error)   return <p className="error" data-testid="timesheet-detail-error">Error: {error.message}</p>;
@@ -94,13 +144,15 @@ export default function TimesheetDetail({ session }) {
   const act = async (action, extra = {}) => {
     setBusy(true); setActionError(null);
     try {
-      await api.post(`/modules/staffing/api/timesheets.php?action=${action}`, {
+      const result = await api.post(`/modules/staffing/api/timesheets.php?action=${action}`, {
         person_id: ts.person_id,
         period_start: ts.period_start,
         period_end: ts.period_end,
         ...extra,
       });
-      reload();
+      // submit/approve/reject all return {timesheet} — patch in place.
+      if (result?.timesheet) applyHeaderUpdate(result.timesheet);
+      else reload();
       setRejecting(false); setReason('');
     } catch (e) { setActionError(e.message); }
     finally { setBusy(false); }
@@ -109,9 +161,10 @@ export default function TimesheetDetail({ session }) {
   const reopenForEdit = async () => {
     setBusy(true); setActionError(null);
     try {
-      await api.post('/modules/staffing/api/timesheets.php?action=reopen',
+      const result = await api.post('/modules/staffing/api/timesheets.php?action=reopen',
         { id: ts.id, reason: 'inline edit from detail page' });
-      reload();
+      if (result?.timesheet) applyHeaderUpdate(result.timesheet);
+      else reload();
     } catch (e) { setActionError(e.message); }
     finally { setBusy(false); }
   };
@@ -127,7 +180,7 @@ export default function TimesheetDetail({ session }) {
     setSavingRowId(entry.id); setSaveError(null);
     const merged = editedRow(entry);
     try {
-      await api.post('/modules/staffing/api/timesheets.php?action=entry_save', {
+      const result = await api.post('/modules/staffing/api/timesheets.php?action=entry_save', {
         id: entry.id,
         placement_id: merged.placement_id,
         work_date: merged.work_date,
@@ -136,7 +189,10 @@ export default function TimesheetDetail({ session }) {
         description: merged.description ?? '',
       });
       setEdits(prev => { const n = { ...prev }; delete n[entry.id]; return n; });
-      reload();
+      // Optimistic merge: backend returns {entry, timesheet}. Skip the
+      // round-trip reload for the common happy path.
+      if (result?.entry) applyEntryUpdate(result.entry, result.timesheet);
+      else reload();
     } catch (e) { setSaveError(`Row #${entry.id}: ${e.message}`); }
     finally { setSavingRowId(null); }
   };
@@ -145,8 +201,21 @@ export default function TimesheetDetail({ session }) {
     if (!window.confirm(`Delete entry for ${entry.work_date} (${Number(entry.hours).toFixed(2)}h)? This cannot be undone.`)) return;
     setSavingRowId(entry.id); setSaveError(null);
     try {
-      await api.post('/modules/staffing/api/timesheets.php?action=entry_delete', { id: entry.id });
-      reload();
+      const result = await api.post('/modules/staffing/api/timesheets.php?action=entry_delete', { id: entry.id });
+      // Backend returns {deleted, timesheet_id}. We have to refetch the
+      // header total separately, so fall back to a quick refetch only
+      // if mutate-in-place can't recompute total_hours locally.
+      if (result?.deleted) {
+        applyEntryDelete(entry.id, null);
+        // Recompute total_hours on the client from current entries.
+        mutate(prev => {
+          if (!prev) return prev;
+          const total = (prev.entries || []).reduce((s, e) => s + Number(e.hours || 0), 0);
+          return { ...prev, timesheet: { ...prev.timesheet, total_hours: total } };
+        });
+      } else {
+        reload();
+      }
     } catch (e) { setSaveError(`Row #${entry.id}: ${e.message}`); }
     finally { setSavingRowId(null); }
   };
@@ -156,10 +225,10 @@ export default function TimesheetDetail({ session }) {
   // per-row, the rest still commit), so a single bad cell doesn't roll
   // back a 40-row save.
   const saveAll = async () => {
-    const dirtyIds = Object.keys(edits).filter(id => Object.keys(edits[id] || {}).length > 0);
-    if (dirtyIds.length === 0) return;
+    const dirtyKeys = Object.keys(edits).filter(id => Object.keys(edits[id] || {}).length > 0);
+    if (dirtyKeys.length === 0) return;
     setBulkSaving(true); setSaveError(null); setBulkResult(null);
-    const rows = dirtyIds.map(idStr => {
+    const rows = dirtyKeys.map(idStr => {
       const entry  = entries.find(e => String(e.id) === idStr);
       const merged = entry ? { ...entry, ...edits[idStr] } : { id: parseInt(idStr, 10), ...edits[idStr] };
       return {
@@ -178,14 +247,45 @@ export default function TimesheetDetail({ session }) {
       const failedIdxSet = new Set((result.errors || []).map(e => e.index));
       setEdits(prev => {
         const next = { ...prev };
-        dirtyIds.forEach((idStr, i) => { if (!failedIdxSet.has(i)) delete next[idStr]; });
+        dirtyKeys.forEach((idStr, i) => { if (!failedIdxSet.has(i)) delete next[idStr]; });
         return next;
       });
       setBulkResult({ saved: result.saved || 0, errors: result.errors || [] });
       if ((result.errors || []).length > 0) {
         setSaveError(`${result.errors.length} row${result.errors.length === 1 ? '' : 's'} failed to save — see details below.`);
       }
-      reload();
+      // Optimistic merge — backend returns rows:[{entry, timesheet}].
+      // Skip the network round-trip on the common happy path.
+      if (Array.isArray(result.rows) && result.rows.length > 0) {
+        const lastHeader = result.rows.at(-1)?.timesheet || null;
+        mutate(prev => {
+          if (!prev) return prev;
+          let nextEntries = [...(prev.entries || [])];
+          for (const r of result.rows) {
+            if (!r?.entry) continue;
+            const idx = nextEntries.findIndex(e => e.id === r.entry.id);
+            const existing = idx >= 0 ? nextEntries[idx] : {};
+            const merged = {
+              placement_title:   existing.placement_title,
+              client_name:       existing.client_name,
+              end_client_name:   existing.end_client_name,
+              person_first_name: existing.person_first_name,
+              person_last_name:  existing.person_last_name,
+              ...r.entry,
+            };
+            if (idx >= 0) nextEntries[idx] = merged;
+            else nextEntries.push(merged);
+          }
+          nextEntries.sort((a, b) => (a.work_date || '').localeCompare(b.work_date || '') || a.id - b.id);
+          return {
+            ...prev,
+            entries: nextEntries,
+            timesheet: lastHeader ? { ...prev.timesheet, ...lastHeader } : prev.timesheet,
+          };
+        });
+      } else {
+        reload();
+      }
     } catch (e) {
       setSaveError(`Bulk save failed: ${e.message}`);
     } finally {
@@ -567,7 +667,24 @@ export default function TimesheetDetail({ session }) {
           timesheet={ts}
           placements={placements}
           defaultPlacementId={placementId ? parseInt(placementId, 10) : null}
-          onSaved={() => reload()}
+          onSaved={(result) => {
+            // Apply server-returned row directly; fall back to reload
+            // if the response shape is unexpected.
+            if (result?.entry) {
+              // Enrich with display labels from the placements list so
+              // the newly-inserted row renders identically to the
+              // pre-existing rows (no placeholder flash).
+              const p = placements.find(pp => pp.id === result.entry.placement_id);
+              const enriched = {
+                ...result.entry,
+                placement_title: p?.title || `Placement #${result.entry.placement_id}`,
+                client_name:     p?.end_client_name || '',
+              };
+              applyEntryUpdate(enriched, result.timesheet);
+            } else {
+              reload();
+            }
+          }}
         />
       )}
     </section>
@@ -596,7 +713,7 @@ function AddEntryRow({ timesheet, placements, defaultPlacementId, onSaved }) {
   const submit = async () => {
     setBusy(true); setError(null);
     try {
-      await api.post('/modules/staffing/api/timesheets.php?action=entry_save', {
+      const result = await api.post('/modules/staffing/api/timesheets.php?action=entry_save', {
         timesheet_id: timesheet.id,
         placement_id: parseInt(form.placement_id, 10),
         work_date:    form.work_date,
@@ -606,7 +723,7 @@ function AddEntryRow({ timesheet, placements, defaultPlacementId, onSaved }) {
       });
       setOpen(false);
       setForm(f => ({ ...f, hours: '0', description: '' }));
-      onSaved();
+      onSaved(result);
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
   };
