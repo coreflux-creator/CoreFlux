@@ -105,6 +105,32 @@ $user = $ctx['user'];
 $tid  = (int) $ctx['tenant_id'];
 
 switch ($action) {
+    case 'config_check': {
+        // 2026-02 — quick sanity endpoint so an operator can verify
+        // QBO_* defines are loaded on the pod WITHOUT shelling in.
+        // Returns booleans + non-secret fields only; the actual
+        // client_secret value is never echoed back.
+        if ($method !== 'GET') api_error('Method not allowed', 405);
+        rbac_legacy_require($user, 'integrations.qbo.view');
+        $clientId    = qboCfg('QBO_CLIENT_ID');
+        $clientSec   = qboCfg('QBO_CLIENT_SECRET');
+        $redirectUri = qboCfg('QBO_REDIRECT_URI');
+        api_ok([
+            'configured'          => qboConfigured(),
+            'environment'         => qboEnvironment(),
+            'redirect_uri'        => $redirectUri,
+            'scopes'              => qboCfg('QBO_SCOPES') ?: QBO_DEFAULT_SCOPES,
+            'has_client_id'       => $clientId !== '',
+            'has_client_secret'   => $clientSec !== '',
+            'has_redirect_uri'    => $redirectUri !== '',
+            // Show the last 4 chars of the client id so the operator
+            // can confirm WHICH key is loaded without exposing the
+            // whole string (helps when rotating).
+            'client_id_tail'      => $clientId !== '' ? substr($clientId, -4) : null,
+            'api_base'            => qboApiBase(),
+        ]);
+    }
+
     case 'status': {
         if ($method !== 'GET') api_error('Method not allowed', 405);
         rbac_legacy_require($user, 'integrations.qbo.view');

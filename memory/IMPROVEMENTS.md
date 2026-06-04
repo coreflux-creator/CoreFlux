@@ -36,24 +36,21 @@ Format per item:
 
 ## Integrations
 
-### LP-002 — QBO sandbox keys missing from production `config.local.php`
-- **What**: Production `/app/core/config.local.php` has Plaid +
-  Resend + OpenAI keys but no QBO ones, so `qboConfigured()` returns
-  false and the OAuth flow short-circuits before redirecting to
-  Intuit. Need to add `QBO_CLIENT_ID` / `QBO_CLIENT_SECRET` /
-  `QBO_REDIRECT_URI` (and `QBO_ENV='sandbox'` for testing).
-- **Why**: Without these, "Connect to QuickBooks" throws
-  `"QBO is not configured on this pod"`. We've already shipped
-  every downstream feature; the credentials are the only blocker.
-- **Where**: `core/config.local.php` on the deploy host (or env
-  vars: `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_REDIRECT_URI`,
-  `QBO_ENV`, `QBO_SCOPES`). Reference template is now in
-  `core/config.local.example.php` (2026-02 update).
-- **Estimate**: ~10 min (after operator pastes their Intuit dev
-  keys + registers the redirect URI in the Intuit dashboard).
-- **Surfaced**: 2026-02 — user: "need to test QB in intuit
-  developer sandbox".
-- **Status**: OPEN (operator action — needs Intuit dev account)
+### LP-002 — QBO sandbox keys [SHIPPED 2026-02]
+- **What**: Added `QBO_CLIENT_ID` / `QBO_CLIENT_SECRET` /
+  `QBO_REDIRECT_URI` / `QBO_ENV` / `QBO_SCOPES` to
+  `/app/core/config.local.php` so `qboConfigured()` returns true.
+  Sandbox keys (Development) from Intuit dashboard pasted in;
+  redirect URI: `https://www.corefluxapp.com/api/qbo.php?action=oauth_callback`.
+- **Verification**: `qbo_config_check_smoke.php` 25/25 ✓.
+  `GET /api/qbo.php?action=config_check` now returns the
+  configured state (booleans + redirect_uri + last-4 of client id)
+  so operators can verify on the live pod without shelling in.
+- **Status**: SHIPPED — operator should now hit the connect flow
+  from Admin → QBO. Rotate the secret after the chat session in
+  which it was pasted; replace in `config.local.php`.
+- **Follow-up**: pasted client_secret needs rotation post-session
+  (per the security note in chat).
 
 ---
 
