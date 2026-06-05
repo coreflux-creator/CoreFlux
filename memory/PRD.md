@@ -1,5 +1,154 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (AI-Native Extension · Slice C · JE Draft Validation + Approval-Gated Post)
+
+User direction: "c" → after Slice B closed, confirmed Slice C from the
+A→E queue.
+
+### Scope (Slice C)
+Phase 3 — Accounting MVP: pure-read `validateJournalEntry` tool the LLM
+can call to self-check before drafting; risk-4 `postApprovedJournalEntry`
+tool that promotes a draft JE to posted ONLY when a real approved
+workflow_approval row exists; reviewer SPA page over the draft inbox.
+
+### Architectural decision — drafts live in `accounting_journal_entries`
+
+Spec scan proposed a parallel `journal_entry_drafts` table.  Kept the
+existing `accounting_journal_entries.status='draft'` approach instead
+because:
+- `accountingPostJe($post=false)` already writes draft rows with full
+  validation (period, accounts, balance, dimensions).
+- One source of truth for JE lifecycle — drafts, posted, void, and
+  reversed all share `status`.
+- The reviewer + auditor surfaces (existing `AccountingOutbox`,
+  `WorkflowTimeline`, future `CloseDashboard`) already query the
+  unified table.
+- No migration needed → cleaner production deploy.
+
+### What shipped
+
+1. **`modules/accounting/lib/accounting.php` — two new helpers**
+   - **`accountingValidateJe(int $tenantId, array $je): array`** —
+     pure-read mirror of `accountingPostJe`'s pre-insert checks
+     (lines 142-247).  Returns a structured report:
+     `{ok, balanced, total_debit, total_credit, line_count, period,
+       entity_id, line_validations[], errors[], ai_advice}`.
+     Per-line errors caught: negative amounts, debit-and-credit on
+     the same line, missing account, inactive / non-postable account.
+     Header errors caught: posting_date format, < 2 lines, closed /
+     soft_closed period, unbalanced totals, dimension violations
+     (when `dimensions.php` exists).  `ai_advice` is a short
+     human-readable next step so the LLM knows what to call next.
+   - **`accountingPromoteDraftToPosted(int $tenantId, int $jeId,
+     array $opts): array`** — flips a draft row to posted.  Requires
+     an `approval_id` in `$opts`.  Refuses non-draft rows.  Idempotent
+     on already-posted rows (returns `idempotent_replay=true`).
+     **Re-validates at promotion time** so a draft that went stale
+     (period closed since drafting, account deactivated) is refused.
+     Stamps `posted_at` + `posted_by_user_id` in a single transaction.
+     Best-effort FSC cache invalidation after promotion (matches the
+     existing `accountingPostJe` post-write hooks).
+
+2. **`core/ai/tool_gateway.php` — two new tools + handlers**
+   - **`coreflux.validate_journal_entry`** (risk_level=`read`) →
+     `aiToolValidateJournalEntryHandler` forwards to
+     `accountingValidateJe`.  Permission `accounting.read`.
+   - **`coreflux.post_approved_journal_entry`** (risk_level=`4`,
+     transactional) → `aiToolPostApprovedJournalEntryHandler`.
+     Permission `accounting.write`.  Idempotency key = `[je_id]`.
+   - **Risk-4 gate enhancement**: the gate in `aiToolInvoke()` now
+     also THREADS `_approval_id` + `_actor_user_id` into `$args` after
+     successful approval lookup, so the handler can stamp the
+     promotion + audit row with the same id the gate verified.
+     Keys are `_`-prefixed so the audit redactor skips them as
+     non-public metadata.
+
+3. **`/api/ai/je_drafts.php`** (NEW) — 3 endpoints
+   - `GET`                          — list draft JEs (newest first,
+                                      tenant-scoped, capped at 200).
+                                      Includes `line_count` per row.
+   - `GET ?action=detail&id=N`      — header + lines + fresh
+                                      validation report.
+   - `POST ?action=reject`          — body `{id, reason?}` → flips
+                                      status to `void`.  Writes
+                                      spec-§15 audit event
+                                      `ai_je_draft_rejected`.
+   - RBAC: `ai.audit.view` OR `accounting.review` for list + detail;
+     `accounting.approve` for reject.
+
+4. **`dashboard/src/pages/JeDraftsReview.jsx`** (NEW, 268 LOC) — SPA
+   - Mounted at `/admin/ai/je-drafts`.
+   - Two-column layout: filterable list (left) + drill-down with
+     re-validation panel + per-line table (right).
+   - Reject affordance prompts for a reason, persists it as audit
+     metadata.
+   - Posting goes through the Reviewer cockpit (linked from the
+     detail footer) — approvals live there, then call
+     `coreflux.post_approved_journal_entry`.
+   - 18 static testids + 4 template testids.
+   - StatusChip subcomponent for draft / posted / void / reversed.
+
+5. **`dashboard/src/pages/AdminModule.jsx`** — wire-in
+   - Imports `JeDraftsReview`.
+   - New AdminOverview `ActionCard` tile labelled "JE drafts review"
+     (`ScrollText` icon).
+   - New sidebar nav link.
+   - New `<Route path="/ai/je-drafts" element={<JeDraftsReview …/>}/>`.
+
+6. **`tests/ai_phase1_slice_c_smoke.php`** → **84 / 84 ✓** locking:
+   - Both new helper signatures + bodies.
+   - `php -l` clean on both touched backend files.
+   - Five pure-function probes against `accountingValidateJe`
+     (unbalanced, negative debit, debit+credit-same-line,
+     bad date format, single-line).
+   - 2 new tool-registry entries + risk levels + handlers.
+   - Risk-4 gate threading of `_approval_id` / `_actor_user_id`.
+   - `/api/ai/je_drafts.php` — full surface + RBAC + audit events.
+   - UI surface (18 static + 4 template testids).
+   - AdminModule import + route + sidebar nav + ActionCard tile.
+
+### Tenant-leak hardening
+
+Two new JOIN queries (`api/ai/je_drafts.php:90`,
+`accounting.php:695`) join `accounting_journal_entry_lines` ⨝
+`accounting_accounts` filtered by `je_id`.  Both are tenant-safe
+because the parent JE was fetched tenant-scoped before — added explicit
+`tenant-leak-allow:` comments matching the existing pattern in
+accounting.php so the static analyzer stays green.
+
+### Test status
+
+- Slice C smoke: **84 / 84 ✓**
+- Full PHP suite: **388 / 390 ✓** (only the 2 documented sandbox-bound
+  failures remain).
+- Vite bundle: **`coreflux-CPWt4jox`**. All 4 sync points consistent.
+  Lint clean.
+
+### Operator action (production)
+
+1. **No migrations needed** — drafts use the existing
+   `accounting_journal_entries` table with `status='draft'`.
+2. **Deploy bundle `coreflux-CPWt4jox`** — pulls in `JeDraftsReview` +
+   tool registry sync.
+3. Sign in → **Admin → JE drafts review** (or paste
+   `https://www.corefluxapp.com/admin/ai/je-drafts`).  Drill in to
+   see live re-validation; reject any drafts that shouldn't post.
+4. For posting flow, the LLM calls
+   `coreflux.validate_journal_entry` to self-check, then routes
+   approval through the workflow runtime
+   (`/admin/ai-gateway/reviewer`), then calls
+   `coreflux.post_approved_journal_entry` with the approval id.
+
+### Next slices (per the user-committed sequence)
+
+- **Slice D** ~3 hr — `accounting_close_runs` orchestrator wrapping
+  the existing `accounting_close_packets` + `accounting_close_tasks`,
+  + `CloseDashboard` SPA page.
+- **Slice E** ~5 hr — AP invoice extraction runs + 13-week cash
+  forecast + timesheet anomaly detection + `PayrollReviewPacket`.
+
+---
+
 ## Session — 2026-02 (AI-Native Extension · Slice B · Vendor aliases + Exception queue UX)
 
 User direction: "a" → after the Slice A close-out, confirmed the

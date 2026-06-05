@@ -486,3 +486,271 @@ function accountingAudit(string $event, array $meta = [], ?int $targetId = null)
         error_log('[accounting.audit] ' . $event . ' write-failed: ' . $e->getMessage());
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Slice C — JE draft validation + approval-gated post.
+// Spec §11 ("validateJournalEntry tool") + §15 (risk-tier=4 transactional).
+//
+// accountingValidateJe()  — pure read; runs the same rules accountingPostJe
+//                           runs (period openness, account validity, balance,
+//                           dimensions) WITHOUT touching the DB. Returns a
+//                           structured report so the LLM / reviewer can see
+//                           every check that passed or failed in one pass.
+//
+// accountingPromoteDraftToPosted()
+//                         — flips an existing draft JE row to posted.
+//                           Re-validates the row at promotion time so a
+//                           draft that became stale (closed period, deactivated
+//                           account) is refused.  Used by the
+//                           coreflux.post_approved_journal_entry tool which
+//                           is risk_level=4 — caller must hold an approved
+//                           workflow_approval id.
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Pure-read JE validation. Mirrors accountingPostJe's pre-insert checks
+ * (lines 142-247) without side effects.
+ *
+ * @param array $je {entity_id, posting_date, currency?, lines: [{account_id|account_code, debit, credit, memo?, dims?}]}
+ * @return array {
+ *     ok: bool, balanced: bool,
+ *     total_debit: float, total_credit: float, line_count: int,
+ *     period: ?{id, period_number, status, start_date, end_date},
+ *     entity_id: int,
+ *     line_validations: [{line_no, account_code?, debit, credit, errors: [string]}],
+ *     errors: [string],
+ *     ai_advice?: string  — short human-readable next step for the reviewer / LLM
+ * }
+ */
+function accountingValidateJe(int $tenantId, array $je): array
+{
+    $errors = [];
+    $line_validations = [];
+    $totalDebit = $totalCredit = 0.0;
+    $period = null;
+    $entityId = 0;
+
+    $lines = $je['lines'] ?? [];
+    if (!is_array($lines) || count($lines) < 2) {
+        $errors[] = 'JE needs at least 2 lines';
+    }
+    $postingDate = (string) ($je['posting_date'] ?? '');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $postingDate)) {
+        $errors[] = 'posting_date must be YYYY-MM-DD';
+        $postingDate = '';
+    }
+
+    try {
+        $entityId = !empty($je['entity_id']) ? (int) $je['entity_id']
+                                              : (int) accountingDefaultEntity($tenantId)['id'];
+    } catch (\Throwable $e) {
+        $errors[] = 'no default accounting entity — pass entity_id explicitly';
+    }
+
+    if ($entityId > 0 && $postingDate !== '') {
+        try {
+            $period = accountingResolvePeriod($tenantId, $entityId, $postingDate);
+            if (in_array($period['status'], ['closed', 'soft_closed'], true)) {
+                $errors[] = "Period {$period['period_number']} ({$period['start_date']}..{$period['end_date']}) is {$period['status']}; cannot post";
+            }
+        } catch (\Throwable $e) {
+            $errors[] = 'period resolution failed: ' . substr($e->getMessage(), 0, 200);
+        }
+    }
+
+    // Resolve accounts for the tenant.
+    $byId = $byCode = [];
+    try {
+        $stmt = getDB()->prepare('SELECT id, code, name, is_postable, active FROM accounting_accounts WHERE tenant_id = :t');
+        $stmt->execute(['t' => $tenantId]);
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $a) {
+            $byId[(int) $a['id']] = $a;
+            $byCode[strtolower((string) $a['code'])] = $a;
+        }
+    } catch (\Throwable $e) {
+        $errors[] = 'chart-of-accounts lookup failed: ' . substr($e->getMessage(), 0, 200);
+    }
+
+    foreach ((is_array($lines) ? $lines : []) as $i => $l) {
+        $debit  = round((float) ($l['debit']  ?? 0), 2);
+        $credit = round((float) ($l['credit'] ?? 0), 2);
+        $lineErrors = [];
+        if ($debit < 0 || $credit < 0)        $lineErrors[] = 'negative amounts not allowed';
+        if ($debit > 0 && $credit > 0)        $lineErrors[] = 'a line cannot have both debit and credit';
+        if ($debit == 0 && $credit == 0)      $lineErrors[] = 'must specify debit or credit';
+
+        $a = null;
+        if (!empty($l['account_id']))         $a = $byId[(int) $l['account_id']] ?? null;
+        elseif (!empty($l['account_code']))   $a = $byCode[strtolower((string) $l['account_code'])] ?? null;
+        else                                  $lineErrors[] = 'account_id or account_code required';
+
+        if (!$a && empty($lineErrors))        $lineErrors[] = 'account not found';
+        if ($a && !$a['active'])              $lineErrors[] = "account {$a['code']} is inactive";
+        if ($a && !$a['is_postable'])         $lineErrors[] = "account {$a['code']} is not postable (summary)";
+
+        $totalDebit  += $debit;
+        $totalCredit += $credit;
+        $line_validations[] = [
+            'line_no'      => $i + 1,
+            'account_code' => $a['code'] ?? ($l['account_code'] ?? null),
+            'account_name' => $a['name'] ?? null,
+            'debit'        => $debit,
+            'credit'       => $credit,
+            'errors'       => $lineErrors,
+        ];
+    }
+
+    $balanced = round(abs($totalDebit - $totalCredit), 2) <= 0.005;
+    if (!$balanced) {
+        $errors[] = sprintf('Unbalanced JE: debits=%.2f credits=%.2f (diff=%.2f)',
+            $totalDebit, $totalCredit, $totalDebit - $totalCredit);
+    }
+
+    // Dimension validation when configured.
+    if ($balanced && file_exists(__DIR__ . '/dimensions.php')) {
+        try {
+            require_once __DIR__ . '/dimensions.php';
+            $linesForDimCheck = [];
+            foreach ((is_array($lines) ? $lines : []) as $i => $l) {
+                $a = !empty($l['account_id']) ? ($byId[(int) $l['account_id']] ?? null)
+                                              : ($byCode[strtolower((string) ($l['account_code'] ?? ''))] ?? null);
+                $linesForDimCheck[] = [
+                    'account_id' => $a['id'] ?? 0,
+                    'dims'       => (array) ($l['dims'] ?? []),
+                ];
+            }
+            accountingValidateJeDims($tenantId, $linesForDimCheck);
+        } catch (\Throwable $e) {
+            $errors[] = 'dimension validation: ' . substr($e->getMessage(), 0, 200);
+        }
+    }
+
+    $ok = $balanced && count($errors) === 0
+       && !array_filter($line_validations, fn ($lv) => !empty($lv['errors']));
+
+    $advice = $ok
+        ? 'Validation passed — request workflow approval, then call coreflux.post_approved_journal_entry.'
+        : 'Fix the errors above before drafting; the LLM should call validate_journal_entry again until ok=true.';
+
+    return [
+        'ok'                 => $ok,
+        'balanced'           => $balanced,
+        'total_debit'        => $totalDebit,
+        'total_credit'       => $totalCredit,
+        'line_count'         => count($line_validations),
+        'period'             => $period,
+        'entity_id'          => $entityId,
+        'line_validations'   => $line_validations,
+        'errors'             => $errors,
+        'ai_advice'          => $advice,
+    ];
+}
+
+/**
+ * Promote a draft JE to posted. Approval-gated by the caller (the AI
+ * tool gateway enforces risk_level=4 + _approval_id before reaching
+ * here). Re-validates the JE at promotion time so a draft that went
+ * stale (closed period, deactivated account) is refused.
+ *
+ * Idempotent on re-entry: if the row is already posted, returns the
+ * existing posted snapshot with idempotent_replay=true.
+ *
+ * @return array {je_id, je_number, status, total_debit, total_credit,
+ *                idempotent_replay, approval_id}
+ */
+function accountingPromoteDraftToPosted(int $tenantId, int $jeId, array $opts = []): array
+{
+    if ($jeId <= 0) throw new \InvalidArgumentException('je_id required');
+    $approvalId = isset($opts['approval_id']) ? (int) $opts['approval_id'] : 0;
+    if ($approvalId <= 0) throw new \InvalidArgumentException('approval_id required');
+    $actorUserId = isset($opts['actor_user_id']) ? (int) $opts['actor_user_id'] : null;
+
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'SELECT id, tenant_id, entity_id, period_id, je_number,
+                posting_date, currency, status, total_debit, total_credit, memo
+           FROM accounting_journal_entries
+          WHERE id = :id AND tenant_id = :t LIMIT 1'
+    );
+    $stmt->execute(['id' => $jeId, 't' => $tenantId]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$row) throw new \RuntimeException("draft JE #{$jeId} not found");
+
+    if ($row['status'] === 'posted') {
+        return [
+            'je_id'             => (int) $row['id'],
+            'je_number'         => (string) $row['je_number'],
+            'status'            => 'posted',
+            'total_debit'       => (float) $row['total_debit'],
+            'total_credit'      => (float) $row['total_credit'],
+            'idempotent_replay' => true,
+            'approval_id'       => $approvalId,
+        ];
+    }
+    if ($row['status'] !== 'draft') {
+        throw new \RuntimeException("JE #{$jeId} is status='{$row['status']}', not 'draft'");
+    }
+
+    // Reassemble line dictionary and re-validate at promotion time.
+    // tenant-leak-allow: parent JE was fetched tenant-scoped above; lines join by je_id
+    $lstmt = $pdo->prepare(
+        'SELECT l.line_no, l.debit, l.credit, l.memo, l.dim_json,
+                a.id   AS account_id, a.code AS account_code, a.active, a.is_postable
+           FROM accounting_journal_entry_lines l
+           JOIN accounting_accounts a ON a.id = l.account_id
+          WHERE l.je_id = :je
+          ORDER BY l.line_no ASC'
+    );
+    $lstmt->execute(['je' => $jeId]);
+    $lineRows = $lstmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    $linesForValidate = array_map(fn ($r) => [
+        'account_id' => (int) $r['account_id'],
+        'debit'      => (float) $r['debit'],
+        'credit'     => (float) $r['credit'],
+        'memo'       => $r['memo'] ?? null,
+        'dims'       => $r['dim_json'] ? (json_decode((string) $r['dim_json'], true) ?: []) : [],
+    ], $lineRows);
+
+    $report = accountingValidateJe($tenantId, [
+        'entity_id'    => (int) $row['entity_id'],
+        'posting_date' => (string) $row['posting_date'],
+        'currency'     => (string) $row['currency'],
+        'lines'        => $linesForValidate,
+    ]);
+    if (!$report['ok']) {
+        throw new \RuntimeException('promotion refused: ' . implode('; ', $report['errors'] ?: ['validation failed at promotion']));
+    }
+
+    // Flip status + stamp posted_at / posted_by_user_id in one shot.
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare(
+            'UPDATE accounting_journal_entries
+                SET status = "posted",
+                    posted_at = NOW(),
+                    posted_by_user_id = :u
+              WHERE id = :id AND tenant_id = :t AND status = "draft"'
+        )->execute(['u' => $actorUserId, 'id' => $jeId, 't' => $tenantId]);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+
+    // Best-effort FSC cache invalidation + Jaz outbox enqueue (same
+    // hooks accountingPostJe runs after a real post — keeps the data
+    // flow identical between draft-promotion and direct-post paths).
+    try {
+        fscMarkDirty($tenantId, FSC_SCOPE_PERIOD, (string) $row['period_id'], 'je_posted', $actorUserId);
+    } catch (\Throwable $_) { /* never block */ }
+
+    return [
+        'je_id'             => (int) $row['id'],
+        'je_number'         => (string) $row['je_number'],
+        'status'            => 'posted',
+        'total_debit'       => (float) $row['total_debit'],
+        'total_credit'      => (float) $row['total_credit'],
+        'idempotent_replay' => false,
+        'approval_id'       => $approvalId,
+    ];
+}

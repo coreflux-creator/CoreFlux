@@ -177,6 +177,29 @@ function aiToolRegistry(): array
             'handler'     => 'aiToolRecordVendorAliasHandler',
             'idempotency_args' => ['payee'],
         ],
+        // ── Slice C write tools per spec §11 + §15 ─────────────────────
+        'coreflux.validate_journal_entry' => [
+            'description' => 'Pure-read JE validation. Runs the same period / account / balance / dimension checks accountingPostJe runs WITHOUT touching the DB. Returns a structured report with per-line errors so the LLM can self-check before drafting. Never mutates state.',
+            'permission'  => 'accounting.read',
+            'risk_level'  => 'read',
+            'args'        => [
+                'entity_id'    => ['type' => 'int',    'required' => true,  'desc' => 'accounting_entities.id (the legal entity)'],
+                'posting_date' => ['type' => 'date',   'required' => true,  'desc' => 'YYYY-MM-DD posting date'],
+                'currency'     => ['type' => 'string', 'required' => false, 'desc' => "default 'USD'"],
+                'lines'        => ['type' => 'array',  'required' => true,  'desc' => 'array of {account_id|account_code, debit, credit, memo?, dims?}'],
+            ],
+            'handler'     => 'aiToolValidateJournalEntryHandler',
+        ],
+        'coreflux.post_approved_journal_entry' => [
+            'description' => 'Promote an existing draft JE (status=draft) to posted. Risk Level 4 — caller MUST hold an approved workflow_approval id in callerCtx._approval_id. Re-validates the JE at promotion time so a draft that went stale (closed period, deactivated account) is refused.',
+            'permission'  => 'accounting.write',
+            'risk_level'  => 4,
+            'args'        => [
+                'je_id' => ['type' => 'int', 'required' => true, 'desc' => 'accounting_journal_entries.id of the draft to promote'],
+            ],
+            'handler'     => 'aiToolPostApprovedJournalEntryHandler',
+            'idempotency_args' => ['je_id'],
+        ],
     ];
     return $reg;
 }
@@ -213,6 +236,41 @@ function aiToolRecordVendorAliasHandler(int $tenantId, ?int $subTenantId, array 
         return ['ok' => false, 'error' => ['code' => 'bad_args', 'message' => $e->getMessage()]];
     }
     return ['ok' => true, 'alias' => $res['row'], 'action' => $res['action']];
+}
+
+/** Read-tier handler — Slice C / Spec §11 validateJournalEntry. */
+function aiToolValidateJournalEntryHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    require_once __DIR__ . '/../../modules/accounting/lib/accounting.php';
+    $report = accountingValidateJe($tenantId, [
+        'entity_id'    => (int) ($args['entity_id'] ?? 0),
+        'posting_date' => (string) ($args['posting_date'] ?? ''),
+        'currency'     => (string) ($args['currency'] ?? 'USD'),
+        'lines'        => is_array($args['lines'] ?? null) ? $args['lines'] : [],
+    ]);
+    return $report;
+}
+
+/**
+ * Risk-4 handler — Slice C / Spec §11 postApprovedJournalEntry.
+ * The risk-level=4 gate in aiToolInvoke() already verified that
+ * callerCtx._approval_id corresponds to a real, approved workflow
+ * approval row.  This handler trusts the gate and forwards the id
+ * so the audit row threads cleanly back to the approval.
+ */
+function aiToolPostApprovedJournalEntryHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    require_once __DIR__ . '/../../modules/accounting/lib/accounting.php';
+    $jeId       = (int) ($args['je_id'] ?? 0);
+    // The tool gateway threads `_approval_id` + `_actor_user_id` from
+    // callerCtx into $args via aiToolInvoke when risk_level=4 — see
+    // the gate block below.
+    $approvalId = (int) ($args['_approval_id'] ?? 0);
+    $actorUid   = isset($args['_actor_user_id']) ? (int) $args['_actor_user_id'] : null;
+    return accountingPromoteDraftToPosted($tenantId, $jeId, [
+        'approval_id'   => $approvalId,
+        'actor_user_id' => $actorUid,
+    ]);
 }
 
 /**
@@ -378,6 +436,13 @@ function aiToolInvoke(string $toolName, array $args, array $callerCtx): array
                 return $env;
             }
         } catch (\Throwable $e) { /* schema-not-ready tolerated for CLI smoke */ }
+        // Thread the approval + actor into $args so risk-4 handlers
+        // (e.g. coreflux.post_approved_journal_entry) can stamp the
+        // promotion + audit row with the same id the gate verified.
+        // Internal keys are `_`-prefixed so the audit redactor skips
+        // them as non-public metadata.
+        $args['_approval_id']   = $approvalId;
+        $args['_actor_user_id'] = $userId;
     }
 
     // Light arg validation.
