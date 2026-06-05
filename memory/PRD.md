@@ -1,5 +1,34 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Jaz outbox unstick — account-mapping fallback)
+
+### What shipped this session
+- **Root cause found**: `_accLookupJazResourceId()` in `/app/core/accounting/jaz_payload_mapper.php` only consulted `accounting_destination_links`. The mapping table introduced by migration 098 (`accounting_account_mappings`) — which `JazIntegrationSettings.jsx` writes to when the operator maps the CoA — was never read. Result: every first-time JE push hard-failed with "account #N is not linked to Jaz" and stuck the outbox in Retrying, even when the operator had filled the mapping grid.
+- **Fix**: when the destination_links lookup misses on `coreflux_object_type='account'`, fall back to `accountingAccountMappingLookup()` and return that `provider_account_id`. Opportunistically backfill `accounting_destination_links` (wrapped in try/catch — failure here MUST NOT break the resolver). Scoped to `account` only — vendor/customer pushes still require an existing link as before.
+- **New smoke**: `tests/jaz_account_mapping_fallback_smoke.php` (12 ✓). Exercises the resolver against a real in-memory PDO covering:
+  - destination_links hit (fast path),
+  - account_mappings fallback,
+  - backfill-failure resilience,
+  - "neither table has it" still surfaces the original Validation error,
+  - vendor/customer types remain unchanged (no fallback applied).
+
+### How the user unsticks the live outbox after deploy
+1. Push the code.
+2. Hit **Retry** on rows #1 / #2 in the Accounting Outbox (or wait for the cron tick) — they each move to `status=retrying, next_retry_at=NOW`.
+3. Either the cron worker runs OR press the existing **Flush Outbox** button in JazIntegrationSettings.
+4. Resolver now consults `accounting_account_mappings` → push succeeds → rows move to **Posted**.
+
+### Suite health
+404/405 passing. Only the documented `accounting_phase2_a7_smoke.php` sandbox regression remains.
+
+### Backlog still open
+- P1: Slice F vertical extensions (AI spec).
+- P2: QBO OAuth proactive token refresh.
+- P2: QBO push retry + dead-letter queue.
+- P2: Cloudways env secret management.
+- P2: Mercury Webhooks integration.
+
+
 ## Session — 2026-02 (Prefetch + sort + filter + MM/DD/YYYY)
 
 ### What shipped this session

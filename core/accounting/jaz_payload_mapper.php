@@ -28,10 +28,23 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/provider_adapter.php';
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/account_mapping_service.php';
 
 /**
  * Resolve a CoreFlux object → Jaz resourceId via the destination
  * links table. Returns the resourceId or throws Validation.
+ *
+ * For `coreflux_object_type='account'` specifically, falls back to
+ * `accounting_account_mappings` (the per-entity mapping grid the
+ * operator manages in JazIntegrationSettings.jsx). Without this
+ * fallback the very first JE push always fails because no
+ * destination_links row exists yet — the mappings table is the
+ * operator-declared source of truth for "this CoreFlux account
+ * corresponds to that Jaz resource".
+ *
+ * When we resolve via the mapping fallback we also write the
+ * destination_links row so future lookups stay fast and the
+ * canonical link history stays accurate.
  */
 function _accLookupJazResourceId(int $tenantId, int $subTenantId, string $corefluxObjectType, int $corefluxObjectId): string
 {
@@ -48,12 +61,47 @@ function _accLookupJazResourceId(int $tenantId, int $subTenantId, string $corefl
     $stmt->execute(['t' => $tenantId, 'st' => $subTenantId,
                     'cot' => $corefluxObjectType, 'coi' => $corefluxObjectId]);
     $rid = (string) ($stmt->fetchColumn() ?: '');
-    if ($rid === '') {
-        throw new AccountingAdapterValidationException(
-            "{$corefluxObjectType} #{$corefluxObjectId} is not linked to Jaz — sync the {$corefluxObjectType} catalog to Jaz first"
-        );
+    if ($rid !== '') return $rid;
+
+    // ── account-type fallback: consult accounting_account_mappings ──
+    // The operator-managed mapping grid is the source of truth for
+    // CoreFlux↔Jaz GL account linkage. If a mapping row exists, use
+    // its provider_account_id and backfill destination_links so
+    // future pushes hit the fast path.
+    if ($corefluxObjectType === 'account') {
+        $map = accountingAccountMappingLookup($tenantId, $subTenantId, 'jaz', $corefluxObjectId);
+        $providerId = $map['provider_account_id'] ?? null;
+        if ($providerId !== null && $providerId !== '') {
+            // Opportunistic backfill — failure here (e.g. concurrent
+            // insert, transient DB issue) must NOT break the resolver.
+            // The mapping table is the source of truth; destination_links
+            // is just a fast path.
+            try {
+                getDB()->prepare(
+                    "INSERT IGNORE INTO accounting_destination_links
+                       (tenant_id, sub_tenant_id, provider,
+                        coreflux_object_type, coreflux_object_id,
+                        provider_object_type, provider_object_id,
+                        sync_status, idempotency_key)
+                     VALUES (:t, :st, 'jaz',
+                             'account', :coi,
+                             'account', :poi,
+                             'pending', :ik)"
+                )->execute([
+                    't'   => $tenantId,
+                    'st'  => $subTenantId,
+                    'coi' => $corefluxObjectId,
+                    'poi' => (string) $providerId,
+                    'ik'  => 'mapping-fallback:account:' . $corefluxObjectId,
+                ]);
+            } catch (\Throwable $_) { /* fast-path optimization only */ }
+            return (string) $providerId;
+        }
     }
-    return $rid;
+
+    throw new AccountingAdapterValidationException(
+        "{$corefluxObjectType} #{$corefluxObjectId} is not linked to Jaz — sync the {$corefluxObjectType} catalog to Jaz first"
+    );
 }
 
 function _accCents($n): int
