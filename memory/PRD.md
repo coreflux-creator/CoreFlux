@@ -1,5 +1,85 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Secrets sidecar split — Resend etc. out of git for real)
+
+User direction: "a" (sidecar) → after the previous "remove RESEND_API_KEY
+from config.local.php + use env var" attempt hit a wall when the user
+confirmed Cloudways' standard tier has no env-var UI panel.  Replaced
+with a gitignored sidecar that holds every secret previously committed
+to `core/config.local.php`.
+
+### What changed
+
+**New files**:
+- `core/config.secrets.php` — gitignored sidecar holding
+  `COREFLUX_DATA_KEY`, `OPENAI_API_KEY`, `PLAID_CLIENT_ID`,
+  `PLAID_SECRET_SANDBOX`, `PLAID_SECRET_PRODUCTION`, `RESEND_API_KEY`,
+  `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`.  Every `define()` is guarded
+  with `if (!defined(...))` so a duplicate from a legacy
+  `config.local.php` during rollout doesn't emit warnings.
+- `core/config.secrets.example.php` — committed template with
+  `REPLACE_ME` placeholders.
+- `memory/SECRETS_SIDECAR_DEPLOY.md` — Cloudways provisioning +
+  rotation playbook.
+
+**Edited**:
+- `core/config.local.php` — `@include`s the sidecar on line 22.
+  All secret `define()` lines removed.  Non-secret config preserved
+  (PLAID_ENV, RESEND_FROM_EMAIL, RESEND_FROM_NAME, QBO_REDIRECT_URI,
+  QBO_ENV, QBO_SCOPES) with `if (!defined(...))` guards.
+- `.gitignore` — added `core/config.secrets.php` (both relative-root
+  and project-root forms).
+- `tests/qbo_config_check_smoke.php` — updated the static-source
+  checks to accept the QBO defines from either `config.local.php`
+  or `config.secrets.php` (whichever sidecar arrangement the host
+  uses).
+
+### Tests
+
+- New smoke `tests/secrets_sidecar_smoke.php` → **46 / 46 ✓**:
+  - File layout (3 files exist, .gitignore lists the sidecar).
+  - config.local.php committed-side: 8 negative-presence checks
+    (no committed RESEND/OPENAI/PLAID/QBO/COREFLUX defines), 6
+    positive-presence checks for non-secret defines, guards
+    present, php -l clean.
+  - config.secrets.example.php: REPLACE_ME placeholders for every
+    secret, guarded, php -l clean.
+  - config.secrets.php (this pod): all 8 secret defines guarded,
+    php -l clean.
+  - Runtime: `require_once 'config.local.php'` emits zero warnings
+    + 10 constants are reachable.
+  - mail_bootstrap still picks ResendDriver as default after the
+    split.
+- Full PHP suite: **396 / 397 ✓** — only `accounting_phase2_a7_smoke.php`
+  remains (long-known sandbox MySQL fixture gap).
+
+### Why the prior "use env var" attempt didn't stick
+
+Cloudways' standard tier ($/managed) doesn't expose a UI panel for
+environment variables.  Setting `RESEND_API_KEY` via `.user.ini` /
+`.htaccess` works but is fragile (per-directory inheritance,
+PHP-FPM caching) and rotation requires editing a deploy file.  The
+sidecar pattern keeps the rotation surface in one file on disk,
+chmod 600, never reaches git, and matches what every secret in the
+project already does (Plaid, OpenAI, QBO were already using the
+same in-repo `define()` pattern — they just hadn't been split out).
+
+### Operator action at deploy
+
+See `memory/SECRETS_SIDECAR_DEPLOY.md`.  TL;DR for production:
+
+```bash
+cd /applications/<app>/public_html/core
+cp config.secrets.example.php config.secrets.php
+nano config.secrets.php          # paste real keys
+chmod 600 config.secrets.php
+sudo systemctl reload php-fpm
+```
+
+Rotation = `nano config.secrets.php` + reload.  Nothing else.
+
+---
+
 ## Session — 2026-02 (P0 hotfix · "There is already an active transaction" on Post JE)
 
 User-reported bug: New Journal Entry form → Post JE button → red

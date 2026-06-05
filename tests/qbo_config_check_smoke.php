@@ -49,19 +49,32 @@ $a('NEVER returns the raw QBO_CLIENT_SECRET value',
     && !preg_match("/'secret'\s*=>\s*\\\$clientSec/", $payload));
 
 // ──────────────────────────────────────────────────────────────────────
-// 2) core/config.local.php — QBO defines present on this pod.
+// 2) core/config.local.php + core/config.secrets.php (sidecar) — QBO
+//    defines reachable on this pod.  After the 2026-02 secrets-sidecar
+//    split, QBO_CLIENT_ID + QBO_CLIENT_SECRET live in config.secrets.php
+//    (gitignored); the non-secret REDIRECT_URI / ENV / SCOPES stay in
+//    config.local.php.  We accept the define in either file so a host
+//    that consolidates back into config.local.php still passes.
 // ──────────────────────────────────────────────────────────────────────
-echo "\n── core/config.local.php QBO defines ──\n";
-$cfg = (string) file_get_contents('/app/core/config.local.php');
-$a('QBO_CLIENT_ID define present',     $c($cfg, "define('QBO_CLIENT_ID',"));
-$a('QBO_CLIENT_SECRET define present', $c($cfg, "define('QBO_CLIENT_SECRET',"));
-$a('QBO_REDIRECT_URI define present',  $c($cfg, "define('QBO_REDIRECT_URI',"));
-$a('QBO_ENV define present',           $c($cfg, "define('QBO_ENV',"));
-$a('QBO_SCOPES define present',        $c($cfg, "define('QBO_SCOPES',"));
-$a('QBO_ENV is sandbox (not production yet)', $c($cfg, "define('QBO_ENV',           'sandbox')"));
+echo "\n── core/config.local.php + config.secrets.php QBO defines ──\n";
+$cfg     = (string) file_get_contents('/app/core/config.local.php');
+$secrets = file_exists('/app/core/config.secrets.php')
+    ? (string) file_get_contents('/app/core/config.secrets.php')
+    : '';
+$in = function (string $needle) use ($cfg, $secrets, $c): bool {
+    return $c($cfg, $needle) || $c($secrets, $needle);
+};
+
+$a('QBO_CLIENT_ID define present',     $in("define('QBO_CLIENT_ID',"));
+$a('QBO_CLIENT_SECRET define present', $in("define('QBO_CLIENT_SECRET',"));
+$a('QBO_REDIRECT_URI define present',  $in("define('QBO_REDIRECT_URI',"));
+$a('QBO_ENV define present',           $in("define('QBO_ENV',"));
+$a('QBO_SCOPES define present',        $in("define('QBO_SCOPES',"));
+$a('QBO_ENV is sandbox (not production yet)',
+    preg_match("/define\(\s*'QBO_ENV',\s*'sandbox'\s*\)/", $cfg . $secrets) === 1);
 $a('redirect uri points at /api/qbo/oauth_callback.php (path-style; Intuit rejects query strings)',
-    $c($cfg, '/api/qbo/oauth_callback.php')
-    && !$c($cfg, '?action=oauth_callback'));
+    $in('/api/qbo/oauth_callback.php')
+    && !$in('?action=oauth_callback'));
 
 // ──────────────────────────────────────────────────────────────────────
 // 3) Functional smoke — load the file in this CLI and verify the

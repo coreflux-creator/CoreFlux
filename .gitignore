@@ -26,6 +26,10 @@ Thumbs.db
 # PHP / composer
 vendor/
 
+# CoreFlux secrets sidecar (rotation surface — never commit)
+/core/config.secrets.php
+core/config.secrets.php
+
 # Emergent internal
 .emergent/cache/
 
