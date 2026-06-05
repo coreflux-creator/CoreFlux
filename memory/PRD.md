@@ -1,5 +1,29 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Jaz spec freshness automation + cross-integration audit)
+
+### What shipped
+- **`tools/refresh_jaz_spec.sh`** — atomic-replace upstream pull with three modes: `--check` (download to tmp, no replace), `--diff` (show diff vs vendored), default (replace). JSON-validates the download before swapping.
+- **`tests/jaz_spec_freshness_smoke.php`** (13 ✓) — sanity-checks the vendored spec + per-schema diff against upstream HEAD. Watches the three `Create*ClientRequest` schemas our mappers consume. Reports drift as `⚠ WARN` (actionable but non-fatal) so CI can run nightly without a single Jaz API rename breaking the build. Gracefully SKIPs when curl is unavailable or upstream is unreachable.
+
+### Cross-integration coverage audit
+The contract-smoke + spec-vendor pattern is **only applied to Jaz so far**. Other integrations that build payloads independently and would benefit:
+
+| Provider   | Builder location                                        | Vendor publishes OpenAPI? | Backlog priority |
+|------------|----------------------------------------------------------|---------------------------|------------------|
+| Jaz        | `core/accounting/jaz_payload_mapper.php`                | yes — `teamtinvio/jaz-ai` | ✅ done           |
+| QBO        | `core/qbo/sync_je.php` + 5 sibling sync_*.php builders   | yes — Intuit              | **P1 (next)**    |
+| Plaid      | `core/plaid_service.php`                                | yes — `plaid.com/docs/api`| **P2**           |
+| ZohoBooks  | `core/zoho_books/sync_*.php`                            | no (HTML docs only)       | **P3** — hand-roll |
+| Mercury    | `core/mercury_*.php`                                    | no (HTML docs only)       | **P3** — hand-roll |
+| LayerFi    | embedded `@layerfi/components` SDK                       | n/a (SDK enforces shape)  | skip             |
+
+Each rollout follows the same template: vendor `spec/<provider>_openapi.json` → write `<provider>_payload_contract_smoke.php` → fix mapper drift → add `tools/refresh_<provider>_spec.sh` + freshness smoke.
+
+### Suite health
+405/409. Same 4 pre-existing env failures.
+
+
 ## Session — 2026-02 (Jaz OpenAPI vendored + contract smoke + bill/invoice mapper fixes)
 
 ### What shipped
