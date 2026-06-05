@@ -1,5 +1,44 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Jaz POST /journals payload shape — verified against official OpenAPI)
+
+### Root cause (4 sessions ago this was guessed; now verified)
+The previous `mapJournalToJaz()` was guessing field names. Verified against the **official Jaz OpenAPI** (`spec/openapi.yaml` at `github.com/teamtinvio/jaz-ai` v5.17.x — the source of truth used by Jaz's own MCP server / Claude plugins / CLI), the `CreateJournalClientRequest` schema is:
+```
+{ reference, valueDate, saveAsDraft?, currency?: BTCurrency,
+  internalNotes?, journalEntries: JournalEntry[≥2] }
+JournalEntry: { accountResourceId, type: 'DEBIT'|'CREDIT', amount, description?, … }
+BTCurrency:   { sourceCurrency: "USD", exchangeRate? }
+```
+Our payload had **five mismatches** simultaneously:
+
+| Legacy field          | Verified Jaz field                       |
+|-----------------------|------------------------------------------|
+| `postingDate`         | `valueDate`                              |
+| `narration`           | `internalNotes`                          |
+| `lines`               | `journalEntries`                         |
+| `"USD"` (flat string) | `{ "sourceCurrency": "USD" }` (object)   |
+| `{debit, credit}` per CF line | one `{type:"DEBIT", amount:>0}` + one `{type:"CREDIT", amount:>0}` entry per side |
+
+Every `create_draft_journal` was getting HTTP 400 `"Invalid request body"` and the outbox stalled.
+
+### Fix
+Rewrote `core/accounting/jaz_payload_mapper.php::mapJournalToJaz()` to emit the verified shape. Each CoreFlux JE line is now fanned out to one DEBIT and/or one CREDIT entry with a positive `amount`. Added a guardrail that throws if no DEBIT/CREDIT entries are produced (covers the all-zero case).
+
+### Tests
+- New `tests/jaz_journal_payload_shape_smoke.php` (30 ✓) — exercises the mapper end-to-end against a real PDO with seeded mappings; locks every renamed field, the BTCurrency object, the DEBIT/CREDIT enum fan-out, the unbalanced/insufficient-line guards.
+- Updated `tests/jaz_integration_slice4_smoke.php` — asserts the new field names instead of the legacy `narration + postingDate` (3 new assertions).
+
+### Suite health
+403/407 passing. The 4 failing smokes (`accounting_phase2_a7`, `ai_gateway_slice4`, `ai_gateway_slice6`, `treasury_csv_import`) all fail on **baseline without my change** (verified by `git stash` + rerun) — pre-existing env/sandbox issues, not regressions.
+
+### Production action for Kunal
+1. Deploy.
+2. Hit **Retry** on the two stuck outbox rows.
+3. Either wait for the cron tick OR press the **Flush outbox now** button.
+4. Resolver + new payload shape → push succeeds → rows move to Posted.
+
+
 ## Session — 2026-02 (Outbox unmapped-accounts heads-up banner)
 
 ### What shipped this session

@@ -85,7 +85,9 @@ $a('declares mapJournalToJaz',                     str_contains($m, 'function ma
 $a('  requires ≥2 journal lines',                  str_contains($m, "throw new AccountingAdapterValidationException('journal entry needs ≥2 lines')"));
 $a('  rejects journal line missing account_id',    str_contains($m, "journal line #{\$idx} missing account_id"));
 $a('  detects unbalanced debits/credits',          str_contains($m, 'journal entry unbalanced'));
-$a('  payload carries narration + postingDate',    str_contains($m, "'narration'   => ") && str_contains($m, "'postingDate' =>"));
+$a('  payload carries internalNotes + valueDate',  str_contains($m, "'internalNotes'") && str_contains($m, "'valueDate'"));
+$a('  payload uses journalEntries (not lines)',    str_contains($m, "'journalEntries' =>"));
+$a('  payload wraps currency as BTCurrency obj',   str_contains($m, "'sourceCurrency'"));
 
 $a('declares mapCorefluxRowToJaz dispatcher',      str_contains($m, 'function mapCorefluxRowToJaz(string $corefluxObjectType, int $tenantId, int $subTenantId, array $row): array'));
 $a('  switch covers bill/invoice/journal',         str_contains($m, "case 'bill':")

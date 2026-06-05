@@ -211,6 +211,30 @@ function mapInvoiceToJaz(int $tenantId, int $subTenantId, array $row): array
 
 /**
  * Map a journal entry → Jaz POST /journals payload.
+ *
+ * Verified against Jaz OpenAPI `CreateJournalClientRequest`
+ * (spec/openapi.yaml in teamtinvio/jaz-ai @ v5.17.x):
+ *
+ *   {
+ *     "reference":     "JE-2026-000003",         // REQUIRED string
+ *     "valueDate":     "2026-06-05",             // REQUIRED YYYY-MM-DD
+ *     "saveAsDraft":   true,                     // default true (set by adapter)
+ *     "currency":      { "sourceCurrency": "USD" }, // BTCurrency object
+ *     "internalNotes": "free-form memo",         // optional
+ *     "journalEntries": [                        // REQUIRED, min 2 / max 200
+ *       { "accountResourceId":"uuid", "type":"DEBIT",  "amount":1234.56, "description":"..." },
+ *       { "accountResourceId":"uuid", "type":"CREDIT", "amount":1234.56, "description":"..." }
+ *     ]
+ *   }
+ *
+ * Key differences vs the legacy (broken) shape:
+ *   - `postingDate` → `valueDate`
+ *   - `lines`       → `journalEntries`
+ *   - `narration`   → `internalNotes`
+ *   - `currency` is now an object, not a flat ISO string
+ *   - Each CoreFlux line (which carries BOTH debit + credit columns) is
+ *     fanned out into separate `type:DEBIT` and `type:CREDIT` entries
+ *     with a positive `amount` — Jaz models a journal entry per side.
  */
 function mapJournalToJaz(int $tenantId, int $subTenantId, array $row): array
 {
@@ -218,22 +242,38 @@ function mapJournalToJaz(int $tenantId, int $subTenantId, array $row): array
     if (!is_array($lines) || count($lines) < 2) {
         throw new AccountingAdapterValidationException('journal entry needs ≥2 lines');
     }
-    $jazLines = []; $totalDr = 0; $totalCr = 0;
+
+    $jazEntries = []; $totalDr = 0; $totalCr = 0;
     foreach ($lines as $idx => $ln) {
         $acctId = (int) ($ln['account_id'] ?? $ln['gl_account_id'] ?? 0);
         if ($acctId <= 0) {
             throw new AccountingAdapterValidationException("journal line #{$idx} missing account_id");
         }
+        $accountRid = _accLookupJazResourceId($tenantId, $subTenantId, 'account', $acctId);
+        $description = (string) ($ln['description'] ?? $ln['memo'] ?? '');
         $debit  = _accCents($ln['debit']  ?? $ln['debit_amount']  ?? 0);
         $credit = _accCents($ln['credit'] ?? $ln['credit_amount'] ?? 0);
         $totalDr += $debit;
         $totalCr += $credit;
-        $jazLines[] = [
-            'accountResourceId' => _accLookupJazResourceId($tenantId, $subTenantId, 'account', $acctId),
-            'description'       => (string) ($ln['description'] ?? $ln['memo'] ?? ''),
-            'debit'             => _accAmount($debit),
-            'credit'            => _accAmount($credit),
-        ];
+
+        // Jaz wants one entry per side with a positive amount + type.
+        // A CoreFlux line that fills both columns becomes two entries.
+        if ($debit > 0) {
+            $jazEntries[] = [
+                'accountResourceId' => $accountRid,
+                'type'              => 'DEBIT',
+                'amount'            => _accAmount($debit),
+                'description'       => $description,
+            ];
+        }
+        if ($credit > 0) {
+            $jazEntries[] = [
+                'accountResourceId' => $accountRid,
+                'type'              => 'CREDIT',
+                'amount'            => _accAmount($credit),
+                'description'       => $description,
+            ];
+        }
     }
     if ($totalDr !== $totalCr) {
         throw new AccountingAdapterValidationException(
@@ -241,12 +281,18 @@ function mapJournalToJaz(int $tenantId, int $subTenantId, array $row): array
                     $totalDr / 100, $totalCr / 100)
         );
     }
+    if (count($jazEntries) < 2) {
+        throw new AccountingAdapterValidationException(
+            'journal entry must have at least one DEBIT and one CREDIT line with non-zero amount'
+        );
+    }
+
     return [
-        'reference'   => (string) ($row['je_number']    ?? ('CF-JE-' . $row['id'])),
-        'narration'   => (string) ($row['memo']         ?? $row['narration'] ?? ''),
-        'postingDate' => (string) ($row['posting_date'] ?? date('Y-m-d')),
-        'currency'    => (string) ($row['currency']     ?? 'USD'),
-        'lines'       => $jazLines,
+        'reference'      => (string) ($row['je_number']    ?? ('CF-JE-' . $row['id'])),
+        'valueDate'      => (string) ($row['posting_date'] ?? $row['value_date'] ?? date('Y-m-d')),
+        'internalNotes'  => (string) ($row['memo']         ?? $row['narration']  ?? ''),
+        'currency'       => ['sourceCurrency' => (string) ($row['currency'] ?? 'USD')],
+        'journalEntries' => $jazEntries,
     ];
 }
 
