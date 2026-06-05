@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../lib/api';
+import TransactionRecommendationCard from '../components/TransactionRecommendationCard';
 import {
   AlertCircle, ArrowRight, ArrowUpRight, CheckCircle2, ChevronDown,
   Receipt, RefreshCw, Sparkles, SkipForward, Wallet,
@@ -33,6 +34,7 @@ export default function TransactionsToReview() {
 
   const [openId, setOpenId]       = useState(null);
   const [aiByLine, setAiByLine]   = useState({});      // line_id → suggestion payload
+  const [aliasByLine, setAliasByLine] = useState({});  // line_id → resolve_vendor_alias envelope
   const [aiBusy, setAiBusy]       = useState({});      // line_id → bool
   const [acceptBusy, setAcceptBusy] = useState({});    // line_id → bool
   const [pickByLine, setPickByLine] = useState({});    // line_id → account_code
@@ -66,6 +68,25 @@ export default function TransactionsToReview() {
       // pre-populate the picker with the AI suggestion
       const code = res?.suggestion?.account_code;
       if (code) setPickByLine(m => ({ ...m, [lineId]: code }));
+      // Fire vendor-alias resolution in parallel — Slice B / Spec §11.
+      // Lets us stack a TransactionRecommendationCard with canonical
+      // vendor identity so re-classification of the same payee stays
+      // stable across imports.
+      const row  = (data?.rows || []).find(r => r.id === lineId);
+      const payee = row?.description || row?.merchant_name || '';
+      if (payee) {
+        api.post('/api/ai/tools.php?action=invoke', {
+          tool: 'coreflux.resolve_vendor_alias',
+          args: { payee },
+        }).then(envelope => {
+          // Tool-gateway envelope shape: {ok, status, result: {alias, matched, normalized}}
+          const result = envelope?.result || envelope;
+          setAliasByLine(m => ({ ...m, [lineId]: result || null }));
+        }).catch(e => {
+          // Don't surface — vendor alias is an enrichment, not core.
+          setAliasByLine(m => ({ ...m, [lineId]: { _error: e.message } }));
+        });
+      }
     } catch (e) {
       setAiByLine(m => ({ ...m, [lineId]: { _error: e.message } }));
     } finally {
@@ -290,6 +311,38 @@ export default function TransactionsToReview() {
                       <p data-testid={`transactions-to-review-ai-err-${r.id}`} className="error" style={{ fontSize: 12 }}>
                         AI suggestion failed: {ai._error}
                       </p>
+                    )}
+
+                    {/* Slice B / Spec §11: rich recommendation card with
+                        canonical vendor + pin-alias affordance. */}
+                    {ai && !ai._error && (
+                      <TransactionRecommendationCard
+                        transactionId={r.id}
+                        recommendation={{
+                          payee_normalized:    aliasByLine[r.id]?.normalized || r.description,
+                          canonical_vendor:    aliasByLine[r.id]?.alias
+                            ? {
+                                id:     aliasByLine[r.id].alias.canonical_vendor_id,
+                                label:  aliasByLine[r.id].alias.canonical_label
+                                          || aliasByLine[r.id].alias.alias_raw,
+                                source: aliasByLine[r.id].alias.pinned ? 'manual' : aliasByLine[r.id].alias.source,
+                              }
+                            : null,
+                          proposed_account_id: ai.account_id || null,
+                          proposed_account:    {
+                            code: ai.account_code,
+                            name: ai.account_name,
+                            type: ai.account_type || null,
+                          },
+                          confidence:          ai.confidence ?? 0,
+                          reasoning:           ai.reasoning,
+                          ai_run_id:           ai.ai_run_id || ai.suggestion_id || null,
+                        }}
+                        onAccept={async () => {
+                          await acceptCategorize(r.id, ai.account_code, ai.suggestion_id || ai.id);
+                        }}
+                        onReject={async () => { await skipLine(r.id); }}
+                      />
                     )}
 
                     {/* Manual COA picker + accept */}

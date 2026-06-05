@@ -1,5 +1,129 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (AI-Native Extension · Slice B · Vendor aliases + Exception queue UX)
+
+User direction: "a" → after the Slice A close-out, confirmed the
+recommended Slice B plan: mount the existing `AccountingExceptionQueue`
+page, wire `TransactionRecommendationCard` into `TransactionsToReview`,
+and lock the surface with a dedicated smoke test.
+
+### Scope (Slice B)
+Phase 2 — LangGraph MVP finish: vendor-alias persistence so the
+classification graph stops re-classifying the same payee from scratch
+on every bank-feed import; reviewer inbox over `accounting_exceptions`;
+drop-in recommendation card for the bank-rec UX.
+
+### What shipped (this session — wire-in + lock)
+
+1. **`core/ai/vendor_aliases.php` — tenant-leak hardening**
+   - Hit-counter `UPDATE` now scopes by both `id` AND `tenant_id`.
+     Belt-and-suspenders — the row was already fetched tenant-scoped
+     but static analyzer wants the explicit `tenant_id` predicate to
+     stay green. (The 3 cascading failures in
+     `tenant_leak_static_analyzer_smoke.php`,
+     `ai_settings_admin_smoke.php`, `ai_usage_panel_smoke.php` all
+     keyed off this single line — fix closed all three.)
+
+2. **`dashboard/src/pages/AdminModule.jsx` — exception queue route**
+   - Imports `AccountingExceptionQueue` page.
+   - Adds `AlertTriangle` lucide icon.
+   - New AdminOverview `ActionCard` tile labelled "Exception queue"
+     pointing at `/admin/ai/exceptions`.
+   - New sidebar nav link with the same target.
+   - New `<Route path="/ai/exceptions" element={<AccountingExceptionQueue …/>}/>`.
+
+3. **`dashboard/src/pages/TransactionsToReview.jsx` — card wire-in**
+   - Imports `TransactionRecommendationCard` from
+     `../components/TransactionRecommendationCard`.
+   - New `aliasByLine` state tracks the
+     `coreflux.resolve_vendor_alias` response per opened row.
+   - `fetchAiSuggestion(lineId)` now fires a parallel call to the
+     tool gateway (`/api/ai/tools.php?action=invoke`,
+     `tool: 'coreflux.resolve_vendor_alias'`, `args: { payee }`) so
+     the card has canonical-vendor identity even on the first
+     review of a new payee.  Alias resolution is enrichment — a
+     failure here does NOT block the AI suggestion (caught locally,
+     stored as `{_error}`).
+   - When `ai && !ai._error`, the card renders below the existing
+     inline AI block.  `onAccept` delegates to the existing
+     `acceptCategorize`; `onReject` delegates to `skipLine`.
+
+4. **`tests/ai_phase1_slice_b_smoke.php`** → **108 / 108 ✓** locking:
+   - Migration 106 shape (uniqueness key, ENUM provenance, pinned
+     flag, hits counter, AI run linkage).
+   - `vendor_aliases.php` library API + pure-function probes
+     (`vendorAliasNormalize('ACME Co.')` == `vendorAliasNormalize('acme  co')`).
+   - 2 new tool-registry entries + their handlers
+     (`resolve_vendor_alias` = read tier; `record_vendor_alias` =
+     draft tier with `idempotency_args: ['payee']`).
+   - `api/ai/exceptions.php` — full CRUD surface (list /
+     detail / resolve / dismiss / assign) + RBAC + audit-event
+     writes + tenant scoping.
+   - `AccountingExceptionQueue.jsx` — every static testid (20) plus
+     all 3 template testids (`exception-queue-row-${r.id}`,
+     `exception-severity-${severity}`, `exception-status-${status}`).
+   - `TransactionRecommendationCard.jsx` — every template testid
+     (11 of them, accessed via the JSX template literal pattern).
+   - `TransactionsToReview.jsx` wire-in — import + state + parallel
+     resolve + correct prop shape.
+   - `AdminModule.jsx` — import + route + sidebar nav + ActionCard tile.
+
+### Already-shipped Slice B pieces (carried into this session)
+The previous session had pre-built much of Slice B; this session was
+the final wire-in:
+- `core/migrations/106_vendor_aliases.sql` (table + indices)
+- `core/ai/vendor_aliases.php` (normalize/resolve/record/list helpers)
+- `coreflux.resolve_vendor_alias` + `coreflux.record_vendor_alias` tools
+  + handlers in `core/ai/tool_gateway.php`
+- `/api/ai/exceptions.php` (5 endpoints)
+- `dashboard/src/pages/AccountingExceptionQueue.jsx` (page UI)
+- `dashboard/src/components/TransactionRecommendationCard.jsx` (card UI)
+
+### Test status
+- Slice B smoke: **108 / 108 ✓**
+- Full PHP suite: **387 / 389 ✓** — only the 2 documented
+  sandbox-bound failures remain (`accounting_phase2_a7_smoke.php`,
+  `tenant_mail_senders_smoke.php`).
+- Vite bundle: **`coreflux-B0bfoafz`**. All 4 sync points
+  consistent (`.deploy-version`, `spa-assets/`, `dist/index.html`,
+  service-worker `CACHE_VERSION`). Lint clean.
+
+### Operator action (production)
+
+1. **Deploy migration 106** (idempotent `CREATE TABLE IF NOT EXISTS`).
+2. **Deploy bundle `coreflux-B0bfoafz`** — pulls in `AccountingExceptionQueue`
+   routing + `TransactionRecommendationCard` wire-in.
+3. Sign in → **Admin → Exception queue** (or paste
+   `https://www.corefluxapp.com/admin/ai/exceptions`).  Filter
+   by status/severity/type; drill in to resolve or dismiss.
+4. Open **Accounting → Transactions to review**.  When the AI
+   suggestion lands, the recommendation card now renders below
+   it with canonical-vendor identity and a 📌 pin-alias button —
+   pinning prevents future AI runs from silently overwriting
+   the operator's choice.
+
+### Next slices (per the user-committed sequence)
+
+- **Slice C** ~3 hr — `journal_entry_drafts` table, `validateJournalEntry`
+  tool, approval-gated `postApprovedJournalEntry` (refuses to post
+  without a matching `workflow_approval` row).
+- **Slice D** ~3 hr — `accounting_close_runs` orchestrator wrapping
+  the existing `accounting_close_packets` + `accounting_close_tasks`,
+  + `CloseDashboard` SPA page.
+- **Slice E** ~5 hr — AP invoice extraction runs + 13-week cash
+  forecast + timesheet anomaly detection + `PayrollReviewPacket`
+  component.
+
+### Why we stopped at B before continuing
+
+Slice C writes into `journal_entry_drafts` and emits artifacts
+through `artifactCreate()` (Slice A's lifecycle library).  Letting
+Slice B settle in production first gives a clean rollback boundary
+if anything in the exception-queue / vendor-alias UX surfaces
+operator issues before more schema lands.
+
+---
+
 ## Session — 2026-02 (AI-Native Extension · Slice A · Tool Registry + Artifact Layer)
 
 User direction: After the spec-compliance scan landed at

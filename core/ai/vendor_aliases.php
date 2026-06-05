@@ -70,8 +70,8 @@ function vendorAliasResolve(int $tenantId, string $payee): ?array
         $pdo->prepare(
             'UPDATE vendor_aliases
                 SET hits = hits + 1, last_hit_at = NOW()
-              WHERE id = :id LIMIT 1'
-        )->execute(['id' => (int) $row['id']]);
+              WHERE id = :id AND tenant_id = :t LIMIT 1'
+        )->execute(['id' => (int) $row['id'], 't' => $tenantId]);
         $row['hits']        = (int) $row['hits'] + 1;
         $row['last_hit_at'] = date('Y-m-d H:i:s');
     } catch (\Throwable $e) {
