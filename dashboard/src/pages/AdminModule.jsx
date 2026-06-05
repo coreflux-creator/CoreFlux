@@ -1,7 +1,7 @@
 import React from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap, BarChart3, KeyRound, Palette, CalendarClock, Activity, Shield, Zap, Inbox, Bot, AlertTriangle, UserCheck } from 'lucide-react';
+import { Building2, Users, Package, Layers, FileText, Sparkles, ScrollText, FlaskConical, PlugZap, BarChart3, KeyRound, Palette, CalendarClock, Activity, Shield, Zap, Inbox, Bot, AlertTriangle, UserCheck, Cpu, BookMarked, Network } from 'lucide-react';
 import SubTenantsAdmin from './SubTenantsAdmin';
 import SubTenantWizard from './SubTenantWizard';
 import SubTenantConsolidatedReports from './SubTenantConsolidatedReports';
@@ -38,6 +38,9 @@ import ArtifactsAdmin from './ArtifactsAdmin';
 import AccountingExceptionQueue from './AccountingExceptionQueue';
 import JeDraftsReview from './JeDraftsReview';
 import PayrollReviewPacket from './PayrollReviewPacket';
+import AiWorkersAdmin from './AiWorkersAdmin';
+import KnowledgeGraphExplorer from './KnowledgeGraphExplorer';
+import AgentRegistryAdmin from './AgentRegistryAdmin';
 import WorkflowTimeline from './WorkflowTimeline';
 import AiReviewerDashboard from './AiReviewerDashboard';
 import ZohoBooksSettings from './ZohoBooksSettings';
@@ -99,6 +102,9 @@ const AdminOverview = () => (
         <ActionCard icon={AlertTriangle} title="Exception queue" description="Bank-feed classifications, JE drafts, and workflow runs that need human attention. Resolve / dismiss from one inbox. Spec §11." href="/admin/ai/exceptions" />
         <ActionCard icon={ScrollText} title="JE drafts review" description="AI-drafted journal entries awaiting approval. Re-validates each draft on open + Reject affordance; posting goes through coreflux.post_approved_journal_entry (risk-4)." href="/admin/ai/je-drafts" />
         <ActionCard icon={UserCheck} title="Payroll review packet" description="Weekly timesheet anomaly packet: spikes / zero-weeks / billable drift / >24h overlaps. Rule-based, per-person, severity-scored. Spec §11." href="/admin/ai/payroll-review" />
+        <ActionCard icon={Cpu} title="Worker runtime" description="Durable async job queue: registered workers + per-status queue depth + retry / cancel. Long-running tools run through here. Spec §2." href="/admin/ai/workers" />
+        <ActionCard icon={BookMarked} title="Knowledge graph" description="FULLTEXT-indexed documents + entity / edge graph the LLM cites back to. Vector search via pgvector deferred. Spec §7." href="/admin/ai/knowledge" />
+        <ActionCard icon={Network} title="Agent registry" description="Named agents (Close, Cash, AP, Payroll) + handoffs between them. Spec §7." href="/admin/ai/agents" />
         <ActionCard icon={Sparkles} title="Field Mapping Studio" description="Route any integration payload field (JobDiva, QBO, Zoho, Airtable) into any CoreFlux column — including custom fields. Tenant overrides + dry-run test panel." href="/admin/integrations/field-map/studio" />
         <ActionCard icon={FileText} title="Assignment schema preview" description="Auto-built CoreFlux clone of the JobDiva Assignment edit screen. Shows every indexed field grouped into Assignment / Placement / Job / Person / End-client / Contact sections." href="/admin/integrations/assignment-schema" />
         <ActionCard icon={KeyRound} title="SSO configuration" description="Register your Okta or Microsoft Entra identity provider" href="/admin/sso" />
@@ -150,6 +156,9 @@ const AdminSidebar = () => {
     { to: '/admin/ai/exceptions',        label: 'Exception queue',  icon: AlertTriangle },
     { to: '/admin/ai/je-drafts',         label: 'JE drafts review', icon: ScrollText },
     { to: '/admin/ai/payroll-review',     label: 'Payroll review',  icon: UserCheck },
+    { to: '/admin/ai/workers',            label: 'Worker runtime',  icon: Cpu },
+    { to: '/admin/ai/knowledge',          label: 'Knowledge graph', icon: BookMarked },
+    { to: '/admin/ai/agents',             label: 'Agent registry',  icon: Network },
     { to: '/admin/integrations/field-map/studio', label: 'Field Mapping Studio', icon: Sparkles },
     { to: '/admin/integrations/assignment-schema', label: 'Assignment schema',    icon: FileText },
     { to: '/admin/sso',              label: 'SSO',              icon: KeyRound },
@@ -239,6 +248,9 @@ const AdminModule = ({ session }) => {
           <Route path="/ai/exceptions"         element={<AccountingExceptionQueue session={session} />} />
           <Route path="/ai/je-drafts"          element={<JeDraftsReview session={session} />} />
           <Route path="/ai/payroll-review"     element={<PayrollReviewPacket session={session} />} />
+          <Route path="/ai/workers"            element={<AiWorkersAdmin session={session} />} />
+          <Route path="/ai/knowledge"          element={<KnowledgeGraphExplorer session={session} />} />
+          <Route path="/ai/agents"             element={<AgentRegistryAdmin session={session} />} />
           <Route path="/integrations/zoho-books" element={<ZohoBooksSettings session={session} />} />
           <Route path="/integrations/airtable" element={<AirtableSettings session={session} />} />
           <Route path="/integrations/jobdiva" element={<JobDivaSettings session={session} />} />

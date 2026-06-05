@@ -248,6 +248,63 @@ function aiToolRegistry(): array
             ],
             'handler'     => 'aiToolDetectTimesheetAnomaliesHandler',
         ],
+        // ── Phase 7 tools ──────────────────────────────────────────────
+        // Slice 7A — async runtime.
+        'coreflux.enqueue_job' => [
+            'description' => 'Enqueue a tool call to the async worker queue. Use when a tool will take longer than ~5 seconds (long graphs, OCR, large forecasts). The worker process picks it up and runs the tool with the same RBAC + risk gates as a synchronous invocation. Idempotency_key dedupes re-submissions.',
+            'permission'  => 'ai.gateway.invoke',
+            'risk_level'  => 'draft',
+            'args'        => [
+                'tool_name'       => ['type' => 'string', 'required' => true,  'desc' => 'Registry key of the tool to enqueue'],
+                'tool_args'       => ['type' => 'object', 'required' => true,  'desc' => 'Arguments passed to the wrapped tool'],
+                'queue'           => ['type' => 'string', 'required' => false, 'desc' => "Queue name; default 'default'"],
+                'idempotency_key' => ['type' => 'string', 'required' => false, 'desc' => 'Caller-supplied dedup key, scoped to (tenant, key)'],
+                'max_attempts'    => ['type' => 'int',    'required' => false, 'desc' => 'Default 3'],
+            ],
+            'handler'     => 'aiToolEnqueueJobHandler',
+            'idempotency_args' => ['idempotency_key'],
+        ],
+        // Slice 7B — Knowledge graph.
+        'coreflux.search_knowledge' => [
+            'description' => 'FULLTEXT-search the tenant knowledge_documents table for a natural-language query. Returns up to N matches with title, snippet, and relevance score. Read-tier. Note: vector-similarity search (pgvector) is deferred — current implementation uses MySQL FULLTEXT.',
+            'permission'  => 'ai.knowledge.read',
+            'risk_level'  => 'read',
+            'args'        => [
+                'query' => ['type' => 'string', 'required' => true,  'desc' => 'Natural-language query'],
+                'limit' => ['type' => 'int',    'required' => false, 'desc' => 'Max results (default 20, cap 100)'],
+            ],
+            'handler'     => 'aiToolSearchKnowledgeHandler',
+        ],
+        'coreflux.record_knowledge' => [
+            'description' => 'Upsert a knowledge document by doc_uri (idempotent). Optionally also register one or more entities (vendor, customer, account, period) and edges between them.',
+            'permission'  => 'ai.knowledge.write',
+            'risk_level'  => 'draft',
+            'args'        => [
+                'doc_uri'   => ['type' => 'string', 'required' => true,  'desc' => 'Canonical identity (s3://, https://, coreflux://)'],
+                'title'     => ['type' => 'string', 'required' => true,  'desc' => 'Display title'],
+                'content'   => ['type' => 'string', 'required' => false, 'desc' => 'Extracted text'],
+                'doc_type'  => ['type' => 'string', 'required' => false, 'desc' => "Default 'note'"],
+                'tags'      => ['type' => 'array',  'required' => false, 'desc' => 'Free-form tags'],
+                'entities'  => ['type' => 'array',  'required' => false, 'desc' => 'Array of {entity_type, label, payload?}'],
+                'edges'     => ['type' => 'array',  'required' => false, 'desc' => 'Array of {from, to, relation, weight?} (entity keys, not IDs)'],
+            ],
+            'handler'     => 'aiToolRecordKnowledgeHandler',
+            'idempotency_args' => ['doc_uri'],
+        ],
+        // Slice 7C — Agent coordination.
+        'coreflux.handoff_to_agent' => [
+            'description' => 'Open a pending handoff from one agent to another. The receiving agent (or a human reviewer) sees the handoff in its inbox + payload. Use to delegate work across agent boundaries (e.g. Close Agent → Cash Agent once a close packet is built).',
+            'permission'  => 'ai.gateway.invoke',
+            'risk_level'  => 'draft',
+            'args'        => [
+                'from_agent_key' => ['type' => 'string', 'required' => true,  'desc' => 'Source agent registry key'],
+                'to_agent_key'   => ['type' => 'string', 'required' => true,  'desc' => 'Receiving agent registry key'],
+                'reason'         => ['type' => 'string', 'required' => false, 'desc' => 'Short human-readable handoff reason'],
+                'payload'        => ['type' => 'object', 'required' => false, 'desc' => 'Arbitrary context for the receiver'],
+                'parent_workflow_run_id' => ['type' => 'string', 'required' => false, 'desc' => 'workflow_runs.id (CHAR(36)) for timeline threading'],
+            ],
+            'handler'     => 'aiToolHandoffToAgentHandler',
+        ],
     ];
     return $reg;
 }
@@ -393,6 +450,138 @@ function aiToolDetectTimesheetAnomaliesHandler(int $tenantId, ?int $subTenantId,
     } catch (\InvalidArgumentException $e) {
         return ['ok' => false, 'error' => ['code' => 'bad_args', 'message' => $e->getMessage()]];
     }
+}
+
+/* ── Phase 7 handlers ─────────────────────────────────────────────── */
+
+/** Draft-tier — enqueue a wrapped tool call to the durable worker queue. */
+function aiToolEnqueueJobHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    require_once __DIR__ . '/worker.php';
+    $toolName = trim((string) ($args['tool_name'] ?? ''));
+    if ($toolName === '') {
+        return ['ok' => false, 'error' => ['code' => 'bad_args', 'message' => 'tool_name required']];
+    }
+    $toolArgs = is_array($args['tool_args'] ?? null) ? $args['tool_args'] : [];
+    $actorUid = isset($args['_actor_user_id']) ? (int) $args['_actor_user_id'] : null;
+
+    try {
+        $job = aiWorkerEnqueue($tenantId, $toolName, [
+            'tool'       => $toolName,
+            'args'       => $toolArgs,
+            'sub_tenant_id' => $subTenantId,
+        ], [
+            'sub_tenant_id'       => $subTenantId,
+            'queue'               => $args['queue']           ?? null,
+            'idempotency_key'     => $args['idempotency_key'] ?? null,
+            'max_attempts'        => $args['max_attempts']    ?? null,
+            'enqueued_by_user_id' => $actorUid,
+        ]);
+    } catch (\InvalidArgumentException $e) {
+        return ['ok' => false, 'error' => ['code' => 'bad_args', 'message' => $e->getMessage()]];
+    }
+    return [
+        'job_id'     => $job['id'],
+        'queue'      => $job['queue'],
+        'tool_name'  => $job['tool_name'],
+        'status'     => $job['status'],
+        'attempt'    => $job['attempt'],
+        'idempotent_replay' => ($args['idempotency_key'] ?? null) !== null && (int) $job['attempt'] > 0,
+    ];
+}
+
+/** Read-tier — FULLTEXT search over knowledge_documents. */
+function aiToolSearchKnowledgeHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    require_once __DIR__ . '/knowledge_graph.php';
+    try {
+        return knowledgeSearchFulltext($tenantId,
+            (string) ($args['query'] ?? ''),
+            isset($args['limit']) ? (int) $args['limit'] : 20);
+    } catch (\InvalidArgumentException $e) {
+        return ['ok' => false, 'error' => ['code' => 'bad_args', 'message' => $e->getMessage()]];
+    }
+}
+
+/**
+ * Draft-tier — upsert a knowledge document + (optional) entities + edges
+ * in one call.  Each entity is keyed by (entity_type, normalized label)
+ * so the caller can reference them by display name in `edges`.
+ */
+function aiToolRecordKnowledgeHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    require_once __DIR__ . '/knowledge_graph.php';
+    $actorUid = isset($args['_actor_user_id']) ? (int) $args['_actor_user_id'] : null;
+    try {
+        $doc = knowledgeDocumentUpsert($tenantId, [
+            'sub_tenant_id'      => $subTenantId,
+            'doc_uri'            => (string) ($args['doc_uri'] ?? ''),
+            'title'              => (string) ($args['title']   ?? ''),
+            'content'            => $args['content']           ?? null,
+            'doc_type'           => $args['doc_type']          ?? null,
+            'tags'               => is_array($args['tags'] ?? null) ? $args['tags'] : null,
+            'created_by_user_id' => $actorUid,
+        ]);
+
+        $entitiesById = [];      // label → id, scoped per type
+        $entityResult = [];
+        foreach ((array) ($args['entities'] ?? []) as $e) {
+            if (!is_array($e) || empty($e['entity_type']) || empty($e['label'])) continue;
+            $upsert = knowledgeEntityUpsert($tenantId, (string) $e['entity_type'],
+                (string) $e['label'], [
+                    'payload' => is_array($e['payload'] ?? null) ? $e['payload'] : null,
+                    'created_by_user_id' => $actorUid,
+                ]);
+            $entityResult[] = ['entity_type' => $e['entity_type'], 'label' => $e['label'],
+                               'id' => $upsert['id'], 'action' => $upsert['action']];
+            $entitiesById[(string) $e['entity_type'] . '::' . knowledgeNormalizeKey((string) $e['label'])] = $upsert['id'];
+        }
+
+        $edgeResult = [];
+        foreach ((array) ($args['edges'] ?? []) as $e) {
+            if (!is_array($e) || empty($e['from']) || empty($e['to']) || empty($e['relation'])) continue;
+            // Edge spec accepts either {from_id, to_id} OR {from: 'type::label', to: '...'}.
+            $fromId = is_int($e['from']) ? (int) $e['from'] : ($entitiesById[$e['from']] ?? null);
+            $toId   = is_int($e['to'])   ? (int) $e['to']   : ($entitiesById[$e['to']]   ?? null);
+            if (!$fromId || !$toId) continue;
+            $edgeResult[] = knowledgeEdgeCreate($tenantId, $fromId, $toId, (string) $e['relation'], [
+                'weight'  => isset($e['weight']) ? (float) $e['weight'] : null,
+                'payload' => is_array($e['payload'] ?? null) ? $e['payload'] : null,
+            ]);
+        }
+
+        return [
+            'document'   => $doc,
+            'entities'   => $entityResult,
+            'edges'      => $edgeResult,
+        ];
+    } catch (\InvalidArgumentException $e) {
+        return ['ok' => false, 'error' => ['code' => 'bad_args', 'message' => $e->getMessage()]];
+    }
+}
+
+/** Draft-tier — open a pending agent handoff. */
+function aiToolHandoffToAgentHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    require_once __DIR__ . '/agents.php';
+    $actorUid = isset($args['_actor_user_id']) ? (int) $args['_actor_user_id'] : null;
+    try {
+        $handoff = agentHandoffCreate($tenantId,
+            (string) ($args['from_agent_key'] ?? ''),
+            (string) ($args['to_agent_key']   ?? ''),
+            [
+                'reason'                 => $args['reason']                 ?? null,
+                'payload'                => is_array($args['payload'] ?? null) ? $args['payload'] : null,
+                'parent_workflow_run_id' => $args['parent_workflow_run_id'] ?? null,
+                'parent_handoff_id'      => isset($args['parent_handoff_id']) ? (int) $args['parent_handoff_id'] : null,
+                'initiated_by_user_id'   => $actorUid,
+            ]);
+    } catch (\InvalidArgumentException $e) {
+        return ['ok' => false, 'error' => ['code' => 'bad_args', 'message' => $e->getMessage()]];
+    } catch (\RuntimeException $e) {
+        return ['ok' => false, 'error' => ['code' => 'not_found', 'message' => $e->getMessage()]];
+    }
+    return ['handoff' => $handoff];
 }
 
 /**

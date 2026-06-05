@@ -1,5 +1,197 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (AI-Native Extension · Phase 7 · Worker Runtime + Knowledge Graph + Agent Registry)
+
+User direction: "a" (ship all three) → after Phase 1 (A–E) closed, the
+user committed to the full Phase 7 surface in one go.
+
+### Scope (Phase 7 — all three sub-slices)
+- **7A AI Worker Runtime** — durable async job queue + worker registry.
+- **7B Knowledge Graph** — documents (FULLTEXT) + entity / edge graph.
+  (pgvector retrieval DEFERRED per user direction.)
+- **7C Agent Registry + Handoffs** — named agents + delegate-to-agent
+  workflow.
+
+### What shipped
+
+**Migrations** (idempotent `CREATE TABLE IF NOT EXISTS`):
+- `109_ai_workers_and_jobs.sql` — `ai_workers` (status enum, heartbeat,
+  capabilities_json) + `ai_worker_jobs` (7-state lifecycle, unique
+  idempotency_key per tenant, hot-path dequeue index, links to
+  `artifact_objects` + `ai_tool_invocations`).
+- `110_knowledge_graph.sql` — `knowledge_documents` (FULLTEXT(title,content)),
+  `knowledge_entities` (UNIQUE(tenant, type, normalized_key)),
+  `knowledge_edges` (UNIQUE(tenant, from, to, relation)),
+  `knowledge_embeddings` (LONGBLOB placeholder for pgvector future).
+- `111_agent_registry_and_handoffs.sql` — `agent_registry` (tenant-OR-platform
+  scoped) + `agent_handoffs` (5-state lifecycle, supports nested handoffs
+  via `parent_handoff_id`, threads `parent_workflow_run_id`).
+
+**Backend libraries** (~1,500 LOC across the three):
+
+1. **`core/ai/worker.php`** — 14 public helpers:
+   - `aiWorkerRegister / Heartbeat / List / SweepStalled` — worker process lifecycle.
+   - `aiWorkerEnqueue` — idempotent on (tenant, idempotency_key); duplicate-entry
+     race handled cleanly.
+   - `aiWorkerClaim(workerId, queues, limit)` — atomic claim via `FOR UPDATE`
+     transaction so multiple worker processes don't double-claim.
+   - `aiWorkerMarkRunning / Complete / Fail / Cancel / Retry`.
+   - `aiWorkerFail` exponential backoff: `base * 2^(attempt-1)`, capped at 30 min.
+   - `aiWorkerQueueDepth` for dashboard counters.
+
+2. **`core/ai/knowledge_graph.php`** — 8 public helpers:
+   - `knowledgeNormalizeKey` (same shape as Slice B vendor_aliases).
+   - `knowledgeDocumentUpsert` (idempotent on (tenant, doc_uri)).
+   - `knowledgeEntityUpsert` (idempotent on (tenant, type, normalized_key)).
+   - `knowledgeEdgeCreate` (idempotent via `ON DUPLICATE KEY UPDATE`).
+   - `knowledgeSearchFulltext` — MySQL FULLTEXT `NATURAL LANGUAGE MODE`,
+     falls back to LIKE if FULLTEXT errors (sandbox / MyISAM quirks).
+   - `knowledgeNeighbours` — 1-hop in/out edges with joined entity labels.
+   - `knowledgeEntityGet / List`.
+
+3. **`core/ai/agents.php`** — 8 public helpers:
+   - `agentRegistryUpsert` — tenant-OR-platform scoped (NULL tenant_id =
+     platform-shared agent).  Validates `agent_key` against snake-case ASCII.
+   - `agentRegistryGet / GetByKey / List` — list pulls BOTH platform-shared
+     + tenant-specific rows, sorted with platform-shared first.
+   - `agentHandoffCreate` — refuses self-handoffs; resolves agents by key
+     with tenant-specific override of platform-shared.
+   - `agentHandoffResolve` — guard: refuses non-`pending` → `accepted`
+     transitions; refuses resolve-to-pending; carries audit metadata.
+   - `agentHandoffGet / List` — joins agent_registry for label rendering.
+
+**4 new tools in `core/ai/tool_gateway.php`**:
+- `coreflux.enqueue_job` (draft tier, idempotency=`[idempotency_key]`)
+  → `aiToolEnqueueJobHandler`.
+- `coreflux.search_knowledge` (read tier) → `aiToolSearchKnowledgeHandler`.
+- `coreflux.record_knowledge` (draft tier, idempotency=`[doc_uri]`)
+  → `aiToolRecordKnowledgeHandler` (one-shot doc + entities[] + edges[]
+  with entity-by-key edge references).
+- `coreflux.handoff_to_agent` (draft tier) → `aiToolHandoffToAgentHandler`.
+
+**`cron/ai_worker.php` CLI worker** (~150 LOC):
+- `--queue=` / `--max-jobs=` / `--label=` / `--once` / `--verbose` getopt.
+- Registers worker as `host:pid`, heartbeats every `AI_WORKER_HEARTBEAT_SEC`.
+- Atomic claim → markRunning → `aiToolInvoke` dispatch → `complete` /
+  `fail(retryable?)` based on tool envelope.
+- Non-retryable error codes: `bad_args`, `not_found`, `approval_required`,
+  `approval_invalid`, `permission_denied` → dead immediately, no retry.
+- Clean SIGINT/SIGTERM shutdown (drains current job first).
+
+**Three REST APIs**:
+- `/api/ai/workers.php` — `workers` / `depth` / list jobs / `retry` / `cancel`.
+- `/api/ai/knowledge.php` — `search` / `entity` / `entities` / `record` /
+  `entity_upsert` / `edge_create`.
+- `/api/ai/agents.php` — list / `handoffs` / `handoff_detail` / `upsert` /
+  `handoff` / `resolve`.
+- All RBAC-gated via `rbac_legacy_can`; multi-permission fallbacks
+  (`ai.audit.view` OR `accounting.review`, `ai.knowledge.read` OR
+  `ai.audit.view` OR `accounting.read`, etc.).
+
+**Three reviewer SPAs** wired into AdminModule:
+- `AiWorkersAdmin.jsx` at `/admin/ai/workers` — 7-status depth strip,
+  workers table (heartbeat + capabilities), jobs table with status filter
+  + per-row Retry/Cancel.
+- `KnowledgeGraphExplorer.jsx` at `/admin/ai/knowledge` — 2-tab UI
+  (Search + Entities), entity drill-in with in/out edge lists.
+- `AgentRegistryAdmin.jsx` at `/admin/ai/agents` — agents table (with
+  platform-vs-tenant scope chips), handoffs panel with
+  Accept/Refuse/Complete actions; Refuse mandates a reason.
+- All three carry full testid coverage (38 static + 12 template testids).
+- AdminModule adds 3 sidebar links + 3 ActionCard tiles
+  (`Cpu` / `BookMarked` / `Network` lucide icons).
+
+**`tests/ai_phase7_smoke.php`** → **189 / 189 ✓** locking:
+- All 3 migration shapes (status enums, uniqueness, FULLTEXT index,
+  BLOB placeholder, foreign-key columns).
+- All 30 backend function signatures + key invariants.
+- `php -l` clean on all 7 new backend files.
+- 4 new tool-registry entries + handlers + idempotency keys.
+- CLI worker structure (getopt, signal handlers, dispatch flow,
+  non-retryable error whitelist).
+- 3 REST APIs + RBAC matrix.
+- All 3 SPA pages (38 static + 12 template testids, behavioural assertions).
+- AdminModule import + route + sidebar nav + ActionCard tile for each.
+- 2 pure-function probes against `knowledgeNormalizeKey`.
+
+### HY093 + tenant-leak hardening
+
+- HY093: `aiWorkerFail` initially used `:b` twice for both
+  `next_attempt_at` and `scheduled_at`. Split to `:b1` / `:b2`.
+- tenant-leak: 5 hot-path UPDATE/SELECT queries in `worker.php`
+  (`MarkRunning`, `Complete`, `Fail-dead`, `Fail-retry`, `JobGetById`)
+  intentionally operate cross-tenant because the CLI worker doesn't
+  carry a tenant context — the tenant is on the job row. Added
+  `tenant-leak-allow:` exemptions.
+- tenant-leak: `agent_registry` lookups for platform-shared rows
+  (`tenant_id IS NULL`) — added exemptions explaining the design.
+
+### Test status
+
+- Phase 7 smoke: **189 / 189 ✓**
+- Full PHP suite: **391 / 393 ✓** (only the 2 documented
+  sandbox-bound failures remain).
+- Vite bundle: **`coreflux-D5p-UIu5`**. Lint clean. All 4 sync points
+  consistent.
+
+### Operator action (production)
+
+1. **Deploy migrations 109 / 110 / 111** (all idempotent).
+2. **Deploy bundle `coreflux-D5p-UIu5`**.
+3. **Start workers** (one or more, can be on any host):
+   ```bash
+   php /var/www/cron/ai_worker.php --queue=default,close_agent --label="prod-1"
+   ```
+   Supervise with systemd / supervisord so the process restarts on crash.
+4. Admin → **Worker runtime** is now reachable (depth strip + retry /
+   cancel).
+5. Admin → **Knowledge graph** is now reachable (search docs, browse
+   entity neighbours).
+6. Admin → **Agent registry** is now reachable (seed agents via
+   `POST /api/ai/agents.php?action=upsert`, then accept handoffs).
+7. AI calls of `coreflux.enqueue_job`, `coreflux.search_knowledge`,
+   `coreflux.record_knowledge`, `coreflux.handoff_to_agent` are now live
+   in the gateway.
+
+### Phase 1 (A–E) + Phase 7 summary — AI-Native Extension COMPLETE
+
+| Phase / Slice | Surface |
+| --- | --- |
+| Slice A    | tool_registry · tool_permissions · artifact_objects + events + relationships · ArtifactsAdmin |
+| Slice B    | vendor_aliases · exception queue UX |
+| Slice C    | accountingValidateJe · postApprovedJournalEntry · JeDraftsReview |
+| Slice D    | accounting_close_runs · CloseDashboard |
+| Slice E    | ap_invoice_extraction_runs · cash_forecast_runs · timesheet anomaly · CashForecastReview + PayrollReviewPacket |
+| **7A**     | ai_workers + ai_worker_jobs · cron/ai_worker.php · AiWorkersAdmin |
+| **7B**     | knowledge_documents/entities/edges/embeddings · KnowledgeGraphExplorer |
+| **7C**     | agent_registry + agent_handoffs · AgentRegistryAdmin |
+
+**Total**: 11 migrations, 17 new tools in the registry, 8 reviewer SPAs.
+The agent gateway can now operate the entire accounting + AP + cash +
+payroll + knowledge workflow with operator oversight, idempotency keys
+on every write tool, durable async execution for long-running graphs,
+and inter-agent handoff coordination.
+
+### Backlog after Phase 7
+
+Phase 1 + 7 are complete. Remaining roadmap candidates from
+`SPEC_COMPLIANCE_SCAN.md`:
+
+- **Slice F (Vertical Extensions)** — restaurant prime-cost calculator,
+  CPA workpaper generator (industry-specific tool bundles).
+- **Phase 8 (per-agent permission scoping)** — `tool_permissions`
+  records keyed by `agent_key` so a Close Agent has a different tool
+  surface than an AP Agent.
+- **pgvector migration** — Postgres side-car for `knowledge_embeddings`
+  vector similarity search.
+- **(P2)** Mercury Webhooks integration.
+- **(P2)** Wire `mailerSend()` to a Resend driver.
+- **(P3)** AI Digest Scheduler (Sunday-night Ops Memo cron) — can now
+  use the worker queue from 7A.
+- **(P3)** External Auditor view (tokenized read-only URL).
+
+---
+
 ## Session — 2026-02 (AI-Native Extension · Slice E · AP Invoice Review + Cash Forecast + Payroll Review)
 
 User direction: "E" → after Slice D closed, confirmed the FINAL slice in
