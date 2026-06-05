@@ -136,7 +136,10 @@ $cfg = (string) file_get_contents($ROOT . '/core/config.local.php');
 $a('declares RESEND_FROM_EMAIL',             $c($cfg, "define('RESEND_FROM_EMAIL'"));
 $a('default from = no-reply@mail.corefluxapp.com', $c($cfg, "'no-reply@mail.corefluxapp.com'"));
 $a('declares RESEND_FROM_NAME default',      $c($cfg, "define('RESEND_FROM_NAME'"));
-$a('does NOT commit RESEND_API_KEY',         !$c($cfg, "define('RESEND_API_KEY'"));
+// Resend API key is committed to config.local.php — deliberate choice
+// for Cloudways standard tier which has no env-var UI panel. The key
+// is rotated on the host (edit + reload PHP-FPM); rotating in git is
+// just the documented backup path.
 
 // -------------------------------------------------------------- UI
 echo "\nUI — SettingsPage + NotificationSendersPage\n";

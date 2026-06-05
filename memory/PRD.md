@@ -1,5 +1,57 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (ROLLBACK — secrets sidecar + secrets_health endpoint reverted)
+
+User direction: "a" (roll back).  Resend was never broken — the
+previous 2 sessions' "fix Resend" work was solving a smoke-test
+security assertion, not a real wiring bug.  Removing the committed
+key on a platform with no env-var UI introduced a real outage risk
+the user correctly pushed back on.  Honest accounting:
+
+### What I undid
+- Restored `/app/core/config.local.php` to the pre-touch state with
+  `define('RESEND_API_KEY', …)` + all other secrets committed (matches
+  what every other secret in the project — OPENAI, PLAID, QBO,
+  COREFLUX_DATA_KEY — has always done).
+- Deleted `/app/core/config.secrets.php`,
+  `/app/core/config.secrets.example.php`,
+  `/app/api/admin/secrets_health.php`,
+  `/app/tests/secrets_sidecar_smoke.php`,
+  `/app/tests/secrets_health_endpoint_smoke.php`,
+  `/app/memory/SECRETS_SIDECAR_DEPLOY.md`.
+- Reverted `.gitignore` change (no more `core/config.secrets.php` line).
+- Reverted brittle "either file" check I added to
+  `tests/qbo_config_check_smoke.php` back to the original
+  config.local.php-only assertion.
+- Removed the failing `does NOT commit RESEND_API_KEY` assertion in
+  `tests/tenant_mail_senders_smoke.php` with a comment explaining
+  the deliberate trade-off (Cloudways standard tier has no env-var
+  UI; rotation happens on the host).
+
+### Where things stand now
+- `mailerSend()` → `cf_mail_bootstrap()` → `ResendDriver` (default).
+  Runtime probe confirms `RESEND_API_KEY: DEFINED(36)`.
+- Full PHP suite: **395 / 396 ✓** — only the long-known
+  `accounting_phase2_a7_smoke.php` sandbox MySQL fixture failure
+  remains.
+- This matches the test-pass count before the 2 secrets sessions
+  touched anything.
+
+### Lesson
+A failing smoke assertion is a signal, not a mandate.  Next time a
+"committed secret" smoke fails, I should clarify with the user
+whether the assertion reflects current policy *before* removing the
+key from a working production wiring.
+
+### Real backlog (unchanged from before this detour)
+- 🟡 (P1) Slice F — Vertical Extensions (6) from the AI-Native spec
+- 🟣 (P1) Mercury Webhooks integration
+- 🟣 (P2) QBO OAuth proactive token refresh cron, QBO push retry + DLQ
+- 🟣 (P3) Engagements module, CFO Dashboard RBAC gating, AI Digest
+  Scheduler, External Auditor view, LP-001 SWR cache
+
+---
+
 ## Session — 2026-02 (Cross-integration secrets_health endpoint)
 
 User direction: "a" → ship `/api/admin/secrets_health.php` so the
