@@ -731,22 +731,79 @@ function aiToolInvoke(string $toolName, array $args, array $callerCtx): array
             aiToolAudit($tenantId, null, $userId, $sessionId, $toolName, $args, $env, $startMs);
             return $env;
         }
-        // Validate the approval is real, approved, and tenant-scoped.
+        // Validate the approval is real, approved, tenant-scoped, not
+        // expired, not already consumed. (P2 hardening — adds rule 2
+        // single-use + rule 4 expiry to the original status check.)
+        $approvalRow = null;
+        $approvalLookupFailed = false;
         try {
             $stmt = getDB()->prepare(
-                'SELECT id, status FROM workflow_approvals
+                'SELECT id, status, request_payload, decided_by_user_id,
+                        expires_at, consumed_at, consumed_by_je_id
+                   FROM workflow_approvals
                   WHERE id = :id AND tenant_id = :t LIMIT 1'
             );
             $stmt->execute(['id' => $approvalId, 't' => $tenantId]);
-            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-            if (!$row || $row['status'] !== 'approved') {
+            $approvalRow = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+        } catch (\Throwable $e) {
+            // Schema-not-ready (sandbox / SQLite without 112 applied).
+            // Fall through to the legacy narrow-column lookup below so
+            // the original {status, id} contract is still honoured.
+            $approvalLookupFailed = true;
+            try {
+                $stmt = getDB()->prepare(
+                    'SELECT id, status FROM workflow_approvals
+                      WHERE id = :id AND tenant_id = :t LIMIT 1'
+                );
+                $stmt->execute(['id' => $approvalId, 't' => $tenantId]);
+                $approvalRow = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+                $approvalLookupFailed = false;
+            } catch (\Throwable $_) { /* DB truly unavailable */ }
+        }
+        if ($approvalLookupFailed === false) {
+            if (!$approvalRow || $approvalRow['status'] !== 'approved') {
                 $env = ['ok' => false, 'status' => 'denied',
                         'error' => ['code' => 'approval_invalid',
                                     'message' => "approval #{$approvalId} not in 'approved' state"]];
                 aiToolAudit($tenantId, null, $userId, $sessionId, $toolName, $args, $env, $startMs);
                 return $env;
             }
-        } catch (\Throwable $e) { /* schema-not-ready tolerated for CLI smoke */ }
+            if (!empty($approvalRow['consumed_at'])) {
+                $env = ['ok' => false, 'status' => 'denied',
+                        'error' => ['code' => 'approval_already_consumed',
+                                    'message' => "approval #{$approvalId} already consumed by JE #"
+                                               . ((int) ($approvalRow['consumed_by_je_id'] ?? 0))]];
+                aiToolAudit($tenantId, null, $userId, $sessionId, $toolName, $args, $env, $startMs);
+                return $env;
+            }
+            if (!empty($approvalRow['expires_at'])) {
+                $exp = strtotime((string) $approvalRow['expires_at']);
+                if ($exp !== false && $exp < time()) {
+                    $env = ['ok' => false, 'status' => 'denied',
+                            'error' => ['code' => 'approval_expired',
+                                        'message' => "approval #{$approvalId} expired at {$approvalRow['expires_at']}"]];
+                    aiToolAudit($tenantId, null, $userId, $sessionId, $toolName, $args, $env, $startMs);
+                    return $env;
+                }
+            }
+        }
+
+        // Tool-specific gate — JE post handler enforces binding, SoD,
+        // and the draft-mutation hash (rules 1, 3, 6). Other risk-4
+        // tools can be onboarded by adding to this map.
+        if ($toolName === 'coreflux.post_approved_journal_entry' && $approvalRow !== null) {
+            require_once __DIR__ . '/../accounting/post_approval_gates.php';
+            $jeId   = (int) ($args['je_id'] ?? 0);
+            $verdict = accountingCheckPostApprovalGates($tenantId, $jeId, $approvalRow, $userId);
+            if (empty($verdict['ok'])) {
+                $env = ['ok' => false, 'status' => 'denied',
+                        'error' => ['code' => (string) ($verdict['code'] ?? 'approval_check_failed'),
+                                    'message' => (string) ($verdict['message'] ?? 'gate check failed')]];
+                aiToolAudit($tenantId, null, $userId, $sessionId, $toolName, $args, $env, $startMs);
+                return $env;
+            }
+        }
+
         // Thread the approval + actor into $args so risk-4 handlers
         // (e.g. coreflux.post_approved_journal_entry) can stamp the
         // promotion + audit row with the same id the gate verified.

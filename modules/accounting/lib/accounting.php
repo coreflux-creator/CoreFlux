@@ -721,16 +721,34 @@ function accountingPromoteDraftToPosted(int $tenantId, int $jeId, array $opts = 
         throw new \RuntimeException('promotion refused: ' . implode('; ', $report['errors'] ?: ['validation failed at promotion']));
     }
 
-    // Flip status + stamp posted_at / posted_by_user_id in one shot.
+    // Flip status + stamp posted_at / posted_by_user_id + approval_id
+    // in one shot, and atomically consume the workflow_approvals row.
+    // The single-use guard lives at the DB level: the UPDATE on
+    // workflow_approvals requires consumed_at IS NULL, so a concurrent
+    // promotion racing for the same approval is rejected.
     $pdo->beginTransaction();
     try {
         $pdo->prepare(
             'UPDATE accounting_journal_entries
                 SET status = "posted",
                     posted_at = NOW(),
-                    posted_by_user_id = :u
+                    posted_by_user_id = :u,
+                    approval_id = :a
               WHERE id = :id AND tenant_id = :t AND status = "draft"'
-        )->execute(['u' => $actorUserId, 'id' => $jeId, 't' => $tenantId]);
+        )->execute(['u' => $actorUserId, 'a' => $approvalId, 'id' => $jeId, 't' => $tenantId]);
+
+        $consume = $pdo->prepare(
+            'UPDATE workflow_approvals
+                SET consumed_at = NOW(),
+                    consumed_by_je_id = :je
+              WHERE id = :a AND tenant_id = :t AND consumed_at IS NULL'
+        );
+        $consume->execute(['je' => $jeId, 'a' => $approvalId, 't' => $tenantId]);
+        if ($consume->rowCount() === 0) {
+            // Some other path consumed the approval first (race) — bail.
+            throw new \RuntimeException("approval #{$approvalId} race-consumed by another promotion");
+        }
+
         $pdo->commit();
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();

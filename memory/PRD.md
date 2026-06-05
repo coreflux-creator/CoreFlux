@@ -1,5 +1,113 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (AI-Native Extension · P2 · JE drafts post-approval gate hardening)
+
+User direction: "b" (ship all 6 gating rules) → after Phase 7 closed,
+the user directed JE-drafts post-approval gate hardening — full
+6-rule build including the draft-mutation hash guard.
+
+### Scope (P2 — 6 gating rules around risk_level=4)
+
+| # | Rule | Enforcement point |
+| - | ---- | ----------------- |
+| 1 | Approval ↔ JE binding   | `accountingCheckPostApprovalGates` (tool-specific gate inside `aiToolInvoke`) — refuses if `request_payload.je_id` ≠ `args.je_id`. |
+| 2 | Single-use              | Conditional UPDATE inside `accountingPromoteDraftToPosted` (`consumed_at IS NULL` in WHERE clause) + generic `approval_already_consumed` short-circuit inside `aiToolInvoke`. |
+| 3 | SoD self-approval       | `accountingCheckPostApprovalGates` — `created_by_user_id` ≠ `decided_by_user_id` (and ≠ actor invoking the post tool). |
+| 4 | expires_at honored      | Generic check inside `aiToolInvoke` — refuses past-expiry approvals before tool-specific checks run. |
+| 5 | JE audit trail          | `accountingPromoteDraftToPosted` stamps `accounting_journal_entries.approval_id` inside the same transaction as the status flip. |
+| 6 | Draft-mutation guard    | `accountingComputeDraftHash` (canonical sha256 over header + line_no-sorted lines with `ksort`'d dims + 2-dp `number_format`) snapshot stored in `request_payload.draft_hash` at approval-request time, re-checked via `hash_equals` at promotion. |
+
+### What shipped
+
+**Migration `112_je_post_approval_gates.sql`** (idempotent ALTERs):
+- `accounting_journal_entries.approval_id BIGINT UNSIGNED NULL`
+- `accounting_journal_entries.draft_hash CHAR(64) NULL`
+- Index `ix_aje_tenant_approval (tenant_id, approval_id)`
+- `workflow_approvals.consumed_at TIMESTAMP NULL`
+- `workflow_approvals.consumed_by_je_id BIGINT UNSIGNED NULL`
+- Index `ix_wfa_consumed (tenant_id, consumed_at)`
+
+**Backend helper `core/accounting/post_approval_gates.php`** (~200 LOC,
+3 public helpers):
+1. `accountingComputeDraftHash($tenantId, $jeId): string` — canonical
+   sha256 hex digest. Deterministic by `ORDER BY line_no` +
+   `ksort($dims)` + 2-dp `number_format` for amounts. Tenant-scoped
+   header fetch with explicit `tenant-leak-allow:` exemption on the
+   lines-by-`je_id` join.
+2. `accountingApprovalRequestPayloadForJe($tenantId, $jeId): array` —
+   `{je_id, draft_hash, snapshot_at}`. Use this from any workflow
+   node opening a JE-promotion approval so the gate accepts it.
+3. `accountingCheckPostApprovalGates($tenantId, $jeId, $approvalRow,
+   $actorUid): ['ok' => bool, 'code' => ?string, 'message' => ?string]`
+   — enforces rules 1, 3, 6 (plus a pre-flight read of rule 2 so we
+   surface a clean `approval_already_consumed` code if the atomic
+   guard would lose later).
+
+**Updated `core/ai/tool_gateway.php` risk-4 gate**:
+- Widened the `workflow_approvals` SELECT to pull `request_payload,
+  decided_by_user_id, expires_at, consumed_at, consumed_by_je_id`.
+- Falls back to the legacy narrow SELECT (`id, status`) on schema-not-
+  ready sandboxes (SQLite test fixtures without 112 applied) so the
+  AI gateway Slice 4 smoke keeps passing.
+- Added 2 generic verdicts: `approval_already_consumed`,
+  `approval_expired`.
+- For `coreflux.post_approved_journal_entry` only, invokes the
+  tool-specific `accountingCheckPostApprovalGates` resolver, which
+  returns codes `approval_missing_binding`, `approval_je_mismatch`,
+  `approval_missing_hash`, `draft_mutated`, `sod_self_approval`,
+  `draft_not_found`.
+
+**Updated `accountingPromoteDraftToPosted`**:
+- Stamps `approval_id` on the JE row in the same transaction as the
+  status flip.
+- Atomically consumes the approval via `UPDATE workflow_approvals SET
+  consumed_at=NOW(), consumed_by_je_id=:je WHERE id=:a AND tenant_id=:t
+  AND consumed_at IS NULL` — `rowCount() === 0` ⇒ throw "race-consumed
+  by another promotion" (transaction rolls back, no partial write).
+
+**New smoke `tests/ai_je_post_approval_gates_smoke.php`** → **49/49 ✓**:
+- Migration shape (6 ALTERs + 2 indexes).
+- Helper module structure (3 public functions, sha256, hash_equals,
+  ksort, fixed-precision number_format, php -l clean).
+- All 7 verdict codes present.
+- Gateway wiring (widened SELECT, 2 generic verdicts, tool-specific
+  resolver call, fail-closed verdict propagation).
+- Promotion transaction (approval_id stamp, conditional UPDATE,
+  consumed_by_je_id, race-loss raises).
+- Pure canonical-encoding probes — order-insensitive for dims,
+  flips on amount mutation, normalises loose decimals, hash_equals
+  timing-safe semantics.
+- Slice C regression touchpoints (re-validate + idempotent_replay +
+  risk-4 registration all intact).
+
+### Test status
+
+- Full PHP suite: **392 / 394 ✓** (only the 2 documented sandbox-bound
+  failures: `accounting_phase2_a7_smoke.php`, `tenant_mail_senders_smoke.php`).
+- AI gateway Slice 4 smoke: **41 / 41 ✓** (updated 1 brittle whitespace
+  check to a regex so future SQL formatting changes don't break it).
+- HY093 + tenant-leak static analyzers: **9 / 9 ✓**.
+- Phase 7 smoke: **189 / 189 ✓** (no regression).
+- Slice C smoke: **84 / 84 ✓** (no regression).
+- Frontend untouched → existing Vite bundle `coreflux-4j4NswKl` still
+  valid.
+
+### Operator action (production)
+
+1. Apply migration `112_je_post_approval_gates.sql` (idempotent ALTERs).
+2. Update any workflow node that opens a JE-promotion approval to call
+   `accountingApprovalRequestPayloadForJe($tenantId, $jeId)` and pass
+   the returned dict as the `request_payload`. Approvals that omit
+   `je_id` or `draft_hash` are now refused at the gate with explicit
+   codes (`approval_missing_binding`, `approval_missing_hash`).
+3. Approvals already in flight at deploy time will be refused with
+   `approval_missing_binding` — operator should re-issue them with the
+   new payload helper.
+4. Existing `accounting_journal_entries.approval_id` is `NULL` on
+   historical rows; only post-deploy promotions stamp it.
+
+---
+
 ## Session — 2026-02 (AI-Native Extension · Phase 7 · Worker Runtime + Knowledge Graph + Agent Registry)
 
 User direction: "a" (ship all three) → after Phase 1 (A–E) closed, the

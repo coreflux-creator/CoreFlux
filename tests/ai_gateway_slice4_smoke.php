@@ -68,7 +68,7 @@ $a('risk-level gate inside aiToolInvoke',          str_contains($tg, 'Risk-level
                                                 && str_contains($tg, '$riskLevel = (int) ($tool[\'risk_level\'] ?? 1);'));
 $a('  blocks risk>=4 without _approval_id',        str_contains($tg, "'code' => 'approval_required'"));
 $a('  validates approval is tenant-scoped + approved',
-    str_contains($tg, "SELECT id, status FROM workflow_approvals\n                  WHERE id = :id AND tenant_id = :t LIMIT 1")
+    preg_match('/FROM\s+workflow_approvals\s+WHERE\s+id\s*=\s*:id\s+AND\s+tenant_id\s*=\s*:t/', $tg) === 1
  && str_contains($tg, "'code' => 'approval_invalid'"));
 $a('aiToolCoerceArg handles array type',           str_contains($tg, "case 'array':  return is_array(\$v) ? \$v : [];"));
 
