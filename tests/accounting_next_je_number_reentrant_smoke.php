@@ -55,6 +55,14 @@ $a('accountingPostJe still wraps its writes in a transaction',
 $a('accountingPostJe still calls accountingNextJeNumber inside that transaction',
     preg_match('/\$pdo->beginTransaction\(\);.*?accountingNextJeNumber\(\$tenantId\)/s', $acc) === 1);
 
+// Defensive begin — accountingPostJe rolls back any stale transaction
+// inherited from a prior failed handler in the SAME PHP request before
+// opening its own. Same guard mirrored in accountingPromoteDraftToPosted.
+$a('accountingPostJe rolls back stale tx before beginning own',
+    preg_match('/function\s+accountingPostJe\b.*?if\s*\(\s*\$pdo->inTransaction\(\)\s*\)\s*\{\s*error_log\([^)]*post-je[^)]*\);\s*\$pdo->rollBack\(\);\s*\}/s', $acc) === 1);
+$a('accountingPromoteDraftToPosted rolls back stale tx before beginning own',
+    preg_match('/function\s+accountingPromoteDraftToPosted\b.*?if\s*\(\s*\$pdo->inTransaction\(\)\s*\)\s*\{\s*error_log\([^)]*promote-draft[^)]*\);\s*\$pdo->rollBack\(\);\s*\}/s', $acc) === 1);
+
 // php -l clean.
 exec('php -l /app/modules/accounting/lib/accounting.php 2>&1', $out, $rc);
 $a('accounting.php passes php -l',                   $rc === 0);

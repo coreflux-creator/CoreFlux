@@ -256,6 +256,17 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
         accountingValidateJeDims($tenantId, $linesForDimCheck);
     }
 
+    // Defensive begin — if a prior handler in this same PHP request
+    // left a transaction dangling (the Feb-2026 "There is already an
+    // active transaction" incident documented in api_bootstrap.php
+    // around `cf_begin_transaction`), roll it back before we open ours.
+    // Without this guard the raw beginTransaction() would throw and
+    // bubble back to the New Journal Entry form as the red toast the
+    // user kept seeing on /api/accounting/journal_entries.
+    if ($pdo->inTransaction()) {
+        error_log('[accounting/post-je] rolling back stale active transaction before begin');
+        $pdo->rollBack();
+    }
     $pdo->beginTransaction();
     try {
         $jeNumber = accountingNextJeNumber($tenantId);
@@ -736,6 +747,13 @@ function accountingPromoteDraftToPosted(int $tenantId, int $jeId, array $opts = 
     // The single-use guard lives at the DB level: the UPDATE on
     // workflow_approvals requires consumed_at IS NULL, so a concurrent
     // promotion racing for the same approval is rejected.
+    // Defensive begin (same rationale as accountingPostJe — protect
+    // against a stale transaction inherited from a prior failed handler
+    // in the same PHP request).
+    if ($pdo->inTransaction()) {
+        error_log('[accounting/promote-draft] rolling back stale active transaction before begin');
+        $pdo->rollBack();
+    }
     $pdo->beginTransaction();
     try {
         $pdo->prepare(

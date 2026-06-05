@@ -1,5 +1,67 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (P0 hotfix #2 · stale-tx guard on accountingPostJe)
+
+Same screenshot symptom as before — "Error: There is already an
+active transaction" on New Journal Entry → Post JE. Re-investigating
+revealed I'd only fixed half the picture last time.
+
+### Why the previous fix wasn't enough
+
+The previous session made `accountingNextJeNumber()` re-entrant so it
+participates in `accountingPostJe`'s outer transaction instead of
+nesting.  That's necessary BUT not sufficient.  The codebase has a
+documented prior incident
+(`/app/core/api_bootstrap.php` lines 480–503): when a previous
+handler in the *same* PHP request exits via `api_error()` (or any
+early-return path) before its rollback line runs, the in-progress
+transaction is left dangling.  The next `beginTransaction()` call in
+the same request — including `accountingPostJe`'s — throws "There is
+already an active transaction".
+
+api_bootstrap.php already provides `cf_begin_transaction()` for
+exactly this case (line 512–521 — rolls back any inherited tx before
+opening a new one), but `accountingPostJe` line 259 + the P2
+`accountingPromoteDraftToPosted` UPDATE both used the raw
+`$pdo->beginTransaction()`.
+
+### Fix
+
+Inlined the same defensive guard (`if (inTransaction()) rollBack();`
++ error_log + beginTransaction) into both functions.  Inlined rather
+than calling `cf_begin_transaction()` because both helpers are also
+called from cron/CLI paths (posting_engine, multi_period reverser,
+intercompany, csv_import, ai/tool_gateway, seed script) that don't
+necessarily load `api_bootstrap.php`.
+
+### Files changed
+- `modules/accounting/lib/accounting.php`
+  - `accountingPostJe` line ~259 — defensive rollback before begin.
+  - `accountingPromoteDraftToPosted` line ~750 — same guard.
+- `tests/accounting_next_je_number_reentrant_smoke.php` — added 2
+  assertions locking the new pattern via regex against both
+  function bodies. **21 / 21 ✓**.
+
+### Tests
+
+- Full PHP suite: **395 / 396 ✓** — only the long-known
+  `accounting_phase2_a7_smoke.php` sandbox MySQL failure remains.
+
+### Operator action
+
+No migration.  Hot-deploys safely — the guard is a no-op when no
+stale transaction exists, and surfaces a clear `error_log` line
+(`[accounting/post-je] rolling back stale active transaction before
+begin`) when it does fire so Cloudways logs will show whether the
+real-world Post JE workload was actually triggering it.
+
+If the error reappears after this deploy, grep production logs for
+`[accounting/post-je]` lines — they'll tell us which prior handler
+in the SAME request is failing to rollback, and we can patch that
+handler upstream.
+
+---
+
 ## Session — 2026-02 (ROLLBACK — secrets sidecar + secrets_health endpoint reverted)
 
 User direction: "a" (roll back).  Resend was never broken — the
