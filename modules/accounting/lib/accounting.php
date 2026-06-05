@@ -28,11 +28,21 @@ require_once __DIR__ . '/../../../core/financial_state_cache.php';
 /**
  * Atomically allocate the next JE number for a tenant.
  * Format: {prefix}-{YYYY}-{NNNNNN} (6-digit padded).
+ *
+ * Re-entrant: when the caller already holds an open transaction (e.g.
+ * accountingPostJe wraps the entire write in `beginTransaction()` and
+ * then calls this helper to obtain the je_number), we participate in
+ * that outer transaction instead of opening a nested one. PDO refuses
+ * nested `beginTransaction()` calls with "There is already an active
+ * transaction", which surfaced in the New Journal Entry → Post JE
+ * form. The FOR UPDATE row lock still holds correctly inside the
+ * outer transaction so the sequence is just as safe.
  */
 function accountingNextJeNumber(int $tenantId): string
 {
     $pdo = getDB();
-    $pdo->beginTransaction();
+    $owningTxn = !$pdo->inTransaction();
+    if ($owningTxn) $pdo->beginTransaction();
     try {
         $row = $pdo->prepare(
             'SELECT accounting_je_prefix, accounting_next_je_seq
@@ -46,11 +56,11 @@ function accountingNextJeNumber(int $tenantId): string
 
         $pdo->prepare('UPDATE tenants SET accounting_next_je_seq = :n WHERE id = :id')
             ->execute(['n' => $seq + 1, 'id' => $tenantId]);
-        $pdo->commit();
+        if ($owningTxn) $pdo->commit();
 
         return sprintf('%s-%s-%06d', $prefix, date('Y'), $seq);
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($owningTxn && $pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
 }

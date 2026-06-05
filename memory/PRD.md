@@ -1,5 +1,60 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (P0 hotfix · "There is already an active transaction" on Post JE)
+
+User-reported bug: New Journal Entry form → Post JE button → red
+toast: `Error: There is already an active transaction`.  Same error
+fires for "Save as Draft" because both routes go through
+`accountingPostJe()`.
+
+### Root cause
+
+`accountingNextJeNumber()` opened its own transaction
+(`$pdo->beginTransaction()` on line 35).  `accountingPostJe()`
+already opened a transaction on line 249 before calling
+`accountingNextJeNumber()` on line 251.  PDO refuses nested
+`beginTransaction()` with the exact message the user saw.
+
+Latent since the JE module shipped — likely only surfaced now
+because of an upstream change in how the call stack reaches
+`accountingPostJe` (or this is the first time a fresh-install
+tenant hit it with no draft to short-circuit).  Independent of the
+P2 post-approval gate work and the JE approver seed.
+
+### Fix
+
+`accountingNextJeNumber()` is now **re-entrant**:
+- Detects `$pdo->inTransaction()` at entry → records `$owningTxn`.
+- Skips the nested `beginTransaction()` when already inside one.
+- Skips `commit()` / `rollBack()` when not owning the boundary —
+  the outer caller (`accountingPostJe`) owns the rollback.
+- `FOR UPDATE` row lock is unchanged — still locks the
+  `tenants.accounting_next_je_seq` row inside the outer transaction.
+
+### Tests
+
+- New smoke `tests/accounting_next_je_number_reentrant_smoke.php`
+  → **19 / 19 ✓**.  Includes:
+  - 11 source-surface checks (re-entrancy guard, FOR UPDATE
+    preserved, sequence atomicity, php -l clean).
+  - 5 pure-function FSM probes via a stub PDO recording every
+    txn boundary call — exercises all 4 paths (no-outer/success,
+    no-outer/failure, outer-active/success, outer-active/failure)
+    plus a control that reproduces the exact PDO error with the
+    pre-fix code.
+  - 3 regression checks (promote-to-posted does NOT call
+    accountingNextJeNumber + P2 gate stamps still intact).
+- Full PHP suite: **395 / 396 ✓** (only the long-known
+  sandbox-bound `accounting_phase2_a7_smoke.php` failure remains).
+
+### Operator note
+
+No migration required.  Hot-deploys safely — the fix is
+backward-compatible (any caller that wasn't already in a transaction
+still gets the same begin/commit semantics it always had).
+
+---
+
 ## Session — 2026-02 (JE Approver seed + workflow helpers)
 
 User direction: "yes" → after the post-approval gate hardening + mail
