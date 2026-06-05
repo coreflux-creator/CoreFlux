@@ -56,7 +56,9 @@ final class RbacLegacyMap
             'accounting.je.post'                 => ['accounting', 'admin'],
             'accounting.je.reverse'              => ['accounting', 'admin'],
             'accounting.je.view'                 => ['accounting', 'read'],
+            'accounting.manage_integrations'     => ['accounting', 'admin'],
             'accounting.manage_posting_rules'    => ['accounting', 'admin'],
+            'accounting.view'                    => ['accounting', 'read'],
             'accounting.period.view'             => ['accounting', 'read'],
             'accounting.reports.export'          => ['accounting', 'write'],
             'accounting.reports.view'            => ['accounting', 'read'],
@@ -104,6 +106,16 @@ final class RbacLegacyMap
             'billing.invoice.void'               => ['billing', 'admin'],
             'billing.payments.record'            => ['billing', 'write'],
             'billing.view'                       => ['billing', 'read'],
+
+            // ── coreflux platform (PARKED) ────────────────────────────────
+            // coreflux.* keys are platform-internal sandbox / lab toggles
+            // (LayerFi sandbox env switch, etc). They are PARKED on the
+            // new-side resolver because there is no 'coreflux' module in
+            // the membership grid — the legacy RBAC config (rbac_config.php)
+            // grants these via the '*' catchall on master_admin /
+            // tenant_admin and that remains the only correct gate until a
+            // dedicated platform_admin capability is modelled.
+            'coreflux.internal_sandbox'          => ['_platform', 'admin'],
 
             // ── integrations ──────────────────────────────────────────────
             'integrations.jobdiva.manage'        => ['integrations', 'admin'],

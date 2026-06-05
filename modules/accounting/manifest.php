@@ -78,6 +78,7 @@ return [
         'accounting.consolidation.approve'      => 'Approve consolidation results',
         'accounting.integrations.connect'       => 'Connect QB / Wave / etc.',
         'accounting.integrations.sync'          => 'Run sync with external systems',
+        'accounting.manage_integrations'        => 'Manage accounting integrations (LayerFi, etc.)',
         'accounting.webhooks.manage'            => 'Manage outbound webhook subscriptions',
         'accounting.reports.view'               => 'View financial reports',
         'accounting.reports.export'             => 'Export reports (CSV/XLSX/PDF)',

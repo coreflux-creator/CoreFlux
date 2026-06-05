@@ -1,5 +1,31 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Jaz Flush UI verification + LayerFi RBAC permissions)
+
+### What shipped this session
+1. **Jaz Flush Outbox UI verified end-to-end**
+   - Ran `yarn --cwd /app/dashboard build` → clean (no syntax errors from the previous `mcp_insert_text` injection).
+   - `bash scripts/sync_bundle.sh` → consistent (`coreflux-CQsv9AqJ`).
+   - Smoke suite: 397/398 (only documented `accounting_phase2_a7_smoke.php` sandbox regression).
+
+2. **LayerFi RBAC permissions wired into the new resolver bridge**
+   - `/app/core/rbac/legacy_map.php`:
+     - Added `accounting.view` → `(accounting, read)` (was falling through to the conservative `(accounting, write)` default).
+     - Added `accounting.manage_integrations` → `(accounting, admin)`.
+     - Added `coreflux.internal_sandbox` → `(_platform, admin)` so the dual-mode bridge defers to legacy `RBAC::hasPermission()`. Without this, dual-check would deny `tenant_admin` on the LayerFi sandbox toggle (no `coreflux` module in `membership_module_access`).
+   - `/app/modules/accounting/manifest.php`: declared `accounting.manage_integrations` so the admin permission grid surfaces it.
+   - New smoke `tests/layer_rbac_permissions_smoke.php` (26 ✓) locks the three resolutions and asserts each LayerFi endpoint file (`layer_status.php`, `layer_audit_log.php`, `layer_business_token.php`, `layer_client_error.php`, `layer_smoke_test.php`, `layer_setup_tenant.php`, `layer_tenant_enablement.php`) compiles via `php -l` and gates on a declared LayerFi perm.
+
+### Backlog still open
+- P1: Slice F vertical extensions (AI spec).
+- P2: QBO OAuth proactive token refresh.
+- P2: QBO push retry + dead-letter queue.
+- P2: Cloudways env secret management (Resend keys currently hardcoded in `config.local.php` per user request).
+- P2: Mercury Webhooks integration.
+- P3: LP-001 `useApi` SWR cache for Timesheet list.
+- P3: LayerFi sandbox role gating tied to the new permissions in the UI.
+
+
 ## Session — 2026-06 (Flush-outbox button on the Jaz Sync Now card)
 
 User chose to add a one-click button instead of using DevTools to POST
