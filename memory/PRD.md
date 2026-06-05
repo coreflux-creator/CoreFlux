@@ -1,5 +1,54 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-06 (Outbox flush endpoint — Jaz silent-queue diagnosis)
+
+User reported "JE posts to core + QBO but not Jaz". Screenshot of the
+`accounting_outbox_events` view showed 2 rows in `Queued` status with
+`0/5 attempts` — meaning the worker hadn't even attempted them yet.
+Confirmed root cause: `cron/accounting_outbox_worker.php` isn't
+scheduled on Cloudways (no SSH, no env-var UI — the user installs
+crons via Cloudways' "Cron Job Management" panel).
+
+### What shipped
+
+**`/api/admin/run_accounting_outbox_now.php`** (~140 LOC, master_admin
+only, POST):
+- Mirrors the cron worker's loop verbatim — same SELECT, same
+  accountingCommandExecute() call per row, same processing→retrying
+  recovery on exception, same 60s backoff bump.
+- Query params: `?tenant=N`, `?max_rows=N` (default 50, ceiling 200),
+  `?dry_run=1`.
+- Returns JSON `{processed, succeeded, failed, skipped, elapsed_ms,
+  rows: [{command_id, tenant_id, provider, command_type,
+  status_before, status_after, error_code, error_message}],
+  next_step}`.
+- Doubles as a permanent diagnostic / emergency-flush button — if Jaz
+  rejects a JE, the per-row `error_code`+`error_message` surfaces the
+  exact failure instead of a silent queue.
+
+**Smoke `tests/run_accounting_outbox_now_smoke.php`** → **30 / 30 ✓**
+locks RBAC gate, POST-only, query-param parsing, worker-loop parity,
+response shape, per-row report fields, php -l clean.
+
+### Test status
+
+- Full PHP suite: **396 / 397 ✓** — only the long-known
+  `accounting_phase2_a7_smoke.php` sandbox MySQL fixture failure
+  remains.
+
+### Operator action
+
+1. **Install the cron** on Cloudways' "Cron Job Management" panel:
+   ```
+   * * * * * php /home/master/applications/<app>/public_html/cron/accounting_outbox_worker.php
+   ```
+2. **Immediate flush** to clear the 2 stuck rows + verify Jaz:
+   ```
+   POST /api/admin/run_accounting_outbox_now.php
+   ```
+
+---
+
 ## Session — 2026-06 (LayerFi sandbox merge from `conflict_040626_2242`)
 
 GitHub web couldn't merge the branch ("too complicated for web"). Pulled
