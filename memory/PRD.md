@@ -92,9 +92,16 @@ Frontend (shared, drops into both surfaces) under `modules/accounting/ui/layer/`
   caused by COMMITTED BUILD ARTIFACTS: `spa-assets/` (348 MB / 210 files),
   `app/assets/`, `dashboard/assets/`, `dashboard/dist/index.html`. Every rebuild
   changes hashed filenames + `index.html`, so merges conflict on generated files.
-- Per user choice (1b): build artifacts LEFT TRACKED for now (deploy may serve the
-  committed `spa-assets` bundle). Future fix to stop recurring conflicts: untrack
-  them once deploy-time rebuild is confirmed.
+- Per user choice: build artifacts LEFT TRACKED (deploy serves the committed
+  `spa-assets` bundle via `spa.php`; `update.php` does `git pull --ff-only` with
+  NO server-side build — untracking would break prod).
+- CONFLICT FIX SHIPPED (Option 1, 2026-06-05): `.gitattributes` marks generated
+  paths (`spa-assets/**`, `/index.html`, `.deploy-version`, `dashboard/dist/**`,
+  `app/assets/**`, `dashboard/assets/**`) `merge=ours`; `scripts/setup-git.sh`
+  registers the `ours` driver (`driver=true`). Local merges now auto-resolve
+  those artifacts to the current branch instead of conflicting — proven with a
+  two-branch collision test. Deploy untouched. Docs: `docs/bundle-merge-strategy.md`.
+  Caveat: GitHub web-UI merges ignore merge drivers → merge locally to benefit.
 
 ## Backlog / Next actions
 - P0: Add real LayerFi sandbox keys → re-run smoke test + confirm embedded data renders.
