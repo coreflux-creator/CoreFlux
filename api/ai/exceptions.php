@@ -60,6 +60,34 @@ if ($method === 'GET') {
     api_ok(['exceptions' => $rows, 'count' => count($rows), 'status' => $status]);
 }
 
+if ($method === 'GET' && $action === 'detail') {
+    if (!$canView) api_error('Forbidden', 403);
+    $id = (int) ($_GET['id'] ?? 0);
+    if ($id <= 0) api_error('id required', 422);
+
+    $stmt = getDB()->prepare(
+        'SELECT id, tenant_id, sub_tenant_id, workflow_run_id, ai_run_id,
+                exception_type, severity, status,
+                related_ref_type, related_ref_id, summary, detail_json,
+                assigned_to_user_id, resolved_by_user_id, resolved_at,
+                created_by_user_id, created_at, updated_at
+           FROM accounting_exceptions
+          WHERE id = :id AND tenant_id = :t LIMIT 1'
+    );
+    $stmt->execute(['id' => $id, 't' => $tid]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$row) api_error('exception not found', 404);
+
+    foreach (['id', 'tenant_id', 'sub_tenant_id', 'related_ref_id',
+              'assigned_to_user_id', 'resolved_by_user_id',
+              'created_by_user_id'] as $k) {
+        if ($row[$k] !== null) $row[$k] = (int) $row[$k];
+    }
+    $row['detail'] = $row['detail_json'] ? json_decode((string) $row['detail_json'], true) : null;
+    unset($row['detail_json']);
+    api_ok(['exception' => $row]);
+}
+
 if ($method === 'POST' && in_array($action, ['resolve','dismiss'], true)) {
     if (!$canView) api_error('Forbidden', 403);
     $body = api_json_body();

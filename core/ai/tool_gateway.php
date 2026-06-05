@@ -153,8 +153,66 @@ function aiToolRegistry(): array
             ],
             'handler'     => 'aiToolCreateExceptionHandler',
         ],
+        'coreflux.resolve_vendor_alias' => [
+            'description' => 'Resolve a raw bank-feed payee to a canonical CoreFlux vendor (or saved label). Returns the existing alias row when one matches, NULL when this is a new payee. Use BEFORE proposing a new classification so re-classification of the same vendor stays stable across imports.',
+            'permission'  => 'accounting.read',
+            'risk_level'  => 'read',
+            'args'        => [
+                'payee'         => ['type' => 'string', 'required' => true,  'desc' => 'Raw payee string from the bank feed / import row'],
+                'sub_tenant_id' => ['type' => 'int',    'required' => false, 'desc' => 'Scope to a specific sub-tenant'],
+            ],
+            'handler'     => 'aiToolResolveVendorAliasHandler',
+        ],
+        'coreflux.record_vendor_alias' => [
+            'description' => 'Persist a new vendor-alias mapping so future runs of resolve_vendor_alias return the same canonical target. Pass EXACTLY one of canonical_vendor_id (CoreFlux master vendor row) or canonical_label (free-form display name for one-off payees).',
+            'permission'  => 'accounting.write',
+            'risk_level'  => 'draft',
+            'args'        => [
+                'payee'               => ['type' => 'string', 'required' => true,  'desc' => 'Raw payee string from the source feed'],
+                'canonical_vendor_id' => ['type' => 'int',    'required' => false, 'desc' => 'Existing CoreFlux vendors.id — preferred if a master row exists'],
+                'canonical_label'     => ['type' => 'string', 'required' => false, 'desc' => 'Free-form label when no vendor master row should be created'],
+                'confidence'          => ['type' => 'float',  'required' => false, 'desc' => 'AI confidence at proposal time (0.0–1.0)'],
+                'pinned'              => ['type' => 'bool',   'required' => false, 'desc' => 'True = lock the alias so AI re-suggestion cannot silently overwrite'],
+            ],
+            'handler'     => 'aiToolRecordVendorAliasHandler',
+            'idempotency_args' => ['payee'],
+        ],
     ];
     return $reg;
+}
+
+/** Read-only handler — resolve a payee to its canonical alias. */
+function aiToolResolveVendorAliasHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    require_once __DIR__ . '/vendor_aliases.php';
+    $payee = (string) ($args['payee'] ?? '');
+    if ($payee === '') return ['ok' => false, 'error' => ['code' => 'bad_args', 'message' => 'payee required']];
+    $row = vendorAliasResolve($tenantId, $payee);
+    return [
+        'ok'         => true,
+        'normalized' => vendorAliasNormalize($payee),
+        'alias'      => $row,
+        'matched'    => $row !== null,
+    ];
+}
+
+/** Draft-tier handler — persist a vendor alias mapping. */
+function aiToolRecordVendorAliasHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    require_once __DIR__ . '/vendor_aliases.php';
+    try {
+        $res = vendorAliasRecord($tenantId, (string) ($args['payee'] ?? ''), [
+            'sub_tenant_id'       => $subTenantId,
+            'canonical_vendor_id' => isset($args['canonical_vendor_id']) ? (int) $args['canonical_vendor_id'] : null,
+            'canonical_label'     => isset($args['canonical_label'])     ? (string) $args['canonical_label'] : null,
+            'confidence'          => isset($args['confidence'])          ? (float) $args['confidence']      : null,
+            'pinned'              => !empty($args['pinned']),
+            'source'              => 'ai_suggestion',
+        ]);
+    } catch (\InvalidArgumentException $e) {
+        return ['ok' => false, 'error' => ['code' => 'bad_args', 'message' => $e->getMessage()]];
+    }
+    return ['ok' => true, 'alias' => $res['row'], 'action' => $res['action']];
 }
 
 /**
