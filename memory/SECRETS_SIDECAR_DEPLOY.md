@@ -70,6 +70,26 @@ Expected:
 RESEND_API_KEY: OK(36)
 ```
 
+**Faster verification via the live endpoint** (master_admin only):
+
+```
+GET https://www.corefluxapp.com/api/admin/secrets_health.php
+```
+
+Returns one JSON blob covering every integration. Look for:
+
+- `"all_configured": true`
+- Each integration block: `"configured": true`, `"loaded_from": "define"`
+- `"sidecar_file": { "present": true, "path_hint": "core/config.secrets.php" }`
+
+The endpoint NEVER returns raw secret values — only a 5-char `key_hint`
+(first 5 chars + ellipsis) so you can confirm "is the key I just
+rotated actually loaded?" without leaking anything exploitable.
+
+If `all_configured` is `false`, the response's `next_steps` field
+tells you what's wrong (typically: sidecar file not on the host or
+PHP-FPM didn't pick up the reload).
+
 ## CI / dev pods
 
 The preview pod (this Emergent sandbox) ships with a working

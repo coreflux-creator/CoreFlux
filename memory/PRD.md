@@ -1,5 +1,63 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Cross-integration secrets_health endpoint)
+
+User direction: "a" → ship `/api/admin/secrets_health.php` so the
+operator can hit one URL after SCPing the sidecar to confirm every
+integration is wired before touching the Send-test UI.
+
+### What shipped
+
+**`/api/admin/secrets_health.php`** (~140 LOC, master_admin only):
+- Env-first / `define()` fallback resolver for every secret.
+- Per-integration block: `{ configured, loaded_from, key_hint
+  (first-5-chars + ellipsis), length }`.  **Never** echoes a raw
+  secret value.
+- Coverage: RESEND_API_KEY, OPENAI_API_KEY, PLAID_CLIENT_ID,
+  PLAID_SECRET_SANDBOX, PLAID_SECRET_PRODUCTION, QBO_CLIENT_ID,
+  QBO_CLIENT_SECRET, COREFLUX_DATA_KEY.
+- Companion non-secret metadata where useful: Resend
+  `from_email`/`from_name` + FILTER_VALIDATE_EMAIL check; Plaid
+  active-secret resolution by `PLAID_ENV`; QBO env/redirect_uri/scopes;
+  COREFLUX_DATA_KEY base64→32-byte sanity check.
+- Top-level `all_configured` boolean + `sidecar_file.present` /
+  `path_hint` for fast triage.
+- Branched `next_steps` field — points the operator at
+  `SECRETS_SIDECAR_DEPLOY.md` if anything is missing.
+
+**`tests/secrets_health_endpoint_smoke.php`** → **39 / 39 ✓**:
+- RBAC gate (master_admin OR is_global_admin).
+- 5 secret-leak guards (no constant ever serialised into response).
+- Env-first resolver shape locked.
+- All 8 integrations probed.
+- Per-integration sanity checks (Resend email validation, Plaid
+  active-secret selection, QBO non-secret companions, COREFLUX
+  base64→32-byte).
+- Top-level response shape + php -l clean.
+- Functional resolver probe — loads `config.local.php`, verifies
+  RESEND_API_KEY resolves to define + starts with `re_`, OPENAI
+  resolves, missing constant returns `loaded_from=missing`.
+
+**Updated**: `memory/SECRETS_SIDECAR_DEPLOY.md` — added the live
+endpoint verification block + `all_configured`/`key_hint` semantics.
+
+### Test status
+
+- Full PHP suite: **397 / 398 ✓** — only the long-known
+  `accounting_phase2_a7_smoke.php` sandbox MySQL fixture failure
+  remains.
+
+### Operator workflow (end-to-end)
+
+1. Provision per `SECRETS_SIDECAR_DEPLOY.md` (SCP + chmod 600 + reload).
+2. `GET /api/admin/secrets_health.php` → expect `all_configured: true`.
+3. Admin → Notifications → Send test → confirm delivery.
+
+Future rotation = edit `config.secrets.php` on the host + reload +
+re-hit the health endpoint to confirm the new `key_hint`.
+
+---
+
 ## Session — 2026-02 (Secrets sidecar split — Resend etc. out of git for real)
 
 User direction: "a" (sidecar) → after the previous "remove RESEND_API_KEY
