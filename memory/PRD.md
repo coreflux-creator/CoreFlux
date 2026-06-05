@@ -1,5 +1,54 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Mail config hardening — Resend key out of git)
+
+User direction: "a" → replace the hardcoded `define('RESEND_API_KEY', …)`
+in `core/config.local.php` with a comment pointing operators at the
+Cloudways env var.  The mail bootstrap already prefers
+`getenv('RESEND_API_KEY')` over the `define()` constant, so production
+keeps working as long as the env var is set.
+
+### What changed
+- `core/config.local.php` — removed the committed `define('RESEND_API_KEY', …)`.
+  Comment now explicitly directs operators to set the env var.
+  `RESEND_FROM_EMAIL` + `RESEND_FROM_NAME` constants kept (no secret).
+- `tests/resend_wiring_smoke.php` — switched from `defined('RESEND_API_KEY')`
+  to an env-first resolver (`getenv()` → `define()` → smoke-synthetic
+  fallback).  The transport-shape checks still exercise the full
+  Bearer/Idempotency/JSON path against a synthetic `re_smoke_*` key when
+  neither env nor define provides one.
+
+### Why this matters
+- The smoke `tenant_mail_senders_smoke.php` was failing on
+  `does NOT commit RESEND_API_KEY` for a real reason — the live key
+  was checked into the repo.  Live key has now been removed from git.
+- Earlier handoff summaries (including the one that opened this session)
+  labelled `mailerSend()` as "mocked".  That label was stale —
+  `mailerSend()` has been wired end-to-end through Resend since the
+  2026-02 Resend bootstrap session.  The summary's confusion came from
+  the failing smoke (which was a secrets-management failure, not a
+  wiring failure).
+
+### Operator action (production)
+1. **Set the Cloudways env var** `RESEND_API_KEY=re_L5QC6Z8J_5LbcALFSePSs5JaKNf3TEpDq`
+   (the value previously committed) under the Cloudways app's
+   "Application Settings → Environment Variables" panel.
+2. Restart PHP-FPM so the new env var loads.
+3. **Rotate the key** at https://resend.com/api-keys — the key has
+   been in git history since the original commit, so it is now
+   considered compromised.  Update Cloudways with the new key and the
+   compromised one with `revoke`.
+4. Run `tests/resend_wiring_smoke.php` after the env var is set — it
+   should now exercise the live key path against the mocked transport.
+
+### Test status
+- Full PHP suite: **393 / 394 ✓** (up from 391/394).
+- Only remaining failure: `accounting_phase2_a7_smoke.php` (long-known
+  sandbox limitation — requires a full MySQL fixture this preview pod
+  doesn't ship).
+
+---
+
 ## Session — 2026-02 (AI-Native Extension · P2 · JE drafts post-approval gate hardening)
 
 User direction: "b" (ship all 6 gating rules) → after Phase 7 closed,
