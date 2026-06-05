@@ -95,7 +95,7 @@ export default function AgentRegistryAdmin() {
                         <td style={cellTD}>{a.label}</td>
                         <td style={cellTD}>{a.owner_module || <em style={{ color: '#94a3b8' }}>—</em>}</td>
                         <td style={cellTD}><AgentStatusChip status={a.status} /></td>
-                        <td style={cellTD} style={{ ...cellTD, color: '#475569' }}>
+                        <td style={{ ...cellTD, color: '#475569' }}>
                           {(a.default_tools || []).length} tools
                         </td>
                         <td style={cellTD}>

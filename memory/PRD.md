@@ -131,13 +131,14 @@ user committed to the full Phase 7 surface in one go.
 - Phase 7 smoke: **189 / 189 ✓**
 - Full PHP suite: **391 / 393 ✓** (only the 2 documented
   sandbox-bound failures remain).
-- Vite bundle: **`coreflux-D5p-UIu5`**. Lint clean. All 4 sync points
-  consistent.
+- Vite bundle: **`coreflux-4j4NswKl`**. Lint clean. All 4 sync points
+  consistent. (Duplicate `style={}` attribute in
+  `AgentRegistryAdmin.jsx` line 98 fixed → clean build, no warnings.)
 
 ### Operator action (production)
 
 1. **Deploy migrations 109 / 110 / 111** (all idempotent).
-2. **Deploy bundle `coreflux-D5p-UIu5`**.
+2. **Deploy bundle `coreflux-4j4NswKl`**.
 3. **Start workers** (one or more, can be on any host):
    ```bash
    php /var/www/cron/ai_worker.php --queue=default,close_agent --label="prod-1"
