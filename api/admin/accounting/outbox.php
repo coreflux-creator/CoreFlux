@@ -16,6 +16,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/rbac/legacy_map.php';
 require_once __DIR__ . '/../../../core/accounting/command_service.php';
+require_once __DIR__ . '/../../../core/accounting/account_mapping_service.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -61,7 +62,41 @@ if ($method === 'GET' && $action === '') {
     foreach ($sum->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $r) {
         $byStatus[$r['status']] = (int) $r['c'];
     }
-    api_ok(['rows' => $rows, 'by_status' => $byStatus]);
+
+    // Unmapped-account heads-up. The Jaz pushes that fail with
+    // "account #N is not linked to Jaz" originate from CoreFlux
+    // accounts that don't have a row in accounting_account_mappings
+    // yet. Surface a count per (provider, sub_tenant) pair currently
+    // active in the outbox so the operator can fix the mapping grid
+    // BEFORE pushes start failing. Banner is purely informational —
+    // the resolver fallback shipped in jaz_payload_mapper handles
+    // the case where a mapping was already added.
+    $unmappedByProvider = [];
+    $activeProviders = getDB()->prepare(
+        "SELECT DISTINCT provider, sub_tenant_id
+           FROM accounting_outbox_events
+          WHERE tenant_id = :t
+            AND status IN ('queued','processing','retrying','failed','dead_letter')
+          LIMIT 50"
+    );
+    $activeProviders->execute(['t' => $tid]);
+    foreach ($activeProviders->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
+        $prov = (string) $row['provider'];
+        $st   = (int)    $row['sub_tenant_id'];
+        $unm  = accountingAccountMappingsUnmapped($tid, $st, $prov);
+        if (!isset($unmappedByProvider[$prov])) {
+            $unmappedByProvider[$prov] = ['total' => 0, 'by_sub_tenant' => []];
+        }
+        $count = count($unm);
+        $unmappedByProvider[$prov]['total'] += $count;
+        $unmappedByProvider[$prov]['by_sub_tenant'][$st] = $count;
+    }
+
+    api_ok([
+        'rows' => $rows,
+        'by_status' => $byStatus,
+        'unmapped_by_provider' => $unmappedByProvider,
+    ]);
 }
 
 if ($method === 'GET' && $action === 'detail') {

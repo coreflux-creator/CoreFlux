@@ -19,6 +19,7 @@ import { api } from '../lib/api';
 export default function AccountingOutbox() {
   const [rows, setRows] = useState([]);
   const [byStatus, setByStatus] = useState({});
+  const [unmappedByProvider, setUnmappedByProvider] = useState({});
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -32,6 +33,7 @@ export default function AccountingOutbox() {
       const r = await api.get(`/api/admin/accounting/outbox.php${qs}`);
       setRows(r.rows || []);
       setByStatus(r.by_status || {});
+      setUnmappedByProvider(r.unmapped_by_provider || {});
     } catch (e) { setError(e.message || 'Failed to load'); }
     finally { setLoading(false); }
   }, [statusFilter]);
@@ -79,6 +81,8 @@ export default function AccountingOutbox() {
       </header>
 
       {error && <div className="error" data-testid="outbox-error">{error}</div>}
+
+      <UnmappedAccountsBanner data={unmappedByProvider} />
 
       <div style={{ marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button
@@ -237,3 +241,51 @@ const preStyle = {
   fontSize: 11, fontFamily: 'ui-monospace, monospace',
   maxHeight: 200, overflow: 'auto',
 };
+
+/**
+ * Heads-up banner: when there are CoreFlux GL accounts with no
+ * mapping row in `accounting_account_mappings` for a provider that
+ * currently has outbox activity, render an amber banner so the
+ * operator can fix the mapping grid BEFORE the next push fails.
+ *
+ * Receives `data` shaped like:
+ *   { jaz: { total: 5, by_sub_tenant: { 1: 5 } }, qbo: { … } }
+ *
+ * The fix shipped in `jaz_payload_mapper.php` means existing mappings
+ * resolve fine without a destination_links row, so this banner is
+ * purely informational — flagging the genuine "operator hasn't
+ * mapped this yet" case before it manifests as a stuck outbox row.
+ */
+function UnmappedAccountsBanner({ data }) {
+  const providers = Object.entries(data || {})
+    .filter(([, v]) => (v?.total || 0) > 0);
+  if (providers.length === 0) return null;
+  return (
+    <div
+      data-testid="outbox-unmapped-banner"
+      role="alert"
+      style={{
+        marginBottom: 12, padding: '10px 14px',
+        background: '#fef3c7', border: '1px solid #fcd34d',
+        borderRadius: 6, fontSize: 13, color: '#78350f',
+        display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+      }}
+    >
+      <span style={{ fontWeight: 600 }}>⚠ Unmapped accounts</span>
+      {providers.map(([prov, v]) => (
+        <span key={prov} data-testid={`outbox-unmapped-${prov}`}>
+          <code style={{ background: '#fde68a', padding: '1px 6px', borderRadius: 3 }}>{prov}</code>
+          {' — '}
+          <strong>{v.total}</strong> CoreFlux account{v.total === 1 ? '' : 's'} not yet mapped
+        </span>
+      ))}
+      <a
+        href={providers[0][0] === 'jaz' ? '/admin/integrations/jaz' : '/admin/integrations'}
+        data-testid="outbox-unmapped-fix-link"
+        style={{ marginLeft: 'auto', color: '#7c2d12', fontWeight: 600, textDecoration: 'underline' }}
+      >
+        Open mapping grid →
+      </a>
+    </div>
+  );
+}

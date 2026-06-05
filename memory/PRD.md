@@ -1,5 +1,30 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Outbox unmapped-accounts heads-up banner)
+
+### What shipped this session
+- **Backend**: `/api/admin/accounting/outbox.php` GET now also returns `unmapped_by_provider` — for every distinct (provider, sub_tenant_id) pair currently active in the outbox (status in queued/processing/retrying/failed/dead_letter), it asks `accountingAccountMappingsUnmapped()` and rolls up:
+  ```
+  unmapped_by_provider: {
+    jaz: { total: 5, by_sub_tenant: { 1: 5 } }
+  }
+  ```
+  Walk capped at 50 pairs to keep the endpoint fast. `rows` and `by_status` keys unchanged (back-compat).
+- **Frontend**: `dashboard/src/pages/AccountingOutbox.jsx` reads the new field into state and renders a new `<UnmappedAccountsBanner />` above the filter pills. Amber, `role="alert"`, dismisses itself when every provider has `total === 0`, points the operator at `/admin/integrations/jaz` (or `/admin/integrations` for non-Jaz providers) with a "Open mapping grid →" link.
+- The fix shipped earlier (`jaz_payload_mapper.php` mapping fallback) means already-mapped accounts resolve fine without a destination_links row — so the banner is purely informational, flagging the genuine "operator hasn't mapped this yet" case BEFORE it manifests as a stuck outbox row.
+- **New smoke**: `tests/outbox_unmapped_banner_smoke.php` (20 ✓). Locks the API surface + JSX wiring + banner-component shape.
+
+### Suite health
+405/406 passing. Only the documented `accounting_phase2_a7_smoke.php` sandbox regression remains.
+
+### Backlog still open
+- P1: Slice F vertical extensions (AI spec).
+- P2: QBO OAuth proactive token refresh.
+- P2: QBO push retry + dead-letter queue.
+- P2: Cloudways env secret management.
+- P2: Mercury Webhooks integration.
+
+
 ## Session — 2026-02 (Jaz outbox unstick — account-mapping fallback)
 
 ### What shipped this session
