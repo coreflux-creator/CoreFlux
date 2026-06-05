@@ -51,10 +51,14 @@ Frontend (shared, drops into both surfaces) under `modules/accounting/ui/layer/`
 ## Verified (curl + screenshots)
 - Smoke test, status, setup (create + idempotent), business token, client-error, tenant isolation (2 distinct businesses), employee → 403, no-auth → 401, feature-flag off → 404, audit rows written, no token leakage. Embedded `@layerfi/components` mount in the standalone sandbox.
 
-## MOCK / STUB DISCLOSURE
-- LayerFi runs in **STUB MODE** (no real client keys). All LayerFi network calls
-  are simulated in-process. Set `LAYER_CLIENT_ID` + `LAYER_CLIENT_SECRET` (in
-  `/app/backend/.env`) to switch every call to live LayerFi sandbox — no code change.
+## LIVE MODE (real LayerFi sandbox keys configured)
+- Real `LAYER_CLIENT_ID` / `LAYER_CLIENT_SECRET` are set in `/app/backend/.env`.
+- Verified LIVE end-to-end against `sandbox.layerfi.com`:
+  - OAuth client_credentials token + `/whoami` smoke test → `stub:false, ok:true`.
+  - Real businesses created per tenant: tenant 1 `b1faf6e4-…`, tenant 2 `745c9127-…` (distinct → isolation), idempotent on re-run.
+  - Real business token issued (expiresIn 3600).
+  - Embedded `@layerfi/components` render LIVE data (default Chart of Accounts populated, Bank Transactions/Integrations live).
+- SECURITY NOTE: the client secret now lives in `/app/backend/.env`. Keep it out of any public git push; rotate if exposed.
 
 ## Backlog / Next actions
 - P0: Add real LayerFi sandbox keys → re-run smoke test + confirm embedded data renders.
