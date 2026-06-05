@@ -37,6 +37,13 @@ import Login from './pages/Login';
 import MagicLinkConsume from './pages/MagicLinkConsume';
 import ErrorBoundary from './components/ErrorBoundary';
 
+// LayerFi sandbox embed — production-safe default: nav + routes only appear
+// when VITE_ENABLE_LAYER_SANDBOX === 'true' at build time. Keeps the native
+// ledger as the sole accounting surface unless explicitly opted in.
+const LAYER_SANDBOX_ENABLED =
+  typeof import.meta !== 'undefined' &&
+  String(import.meta.env?.VITE_ENABLE_LAYER_SANDBOX) === 'true';
+
 // Loading screen
 const LoadingScreen = () => (
   <div className="loading-screen">
@@ -185,6 +192,10 @@ const DEMO_SESSION = {
         { name: 'Rule Sandbox',         route: 'rule-sandbox' },
         { name: 'Accounting Events',    route: 'events' },
         { name: 'Audit Log',            route: 'audit' },
+        ...(LAYER_SANDBOX_ENABLED ? [
+          { name: 'Layer Sandbox (Embed)', route: 'layer-sandbox' },
+          { name: 'Layer Integration',    route: 'layer-integration' },
+        ] : []),
       ]
     },
     {

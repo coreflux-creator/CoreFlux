@@ -26,6 +26,16 @@ import GLDetail from './GLDetail';
 import TaxMappings from './TaxMappings';
 import TaxExport from './TaxExport';
 import DimensionalPnL from './DimensionalPnL';
+import LayerSandboxModule from './layer/LayerSandboxModule';
+
+// LayerFi sandbox embed (per-tenant embedded accounting evaluation).
+// Production-safe default: HIDDEN unless VITE_ENABLE_LAYER_SANDBOX is
+// explicitly set to "true" at build time. Shipping the bundle without that
+// var leaves the native ledger as the only accounting surface (no routes,
+// no nav, and the backend endpoints 404 unless ENABLE_LAYER_SANDBOX=true).
+const LAYER_SANDBOX_ENABLED =
+  typeof import.meta !== 'undefined' &&
+  String(import.meta.env?.VITE_ENABLE_LAYER_SANDBOX) === 'true';
 
 /**
  * Accounting Module — Phase 0 + 1 + 2 UI
@@ -92,6 +102,12 @@ export default function AccountingModule({ session }) {
         <Route path="periods"  element={<Periods         session={session} />} />
         <Route path="dimensions" element={<DimensionsAdmin session={session} />} />
         <Route path="close"      element={<PeriodCloseWorkflow session={session} />} />
+        {LAYER_SANDBOX_ENABLED && (
+          <Route path="layer-sandbox" element={<LayerSandboxModule session={session} view="sandbox" />} />
+        )}
+        {LAYER_SANDBOX_ENABLED && (
+          <Route path="layer-integration" element={<LayerSandboxModule session={session} view="settings" />} />
+        )}
       </Routes>
     </div>
   );

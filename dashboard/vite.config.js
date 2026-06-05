@@ -15,6 +15,7 @@ export default defineConfig({
       'react-dom':        path.resolve(__dirname, 'node_modules/react-dom'),
       'react-router-dom': path.resolve(__dirname, 'node_modules/react-router-dom'),
       'lucide-react':     path.resolve(__dirname, 'node_modules/lucide-react'),
+      '@layerfi/components': path.resolve(__dirname, 'node_modules/@layerfi/components'),
     },
     dedupe: ['react', 'react-dom', 'react-router-dom'],
   },
