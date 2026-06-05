@@ -59,7 +59,7 @@ export default function App() {
   }
 
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <div className="cf-shell">
         <aside className="cf-side">
           <div className="cf-brand">
