@@ -121,10 +121,16 @@ function _accAmount($cents): float
 /**
  * Map an AP bill row → Jaz POST /bills payload.
  *
- * Expected $row fields (best-effort, missing → throws Validation):
- *   id, vendor_id, internal_ref, bill_date, due_date, currency,
- *   total_amount, notes, lines[] = {description, quantity,
- *   unit_amount, line_total, account_id|gl_account_id}
+ * Verified against `CreateBillClientRequest` in `spec/jaz_openapi.json`
+ * (Jaz OpenAPI). Required top-level keys: reference, valueDate, dueDate.
+ * Line items use `CreateBillClientRequestLineItem` whose declared
+ * fields are: accountResourceId, classifierConfig, discount,
+ * itemResourceId, name, quantity, taxProfileResourceId,
+ * taxVatAdjustment, unit, unitPrice, withholdingTax — note `name`
+ * (NOT `description`), `unitPrice` (NOT `unitAmount`),
+ * `taxProfileResourceId` (NOT `taxRateResourceId`).
+ *
+ * Locked by `tests/jaz_payload_contract_smoke.php`.
  */
 function mapBillToJaz(int $tenantId, int $subTenantId, array $row): array
 {
@@ -144,30 +150,36 @@ function mapBillToJaz(int $tenantId, int $subTenantId, array $row): array
         if ($acctId <= 0) {
             throw new AccountingAdapterValidationException("bill line #{$idx} missing account_id");
         }
-        $jazLines[] = [
-            'description'       => (string) ($ln['description'] ?? $ln['memo'] ?? ''),
+        $item = [
+            'name'              => (string) ($ln['description'] ?? $ln['name'] ?? $ln['memo'] ?? ''),
             'quantity'          => (float) ($ln['quantity'] ?? 1),
-            'unitAmount'        => _accAmount(_accCents($ln['unit_amount'] ?? $ln['line_total'] ?? 0)),
+            'unitPrice'         => _accAmount(_accCents($ln['unit_amount'] ?? $ln['unit_price'] ?? $ln['line_total'] ?? 0)),
             'accountResourceId' => _accLookupJazResourceId($tenantId, $subTenantId, 'account', $acctId),
-            'taxRateResourceId' => isset($ln['tax_rate_id'])
-                ? _accLookupJazResourceId($tenantId, $subTenantId, 'tax_rate', (int) $ln['tax_rate_id'])
-                : null,
         ];
+        if (isset($ln['tax_rate_id'])) {
+            $item['taxProfileResourceId'] = _accLookupJazResourceId($tenantId, $subTenantId, 'tax_rate', (int) $ln['tax_rate_id']);
+        }
+        $jazLines[] = $item;
     }
 
     return [
         'reference'         => (string) ($row['internal_ref'] ?? ('CF-BILL-' . $row['id'])),
         'contactResourceId' => $contactRid,
-        'billDate'          => (string) ($row['bill_date'] ?? date('Y-m-d')),
+        'valueDate'         => (string) ($row['bill_date'] ?? $row['value_date'] ?? date('Y-m-d')),
         'dueDate'           => (string) ($row['due_date']  ?? $row['bill_date'] ?? date('Y-m-d')),
-        'currency'          => (string) ($row['currency']  ?? 'USD'),
-        'notes'             => (string) ($row['notes']     ?? $row['memo'] ?? ''),
+        'currency'          => ['sourceCurrency' => (string) ($row['currency'] ?? 'USD')],
+        'internalNotes'     => (string) ($row['notes'] ?? $row['memo'] ?? ''),
         'lineItems'         => $jazLines,
     ];
 }
 
 /**
  * Map an AR invoice row → Jaz POST /invoices payload.
+ *
+ * Same shape rules as bills (see mapBillToJaz docblock) but mapped
+ * against `CreateInvoiceClientRequest`. Line items use
+ * `CreateInvoiceClientRequestLineItem` — same `name`/`unitPrice`/
+ * `taxProfileResourceId` rules as bills.
  */
 function mapInvoiceToJaz(int $tenantId, int $subTenantId, array $row): array
 {
@@ -187,24 +199,25 @@ function mapInvoiceToJaz(int $tenantId, int $subTenantId, array $row): array
         if ($acctId <= 0) {
             throw new AccountingAdapterValidationException("invoice line #{$idx} missing account_id");
         }
-        $jazLines[] = [
-            'description'       => (string) ($ln['description'] ?? $ln['memo'] ?? ''),
+        $item = [
+            'name'              => (string) ($ln['description'] ?? $ln['name'] ?? $ln['memo'] ?? ''),
             'quantity'          => (float) ($ln['quantity'] ?? 1),
-            'unitAmount'        => _accAmount(_accCents($ln['unit_amount'] ?? $ln['line_total'] ?? 0)),
+            'unitPrice'         => _accAmount(_accCents($ln['unit_amount'] ?? $ln['unit_price'] ?? $ln['line_total'] ?? 0)),
             'accountResourceId' => _accLookupJazResourceId($tenantId, $subTenantId, 'account', $acctId),
-            'taxRateResourceId' => isset($ln['tax_rate_id'])
-                ? _accLookupJazResourceId($tenantId, $subTenantId, 'tax_rate', (int) $ln['tax_rate_id'])
-                : null,
         ];
+        if (isset($ln['tax_rate_id'])) {
+            $item['taxProfileResourceId'] = _accLookupJazResourceId($tenantId, $subTenantId, 'tax_rate', (int) $ln['tax_rate_id']);
+        }
+        $jazLines[] = $item;
     }
 
     return [
         'reference'         => (string) ($row['invoice_number'] ?? ('CF-INV-' . $row['id'])),
         'contactResourceId' => $contactRid,
-        'invoiceDate'       => (string) ($row['invoice_date'] ?? date('Y-m-d')),
+        'valueDate'         => (string) ($row['invoice_date'] ?? $row['value_date'] ?? date('Y-m-d')),
         'dueDate'           => (string) ($row['due_date']     ?? $row['invoice_date'] ?? date('Y-m-d')),
-        'currency'          => (string) ($row['currency']     ?? 'USD'),
-        'notes'             => (string) ($row['notes']        ?? $row['memo'] ?? ''),
+        'currency'          => ['sourceCurrency' => (string) ($row['currency'] ?? 'USD')],
+        'internalNotes'     => (string) ($row['notes'] ?? $row['memo'] ?? ''),
         'lineItems'         => $jazLines,
     ];
 }

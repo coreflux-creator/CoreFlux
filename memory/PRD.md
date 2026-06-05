@@ -1,5 +1,37 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Jaz OpenAPI vendored + contract smoke + bill/invoice mapper fixes)
+
+### What shipped
+1. **Vendored the Jaz OpenAPI** to `/app/spec/jaz_openapi.json` (1.37 MB, ~50k lines, 200+ endpoints) — pulled from `github.com/teamtinvio/jaz-ai @ spec/openapi.yaml`, the source of truth used by Jaz's own MCP server / CLI / Claude plugin. Despite the `.yaml` extension upstream, the file is JSON-shaped so PHP can decode natively (no PECL yaml dependency).
+
+2. **New `tests/jaz_payload_contract_smoke.php`** (34 ✓) — for every Jaz outbound mapper:
+   - exercises a realistic CoreFlux row,
+   - resolves `$ref` chains in the OpenAPI (including `allOf`-wrapped refs and array `items.$ref`),
+   - asserts **no stray fields** the mapper emits outside what `Create*ClientRequest` declares (this is what Jaz rejects as `invalid_request_body`),
+   - asserts **every required field** is present + non-null,
+   - recurses into nested sub-objects (BTCurrency, JournalEntry, LineItem) and runs the same checks against their own schemas.
+
+3. **Mapper fixes the contract smoke surfaced (bill + invoice had the same class of bug as journal):**
+   - `billDate` / `invoiceDate` → `valueDate` (required by schema)
+   - `notes` → `internalNotes`
+   - `currency: "USD"` → `{ sourceCurrency: "USD" }` (BTCurrency object)
+   - Line items: `description` → `name`, `unitAmount` → `unitPrice`, `taxRateResourceId` → `taxProfileResourceId`. The old `null` tax field is now omitted entirely when there's no `tax_rate_id`.
+
+### Why this matters
+The Feb 2026 outbox stall pattern ("Invalid request body" then stuck retrying) had recurred at least 3 times across mappers. The contract smoke makes that class of bug impossible to ship — every new field added to a mapper has to either match the spec or be added to the spec.
+
+### Suite health
+404/408. The 4 failing smokes (`accounting_phase2_a7`, `ai_gateway_slice4`, `ai_gateway_slice6`, `treasury_csv_import`) all fail on baseline without my change (verified via `git stash`) — pre-existing env/sandbox issues, none touch Jaz code.
+
+### Backlog
+- P1: Slice F vertical extensions (AI spec).
+- P2: QBO OAuth proactive token refresh.
+- P2: QBO push retry + dead-letter queue.
+- P2: Cloudways env secret management.
+- P2: Mercury Webhooks integration.
+
+
 ## Session — 2026-02 (Jaz POST /journals payload shape — verified against official OpenAPI)
 
 ### Root cause (4 sessions ago this was guessed; now verified)
