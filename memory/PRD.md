@@ -83,6 +83,19 @@ Frontend (shared, drops into both surfaces) under `modules/accounting/ui/layer/`
   `/app/spa-assets` live bundle was NOT mutated (deploy-time `yarn build` does
   the sync with the chosen flag).
 
+### Repo hygiene (2026-06-05)
+- Fixed a corrupted `.gitignore` (1,714 lines → 46) where a credential block was
+  duplicated ~150× via a stray `echo -e` append. Sane version now ignores env/
+  credentials, node_modules, `dist/`, vite/python caches, logs, vendor, backups.
+- No merge conflict exists IN the Emergent workspace (tree clean, no markers,
+  `.env` not tracked). Conflicts the user sees are in their external GitHub repo,
+  caused by COMMITTED BUILD ARTIFACTS: `spa-assets/` (348 MB / 210 files),
+  `app/assets/`, `dashboard/assets/`, `dashboard/dist/index.html`. Every rebuild
+  changes hashed filenames + `index.html`, so merges conflict on generated files.
+- Per user choice (1b): build artifacts LEFT TRACKED for now (deploy may serve the
+  committed `spa-assets` bundle). Future fix to stop recurring conflicts: untrack
+  them once deploy-time rebuild is confirmed.
+
 ## Backlog / Next actions
 - P0: Add real LayerFi sandbox keys → re-run smoke test + confirm embedded data renders.
 - P1: Build + ship the dashboard SPA bundle with the LayerFi routes (currently wired at code level).
