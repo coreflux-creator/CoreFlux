@@ -1,0 +1,39 @@
+{
+  "summary": "Comprehensive backend + frontend testing of CoreFlux LayerFi Sandbox embed. 10/10 backend pytest cases passed (dev token, smoke, status, setup tenant w/ idempotency + per-tenant isolation, business token, RBAC 403, no-auth 401, client-error). Frontend Settings page renders, smoke test + setup buttons function, success toast appears, tenant switcher correctly reloads status for tenant 2 (external id coreflux:sandbox:tenant:2), role switcher to View-only disables actions and shows hint, and the embedded /accounting/layer-sandbox panel mounts all 5 real @layerfi/components cards (integrations, bank-transactions, coa, pnl, balance-sheet) plus the sandbox stub banner with no hard crash.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/accounting/layer-sandbox", "issues": ["Plaid link-initialize.js script embedded more than once (console warning emitted by @layerfi/components when both Integrations and BankTransactions cards mount on the same page). Not blocking but worth review."]},
+      {"screen": "global", "issues": ["React Router future-flag deprecation warnings (v6 -> v7) in console; cosmetic only."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_layer_api.py",
+    "/app/test_reports/pytest/layer_api_results.xml"
+  ],
+  "action_items": [
+    "Optional: deduplicate Plaid script injection inside the LayerEmbeddedAccountingPanel (or load components lazily) to silence the duplicate link-initialize.js warning.",
+    "Optional: opt into React Router v7 future flags to silence deprecation warnings."
+  ],
+  "critical_code_review_comments": [
+    "Backend RBAC correctly returns 401 (no auth) vs 403 (role lacks accounting.view) and never leaks businessAccessToken in error bodies.",
+    "Per-tenant idempotency verified: second call to /api/accounting/layer-setup-tenant returns same layerBusinessId and created=false; external id is deterministic 'coreflux:sandbox:tenant:<id>'.",
+    "Tenant isolation verified: tenant 1 and tenant 2 receive distinct stub_biz_* IDs.",
+    "Embedded panel uses the real @layerfi/components and gracefully degrades to empty/loading states with stub tokens, matching the documented sandbox stub behavior."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_layer_api.py (new pytest suite)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Demo identities via GET /api/dev/token?tenant_id={1|2}&role={master_admin|tenant_admin|employee}. No external secrets required (LayerFi runs in sandbox stub).",
+  "seed_data_creation": "Tests trigger LayerFi sandbox business creation for tenant 1 (Acme) and tenant 2 (Beta) via /api/accounting/layer-setup-tenant. Persisted as stub_biz_* records.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest suite at /app/backend/tests/test_layer_api.py is the regression baseline (10 tests). BASE_URL is hardcoded to the preview ingress URL since the app uses same-origin /api routing (no REACT_APP_BACKEND_URL set). Frontend Vite app exposes data-testids: layer-settings-page, layer-status-card, layer-smoke-test-btn, layer-smoke-result, layer-setup-btn, layer-settings-toast, layer-manage-hint, tenant-switcher, role-switcher, nav-sandbox, layer-embedded-panel, layer-stub-banner, layer-embed-{integrations|bank-transactions|coa|pnl|balance-sheet}, layer-embed-load-error. Tenant switcher values: 1=Acme, 2=Beta. Role values: master_admin, tenant_admin, employee (employee = 403 / view-only).",
+  "rca of the issue": "N/A - no failing tests"
+}

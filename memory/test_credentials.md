@@ -1,34 +1,33 @@
-# Test credentials
+# Test Credentials & Access — CoreFlux LayerFi Sandbox
 
-Existing demo/test user (unchanged from prior forks — no new credentials were
-created in the AP Phase A0 session; AP module uses RBAC on the same identity):
+## App URLs
+- Preview: https://64f26f5e-ae8a-4fdd-8d69-21dbdfae4220.preview.emergentagent.com
+- Standalone UI routes: `/settings/integrations/layer`, `/accounting/layer-sandbox`
+- Backend API base (same origin): `/api/...` (FastAPI gateway → PHP CoreFlux)
 
-- **email:** `kunal.verma@corefluxapp.com`
-- **role:** `master_admin`
-- **password:** (seeded on Cloudways via `/install.php`; ask user if testing
-  requires password reset — NOT stored in repo for security)
+## Auth model (sandbox harness)
+There is no login UI in the standalone evaluation. Short-lived JWTs are minted
+by the gateway for two demo tenants and three roles:
 
-> Note: prior PRD/handoffs incorrectly listed this as `kunal@coreflux.app`.
-> User clarified the canonical address is `kunal.verma@corefluxapp.com`
-> (2026-02). All new docs/PRD entries should use the corrected value.
+GET `/api/dev/token?tenant_id=<1|2>&role=<master_admin|tenant_admin|employee>`
+→ `{ token, user, tenant }`. Pass as `Authorization: Bearer <token>`.
 
-This user has all `ap.*` permissions (master_admin defaults to all perms)
-including:
+### Demo tenants
+- tenant_id 1 → "Acme Corp (Sandbox)"
+- tenant_id 2 → "Beta Industries (Sandbox)"
 
-- `ap.view`
-- `ap.bill.create`, `ap.bill.review`, `ap.bill.approve`, `ap.bill.void`, `ap.bill.post`
-- `ap.payment.create`, `ap.payment.send`, `ap.payment.allocate`
-- `ap.expense.submit`, `ap.expense.approve`
-- `ap.recurring.manage`
-- `ap.vendor.view_pii`
-- `ap.1099.view`, `ap.1099.generate`
-- `ap.reports.view`
-- `ap.export.run` *(new — AP Phase A1)*
+### Demo users / roles
+- master_admin → admin@coreflux.demo  (internal admin: can smoke-test + setup)
+- tenant_admin → tadmin@coreflux.demo (tenant admin: can setup + view)
+- employee     → viewer@coreflux.demo (no `accounting.view` → 403 on layer endpoints)
 
-**For two-eye testing** (bill approve, payment send, expense approve) you
-need a second user. Create via master admin panel → Users → New user,
-assign role `admin` or `tenant_admin`. Use a different email.
+In the standalone UI use the **Tenant** and **Acting as** switchers (top bar,
+data-testid `tenant-switcher` / `role-switcher`).
 
-**Plaid Transfer keys** (deferred — feature env-gated via
-`apPlaidConfigured()`): not set in this session. To enable, add
-`PLAID_CLIENT_ID` and `PLAID_SECRET_SANDBOX` to Cloudways env.
+## Database (local MariaDB in this container)
+- socket: /var/run/mysqld/mysqld.sock
+- db: grcudkpvcd  user: grcudkpvcd  pass: 7DgX7F4RPz  (from core/config.php)
+
+## LayerFi credentials
+- STUB MODE (no real keys). To go live, set in `/app/backend/.env`:
+  `LAYER_CLIENT_ID=...` and `LAYER_CLIENT_SECRET=...` then `sudo supervisorctl restart backend`.

@@ -185,6 +185,8 @@ const DEMO_SESSION = {
         { name: 'Rule Sandbox',         route: 'rule-sandbox' },
         { name: 'Accounting Events',    route: 'events' },
         { name: 'Audit Log',            route: 'audit' },
+        { name: 'Layer Sandbox (Embed)', route: 'layer-sandbox' },
+        { name: 'Layer Integration',    route: 'layer-integration' },
       ]
     },
     {
