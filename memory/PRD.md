@@ -1,5 +1,78 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-06 (LayerFi sandbox merge from `conflict_040626_2242`)
+
+GitHub web couldn't merge the branch ("too complicated for web"). Pulled
+the Layer files via raw.githubusercontent.com (repo temporarily public),
+applied the 3 hand-edits the user provided, built clean, ran smokes.
+
+### What landed in `/app`
+
+**Backend** (13 PHP files):
+- `core/integrations/layer/` — `layer_access.php`, `layer_audit.php`,
+  `layer_business_service.php`, `layer_client.php`, `layer_config.php`,
+  `layer_token_service.php`.
+- `modules/accounting/api/layer_*.php` — 7 router-resolved endpoints
+  (status, business_token, setup_tenant, smoke_test, client_error,
+  audit_log, tenant_enablement). All reachable via `/api/accounting/<slug>`
+  through the existing `apiRouterResolveFile()` shim — no new shims needed.
+
+**Frontend** (7 React files in `modules/accounting/ui/layer/`):
+LayerSandboxModule, LayerSandboxPage, LayerIntegrationSettingsPage,
+LayerIntegrationStatusCard, LayerAuditTimeline,
+LayerEmbeddedAccountingPanel, LayerErrorBoundary + `layerClient.js`.
+
+**3 hand-edits** (the diff matched what the user pasted; both file
+versions were clean Layer-additions with no conflict against current
+main):
+- `dashboard/vite.config.js` — `@layerfi/components` resolve alias.
+- `dashboard/src/App.jsx` — `LAYER_SANDBOX_ENABLED` flag + 2 nav items
+  in the accounting `actions:` array gated on the flag.
+- `modules/accounting/ui/AccountingModule.jsx` — `LayerSandboxModule`
+  import + 2 nested `<Route>`s gated on the flag.
+
+**Migrations**: `modules/accounting/migrations/022_layer_sandbox.sql` +
+`023_layer_tenant_enablement.sql` — slots 022/023 were free in that
+module's independent numbering scheme, no clash with `/core/migrations/`.
+
+**Package**: `@layerfi/components@^0.1.136` added via
+`yarn --cwd dashboard add`.
+
+**Build**: `VITE_ENABLE_LAYER_SANDBOX=true yarn build` compiled 5781
+modules clean. Bundle `coreflux-kngTRBcE`. `sync_bundle.sh` confirmed
+all 4 sync points consistent.
+
+### Tests
+
+- Full PHP suite: **395 / 396 ✓** (only the long-known
+  `accounting_phase2_a7_smoke.php` sandbox MySQL fixture gap remains).
+- All 13 new PHP files pass `php -l`.
+
+### Operator action remaining (carried out by user)
+
+1. Backend env constants in `config.local.php` (Cloudways has no env-var
+   UI per prior sessions — `define()` works):
+   ```php
+   define('ENABLE_LAYER_SANDBOX', 'true');
+   define('LAYER_ENV', 'sandbox');
+   define('LAYER_CLIENT_ID', '<sandbox client id>');
+   define('LAYER_CLIENT_SECRET', '<sandbox client secret>');
+   // Optional: LAYER_TENANT_ALLOWLIST, LAYER_TENANT_DEFAULT_ENABLED
+   ```
+2. RBAC permissions (`accounting.view`,
+   `accounting.manage_integrations`, `coreflux.internal_sandbox`) —
+   not in `/app/core/RBAC.php`; user is handling.
+3. Run `php deploy/run_migrations.php` after deploy (or apply 022 + 023
+   manually).
+4. Push + Cloudways deploy.
+
+### Repo state
+
+Repo was made public temporarily by the user to allow raw.githubusercontent
+fetching; user confirmed "done" → repo made private again.
+
+---
+
 ## Session — 2026-02 (P0 hotfix #2 · stale-tx guard on accountingPostJe)
 
 Same screenshot symptom as before — "Error: There is already an
