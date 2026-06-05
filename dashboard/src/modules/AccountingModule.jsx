@@ -1,10 +1,11 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { ModuleHero, Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { BookOpen, FileText, TrendingUp, CreditCard, Receipt, PieChart, CheckSquare } from 'lucide-react';
+import { BookOpen, FileText, TrendingUp, CreditCard, Receipt, PieChart, CheckSquare, Banknote } from 'lucide-react';
 import BookkeepingOverview from '../pages/BookkeepingOverview';
 import TransactionsToReview from '../pages/TransactionsToReview';
 import CloseDashboard from '../pages/CloseDashboard';
+import CashForecastReview from '../pages/CashForecastReview';
 
 // Accounting Overview
 const AccountingOverview = () => (
@@ -31,6 +32,7 @@ const AccountingOverview = () => (
         <ActionCard icon={FileText} title="Journal Entries" description="Create and post entries" href="/modules/accounting/journal-entries" />
         <ActionCard icon={CreditCard} title="Accounts Payable" description="Vendor invoices & payments" href="/modules/accounting/accounts-payable" />
         <ActionCard icon={CheckSquare} title="Close dashboard" description="Period close orchestrator: checklist progress, packet build, lock + reopen lifecycle. Spec §11." href="/modules/accounting/close" />
+        <ActionCard icon={Banknote} title="Cash forecast" description="13-week cash forecast over AP/AR/payroll. Heuristic, persisted per run, with shortfall alerts. Spec §11." href="/modules/accounting/cash-forecast" />
       </ActionCardsGrid>
     </Section>
   </>
@@ -144,6 +146,7 @@ const AccountingModule = ({ session }) => (
     <Route path="accounts_receivable" element={<Navigate to="../accounts-receivable" replace />} />
     <Route path="reports" element={<Reports />} />
     <Route path="close" element={<CloseDashboard />} />
+    <Route path="cash-forecast" element={<CashForecastReview />} />
     <Route path="settings" element={<AccountingSettings />} />
     <Route path="*" element={<Navigate to="overview" replace />} />
   </Routes>

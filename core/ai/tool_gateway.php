@@ -200,6 +200,54 @@ function aiToolRegistry(): array
             'handler'     => 'aiToolPostApprovedJournalEntryHandler',
             'idempotency_args' => ['je_id'],
         ],
+        // ── Slice E AP + Cash + Payroll tools per spec §11 ─────────────
+        'coreflux.check_duplicate_invoice' => [
+            'description' => 'Run duplicate-bill detection for an AP invoice extraction run. Looks for exact (vendor+bill_number) or likely (vendor+date+total) matches against existing ap_bills. Read-tier — never mutates state.',
+            'permission'  => 'accounting.read',
+            'risk_level'  => 'read',
+            'args'        => [
+                'extraction_run_id' => ['type' => 'int', 'required' => true, 'desc' => 'ap_invoice_extraction_runs.id'],
+            ],
+            'handler'     => 'aiToolCheckDuplicateInvoiceHandler',
+        ],
+        'coreflux.draft_bill' => [
+            'description' => 'Promote an extracted invoice payload into a draft ap_bills row (status=inbox). Refuses if the extraction was flagged as a duplicate. Idempotent on re-entry.',
+            'permission'  => 'accounting.write',
+            'risk_level'  => 'draft',
+            'args'        => [
+                'extraction_run_id' => ['type' => 'int', 'required' => true, 'desc' => 'ap_invoice_extraction_runs.id with status=extracted'],
+            ],
+            'handler'     => 'aiToolDraftBillHandler',
+            'idempotency_args' => ['extraction_run_id'],
+        ],
+        'coreflux.get_cash_position' => [
+            'description' => 'Return the current consolidated cash position across all accounting_bank_accounts for the tenant. Cents-safe. Read-tier.',
+            'permission'  => 'accounting.read',
+            'risk_level'  => 'read',
+            'args'        => [],
+            'handler'     => 'aiToolGetCashPositionHandler',
+        ],
+        'coreflux.run_cash_forecast' => [
+            'description' => 'Compute + persist an N-week (default 13) cash forecast from existing AP / AR / payroll data. Persists into cash_forecast_runs so the dashboard can render without recomputing. Draft-tier write.',
+            'permission'  => 'accounting.write',
+            'risk_level'  => 'draft',
+            'args'        => [
+                'weeks'       => ['type' => 'int',    'required' => false, 'desc' => 'How many weeks forward (1–52, default 13)'],
+                'starting_at' => ['type' => 'date',   'required' => false, 'desc' => 'YYYY-MM-DD start; defaults to today'],
+                'currency'    => ['type' => 'string', 'required' => false, 'desc' => "default 'USD'"],
+            ],
+            'handler'     => 'aiToolRunCashForecastHandler',
+            'idempotency_args' => ['starting_at', 'weeks'],
+        ],
+        'coreflux.detect_timesheet_anomalies' => [
+            'description' => 'Scan a given week of time_entries for spikes, zero-weeks, billable category drift, and >24h/day overlaps. Returns per-person findings with severity + score + reason. Read-tier — never mutates.',
+            'permission'  => 'accounting.read',
+            'risk_level'  => 'read',
+            'args'        => [
+                'week_start' => ['type' => 'date', 'required' => false, 'desc' => "YYYY-MM-DD Monday; defaults to the most-recent completed week"],
+            ],
+            'handler'     => 'aiToolDetectTimesheetAnomaliesHandler',
+        ],
     ];
     return $reg;
 }
@@ -271,6 +319,80 @@ function aiToolPostApprovedJournalEntryHandler(int $tenantId, ?int $subTenantId,
         'approval_id'   => $approvalId,
         'actor_user_id' => $actorUid,
     ]);
+}
+
+/* ── Slice E handlers ─────────────────────────────────────────────── */
+
+/** Read-tier — duplicate-invoice detection for an extraction run. */
+function aiToolCheckDuplicateInvoiceHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    require_once __DIR__ . '/ap_extraction.php';
+    $runId = (int) ($args['extraction_run_id'] ?? 0);
+    if ($runId <= 0) return ['ok' => false, 'error' => ['code' => 'bad_args', 'message' => 'extraction_run_id required']];
+    try {
+        return apExtractionCheckDuplicate($tenantId, $runId);
+    } catch (\Throwable $e) {
+        return ['ok' => false, 'error' => ['code' => 'not_found', 'message' => $e->getMessage()]];
+    }
+}
+
+/** Draft-tier — promote extraction payload to a draft ap_bills row. */
+function aiToolDraftBillHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    require_once __DIR__ . '/ap_extraction.php';
+    $runId    = (int) ($args['extraction_run_id'] ?? 0);
+    $actorUid = isset($args['_actor_user_id']) ? (int) $args['_actor_user_id'] : null;
+    if ($runId <= 0) return ['ok' => false, 'error' => ['code' => 'bad_args', 'message' => 'extraction_run_id required']];
+    try {
+        return apExtractionDraftBill($tenantId, $runId, $actorUid);
+    } catch (\Throwable $e) {
+        return ['ok' => false, 'error' => ['code' => 'invalid_state', 'message' => $e->getMessage()]];
+    }
+}
+
+/** Read-tier — current consolidated cash position. */
+function aiToolGetCashPositionHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    require_once __DIR__ . '/cash_forecast.php';
+    $cents = cashForecastReadOpeningBalanceCents($tenantId);
+    return [
+        'tenant_id'       => $tenantId,
+        'currency'        => 'USD',
+        'cash_cents'      => $cents,
+        'cash_formatted'  => number_format($cents / 100, 2, '.', ','),
+        'snapshot_at'     => date('c'),
+    ];
+}
+
+/** Draft-tier — compute + persist a 13-week (or N-week) cash forecast. */
+function aiToolRunCashForecastHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    require_once __DIR__ . '/cash_forecast.php';
+    $actorUid = isset($args['_actor_user_id']) ? (int) $args['_actor_user_id'] : null;
+    try {
+        return cashForecastRun($tenantId, [
+            'weeks'         => isset($args['weeks'])       ? (int) $args['weeks']       : null,
+            'starting_at'   => isset($args['starting_at']) ? (string) $args['starting_at'] : null,
+            'currency'      => isset($args['currency'])    ? (string) $args['currency']    : null,
+            'sub_tenant_id' => $subTenantId,
+            'actor_user_id' => $actorUid,
+        ]);
+    } catch (\InvalidArgumentException $e) {
+        return ['ok' => false, 'error' => ['code' => 'bad_args', 'message' => $e->getMessage()]];
+    }
+}
+
+/** Read-tier — timesheet anomaly detector. */
+function aiToolDetectTimesheetAnomaliesHandler(int $tenantId, ?int $subTenantId, array $args): array
+{
+    require_once __DIR__ . '/timesheet_anomaly.php';
+    try {
+        return detectTimesheetAnomalies($tenantId, [
+            'week_start' => isset($args['week_start']) ? (string) $args['week_start'] : null,
+        ]);
+    } catch (\InvalidArgumentException $e) {
+        return ['ok' => false, 'error' => ['code' => 'bad_args', 'message' => $e->getMessage()]];
+    }
 }
 
 /**

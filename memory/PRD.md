@@ -1,5 +1,179 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (AI-Native Extension · Slice E · AP Invoice Review + Cash Forecast + Payroll Review)
+
+User direction: "E" → after Slice D closed, confirmed the FINAL slice in
+the A→E user-committed sequence.
+
+### Scope (Slice E — the last slice in the AI-Native Extension Phase 1)
+Phase 5 — AP Agent + Cash Agent + Payroll Agent:
+- Duplicate-aware AP invoice intake.
+- 13-week cash forecast with shortfall detection.
+- Rule-based weekly timesheet anomaly detection.
+- Two new reviewer SPAs.
+
+### What shipped
+
+1. **Migration 108 — `108_ap_invoice_extractions_and_cash_forecast.sql`**
+   - `ap_invoice_extraction_runs` — one row per AI extraction attempt.
+     Status flow: `pending → extracted → drafted → posted` with
+     `duplicate` / `failed` branches.  Carries:
+     source_storage_uri / source_artifact_id (links to Slice A
+     artifact_objects), extracted_payload_json + confidence,
+     duplicate_check_status + duplicate_bill_id + reason,
+     draft_bill_id / posted_bill_id, ai_run_id, audit columns.
+   - `cash_forecast_runs` — one row per N-week (default 13) forecast.
+     Stores starting/ending/min-week balance in CENTS (safe arithmetic),
+     plus the full per-week JSON payload so the dashboard doesn't
+     recompute.  Linked back to Slice A via artifact_id.
+
+2. **`core/ai/ap_extraction.php`** (NEW, ~270 LOC)
+   - `apNormalizeVendorName` — same uppercase/whitespace/trailing-punc
+     rules as Slice B vendor_aliases (lets dup-detection survive
+     vendor-name jitter).
+   - `apExtractionCreate` / `apExtractionRecordPayload` — register +
+     stamp extracted payload.
+   - **`apExtractionCheckDuplicate`** — exact (vendor+bill_number) /
+     likely (vendor+date+total) match against `ap_bills`. Returns
+     verdict + matched bill id + reason + auto-bumps run status to
+     `duplicate` on match.
+   - **`apExtractionDraftBill`** — promotes an extracted payload to a
+     real `ap_bills` row (status=`inbox`). Refuses if the run is
+     flagged duplicate. Idempotent on re-entry.
+
+3. **`core/ai/cash_forecast.php`** (NEW, ~190 LOC)
+   - `cashForecastRun` — heuristic 13-week forecast:
+     - Opening cash from `accounting_bank_accounts.last_known_balance`
+       (scaled to cents).
+     - Weekly AP outflow = SUM(ap_bills.amount_due WHERE status IN
+       (approved, partially_paid, pending_approval) AND due_date in week).
+     - Weekly AR inflow = SUM(billing_invoices.balance_due WHERE status IN
+       (sent, partial) AND due_date in week).
+     - Weekly payroll = SUM(payroll_runs.net_total WHERE pay_date in week).
+     - Closing = running + AR − AP − payroll. Tags `NEGATIVE — shortfall flagged` notes.
+   - `cashForecastGet` / `cashForecastList` — JSON-decode the payload back.
+
+4. **`core/ai/timesheet_anomaly.php`** (NEW, ~180 LOC)
+   - `detectTimesheetAnomalies` — 4 rules over `time_entries`:
+     - **R1 SPIKE** — week hours > 1.5× 4-week median AND ≥ 50 hours.
+     - **R2 ZERO_WEEK** — baseline ≥ 1 hr/wk in prior 4 weeks, current=0.
+     - **R3 CATEGORY_DRIFT** — billable share dropped > 30 percentage
+       points vs. 4-week avg.
+     - **R4 OVERLAP** — any (person, day) summing > 24 hours.
+   - Each finding carries `severity` (low/medium/high), `score` (0..1),
+     a short `reason` string, `current_value` + `baseline_value`.
+   - Returns `summary_by_rule` headline counts + `scanned_people`.
+   - Tolerant of missing schema in sandbox (returns a structured
+     shell with a `note` field).
+
+5. **`core/ai/tool_gateway.php` — 5 new tools registered**
+   - `coreflux.check_duplicate_invoice` (read tier) → `aiToolCheckDuplicateInvoiceHandler`.
+   - `coreflux.draft_bill` (draft tier, idempotent on `extraction_run_id`) → `aiToolDraftBillHandler`.
+   - `coreflux.get_cash_position` (read tier) → `aiToolGetCashPositionHandler`.
+   - `coreflux.run_cash_forecast` (draft tier, idempotent on (starting_at, weeks)) → `aiToolRunCashForecastHandler`.
+   - `coreflux.detect_timesheet_anomalies` (read tier) → `aiToolDetectTimesheetAnomaliesHandler`.
+
+6. **`/api/ai/forecasts.php`** (NEW) — list / detail / run endpoints.
+   `accounting.read` for list+detail; `accounting.write` for run.
+
+7. **`/api/ai/payroll_review.php`** (NEW) — GET-only weekly packet
+   endpoint. `staffing.read` OR `accounting.read` (CFO override).
+   Defaults `week_start` to "monday last week".
+
+8. **`dashboard/src/pages/CashForecastReview.jsx`** (NEW, ~290 LOC)
+   - Mounted at `/modules/accounting/cash-forecast`.
+   - Two-column SPA with run list + per-week bucket table.
+   - Cents-safe money formatter; shortfall weeks highlighted in red.
+   - "Run new forecast" with configurable weeks (1–52).
+   - 12 static + 2 template testids.
+
+9. **`dashboard/src/pages/PayrollReviewPacket.jsx`** (NEW, ~210 LOC)
+   - Mounted at `/admin/ai/payroll-review`.
+   - Summary bar showing scanned_people + per-rule counts.
+   - Findings table with RuleChip + SeverityChip; empty state shows
+     "✓ inbox zero".
+   - Week-start date input + Refresh button.
+   - 8 static + 3 template testids.
+
+10. **AccountingModule + AdminModule routing wire-in**
+    - Accounting overview: new "Cash forecast" tile (Banknote icon).
+    - Admin overview + sidebar nav: new "Payroll review packet" tile
+      (UserCheck icon).
+
+11. **`tests/ai_phase1_slice_e_smoke.php`** → **132 / 132 ✓** locking:
+    - Both migration tables with full column shape + enums.
+    - All 7 library functions across the 3 new core/ai files.
+    - 2 pure-function probes against
+      `apNormalizeVendorName` + 4 against `detectTimesheetAnomalies`.
+    - 5 new tool registry entries + handlers + idempotency keys.
+    - Both new API endpoint surfaces + RBAC matrix.
+    - `php -l` clean on 5 new backend files.
+    - Both new SPAs (full testid coverage + behavioural assertions).
+    - AccountingModule + AdminModule wire-in.
+
+### HY093 sentry fix
+
+The initial `apExtractionDraftBill` INSERT re-used `:tot` for both
+`total` and `amount_due`. PDO with emulation OFF refuses duplicate
+named placeholders (HY093). Renamed to `:tot` + `:due` (both bound
+to the same value).  Caught by `hy093_static_analyzer_smoke.php`.
+
+### Test status
+
+- Slice E smoke: **132 / 132 ✓**
+- Full PHP suite: **390 / 392 ✓** (only the 2 documented
+  sandbox-bound failures remain).
+- Vite bundle: **`coreflux-Cinn3Qt5`** (new hash this time). Lint clean.
+  All 4 sync points consistent.
+
+### Operator action (production)
+
+1. **Deploy migration 108** (idempotent `CREATE TABLE IF NOT EXISTS`).
+2. **Deploy bundle `coreflux-Cinn3Qt5`**.
+3. Accounting → **Cash forecast** is reachable; "Run new forecast"
+   produces a 13-week heuristic from existing AP/AR/payroll data.
+4. Admin → **Payroll review packet** is reachable; pick a week to see
+   anomalies across all `time_entries` for the tenant.
+5. AI invocations of:
+   - `coreflux.check_duplicate_invoice(extraction_run_id)`
+   - `coreflux.draft_bill(extraction_run_id)`
+   - `coreflux.get_cash_position()`
+   - `coreflux.run_cash_forecast(weeks?, starting_at?, currency?)`
+   - `coreflux.detect_timesheet_anomalies(week_start?)`
+   all available via `/api/ai/tools.php?action=invoke`.
+
+### Slice A → E summary (Phase 1 done)
+
+| Slice | Surface |
+| --- | --- |
+| A | tool_registry · tool_permissions · artifact_objects + events + relationships · ArtifactsAdmin |
+| B | vendor_aliases · exception queue UX (AccountingExceptionQueue + TransactionRecommendationCard) |
+| C | accountingValidateJe · accountingPromoteDraftToPosted · JeDraftsReview · risk-4 gate threading |
+| D | accounting_close_runs · CloseDashboard (lifecycle + artifact integration) |
+| E | ap_invoice_extraction_runs · cash_forecast_runs · timesheet anomaly detector · CashForecastReview · PayrollReviewPacket |
+
+13 new tools added to the registry across the 5 slices. Every write
+tool is risk-tiered + idempotency-keyed. Every reviewer surface emits
+spec-§15 audit events. The AI gateway can now operate the entire
+accounting + AP + cash + payroll review workflow with full operator
+oversight.
+
+### Next slices
+
+Phase 1 (A–E) of the AI-Native Extension is now COMPLETE.  Phase 2
+candidates from the spec (`SPEC_COMPLIANCE_SCAN.md` §Phase 6+):
+
+- **Slice F** — Vertical extensions (restaurant prime-cost calculator,
+  CPA workpaper generator).
+- **Phase 7** — Knowledge graph + AI worker runtime (Sora-style
+  asynchronous tool workers backed by Redis/queues).
+- **(P2)** Mercury Webhooks integration.
+- **(P2)** Wire `mailerSend()` to a Resend driver.
+- **(P3)** AI Digest Scheduler (Sunday-night Ops Memo cron).
+- **(P3)** External Auditor view (tokenized read-only URL).
+
+---
+
 ## Session — 2026-02 (AI-Native Extension · Slice D · Period-Close Orchestrator + Dashboard)
 
 User direction: "d" → after Slice C closed, confirmed Slice D from the
