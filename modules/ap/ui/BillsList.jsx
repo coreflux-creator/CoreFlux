@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, useApi } from '../../../dashboard/src/lib/api'; // eslint-disable-line no-unused-vars
+import { api, useApiCached } from '../../../dashboard/src/lib/api'; // eslint-disable-line no-unused-vars
 import { useBulkSelection } from '../../../dashboard/src/lib/useBulkSelection';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import BillFromTimeBundleModal from './BillFromTimeBundleModal';
@@ -21,7 +21,10 @@ export default function BillsList() {
   if (status !== 'all')    qs.set('status', status);
   if (activeEntityId)      qs.set('entity_id', String(activeEntityId));
   const path = '/modules/ap/api/bills.php' + (qs.toString() ? `?${qs}` : '');
-  const { data, loading, error, reload } = useApi(path);
+  const { data, loading, error, reload } = useApiCached(
+    path,
+    { cacheKey: `ap-bills-list:${path}` }
+  );
   const rows = data?.rows ?? [];
   const sel = useBulkSelection(rows.map(r => r.id));
 

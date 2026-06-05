@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { useApi } from '../../../dashboard/src/lib/api';
+import { useApiCached } from '../../../dashboard/src/lib/api';
 
 /**
  * Timesheets List — Batch 2 (2026-02).
@@ -29,9 +29,13 @@ export default function TimesheetsList({ session }) {
     return params.toString();
   }, [filters]);
 
-  const { data, loading, error, reload } = useApi(
-    `/modules/staffing/api/timesheets.php?${query}`,
-    [query]
+  // LP-001 — SWR cache. Reopening Timesheets paints from cache instantly
+  // and revalidates in the background. The cache is keyed by full query
+  // so each filter combo gets its own warm entry.
+  const timesheetsPath = `/modules/staffing/api/timesheets.php?${query}`;
+  const { data, loading, error, reload } = useApiCached(
+    timesheetsPath,
+    { ttlMs: 30000, cacheKey: `timesheets-list:${query}` }
   );
   const rows = data?.rows ?? [];
 

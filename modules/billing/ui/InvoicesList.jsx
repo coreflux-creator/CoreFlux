@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, useApi } from '../../../dashboard/src/lib/api';
+import { api, useApiCached } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import InvoiceFromTimeBundleModal from './InvoiceFromTimeBundleModal';
 import InvoiceFromTimeEntriesModal from './InvoiceFromTimeEntriesModal';
@@ -18,7 +18,10 @@ export default function InvoicesList() {
   if (status !== 'all') qs.set('status', status);
   if (activeEntityId)   qs.set('entity_id', String(activeEntityId));
   const path = '/modules/billing/api/invoices.php' + (qs.toString() ? `?${qs}` : '');
-  const { data, loading, error, reload } = useApi(path);
+  const { data, loading, error, reload } = useApiCached(
+    path,
+    { cacheKey: `billing-invoices-list:${path}` }
+  );
   const rows = data?.rows ?? [];
 
   return (

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useApi, api } from '../../../dashboard/src/lib/api';
+import { useApiCached, api } from '../../../dashboard/src/lib/api';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 const STATUSES = ['', 'draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'];
@@ -46,7 +46,10 @@ export default function List() {
     return `/modules/placements/api/placements.php?${p.toString()}`;
   }, [q, status, engagementType, page]);
 
-  const { data, loading, error, elapsedMs, reload } = useApi(path);
+  const { data, loading, error, elapsedMs, reload } = useApiCached(
+    path,
+    { cacheKey: `placements-list:${path}` }
+  );
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
   const perPage = data?.per_page ?? 25;

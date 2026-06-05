@@ -36,6 +36,7 @@ import RuleProposals from './pages/RuleProposals';
 import Login from './pages/Login';
 import MagicLinkConsume from './pages/MagicLinkConsume';
 import ErrorBoundary from './components/ErrorBoundary';
+import { filterLayerNav } from './lib/layerNavGate';
 
 // LayerFi sandbox embed — production-safe default: nav + routes only appear
 // when VITE_ENABLE_LAYER_SANDBOX === 'true' at build time. Keeps the native
@@ -273,6 +274,12 @@ const useSession = () => {
         const spaOnly = DEMO_SESSION.modules.filter(m => !dbIds.has(m.id) && ['staffing'].includes(m.id));
         data.modules = [...dbModules, ...spaOnly];
 
+        // RBAC — strip Layer Sandbox / Layer Integration nav entries when
+        // the user's role doesn't map to coreflux.internal_sandbox /
+        // accounting.manage_integrations. Backend endpoints already enforce
+        // this; the filter just removes dangling dead links from the sidebar.
+        data.modules = filterLayerNav(data.modules, data.user);
+
         console.log('Connected to PHP backend:', data.user.email);
         setSession(data);
         setUsingDemo(false);
@@ -282,6 +289,7 @@ const useSession = () => {
         // show a clean error rather than silently masking real bugs.
         if (typeof window !== 'undefined' && window.__CF_FORCE_DEMO__ === true) {
           const demoSession = { ...DEMO_SESSION };
+          demoSession.modules = filterLayerNav(demoSession.modules, demoSession.user);
           demoSession.active_module = demoSession.modules[0];
           setSession(demoSession);
           setUsingDemo(true);

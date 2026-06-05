@@ -1,5 +1,59 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (useApiCached rollout to Placements / AP Bills / Billing Invoices)
+
+### What shipped this session
+- **Placements list** (`/app/modules/placements/ui/List.jsx`): `useApi(path)` → `useApiCached(path, { cacheKey: \`placements-list:${path}\` })`.
+- **AP Bills list** (`/app/modules/ap/ui/BillsList.jsx`): same swap, `cacheKey: ap-bills-list:${path}`.
+- **Billing Invoices list** (`/app/modules/billing/ui/InvoicesList.jsx`): same swap, `cacheKey: billing-invoices-list:${path}`.
+- `useApi` remains exported alongside `useApiCached` for callers that want the previous no-cache behavior.
+- Each scoped cacheKey embeds the full filter-encoded path so each filter combo gets its own warm entry.
+- Mutation flows already invoke `reload()`, which under `useApiCached` invalidates the cache entry before refetching — no extra wiring needed.
+- New smoke: `tests/list_swr_rollout_smoke.php` (20 ✓) locks the migration on all three pages.
+- Pre-existing `tests/placements_graphql_pilot_smoke.php` regex updated to also match `useApiCached` calls (still asserts elapsedMs perf badge wiring).
+
+### Suite health
+401/402 passing. Only the documented `accounting_phase2_a7_smoke.php` sandbox regression remains.
+
+### Backlog still open
+- P1: Slice F vertical extensions (AI spec).
+- P2: QBO OAuth proactive token refresh.
+- P2: QBO push retry + dead-letter queue.
+- P2: Cloudways env secret management (Resend keys currently hardcoded in `config.local.php` per user request).
+- P2: Mercury Webhooks integration.
+
+
+## Session — 2026-02 (P3 cleanup + RBAC bridge recent-disagreements widget)
+
+### What shipped this session
+1. **P3-A — LayerFi sandbox role gating in UI**
+   - New `/app/dashboard/src/lib/layerNavGate.js` (`canSeeLayerSandbox`, `canSeeLayerIntegration`, `filterLayerNav`).
+   - Mapping mirrors `rbac_config.php`: sandbox = master/tenant admin only; integration = + admin.
+   - Wired into `App.jsx` on both the DB-session merge path and the demo-session fallback. Backend `/api/accounting/layer_*.php` already enforces this server-side; the filter just removes dangling dead links from the sidebar for the wrong personas.
+   - Smoke: `tests/layer_nav_gate_smoke.php` (21 ✓).
+
+2. **P3-B — LP-001 SWR cache for Timesheet list**
+   - Extended `dashboard/src/lib/api.js` with opt-in `useApiCached(path, options)` + `bustApiCache(key)` + `peekApiCache(key)`. SWR semantics: module-scoped Map cache, in-flight Promise dedup, TTL + stale-while-revalidate (default 30s).
+   - `useApi` left untouched (no regression).
+   - `modules/staffing/ui/TimesheetsList.jsx` now uses `useApiCached` keyed by `timesheets-list:${queryString}` so reopening the page paints instantly from cache.
+   - Smoke: `tests/timesheets_swr_cache_smoke.php` (23 ✓).
+
+3. **Enhancement — RBAC bridge "Recent disagreements" widget**
+   - Backend `/api/admin/rbac_bridge_health.php` already returns a `recent[]` array of the last 20 audit rows; the existing `RbacBridgeHealthPanel.jsx` ignored it and only rendered `top_perms`.
+   - Added a "Recent disagreements" sub-table inside the panel showing the latest 10 raw rows (`occurred_at`, `perm`, `module:action`, `user_id`, `legacy_ok`, `new_ok`). Already mounted in `AdminModule.jsx`.
+   - Smoke: `tests/rbac_bridge_recent_panel_smoke.php` (21 ✓).
+
+### Suite health
+400/401 passing. Only the documented `accounting_phase2_a7_smoke.php` sandbox regression remains.
+
+### Backlog still open
+- P1: Slice F vertical extensions (AI spec).
+- P2: QBO OAuth proactive token refresh.
+- P2: QBO push retry + dead-letter queue.
+- P2: Cloudways env secret management (Resend keys currently hardcoded in `config.local.php` per user request).
+- P2: Mercury Webhooks integration.
+
+
 ## Session — 2026-02 (Jaz Flush UI verification + LayerFi RBAC permissions)
 
 ### What shipped this session

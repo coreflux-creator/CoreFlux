@@ -112,6 +112,51 @@ export default function RbacBridgeHealthPanel({ windowHours = 24 }) {
                   ))}
                 </tbody>
               </table>
+
+              {Array.isArray(data.recent) && data.recent.length > 0 && (
+                <div style={{ marginTop: 14 }} data-testid="rbac-bridge-recent-section">
+                  <div style={{ fontSize: 12, color: 'var(--cf-text-secondary)', marginBottom: 6 }}>
+                    Recent disagreements
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}
+                         data-testid="rbac-bridge-recent">
+                    <thead>
+                      <tr style={{ textAlign: 'left', color: 'var(--cf-text-secondary)' }}>
+                        <th style={{ padding: '4px 0' }}>When</th>
+                        <th>Permission</th>
+                        <th>Module:action</th>
+                        <th>User</th>
+                        <th>Legacy</th>
+                        <th>New</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.recent.slice(0, 10).map((r) => (
+                        <tr key={r.id}
+                            data-testid={`rbac-bridge-recent-row-${r.id}`}
+                            style={{ borderTop: '1px solid var(--cf-border)' }}>
+                          <td style={{ padding: '6px 0', whiteSpace: 'nowrap', color: 'var(--cf-text-secondary)' }}>
+                            {String(r.occurred_at).replace('T', ' ').slice(0, 16)}
+                          </td>
+                          <td style={{ fontFamily: 'monospace' }}>{r.perm}</td>
+                          <td style={{ fontFamily: 'monospace', color: 'var(--cf-text-secondary)' }}>
+                            {r.module}:{r.action}
+                          </td>
+                          <td style={{ color: 'var(--cf-text-secondary)' }}>
+                            {r.user_id ? `#${r.user_id}` : '—'}
+                          </td>
+                          <td style={{ color: r.legacy_ok ? '#16a34a' : '#b94a4a' }}>
+                            {r.legacy_ok ? '✓' : '✗'}
+                          </td>
+                          <td style={{ color: r.new_ok ? '#16a34a' : '#b94a4a' }}>
+                            {r.new_ok ? '✓' : '✗'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </>
           )}
         </div>
