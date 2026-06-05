@@ -170,6 +170,25 @@ export function peekApiCache(key) {
   return __apiCache.get(key) ?? null;
 }
 
+/**
+ * Background prefetch — kicks `_fetchDeduped` for `path` so the result
+ * is sitting in the cache when the user finally clicks. Returns a
+ * promise that resolves on success and *swallows* errors so a hover
+ * over a row that the user has no permission to open can't blow up.
+ *
+ * Typical usage on row links:
+ *   <Link onMouseEnter={() => prefetchApi(detailPath, `bills-detail:${id}`)} … />
+ */
+export function prefetchApi(path, cacheKey) {
+  if (!path) return Promise.resolve();
+  const key = cacheKey ?? path;
+  // Don't refetch fresh entries — covers the case where the user
+  // hovers, clicks, lands, then comes back and hovers again.
+  const hit = __apiCache.get(key);
+  if (hit) return Promise.resolve(hit.data);
+  return _fetchDeduped(path, key).catch(() => undefined);
+}
+
 function _fetchDeduped(path, key) {
   if (__apiInflight.has(key)) return __apiInflight.get(key);
   const p = api.get(path).then(

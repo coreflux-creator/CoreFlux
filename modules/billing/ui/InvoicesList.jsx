@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, useApiCached, bustApiCachePrefix } from '../../../dashboard/src/lib/api';
+import { api, useApiCached, bustApiCachePrefix, prefetchApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
+import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
+import { fmtDate } from '../../../dashboard/src/lib/formatDate';
 import InvoiceFromTimeBundleModal from './InvoiceFromTimeBundleModal';
 import InvoiceFromTimeEntriesModal from './InvoiceFromTimeEntriesModal';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
@@ -23,6 +25,15 @@ export default function InvoicesList() {
     { cacheKey: `billing-invoices-list:${path}` }
   );
   const rows = data?.rows ?? [];
+
+  const {
+    items, sortKey, sortDir, search, setSearch, headerProps,
+  } = useTableList(rows, {
+    defaultSort: { key: 'issue_date', dir: 'desc' },
+    searchKeys:  ['invoice_number', 'client_name', 'status'],
+    dateKeys:    ['issue_date', 'due_date'],
+    numericKeys: ['id', 'total', 'amount_due'],
+  });
 
   return (
     <section data-testid="billing-invoices-list">
@@ -62,20 +73,56 @@ export default function InvoicesList() {
         </div>
       </div>
 
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+        <input
+          type="search"
+          className="input"
+          placeholder="Search invoice #, client, status…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          data-testid="billing-invoices-search"
+          style={{ maxWidth: 320 }}
+        />
+        <span style={{ fontSize: 11, color: 'var(--cf-text-secondary, #6b7280)' }}
+              data-testid="billing-invoices-match-count">
+          {items.length} of {rows.length}
+        </span>
+      </div>
+
       {loading && <p>Loading…</p>}
       {error && <p className="error" data-testid="billing-invoices-error">Error: {error.message}</p>}
 
       <table className="data-table" data-testid="billing-invoices-table">
-        <thead><tr><th>ID</th><th>#</th><th>Client</th><th>Issue</th><th>Due</th><th style={{textAlign:'right'}}>Total</th><th style={{textAlign:'right'}}>Due</th><th>Status</th></tr></thead>
+        <thead><tr>
+          <th>ID</th>
+          <th {...headerProps('invoice_number', 'billing-invoices-sort')}># <SortIndicator active={sortKey === 'invoice_number'} dir={sortDir} /></th>
+          <th {...headerProps('client_name', 'billing-invoices-sort')}>Client <SortIndicator active={sortKey === 'client_name'} dir={sortDir} /></th>
+          <th {...headerProps('issue_date', 'billing-invoices-sort')}>Issue <SortIndicator active={sortKey === 'issue_date'} dir={sortDir} /></th>
+          <th {...headerProps('due_date', 'billing-invoices-sort')}>Due <SortIndicator active={sortKey === 'due_date'} dir={sortDir} /></th>
+          <th {...headerProps('total', 'billing-invoices-sort')} style={{ cursor: 'pointer', userSelect: 'none', textAlign:'right'}}>Total <SortIndicator active={sortKey === 'total'} dir={sortDir} /></th>
+          <th {...headerProps('amount_due', 'billing-invoices-sort')} style={{ cursor: 'pointer', userSelect: 'none', textAlign:'right'}}>Due <SortIndicator active={sortKey === 'amount_due'} dir={sortDir} /></th>
+          <th {...headerProps('status', 'billing-invoices-sort')}>Status <SortIndicator active={sortKey === 'status'} dir={sortDir} /></th>
+        </tr></thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={8} className="empty" data-testid="billing-invoices-empty">No invoices yet.</td></tr>}
-          {rows.map(r => (
+          {items.length === 0 && !loading && <tr><td colSpan={8} className="empty" data-testid="billing-invoices-empty">No invoices yet.</td></tr>}
+          {items.map(r => (
             <tr key={r.id} data-testid={`billing-invoice-row-${r.id}`}>
               <td><IdBadge id={r.id} prefix="INV" /></td>
-              <td><Link to={`/modules/billing/invoices/${r.id}`} data-testid={`billing-invoice-link-${r.id}`}>{r.invoice_number}</Link></td>
+              <td>
+                <Link
+                  to={`/modules/billing/invoices/${r.id}`}
+                  data-testid={`billing-invoice-link-${r.id}`}
+                  onMouseEnter={() => prefetchApi(
+                    `/modules/billing/api/invoice_detail.php?id=${r.id}`,
+                    `billing-invoice-detail:${r.id}`
+                  )}
+                >
+                  {r.invoice_number}
+                </Link>
+              </td>
               <td>{r.client_name}</td>
-              <td>{r.issue_date}</td>
-              <td>{r.due_date}</td>
+              <td>{fmtDate(r.issue_date)}</td>
+              <td>{fmtDate(r.due_date)}</td>
               <td style={{ textAlign: 'right' }}>{Number(r.total).toFixed(2)} {r.currency}</td>
               <td style={{ textAlign: 'right' }}>{Number(r.amount_due).toFixed(2)}</td>
               <td><span className={`badge badge--${r.status}`}>{r.status.replace('_',' ')}</span></td>

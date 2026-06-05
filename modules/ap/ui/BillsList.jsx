@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, useApiCached, bustApiCachePrefix } from '../../../dashboard/src/lib/api'; // eslint-disable-line no-unused-vars
+import { api, useApiCached, bustApiCachePrefix, prefetchApi } from '../../../dashboard/src/lib/api'; // eslint-disable-line no-unused-vars
 import { useBulkSelection } from '../../../dashboard/src/lib/useBulkSelection';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
+import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
+import { fmtDate } from '../../../dashboard/src/lib/formatDate';
 import BillFromTimeBundleModal from './BillFromTimeBundleModal';
 import BillFromTimeEntriesModal from './BillFromTimeEntriesModal';
 import SuggestPaymentRunModal from './SuggestPaymentRunModal';
@@ -27,6 +29,15 @@ export default function BillsList() {
   );
   const rows = data?.rows ?? [];
   const sel = useBulkSelection(rows.map(r => r.id));
+
+  const {
+    items, sortKey, sortDir, search, setSearch, headerProps,
+  } = useTableList(rows, {
+    defaultSort: { key: 'bill_date', dir: 'desc' },
+    searchKeys:  ['internal_ref', 'vendor_name', 'vendor_type', 'status'],
+    dateKeys:    ['bill_date', 'due_date'],
+    numericKeys: ['id', 'total', 'amount_due'],
+  });
 
   const exportSelected = () => {
     if (!sel.size) return;
@@ -79,6 +90,22 @@ export default function BillsList() {
         </div>
       </div>
 
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+        <input
+          type="search"
+          className="input"
+          placeholder="Search ref, vendor, type…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          data-testid="ap-bills-search"
+          style={{ maxWidth: 320 }}
+        />
+        <span style={{ fontSize: 11, color: 'var(--cf-text-secondary, #6b7280)' }}
+              data-testid="ap-bills-match-count">
+          {items.length} of {rows.length}
+        </span>
+      </div>
+
       {sel.size > 0 && (
         <div data-testid="ap-bills-bulk-bar" style={billsBulkBar}>
           <span><strong>{sel.size}</strong> selected</span>
@@ -105,15 +132,20 @@ export default function BillsList() {
                 data-testid="ap-bills-select-all"
               />
             </th>
-            <th>ID</th><th>Ref</th><th>Vendor</th><th>Type</th><th>Bill date</th><th>Due</th>
-            <th style={{textAlign:'right'}}>Total</th>
-            <th style={{textAlign:'right'}}>Due</th>
-            <th>Status</th>
+            <th>ID</th>
+            <th {...headerProps('internal_ref', 'ap-bills-sort')}>Ref <SortIndicator active={sortKey === 'internal_ref'} dir={sortDir} /></th>
+            <th {...headerProps('vendor_name', 'ap-bills-sort')}>Vendor <SortIndicator active={sortKey === 'vendor_name'} dir={sortDir} /></th>
+            <th {...headerProps('vendor_type', 'ap-bills-sort')}>Type <SortIndicator active={sortKey === 'vendor_type'} dir={sortDir} /></th>
+            <th {...headerProps('bill_date', 'ap-bills-sort')}>Bill date <SortIndicator active={sortKey === 'bill_date'} dir={sortDir} /></th>
+            <th {...headerProps('due_date', 'ap-bills-sort')}>Due <SortIndicator active={sortKey === 'due_date'} dir={sortDir} /></th>
+            <th {...headerProps('total', 'ap-bills-sort')} style={{ cursor: 'pointer', userSelect: 'none', textAlign:'right'}}>Total <SortIndicator active={sortKey === 'total'} dir={sortDir} /></th>
+            <th {...headerProps('amount_due', 'ap-bills-sort')} style={{ cursor: 'pointer', userSelect: 'none', textAlign:'right'}}>Due <SortIndicator active={sortKey === 'amount_due'} dir={sortDir} /></th>
+            <th {...headerProps('status', 'ap-bills-sort')}>Status <SortIndicator active={sortKey === 'status'} dir={sortDir} /></th>
           </tr>
         </thead>
         <tbody>
-          {rows.length === 0 && !loading && <tr><td colSpan={10} className="empty" data-testid="ap-bills-empty">No bills yet.</td></tr>}
-          {rows.map(r => (
+          {items.length === 0 && !loading && <tr><td colSpan={10} className="empty" data-testid="ap-bills-empty">No bills yet.</td></tr>}
+          {items.map(r => (
             <tr key={r.id} data-testid={`ap-bill-row-${r.id}`} style={sel.has(r.id) ? { background: 'var(--cf-surface-alt, #f9fafb)' } : null}>
               <td>
                 <input
@@ -124,11 +156,22 @@ export default function BillsList() {
                 />
               </td>
               <td><IdBadge id={r.id} prefix="B" /></td>
-              <td><Link to={`/modules/ap/bills/${r.id}`} data-testid={`ap-bill-link-${r.id}`}>{r.internal_ref}</Link></td>
+              <td>
+                <Link
+                  to={`/modules/ap/bills/${r.id}`}
+                  data-testid={`ap-bill-link-${r.id}`}
+                  onMouseEnter={() => prefetchApi(
+                    `/modules/ap/api/bill_detail.php?id=${r.id}`,
+                    `ap-bill-detail:${r.id}`
+                  )}
+                >
+                  {r.internal_ref}
+                </Link>
+              </td>
               <td>{r.vendor_name}</td>
               <td><span className="badge">{r.vendor_type}</span></td>
-              <td>{r.bill_date}</td>
-              <td>{r.due_date}</td>
+              <td>{fmtDate(r.bill_date)}</td>
+              <td>{fmtDate(r.due_date)}</td>
               <td style={{ textAlign: 'right' }}>{Number(r.total).toFixed(2)} {r.currency}</td>
               <td style={{ textAlign: 'right' }}>{Number(r.amount_due).toFixed(2)}</td>
               <td><span className={`badge badge--${r.status}`}>{r.status.replace('_',' ')}</span></td>

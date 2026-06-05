@@ -131,7 +131,8 @@ $a('promotion targets exclude terminal states',
    str_contains($list, "const PROMOTE_TO = ['pending_start', 'active', 'on_hold'];"));
 $a('bulk toolbar testid present',              str_contains($list, "data-testid=\"placements-bulk-toolbar\""));
 $a('bulk toolbar hidden when not on draft view',
-   str_contains($list, '{isDraftView && rows.length > 0 && ('));
+   str_contains($list, '{isDraftView && rows.length > 0 && (')
+   || str_contains($list, '{isDraftView && items.length > 0 && ('));
 $a('select-all checkbox testid',               str_contains($list, "data-testid=\"placements-bulk-select-all\""));
 $a('per-row select testid uses row id',        str_contains($list, 'data-testid={`placement-row-select-${p.id}`}'));
 $a('bulk button per status target',            str_contains($list, 'data-testid={`placements-bulk-to-${s}`}'));

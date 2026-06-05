@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useApiCached, bustApiCachePrefix, api } from '../../../dashboard/src/lib/api';
+import { useApiCached, bustApiCachePrefix, prefetchApi, api } from '../../../dashboard/src/lib/api';
+import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
+import { fmtDate } from '../../../dashboard/src/lib/formatDate';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 const STATUSES = ['', 'draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'];
@@ -56,6 +58,13 @@ export default function List() {
   const lastPage = Math.max(1, Math.ceil(total / perPage));
   const isDraftView = status === 'draft';
 
+  // Client-side sort only — server already handles q/status/type search.
+  const { items, sortKey, sortDir, headerProps } = useTableList(rows, {
+    defaultSort: { key: 'start_date', dir: 'desc' },
+    dateKeys:    ['start_date', 'due_date', 'end_date'],
+    numericKeys: ['id', 'person_id'],
+  });
+
   // Reset selection whenever the filter / page / search changes so we
   // don't accidentally bulk-update a row the operator can no longer see.
   useEffect(() => { setSelected(new Set()); setBulkResult(null); }, [q, status, engagementType, page]);
@@ -67,12 +76,12 @@ export default function List() {
       return next;
     });
   };
-  const allOnPage = rows.length > 0 && rows.every(r => selected.has(r.id));
+  const allOnPage = items.length > 0 && items.every(r => selected.has(r.id));
   const toggleAll = () => {
     setSelected(prev => {
       const next = new Set(prev);
-      if (allOnPage) rows.forEach(r => next.delete(r.id));
-      else           rows.forEach(r => next.add(r.id));
+      if (allOnPage) items.forEach(r => next.delete(r.id));
+      else           items.forEach(r => next.add(r.id));
       return next;
     });
   };
@@ -145,7 +154,7 @@ export default function List() {
 
       {/* Bulk toolbar — visible only when reviewing drafts. Keeps the
           default list noise-free for the active-placements path. */}
-      {isDraftView && rows.length > 0 && (
+      {isDraftView && items.length > 0 && (
         <div
           data-testid="placements-bulk-toolbar"
           style={{
@@ -218,12 +227,20 @@ export default function List() {
                 />
               </th>
             )}
-            <th>ID</th><th>Title</th><th>Person</th><th>End client</th><th>Type</th><th>Status</th><th>Start</th><th>Due</th><th>End</th>
+            <th {...headerProps('id', 'placements-sort')}>ID <SortIndicator active={sortKey === 'id'} dir={sortDir} /></th>
+            <th {...headerProps('title', 'placements-sort')}>Title <SortIndicator active={sortKey === 'title'} dir={sortDir} /></th>
+            <th {...headerProps('last_name', 'placements-sort')}>Person <SortIndicator active={sortKey === 'last_name'} dir={sortDir} /></th>
+            <th {...headerProps('end_client_name', 'placements-sort')}>End client <SortIndicator active={sortKey === 'end_client_name'} dir={sortDir} /></th>
+            <th {...headerProps('engagement_type', 'placements-sort')}>Type <SortIndicator active={sortKey === 'engagement_type'} dir={sortDir} /></th>
+            <th {...headerProps('status', 'placements-sort')}>Status <SortIndicator active={sortKey === 'status'} dir={sortDir} /></th>
+            <th {...headerProps('start_date', 'placements-sort')}>Start <SortIndicator active={sortKey === 'start_date'} dir={sortDir} /></th>
+            <th {...headerProps('due_date', 'placements-sort')}>Due <SortIndicator active={sortKey === 'due_date'} dir={sortDir} /></th>
+            <th {...headerProps('end_date', 'placements-sort')}>End <SortIndicator active={sortKey === 'end_date'} dir={sortDir} /></th>
           </tr>
         </thead>
         <tbody>
-          {rows.length === 0 && <tr><td colSpan={isDraftView ? 10 : 9} className="empty" data-testid="placements-empty">No placements match.</td></tr>}
-          {rows.map(p => (
+          {items.length === 0 && <tr><td colSpan={isDraftView ? 10 : 9} className="empty" data-testid="placements-empty">No placements match.</td></tr>}
+          {items.map(p => (
             <tr key={p.id} data-testid={`placement-row-${p.id}`}>
               {isDraftView && (
                 <td>
@@ -237,7 +254,17 @@ export default function List() {
                 </td>
               )}
               <td><IdBadge id={p.id} prefix="PL" /></td>
-              <td><Link to={`../${p.id}`}>{p.title}</Link></td>
+              <td>
+                <Link
+                  to={`../${p.id}`}
+                  onMouseEnter={() => prefetchApi(
+                    `/modules/placements/api/placements.php?action=get&id=${p.id}`,
+                    `placement-detail:${p.id}`
+                  )}
+                >
+                  {p.title}
+                </Link>
+              </td>
               <td>
                 {p.first_name ? `${p.first_name} ${p.last_name}` : '—'}
                 {p.person_id ? <> <IdBadge id={p.person_id} prefix="P" /></> : null}
@@ -245,9 +272,9 @@ export default function List() {
               <td>{p.end_client_name || '—'}</td>
               <td>{p.engagement_type}</td>
               <td><span className={`badge badge--${p.status}`}>{p.status}</span></td>
-              <td>{p.start_date}</td>
-              <td>{p.due_date || '—'}</td>
-              <td>{p.end_date || '—'}</td>
+              <td>{fmtDate(p.start_date)}</td>
+              <td>{fmtDate(p.due_date)}</td>
+              <td>{fmtDate(p.end_date)}</td>
             </tr>
           ))}
         </tbody>

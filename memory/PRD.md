@@ -1,5 +1,34 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Prefetch + sort + filter + MM/DD/YYYY)
+
+### What shipped this session
+- **`prefetchApi(path, cacheKey)`** in `dashboard/src/lib/api.js` — delegates to the same `_fetchDeduped()` path as `useApiCached`, short-circuits on cache hit, swallows errors so a hover over a row the user can't open doesn't crash.
+- **`dashboard/src/lib/formatDate.js`** — `fmtDate()` / `fmtDateTime()` always emit MM/DD/YYYY with **no timezone math** (pure-string parse on `YYYY-MM-DD` prefix). Em-dash fallback for empty/invalid inputs so missing dates never crash a row render. Avoids `toLocaleDateString()` which can drift to MM/DD/YY or shift across the date-line for non-UTC viewers.
+- **`dashboard/src/lib/useTableList.jsx`** — generic client-side sort + free-text filter hook. Returns `items`, `sortKey`, `sortDir`, `toggleSort`, `search`, `setSearch`, `headerProps()`. Supports `dateKeys`, `numericKeys`, `searchKeys` so each column sorts with the right comparator. `headerProps()` is keyboard-accessible and sets `aria-sort`.
+- **`SortIndicator`** — tiny presentational caret (no lucide-react dep, ~5 LOC) to keep bundles thin.
+
+### Per-list wiring (4 lists)
+- **Timesheets** (`modules/staffing/ui/TimesheetsList.jsx`): client-side sort on id / worker / week / hours / status / submitted / approved + free-text search across name/email/period. Dates: `period_start`, `period_end`, `submitted_at`, `approved_at` all through `fmtDate` / `fmtDateTime`. Open row → prefetches `timesheets.php?action=get&id=X` to `timesheets-detail:X`.
+- **AP Bills** (`modules/ap/ui/BillsList.jsx`): sort on ref / vendor / type / bill_date / due_date / total / amount_due / status + search across ref/vendor/type. Dates: `bill_date`, `due_date`. Prefetch `bill_detail.php?id=X` to `ap-bill-detail:X`.
+- **Billing Invoices** (`modules/billing/ui/InvoicesList.jsx`): sort on invoice_number / client_name / issue_date / due_date / total / amount_due / status + search. Dates: `issue_date`, `due_date`. Prefetch `invoice_detail.php?id=X` to `billing-invoice-detail:X`.
+- **Placements** (`modules/placements/ui/List.jsx`): client-side sort on id/title/person/end_client/type/status/start/due/end. Backend already handles search via `q=`, so client-side filter is intentionally skipped to avoid double-filter confusion. Dates: `start_date`, `due_date`, `end_date`. Prefetch `placements.php?action=get&id=X` to `placement-detail:X`. Bulk-select-all updated to operate on the sorted `items` array (not raw `rows`).
+
+### Tests
+- New smoke `tests/list_prefetch_sort_filter_smoke.php` (74 ✓) locks the API surface, the date contract, the hook semantics, and each list's wiring.
+- Pre-existing `placements_bulk_approve_drafts_queue_smoke.php` and `placements_csv_id_lookup_smoke.php` regex updated to accept either `rows.length`/`items.length` and either `<th>ID</th>`/`headerProps('id'…)`. Both still green.
+
+### Suite health
+403/404 passing. Only the documented `accounting_phase2_a7_smoke.php` sandbox regression remains.
+
+### Backlog still open
+- P1: Slice F vertical extensions (AI spec).
+- P2: QBO OAuth proactive token refresh.
+- P2: QBO push retry + dead-letter queue.
+- P2: Cloudways env secret management (Resend keys currently hardcoded in `config.local.php` per user request).
+- P2: Mercury Webhooks integration.
+
+
 ## Session — 2026-02 (Mutation-side prefix cache invalidation)
 
 ### What shipped this session

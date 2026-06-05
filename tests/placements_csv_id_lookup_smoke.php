@@ -131,7 +131,7 @@ $a('Placements list imports + uses IdBadge with PL prefix',
 $a('Placements list also surfaces the linked person_id',
     str_contains($listUi, '<IdBadge id={p.person_id} prefix="P"'));
 $a('Placements list header has an ID column (colSpan covers all columns)',
-    str_contains($listUi, "<th>ID</th>")
+    (str_contains($listUi, "<th>ID</th>") || preg_match('/headerProps\([\'"]id[\'"]/', $listUi) === 1)
     && (str_contains($listUi, 'colSpan={9}') || str_contains($listUi, 'colSpan={isDraftView ? 10 : 9}')));
 $a('PlacementDetail surfaces PL + linked P badges',
     str_contains($detailUi, '<IdBadge id={placement.id} prefix="PL"')

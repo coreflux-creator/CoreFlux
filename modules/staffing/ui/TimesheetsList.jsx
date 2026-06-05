@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { useApiCached } from '../../../dashboard/src/lib/api';
+import { useApiCached, prefetchApi } from '../../../dashboard/src/lib/api';
+import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
+import { fmtDate, fmtDateTime } from '../../../dashboard/src/lib/formatDate';
 
 /**
  * Timesheets List — Batch 2 (2026-02).
@@ -9,9 +11,9 @@ import { useApiCached } from '../../../dashboard/src/lib/api';
  * (powered by `/modules/staffing/api/timesheets.php?action=list`).
  * Click a row to drill into the single-timesheet detail view.
  *
- * Replaces the rigid "edit the current week only" experience with a
- * proper list/detail pattern. Filters: status, person, period range,
- * placement.
+ * Backend filters (status, period range, person) live in the URL so
+ * the server can prune; client-side sort + free-text search live in
+ * useTableList for snappy navigation without a round-trip.
  */
 const STATUSES = ['', 'draft', 'submitted', 'approved', 'rejected', 'locked', 'payroll_ready', 'billing_ready'];
 
@@ -38,6 +40,16 @@ export default function TimesheetsList({ session }) {
     { ttlMs: 30000, cacheKey: `timesheets-list:${query}` }
   );
   const rows = data?.rows ?? [];
+
+  // Client-side sort + free-text search.
+  const {
+    items, sortKey, sortDir, search, setSearch, headerProps,
+  } = useTableList(rows, {
+    defaultSort: { key: 'period_start', dir: 'desc' },
+    searchKeys:  ['first_name', 'last_name', 'email_primary', 'period_start', 'period_end', 'status'],
+    dateKeys:    ['period_start', 'period_end', 'submitted_at', 'approved_at'],
+    numericKeys: ['id', 'person_id', 'total_hours'],
+  });
 
   const setF = (k, v) => setFilters(f => ({ ...f, [k]: v }));
 
@@ -82,31 +94,37 @@ export default function TimesheetsList({ session }) {
                  placeholder="e.g. 42"
                  data-testid="timesheets-list-filter-person" />
         </label>
+        <label style={{ fontSize: 12, marginLeft: 'auto', flex: '1 0 200px', minWidth: 180 }}>Search
+          <input className="input" type="search" value={search}
+                 onChange={e => setSearch(e.target.value)}
+                 placeholder="name, email, period…"
+                 data-testid="timesheets-list-search" />
+        </label>
         <button type="button" className="btn btn--ghost" onClick={reload}
                 data-testid="timesheets-list-reload">Reload</button>
       </div>
 
       {loading && <p data-testid="timesheets-list-loading">Loading…</p>}
       {error && <p className="error" data-testid="timesheets-list-error">{error.message}</p>}
-      {!loading && rows.length === 0 && (
+      {!loading && items.length === 0 && (
         <p style={{ color: '#999' }} data-testid="timesheets-list-empty">No timesheets match the current filters.</p>
       )}
-      {rows.length > 0 && (
+      {items.length > 0 && (
         <table className="data-table" data-testid="timesheets-list-table">
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Worker</th>
-              <th>Week</th>
-              <th>Hours</th>
-              <th>Status</th>
-              <th>Submitted</th>
-              <th>Approved</th>
+              <th {...headerProps('id', 'timesheets-sort')}>ID <SortIndicator active={sortKey === 'id'} dir={sortDir} /></th>
+              <th {...headerProps('last_name', 'timesheets-sort')}>Worker <SortIndicator active={sortKey === 'last_name'} dir={sortDir} /></th>
+              <th {...headerProps('period_start', 'timesheets-sort')}>Week <SortIndicator active={sortKey === 'period_start'} dir={sortDir} /></th>
+              <th {...headerProps('total_hours', 'timesheets-sort')}>Hours <SortIndicator active={sortKey === 'total_hours'} dir={sortDir} /></th>
+              <th {...headerProps('status', 'timesheets-sort')}>Status <SortIndicator active={sortKey === 'status'} dir={sortDir} /></th>
+              <th {...headerProps('submitted_at', 'timesheets-sort')}>Submitted <SortIndicator active={sortKey === 'submitted_at'} dir={sortDir} /></th>
+              <th {...headerProps('approved_at', 'timesheets-sort')}>Approved <SortIndicator active={sortKey === 'approved_at'} dir={sortDir} /></th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => (
+            {items.map(r => (
               <tr key={r.id} data-testid={`timesheets-list-row-${r.id}`}>
                 <td><code>#{r.id}</code></td>
                 <td>
@@ -116,16 +134,20 @@ export default function TimesheetsList({ session }) {
                   <br/>
                   <span style={{ fontSize: 11, color: '#666' }}>{r.email_primary}</span>
                 </td>
-                <td style={{ fontSize: 12 }}>{r.period_start} → {r.period_end}</td>
+                <td style={{ fontSize: 12 }}>{fmtDate(r.period_start)} → {fmtDate(r.period_end)}</td>
                 <td style={{ fontWeight: 600 }}>{Number(r.total_hours || 0).toFixed(2)}</td>
                 <td><StatusBadge status={r.status} /></td>
-                <td style={{ fontSize: 11, color: '#666' }}>{r.submitted_at || '—'}</td>
-                <td style={{ fontSize: 11, color: '#666' }}>{r.approved_at || '—'}</td>
+                <td style={{ fontSize: 11, color: '#666' }}>{fmtDateTime(r.submitted_at)}</td>
+                <td style={{ fontSize: 11, color: '#666' }}>{fmtDateTime(r.approved_at)}</td>
                 <td>
                   <Link
                     to={`${r.id}`}
                     className="btn btn--ghost"
                     data-testid={`timesheets-list-open-${r.id}`}
+                    onMouseEnter={() => prefetchApi(
+                      `/modules/staffing/api/timesheets.php?action=get&id=${r.id}`,
+                      `timesheets-detail:${r.id}`
+                    )}
                   >
                     Open →
                   </Link>
