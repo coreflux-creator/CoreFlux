@@ -1,5 +1,56 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-06 (Flush-outbox button on the Jaz Sync Now card)
+
+User chose to add a one-click button instead of using DevTools to POST
+the new admin endpoint.  Wired into `JazSyncNowCard` (the Step 3B
+component on the Jaz Integration Settings page where the original
+"nope" screenshot was taken).
+
+### What shipped (frontend)
+
+`/app/dashboard/src/pages/JazIntegrationSettings.jsx`:
+- Added 3 React state slots (`flushBusy`, `flushResult`, `flushError`)
+  alongside the existing sync_now state — kept independent because the
+  flush endpoint returns a per-command-row report shape, not the
+  per-entity-type sync_now shape.
+- New `runFlushOutbox()` handler calls `POST /api/admin/run_accounting_outbox_now.php`
+  and surfaces the per-row report via the existing `onFlash` toast +
+  inline result panel.
+- New **"Flush outbox now"** button next to "Sync everything now" /
+  "CoA only".  `data-testid="jaz-flush-outbox-now"`.
+- New result panel renders below the existing tables:
+  - Per-row table: command_id, provider, command_type, status_before
+    → status_after, error_code / error_message (red-tinted background
+    for failed rows).
+  - Footer: `next_step` hint from the endpoint.
+  - Empty-state hint when the outbox has no queued/retrying rows.
+
+### Build
+
+`VITE_ENABLE_LAYER_SANDBOX=true yarn build` → 5781 modules clean.
+Bundle `coreflux-C_WY5VAY`.  `sync_bundle.sh` confirmed all 4 sync
+points consistent.  ESLint clean.
+
+### Test status
+
+- Full PHP suite: **396 / 397 ✓** — only the long-known
+  `accounting_phase2_a7_smoke.php` sandbox MySQL fixture failure
+  remains.
+- Frontend lint: clean.
+
+### Operator workflow now
+
+After deploying this build to Cloudways:
+1. Navigate to Jaz Integration Settings → Step 3B card.
+2. Click **"Flush outbox now"** — no DevTools, no SSH, no URL typing.
+3. Per-row table renders with exact statuses + error messages.
+4. Permanent cron still recommended (`* * * * * php
+   .../cron/accounting_outbox_worker.php`) but the button is now the
+   emergency-flush + diagnostic surface for future stuck queues.
+
+---
+
 ## Session — 2026-06 (Outbox flush endpoint — Jaz silent-queue diagnosis)
 
 User reported "JE posts to core + QBO but not Jaz". Screenshot of the

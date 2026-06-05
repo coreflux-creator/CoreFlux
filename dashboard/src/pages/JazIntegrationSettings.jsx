@@ -542,6 +542,13 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
   const [busy,       setBusy]       = useState(false);
   const [result,     setResult]     = useState(null);
   const [error,      setError]      = useState(null);
+  // "Flush outbox now" state — independent of the sync_now flow because
+  // it talks to /api/admin/run_accounting_outbox_now.php (the on-demand
+  // mirror of cron/accounting_outbox_worker.php) and returns a
+  // per-command-row report rather than the per-entity-type sync_now shape.
+  const [flushBusy,   setFlushBusy]   = useState(false);
+  const [flushResult, setFlushResult] = useState(null);
+  const [flushError,  setFlushError]  = useState(null);
   // Map of coreflux_account_id → { provider_id, name } once the operator
   // resolves an unmapped row via the inline dropdown.  Keeps the
   // resolved rows in place but greyed-out so the operator sees their
@@ -668,6 +675,37 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
     } finally { setBusy(false); }
   };
 
+  // ──────────────────────────────────────────────────────────────────
+  // "Flush outbox now" — fires the on-demand admin worker that
+  // mirrors cron/accounting_outbox_worker.php. Surfaces per-row
+  // status + error for queued/retrying provider commands (Jaz JE
+  // pushes, QBO invoices, etc.) without waiting for the every-minute
+  // cron. master_admin only on the server; the button will 403 for
+  // anyone else.
+  // ──────────────────────────────────────────────────────────────────
+  const runFlushOutbox = async () => {
+    setFlushBusy(true); setFlushError(null); setFlushResult(null);
+    try {
+      const r = await api.post('/api/admin/run_accounting_outbox_now.php', {});
+      setFlushResult(r);
+      const proc = r?.processed ?? 0;
+      const ok   = r?.succeeded ?? 0;
+      const ko   = r?.failed    ?? 0;
+      if (proc === 0) {
+        onFlash?.({ kind: 'info',
+          msg: 'Outbox is empty — no queued or retrying provider commands.' });
+      } else if (ko > 0) {
+        onFlash?.({ kind: 'error',
+          msg: `Flushed ${proc} outbox row${proc === 1 ? '' : 's'}: ${ok} ok, ${ko} failed. Expand the per-row table below for error_code / error_message.` });
+      } else {
+        onFlash?.({ kind: 'success',
+          msg: `Flushed ${proc} outbox row${proc === 1 ? '' : 's'} — all succeeded. Verify they show up in the destination provider UI.` });
+      }
+    } catch (e) {
+      setFlushError(e.message || 'Outbox flush failed');
+    } finally { setFlushBusy(false); }
+  };
+
   return (
     <fieldset style={fieldsetStyle} data-testid="jaz-sync-now-card">
       <legend style={legendStyle}>Step 3b — Sync now</legend>
@@ -694,6 +732,15 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
           data-testid="jaz-sync-now-coa"
         >
           {busy ? 'Syncing…' : 'CoA only'}
+        </button>
+        <button
+          onClick={runFlushOutbox}
+          disabled={flushBusy}
+          className="btn btn--ghost"
+          data-testid="jaz-flush-outbox-now"
+          title="Drains queued/retrying rows from accounting_outbox_events through their provider adapters (Jaz, QBO, …). master_admin only."
+        >
+          {flushBusy ? 'Flushing…' : 'Flush outbox now'}
         </button>
       </div>
       {error && (
@@ -916,6 +963,75 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
             })}
           </tbody>
         </table>
+      )}
+
+      {flushError && (
+        <p style={{ color: '#dc2626', marginTop: 14, fontSize: 13 }}
+           data-testid="jaz-flush-error">
+          Outbox flush failed: {flushError}
+        </p>
+      )}
+
+      {flushResult && flushResult.processed > 0 && (
+        <div style={{ marginTop: 16, padding: '12px 14px',
+                      border: '1px solid #e2e8f0', borderRadius: 6, background: '#fbfdff' }}
+             data-testid="jaz-flush-result-panel">
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+                        marginBottom: 8 }}>
+            <strong style={{ fontSize: 13 }}>Outbox flush · {flushResult.processed} row{flushResult.processed === 1 ? '' : 's'} processed</strong>
+            <span style={{ fontSize: 11, color: '#64748b' }}>
+              ok {flushResult.succeeded} · failed {flushResult.failed} · {flushResult.elapsed_ms}ms
+            </span>
+          </div>
+          <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: '#64748b', borderBottom: '1px solid #e2e8f0' }}>
+                <th style={{ padding: '4px 6px' }}>#</th>
+                <th style={{ padding: '4px 6px' }}>Provider</th>
+                <th style={{ padding: '4px 6px' }}>Command</th>
+                <th style={{ padding: '4px 6px' }}>Before → After</th>
+                <th style={{ padding: '4px 6px' }}>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(flushResult.rows || []).map((r) => {
+                const failed = r.status_after !== 'posted' && r.status_after !== 'dry_run_skipped';
+                return (
+                  <tr key={r.command_id} data-testid={`jaz-flush-row-${r.command_id}`}
+                      style={{ borderBottom: '1px solid #f1f5f9',
+                               background: failed ? '#fef2f2' : 'transparent' }}>
+                    <td style={{ padding: '4px 6px' }}><code>{r.command_id}</code></td>
+                    <td style={{ padding: '4px 6px' }}>{r.provider}</td>
+                    <td style={{ padding: '4px 6px' }}><code style={{ fontSize: 11 }}>{r.command_type}</code></td>
+                    <td style={{ padding: '4px 6px' }}>
+                      <span style={{ color: '#94a3b8' }}>{r.status_before}</span>
+                      {' → '}
+                      <strong style={{ color: failed ? '#dc2626' : '#15803d' }}>{r.status_after}</strong>
+                    </td>
+                    <td style={{ padding: '4px 6px', color: '#dc2626', fontSize: 11 }}>
+                      {r.error_code ? <code>{r.error_code}</code> : null}
+                      {r.error_message ? <span style={{ marginLeft: 4 }}>{r.error_message}</span> : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {flushResult.next_step && (
+            <p style={{ marginTop: 8, fontSize: 11, color: '#64748b', fontStyle: 'italic' }}
+               data-testid="jaz-flush-next-step">
+              {flushResult.next_step}
+            </p>
+          )}
+        </div>
+      )}
+
+      {flushResult && flushResult.processed === 0 && (
+        <p style={{ marginTop: 14, fontSize: 12, color: '#64748b', fontStyle: 'italic' }}
+           data-testid="jaz-flush-empty">
+          Outbox is empty — no queued or retrying provider commands. If a JE was posted recently
+          and isn't here, check that <code>accountingCommandQueue()</code> is being called from the post path.
+        </p>
       )}
     </fieldset>
   );
