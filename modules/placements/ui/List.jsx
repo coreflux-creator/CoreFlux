@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useApiCached, api } from '../../../dashboard/src/lib/api';
+import { useApiCached, bustApiCachePrefix, api } from '../../../dashboard/src/lib/api';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 
 const STATUSES = ['', 'draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'];
@@ -88,6 +88,10 @@ export default function List() {
       );
       setBulkResult(res);
       setSelected(new Set());
+      // Bulk status change affects every filtered view of the list,
+      // not just the current one — invalidate the whole prefix so
+      // sibling tabs (Active, On Hold, Drafts) all refresh on next mount.
+      bustApiCachePrefix('placements-list:');
       reload();
     } catch (e) {
       setBulkResult({ error: e?.message || String(e) });

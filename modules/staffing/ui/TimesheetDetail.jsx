@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { api, useApi } from '../../../dashboard/src/lib/api';
+import { api, useApi, bustApiCachePrefix } from '../../../dashboard/src/lib/api';
 
 /**
  * Timesheet Detail — Batch 2 (2026-02) + inline-edit (2026-02 follow-up).
@@ -153,6 +153,9 @@ export default function TimesheetDetail({ session }) {
       // submit/approve/reject all return {timesheet} — patch in place.
       if (result?.timesheet) applyHeaderUpdate(result.timesheet);
       else reload();
+      // submit/approve/reject/etc all change the timesheet's status, which
+      // is a filter in the list view — bust every cached filter slice.
+      bustApiCachePrefix('timesheets-list:');
       setRejecting(false); setReason('');
     } catch (e) { setActionError(e.message); }
     finally { setBusy(false); }
@@ -165,6 +168,7 @@ export default function TimesheetDetail({ session }) {
         { id: ts.id, reason: 'inline edit from detail page' });
       if (result?.timesheet) applyHeaderUpdate(result.timesheet);
       else reload();
+      bustApiCachePrefix('timesheets-list:');
     } catch (e) { setActionError(e.message); }
     finally { setBusy(false); }
   };

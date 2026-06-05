@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Upload, History } from 'lucide-react';
-import { api, useApi } from '../../../dashboard/src/lib/api';
+import { api, useApi, bustApiCachePrefix } from '../../../dashboard/src/lib/api';
 import EvidenceAttachments from '../../../dashboard/src/components/EvidenceAttachments';
 
 /**
@@ -280,6 +280,9 @@ export default function TimesheetWeek({ session }) {
       await api.post('/modules/staffing/api/timesheets.php?action=submit', {
         person_id: personId, period_start: periodStart, period_end: periodEnd,
       });
+      // Submission flips status draft→submitted which moves the row across
+      // status-filtered list tabs — invalidate every cached slice.
+      bustApiCachePrefix('timesheets-list:');
       reload();
     } catch (e) {
       setSave(s => ({ ...s, error: e.message || String(e) }));

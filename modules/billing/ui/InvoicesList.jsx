@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, useApiCached } from '../../../dashboard/src/lib/api';
+import { api, useApiCached, bustApiCachePrefix } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import InvoiceFromTimeBundleModal from './InvoiceFromTimeBundleModal';
 import InvoiceFromTimeEntriesModal from './InvoiceFromTimeEntriesModal';
@@ -87,14 +87,25 @@ export default function InvoicesList() {
       {showCreate && (
         <InvoiceFromTimeBundleModal
           onClose={() => setShowCreate(false)}
-          onCreated={() => { setShowCreate(false); reload(); }}
+          onCreated={() => {
+            setShowCreate(false);
+            // New invoice changes counts/filters across the Billing list —
+            // bust the whole prefix so neighbour status tabs refresh on
+            // next mount.
+            bustApiCachePrefix('billing-invoices-list:');
+            reload();
+          }}
         />
       )}
 
       {showEntries && (
         <InvoiceFromTimeEntriesModal
           onClose={() => setShowEntries(false)}
-          onCreated={() => { setShowEntries(false); reload(); }}
+          onCreated={() => {
+            setShowEntries(false);
+            bustApiCachePrefix('billing-invoices-list:');
+            reload();
+          }}
         />
       )}
     </section>

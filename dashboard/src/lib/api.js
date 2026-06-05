@@ -137,9 +137,33 @@ export function useApi(path, { enabled = true } = {}) {
 const __apiCache    = new Map(); // key → { data, ts }
 const __apiInflight = new Map(); // key → Promise<data>
 
-export function bustApiCache(key) {
-  if (key === undefined || key === null) { __apiCache.clear(); return; }
-  __apiCache.delete(key);
+export function bustApiCache(keyOrPredicate) {
+  // No argument → clear the entire cache.
+  if (keyOrPredicate === undefined || keyOrPredicate === null) {
+    __apiCache.clear();
+    return;
+  }
+  // Function → predicate-based bust. Lets callers express
+  // "bust every entry whose key starts with X".
+  if (typeof keyOrPredicate === 'function') {
+    for (const k of Array.from(__apiCache.keys())) {
+      if (keyOrPredicate(k)) __apiCache.delete(k);
+    }
+    return;
+  }
+  // String → single exact-match key delete (the original signature).
+  __apiCache.delete(keyOrPredicate);
+}
+
+/**
+ * Convenience helper: bust every entry whose cache key starts with the
+ * given prefix. Used by mutation flows that change a list, so neighbour
+ * filtered views (different status filters, paging, etc.) all refresh
+ * on next mount instead of paint-then-flicker.
+ */
+export function bustApiCachePrefix(prefix) {
+  if (typeof prefix !== 'string' || prefix === '') return;
+  bustApiCache((k) => typeof k === 'string' && k.startsWith(prefix));
 }
 
 export function peekApiCache(key) {

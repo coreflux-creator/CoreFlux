@@ -1,5 +1,32 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Mutation-side prefix cache invalidation)
+
+### What shipped this session
+- **`dashboard/src/lib/api.js`**
+  - `bustApiCache(keyOrPredicate)` now also accepts a predicate function (ad-hoc bust by key shape).
+  - New `bustApiCachePrefix(prefix)` helper deletes every cache entry whose key starts with the given prefix — used to invalidate every filter slice of a list at once.
+- **Mutation sites wired to bust prefixes before `reload()`:**
+  - `modules/placements/ui/List.jsx` — bulk status change → `bustApiCachePrefix('placements-list:')`.
+  - `modules/ap/ui/BillsList.jsx` — `BillFromTimeBundleModal`, `BillFromTimeEntriesModal`, `SuggestPaymentRunModal` `onCreated` handlers → `bustApiCachePrefix('ap-bills-list:')`.
+  - `modules/billing/ui/InvoicesList.jsx` — `InvoiceFromTimeBundleModal`, `InvoiceFromTimeEntriesModal` `onCreated` handlers → `bustApiCachePrefix('billing-invoices-list:')`.
+  - `modules/staffing/ui/TimesheetDetail.jsx` — shared `act()` helper (submit / approve / reject / etc) + `reopenForEdit` → `bustApiCachePrefix('timesheets-list:')`.
+  - `modules/staffing/ui/TimesheetWeek.jsx` — `submitWeek` → `bustApiCachePrefix('timesheets-list:')`.
+- **New smoke: `tests/api_cache_prefix_bust_smoke.php`** (27 ✓) — locks both the API surface and every mutation site that wires the bust.
+
+Result: the 30-second stale-view window on neighbour filter tabs is eliminated. A user who promotes a placement draft, then clicks the "Active" filter, sees the new row immediately on next mount instead of waiting for TTL.
+
+### Suite health
+402/403 passing. Only the documented `accounting_phase2_a7_smoke.php` sandbox regression remains.
+
+### Backlog still open
+- P1: Slice F vertical extensions (AI spec).
+- P2: QBO OAuth proactive token refresh.
+- P2: QBO push retry + dead-letter queue.
+- P2: Cloudways env secret management (Resend keys currently hardcoded in `config.local.php` per user request).
+- P2: Mercury Webhooks integration.
+
+
 ## Session — 2026-02 (useApiCached rollout to Placements / AP Bills / Billing Invoices)
 
 ### What shipped this session

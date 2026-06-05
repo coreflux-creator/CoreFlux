@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, useApiCached } from '../../../dashboard/src/lib/api'; // eslint-disable-line no-unused-vars
+import { api, useApiCached, bustApiCachePrefix } from '../../../dashboard/src/lib/api'; // eslint-disable-line no-unused-vars
 import { useBulkSelection } from '../../../dashboard/src/lib/useBulkSelection';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import BillFromTimeBundleModal from './BillFromTimeBundleModal';
@@ -140,21 +140,36 @@ export default function BillsList() {
       {showFromBundle && (
         <BillFromTimeBundleModal
           onClose={() => setShowFromBundle(false)}
-          onCreated={() => { setShowFromBundle(false); reload(); }}
+          onCreated={() => {
+            setShowFromBundle(false);
+            // New bill changes counts/filters across the AP list — bust the
+            // whole prefix so sibling status tabs (Pending approval, Paid,
+            // etc.) reflect the new row on next mount.
+            bustApiCachePrefix('ap-bills-list:');
+            reload();
+          }}
         />
       )}
 
       {showFromEntries && (
         <BillFromTimeEntriesModal
           onClose={() => setShowFromEntries(false)}
-          onCreated={() => { setShowFromEntries(false); reload(); }}
+          onCreated={() => {
+            setShowFromEntries(false);
+            bustApiCachePrefix('ap-bills-list:');
+            reload();
+          }}
         />
       )}
 
       {showSuggestRun && (
         <SuggestPaymentRunModal
           onClose={() => setShowSuggestRun(false)}
-          onCreated={() => { setShowSuggestRun(false); reload(); }}
+          onCreated={() => {
+            setShowSuggestRun(false);
+            bustApiCachePrefix('ap-bills-list:');
+            reload();
+          }}
         />
       )}
     </section>
