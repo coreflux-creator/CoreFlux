@@ -1,5 +1,84 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (JE Approver seed + workflow helpers)
+
+User direction: "yes" → after the post-approval gate hardening + mail
+key leak fix, ship the canonical "open a gate-compatible JE-promotion
+approval" path so workflows + admin surfaces use the supported helper
+instead of building the request_payload by hand (which always forgets
+either je_id binding or draft_hash snapshot).
+
+### What shipped
+
+**`core/ai/workflows/engine.php`** — two new public helpers (~30 LOC),
+both pre-snapshot the gate-compatible payload via
+`accountingApprovalRequestPayloadForJe()`:
+
+1. `workflowRequireJePromotionApproval(int $tenantId, int $jeId,
+   ?string $assignedRole = 'accounting_reviewer'): void`
+   — Throws `WorkflowAwaitingApproval('post_journal_entry', 4, …)`
+   from inside a workflow node.  Caught by the engine which writes
+   the row.
+
+2. `workflowOpenJePromotionApproval(int $tenantId, string $runId,
+   int $jeId, ?string $assignedRole = 'accounting_reviewer',
+   string $node = 'await_je_approval'): int`
+   — Out-of-graph variant.  Calls `_workflowInsertApproval()` directly
+   so seed scripts + admin manual-review surfaces can open a
+   gate-compatible approval without spinning up a workflow runtime.
+   Returns the new `workflow_approvals.id`.
+
+**`scripts/seed_je_approver_demo.php`** (~170 LOC CLI seed):
+- `--tenant=N`, `--entity=N`, `--user=N`, `--help` getopt.
+- Idempotent on re-run: reuses the newest existing draft JE; only
+  synthesises a balanced 2-line draft (debit + credit on the first
+  two active+postable accounts in the current open period) when none
+  exists.
+- Refuses closed / soft_closed period.
+- Inserts a synthetic `workflow_runs` row (graph_name =
+  `manual_je_post_demo`, status = `awaiting_approval`, current_node =
+  `await_je_approval`) so the seed approval renders in the Reviewer
+  cockpit timeline next to LLM-driven approvals.
+- Calls `workflowOpenJePromotionApproval()` → returns approval_id.
+- Reads the approval back and renders an operator playbook:
+  - Reviewer URL `/admin/ai-gateway/reviewer`.
+  - The exact `aiToolInvoke('coreflux.post_approved_journal_entry',
+    ['je_id' => N], $callerCtx + ['_approval_id' => N])` shape.
+  - Gate-payload diagnostics: `je_id`, truncated `draft_hash`,
+    `snapshot_at`.
+  - 6-rule sanity-check line for every gating rule.
+- Exit codes: 0 success, 1 preflight failed (no accounts / no open
+  period / no entity), 2 unexpected exception.
+
+**Smoke `tests/ai_je_approver_seed_smoke.php`** → **32 / 32 ✓**
+locks the helper signatures + seed script structure (getopt, JE
+fallback path, workflow_runs row, helper call, playbook output,
+exit codes, php -l clean).
+
+### Test status
+
+- Full PHP suite: **394 / 395 ✓** — only the long-known sandbox-
+  bound `accounting_phase2_a7_smoke.php` failure remains.
+- New seed smoke: **32 / 32 ✓**.
+- HY093 + tenant-leak static analyzers: **9 / 9 ✓**.
+- Post-approval gate smoke (P2 session): **49 / 49 ✓**.
+- Resend wiring + tenant mail senders: **26 + 79 = 105 / 105 ✓**.
+
+### Operator action (production)
+
+After applying migration 112 + setting the Cloudways `RESEND_API_KEY`
+env var (per the prior mail-leak session):
+
+```bash
+php scripts/seed_je_approver_demo.php --tenant=1 --user=1
+```
+
+Walks the operator through approve → promote end-to-end against the
+six-rule gate without writing any code or constructing
+`request_payload` by hand.  Re-run is idempotent.
+
+---
+
 ## Session — 2026-02 (Mail config hardening — Resend key out of git)
 
 User direction: "a" → replace the hardcoded `define('RESEND_API_KEY', …)`

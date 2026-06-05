@@ -538,6 +538,58 @@ function workflowRequireApproval(string $approvalType, int $riskLevel, array $re
 }
 
 /**
+ * Canonical "ask for permission to post a draft JE" pause-for-approval
+ * helper. Use this from any workflow node that wants to promote a
+ * draft journal entry — it snapshots the gate-compatible request
+ * payload (je_id + draft_hash + snapshot_at) via
+ * accountingApprovalRequestPayloadForJe() so the
+ * coreflux.post_approved_journal_entry gate accepts the approval
+ * later. Throws WorkflowAwaitingApproval (caught by the engine).
+ *
+ *   workflowRequireJePromotionApproval($tenantId, $jeId);
+ *   workflowRequireJePromotionApproval($tenantId, $jeId, 'accounting_reviewer');
+ *
+ * Any caller who builds request_payload by hand without snapshotting
+ * draft_hash WILL be refused at promotion time with code
+ * 'approval_missing_hash'. This helper is the supported path.
+ */
+function workflowRequireJePromotionApproval(int $tenantId, int $jeId, ?string $assignedRole = 'accounting_reviewer'): void
+{
+    require_once __DIR__ . '/../../accounting/post_approval_gates.php';
+    $payload = accountingApprovalRequestPayloadForJe($tenantId, $jeId);
+    throw new WorkflowAwaitingApproval('post_journal_entry', 4, $payload, $assignedRole);
+}
+
+/**
+ * Out-of-graph variant: directly INSERT a workflow_approvals row that
+ * is gate-compatible with coreflux.post_approved_journal_entry. Use
+ * this from seed scripts, admin manual-review surfaces, or any
+ * non-workflow code path that needs to open a JE-promotion approval.
+ *
+ * Returns the new workflow_approvals.id. Caller is responsible for
+ * tying it to a workflow_run row if relevant (the seed script creates
+ * a synthetic 'manual_je_post' run for traceability).
+ *
+ * @param int    $tenantId
+ * @param string $runId      workflow_runs.id (UUIDv4) to link the approval to
+ * @param int    $jeId
+ * @param ?string $assignedRole  default 'accounting_reviewer'
+ * @param string $node       node_name stamp; default 'await_je_approval'
+ */
+function workflowOpenJePromotionApproval(
+    int $tenantId,
+    string $runId,
+    int $jeId,
+    ?string $assignedRole = 'accounting_reviewer',
+    string $node = 'await_je_approval'
+): int {
+    require_once __DIR__ . '/../../accounting/post_approval_gates.php';
+    $payload = accountingApprovalRequestPayloadForJe($tenantId, $jeId);
+    $w = new WorkflowAwaitingApproval('post_journal_entry', 4, $payload, $assignedRole);
+    return _workflowInsertApproval($tenantId, $runId, $node, $w);
+}
+
+/**
  * Record an approval decision. Does NOT auto-resume the workflow —
  * callers (the API endpoint) call workflowResume() after this. That
  * keeps the data write and the engine drive separate so partial
