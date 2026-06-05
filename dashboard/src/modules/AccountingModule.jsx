@@ -1,9 +1,10 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { ModuleHero, Section, StatsGrid, StatCard, ActionCardsGrid, ActionCard } from '../components/UIComponents';
-import { BookOpen, FileText, TrendingUp, CreditCard, Receipt, PieChart } from 'lucide-react';
+import { BookOpen, FileText, TrendingUp, CreditCard, Receipt, PieChart, CheckSquare } from 'lucide-react';
 import BookkeepingOverview from '../pages/BookkeepingOverview';
 import TransactionsToReview from '../pages/TransactionsToReview';
+import CloseDashboard from '../pages/CloseDashboard';
 
 // Accounting Overview
 const AccountingOverview = () => (
@@ -29,6 +30,7 @@ const AccountingOverview = () => (
         <ActionCard icon={BookOpen} title="Chart of Accounts" description="View and manage accounts" href="/modules/accounting/chart-of-accounts" />
         <ActionCard icon={FileText} title="Journal Entries" description="Create and post entries" href="/modules/accounting/journal-entries" />
         <ActionCard icon={CreditCard} title="Accounts Payable" description="Vendor invoices & payments" href="/modules/accounting/accounts-payable" />
+        <ActionCard icon={CheckSquare} title="Close dashboard" description="Period close orchestrator: checklist progress, packet build, lock + reopen lifecycle. Spec §11." href="/modules/accounting/close" />
       </ActionCardsGrid>
     </Section>
   </>
@@ -141,6 +143,7 @@ const AccountingModule = ({ session }) => (
     <Route path="accounts-receivable" element={<AccountsReceivable />} />
     <Route path="accounts_receivable" element={<Navigate to="../accounts-receivable" replace />} />
     <Route path="reports" element={<Reports />} />
+    <Route path="close" element={<CloseDashboard />} />
     <Route path="settings" element={<AccountingSettings />} />
     <Route path="*" element={<Navigate to="overview" replace />} />
   </Routes>

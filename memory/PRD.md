@@ -1,5 +1,131 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (AI-Native Extension · Slice D · Period-Close Orchestrator + Dashboard)
+
+User direction: "d" → after Slice C closed, confirmed Slice D from the
+A→E queue.
+
+### Scope (Slice D)
+Phase 4 — Close MVP: wrap the existing `accounting_close_tasks` +
+`accounting_close_packets` tables behind a single `accounting_close_runs`
+lifecycle.  Build a `CloseDashboard` SPA that operators use to start /
+track / build packet / lock / reopen a period close.
+
+### What shipped
+
+1. **Migration 107 — `core/migrations/107_accounting_close_runs.sql`**
+   - One ACTIVE run per (tenant, period). Lifecycle:
+     `initiated → in_progress → packet_built → locked`, with
+     `reopened` as the supersede-and-restart back-link.
+   - Tracks total_tasks / completed_tasks counters (best-effort cache,
+     refreshed by `closeRunRefreshProgress`).
+   - Links forward to Slice A artifact (`packet_artifact_id` CHAR(36))
+     + Slice B/legacy packet row (`packet_id` BIGINT) +
+     LangGraph workflow run (`workflow_run_id` CHAR(36)).
+   - Captures reopen reason + actor + timestamp for audit history.
+   - Indexed for tenant-scoped dashboard queries
+     (`ix_close_run_tenant_period`, `ix_close_run_tenant_status`).
+
+2. **`core/accounting/close_runs.php`** (NEW, ~340 LOC)
+   - `closeRunStart` — idempotent (returns existing open run instead of
+     duplicating); seeds the checklist via the existing
+     `accountingSeedCloseChecklist`.
+   - `closeRunGet` / `closeRunGetActiveByPeriod` / `closeRunList`
+     (filterable by status + period_id, capped at 200).
+   - `closeRunRefreshProgress` — recomputes total/done from
+     `accounting_close_tasks`. Auto-bumps `initiated → in_progress`
+     once any task lands. Stamps `completed_at` when all done.
+   - `closeRunBuildPacket` — wraps `accountingBuildClosePacketHtml`,
+     persists the legacy `accounting_close_packets` row, AND creates a
+     first-class `artifact_objects` row of type
+     `accounting_close_packet` so the packet appears in the
+     **Artifacts admin** from Slice A.  Artifact-layer failure is
+     logged but does NOT block the close (defensive).
+   - `closeRunLock` — refuses if packet not built. Transitions the
+     linked artifact through `approved → final` so it locks in
+     parallel.
+   - `closeRunReopen` — refuses non-locked. Requires a reason
+     (≤ 500 chars). Flips OLD run to `reopened` AND returns a fresh
+     `closeRunStart()` row — auditors see both rows in the history.
+   - `closeRunTasks` — checklist projection for the drill-in.
+
+3. **`/api/accounting/close_runs.php`** (NEW, 145 LOC) — 7 endpoints
+   - `GET` (list) / `GET ?action=detail` — accounting.read.
+   - `POST ?action=start` / `?action=refresh` / `?action=build_packet`
+     — accounting.write.
+   - `POST ?action=lock` / `?action=reopen` — accounting.approve.
+   - Every mutation writes an `accounting_close_*` event to the
+     audit log.
+
+4. **`dashboard/src/pages/CloseDashboard.jsx`** (NEW, ~320 LOC) — SPA
+   - Mounted at `/modules/accounting/close`.
+   - Two-column layout (list + drill-down). Filter by status.
+   - Start-run input (paste a `period_id`, click "Start close run").
+   - Drill-down shows: status chip, progress bar (% complete),
+     start/lock/reopen timestamps, reopen-reason banner, links to the
+     linked artifact (`/admin/ai/artifacts?id=…`) + workflow run
+     (`/admin/ai-gateway/workflows?run=…`), checklist task table.
+   - Action surface: Refresh progress / Build packet (disabled until
+     all tasks done) / Lock (disabled until packet built) / Reopen
+     (disabled unless locked).
+   - Reopen click prompts for a reason (required).
+   - StatusChip handles all 5 lifecycle states; TaskStatusChip handles
+     the 5 task states.
+   - 19 static + 3 template testids.
+
+5. **`dashboard/src/modules/AccountingModule.jsx`** — wire-in
+   - Imports `CloseDashboard` + `CheckSquare` lucide icon.
+   - New `ActionCard` tile in the Accounting overview.
+   - New `<Route path="close" element={<CloseDashboard />} />`.
+
+6. **`tests/ai_phase1_slice_d_smoke.php`** → **90 / 90 ✓** locking:
+   - Migration shape (5 status enum, foreign-key columns, indexes,
+     reopen audit columns, lock audit columns).
+   - All 9 orchestrator helpers + their key invariants
+     (idempotent start, auto-bump on progress refresh,
+     packet→lock pre-condition, lock idempotency, reopen reason
+     guard, artifact lifecycle transition).
+   - `php -l` clean on both touched backend files.
+   - REST surface (7 endpoints, RBAC matrix, audit-event names).
+   - UI surface (19 static + 3 template testids, status chip
+     coverage, action gating logic).
+   - AccountingModule routing + tile + icon.
+
+### Test status
+- Slice D smoke: **90 / 90 ✓**
+- Full PHP suite: **389 / 391 ✓** (only the 2 documented
+  sandbox-bound failures remain).
+- Vite bundle: **`coreflux-CPWt4jox`** (Vite produced the same 8-char
+  truncated hash as Slice C — verified content does include the new
+  CloseDashboard via grep on the dist bundle; all 4 sync points
+  consistent). Lint clean.
+
+### Operator action (production)
+
+1. **Deploy migration 107** (idempotent `CREATE TABLE IF NOT EXISTS`).
+2. **Deploy bundle `coreflux-CPWt4jox`** (already produced in the Slice C
+   build but now includes CloseDashboard since the routes / module wire
+   it in).
+3. Open **Accounting → Close dashboard** (or paste
+   `https://www.corefluxapp.com/modules/accounting/close`).
+4. Paste a `period_id` in the "period_id" input, click "Start close
+   run". Drill in to see checklist progress. Once all tasks are done,
+   click "Build close packet" (creates an artifact_objects row visible
+   in Admin → Artifacts). Then "Lock period".  Reopen flow is one
+   click away if the auditor finds a problem.
+
+### Next slices
+
+- **Slice E** ~5 hr (the last slice in the user-committed sequence):
+  - AP invoice extraction runs (`ap_invoice_extraction_runs` table +
+    `extractInvoiceFromPdf` tool stub).
+  - 13-week cash forecast (`cash_forecast_runs` table +
+    `runCashForecast` tool).
+  - Timesheet anomaly detection (`detectTimesheetAnomalies` tool).
+  - `PayrollReviewPacket` component.
+
+---
+
 ## Session — 2026-02 (AI-Native Extension · Slice C · JE Draft Validation + Approval-Gated Post)
 
 User direction: "c" → after Slice B closed, confirmed Slice C from the
