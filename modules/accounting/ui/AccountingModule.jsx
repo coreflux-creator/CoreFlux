@@ -29,10 +29,13 @@ import DimensionalPnL from './DimensionalPnL';
 import LayerSandboxModule from './layer/LayerSandboxModule';
 
 // LayerFi sandbox embed (per-tenant embedded accounting evaluation).
-// Feature-flagged: hidden only when VITE_ENABLE_LAYER_SANDBOX is explicitly "false".
+// Production-safe default: HIDDEN unless VITE_ENABLE_LAYER_SANDBOX is
+// explicitly set to "true" at build time. Shipping the bundle without that
+// var leaves the native ledger as the only accounting surface (no routes,
+// no nav, and the backend endpoints 404 unless ENABLE_LAYER_SANDBOX=true).
 const LAYER_SANDBOX_ENABLED =
   typeof import.meta !== 'undefined' &&
-  String(import.meta.env?.VITE_ENABLE_LAYER_SANDBOX) !== 'false';
+  String(import.meta.env?.VITE_ENABLE_LAYER_SANDBOX) === 'true';
 
 /**
  * Accounting Module — Phase 0 + 1 + 2 UI
