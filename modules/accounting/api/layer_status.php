@@ -11,6 +11,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/integrations/layer/layer_business_service.php';
+require_once __DIR__ . '/../../../core/integrations/layer/layer_access.php';
 
 if (!layer_enabled()) api_error('Not found', 404);
 
@@ -29,16 +30,24 @@ layer_audit('layer.status_viewed', 'success', [
     'metadata'  => ['configured' => (bool) $mapping],
 ]);
 
+$allowed = layer_tenant_allowed($tenantId);
+$gov     = layer_tenant_governance($tenantId);
+$canToggle = rbac_legacy_can($user, 'coreflux.internal_sandbox') && !$gov['envLocked'];
+
 $out = [
-    'provider'    => 'layer',
-    'environment' => $cfg['environment'],
-    'enabled'     => true,
-    'configured'  => (bool) $mapping,
-    'tenantId'    => $tenantId,
-    'stub'        => layer_is_stub(),
+    'provider'      => 'layer',
+    'environment'   => $cfg['environment'],
+    'enabled'       => true,
+    'allowed'       => $allowed,
+    'allowlistMode' => layer_allowlist_mode(),
+    'governance'    => $gov,
+    'canToggle'     => $canToggle,
+    'configured'    => $allowed && (bool) $mapping,
+    'tenantId'      => $tenantId,
+    'stub'          => layer_is_stub(),
 ];
 
-if ($mapping) {
+if ($allowed && $mapping) {
     $canSeeBusiness = rbac_legacy_can($user, 'coreflux.internal_sandbox')
         || rbac_legacy_can($user, 'accounting.manage_integrations');
     $out['status']          = $mapping['status'];

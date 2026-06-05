@@ -12,6 +12,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/integrations/layer/layer_token_service.php';
+require_once __DIR__ . '/../../../core/integrations/layer/layer_access.php';
 
 if (!layer_enabled()) api_error('Not found', 404);
 
@@ -23,6 +24,10 @@ rbac_legacy_require($user, 'accounting.view');
 
 $tenantId = (int) ($ctx['tenant_id'] ?? 0);
 if ($tenantId <= 0) api_error('No tenant context', 400);
+
+if (!layer_tenant_allowed($tenantId)) {
+    api_error('LayerFi is not enabled for this tenant', 403, ['provider' => 'layer', 'allowed' => false]);
+}
 
 try {
     $r = layer_create_business_token($tenantId);

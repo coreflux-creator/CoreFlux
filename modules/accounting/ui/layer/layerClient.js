@@ -35,6 +35,9 @@ export function createLayerClient({ baseUrl = '', getAuthHeaders } = {}) {
     smokeTest: () => call('/api/accounting/layer-smoke-test'),
     setupTenant: (payload) => call('/api/accounting/layer-setup-tenant', { method: 'POST', body: payload || {} }),
     businessToken: () => call('/api/accounting/layer-business-token', { method: 'POST', body: {} }),
+    setTenantEnabled: (enabled) =>
+      call('/api/accounting/layer-tenant-enablement', { method: 'POST', body: { enabled } }),
+    auditLog: (limit = 25) => call(`/api/accounting/layer-audit-log?limit=${limit}`),
     reportClientError: (payload) =>
       call('/api/accounting/layer-client-error', { method: 'POST', body: payload }).catch(() => {}),
   };

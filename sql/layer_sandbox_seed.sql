@@ -60,3 +60,20 @@ INSERT INTO `user_tenants` (`user_id`, `tenant_id`, `role`, `is_default`, `statu
     (3, 1, 'employee',     1, 'active'),
     (3, 2, 'employee',     0, 'active')
 ON DUPLICATE KEY UPDATE `role` = VALUES(`role`);
+
+-- LayerFi per-tenant DB toggle. INSERT IGNORE seeds an INITIAL state only, so
+-- changes made later via the admin UI persist across restarts.
+-- Demo: Acme (1) enabled, Beta (2) disabled — flip from the UI to prove it.
+CREATE TABLE IF NOT EXISTS `tenant_layer_enablement` (
+    `tenant_id`         INT UNSIGNED NOT NULL,
+    `layer_environment` VARCHAR(20)  NOT NULL DEFAULT 'sandbox',
+    `enabled`           TINYINT(1)   NOT NULL DEFAULT 0,
+    `updated_by`        INT UNSIGNED NULL,
+    `created_at`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`tenant_id`, `layer_environment`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `tenant_layer_enablement` (`tenant_id`, `layer_environment`, `enabled`) VALUES
+    (1, 'sandbox', 1),
+    (2, 'sandbox', 0);

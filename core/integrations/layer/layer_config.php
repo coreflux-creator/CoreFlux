@@ -51,3 +51,34 @@ function layer_is_stub(): bool
     if (in_array(strtolower($c['clientId']), ['replace_me', 'changeme', 'your_client_id'], true)) return true;
     return false;
 }
+
+/**
+ * Per-tenant allowlist (spec extension).
+ *
+ * `LAYER_TENANT_ALLOWLIST` is a comma-separated list of CoreFlux tenant ids.
+ *   • empty / unset  → no per-tenant restriction (the global feature flag alone gates access).
+ *   • non-empty      → ONLY the listed tenants may use LayerFi, even when the flag is on.
+ *
+ * This lets you ship + enable the feature globally but reveal it to just a
+ * pilot set of tenants. The native ledger stays the only surface for everyone else.
+ */
+function layer_tenant_allowlist(): array
+{
+    $raw = layer_env_str('LAYER_TENANT_ALLOWLIST', '');
+    if (trim($raw) === '') return [];
+    $ids = array_map('intval', array_filter(array_map('trim', explode(',', $raw)), fn($v) => $v !== ''));
+    return array_values(array_unique(array_filter($ids, fn($v) => $v > 0)));
+}
+
+/** True when an allowlist is configured (restriction active). */
+function layer_allowlist_mode(): bool
+{
+    return !empty(layer_tenant_allowlist());
+}
+
+/** Global default for tenants with no explicit DB enablement row. */
+function layer_default_tenant_enabled(): bool
+{
+    $v = strtolower(layer_env_str('LAYER_TENANT_DEFAULT_ENABLED', 'false'));
+    return in_array($v, ['1', 'true', 'yes', 'on'], true);
+}

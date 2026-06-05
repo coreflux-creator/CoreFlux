@@ -18,10 +18,11 @@ export default function LayerSandboxPage({ client, tenant, paths }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [notConfigured, setNotConfigured] = useState(false);
+  const [notAllowed, setNotAllowed] = useState(false);
   const [error, setError] = useState(null);
 
   const loadToken = useCallback(async () => {
-    setLoading(true); setError(null); setNotConfigured(false); setSession(null);
+    setLoading(true); setError(null); setNotConfigured(false); setNotAllowed(false); setSession(null);
     try {
       const r = await client.businessToken();
       setSession({
@@ -32,6 +33,7 @@ export default function LayerSandboxPage({ client, tenant, paths }) {
       });
     } catch (e) {
       if (e.status === 404) setNotConfigured(true);
+      else if (e.status === 403) setNotAllowed(true);
       else setError(e.message);
     } finally {
       setLoading(false);
@@ -67,6 +69,17 @@ export default function LayerSandboxPage({ client, tenant, paths }) {
           <p>An integration admin needs to create the LayerFi sandbox business first.</p>
           <button className="layer-btn layer-btn--primary" onClick={() => navigate(P.settings)} data-testid="layer-go-configure-btn">
             Go to integration settings
+          </button>
+        </div>
+      )}
+
+      {!loading && notAllowed && (
+        <div className="layer-empty" data-testid="layer-not-allowed-sandbox">
+          <ShieldAlert size={26} />
+          <h3>LayerFi is not enabled for {tenant?.name}</h3>
+          <p>This tenant is not on the LayerFi allowlist. It continues to use the native CoreFlux ledger.</p>
+          <button className="layer-btn layer-btn--ghost" onClick={() => navigate(P.settings)} data-testid="layer-allowlist-settings-btn">
+            View integration settings
           </button>
         </div>
       )}

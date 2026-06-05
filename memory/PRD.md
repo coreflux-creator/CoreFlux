@@ -60,6 +60,29 @@ Frontend (shared, drops into both surfaces) under `modules/accounting/ui/layer/`
   - Embedded `@layerfi/components` render LIVE data (default Chart of Accounts populated, Bank Transactions/Integrations live).
 - SECURITY NOTE: the client secret now lives in `/app/backend/.env`. Keep it out of any public git push; rotate if exposed.
 
+## Access gating (two layers, independent)
+1. Global feature flag — `ENABLE_LAYER_SANDBOX` (backend → 404 when off) and
+   `VITE_ENABLE_LAYER_SANDBOX` (frontend → routes/nav hidden, default OFF).
+2. Per-tenant access — resolved in `core/integrations/layer/layer_access.php`:
+   a. `LAYER_TENANT_ALLOWLIST` env → HARD lock/override (DB toggle ignored).
+   b. `tenant_layer_enablement` DB row → **admin toggle, no restart needed**.
+   c. `LAYER_TENANT_DEFAULT_ENABLED` → fallback for tenants with no row.
+   Non-allowed tenants get 403 on setup/business-token, `allowed:false` on status.
+
+### Admin toggle + audit UI (added 2026-06-05)
+- `POST /api/accounting/layer-tenant-enablement` (internal admin) — flip a tenant
+  on/off live; 409 when env-locked. Migration `023_layer_tenant_enablement.sql`.
+- `GET /api/accounting/layer-audit-log` — tenant-scoped `integration_audit_log`.
+- UI: a switch on the LayerFi settings page (`LayerIntegrationSettingsPage` +
+  `LayerAuditTimeline.jsx`) toggles access and shows the live audit trail.
+- Verified: enable→200, disable→403, employee→403, env-lock→409, UI toggle live.
+
+### Dashboard SPA build (verified 2026-06-05)
+- `dashboard/vite.config.js` aliases `@layerfi/components`; `yarn vite build`
+  compiles cleanly (5774 modules) WITH LayerFi included. The committed
+  `/app/spa-assets` live bundle was NOT mutated (deploy-time `yarn build` does
+  the sync with the chosen flag).
+
 ## Backlog / Next actions
 - P0: Add real LayerFi sandbox keys → re-run smoke test + confirm embedded data renders.
 - P1: Build + ship the dashboard SPA bundle with the LayerFi routes (currently wired at code level).

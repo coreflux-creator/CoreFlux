@@ -13,6 +13,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/integrations/layer/layer_audit.php';
+require_once __DIR__ . '/../../../core/integrations/layer/layer_access.php';
 
 if (!layer_enabled()) api_error('Not found', 404);
 
@@ -21,6 +22,10 @@ $user = $ctx['user'];
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
 
 rbac_legacy_require($user, 'accounting.view');
+
+if (!layer_tenant_allowed((int) ($ctx['tenant_id'] ?? 0))) {
+    api_error('LayerFi is not enabled for this tenant', 403, ['provider' => 'layer', 'allowed' => false]);
+}
 
 $body    = api_json_body();
 $type    = mb_substr((string) ($body['type']  ?? 'unknown'), 0, 64);
