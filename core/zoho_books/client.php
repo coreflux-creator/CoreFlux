@@ -39,6 +39,25 @@ require_once __DIR__ . '/../encryption.php';
 require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../config.php';
 
+/**
+ * Zoho Books API exception — raised by `zohoBooksCall()` when the
+ * upstream returns a 4xx / 5xx response. Carries:
+ *   - $httpStatus  : the HTTP status code
+ *   - $errorCode   : Zoho's `code` field (their machine-readable code)
+ *   - $raw         : ['body' => <first 600 chars of raw vendor response>]
+ *
+ * Charter primitive #6 — operators must always be able to see what the
+ * vendor said when something fails. The sync drivers persist `$e->raw`
+ * into the audit log so the IntegrationsHealthPanel and outbox UI can
+ * surface the un-parsed payload to engineers.
+ */
+class ZohoBooksApiException extends \RuntimeException
+{
+    public ?int    $httpStatus = null;
+    public ?string $errorCode  = null;
+    public ?array  $raw        = null;
+}
+
 // Default authorize URL is the .com DC; Zoho redirects the user's
 // browser to their actual regional accounts host during login and
 // returns it in the callback's `accounts-server` parameter.
@@ -477,10 +496,21 @@ function zohoBooksCall(int $tenantId, string $method, string $path, ?array $body
             'id' => (int) $row['id'],
             'e'  => substr('HTTP ' . $resp['status'] . ' on ' . $method . ' ' . $path, 0, 500),
         ]);
-        throw new \RuntimeException(
-            'Zoho Books ' . $method . ' ' . $path . ' returned HTTP ' . $resp['status']
-            . ': ' . substr(is_string($resp['body']) ? $resp['body'] : json_encode($resp['body']), 0, 300)
-        );
+        // Charter primitive #6 — capture the raw vendor response so the
+        // operator can see exactly what Zoho said (e.g. validation error
+        // detail). Truncate to 600 chars to stay within audit-log limits.
+        $rawBody = is_string($resp['body']) ? $resp['body'] : json_encode($resp['body']);
+        $msg = 'Zoho Books ' . $method . ' ' . $path . ' returned HTTP ' . $resp['status']
+             . ': ' . substr($rawBody, 0, 300);
+        $errCode = '';
+        if (is_array($resp['body']) && isset($resp['body']['code'])) {
+            $errCode = (string) $resp['body']['code'];
+        }
+        $ex = new ZohoBooksApiException($msg);
+        $ex->httpStatus = (int) $resp['status'];
+        $ex->errorCode  = $errCode;
+        $ex->raw        = ['body' => substr($rawBody, 0, 600)];
+        throw $ex;
     }
     if (!is_array($resp['body'])) return ['_raw' => $resp['body']];
     return $resp['body'];

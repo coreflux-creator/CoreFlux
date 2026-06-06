@@ -107,6 +107,11 @@ export default function IntegrationsHealthPanel() {
                       label="verify"
                       ok={p.verify_create}
                       testid={`integrations-health-${p.id}-verify`}
+                    />{' '}
+                    <SmokeBadge
+                      label="errors"
+                      ok={p.error_surface}
+                      testid={`integrations-health-${p.id}-error-surface`}
                     />
                   </td>
                   <td>

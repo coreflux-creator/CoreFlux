@@ -209,11 +209,25 @@ function zohoBooksSyncBills(int $tenantId, ?int $userId, array $opts = []): arra
             ]);
         } catch (\Throwable $e) {
             $failed++;
-            $results[] = ['bill_id' => $bid, 'bill_number' => $bill['bill_number'], 'status' => 'failed', 'reason' => substr($e->getMessage(), 0, 300)];
+            // Charter primitive #6 — capture raw vendor body.
+            $vendorRaw  = ($e instanceof ZohoBooksApiException && is_array($e->raw)) ? $e->raw : null;
+            $vendorHttp = ($e instanceof ZohoBooksApiException) ? (int) $e->httpStatus : null;
+            $vendorCode = ($e instanceof ZohoBooksApiException) ? (string) $e->errorCode : null;
+            $results[] = [
+                'bill_id' => $bid, 'bill_number' => $bill['bill_number'],
+                'status' => 'failed', 'reason' => substr($e->getMessage(), 0, 300),
+                'vendor' => ['http_status' => $vendorHttp, 'code' => $vendorCode, 'raw' => $vendorRaw],
+            ];
             zohoBooksAudit($tenantId, 'sync_bill_push', [
                 'entity_type' => 'bill', 'direction' => 'push', 'ok' => false,
                 'actor_user_id' => $userId, 'items_failed' => 1,
-                'detail' => ['bill_id' => $bid, 'error' => substr($e->getMessage(), 0, 500)],
+                'detail' => [
+                    'bill_id' => $bid,
+                    'error' => substr($e->getMessage(), 0, 500),
+                    'vendor_http_status' => $vendorHttp,
+                    'vendor_error_code'  => $vendorCode,
+                    'vendor_raw'         => $vendorRaw,
+                ],
             ]);
         }
     }

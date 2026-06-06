@@ -58,6 +58,8 @@ $providers = [
         // Charter primitive #5 — adapter overrides verifyCreate to assert
         // downstream status (active for journals, draft for bills/invoices).
         'verify_create' => true,
+        // Charter primitive #6 — raw vendor body captured via JazApiException::$raw.
+        'error_surface' => true,
     ],
     [
         'id'        => 'qbo',
@@ -67,11 +69,12 @@ $providers = [
         'contract'  => $ROOT . '/tests/qbo_payload_contract_smoke.php',
         'freshness' => $ROOT . '/tests/qbo_spec_freshness_smoke.php',
         'tool'      => $ROOT . '/tools/refresh_qbo_spec.sh',
-        // QBO uses procedural sync_*.php builders, not an adapter class —
-        // verifyCreate lives in the base class and falls through to the
-        // default GET-and-soft-pass behaviour for now. Backlog: hoist QBO
-        // into the adapter class shape so it can override.
-        'verify_create' => false,
+        // Charter primitive #5 — procedural verifier in core/integrations/verify_create.php
+        // stamps `pushed_unverified` after each POST.
+        'verify_create' => true,
+        // QBO still surfaces errors as plain RuntimeException without a
+        // dedicated exception class carrying the raw vendor body.
+        'error_surface' => false,
     ],
     [
         'id'        => 'zoho',
@@ -81,9 +84,12 @@ $providers = [
         'contract'  => $ROOT . '/tests/zoho_payload_contract_smoke.php',
         'freshness' => $ROOT . '/tests/zoho_spec_freshness_smoke.php',
         'tool'      => $ROOT . '/tools/refresh_zoho_spec.sh',
-        // Same status as QBO — builders are procedural; verifyCreate
-        // backlog item is "hoist into adapter class".
-        'verify_create' => false,
+        // Charter primitive #5 — procedural verifier (this session).
+        'verify_create' => true,
+        // Charter primitive #6 — ZohoBooksApiException::$raw carries the
+        // truncated vendor response body; sync_je/bills/invoices persist
+        // it to the audit log on every failure (this session).
+        'error_surface' => true,
     ],
     [
         'id'        => 'mercury',
@@ -93,10 +99,13 @@ $providers = [
         'contract'  => $ROOT . '/tests/mercury_payload_contract_smoke.php',
         'freshness' => $ROOT . '/tests/mercury_spec_freshness_smoke.php',
         'tool'      => $ROOT . '/tools/refresh_mercury_spec.sh',
-        // Banking API; #4 (mapping fallback) is n/a (no CoA). Charter
-        // backlog: hoist into adapter class + add verifyCreate via
-        // GET /payments/{id}.
-        'verify_create' => false,
+        // Banking API; #4 (mapping fallback) is n/a (no CoA).
+        // Charter primitive #5 — procedural verifier (this session).
+        'verify_create' => true,
+        // Charter primitive #6 — MercuryApiException::$raw + $errorCode
+        // are now persisted to mp_events at every originate catch site
+        // (this session).
+        'error_surface' => true,
     ],
 ];
 
@@ -169,16 +178,21 @@ foreach ($providers as $p) {
     // the adapter class itself is the source of truth (this is a
     // declarative cache for the UI).
     $row['verify_create'] = (bool) ($p['verify_create'] ?? false);
+    // Charter primitive #6 — same declarative cache for whether the
+    // adapter throws a typed exception with the raw vendor body attached.
+    $row['error_surface'] = (bool) ($p['error_surface'] ?? false);
 
     // Roll-up status. `missing` if anything required is absent, `attention`
-    // if the snapshot is stale OR verifyCreate isn't wired, otherwise `ok`.
+    // if the snapshot is stale OR verifyCreate isn't wired OR the error
+    // surface gap is open, otherwise `ok`.
     $missing = !is_file($p['spec'])
                || !$row['smokes']['contract']['exists']
                || !$row['smokes']['freshness']['exists']
                || !$row['tool']['exists'];
     $stale   = ($row['snapshot']['status'] ?? null) === 'stale';
     $verifyGap = $row['verify_create'] === false;
-    $row['overall'] = $missing ? 'missing' : (($stale || $verifyGap) ? 'attention' : 'ok');
+    $errSurfaceGap = $row['error_surface'] === false;
+    $row['overall'] = $missing ? 'missing' : (($stale || $verifyGap || $errSurfaceGap) ? 'attention' : 'ok');
 
     $out[] = $row;
 }

@@ -1,5 +1,39 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Charter primitive #6 — full vendor error surface — for Zoho + Mercury)
+
+### What shipped
+- **`ZohoBooksApiException`** class added to `core/zoho_books/client.php` with `$httpStatus`, `$errorCode`, `$raw` (parallel to `JazApiException` / `MercuryApiException`).
+- **`zohoBooksCall()`** now throws `ZohoBooksApiException` on any 4xx/5xx, stamping `$ex->raw = ['body' => substr($rawBody, 0, 600)]` and `$ex->errorCode = $body['code']`.
+- **Zoho sync drivers** (`sync_je.php`, `sync_bills.php`, `sync_invoices.php`) catch the typed exception and persist `vendor_http_status`, `vendor_error_code`, `vendor_raw` into BOTH the per-item result row AND the audit-log detail (sealed via `instanceof ZohoBooksApiException`).
+- **Mercury catch sites** — all three originate paths (`mpOriginateInternalTransfer`, `mpOriginateFunding`, `mpOriginatePayout`) now persist `vendor_error_code` and `vendor_raw` (from `MercuryApiException::$raw`) into the `mp_event` detail alongside `http_status`.
+- **`/api/admin/integrations_health.php`** now reports a declarative `error_surface` flag per provider; roll-up `overall` rolls "attention" when the gap is open. Jaz/Zoho/Mercury = ✅, QBO = ❌ (still uses plain `RuntimeException`).
+- **IntegrationsHealthPanel.jsx** — new `errors` badge per provider (test-id `integrations-health-{id}-error-surface`). Bundle rebuilt & synced via `scripts/sync_bundle.sh`.
+- **Smoke** — `tests/integration_error_surface_smoke.php` (35 ✓) — locks exception class shape, throw-site wiring, sync-driver catch-site capture, AND live exception payload via stubbed transports returning 422 (Zoho) / 400 (Mercury).
+
+### Charter coverage now
+| Provider   | #1 | #2 | #3 | #4 | #5 | #6 | #7 |
+|------------|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
+| Jaz        | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| QBO        | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ (backlog) | ✅ |
+| Zoho Books | ✅ | ✅ | ✅ | TBD | ✅ | ✅ (this session) | ✅ |
+| Mercury    | ✅ | ✅ | ✅ | n/a | ✅ | ✅ (this session) | ✅ |
+| Plaid      | ❌ | ❌ | ❌ | n/a | n/a | partial | ❌ |
+| LayerFi    | n/a (SDK) | n/a | n/a | n/a | n/a | n/a | n/a |
+
+### Suite health
+418/422 — same 4 pre-existing sandbox-boundary regressions.
+
+### Backlog (charter-tracked, not one-offs)
+- **QBO** primitive #6 — wrap `qboCall` in a `QboApiException` carrying `raw[body]`; catch and persist at the three sync drivers. (Same shape as Zoho row this session.)
+- **Plaid** full charter row (OpenAPI-vendored install).
+- **Zoho** primitive #4 — account-mapping fallback (uses same `accounting_account_mappings` table that QBO + Jaz already share).
+- **QBO OAuth** proactive token refresh via cron.
+- **QBO push retry** + dead-letter queue.
+- **Cloudways env** secret management for Resend keys.
+
+---
+
 ## Session — 2026-02 (Charter primitive #5 — verifyCreate — for QBO, Zoho, Mercury)
 
 ### What shipped

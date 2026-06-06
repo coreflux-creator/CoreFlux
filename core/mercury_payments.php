@@ -741,7 +741,13 @@ function mpOriginateInternalTransfer(int $tenantId, array $row, string $apiToken
     } catch (MercuryApiException $e) {
         mpTransition($tenantId, (int) $row['id'], 'Failed',
             'internal transfer originate failed: ' . substr($e->getMessage(), 0, 180),
-            null, [], ['stage' => 'originate_internal_transfer', 'http_status' => $e->httpStatus]);
+            null, [], [
+                'stage' => 'originate_internal_transfer',
+                'http_status' => $e->httpStatus,
+                // Charter primitive #6 — full vendor error surface.
+                'vendor_error_code' => $e->errorCode,
+                'vendor_raw'        => $e->raw,
+            ]);
         return 'Failed';
     }
 
@@ -808,7 +814,13 @@ function mpOriginateFunding(int $tenantId, array $row, string $apiToken, ?array 
     } catch (MercuryApiException $e) {
         mpTransition($tenantId, (int) $row['id'], 'Failed',
             'funding originate failed: ' . substr($e->getMessage(), 0, 180),
-            null, [], ['stage' => 'originate_funding', 'http_status' => $e->httpStatus]);
+            null, [], [
+                'stage' => 'originate_funding',
+                'http_status' => $e->httpStatus,
+                // Charter primitive #6 — full vendor error surface.
+                'vendor_error_code' => $e->errorCode,
+                'vendor_raw'        => $e->raw,
+            ]);
         return 'Failed';
     }
 
@@ -905,7 +917,13 @@ function mpVerifyAndOriginatePayout(int $tenantId, array $row, string $apiToken,
     } catch (MercuryApiException $e) {
         mpTransition($tenantId, (int) $row['id'], 'Failed',
             'payout originate failed: ' . substr($e->getMessage(), 0, 180),
-            null, [], ['stage' => 'originate_payout', 'http_status' => $e->httpStatus]);
+            null, [], [
+                'stage' => 'originate_payout',
+                'http_status' => $e->httpStatus,
+                // Charter primitive #6 — full vendor error surface.
+                'vendor_error_code' => $e->errorCode,
+                'vendor_raw'        => $e->raw,
+            ]);
         return 'Failed';
     }
 

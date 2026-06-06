@@ -245,14 +245,26 @@ function zohoBooksSyncJournalEntries(int $tenantId, ?int $userId, array $opts = 
             ]);
         } catch (\Throwable $e) {
             $failed++;
+            // Charter primitive #6 — capture the raw vendor body so the
+            // operator sees exactly what Zoho rejected.
+            $vendorRaw = ($e instanceof ZohoBooksApiException && is_array($e->raw)) ? $e->raw : null;
+            $vendorHttp = ($e instanceof ZohoBooksApiException) ? (int) $e->httpStatus : null;
+            $vendorCode = ($e instanceof ZohoBooksApiException) ? (string) $e->errorCode : null;
             $results[] = [
                 'je_id' => $jeId, 'je_number' => $je['je_number'],
                 'status' => 'failed', 'reason' => substr($e->getMessage(), 0, 300),
+                'vendor' => ['http_status' => $vendorHttp, 'code' => $vendorCode, 'raw' => $vendorRaw],
             ];
             zohoBooksAudit($tenantId, 'sync_je_push', [
                 'entity_type' => 'journal_entry', 'direction' => 'push',
                 'ok' => false, 'actor_user_id' => $userId, 'items_failed' => 1,
-                'detail' => ['je_id' => $jeId, 'error' => substr($e->getMessage(), 0, 500)],
+                'detail' => [
+                    'je_id' => $jeId,
+                    'error' => substr($e->getMessage(), 0, 500),
+                    'vendor_http_status' => $vendorHttp,
+                    'vendor_error_code'  => $vendorCode,
+                    'vendor_raw'         => $vendorRaw,
+                ],
             ]);
         }
     }
