@@ -1,5 +1,40 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (QBO primitive #6 + Zoho primitive #4)
+
+### What shipped
+- **`QboApiException`** added to `core/qbo/client.php` with `$httpStatus`, `$errorCode`, `$raw` (parallel to `JazApiException` / `ZohoBooksApiException` / `MercuryApiException`).
+- **`qboCall()`** now throws `QboApiException` on any 4xx/5xx, stamping `$ex->raw = ['body' => substr(...,0,600)]` and `$ex->errorCode = body.Fault.Error[0].code`.
+- **QBO sync drivers** (`sync_je.php`, `sync_bills.php`, `sync_invoices.php`) catch the typed exception and persist `vendor_http_status`, `vendor_error_code`, `vendor_raw` into BOTH the per-item result row AND the audit-log detail.
+- **Zoho Books primitive #4** — `zohoBooksResolveAccountRef()` now consults the shared `accounting_account_mappings` operator grid (same table QBO + Jaz use, migration 098) BEFORE hitting `/books/v3/chartofaccounts`. Opportunistic `mappingUpsert` backfill turns repeat lookups into single-row reads.
+- **`/api/admin/integrations_health.php`** — QBO `error_surface` flipped to ✅.
+- **Smokes**:
+  - `tests/integration_error_surface_smoke.php` — **58 ✓** (extended to cover QBO class shape, throw-site, sync-driver capture, live 400 with QBO Fault.Error shape).
+  - `tests/zoho_account_mapping_fallback_smoke.php` — **13 ✓** (new, mirrors QBO #4 contract test).
+
+### Charter coverage now
+| Provider   | #1 | #2 | #3 | #4 | #5 | #6 | #7 |
+|------------|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
+| Jaz        | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| QBO        | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (this session) | ✅ |
+| Zoho Books | ✅ | ✅ | ✅ | ✅ (this session) | ✅ | ✅ | ✅ |
+| Mercury    | ✅ | ✅ | ✅ | n/a | ✅ | ✅ | ✅ |
+| Plaid      | ❌ | ❌ | ❌ | n/a | n/a | partial | ❌ |
+| LayerFi    | n/a (SDK) | n/a | n/a | n/a | n/a | n/a | n/a |
+
+**Three flagship integrations (QBO, Zoho, Mercury) are now full-charter compliant.** Jaz remains the gold-standard reference.
+
+### Suite health
+419/423 — same 4 pre-existing sandbox-boundary regressions.
+
+### Backlog (charter-tracked, not one-offs)
+- **Plaid** full charter row (OpenAPI-vendored install) — last major gap.
+- **QBO OAuth** proactive token refresh via cron.
+- **QBO push retry** + dead-letter queue.
+- **Cloudways env** secret management for Resend keys.
+
+---
+
 ## Session — 2026-02 (Charter primitive #6 — full vendor error surface — for Zoho + Mercury)
 
 ### What shipped

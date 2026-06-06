@@ -72,9 +72,9 @@ $providers = [
         // Charter primitive #5 — procedural verifier in core/integrations/verify_create.php
         // stamps `pushed_unverified` after each POST.
         'verify_create' => true,
-        // QBO still surfaces errors as plain RuntimeException without a
-        // dedicated exception class carrying the raw vendor body.
-        'error_surface' => false,
+        // Charter primitive #6 — QboApiException::$raw carries the
+        // truncated vendor response body (incl. Fault.Error[].code).
+        'error_surface' => true,
     ],
     [
         'id'        => 'zoho',

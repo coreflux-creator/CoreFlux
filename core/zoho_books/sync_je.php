@@ -41,6 +41,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../integrations/verify_create.php';
+require_once __DIR__ . '/../accounting/account_mapping_service.php';
 
 const ZOHO_BOOKS_SOURCE = 'zoho_books';
 
@@ -67,6 +68,29 @@ function zohoBooksResolveAccountRef(int $tenantId, int $accountId): ?array
     if (!$row) return null;
     $code = trim((string) $row['code']);
     if ($code === '') return null;
+
+    // Charter primitive #4 — account-mapping fallback.
+    // Before hitting Zoho's chartofaccounts API (slow + rate-limited),
+    // check the operator-managed `accounting_account_mappings` grid.
+    // This is the same table the Jaz + QBO resolvers read from; it's
+    // the source of truth when the operator pre-maps CoA before any
+    // push. If found, return the mapping AND backfill the Zoho-side
+    // cache so subsequent calls hit the fast path.
+    if (function_exists('accountingAccountMappingLookup')) {
+        $opMap = accountingAccountMappingLookup($tenantId, 0, ZOHO_BOOKS_SOURCE, $accountId);
+        $opVal = $opMap['provider_account_id'] ?? null;
+        if ($opVal !== null && $opVal !== '') {
+            $name = (string) ($opMap['provider_account_name'] ?? '');
+            // Opportunistic backfill of the Zoho-side cache so the
+            // expensive auto-discover path runs at most once per
+            // account. Failure here MUST NOT break the resolver.
+            try {
+                mappingUpsert($tenantId, ZOHO_BOOKS_SOURCE, 'account', (string) $opVal, $accountId,
+                              ['account_name' => $name, '_source' => 'accounting_account_mappings'], 'pull');
+            } catch (\Throwable $_) { /* fast-path optimisation only */ }
+            return ['value' => (string) $opVal, 'name' => $name];
+        }
+    }
 
     try {
         $resp = zohoBooksCall($tenantId, 'GET', '/books/v3/chartofaccounts', null, [

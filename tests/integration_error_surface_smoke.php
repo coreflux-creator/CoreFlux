@@ -39,12 +39,17 @@ echo "==================================================\n\n";
 echo "── exception classes ──\n";
 $zSrc = (string) file_get_contents('/app/core/zoho_books/client.php');
 $mSrc = (string) file_get_contents('/app/core/mercury_adapter.php');
-check('ZohoBooksApiException declared',  str_contains($zSrc, 'class ZohoBooksApiException'));
+$qSrc = (string) file_get_contents('/app/core/qbo/client.php');
+check('ZohoBooksApiException declared',     str_contains($zSrc, 'class ZohoBooksApiException'));
 check('ZohoBooksApiException ->httpStatus', preg_match('/class ZohoBooksApiException.*public \?int\s+\$httpStatus/s', $zSrc) === 1);
 check('ZohoBooksApiException ->errorCode',  preg_match('/class ZohoBooksApiException.*public \?string\s+\$errorCode/s', $zSrc) === 1);
 check('ZohoBooksApiException ->raw',        preg_match('/class ZohoBooksApiException.*public \?array\s+\$raw/s', $zSrc) === 1);
 check('MercuryApiException ->raw',          preg_match('/class MercuryApiException.*public \?array\s+\$raw/s', $mSrc) === 1);
 check('MercuryApiException ->errorCode',    preg_match('/class MercuryApiException.*public \?string\s+\$errorCode/s', $mSrc) === 1);
+check('QboApiException declared',           str_contains($qSrc, 'class QboApiException'));
+check('QboApiException ->httpStatus',       preg_match('/class QboApiException.*public \?int\s+\$httpStatus/s', $qSrc) === 1);
+check('QboApiException ->errorCode',        preg_match('/class QboApiException.*public \?string\s+\$errorCode/s', $qSrc) === 1);
+check('QboApiException ->raw',              preg_match('/class QboApiException.*public \?array\s+\$raw/s', $qSrc) === 1);
 
 // ──────────────────────────── 2. Throw-site wiring ──
 echo "\n── throw sites ──\n";
@@ -56,6 +61,10 @@ check('zohoBooksCall stamps raw[body] (truncated)',
     str_contains($zSrc, "'body' => substr(\$rawBody, 0, 600)"));
 check('mercuryCall stamps raw on >= 400',
     preg_match('/status.*>= 400.*new MercuryApiException.*raw\s*=/s', $mSrc) === 1);
+check('qboCall throws QboApiException on >= 400',
+    preg_match('/\$resp\[.status.\] >= 400.*new QboApiException/s', $qSrc) === 1);
+check('qboCall stamps raw[body] (truncated)',
+    str_contains($qSrc, "'body' => substr(\$rawBody, 0, 600)"));
 
 // ──────────────────────────── 3. Catch-site capture into audit ──
 echo "\n── Zoho sync-driver catch sites ──\n";
@@ -82,10 +91,24 @@ check('payout-originate catch surfaces vendor_raw',
 check('Mercury catch sites also persist vendor_error_code',
     substr_count($mp, "'vendor_error_code'") >= 3);
 
+echo "\n── QBO sync-driver catch sites ──\n";
+foreach (['sync_je', 'sync_bills', 'sync_invoices'] as $f) {
+    $src = (string) file_get_contents('/app/core/qbo/' . $f . '.php');
+    check("qbo/{$f}.php inspects QboApiException::\$raw",
+        str_contains($src, 'instanceof QboApiException'));
+    check("qbo/{$f}.php persists vendor_raw to audit detail",
+        str_contains($src, "'vendor_raw'"));
+    check("qbo/{$f}.php persists vendor_http_status to audit detail",
+        str_contains($src, "'vendor_http_status'"));
+    check("qbo/{$f}.php surfaces vendor on result row",
+        str_contains($src, "'vendor'"));
+}
+
 // ──────────────────────────── 4. Live shape via stubbed transport ──
 echo "\n── live exception shape (stubbed transports) ──\n";
 require_once '/app/core/zoho_books/client.php';
 require_once '/app/core/mercury_adapter.php';
+require_once '/app/core/qbo/client.php';
 
 $GLOBALS['pdo'] = new \PDO('sqlite::memory:');
 $GLOBALS['pdo']->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
@@ -136,6 +159,33 @@ check('exception ->errorCode carries Mercury code',        $caughtM && $caughtM-
 check('exception ->raw carries the parsed body',
     $caughtM && is_array($caughtM->raw) && ($caughtM->raw['message'] ?? '') === 'Recipient does not exist');
 unset($GLOBALS['__mercury_transport']);
+
+// QBO — transport that returns 400 with the Intuit Fault.Error[] shape.
+$pdo->exec("CREATE TABLE qbo_connections (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INT, realm_id TEXT, company_name TEXT, environment TEXT, access_token_ct TEXT, refresh_token_ct TEXT, access_token_exp TEXT, refresh_token_exp TEXT, scope TEXT, status TEXT, sync_config TEXT, last_probe_at TEXT, last_probe_error TEXT, connected_by_user_id INT, created_at TEXT, updated_at TEXT)");
+$qAt = encryptField('q-access-token');
+$qRt = encryptField('q-refresh-token');
+$pdo->prepare("INSERT INTO qbo_connections (tenant_id,realm_id,company_name,environment,access_token_ct,refresh_token_ct,access_token_exp,refresh_token_exp,scope,status,sync_config,connected_by_user_id,created_at,updated_at) VALUES (9999,'realm-xyz','Stub Co','sandbox',?,?,?,?,'com.intuit.quickbooks.accounting','active','{}',1,?,?)")
+    ->execute([$qAt, $qRt, date('Y-m-d H:i:s', time()+3600), date('Y-m-d H:i:s', time()+86400), date('Y-m-d H:i:s'), date('Y-m-d H:i:s')]);
+
+$qBody = ['Fault' => ['Error' => [['code' => '6210', 'Message' => 'Business Validation Error', 'Detail' => 'A business validation error has occurred while processing your request']]]];
+$GLOBALS['__qbo_transport'] = function ($method, $url, $headers, $body) use ($qBody) {
+    return ['status' => 400, 'body' => $qBody, 'headers' => []];
+};
+
+$caughtQ = null;
+try {
+    qboCall(9999, 'POST', '/v3/company/realm-xyz/journalentry?minorversion=65', ['Adjustment' => false]);
+} catch (QboApiException $e) {
+    $caughtQ = $e;
+}
+check('qboCall throws QboApiException on 400',          $caughtQ instanceof QboApiException);
+check('exception ->httpStatus === 400',                 $caughtQ && $caughtQ->httpStatus === 400);
+check('exception ->errorCode carries QBO code',         $caughtQ && $caughtQ->errorCode === '6210');
+check('exception ->raw[body] carries the full body',
+    $caughtQ && is_array($caughtQ->raw) && str_contains((string) $caughtQ->raw['body'], 'Business Validation Error'));
+check('exception ->raw[body] truncated to 600 chars',
+    $caughtQ && strlen((string) $caughtQ->raw['body']) <= 600);
+unset($GLOBALS['__qbo_transport']);
 
 $total = $passes + count($failures);
 echo "\n=========================================\n";

@@ -58,6 +58,25 @@ const QBO_SYNC_ENTITIES = [
     'chart_of_accounts',
 ];
 const QBO_SYNC_DIRECTIONS = ['push', 'pull', 'two_way', 'off'];
+
+/**
+ * QBO API exception — raised by `qboCall()` when the upstream returns
+ * a 4xx / 5xx response. Carries:
+ *   - $httpStatus  : the HTTP status code
+ *   - $errorCode   : QBO's `Fault.Error[0].code` (their machine-readable code)
+ *   - $raw         : ['body' => <first 600 chars of raw vendor response>]
+ *
+ * Charter primitive #6 — operators must always be able to see what the
+ * vendor said when something fails. The sync drivers persist `$e->raw`
+ * into the qbo_audit_log detail so the IntegrationsHealthPanel and
+ * outbox UI can surface the un-parsed payload to engineers.
+ */
+class QboApiException extends \RuntimeException
+{
+    public ?int    $httpStatus = null;
+    public ?string $errorCode  = null;
+    public ?array  $raw        = null;
+}
 const QBO_SYNC_DEFAULTS = [
     'journal_entries'   => 'off',
     'customers'         => 'off',
@@ -382,7 +401,22 @@ function qboCall(int $tenantId, string $method, string $path, ?array $body = nul
             't' => $tenantId,
             'e' => substr('HTTP ' . $resp['status'] . ' on ' . $method . ' ' . $path, 0, 500),
         ]);
-        throw new \RuntimeException('QBO ' . $method . ' ' . $path . ' returned HTTP ' . $resp['status'] . ': ' . substr(is_string($resp['body']) ? $resp['body'] : json_encode($resp['body']), 0, 300));
+        // Charter primitive #6 — capture the raw vendor response so the
+        // operator can see exactly what QBO said (e.g. validation error
+        // detail with Fault.Error[]). Truncate to 600 chars to stay
+        // within audit-log limits.
+        $rawBody = is_string($resp['body']) ? $resp['body'] : json_encode($resp['body']);
+        $msg = 'QBO ' . $method . ' ' . $path . ' returned HTTP ' . $resp['status']
+             . ': ' . substr($rawBody, 0, 300);
+        $errCode = '';
+        if (is_array($resp['body']) && isset($resp['body']['Fault']['Error'][0]['code'])) {
+            $errCode = (string) $resp['body']['Fault']['Error'][0]['code'];
+        }
+        $ex = new QboApiException($msg);
+        $ex->httpStatus = (int) $resp['status'];
+        $ex->errorCode  = $errCode;
+        $ex->raw        = ['body' => substr($rawBody, 0, 600)];
+        throw $ex;
     }
     if (!is_array($resp['body'])) return ['_raw' => $resp['body']];
     return $resp['body'];

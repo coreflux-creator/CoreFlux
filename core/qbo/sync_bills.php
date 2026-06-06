@@ -210,11 +210,25 @@ function qboSyncBills(int $tenantId, ?int $userId, array $opts = []): array
             ]);
         } catch (\Throwable $e) {
             $failed++;
-            $results[] = ['bill_id' => $bid, 'bill_number' => $bill['bill_number'], 'status' => 'failed', 'reason' => substr($e->getMessage(), 0, 300)];
+            // Charter primitive #6 — capture raw vendor body.
+            $vendorRaw  = ($e instanceof QboApiException && is_array($e->raw)) ? $e->raw : null;
+            $vendorHttp = ($e instanceof QboApiException) ? (int) $e->httpStatus : null;
+            $vendorCode = ($e instanceof QboApiException) ? (string) $e->errorCode : null;
+            $results[] = [
+                'bill_id' => $bid, 'bill_number' => $bill['bill_number'],
+                'status' => 'failed', 'reason' => substr($e->getMessage(), 0, 300),
+                'vendor' => ['http_status' => $vendorHttp, 'code' => $vendorCode, 'raw' => $vendorRaw],
+            ];
             qboAudit($tenantId, 'sync_bill_push', [
                 'entity_type' => 'bill', 'direction' => 'push', 'ok' => false,
                 'actor_user_id' => $userId, 'items_failed' => 1,
-                'detail' => ['bill_id' => $bid, 'error' => substr($e->getMessage(), 0, 500)],
+                'detail' => [
+                    'bill_id' => $bid,
+                    'error' => substr($e->getMessage(), 0, 500),
+                    'vendor_http_status' => $vendorHttp,
+                    'vendor_error_code'  => $vendorCode,
+                    'vendor_raw'         => $vendorRaw,
+                ],
             ]);
         }
     }
