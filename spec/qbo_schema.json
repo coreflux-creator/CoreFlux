@@ -1,0 +1,146 @@
+{
+  "_meta": {
+    "provider": "qbo",
+    "source": "Intuit Developer docs — developer.intuit.com/app/developer/qbo/docs/api/accounting/all-entities/{journalentry,bill,invoice}",
+    "minor_version": 65,
+    "_note": "Intuit does NOT publish a single OpenAPI spec — these are hand-rolled from the published HTML entity references. When upgrading minor_version, re-walk the three URLs above and update the required[] / allowedDetailTypes[] arrays here. The contract smoke and refresh tool live alongside the spec.",
+    "scraped_pages": [
+      "https://developer.intuit.com/app/developer/qbo/docs/api/accounting/all-entities/journalentry",
+      "https://developer.intuit.com/app/developer/qbo/docs/api/accounting/all-entities/bill",
+      "https://developer.intuit.com/app/developer/qbo/docs/api/accounting/all-entities/invoice"
+    ]
+  },
+  "definitions": {
+    "JournalEntryCreate": {
+      "description": "POST /v3/company/{realmId}/journalentry — minimum body for CREATE",
+      "required": ["Line"],
+      "writableProperties": [
+        "TxnDate", "DocNumber", "PrivateNote", "Line",
+        "CurrencyRef", "GlobalTaxCalculation", "ExchangeRate",
+        "TaxRateRef", "TransactionLocationType", "TxnTaxDetail",
+        "Adjustment", "MetaData", "JournalCodeRef"
+      ],
+      "constraints": {
+        "DocNumber.maxLength": 21,
+        "PrivateNote.maxLength": 4000,
+        "Line.minItems": 2,
+        "Line.requiresOneDebitAndOneCredit": true
+      }
+    },
+    "JournalEntryLine": {
+      "description": "Line item with PostingType Debit|Credit",
+      "required": ["Amount", "DetailType", "JournalEntryLineDetail"],
+      "writableProperties": [
+        "Id", "Description", "Amount", "DetailType",
+        "JournalEntryLineDetail", "ProjectRef", "LinkedTxn"
+      ],
+      "constraints": {
+        "DetailType.allowed": ["JournalEntryLineDetail", "DescriptionOnlyLine"],
+        "Description.maxLength": 4000
+      }
+    },
+    "JournalEntryLineDetail": {
+      "required": ["PostingType", "AccountRef"],
+      "writableProperties": [
+        "PostingType", "AccountRef", "Entity", "ClassRef",
+        "DepartmentRef", "TaxApplicableOn", "TaxAmount",
+        "TaxCodeRef", "TaxInclusiveAmt", "BillableStatus"
+      ],
+      "constraints": {
+        "PostingType.allowed": ["Debit", "Credit"]
+      }
+    },
+    "BillCreate": {
+      "description": "POST /v3/company/{realmId}/bill — minimum body for CREATE",
+      "required": ["VendorRef", "Line"],
+      "writableProperties": [
+        "TxnDate", "DueDate", "DocNumber", "PrivateNote", "VendorRef",
+        "Line", "CurrencyRef", "GlobalTaxCalculation", "ExchangeRate",
+        "APAccountRef", "SalesTermRef", "DepartmentRef", "RemitToAddr",
+        "TransactionLocationType", "IncludeInAnnualTPAR", "TxnTaxDetail",
+        "LinkedTxn", "MetaData"
+      ],
+      "constraints": {
+        "DocNumber.maxLength": 21,
+        "PrivateNote.maxLength": 4000
+      }
+    },
+    "BillLine": {
+      "description": "Bill line — AccountBasedExpenseLineDetail or ItemBasedExpenseLineDetail",
+      "required": ["Amount", "DetailType"],
+      "writableProperties": [
+        "Id", "Description", "Amount", "DetailType",
+        "AccountBasedExpenseLineDetail", "ItemBasedExpenseLineDetail",
+        "LinkedTxn", "ProjectRef"
+      ],
+      "constraints": {
+        "DetailType.allowed": [
+          "AccountBasedExpenseLineDetail",
+          "ItemBasedExpenseLineDetail",
+          "DescriptionOnlyLine"
+        ]
+      }
+    },
+    "AccountBasedExpenseLineDetail": {
+      "required": ["AccountRef"],
+      "writableProperties": [
+        "AccountRef", "CustomerRef", "ClassRef", "TaxCodeRef",
+        "TaxAmount", "MarkupInfo", "BillableStatus", "TaxInclusiveAmt"
+      ]
+    },
+    "InvoiceCreate": {
+      "description": "POST /v3/company/{realmId}/invoice — minimum body for CREATE",
+      "required": ["CustomerRef", "Line"],
+      "writableProperties": [
+        "TxnDate", "DueDate", "DocNumber", "PrivateNote", "CustomerRef",
+        "CustomerMemo", "Line", "CurrencyRef", "ExchangeRate",
+        "BillAddr", "ShipAddr", "BillEmail", "EmailStatus",
+        "ClassRef", "DepartmentRef", "SalesTermRef", "DueDate",
+        "ApplyTaxAfterDiscount", "PrintStatus", "DeliveryInfo",
+        "ARAccountRef", "TxnTaxDetail", "TrackingNum", "ShipMethodRef",
+        "TransactionLocationType", "GlobalTaxCalculation", "TxnSource",
+        "AllowOnlineCreditCardPayment", "AllowOnlinePayment", "AllowOnlineACHPayment",
+        "AllowIPNPayment", "MetaData", "LinkedTxn", "ProjectRef",
+        "ShipDate", "ShipFromAddr", "DocNumber", "Deposit",
+        "InvoiceLink", "TaxExemptionRef", "FreeFormAddress"
+      ],
+      "constraints": {
+        "DocNumber.maxLength": 21,
+        "PrivateNote.maxLength": 4000,
+        "CustomerMemo.value.maxLength": 1000
+      }
+    },
+    "InvoiceLine": {
+      "description": "Invoice line — SalesItemLineDetail / GroupLineDetail / DescriptionOnlyLine / DiscountLineDetail / SubTotalLineDetail",
+      "required": ["DetailType"],
+      "writableProperties": [
+        "Id", "Description", "Amount", "DetailType",
+        "SalesItemLineDetail", "GroupLineDetail",
+        "DescriptionLineDetail", "DiscountLineDetail",
+        "SubTotalLineDetail", "LinkedTxn", "ProjectRef"
+      ],
+      "constraints": {
+        "DetailType.allowed": [
+          "SalesItemLineDetail",
+          "GroupLineDetail",
+          "DescriptionOnlyLine",
+          "DiscountLineDetail",
+          "SubTotalLineDetail"
+        ]
+      }
+    },
+    "SalesItemLineDetail": {
+      "required": ["ItemRef"],
+      "writableProperties": [
+        "ItemRef", "ClassRef", "UnitPrice", "Qty",
+        "TaxCodeRef", "MarkupInfo", "ItemAccountRef",
+        "ServiceDate", "DiscountRate", "DiscountAmt", "TaxInclusiveAmt"
+      ]
+    },
+    "ReferenceType": {
+      "description": "QBO entity reference",
+      "required": ["value"],
+      "writableProperties": ["value", "name"]
+    }
+  }
+}

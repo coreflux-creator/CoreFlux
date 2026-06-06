@@ -1,5 +1,31 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (QBO contract-smoke rollout)
+
+### What shipped
+1. **`spec/qbo_schema.json`** — hand-curated from Intuit's per-entity HTML reference pages (JournalEntry, Bill, Invoice). Intuit does NOT publish a unified OpenAPI doc, so the schema captures: required[] per entity, writableProperties[] whitelist, hard caps (DocNumber ≤21, PrivateNote ≤4000, CustomerMemo.value ≤1000), and allowed enum sets (PostingType, DetailType). Includes `_meta.scraped_pages` so future operators know the source URLs.
+2. **`spec/qbo_docs/{journalentry,bill,invoice}.html`** + `.fetched_at` — local snapshot of the source pages for diffing when Intuit updates them.
+3. **`tools/refresh_qbo_spec.sh`** — re-pulls the three HTML pages and stamps `.fetched_at`. Documents the workflow: pull → diff → hand-edit `spec/qbo_schema.json` → re-run contract smoke.
+4. **`tests/qbo_payload_contract_smoke.php`** (57 ✓) — drives `qboBuildJournalEntryPayload`, `qboBuildBillPayload`, `qboBuildInvoicePayload` through their respective schemas. Asserts: no stray fields, all required[] present, DocNumber ≤21, PostingType ∈ {Debit, Credit}, DetailType ∈ allowed set. Recurses into nested sub-objects (JournalEntryLineDetail / AccountBasedExpenseLineDetail / SalesItemLineDetail). Filters `_unresolved_*` placeholder lines like the production sync code does.
+5. **`tests/qbo_spec_freshness_smoke.php`** (25 ✓) — locks the schema's hard caps + enums, verifies the refresh tool matches the schema's `_meta.scraped_pages`, warns when the local doc snapshot is >90 days old.
+
+### Drift surface
+**Zero** mapper drift surfaced — the three QBO builders already match Intuit's documented shape. This is the boring-and-good outcome: the smoke is now a long-term safety net for the whole crew, not a one-off bug-fix vehicle.
+
+### Cross-integration progress
+| Provider   | Status |
+|------------|--------|
+| Jaz        | ✅ DONE (`spec/jaz_openapi.json` + contract + freshness) |
+| **QBO**    | ✅ **DONE this session** |
+| Plaid      | next P2 — Plaid does ship OpenAPI |
+| ZohoBooks  | P3 — hand-roll like QBO |
+| Mercury    | P3 — hand-roll like QBO |
+| LayerFi    | skip (SDK enforces) |
+
+### Suite health
+407/411 passing. Same 4 pre-existing env failures (`accounting_phase2_a7`, `ai_gateway_slice4`, `ai_gateway_slice6`, `treasury_csv_import`) — none touch QBO/Jaz code.
+
+
 ## Session — 2026-02 (Jaz spec freshness automation + cross-integration audit)
 
 ### What shipped
