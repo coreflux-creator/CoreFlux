@@ -286,11 +286,27 @@ class JazAccountingAdapter extends AccountingProviderAdapter
     public function createDraftJournal(int $tenantId, int $subTenantId, array $journal, string $idempotencyKey): array
     {
         $key = $this->keyOrThrow($tenantId, $subTenantId);
+        // Per Jaz OpenAPI `CreateJournalClientRequest.saveAsDraft`:
+        //   "Save as draft (false = finalize)". Default true.
+        //
+        // We override to FALSE for journals (NOT for bills/invoices)
+        // because CoreFlux JEs have already cleared our own approval
+        // gate (workflow_approvals.consumed_by_je_id) before being
+        // enqueued by accountingTryEnqueueDraft(). Sending them as
+        // drafts would re-enter Jaz's review queue, where the user
+        // doesn't go looking — they expect approved CF JEs to land
+        // in Jaz's recorded-journals view, not its drafts. Caller
+        // can still override by passing `saveAsDraft: true` in $journal.
         $payload = array_merge([
-            'saveAsDraft' => true,
+            'saveAsDraft' => false,
         ], $journal);
         $resp = jazCall($key, 'POST', 'journals', $payload);
-        return $this->wrapWriteResult('journal', $resp, $idempotencyKey, 'draft');
+        // wrapWriteResult tags `status: posted` regardless of $defaultStatus
+        // when the response payload carries a numeric resourceId — keep the
+        // existing 'draft' fallback only for the rare case Jaz returns 202
+        // with no resourceId.
+        return $this->wrapWriteResult('journal', $resp, $idempotencyKey,
+            ($payload['saveAsDraft'] === false ? 'posted' : 'draft'));
     }
 
     /**

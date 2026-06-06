@@ -1,5 +1,33 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Jaz journal silent failure — saveAsDraft true masked landing in Drafts)
+
+### Root cause
+The user reported: "outbox says Posted, nothing in Jaz." After looking, the journals **were** landing in Jaz — just in the **Drafts** queue, not the recorded-journals view the user was checking. Source: `JazProviderAdapter::createDraftJournal()` was merging `saveAsDraft: true` into every payload. Jaz's OpenAPI documents `saveAsDraft` as defaulting `true` with the description **"Save as draft (false = finalize)"**. The CoreFlux outbox marks rows `posted` on a successful HTTP response regardless of the journal's downstream finalization state — so the two terminologies ("CF Posted = sent" vs "Jaz Posted = finalized") collided silently.
+
+### Fix
+`createDraftJournal` now defaults `saveAsDraft: false`. CoreFlux journals have already cleared our own approval gate (`workflow_approvals.consumed_by_je_id`) before being enqueued, so a second draft-review pass in Jaz adds no value and creates the silent-failure surface. Bills and invoices unchanged — they're meant to go through Jaz's review queue. Callers can opt in by passing `saveAsDraft: true` in the payload.
+
+### Rescue for the orphans
+`scripts/jaz_finalize_orphan_drafts.php` — one-shot convert-to-active for the CF-originated draft journals already sitting in Jaz from before the fix. Idempotent (`already_active` / `not_a_draft` errors caught as SKIP). Run with `--dry-run --tenant=<id>` first, then for real.
+
+### Tests
+`tests/jaz_journal_finalize_smoke.php` (12 ✓) — drives `createDraftJournal` against a stub `jazCall()` and locks:
+- default behaviour: `saveAsDraft=false` on the wire, status=posted in the result;
+- opt-in override: caller-supplied `saveAsDraft: true` survives array_merge precedence and result.status='draft';
+- bills + invoices still ship with `saveAsDraft: true` (no collateral).
+
+### Suite health
+409/413 — same 4 pre-existing env failures.
+
+### Production runbook
+1. Deploy.
+2. Hit **Retry** on any still-pending outbox rows (those will finalize directly).
+3. Run `php scripts/jaz_finalize_orphan_drafts.php --tenant=<id> --dry-run` to list the orphans.
+4. Run without `--dry-run` to flip them.
+5. Confirm in Jaz UI → Recorded Journals.
+
+
 ## Session — 2026-02 (Integrations-health endpoint + admin panel)
 
 ### What shipped
