@@ -471,6 +471,55 @@ class JazAccountingAdapter extends AccountingProviderAdapter
         ];
     }
 
+    /**
+     * Charter primitive #5 — post-push verification for Jaz.
+     *
+     * Re-GETs the just-created object and asserts its `status` field
+     * matches what CoreFlux expects. Jaz returns objects with a status
+     * lifecycle of `draft → active → voided`; CF journals must finalize
+     * directly to `active`, bills/invoices stay `draft` until the user
+     * approves them in Jaz UI.
+     *
+     * This catches the failure mode reported by the user: payload
+     * shape was correct, push returned 201, but downstream the row
+     * landed in Drafts (invisible in Recorded Journals view).
+     */
+    public function verifyCreate(int $tenantId, int $subTenantId, string $providerObjectType, string $providerObjectId, string $expectedStatus = 'active'): array
+    {
+        $now = date('Y-m-d H:i:s');
+        try {
+            $obj = $this->getObject($tenantId, $subTenantId, $providerObjectType, $providerObjectId);
+        } catch (\Throwable $e) {
+            return [
+                'verified'          => false,
+                'downstream_status' => 'fetch_failed',
+                'expected_status'   => $expectedStatus,
+                'reason'            => 'GET after create failed: ' . substr($e->getMessage(), 0, 180),
+                'fetched_at'        => $now,
+            ];
+        }
+        $payload  = $obj['jaz_payload']['data'] ?? $obj['jaz_payload'] ?? [];
+        $rawStatus = strtolower((string) ($payload['status']
+                            ?? $payload['lifecycleStatus']
+                            ?? $payload['recordingStatus']
+                            ?? ''));
+        // Jaz uses 'active' for finalised, 'draft' for not-yet-finalised.
+        // Normalise common aliases.
+        static $aliases = [
+            'recorded' => 'active', 'posted' => 'active',
+            'finalized' => 'active', 'finalised' => 'active',
+        ];
+        $downstream = $aliases[$rawStatus] ?? $rawStatus;
+        $ok = ($downstream === strtolower($expectedStatus));
+        return [
+            'verified'          => $ok,
+            'downstream_status' => $downstream ?: 'unknown',
+            'expected_status'   => $expectedStatus,
+            'reason'            => $ok ? null : "expected '{$expectedStatus}', got '{$downstream}'",
+            'fetched_at'        => $now,
+        ];
+    }
+
     public function normalizeProviderError(\Throwable $e): array
     {
         if ($e instanceof AccountingAdapterNotReadyException) {

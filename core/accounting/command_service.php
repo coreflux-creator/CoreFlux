@@ -226,14 +226,57 @@ function accountingCommandExecute(int $tenantId, int $commandId): array
     }
 
     // Persist success: outbox → posted, destination link row.
+    // ── Charter primitive #5: post-push verification ──
+    // Re-GET the object we just created and confirm the downstream
+    // state matches what we expect. The expected status is per-command:
+    //   create_draft_journal → 'active' (journals finalize directly)
+    //   create_draft_bill    → 'draft'  (operator reviews in Jaz)
+    //   create_draft_invoice → 'draft'  (operator reviews in Jaz)
+    //   post_object          → 'active'
+    // Verification failures DON'T re-queue (the create succeeded);
+    // instead we stamp 'posted_unverified' on the outbox row so the
+    // operator sees it in the UI distinct from a clean post.
+    static $expectedDownstream = [
+        'create_draft_journal' => 'active',
+        'create_draft_bill'    => 'draft',
+        'create_draft_invoice' => 'draft',
+        'post_object'          => 'active',
+    ];
+    $expected = $expectedDownstream[$row['command_type']] ?? 'active';
+    $verify   = null;
+    $finalStatus = 'posted';
+    if (!empty($res['provider_object_id']) && !empty($res['provider_object_type'])) {
+        try {
+            $verify = $adapter->verifyCreate(
+                $tenantId, $subTenantId,
+                (string) $res['provider_object_type'],
+                (string) $res['provider_object_id'],
+                $expected
+            );
+            if (!($verify['verified'] ?? false)) {
+                $finalStatus = 'posted_unverified';
+            }
+        } catch (\Throwable $verifyErr) {
+            $verify = [
+                'verified' => false,
+                'downstream_status' => 'verify_threw',
+                'expected_status' => $expected,
+                'reason' => substr($verifyErr->getMessage(), 0, 180),
+                'fetched_at' => date('Y-m-d H:i:s'),
+            ];
+            $finalStatus = 'posted_unverified';
+        }
+    }
+
     $pdo->prepare(
         'UPDATE accounting_outbox_events
-            SET status = "posted", posted_at = NOW(),
+            SET status = :s, posted_at = NOW(),
                 provider_result = :pr, error_code = NULL,
                 error_message = NULL, next_retry_at = NULL
           WHERE id = :id AND tenant_id = :t'
     )->execute([
-        'pr' => json_encode($res, JSON_UNESCAPED_SLASHES),
+        's'  => $finalStatus,
+        'pr' => json_encode(['result' => $res, 'verify' => $verify], JSON_UNESCAPED_SLASHES),
         'id' => $commandId, 't' => $tenantId,
     ]);
 

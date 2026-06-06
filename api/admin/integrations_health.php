@@ -55,6 +55,9 @@ $providers = [
         'contract'  => $ROOT . '/tests/jaz_payload_contract_smoke.php',
         'freshness' => $ROOT . '/tests/jaz_spec_freshness_smoke.php',
         'tool'      => $ROOT . '/tools/refresh_jaz_spec.sh',
+        // Charter primitive #5 — adapter overrides verifyCreate to assert
+        // downstream status (active for journals, draft for bills/invoices).
+        'verify_create' => true,
     ],
     [
         'id'        => 'qbo',
@@ -64,6 +67,11 @@ $providers = [
         'contract'  => $ROOT . '/tests/qbo_payload_contract_smoke.php',
         'freshness' => $ROOT . '/tests/qbo_spec_freshness_smoke.php',
         'tool'      => $ROOT . '/tools/refresh_qbo_spec.sh',
+        // QBO uses procedural sync_*.php builders, not an adapter class —
+        // verifyCreate lives in the base class and falls through to the
+        // default GET-and-soft-pass behaviour for now. Backlog: hoist QBO
+        // into the adapter class shape so it can override.
+        'verify_create' => false,
     ],
 ];
 
@@ -132,15 +140,20 @@ foreach ($providers as $p) {
         'exists'     => is_file($p['tool']),
         'executable' => is_file($p['tool']) && is_executable($p['tool']),
     ];
+    // Charter primitive #5 — declared by the provider config above;
+    // the adapter class itself is the source of truth (this is a
+    // declarative cache for the UI).
+    $row['verify_create'] = (bool) ($p['verify_create'] ?? false);
 
     // Roll-up status. `missing` if anything required is absent, `attention`
-    // if the snapshot is stale, otherwise `ok`.
+    // if the snapshot is stale OR verifyCreate isn't wired, otherwise `ok`.
     $missing = !is_file($p['spec'])
                || !$row['smokes']['contract']['exists']
                || !$row['smokes']['freshness']['exists']
                || !$row['tool']['exists'];
     $stale   = ($row['snapshot']['status'] ?? null) === 'stale';
-    $row['overall'] = $missing ? 'missing' : ($stale ? 'attention' : 'ok');
+    $verifyGap = $row['verify_create'] === false;
+    $row['overall'] = $missing ? 'missing' : (($stale || $verifyGap) ? 'attention' : 'ok');
 
     $out[] = $row;
 }

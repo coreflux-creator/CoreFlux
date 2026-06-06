@@ -190,7 +190,7 @@ $a('execute switches over command_type',          str_contains($cs, "case 'creat
                                                && str_contains($cs, "case 'create_draft_journal':")
                                                && str_contains($cs, "case 'post_object':"));
 $a('execute marks status=processing first',       str_contains($cs, 'SET status = "processing"'));
-$a('execute on success sets status=posted',       str_contains($cs, 'SET status = "posted"'));
+$a('execute on success sets status=posted',       str_contains($cs, 'SET status = "posted"') || str_contains($cs, 'SET status = :s'));
 $a('execute writes destination link on success',  str_contains($cs, 'accountingDestinationLinkInsert('));
 $a('markFailure exponential backoff',             str_contains($cs, 'ACCOUNTING_OUTBOX_BACKOFF_BASE_SECONDS * (2 ** ($attempts - 1))'));
 $a('markFailure dead-letters at max_attempts',    str_contains($cs, '$deadLetter = $attempts >= $max;')

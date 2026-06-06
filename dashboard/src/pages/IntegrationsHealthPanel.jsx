@@ -102,6 +102,11 @@ export default function IntegrationsHealthPanel() {
                       label="freshness"
                       ok={p.smokes?.freshness?.exists}
                       testid={`integrations-health-${p.id}-freshness`}
+                    />{' '}
+                    <SmokeBadge
+                      label="verify"
+                      ok={p.verify_create}
+                      testid={`integrations-health-${p.id}-verify`}
                     />
                   </td>
                   <td>

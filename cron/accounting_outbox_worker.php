@@ -85,6 +85,13 @@ foreach ($rows as $r) {
         if ($statusAfter === 'posted') {
             $ok++;
             fwrite(STDOUT, "  OK       command={$cid} tenant={$tid} → posted\n");
+        } elseif ($statusAfter === 'posted_unverified') {
+            // Create succeeded on the provider side but the post-push
+            // verification found a downstream-state mismatch. Don't
+            // retry — the entity exists; the operator needs to look.
+            $ok++;
+            $reason = (string) ($after['provider_result']['verify']['reason'] ?? '?');
+            fwrite(STDOUT, "  WARN     command={$cid} tenant={$tid} → posted_unverified [{$reason}]\n");
         } elseif (in_array($statusAfter, ['retrying','dead_letter'], true)) {
             $err++;
             $code = (string) ($after['error_code'] ?? '');

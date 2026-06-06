@@ -1,5 +1,38 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Integration Quality Charter + verifyCreate across the abstraction layer)
+
+### Process change (user-requested)
+Drip-feeding integration safety primitives one-at-a-time was the wrong frame. Each primitive is now part of a single declared charter: every provider with write operations must satisfy all 7 cells.
+
+**`INTEGRATION_QUALITY_CHARTER.md`** lists the primitives + current per-provider coverage:
+1. Schema vendored, 2. Contract smoke, 3. Freshness smoke + refresh tool, 4. Account-mapping fallback, 5. Post-push verification, 6. Full vendor error-surface, 7. Health-panel surfaces it.
+
+Onboarding a new provider now means filling out the entire row — and the integrations-health endpoint is the canonical check.
+
+### What shipped this session (Primitive #5 — Post-Push Verification)
+- **`AccountingProviderAdapter::verifyCreate()`** — new concrete method on the base class. Default implementation re-GETs via `getObject` and soft-passes. Adapters that know the vendor's status field MUST override.
+- **`JazAccountingAdapter::verifyCreate()`** override — asserts `status / lifecycleStatus / recordingStatus` matches the expected lifecycle. Aliases (`recorded`, `posted`, `finalized`, `finalised` → `active`) handled. GET-failure → `verified=false` + `fetch_failed`.
+- **`accountingCommandExecute()` wiring** — per-command expected downstream is declared inline (`create_draft_journal → active`, `create_draft_bill → draft`, `create_draft_invoice → draft`, `post_object → active`). Successful create + verified → `posted`. Successful create + mismatch → `posted_unverified`. Verify exception NEVER re-queues — the entity exists.
+- **Migration 102 (`102_outbox_posted_unverified.sql`)** widens `accounting_outbox_events.status` ENUM to include `posted_unverified`.
+- **Worker** treats `posted_unverified` as success-with-warning: still counted as `ok`, logged with reason, no retry.
+- **`/api/admin/integrations_health.php`** + `IntegrationsHealthPanel.jsx` surface a third smoke badge (`verify`). Roll-up flips to `attention` when verify is missing.
+
+### Tests
+- **New** `tests/charter_verify_after_create_smoke.php` (24 ✓) — exercises the entire chain end-to-end including live PHP eval of the Jaz override against stubbed `jazCall()` fixtures: hit/miss/alias/GET-fail.
+- Updated `tests/jaz_integration_slice1_smoke.php` to accept the new parameterised SQL form (`SET status = :s` vs old hardcoded literal).
+
+### Suite health
+410/414 (same 4 pre-existing env failures; none touch this work).
+
+### Backlog (now charter-row-tracked)
+- **QBO verifyCreate** (P1): currently `verify_create: false` in the registry. Requires hoisting QBO out of procedural sync_*.php builders into the adapter-class shape so it can override.
+- **Plaid / Zoho / Mercury onboarding** to the full charter row (P2).
+- Slice F vertical extensions (AI spec).
+- QBO OAuth proactive token refresh.
+- Cloudways env secret management.
+
+
 ## Session — 2026-02 (Jaz journal silent failure — saveAsDraft true masked landing in Drafts)
 
 ### Root cause
