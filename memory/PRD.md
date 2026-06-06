@@ -1,5 +1,40 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Charter primitive #5 — verifyCreate — for QBO, Zoho, Mercury)
+
+### What shipped
+- **`core/integrations/verify_create.php`** — three new helpers (`qboVerifyCreate`, `zohoBooksVerifyCreate`, `mercuryVerifyCreate`) mirroring the canonical `AccountingProviderAdapter::verifyCreate` return shape (`verified, downstream_status, expected_status, reason, fetched_at`). Used by the procedural sync drivers that don't route through `core/accounting/command_service.php`.
+- **QBO wiring** — `sync_je.php`, `sync_bills.php`, `sync_invoices.php` now call `qboVerifyCreate` immediately after every successful POST. Per-item result rows stamp `pushed` (verified) or `pushed_unverified` (downstream mismatch / GET failure). Audit log carries the full verify payload.
+- **Zoho Books wiring** — `sync_je.php`, `sync_bills.php`, `sync_invoices.php` mirror the same contract (`zohoBooksVerifyCreate` → status maps `open/paid/partially_paid` → `active`).
+- **Mercury wiring** — `mercury_payments.php` calls `mercuryVerifyCreate` at all three originate sites (internal transfer, funding pull, vendor payout). Verify payload rides on the `mpTransition` event so operators see it in the payment-instructions UI.
+- **Smoke** — `tests/integration_verify_create_smoke.php` (40 ✓) — locks both source-level wiring (require + call sites + `pushed_unverified` stamps) AND live shape contract via stubbed transports (`$GLOBALS['__qbo_transport']`, `$GLOBALS['__mercury_transport']`, in-memory PDO).
+
+### Charter coverage now
+| Provider   | #1 | #2 | #3 | #4 | #5 | #6 | #7 |
+|------------|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
+| Jaz        | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| QBO        | ✅ | ✅ | ✅ | ✅ | ✅ (this session) | partial | ✅ |
+| Zoho Books | ✅ | ✅ | ✅ | TBD | ✅ (this session) | ❌ | ✅ |
+| Mercury    | ✅ | ✅ | ✅ | n/a | ✅ (this session) | ❌ | ✅ |
+| Plaid      | ❌ | ❌ | ❌ | n/a | n/a | partial | ❌ |
+| LayerFi    | n/a (SDK) | n/a | n/a | n/a | n/a | n/a | n/a |
+
+### Suite health
+417/421 — same 4 pre-existing sandbox-boundary regressions (accounting_phase2_a7, ai_gateway_slice4/6, treasury_csv_import).
+
+### Backlog (charter-tracked, not one-offs)
+- **Primitive #6** (full vendor error surface) backfill for Zoho + Mercury.
+- **Plaid** full charter row (Plaid publishes OpenAPI — easier vendored install than the hand-curated paths).
+- **QBO OAuth** proactive token refresh via cron (resilience).
+- **Cloudways env** secret management for Resend keys.
+- **QBO push retry + dead-letter queue.**
+- **Engagements module** (fixed-fee project accounting).
+- **CFO Dashboard role/access gating** integrating with new RBAC.
+- **AI Digest Scheduler** (Sunday weekly ops memo cron).
+- **External Auditor view** (tokenized read-only URL).
+
+---
+
 ## Session — 2026-02 (QBO #4 + Zoho + Mercury charter rows)
 
 ### What shipped (3 rows filled in the Integration Quality Charter)

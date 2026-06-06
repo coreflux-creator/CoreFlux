@@ -43,6 +43,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
+require_once __DIR__ . '/../integrations/verify_create.php';
 require_once __DIR__ . '/../accounting/account_mapping_service.php';
 
 const QBO_SOURCE = 'quickbooks_online';
@@ -267,11 +268,14 @@ function qboSyncJournalEntries(int $tenantId, ?int $userId, array $opts = []): a
             if ($qboId === '') throw new \RuntimeException('QBO accepted but returned no JournalEntry.Id');
             mappingUpsert($tenantId, QBO_SOURCE, 'journal_entry', $qboId, $jeId, $payload, 'push');
             $pushed++;
-            $results[] = ['je_id' => $jeId, 'je_number' => $je['je_number'], 'qbo_id' => $qboId, 'status' => 'pushed'];
+            // Charter primitive #5 — post-push verification.
+            $verify = qboVerifyCreate($tenantId, 'journal_entry', $qboId, 'active');
+            $itemStatus = ($verify['verified'] ?? false) ? 'pushed' : 'pushed_unverified';
+            $results[] = ['je_id' => $jeId, 'je_number' => $je['je_number'], 'qbo_id' => $qboId, 'status' => $itemStatus, 'verify' => $verify];
             qboAudit($tenantId, 'sync_je_push', [
                 'entity_type' => 'journal_entry', 'direction' => 'push',
                 'ok' => true, 'actor_user_id' => $userId, 'items_processed' => 1,
-                'detail' => ['je_id' => $jeId, 'qbo_id' => $qboId],
+                'detail' => ['je_id' => $jeId, 'qbo_id' => $qboId, 'verify' => $verify],
             ]);
         } catch (\Throwable $e) {
             $failed++;

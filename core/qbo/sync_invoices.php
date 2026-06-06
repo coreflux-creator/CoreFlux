@@ -162,11 +162,14 @@ function qboSyncInvoices(int $tenantId, ?int $userId, array $opts = []): array
             if ($qboId === '') throw new \RuntimeException('QBO accepted but returned no Invoice.Id');
             mappingUpsert($tenantId, QBO_SOURCE, 'invoice', $qboId, $iid, $payload, 'push');
             $pushed++;
-            $results[] = ['invoice_id' => $iid, 'invoice_number' => $inv['invoice_number'], 'qbo_id' => $qboId, 'status' => 'pushed'];
+            // Charter primitive #5 — post-push verification.
+            $verify = qboVerifyCreate($tenantId, 'invoice', $qboId, 'active');
+            $itemStatus = ($verify['verified'] ?? false) ? 'pushed' : 'pushed_unverified';
+            $results[] = ['invoice_id' => $iid, 'invoice_number' => $inv['invoice_number'], 'qbo_id' => $qboId, 'status' => $itemStatus, 'verify' => $verify];
             qboAudit($tenantId, 'sync_invoice_push', [
                 'entity_type' => 'invoice', 'direction' => 'push',
                 'actor_user_id' => $userId, 'items_processed' => 1,
-                'detail' => ['invoice_id' => $iid, 'qbo_id' => $qboId],
+                'detail' => ['invoice_id' => $iid, 'qbo_id' => $qboId, 'verify' => $verify],
             ]);
         } catch (\Throwable $e) {
             $failed++;

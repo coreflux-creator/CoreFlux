@@ -198,11 +198,14 @@ function zohoBooksSyncBills(int $tenantId, ?int $userId, array $opts = []): arra
             if ($zoId === '') throw new \RuntimeException('Zoho Books accepted but returned no bill.bill_id');
             mappingUpsert($tenantId, ZOHO_BOOKS_SOURCE, 'bill', $zoId, $bid, $payload, 'push');
             $pushed++;
-            $results[] = ['bill_id' => $bid, 'bill_number' => $bill['bill_number'], 'zoho_id' => $zoId, 'status' => 'pushed'];
+            // Charter primitive #5 — post-push verification.
+            $verify = zohoBooksVerifyCreate($tenantId, 'bill', $zoId, 'active');
+            $itemStatus = ($verify['verified'] ?? false) ? 'pushed' : 'pushed_unverified';
+            $results[] = ['bill_id' => $bid, 'bill_number' => $bill['bill_number'], 'zoho_id' => $zoId, 'status' => $itemStatus, 'verify' => $verify];
             zohoBooksAudit($tenantId, 'sync_bill_push', [
                 'entity_type' => 'bill', 'direction' => 'push',
                 'ok' => true, 'actor_user_id' => $userId, 'items_processed' => 1,
-                'detail' => ['bill_id' => $bid, 'zoho_id' => $zoId],
+                'detail' => ['bill_id' => $bid, 'zoho_id' => $zoId, 'verify' => $verify],
             ]);
         } catch (\Throwable $e) {
             $failed++;

@@ -158,11 +158,14 @@ function zohoBooksSyncInvoices(int $tenantId, ?int $userId, array $opts = []): a
             if ($zoId === '') throw new \RuntimeException('Zoho returned no invoice_id');
             mappingUpsert($tenantId, ZOHO_BOOKS_SOURCE, 'invoice', $zoId, $iid, $payload, 'push');
             $pushed++;
-            $results[] = ['invoice_id' => $iid, 'zoho_id' => $zoId, 'status' => 'pushed'];
+            // Charter primitive #5 — post-push verification.
+            $verify = zohoBooksVerifyCreate($tenantId, 'invoice', $zoId, 'active');
+            $itemStatus = ($verify['verified'] ?? false) ? 'pushed' : 'pushed_unverified';
+            $results[] = ['invoice_id' => $iid, 'zoho_id' => $zoId, 'status' => $itemStatus, 'verify' => $verify];
             zohoBooksAudit($tenantId, 'sync_invoice_push', [
                 'entity_type' => 'invoice', 'direction' => 'push',
                 'ok' => true, 'actor_user_id' => $userId, 'items_processed' => 1,
-                'detail' => ['invoice_id' => $iid, 'zoho_id' => $zoId],
+                'detail' => ['invoice_id' => $iid, 'zoho_id' => $zoId, 'verify' => $verify],
             ]);
         } catch (\Throwable $e) {
             $failed++;

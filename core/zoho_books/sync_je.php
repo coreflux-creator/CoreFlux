@@ -40,6 +40,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
+require_once __DIR__ . '/../integrations/verify_create.php';
 
 const ZOHO_BOOKS_SOURCE = 'zoho_books';
 
@@ -233,11 +234,14 @@ function zohoBooksSyncJournalEntries(int $tenantId, ?int $userId, array $opts = 
             if ($zoId === '') throw new \RuntimeException('Zoho Books accepted but returned no journal.journal_id');
             mappingUpsert($tenantId, ZOHO_BOOKS_SOURCE, 'journal_entry', $zoId, $jeId, $payload, 'push');
             $pushed++;
-            $results[] = ['je_id' => $jeId, 'je_number' => $je['je_number'], 'zoho_id' => $zoId, 'status' => 'pushed'];
+            // Charter primitive #5 — post-push verification.
+            $verify = zohoBooksVerifyCreate($tenantId, 'journal_entry', $zoId, 'active');
+            $itemStatus = ($verify['verified'] ?? false) ? 'pushed' : 'pushed_unverified';
+            $results[] = ['je_id' => $jeId, 'je_number' => $je['je_number'], 'zoho_id' => $zoId, 'status' => $itemStatus, 'verify' => $verify];
             zohoBooksAudit($tenantId, 'sync_je_push', [
                 'entity_type' => 'journal_entry', 'direction' => 'push',
                 'ok' => true, 'actor_user_id' => $userId, 'items_processed' => 1,
-                'detail' => ['je_id' => $jeId, 'zoho_id' => $zoId],
+                'detail' => ['je_id' => $jeId, 'zoho_id' => $zoId, 'verify' => $verify],
             ]);
         } catch (\Throwable $e) {
             $failed++;

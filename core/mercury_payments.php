@@ -31,6 +31,7 @@ require_once __DIR__ . '/mercury_adapter.php';
 require_once __DIR__ . '/mercury_service.php';
 require_once __DIR__ . '/mercury_recipients.php';
 require_once __DIR__ . '/approval_policy.php';
+require_once __DIR__ . '/integrations/verify_create.php';
 
 // ----------------------------------------------------------------- state machine
 
@@ -758,6 +759,8 @@ function mpOriginateInternalTransfer(int $tenantId, array $row, string $apiToken
     // and reconciliation queries that join on funding timestamps don't
     // mistake an internal transfer for a stalled vendor payment. The
     // payout_* columns then track the single Mercury leg.
+    // Charter primitive #5 — post-push verification.
+    $verify = mercuryVerifyCreate($apiToken, $sourceAcctId, $txnId, 'pending');
     mpTransition($tenantId, (int) $row['id'], 'Submitted', 'internal transfer originated', null, [
         'funding_initiated_at'   => date('Y-m-d H:i:s'),
         'funding_settled_at'     => date('Y-m-d H:i:s'),
@@ -765,7 +768,7 @@ function mpOriginateInternalTransfer(int $tenantId, array $row, string $apiToken
         'payout_mercury_txn_id'  => $txnId,
         'payout_mercury_status'  => $status,
         'payout_initiated_at'    => date('Y-m-d H:i:s'),
-    ], ['mercury_txn_id' => $txnId, 'status' => $status]);
+    ], ['mercury_txn_id' => $txnId, 'status' => $status, 'verify' => $verify]);
     return 'Submitted';
 }
 
@@ -823,7 +826,7 @@ function mpOriginateFunding(int $tenantId, array $row, string $apiToken, ?array 
         'funding_mercury_txn_id'       => $txnId,
         'funding_mercury_status'       => $status,
         'funding_initiated_at'         => date('Y-m-d H:i:s'),
-    ], ['mercury_txn_id' => $txnId, 'status' => $status]);
+    ], ['mercury_txn_id' => $txnId, 'status' => $status, 'verify' => mercuryVerifyCreate($apiToken, (string) $defaults['mercury_account_id'], $txnId, 'pending')]);
     return 'Funding';
 }
 
@@ -918,7 +921,7 @@ function mpVerifyAndOriginatePayout(int $tenantId, array $row, string $apiToken,
         'payout_mercury_txn_id'  => $txnId,
         'payout_mercury_status'  => $status,
         'payout_initiated_at'    => date('Y-m-d H:i:s'),
-    ], ['mercury_txn_id' => $txnId, 'status' => $status]);
+    ], ['mercury_txn_id' => $txnId, 'status' => $status, 'verify' => mercuryVerifyCreate($apiToken, (string) $row['operating_mercury_account_id'], $txnId, 'pending')]);
     return 'Submitted';
 }
 

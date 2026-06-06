@@ -199,11 +199,14 @@ function qboSyncBills(int $tenantId, ?int $userId, array $opts = []): array
             if ($qboId === '') throw new \RuntimeException('QBO accepted but returned no Bill.Id');
             mappingUpsert($tenantId, QBO_SOURCE, 'bill', $qboId, $bid, $payload, 'push');
             $pushed++;
-            $results[] = ['bill_id' => $bid, 'bill_number' => $bill['bill_number'], 'qbo_id' => $qboId, 'status' => 'pushed'];
+            // Charter primitive #5 — post-push verification.
+            $verify = qboVerifyCreate($tenantId, 'bill', $qboId, 'active');
+            $itemStatus = ($verify['verified'] ?? false) ? 'pushed' : 'pushed_unverified';
+            $results[] = ['bill_id' => $bid, 'bill_number' => $bill['bill_number'], 'qbo_id' => $qboId, 'status' => $itemStatus, 'verify' => $verify];
             qboAudit($tenantId, 'sync_bill_push', [
                 'entity_type' => 'bill', 'direction' => 'push',
                 'actor_user_id' => $userId, 'items_processed' => 1,
-                'detail' => ['bill_id' => $bid, 'qbo_id' => $qboId],
+                'detail' => ['bill_id' => $bid, 'qbo_id' => $qboId, 'verify' => $verify],
             ]);
         } catch (\Throwable $e) {
             $failed++;
