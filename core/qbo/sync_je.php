@@ -43,6 +43,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
+require_once __DIR__ . '/../accounting/account_mapping_service.php';
 
 const QBO_SOURCE = 'quickbooks_online';
 
@@ -70,6 +71,29 @@ function qboResolveAccountRef(int $tenantId, int $accountId): ?array
 
     $code = trim((string) $row['code']);
     if ($code === '') return null;
+
+    // Charter primitive #4 — account-mapping fallback.
+    // Before hitting QBO's discovery API (slow + rate-limited), check
+    // the operator-managed `accounting_account_mappings` grid. This
+    // is the same table the Jaz resolver reads from migration 098;
+    // it's the source of truth when the operator pre-maps CoA before
+    // any push. If found, return the mapping AND backfill the
+    // QBO-side cache so subsequent calls hit the fast path.
+    if (function_exists('accountingAccountMappingLookup')) {
+        $opMap = accountingAccountMappingLookup($tenantId, 0, 'qbo', $accountId);
+        $opVal = $opMap['provider_account_id'] ?? null;
+        if ($opVal !== null && $opVal !== '') {
+            $name = (string) ($opMap['provider_account_name'] ?? '');
+            // Opportunistic backfill of the QBO-side cache so the
+            // expensive auto-discover path runs at most once per
+            // account. Failure here MUST NOT break the resolver.
+            try {
+                mappingUpsert($tenantId, QBO_SOURCE, 'account', (string) $opVal, $accountId,
+                              ['Name' => $name, '_source' => 'accounting_account_mappings'], 'pull');
+            } catch (\Throwable $_) { /* fast-path optimisation only */ }
+            return ['value' => (string) $opVal, 'name' => $name];
+        }
+    }
 
     $row2 = qboConnection($tenantId);
     if (!$row2) return null;

@@ -73,6 +73,31 @@ $providers = [
         // into the adapter class shape so it can override.
         'verify_create' => false,
     ],
+    [
+        'id'        => 'zoho',
+        'label'     => 'Zoho Books',
+        'spec'      => $ROOT . '/spec/zoho_schema.json',
+        'snapshot'  => $ROOT . '/spec/zoho_docs',
+        'contract'  => $ROOT . '/tests/zoho_payload_contract_smoke.php',
+        'freshness' => $ROOT . '/tests/zoho_spec_freshness_smoke.php',
+        'tool'      => $ROOT . '/tools/refresh_zoho_spec.sh',
+        // Same status as QBO — builders are procedural; verifyCreate
+        // backlog item is "hoist into adapter class".
+        'verify_create' => false,
+    ],
+    [
+        'id'        => 'mercury',
+        'label'     => 'Mercury',
+        'spec'      => $ROOT . '/spec/mercury_schema.json',
+        'snapshot'  => $ROOT . '/spec/mercury_docs',
+        'contract'  => $ROOT . '/tests/mercury_payload_contract_smoke.php',
+        'freshness' => $ROOT . '/tests/mercury_spec_freshness_smoke.php',
+        'tool'      => $ROOT . '/tools/refresh_mercury_spec.sh',
+        // Banking API; #4 (mapping fallback) is n/a (no CoA). Charter
+        // backlog: hoist into adapter class + add verifyCreate via
+        // GET /payments/{id}.
+        'verify_create' => false,
+    ],
 ];
 
 $STALE_AFTER_DAYS = 90;

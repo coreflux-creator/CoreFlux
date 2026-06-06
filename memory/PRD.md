@@ -1,5 +1,62 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (QBO #4 + Zoho + Mercury charter rows)
+
+### What shipped (3 rows filled in the Integration Quality Charter)
+
+**1. QBO primitive #4 — account-mapping fallback**
+- `core/qbo/sync_je.php::qboResolveAccountRef()` now consults `accounting_account_mappings` (the operator-managed grid from migration 098, same table Jaz uses) BEFORE hitting QBO's auto-discover API.
+- Fallback runs after the QBO-local `mappingFindExternal` fast path but before the slow `select Id, Name, AcctNum from Account` discovery query (rate-limited; expensive).
+- When the operator mapping is found, the function backfills the QBO-local cache via `mappingUpsert` so subsequent calls hit the fast path. Backfill wrapped in try/catch — never load-bearing.
+- New smoke `tests/qbo_account_mapping_fallback_smoke.php` (12 ✓).
+
+**2. Zoho Books onboarding — schema + contract + freshness + health row**
+- `spec/zoho_schema.json` — hand-curated from Zoho Books API v3 docs. Covers `BillCreate`, `BillLineItem`, `InvoiceCreate`, `InvoiceLineItem`, `JournalCreate`, `JournalLineItem` (required[] + writableProperties[] + the `debit_or_credit` enum lock).
+- `tools/refresh_zoho_spec.sh` — snapshots Zoho's HTML docs to `spec/zoho_docs/`.
+- `tests/zoho_payload_contract_smoke.php` (29 ✓) — drives all 3 Zoho builders (`zohoBooksBuildBillPayload`, `zohoBooksBuildInvoicePayload`, `zohoBooksBuildJournalPayload`) and asserts no stray fields, required[] presence, and line-item conformance.
+- `tests/zoho_spec_freshness_smoke.php` (8 ✓) — locks the `debit_or_credit` enum + refresh tool wiring.
+
+**3. Mercury onboarding — schema + contract + freshness + health row**
+- `spec/mercury_schema.json` — `PaymentCreate`, `RecipientCreate`, `RoutingInfo`. Locks the note ≤ 50 char cap, paymentMethod enum (ach|wire|check…), routing-number 9-digit length.
+- `tools/refresh_mercury_spec.sh` + `tests/mercury_payload_contract_smoke.php` (22 ✓) + `tests/mercury_spec_freshness_smoke.php` (10 ✓).
+- #4 (mapping fallback) is **n/a** — Mercury is a banking API, no CoA.
+
+**4. Integrations Health endpoint**
+- Both Zoho and Mercury rows added. They now appear in the Admin overview's IntegrationsHealthPanel alongside Jaz and QBO. Both currently flag `attention` because `verify_create: false` (charter primitive #5 backlog — needs procedural-to-adapter-class hoist for QBO, Zoho, and Mercury, one session each).
+
+### Charter coverage now (per `INTEGRATION_QUALITY_CHARTER.md`)
+| Provider   | #1 | #2 | #3 | #4 | #5 | #6 | #7 |
+|------------|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
+| Jaz        | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| QBO        | ✅ | ✅ | ✅ | ✅ (this session) | TBD | partial | ✅ |
+| Zoho Books | ✅ (this session) | ✅ (this session) | ✅ (this session) | TBD | TBD | ❌ | ✅ (this session) |
+| Mercury    | ✅ (this session) | ✅ (this session) | ✅ (this session) | n/a | TBD | ❌ | ✅ (this session) |
+| Plaid      | ❌ | ❌ | ❌ | n/a | n/a | partial | ❌ |
+| LayerFi    | n/a (SDK) | n/a | n/a | n/a | n/a | n/a | n/a |
+
+### Suite health
+416/420 — same 4 pre-existing env failures.
+
+### Backlog (charter-tracked, not one-offs)
+- **Primitive #5 (verifyCreate) hoist** for QBO, Zoho, Mercury — same procedural-to-adapter-class refactor for all three (one session per provider).
+- **Plaid full charter row** — Plaid does publish OpenAPI, easier vendored install.
+- **Primitive #6 (full vendor error surface) backfill** for Zoho + Mercury.
+- Slice F vertical extensions (AI spec); QBO OAuth proactive token refresh; Cloudways env secret management.
+
+
+## Session — 2026-02 (LayerFi per-tenant toggle shortcut on Admin overview)
+
+### What shipped
+- **`dashboard/src/pages/LayerFiToggleCard.jsx`** — inline LayerFi enablement card. Reads `GET /api/accounting/layer-status` and writes via `POST /api/accounting/layer-tenant-enablement` through the canonical `createLayerClient` (same code path as the full settings page — single source of truth, zero risk of drift).
+- **Mounted on the Admin overview** next to `IntegrationsHealthPanel` in `AdminModule.jsx`. Two-column row.
+- **Permission-aware**: Power button disabled + read-only badge when the operator lacks `coreflux.internal_sandbox`; deep-link to `/settings/integrations/layer` always renders.
+- All interactive + state elements carry `data-testid`s (`layerfi-toggle-card`, `-button`, `-deep-link`, `-loading`, `-error`, `-toast`, `-state-{on|off}`).
+- **New smoke**: `tests/layerfi_admin_shortcut_smoke.php` (18 ✓) — locks the createLayerClient reuse, no direct-fetch bypass, testids, permission gating, deep-link target, and AdminModule wiring.
+
+### Suite health
+411/415 (same 4 pre-existing env failures).
+
+
 ## Session — 2026-02 (Integration Quality Charter + verifyCreate across the abstraction layer)
 
 ### Process change (user-requested)

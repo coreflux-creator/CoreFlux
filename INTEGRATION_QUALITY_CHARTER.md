@@ -21,10 +21,10 @@ The charter exists because we kept hitting the same class of "we thought it work
 | Provider | #1 schema | #2 contract | #3 freshness | #4 mapping fallback | #5 post-push verify | #6 error surface | #7 health panel |
 |----------|:--:|:--:|:--:|:--:|:--:|:--:|:--:|
 | **Jaz**       | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **QBO**       | ✅ | ✅ | ✅ | partial | TBD (next session) | partial | ✅ |
+| **QBO**       | ✅ | ✅ | ✅ | **✅ (this session)** | TBD (next session) | partial | ✅ |
 | **Plaid**     | ❌ | ❌ | ❌ | n/a (read-only) | n/a | partial | ❌ |
-| **ZohoBooks** | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Mercury**   | ❌ | ❌ | ❌ | n/a (no CoA) | ❌ | ❌ | ❌ |
+| **ZohoBooks** | **✅ (this session)** | **✅ (this session)** | **✅ (this session)** | TBD (next session) | TBD (next session) | ❌ | **✅ (this session)** |
+| **Mercury**   | **✅ (this session)** | **✅ (this session)** | **✅ (this session)** | n/a (no CoA) | TBD (next session) | ❌ | **✅ (this session)** |
 | **LayerFi**   | n/a — SDK enforces shape | n/a | n/a | n/a | n/a | n/a | n/a |
 
 ## The Rollout Order

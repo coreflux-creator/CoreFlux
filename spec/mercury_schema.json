@@ -1,0 +1,42 @@
+{
+  "_meta": {
+    "provider": "mercury",
+    "source": "Mercury API docs — docs.mercury.com/reference",
+    "_note": "Mercury is a banking API (no GL/CoA). Charter primitive #4 (account-mapping fallback) is n/a — we only push payment instructions. Schema covers the three write endpoints CoreFlux uses: sweeps, funding pulls, vendor disbursements. Companion: tools/refresh_mercury_spec.sh."
+  },
+  "definitions": {
+    "PaymentCreate": {
+      "description": "POST /api/v1/account/{id}/transactions — minimum body for an ACH/wire payment instruction",
+      "required": ["recipientId", "amount", "paymentMethod"],
+      "writableProperties": [
+        "recipientId", "amount", "paymentMethod", "idempotencyKey",
+        "note", "externalMemo", "feeStrategy", "executionDate", "currency"
+      ],
+      "constraints": {
+        "paymentMethod.allowed": ["ach", "wire", "checkInternational", "check"],
+        "note.maxLength": 50,
+        "externalMemo.maxLength": 256
+      }
+    },
+    "RecipientCreate": {
+      "description": "POST /api/v1/recipients — minimum body for a new payment counterparty",
+      "required": ["name", "paymentMethod"],
+      "writableProperties": [
+        "name", "emails", "paymentMethod", "domesticWireRoutingInfo",
+        "electronicRoutingInfo", "internationalWireRoutingInfo", "checkInfo",
+        "address", "defaultPaymentMethod", "nickname"
+      ]
+    },
+    "RoutingInfo": {
+      "description": "ABA routing + account number for ACH/wire recipients",
+      "required": ["routingNumber", "accountNumber"],
+      "writableProperties": [
+        "routingNumber", "accountNumber", "bankName", "accountType"
+      ],
+      "constraints": {
+        "routingNumber.length": 9,
+        "accountType.allowed": ["businessChecking", "businessSavings", "personalChecking", "personalSavings"]
+      }
+    }
+  }
+}

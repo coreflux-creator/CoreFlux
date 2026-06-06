@@ -23,6 +23,7 @@ import RbacMembershipsAdmin from './RbacMembershipsAdmin';
 import RecentAccessChangesPanel from './RecentAccessChangesPanel';
 import RbacBridgeHealthPanel from './RbacBridgeHealthPanel';
 import IntegrationsHealthPanel from './IntegrationsHealthPanel';
+import LayerFiToggleCard from './LayerFiToggleCard';
 import PermissionProfileBuilder from './PermissionProfileBuilder';
 import CpaPortfolio from './CpaPortfolio';
 import CpaFirmClientsAdmin from './CpaFirmClientsAdmin';
@@ -124,8 +125,9 @@ const AdminOverview = () => (
       <RbacBridgeHealthPanel windowHours={24} />
     </div>
 
-    <div style={{ marginTop: 'var(--cf-space-4)' }}>
+    <div style={{ marginTop: 'var(--cf-space-4)', display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 'var(--cf-space-4)' }}>
       <IntegrationsHealthPanel />
+      <LayerFiToggleCard />
     </div>
   </>
 );

@@ -1,0 +1,67 @@
+{
+  "_meta": {
+    "provider": "zoho_books",
+    "source": "Zoho Books API docs — www.zoho.com/books/api/v3/{bills,invoices,journals}",
+    "_note": "Zoho Books does NOT publish OpenAPI. Schema hand-curated from the public HTML docs. Re-walk those URLs and update required[] / writableProperties[] when Zoho rotates the API version. Companion: tools/refresh_zoho_spec.sh."
+  },
+  "definitions": {
+    "BillCreate": {
+      "description": "POST /api/v3/bills — minimum body for CREATE",
+      "required": ["vendor_id", "line_items"],
+      "writableProperties": [
+        "vendor_id", "bill_number", "reference_number", "date", "due_date",
+        "currency_id", "currency_code", "exchange_rate", "discount", "is_inclusive_tax",
+        "is_item_level_tax_calc", "is_update_customer", "line_items", "payment_terms",
+        "payment_terms_label", "notes", "terms", "warehouse_id", "purchaseorder_ids",
+        "custom_fields", "location_id", "branch_id"
+      ]
+    },
+    "BillLineItem": {
+      "required": ["rate", "quantity"],
+      "writableProperties": [
+        "line_item_id", "account_id", "item_id", "description",
+        "rate", "quantity", "unit", "tax_id", "tax_name", "tax_percentage",
+        "item_total", "project_id", "expense_id", "customer_id"
+      ]
+    },
+    "InvoiceCreate": {
+      "description": "POST /api/v3/invoices — minimum body for CREATE",
+      "required": ["customer_id", "line_items"],
+      "writableProperties": [
+        "customer_id", "contact_persons", "invoice_number", "reference_number",
+        "date", "due_date", "currency_id", "exchange_rate", "discount", "is_inclusive_tax",
+        "is_item_level_tax_calc", "line_items", "payment_terms", "payment_terms_label",
+        "salesperson_name", "shipping_charge", "adjustment", "adjustment_description",
+        "notes", "terms", "template_id", "custom_fields", "location_id", "branch_id"
+      ]
+    },
+    "InvoiceLineItem": {
+      "required": ["rate", "quantity"],
+      "writableProperties": [
+        "line_item_id", "item_id", "account_id", "name", "description",
+        "rate", "quantity", "unit", "tax_id", "tax_name", "tax_percentage",
+        "item_total", "project_id"
+      ]
+    },
+    "JournalCreate": {
+      "description": "POST /api/v3/journals — minimum body for CREATE. Sum(debit) MUST equal sum(credit).",
+      "required": ["journal_date", "line_items"],
+      "writableProperties": [
+        "journal_date", "reference_number", "notes", "line_items",
+        "journal_type", "currency_id", "exchange_rate", "include_in_vat_return",
+        "custom_fields", "location_id", "branch_id"
+      ]
+    },
+    "JournalLineItem": {
+      "description": "Each entry is one side. Exactly one of debit_or_credit IS REQUIRED.",
+      "required": ["account_id", "debit_or_credit", "amount"],
+      "writableProperties": [
+        "account_id", "debit_or_credit", "amount", "description",
+        "customer_id", "project_id", "tax_id", "tax_authority_id", "tax_exemption_id"
+      ],
+      "constraints": {
+        "debit_or_credit.allowed": ["debit", "credit"]
+      }
+    }
+  }
+}
