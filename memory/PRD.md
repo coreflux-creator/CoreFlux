@@ -1,5 +1,32 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Integrations-health endpoint + admin panel)
+
+### What shipped
+1. **`/api/admin/integrations_health.php`** (GET, master/tenant-admin gated): walks every provider following the contract-smoke triplet pattern (currently jaz + qbo) and returns, per provider:
+   - `spec`         — path, size, age in days (from file mtime)
+   - `snapshot`     — HTML snapshot status + age (only for hand-rolled providers like QBO)
+   - `smokes`       — presence of `<p>_payload_contract_smoke.php` + `<p>_spec_freshness_smoke.php`
+   - `tool`         — presence + executable bit of `tools/refresh_<p>_spec.sh`
+   - `overall`      — rollup pill: `ok | attention | missing`
+   - top-level `stale_after_days = 90` and `generated_at_iso`.
+
+   Adding a new provider triplet anywhere on disk auto-surfaces it on the panel as soon as it's appended to the provider array in the endpoint — zero UI changes needed.
+
+2. **`dashboard/src/pages/IntegrationsHealthPanel.jsx`**: at-a-glance table with status pill, per-smoke ✓/✗ badge, snapshot age (⚠ when stale), tool +x check, and a Refresh button. Every interactive element + every row carries a `data-testid`.
+
+3. **Mounted on the Admin overview** alongside `RbacBridgeHealthPanel` in `AdminModule.jsx`.
+
+4. **New smoke**: `tests/integrations_health_endpoint_smoke.php` (30 ✓) — locks the API contract, the actual presence of every artefact for both onboarded providers, and the React panel wiring.
+
+### Suite health
+408/412 — same 4 pre-existing env failures (`accounting_phase2_a7`, `ai_gateway_slice4`, `ai_gateway_slice6`, `treasury_csv_import`), none touch this work.
+
+### Backlog
+- P1: Slice F vertical extensions (AI spec).
+- P2: Plaid contract-smoke rollout; QBO OAuth proactive token refresh; QBO push retry + dead-letter queue; Mercury Webhooks; Cloudways env secret management.
+
+
 ## Session — 2026-02 (QBO contract-smoke rollout)
 
 ### What shipped
