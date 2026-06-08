@@ -1,5 +1,40 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (QBO two-way sync: Phases 1-3)
+
+### What shipped
+- **Migration 114** — six new tables:
+  - `qbo_inbound_invoices` / `qbo_inbound_payments` / `qbo_inbound_deposits` (Phase 1 — AR shadow)
+  - `qbo_inbound_bills` / `qbo_inbound_billpayments` (Phase 2 — AP shadow)
+  - `qbo_sync_drift` (Phase 3 — drift surface, UNIQUE on `tenant_id, entity_type, qbo_id, drift_kind` to prevent dupes)
+- **`core/qbo/sync_in_arap.php`** — five public puller functions (`qboPullInvoices`, `qboPullPayments`, `qboPullDeposits`, `qboPullBills`, `qboPullBillPayments`). Uses QBO Query API with STARTPOSITION pagination + `MetaData.LastUpdatedTime >=` filter for incremental pulls. Each row lands in its shadow table verbatim (full JSON in `raw_payload`) + denormalised key columns for fast queries.
+- **Drift taxonomy** (5 kinds):
+  - `paid_out_of_band` (warn) — invoice/bill paid in QBO, CoreFlux still 'sent'/'approved'/'partially_paid'
+  - `balance_changed` (info) — partial payment / amount edit upstream
+  - `voided_in_qbo` (critical) — invoice marked void in QBO while CoreFlux still active
+  - `amount_changed` (reserved for future)
+  - `qbo_only_orphan` (reserved for future — QBO has an entity with no CoreFlux mapping)
+- **`cron/qbo_two_way_sync.php`** (every 30 min) — loops all active QBO connections, pulls in order (Invoice→Payment→Deposit→Bill→BillPayment), advances per-tenant `tenant_qbo_two_way_state.last_pull_at` with a 5-min overlap window to absorb Intuit boundary races.
+- **`/api/admin/qbo/sync_drift.php`** — GET lists drift rows ordered by severity (critical>warn>info) with header counts; POST resolves with `acknowledged`/`reconciled`/`dismissed` + free-form `note`. RBAC-gated, tenant-scoped UPDATE.
+- **Smoke**: `tests/qbo_two_way_sync_smoke.php` — **58 ✓** (migration shape, module shape, drift taxonomy, cron shape, admin endpoint shape, live shadow+drift behaviour on SQLite mirror including upsert idempotency).
+
+### What the user now sees
+- **AR collections view** — query `qbo_inbound_invoices WHERE balance_cents > 0 ORDER BY due_date` for aging buckets that reflect QBO truth (not stale CoreFlux state).
+- **Bank-fee reconciliation** — `qbo_inbound_deposits.fee_cents` exposes processor/bank fees that QBO has already journaled but CoreFlux never knew about.
+- **Out-of-band detection** — every drift kind surfaces in `qbo_sync_drift` for operator triage. No silent divergence between CoreFlux and QBO.
+- **AP same shape** — Bill + BillPayment pulled identically; "tenant paid this bill manually in QBO" is now a `paid_out_of_band` row, not a phantom-open Bill in CoreFlux forever.
+
+### Suite health
+422/428 — 6 known sandbox-boundary failures, zero regressions.
+
+### Backlog
+- **Plaid full charter row** — last remaining major integration gap.
+- **Frontend drift triage page** — unified UI for `qbo_sync_drift` + Mercury Failed-PI + QBO DLQ (all three endpoints share `{playbook|drift_kind, severity, summary, suggested_fix}` shape now).
+- **Auto-reconciliation rules** — opt-in: when drift_kind=paid_out_of_band, automatically mark the CoreFlux invoice paid + post the cash JE.
+- **QBO Payments API as receivables rail** — separate, ~1.5-2.5 days; scope already enabled on the AppCenter app.
+
+---
+
 ## Session — 2026-02 (Mercury polish to full QBO parity)
 
 ### What shipped
