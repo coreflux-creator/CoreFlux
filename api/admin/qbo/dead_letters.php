@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/rbac/legacy_map.php';
 require_once __DIR__ . '/../../../core/qbo/retry_queue.php';
+require_once __DIR__ . '/../../../core/qbo/error_playbook.php';
 
 rbac_legacy_require_any($currentUser ?? api_require_auth(), ['master_admin', 'tenant_admin', '*']);
 
@@ -60,6 +61,14 @@ if ($method === 'GET') {
         // Table missing → empty list (migration 113 not yet applied).
         $rows = [];
     }
+
+    // Enrich each row with the QBO error-code playbook entry so the UI
+    // can show a one-line "Suggested fix" without having to grok the
+    // raw Intuit code catalogue.
+    foreach ($rows as &$r) {
+        $r['playbook'] = qboErrorPlaybookLookup($r['last_error_code'] ?? null);
+    }
+    unset($r);
 
     api_ok([
         'items'        => $rows,

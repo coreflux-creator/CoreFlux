@@ -1,5 +1,17 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (QBO error playbook for DLQ + Mercury rail status audit)
+
+### What shipped (QBO playbook)
+- **`core/qbo/error_playbook.php`** — structured remediation table mapping QBO `Fault.Error[0].code` values (6210, 6190, 6610, 3200, 3100, 4001, etc.) to `{category, severity, summary, suggested_fix, docs_link}`. Categories: validation / auth / permission / duplicate / rate_limit / unknown. Severities: requeue_safe / fix_data / fix_config / fix_oauth. Unknown codes fall through to a safe stub — UI never has to handle null.
+- **`/api/admin/qbo/dead_letters.php`** GET response now enriches every row with a `playbook` block via `qboErrorPlaybookLookup($r['last_error_code'])`. The future DLQ admin widget can render a one-line "Suggested fix" alongside `vendor_raw` for one-glance triage.
+- **`tests/qbo_error_playbook_smoke.php`** — **33 ✓** (table shape, category/severity allowlist, high-frequency code coverage, lookup behaviour, fallback safety, DLQ endpoint wiring).
+
+### Suite health
+420/426 — 6 known sandbox-boundary regressions (4 baseline + `ai_platform_smoke` and `plaid_integration_smoke` which require live curl / sandbox PHP extensions per handoff).
+
+---
+
 ## Session — 2026-02 (Charter score pill + QBO OAuth refresh cron + QBO retry/DLQ)
 
 ### What shipped
