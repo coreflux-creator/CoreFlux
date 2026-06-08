@@ -132,11 +132,12 @@ $a('Submitted → Settled allowed',                $c($svc, "'Submitted'       =
 $a('Settled → Reconciled deferred to Slice 4',
     $c($svc, "'Settled'         => ['Reconciled', 'Returned']")
     && $c($svc, 'Slice 4 owns Reconciled'));
-$a('terminal states locked (Failed/Returned/Cancelled/Reconciled)',
+$a('hard-terminal states locked (Returned/Cancelled/Reconciled)',
     $c($svc, "'Reconciled'      => []")
-    && $c($svc, "'Failed'          => []")
     && $c($svc, "'Returned'        => []")
     && $c($svc, "'Cancelled'       => []"));
+$a('Failed is soft-terminal — only Approved (admin requeue) + Cancelled allowed',
+    $c($svc, "'Failed'          => ['Approved', 'Cancelled']"));
 
 // mpTransition
 $a('mpTransition uses SELECT FOR UPDATE lock',

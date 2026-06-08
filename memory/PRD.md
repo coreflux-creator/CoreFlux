@@ -1,5 +1,43 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Mercury polish to full QBO parity)
+
+### What shipped
+- **Mercury error playbook** (`core/mercury/error_playbook.php`) — 15 codes mapped to `{category, severity, summary, suggested_fix, docs_link}` using the same schema as the QBO playbook so the eventual admin UI can render both with one component. Covers recipient validation, funds/limits, auth, rate-limit, compliance/sanctions (correctly flagged `fix_config` with CRITICAL wording — never `requeue_safe`), and ACH return codes (R01, R02, R03, R10).
+- **Failed-PI requeue path**:
+  - `mpTransitionAllowed` matrix now permits `Failed → Approved` and `Failed → Cancelled` (Failed is "soft-terminal").
+  - `mpRequeueFailed($tid, $piId, $userId, $reason)` resets stage-specific txn refs (`funding_mercury_txn_id`, `payout_mercury_txn_id`, `payout_initiated_at`, etc.) and re-enters `Approved` so the next `mpAdvance` cron originates fresh. The original two-eye approval is preserved (charter-correct: no funds moved, business decision didn't change).
+  - Refuses non-Failed input with `RuntimeException`.
+- **Admin endpoint** `/api/admin/mercury/failed_payments.php` (GET = list Failed/Returned PIs enriched with playbook + last_error from `payment_instruction_audit`; POST = requeue by `instruction_id` + `reason`). RBAC-gated to `master_admin` / `tenant_admin`. Mirrors `/api/admin/qbo/dead_letters.php` shape so the same admin UI shell works for both.
+- **Mercury health probe cron** (`cron/mercury_health_probe.php`, every 30 min) — Mercury uses static tokens (not OAuth), so there's no refresh path; instead we `mercuryListAccounts()` as a liveness probe. Flips `mercury_connections.status` between `active` and `error` and stamps `last_probe_error` so the IntegrationsHealthPanel reflects token death within 30 min.
+- **Smoke updates**:
+  - `tests/mercury_parity_smoke.php` — **52 ✓** (playbook shape, severity safety, state-machine matrix, requeue helper, admin endpoint, probe cron).
+  - `tests/mercury_payments_smoke.php` — updated the "terminal states" assertion to reflect Failed's new soft-terminal shape.
+
+### Mercury rail charter status (parity with QBO)
+| Capability | QBO | Mercury |
+|------------|-----|---------|
+| Vendored schema | ✅ | ✅ |
+| Contract smoke | ✅ | ✅ |
+| Freshness smoke | ✅ | ✅ |
+| Account mapping fallback | ✅ | n/a (banking) |
+| verifyCreate | ✅ | ✅ |
+| Error surface (raw vendor body in exception + audit) | ✅ | ✅ |
+| Health-panel onboarded | ✅ | ✅ |
+| **Token / connection liveness cron** | ✅ (token refresh, 15m) | ✅ (probe, 30m) |
+| **Failure-recovery admin endpoint with playbook** | ✅ (DLQ) | ✅ (Failed-PI requeue) |
+| **Error-code playbook** | ✅ (QBO codes) | ✅ (Mercury codes + ACH returns) |
+
+### Suite health
+420/427 — 6 known sandbox-boundary regressions + 1 known intermittent flake (`sprint2_accounting_mobile_smoke` passes individually).
+
+### Backlog
+- **Plaid full charter row** — last remaining major integration gap.
+- **Frontend DLQ/Failed widget** — wire `/api/admin/qbo/dead_letters.php` + `/api/admin/mercury/failed_payments.php` into a unified admin page (both endpoints share the playbook shape now).
+- **Cloudways env** secret management for Resend keys.
+
+---
+
 ## Session — 2026-02 (QBO error playbook for DLQ + Mercury rail status audit)
 
 ### What shipped (QBO playbook)

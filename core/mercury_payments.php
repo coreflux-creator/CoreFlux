@@ -49,7 +49,11 @@ function mpTransitionAllowed(string $from, string $to): bool
         'Submitted'       => ['Settled', 'Failed', 'Returned'],
         'Settled'         => ['Reconciled', 'Returned'],   // Slice 4 owns Reconciled
         'Reconciled'      => [],
-        'Failed'          => [],
+        // Failed is a soft-terminal state — admin requeue can return
+        // it to Approved (the original two-eye approval is still valid
+        // because no funds moved). See mpRequeueFailed() for the
+        // controlled re-entry path.
+        'Failed'          => ['Approved', 'Cancelled'],
         'Returned'        => [],
         'Cancelled'       => [],
     ];
@@ -569,6 +573,40 @@ function mpRejectToDraft(int $tenantId, int $id, ?int $userId, string $reason): 
 function mpCancel(int $tenantId, int $id, ?int $userId, ?string $reason = null): bool
 {
     return mpTransition($tenantId, $id, 'Cancelled', $reason ?: 'cancelled_by_user', $userId);
+}
+
+/**
+ * Admin requeue from Failed. Used when Mercury rejected the originate
+ * (insufficient funds cleared, rate-limit elapsed, recipient detail
+ * corrected) but the original two-eye approval is still valid.
+ *
+ * Resets stage-specific txn refs so the next mpAdvance call originates
+ * fresh, and audits the requeue with the supplied reason + caller id.
+ *
+ * SoD note: this does NOT re-trigger approval — the assumption is that
+ * the underlying business decision to pay the recipient didn't change.
+ * If it did, the admin should Cancel + create a new PI instead. The
+ * endpoint that calls this is RBAC-gated to master_admin / tenant_admin.
+ */
+function mpRequeueFailed(int $tenantId, int $id, int $userId, string $reason): bool
+{
+    $row = mpGet($tenantId, $id);
+    if ($row['state'] !== 'Failed') {
+        throw new \RuntimeException("mpRequeueFailed: PI {$id} is in state '{$row['state']}', expected 'Failed'");
+    }
+    // Reset stage-specific refs so mpAdvance originates fresh against
+    // Mercury. Keep funding_settled_at intact for internal-transfer
+    // flows that already cleared the funding leg.
+    $patch = [
+        'funding_mercury_txn_id'  => null,
+        'funding_mercury_status'  => null,
+        'payout_mercury_txn_id'   => null,
+        'payout_mercury_status'   => null,
+        'payout_initiated_at'     => null,
+    ];
+    return mpTransition($tenantId, $id, 'Approved',
+        'requeue_from_failed: ' . substr($reason, 0, 200),
+        $userId, $patch, ['action' => 'requeue_from_failed', 'requeued_by' => $userId]);
 }
 
 /**
