@@ -267,8 +267,11 @@ function _qboShadowDeposit(int $tenantId, array $q): array
     $qboId   = (string) ($q['Id'] ?? '');
     $total   = (int) round(((float) ($q['DepositTotal'] ?? $q['TotalAmt'] ?? 0)) * 100);
 
-    // Bank fees show up as a negative-amount Line[] with AccountRef
-    // pointing at a Fee/Expense account. Extract the sum.
+    // Processor fees show up as a negative-amount Line[] with AccountRef
+    // pointing at a Fee/Expense account (Stripe, QBO Payments, etc.
+    // batch the day's settlements and net their cut out before the
+    // deposit lands). Extract the sum. True wire-in / bank-maintenance
+    // fees do NOT appear here — they're separate Expense entries.
     $feeCents = 0; $feeAcct = '';
     $linkedPayments = [];
     foreach ((array) ($q['Line'] ?? []) as $line) {

@@ -46,7 +46,7 @@ check('drift UNIQUE prevents duplicate open rows',
     str_contains($mig, 'uniq_open_drift (tenant_id, entity_type, qbo_id, drift_kind)'));
 check('Invoice shadow has balance_cents + total_amount_cents',
     str_contains($mig, 'balance_cents') && str_contains($mig, 'total_amount_cents'));
-check('Deposit shadow has fee_cents (bank-fee reconciliation)',
+check('Deposit shadow has fee_cents (processor-fee netting)',
     preg_match('/CREATE TABLE qbo_inbound_deposits.*fee_cents/s', $mig) === 1);
 
 // ─────── 2. Module shape ───────
@@ -64,7 +64,7 @@ check('uses QBO Query API with STARTPOSITION pagination',
 check('honours modified_since via MetaData.LastUpdatedTime',
     str_contains($src, 'MetaData.LastUpdatedTime >='));
 check('writes audits via qboAudit',         str_contains($src, 'qboAudit'));
-check('extracts bank fees from Deposit Line[] (negative amounts)',
+check('extracts processor fees from Deposit Line[] (negative amounts)',
     str_contains($src, '$amt < 0'));
 check('extracts linked invoices from Payment LinkedTxn',
     preg_match("/TxnType.*?=== 'Invoice'/", $src) === 1);

@@ -62,7 +62,16 @@ CREATE TABLE qbo_inbound_payments (
     KEY idx_date (tenant_id, payment_date)
 );
 
--- ===== AR shadow: Deposits (for bank-fee netting) =====
+-- ===== AR shadow: Deposits (for processor-fee netting) =====
+-- When a payment processor (Stripe, QBO Payments, Square, etc.) batches
+-- a day of customer payments and deposits the net into the tenant's
+-- bank, QBO records a Deposit with positive Line[] entries per Payment
+-- and negative Line[] entries for the processor's cut. We extract the
+-- sum of those negatives into fee_cents so AR can match gross vs net.
+--
+-- True wire-in / monthly-maintenance "bank fees" do NOT land here —
+-- they show up as separate Expense / JournalEntry rows in QBO and are
+-- pulled via the existing accounting sync.
 CREATE TABLE qbo_inbound_deposits (
     id                  BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
     tenant_id           INT UNSIGNED     NOT NULL,
