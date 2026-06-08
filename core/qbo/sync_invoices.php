@@ -156,11 +156,21 @@ function qboSyncInvoices(int $tenantId, ?int $userId, array $opts = []): array
             $results[] = ['invoice_id' => $iid, 'invoice_number' => $inv['invoice_number'], 'status' => 'dry_run', 'payload' => $payload];
             continue;
         }
+
+        // Charter retry+DLQ — respect backoff and dead-letter status.
+        $retryGate = qboPushFailureCheck($tenantId, 'invoice', $iid);
+        if ($retryGate !== 'go') {
+            $skipped++;
+            $results[] = ['invoice_id' => $iid, 'invoice_number' => $inv['invoice_number'], 'status' => $retryGate];
+            continue;
+        }
+
         try {
             $resp = qboCall($tenantId, 'POST', '/v3/company/' . $realm . '/invoice?minorversion=65', $payload);
             $qboId = (string) ($resp['Invoice']['Id'] ?? '');
             if ($qboId === '') throw new \RuntimeException('QBO accepted but returned no Invoice.Id');
             mappingUpsert($tenantId, QBO_SOURCE, 'invoice', $qboId, $iid, $payload, 'push');
+            qboPushFailureClear($tenantId, 'invoice', $iid);
             $pushed++;
             // Charter primitive #5 — post-push verification.
             $verify = qboVerifyCreate($tenantId, 'invoice', $qboId, 'active');
@@ -173,6 +183,8 @@ function qboSyncInvoices(int $tenantId, ?int $userId, array $opts = []): array
             ]);
         } catch (\Throwable $e) {
             $failed++;
+            // Charter retry+DLQ — record the failure for backoff.
+            qboPushFailureRecord($tenantId, 'invoice', $iid, $e);
             // Charter primitive #6 — capture raw vendor body.
             $vendorRaw  = ($e instanceof QboApiException && is_array($e->raw)) ? $e->raw : null;
             $vendorHttp = ($e instanceof QboApiException) ? (int) $e->httpStatus : null;

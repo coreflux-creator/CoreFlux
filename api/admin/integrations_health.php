@@ -60,6 +60,8 @@ $providers = [
         'verify_create' => true,
         // Charter primitive #6 — raw vendor body captured via JazApiException::$raw.
         'error_surface' => true,
+        // Charter primitive #4 — operator-managed account mapping fallback.
+        'mapping_fallback' => true,
     ],
     [
         'id'        => 'qbo',
@@ -75,6 +77,8 @@ $providers = [
         // Charter primitive #6 — QboApiException::$raw carries the
         // truncated vendor response body (incl. Fault.Error[].code).
         'error_surface' => true,
+        // Charter primitive #4 — `qbo_account_mapping_fallback_smoke.php` locks the contract.
+        'mapping_fallback' => true,
     ],
     [
         'id'        => 'zoho',
@@ -90,6 +94,8 @@ $providers = [
         // truncated vendor response body; sync_je/bills/invoices persist
         // it to the audit log on every failure (this session).
         'error_surface' => true,
+        // Charter primitive #4 — operator-managed account mapping fallback.
+        'mapping_fallback' => true,
     ],
     [
         'id'        => 'mercury',
@@ -106,6 +112,8 @@ $providers = [
         // are now persisted to mp_events at every originate catch site
         // (this session).
         'error_surface' => true,
+        // No chart-of-accounts → primitive #4 doesn't apply (null = n/a).
+        'mapping_fallback' => null,
     ],
 ];
 
@@ -181,6 +189,40 @@ foreach ($providers as $p) {
     // Charter primitive #6 — same declarative cache for whether the
     // adapter throws a typed exception with the raw vendor body attached.
     $row['error_surface'] = (bool) ($p['error_surface'] ?? false);
+    // Charter primitive #4 — null means n/a (e.g. banking APIs with no CoA).
+    $row['mapping_fallback'] = array_key_exists('mapping_fallback', $p) ? $p['mapping_fallback'] : null;
+
+    // ── Charter compliance score (this is the operator's one-glance pill) ──
+    // Each primitive contributes 1 to numerator/denominator (n/a = neither).
+    // 1: vendored spec file present
+    // 2: contract smoke present
+    // 3: freshness smoke present
+    // 4: account-mapping fallback (operator grid consulted before vendor CoA query)
+    // 5: verifyCreate primitive wired
+    // 6: typed exception carries raw vendor body
+    // 7: provider onboarded into the health panel (this endpoint itself = always 1)
+    $primitives = [
+        '1_spec'             => is_file($p['spec']),
+        '2_contract_smoke'   => $row['smokes']['contract']['exists'] ?? false,
+        '3_freshness_smoke'  => $row['smokes']['freshness']['exists'] ?? false,
+        '4_mapping_fallback' => $row['mapping_fallback'],
+        '5_verify_create'    => $row['verify_create'],
+        '6_error_surface'    => $row['error_surface'],
+        '7_health_onboarded' => true,
+    ];
+    $earned = 0; $total = 0;
+    foreach ($primitives as $v) {
+        if ($v === null) continue; // n/a — excluded from denominator
+        $total++;
+        if ($v === true) $earned++;
+    }
+    $row['charter'] = [
+        'score_earned'    => $earned,
+        'score_total'     => $total,
+        'score_label'     => $earned . '/' . $total,
+        'compliant'       => ($earned === $total),
+        'primitives'      => $primitives,
+    ];
 
     // Roll-up status. `missing` if anything required is absent, `attention`
     // if the snapshot is stale OR verifyCreate isn't wired OR the error

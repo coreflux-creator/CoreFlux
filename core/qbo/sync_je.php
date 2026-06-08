@@ -45,6 +45,7 @@ require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../integrations/verify_create.php';
 require_once __DIR__ . '/../accounting/account_mapping_service.php';
+require_once __DIR__ . '/retry_queue.php';
 
 const QBO_SOURCE = 'quickbooks_online';
 
@@ -262,11 +263,20 @@ function qboSyncJournalEntries(int $tenantId, ?int $userId, array $opts = []): a
             continue;
         }
 
+        // Charter retry+DLQ — respect backoff and dead-letter status.
+        $retryGate = qboPushFailureCheck($tenantId, 'journal_entry', $jeId);
+        if ($retryGate !== 'go') {
+            $skipped++;
+            $results[] = ['je_id' => $jeId, 'je_number' => $je['je_number'], 'status' => $retryGate];
+            continue;
+        }
+
         try {
             $resp = qboCall($tenantId, 'POST', '/v3/company/' . $realm . '/journalentry?minorversion=65', $payload);
             $qboId = (string) ($resp['JournalEntry']['Id'] ?? '');
             if ($qboId === '') throw new \RuntimeException('QBO accepted but returned no JournalEntry.Id');
             mappingUpsert($tenantId, QBO_SOURCE, 'journal_entry', $qboId, $jeId, $payload, 'push');
+            qboPushFailureClear($tenantId, 'journal_entry', $jeId);
             $pushed++;
             // Charter primitive #5 — post-push verification.
             $verify = qboVerifyCreate($tenantId, 'journal_entry', $qboId, 'active');
@@ -279,6 +289,8 @@ function qboSyncJournalEntries(int $tenantId, ?int $userId, array $opts = []): a
             ]);
         } catch (\Throwable $e) {
             $failed++;
+            // Charter retry+DLQ — record the failure for backoff.
+            qboPushFailureRecord($tenantId, 'journal_entry', $jeId, $e);
             // Charter primitive #6 — capture the raw vendor body so the
             // operator sees exactly what QBO rejected.
             $vendorRaw  = ($e instanceof QboApiException && is_array($e->raw)) ? $e->raw : null;

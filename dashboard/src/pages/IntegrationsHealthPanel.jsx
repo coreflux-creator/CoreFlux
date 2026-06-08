@@ -66,6 +66,7 @@ export default function IntegrationsHealthPanel() {
             <thead>
               <tr style={{ textAlign: 'left', color: 'var(--cf-text-secondary, #6b7280)' }}>
                 <th style={{ padding: '4px 0' }}>Provider</th>
+                <th>Charter</th>
                 <th>Status</th>
                 <th>Spec</th>
                 <th>Snapshot</th>
@@ -79,6 +80,7 @@ export default function IntegrationsHealthPanel() {
                     data-testid={`integrations-health-row-${p.id}`}
                     style={{ borderTop: '1px solid var(--cf-border, #e5e7eb)' }}>
                   <td style={{ padding: '8px 0', fontWeight: 600 }}>{p.label}</td>
+                  <td><CharterScorePill charter={p.charter} providerId={p.id} /></td>
                   <td><StatusPill overall={p.overall} /></td>
                   <td>
                     {p.spec?.exists === false
@@ -132,6 +134,32 @@ export default function IntegrationsHealthPanel() {
         </>
       )}
     </section>
+  );
+}
+
+function CharterScorePill({ charter, providerId }) {
+  if (!charter) return <span style={{ color: 'var(--cf-text-secondary, #6b7280)' }}>—</span>;
+  const compliant = charter.compliant;
+  // Build a per-primitive tooltip so the operator can hover and see
+  // which primitives are open without opening a separate panel.
+  const tooltip = Object.entries(charter.primitives || {})
+    .map(([k, v]) => {
+      const status = v === null ? 'n/a' : v ? '✓' : '✗';
+      const name = k.replace(/^\d+_/, '').replace(/_/g, ' ');
+      return `${status} ${name}`;
+    })
+    .join('\n');
+  return (
+    <span
+      title={tooltip}
+      data-testid={`integrations-health-${providerId}-charter`}
+      style={{
+        display: 'inline-block', padding: '1px 8px', borderRadius: 999,
+        background: compliant ? '#dcfce7' : '#fef3c7',
+        color:      compliant ? '#166534' : '#78350f',
+        fontSize: 11, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+      }}
+    >{charter.score_label}</span>
   );
 }
 

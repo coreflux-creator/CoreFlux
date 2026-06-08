@@ -193,11 +193,20 @@ function qboSyncBills(int $tenantId, ?int $userId, array $opts = []): array
             continue;
         }
 
+        // Charter retry+DLQ — respect backoff and dead-letter status.
+        $retryGate = qboPushFailureCheck($tenantId, 'bill', $bid);
+        if ($retryGate !== 'go') {
+            $skipped++;
+            $results[] = ['bill_id' => $bid, 'bill_number' => $bill['bill_number'], 'status' => $retryGate];
+            continue;
+        }
+
         try {
             $resp = qboCall($tenantId, 'POST', '/v3/company/' . $realm . '/bill?minorversion=65', $payload);
             $qboId = (string) ($resp['Bill']['Id'] ?? '');
             if ($qboId === '') throw new \RuntimeException('QBO accepted but returned no Bill.Id');
             mappingUpsert($tenantId, QBO_SOURCE, 'bill', $qboId, $bid, $payload, 'push');
+            qboPushFailureClear($tenantId, 'bill', $bid);
             $pushed++;
             // Charter primitive #5 — post-push verification.
             $verify = qboVerifyCreate($tenantId, 'bill', $qboId, 'active');
@@ -210,6 +219,8 @@ function qboSyncBills(int $tenantId, ?int $userId, array $opts = []): array
             ]);
         } catch (\Throwable $e) {
             $failed++;
+            // Charter retry+DLQ — record the failure for backoff.
+            qboPushFailureRecord($tenantId, 'bill', $bid, $e);
             // Charter primitive #6 — capture raw vendor body.
             $vendorRaw  = ($e instanceof QboApiException && is_array($e->raw)) ? $e->raw : null;
             $vendorHttp = ($e instanceof QboApiException) ? (int) $e->httpStatus : null;

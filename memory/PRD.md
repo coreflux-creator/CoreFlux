@@ -1,5 +1,35 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Charter score pill + QBO OAuth refresh cron + QBO retry/DLQ)
+
+### What shipped
+- **Charter score pill** — `/api/admin/integrations_health.php` now computes a per-provider `charter` block: `{score_earned, score_total, score_label: "N/M", compliant, primitives: {1_spec, 2_contract_smoke, 3_freshness_smoke, 4_mapping_fallback, 5_verify_create, 6_error_surface, 7_health_onboarded}}`. `mapping_fallback=null` (e.g. Mercury banking) is excluded from the denominator. `IntegrationsHealthPanel.jsx` adds a `Charter` column rendering the score as a green pill (compliant) or amber pill (gaps), with a hover tooltip listing each primitive's status. Data-testid: `integrations-health-{providerId}-charter`.
+- **QBO OAuth proactive refresh cron** — `cron/qbo_token_refresh.php` (suggested cadence: every 15 min). Scans active connections; calls `qboRefreshAccessToken()` for any access token expiring within 30 min (REFRESH_WITHIN_SEC). Also emits a `token_refresh_warn` audit row when the refresh-token itself has < 7 days remaining (so dormant tenants get flagged before the ~101d Intuit refresh-token clock expires).
+- **QBO push retry + dead-letter queue**:
+  - Migration **113** — `qbo_push_failures` table (tenant/sub-tenant/entity/source unique key, status enum `retrying|dead_letter`, attempts/max_attempts, vendor_raw, next_retry_at, first/last_failed_at, cleared_at).
+  - **`core/qbo/retry_queue.php`** — four helpers: `qboPushFailureCheck`, `qboPushFailureRecord`, `qboPushFailureClear`, `qboPushFailureRequeue`. Exponential backoff (30s → 1m → 2m → 4m → 8m), DLQ on attempt 5. Captures `QboApiException::$raw[body]` so the DLQ row mirrors charter primitive #6.
+  - **Wired into all three sync drivers** (`sync_je`, `sync_bills`, `sync_invoices`): check-before-push (skip on backoff or DLQ), clear-on-success, record-on-failure.
+  - **Admin DLQ endpoint** — `/api/admin/qbo/dead_letters.php` (GET = list; POST = requeue). Auth-gated (`api_require_auth` + `rbac_legacy_require_any`).
+- **Smokes**:
+  - `tests/qbo_push_retry_dlq_smoke.php` — **54 ✓** (module shape, sync-driver wiring, admin endpoint shape, live backoff math, DLQ transition, requeue, clear).
+  - `tests/qbo_token_refresh_cron_smoke.php` — **12 ✓** (cron tunables, scan SQL, refresh call, audit warn, try/catch safety).
+
+### Suite health
+421/425 — same 4 pre-existing sandbox-boundary regressions.
+
+### Charter coverage (operator pill output)
+- Jaz: **7/7** ✅
+- QBO: **7/7** ✅ (+ retry/DLQ infra)
+- Zoho Books: **7/7** ✅
+- Mercury: **6/6** ✅ (#4 n/a; banking has no CoA)
+
+### Backlog (charter-tracked, not one-offs)
+- **Plaid** full charter row — only remaining major integration gap.
+- **Frontend DLQ panel** — wire `/api/admin/qbo/dead_letters.php` into a small admin widget so operators can see + requeue without curl.
+- **Cloudways env** secret management for Resend keys.
+
+---
+
 ## Session — 2026-02 (QBO primitive #6 + Zoho primitive #4)
 
 ### What shipped
