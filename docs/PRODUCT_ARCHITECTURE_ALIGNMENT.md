@@ -109,6 +109,17 @@ The canonical path is:
 3. Vertical modules such as Staffing may ship presets, but the report builder
    engine remains shared.
 
+Current implementation status:
+
+- `core/report_builder.php` projects governed export datasets into report
+  dimensions, measures, filters, and sensitive-field metadata.
+- `api/report_builder.php` exposes the builder catalog through the API layer and
+  preserves source dataset RBAC checks.
+- Saved report definitions are persisted in `report_builder_reports` after
+  validation against governed dataset fields.
+- Query execution remains follow-on work; saved definitions do not permit
+  arbitrary SQL.
+
 ## 3. Enterprise Controls
 
 Enterprise controls are the product rules that keep financial, payroll, PII,

@@ -23,6 +23,8 @@ return [
         ['name' => 'Client Profitability',     'route' => 'client_profitability', 'permission' => 'reports.view'],
         ['name' => 'Rate & Spread Monitor',    'route' => 'rate_spread',          'permission' => 'reports.view'],
         ['name' => 'Overtime Watch',           'route' => 'overtime_watch',       'permission' => 'reports.view'],
+        ['name' => 'Custom Builder',           'route' => 'custom',               'permission' => 'reports.custom.build'],
+        ['name' => 'Other Reports',            'route' => 'other',                'permission' => 'reports.view'],
     ],
 
     'permissions' => [
@@ -38,6 +40,7 @@ return [
         'reports.custom.created',
         'reports.custom.updated',
         'reports.custom.deleted',
+        'reports.custom.dataset.viewed',
     ],
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin', 'manager'],

@@ -1,0 +1,72 @@
+<?php
+declare(strict_types=1);
+
+$root = dirname(__DIR__);
+require_once $root . '/core/report_builder.php';
+
+$pass = 0;
+$fail = 0;
+$assert = function (string $name, bool $ok) use (&$pass, &$fail): void {
+    if ($ok) { $pass++; echo "  ok  {$name}\n"; }
+    else     { $fail++; echo "  no  {$name}\n"; }
+};
+
+echo "Report builder registry\n";
+$reg = reportBuilderDatasetRegistry();
+$assert('people directory dataset exists', isset($reg['people_directory']));
+$assert('payroll dataset exists', isset($reg['payroll_disbursements']));
+$people = $reg['people_directory'] ?? [];
+$assert('people preserves source dataset', ($people['source_dataset'] ?? null) === 'people_directory');
+$assert('people preserves permission', ($people['permission'] ?? null) === 'people.view');
+$assert('people custom fields entity exposed', in_array('people', $people['custom_field_entities'] ?? [], true));
+$assert('people fields exposed', isset($people['fields']['email_primary']));
+$assert('people dimensions exposed', isset($people['dimensions']['email_primary']));
+$assert('people filters exposed', isset($people['filters']['status']));
+$assert('payroll amount classified as measure', (($reg['payroll_disbursements']['measures']['gross_pay_dollars']['role'] ?? null) === 'measure'));
+$assert('payroll bank account marked sensitive', !empty($reg['payroll_disbursements']['fields']['bank_account_number']['sensitive']));
+$assert('reportBuilderDatasetGet works', (reportBuilderDatasetGet('people_directory')['key'] ?? null) === 'people_directory');
+$definition = reportBuilderValidateDefinition([
+    'dataset' => 'people_directory',
+    'columns' => ['first_name', 'last_name', 'email_primary'],
+    'filters' => [['field' => 'status', 'operator' => 'equals', 'value' => 'active']],
+    'sorts' => [['field' => 'last_name', 'direction' => 'asc']],
+]);
+$assert('definition validates governed fields', ($definition['dataset'] ?? null) === 'people_directory');
+$assert('definition normalizes filters', ($definition['filters'][0]['field'] ?? null) === 'status');
+try {
+    reportBuilderValidateDefinition(['dataset' => 'people_directory', 'columns' => ['not_a_field']]);
+    $assert('definition rejects unknown fields', false);
+} catch (ReportBuilderException $e) {
+    $assert('definition rejects unknown fields', str_contains($e->getMessage(), 'not available'));
+}
+
+echo "\nAPI/docs/manifest\n";
+$api = $root . '/api/report_builder.php';
+$assert('report builder API exists', is_file($api));
+$assert('report builder API parses', _php_lint($api));
+$apiText = (string) file_get_contents($api);
+$assert('API requires auth', str_contains($apiText, 'api_require_auth()'));
+$assert('API filters dataset access', str_contains($apiText, 'reportBuilderUserCanAccessDataset'));
+$assert('API supports saved report list', str_contains($apiText, "action === 'reports'"));
+$assert('API supports create/update/delete', str_contains($apiText, 'if ($method === \'POST\')') && str_contains($apiText, 'if ($method === \'PATCH\')') && str_contains($apiText, 'if ($method === \'DELETE\')'));
+$manifest = require $root . '/modules/reports/manifest.php';
+$routes = array_map(fn ($a) => $a['route'] ?? '', $manifest['actions'] ?? []);
+$assert('reports manifest exposes custom route', in_array('custom', $routes, true));
+$assert('reports manifest exposes other reports route', in_array('other', $routes, true));
+$assert('report builder docs exist', is_file($root . '/docs/REPORT_BUILDER.md'));
+$assert('core report builder parses', _php_lint($root . '/core/report_builder.php'));
+$migration = (string) file_get_contents($root . '/core/migrations/115_report_builder_saved_reports.sql');
+$assert('saved reports migration creates table', str_contains($migration, 'CREATE TABLE IF NOT EXISTS report_builder_reports'));
+$legacyMap = (string) file_get_contents($root . '/core/rbac/legacy_map.php');
+$assert('legacy RBAC maps report builder perms', str_contains($legacyMap, "'reports.custom.build'") && str_contains($legacyMap, "'reports.custom.share'"));
+
+echo "\nTotal: {$pass} passed, {$fail} failed\n";
+exit($fail === 0 ? 0 : 1);
+
+function _php_lint(string $path): bool
+{
+    $output = [];
+    $rc = 0;
+    @exec('php -l ' . escapeshellarg($path) . ' 2>&1', $output, $rc);
+    return $rc === 0;
+}

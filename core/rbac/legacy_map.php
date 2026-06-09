@@ -201,6 +201,9 @@ final class RbacLegacyMap
 
             // ── reports ───────────────────────────────────────────────────
             'reports.view'                       => ['reports', 'read'],
+            'reports.export'                     => ['reports', 'write'],
+            'reports.custom.build'               => ['reports', 'write'],
+            'reports.custom.share'               => ['reports', 'admin'],
 
             // ── staffing ──────────────────────────────────────────────────
             'staffing.view'                      => ['staffing', 'read'],
