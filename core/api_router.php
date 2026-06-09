@@ -9,7 +9,7 @@
 declare(strict_types=1);
 
 /**
- * Parse a CoreFlux API request into (module_id, endpoint, subpath).
+ * Parse a CoreFlux API request into (api_version, module_id, endpoint, subpath).
  *
  * Inputs are taken explicitly so this function is pure and testable:
  *   - $pathInfo:   what Apache / PHP-FPM put in $_SERVER['PATH_INFO']
@@ -17,11 +17,11 @@ declare(strict_types=1);
  *
  * Either source can drive the parse. PATH_INFO wins if non-empty, else we
  * extract from REQUEST_URI by stripping the `/api/` (and optional `index.php/`)
- * prefix.
+ * prefix. An optional version segment (`v1`) is accepted before the module id.
  *
  * Returns:
- *   ['ok' => true,  'module_id' => 'people', 'endpoint' => 'employees',
- *    'subpath' => ['123']]
+ *   ['ok' => true,  'api_version' => 'v1', 'module_id' => 'people',
+ *    'endpoint' => 'employees', 'subpath' => ['123']]
  * or
  *   ['ok' => false, 'error' => 'human-readable message', 'status' => 400]
  *
@@ -39,11 +39,16 @@ function apiRouterParse(string $pathInfo, string $requestUri): array {
     $path = '/' . trim($path, '/');
     $segments = $path === '/' ? [] : array_values(array_filter(explode('/', $path), 'strlen'));
 
+    $apiVersion = null;
+    if (isset($segments[0]) && preg_match('/^v[1-9][0-9]*$/', $segments[0])) {
+        $apiVersion = array_shift($segments);
+    }
+
     if (count($segments) < 2) {
         return [
             'ok'     => false,
             'status' => 400,
-            'error'  => 'expected /api/<module>/<endpoint>',
+            'error'  => 'expected /api/<module>/<endpoint> or /api/v1/<module>/<resource>',
         ];
     }
 
@@ -60,11 +65,38 @@ function apiRouterParse(string $pathInfo, string $requestUri): array {
     }
 
     return [
-        'ok'        => true,
-        'module_id' => $moduleId,
-        'endpoint'  => $endpoint,
-        'subpath'   => $segments,
+        'ok'          => true,
+        'api_version' => $apiVersion,
+        'module_id'   => $moduleId,
+        'endpoint'    => $endpoint,
+        'subpath'     => $segments,
     ];
+}
+
+/**
+ * Normalize v1 resource/action paths into legacy query keys for endpoint
+ * compatibility during the migration window.
+ *
+ * Examples:
+ *   /api/v1/time/entries/123         -> $_GET['id'] = 123
+ *   /api/v1/time/entries/123/approve -> $_GET['id'] = 123, $_GET['action'] = approve
+ *
+ * Explicit query-string values win so old callers remain stable.
+ */
+function apiRouterApplyV1Compatibility(array $parsed): void {
+    if (($parsed['api_version'] ?? null) !== 'v1') return;
+    $subpath = $parsed['subpath'] ?? [];
+    if (!is_array($subpath) || $subpath === []) return;
+
+    $first = (string) ($subpath[0] ?? '');
+    if ($first !== '' && ctype_digit($first) && !isset($_GET['id'])) {
+        $_GET['id'] = $first;
+    }
+
+    $second = (string) ($subpath[1] ?? '');
+    if ($second !== '' && preg_match('/^[a-z][a-z0-9_-]*$/', $second) && !isset($_GET['action'])) {
+        $_GET['action'] = str_replace('-', '_', $second);
+    }
 }
 
 /**

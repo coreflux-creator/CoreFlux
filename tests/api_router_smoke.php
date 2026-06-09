@@ -27,6 +27,7 @@ $assert("ok",                       $r['ok'] === true);
 $assert("module_id=people",         $r['module_id'] === 'people');
 $assert("endpoint=employees",       $r['endpoint']  === 'employees');
 $assert("subpath empty",            $r['subpath']   === []);
+$assert("legacy path has no api_version", ($r['api_version'] ?? null) === null);
 
 // ---------------------------------------------------------------------------
 echo "\nPath parsing — happy path with subpath\n";
@@ -47,6 +48,24 @@ $assert("strips index.php prefix",  $r['ok'] === true && $r['endpoint'] === 'emp
 
 // ---------------------------------------------------------------------------
 echo "\nPath parsing — error cases\n";
+$r = apiRouterParse('', '/api/v1/time/entries/123/approve');
+$assert("v1 ok",                    $r['ok'] === true);
+$assert("api_version=v1",           ($r['api_version'] ?? null) === 'v1');
+$assert("v1 module_id=time",        $r['module_id'] === 'time');
+$assert("v1 endpoint=entries",      $r['endpoint'] === 'entries');
+$assert("v1 subpath=[123,approve]", $r['subpath'] === ['123', 'approve']);
+
+$_GET = [];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 compatibility sets id",     ($_GET['id'] ?? null) === '123');
+$assert("v1 compatibility sets action", ($_GET['action'] ?? null) === 'approve');
+
+$_GET = ['id' => '999', 'action' => 'reject'];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 compatibility preserves explicit id",     $_GET['id'] === '999');
+$assert("v1 compatibility preserves explicit action", $_GET['action'] === 'reject');
+$_GET = [];
+
 $r = apiRouterParse('', '/api/');
 $assert("missing module + endpoint → 400", $r['ok'] === false && $r['status'] === 400);
 

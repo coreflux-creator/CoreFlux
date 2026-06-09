@@ -168,7 +168,7 @@ switch (api_method()) {
 
     case 'POST': {
         $body = api_json_body();
-        $action = $body['action'] ?? null;
+        $action = $body['action'] ?? api_query('action');
 
         if (!$action) {
             rbac_legacy_require($user, 'payroll.run.build');
@@ -187,7 +187,7 @@ switch (api_method()) {
             api_ok(['id' => $runId], 201);
         }
 
-        $runId = (int) ($body['run_id'] ?? 0);
+        $runId = (int) ($body['run_id'] ?? api_query('id') ?? 0);
         if (!$runId) api_error('Missing run_id', 422);
         $run = scopedFind(
             'SELECT * FROM payroll_runs WHERE tenant_id = :tenant_id AND id = :id',

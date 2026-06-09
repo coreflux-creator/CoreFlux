@@ -34,6 +34,7 @@ if (!$parsed['ok']) {
         'request_id' => $requestId,
     ]);
 }
+apiRouterApplyV1Compatibility($parsed);
 
 // Resolve module + endpoint file
 $endpointFile = apiRouterResolveFile($parsed['module_id'], $parsed['endpoint']);
@@ -62,6 +63,7 @@ rbac_legacy_require($authCtx['user'], $baseModulePerm);
 
 // Stash router context for the included module file
 $GLOBALS['CF_API_REQUEST_ID'] = $requestId;
+$GLOBALS['CF_API_VERSION']    = $parsed['api_version'] ?? null;
 $GLOBALS['CF_API_MODULE_ID']  = $parsed['module_id'];
 $GLOBALS['CF_API_ENDPOINT']   = $parsed['endpoint'];
 $GLOBALS['CF_API_SUBPATH']    = $parsed['subpath'];

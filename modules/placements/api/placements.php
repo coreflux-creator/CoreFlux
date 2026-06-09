@@ -178,6 +178,22 @@ if ($method === 'POST') {
         api_ok(['ok' => true, 'placement' => placementGet($id)]);
     }
 
+    if ($action === 'activate') {
+        $id = (int) api_query('id', 0);
+        if ($id <= 0) api_error('id required', 400);
+        rbac_legacy_require($user, 'placements.manage');
+        $placement = placementGet($id);
+        if (!$placement) api_error('Not found', 404);
+        if ((string) ($placement['status'] ?? '') === 'active') {
+            api_ok(['ok' => true, 'placement' => $placement, 'rates_auto_approved' => 0]);
+        }
+        $autoApproved = _placementsEnsureActiveReady($id, $user, (string) ($placement['start_date'] ?? date('Y-m-d')), 'activate_action');
+        $rows = scopedUpdate('placements', $id, ['status' => 'active']);
+        if ($rows === 0) api_error('Not found or no change', 404);
+        placementsAudit('placement.status_changed', ['id' => $id, 'status' => 'active', 'via' => 'activate_action'], $id);
+        api_ok(['ok' => true, 'placement' => placementGet($id), 'rates_auto_approved' => $autoApproved]);
+    }
+
     // Default POST = create
     rbac_legacy_require($user, 'placements.manage');
     $body = api_json_body();
