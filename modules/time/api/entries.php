@@ -30,6 +30,7 @@ if ($method === 'POST' && $action !== '') {
     if (!$entry) api_error('Entry not found', 404);
 
     if ($action === 'submit') {
+        _timeRequireEntryWriteAccess($user, $entry);
         if ($entry['status'] !== 'draft') api_error('Only draft entries can be submitted', 409, ['status' => $entry['status']]);
         scopedUpdate('time_entries', $id, ['status' => 'pending_review']);
         timeAudit('time.entry.submitted', ['entry_id' => $id], $id);
@@ -166,6 +167,9 @@ if ($method === 'POST') {
     } else {
         rbac_legacy_require($user, 'time.entry.manage');
     }
+    if (array_key_exists('status', $body) && (string) $body['status'] !== 'draft') {
+        api_error('status cannot be set during create; use submit/approve/reject actions', 422);
+    }
 
     // Resolve or create period
     $periodId = (int) ($body['period_id'] ?? 0);
@@ -200,7 +204,7 @@ if ($method === 'POST') {
         'hours'              => (float) $body['hours'],
         'description'        => $body['description'] ?? null,
         'source'             => $body['source']      ?? 'manual_entry',
-        'status'             => $body['status']      ?? 'draft',
+        'status'             => 'draft',
         'created_by_user_id' => $user['id'] ?? null,
     ]);
     timeAudit('time.entry.created', ['entry_id' => $id, 'placement_id' => (int) $body['placement_id'], 'category' => $body['category']], $id);
@@ -219,9 +223,13 @@ if ($method === 'PATCH') {
     rbac_legacy_require($user, 'time.entry.manage');
 
     $body = api_json_body();
+    if (array_key_exists('status', $body)) {
+        api_error('status transitions must use submit/approve/reject actions', 422);
+    }
     foreach (['id','tenant_id','placement_id','person_id','period_id',
               'rate_snapshot_id','approved_by_user_id','approved_at','approved_via',
-              'superseded_by_id','created_by_user_id','created_at'] as $k) unset($body[$k]);
+              'rejected_reason','superseded_by_id','created_by_user_id','created_at',
+              'status'] as $k) unset($body[$k]);
     if (isset($body['category']) && !in_array($body['category'], TIME_CATEGORIES, true)) api_error('Invalid category', 422);
     if (!$body) api_error('No fields to update', 422);
     $rows = scopedUpdate('time_entries', $id, $body);
@@ -231,3 +239,16 @@ if ($method === 'PATCH') {
 }
 
 api_error('Method not allowed', 405);
+
+function _timeRequireEntryWriteAccess(array $user, array $entry): void
+{
+    $isCreator = !empty($entry['created_by_user_id'])
+        && (int) $entry['created_by_user_id'] === (int) ($user['id'] ?? 0);
+    $isOwnPerson = !empty($entry['person_id'])
+        && (int) $entry['person_id'] === (int) ($user['person_id'] ?? 0);
+    if ($isCreator || $isOwnPerson) {
+        rbac_legacy_require($user, 'time.entry.self');
+        return;
+    }
+    rbac_legacy_require($user, 'time.entry.manage');
+}

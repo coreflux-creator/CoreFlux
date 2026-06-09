@@ -12,20 +12,25 @@
  */
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/encryption.php';
 require_once __DIR__ . '/../lib/employees.php';
 
 $ctx = api_require_auth();
+$user = $ctx['user'];
 
 switch (api_method()) {
 
     case 'GET': {
+        rbac_legacy_require($user, 'people.view');
         $id = (int) (api_query('id') ?? 0);
 
         if ($id > 0) {
             $row = peopleGetEmployee($id);
             if (!$row) api_error('Not found', 404);
-            api_ok(['employee' => _presentEmployee($row, includePIIMask: true)]);
+            $canViewPii = rbac_legacy_can($user, 'people.pii.view');
+            if ($canViewPii) _logPiiAccess($id, 'employee.ssn_mask.viewed', ['field' => 'ssn_last4']);
+            api_ok(['employee' => _presentEmployee($row, includePIIMask: $canViewPii)]);
         }
 
         $rows = peopleListActiveEmployees(
@@ -37,6 +42,7 @@ switch (api_method()) {
     }
 
     case 'POST': {
+        rbac_legacy_require($user, 'people.manage');
         $body = api_json_body();
         api_require_fields($body, ['legal_first_name', 'legal_last_name']);
 
@@ -70,6 +76,7 @@ switch (api_method()) {
         ];
 
         if (!empty($body['ssn'])) {
+            rbac_legacy_require($user, 'people.pii.manage');
             $data['ssn_cipher'] = encryptField($body['ssn']);
             $data['ssn_last4']  = last4($body['ssn']);
             $data['ssn_hash']   = fieldHash($body['ssn']);
@@ -77,13 +84,15 @@ switch (api_method()) {
 
         $id = scopedInsert('people_employees', $data);
         _logChange($id, 'employee', $id, 'create', array_keys($data));
+        if (!empty($body['ssn'])) _logPiiAccess($id, 'employee.ssn.updated', ['action' => 'create']);
 
         $row = peopleGetEmployee($id);
-        api_ok(['employee' => _presentEmployee($row, includePIIMask: true)], 201);
+        api_ok(['employee' => _presentEmployee($row, includePIIMask: rbac_legacy_can($user, 'people.pii.view'))], 201);
     }
 
     case 'PUT':
     case 'PATCH': {
+        rbac_legacy_require($user, 'people.manage');
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
 
@@ -103,20 +112,25 @@ switch (api_method()) {
         }
         // SSN is sensitive — accept only if explicitly provided and recompute companions
         if (array_key_exists('ssn', $body) && $body['ssn'] !== null && $body['ssn'] !== '') {
+            rbac_legacy_require($user, 'people.pii.manage');
             $update['ssn_cipher'] = encryptField($body['ssn']);
             $update['ssn_last4']  = last4($body['ssn']);
             $update['ssn_hash']   = fieldHash($body['ssn']);
         }
-        if (!$update) api_ok(['employee' => _presentEmployee($existing, includePIIMask: true)]);
+        if (!$update) api_ok(['employee' => _presentEmployee($existing, includePIIMask: rbac_legacy_can($user, 'people.pii.view'))]);
 
         scopedUpdate('people_employees', $id, $update);
         _logChange($id, 'employee', $id, 'update', array_keys($update));
+        if (array_key_exists('ssn_cipher', $update)) {
+            _logPiiAccess($id, 'employee.ssn.updated', ['action' => 'update']);
+        }
 
         $row = peopleGetEmployee($id);
-        api_ok(['employee' => _presentEmployee($row, includePIIMask: true)]);
+        api_ok(['employee' => _presentEmployee($row, includePIIMask: rbac_legacy_can($user, 'people.pii.view'))]);
     }
 
     case 'DELETE': {
+        rbac_legacy_require($user, 'people.terminate');
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
         $existing = peopleGetEmployee($id);
@@ -178,5 +192,21 @@ function _logChange(int $employeeId, string $entity, ?int $entityId, string $act
         ]);
     } catch (Throwable $e) {
         error_log('[people_change_log] ' . $e->getMessage());
+    }
+}
+
+function _logPiiAccess(int $employeeId, string $event, array $meta = []): void {
+    try {
+        scopedInsert('people_change_log', [
+            'user_id'        => $_SESSION['user']['id'] ?? null,
+            'employee_id'    => $employeeId,
+            'entity'         => 'employee_pii',
+            'entity_id'      => $employeeId,
+            'action'         => $event,
+            'fields_changed' => json_encode($meta),
+            'ip_address'     => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+    } catch (Throwable $e) {
+        error_log('[people_pii_audit] ' . $e->getMessage());
     }
 }

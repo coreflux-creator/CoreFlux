@@ -144,7 +144,27 @@ final class RbacLegacyMap
             'tenant_admin.integrations'          => ['integrations', 'admin'],
 
             // ── payroll ───────────────────────────────────────────────────
+            'payroll.anomalies.acknowledge'     => ['payroll', 'write'],
+            'payroll.anomalies.view'            => ['payroll', 'read'],
+            'payroll.cycles.manage'             => ['payroll', 'admin'],
+            'payroll.deductions.manage'         => ['payroll', 'admin'],
+            'payroll.profiles.banking.manage'   => ['payroll', 'admin'],
+            'payroll.profiles.banking.view'     => ['payroll', 'admin'],
+            'payroll.profiles.manage'           => ['payroll', 'admin'],
+            'payroll.profiles.view'             => ['payroll', 'read'],
+            'payroll.reports.view'              => ['payroll', 'read'],
+            'payroll.run.approve'               => ['payroll', 'admin'],
+            'payroll.run.build'                 => ['payroll', 'write'],
+            'payroll.run.disburse'              => ['payroll', 'admin'],
+            'payroll.run.post'                  => ['payroll', 'admin'],
+            'payroll.run.reverse'               => ['payroll', 'admin'],
             'payroll.runs.approve'               => ['payroll', 'admin'],
+            'payroll.schedules.manage'          => ['payroll', 'admin'],
+            'payroll.tax.manage'                => ['payroll', 'admin'],
+            'payroll.tax.view'                  => ['payroll', 'read'],
+            'payroll.view'                      => ['payroll', 'read'],
+            'payroll.w2.generate'               => ['payroll', 'admin'],
+            'payroll.w2.view'                   => ['payroll', 'read'],
 
             // ── people ────────────────────────────────────────────────────
             'people.banking.manage'              => ['people', 'admin'],
