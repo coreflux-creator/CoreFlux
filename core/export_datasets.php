@@ -19,6 +19,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/custom_fields.php';
 
 function exportDatasetRegistry(): array {
     static $registry = null;
@@ -26,9 +27,15 @@ function exportDatasetRegistry(): array {
 
     $registry = [
         'payroll_disbursements' => [
-            'label'   => 'Payroll Disbursements',
-            'fetcher' => 'exportDatasetFetchPayrollDisbursements',
-            'fields'  => [
+            'label'                 => 'Payroll Disbursements',
+            'module_id'             => 'payroll',
+            'permission'            => 'payroll.reports.view',
+            'formats'               => ['csv'],
+            'audit_event'           => 'payroll.run.exported_template',
+            'sensitive_fields'      => ['bank_routing_number', 'bank_account_number'],
+            'custom_field_entities' => [],
+            'fetcher'               => 'exportDatasetFetchPayrollDisbursements',
+            'fields'                => [
                 'run_id'                => ['label' => 'Payroll run ID',      'sample' => '1047'],
                 'pay_date'              => ['label' => 'Pay date (YYYY-MM-DD)','sample' => '2026-02-14'],
                 'period_start'          => ['label' => 'Period start',        'sample' => '2026-02-01'],
@@ -54,9 +61,15 @@ function exportDatasetRegistry(): array {
         ],
 
         'ap_payments' => [
-            'label'   => 'AP Payments',
-            'fetcher' => 'exportDatasetFetchApPayments',
-            'fields'  => [
+            'label'                 => 'AP Payments',
+            'module_id'             => 'ap',
+            'permission'            => 'ap.export.run',
+            'formats'               => ['csv'],
+            'audit_event'           => 'ap.payments.exported_template',
+            'sensitive_fields'      => ['bank_routing_number', 'bank_account_number'],
+            'custom_field_entities' => [],
+            'fetcher'               => 'exportDatasetFetchApPayments',
+            'fields'                => [
                 'payment_id'          => ['label' => 'Payment ID',           'sample' => '9001'],
                 'payment_date'        => ['label' => 'Payment date',         'sample' => '2026-02-14'],
                 'vendor_id'           => ['label' => 'Vendor ID (internal)', 'sample' => '58'],
@@ -77,9 +90,15 @@ function exportDatasetRegistry(): array {
         ],
 
         'expenses' => [
-            'label'   => 'Expense Reports',
-            'fetcher' => 'exportDatasetFetchExpenses',
-            'fields'  => [
+            'label'                 => 'Expense Reports',
+            'module_id'             => 'ap',
+            'permission'            => 'ap.export.run',
+            'formats'               => ['csv'],
+            'audit_event'           => 'ap.expense.export_selected_template',
+            'sensitive_fields'      => [],
+            'custom_field_entities' => [],
+            'fetcher'               => 'exportDatasetFetchExpenses',
+            'fields'                => [
                 'report_id'                 => ['label' => 'Report ID',           'sample' => '301'],
                 'period_label'              => ['label' => 'Period',              'sample' => '2026-02'],
                 'submitter_user_id'         => ['label' => 'Submitter user ID',   'sample' => '12'],
@@ -97,6 +116,32 @@ function exportDatasetRegistry(): array {
                 'description'               => ['label' => 'Description',        'sample' => 'Client mtg'],
             ],
         ],
+
+        'people_directory' => [
+            'label'                 => 'People Directory',
+            'module_id'             => 'people',
+            'permission'            => 'people.view',
+            'formats'               => ['csv'],
+            'audit_event'           => 'people.directory.exported',
+            'sensitive_fields'      => [],
+            'custom_field_entities' => ['people'],
+            'fetcher'               => 'exportDatasetFetchPeopleDirectory',
+            'fields'                => [
+                'person_id'          => ['label' => 'Person ID',       'sample' => '42'],
+                'external_id'        => ['label' => 'External ID',     'sample' => 'JD-1001'],
+                'first_name'         => ['label' => 'First name',      'sample' => 'Jordan'],
+                'last_name'          => ['label' => 'Last name',       'sample' => 'Rivera'],
+                'preferred_name'     => ['label' => 'Preferred name',  'sample' => 'Jordy'],
+                'email_primary'      => ['label' => 'Primary email',   'sample' => 'jordan@example.com'],
+                'phone_primary'      => ['label' => 'Primary phone',   'sample' => '+1 555 0100'],
+                'classification'     => ['label' => 'Classification',  'sample' => 'w2'],
+                'status'             => ['label' => 'Status',          'sample' => 'active'],
+                'work_auth_status'   => ['label' => 'Work auth',       'sample' => 'authorized'],
+                'work_auth_expiry'   => ['label' => 'Work auth expiry','sample' => '2027-01-31'],
+                'employment_type'    => ['label' => 'Employment type', 'sample' => 'full_time'],
+                'source'             => ['label' => 'Source',          'sample' => 'jobdiva'],
+            ],
+        ],
     ];
 
     return $registry;
@@ -105,6 +150,41 @@ function exportDatasetRegistry(): array {
 function exportDatasetGet(string $key): ?array {
     $reg = exportDatasetRegistry();
     return $reg[$key] ?? null;
+}
+
+function exportDatasetFieldRegistry(string $dataset, ?int $tenantId = null): array {
+    $ds = exportDatasetGet($dataset);
+    if (!$ds) return [];
+    $fields = $ds['fields'] ?? [];
+    if ($tenantId !== null) {
+        foreach (($ds['custom_field_entities'] ?? []) as $entityType) {
+            try {
+                foreach (customFieldDefinitions($tenantId, (string) $entityType) as $def) {
+                    $key = 'custom_fields.' . $entityType . '.' . (string) ($def['field_key'] ?? '');
+                    if ($key === 'custom_fields.' . $entityType . '.') continue;
+                    $fields[$key] = [
+                        'label'        => (string) ($def['field_label'] ?? $key),
+                        'sample'       => '',
+                        'custom_field' => true,
+                        'entity_type'  => $entityType,
+                        'field_type'   => (string) ($def['field_type'] ?? 'text'),
+                        'sensitive'    => !empty($def['pii']),
+                    ];
+                }
+            } catch (\Throwable $e) {
+                error_log('[export_datasets] custom fields unavailable for ' . $entityType . ': ' . $e->getMessage());
+            }
+        }
+    }
+    return $fields;
+}
+
+function exportDatasetIsSensitiveField(string $dataset, string $field): bool {
+    $ds = exportDatasetGet($dataset);
+    if (!$ds) return false;
+    if (in_array($field, $ds['sensitive_fields'] ?? [], true)) return true;
+    $fields = exportDatasetFieldRegistry($dataset, null);
+    return !empty($fields[$field]['sensitive']);
 }
 
 // ───────── Fetchers ─────────
@@ -222,4 +302,66 @@ function exportDatasetFetchExpenses(int $tenantId, array $opts): array {
         $out[] = $row;
     }
     return $out;
+}
+
+function exportDatasetFetchPeopleDirectory(int $tenantId, array $opts): array {
+    $pdo = getDB();
+    $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $stmt = $pdo->prepare(
+        'SELECT id AS person_id, external_id, first_name, last_name, preferred_name,
+                email_primary, phone_primary, classification, status,
+                work_auth_status, work_auth_expiry, employment_type, source
+           FROM people
+          WHERE tenant_id = :tenant_id AND deleted_at IS NULL
+          ORDER BY last_name, first_name
+          LIMIT ' . $limit
+    );
+    $stmt->execute(['tenant_id' => $tenantId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    $defs = [];
+    try {
+        foreach (customFieldDefinitions($tenantId, 'people') as $def) {
+            if (!empty($def['pii'])) continue;
+            $defs[(int) $def['id']] = $def;
+        }
+    } catch (\Throwable $e) {
+        $defs = [];
+    }
+    if (!$rows || !$defs) return $rows;
+
+    $ids = array_map('intval', array_column($rows, 'person_id'));
+    $place = implode(',', array_fill(0, count($ids), '?'));
+    $params = $ids;
+    array_unshift($params, $tenantId);
+    $values = $pdo->prepare(
+        "SELECT person_id, field_def_id, value_text, value_number, value_date, value_boolean
+           FROM people_custom_field_values
+          WHERE tenant_id = ? AND person_id IN ($place)"
+    );
+    $values->execute($params);
+    $byPerson = [];
+    foreach ($values->fetchAll(PDO::FETCH_ASSOC) ?: [] as $valueRow) {
+        $def = $defs[(int) $valueRow['field_def_id']] ?? null;
+        if (!$def) continue;
+        $key = 'custom_fields.people.' . $def['field_key'];
+        $byPerson[(int) $valueRow['person_id']][$key] = _exportDatasetCustomValue($def, $valueRow);
+    }
+
+    foreach ($rows as &$row) {
+        foreach (($byPerson[(int) $row['person_id']] ?? []) as $key => $value) {
+            $row[$key] = $value;
+        }
+    }
+    unset($row);
+    return $rows;
+}
+
+function _exportDatasetCustomValue(array $def, array $row) {
+    return match ((string) ($def['field_type'] ?? 'text')) {
+        'number'  => $row['value_number'],
+        'date'    => $row['value_date'],
+        'boolean' => $row['value_boolean'],
+        default   => $row['value_text'],
+    };
 }

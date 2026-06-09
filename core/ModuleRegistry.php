@@ -159,6 +159,7 @@ class ModuleRegistry {
             'audit_events'          => [],
             'workflows'             => [],
             'exports'               => [],
+            'custom_field_layouts'   => [],
             'default_roles'         => [],
             'depends_on'            => [],
             'custom_field_entities' => [],
@@ -249,6 +250,52 @@ class ModuleRegistry {
             }
         }
         return array_values(array_unique($perms));
+    }
+
+    /**
+     * Return every custom-field entity declared by module manifests.
+     *
+     * Each row is normalized to a common platform shape. Manifests may declare
+     * either strings:
+     *   'people'
+     * or maps:
+     *   ['entity_type' => 'people', 'label' => 'People', ...]
+     *
+     * @return array<string, array> entity_type => metadata
+     */
+    public function getCustomFieldEntities(): array {
+        $out = [];
+        foreach ($this->modules as $moduleId => $m) {
+            $layouts = is_array($m['custom_field_layouts'] ?? null) ? $m['custom_field_layouts'] : [];
+            foreach (($m['custom_field_entities'] ?? []) as $entry) {
+                $raw = is_array($entry) ? $entry : ['entity_type' => (string) $entry];
+                $entityType = (string) ($raw['entity_type'] ?? $raw['id'] ?? '');
+                if ($entityType === '') continue;
+                $out[$entityType] = array_merge([
+                    'entity_type'       => $entityType,
+                    'module_id'         => $moduleId,
+                    'label'             => ucfirst(str_replace('_', ' ', $entityType)),
+                    'view_permission'   => $moduleId . '.view',
+                    'manage_permission' => $moduleId . '.custom_fields.manage',
+                    'pii_permission'    => null,
+                    'definition_table'  => null,
+                    'value_table'       => null,
+                    'record_id_key'     => 'record_id',
+                    'surfaces'          => ['forms', 'detail', 'lists', 'exports', 'reports'],
+                    'layouts'           => $layouts[$entityType] ?? [],
+                ], $raw, [
+                    'entity_type' => $entityType,
+                    'module_id'   => $moduleId,
+                    'layouts'     => $raw['layouts'] ?? ($layouts[$entityType] ?? []),
+                ]);
+            }
+        }
+        return $out;
+    }
+
+    public function getCustomFieldEntity(string $entityType): ?array {
+        $all = $this->getCustomFieldEntities();
+        return $all[$entityType] ?? null;
     }
 
     /**

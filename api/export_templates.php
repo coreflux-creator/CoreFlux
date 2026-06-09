@@ -36,9 +36,15 @@ if ($method === 'GET' && $action === 'datasets') {
     $out = [];
     foreach ($reg as $key => $ds) {
         $out[$key] = [
-            'key'    => $key,
-            'label'  => $ds['label'],
-            'fields' => $ds['fields'],
+            'key'                   => $key,
+            'label'                 => $ds['label'],
+            'module_id'             => $ds['module_id'] ?? null,
+            'permission'            => $ds['permission'] ?? null,
+            'formats'               => $ds['formats'] ?? ['csv'],
+            'audit_event'           => $ds['audit_event'] ?? null,
+            'sensitive_fields'      => $ds['sensitive_fields'] ?? [],
+            'custom_field_entities' => $ds['custom_field_entities'] ?? [],
+            'fields'                => exportDatasetFieldRegistry($key, $tenantId),
         ];
     }
     api_ok(['datasets' => $out]);

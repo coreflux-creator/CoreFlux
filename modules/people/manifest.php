@@ -67,5 +67,26 @@ return [
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
 
+    'custom_field_entities' => [
+        [
+            'entity_type'       => 'people',
+            'label'             => 'People',
+            'definition_table'  => 'people_custom_field_defs',
+            'value_table'       => 'people_custom_field_values',
+            'record_id_key'     => 'person_id',
+            'view_permission'   => 'people.view',
+            'manage_permission' => 'people.custom_fields.manage',
+            'pii_permission'    => 'people.pii.view',
+            'surfaces'          => ['forms', 'detail', 'lists', 'exports', 'reports'],
+        ],
+    ],
+
+    'custom_field_layouts' => [
+        'people' => [
+            'form_sections' => ['profile', 'work', 'compliance'],
+            'list_columns'  => ['field_label', 'field_type', 'required', 'pii'],
+        ],
+    ],
+
     'depends_on' => [],
 ];

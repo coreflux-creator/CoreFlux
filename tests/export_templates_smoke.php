@@ -43,12 +43,22 @@ $reg = exportDatasetRegistry();
 $assert('payroll_disbursements in registry',  isset($reg['payroll_disbursements']));
 $assert('ap_payments in registry',            isset($reg['ap_payments']));
 $assert('expenses in registry',               isset($reg['expenses']));
+$assert('people_directory in registry',        isset($reg['people_directory']));
+$assert('payroll permission declared',         ($reg['payroll_disbursements']['permission'] ?? null) === 'payroll.reports.view');
+$assert('payroll sensitive bank fields declared',
+                                              in_array('bank_account_number', $reg['payroll_disbursements']['sensitive_fields'] ?? [], true));
+$assert('people directory custom field entity declared',
+                                              in_array('people', $reg['people_directory']['custom_field_entities'] ?? [], true));
 $assert('payroll has employee_first_name',    isset($reg['payroll_disbursements']['fields']['employee_first_name']));
 $assert('payroll has net_pay_dollars',        isset($reg['payroll_disbursements']['fields']['net_pay_dollars']));
 $assert('payroll has net_pay_cents',          isset($reg['payroll_disbursements']['fields']['net_pay_cents']));
 $assert('ap has amount_dollars + cents',      isset($reg['ap_payments']['fields']['amount_dollars'])
                                               && isset($reg['ap_payments']['fields']['amount_cents']));
 $assert('expenses has line_id',               isset($reg['expenses']['fields']['line_id']));
+$assert('people has email_primary',           isset($reg['people_directory']['fields']['email_primary']));
+$assert('field registry helper exists',        function_exists('exportDatasetFieldRegistry'));
+$assert('sensitive field helper exists',       function_exists('exportDatasetIsSensitiveField'));
+$assert('bank account marked sensitive',       exportDatasetIsSensitiveField('payroll_disbursements', 'bank_account_number'));
 
 // ─── Library: render + validation ───
 echo "core/export_templates.php library\n";
@@ -61,6 +71,14 @@ try {
     $assert('rejects unknown source_field', false);
 } catch (ExportTemplateException $e) {
     $assert('rejects unknown source_field',  strpos($e->getMessage(), "not in dataset") !== false);
+}
+
+try {
+    _exportTplValidateMappings([['output_header' => 'Email', 'kind' => 'field', 'source_field' => 'email_primary']],
+                               'people_directory');
+    $assert('validates people_directory static field', true);
+} catch (ExportTemplateException $e) {
+    $assert('validates people_directory static field', false);
 }
 
 // Validation accepts and renumbers positions.
@@ -94,6 +112,9 @@ $assert('POST create',                        strpos($api, "if (\$method === 'PO
 $assert('PATCH update',                       strpos($api, "if (\$method === 'PATCH')") !== false);
 $assert('DELETE',                             strpos($api, "if (\$method === 'DELETE')") !== false);
 $assert('action=datasets',                    strpos($api, "action === 'datasets'") !== false);
+$assert('datasets API returns governance metadata',
+                                              strpos($api, "'sensitive_fields'") !== false
+                                              && strpos($api, 'exportDatasetFieldRegistry') !== false);
 $assert('action=parse_headers',               strpos($api, "action === 'parse_headers'") !== false);
 $assert('action=clone',                       strpos($api, "action === 'clone'") !== false);
 $assert('master-only platform create',        strpos($lib2 = file_get_contents(__DIR__ . '/../core/export_templates.php'), 'Only master_admin can create platform templates') !== false);

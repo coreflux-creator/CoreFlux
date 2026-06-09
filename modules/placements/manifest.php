@@ -74,5 +74,25 @@ return [
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
 
+    'custom_field_entities' => [
+        [
+            'entity_type'       => 'placements',
+            'label'             => 'Placements',
+            'definition_table'  => 'custom_fields',
+            'value_table'       => 'custom_values',
+            'record_id_key'     => 'placement_id',
+            'view_permission'   => 'placements.view',
+            'manage_permission' => 'placements.custom_fields.manage',
+            'surfaces'          => ['forms', 'detail', 'lists', 'exports', 'reports'],
+        ],
+    ],
+
+    'custom_field_layouts' => [
+        'placements' => [
+            'form_sections' => ['assignment', 'client', 'compliance'],
+            'list_columns'  => ['field_label', 'field_type', 'is_required'],
+        ],
+    ],
+
     'depends_on' => ['people'],
 ];
