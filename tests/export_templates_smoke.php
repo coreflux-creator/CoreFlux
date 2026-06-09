@@ -115,6 +115,8 @@ $assert('action=datasets',                    strpos($api, "action === 'datasets
 $assert('datasets API returns governance metadata',
                                               strpos($api, "'sensitive_fields'") !== false
                                               && strpos($api, 'exportDatasetFieldRegistry') !== false);
+$assert('datasets API filters by dataset RBAC', strpos($api, 'exportDatasetAccessibleRegistry($user)') !== false);
+$assert('template CRUD gates dataset access', strpos($api, '_xtplRequireDatasetAccess') !== false);
 $assert('action=parse_headers',               strpos($api, "action === 'parse_headers'") !== false);
 $assert('action=clone',                       strpos($api, "action === 'clone'") !== false);
 $assert('master-only platform create',        strpos($lib2 = file_get_contents(__DIR__ . '/../core/export_templates.php'), 'Only master_admin can create platform templates') !== false);

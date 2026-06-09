@@ -152,6 +152,22 @@ function exportDatasetGet(string $key): ?array {
     return $reg[$key] ?? null;
 }
 
+function exportDatasetUserCanAccess(array $user, array $dataset): bool {
+    $permission = (string) ($dataset['permission'] ?? '');
+    if ($permission === '' || !function_exists('rbac_legacy_can')) return true;
+    return rbac_legacy_can($user, $permission);
+}
+
+function exportDatasetAccessibleRegistry(array $user): array {
+    $out = [];
+    foreach (exportDatasetRegistry() as $key => $dataset) {
+        if (exportDatasetUserCanAccess($user, $dataset)) {
+            $out[$key] = $dataset;
+        }
+    }
+    return $out;
+}
+
 function exportDatasetFieldRegistry(string $dataset, ?int $tenantId = null): array {
     $ds = exportDatasetGet($dataset);
     if (!$ds) return [];

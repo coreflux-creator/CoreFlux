@@ -58,6 +58,10 @@ metadata and tenant-aware fields:
 - `custom_field_entities`
 - `fields`
 
+Dataset registry and template APIs filter by the dataset's `permission`.
+Authenticated users may only discover, list templates for, clone, create,
+update, or delete templates for datasets they can access.
+
 ## Product Rule
 
 Modules may ship export presets, but the dataset registry is the authoritative

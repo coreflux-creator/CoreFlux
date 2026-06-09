@@ -32,7 +32,7 @@ $action = api_query('action', '');
 
 // ───── Dataset registry (read-only, any auth'd user) ─────
 if ($method === 'GET' && $action === 'datasets') {
-    $reg = exportDatasetRegistry();
+    $reg = exportDatasetAccessibleRegistry($user);
     $out = [];
     foreach ($reg as $key => $ds) {
         $out[$key] = [
@@ -70,6 +70,8 @@ if ($method === 'POST' && $action === 'clone') {
     $id = (int) api_query('id', 0);
     if (!$id) api_error('id required', 422);
     try {
+        $src = exportTemplateGet($id, $tenantId);
+        _xtplRequireDatasetAccess($user, (string) ($src['dataset'] ?? ''));
         $newId = exportTemplateClone($id, $tenantId, $userId);
     } catch (ExportTemplateException $e) {
         api_error($e->getMessage(), 422);
@@ -81,18 +83,28 @@ if ($method === 'POST' && $action === 'clone') {
 if ($method === 'GET') {
     $id = (int) api_query('id', 0);
     if ($id) {
-        try { api_ok(['template' => exportTemplateGet($id, $tenantId)]); }
+        try {
+            $template = exportTemplateGet($id, $tenantId);
+            _xtplRequireDatasetAccess($user, (string) ($template['dataset'] ?? ''));
+            api_ok(['template' => $template]);
+        }
         catch (ExportTemplateException $e) { api_error($e->getMessage(), 404); }
     }
     $dataset = api_query('dataset', null);
+    if ($dataset !== null && $dataset !== '') _xtplRequireDatasetAccess($user, (string) $dataset);
     $rows = exportTemplateList($tenantId, $dataset);
-    api_ok(['templates' => $rows, 'datasets' => array_keys(exportDatasetRegistry())]);
+    $accessible = exportDatasetAccessibleRegistry($user);
+    if ($dataset === null || $dataset === '') {
+        $rows = array_values(array_filter($rows, static fn($row) => isset($accessible[(string) ($row['dataset'] ?? '')])));
+    }
+    api_ok(['templates' => $rows, 'datasets' => array_keys($accessible)]);
 }
 
 // ───── Create ─────
 if ($method === 'POST') {
     _xtplRequireManage($role);
     $body = api_json_body();
+    _xtplRequireDatasetAccess($user, (string) ($body['dataset'] ?? ''));
     try {
         $id = exportTemplateCreate($tenantId, $body, $userId, $role);
     } catch (ExportTemplateException $e) {
@@ -108,6 +120,8 @@ if ($method === 'PATCH') {
     if (!$id) api_error('id required', 422);
     $body = api_json_body();
     try {
+        $existing = exportTemplateGet($id, $tenantId);
+        _xtplRequireDatasetAccess($user, (string) ($existing['dataset'] ?? ''));
         exportTemplateUpdate($id, $body, $userId, $tenantId, $role);
     } catch (ExportTemplateException $e) {
         api_error($e->getMessage(), 422);
@@ -121,11 +135,22 @@ if ($method === 'DELETE') {
     $id = (int) api_query('id', 0);
     if (!$id) api_error('id required', 422);
     try {
+        $existing = exportTemplateGet($id, $tenantId);
+        _xtplRequireDatasetAccess($user, (string) ($existing['dataset'] ?? ''));
         exportTemplateDelete($id, $userId, $tenantId, $role);
     } catch (ExportTemplateException $e) {
         api_error($e->getMessage(), 422);
     }
     api_ok(['id' => $id]);
+}
+
+function _xtplRequireDatasetAccess(array $user, string $datasetKey): void {
+    if ($datasetKey === '') api_error('dataset required', 422);
+    $dataset = exportDatasetGet($datasetKey);
+    if (!$dataset) api_error('Unknown dataset: ' . $datasetKey, 422);
+    if (!exportDatasetUserCanAccess($user, $dataset)) {
+        api_error('Forbidden', 403, ['required' => $dataset['permission'] ?? null]);
+    }
 }
 
 api_error('Method not allowed', 405);

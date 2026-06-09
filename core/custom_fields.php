@@ -35,6 +35,70 @@ function customFieldLayouts(?string $entityType = null): array
     return $out;
 }
 
+function customFieldSurfaceLayout(string $entityType, string $surface): array
+{
+    $entity = customFieldEntity($entityType);
+    if (!$entity) throw new InvalidArgumentException("Unknown custom field entity: {$entityType}");
+    $surface = strtolower(trim($surface));
+    if ($surface === '') throw new InvalidArgumentException('surface is required');
+
+    $declared = array_values(array_map('strval', $entity['surfaces'] ?? []));
+    $enabled = in_array($surface, $declared, true);
+    $raw = is_array($entity['layouts'] ?? null) ? $entity['layouts'] : [];
+    $layout = customFieldNormalizeSurfaceLayout($raw, $surface);
+
+    return [
+        'entity_type' => $entityType,
+        'surface'     => $surface,
+        'enabled'     => $enabled,
+        'layout'      => $layout,
+    ];
+}
+
+function customFieldAllSurfaceLayouts(?string $entityType = null): array
+{
+    $entities = $entityType !== null
+        ? array_filter([customFieldEntity($entityType)])
+        : customFieldEntityRegistry();
+    $out = [];
+    foreach ($entities as $entity) {
+        $key = (string) ($entity['entity_type'] ?? '');
+        if ($key === '') continue;
+        $out[$key] = [];
+        foreach (($entity['surfaces'] ?? ['forms', 'detail', 'lists', 'exports', 'reports']) as $surface) {
+            $out[$key][(string) $surface] = customFieldSurfaceLayout($key, (string) $surface);
+        }
+    }
+    return $out;
+}
+
+function customFieldNormalizeSurfaceLayout(array $raw, string $surface): array
+{
+    if (isset($raw[$surface]) && is_array($raw[$surface])) return $raw[$surface];
+
+    return match ($surface) {
+        'forms' => [
+            'sections' => array_values(array_map('strval', $raw['form_sections'] ?? [])),
+            'field_order' => array_values(array_map('strval', $raw['field_order'] ?? [])),
+        ],
+        'detail' => [
+            'sections' => array_values(array_map('strval', $raw['detail_sections'] ?? ($raw['form_sections'] ?? []))),
+            'field_order' => array_values(array_map('strval', $raw['field_order'] ?? [])),
+        ],
+        'lists' => [
+            'columns' => array_values(array_map('strval', $raw['list_columns'] ?? [])),
+        ],
+        'exports' => [
+            'columns' => array_values(array_map('strval', $raw['export_columns'] ?? ($raw['list_columns'] ?? []))),
+        ],
+        'reports' => [
+            'dimensions' => array_values(array_map('strval', $raw['report_dimensions'] ?? [])),
+            'filters' => array_values(array_map('strval', $raw['report_filters'] ?? [])),
+        ],
+        default => $raw,
+    };
+}
+
 function customFieldDefinitions(int $tenantId, string $entityType): array
 {
     $entity = customFieldEntity($entityType);
@@ -69,6 +133,116 @@ function customFieldDefinitions(int $tenantId, string $entityType): array
     );
     $stmt->execute(['tenant_id' => $tenantId, 'module' => $entityType]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function customFieldDefinitionMap(int $tenantId, string $entityType): array
+{
+    $out = [];
+    foreach (customFieldDefinitions($tenantId, $entityType) as $def) {
+        $key = (string) ($def['field_key'] ?? '');
+        if ($key !== '') $out[$key] = $def;
+    }
+    return $out;
+}
+
+function customFieldValues(int $tenantId, string $entityType, int $recordId, bool $includeSensitive = false): array
+{
+    $entity = customFieldEntity($entityType);
+    if (!$entity) throw new InvalidArgumentException("Unknown custom field entity: {$entityType}");
+    if ($recordId <= 0) throw new InvalidArgumentException('record_id is required');
+
+    if (($entity['definition_table'] ?? null) === 'people_custom_field_defs') {
+        return customFieldPeopleValues($tenantId, $recordId, $includeSensitive);
+    }
+
+    return customFieldLegacyValues($tenantId, $entityType, $recordId, $includeSensitive);
+}
+
+function customFieldPeopleValues(int $tenantId, int $personId, bool $includeSensitive = false): array
+{
+    $sql = 'SELECT d.id AS field_def_id, d.field_key, d.field_label, d.field_type,
+                   d.options_json, d.required, d.pii,
+                   v.value_text, v.value_number, v.value_date, v.value_boolean, v.updated_at
+              FROM people_custom_field_defs d
+         LEFT JOIN people_custom_field_values v
+                ON v.field_def_id = d.id
+               AND v.tenant_id = d.tenant_id
+               AND v.person_id = :person_id
+             WHERE d.tenant_id = :tenant_id
+               AND d.deleted_at IS NULL';
+    if (!$includeSensitive) $sql .= ' AND COALESCE(d.pii, 0) = 0';
+    $sql .= ' ORDER BY d.order_index, d.field_label';
+    $stmt = getDB()->prepare($sql);
+    $stmt->execute(['tenant_id' => $tenantId, 'person_id' => $personId]);
+    $rows = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+        $rows[] = customFieldNormalizeValueRow($row);
+    }
+    return $rows;
+}
+
+function customFieldLegacyValues(int $tenantId, string $entityType, int $recordId, bool $includeSensitive = false): array
+{
+    $cols = customFieldLegacyColumns();
+    $keyCol = in_array('field_name', $cols, true) ? 'field_name' : 'label';
+    $labelCol = in_array('field_label', $cols, true) ? 'field_label' : 'label';
+    $typeCol = in_array('field_type', $cols, true) ? 'field_type' : 'type';
+    $requiredExpr = in_array('is_required', $cols, true) ? 'f.is_required' : '0';
+    $piiExpr = in_array('pii', $cols, true) ? 'f.pii' : '0';
+    $sql = "SELECT f.id AS field_def_id,
+                   f.{$keyCol} AS field_key,
+                   f.{$labelCol} AS field_label,
+                   f.{$typeCol} AS field_type,
+                   f.options AS options_json,
+                   {$requiredExpr} AS required,
+                   {$piiExpr} AS pii,
+                   v.value AS value_text,
+                   NULL AS value_number,
+                   NULL AS value_date,
+                   NULL AS value_boolean,
+                   NULL AS updated_at
+              FROM custom_fields f
+         LEFT JOIN custom_values v
+                ON v.field_id = f.id
+               AND v.tenant_id = f.tenant_id
+               AND v.record_id = :record_id
+             WHERE f.tenant_id = :tenant_id
+               AND f.module = :module";
+    if (!$includeSensitive && in_array('pii', $cols, true)) $sql .= ' AND COALESCE(f.pii, 0) = 0';
+    $sql .= " ORDER BY f.{$labelCol}";
+    $stmt = getDB()->prepare($sql);
+    $stmt->execute(['tenant_id' => $tenantId, 'module' => $entityType, 'record_id' => $recordId]);
+    $rows = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+        $rows[] = customFieldNormalizeValueRow($row);
+    }
+    return $rows;
+}
+
+function customFieldNormalizeValueRow(array $row): array
+{
+    $type = (string) ($row['field_type'] ?? 'text');
+    $value = match ($type) {
+        'number'  => $row['value_number'] !== null ? (float) $row['value_number'] : null,
+        'date'    => $row['value_date'],
+        'boolean' => $row['value_boolean'] === null ? null : (bool) $row['value_boolean'],
+        default   => $row['value_text'],
+    };
+    if ($type === 'multiselect' && is_string($value) && $value !== '') {
+        $decoded = json_decode($value, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) $value = $decoded;
+    }
+    return [
+        'field_def_id' => (int) ($row['field_def_id'] ?? 0),
+        'field_key'    => (string) ($row['field_key'] ?? ''),
+        'field_label'  => (string) ($row['field_label'] ?? ''),
+        'field_type'   => $type,
+        'options_json' => $row['options_json'] ?? null,
+        'required'     => (int) ($row['required'] ?? 0),
+        'pii'          => (int) ($row['pii'] ?? 0),
+        'value'        => $value,
+        'updated_at'   => $row['updated_at'] ?? null,
+    ];
 }
 
 function customFieldValueUpsert(int $tenantId, string $entityType, int $recordId, string $fieldKey, $value): void

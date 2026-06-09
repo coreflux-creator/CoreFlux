@@ -42,6 +42,8 @@ Use `core/custom_fields.php` for shared behavior:
 - `customFieldEntityRegistry()`
 - `customFieldEntity($entityType)`
 - `customFieldLayouts($entityType)`
+- `customFieldSurfaceLayout($entityType, $surface)`
+- `customFieldAllSurfaceLayouts($entityType)`
 - `customFieldDefinitions($tenantId, $entityType)`
 - `customFieldValueUpsert($tenantId, $entityType, $recordId, $fieldKey, $value)`
 
@@ -55,10 +57,29 @@ Use:
 ```text
 GET /api/custom_field_entities.php
 GET /api/custom_field_entities.php?entity_type=people
+GET /api/custom_field_definitions.php?entity_type=people
+GET /api/custom_field_layouts.php
+GET /api/custom_field_layouts.php?entity_type=people
+GET /api/custom_field_layouts.php?entity_type=people&surface=forms
+GET /api/custom_field_values.php?entity_type=people&record_id=123
+POST /api/custom_field_values.php?entity_type=people&record_id=123
 ```
 
 The response includes entity metadata plus `can_view` and `can_manage` flags
 computed from the active user's RBAC permissions.
+
+The definitions API returns tenant-scoped definitions through the shared
+service, regardless of whether the owning module is on spec-aligned tables or
+legacy `custom_fields`.
+
+The layout API returns normalized surface layouts for `forms`, `detail`,
+`lists`, `exports`, and `reports`. This lets modules consume shared layout
+metadata without inventing separate form/list/export/report conventions.
+
+The values API reads and upserts tenant custom-field values through the shared
+service. Sensitive custom-field values are omitted from reads unless the actor
+has the entity's `pii_permission`; writes to sensitive values require the same
+PII permission plus the entity's manage permission.
 
 ## Product Rule
 

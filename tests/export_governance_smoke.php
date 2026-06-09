@@ -26,6 +26,9 @@ $assert('payroll bank account sensitive', exportDatasetIsSensitiveField('payroll
 $assert('ap bank routing sensitive', exportDatasetIsSensitiveField('ap_payments', 'bank_routing_number'));
 $assert('people directory has custom field entity', in_array('people', $reg['people_directory']['custom_field_entities'] ?? [], true));
 $assert('people field registry has static fields', isset(exportDatasetFieldRegistry('people_directory')['email_primary']));
+$assert('dataset access helper exists', function_exists('exportDatasetUserCanAccess'));
+$assert('accessible registry helper exists', function_exists('exportDatasetAccessibleRegistry'));
+$assert('dataset access defaults true without RBAC', exportDatasetUserCanAccess([], $reg['people_directory']));
 
 echo "\nTemplate validation\n";
 try {
@@ -50,6 +53,8 @@ echo "\nAPI/docs\n";
 $api = (string) file_get_contents($root . '/api/export_templates.php');
 $assert('datasets endpoint exposes sensitive_fields', str_contains($api, "'sensitive_fields'"));
 $assert('datasets endpoint uses tenant-aware field registry', str_contains($api, 'exportDatasetFieldRegistry($key, $tenantId)'));
+$assert('datasets endpoint filters by accessible registry', str_contains($api, 'exportDatasetAccessibleRegistry($user)'));
+$assert('template API requires dataset access', str_contains($api, '_xtplRequireDatasetAccess'));
 $assert('export governance docs exist', is_file($root . '/docs/EXPORT_GOVERNANCE.md'));
 $assert('export_datasets parses', _php_lint($root . '/core/export_datasets.php'));
 $assert('export_templates parses', _php_lint($root . '/core/export_templates.php'));
