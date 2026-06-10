@@ -510,16 +510,15 @@ function PIITab({ person }) {
 // Tab 7 — Custom fields (per-tenant defs, per-person values)
 // ─────────────────────────────────────────────────────────────────────────
 function CustomFieldsTab({ personId }) {
-  const defsApi  = useApi('/modules/people/api/custom_fields.php');
-  const valsApi  = useApi(`/modules/people/api/custom_field_values.php?person_id=${personId}`);
-  const defs     = defsApi.data?.fields ?? [];
+  const defsApi  = useApi('/api/custom_field_definitions.php?entity_type=people');
+  const valsApi  = useApi(`/api/custom_field_values.php?entity_type=people&record_id=${personId}`);
+  const defs     = defsApi.data?.definitions ?? [];
   const valsRaw  = valsApi.data?.values ?? [];
   // Normalise values by field_key.
   const valByKey = {};
   for (const v of valsRaw) {
-    const d = defs.find((dd) => Number(dd.id) === Number(v.field_def_id));
-    if (!d) continue;
-    valByKey[d.field_key] = v.value_text ?? v.value_number ?? v.value_date ?? v.value_boolean;
+    if (!v.field_key) continue;
+    valByKey[v.field_key] = v.value;
   }
   const [draft, setDraft]     = useState({});
   const [saving, setSaving]   = useState(false);
@@ -544,7 +543,7 @@ function CustomFieldsTab({ personId }) {
       const payload = {};
       for (const k of Object.keys(draft)) payload[k] = draft[k] === '' ? null : draft[k];
       if (Object.keys(payload).length === 0) { setSaving(false); return; }
-      await api.post(`/modules/people/api/custom_field_values.php?person_id=${personId}`, { values: payload });
+      await api.post(`/api/custom_field_values.php?entity_type=people&record_id=${personId}`, { values: payload });
       setDraft({});
       setSavedAt(Date.now());
       valsApi.reload();

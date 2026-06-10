@@ -85,6 +85,13 @@ $apply = (string) file_get_contents($root . '/core/integrations/field_map_apply.
 $assert('field map apply requires core custom fields', str_contains($apply, "/../custom_fields.php"));
 $assert('field map apply calls customFieldValueUpsert', str_contains($apply, 'customFieldValueUpsert'));
 
+echo "\nUI consumers\n";
+$customFieldsUi = (string) file_get_contents($root . '/modules/people/ui/CustomFields.jsx');
+$personDetailUi = (string) file_get_contents($root . '/modules/people/ui/PersonDetail.jsx');
+$assert('People custom fields admin uses platform definitions API', str_contains($customFieldsUi, '/api/custom_field_definitions.php?entity_type=people'));
+$assert('Person detail uses platform definitions API', str_contains($personDetailUi, '/api/custom_field_definitions.php?entity_type=people'));
+$assert('Person detail uses platform values API', str_contains($personDetailUi, '/api/custom_field_values.php?entity_type=people&record_id='));
+
 echo "\nDocs\n";
 $assert('custom fields docs exist', is_file($root . '/docs/CUSTOM_FIELDS_LAYOUTS.md'));
 
