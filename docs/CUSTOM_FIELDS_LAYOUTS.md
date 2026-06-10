@@ -58,6 +58,9 @@ Use:
 GET /api/custom_field_entities.php
 GET /api/custom_field_entities.php?entity_type=people
 GET /api/custom_field_definitions.php?entity_type=people
+POST /api/custom_field_definitions.php?entity_type=people
+PATCH /api/custom_field_definitions.php?entity_type=people&id=123
+DELETE /api/custom_field_definitions.php?entity_type=people&id=123
 GET /api/custom_field_layouts.php
 GET /api/custom_field_layouts.php?entity_type=people
 GET /api/custom_field_layouts.php?entity_type=people&surface=forms
@@ -70,7 +73,9 @@ computed from the active user's RBAC permissions.
 
 The definitions API returns tenant-scoped definitions through the shared
 service, regardless of whether the owning module is on spec-aligned tables or
-legacy `custom_fields`.
+legacy `custom_fields`. Definition writes require the entity's
+`manage_permission`; creating or marking a field as PII also requires the
+entity's `pii_permission` when one is declared.
 
 The layout API returns normalized surface layouts for `forms`, `detail`,
 `lists`, `exports`, and `reports`. This lets modules consume shared layout
@@ -80,6 +85,10 @@ The values API reads and upserts tenant custom-field values through the shared
 service. Sensitive custom-field values are omitted from reads unless the actor
 has the entity's `pii_permission`; writes to sensitive values require the same
 PII permission plus the entity's manage permission.
+
+Definition mutations emit `custom_field.definition.*` audit events. Value
+mutations emit `custom_field.value.updated` with entity type, record id, and the
+field keys touched.
 
 ## Product Rule
 

@@ -14,6 +14,7 @@ require_once __DIR__ . '/../core/custom_fields.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
+$userId = (int) ($user['id'] ?? 0);
 $tenantId = (int) $ctx['tenant_id'];
 $method = api_method();
 
@@ -59,6 +60,13 @@ if ($method === 'POST' || $method === 'PUT') {
         }
         customFieldValueUpsert($tenantId, $entityType, $recordId, $fieldKey, $value);
         $updated[] = $fieldKey;
+    }
+    if ($updated) {
+        customFieldAudit($tenantId, $userId, 'custom_field.value.updated', $recordId, [
+            'entity_type' => $entityType,
+            'record_id' => $recordId,
+            'fields' => $updated,
+        ]);
     }
     api_ok(['ok' => true, 'updated' => $updated]);
 }

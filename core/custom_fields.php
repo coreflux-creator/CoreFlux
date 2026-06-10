@@ -145,6 +145,189 @@ function customFieldDefinitionMap(int $tenantId, string $entityType): array
     return $out;
 }
 
+function customFieldDefinitionCreate(int $tenantId, string $entityType, array $args): int
+{
+    $entity = customFieldEntity($entityType);
+    if (!$entity) throw new InvalidArgumentException("Unknown custom field entity: {$entityType}");
+    $data = customFieldNormalizeDefinitionPayload($args, true);
+
+    if (($entity['definition_table'] ?? null) === 'people_custom_field_defs') {
+        $stmt = getDB()->prepare(
+            'INSERT INTO people_custom_field_defs
+                (tenant_id, field_key, field_label, field_type, options_json, required, pii, order_index)
+             VALUES
+                (:tenant_id, :field_key, :field_label, :field_type, :options_json, :required, :pii, :order_index)'
+        );
+        $stmt->execute([
+            'tenant_id' => $tenantId,
+            'field_key' => $data['field_key'],
+            'field_label' => $data['field_label'],
+            'field_type' => $data['field_type'],
+            'options_json' => $data['options_json'],
+            'required' => $data['required'],
+            'pii' => $data['pii'],
+            'order_index' => $data['order_index'],
+        ]);
+        return (int) getDB()->lastInsertId();
+    }
+
+    $cols = customFieldLegacyColumns();
+    $insert = ['tenant_id' => $tenantId, 'module' => $entityType];
+    $insert[in_array('field_name', $cols, true) ? 'field_name' : 'label'] = $data['field_key'];
+    $insert[in_array('field_label', $cols, true) ? 'field_label' : 'label'] = $data['field_label'];
+    $insert[in_array('field_type', $cols, true) ? 'field_type' : 'type'] = $data['field_type'];
+    if (in_array('is_required', $cols, true)) $insert['is_required'] = $data['required'];
+    if (in_array('options', $cols, true)) $insert['options'] = $data['options_json'];
+    if (in_array('pii', $cols, true)) $insert['pii'] = $data['pii'];
+
+    $names = array_keys($insert);
+    $placeholders = array_map(static fn($col) => ':' . $col, $names);
+    $stmt = getDB()->prepare(
+        'INSERT INTO custom_fields (' . implode(', ', $names) . ')
+         VALUES (' . implode(', ', $placeholders) . ')'
+    );
+    $stmt->execute($insert);
+    return (int) getDB()->lastInsertId();
+}
+
+function customFieldDefinitionUpdate(int $tenantId, string $entityType, int $id, array $args): void
+{
+    if ($id <= 0) throw new InvalidArgumentException('id is required');
+    $entity = customFieldEntity($entityType);
+    if (!$entity) throw new InvalidArgumentException("Unknown custom field entity: {$entityType}");
+    $data = customFieldNormalizeDefinitionPayload($args, false);
+    unset($data['field_key']);
+    if (!$data) throw new InvalidArgumentException('No fields to update');
+
+    if (($entity['definition_table'] ?? null) === 'people_custom_field_defs') {
+        $allowed = ['field_label', 'field_type', 'options_json', 'required', 'pii', 'order_index'];
+        $update = array_intersect_key($data, array_flip($allowed));
+        $sets = [];
+        foreach (array_keys($update) as $col) $sets[] = "{$col} = :{$col}";
+        $update['id'] = $id;
+        $update['tenant_id'] = $tenantId;
+        $stmt = getDB()->prepare(
+            'UPDATE people_custom_field_defs SET ' . implode(', ', $sets) .
+            ' WHERE id = :id AND tenant_id = :tenant_id AND deleted_at IS NULL'
+        );
+        $stmt->execute($update);
+        return;
+    }
+
+    $cols = customFieldLegacyColumns();
+    $update = [];
+    if (isset($data['field_label'])) $update[in_array('field_label', $cols, true) ? 'field_label' : 'label'] = $data['field_label'];
+    if (isset($data['field_type'])) $update[in_array('field_type', $cols, true) ? 'field_type' : 'type'] = $data['field_type'];
+    if (isset($data['required']) && in_array('is_required', $cols, true)) $update['is_required'] = $data['required'];
+    if (array_key_exists('options_json', $data) && in_array('options', $cols, true)) $update['options'] = $data['options_json'];
+    if (isset($data['pii']) && in_array('pii', $cols, true)) $update['pii'] = $data['pii'];
+    if (!$update) throw new InvalidArgumentException('No supported fields to update');
+
+    $sets = [];
+    foreach (array_keys($update) as $col) $sets[] = "{$col} = :{$col}";
+    $update['id'] = $id;
+    $update['tenant_id'] = $tenantId;
+    $update['module'] = $entityType;
+    $stmt = getDB()->prepare(
+        'UPDATE custom_fields SET ' . implode(', ', $sets) .
+        ' WHERE id = :id AND tenant_id = :tenant_id AND module = :module'
+    );
+    $stmt->execute($update);
+}
+
+function customFieldDefinitionDelete(int $tenantId, string $entityType, int $id): void
+{
+    if ($id <= 0) throw new InvalidArgumentException('id is required');
+    $entity = customFieldEntity($entityType);
+    if (!$entity) throw new InvalidArgumentException("Unknown custom field entity: {$entityType}");
+
+    if (($entity['definition_table'] ?? null) === 'people_custom_field_defs') {
+        getDB()->prepare(
+            'UPDATE people_custom_field_defs
+                SET deleted_at = NOW()
+              WHERE id = :id AND tenant_id = :tenant_id'
+        )->execute(['id' => $id, 'tenant_id' => $tenantId]);
+        return;
+    }
+
+    $cols = customFieldLegacyColumns();
+    if (in_array('deleted_at', $cols, true)) {
+        getDB()->prepare(
+            'UPDATE custom_fields SET deleted_at = NOW()
+              WHERE id = :id AND tenant_id = :tenant_id AND module = :module'
+        )->execute(['id' => $id, 'tenant_id' => $tenantId, 'module' => $entityType]);
+        return;
+    }
+    if (in_array('is_active', $cols, true)) {
+        getDB()->prepare(
+            'UPDATE custom_fields SET is_active = 0
+              WHERE id = :id AND tenant_id = :tenant_id AND module = :module'
+        )->execute(['id' => $id, 'tenant_id' => $tenantId, 'module' => $entityType]);
+        return;
+    }
+    getDB()->prepare('DELETE FROM custom_values WHERE tenant_id = :tenant_id AND field_id = :id')
+        ->execute(['tenant_id' => $tenantId, 'id' => $id]);
+    getDB()->prepare('DELETE FROM custom_fields WHERE id = :id AND tenant_id = :tenant_id AND module = :module')
+        ->execute(['id' => $id, 'tenant_id' => $tenantId, 'module' => $entityType]);
+}
+
+function customFieldAudit(int $tenantId, ?int $actorUserId, string $event, ?int $targetId, array $meta = []): void
+{
+    try {
+        $pdo = getDB();
+        if (!$pdo) return;
+        $pdo->prepare(
+            'INSERT INTO audit_log
+                (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
+             VALUES
+                (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, :ip_address, NOW())'
+        )->execute([
+            'tenant_id' => $tenantId,
+            'actor_user_id' => $actorUserId,
+            'event' => $event,
+            'target_id' => $targetId,
+            'meta_json' => $meta ? json_encode($meta, JSON_UNESCAPED_SLASHES) : null,
+            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+    } catch (Throwable $e) {
+        error_log('[custom_fields.audit] ' . $event . ' failed: ' . $e->getMessage());
+    }
+}
+
+function customFieldNormalizeDefinitionPayload(array $args, bool $creating): array
+{
+    $out = [];
+    if ($creating || array_key_exists('field_key', $args)) {
+        $key = trim((string) ($args['field_key'] ?? ''));
+        if (!preg_match('/^[a-z][a-z0-9_]{0,79}$/', $key)) {
+            throw new InvalidArgumentException('field_key must be snake_case ([a-z][a-z0-9_]*)');
+        }
+        $out['field_key'] = $key;
+    }
+    if ($creating || array_key_exists('field_label', $args)) {
+        $label = trim((string) ($args['field_label'] ?? ''));
+        if ($label === '') throw new InvalidArgumentException('field_label is required');
+        $out['field_label'] = $label;
+    }
+    if ($creating || array_key_exists('field_type', $args)) {
+        $type = strtolower(trim((string) ($args['field_type'] ?? 'text')));
+        if ($type === 'dropdown') $type = 'select';
+        $allowed = ['text', 'number', 'date', 'boolean', 'select', 'multiselect'];
+        if (!in_array($type, $allowed, true)) throw new InvalidArgumentException('Invalid field_type');
+        $out['field_type'] = $type;
+    }
+    if (array_key_exists('options', $args) || array_key_exists('options_json', $args) || $creating) {
+        $options = $args['options'] ?? null;
+        $out['options_json'] = is_array($options)
+            ? json_encode($options, JSON_UNESCAPED_SLASHES)
+            : ($args['options_json'] ?? $options);
+    }
+    if (array_key_exists('required', $args) || $creating) $out['required'] = !empty($args['required']) ? 1 : 0;
+    if (array_key_exists('pii', $args) || $creating) $out['pii'] = !empty($args['pii']) ? 1 : 0;
+    if (array_key_exists('order_index', $args) || $creating) $out['order_index'] = (int) ($args['order_index'] ?? 0);
+    return $out;
+}
+
 function customFieldValues(int $tenantId, string $entityType, int $recordId, bool $includeSensitive = false): array
 {
     $entity = customFieldEntity($entityType);
