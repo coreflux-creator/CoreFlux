@@ -35,11 +35,16 @@ $a('migration adds companies.payment_terms_days',   str_contains($ptmig, 'ADD CO
 
 echo "\nReadiness queues\n";
 $ready = $read(__DIR__ . '/../modules/staffing/api/readiness.php');
+$manifest = $read(__DIR__ . '/../modules/staffing/manifest.php');
 $a('payroll action groups by person',               str_contains($ready, "action === 'payroll'") && str_contains($ready, '$byPerson'));
 $a('billing action groups by client',               str_contains($ready, "action === 'billing'") && str_contains($ready, "GROUP BY pl.client_id"));
 $a('billing tolerates missing v_timesheet_day_fin', str_contains($ready, "LEFT JOIN v_timesheet_day_fin v") && str_contains($ready, '$rows = scopedQuery'));
+$a('readiness GETs gated by staffing permissions',  str_contains($ready, "staffing.payroll.view") && str_contains($ready, "staffing.billing.view"));
+$a('readiness POSTs gated by manage permissions',  str_contains($ready, "staffing.payroll.manage") && str_contains($ready, "staffing.billing.manage"));
 $a('mark_payroll_pushed flips status=payroll_ready',str_contains($ready, "mark_payroll_pushed") && str_contains($ready, "payroll_ready"));
 $a('mark_billing_invoiced flips status=billing_ready', str_contains($ready, "mark_billing_invoiced") && str_contains($ready, "billing_ready"));
+$a('readiness status flips audited',                str_contains($ready, 'staffingReadinessAudit(') && str_contains($ready, 'staffing.readiness.payroll_marked') && str_contains($ready, 'staffing.readiness.billing_marked'));
+$a('manifest declares readiness audit events',      str_contains($manifest, 'staffing.readiness.payroll_marked') && str_contains($manifest, 'staffing.readiness.billing_marked'));
 $readyUi = $read(__DIR__ . '/../modules/staffing/ui/StaffingReadiness.jsx');
 $a('UI supports payroll mode',                      str_contains($readyUi, 'data-testid={`staffing-readiness-${mode}`}'));
 $a('UI multi-select + bulk mark',                   str_contains($readyUi, 'data-testid={`staffing-readiness-${mode}-select-all`}'));

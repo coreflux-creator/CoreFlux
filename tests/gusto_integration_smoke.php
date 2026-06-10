@@ -158,6 +158,7 @@ echo "\nmodules/payroll/api/gusto_submit.php\n";
 $sub = (string) file_get_contents(__DIR__ . '/../modules/payroll/api/gusto_submit.php');
 $a('requires payroll.run.disburse',              strpos($sub, "rbac_legacy_require(\$ctx['user'], 'payroll.run.disburse')") !== false);
 $a('rejects unapproved runs',                    strpos($sub, "'Run must be approved before submitting to Gusto") !== false);
+$a('blocks approver from submitting same run',   strpos($sub, '_gustoSubmitDenySameActor') !== false && strpos($sub, 'Approver cannot submit the same payroll run to Gusto') !== false);
 $a('returns 412 if not connected',               strpos($sub, ', 412') !== false);
 $a('list_unprocessed action',                    strpos($sub, "if (\$action === 'list_unprocessed')") !== false);
 $a('matches employees by employee_number',       strpos($sub, '$linesByEmpNum') !== false);

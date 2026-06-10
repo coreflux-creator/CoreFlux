@@ -24,6 +24,7 @@ $assert('people dimensions exposed', isset($people['dimensions']['email_primary'
 $assert('people filters exposed', isset($people['filters']['status']));
 $assert('payroll amount classified as measure', (($reg['payroll_disbursements']['measures']['gross_pay_dollars']['role'] ?? null) === 'measure'));
 $assert('payroll bank account marked sensitive', !empty($reg['payroll_disbursements']['fields']['bank_account_number']['sensitive']));
+$assert('people execution supported', !empty($people['execution_supported']));
 $assert('reportBuilderDatasetGet works', (reportBuilderDatasetGet('people_directory')['key'] ?? null) === 'people_directory');
 $definition = reportBuilderValidateDefinition([
     'dataset' => 'people_directory',
@@ -33,6 +34,14 @@ $definition = reportBuilderValidateDefinition([
 ]);
 $assert('definition validates governed fields', ($definition['dataset'] ?? null) === 'people_directory');
 $assert('definition normalizes filters', ($definition['filters'][0]['field'] ?? null) === 'status');
+$result = reportBuilderApplyDefinitionToRows($definition, [
+    ['first_name' => 'Alex', 'last_name' => 'Zephyr', 'email_primary' => 'alex@example.com', 'status' => 'inactive'],
+    ['first_name' => 'Jordan', 'last_name' => 'Rivera', 'email_primary' => 'jordan@example.com', 'status' => 'active'],
+]);
+$assert('execution filters rows', ($result['row_count'] ?? 0) === 1);
+$assert('execution projects selected fields', array_key_exists('email_primary', $result['rows'][0] ?? []) && !array_key_exists('status', $result['rows'][0] ?? []));
+$csv = reportBuilderRenderCsv($result);
+$assert('execution renders CSV through platform service', str_contains($csv, '"First name","Last name","Primary email"') && str_contains($csv, 'Jordan,Rivera,jordan@example.com'));
 try {
     reportBuilderValidateDefinition(['dataset' => 'people_directory', 'columns' => ['not_a_field']]);
     $assert('definition rejects unknown fields', false);
@@ -47,6 +56,11 @@ $assert('report builder API parses', _php_lint($api));
 $apiText = (string) file_get_contents($api);
 $assert('API requires auth', str_contains($apiText, 'api_require_auth()'));
 $assert('API filters dataset access', str_contains($apiText, 'reportBuilderUserCanAccessDataset'));
+$assert('API supports governed execution', str_contains($apiText, "action === 'run'") && str_contains($apiText, 'reportBuilderRunDefinition'));
+$assert('API supports governed CSV export', str_contains($apiText, "action === 'export'") && str_contains($apiText, 'reportBuilderRenderCsv'));
+$assert('API gates sensitive execution', str_contains($apiText, 'reportBuilderDefinitionUsesSensitiveFields') && str_contains($apiText, "'reports.export'"));
+$assert('API audits execution', str_contains($apiText, "'reports.custom.executed'"));
+$assert('API audits CSV export', str_contains($apiText, "'reports.custom.exported'"));
 $assert('API supports saved report list', str_contains($apiText, "action === 'reports'"));
 $assert('API supports create/update/delete', str_contains($apiText, 'if ($method === \'POST\')') && str_contains($apiText, 'if ($method === \'PATCH\')') && str_contains($apiText, 'if ($method === \'DELETE\')'));
 $manifest = require $root . '/modules/reports/manifest.php';
@@ -59,6 +73,18 @@ $migration = (string) file_get_contents($root . '/core/migrations/115_report_bui
 $assert('saved reports migration creates table', str_contains($migration, 'CREATE TABLE IF NOT EXISTS report_builder_reports'));
 $legacyMap = (string) file_get_contents($root . '/core/rbac/legacy_map.php');
 $assert('legacy RBAC maps report builder perms', str_contains($legacyMap, "'reports.custom.build'") && str_contains($legacyMap, "'reports.custom.share'"));
+
+echo "\nUI\n";
+$ui = (string) file_get_contents($root . '/modules/reports/ui/ReportBuilder.jsx');
+$moduleUi = (string) file_get_contents($root . '/modules/reports/ui/ReportsModule.jsx');
+$assert('ReportBuilder UI exists', is_file($root . '/modules/reports/ui/ReportBuilder.jsx'));
+$assert('ReportBuilder hits dataset API', str_contains($ui, '/api/v1/reports/report-builder/datasets'));
+$assert('ReportBuilder hits saved reports API', str_contains($ui, '/api/v1/reports/report-builder/reports'));
+$assert('ReportBuilder saves through platform API', str_contains($ui, "api.post('/api/v1/reports/report-builder'"));
+$assert('ReportBuilder deletes through platform API', str_contains($ui, 'api.delete(`/api/v1/reports/report-builder/${id}`)'));
+$assert('ReportBuilder previews through platform API', str_contains($ui, "/api/v1/reports/report-builder/run") && str_contains($ui, 'report-builder-preview-results'));
+$assert('ReportBuilder exports through platform API', str_contains($ui, "/api/v1/reports/report-builder/export") && str_contains($ui, 'report-builder-export'));
+$assert('ReportsModule routes custom to ReportBuilder', str_contains($moduleUi, '<ReportBuilder session={session} />'));
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

@@ -80,22 +80,45 @@ function apiRouterParse(string $pathInfo, string $requestUri): array {
  * Examples:
  *   /api/v1/time/entries/123         -> $_GET['id'] = 123
  *   /api/v1/time/entries/123/approve -> $_GET['id'] = 123, $_GET['action'] = approve
+ *   /api/v1/reports/report-builder/run -> $_GET['action'] = run
  *
  * Explicit query-string values win so old callers remain stable.
  */
 function apiRouterApplyV1Compatibility(array $parsed): void {
     if (($parsed['api_version'] ?? null) !== 'v1') return;
+    $moduleId = (string) ($parsed['module_id'] ?? '');
+    $endpoint = (string) ($parsed['endpoint'] ?? '');
     $subpath = $parsed['subpath'] ?? [];
+
+    $customFieldEndpoints = [
+        'custom-field-definitions' => true,
+        'custom-field-values' => true,
+        'custom-field-layouts' => true,
+    ];
+    if (isset($customFieldEndpoints[$endpoint]) && $moduleId !== '' && !isset($_GET['entity_type'])) {
+        $_GET['entity_type'] = $moduleId;
+    }
+
     if (!is_array($subpath) || $subpath === []) return;
 
     $first = (string) ($subpath[0] ?? '');
     if ($first !== '' && ctype_digit($first) && !isset($_GET['id'])) {
         $_GET['id'] = $first;
     }
+    if ($endpoint === 'custom-field-values' && $first !== '' && ctype_digit($first) && !isset($_GET['record_id'])) {
+        $_GET['record_id'] = $first;
+    }
+    if ($endpoint === 'custom-field-layouts' && $first !== '' && preg_match('/^[a-z][a-z0-9_-]*$/', $first) && !isset($_GET['surface'])) {
+        $_GET['surface'] = str_replace('-', '_', $first);
+    }
 
     $second = (string) ($subpath[1] ?? '');
     if ($second !== '' && preg_match('/^[a-z][a-z0-9_-]*$/', $second) && !isset($_GET['action'])) {
         $_GET['action'] = str_replace('-', '_', $second);
+    }
+
+    if ($first !== '' && !ctype_digit($first) && preg_match('/^[a-z][a-z0-9_-]*$/', $first) && !isset($_GET['action'])) {
+        $_GET['action'] = str_replace('-', '_', $first);
     }
 }
 
@@ -112,6 +135,25 @@ function apiRouterApplyV1Compatibility(array $parsed): void {
 function apiRouterResolveFile(string $moduleId, string $endpoint, ?string $modulesDir = null): ?string {
     $registry = ModuleRegistry::getInstance();
     if (!$registry->hasModule($moduleId)) return null;
+
+    $root = dirname(__DIR__);
+    $aliasKey = $moduleId . '/' . $endpoint;
+    $aliases = [
+        'reports/export-templates' => $root . '/api/export_templates.php',
+        'reports/report-builder' => $root . '/api/report_builder.php',
+    ];
+    if (isset($aliases[$aliasKey]) && file_exists($aliases[$aliasKey])) {
+        return $aliases[$aliasKey];
+    }
+
+    $platformAliases = [
+        'custom-field-definitions' => $root . '/api/custom_field_definitions.php',
+        'custom-field-values' => $root . '/api/custom_field_values.php',
+        'custom-field-layouts' => $root . '/api/custom_field_layouts.php',
+    ];
+    if (isset($platformAliases[$endpoint]) && file_exists($platformAliases[$endpoint])) {
+        return $platformAliases[$endpoint];
+    }
 
     $modulesDir = $modulesDir ?? dirname(__DIR__) . '/modules';
     $candidates = [

@@ -11,8 +11,8 @@ import { Card } from '../components/UIComponents';
  * clone any visible template to fork it.
  */
 export default function ExportTemplatesAdmin({ session }) {
-  const { data, loading, error, reload } = useApi('/api/export_templates.php');
-  const { data: dsData } = useApi('/api/export_templates.php?action=datasets');
+  const { data, loading, error, reload } = useApi('/api/v1/reports/export-templates');
+  const { data: dsData } = useApi('/api/v1/reports/export-templates/datasets');
   const datasets = dsData?.datasets || {};
   const isMaster = session?.user?.global_role === 'master_admin';
 
@@ -28,14 +28,14 @@ export default function ExportTemplatesAdmin({ session }) {
 
   const onClone = async (id) => {
     setCloning(true);
-    try { await api.post(`/api/export_templates.php?action=clone&id=${id}`); reload(); }
+    try { await api.post(`/api/v1/reports/export-templates/${id}/clone`); reload(); }
     catch (e) { alert(e.message); }
     finally { setCloning(false); }
   };
 
   const onDelete = async (t) => {
     if (!confirm(`Delete "${t.name}"?${t.is_system ? ' (system templates are archived, not removed)' : ''}`)) return;
-    try { await api.delete(`/api/export_templates.php?id=${t.id}`); reload(); }
+    try { await api.delete(`/api/v1/reports/export-templates/${t.id}`); reload(); }
     catch (e) { alert(e.message); }
   };
 
@@ -186,7 +186,7 @@ function TemplateEditor({ template, datasets, isMaster, onClose, onSaved }) {
     fd.append('file', file);
     fd.append('delimiter', delimiter);
     try {
-      const res = await fetch('/api/export_templates.php?action=parse_headers', {
+      const res = await fetch('/api/v1/reports/export-templates/parse-headers', {
         method: 'POST', credentials: 'include', body: fd,
       });
       const data = await res.json();
@@ -209,9 +209,9 @@ function TemplateEditor({ template, datasets, isMaster, onClose, onSaved }) {
         column_mappings: mappings,
       };
       if (isNew) {
-        await api.post('/api/export_templates.php', body);
+        await api.post('/api/v1/reports/export-templates', body);
       } else {
-        await api.patch(`/api/export_templates.php?id=${template.id}`, body);
+        await api.patch(`/api/v1/reports/export-templates/${template.id}`, body);
       }
       onSaved();
     } catch (e) {

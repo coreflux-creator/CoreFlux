@@ -66,6 +66,44 @@ $assert("v1 compatibility preserves explicit id",     $_GET['id'] === '999');
 $assert("v1 compatibility preserves explicit action", $_GET['action'] === 'reject');
 $_GET = [];
 
+$r = apiRouterParse('', '/api/v1/reports/report-builder/run');
+$assert("v1 collection action ok", $r['ok'] === true && $r['module_id'] === 'reports' && $r['endpoint'] === 'report-builder');
+$_GET = [];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 collection action sets action", ($_GET['action'] ?? null) === 'run');
+$_GET = [];
+
+$r = apiRouterParse('', '/api/v1/reports/export-templates/123/clone');
+$assert("v1 export template item action ok", $r['ok'] === true && $r['module_id'] === 'reports' && $r['endpoint'] === 'export-templates');
+$_GET = [];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 export template item action sets id", ($_GET['id'] ?? null) === '123');
+$assert("v1 export template item action sets action", ($_GET['action'] ?? null) === 'clone');
+$_GET = [];
+
+$r = apiRouterParse('', '/api/v1/people/custom-field-definitions');
+$assert("v1 custom field definitions ok", $r['ok'] === true && $r['module_id'] === 'people' && $r['endpoint'] === 'custom-field-definitions');
+$_GET = [];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 custom field definitions sets entity_type", ($_GET['entity_type'] ?? null) === 'people');
+$_GET = [];
+
+$r = apiRouterParse('', '/api/v1/people/custom-field-values/123');
+$assert("v1 custom field values ok", $r['ok'] === true && $r['module_id'] === 'people' && $r['endpoint'] === 'custom-field-values');
+$_GET = [];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 custom field values sets entity_type", ($_GET['entity_type'] ?? null) === 'people');
+$assert("v1 custom field values sets record_id", ($_GET['record_id'] ?? null) === '123');
+$_GET = [];
+
+$r = apiRouterParse('', '/api/v1/people/custom-field-layouts/detail');
+$assert("v1 custom field layouts ok", $r['ok'] === true && $r['module_id'] === 'people' && $r['endpoint'] === 'custom-field-layouts');
+$_GET = [];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 custom field layouts sets entity_type", ($_GET['entity_type'] ?? null) === 'people');
+$assert("v1 custom field layouts sets surface", ($_GET['surface'] ?? null) === 'detail');
+$_GET = [];
+
 $r = apiRouterParse('', '/api/');
 $assert("missing module + endpoint → 400", $r['ok'] === false && $r['status'] === 400);
 
@@ -92,6 +130,26 @@ $assert("returns null for missing endpoint", $file === null);
 
 $file = apiRouterResolveFile('not_a_real_module', 'whatever');
 $assert("returns null for unregistered module", $file === null);
+
+$file = apiRouterResolveFile('reports', 'report-builder');
+$assert("resolves reports/report-builder platform alias",
+    $file !== null && str_ends_with($file, '/api/report_builder.php'));
+
+$file = apiRouterResolveFile('reports', 'export-templates');
+$assert("resolves reports/export-templates platform alias",
+    $file !== null && str_ends_with($file, '/api/export_templates.php'));
+
+$file = apiRouterResolveFile('people', 'custom-field-definitions');
+$assert("resolves custom field definitions platform alias",
+    $file !== null && str_ends_with($file, '/api/custom_field_definitions.php'));
+
+$file = apiRouterResolveFile('people', 'custom-field-values');
+$assert("resolves custom field values platform alias",
+    $file !== null && str_ends_with($file, '/api/custom_field_values.php'));
+
+$file = apiRouterResolveFile('people', 'custom-field-layouts');
+$assert("resolves custom field layouts platform alias",
+    $file !== null && str_ends_with($file, '/api/custom_field_layouts.php'));
 
 // ---------------------------------------------------------------------------
 echo "\n";

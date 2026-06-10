@@ -12,35 +12,55 @@ definitions. Those remain with the owning module or platform service.
 - Sensitive fields are marked in field metadata and remain governed by the
   source dataset contract.
 - Saved report definitions are persisted as governed metadata. Query execution
-  remains intentionally separate follow-on work.
+  uses only registered export dataset fetchers; arbitrary SQL is not accepted.
+- Running a definition that includes sensitive fields requires `reports.export`
+  in addition to the source dataset permission.
+- CSV export uses the platform `CsvExportService` and always requires
+  `reports.export`.
 
 ## API
 
-`GET /api/report_builder.php?action=datasets`
+`GET /api/v1/reports/report-builder/datasets`
 
 Returns accessible datasets with `fields`, `dimensions`, `measures`, and
 `filters`.
 
-`GET /api/report_builder.php?dataset=people_directory`
+`GET /api/v1/reports/report-builder?dataset=people_directory`
 
 Returns one governed report dataset.
 
-`GET /api/report_builder.php?action=reports`
+`GET /api/v1/reports/report-builder/reports`
 
 Returns private reports owned by the actor and shared reports in the tenant.
 
-`POST /api/report_builder.php`
+`POST /api/v1/reports/report-builder/run`
+
+Runs a validated ad hoc or saved report definition through the governed dataset
+fetcher and returns projected rows. Requires `reports.custom.build`, preserves
+dataset RBAC, and writes `reports.custom.executed` audit metadata.
+
+`POST /api/v1/reports/report-builder/export`
+
+Runs the same governed definition and streams CSV. Requires
+`reports.custom.build` and `reports.export`, preserves dataset RBAC, and writes
+`reports.custom.exported` audit metadata.
+
+`POST /api/v1/reports/report-builder`
 
 Creates a saved report definition. Requires `reports.custom.build`; shared
 visibility additionally requires `reports.custom.share`.
 
-`PATCH /api/report_builder.php?id=123`
+`PATCH /api/v1/reports/report-builder/123`
 
 Updates a saved report definition.
 
-`DELETE /api/report_builder.php?id=123`
+`DELETE /api/v1/reports/report-builder/123`
 
 Soft-deletes a saved report definition.
+
+The legacy direct-file endpoint `/api/report_builder.php` remains as a
+compatibility adapter during migration. New product UI and API callers should
+use the v1 routes above.
 
 ## Priority Alignment
 

@@ -2,9 +2,10 @@
 /**
  * CoreStaffing Module Manifest
  *
- * The umbrella module for labor-based service delivery: clients, jobs,
- * placements, weekly timesheets, approvals, payroll & billing readiness,
- * margin/spread, and downstream feeds.
+ * Operating workbench for labor-based service delivery. Staffing consumes
+ * People, Placements, Time, Payroll, Billing, Accounting, and Reports data;
+ * it owns staffing-specific orchestration views, readiness queues, and
+ * operating KPIs, not the source-of-truth domain records.
  *
  * Per /app/memory/PRD.md and the CoreStaffing MVP Spec (Feb 2026).
  *
@@ -16,7 +17,7 @@ return [
     'id'          => 'staffing',
     'name'        => 'Staffing',
     'icon'        => '/assets/icons/icon-time.png',
-    'description' => 'Client-facing labor: placements, weekly timesheets, approvals, payroll/billing readiness, margin.',
+    'description' => 'Staffing workbench over People, Placements, Time, Payroll, Billing, Accounting, and Reports.',
     'version'     => '1.0.0',
 
     'actions' => [
@@ -40,8 +41,15 @@ return [
         'staffing.time.approve'          => 'Approve timesheets (two-eye control)',
         'staffing.time.reject'           => 'Reject timesheets with reason',
         'staffing.payroll.view'          => 'View payroll-readiness queue',
+        'staffing.payroll.manage'        => 'Mark staffing work as pushed to payroll',
         'staffing.billing.view'          => 'View billing-readiness queue',
+        'staffing.billing.manage'        => 'Mark staffing work as invoiced for billing',
         'staffing.reports.view'          => 'View staffing analytics',
         'staffing.settings.manage'       => 'Manage staffing module settings (week-start, contracted hours, OT thresholds)',
+    ],
+
+    'audit_events' => [
+        'staffing.readiness.payroll_marked',
+        'staffing.readiness.billing_marked',
     ],
 ];

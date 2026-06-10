@@ -11,6 +11,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/export_datasets.php';
+require_once __DIR__ . '/CsvExportService.php';
 
 class ReportBuilderException extends RuntimeException {}
 
@@ -52,7 +53,7 @@ function reportBuilderDatasetRegistry(?int $tenantId = null): array
             'custom_field_entities' => array_values($dataset['custom_field_entities'] ?? []),
             'sensitive_fields'      => array_values($dataset['sensitive_fields'] ?? []),
             'audit_event'           => 'reports.custom.dataset.viewed',
-            'execution_supported'   => false,
+            'execution_supported'   => reportBuilderDatasetExecutionSupported($key),
             'fields'                => $fields,
             'dimensions'            => $dimensions,
             'measures'              => $measures,
@@ -66,6 +67,13 @@ function reportBuilderDatasetGet(string $key, ?int $tenantId = null): ?array
 {
     $reg = reportBuilderDatasetRegistry($tenantId);
     return $reg[$key] ?? null;
+}
+
+function reportBuilderDatasetExecutionSupported(string $datasetKey): bool
+{
+    $dataset = exportDatasetGet($datasetKey);
+    $fetcher = $dataset['fetcher'] ?? null;
+    return is_string($fetcher) && is_callable($fetcher);
 }
 
 /**
@@ -154,6 +162,12 @@ function reportBuilderUserCanShare(array $user): bool
 {
     if (!function_exists('rbac_legacy_can')) return true;
     return rbac_legacy_can($user, 'reports.custom.share');
+}
+
+function reportBuilderUserCanExport(array $user): bool
+{
+    if (!function_exists('rbac_legacy_can')) return true;
+    return rbac_legacy_can($user, 'reports.export');
 }
 
 function reportBuilderUserCanAccessDataset(array $user, array $dataset): bool
@@ -251,6 +265,172 @@ function reportBuilderNormalizeSorts($raw, array $fields): array
         ];
     }
     return $out;
+}
+
+function reportBuilderDefinitionUsesSensitiveFields(array $definition): bool
+{
+    foreach (['columns', 'dimensions', 'measures', 'filters'] as $section) {
+        foreach (($definition[$section] ?? []) as $entry) {
+            if (!empty($entry['sensitive'])) return true;
+        }
+    }
+    $dataset = reportBuilderDatasetGet((string) ($definition['dataset'] ?? ''));
+    $sensitive = array_flip($dataset['sensitive_fields'] ?? []);
+    foreach (($definition['sorts'] ?? []) as $sort) {
+        if (isset($sensitive[(string) ($sort['field'] ?? '')])) return true;
+    }
+    return false;
+}
+
+function reportBuilderRunDefinition(array $raw, int $tenantId, array $options = []): array
+{
+    $definition = reportBuilderValidateDefinition($raw, $tenantId);
+    $dataset = exportDatasetGet((string) $definition['dataset']);
+    if (!$dataset) throw new ReportBuilderException('Report dataset not found');
+    $fetcher = $dataset['fetcher'] ?? null;
+    if (!is_string($fetcher) || !is_callable($fetcher)) {
+        throw new ReportBuilderException('Report dataset does not support execution');
+    }
+
+    $fetchOptions = array_merge($options, ['limit' => $definition['limit']]);
+    $rows = $fetcher($tenantId, $fetchOptions);
+    return reportBuilderApplyDefinitionToRows($definition, is_iterable($rows) ? $rows : []);
+}
+
+function reportBuilderRenderCsv(array $result): string
+{
+    $columns = [];
+    foreach (($result['columns'] ?? []) as $column) {
+        $field = (string) ($column['field'] ?? '');
+        if ($field === '') continue;
+        $columns[$field] = (string) ($column['label'] ?? $field);
+    }
+    if (!$columns) throw new ReportBuilderException('Report result has no columns');
+    return \Core\CsvExportService::toString($columns, $result['rows'] ?? []);
+}
+
+function reportBuilderCsvFilename(string $dataset): string
+{
+    $safe = preg_replace('/[^A-Za-z0-9_\-.]/', '_', $dataset) ?: 'custom_report';
+    return $safe . '_custom_report_' . date('Ymd_His') . '.csv';
+}
+
+function reportBuilderApplyDefinitionToRows(array $definition, iterable $rows): array
+{
+    $selected = reportBuilderDefinitionOutputFields($definition);
+    $filtered = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) continue;
+        if (!reportBuilderRowMatchesFilters($row, $definition['filters'] ?? [])) continue;
+        $filtered[] = $row;
+    }
+
+    $sorts = $definition['sorts'] ?? [];
+    if ($sorts) {
+        usort($filtered, function (array $a, array $b) use ($sorts): int {
+            foreach ($sorts as $sort) {
+                $field = (string) ($sort['field'] ?? '');
+                $cmp = reportBuilderCompareValues($a[$field] ?? null, $b[$field] ?? null);
+                if ($cmp !== 0) return (($sort['direction'] ?? 'asc') === 'desc') ? -$cmp : $cmp;
+            }
+            return 0;
+        });
+    }
+
+    $limit = min(10000, max(1, (int) ($definition['limit'] ?? 1000)));
+    $out = [];
+    foreach (array_slice($filtered, 0, $limit) as $row) {
+        $projected = [];
+        foreach ($selected as $field) {
+            $projected[$field['field']] = $row[$field['field']] ?? '';
+        }
+        $out[] = $projected;
+    }
+
+    return [
+        'dataset' => (string) ($definition['dataset'] ?? ''),
+        'columns' => $selected,
+        'rows' => $out,
+        'row_count' => count($out),
+        'truncated' => count($filtered) > $limit,
+    ];
+}
+
+function reportBuilderDefinitionOutputFields(array $definition): array
+{
+    $out = [];
+    foreach (['columns', 'dimensions', 'measures'] as $section) {
+        foreach (($definition[$section] ?? []) as $entry) {
+            $field = (string) ($entry['field'] ?? '');
+            if ($field === '' || isset($out[$field])) continue;
+            $out[$field] = [
+                'field' => $field,
+                'label' => (string) ($entry['label'] ?? $field),
+                'type' => (string) ($entry['type'] ?? 'text'),
+                'sensitive' => !empty($entry['sensitive']),
+            ];
+        }
+    }
+    return array_values($out);
+}
+
+function reportBuilderRowMatchesFilters(array $row, array $filters): bool
+{
+    foreach ($filters as $filter) {
+        $field = (string) ($filter['field'] ?? '');
+        $operator = (string) ($filter['operator'] ?? 'equals');
+        $value = $row[$field] ?? null;
+        $expected = $filter['value'] ?? null;
+        $expectedTo = $filter['value_to'] ?? null;
+
+        $blank = $value === null || $value === '';
+        $ok = match ($operator) {
+            'is_blank' => $blank,
+            'is_not_blank' => !$blank,
+            'not_equals' => !reportBuilderValuesEqual($value, $expected),
+            'contains' => str_contains(strtolower((string) $value), strtolower((string) $expected)),
+            'starts_with' => str_starts_with(strtolower((string) $value), strtolower((string) $expected)),
+            'greater_than' => reportBuilderCompareValues($value, $expected) > 0,
+            'less_than' => reportBuilderCompareValues($value, $expected) < 0,
+            'between' => reportBuilderCompareValues($value, $expected) >= 0 && reportBuilderCompareValues($value, $expectedTo) <= 0,
+            default => reportBuilderValuesEqual($value, $expected),
+        };
+        if (!$ok) return false;
+    }
+    return true;
+}
+
+function reportBuilderValuesEqual($left, $right): bool
+{
+    if (is_numeric($left) && is_numeric($right)) return (float) $left === (float) $right;
+    return strtolower((string) $left) === strtolower((string) $right);
+}
+
+function reportBuilderCompareValues($left, $right): int
+{
+    if (is_numeric($left) && is_numeric($right)) return (float) $left <=> (float) $right;
+    return strcmp(strtolower((string) $left), strtolower((string) $right));
+}
+
+function reportBuilderAudit(int $tenantId, ?int $actorUserId, string $event, ?int $targetId, array $meta = []): void
+{
+    if (!function_exists('getDB')) return;
+    try {
+        getDB()->prepare(
+            'INSERT INTO audit_log
+                (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
+             VALUES
+                (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, NOW())'
+        )->execute([
+            'tenant_id' => $tenantId,
+            'actor_user_id' => $actorUserId,
+            'event' => $event,
+            'target_id' => $targetId,
+            'meta_json' => json_encode($meta, JSON_UNESCAPED_SLASHES),
+        ]);
+    } catch (\Throwable $e) {
+        error_log('[report_builder.audit] ' . $event . ' failed: ' . $e->getMessage());
+    }
 }
 
 function reportBuilderSavedReportList(int $tenantId, int $userId, ?string $dataset = null): array

@@ -446,7 +446,7 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): voi
 // the moment its first entry is touched, so the downstream
 // billing/payroll/journal pipeline re-evaluates on the next submission.
 //
-// Anyone with `staffing.timesheets.write` (enforced at the API layer)
+// Anyone with `staffing.time.create` (enforced at the API layer)
 // may edit any timesheet — original worker OR a manager fixing it
 // in-place, per product direction (2026-02).
 
@@ -638,4 +638,3 @@ function staffingTimeEntryDelete(int $userId, int $entryId): array {
     scopedUpdate('staffing_timesheets', $tsId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
     return ['deleted' => $entryId, 'timesheet_id' => $tsId];
 }
-

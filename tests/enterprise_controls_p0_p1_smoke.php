@@ -16,8 +16,12 @@ function contains(string $file, string $needle): bool {
 
 $time = $root . '/modules/time/api/entries.php';
 $payroll = $root . '/modules/payroll/api/runs.php';
+$gustoSubmit = $root . '/modules/payroll/api/gusto_submit.php';
 $placements = $root . '/modules/placements/api/placements.php';
 $people = $root . '/modules/people/api/employees.php';
+$staffingTimesheets = $root . '/modules/staffing/api/timesheets.php';
+$staffingReadiness = $root . '/modules/staffing/api/readiness.php';
+$staffingManifest = $root . '/modules/staffing/manifest.php';
 $legacyMap = $root . '/core/rbac/legacy_map.php';
 
 echo "Time controls" . PHP_EOL;
@@ -35,6 +39,8 @@ check('approve requires computed status', contains($payroll, "_payrollRequireSta
 check('paid requires approved status', contains($payroll, "_payrollRequireStatus(\$run, ['approved'], 'Mark paid')"));
 check('builder cannot approve own run', contains($payroll, '_payrollDenyBuildApproveSameActor($runId, $user)'));
 check('approver cannot mark paid/originate', contains($payroll, '_payrollDenySameActor((int) ($run[\'approved_by\'] ?? 0), $user'));
+check('approver cannot manually submit run to Gusto', contains($payroll, 'Approver cannot submit the same payroll run to Gusto'));
+check('approver cannot API-submit run to Gusto', contains($gustoSubmit, '_gustoSubmitDenySameActor((int) ($run[\'approved_by\'] ?? 0), $ctx[\'user\']'));
 check('payroll manifest permissions mapped', contains($legacyMap, "'payroll.run.approve'") && contains($legacyMap, "'payroll.run.build'") && contains($legacyMap, "'payroll.run.disburse'"));
 
 echo PHP_EOL . "Placement controls" . PHP_EOL;
@@ -42,6 +48,16 @@ check('create active placement is rejected', contains($placements, 'Placements c
 check('bulk active status runs activation guard', contains($placements, "_placementsEnsureActiveReady(\$pid, \$user"));
 check('patch active status runs activation guard', contains($placements, "_placementsEnsureActiveReady(\n            \$id"));
 check('activation requires approved rate coverage', contains($placements, 'cannot become active without an approved rate'));
+
+echo PHP_EOL . "Staffing consumer controls" . PHP_EOL;
+check('staffing manifest says consumer/orchestrator', contains($staffingManifest, 'consumes') && contains($staffingManifest, 'not the source-of-truth domain records'));
+check('staffing timesheet reads require time view', contains($staffingTimesheets, "rbac_legacy_require(\$user, 'staffing.time.view')"));
+check('staffing timesheet writes require create/submit/approve/reject', contains($staffingTimesheets, "staffing.time.create") && contains($staffingTimesheets, "staffing.time.submit") && contains($staffingTimesheets, "staffing.time.approve") && contains($staffingTimesheets, "staffing.time.reject"));
+check('staffing readiness reads require payroll/billing view', contains($staffingReadiness, "staffing.payroll.view") && contains($staffingReadiness, "staffing.billing.view"));
+check('staffing readiness writes require payroll/billing manage', contains($staffingReadiness, "staffing.payroll.manage") && contains($staffingReadiness, "staffing.billing.manage"));
+check('staffing readiness status flips are audited', contains($staffingReadiness, 'staffingReadinessAudit(') && contains($staffingReadiness, 'staffing.readiness.payroll_marked') && contains($staffingReadiness, 'staffing.readiness.billing_marked'));
+check('staffing manifest declares readiness audit events', contains($staffingManifest, 'staffing.readiness.payroll_marked') && contains($staffingManifest, 'staffing.readiness.billing_marked'));
+check('staffing manifest permissions mapped', contains($legacyMap, "'staffing.time.approve'") && contains($legacyMap, "'staffing.payroll.manage'") && contains($legacyMap, "'staffing.billing.manage'"));
 
 echo PHP_EOL . "People/PII controls" . PHP_EOL;
 check('people endpoint requires RBAC', contains($people, "require_once __DIR__ . '/../../../core/RBAC.php'"));

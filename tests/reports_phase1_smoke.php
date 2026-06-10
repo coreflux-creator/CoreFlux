@@ -33,10 +33,10 @@ $assert('depends_on people + placements + time',
     in_array('people', $m['depends_on'] ?? [], true)
     && in_array('placements', $m['depends_on'] ?? [], true)
     && in_array('time', $m['depends_on'] ?? [], true));
-foreach (['reports.view','reports.export','reports.custom.build','reports.custom.share'] as $p) {
+foreach (['admin.export_templates.manage','reports.view','reports.export','reports.custom.build','reports.custom.share'] as $p) {
     $assert("perm: {$p}", in_array($p, array_keys($m['permissions'] ?? []), true));
 }
-foreach (['reports.dashboard.viewed','reports.exported','reports.custom.created','reports.custom.updated','reports.custom.deleted'] as $ev) {
+foreach (['reports.dashboard.viewed','reports.exported','reports.custom.created','reports.custom.updated','reports.custom.deleted','reports.custom.executed','reports.custom.exported'] as $ev) {
     $assert("event: {$ev}", in_array($ev, $m['audit_events'] ?? [], true));
 }
 foreach (['overview','executive_snapshot','client_profitability','rate_spread','overtime_watch'] as $rt) {

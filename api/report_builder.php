@@ -5,6 +5,8 @@
  * GET /api/report_builder.php?action=datasets
  * GET /api/report_builder.php?dataset=people_directory
  * GET /api/report_builder.php?action=reports
+ * POST /api/report_builder.php?action=run
+ * POST /api/report_builder.php?action=export
  * POST /api/report_builder.php
  * PATCH /api/report_builder.php?id=123
  * DELETE /api/report_builder.php?id=123
@@ -57,8 +59,77 @@ if ($method === 'GET' && ($action === '' || $action === 'datasets')) {
     api_ok([
         'datasets' => $datasets,
         'count' => count($datasets),
-        'execution_supported' => false,
+        'execution_supported' => true,
     ]);
+}
+
+if ($method === 'POST' && $action === 'run') {
+    if (!reportBuilderUserCanBuild($user)) api_error('Forbidden', 403, ['required' => 'reports.custom.build']);
+    $body = api_json_body();
+    try {
+        if (!empty($body['report_id'])) {
+            $saved = reportBuilderSavedReportGet((int) $body['report_id'], $tenantId, $userId, reportBuilderUserCanShare($user));
+            $definition = $saved['definition'] ?? [];
+            $targetId = (int) ($saved['id'] ?? 0);
+        } else {
+            $definition = $body['definition'] ?? $body;
+            $targetId = null;
+        }
+        $definition = reportBuilderValidateDefinition((array) $definition, $tenantId);
+        $dataset = reportBuilderDatasetGet((string) $definition['dataset'], $tenantId);
+        if (!$dataset) api_error('Report dataset not found', 404);
+        if (!reportBuilderUserCanAccessDataset($user, $dataset)) {
+            api_error('Forbidden', 403, ['required' => $dataset['permission'] ?? null]);
+        }
+        if (reportBuilderDefinitionUsesSensitiveFields($definition) && !reportBuilderUserCanExport($user)) {
+            api_error('Forbidden', 403, ['required' => 'reports.export']);
+        }
+        $result = reportBuilderRunDefinition($definition, $tenantId, (array) ($body['options'] ?? []));
+        reportBuilderAudit($tenantId, $userId ?: null, 'reports.custom.executed', $targetId, [
+            'dataset' => $definition['dataset'],
+            'columns' => array_column($result['columns'] ?? [], 'field'),
+            'row_count' => $result['row_count'] ?? 0,
+        ]);
+        api_ok(['result' => $result, 'execution_supported' => true]);
+    } catch (ReportBuilderException $e) {
+        api_error($e->getMessage(), 422);
+    }
+}
+
+if ($method === 'POST' && $action === 'export') {
+    if (!reportBuilderUserCanBuild($user)) api_error('Forbidden', 403, ['required' => 'reports.custom.build']);
+    if (!reportBuilderUserCanExport($user)) api_error('Forbidden', 403, ['required' => 'reports.export']);
+    $body = api_json_body();
+    try {
+        if (!empty($body['report_id'])) {
+            $saved = reportBuilderSavedReportGet((int) $body['report_id'], $tenantId, $userId, reportBuilderUserCanShare($user));
+            $definition = $saved['definition'] ?? [];
+            $targetId = (int) ($saved['id'] ?? 0);
+        } else {
+            $definition = $body['definition'] ?? $body;
+            $targetId = null;
+        }
+        $definition = reportBuilderValidateDefinition((array) $definition, $tenantId);
+        $dataset = reportBuilderDatasetGet((string) $definition['dataset'], $tenantId);
+        if (!$dataset) api_error('Report dataset not found', 404);
+        if (!reportBuilderUserCanAccessDataset($user, $dataset)) {
+            api_error('Forbidden', 403, ['required' => $dataset['permission'] ?? null]);
+        }
+        $result = reportBuilderRunDefinition($definition, $tenantId, (array) ($body['options'] ?? []));
+        reportBuilderAudit($tenantId, $userId ?: null, 'reports.custom.exported', $targetId, [
+            'dataset' => $definition['dataset'],
+            'columns' => array_column($result['columns'] ?? [], 'field'),
+            'row_count' => $result['row_count'] ?? 0,
+            'format' => 'csv',
+        ]);
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . reportBuilderCsvFilename((string) $definition['dataset']) . '"');
+        header('Cache-Control: no-store');
+        echo reportBuilderRenderCsv($result);
+        exit;
+    } catch (ReportBuilderException $e) {
+        api_error($e->getMessage(), 422);
+    }
 }
 
 if ($method === 'POST') {

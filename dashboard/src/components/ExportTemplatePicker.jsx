@@ -32,7 +32,7 @@ export default function ExportTemplatePicker({
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    fetch(`/api/export_templates.php?dataset=${encodeURIComponent(dataset)}`, {
+    fetch(`/api/v1/reports/export-templates?dataset=${encodeURIComponent(dataset)}`, {
       credentials: 'include',
     })
       .then((r) => r.json().then((d) => r.ok ? d : Promise.reject(d)))

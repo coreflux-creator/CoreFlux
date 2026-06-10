@@ -93,6 +93,7 @@ echo "\nPayroll runs.php — Gusto sync API\n";
 $a('mark_gusto_synced action',                 strpos($runs, "action === 'mark_gusto_synced'") !== false);
 $a('mark_gusto_synced requires gusto_run_id',  strpos($runs, "['gusto_run_id']") !== false);
 $a('mark_gusto_synced rejects non-http URL',   strpos($runs, "preg_match('#^https?://#i'") !== false);
+$a('mark_gusto_synced blocks approver',        strpos($runs, 'Approver cannot submit the same payroll run to Gusto') !== false);
 $a('mark_gusto_synced sets status submitted',  strpos($runs, "'gusto_status'      => 'submitted'") !== false);
 $a('mark_gusto_synced audits',                 strpos($runs, 'payroll.run.gusto_synced') !== false);
 $a('mark_gusto_paid action',                   strpos($runs, "action === 'mark_gusto_paid'") !== false);

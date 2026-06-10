@@ -117,6 +117,9 @@ $assert('datasets API returns governance metadata',
                                               && strpos($api, 'exportDatasetFieldRegistry') !== false);
 $assert('datasets API filters by dataset RBAC', strpos($api, 'exportDatasetAccessibleRegistry($user)') !== false);
 $assert('template CRUD gates dataset access', strpos($api, '_xtplRequireDatasetAccess') !== false);
+$assert('template CRUD uses explicit manage permission',
+                                              strpos($api, "rbac_legacy_can(\$user, 'admin.export_templates.manage')") !== false
+                                              && strpos($api, "'required' => 'admin.export_templates.manage'") !== false);
 $assert('action=parse_headers',               strpos($api, "action === 'parse_headers'") !== false);
 $assert('action=clone',                       strpos($api, "action === 'clone'") !== false);
 $assert('master-only platform create',        strpos($lib2 = file_get_contents(__DIR__ . '/../core/export_templates.php'), 'Only master_admin can create platform templates') !== false);
@@ -168,12 +171,13 @@ $assert('no longer auto-rewires to nacha',
 echo "React UI\n";
 $picker = file_get_contents(__DIR__ . '/../dashboard/src/components/ExportTemplatePicker.jsx');
 $assert('ExportTemplatePicker.jsx exists',    is_string($picker) && strlen($picker) > 200);
-$assert('hits /api/export_templates.php',     strpos($picker, '/api/export_templates.php?dataset=') !== false);
+$assert('hits v1 export templates API',       strpos($picker, '/api/v1/reports/export-templates?dataset=') !== false);
 $assert('shows manage link when empty',       strpos($picker, '/admin/export-templates') !== false);
 $assert('platform badge rendered',            strpos($picker, 'PLATFORM') !== false);
 
 $admin = file_get_contents(__DIR__ . '/../dashboard/src/pages/ExportTemplatesAdmin.jsx');
 $assert('ExportTemplatesAdmin.jsx exists',    is_string($admin) && strlen($admin) > 500);
+$assert('admin uses v1 export templates API', strpos($admin, '/api/v1/reports/export-templates') !== false);
 $assert('upload sample CSV',                  strpos($admin, 'data-testid="xtpl-upload-sample"') !== false);
 $assert('column mapping rows',                strpos($admin, 'data-testid={`xtpl-row-${i}-source-field`}') !== false);
 $assert('fixed-value input',                  strpos($admin, 'data-testid={`xtpl-row-${i}-fixed-value`}') !== false);

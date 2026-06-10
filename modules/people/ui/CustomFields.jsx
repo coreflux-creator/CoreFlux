@@ -4,7 +4,7 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 const TYPES = ['text','number','date','boolean','select','multiselect'];
 
 export default function CustomFields() {
-  const path = '/api/custom_field_definitions.php?entity_type=people';
+  const path = '/api/v1/people/custom-field-definitions';
   const { data, loading, error, reload } = useApi(path);
   const fields = data?.definitions ?? [];
 

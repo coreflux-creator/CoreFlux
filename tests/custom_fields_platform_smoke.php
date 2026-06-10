@@ -88,9 +88,11 @@ $assert('field map apply calls customFieldValueUpsert', str_contains($apply, 'cu
 echo "\nUI consumers\n";
 $customFieldsUi = (string) file_get_contents($root . '/modules/people/ui/CustomFields.jsx');
 $personDetailUi = (string) file_get_contents($root . '/modules/people/ui/PersonDetail.jsx');
-$assert('People custom fields admin uses platform definitions API', str_contains($customFieldsUi, '/api/custom_field_definitions.php?entity_type=people'));
-$assert('Person detail uses platform definitions API', str_contains($personDetailUi, '/api/custom_field_definitions.php?entity_type=people'));
-$assert('Person detail uses platform values API', str_contains($personDetailUi, '/api/custom_field_values.php?entity_type=people&record_id='));
+$assert('People custom fields admin uses v1 platform definitions API', str_contains($customFieldsUi, '/api/v1/people/custom-field-definitions'));
+$assert('Person detail uses v1 platform definitions API', str_contains($personDetailUi, '/api/v1/people/custom-field-definitions'));
+$assert('Person detail uses v1 platform values API', str_contains($personDetailUi, '/api/v1/people/custom-field-values/'));
+$assert('Person detail uses v1 platform layout API', str_contains($personDetailUi, '/api/v1/people/custom-field-layouts/detail'));
+$assert('Person detail applies shared layout ordering', str_contains($personDetailUi, 'fieldOrder.indexOf') && str_contains($personDetailUi, 'orderedDefs.map'));
 
 echo "\nDocs\n";
 $assert('custom fields docs exist', is_file($root . '/docs/CUSTOM_FIELDS_LAYOUTS.md'));

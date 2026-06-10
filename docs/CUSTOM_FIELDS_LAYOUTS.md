@@ -55,18 +55,20 @@ generic `custom_fields` / `custom_values` tables during migration.
 Use:
 
 ```text
-GET /api/custom_field_entities.php
-GET /api/custom_field_entities.php?entity_type=people
-GET /api/custom_field_definitions.php?entity_type=people
-POST /api/custom_field_definitions.php?entity_type=people
-PATCH /api/custom_field_definitions.php?entity_type=people&id=123
-DELETE /api/custom_field_definitions.php?entity_type=people&id=123
-GET /api/custom_field_layouts.php
-GET /api/custom_field_layouts.php?entity_type=people
-GET /api/custom_field_layouts.php?entity_type=people&surface=forms
-GET /api/custom_field_values.php?entity_type=people&record_id=123
-POST /api/custom_field_values.php?entity_type=people&record_id=123
+GET    /api/v1/people/custom-field-definitions
+POST   /api/v1/people/custom-field-definitions
+PATCH  /api/v1/people/custom-field-definitions?id=123
+DELETE /api/v1/people/custom-field-definitions?id=123
+GET    /api/v1/people/custom-field-layouts
+GET    /api/v1/people/custom-field-layouts/forms
+GET    /api/v1/people/custom-field-values/123
+POST   /api/v1/people/custom-field-values/123
 ```
+
+The shared discovery endpoint remains available at
+`/api/custom_field_entities.php` during migration. The underlying direct-file
+handlers also remain as compatibility surfaces, but product UI should prefer
+the entity-scoped v1 aliases.
 
 The response includes entity metadata plus `can_view` and `can_manage` flags
 computed from the active user's RBAC permissions.

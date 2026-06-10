@@ -117,8 +117,12 @@ Current implementation status:
   preserves source dataset RBAC checks.
 - Saved report definitions are persisted in `report_builder_reports` after
   validation against governed dataset fields.
-- Query execution remains follow-on work; saved definitions do not permit
-  arbitrary SQL.
+- Query execution uses registered export dataset fetchers and in-memory
+  projection/filter/sort logic; saved definitions do not permit arbitrary SQL.
+- Sensitive-field execution requires `reports.export` in addition to source
+  dataset access.
+- Custom report CSV export uses the shared platform CSV export primitive and
+  emits explicit audit metadata.
 
 ## 3. Enterprise Controls
 

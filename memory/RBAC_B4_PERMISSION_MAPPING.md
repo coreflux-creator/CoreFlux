@@ -185,11 +185,26 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 ### reports
 | Legacy permission | New tuple |
 |---|---|
+| `admin.export_templates.manage` | `(reports, admin)` |
+| `reports.custom.build` | `(reports, write)` |
+| `reports.custom.share` | `(reports, admin)` |
+| `reports.export` | `(reports, write)` |
 | `reports.view` | `(reports, read)` |
 
 ### staffing
 | Legacy permission | New tuple |
 |---|---|
+| `staffing.billing.manage` | `(staffing, write)` |
+| `staffing.billing.view` | `(staffing, read)` |
+| `staffing.payroll.manage` | `(staffing, write)` |
+| `staffing.payroll.view` | `(staffing, read)` |
+| `staffing.reports.view` | `(staffing, read)` |
+| `staffing.settings.manage` | `(staffing, admin)` |
+| `staffing.time.approve` | `(staffing, admin)` |
+| `staffing.time.create` | `(staffing, write)` |
+| `staffing.time.reject` | `(staffing, admin)` |
+| `staffing.time.submit` | `(staffing, write)` |
+| `staffing.time.view` | `(staffing, read)` |
 | `staffing.view` | `(staffing, read)` |
 
 ### tenant *(NOT migrated — platform gate)*

@@ -17,6 +17,7 @@
  */
 declare(strict_types=1);
 
+$root = dirname(__DIR__);
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
     if ($cond) { echo "  ✓ $msg\n"; $pass++; }
@@ -27,7 +28,7 @@ $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
 // 1) TimesheetDetail.jsx — inline edit surface
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── TimesheetDetail inline edit ──\n";
-$det = file_get_contents('/app/modules/staffing/ui/TimesheetDetail.jsx');
+$det = file_get_contents($root . '/modules/staffing/ui/TimesheetDetail.jsx');
 
 $a('exists', $det !== false && strlen($det) > 100);
 
@@ -215,7 +216,7 @@ $a('inactive-placement fallback option keeps the row editable',
 // 2) TimesheetWeek.jsx — URL anchor fix
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── TimesheetWeek URL anchor ──\n";
-$week = file_get_contents('/app/modules/staffing/ui/TimesheetWeek.jsx');
+$week = file_get_contents($root . '/modules/staffing/ui/TimesheetWeek.jsx');
 
 $a('reads URL search params at module entry',
     str_contains($week, 'new URLSearchParams(window.location.search)'));
@@ -238,19 +239,19 @@ $a('NO LONGER hard-codes personId to session.user only',
 
 // ──────────────────────────────────────────────────────────────────────
 // 3) Backend wiring sanity — entry_save / entry_delete / reopen are
-//     all still gated on staffing.timesheets.write and route through
+//     all still gated on staffing.time.create and route through
 //     the auto-reopening lib functions (don't accidentally regress).
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── Backend gates ──\n";
-$api = file_get_contents('/app/modules/staffing/api/timesheets.php');
-$a('entry_save is RBAC-gated on staffing.timesheets.write',
-    preg_match("/'POST' && \\\$action === 'entry_save'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.timesheets\\.write'\\)/", $api) === 1);
-$a('entry_delete is RBAC-gated on staffing.timesheets.write',
-    preg_match("/'POST' && \\\$action === 'entry_delete'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.timesheets\\.write'\\)/", $api) === 1);
-$a('reopen is RBAC-gated on staffing.timesheets.write',
-    preg_match("/'POST' && \\\$action === 'reopen'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.timesheets\\.write'\\)/", $api) === 1);
-$a('entries_bulk_save is RBAC-gated on staffing.timesheets.write',
-    preg_match("/'POST' && \\\$action === 'entries_bulk_save'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.timesheets\\.write'\\)/", $api) === 1);
+$api = file_get_contents($root . '/modules/staffing/api/timesheets.php');
+$a('entry_save is RBAC-gated on staffing.time.create',
+    preg_match("/'POST' && \\\$action === 'entry_save'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.time\\.create'\\)/", $api) === 1);
+$a('entry_delete is RBAC-gated on staffing.time.create',
+    preg_match("/'POST' && \\\$action === 'entry_delete'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.time\\.create'\\)/", $api) === 1);
+$a('reopen is RBAC-gated on staffing.time.create',
+    preg_match("/'POST' && \\\$action === 'reopen'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.time\\.create'\\)/", $api) === 1);
+$a('entries_bulk_save is RBAC-gated on staffing.time.create',
+    preg_match("/'POST' && \\\$action === 'entries_bulk_save'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.time\\.create'\\)/", $api) === 1);
 $a('entries_bulk_save returns {saved, errors[], rows[]} envelope',
     str_contains($api, "'saved'  => count(\$results)")
     && str_contains($api, "'errors' => \$errors"));
@@ -259,7 +260,7 @@ $a('entries_bulk_save returns {saved, errors[], rows[]} envelope',
 // Optimistic merge — skip the reload flash on the happy path.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── Optimistic merge ──\n";
-$apiLib = file_get_contents('/app/dashboard/src/lib/api.js');
+$apiLib = file_get_contents($root . '/dashboard/src/lib/api.js');
 $a('useApi exposes a `mutate` setter for optimistic patches',
     str_contains($apiLib, 'const mutate = useCallback((updater) =>')
     && preg_match("/return \{ data, error, loading, elapsedMs, reload: load, mutate \}/", $apiLib) === 1);
@@ -307,7 +308,7 @@ $a('AddEntryRow enriches new row with placement labels for instant display',
 $a('edit buffer reset keyed ONLY on timesheet id (not entries.length)',
     str_contains($det, 'useEffect(() => { setEdits({}); setBulkResult(null); }, [data?.timesheet?.id]);'));
 
-$lib = file_get_contents('/app/modules/staffing/lib/timesheets.php');
+$lib = file_get_contents($root . '/modules/staffing/lib/timesheets.php');
 $a('staffingTimeEntrySave auto-reopens non-draft sheets',
     preg_match("/function staffingTimeEntrySave[\s\S]{0,2000}staffingTimesheetReopen\\(\\\$userId, \\\$tsId, 'edited inline'\\)/", $lib) === 1);
 $a('staffingTimeEntryDelete auto-reopens non-draft sheets',

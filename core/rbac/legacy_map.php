@@ -200,12 +200,24 @@ final class RbacLegacyMap
             'placements.view'                    => ['placements', 'read'],
 
             // ── reports ───────────────────────────────────────────────────
+            'admin.export_templates.manage'      => ['reports', 'admin'],
             'reports.view'                       => ['reports', 'read'],
             'reports.export'                     => ['reports', 'write'],
             'reports.custom.build'               => ['reports', 'write'],
             'reports.custom.share'               => ['reports', 'admin'],
 
             // ── staffing ──────────────────────────────────────────────────
+            'staffing.billing.manage'            => ['staffing', 'write'],
+            'staffing.billing.view'              => ['staffing', 'read'],
+            'staffing.payroll.manage'            => ['staffing', 'write'],
+            'staffing.payroll.view'              => ['staffing', 'read'],
+            'staffing.reports.view'              => ['staffing', 'read'],
+            'staffing.settings.manage'           => ['staffing', 'admin'],
+            'staffing.time.approve'              => ['staffing', 'admin'],
+            'staffing.time.create'               => ['staffing', 'write'],
+            'staffing.time.reject'               => ['staffing', 'admin'],
+            'staffing.time.submit'               => ['staffing', 'write'],
+            'staffing.time.view'                 => ['staffing', 'read'],
             'staffing.view'                      => ['staffing', 'read'],
 
             // ── tenant (PARKED — platform gate, keep legacy) ──────────────

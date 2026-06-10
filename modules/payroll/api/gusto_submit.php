@@ -43,6 +43,7 @@ if (!$run) api_error('Run not found', 404);
 if (!in_array($run['status'], ['approved', 'paid'], true)) {
     api_error('Run must be approved before submitting to Gusto (current: ' . $run['status'] . ')', 409);
 }
+_gustoSubmitDenySameActor((int) ($run['approved_by'] ?? 0), $ctx['user'], 'Approver cannot submit the same payroll run to Gusto');
 
 $conn = gustoActiveConnection((int) $ctx['tenant_id']);
 if (!$conn) api_error('No active Gusto connection. Connect Gusto in Payroll Settings first.', 412);
@@ -117,6 +118,13 @@ try {
     api_error('Gusto fetch payroll failed: ' . $e->getMessage(), 502, [
         'error_key' => $e->errorKey, 'http_code' => $e->httpCode,
     ]);
+}
+
+function _gustoSubmitDenySameActor(int $blockedActorId, array $user, string $message): void
+{
+    if ($blockedActorId > 0 && $blockedActorId === (int) ($user['id'] ?? 0)) {
+        api_error('Two-eye control: ' . $message, 403);
+    }
 }
 
 if (($payroll['processing_status'] ?? '') !== 'unprocessed') {

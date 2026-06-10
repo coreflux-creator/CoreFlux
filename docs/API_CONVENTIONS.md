@@ -23,6 +23,15 @@ POST /api/v1/time/entries/123/submit
 POST /api/v1/time/entries/123/approve
 POST /api/v1/payroll/runs/456/approve
 POST /api/v1/placements/placements/789/activate
+GET  /api/v1/reports/report-builder/datasets
+POST /api/v1/reports/report-builder/run
+POST /api/v1/reports/report-builder/export
+GET  /api/v1/reports/export-templates
+POST /api/v1/reports/export-templates/123/clone
+POST /api/v1/reports/export-templates/parse-headers
+GET  /api/v1/people/custom-field-definitions
+GET  /api/v1/people/custom-field-values/123
+GET  /api/v1/people/custom-field-layouts/detail
 ```
 
 ## Compatibility Behavior
@@ -49,6 +58,22 @@ action=approve
 
 Explicit query-string values win. This lets old clients keep working while new
 clients move to resource/action paths.
+
+Some platform services still live at legacy direct-file endpoints during the
+migration window. The router exposes narrow v1 aliases for those services; for
+example, `/api/v1/reports/report-builder/run` dispatches to
+`/api/report_builder.php?action=run`.
+
+Custom-field platform services are exposed through entity-scoped v1 aliases:
+
+```text
+/api/v1/{entity}/custom-field-definitions
+/api/v1/{entity}/custom-field-values/{record_id}
+/api/v1/{entity}/custom-field-layouts/{surface}
+```
+
+These dispatch to the shared custom-field platform handlers with compatibility
+query keys such as `entity_type`, `record_id`, and `surface`.
 
 ## Endpoint Rules
 

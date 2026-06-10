@@ -1,18 +1,19 @@
 <?php
 /**
- * /api/export_templates.php — tenant + platform export template CRUD.
+ * /api/export_templates.php - tenant + platform export template CRUD.
  *
- *   GET    /api/export_templates.php?dataset=…   list visible templates
+ *   GET    /api/export_templates.php?dataset=...   list visible templates
  *   GET    /api/export_templates.php?action=datasets           dataset registry
  *   GET    /api/export_templates.php?id=N                      fetch one
  *   POST   /api/export_templates.php                            create
  *   PATCH  /api/export_templates.php?id=N                      update
  *   DELETE /api/export_templates.php?id=N                      delete (soft for system)
  *   POST   /api/export_templates.php?action=clone&id=N         clone to tenant
- *   POST   /api/export_templates.php?action=parse_headers      (multipart file=…)
+ *   POST   /api/export_templates.php?action=parse_headers      (multipart file=...)
  *
  * Platform-scoped CRUD requires master_admin; tenant-scoped requires
- * `admin.export_templates.manage` (falls back to tenant_admin).
+ * admin.export_templates.manage, with tenant_admin/admin as a compatibility
+ * fallback while the membership grid catches up.
  */
 
 declare(strict_types=1);
@@ -30,7 +31,7 @@ $tenantId  = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = api_query('action', '');
 
-// ───── Dataset registry (read-only, any auth'd user) ─────
+// Dataset registry: read-only and filtered to datasets the user can access.
 if ($method === 'GET' && $action === 'datasets') {
     $reg = exportDatasetAccessibleRegistry($user);
     $out = [];
@@ -50,7 +51,7 @@ if ($method === 'GET' && $action === 'datasets') {
     api_ok(['datasets' => $out]);
 }
 
-// ───── Sample CSV header parser ─────
+// Sample CSV header parser.
 if ($method === 'POST' && $action === 'parse_headers') {
     if (empty($_FILES['file']['tmp_name'])) api_error('file upload required', 422);
     if (($_FILES['file']['size'] ?? 0) > 262144) api_error('Sample must be < 256 KB', 413);
@@ -64,9 +65,9 @@ if ($method === 'POST' && $action === 'parse_headers') {
     api_ok(['headers' => $headers]);
 }
 
-// ───── Clone ─────
+// Clone an existing visible template into the tenant namespace.
 if ($method === 'POST' && $action === 'clone') {
-    _xtplRequireManage($role);
+    _xtplRequireManage($user, $role);
     $id = (int) api_query('id', 0);
     if (!$id) api_error('id required', 422);
     try {
@@ -79,7 +80,7 @@ if ($method === 'POST' && $action === 'clone') {
     api_ok(['id' => $newId]);
 }
 
-// ───── List / single ─────
+// List / single template fetch.
 if ($method === 'GET') {
     $id = (int) api_query('id', 0);
     if ($id) {
@@ -87,8 +88,9 @@ if ($method === 'GET') {
             $template = exportTemplateGet($id, $tenantId);
             _xtplRequireDatasetAccess($user, (string) ($template['dataset'] ?? ''));
             api_ok(['template' => $template]);
+        } catch (ExportTemplateException $e) {
+            api_error($e->getMessage(), 404);
         }
-        catch (ExportTemplateException $e) { api_error($e->getMessage(), 404); }
     }
     $dataset = api_query('dataset', null);
     if ($dataset !== null && $dataset !== '') _xtplRequireDatasetAccess($user, (string) $dataset);
@@ -100,9 +102,9 @@ if ($method === 'GET') {
     api_ok(['templates' => $rows, 'datasets' => array_keys($accessible)]);
 }
 
-// ───── Create ─────
+// Create.
 if ($method === 'POST') {
-    _xtplRequireManage($role);
+    _xtplRequireManage($user, $role);
     $body = api_json_body();
     _xtplRequireDatasetAccess($user, (string) ($body['dataset'] ?? ''));
     try {
@@ -113,9 +115,9 @@ if ($method === 'POST') {
     api_ok(['id' => $id, 'template' => exportTemplateGet($id, $tenantId)], 201);
 }
 
-// ───── Update ─────
+// Update.
 if ($method === 'PATCH') {
-    _xtplRequireManage($role);
+    _xtplRequireManage($user, $role);
     $id = (int) api_query('id', 0);
     if (!$id) api_error('id required', 422);
     $body = api_json_body();
@@ -129,9 +131,9 @@ if ($method === 'PATCH') {
     api_ok(['template' => exportTemplateGet($id, $tenantId)]);
 }
 
-// ───── Delete ─────
+// Delete.
 if ($method === 'DELETE') {
-    _xtplRequireManage($role);
+    _xtplRequireManage($user, $role);
     $id = (int) api_query('id', 0);
     if (!$id) api_error('id required', 422);
     try {
@@ -155,7 +157,10 @@ function _xtplRequireDatasetAccess(array $user, string $datasetKey): void {
 
 api_error('Method not allowed', 405);
 
-function _xtplRequireManage(string $role): void {
+function _xtplRequireManage(array $user, string $role): void {
+    if (rbac_legacy_can($user, 'admin.export_templates.manage')) return;
     if (in_array($role, ['master_admin', 'tenant_admin', 'admin'], true)) return;
-    api_error('Forbidden — tenant_admin or master_admin required', 403);
+    api_error('Forbidden - missing permission admin.export_templates.manage', 403, [
+        'required' => 'admin.export_templates.manage',
+    ]);
 }

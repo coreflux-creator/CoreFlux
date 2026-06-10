@@ -370,6 +370,7 @@ switch (api_method()) {
         if ($action === 'mark_gusto_synced') {
             rbac_legacy_require($user, 'payroll.run.disburse');
             _payrollRequireStatus($run, ['approved'], 'Mark Gusto synced');
+            _payrollDenySameActor((int) ($run['approved_by'] ?? 0), $user, 'Approver cannot submit the same payroll run to Gusto');
             api_require_fields($body, ['gusto_run_id']);
             $gid = trim((string) $body['gusto_run_id']);
             if ($gid === '') api_error('gusto_run_id required', 422);

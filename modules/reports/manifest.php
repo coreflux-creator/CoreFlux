@@ -28,6 +28,7 @@ return [
     ],
 
     'permissions' => [
+        'admin.export_templates.manage' => 'Manage governed export templates',
         'reports.view'        => 'View dashboards and reports scoped by role',
         'reports.export'      => 'Export reports to CSV/PDF',
         'reports.custom.build'=> 'Build and save custom reports',
@@ -40,6 +41,8 @@ return [
         'reports.custom.created',
         'reports.custom.updated',
         'reports.custom.deleted',
+        'reports.custom.executed',
+        'reports.custom.exported',
         'reports.custom.dataset.viewed',
     ],
 
