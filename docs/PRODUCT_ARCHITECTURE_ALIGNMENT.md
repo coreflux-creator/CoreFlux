@@ -275,6 +275,17 @@ These domains require enterprise controls first:
 - Integration writes to accounting, payroll, banking, or HR systems
 - AI tool execution that creates financial, payroll, payment, or worker records
 
+### Access Review And Certification
+
+Access reviews are now a platform enterprise control. Campaigns snapshot
+high-risk access from tenant memberships, role-derived RBAC permissions,
+direct module grants, and People Graph permission grants. Reviewers can certify,
+revoke, exception, or mark items as needing a change; decisions and remediation
+results are stored in `access_review_items` and `access_review_audit`.
+
+The canonical API surface is `/api/v1/people/access-reviews`, governed by
+`people.access_reviews.view` and `people.access_reviews.manage`.
+
 ## 4. Correction Plan
 
 ### Phase 1: Contract Lock

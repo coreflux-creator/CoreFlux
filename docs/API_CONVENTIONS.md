@@ -94,11 +94,16 @@ resolver:
 /api/v1/people/graph/approval-policies
 /api/v1/people/graph/approval-rules
 /api/v1/people/graph/resolve-approvers
+/api/v1/people/access-reviews
 ```
 
 These routes dispatch to `/api/people_graph.php` and use compatibility action
 keys such as `resolve`, `responsibilities`, `delegations`,
 `permission_grants`, `check_permission`, and `resolve_approvers`.
+
+Access review campaigns dispatch to `/api/access_reviews.php` through
+`/api/v1/people/access-reviews` and use explicit action keys for `create`,
+`open`, `snapshot`, `decision`, and `complete`.
 
 ## Endpoint Rules
 

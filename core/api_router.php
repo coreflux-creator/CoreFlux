@@ -140,6 +140,7 @@ function apiRouterResolveFile(string $moduleId, string $endpoint, ?string $modul
     $aliasKey = $moduleId . '/' . $endpoint;
     $aliases = [
         'people/graph' => $root . '/api/people_graph.php',
+        'people/access-reviews' => $root . '/api/access_reviews.php',
         'reports/export-templates' => $root . '/api/export_templates.php',
         'reports/report-builder' => $root . '/api/report_builder.php',
     ];
