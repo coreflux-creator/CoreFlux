@@ -257,6 +257,11 @@ Examples:
   require governed human approval unless a tenant policy explicitly allows an
   automated low-risk path.
 
+Workflow Graph now enforces this when a step or matching People Graph approval
+policy requires SoD: approve/skip actions are blocked before action persistence
+when the current actor is the starter, creator, preparer, requester, submitter,
+or an explicit SoD-blocked user for the workflow subject.
+
 ### High-Risk Domains
 
 These domains require enterprise controls first:

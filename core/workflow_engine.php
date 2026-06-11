@@ -29,6 +29,8 @@
  *         "object_id": "123"
  *       },
  *       "quorum": 1,                  // # of approvals needed before advancing
+ *       "separation_of_duties_required": true,
+ *       "sod_blocked_user_ids": [44],  // optional explicit maker/preparer ids
  *       "allow_email": true,          // expose tokenized email link
  *       "sla_hours": 24,              // escalate after N hours
  *       "escalate_to_user_id": 3      // who gets the escalation push
@@ -227,6 +229,13 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
     $defStmt->execute(['id' => (int) $instance['definition_id']]);
     $def = $defStmt->fetch(PDO::FETCH_ASSOC);
     $steps = json_decode((string) $def['steps_json'], true) ?: [];
+    $payload = json_decode((string) ($instance['payload_json'] ?? '{}'), true) ?: [];
+    $currentStepDef = $steps[(int) $instance['current_step'] - 1] ?? null;
+
+    if (in_array($action, ['approve', 'skip'], true) && is_array($currentStepDef)) {
+        _workflowAssertCurrentApprover($tenantId, $instance, $currentStepDef, $payload, $userId);
+        _workflowEnforceSeparationOfDuties($tenantId, $instance, $currentStepDef, $payload, $userId);
+    }
 
     // Record the action.
     $pdo->prepare(
@@ -266,7 +275,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
 
     // Approve / skip — check quorum on the current step.
     $stepIdx  = (int) $instance['current_step'] - 1;
-    $stepDef  = $steps[$stepIdx] ?? null;
+    $stepDef  = $currentStepDef ?? ($steps[$stepIdx] ?? null);
     if (!$stepDef) {
         return _workflowComplete($tenantId, $instanceId, WORKFLOW_STATUS_APPROVED, $userId, $comment);
     }
@@ -342,6 +351,209 @@ function _workflowSubjectSync(int $tenantId, string $subjectType, int $subjectId
     } catch (\Throwable $_) {
         // Absolutely non-fatal.
     }
+}
+
+/** @internal */
+function _workflowAssertCurrentApprover(int $tenantId, array $instance, array $stepDef, array $payload, ?int $userId): void {
+    if ($userId === null) return;
+    $approvers = _workflowResolveStepApproverUserIds(
+        $tenantId,
+        (int) $instance['id'],
+        (string) $instance['subject_type'],
+        (int) $instance['subject_id'],
+        $stepDef,
+        $payload
+    );
+    if ($approvers && !in_array($userId, $approvers, true)) {
+        _workflowAuditEvent($tenantId, $userId, 'workflow.approver_blocked', (int) $instance['id'], [
+            'subject_type' => (string) $instance['subject_type'],
+            'subject_id' => (int) $instance['subject_id'],
+            'current_step' => (int) $instance['current_step'],
+            'reason' => 'not_current_step_approver',
+        ]);
+        throw new \RuntimeException('Workflow actor is not an approver for the current step');
+    }
+}
+
+/** @internal */
+function _workflowEnforceSeparationOfDuties(int $tenantId, array $instance, array $stepDef, array $payload, ?int $userId): void {
+    if ($userId === null) return;
+    if (!_workflowStepRequiresSeparationOfDuties($tenantId, $instance, $stepDef, $payload)) return;
+
+    $blockers = _workflowSeparationOfDutiesBlockedUsers($instance, $stepDef, $payload);
+    if (!isset($blockers[$userId])) return;
+
+    _workflowAuditEvent($tenantId, $userId, 'workflow.sod_blocked', (int) $instance['id'], [
+        'subject_type' => (string) $instance['subject_type'],
+        'subject_id' => (int) $instance['subject_id'],
+        'current_step' => (int) $instance['current_step'],
+        'blocked_user_id' => $userId,
+        'sources' => $blockers[$userId],
+    ]);
+    throw new \RuntimeException('Separation of duties: actor cannot approve this workflow step because they originated, prepared, requested, or submitted the item');
+}
+
+/** @internal */
+function _workflowStepRequiresSeparationOfDuties(int $tenantId, array $instance, array $stepDef, array $payload): bool {
+    foreach ([$stepDef, $stepDef['approver_resolution'] ?? [], $stepDef['people_graph_resolution'] ?? [], $payload, $payload['context'] ?? []] as $source) {
+        if (is_array($source) && _workflowBoolFlag($source, [
+            'separation_of_duties_required',
+            'requires_separation_of_duties',
+            'sod_required',
+            'two_eye_required',
+        ]) === true) {
+            return true;
+        }
+    }
+    return _workflowApprovalPolicyRequiresSeparationOfDuties(
+        $tenantId,
+        (int) $instance['id'],
+        (string) $instance['subject_type'],
+        (int) $instance['subject_id'],
+        $stepDef,
+        $payload
+    );
+}
+
+/** @internal */
+function _workflowApprovalPolicyRequiresSeparationOfDuties(
+    int $tenantId,
+    int $instanceId,
+    string $subjectType,
+    int $subjectId,
+    array $stepDef,
+    array $payload
+): bool {
+    $resolution = $stepDef['approver_resolution']
+        ?? $stepDef['assignee_resolution']
+        ?? $stepDef['people_graph_resolution']
+        ?? null;
+    if (!is_array($resolution) || (string) ($resolution['strategy'] ?? '') !== 'approval_policy') return false;
+
+    try {
+        $object = _workflowPeopleGraphObjectRef($subjectType, $subjectId, $resolution, $payload);
+        $context = is_array($resolution['context'] ?? null) ? $resolution['context'] : [];
+        $context = array_merge(is_array($payload['context'] ?? null) ? $payload['context'] : [], $context);
+        $resolved = peopleGraphResolveApprovers($tenantId, [
+            'resource_module' => $resolution['resource_module'] ?? $object['object_module'],
+            'resource_type' => $resolution['resource_type'] ?? $object['object_type'],
+            'resource_id' => $resolution['resource_id'] ?? $object['object_id'],
+            'scope_type' => $resolution['scope_type'] ?? null,
+            'scope_id' => $resolution['scope_id'] ?? null,
+            'context' => $context,
+        ]);
+        foreach ((array) ($resolved['requirements'] ?? []) as $requirement) {
+            $rule = is_array($requirement['rule'] ?? null) ? $requirement['rule'] : [];
+            if (!empty($rule['separation_of_duties_required'])) {
+                _workflowAuditEvent($tenantId, null, 'workflow.sod_policy_required', $instanceId, [
+                    'subject_type' => $subjectType,
+                    'subject_id' => $subjectId,
+                    'policy_id' => $requirement['policy']['id'] ?? null,
+                    'rule_id' => $rule['id'] ?? null,
+                ]);
+                return true;
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log('[workflow.sod] policy check skipped: ' . $e->getMessage());
+    }
+    return false;
+}
+
+/**
+ * @internal
+ * @return array<int, list<string>> blocked_user_id => evidence labels
+ */
+function _workflowSeparationOfDutiesBlockedUsers(array $instance, array $stepDef, array $payload): array {
+    $blocked = [];
+    _workflowAddSodUser($blocked, $instance['started_by_user_id'] ?? null, 'instance.started_by_user_id');
+    _workflowCollectSodUsers($blocked, $stepDef, 'step');
+    _workflowCollectSodUsers($blocked, $stepDef['approver_resolution'] ?? [], 'step.approver_resolution');
+    _workflowCollectSodUsers($blocked, $stepDef['people_graph_resolution'] ?? [], 'step.people_graph_resolution');
+    _workflowCollectSodUsers($blocked, $payload, 'payload');
+    _workflowCollectSodUsers($blocked, $payload['context'] ?? [], 'payload.context');
+    _workflowCollectSodUsers($blocked, $payload['sod'] ?? [], 'payload.sod');
+    _workflowCollectSodUsers($blocked, $payload['separation_of_duties'] ?? [], 'payload.separation_of_duties');
+    foreach ($blocked as &$sources) {
+        $sources = array_values(array_unique($sources));
+    }
+    unset($sources);
+    ksort($blocked);
+    return $blocked;
+}
+
+/** @internal */
+function _workflowCollectSodUsers(array &$blocked, mixed $source, string $prefix): void {
+    if (!is_array($source)) return;
+    foreach ([
+        'started_by_user_id',
+        'created_by_user_id',
+        'prepared_by_user_id',
+        'preparer_user_id',
+        'submitted_by_user_id',
+        'submitter_user_id',
+        'requested_by_user_id',
+        'requester_user_id',
+        'originator_user_id',
+        'initiator_user_id',
+        'maker_user_id',
+        'builder_user_id',
+        'drafted_by_user_id',
+        'imported_by_user_id',
+    ] as $key) {
+        _workflowAddSodUser($blocked, $source[$key] ?? null, "{$prefix}.{$key}");
+    }
+    foreach ([
+        'sod_blocked_user_ids',
+        'blocked_user_ids',
+        'blocked_actor_user_ids',
+        'blocked_approver_user_ids',
+        'originator_user_ids',
+        'preparer_user_ids',
+        'submitter_user_ids',
+        'requester_user_ids',
+    ] as $key) {
+        _workflowAddSodUser($blocked, $source[$key] ?? null, "{$prefix}.{$key}");
+    }
+    foreach ([
+        ['source_actor_type', 'source_actor_id'],
+        ['originator_actor_type', 'originator_actor_id'],
+        ['preparer_actor_type', 'preparer_actor_id'],
+        ['requester_actor_type', 'requester_actor_id'],
+        ['submitter_actor_type', 'submitter_actor_id'],
+    ] as [$typeKey, $idKey]) {
+        if (($source[$typeKey] ?? null) === 'user') {
+            _workflowAddSodUser($blocked, $source[$idKey] ?? null, "{$prefix}.{$idKey}");
+        }
+    }
+}
+
+/** @internal */
+function _workflowAddSodUser(array &$blocked, mixed $value, string $source): void {
+    if (is_array($value)) {
+        foreach ($value as $item) _workflowAddSodUser($blocked, $item, $source);
+        return;
+    }
+    $id = (int) $value;
+    if ($id <= 0) return;
+    $blocked[$id] = $blocked[$id] ?? [];
+    $blocked[$id][] = $source;
+}
+
+/** @internal */
+function _workflowBoolFlag(array $source, array $keys): ?bool {
+    foreach ($keys as $key) {
+        if (!array_key_exists($key, $source)) continue;
+        $value = $source[$key];
+        if (is_bool($value)) return $value;
+        if (is_int($value) || is_float($value)) return ((int) $value) !== 0;
+        if (is_string($value)) {
+            $v = strtolower(trim($value));
+            if (in_array($v, ['1', 'true', 'yes', 'on', 'required'], true)) return true;
+            if (in_array($v, ['0', 'false', 'no', 'off', 'none'], true)) return false;
+        }
+    }
+    return null;
 }
 
 /**

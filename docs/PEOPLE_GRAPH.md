@@ -254,7 +254,9 @@ creators, and supervisors without duplicating the authority model.
 
 Workflow steps can resolve approvers dynamically by adding an
 `approver_resolution` block. Static `approver_user_ids` remain supported as a
-fallback for legacy workflows.
+fallback for legacy workflows. Steps that require two-eye control can set
+`separation_of_duties_required` or inherit it from a matching People Graph
+approval-policy rule.
 
 ```json
 {
@@ -267,6 +269,8 @@ fallback for legacy workflows.
     "resource_id": "payment_123",
     "context": { "amount": 7500 }
   },
+  "separation_of_duties_required": true,
+  "sod_blocked_user_ids": [18],
   "fallback_approver_user_ids": [3],
   "quorum": 1
 }
@@ -275,6 +279,12 @@ fallback for legacy workflows.
 Supported workflow strategies are `approval_policy`, `responsibility`, `role`,
 `relationship`, `named_actor`, and `manager_chain`. The workflow inbox and push
 notifications resolve these strategies through People Graph at runtime.
+
+For approve/skip actions, Workflow Graph confirms the actor is a current-step
+approver and blocks the actor when SoD is required and they match
+`started_by_user_id`, creator/preparer/requester/submitter fields, explicit
+`sod_blocked_user_ids`, or user-typed source/preparer/requester actor refs in
+the step, payload, or payload context.
 
 ## AI Safety
 
