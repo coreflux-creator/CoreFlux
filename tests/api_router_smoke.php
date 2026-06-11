@@ -104,6 +104,13 @@ $assert("v1 custom field layouts sets entity_type", ($_GET['entity_type'] ?? nul
 $assert("v1 custom field layouts sets surface", ($_GET['surface'] ?? null) === 'detail');
 $_GET = [];
 
+$r = apiRouterParse('', '/api/v1/people/graph/resolve');
+$assert("v1 people graph resolve ok", $r['ok'] === true && $r['module_id'] === 'people' && $r['endpoint'] === 'graph');
+$_GET = [];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 people graph resolve sets action", ($_GET['action'] ?? null) === 'resolve');
+$_GET = [];
+
 $r = apiRouterParse('', '/api/');
 $assert("missing module + endpoint → 400", $r['ok'] === false && $r['status'] === 400);
 
@@ -124,6 +131,10 @@ echo "\nFile resolution\n";
 $file = apiRouterResolveFile('people', 'employees');
 $assert("resolves real people/employees endpoint",
     $file !== null && str_ends_with($file, '/modules/people/api/employees.php'));
+
+$file = apiRouterResolveFile('people', 'graph');
+$assert("resolves people/graph platform alias",
+    $file !== null && str_ends_with($file, '/api/people_graph.php'));
 
 $file = apiRouterResolveFile('people', 'nope_does_not_exist');
 $assert("returns null for missing endpoint", $file === null);

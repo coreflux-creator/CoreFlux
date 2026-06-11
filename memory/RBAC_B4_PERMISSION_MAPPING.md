@@ -153,6 +153,9 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 | `people.custom_fields.manage` | `(people, write)` |
 | `people.docs.manage` | `(people, write)` |
 | `people.docs.view` | `(people, read)` |
+| `people.graph.delegate` | `(people, admin)` *(authority delegation)* |
+| `people.graph.manage` | `(people, admin)` *(authority/responsibility model)* |
+| `people.graph.view` | `(people, read)` |
 | `people.manage` | `(people, write)` |
 | `people.merge` | `(people, admin)` |
 | `people.pii.audit.view` | `(people, admin)` |

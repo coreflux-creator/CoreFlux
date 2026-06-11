@@ -124,6 +124,40 @@ Current implementation status:
 - Custom report CSV export uses the shared platform CSV export primitive and
   emits explicit audit metadata.
 
+### People Graph
+
+People Graph is a shared platform primitive for authority, responsibility,
+delegation, notification, and AI-supervision routing. It is not just HR,
+user management, or RBAC.
+
+People Graph answers:
+
+- Who owns this object?
+- Who approves this object?
+- Who reviews AI-created output?
+- Who supervises an AI worker?
+- Who should be notified or escalated?
+- Who held delegated authority at the time?
+
+Implementation status:
+
+- `core/migrations/112_people_graph.sql` adds graph organizations, actor links,
+  teams, roles, relationships, responsibility assignments, delegations,
+  permission grants, approval policies/rules, notification preferences, and
+  graph audit records.
+- `core/people_graph.php` exposes resolver functions such as
+  `peopleGraphResolve()`, `peopleGraphAssignResponsibility()`,
+  `peopleGraphCheckPermission()`, and `peopleGraphResolveApprovers()`.
+- `api/people_graph.php` exposes the governed API through
+  `/api/v1/people/graph/...`.
+- The People module manifest declares `people.graph.view`,
+  `people.graph.manage`, and `people.graph.delegate`.
+- AI-worker guardrails deny human-only actions such as approve, post, release,
+  file, override, and permission grants through the graph permission check.
+
+Future P2 services should consume People Graph rather than creating local
+owner/approver/reviewer/delegation/approval-policy tables.
+
 ## 3. Enterprise Controls
 
 Enterprise controls are the product rules that keep financial, payroll, PII,

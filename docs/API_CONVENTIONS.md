@@ -32,6 +32,11 @@ POST /api/v1/reports/export-templates/parse-headers
 GET  /api/v1/people/custom-field-definitions
 GET  /api/v1/people/custom-field-values/123
 GET  /api/v1/people/custom-field-layouts/detail
+GET  /api/v1/people/graph/resolve
+POST /api/v1/people/graph/responsibilities
+POST /api/v1/people/graph/delegations
+POST /api/v1/people/graph/check-permission
+POST /api/v1/people/graph/resolve-approvers
 ```
 
 ## Compatibility Behavior
@@ -74,6 +79,26 @@ Custom-field platform services are exposed through entity-scoped v1 aliases:
 
 These dispatch to the shared custom-field platform handlers with compatibility
 query keys such as `entity_type`, `record_id`, and `surface`.
+
+People Graph is exposed through the People namespace as a platform authority
+resolver:
+
+```text
+/api/v1/people/graph/vocabulary
+/api/v1/people/graph/resolve
+/api/v1/people/graph/responsibilities
+/api/v1/people/graph/relationships
+/api/v1/people/graph/delegations
+/api/v1/people/graph/permission-grants
+/api/v1/people/graph/check-permission
+/api/v1/people/graph/approval-policies
+/api/v1/people/graph/approval-rules
+/api/v1/people/graph/resolve-approvers
+```
+
+These routes dispatch to `/api/people_graph.php` and use compatibility action
+keys such as `resolve`, `responsibilities`, `delegations`,
+`permission_grants`, `check_permission`, and `resolve_approvers`.
 
 ## Endpoint Rules
 

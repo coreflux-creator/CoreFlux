@@ -139,6 +139,7 @@ function apiRouterResolveFile(string $moduleId, string $endpoint, ?string $modul
     $root = dirname(__DIR__);
     $aliasKey = $moduleId . '/' . $endpoint;
     $aliases = [
+        'people/graph' => $root . '/api/people_graph.php',
         'reports/export-templates' => $root . '/api/export_templates.php',
         'reports/report-builder' => $root . '/api/report_builder.php',
     ];

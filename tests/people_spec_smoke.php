@@ -40,6 +40,7 @@ $expectedPerms = [
     'people.tax.view','people.tax.manage',
     'people.banking.view','people.banking.manage',
     'people.docs.view','people.docs.manage',
+    'people.graph.view','people.graph.manage','people.graph.delegate',
     'people.custom_fields.manage','people.pipeline.substages.manage',
 ];
 $declared = array_keys($people['permissions'] ?? []);
@@ -53,12 +54,19 @@ $expectedEvents = [
     'people.tax.updated','people.document.uploaded','people.document.deleted',
     'people.pipeline.stage_added','people.custom_field.defined','people.custom_field.value_set',
     'people.pipeline.substage.created','people.pipeline.substage.updated','people.pipeline.substage.deactivated',
+    'people.graph.actor_linked','people.graph.organization.created',
+    'people.graph.team.upserted','people.graph.role.upserted',
+    'people.graph.relationship.created','people.graph.responsibility.assigned',
+    'people.graph.delegation.created','people.graph.delegation.revoked',
+    'people.graph.permission.granted','people.graph.permission.revoked','people.graph.permission.checked',
+    'people.graph.approval_policy.upserted','people.graph.approval_rule.created',
+    'people.graph.resolved',
 ];
 foreach ($expectedEvents as $ev) {
     $assert("audit event declared: {$ev}", in_array($ev, $people['audit_events'] ?? [], true));
 }
 
-$expectedActions = ['directory','pipeline','documents','custom_fields','audit_pii'];
+$expectedActions = ['directory','pipeline','documents','graph','custom_fields','audit_pii'];
 $actionRoutes = array_column($people['actions'] ?? [], 'route');
 foreach ($expectedActions as $a) {
     $assert("action route declared: {$a}", in_array($a, $actionRoutes, true));
@@ -106,7 +114,7 @@ foreach ($expectedApi as $f) {
 echo "\nReact UI files\n";
 $expectedUI = [
     'PeopleModule.jsx','Directory.jsx','PersonCreate.jsx','PersonDetail.jsx',
-    'Pipeline.jsx','DocumentVault.jsx','CustomFields.jsx','PIIAuditLog.jsx',
+    'Pipeline.jsx','DocumentVault.jsx','PeopleGraph.jsx','CustomFields.jsx','PIIAuditLog.jsx',
 ];
 foreach ($expectedUI as $f) {
     $assert("ui/{$f} exists",  is_file(__DIR__ . "/../modules/people/ui/{$f}"));
