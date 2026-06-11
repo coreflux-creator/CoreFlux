@@ -232,7 +232,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
     $payload = json_decode((string) ($instance['payload_json'] ?? '{}'), true) ?: [];
     $currentStepDef = $steps[(int) $instance['current_step'] - 1] ?? null;
 
-    if (in_array($action, ['approve', 'skip'], true) && is_array($currentStepDef)) {
+    if (in_array($action, ['approve', 'reject', 'skip'], true) && is_array($currentStepDef)) {
         _workflowAssertCurrentApprover($tenantId, $instance, $currentStepDef, $payload, $userId);
         _workflowEnforceSeparationOfDuties($tenantId, $instance, $currentStepDef, $payload, $userId);
     }
@@ -756,7 +756,13 @@ function _workflowResolvePeopleGraphActors(
                 'context' => $context,
             ];
             foreach (['source_actor_type','source_actor_id'] as $key) {
-                if (!empty($resolution[$key])) $request[$key] = $resolution[$key];
+                if (!empty($resolution[$key])) {
+                    $request[$key] = $resolution[$key];
+                } elseif (!empty($payload[$key])) {
+                    $request[$key] = $payload[$key];
+                } elseif (!empty($payload['context'][$key])) {
+                    $request[$key] = $payload['context'][$key];
+                }
             }
             $resolved = peopleGraphResolveApprovers($tenantId, $request);
             $actors = [];

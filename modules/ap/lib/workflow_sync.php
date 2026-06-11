@@ -40,6 +40,9 @@ function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $us
                   LIMIT 1"
             );
             $upd->execute(['t' => $tenantId, 'b' => $billId, 'u' => $userId]);
+            if ($instanceStatus === 'pending') {
+                apSyncPendingWorkflowStepApprovers($pdo, $tenantId, $billId);
+            }
         }
 
         if ($action === 'reject' && $userId) {
@@ -68,5 +71,44 @@ function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $us
     } catch (\Throwable $_) {
         // Silently drop — workflow_engine must not break because legacy
         // schema is missing a column. Surface via audit_log instead.
+    }
+}
+
+/** @internal */
+function apSyncPendingWorkflowStepApprovers(\PDO $pdo, int $tenantId, int $billId): void {
+    if (!function_exists('workflowResolveCurrentStepApprovers')) return;
+    $instance = $pdo->prepare(
+        "SELECT id, current_step FROM workflow_instances
+          WHERE tenant_id = :t AND subject_type = 'ap_bill' AND subject_id = :b AND status = 'pending'
+          ORDER BY id DESC LIMIT 1"
+    );
+    $instance->execute(['t' => $tenantId, 'b' => $billId]);
+    $row = $instance->fetch(PDO::FETCH_ASSOC);
+    if (!$row) return;
+
+    $stepNo = (int) ($row['current_step'] ?? 0);
+    if ($stepNo <= 0) return;
+    $existing = $pdo->prepare(
+        "SELECT COUNT(*) FROM ap_bill_approvals
+          WHERE tenant_id = :t AND bill_id = :b AND step_no = :s AND state = 'pending'"
+    );
+    $existing->execute(['t' => $tenantId, 'b' => $billId, 's' => $stepNo]);
+    if ((int) $existing->fetchColumn() > 0) return;
+
+    $approverIds = array_values(array_unique(array_filter(array_map(
+        'intval',
+        workflowResolveCurrentStepApprovers($tenantId, (int) $row['id'])
+    ))));
+    if (!$approverIds) return;
+
+    $insert = $pdo->prepare(
+        "INSERT INTO ap_bill_approvals
+            (tenant_id, bill_id, approver_user_id, step_no, state, created_at)
+         VALUES (:t, :b, :u, :s, 'pending', NOW())"
+    );
+    foreach ($approverIds as $uid) {
+        try {
+            $insert->execute(['t' => $tenantId, 'b' => $billId, 'u' => $uid, 's' => $stepNo]);
+        } catch (\Throwable $_) { /* duplicate / schema drift: non-fatal */ }
     }
 }

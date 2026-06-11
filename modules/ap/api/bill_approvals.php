@@ -184,6 +184,8 @@ if ($action !== 'approve' && $action !== 'reject') {
     api_error("action must be 'submit' | 'approve' | 'reject'", 422);
 }
 
+rbac_legacy_require($user, 'ap.bill.approve');
+
 // Locate THIS user's pending step on this bill.
 $step = $pdo->prepare(
     "SELECT * FROM ap_bill_approvals
@@ -206,6 +208,20 @@ if ((int) $earlier->fetchColumn() > 0) {
 
 $note = trim((string) ($body['note'] ?? ''));
 $newState = $action === 'approve' ? 'approved' : 'rejected';
+$workflowDecisionApplied = false;
+try {
+    $workflowDecisionApplied = apMirrorToWorkflow($tenantId, $billId, $userId, $action, $note, true);
+} catch (\Throwable $e) {
+    apAudit('ap.bill.approval_blocked', [
+        'bill_id' => $billId,
+        'step' => (int) $step['step_no'],
+        'action' => $action,
+        'control' => 'workflow_engine',
+        'reason' => $e->getMessage(),
+    ], $billId);
+    $status = stripos($e->getMessage(), 'not an approver') !== false ? 403 : 409;
+    api_error('Workflow control blocked decision: ' . $e->getMessage(), $status);
+}
 
 $pdo->beginTransaction();
 try {
@@ -260,7 +276,8 @@ try {
                 $existsNext->execute(['t' => $tenantId, 'b' => $billId, 's' => $nextNo]);
                 if ((int) $existsNext->fetchColumn() === 0) {
                     $nextStepDef = $chain[$stepNo];
-                    $approverIds = (array) ($nextStepDef['approver_user_ids'] ?? []);
+                    $approverIds = apCurrentWorkflowApproverUserIds($tenantId, $billId)
+                        ?: (array) ($nextStepDef['approver_user_ids'] ?? []);
                     $insertNext  = $pdo->prepare(
                         "INSERT INTO ap_bill_approvals
                             (tenant_id, bill_id, approver_user_id, step_no, state, created_at)
@@ -325,7 +342,9 @@ apAudit("ap.bill.approval_{$newState}", ['bill_id' => $billId, 'step' => (int) $
 
 // Reverse sync — push the same decision onto the matching workflow_instance
 // so the cross-module Inbox + mobile push surfaces stay consistent.
-apMirrorToWorkflow($tenantId, $billId, $userId, $action, $note);
+if (!$workflowDecisionApplied) {
+    apMirrorToWorkflow($tenantId, $billId, $userId, $action, $note);
+}
 
 api_ok(['ok' => true, 'state' => $newState]);
 
@@ -337,14 +356,14 @@ api_ok(['ok' => true, 'state' => $newState]);
  * silently no-ops if no instance exists (e.g. legacy bills routed
  * before the cutover) or the instance is already terminal.
  *
- * Best-effort. ALL failures are swallowed — must never block the
- * legacy flow that already wrote `ap_bill_approvals` + `ap_bills`.
+ * Best-effort by default. When used as a preflight gate, failures are
+ * rethrown so WorkflowEngine approver + SoD controls block the AP write.
  */
-function apMirrorToWorkflow(int $tenantId, int $billId, ?int $userId, string $action, ?string $note): void {
+function apMirrorToWorkflow(int $tenantId, int $billId, ?int $userId, string $action, ?string $note, bool $throwOnFailure = false): bool {
     try {
         require_once __DIR__ . '/../../../core/workflow_engine.php';
         $pdo = getDB();
-        if (!$pdo) return;
+        if (!$pdo) return false;
         $stmt = $pdo->prepare(
             "SELECT id, status FROM workflow_instances
               WHERE tenant_id = :t AND subject_type = 'ap_bill' AND subject_id = :s
@@ -352,16 +371,10 @@ function apMirrorToWorkflow(int $tenantId, int $billId, ?int $userId, string $ac
         );
         $stmt->execute(['t' => $tenantId, 's' => $billId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$row) return;
-        if ($row['status'] !== 'pending') return;
-        // Suppress the engine's subject-sync hook — we already wrote the
-        // legacy `ap_bill_approvals` row above; recursing back into
-        // apSyncFromWorkflow would just no-op but may also fire pushes.
-        // Pass via a soft channel: workflowAct doesn't currently take a
-        // suppression flag, so the safer move is to wrap the call in a
-        // try/catch. The hook itself swallows throwables and is keyed
-        // on bill_id + state='pending', so the second update naturally
-        // does nothing.
+        if (!$row) return false;
+        if ($row['status'] !== 'pending') return false;
+        // workflowAct is the common control point: current-step approver
+        // assertion, SoD, audit, advancement, and subject sync all live there.
         workflowAct(
             $tenantId,
             (int) $row['id'],
@@ -372,12 +385,37 @@ function apMirrorToWorkflow(int $tenantId, int $billId, ?int $userId, string $ac
             null,                // delegated_to
             null                 // actor_email
         );
-    } catch (\Throwable $_) {
+        return true;
+    } catch (\Throwable $e) {
+        if ($throwOnFailure) throw $e;
         // Truly best-effort.
+        return false;
     }
 }
 
 // ─── helpers ───
+function apCurrentWorkflowApproverUserIds(int $tenantId, int $billId): array {
+    try {
+        require_once __DIR__ . '/../../../core/workflow_engine.php';
+        $pdo = getDB();
+        if (!$pdo || !function_exists('workflowResolveCurrentStepApprovers')) return [];
+        $stmt = $pdo->prepare(
+            "SELECT id FROM workflow_instances
+              WHERE tenant_id = :t AND subject_type = 'ap_bill' AND subject_id = :s AND status = 'pending'
+              ORDER BY id DESC LIMIT 1"
+        );
+        $stmt->execute(['t' => $tenantId, 's' => $billId]);
+        $instanceId = (int) ($stmt->fetchColumn() ?: 0);
+        if ($instanceId <= 0) return [];
+        return array_values(array_unique(array_filter(array_map(
+            'intval',
+            workflowResolveCurrentStepApprovers($tenantId, $instanceId)
+        ))));
+    } catch (\Throwable $_) {
+        return [];
+    }
+}
+
 function apBillApprovalNotify(\PDO $pdo, int $tenantId, int $billId, ?array $bill, array $approvers): void
 {
     if (!$approvers) return;

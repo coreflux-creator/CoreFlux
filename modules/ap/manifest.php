@@ -74,6 +74,7 @@ return [
         'ap.bill.approval_submitted',
         'ap.bill.approval_approved',
         'ap.bill.approval_rejected',
+        'ap.bill.approval_blocked',
         'ap.bill.approval_comment_added',
         'ap.vendor.extracted_from_w9',
         'ap.vendor.portal_invited',
