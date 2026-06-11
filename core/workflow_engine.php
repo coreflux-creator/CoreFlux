@@ -22,6 +22,12 @@
  *       "step": 1,
  *       "label": "Manager",
  *       "approver_user_ids": [12, 17],
+ *       "approver_resolution": {
+ *         "strategy": "responsibility|approval_policy|role|relationship|named_actor|manager_chain",
+ *         "object_module": "ap",
+ *         "object_type": "bill",
+ *         "object_id": "123"
+ *       },
  *       "quorum": 1,                  // # of approvals needed before advancing
  *       "allow_email": true,          // expose tokenized email link
  *       "sla_hours": 24,              // escalate after N hours
@@ -37,6 +43,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/push_service.php';
+require_once __DIR__ . '/people_graph.php';
 
 const WORKFLOW_STATUS_PENDING   = 'pending';
 const WORKFLOW_STATUS_APPROVED  = 'approved';
@@ -359,7 +366,17 @@ function workflowGetPendingForUser(int $tenantId, int $userId, ?string $subjectT
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
         $steps = json_decode((string) $r['steps_json'], true) ?: [];
         $stepDef = $steps[(int) $r['current_step'] - 1] ?? null;
-        $approvers = (array) ($stepDef['approver_user_ids'] ?? []);
+        $payload = json_decode((string) ($r['payload_json'] ?? '{}'), true) ?: [];
+        $approvers = $stepDef
+            ? _workflowResolveStepApproverUserIds(
+                $tenantId,
+                (int) $r['id'],
+                (string) $r['subject_type'],
+                (int) $r['subject_id'],
+                $stepDef,
+                $payload
+            )
+            : [];
         if (in_array($userId, $approvers, true)) {
             $out[] = _workflowHydrate($r);
         }
@@ -370,6 +387,29 @@ function workflowGetPendingForUser(int $tenantId, int $userId, ?string $subjectT
 function workflowGetInstance(int $tenantId, int $instanceId): ?array {
     $row = _workflowFetchRow($tenantId, $instanceId);
     return $row ? _workflowHydrate($row) : null;
+}
+
+/**
+ * Resolve the current step's approver users, including People Graph-backed
+ * dynamic routing when the step declares approver_resolution.
+ *
+ * @return list<int>
+ */
+function workflowResolveCurrentStepApprovers(int $tenantId, int $instanceId): array {
+    $row = _workflowFetchRow($tenantId, $instanceId);
+    if (!$row) return [];
+    $steps = json_decode((string) $row['steps_json'], true) ?: [];
+    $stepDef = $steps[(int) $row['current_step'] - 1] ?? null;
+    if (!$stepDef) return [];
+    $payload = json_decode((string) ($row['payload_json'] ?? '{}'), true) ?: [];
+    return _workflowResolveStepApproverUserIds(
+        $tenantId,
+        $instanceId,
+        (string) $row['subject_type'],
+        (int) $row['subject_id'],
+        $stepDef,
+        $payload
+    );
 }
 
 /* ---------------------------------------------------------------------- */
@@ -423,7 +463,7 @@ function _workflowComplete(int $tenantId, int $instanceId, string $status, ?int 
 
 /** @internal */
 function _workflowPushApprovers(int $tenantId, int $instanceId, string $subjectType, int $subjectId, array $stepDef, array $payload): void {
-    $userIds = array_map('intval', (array) ($stepDef['approver_user_ids'] ?? []));
+    $userIds = _workflowResolveStepApproverUserIds($tenantId, $instanceId, $subjectType, $subjectId, $stepDef, $payload);
     if (!$userIds) return;
     $title = (string) ($payload['title'] ?? "Approval needed: {$subjectType} #{$subjectId}");
     $body  = (string) ($payload['body']  ?? "Open to review and approve.");
@@ -447,6 +487,265 @@ function _workflowPushApprovers(int $tenantId, int $instanceId, string $subjectT
     foreach ($userIds as $uid) {
         try { pushSendToUser($tenantId, $uid, $title, $body, $payload, $opts); } catch (\Throwable $_) {}
     }
+}
+
+/** @internal */
+function _workflowResolveStepApproverUserIds(
+    int $tenantId,
+    int $instanceId,
+    string $subjectType,
+    int $subjectId,
+    array $stepDef,
+    array $payload
+): array {
+    $explicit = array_values(array_unique(array_filter(array_map('intval', (array) ($stepDef['approver_user_ids'] ?? [])))));
+    $resolution = $stepDef['approver_resolution']
+        ?? $stepDef['assignee_resolution']
+        ?? $stepDef['people_graph_resolution']
+        ?? null;
+    if (!is_array($resolution) || !$resolution) return $explicit;
+
+    $actors = _workflowResolvePeopleGraphActors($tenantId, $instanceId, $subjectType, $subjectId, $resolution, $payload);
+    $resolved = [];
+    foreach ($actors as $actor) {
+        $resolved = array_merge($resolved, _workflowPeopleGraphActorToUserIds($tenantId, $actor));
+    }
+    $resolved = array_values(array_unique(array_filter(array_map('intval', $resolved))));
+
+    $fallback = array_values(array_unique(array_filter(array_map(
+        'intval',
+        (array) ($stepDef['fallback_approver_user_ids'] ?? $explicit)
+    ))));
+    return $resolved ?: $fallback;
+}
+
+/** @internal */
+function _workflowResolvePeopleGraphActors(
+    int $tenantId,
+    int $instanceId,
+    string $subjectType,
+    int $subjectId,
+    array $resolution,
+    array $payload
+): array {
+    $strategy = (string) ($resolution['strategy'] ?? 'responsibility');
+    $object = _workflowPeopleGraphObjectRef($subjectType, $subjectId, $resolution, $payload);
+    $context = is_array($resolution['context'] ?? null) ? $resolution['context'] : [];
+    $context = array_merge(is_array($payload['context'] ?? null) ? $payload['context'] : [], $context);
+
+    try {
+        if ($strategy === 'approval_policy') {
+            $request = [
+                'resource_module' => $resolution['resource_module'] ?? $object['object_module'],
+                'resource_type' => $resolution['resource_type'] ?? $object['object_type'],
+                'resource_id' => $resolution['resource_id'] ?? $object['object_id'],
+                'scope_type' => $resolution['scope_type'] ?? null,
+                'scope_id' => $resolution['scope_id'] ?? null,
+                'context' => $context,
+            ];
+            foreach (['source_actor_type','source_actor_id'] as $key) {
+                if (!empty($resolution[$key])) $request[$key] = $resolution[$key];
+            }
+            $resolved = peopleGraphResolveApprovers($tenantId, $request);
+            $actors = [];
+            foreach (($resolved['requirements'] ?? []) as $requirement) {
+                foreach (($requirement['approvers'] ?? []) as $approver) {
+                    $actors[] = [
+                        'actor_type' => (string) ($approver['actor_type'] ?? $approver['type'] ?? ''),
+                        'actor_id' => (int) ($approver['actor_id'] ?? $approver['id'] ?? 0),
+                    ];
+                }
+            }
+            _workflowAuditEvent($tenantId, null, 'workflow.people_graph_resolved', $instanceId, [
+                'strategy' => $strategy,
+                'count' => count($actors),
+            ]);
+            return _workflowValidActorRefs($actors);
+        }
+
+        if ($strategy === 'responsibility' || !empty($resolution['question'])) {
+            $question = (string) ($resolution['question'] ?? _workflowQuestionForResponsibility((string) ($resolution['responsibility_type'] ?? 'approver')));
+            $resolved = peopleGraphResolve($tenantId, $question, $object, ['limit' => $resolution['limit'] ?? 100]);
+            $actors = array_map(static fn($row) => [
+                'actor_type' => (string) ($row['actor_type'] ?? ''),
+                'actor_id' => (int) ($row['actor_id'] ?? 0),
+            ], (array) ($resolved['assignments'] ?? []));
+            _workflowAuditEvent($tenantId, null, 'workflow.people_graph_resolved', $instanceId, [
+                'strategy' => $strategy,
+                'question' => $question,
+                'count' => count($actors),
+            ]);
+            return _workflowValidActorRefs($actors);
+        }
+
+        if ($strategy === 'named_actor') {
+            return _workflowValidActorRefs([[
+                'actor_type' => (string) ($resolution['actor_type'] ?? $resolution['approver_actor_type'] ?? ''),
+                'actor_id' => (int) ($resolution['actor_id'] ?? $resolution['approver_actor_id'] ?? 0),
+            ]]);
+        }
+
+        if ($strategy === 'role') {
+            $roleId = (int) ($resolution['role_id'] ?? $resolution['approver_role_id'] ?? 0);
+            if ($roleId <= 0 && !empty($resolution['role_key'])) {
+                $role = peopleGraphFindByKey('people_graph_roles', 'role_key', $tenantId, (string) $resolution['role_key']);
+                $roleId = (int) ($role['id'] ?? 0);
+            }
+            return $roleId > 0 ? [['actor_type' => 'role', 'actor_id' => $roleId]] : [];
+        }
+
+        if ($strategy === 'relationship' || $strategy === 'manager_chain') {
+            $filters = [
+                'relationship_type' => $strategy === 'manager_chain'
+                    ? 'reports_to'
+                    : (string) ($resolution['relationship_type'] ?? 'reports_to'),
+            ];
+            foreach (['source_actor_type','source_actor_id','target_actor_type','target_actor_id','context_module','context_entity_type','context_entity_id'] as $key) {
+                if (!empty($resolution[$key])) $filters[$key] = $resolution[$key];
+            }
+            $returnActor = (string) ($resolution['return_actor'] ?? ($strategy === 'manager_chain' ? 'target' : 'target'));
+            $rows = peopleGraphListRelationships($tenantId, $filters);
+            $actors = array_map(static fn($row) => [
+                'actor_type' => (string) ($row["{$returnActor}_actor_type"] ?? ''),
+                'actor_id' => (int) ($row["{$returnActor}_actor_id"] ?? 0),
+            ], $rows);
+            return _workflowValidActorRefs($actors);
+        }
+    } catch (\Throwable $e) {
+        error_log('[workflow.people_graph] resolution failed: ' . $e->getMessage());
+    }
+
+    return [];
+}
+
+/** @internal */
+function _workflowPeopleGraphObjectRef(string $subjectType, int $subjectId, array $resolution, array $payload): array {
+    $module = (string) (
+        $resolution['object_module']
+        ?? $resolution['resource_module']
+        ?? $payload['object_module']
+        ?? $payload['resource_module']
+        ?? strtok($subjectType, '_')
+        ?: 'workflow'
+    );
+    return [
+        'object_module' => $module,
+        'object_type' => (string) ($resolution['object_type'] ?? $resolution['resource_type'] ?? $payload['object_type'] ?? $payload['resource_type'] ?? $subjectType),
+        'object_id' => (string) ($resolution['object_id'] ?? $resolution['resource_id'] ?? $payload['object_id'] ?? $payload['resource_id'] ?? $subjectId),
+    ];
+}
+
+/** @internal */
+function _workflowQuestionForResponsibility(string $responsibilityType): string {
+    return match ($responsibilityType) {
+        'owner', 'accountable' => 'who_owns',
+        'reviewer' => 'who_reviews',
+        'ai_supervisor' => 'who_reviews_ai',
+        'notifier' => 'who_notifies',
+        'escalation_contact' => 'who_escalates',
+        'operator' => 'who_operates',
+        'viewer' => 'who_can_view',
+        default => 'who_approves',
+    };
+}
+
+/** @internal */
+function _workflowValidActorRefs(array $actors): array {
+    $out = [];
+    foreach ($actors as $actor) {
+        $type = (string) ($actor['actor_type'] ?? $actor['type'] ?? '');
+        $id = (int) ($actor['actor_id'] ?? $actor['id'] ?? 0);
+        if ($type !== '' && $id > 0) $out[] = ['actor_type' => $type, 'actor_id' => $id];
+    }
+    return $out;
+}
+
+/** @internal */
+function _workflowPeopleGraphActorToUserIds(int $tenantId, array $actor, array $seen = []): array {
+    $type = (string) ($actor['actor_type'] ?? $actor['type'] ?? '');
+    $id = (int) ($actor['actor_id'] ?? $actor['id'] ?? 0);
+    if ($type === '' || $id <= 0) return [];
+    $key = "{$type}:{$id}";
+    if (isset($seen[$key])) return [];
+    $seen[$key] = true;
+    if ($type === 'user') return [$id];
+
+    try {
+        $pdo = getDB();
+        if (!$pdo) return [];
+
+        $link = function (string $actorType, int $actorId) use ($pdo, $tenantId): ?array {
+            $stmt = $pdo->prepare(
+                'SELECT * FROM people_graph_actor_links
+                  WHERE tenant_id = :tenant_id AND actor_type = :actor_type AND actor_id = :actor_id AND status = "active"
+                  LIMIT 1'
+            );
+            $stmt->execute(['tenant_id' => $tenantId, 'actor_type' => $actorType, 'actor_id' => $actorId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $row ?: null;
+        };
+
+        if ($type === 'person') {
+            $row = $link($type, $id);
+            if (!empty($row['user_id'])) return [(int) $row['user_id']];
+            try {
+                $stmt = $pdo->prepare('SELECT id FROM users WHERE person_id = :person_id LIMIT 1');
+                $stmt->execute(['person_id' => $id]);
+                $uid = (int) $stmt->fetchColumn();
+                return $uid > 0 ? [$uid] : [];
+            } catch (\Throwable $_) {
+                return [];
+            }
+        }
+
+        if ($type === 'team') {
+            $stmt = $pdo->prepare(
+                'SELECT member_actor_type, member_actor_id
+                   FROM people_graph_team_memberships
+                  WHERE tenant_id = :tenant_id AND team_id = :team_id AND status = "active"
+                    AND (starts_at IS NULL OR starts_at <= NOW())
+                    AND (ends_at IS NULL OR ends_at >= NOW())'
+            );
+            $stmt->execute(['tenant_id' => $tenantId, 'team_id' => $id]);
+            $users = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $users = array_merge($users, _workflowPeopleGraphActorToUserIds($tenantId, [
+                    'actor_type' => (string) $row['member_actor_type'],
+                    'actor_id' => (int) $row['member_actor_id'],
+                ], $seen));
+            }
+            return array_values(array_unique($users));
+        }
+
+        if ($type === 'role') {
+            $stmt = $pdo->prepare(
+                'SELECT actor_type, actor_id
+                   FROM people_graph_role_assignments
+                  WHERE tenant_id = :tenant_id AND role_id = :role_id AND status = "active"
+                    AND (starts_at IS NULL OR starts_at <= NOW())
+                    AND (ends_at IS NULL OR ends_at >= NOW())'
+            );
+            $stmt->execute(['tenant_id' => $tenantId, 'role_id' => $id]);
+            $users = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $users = array_merge($users, _workflowPeopleGraphActorToUserIds($tenantId, [
+                    'actor_type' => (string) $row['actor_type'],
+                    'actor_id' => (int) $row['actor_id'],
+                ], $seen));
+            }
+            return array_values(array_unique($users));
+        }
+
+        $row = $link($type, $id);
+        if (!empty($row['user_id'])) return [(int) $row['user_id']];
+        if (!empty($row['person_id'])) {
+            return _workflowPeopleGraphActorToUserIds($tenantId, ['actor_type' => 'person', 'actor_id' => (int) $row['person_id']], $seen);
+        }
+    } catch (\Throwable $_) {
+        return [];
+    }
+
+    return [];
 }
 
 /** @internal */

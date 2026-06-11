@@ -158,6 +158,23 @@ Implementation status:
 Future P2 services should consume People Graph rather than creating local
 owner/approver/reviewer/delegation/approval-policy tables.
 
+### Workflow Graph Consumption
+
+Workflow Graph is a consumer of People Graph. Workflow definitions may keep
+static `approver_user_ids` for compatibility, but new steps should resolve
+assignees and approvers through `approver_resolution` strategies:
+
+- `approval_policy`
+- `responsibility`
+- `role`
+- `relationship`
+- `named_actor`
+- `manager_chain`
+
+The workflow inbox and push-notification paths resolve these strategies at
+runtime, then fall back to explicit approver IDs only when the graph has no
+answer.
+
 ## 3. Enterprise Controls
 
 Enterprise controls are the product rules that keep financial, payroll, PII,

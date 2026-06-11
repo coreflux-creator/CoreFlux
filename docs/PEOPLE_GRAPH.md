@@ -196,6 +196,32 @@ New P2 platform services should use People Graph for authority and routing:
 Modules may cache or denormalize resolved actors for performance, but People
 Graph remains the resolver of record.
 
+### Workflow Routing
+
+Workflow steps can resolve approvers dynamically by adding an
+`approver_resolution` block. Static `approver_user_ids` remain supported as a
+fallback for legacy workflows.
+
+```json
+{
+  "step": 1,
+  "label": "Payment approval",
+  "approver_resolution": {
+    "strategy": "approval_policy",
+    "resource_module": "treasury",
+    "resource_type": "payment",
+    "resource_id": "payment_123",
+    "context": { "amount": 7500 }
+  },
+  "fallback_approver_user_ids": [3],
+  "quorum": 1
+}
+```
+
+Supported workflow strategies are `approval_policy`, `responsibility`, `role`,
+`relationship`, `named_actor`, and `manager_chain`. The workflow inbox and push
+notifications resolve these strategies through People Graph at runtime.
+
 ## AI Safety
 
 AI workers can be graph actors, but the permission check denies human-only
