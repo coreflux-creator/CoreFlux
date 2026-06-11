@@ -75,9 +75,12 @@ peopleGraphResolve($tenantId, 'who_owns', [
 Supported questions:
 
 - `who_owns`
+- `who_prepares`
 - `who_approves`
 - `who_reviews`
 - `who_reviews_ai`
+- `who_created_ai`
+- `who_receives`
 - `who_notifies`
 - `who_escalates`
 - `who_operates`
@@ -196,6 +199,35 @@ New P2 platform services should use People Graph for authority and routing:
 
 Modules may cache or denormalize resolved actors for performance, but People
 Graph remains the resolver of record.
+
+### Domain Module Consumption
+
+Domain modules declare a `people_graph` contract in `manifest.php` and use
+`core/domain_people_graph.php` as their bridge into the shared authority layer.
+The domain module still owns the business record, state machine, and persistence;
+People Graph owns cross-cutting owner, preparer, reviewer, approver, operator,
+recipient, notifier, escalation, delegation, approval-policy, and permission
+resolution.
+
+```php
+domainPeopleGraphAssignResponsibility(
+    $tenantId,
+    'payroll',
+    'run',
+    $runId,
+    'approver',
+    'user',
+    $approverUserId
+);
+
+domainPeopleGraphResolve($tenantId, 'payroll', 'run', $runId, 'who_approves');
+domainPeopleGraphResolveApprovers($tenantId, 'treasury', 'payment', $paymentId, ['amount' => 7500]);
+```
+
+The bridge validates that the module manifest declares the object type and
+responsibility before writing People Graph assignments. Workflow definitions
+can use `domainPeopleGraphWorkflowApproverResolution()` to produce an
+`approver_resolution` payload for the Workflow Graph.
 
 ### Artifact People Roles
 

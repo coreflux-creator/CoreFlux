@@ -163,6 +163,7 @@ class ModuleRegistry {
             'default_roles'         => [],
             'depends_on'            => [],
             'custom_field_entities' => [],
+            'people_graph'          => [],
         ], $raw);
 
         // Type-check the most-used fields. Non-fatal; just warn and coerce.
@@ -172,6 +173,10 @@ class ModuleRegistry {
                 $this->validationErrors[$id][] = "field '$listField' must be an array; coerced to []";
                 $manifest[$listField] = [];
             }
+        }
+        if (!is_array($manifest['people_graph'])) {
+            $this->validationErrors[$id][] = "field 'people_graph' must be an array; coerced to []";
+            $manifest['people_graph'] = [];
         }
 
         return $manifest;
@@ -296,6 +301,36 @@ class ModuleRegistry {
     public function getCustomFieldEntity(string $entityType): ?array {
         $all = $this->getCustomFieldEntities();
         return $all[$entityType] ?? null;
+    }
+
+    /**
+     * Return People Graph consumption contracts declared by module manifests.
+     *
+     * The contract is intentionally manifest-owned so domain modules can state
+     * which object types consume shared authority/responsibility routing.
+     *
+     * @return array<string, array> module_id => people_graph contract
+     */
+    public function getPeopleGraphContracts(): array {
+        $out = [];
+        foreach ($this->modules as $moduleId => $m) {
+            $contract = $m['people_graph'] ?? [];
+            if (!is_array($contract) || $contract === []) continue;
+            $out[$moduleId] = array_merge([
+                'module_id'    => $moduleId,
+                'consumes'     => false,
+                'mode'         => 'source_module_consumer',
+                'object_types' => [],
+            ], $contract, [
+                'module_id' => $moduleId,
+            ]);
+        }
+        return $out;
+    }
+
+    public function getPeopleGraphContract(string $moduleId): ?array {
+        $contracts = $this->getPeopleGraphContracts();
+        return $contracts[$moduleId] ?? null;
     }
 
     /**

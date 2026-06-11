@@ -32,6 +32,27 @@ return [
         'treasury.liability.updated',
         'treasury.feed.synced',
     ],
+    'people_graph' => [
+        'consumes' => true,
+        'mode' => 'source_module_consumer',
+        'object_types' => [
+            'account' => [
+                'responsibilities' => ['owner', 'operator', 'viewer', 'escalation_contact'],
+            ],
+            'payment' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'operator', 'escalation_contact'],
+                'approval_resource' => 'treasury.payment',
+            ],
+            'transfer' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'operator', 'escalation_contact'],
+                'approval_resource' => 'treasury.transfer',
+            ],
+            'sweep' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'operator', 'ai_supervisor', 'escalation_contact'],
+                'approval_resource' => 'treasury.sweep',
+            ],
+        ],
+    ],
     'actions' => [
         ['name' => 'Overview',           'route' => 'overview',   'permission' => 'treasury.view'],
         ['name' => 'Deposit Accounts',   'route' => 'deposits',   'permission' => 'treasury.deposit.manage'],

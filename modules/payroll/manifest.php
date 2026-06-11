@@ -106,6 +106,27 @@ return [
         'payroll.gusto.webhook_verification_received',
     ],
 
+    'people_graph' => [
+        'consumes' => true,
+        'mode' => 'source_module_consumer',
+        'object_types' => [
+            'run' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'operator', 'ai_supervisor', 'escalation_contact'],
+                'approval_resource' => 'payroll.run',
+            ],
+            'profile' => [
+                'responsibilities' => ['owner', 'reviewer', 'viewer', 'escalation_contact'],
+            ],
+            'tax_liability' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'operator'],
+                'approval_resource' => 'payroll.tax_liability',
+            ],
+            'gusto_submission' => [
+                'responsibilities' => ['owner', 'preparer', 'approver', 'operator', 'escalation_contact'],
+            ],
+        ],
+    ],
+
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
 
     'depends_on' => ['people', 'placements', 'time', 'accounting'],

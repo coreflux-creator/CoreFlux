@@ -188,6 +188,27 @@ Artifact helpers expose `artifactAssignPeopleGraph()`,
 artifact people roles without adding local artifact owner/reviewer/approver
 columns.
 
+### Domain Module Consumption
+
+Domain modules consume People Graph through manifest declarations and
+`core/domain_people_graph.php`. The source module still owns the business
+record and state machine; People Graph owns shared authority and routing.
+
+The first aligned source-module contracts are declared for:
+
+- `placements`: placements, rate snapshots, commission plans, approval contacts
+- `time`: entries, timesheets, approval tokens, settlement periods
+- `ap`: bills, payments, vendors, expense reports
+- `billing`: invoices, payments, credit memos, dunning cases
+- `payroll`: runs, profiles, tax liabilities, Gusto submissions
+- `accounting`: journal entries, period close, reconciliations, consolidation
+  runs, integration writes
+- `treasury`: accounts, payments, transfers, sweeps
+
+`staffing` declares `mode = consumer_orchestrator`; it may own workbench
+responsibilities and readiness exceptions, but source-object authority is
+resolved from the owning modules.
+
 ## 3. Enterprise Controls
 
 Enterprise controls are the product rules that keep financial, payroll, PII,

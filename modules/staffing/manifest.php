@@ -52,4 +52,19 @@ return [
         'staffing.readiness.payroll_marked',
         'staffing.readiness.billing_marked',
     ],
+
+    'people_graph' => [
+        'consumes' => true,
+        'mode' => 'consumer_orchestrator',
+        'consumes_from' => ['people', 'placements', 'time', 'payroll', 'billing', 'accounting', 'reports'],
+        'object_types' => [
+            'workbench' => [
+                'responsibilities' => ['owner', 'operator', 'notifier', 'escalation_contact'],
+            ],
+            'readiness_exception' => [
+                'responsibilities' => ['owner', 'reviewer', 'operator', 'escalation_contact'],
+            ],
+        ],
+        'source_of_truth_note' => 'Staffing resolves source-object authority from the owning modules instead of owning people, placement, time, payroll, billing, accounting, or reporting records.',
+    ],
 ];

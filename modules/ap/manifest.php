@@ -121,6 +121,28 @@ return [
         'ap.vendor.tax_id_updated',
     ],
 
+    'people_graph' => [
+        'consumes' => true,
+        'mode' => 'source_module_consumer',
+        'object_types' => [
+            'bill' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'ai_supervisor', 'notifier', 'escalation_contact'],
+                'approval_resource' => 'ap.bill',
+            ],
+            'payment' => [
+                'responsibilities' => ['owner', 'preparer', 'approver', 'operator', 'escalation_contact'],
+                'approval_resource' => 'ap.payment',
+            ],
+            'vendor' => [
+                'responsibilities' => ['owner', 'reviewer', 'requester', 'ai_supervisor', 'escalation_contact'],
+            ],
+            'expense_report' => [
+                'responsibilities' => ['owner', 'requester', 'preparer', 'reviewer', 'approver'],
+                'approval_resource' => 'ap.expense_report',
+            ],
+        ],
+    ],
+
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
 
     'depends_on' => ['placements', 'time'],

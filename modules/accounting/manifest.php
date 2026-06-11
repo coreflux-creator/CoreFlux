@@ -173,6 +173,32 @@ return [
         'accounting.webhook.retried',
     ],
 
+    'people_graph' => [
+        'consumes' => true,
+        'mode' => 'source_module_consumer',
+        'object_types' => [
+            'journal_entry' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'operator', 'ai_supervisor', 'escalation_contact'],
+                'approval_resource' => 'accounting.journal_entry',
+            ],
+            'period_close' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'operator', 'escalation_contact'],
+                'approval_resource' => 'accounting.period_close',
+            ],
+            'reconciliation' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'ai_supervisor', 'escalation_contact'],
+                'approval_resource' => 'accounting.reconciliation',
+            ],
+            'consolidation_run' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'operator'],
+                'approval_resource' => 'accounting.consolidation_run',
+            ],
+            'integration_write' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'operator', 'escalation_contact'],
+            ],
+        ],
+    ],
+
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
 
     'depends_on' => [],

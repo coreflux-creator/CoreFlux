@@ -94,5 +94,27 @@ return [
         ],
     ],
 
+    'people_graph' => [
+        'consumes' => true,
+        'mode' => 'source_module_consumer',
+        'object_types' => [
+            'placement' => [
+                'responsibilities' => ['owner', 'accountable', 'preparer', 'reviewer', 'approver', 'notifier', 'escalation_contact'],
+                'approval_resource' => 'placements.placement',
+            ],
+            'rate_snapshot' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver'],
+                'approval_resource' => 'placements.rate_snapshot',
+            ],
+            'commission_plan' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver'],
+                'approval_resource' => 'placements.commission_plan',
+            ],
+            'approval_contact' => [
+                'responsibilities' => ['owner', 'recipient', 'notifier'],
+            ],
+        ],
+    ],
+
     'depends_on' => ['people'],
 ];

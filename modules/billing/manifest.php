@@ -77,6 +77,27 @@ return [
         'billing.aging.snapshot.built',
     ],
 
+    'people_graph' => [
+        'consumes' => true,
+        'mode' => 'source_module_consumer',
+        'object_types' => [
+            'invoice' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'recipient', 'notifier', 'escalation_contact'],
+                'approval_resource' => 'billing.invoice',
+            ],
+            'payment' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'operator'],
+            ],
+            'credit_memo' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver'],
+                'approval_resource' => 'billing.credit_memo',
+            ],
+            'dunning_case' => [
+                'responsibilities' => ['owner', 'notifier', 'escalation_contact'],
+            ],
+        ],
+    ],
+
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
 
     'depends_on' => ['placements', 'time'],
