@@ -117,6 +117,8 @@ function workflowStart(int $tenantId, string $defKey, string $subjectType, int $
     $exist = $pdo->prepare(
         "SELECT * FROM workflow_instances
           WHERE tenant_id = :t AND subject_type = :st AND subject_id = :si
+            AND status = 'pending'
+          ORDER BY id DESC
           LIMIT 1"
     );
     $exist->execute(['t' => $tenantId, 'st' => $subjectType, 'si' => $subjectId]);
@@ -258,7 +260,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
     if ($action === 'reject') {
         $result = _workflowComplete($tenantId, $instanceId, WORKFLOW_STATUS_REJECTED, $userId, $comment);
         _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
-                             $action, $userId, WORKFLOW_STATUS_REJECTED);
+                             $action, $userId, WORKFLOW_STATUS_REJECTED, $comment);
         return $result;
     }
     if ($action === 'comment') {
@@ -296,7 +298,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
         // (e.g. ap_bill_approvals) even when the workflow itself hasn't
         // advanced yet, so per-approver rows flip 'pending' → 'approved'.
         _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
-                             $action, $userId, WORKFLOW_STATUS_PENDING);
+                             $action, $userId, WORKFLOW_STATUS_PENDING, $comment);
         return _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
     }
 
@@ -305,7 +307,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
     if (!isset($steps[$nextIdx])) {
         $result = _workflowComplete($tenantId, $instanceId, WORKFLOW_STATUS_APPROVED, $userId, $comment);
         _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
-                             $action, $userId, WORKFLOW_STATUS_APPROVED);
+                             $action, $userId, WORKFLOW_STATUS_APPROVED, $comment);
         return $result;
     }
     $nextStep = $steps[$nextIdx];
@@ -329,7 +331,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
 
     // Sync the per-approver decision that caused the advance.
     _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
-                         $action, $userId, WORKFLOW_STATUS_PENDING);
+                         $action, $userId, WORKFLOW_STATUS_PENDING, $comment);
 
     return _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
 }
@@ -340,12 +342,18 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
  * of the engine so the core stays vertical-agnostic — each vertical
  * owns its own sync file under its module.
  */
-function _workflowSubjectSync(int $tenantId, string $subjectType, int $subjectId, string $action, ?int $userId, string $instanceStatus): void {
+function _workflowSubjectSync(int $tenantId, string $subjectType, int $subjectId, string $action, ?int $userId, string $instanceStatus, ?string $comment = null): void {
     try {
         if ($subjectType === 'ap_bill') {
             require_once __DIR__ . '/../modules/ap/lib/workflow_sync.php';
             if (function_exists('apSyncFromWorkflow')) {
-                apSyncFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus);
+                apSyncFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
+            }
+        }
+        if ($subjectType === 'time_timesheet') {
+            require_once __DIR__ . '/../modules/time/lib/workflow_sync.php';
+            if (function_exists('timeSyncTimesheetFromWorkflow')) {
+                timeSyncTimesheetFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
             }
         }
     } catch (\Throwable $_) {

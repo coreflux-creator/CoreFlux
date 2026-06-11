@@ -550,7 +550,7 @@ function cf_self_heal_known_column(string $colRef): bool {
             'created_by_user_id'    => 'ADD COLUMN created_by_user_id BIGINT UNSIGNED NULL',
             'approved_by_user_id'   => 'ADD COLUMN approved_by_user_id BIGINT UNSIGNED NULL',
             'approved_at'           => 'ADD COLUMN approved_at DATETIME NULL',
-            'approved_via'          => "ADD COLUMN approved_via ENUM('manual','tokenized_client_email','bulk_pre_approved') NULL",
+            'approved_via'          => "ADD COLUMN approved_via ENUM('manual','tokenized_client_email','bulk_pre_approved','external_email') NULL",
             'rejected_reason'       => 'ADD COLUMN rejected_reason VARCHAR(500) NULL',
             'rate_snapshot_id'      => 'ADD COLUMN rate_snapshot_id BIGINT UNSIGNED NULL',
             'timesheet_id'          => 'ADD COLUMN timesheet_id BIGINT UNSIGNED NULL',

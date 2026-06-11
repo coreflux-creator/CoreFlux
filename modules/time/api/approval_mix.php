@@ -6,7 +6,7 @@
  *
  * Reads the `audit_log` rows our `time.entry.approved` emitter writes
  * and rolls them up per ISO-week + per `approved_via` channel
- * (manual / tokenized_client_email / bulk_pre_approved). The CFO
+ * (manual / tokenized_client_email / bulk_pre_approved / external_email). The CFO
  * dashboard renders this as a small "Approval Mix" sparkline so CFOs
  * can spot tenants leaning heavily on `bulk_pre_approved` — which
  * skips client validation entirely and is an early-warning signal
@@ -18,7 +18,8 @@
  *     "channels": {
  *       "manual":                  [12, 18, 22, ...],
  *       "tokenized_client_email":  [ 4,  5,  6, ...],
- *       "bulk_pre_approved":       [ 0,  3, 14, ...]
+ *       "bulk_pre_approved":       [ 0,  3, 14, ...],
+ *       "external_email":          [ 2,  1,  3, ...]
  *     },
  *     "totals_by_week": [16, 26, 42, ...],
  *     "totals_by_channel": {"manual": 130, ...},
@@ -80,7 +81,7 @@ for ($i = 0; $i <= $weeks; $i++) {
 }
 $weekLabels = array_values(array_unique($weekLabels));
 
-$knownChannels = ['manual', 'tokenized_client_email', 'bulk_pre_approved'];
+$knownChannels = ['manual', 'tokenized_client_email', 'bulk_pre_approved', 'external_email'];
 $channels = [];
 foreach ($knownChannels as $ch) $channels[$ch] = array_fill(0, count($weekLabels), 0);
 // Anything new (e.g. a future approval path) lands under '_other' so

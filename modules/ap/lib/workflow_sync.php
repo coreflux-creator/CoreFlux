@@ -26,7 +26,7 @@ require_once __DIR__ . '/../../../core/db.php';
  * Best-effort: a schema drift or missing row MUST NOT cascade a failure
  * back into the workflow engine. All exceptions are swallowed.
  */
-function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $userId, string $instanceStatus): void {
+function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $userId, string $instanceStatus, ?string $comment = null): void {
     try {
         $pdo = getDB();
         if (!$pdo) return;

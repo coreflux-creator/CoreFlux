@@ -418,7 +418,7 @@ function timeAudit(string $event, array $meta = [], ?int $targetId = null): void
  *
  * @param int    $entryId         time_entries.id that just landed approved
  * @param array  $entry           the time_entries row (for work_date/hours/etc.)
- * @param string $approvedVia     'manual'|'tokenized_client_email'|'bulk_pre_approved'
+ * @param string $approvedVia     'manual'|'tokenized_client_email'|'bulk_pre_approved'|'external_email'
  * @param array  $approverContext extra metadata (approver_id, email, token_id, etc.)
  */
 function timeEntryApprovedEmit(int $entryId, array $entry, string $approvedVia, array $approverContext = []): void

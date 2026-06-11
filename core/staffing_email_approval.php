@@ -21,6 +21,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/approval_tokens.php';
+require_once __DIR__ . '/../modules/time/lib/time.php';
 
 /**
  * Mint a pair of single-use approve+reject tokens for an external manager
@@ -157,10 +158,46 @@ function staffingEmailApprovalConsume(string $rawToken, string $action, ?string 
     // Best-effort: emit accounting event so the GL gets the labor entry.
     if ($newStatus === 'approved') {
         try {
+            $approvedStmt = $pdo->prepare(
+                "SELECT id, placement_id, person_id, period_id, work_date, category, hours, rate_snapshot_id
+                   FROM time_entries
+                  WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'approved'"
+            );
+            $approvedStmt->execute(['t' => $tenantId, 'tid' => $headerId]);
+            foreach ($approvedStmt->fetchAll(\PDO::FETCH_ASSOC) as $approved) {
+                timeEntryApprovedEmit((int) $approved['id'], $approved, 'external_email', [
+                    'timesheet_id' => $headerId,
+                    'token_id' => (int) ($row['id'] ?? 0),
+                    'external_approver_email' => $approverEmail,
+                    'ip_address' => $ip,
+                ]);
+            }
+            timeAudit('time.timesheet.approved', [
+                'timesheet_id' => $headerId,
+                'approved_via' => 'external_email',
+                'external_approver_email' => $approverEmail,
+                'token_id' => (int) ($row['id'] ?? 0),
+            ], $headerId);
+        } catch (\Throwable $e) {
+            error_log("[staffing-email-approval] audit emit failed: " . $e->getMessage());
+        }
+        try {
             require_once __DIR__ . '/../modules/staffing/lib/timesheets.php';
             staffingEmitWorkerHoursApprovedEvent($tenantId, $headerId);
         } catch (\Throwable $e) {
             error_log("[staffing-email-approval] accounting emit failed: " . $e->getMessage());
+        }
+    } else {
+        try {
+            timeAudit('time.timesheet.rejected', [
+                'timesheet_id' => $headerId,
+                'rejected_via' => 'external_email',
+                'external_approver_email' => $approverEmail,
+                'token_id' => (int) ($row['id'] ?? 0),
+                'reason' => $note ?: 'Rejected by external approver',
+            ], $headerId);
+        } catch (\Throwable $e) {
+            error_log("[staffing-email-approval] rejection audit failed: " . $e->getMessage());
         }
     }
 
