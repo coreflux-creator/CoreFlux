@@ -35,8 +35,9 @@ primary_contact_for, works_for, custom
 Responsibilities:
 
 ```text
-owner, accountable, approver, reviewer, ai_supervisor, notifier,
-operator, viewer, escalation_contact
+owner, accountable, preparer, approver, reviewer, requester,
+recipient, ai_creator, ai_supervisor, notifier, operator, viewer,
+escalation_contact
 ```
 
 Delegations:
@@ -195,6 +196,27 @@ New P2 platform services should use People Graph for authority and routing:
 
 Modules may cache or denormalize resolved actors for performance, but People
 Graph remains the resolver of record.
+
+### Artifact People Roles
+
+Artifact Graph stores artifact identity, lifecycle, provenance, event history,
+and artifact-to-artifact/row lineage. People Graph stores the people roles
+around an artifact.
+
+Modules should use the artifact helper functions instead of adding local owner,
+reviewer, or approver columns:
+
+```php
+artifactAssignPeopleGraph($tenantId, $artifactId, 'reviewer', 'user', 42);
+artifactResolvePeopleGraph($tenantId, $artifactId, 'who_reviews');
+artifactPeopleGraph($tenantId, $artifactId);
+```
+
+Supported artifact responsibilities are `owner`, `preparer`, `reviewer`,
+`approver`, `requester`, `recipient`, `ai_creator`, `ai_supervisor`, and
+`escalation_contact`. Artifact lineage responses include a `people_graph`
+projection so artifact detail UIs can show owners, reviewers, approvers, AI
+creators, and supervisors without duplicating the authority model.
 
 ### Workflow Routing
 

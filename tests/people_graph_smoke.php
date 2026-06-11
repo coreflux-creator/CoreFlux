@@ -29,12 +29,16 @@ $a('actor types include ai_worker', in_array('ai_worker', $vocab['actor_types'] 
 $a('relationship types include reports_to', in_array('reports_to', $vocab['relationship_types'] ?? [], true));
 $a('relationship types include supervises_ai', in_array('supervises_ai', $vocab['relationship_types'] ?? [], true));
 $a('responsibility types include approver', in_array('approver', $vocab['responsibility_types'] ?? [], true));
+$a('responsibility types include preparer', in_array('preparer', $vocab['responsibility_types'] ?? [], true));
+$a('responsibility types include ai_creator', in_array('ai_creator', $vocab['responsibility_types'] ?? [], true));
 $a('responsibility types include ai_supervisor', in_array('ai_supervisor', $vocab['responsibility_types'] ?? [], true));
 $a('delegation types include approval', in_array('approval', $vocab['delegation_types'] ?? [], true));
 $a('permission actions include approve', in_array('approve', $vocab['permission_actions'] ?? [], true));
 $a('approval strategies include responsibility', in_array('responsibility', $vocab['approval_strategies'] ?? [], true));
 $a('AI forbidden actions include release', in_array('release', $vocab['ai_forbidden_actions'] ?? [], true));
 $a('resolver supports who_approves', isset($vocab['resolver_questions']['who_approves']));
+$a('resolver supports who_prepares', isset($vocab['resolver_questions']['who_prepares']));
+$a('resolver supports who_created_ai', isset($vocab['resolver_questions']['who_created_ai']));
 $a('resolver supports who_reviews_ai', isset($vocab['resolver_questions']['who_reviews_ai']));
 
 echo "\nCore service contract\n";
@@ -60,6 +64,8 @@ foreach ([
 $map = peopleGraphResolverQuestionMap();
 $a('who_owns resolves owner/accountable', ($map['who_owns'] ?? []) === ['owner', 'accountable']);
 $a('who_approves resolves approver', ($map['who_approves'] ?? []) === ['approver']);
+$a('who_prepares resolves preparer/operator', ($map['who_prepares'] ?? []) === ['preparer', 'operator']);
+$a('who_created_ai resolves ai_creator', ($map['who_created_ai'] ?? []) === ['ai_creator']);
 $a('who_reviews_ai resolves ai_supervisor first', ($map['who_reviews_ai'][0] ?? null) === 'ai_supervisor');
 $a('approver delegates by approval', peopleGraphDelegationTypeForResponsibility('approver') === 'approval');
 $a('ai_supervisor delegates by supervision', peopleGraphDelegationTypeForResponsibility('ai_supervisor') === 'supervision');

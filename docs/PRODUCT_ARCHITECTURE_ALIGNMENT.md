@@ -175,6 +175,19 @@ The workflow inbox and push-notification paths resolve these strategies at
 runtime, then fall back to explicit approver IDs only when the graph has no
 answer.
 
+### Artifact Graph Consumption
+
+Artifact Graph is also a consumer of People Graph. Artifact objects own
+artifact identity, lifecycle, provenance, event history, and lineage. People
+Graph owns the people roles around those artifacts: owner, preparer, reviewer,
+approver, requester, recipient, AI creator, AI supervisor, and escalation
+contact.
+
+Artifact helpers expose `artifactAssignPeopleGraph()`,
+`artifactPeopleGraph()`, and `artifactResolvePeopleGraph()` so modules can link
+artifact people roles without adding local artifact owner/reviewer/approver
+columns.
+
 ## 3. Enterprise Controls
 
 Enterprise controls are the product rules that keep financial, payroll, PII,

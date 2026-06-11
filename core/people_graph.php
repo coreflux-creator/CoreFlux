@@ -25,8 +25,9 @@ const PEOPLE_GRAPH_RELATIONSHIP_TYPES = [
 ];
 
 const PEOPLE_GRAPH_RESPONSIBILITY_TYPES = [
-    'owner', 'accountable', 'approver', 'reviewer', 'ai_supervisor', 'notifier',
-    'operator', 'viewer', 'escalation_contact',
+    'owner', 'accountable', 'preparer', 'approver', 'reviewer', 'requester',
+    'recipient', 'ai_creator', 'ai_supervisor', 'notifier', 'operator',
+    'viewer', 'escalation_contact',
 ];
 
 const PEOPLE_GRAPH_DELEGATION_TYPES = [
@@ -57,9 +58,12 @@ function peopleGraphResolverQuestionMap(): array
 {
     return [
         'who_owns'       => ['owner', 'accountable'],
+        'who_prepares'   => ['preparer', 'operator'],
         'who_approves'   => ['approver'],
         'who_reviews'    => ['reviewer'],
         'who_reviews_ai' => ['ai_supervisor', 'reviewer'],
+        'who_created_ai' => ['ai_creator'],
+        'who_receives'   => ['recipient', 'requester'],
         'who_notifies'   => ['notifier', 'owner'],
         'who_escalates'  => ['escalation_contact', 'accountable'],
         'who_operates'   => ['operator', 'owner'],
