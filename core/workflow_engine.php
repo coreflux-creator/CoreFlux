@@ -356,6 +356,12 @@ function _workflowSubjectSync(int $tenantId, string $subjectType, int $subjectId
                 timeSyncTimesheetFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
             }
         }
+        if ($subjectType === 'payroll_run') {
+            require_once __DIR__ . '/../modules/payroll/lib/workflow_sync.php';
+            if (function_exists('payrollSyncRunFromWorkflow')) {
+                payrollSyncRunFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
+            }
+        }
     } catch (\Throwable $_) {
         // Absolutely non-fatal.
     }
@@ -496,6 +502,7 @@ function _workflowCollectSodUsers(array &$blocked, mixed $source, string $prefix
     foreach ([
         'started_by_user_id',
         'created_by_user_id',
+        'computed_by_user_id',
         'prepared_by_user_id',
         'preparer_user_id',
         'submitted_by_user_id',

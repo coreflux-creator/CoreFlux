@@ -11,9 +11,11 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../lib/payroll.php';
 
 $ctx = api_require_auth();
+$user = $ctx['user'];
 
 switch (api_method()) {
     case 'GET': {
+        rbac_legacy_require($user, 'payroll.view');
         $id = (int) (api_query('id') ?? 0);
         if ($id) {
             $row = scopedFind(
@@ -43,6 +45,7 @@ switch (api_method()) {
     }
 
     case 'POST': {
+        rbac_legacy_require($user, 'payroll.run.build');
         $body = api_json_body();
         api_require_fields($body, ['schedule_id']);
         $count = max(1, min(24, (int) ($body['count'] ?? 6)));
@@ -52,13 +55,31 @@ switch (api_method()) {
 
     case 'PUT':
     case 'PATCH': {
+        rbac_legacy_require($user, 'payroll.run.build');
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
         $body = api_json_body();
+        if (array_key_exists('status', $body) && in_array((string) $body['status'], ['approved', 'paid'], true)) {
+            api_error('Pay period approved/paid status is controlled by payroll run approval/payment workflows', 409);
+        }
+        if (array_key_exists('status', $body) && !in_array((string) $body['status'], ['draft', 'open', 'closed'], true)) {
+            api_error('status must be draft, open, or closed', 422);
+        }
         $allowed = ['status','notes'];
         $data = [];
         foreach ($allowed as $f) if (array_key_exists($f, $body)) $data[$f] = $body[$f];
+        $before = scopedFind(
+            'SELECT * FROM payroll_pay_periods WHERE tenant_id = :tenant_id AND id = :id',
+            ['id' => $id]
+        );
+        if (!$before) api_error('Not found', 404);
         scopedUpdate('payroll_pay_periods', $id, $data);
+        payrollAudit('payroll.period.updated', [
+            'period_id' => $id,
+            'changed_fields' => array_keys($data),
+            'before_status' => $before['status'] ?? null,
+            'after_status' => $data['status'] ?? ($before['status'] ?? null),
+        ], $id);
         api_ok(['ok' => true]);
     }
 }

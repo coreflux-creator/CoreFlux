@@ -155,6 +155,8 @@ final class RbacLegacyMap
             'payroll.reports.view'              => ['payroll', 'read'],
             'payroll.run.approve'               => ['payroll', 'admin'],
             'payroll.run.build'                 => ['payroll', 'write'],
+            'payroll.run.compute'               => ['payroll', 'write'],
+            'payroll.run.create'                => ['payroll', 'write'],
             'payroll.run.disburse'              => ['payroll', 'admin'],
             'payroll.run.post'                  => ['payroll', 'admin'],
             'payroll.run.reverse'               => ['payroll', 'admin'],

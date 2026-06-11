@@ -564,6 +564,12 @@ function cf_self_heal_known_column(string $colRef): bool {
             'external_approver_name'  => 'ADD COLUMN external_approver_name VARCHAR(255) NULL',
             'approval_note'           => 'ADD COLUMN approval_note VARCHAR(1000) NULL',
         ],
+        'payroll_runs' => [
+            'created_by_user_id'   => 'ADD COLUMN created_by_user_id INT UNSIGNED NULL AFTER run_type',
+            'computed_by_user_id'  => 'ADD COLUMN computed_by_user_id INT UNSIGNED NULL AFTER computed_at',
+            'workflow_instance_id' => 'ADD COLUMN workflow_instance_id BIGINT UNSIGNED NULL AFTER approved_by',
+            'paid_by_user_id'      => 'ADD COLUMN paid_by_user_id INT UNSIGNED NULL AFTER paid_at',
+        ],
     ];
     // Resolve alias prefix (te.person_id → person_id, but we still need the table).
     $col = $colRef;
