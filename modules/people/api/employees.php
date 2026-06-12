@@ -29,7 +29,11 @@ switch (api_method()) {
             $row = peopleGetEmployee($id);
             if (!$row) api_error('Not found', 404);
             $canViewPii = rbac_legacy_can($user, 'people.pii.view');
-            if ($canViewPii) _logPiiAccess($id, 'employee.ssn_mask.viewed', ['field' => 'ssn_last4']);
+            if ($canViewPii) {
+                _logPiiAccess($id, 'employee.pii.viewed', [
+                    'fields' => ['ssn_last4','date_of_birth','gender','marital_status','citizenship_status'],
+                ]);
+            }
             api_ok(['employee' => _presentEmployee($row, includePIIMask: $canViewPii)]);
         }
 
@@ -49,6 +53,11 @@ switch (api_method()) {
         // Employee number: caller may supply, or auto-increment per tenant
         $empNumber = trim((string)($body['employee_number'] ?? ''));
         if ($empNumber === '') $empNumber = _nextEmployeeNumber();
+
+        $piiInput = _employeePiiInputFields($body);
+        if ($piiInput) {
+            rbac_legacy_require($user, 'people.pii.manage');
+        }
 
         $data = [
             'employee_number'    => $empNumber,
@@ -76,7 +85,6 @@ switch (api_method()) {
         ];
 
         if (!empty($body['ssn'])) {
-            rbac_legacy_require($user, 'people.pii.manage');
             $data['ssn_cipher'] = encryptField($body['ssn']);
             $data['ssn_last4']  = last4($body['ssn']);
             $data['ssn_hash']   = fieldHash($body['ssn']);
@@ -84,7 +92,7 @@ switch (api_method()) {
 
         $id = scopedInsert('people_employees', $data);
         _logChange($id, 'employee', $id, 'create', array_keys($data));
-        if (!empty($body['ssn'])) _logPiiAccess($id, 'employee.ssn.updated', ['action' => 'create']);
+        if ($piiInput) _logPiiAccess($id, 'employee.pii.updated', ['action' => 'create', 'fields' => $piiInput]);
 
         $row = peopleGetEmployee($id);
         api_ok(['employee' => _presentEmployee($row, includePIIMask: rbac_legacy_can($user, 'people.pii.view'))], 201);
@@ -110,9 +118,12 @@ switch (api_method()) {
         foreach ($allowed as $field) {
             if (array_key_exists($field, $body)) $update[$field] = $body[$field];
         }
+        $piiInput = _employeePiiInputFields($body);
+        if ($piiInput) {
+            rbac_legacy_require($user, 'people.pii.manage');
+        }
         // SSN is sensitive — accept only if explicitly provided and recompute companions
         if (array_key_exists('ssn', $body) && $body['ssn'] !== null && $body['ssn'] !== '') {
-            rbac_legacy_require($user, 'people.pii.manage');
             $update['ssn_cipher'] = encryptField($body['ssn']);
             $update['ssn_last4']  = last4($body['ssn']);
             $update['ssn_hash']   = fieldHash($body['ssn']);
@@ -121,8 +132,8 @@ switch (api_method()) {
 
         scopedUpdate('people_employees', $id, $update);
         _logChange($id, 'employee', $id, 'update', array_keys($update));
-        if (array_key_exists('ssn_cipher', $update)) {
-            _logPiiAccess($id, 'employee.ssn.updated', ['action' => 'update']);
+        if ($piiInput) {
+            _logPiiAccess($id, 'employee.pii.updated', ['action' => 'update', 'fields' => $piiInput]);
         }
 
         $row = peopleGetEmployee($id);
@@ -166,9 +177,19 @@ function _presentEmployee(array $row, bool $includePIIMask): array {
     if ($includePIIMask) {
         $out['ssn_masked'] = $row['ssn_last4'] ? '***-**-' . $row['ssn_last4'] : null;
     } else {
-        unset($out['ssn_last4']);
+        unset($out['ssn_last4'], $out['date_of_birth'], $out['gender'], $out['marital_status'], $out['citizenship_status']);
     }
     return $out;
+}
+
+function _employeePiiInputFields(array $body): array {
+    $fields = [];
+    foreach (['date_of_birth','gender','marital_status','citizenship_status','ssn'] as $field) {
+        if (array_key_exists($field, $body) && $body[$field] !== null && $body[$field] !== '') {
+            $fields[] = $field;
+        }
+    }
+    return $fields;
 }
 
 function _nextEmployeeNumber(): string {

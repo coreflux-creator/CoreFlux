@@ -29,6 +29,7 @@ if ($method === 'GET') {
         ['person_id' => $personId]
     );
     peopleLogPIIAccess((int) ($user['id'] ?? 0), $personId, 'tax.viewed', []);
+    peopleAudit('people.tax.viewed', ['person_id' => $personId], $personId);
     api_ok(['tax' => $row]);
 }
 

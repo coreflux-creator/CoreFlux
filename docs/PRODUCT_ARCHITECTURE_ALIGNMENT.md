@@ -300,6 +300,28 @@ results are stored in `access_review_items` and `access_review_audit`.
 The canonical API surface is `/api/v1/people/access-reviews`, governed by
 `people.access_reviews.view` and `people.access_reviews.manage`.
 
+### Legacy People/PII Controls
+
+Legacy People endpoints must follow the same control model as the canonical
+People API.
+
+- DOB, SSN last4, gender, marital status, citizenship, home/mailing addresses,
+  I-9 records, emergency contacts, and PII-tagged custom field values require
+  `people.pii.view` for reads and `people.pii.manage` for writes.
+- Bank-account endpoints require `people.banking.view` or
+  `people.banking.manage`; masked reads and all writes emit banking audit
+  events.
+- Tax setup/history endpoints require `people.tax.view` or `people.tax.manage`;
+  reads and writes emit tax audit events.
+- Legacy compensation history is financially sensitive and requires
+  `people.comp.view` or `people.comp.manage` while deeper comp ownership
+  remains aligned to Placements.
+- AI onboarding/readiness helpers must not receive sensitive values and must be
+  gated before exposing SSN/bank/tax readiness categories or personal email
+  addresses.
+- Legacy bridge/sync helpers should avoid copying PII between People-era tables
+  unless a governed write path explicitly requires it.
+
 ## 4. Correction Plan
 
 ### Phase 1: Contract Lock

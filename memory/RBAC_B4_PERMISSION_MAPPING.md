@@ -150,6 +150,8 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 |---|---|
 | `people.banking.manage` | `(people, admin)` *(banking PII)* |
 | `people.banking.view` | `(people, admin)` *(banking PII)* |
+| `people.comp.manage` | `(people, admin)` *(legacy comp history)* |
+| `people.comp.view` | `(people, read)` *(legacy comp history)* |
 | `people.custom_fields.manage` | `(people, write)` |
 | `people.docs.manage` | `(people, write)` |
 | `people.docs.view` | `(people, read)` |

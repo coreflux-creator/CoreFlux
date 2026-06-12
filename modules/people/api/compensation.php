@@ -11,12 +11,15 @@
  * pay_frequency — AI NEVER produces these.
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/employees.php';
 
 $ctx = api_require_auth();
+$user = $ctx['user'];
 
 switch (api_method()) {
     case 'GET': {
+        rbac_legacy_require($user, 'people.comp.view');
         $empId = (int) (api_query('employee_id') ?? 0);
         if (!$empId) api_error('Missing employee_id', 422);
         if ((int) api_query('active') === 1) {
@@ -32,6 +35,7 @@ switch (api_method()) {
     }
 
     case 'POST': {
+        rbac_legacy_require($user, 'people.comp.manage');
         $body = api_json_body();
         api_require_fields($body, ['employee_id','pay_type','pay_rate_cents','pay_frequency','effective_from']);
         $empId = (int) $body['employee_id'];

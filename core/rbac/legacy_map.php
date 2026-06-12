@@ -173,6 +173,8 @@ final class RbacLegacyMap
             'people.banking.view'                => ['people', 'admin'],
             'people.access_reviews.manage'       => ['people', 'admin'],
             'people.access_reviews.view'         => ['people', 'admin'],
+            'people.comp.manage'                 => ['people', 'admin'],
+            'people.comp.view'                   => ['people', 'read'],
             'people.custom_fields.manage'        => ['people', 'write'],
             'people.docs.manage'                 => ['people', 'write'],
             'people.docs.view'                   => ['people', 'read'],

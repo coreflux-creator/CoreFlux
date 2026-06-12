@@ -62,6 +62,7 @@ return [
         'people.pii.viewed',
         'people.banking.viewed',
         'people.banking.updated',
+        'people.tax.viewed',
         'people.tax.updated',
         'people.document.uploaded',
         'people.document.deleted',

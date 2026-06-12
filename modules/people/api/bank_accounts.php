@@ -11,13 +11,17 @@
  * DELETE ?id=N                      soft-close (status='closed', closed_at=today)
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/encryption.php';
 require_once __DIR__ . '/../lib/employees.php';
+require_once __DIR__ . '/../lib/audit.php';
 
 $ctx = api_require_auth();
+$user = $ctx['user'];
 
 switch (api_method()) {
     case 'GET': {
+        rbac_legacy_require($user, 'people.banking.view');
         $empId = (int) (api_query('employee_id') ?? 0);
         if (!$empId) api_error('Missing employee_id', 422);
         $rows = scopedQuery(
@@ -26,10 +30,13 @@ switch (api_method()) {
              ORDER BY priority ASC',
             ['emp' => $empId]
         );
+        _bankAccountAudit($ctx, $empId, null, 'view', ['row_count' => count($rows), 'last4_only' => true]);
+        peopleAudit('people.banking.viewed', ['employee_id' => $empId, 'row_count' => count($rows), 'last4_only' => true], $empId);
         api_ok(['bank_accounts' => array_map('_presentBank', $rows)]);
     }
 
     case 'POST': {
+        rbac_legacy_require($user, 'people.banking.manage');
         $body = api_json_body();
         api_require_fields($body, ['employee_id','routing_number','account_number']);
         $empId = (int) $body['employee_id'];
@@ -65,11 +72,13 @@ switch (api_method()) {
             ]);
         } catch (Throwable $e) { error_log($e->getMessage()); }
 
+        peopleAudit('people.banking.updated', ['employee_id' => $empId, 'bank_account_id' => $id, 'action' => 'create'], $empId);
         api_ok(['id' => $id], 201);
     }
 
     case 'PUT':
     case 'PATCH': {
+        rbac_legacy_require($user, 'people.banking.manage');
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
         $body = api_json_body();
@@ -78,16 +87,19 @@ switch (api_method()) {
         $update = array_intersect_key($body, array_flip($allowed));
         if (!$update) api_ok(['ok' => true]);
         scopedUpdate('people_bank_accounts', $id, $update);
+        peopleAudit('people.banking.updated', ['bank_account_id' => $id, 'fields' => array_keys($update), 'action' => 'update'], $id);
         api_ok(['ok' => true]);
     }
 
     case 'DELETE': {
+        rbac_legacy_require($user, 'people.banking.manage');
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
         scopedUpdate('people_bank_accounts', $id, [
             'status'    => 'closed',
             'closed_at' => date('Y-m-d'),
         ]);
+        peopleAudit('people.banking.updated', ['bank_account_id' => $id, 'action' => 'close'], $id);
         api_ok(['ok' => true]);
     }
 }
@@ -100,4 +112,20 @@ function _presentBank(array $row): array {
     $row['routing_masked'] = $row['routing_last4'] ? '•••' . $row['routing_last4'] : null;
     $row['account_masked'] = $row['account_last4'] ? '•••' . $row['account_last4'] : null;
     return $row;
+}
+
+function _bankAccountAudit(array $ctx, int $employeeId, ?int $entityId, string $action, array $fields): void {
+    try {
+        scopedInsert('people_change_log', [
+            'user_id'        => $ctx['user']['id'] ?? null,
+            'employee_id'    => $employeeId,
+            'entity'         => 'bank_account',
+            'entity_id'      => $entityId,
+            'action'         => $action,
+            'fields_changed' => json_encode($fields),
+            'ip_address'     => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+    } catch (Throwable $e) {
+        error_log($e->getMessage());
+    }
 }

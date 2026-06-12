@@ -32,7 +32,7 @@ if ($method === 'GET') {
                 (int) ($user['id'] ?? 0),
                 $id,
                 'pii.viewed',
-                ['fields' => ['dob', 'ssn_last4', 'home_address']]
+                ['fields' => ['dob', 'ssn_last4', 'gender', 'marital_status', 'home_address', 'mailing_address']]
             );
             peopleAudit('people.pii.viewed', ['id' => $id], $id);
             $row = peopleGetWithPII($id);
@@ -120,7 +120,7 @@ if ($method === 'POST') {
     ];
 
     // Additive employment/HR fields (migration 006). All optional; whitelisted.
-    $extraEmp = ['employment_type','hire_date','termination_date','pay_frequency','gender','marital_status'];
+    $extraEmp = ['employment_type','hire_date','termination_date','pay_frequency'];
     foreach ($extraEmp as $k) {
         if (array_key_exists($k, $body) && $body[$k] !== '' && $body[$k] !== null) {
             $insert[$k] = $body[$k];
@@ -128,7 +128,8 @@ if ($method === 'POST') {
     }
 
     // PII / address fields are gated by people.pii.manage on create just like PATCH.
-    $piiKeys = ['dob', 'ssn_last4', 'home_address_line1', 'home_address_line2',
+    $piiKeys = ['dob', 'ssn_last4', 'gender', 'marital_status',
+                'home_address_line1', 'home_address_line2',
                 'home_city', 'home_state', 'home_postal_code', 'home_country',
                 'mailing_address_line1', 'mailing_address_line2',
                 'mailing_city', 'mailing_state', 'mailing_postal_code', 'mailing_country'];
@@ -182,7 +183,8 @@ if ($method === 'PATCH') {
     foreach ($disallowed as $k) unset($body[$k]);
 
     // PII fields require people.pii.manage
-    $piiKeys = ['dob', 'ssn_last4', 'home_address_line1', 'home_address_line2',
+    $piiKeys = ['dob', 'ssn_last4', 'gender', 'marital_status',
+                'home_address_line1', 'home_address_line2',
                 'home_city', 'home_state', 'home_postal_code', 'home_country',
                 'mailing_address_line1', 'mailing_address_line2',
                 'mailing_city', 'mailing_state', 'mailing_postal_code', 'mailing_country'];
@@ -191,7 +193,7 @@ if ($method === 'PATCH') {
     if ($touchingPII) {
         rbac_legacy_require($user, 'people.pii.manage');
         peopleLogPIIAccess(
-            (int) ($user['id'] ?? 0), $id, 'pii.viewed',
+            (int) ($user['id'] ?? 0), $id, 'pii.set',
             ['fields' => array_values(array_intersect(array_keys($body), $piiKeys)), 'on' => 'update']
         );
     }

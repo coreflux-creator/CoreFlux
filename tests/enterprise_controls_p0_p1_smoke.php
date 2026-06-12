@@ -19,6 +19,12 @@ $payroll = $root . '/modules/payroll/api/runs.php';
 $gustoSubmit = $root . '/modules/payroll/api/gusto_submit.php';
 $placements = $root . '/modules/placements/api/placements.php';
 $people = $root . '/modules/people/api/employees.php';
+$peopleResource = $root . '/modules/people/api/people.php';
+$peopleBankAccounts = $root . '/modules/people/api/bank_accounts.php';
+$peopleTaxFederal = $root . '/modules/people/api/tax_federal.php';
+$peopleAddresses = $root . '/modules/people/api/addresses.php';
+$peopleI9 = $root . '/modules/people/api/i9.php';
+$peopleCustomValues = $root . '/modules/people/api/custom_field_values.php';
 $staffingTimesheets = $root . '/modules/staffing/api/timesheets.php';
 $staffingReadiness = $root . '/modules/staffing/api/readiness.php';
 $staffingManifest = $root . '/modules/staffing/manifest.php';
@@ -71,6 +77,12 @@ check('POST/PATCH require people.manage', substr_count(file_get_contents($people
 check('SSN writes require people.pii.manage', contains($people, "rbac_legacy_require(\$user, 'people.pii.manage')"));
 check('PII mask uses people.pii.view', contains($people, "rbac_legacy_can(\$user, 'people.pii.view')"));
 check('DELETE requires people.terminate', contains($people, "rbac_legacy_require(\$user, 'people.terminate')"));
+check('unified gender/marital fields require PII gate', contains($peopleResource, "'dob', 'ssn_last4', 'gender', 'marital_status'"));
+check('legacy bank accounts require banking permissions', contains($peopleBankAccounts, "people.banking.view") && contains($peopleBankAccounts, "people.banking.manage"));
+check('legacy tax history requires tax permissions', contains($peopleTaxFederal, "people.tax.view") && contains($peopleTaxFederal, "people.tax.manage"));
+check('legacy addresses require PII permissions', contains($peopleAddresses, "people.pii.view") && contains($peopleAddresses, "people.pii.manage"));
+check('legacy I-9 requires PII permissions', contains($peopleI9, "people.pii.view") && contains($peopleI9, "people.pii.manage"));
+check('PII custom field reads redact without PII view', contains($peopleCustomValues, 'pii_redacted') && contains($peopleCustomValues, "rbac_legacy_can(\$user, 'people.pii.view')"));
 
 $failed = array_values(array_filter($checks, static fn($c) => !$c[1]));
 echo PHP_EOL . 'Total: ' . (count($checks) - count($failed)) . ' passed, ' . count($failed) . ' failed' . PHP_EOL;

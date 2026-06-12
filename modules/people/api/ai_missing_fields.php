@@ -7,12 +7,15 @@
  * HR person. It never produces the gap list itself.
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/ai_service.php';
 require_once __DIR__ . '/../lib/employees.php';
 
 $ctx = api_require_auth();
+$user = $ctx['user'];
 
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
+rbac_legacy_require($user, 'people.pii.view');
 
 $body = api_json_body();
 api_require_fields($body, ['employee_id']);
