@@ -16,6 +16,10 @@ definitions. Those remain with the owning module or platform service.
 - Report presets are named metadata over the same governed definitions.
   Vertical modules may expose or deep-link presets, but the report builder
   registry owns validation, execution, export, and save-from-preset behavior.
+- Module-owned report tabs may keep their existing domain permissions while
+  resolving shared presets internally. For example, the Placements expiring
+  report keeps `placements.view` on the module endpoint, then runs
+  `placements.expiring_soon` through `reportBuilderRunDefinition`.
 - Running a definition that includes sensitive fields requires `reports.export`
   in addition to the source dataset permission.
 - CSV export uses the platform `CsvExportService` and always requires
@@ -75,6 +79,18 @@ audit metadata.
 The legacy direct-file endpoint `/api/report_builder.php` remains as a
 compatibility adapter during migration. New product UI and API callers should
 use the v1 routes above.
+
+## Module Presets
+
+`placements.expiring_soon` is a shared preset over `placements_directory`.
+The placement module adapter adds the requested cutoff window, executes the
+governed definition, and writes `reports.custom.executed` audit metadata with
+`source=module_preset`.
+
+The placement `active_by_client` report remains a module aggregate adapter for
+now because the shared builder does not yet support grouped measures. That gap
+is intentionally isolated to aggregation support rather than duplicating flat
+placement report logic.
 
 ## Priority Alignment
 

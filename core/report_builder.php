@@ -117,6 +117,35 @@ function reportBuilderPresetRegistry(?int $tenantId = null): array
                 'limit'   => 1000,
             ],
         ],
+        'placements.expiring_soon' => [
+            'label'       => 'Expiring Placements',
+            'description' => 'Placements with a due or end date approaching, resolved through the shared placement dataset.',
+            'module_id'   => 'placements',
+            'definition'  => [
+                'dataset' => 'placements_directory',
+                'columns' => [
+                    'placement_id',
+                    'person_first_name',
+                    'person_last_name',
+                    'person_name',
+                    'person_email',
+                    'title',
+                    'engagement_type',
+                    'status',
+                    'start_date',
+                    'due_date',
+                    'end_date',
+                    'expiring_date',
+                    'end_client_name',
+                ],
+                'filters' => [
+                    ['field' => 'status', 'operator' => 'in', 'value' => ['active', 'pending_start', 'on_hold']],
+                    ['field' => 'expiring_date', 'operator' => 'is_not_blank'],
+                ],
+                'sorts'   => [['field' => 'expiring_date', 'direction' => 'asc']],
+                'limit'   => 1000,
+            ],
+        ],
     ];
 
     $out = [];
@@ -224,9 +253,9 @@ function reportBuilderInferFieldType(string $key, array $field): string
 function reportBuilderFilterOperators(string $type): array
 {
     return match ($type) {
-        'number', 'currency', 'date' => ['equals', 'not_equals', 'greater_than', 'less_than', 'between', 'is_blank', 'is_not_blank'],
-        'boolean' => ['equals', 'is_blank', 'is_not_blank'],
-        default => ['equals', 'not_equals', 'contains', 'starts_with', 'is_blank', 'is_not_blank'],
+        'number', 'currency', 'date' => ['equals', 'not_equals', 'in', 'greater_than', 'greater_than_or_equal', 'less_than', 'less_than_or_equal', 'between', 'is_blank', 'is_not_blank'],
+        'boolean' => ['equals', 'in', 'is_blank', 'is_not_blank'],
+        default => ['equals', 'not_equals', 'in', 'contains', 'starts_with', 'is_blank', 'is_not_blank'],
     };
 }
 
@@ -472,16 +501,30 @@ function reportBuilderRowMatchesFilters(array $row, array $filters): bool
             'is_blank' => $blank,
             'is_not_blank' => !$blank,
             'not_equals' => !reportBuilderValuesEqual($value, $expected),
+            'in' => reportBuilderValueIn($value, $expected),
             'contains' => str_contains(strtolower((string) $value), strtolower((string) $expected)),
             'starts_with' => str_starts_with(strtolower((string) $value), strtolower((string) $expected)),
             'greater_than' => reportBuilderCompareValues($value, $expected) > 0,
+            'greater_than_or_equal' => reportBuilderCompareValues($value, $expected) >= 0,
             'less_than' => reportBuilderCompareValues($value, $expected) < 0,
+            'less_than_or_equal' => reportBuilderCompareValues($value, $expected) <= 0,
             'between' => reportBuilderCompareValues($value, $expected) >= 0 && reportBuilderCompareValues($value, $expectedTo) <= 0,
             default => reportBuilderValuesEqual($value, $expected),
         };
         if (!$ok) return false;
     }
     return true;
+}
+
+function reportBuilderValueIn($value, $expected): bool
+{
+    $values = is_array($expected)
+        ? $expected
+        : preg_split('/\s*,\s*/', (string) $expected, -1, PREG_SPLIT_NO_EMPTY);
+    foreach ($values ?: [] as $candidate) {
+        if (reportBuilderValuesEqual($value, $candidate)) return true;
+    }
+    return false;
 }
 
 function reportBuilderValuesEqual($left, $right): bool

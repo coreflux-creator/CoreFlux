@@ -27,7 +27,11 @@ $assert('people filters exposed', isset($people['filters']['status']));
 $assert('placements preserves source dataset', ($placements['source_dataset'] ?? null) === 'placements_directory');
 $assert('placements custom fields entity exposed', in_array('placements', $placements['custom_field_entities'] ?? [], true));
 $assert('placements fields exposed', isset($placements['fields']['person_email']));
+$assert('placements person split fields exposed', isset($placements['fields']['person_first_name'], $placements['fields']['person_last_name']));
+$assert('placements expiring date exposed', isset($placements['fields']['expiring_date']));
 $assert('placements filters exposed', isset($placements['filters']['status']));
+$assert('report builder text filters support lists', in_array('in', reportBuilderFilterOperators('text'), true));
+$assert('report builder date filters support inclusive upper bounds', in_array('less_than_or_equal', reportBuilderFilterOperators('date'), true));
 $assert('payroll amount classified as measure', (($reg['payroll_disbursements']['measures']['gross_pay_dollars']['role'] ?? null) === 'measure'));
 $assert('payroll bank account marked sensitive', !empty($reg['payroll_disbursements']['fields']['bank_account_number']['sensitive']));
 $assert('people execution supported', !empty($people['execution_supported']));
@@ -37,6 +41,9 @@ $assert('people preset exists', isset($presets['people.active_directory']));
 $assert('staffing placement preset exists', isset($presets['staffing.active_placements']));
 $assert('staffing preset consumes placements dataset', ($presets['staffing.active_placements']['dataset'] ?? null) === 'placements_directory');
 $assert('staffing preset preserves source module metadata', ($presets['staffing.active_placements']['source_module_id'] ?? null) === 'placements');
+$assert('placements expiring preset exists', isset($presets['placements.expiring_soon']));
+$assert('placements expiring preset consumes placements dataset', ($presets['placements.expiring_soon']['dataset'] ?? null) === 'placements_directory');
+$assert('placements expiring preset preserves source module metadata', ($presets['placements.expiring_soon']['source_module_id'] ?? null) === 'placements');
 $presetDefinition = reportBuilderValidateDefinition((array) ($presets['people.active_directory']['definition'] ?? []));
 $assert('preset definitions validate through governed fields', ($presetDefinition['filters'][0]['field'] ?? null) === 'status');
 $definition = reportBuilderValidateDefinition([
@@ -53,6 +60,21 @@ $result = reportBuilderApplyDefinitionToRows($definition, [
 ]);
 $assert('execution filters rows', ($result['row_count'] ?? 0) === 1);
 $assert('execution projects selected fields', array_key_exists('email_primary', $result['rows'][0] ?? []) && !array_key_exists('status', $result['rows'][0] ?? []));
+$placementDefinition = reportBuilderValidateDefinition([
+    'dataset' => 'placements_directory',
+    'columns' => ['placement_id', 'expiring_date'],
+    'filters' => [
+        ['field' => 'status', 'operator' => 'in', 'value' => ['active', 'pending_start', 'on_hold']],
+        ['field' => 'expiring_date', 'operator' => 'less_than_or_equal', 'value' => '2026-07-01'],
+    ],
+    'sorts' => [['field' => 'expiring_date', 'direction' => 'asc']],
+]);
+$placementResult = reportBuilderApplyDefinitionToRows($placementDefinition, [
+    ['placement_id' => 1, 'status' => 'active', 'expiring_date' => '2026-06-15'],
+    ['placement_id' => 2, 'status' => 'ended', 'expiring_date' => '2026-06-10'],
+    ['placement_id' => 3, 'status' => 'active', 'expiring_date' => '2026-08-01'],
+]);
+$assert('placement report preset filters lists and inclusive dates', ($placementResult['row_count'] ?? 0) === 1 && (($placementResult['rows'][0]['placement_id'] ?? null) === 1));
 $csv = reportBuilderRenderCsv($result);
 $assert('execution renders CSV through platform service', str_contains($csv, '"First name","Last name","Primary email"') && str_contains($csv, 'Jordan,Rivera,jordan@example.com'));
 try {

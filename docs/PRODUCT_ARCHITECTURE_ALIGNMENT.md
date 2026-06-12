@@ -348,6 +348,11 @@ People API.
 - Promote report builder to a shared governed-dataset engine.
 - Route module presets through the shared services instead of module-specific
   one-offs.
+  - Placement Expiring Soon now resolves `placements.expiring_soon` and runs
+    through `reportBuilderRunDefinition` over `placements_directory`, with the
+    module endpoint preserving `placements.view`.
+  - Placement Active by Client remains a legacy aggregate adapter until the
+    shared report builder supports grouped measures.
 
 ### Phase 4: Product Alignment
 

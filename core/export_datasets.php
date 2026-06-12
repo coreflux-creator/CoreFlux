@@ -161,6 +161,8 @@ function exportDatasetRegistry(): array {
             'fields'                => [
                 'placement_id'       => ['label' => 'Placement ID',      'sample' => '7001'],
                 'person_id'          => ['label' => 'Person ID',         'sample' => '42'],
+                'person_first_name'  => ['label' => 'Person first name', 'sample' => 'Jordan'],
+                'person_last_name'   => ['label' => 'Person last name',  'sample' => 'Rivera'],
                 'person_name'        => ['label' => 'Person name',       'sample' => 'Jordan Rivera'],
                 'person_email'       => ['label' => 'Person email',      'sample' => 'jordan@example.com'],
                 'title'              => ['label' => 'Title',             'sample' => 'Senior Accountant'],
@@ -170,6 +172,7 @@ function exportDatasetRegistry(): array {
                 'end_date'           => ['label' => 'End date',          'sample' => '2026-08-31'],
                 'actual_end_date'    => ['label' => 'Actual end date',   'sample' => ''],
                 'due_date'           => ['label' => 'Due date',          'sample' => '2026-08-15'],
+                'expiring_date'      => ['label' => 'Expiring date',     'sample' => '2026-08-15'],
                 'end_client_name'    => ['label' => 'End client name',   'sample' => 'Acme Corp'],
                 'worksite_state'     => ['label' => 'Worksite state',    'sample' => 'NY'],
                 'worksite_country'   => ['label' => 'Worksite country',  'sample' => 'US'],
@@ -438,10 +441,18 @@ function exportDatasetFetchPlacementsDirectory(int $tenantId, array $opts): arra
     $stmt = $pdo->prepare(
         'SELECT p.id AS placement_id,
                 p.person_id,
+                pe.first_name AS person_first_name,
+                pe.last_name AS person_last_name,
                 pe.email_primary AS person_email,
                 CONCAT_WS(" ", pe.first_name, pe.last_name) AS person_name,
                 p.title, p.engagement_type, p.status,
                 p.start_date, p.end_date, p.actual_end_date, p.due_date,
+                CASE
+                    WHEN p.due_date IS NULL THEN p.end_date
+                    WHEN p.end_date IS NULL THEN p.due_date
+                    WHEN p.due_date <= p.end_date THEN p.due_date
+                    ELSE p.end_date
+                END AS expiring_date,
                 p.end_client_name, p.worksite_state, p.worksite_country, p.remote_policy,
                 (SELECT bill_rate FROM placement_rates r
                   WHERE r.tenant_id = p.tenant_id AND r.placement_id = p.id
