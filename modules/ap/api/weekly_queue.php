@@ -27,6 +27,7 @@ require_once __DIR__ . '/../../../core/mail_bootstrap.php';
 require_once __DIR__ . '/../../../core/tenant_mail.php';
 require_once __DIR__ . '/../lib/ap.php';
 require_once __DIR__ . '/../lib/weekly_queue.php';
+require_once __DIR__ . '/../lib/workflow_bridge.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -103,62 +104,15 @@ function ap_weekly_queue_finalize_one(int $tenantId, int $billId, array $actor):
         return ['ok' => false, 'reason' => 'Awaiting client payment (PWP) — auto-finalizes when AR clears'];
     }
 
-    $exists = $pdo->prepare('SELECT 1 FROM ap_bill_approvals WHERE tenant_id = :t AND bill_id = :b LIMIT 1');
-    $exists->execute(['t' => $tenantId, 'b' => $billId]);
-    if ($exists->fetchColumn()) {
-        return ['ok' => false, 'reason' => 'Workflow already in progress'];
-    }
-
-    $wf = $pdo->prepare(
-        "SELECT id FROM ap_approval_workflows
-          WHERE tenant_id = :t AND is_active = 1
-          ORDER BY is_default DESC, id ASC LIMIT 1"
-    );
-    $wf->execute(['t' => $tenantId]);
-    $wfId = (int) $wf->fetchColumn();
-    if ($wfId === 0) return ['ok' => false, 'reason' => 'No active approval workflow configured'];
-
-    $amt = (float) $bill['total'];
-    $rules = $pdo->prepare(
-        "SELECT step_no, approver_user_id, min_amount, max_amount
-           FROM ap_approval_workflow_rules
-          WHERE tenant_id = :t AND workflow_id = :w
-            AND :a1 >= min_amount AND (max_amount IS NULL OR :a2 < max_amount)
-          ORDER BY step_no ASC"
-    );
-    $rules->execute(['t' => $tenantId, 'w' => $wfId, 'a1' => $amt, 'a2' => $amt]);
-    $rules = $rules->fetchAll(\PDO::FETCH_ASSOC);
-    if (!$rules) return ['ok' => false, 'reason' => 'No rule brackets the bill amount'];
-
-    $pdo->beginTransaction();
     try {
-        $ins = $pdo->prepare(
-            'INSERT INTO ap_bill_approvals (tenant_id, bill_id, workflow_id, step_no, approver_user_id, state)
-             VALUES (:t, :b, :w, :s, :u, "pending")'
+        $routing = apWorkflowSubmitBillForApproval(
+            $tenantId,
+            $bill,
+            (int) ($actor['id'] ?? 0) ?: null,
+            'weekly_queue_finalize'
         );
-        foreach ($rules as $r) {
-            $ins->execute([
-                't' => $tenantId, 'b' => $billId, 'w' => $wfId,
-                's' => (int) $r['step_no'], 'u' => (int) $r['approver_user_id'],
-            ]);
-        }
-        $pdo->prepare(
-            "UPDATE ap_bills SET status = 'pending_approval'
-              WHERE tenant_id = :t AND id = :id"
-        )->execute(['t' => $tenantId, 'id' => $billId]);
-        $pdo->commit();
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
-        return ['ok' => false, 'reason' => 'DB write failed: ' . $e->getMessage()];
-    }
-
-    if (function_exists('apAudit')) {
-        try {
-            apAudit('ap.bill.approval_submitted', [
-                'bill_id' => $billId, 'workflow_id' => $wfId,
-                'steps' => count($rules), 'via' => 'weekly_queue_finalize',
-            ], $billId);
-        } catch (\Throwable $_) { /* non-fatal */ }
+        return ['ok' => false, 'reason' => $e->getMessage()];
     }
 
     // Notify the first-step approvers with one-tap approve/reject tokens.
@@ -168,7 +122,13 @@ function ap_weekly_queue_finalize_one(int $tenantId, int $billId, array $actor):
     } catch (\Throwable $e) {
         error_log('[ap_weekly_queue_finalize_one] notify failed for bill ' . $billId . ': ' . $e->getMessage());
     }
-    return ['ok' => true, 'steps' => count($rules), 'notified' => $notified];
+    return [
+        'ok' => true,
+        'steps' => count($routing['approval_ids'] ?? []),
+        'workflow_instance_id' => $routing['workflow_instance_id'] ?? null,
+        'policy_id' => $routing['policy_id'] ?? null,
+        'notified' => $notified,
+    ];
 }
 
 /**

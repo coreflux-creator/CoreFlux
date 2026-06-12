@@ -107,78 +107,26 @@ if ($action === 'comment') {
 
 if ($action === 'submit') {
     rbac_legacy_require($user, 'ap.bill.create');
-    $exists = $pdo->prepare('SELECT 1 FROM ap_bill_approvals WHERE tenant_id = :t AND bill_id = :b LIMIT 1');
-    $exists->execute(['t' => $tenantId, 'b' => $billId]);
-    if ($exists->fetchColumn()) {
-        api_error('Bill already has an approval workflow in progress', 409);
-    }
-    $amt = (float) $bill['total'];
-
-    // Pick default active workflow.
-    $wf = $pdo->prepare(
-        "SELECT id FROM ap_approval_workflows
-          WHERE tenant_id = :t AND is_active = 1
-          ORDER BY is_default DESC, id ASC LIMIT 1"
-    );
-    $wf->execute(['t' => $tenantId]);
-    $wfId = (int) $wf->fetchColumn();
-    if ($wfId === 0) api_error('No active approval workflow configured', 422);
-
-    // Find rules matching the amount, ordered by step_no.
-    $rules = $pdo->prepare(
-        "SELECT step_no, approver_user_id, min_amount, max_amount
-           FROM ap_approval_workflow_rules
-          WHERE tenant_id   = :t
-            AND workflow_id = :w
-            AND :a1 >= min_amount
-            AND (max_amount IS NULL OR :a2 < max_amount)
-          ORDER BY step_no ASC"
-    );
-    $rules->execute(['t' => $tenantId, 'w' => $wfId, 'a1' => $amt, 'a2' => $amt]);
-    $rules = $rules->fetchAll(PDO::FETCH_ASSOC);
-    if (!$rules) api_error('No rule in workflow brackets the bill amount', 422);
-
-    $pdo->beginTransaction();
     try {
-        $ins = $pdo->prepare(
-            'INSERT INTO ap_bill_approvals
-                (tenant_id, bill_id, workflow_id, step_no, approver_user_id, state)
-             VALUES (:t, :b, :w, :s, :u, "pending")'
-        );
-        foreach ($rules as $r) {
-            $ins->execute([
-                't' => $tenantId, 'b' => $billId, 'w' => $wfId,
-                's' => (int) $r['step_no'], 'u' => (int) $r['approver_user_id'],
-            ]);
-        }
-        $pdo->prepare(
-            "UPDATE ap_bills SET status = 'pending_approval'
-              WHERE tenant_id = :t AND id = :id"
-        )->execute(['t' => $tenantId, 'id' => $billId]);
-        $pdo->commit();
+        $routing = apWorkflowSubmitBillForApproval($tenantId, $bill, $userId, 'bill_approvals_submit');
     } catch (\Throwable $e) {
-        $pdo->rollBack();
-        api_error('Could not submit for approval: ' . $e->getMessage(), 500);
+        api_error('Could not submit for approval: ' . $e->getMessage(), apWorkflowDecisionHttpStatus($e));
     }
 
-    // Notify the first-step approver(s) — best-effort.
+    // Notify the current-step approver(s) by email; router already sent push.
     try {
-        $firstStep = (int) $rules[0]['step_no'];
-        $firstApprovers = array_filter(array_map(
-            fn($r) => (int) $r['step_no'] === $firstStep ? (int) $r['approver_user_id'] : 0,
-            $rules
-        ));
-        if ($firstApprovers) {
-            $place = implode(',', array_fill(0, count($firstApprovers), '?'));
-            $stmt = $pdo->prepare("SELECT id, name, email FROM users WHERE id IN ({$place})");
-            $stmt->execute(array_values($firstApprovers));
-            $approvers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $approvers = apBillApprovalCurrentStepApprovers($pdo, $tenantId, $billId);
+        if ($approvers) {
             apBillApprovalNotify($pdo, $tenantId, $billId, $bill, $approvers);
         }
     } catch (\Throwable $_) { /* swallow — submit succeeded; notifications are best-effort */ }
 
-    apAudit('ap.bill.approval_submitted', ['bill_id' => $billId, 'workflow_id' => $wfId, 'steps' => count($rules)], $billId);
-    api_ok(['ok' => true, 'workflow_id' => $wfId, 'steps' => count($rules)]);
+    api_ok([
+        'ok' => true,
+        'workflow_instance_id' => $routing['workflow_instance_id'] ?? null,
+        'policy_id' => $routing['policy_id'] ?? null,
+        'steps' => count($routing['approval_ids'] ?? []),
+    ]);
 }
 
 if ($action !== 'approve' && $action !== 'reject') {
@@ -415,6 +363,30 @@ function apCurrentWorkflowApproverUserIds(int $tenantId, int $billId): array {
     } catch (\Throwable $_) {
         return [];
     }
+}
+
+function apBillApprovalCurrentStepApprovers(\PDO $pdo, int $tenantId, int $billId): array
+{
+    $step = $pdo->prepare(
+        "SELECT step_no FROM ap_bill_approvals
+          WHERE tenant_id = :t AND bill_id = :b AND state = 'pending'
+          ORDER BY step_no ASC LIMIT 1"
+    );
+    $step->execute(['t' => $tenantId, 'b' => $billId]);
+    $stepNo = (int) ($step->fetchColumn() ?: 0);
+    if ($stepNo <= 0) return [];
+
+    $stmt = $pdo->prepare(
+        "SELECT u.id, u.name, u.email
+           FROM ap_bill_approvals a
+           JOIN users u ON u.id = a.approver_user_id
+          WHERE a.tenant_id = :t
+            AND a.bill_id = :b
+            AND a.step_no = :s
+            AND a.state = 'pending'"
+    );
+    $stmt->execute(['t' => $tenantId, 'b' => $billId, 's' => $stepNo]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 function apBillApprovalNotify(\PDO $pdo, int $tenantId, int $billId, ?array $bill, array $approvers): void

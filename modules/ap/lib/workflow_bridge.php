@@ -10,6 +10,83 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
 
+/**
+ * Compatibility submit path for AP bills. Routes through the common AP
+ * approval policy router so WorkflowEngine + People Graph are the source of
+ * approver resolution, SoD evidence, workflow state, and legacy row mirrors.
+ *
+ * @return array{policy_id:?int, approval_ids:list<int>, workflow_instance_id:int, push_count:int, risk:array, matched:bool}
+ */
+function apWorkflowSubmitBillForApproval(
+    int $tenantId,
+    array $bill,
+    ?int $actorUserId = null,
+    string $via = 'api'
+): array {
+    $pdo = getDB();
+    if (!$pdo) throw new \RuntimeException('No DB');
+
+    $billId = (int) ($bill['id'] ?? 0);
+    if ($billId <= 0) throw new \InvalidArgumentException('bill.id required');
+
+    $status = (string) ($bill['status'] ?? '');
+    if (!in_array($status, ['inbox', 'pending_review', 'pending_approval'], true)) {
+        throw new \RuntimeException("Bill status '{$status}' cannot be submitted for approval");
+    }
+
+    if (apWorkflowFindBillInstance($tenantId, $billId, true)) {
+        throw new \RuntimeException('Bill already has a pending WorkflowEngine approval');
+    }
+
+    $legacy = $pdo->prepare(
+        "SELECT 1 FROM ap_bill_approvals
+          WHERE tenant_id = :t AND bill_id = :b AND state = 'pending'
+          LIMIT 1"
+    );
+    $legacy->execute(['t' => $tenantId, 'b' => $billId]);
+    if ($legacy->fetchColumn()) {
+        throw new \RuntimeException('Bill already has pending approval rows');
+    }
+
+    require_once __DIR__ . '/approval_router.php';
+    $routeActorUserId = !empty($bill['created_by_user_id'])
+        ? (int) $bill['created_by_user_id']
+        : ($actorUserId ?: null);
+    $routing = apRouteBillForApproval($tenantId, $bill, $routeActorUserId);
+    if (empty($routing['matched'])) {
+        throw new \RuntimeException('No approval workflow policy matched this AP bill');
+    }
+    if (empty($routing['workflow_instance_id'])) {
+        $pdo->prepare(
+            "DELETE FROM ap_bill_approvals
+              WHERE tenant_id = :t AND bill_id = :b AND state = 'pending'"
+        )->execute(['t' => $tenantId, 'b' => $billId]);
+        throw new \RuntimeException('AP approval route did not create a WorkflowEngine instance');
+    }
+
+    $pdo->prepare(
+        "UPDATE ap_bills
+            SET status = 'pending_approval', updated_at = NOW()
+          WHERE tenant_id = :t AND id = :b
+            AND status IN ('inbox', 'pending_review', 'pending_approval')"
+    )->execute(['t' => $tenantId, 'b' => $billId]);
+
+    try {
+        require_once __DIR__ . '/ap.php';
+        apAudit('ap.bill.approval_submitted', [
+            'bill_id' => $billId,
+            'policy_id' => $routing['policy_id'] ?? null,
+            'approval_ids' => $routing['approval_ids'] ?? [],
+            'workflow_instance_id' => $routing['workflow_instance_id'] ?? null,
+            'risk_level' => $routing['risk']['level'] ?? null,
+            'source' => 'workflow',
+            'via' => $via,
+        ], $billId);
+    } catch (\Throwable $_) { /* non-fatal */ }
+
+    return $routing;
+}
+
 function apWorkflowFindBillInstance(int $tenantId, int $billId, bool $pendingOnly = true): ?array {
     $pdo = getDB();
     if (!$pdo) return null;
