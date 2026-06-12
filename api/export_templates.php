@@ -45,7 +45,7 @@ if ($method === 'GET' && $action === 'datasets') {
             'audit_event'           => $ds['audit_event'] ?? null,
             'sensitive_fields'      => $ds['sensitive_fields'] ?? [],
             'custom_field_entities' => $ds['custom_field_entities'] ?? [],
-            'fields'                => exportDatasetFieldRegistry($key, $tenantId),
+            'fields'                => exportDatasetFieldRegistryForUser($key, $user, $tenantId),
         ];
     }
     api_ok(['datasets' => $out]);
@@ -70,10 +70,11 @@ if ($method === 'POST' && $action === 'clone') {
     _xtplRequireManage($user, $role);
     $id = (int) api_query('id', 0);
     if (!$id) api_error('id required', 422);
-    try {
-        $src = exportTemplateGet($id, $tenantId);
-        _xtplRequireDatasetAccess($user, (string) ($src['dataset'] ?? ''));
-        $newId = exportTemplateClone($id, $tenantId, $userId);
+        try {
+            $src = exportTemplateGet($id, $tenantId);
+            _xtplRequireDatasetAccess($user, (string) ($src['dataset'] ?? ''));
+            _xtplRequireMappingsVisible($user, $tenantId, (string) ($src['dataset'] ?? ''), $src['column_mappings'] ?? []);
+            $newId = exportTemplateClone($id, $tenantId, $userId);
     } catch (ExportTemplateException $e) {
         api_error($e->getMessage(), 422);
     }
@@ -87,6 +88,7 @@ if ($method === 'GET') {
         try {
             $template = exportTemplateGet($id, $tenantId);
             _xtplRequireDatasetAccess($user, (string) ($template['dataset'] ?? ''));
+            _xtplRequireMappingsVisible($user, $tenantId, (string) ($template['dataset'] ?? ''), $template['column_mappings'] ?? []);
             api_ok(['template' => $template]);
         } catch (ExportTemplateException $e) {
             api_error($e->getMessage(), 404);
@@ -99,6 +101,12 @@ if ($method === 'GET') {
     if ($dataset === null || $dataset === '') {
         $rows = array_values(array_filter($rows, static fn($row) => isset($accessible[(string) ($row['dataset'] ?? '')])));
     }
+    $rows = array_values(array_filter($rows, static fn($row) => _xtplTemplateMappingsVisible(
+        $user,
+        $tenantId,
+        (string) ($row['dataset'] ?? ''),
+        $row['column_mappings'] ?? []
+    )));
     api_ok(['templates' => $rows, 'datasets' => array_keys($accessible)]);
 }
 
@@ -107,6 +115,7 @@ if ($method === 'POST') {
     _xtplRequireManage($user, $role);
     $body = api_json_body();
     _xtplRequireDatasetAccess($user, (string) ($body['dataset'] ?? ''));
+    _xtplRequireMappingsVisible($user, $tenantId, (string) ($body['dataset'] ?? ''), $body['column_mappings'] ?? []);
     try {
         $id = exportTemplateCreate($tenantId, $body, $userId, $role);
     } catch (ExportTemplateException $e) {
@@ -124,6 +133,12 @@ if ($method === 'PATCH') {
     try {
         $existing = exportTemplateGet($id, $tenantId);
         _xtplRequireDatasetAccess($user, (string) ($existing['dataset'] ?? ''));
+        _xtplRequireMappingsVisible(
+            $user,
+            $tenantId,
+            (string) ($existing['dataset'] ?? ''),
+            $body['column_mappings'] ?? ($existing['column_mappings'] ?? [])
+        );
         exportTemplateUpdate($id, $body, $userId, $tenantId, $role);
     } catch (ExportTemplateException $e) {
         api_error($e->getMessage(), 422);
@@ -153,6 +168,27 @@ function _xtplRequireDatasetAccess(array $user, string $datasetKey): void {
     if (!exportDatasetUserCanAccess($user, $dataset)) {
         api_error('Forbidden', 403, ['required' => $dataset['permission'] ?? null]);
     }
+}
+
+function _xtplTemplateMappingsVisible(array $user, int $tenantId, string $datasetKey, $mappings): bool {
+    if ($datasetKey === '') return false;
+    if (!is_array($mappings)) return true;
+    $visibleFields = exportDatasetFieldRegistryForUser($datasetKey, $user, $tenantId);
+    if (!$visibleFields) return true;
+    foreach ($mappings as $mapping) {
+        if (!is_array($mapping) || (($mapping['kind'] ?? 'field') === 'fixed')) continue;
+        $field = (string) ($mapping['source_field'] ?? '');
+        if ($field !== '' && !isset($visibleFields[$field])) return false;
+    }
+    return true;
+}
+
+function _xtplRequireMappingsVisible(array $user, int $tenantId, string $datasetKey, $mappings): void {
+    if (_xtplTemplateMappingsVisible($user, $tenantId, $datasetKey, $mappings)) return;
+    api_error('Forbidden: export template references a custom field hidden from the current user', 403, [
+        'required' => 'custom_field.visible_to',
+        'dataset' => $datasetKey,
+    ]);
 }
 
 api_error('Method not allowed', 405);

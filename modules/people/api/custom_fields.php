@@ -35,8 +35,9 @@ $canPiiManage = $piiManagePerm !== '' && rbac_legacy_can($user, $piiManagePerm);
 if ($method === 'GET') {
     if (!$canView && !$canManage) api_error('Forbidden', 403, ['required' => $viewPerm ?: $managePerm]);
     api_ok([
-        'fields' => peopleCustomFieldDefinitionsForLegacy($tenantId, $canPii),
+        'fields' => peopleCustomFieldDefinitionsForLegacy($tenantId, $canPii, $user, $canManage),
         'pii_included' => $canPii,
+        'field_access_enforced' => true,
     ]);
 }
 
@@ -51,6 +52,8 @@ if ($method === 'POST') {
             'field_key' => $body['field_key'] ?? null,
             'field_type' => $body['field_type'] ?? null,
             'pii' => !empty($body['pii']),
+            'visible_to' => customFieldRoleListFromRaw($body['visible_to'] ?? $body['visible_to_roles'] ?? $body['visible_to_roles_json'] ?? null),
+            'editable_by' => customFieldRoleListFromRaw($body['editable_by'] ?? $body['editable_by_roles'] ?? $body['editable_by_roles_json'] ?? null),
             'legacy_endpoint' => 'people/custom_fields.php',
         ]);
         peopleAudit('people.custom_field.defined', ['id' => $id, 'field_key' => $body['field_key'] ?? null], $id);
@@ -72,6 +75,12 @@ if ($method === 'PATCH') {
             'entity_type' => $entityType,
             'fields' => array_keys($body),
             'pii' => array_key_exists('pii', $body) ? (bool) $body['pii'] : null,
+            'visible_to' => customFieldPayloadHasAnyKey($body, ['visible_to', 'visible_to_roles', 'visible_to_roles_json'])
+                ? customFieldRoleListFromRaw($body['visible_to'] ?? $body['visible_to_roles'] ?? $body['visible_to_roles_json'] ?? null)
+                : null,
+            'editable_by' => customFieldPayloadHasAnyKey($body, ['editable_by', 'editable_by_roles', 'editable_by_roles_json'])
+                ? customFieldRoleListFromRaw($body['editable_by'] ?? $body['editable_by_roles'] ?? $body['editable_by_roles_json'] ?? null)
+                : null,
             'legacy_endpoint' => 'people/custom_fields.php',
         ]);
         api_ok(['ok' => true]);
@@ -98,10 +107,10 @@ if ($method === 'DELETE') {
 
 api_error('Method not allowed', 405);
 
-function peopleCustomFieldDefinitionsForLegacy(int $tenantId, bool $includePii): array
+function peopleCustomFieldDefinitionsForLegacy(int $tenantId, bool $includePii, array $user, bool $includeRestricted = false): array
 {
     $rows = [];
-    foreach (customFieldDefinitions($tenantId, 'people') as $def) {
+    foreach (customFieldFilterDefinitionsForUser(customFieldDefinitions($tenantId, 'people'), $user, $includeRestricted) as $def) {
         if (!empty($def['pii']) && !$includePii) {
             $def['sensitive_hidden'] = true;
             unset($def['options_json'], $def['options']);

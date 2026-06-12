@@ -44,7 +44,7 @@ if ($method === 'GET' && $action === 'reports') {
 if ($method === 'GET' && $action === 'presets') {
     $presets = [];
     foreach (reportBuilderPresetRegistry($tenantId) as $key => $preset) {
-        $dataset = reportBuilderDatasetGet((string) ($preset['dataset'] ?? ''), $tenantId);
+        $dataset = reportBuilderDatasetGetForUser((string) ($preset['dataset'] ?? ''), $user, $tenantId);
         if (!$dataset || !reportBuilderUserCanAccessDataset($user, $dataset)) continue;
         $presets[$key] = $preset;
     }
@@ -56,7 +56,7 @@ if ($method === 'GET' && $action === 'presets') {
 }
 
 if ($method === 'GET' && $datasetKey !== '') {
-    $dataset = reportBuilderDatasetGet($datasetKey, $tenantId);
+    $dataset = reportBuilderDatasetGetForUser($datasetKey, $user, $tenantId);
     if (!$dataset) api_error('Report dataset not found', 404);
     if (!reportBuilderUserCanAccessDataset($user, $dataset)) {
         api_error('Forbidden', 403, ['required' => $dataset['permission'] ?? null]);
@@ -66,7 +66,7 @@ if ($method === 'GET' && $datasetKey !== '') {
 
 if ($method === 'GET' && ($action === '' || $action === 'datasets')) {
     $datasets = [];
-    foreach (reportBuilderDatasetRegistry($tenantId) as $key => $dataset) {
+    foreach (reportBuilderDatasetRegistryForUser($user, $tenantId) as $key => $dataset) {
         if (reportBuilderUserCanAccessDataset($user, $dataset)) {
             $datasets[$key] = $dataset;
         }
@@ -86,7 +86,8 @@ if ($method === 'POST' && $action === 'run') {
         $definition = $resolved['definition'];
         $targetId = $resolved['target_id'];
         $definition = reportBuilderValidateDefinition((array) $definition, $tenantId);
-        $dataset = reportBuilderDatasetGet((string) $definition['dataset'], $tenantId);
+        reportBuilderAssertDefinitionFieldsAccessible($definition, $user, $tenantId);
+        $dataset = reportBuilderDatasetGetForUser((string) $definition['dataset'], $user, $tenantId);
         if (!$dataset) api_error('Report dataset not found', 404);
         if (!reportBuilderUserCanAccessDataset($user, $dataset)) {
             api_error('Forbidden', 403, ['required' => $dataset['permission'] ?? null]);
@@ -96,6 +97,7 @@ if ($method === 'POST' && $action === 'run') {
             api_error('Forbidden', 403, ['required' => 'reports.export']);
         }
         $runOptions = (array) ($body['options'] ?? []);
+        $runOptions['actor_user'] = $user;
         if ($usesSensitive) {
             $runOptions['include_sensitive_custom_fields'] = true;
         } else {
@@ -110,6 +112,8 @@ if ($method === 'POST' && $action === 'run') {
             'preset_key' => $resolved['preset_key'],
         ]);
         api_ok(['result' => $result, 'execution_supported' => true, 'source' => $resolved['source'], 'preset_key' => $resolved['preset_key']]);
+    } catch (ReportBuilderAccessException $e) {
+        api_error($e->getMessage(), 403, ['required' => 'custom_field.visible_to']);
     } catch (ReportBuilderException $e) {
         api_error($e->getMessage(), 422);
     }
@@ -124,13 +128,15 @@ if ($method === 'POST' && $action === 'export') {
         $definition = $resolved['definition'];
         $targetId = $resolved['target_id'];
         $definition = reportBuilderValidateDefinition((array) $definition, $tenantId);
-        $dataset = reportBuilderDatasetGet((string) $definition['dataset'], $tenantId);
+        reportBuilderAssertDefinitionFieldsAccessible($definition, $user, $tenantId);
+        $dataset = reportBuilderDatasetGetForUser((string) $definition['dataset'], $user, $tenantId);
         if (!$dataset) api_error('Report dataset not found', 404);
         if (!reportBuilderUserCanAccessDataset($user, $dataset)) {
             api_error('Forbidden', 403, ['required' => $dataset['permission'] ?? null]);
         }
         $usesSensitive = reportBuilderDefinitionUsesSensitiveFields($definition, $tenantId);
         $runOptions = (array) ($body['options'] ?? []);
+        $runOptions['actor_user'] = $user;
         if ($usesSensitive) {
             $runOptions['include_sensitive_custom_fields'] = true;
         } else {
@@ -150,6 +156,8 @@ if ($method === 'POST' && $action === 'export') {
         header('Cache-Control: no-store');
         echo reportBuilderRenderCsv($result);
         exit;
+    } catch (ReportBuilderAccessException $e) {
+        api_error($e->getMessage(), 403, ['required' => 'custom_field.visible_to']);
     } catch (ReportBuilderException $e) {
         api_error($e->getMessage(), 422);
     }
@@ -159,7 +167,9 @@ if ($method === 'POST') {
     if (!reportBuilderUserCanBuild($user)) api_error('Forbidden', 403, ['required' => 'reports.custom.build']);
     try {
         $body = reportBuilderApiHydratePresetBody(api_json_body(), $tenantId);
-        $dataset = reportBuilderDatasetGet((string) (($body['definition']['dataset'] ?? $body['dataset'] ?? '')), $tenantId);
+        $candidateDefinition = reportBuilderValidateDefinition((array) ($body['definition'] ?? $body), $tenantId);
+        reportBuilderAssertDefinitionFieldsAccessible($candidateDefinition, $user, $tenantId);
+        $dataset = reportBuilderDatasetGetForUser((string) $candidateDefinition['dataset'], $user, $tenantId);
         if (!$dataset) api_error('Report dataset not found', 404);
         if (!reportBuilderUserCanAccessDataset($user, $dataset)) api_error('Forbidden', 403, ['required' => $dataset['permission'] ?? null]);
         $id = reportBuilderSavedReportCreate($tenantId, $userId, $body, reportBuilderUserCanShare($user));
@@ -171,6 +181,8 @@ if ($method === 'POST') {
             'preset_key' => $body['preset_key'] ?? null,
         ]);
         api_ok(['id' => $id, 'report' => $report], 201);
+    } catch (ReportBuilderAccessException $e) {
+        api_error($e->getMessage(), 403, ['required' => 'custom_field.visible_to']);
     } catch (ReportBuilderException $e) {
         api_error($e->getMessage(), 422);
     }
@@ -183,7 +195,9 @@ if ($method === 'PATCH') {
     try {
         $body = reportBuilderApiHydratePresetBody(api_json_body(), $tenantId);
         if (isset($body['definition']['dataset'])) {
-            $dataset = reportBuilderDatasetGet((string) $body['definition']['dataset'], $tenantId);
+            $candidateDefinition = reportBuilderValidateDefinition((array) $body['definition'], $tenantId);
+            reportBuilderAssertDefinitionFieldsAccessible($candidateDefinition, $user, $tenantId);
+            $dataset = reportBuilderDatasetGetForUser((string) $candidateDefinition['dataset'], $user, $tenantId);
             if (!$dataset) api_error('Report dataset not found', 404);
             if (!reportBuilderUserCanAccessDataset($user, $dataset)) api_error('Forbidden', 403, ['required' => $dataset['permission'] ?? null]);
         }
@@ -196,6 +210,8 @@ if ($method === 'PATCH') {
             'preset_key' => $body['preset_key'] ?? null,
         ]);
         api_ok(['report' => $report]);
+    } catch (ReportBuilderAccessException $e) {
+        api_error($e->getMessage(), 403, ['required' => 'custom_field.visible_to']);
     } catch (ReportBuilderException $e) {
         api_error($e->getMessage(), 422);
     }

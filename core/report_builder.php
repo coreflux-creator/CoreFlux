@@ -14,6 +14,7 @@ require_once __DIR__ . '/export_datasets.php';
 require_once __DIR__ . '/CsvExportService.php';
 
 class ReportBuilderException extends RuntimeException {}
+class ReportBuilderAccessException extends ReportBuilderException {}
 
 /**
  * @return array<string, array>
@@ -67,6 +68,43 @@ function reportBuilderDatasetGet(string $key, ?int $tenantId = null): ?array
 {
     $reg = reportBuilderDatasetRegistry($tenantId);
     return $reg[$key] ?? null;
+}
+
+/**
+ * @return array<string, array>
+ */
+function reportBuilderDatasetRegistryForUser(array $user, ?int $tenantId = null): array
+{
+    $out = [];
+    foreach (reportBuilderDatasetRegistry($tenantId) as $key => $dataset) {
+        $out[$key] = reportBuilderFilterDatasetForUser($dataset, $user);
+    }
+    return $out;
+}
+
+function reportBuilderDatasetGetForUser(string $key, array $user, ?int $tenantId = null): ?array
+{
+    $dataset = reportBuilderDatasetGet($key, $tenantId);
+    return $dataset ? reportBuilderFilterDatasetForUser($dataset, $user) : null;
+}
+
+function reportBuilderFilterDatasetForUser(array $dataset, array $user): array
+{
+    $visibleFields = [];
+    foreach (($dataset['fields'] ?? []) as $fieldKey => $field) {
+        if (!empty($field['custom_field']) && !customFieldUserCanViewDefinition($user, $field)) continue;
+        $visibleFields[$fieldKey] = $field;
+    }
+
+    $dataset['fields'] = $visibleFields;
+    foreach (['dimensions', 'measures', 'filters'] as $section) {
+        $filtered = [];
+        foreach (($dataset[$section] ?? []) as $fieldKey => $field) {
+            if (isset($visibleFields[$fieldKey])) $filtered[$fieldKey] = $field;
+        }
+        $dataset[$section] = $filtered;
+    }
+    return $dataset;
 }
 
 /**
@@ -230,6 +268,8 @@ function reportBuilderFieldRegistry(string $datasetKey, ?int $tenantId = null): 
             'sensitive'    => $sensitive,
             'custom_field' => !empty($field['custom_field']),
             'entity_type'  => $field['entity_type'] ?? null,
+            'visible_to'   => $field['visible_to'] ?? [],
+            'editable_by'  => $field['editable_by'] ?? [],
             'archived'     => !empty($field['archived']),
             'archived_at'  => $field['archived_at'] ?? null,
         ];
@@ -313,6 +353,37 @@ function reportBuilderUserCanAccessDataset(array $user, array $dataset): bool
     $permission = (string) ($dataset['permission'] ?? '');
     if ($permission === '' || !function_exists('rbac_legacy_can')) return true;
     return rbac_legacy_can($user, $permission);
+}
+
+function reportBuilderAssertDefinitionFieldsAccessible(array $definition, array $user, ?int $tenantId = null): void
+{
+    $datasetKey = (string) ($definition['dataset'] ?? '');
+    $dataset = reportBuilderDatasetGetForUser($datasetKey, $user, $tenantId);
+    if (!$dataset) throw new ReportBuilderException("Unknown report dataset: {$datasetKey}");
+    $fields = $dataset['fields'] ?? [];
+    foreach (reportBuilderDefinitionFieldKeys($definition) as $fieldKey) {
+        if (!isset($fields[$fieldKey])) {
+            throw new ReportBuilderAccessException("Field '{$fieldKey}' is not visible to the current user");
+        }
+    }
+}
+
+function reportBuilderDefinitionFieldKeys(array $definition): array
+{
+    $out = [];
+    foreach (['columns', 'dimensions', 'measures'] as $section) {
+        foreach (($definition[$section] ?? []) as $entry) {
+            $field = (string) ($entry['field'] ?? $entry['key'] ?? '');
+            if ($field !== '') $out[$field] = $field;
+        }
+    }
+    foreach (['filters', 'sorts'] as $section) {
+        foreach (($definition[$section] ?? []) as $entry) {
+            $field = (string) ($entry['field'] ?? $entry['key'] ?? '');
+            if ($field !== '') $out[$field] = $field;
+        }
+    }
+    return array_values($out);
 }
 
 function reportBuilderValidateDefinition(array $raw, ?int $tenantId = null): array
@@ -439,6 +510,10 @@ function reportBuilderRunDefinition(array $raw, int $tenantId, array $options = 
     }
 
     $fetchOptions = array_merge($options, ['limit' => $definition['limit']]);
+    if (!isset($fetchOptions['actor_user']) && function_exists('getCurrentUser')) {
+        $actorUser = getCurrentUser();
+        if (is_array($actorUser)) $fetchOptions['actor_user'] = $actorUser;
+    }
     $rows = $fetcher($tenantId, $fetchOptions);
     return reportBuilderApplyDefinitionToRows($definition, is_iterable($rows) ? $rows : []);
 }
@@ -479,6 +554,7 @@ function reportBuilderAuditOptionParams(array $options): array
     $out = [];
     foreach ($options as $key => $value) {
         $key = (string) $key;
+        if ($key === 'actor_user') continue;
         if ($key === '' || $value === null || $value === '' || $value === []) continue;
         $out[$key] = is_array($value) ? array_values($value) : $value;
     }

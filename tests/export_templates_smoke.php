@@ -90,6 +90,7 @@ $assert('staffing clients has payment terms', isset($reg['staffing_clients']['fi
 $assert('people has email_primary',           isset($reg['people_directory']['fields']['email_primary']));
 $assert('placements has person_email',         isset($reg['placements_directory']['fields']['person_email']));
 $assert('field registry helper exists',        function_exists('exportDatasetFieldRegistry'));
+$assert('field registry for user helper exists', function_exists('exportDatasetFieldRegistryForUser'));
 $assert('sensitive field helper exists',       function_exists('exportDatasetIsSensitiveField'));
 $assert('bank account marked sensitive',       exportDatasetIsSensitiveField('payroll_disbursements', 'bank_account_number'));
 $datasetsSrc = file_get_contents(__DIR__ . '/../core/export_datasets.php');
@@ -102,6 +103,9 @@ $assert('custom field values require explicit sensitive opt-in',
 $assert('custom field templates keep archived fields exportable',
                                               strpos($datasetsSrc, 'include_archived_custom_fields') !== false
                                               && strpos($datasetsSrc, 'customFieldDefinitions($tenantId, (string) $entityType, true)') !== false);
+$assert('custom field templates carry role visibility metadata',
+                                              strpos($datasetsSrc, 'exportDatasetFieldRegistryForUser') !== false
+                                              && strpos($datasetsSrc, "'visible_to'   => customFieldDefinitionRoleList") !== false);
 
 // ─── Library: render + validation ───
 echo "core/export_templates.php library\n";
@@ -172,8 +176,12 @@ $assert('action=datasets',                    strpos($api, "action === 'datasets
 $assert('datasets API returns governance metadata',
                                               strpos($api, "'sensitive_fields'") !== false
                                               && strpos($api, 'exportDatasetFieldRegistry') !== false);
+$assert('datasets API filters fields by actor', strpos($api, 'exportDatasetFieldRegistryForUser($key, $user, $tenantId)') !== false);
 $assert('datasets API filters by dataset RBAC', strpos($api, 'exportDatasetAccessibleRegistry($user)') !== false);
 $assert('template CRUD gates dataset access', strpos($api, '_xtplRequireDatasetAccess') !== false);
+$assert('template CRUD rejects hidden custom field mappings',
+                                              strpos($api, '_xtplRequireMappingsVisible') !== false
+                                              && strpos($api, 'custom field hidden from the current user') !== false);
 $assert('template CRUD uses explicit manage permission',
                                               strpos($api, "rbac_legacy_can(\$user, 'admin.export_templates.manage')") !== false
                                               && strpos($api, "'required' => 'admin.export_templates.manage'") !== false);

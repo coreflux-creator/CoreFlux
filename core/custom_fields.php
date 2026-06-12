@@ -209,19 +209,41 @@ function customFieldLegacyActiveWhere(array $cols, string $alias = ''): string
     return $clauses ? ' AND ' . implode(' AND ', $clauses) : '';
 }
 
+function customFieldPeopleDefinitionColumns(): array
+{
+    static $cols = null;
+    if ($cols !== null) return $cols;
+    try {
+        $rows = getDB()->query('SHOW COLUMNS FROM people_custom_field_defs')->fetchAll(PDO::FETCH_ASSOC);
+        $cols = array_map(static fn($r) => (string) $r['Field'], $rows ?: []);
+    } catch (Throwable $e) {
+        $cols = [
+            'id', 'tenant_id', 'field_key', 'field_label', 'field_type',
+            'options_json', 'required', 'pii', 'order_index', 'deleted_at',
+        ];
+    }
+    return $cols;
+}
+
 function customFieldDefinitions(int $tenantId, string $entityType, bool $includeArchived = false): array
 {
     $entity = customFieldEntity($entityType);
     if (!$entity) throw new InvalidArgumentException("Unknown custom field entity: {$entityType}");
 
     if (($entity['definition_table'] ?? null) === 'people_custom_field_defs') {
+        $cols = customFieldPeopleDefinitionColumns();
+        $visibleExpr = customFieldLegacyColumn($cols, 'visible_to_roles_json', 'NULL');
+        $editableExpr = customFieldLegacyColumn($cols, 'editable_by_roles_json', 'NULL');
         $where = 'tenant_id = :tenant_id';
         if (!$includeArchived) $where .= ' AND deleted_at IS NULL';
         $stmt = getDB()->prepare(
-            'SELECT id, field_key, field_label, field_type, options_json, required, pii, order_index, deleted_at
+            "SELECT id, field_key, field_label, field_type, options_json, required, pii,
+                    {$visibleExpr} AS visible_to_roles_json,
+                    {$editableExpr} AS editable_by_roles_json,
+                    order_index, deleted_at
                FROM people_custom_field_defs
-              WHERE ' . $where . '
-              ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END, order_index, field_label'
+              WHERE " . $where . "
+              ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END, order_index, field_label"
         );
         $stmt->execute(['tenant_id' => $tenantId]);
         return array_map('customFieldNormalizeDefinitionRow', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
@@ -234,6 +256,8 @@ function customFieldDefinitions(int $tenantId, string $entityType, bool $include
     $requiredExpr = in_array('is_required', $cols, true) ? 'is_required' : '0';
     $optionsExpr = customFieldLegacyColumn($cols, 'options', 'NULL');
     $piiExpr = customFieldLegacyColumn($cols, 'pii', '0');
+    $visibleExpr = customFieldLegacyColumn($cols, 'visible_to_roles_json', 'NULL');
+    $editableExpr = customFieldLegacyColumn($cols, 'editable_by_roles_json', 'NULL');
     $orderExpr = customFieldLegacyColumn($cols, 'order_index', '0');
     $deletedAtExpr = customFieldLegacyColumn($cols, 'deleted_at', 'NULL');
     $activeExpr = customFieldLegacyColumn($cols, 'is_active', '1');
@@ -247,6 +271,8 @@ function customFieldDefinitions(int $tenantId, string $entityType, bool $include
                 {$optionsExpr} AS options,
                 {$requiredExpr} AS required,
                 {$piiExpr} AS pii,
+                {$visibleExpr} AS visible_to_roles_json,
+                {$editableExpr} AS editable_by_roles_json,
                 {$orderExpr} AS order_index,
                 {$deletedAtExpr} AS deleted_at,
                 {$activeExpr} AS is_active
@@ -269,6 +295,10 @@ function customFieldNormalizeDefinitionRow(array $row): array
     $row['is_active'] = $isActive;
     $row['archived'] = $archived;
     $row['is_archived'] = $archived ? 1 : 0;
+    $row['visible_to'] = customFieldRoleListFromRaw($row['visible_to_roles_json'] ?? null);
+    $row['editable_by'] = customFieldRoleListFromRaw($row['editable_by_roles_json'] ?? null);
+    $row['visible_to_roles'] = $row['visible_to'];
+    $row['editable_by_roles'] = $row['editable_by'];
     return $row;
 }
 
@@ -289,13 +319,8 @@ function customFieldDefinitionCreate(int $tenantId, string $entityType, array $a
     $data = customFieldNormalizeDefinitionPayload($args, true);
 
     if (($entity['definition_table'] ?? null) === 'people_custom_field_defs') {
-        $stmt = getDB()->prepare(
-            'INSERT INTO people_custom_field_defs
-                (tenant_id, field_key, field_label, field_type, options_json, required, pii, order_index)
-             VALUES
-                (:tenant_id, :field_key, :field_label, :field_type, :options_json, :required, :pii, :order_index)'
-        );
-        $stmt->execute([
+        $cols = customFieldPeopleDefinitionColumns();
+        $insert = [
             'tenant_id' => $tenantId,
             'field_key' => $data['field_key'],
             'field_label' => $data['field_label'],
@@ -304,7 +329,21 @@ function customFieldDefinitionCreate(int $tenantId, string $entityType, array $a
             'required' => $data['required'],
             'pii' => $data['pii'],
             'order_index' => $data['order_index'],
-        ]);
+        ];
+        if (in_array('visible_to_roles_json', $cols, true)) {
+            $insert['visible_to_roles_json'] = $data['visible_to_roles_json'];
+        }
+        if (in_array('editable_by_roles_json', $cols, true)) {
+            $insert['editable_by_roles_json'] = $data['editable_by_roles_json'];
+        }
+
+        $names = array_keys($insert);
+        $placeholders = array_map(static fn($col) => ':' . $col, $names);
+        $stmt = getDB()->prepare(
+            'INSERT INTO people_custom_field_defs (' . implode(', ', $names) . ')
+             VALUES (' . implode(', ', $placeholders) . ')'
+        );
+        $stmt->execute($insert);
         return (int) getDB()->lastInsertId();
     }
 
@@ -316,6 +355,8 @@ function customFieldDefinitionCreate(int $tenantId, string $entityType, array $a
     if (in_array('is_required', $cols, true)) $insert['is_required'] = $data['required'];
     if (in_array('options', $cols, true)) $insert['options'] = $data['options_json'];
     if (in_array('pii', $cols, true)) $insert['pii'] = $data['pii'];
+    if (in_array('visible_to_roles_json', $cols, true)) $insert['visible_to_roles_json'] = $data['visible_to_roles_json'];
+    if (in_array('editable_by_roles_json', $cols, true)) $insert['editable_by_roles_json'] = $data['editable_by_roles_json'];
     if (in_array('order_index', $cols, true)) $insert['order_index'] = $data['order_index'];
     if (in_array('is_active', $cols, true)) $insert['is_active'] = 1;
 
@@ -339,8 +380,12 @@ function customFieldDefinitionUpdate(int $tenantId, string $entityType, int $id,
     if (!$data) throw new InvalidArgumentException('No fields to update');
 
     if (($entity['definition_table'] ?? null) === 'people_custom_field_defs') {
+        $cols = customFieldPeopleDefinitionColumns();
         $allowed = ['field_label', 'field_type', 'options_json', 'required', 'pii', 'order_index'];
+        if (in_array('visible_to_roles_json', $cols, true)) $allowed[] = 'visible_to_roles_json';
+        if (in_array('editable_by_roles_json', $cols, true)) $allowed[] = 'editable_by_roles_json';
         $update = array_intersect_key($data, array_flip($allowed));
+        if (!$update) throw new InvalidArgumentException('No supported fields to update');
         $sets = [];
         foreach (array_keys($update) as $col) $sets[] = "{$col} = :{$col}";
         $update['id'] = $id;
@@ -360,6 +405,12 @@ function customFieldDefinitionUpdate(int $tenantId, string $entityType, int $id,
     if (isset($data['required']) && in_array('is_required', $cols, true)) $update['is_required'] = $data['required'];
     if (array_key_exists('options_json', $data) && in_array('options', $cols, true)) $update['options'] = $data['options_json'];
     if (isset($data['pii']) && in_array('pii', $cols, true)) $update['pii'] = $data['pii'];
+    if (array_key_exists('visible_to_roles_json', $data) && in_array('visible_to_roles_json', $cols, true)) {
+        $update['visible_to_roles_json'] = $data['visible_to_roles_json'];
+    }
+    if (array_key_exists('editable_by_roles_json', $data) && in_array('editable_by_roles_json', $cols, true)) {
+        $update['editable_by_roles_json'] = $data['editable_by_roles_json'];
+    }
     if (isset($data['order_index']) && in_array('order_index', $cols, true)) $update['order_index'] = $data['order_index'];
     if (!$update) throw new InvalidArgumentException('No supported fields to update');
 
@@ -465,7 +516,190 @@ function customFieldNormalizeDefinitionPayload(array $args, bool $creating): arr
     }
     if (array_key_exists('required', $args) || $creating) $out['required'] = !empty($args['required']) ? 1 : 0;
     if (array_key_exists('pii', $args) || $creating) $out['pii'] = !empty($args['pii']) ? 1 : 0;
+    if ($creating || customFieldPayloadHasAnyKey($args, ['visible_to', 'visible_to_roles', 'visible_to_roles_json'])) {
+        $out['visible_to_roles_json'] = customFieldNormalizeRoleSetPayload($args, [
+            'visible_to',
+            'visible_to_roles',
+            'visible_to_roles_json',
+        ]);
+    }
+    if ($creating || customFieldPayloadHasAnyKey($args, ['editable_by', 'editable_by_roles', 'editable_by_roles_json'])) {
+        $out['editable_by_roles_json'] = customFieldNormalizeRoleSetPayload($args, [
+            'editable_by',
+            'editable_by_roles',
+            'editable_by_roles_json',
+        ]);
+    }
     if (array_key_exists('order_index', $args) || $creating) $out['order_index'] = (int) ($args['order_index'] ?? 0);
+    return $out;
+}
+
+function customFieldPayloadHasAnyKey(array $args, array $keys): bool
+{
+    foreach ($keys as $key) {
+        if (array_key_exists((string) $key, $args)) return true;
+    }
+    return false;
+}
+
+function customFieldNormalizeRoleSetPayload(array $args, array $keys): ?string
+{
+    $raw = null;
+    foreach ($keys as $key) {
+        if (array_key_exists((string) $key, $args)) {
+            $raw = $args[(string) $key];
+            break;
+        }
+    }
+
+    $roles = customFieldRoleListFromRaw($raw);
+    if (!$roles) return null;
+    $json = json_encode($roles, JSON_UNESCAPED_SLASHES);
+    if ($json === false) throw new InvalidArgumentException('role set could not be encoded');
+    return $json;
+}
+
+function customFieldRoleListFromRaw($raw): array
+{
+    if ($raw === null || $raw === false) return [];
+    if (is_string($raw)) {
+        $text = trim($raw);
+        if ($text === '') return [];
+        $decoded = json_decode($text, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            $raw = $decoded;
+        } else {
+            $raw = preg_split('/\s*,\s*/', $text, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        }
+    }
+
+    $candidates = [];
+    $collect = static function ($value, $key = null) use (&$candidates, &$collect): void {
+        if (is_string($key) && !is_int($key)) {
+            if ($value === true || $value === 1 || $value === '1') $candidates[] = $key;
+            if (is_string($value) || is_int($value)) $candidates[] = (string) $value;
+            return;
+        }
+        if (is_array($value)) {
+            $matchedObject = false;
+            foreach (['role', 'role_key', 'key', 'name', 'persona_type'] as $candidateKey) {
+                if (!empty($value[$candidateKey])) {
+                    $candidates[] = (string) $value[$candidateKey];
+                    $matchedObject = true;
+                }
+            }
+            if (!$matchedObject) {
+                foreach ($value as $childKey => $childValue) {
+                    $collect($childValue, $childKey);
+                }
+            }
+            return;
+        }
+        if (is_string($value) || is_int($value)) $candidates[] = (string) $value;
+    };
+    if (is_array($raw)) {
+        foreach ($raw as $key => $value) $collect($value, $key);
+    } elseif (is_string($raw) || is_int($raw)) {
+        $candidates[] = (string) $raw;
+    }
+
+    $out = [];
+    foreach ($candidates as $candidate) {
+        $role = strtolower(trim((string) $candidate));
+        if ($role === '') continue;
+        if (!preg_match('/^[a-z0-9_.:-]{1,80}$/', $role)) {
+            throw new InvalidArgumentException("Invalid role key '{$candidate}'");
+        }
+        $out[$role] = $role;
+    }
+    return array_values($out);
+}
+
+function customFieldUserRoleKeys(array $user): array
+{
+    $roles = [
+        $user['global_role'] ?? null,
+        $user['tenant_role'] ?? null,
+        $user['persona_type'] ?? null,
+        $user['role'] ?? null,
+    ];
+    if (!empty($user['is_global_admin'])) $roles[] = 'master_admin';
+    if (isset($user['roles'])) {
+        $roles[] = $user['roles'];
+    }
+    return customFieldRoleListFromRaw($roles);
+}
+
+function customFieldDefinitionRoleList(array $definition, string $access): array
+{
+    $jsonKey = $access === 'editable' ? 'editable_by_roles_json' : 'visible_to_roles_json';
+    $arrayKey = $access === 'editable' ? 'editable_by' : 'visible_to';
+    $aliasKey = $access === 'editable' ? 'editable_by_roles' : 'visible_to_roles';
+    return customFieldRoleListFromRaw(
+        $definition[$arrayKey]
+        ?? $definition[$aliasKey]
+        ?? $definition[$jsonKey]
+        ?? null
+    );
+}
+
+function customFieldUserCanViewDefinition(array $user, array $definition): bool
+{
+    return customFieldUserMatchesRoleSet($user, customFieldDefinitionRoleList($definition, 'visible'));
+}
+
+function customFieldUserCanEditDefinition(array $user, array $definition): bool
+{
+    return customFieldUserMatchesRoleSet($user, customFieldDefinitionRoleList($definition, 'editable'));
+}
+
+function customFieldUserMatchesRoleSet(array $user, array $roleSet): bool
+{
+    if (!$roleSet) return true;
+    $userRoles = customFieldUserRoleKeys($user);
+    if (in_array('master_admin', $userRoles, true)) return true;
+    foreach ($roleSet as $role) {
+        if (in_array((string) $role, $userRoles, true)) return true;
+    }
+    return false;
+}
+
+function customFieldDefinitionAccess(array $user, array $definition): array
+{
+    return [
+        'visible' => customFieldUserCanViewDefinition($user, $definition),
+        'editable' => customFieldUserCanEditDefinition($user, $definition),
+        'visible_to' => customFieldDefinitionRoleList($definition, 'visible'),
+        'editable_by' => customFieldDefinitionRoleList($definition, 'editable'),
+    ];
+}
+
+function customFieldAnnotateDefinitionAccess(array $definition, array $user): array
+{
+    $definition['field_access'] = customFieldDefinitionAccess($user, $definition);
+    return $definition;
+}
+
+function customFieldFilterDefinitionsForUser(array $definitions, array $user, bool $includeRestricted = false): array
+{
+    $out = [];
+    foreach ($definitions as $definition) {
+        $definition = customFieldAnnotateDefinitionAccess($definition, $user);
+        if ($includeRestricted || !empty($definition['field_access']['visible'])) {
+            $out[] = $definition;
+        }
+    }
+    return $out;
+}
+
+function customFieldFilterValuesForUser(array $values, array $user): array
+{
+    $out = [];
+    foreach ($values as $value) {
+        if (customFieldUserCanViewDefinition($user, $value)) {
+            $out[] = customFieldAnnotateDefinitionAccess($value, $user);
+        }
+    }
     return $out;
 }
 
@@ -495,15 +729,21 @@ function customFieldPeopleValues(
     bool $includeArchived = false
 ): array
 {
-    $sql = 'SELECT d.id AS field_def_id, d.field_key, d.field_label, d.field_type,
-                   d.options_json, d.required, d.pii, d.deleted_at,
+    $cols = customFieldPeopleDefinitionColumns();
+    $visibleExpr = customFieldLegacyColumn($cols, 'visible_to_roles_json', 'NULL', 'd');
+    $editableExpr = customFieldLegacyColumn($cols, 'editable_by_roles_json', 'NULL', 'd');
+    $sql = "SELECT d.id AS field_def_id, d.field_key, d.field_label, d.field_type,
+                   d.options_json, d.required, d.pii,
+                   {$visibleExpr} AS visible_to_roles_json,
+                   {$editableExpr} AS editable_by_roles_json,
+                   d.deleted_at,
                    v.value_text, v.value_number, v.value_date, v.value_boolean, v.updated_at
               FROM people_custom_field_defs d
          LEFT JOIN people_custom_field_values v
                 ON v.field_def_id = d.id
                AND v.tenant_id = d.tenant_id
                AND v.person_id = :person_id
-             WHERE d.tenant_id = :tenant_id';
+             WHERE d.tenant_id = :tenant_id";
     if (!$includeArchived) $sql .= ' AND d.deleted_at IS NULL';
     if (!$includeSensitive) $sql .= ' AND COALESCE(d.pii, 0) = 0';
     $sql .= ' ORDER BY CASE WHEN d.deleted_at IS NULL THEN 0 ELSE 1 END, d.order_index, d.field_label';
@@ -530,6 +770,8 @@ function customFieldLegacyValues(
     $typeCol = in_array('field_type', $cols, true) ? 'field_type' : 'type';
     $requiredExpr = in_array('is_required', $cols, true) ? 'f.is_required' : '0';
     $piiExpr = in_array('pii', $cols, true) ? 'f.pii' : '0';
+    $visibleExpr = customFieldLegacyColumn($cols, 'visible_to_roles_json', 'NULL', 'f');
+    $editableExpr = customFieldLegacyColumn($cols, 'editable_by_roles_json', 'NULL', 'f');
     $optionsExpr = customFieldLegacyColumn($cols, 'options', 'NULL', 'f');
     $orderExpr = customFieldLegacyColumn($cols, 'order_index', '0', 'f');
     $deletedAtExpr = customFieldLegacyColumn($cols, 'deleted_at', 'NULL', 'f');
@@ -542,6 +784,8 @@ function customFieldLegacyValues(
                    {$optionsExpr} AS options_json,
                    {$requiredExpr} AS required,
                    {$piiExpr} AS pii,
+                   {$visibleExpr} AS visible_to_roles_json,
+                   {$editableExpr} AS editable_by_roles_json,
                    {$deletedAtExpr} AS deleted_at,
                    {$activeExpr} AS is_active,
                    v.value AS value_text,
@@ -593,6 +837,12 @@ function customFieldNormalizeValueRow(array $row): array
         'options_json' => $row['options_json'] ?? null,
         'required'     => (int) ($row['required'] ?? 0),
         'pii'          => (int) ($row['pii'] ?? 0),
+        'visible_to'   => customFieldRoleListFromRaw($row['visible_to_roles_json'] ?? null),
+        'editable_by'  => customFieldRoleListFromRaw($row['editable_by_roles_json'] ?? null),
+        'visible_to_roles' => customFieldRoleListFromRaw($row['visible_to_roles_json'] ?? null),
+        'editable_by_roles' => customFieldRoleListFromRaw($row['editable_by_roles_json'] ?? null),
+        'visible_to_roles_json' => $row['visible_to_roles_json'] ?? null,
+        'editable_by_roles_json' => $row['editable_by_roles_json'] ?? null,
         'archived'     => $archived,
         'is_archived'  => $archived ? 1 : 0,
         'deleted_at'   => $deletedAt,

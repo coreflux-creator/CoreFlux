@@ -51,6 +51,15 @@ PII custom fields are marked sensitive in the field registry. Fetchers should
 avoid exporting PII custom fields unless an explicit sensitive-export flow has
 checked the required permission and audited the action.
 
+Field-level custom-field role gates are preserved in the export field registry
+as `visible_to` and `editable_by`. Discovery APIs call
+`exportDatasetFieldRegistryForUser()` so users only see template fields their
+role can view. Template create, update, clone, and single-template reads reject
+or hide templates that reference a custom field hidden from the current actor.
+Execution passes the actor into dataset fetchers; People and Placements custom
+field values are only hydrated when the actor satisfies the field's
+`visible_to` set.
+
 The sensitive-field helper is tenant-aware so tenant-defined PII fields are
 recognized with the same `custom_fields.{entity_type}.{field_key}` keys that
 exports and reports expose. Dataset fetchers do not include sensitive custom

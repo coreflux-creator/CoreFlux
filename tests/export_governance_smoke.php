@@ -64,10 +64,17 @@ $assert('custom-field export registry includes archived fields',
     str_contains($datasetsSrc, 'customFieldDefinitions($tenantId, (string) $entityType, true)')
     && str_contains($datasetsSrc, "'archived'     => !empty(\$def['archived'])")
     && str_contains($datasetsSrc, "'archived_at'  => \$def['deleted_at'] ?? null"));
+$assert('custom-field export registry includes field-level role metadata',
+    str_contains($datasetsSrc, 'function exportDatasetFieldRegistryForUser')
+    && str_contains($datasetsSrc, "'visible_to'   => customFieldDefinitionRoleList")
+    && str_contains($datasetsSrc, 'customFieldUserCanViewDefinition($user, $field)'));
 $assert('custom-field dataset fetchers hydrate archived values',
     str_contains($datasetsSrc, 'include_archived_custom_fields')
     && str_contains($datasetsSrc, 'customFieldDefinitions($tenantId, $entityType, $includeArchived)')
     && str_contains($datasetsSrc, 'customFieldValues($tenantId, $entityType, $recordId, $includeSensitive, $includeArchived)'));
+$assert('custom-field dataset fetchers filter by actor role gates',
+    str_contains($datasetsSrc, 'exportDatasetActorUserFromOptions($opts)')
+    && str_contains($datasetsSrc, '!customFieldUserCanViewDefinition($actorUser, $def)'));
 $assert('people directory has custom field entity', in_array('people', $reg['people_directory']['custom_field_entities'] ?? [], true));
 $assert('placements directory has custom field entity', in_array('placements', $reg['placements_directory']['custom_field_entities'] ?? [], true));
 $assert('billing invoices expose client and amount fields',
@@ -96,6 +103,7 @@ $assert('people field registry has static fields', isset(exportDatasetFieldRegis
 $assert('placements field registry has static fields', isset(exportDatasetFieldRegistry('placements_directory')['person_email']));
 $assert('dataset access helper exists', function_exists('exportDatasetUserCanAccess'));
 $assert('accessible registry helper exists', function_exists('exportDatasetAccessibleRegistry'));
+$assert('field registry for user helper exists', function_exists('exportDatasetFieldRegistryForUser'));
 $assert('dataset fetch helper exists', function_exists('exportDatasetFetchRows'));
 $assert('template dataset validator exists', function_exists('exportTemplateGetForDataset'));
 $assert('shared template stream helper exists', function_exists('exportTemplateStreamDatasetCsv'));
@@ -156,8 +164,14 @@ $apVendorsUi = (string) file_get_contents($root . '/modules/ap/ui/VendorsList.js
 $seed = (string) file_get_contents($root . '/core/migrations/120_people_placements_export_template_presets.sql');
 $staffingSeed = (string) file_get_contents($root . '/core/migrations/121_staffing_clients_export_template_preset.sql');
 $assert('datasets endpoint exposes sensitive_fields', str_contains($api, "'sensitive_fields'"));
-$assert('datasets endpoint uses tenant-aware field registry', str_contains($api, 'exportDatasetFieldRegistry($key, $tenantId)'));
+$assert('datasets endpoint uses tenant-aware field registry',
+    str_contains($api, 'exportDatasetFieldRegistryForUser($key, $user, $tenantId)'));
+$assert('datasets endpoint filters custom fields by actor', str_contains($api, 'exportDatasetFieldRegistryForUser($key, $user, $tenantId)'));
 $assert('datasets endpoint filters by accessible registry', str_contains($api, 'exportDatasetAccessibleRegistry($user)'));
+$assert('template API rejects hidden custom-field mappings',
+    str_contains($api, '_xtplRequireMappingsVisible')
+    && str_contains($api, '_xtplTemplateMappingsVisible')
+    && str_contains($api, 'custom field hidden from the current user'));
 $assert('template API requires dataset access', str_contains($api, '_xtplRequireDatasetAccess'));
 $assert('shared service validates template dataset', str_contains($service, 'exportTemplateGetForDataset') && str_contains($service, "template's dataset must be"));
 $assert('shared service emits dataset audit event', str_contains($service, 'exportDatasetAudit') && str_contains($service, "'audit_event'"));

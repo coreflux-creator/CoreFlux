@@ -115,7 +115,8 @@ $a('generic emergency-contact resource switches to PII permissions',
     && str_contains($contacts, "\$writePermission = \$resource === 'emergency_contacts' ? 'people.pii.manage' : 'people.manage'"));
 $a('PII custom field reads redact without people.pii.view',
     str_contains($customValues, "'people.pii.view'")
-    && str_contains($customValues, "customFieldValues(\$tenantId, \$entityType, \$personId, \$canPii)")
+    && str_contains($customValues, 'customFieldValues($tenantId, $entityType, $personId, $canPii)')
+    && str_contains($customValues, 'customFieldFilterValuesForUser')
     && str_contains($customValues, "peopleCustomFieldHasPiiDefinitions(\$tenantId) && !\$canPii"));
 $a('PII custom field writes require people.pii.manage',
     str_contains($customValues, "'people.pii.manage'")

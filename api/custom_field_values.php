@@ -37,7 +37,10 @@ $canPiiManage = $piiManagePerm !== '' && rbac_legacy_can($user, $piiManagePerm);
 
 if ($method === 'GET') {
     if (!$canView && !$canManage) api_error('Forbidden', 403, ['required' => $viewPerm ?: $managePerm]);
-    $values = customFieldValues($tenantId, $entityType, $recordId, $canPii);
+    $values = customFieldFilterValuesForUser(
+        customFieldValues($tenantId, $entityType, $recordId, $canPii),
+        $user
+    );
     $piiKeys = customFieldPiiFieldKeys($values);
     if ($piiKeys && $canPii) {
         customFieldAudit($tenantId, $userId, 'custom_field.value.pii_viewed', $recordId, [
@@ -55,6 +58,7 @@ if ($method === 'GET') {
         'values' => $values,
         'pii_included' => $canPii,
         'pii_write_allowed' => $canPiiManage,
+        'field_access_enforced' => true,
     ]);
 }
 
@@ -67,6 +71,12 @@ if ($method === 'POST' || $method === 'PUT') {
     foreach ($body['values'] as $fieldKey => $value) {
         $fieldKey = (string) $fieldKey;
         if ($fieldKey === '' || !isset($defs[$fieldKey])) continue;
+        if (!customFieldUserCanEditDefinition($user, $defs[$fieldKey])) {
+            api_error("Forbidden: missing field-level edit access for custom field '{$fieldKey}'", 403, [
+                'field_key' => $fieldKey,
+                'editable_by' => customFieldDefinitionRoleList($defs[$fieldKey], 'editable'),
+            ]);
+        }
         if (!empty($defs[$fieldKey]['pii']) && !$canPiiManage) {
             api_error("Forbidden: missing permission for PII custom field '{$fieldKey}'", 403, [
                 'required' => $piiManagePerm,

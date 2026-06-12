@@ -37,7 +37,7 @@ if (!$canView && !$canManage) api_error('Forbidden', 403, ['required' => $viewPe
 
 if ($method === 'GET') {
     $definitions = [];
-    foreach (customFieldDefinitions($tenantId, $entityType) as $def) {
+    foreach (customFieldFilterDefinitionsForUser(customFieldDefinitions($tenantId, $entityType), $user, $canManage) as $def) {
         if (!empty($def['pii']) && !$canPii) {
             $def['sensitive_hidden'] = true;
             unset($def['options_json'], $def['options']);
@@ -49,6 +49,7 @@ if ($method === 'GET') {
         'definitions' => $definitions,
         'count' => count($definitions),
         'pii_included' => $canPii,
+        'field_access_enforced' => true,
     ]);
 }
 
@@ -63,6 +64,8 @@ if ($method === 'POST') {
             'field_key' => $body['field_key'] ?? null,
             'field_type' => $body['field_type'] ?? null,
             'pii' => !empty($body['pii']),
+            'visible_to' => customFieldRoleListFromRaw($body['visible_to'] ?? $body['visible_to_roles'] ?? $body['visible_to_roles_json'] ?? null),
+            'editable_by' => customFieldRoleListFromRaw($body['editable_by'] ?? $body['editable_by_roles'] ?? $body['editable_by_roles_json'] ?? null),
         ]);
         api_ok(['id' => $id], 201);
     } catch (InvalidArgumentException $e) {
@@ -82,6 +85,12 @@ if ($method === 'PATCH') {
             'entity_type' => $entityType,
             'fields' => array_keys($body),
             'pii' => array_key_exists('pii', $body) ? (bool) $body['pii'] : null,
+            'visible_to' => customFieldPayloadHasAnyKey($body, ['visible_to', 'visible_to_roles', 'visible_to_roles_json'])
+                ? customFieldRoleListFromRaw($body['visible_to'] ?? $body['visible_to_roles'] ?? $body['visible_to_roles_json'] ?? null)
+                : null,
+            'editable_by' => customFieldPayloadHasAnyKey($body, ['editable_by', 'editable_by_roles', 'editable_by_roles_json'])
+                ? customFieldRoleListFromRaw($body['editable_by'] ?? $body['editable_by_roles'] ?? $body['editable_by_roles_json'] ?? null)
+                : null,
         ]);
         api_ok(['id' => $id]);
     } catch (InvalidArgumentException $e) {

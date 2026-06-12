@@ -578,6 +578,8 @@ function exportDatasetFieldRegistry(string $dataset, ?int $tenantId = null): arr
                         'entity_type'  => $entityType,
                         'field_type'   => (string) ($def['field_type'] ?? 'text'),
                         'sensitive'    => !empty($def['pii']),
+                        'visible_to'   => customFieldDefinitionRoleList($def, 'visible'),
+                        'editable_by'  => customFieldDefinitionRoleList($def, 'editable'),
                         'archived'     => !empty($def['archived']),
                         'archived_at'  => $def['deleted_at'] ?? null,
                     ];
@@ -590,12 +592,31 @@ function exportDatasetFieldRegistry(string $dataset, ?int $tenantId = null): arr
     return $fields;
 }
 
+function exportDatasetFieldRegistryForUser(string $dataset, array $user, ?int $tenantId = null): array {
+    $fields = exportDatasetFieldRegistry($dataset, $tenantId);
+    foreach ($fields as $key => $field) {
+        if (!empty($field['custom_field']) && !customFieldUserCanViewDefinition($user, $field)) {
+            unset($fields[$key]);
+        }
+    }
+    return $fields;
+}
+
 function exportDatasetIsSensitiveField(string $dataset, string $field, ?int $tenantId = null): bool {
     $ds = exportDatasetGet($dataset);
     if (!$ds) return false;
     if (in_array($field, $ds['sensitive_fields'] ?? [], true)) return true;
     $fields = exportDatasetFieldRegistry($dataset, $tenantId);
     return !empty($fields[$field]['sensitive']);
+}
+
+function exportDatasetActorUserFromOptions(array $opts): ?array {
+    if (isset($opts['actor_user']) && is_array($opts['actor_user'])) return $opts['actor_user'];
+    if (function_exists('getCurrentUser')) {
+        $user = getCurrentUser();
+        if (is_array($user)) return $user;
+    }
+    return null;
 }
 
 // ───────── Fetchers ─────────
@@ -1325,6 +1346,7 @@ function exportDatasetFetchPeopleDirectory(int $tenantId, array $opts): array {
     $includeArchivedCustomFields = array_key_exists('include_archived_custom_fields', $opts)
         ? !empty($opts['include_archived_custom_fields'])
         : true;
+    $actorUser = exportDatasetActorUserFromOptions($opts);
     $where = ['tenant_id = :tenant_id', 'deleted_at IS NULL'];
     $params = ['tenant_id' => $tenantId];
     if (!empty($opts['status'])) {
@@ -1352,6 +1374,7 @@ function exportDatasetFetchPeopleDirectory(int $tenantId, array $opts): array {
     try {
         foreach (customFieldDefinitions($tenantId, 'people', $includeArchivedCustomFields) as $def) {
             if (!$includeSensitiveCustomFields && !empty($def['pii'])) continue;
+            if ($actorUser !== null && !customFieldUserCanViewDefinition($actorUser, $def)) continue;
             $defs[(int) $def['id']] = $def;
         }
     } catch (\Throwable $e) {
@@ -1439,7 +1462,8 @@ function exportDatasetFetchPlacementsDirectory(int $tenantId, array $opts): arra
         !empty($opts['include_sensitive_custom_fields']),
         array_key_exists('include_archived_custom_fields', $opts)
             ? !empty($opts['include_archived_custom_fields'])
-            : true
+            : true,
+        exportDatasetActorUserFromOptions($opts)
     );
 }
 
@@ -1449,13 +1473,15 @@ function exportDatasetAttachCustomFieldValues(
     string $entityType,
     string $idKey,
     bool $includeSensitive = false,
-    bool $includeArchived = true
+    bool $includeArchived = true,
+    ?array $actorUser = null
 ): array {
     if (!$rows) return $rows;
     try {
         $defs = [];
         foreach (customFieldDefinitions($tenantId, $entityType, $includeArchived) as $def) {
             if (!$includeSensitive && !empty($def['pii'])) continue;
+            if ($actorUser !== null && !customFieldUserCanViewDefinition($actorUser, $def)) continue;
             $defs[(string) ($def['field_key'] ?? '')] = true;
         }
         if (!$defs) return $rows;

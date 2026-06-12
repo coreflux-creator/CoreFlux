@@ -118,6 +118,18 @@ $assert('sensitive definition check is tenant-aware',
 $assert('report builder preserves archived custom-field metadata',
     str_contains($coreText, "'archived'     => !empty(\$field['archived'])")
     && str_contains($coreText, "'archived_at'  => \$field['archived_at'] ?? null"));
+$assert('report builder preserves field-level custom-field metadata',
+    str_contains($coreText, "'visible_to'   => \$field['visible_to'] ?? []")
+    && str_contains($coreText, "'editable_by'  => \$field['editable_by'] ?? []"));
+$assert('report builder filters datasets by field-level visibility',
+    function_exists('reportBuilderDatasetRegistryForUser')
+    && function_exists('reportBuilderDatasetGetForUser')
+    && function_exists('reportBuilderAssertDefinitionFieldsAccessible')
+    && class_exists('ReportBuilderAccessException')
+    && str_contains($coreText, 'reportBuilderFilterDatasetForUser'));
+$assert('report builder passes actor user into dataset fetchers',
+    str_contains($coreText, "\$fetchOptions['actor_user'] = \$actorUser")
+    && str_contains($coreText, "if (\$key === 'actor_user') continue"));
 $assert('report builder export audit metadata helper exists',
     str_contains($coreText, 'function reportBuilderExportAuditMeta')
     && str_contains($coreText, "'generated_at' => gmdate('c')")
@@ -199,11 +211,19 @@ $assert('report builder API parses', _php_lint($api));
 $apiText = (string) file_get_contents($api);
 $assert('API requires auth', str_contains($apiText, 'api_require_auth()'));
 $assert('API filters dataset access', str_contains($apiText, 'reportBuilderUserCanAccessDataset'));
+$assert('API filters field registries by current user',
+    str_contains($apiText, 'reportBuilderDatasetRegistryForUser($user, $tenantId)')
+    && str_contains($apiText, 'reportBuilderDatasetGetForUser'));
 $assert('API supports governed execution', str_contains($apiText, "action === 'run'") && str_contains($apiText, 'reportBuilderRunDefinition'));
 $assert('API supports governed CSV export', str_contains($apiText, "action === 'export'") && str_contains($apiText, 'reportBuilderRenderCsv'));
 $assert('API gates sensitive execution', str_contains($apiText, 'reportBuilderDefinitionUsesSensitiveFields') && str_contains($apiText, "'reports.export'"));
 $assert('API checks sensitive fields with tenant context', str_contains($apiText, 'reportBuilderDefinitionUsesSensitiveFields($definition, $tenantId)'));
 $assert('API opts into sensitive custom fields only after the gate', str_contains($apiText, "\$runOptions['include_sensitive_custom_fields'] = true"));
+$assert('API rejects definitions using hidden custom fields',
+    str_contains($apiText, 'reportBuilderAssertDefinitionFieldsAccessible($definition, $user, $tenantId)')
+    && str_contains($apiText, "\$runOptions['actor_user'] = \$user")
+    && str_contains($apiText, "catch (ReportBuilderAccessException \$e)")
+    && str_contains($apiText, "'required' => 'custom_field.visible_to'"));
 $assert('API audits execution', str_contains($apiText, "'reports.custom.executed'"));
 $assert('API audits CSV export', str_contains($apiText, "'reports.custom.exported'"));
 $assert('API export audit includes generated filters',

@@ -39,6 +39,10 @@ function exportDatasetFetchRows(int $tenantId, string $datasetKey, array $option
     if (!is_string($fetcher) || !is_callable($fetcher)) {
         throw new ExportServiceException("Dataset '{$datasetKey}' is not executable");
     }
+    if (!isset($options['actor_user']) && function_exists('getCurrentUser')) {
+        $actorUser = getCurrentUser();
+        if (is_array($actorUser)) $options['actor_user'] = $actorUser;
+    }
     $rows = $fetcher($tenantId, $options);
     if ($rows instanceof Traversable) $rows = iterator_to_array($rows, false);
     if (!is_array($rows)) throw new ExportServiceException("Dataset '{$datasetKey}' did not return rows");
@@ -66,6 +70,7 @@ function exportDatasetAuditFilterParams(array $options): array
     $out = [];
     foreach ($options as $key => $value) {
         $key = (string) $key;
+        if ($key === 'actor_user') continue;
         if ($key === '' || $value === null || $value === '' || $value === []) continue;
         $out[$key] = exportDatasetAuditFilterValue($key, $value);
     }

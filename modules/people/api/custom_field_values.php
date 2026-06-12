@@ -36,7 +36,10 @@ if ($method === 'GET') {
     if (!$canView && !$canManage) api_error('Forbidden', 403, ['required' => $viewPerm]);
     $personId = (int) api_query('person_id', (int) api_query('record_id', 0));
     if ($personId <= 0) api_error('person_id required', 400);
-    $values = customFieldValues($tenantId, $entityType, $personId, $canPii);
+    $values = customFieldFilterValuesForUser(
+        customFieldValues($tenantId, $entityType, $personId, $canPii),
+        $user
+    );
     $piiKeys = peopleCustomFieldPiiKeys($values);
     if ($piiKeys && $canPii) {
         peopleLogPIIAccess($userId, $personId, 'custom_field_pii.viewed', $piiKeys);
@@ -56,6 +59,7 @@ if ($method === 'GET') {
         'values' => peopleCustomFieldValuesForLegacy($values),
         'pii_redacted' => peopleCustomFieldHasPiiDefinitions($tenantId) && !$canPii,
         'pii_included' => $canPii,
+        'field_access_enforced' => true,
     ]);
 }
 
@@ -71,6 +75,12 @@ if ($method === 'PUT' || $method === 'POST') {
     foreach ($body['values'] as $fieldKey => $value) {
         $fieldKey = (string) $fieldKey;
         if ($fieldKey === '' || !isset($defs[$fieldKey])) continue;
+        if (!customFieldUserCanEditDefinition($user, $defs[$fieldKey])) {
+            api_error("Forbidden: missing field-level edit access for custom field '{$fieldKey}'", 403, [
+                'field_key' => $fieldKey,
+                'editable_by' => customFieldDefinitionRoleList($defs[$fieldKey], 'editable'),
+            ]);
+        }
         if (!empty($defs[$fieldKey]['pii']) && !$canPiiManage) {
             api_error("Forbidden: missing permission for PII custom field '{$fieldKey}'", 403, [
                 'required' => $piiManagePerm,

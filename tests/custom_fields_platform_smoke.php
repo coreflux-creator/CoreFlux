@@ -54,6 +54,24 @@ $assert('customFieldDefinitionDelete exists', function_exists('customFieldDefini
 $assert('customFieldAudit exists', function_exists('customFieldAudit'));
 $assert('customFieldValues exists', function_exists('customFieldValues'));
 $assert('customFieldLegacyActiveWhere exists', function_exists('customFieldLegacyActiveWhere'));
+$assert('custom field role-access helpers exist',
+    function_exists('customFieldUserCanViewDefinition')
+    && function_exists('customFieldUserCanEditDefinition')
+    && function_exists('customFieldFilterDefinitionsForUser')
+    && function_exists('customFieldFilterValuesForUser'));
+$roleDefinition = customFieldNormalizeDefinitionRow([
+    'visible_to_roles_json' => '["tenant_admin","controller"]',
+    'editable_by_roles_json' => '["controller"]',
+]);
+$assert('definitions normalize field-level role metadata',
+    ($roleDefinition['visible_to'] ?? []) === ['tenant_admin', 'controller']
+    && ($roleDefinition['editable_by'] ?? []) === ['controller']);
+$assert('field-level visibility grants matching tenant role',
+    customFieldUserCanViewDefinition(['tenant_role' => 'controller'], $roleDefinition)
+    && !customFieldUserCanViewDefinition(['tenant_role' => 'viewer'], $roleDefinition));
+$assert('field-level edit grants matching tenant role',
+    customFieldUserCanEditDefinition(['tenant_role' => 'controller'], $roleDefinition)
+    && !customFieldUserCanEditDefinition(['tenant_role' => 'tenant_admin'], $roleDefinition));
 $assert('custom field reads support archived opt-in',
     str_contains($core, 'bool $includeArchived = false')
     && str_contains($core, 'customFieldDefinitions($tenantId, $entityType, $includeArchived)')
@@ -69,6 +87,10 @@ $assert('legacy values read path exists', str_contains($core, 'customFieldLegacy
 $assert('legacy upsert path exists', str_contains($core, 'customFieldLegacyValueUpsert'));
 $assert('legacy column detection exists', str_contains($core, 'customFieldLegacyColumns'));
 $assert('legacy definitions expose PII metadata', str_contains($core, 'AS pii'));
+$assert('definitions expose field-level role metadata',
+    str_contains($core, 'visible_to_roles_json')
+    && str_contains($core, 'editable_by_roles_json')
+    && str_contains($core, 'customFieldDefinitionAccess'));
 $assert('legacy definitions expose order metadata', str_contains($core, 'AS order_index'));
 $assert('legacy reads filter inactive/soft-deleted fields', substr_count($core, 'customFieldLegacyActiveWhere($cols') >= 3);
 $assert('surface layout resolves tenant overrides',
@@ -93,6 +115,14 @@ $assert('custom field layout override migration exists', is_file($layoutMigratio
 $assert('layout override migration creates tenant surface table',
     str_contains($layoutMigrationText, 'CREATE TABLE IF NOT EXISTS custom_field_layout_overrides')
     && str_contains($layoutMigrationText, 'UNIQUE KEY uniq_cflo_tenant_entity_surface'));
+$roleAccessMigration = $root . '/core/migrations/123_custom_field_role_access.sql';
+$roleAccessMigrationText = is_file($roleAccessMigration) ? (string) file_get_contents($roleAccessMigration) : '';
+$assert('custom field role-access migration exists', is_file($roleAccessMigration));
+$assert('role-access migration covers people and generic custom fields',
+    str_contains($roleAccessMigrationText, 'people_custom_field_defs')
+    && str_contains($roleAccessMigrationText, 'custom_fields')
+    && str_contains($roleAccessMigrationText, 'visible_to_roles_json')
+    && str_contains($roleAccessMigrationText, 'editable_by_roles_json'));
 
 echo "\nDiscovery API\n";
 $api = $root . '/api/custom_field_entities.php';
@@ -112,6 +142,11 @@ $assert('definitions API updates shared definitions', str_contains($defsApiText,
 $assert('definitions API deletes shared definitions', str_contains($defsApiText, 'customFieldDefinitionDelete('));
 $assert('definitions API audits mutations', str_contains($defsApiText, 'customFieldAudit(') && str_contains($defsApiText, 'custom_field.definition.created'));
 $assert('definitions API respects PII permissions', str_contains($defsApiText, 'pii_permission') && str_contains($defsApiText, 'pii_manage_permission') && str_contains($defsApiText, 'pii_included'));
+$assert('definitions API enforces field-level access metadata',
+    str_contains($defsApiText, 'customFieldFilterDefinitionsForUser')
+    && str_contains($defsApiText, "'field_access_enforced' => true")
+    && str_contains($defsApiText, "'visible_to'")
+    && str_contains($defsApiText, "'editable_by'"));
 $layoutApi = $root . '/api/custom_field_layouts.php';
 $assert('custom field layouts API exists', is_file($layoutApi));
 $assert('custom field layouts API parses', _php_lint($layoutApi));
@@ -134,6 +169,10 @@ $assert('values API writes shared service', str_contains($valuesApiText, 'custom
 $assert('values API audits writes', str_contains($valuesApiText, 'custom_field.value.updated') && str_contains($valuesApiText, 'customFieldAudit('));
 $assert('values API audits PII reads', str_contains($valuesApiText, 'custom_field.value.pii_viewed'));
 $assert('values API gates PII fields', str_contains($valuesApiText, 'pii_manage_permission') && str_contains($valuesApiText, 'pii_write_allowed'));
+$assert('values API enforces field-level view/edit access',
+    str_contains($valuesApiText, 'customFieldFilterValuesForUser')
+    && str_contains($valuesApiText, 'customFieldUserCanEditDefinition')
+    && str_contains($valuesApiText, 'field-level edit access'));
 
 echo "\nLegacy People adapters\n";
 $peopleDefsApi = (string) file_get_contents($root . '/modules/people/api/custom_fields.php');
@@ -141,6 +180,10 @@ $peopleValuesApi = (string) file_get_contents($root . '/modules/people/api/custo
 $assert('legacy People definitions adapter uses shared service', str_contains($peopleDefsApi, 'customFieldDefinitionCreate(') && str_contains($peopleDefsApi, 'customFieldDefinitionUpdate('));
 $assert('legacy People values adapter uses shared service', str_contains($peopleValuesApi, 'customFieldValues(') && str_contains($peopleValuesApi, 'customFieldValueUpsert('));
 $assert('legacy People values adapter preserves pii_redacted', str_contains($peopleValuesApi, "'pii_redacted'") && str_contains($peopleValuesApi, 'peopleCustomFieldHasPiiDefinitions'));
+$assert('legacy People adapters enforce field-level access',
+    str_contains($peopleDefsApi, 'customFieldFilterDefinitionsForUser')
+    && str_contains($peopleValuesApi, 'customFieldFilterValuesForUser')
+    && str_contains($peopleValuesApi, 'customFieldUserCanEditDefinition'));
 
 echo "\nIntegration hook\n";
 $apply = (string) file_get_contents($root . '/core/integrations/field_map_apply.php');
@@ -181,6 +224,10 @@ $assert('custom fields docs cover tenant layout overrides',
     str_contains($customFieldsDocs, 'custom_field_layout_overrides')
     && str_contains($customFieldsDocs, 'PUT    /api/v1/people/custom-field-layouts/forms')
     && str_contains($customFieldsDocs, 'custom_field.layout.updated'));
+$assert('custom fields docs cover field-level role gates',
+    str_contains($customFieldsDocs, 'visible_to_roles_json')
+    && str_contains($customFieldsDocs, 'customFieldUserCanViewDefinition')
+    && str_contains($customFieldsDocs, 'Field-level role gates are platform controls'));
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

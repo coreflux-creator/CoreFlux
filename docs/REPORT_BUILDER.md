@@ -27,6 +27,11 @@ definitions. Those remain with the owning module or platform service.
 - Tenant-defined PII custom fields use tenant-aware sensitive-field metadata.
   The run/export APIs only opt dataset fetchers into sensitive custom-field
   values after the sensitive-field gate has passed.
+- Tenant-defined field-level role gates are enforced before discovery,
+  run/export, and saved-report create/update. Dataset responses are filtered
+  through `reportBuilderDatasetRegistryForUser`, definitions are checked with
+  `reportBuilderAssertDefinitionFieldsAccessible`, and execution passes the
+  actor into dataset fetchers so hidden custom-field values are not hydrated.
 - Archived tenant custom fields remain discoverable as report fields with
   `archived` and `archived_at` metadata so saved historical reports and audit
   exports do not lose removed values.

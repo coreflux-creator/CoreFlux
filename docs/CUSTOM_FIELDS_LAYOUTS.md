@@ -52,6 +52,19 @@ The service routes People to its spec-aligned tables and supports the legacy
 generic `custom_fields` / `custom_values` tables during migration.
 Placements currently consumes that generic path through the same service.
 
+Each definition may declare field-level role gates:
+
+- `visible_to` / `visible_to_roles`: role keys allowed to see the definition
+  and its values.
+- `editable_by` / `editable_by_roles`: role keys allowed to edit values.
+
+The service stores those sets as `visible_to_roles_json` and
+`editable_by_roles_json` on both the People definition table and the generic
+`custom_fields` table. Empty or null role sets are unrestricted for backwards
+compatibility. Runtime helpers (`customFieldUserCanViewDefinition` and
+`customFieldUserCanEditDefinition`) are the shared interpretation; modules
+should not implement their own role parsing.
+
 Normal product forms and definition lists read active fields only. Export,
 reporting, and audit flows can explicitly opt into archived definitions through
 the shared service so a removed custom field remains available for historical
@@ -100,7 +113,9 @@ service, regardless of whether the owning module is on spec-aligned tables or
 legacy `custom_fields`. Definition writes require the entity's
 `manage_permission`; creating or marking a field as PII also requires the
 entity's `pii_manage_permission` when one is declared, falling back to
-`pii_permission`.
+`pii_permission`. Manage users can see all definitions for administration, but
+responses include `field_access` so value surfaces can tell whether the active
+actor may see or edit a specific field.
 
 The layout API returns normalized surface layouts for `forms`, `detail`,
 `lists`, `exports`, and `reports`. `PUT`/`PATCH` writes a tenant override for
@@ -112,11 +127,14 @@ The values API reads and upserts tenant custom-field values through the shared
 service. Sensitive custom-field values are omitted from reads unless the actor
 has the entity's `pii_permission`; writes to sensitive values require the
 entity's `pii_manage_permission` when declared, otherwise `pii_permission`,
-plus the entity's manage permission.
+plus the entity's manage permission. Field-level gates are enforced in addition:
+reads omit fields whose `visible_to` set excludes the actor, and writes reject
+fields whose `editable_by` set excludes the actor.
 
 Definition mutations emit `custom_field.definition.*` audit events. Value
 mutations emit `custom_field.value.updated` with entity type, record id, and the
-field keys touched.
+field keys touched. Definition create/update audit metadata includes
+`visible_to` and `editable_by` when supplied so access changes are reviewable.
 Layout mutations emit `custom_field.layout.updated`; resets emit
 `custom_field.layout.reset`.
 
@@ -128,6 +146,8 @@ not invent separate permission, audit, export, or report-builder conventions.
 If a module declares `custom_field_entities`, its product surfaces should use
 the entity-scoped `/api/v1/<module>/custom-field-*` aliases and should expose
 definition management through the declared `manage_permission`.
+Field-level role gates are platform controls: consuming modules may render the
+metadata, but the shared APIs and export/report consumers own enforcement.
 Deleting a definition must be audit-preserving: values stay stored, active UI
 surfaces hide the field, and export/report surfaces can still include the
-archived field with metadata.
+archived field with metadata when the actor can see it.

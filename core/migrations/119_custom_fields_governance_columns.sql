@@ -13,8 +13,15 @@ CREATE TABLE IF NOT EXISTS custom_fields (
     field_label VARCHAR(100) NOT NULL,
     field_type VARCHAR(50) NOT NULL,
     is_required TINYINT(1) NOT NULL DEFAULT 0,
+    pii TINYINT(1) NOT NULL DEFAULT 0,
+    visible_to_roles_json TEXT NULL,
+    editable_by_roles_json TEXT NULL,
+    order_index INT NOT NULL DEFAULT 0,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
     options TEXT DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at DATETIME NULL,
     INDEX idx_cf_tenant_module (tenant_id, module)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
