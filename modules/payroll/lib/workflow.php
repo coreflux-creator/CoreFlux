@@ -219,7 +219,7 @@ function payrollRunWorkflowCancelPending(int $tenantId, int $runId, ?int $actorU
 
 function payrollRunWorkflowAct(int $tenantId, array $run, int $userId, string $action, ?string $note = null): array {
     $runId = (int) ($run['id'] ?? 0);
-    if ($runId <= 0) return ['applied' => false, 'instance' => null];
+    if ($runId <= 0) throw new \InvalidArgumentException('payroll run id required');
     try {
         $pdo = getDB();
         $instanceId = (int) ($run['workflow_instance_id'] ?? 0);
@@ -243,10 +243,23 @@ function payrollRunWorkflowAct(int $tenantId, array $run, int $userId, string $a
         if ($instanceId <= 0) {
             $instanceId = (int) (payrollRunWorkflowStart($tenantId, $runId, null) ?? 0);
         }
-        if ($instanceId <= 0) return ['applied' => false, 'instance' => null];
+        if ($instanceId <= 0) {
+            throw new \RuntimeException('Could not start payroll approval workflow');
+        }
 
         $instance = workflowAct($tenantId, $instanceId, $userId, $action, $note ?: null, 'app');
-        return ['applied' => true, 'instance' => $instance];
+        $updated = payrollRunWorkflowRow($runId) ?? $run;
+        $approved = (string) ($updated['status'] ?? '') === 'approved';
+        if (($instance['status'] ?? null) === WORKFLOW_STATUS_APPROVED && !$approved) {
+            throw new \RuntimeException('Workflow approved but payroll run sync did not apply');
+        }
+
+        return [
+            'applied' => true,
+            'approved' => $approved,
+            'instance' => $instance,
+            'run' => $updated,
+        ];
     } catch (\Throwable $e) {
         payrollAudit('payroll.run.approval_blocked', [
             'run_id' => $runId,

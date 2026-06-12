@@ -73,8 +73,13 @@ $a('compute stamps computed_by_user_id',
 $a('compute starts workflow and fails closed',
     str_contains($runs, 'payrollRunWorkflowStart(currentTenantId(), $runId')
     && str_contains($runs, 'Could not start payroll approval workflow'));
-$a('approve preflights through WorkflowEngine',
+$a('approve delegates through WorkflowEngine',
     str_contains($runs, "payrollRunWorkflowAct(currentTenantId(), \$run, (int) (\$user['id'] ?? 0), 'approve'"));
+$a('workflow helper fails closed when no instance can start',
+    str_contains($workflow, 'Could not start payroll approval workflow')
+    && !str_contains($workflow, "return ['applied' => false"));
+$a('workflow helper verifies approved sync applied',
+    str_contains($workflow, 'Workflow approved but payroll run sync did not apply'));
 $a('approve no longer directly writes payroll_runs approved state',
     !preg_match("/scopedUpdate\('payroll_runs',\s*\$runId,\s*\[[^\]]*'status'\s*=>\s*'approved'/s", $runs));
 $a('paid transition requires approved and stamps actor',
