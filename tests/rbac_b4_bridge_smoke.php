@@ -52,6 +52,11 @@ $expected = [
     'accounting.reports.view'            => ['accounting', 'read'],
     // ai
     'ai.config.manage'                   => ['ai', 'admin'],
+    'ai.use'                             => ['ai', 'read'],
+    'ai.audit.view'                      => ['ai', 'read'],
+    'ai.gateway.invoke'                  => ['ai', 'write'],
+    'ai.workflow.approve'                => ['ai', 'admin'],
+    'platform.ai.admin'                  => ['ai', 'admin'],
     // ap
     'ap.1099.generate'                   => ['ap', 'admin'],
     'ap.1099.view'                       => ['ap', 'read'],

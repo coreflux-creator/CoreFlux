@@ -176,6 +176,12 @@ The workflow inbox and push-notification paths resolve these strategies at
 runtime, then fall back to explicit approver IDs only when the graph has no
 answer.
 
+AI workflow approval decisions are state-changing approval actions, not audit
+reads. `/api/ai/workflows.php?action=decide_approval` requires
+`ai.workflow.approve`, `accounting.approve`, or `platform.ai.admin`, and
+`workflowDecideApproval()` writes an `ai.workflow.approval_*` audit event after
+persisting the reviewer decision.
+
 ### Artifact Graph Consumption
 
 Artifact Graph is also a consumer of People Graph. Artifact objects own

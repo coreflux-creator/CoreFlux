@@ -391,6 +391,50 @@ function _workflowInsertApproval(int $tenantId, string $runId, string $node, Wor
     return (int) $pdo->lastInsertId();
 }
 
+function _aiWorkflowAuditEvent(int $tenantId, ?int $userId, string $event, int $targetId, array $meta): void
+{
+    $pdo = getDB();
+    if (!$pdo) return;
+
+    $payload = json_encode($meta, JSON_UNESCAPED_SLASHES) ?: '{}';
+    $ip = substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 64);
+
+    try {
+        $pdo->prepare(
+            'INSERT INTO audit_log
+                (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
+             VALUES (:t, :u, :e, :ti, :m, :ip, NOW())'
+        )->execute([
+            't' => $tenantId,
+            'u' => $userId,
+            'e' => $event,
+            'ti' => $targetId,
+            'm' => $payload,
+            'ip' => $ip,
+        ]);
+        return;
+    } catch (\Throwable $e) {
+        // Some legacy environments still name the actor column user_id.
+    }
+
+    try {
+        $pdo->prepare(
+            'INSERT INTO audit_log
+                (tenant_id, user_id, event, target_id, meta_json, ip_address, created_at)
+             VALUES (:t, :u, :e, :ti, :m, :ip, NOW())'
+        )->execute([
+            't' => $tenantId,
+            'u' => $userId,
+            'e' => $event,
+            'ti' => $targetId,
+            'm' => $payload,
+            'ip' => $ip,
+        ]);
+    } catch (\Throwable $e) {
+        error_log('[_aiWorkflowAuditEvent] ' . $e->getMessage());
+    }
+}
+
 function _workflowMarkFailed(int $tenantId, string $runId, string $code, string $msg, array $state, ?string $node): void
 {
     try {
@@ -622,6 +666,12 @@ function workflowDecideApproval(int $tenantId, int $approvalId, string $decision
         's'  => $decision,
         'dp' => json_encode($decisionPayload, JSON_UNESCAPED_SLASHES) ?: null,
         'u'  => $userId, 'id' => $approvalId, 't' => $tenantId,
+    ]);
+    _aiWorkflowAuditEvent($tenantId, $userId, "ai.workflow.approval_{$decision}", $approvalId, [
+        'approval_id' => $approvalId,
+        'workflow_run_id' => (string) $row['workflow_run_id'],
+        'decision' => $decision,
+        'decision_payload_keys' => array_values(array_keys($decisionPayload)),
     ]);
     return ['approval_id' => $approvalId,
             'workflow_run_id' => (string) $row['workflow_run_id'],

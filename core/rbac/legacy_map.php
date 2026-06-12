@@ -76,6 +76,8 @@ final class RbacLegacyMap
             'ai.config.manage'                   => ['ai', 'admin'],
             'ai.use'                             => ['ai', 'read'],
             'ai.audit.view'                      => ['ai', 'read'],
+            'ai.gateway.invoke'                  => ['ai', 'write'],
+            'ai.workflow.approve'                => ['ai', 'admin'],
             'platform.ai.admin'                  => ['ai', 'admin'],
 
             // ── ap ────────────────────────────────────────────────────────

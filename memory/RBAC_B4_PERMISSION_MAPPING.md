@@ -64,7 +64,7 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 
 ## 2. Full permission → tuple table
 
-108 strings. Sorted by module.
+108 original strings plus AI-native additions. Sorted by module.
 
 ### accounting
 | Legacy permission | New tuple |
@@ -98,6 +98,11 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 | Legacy permission | New tuple |
 |---|---|
 | `ai.config.manage` | `(ai, admin)` |
+| `ai.use` | `(ai, read)` |
+| `ai.audit.view` | `(ai, read)` |
+| `ai.gateway.invoke` | `(ai, write)` |
+| `ai.workflow.approve` | `(ai, admin)` |
+| `platform.ai.admin` | `(ai, admin)` |
 
 ### ap
 | Legacy permission | New tuple |
