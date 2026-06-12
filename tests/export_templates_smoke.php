@@ -51,6 +51,11 @@ $assert('ap_payments in registry',            isset($reg['ap_payments']));
 $assert('ap_bills in registry',               isset($reg['ap_bills']));
 $assert('ap_vendors in registry',             isset($reg['ap_vendors']));
 $assert('expenses in registry',               isset($reg['expenses']));
+$assert('accounting_chart_of_accounts in registry', isset($reg['accounting_chart_of_accounts']));
+$assert('accounting_journal_entries in registry',   isset($reg['accounting_journal_entries']));
+$assert('accounting_gl_detail in registry',         isset($reg['accounting_gl_detail']));
+$assert('accounting_periods in registry',           isset($reg['accounting_periods']));
+$assert('accounting_bank_statement_lines in registry', isset($reg['accounting_bank_statement_lines']));
 $assert('billing_invoices in registry',       isset($reg['billing_invoices']));
 $assert('billing_payments in registry',       isset($reg['billing_payments']));
 $assert('time_entries in registry',           isset($reg['time_entries']));
@@ -73,6 +78,11 @@ $assert('ap bills has amount_due',            isset($reg['ap_bills']['fields']['
 $assert('ap vendors has vendor_name',         isset($reg['ap_vendors']['fields']['vendor_name']));
 $assert('ap vendor last4 marked sensitive',   exportDatasetIsSensitiveField('ap_vendors', 'tax_id_last4'));
 $assert('expenses has line_id',               isset($reg['expenses']['fields']['line_id']));
+$assert('accounting COA has code',            isset($reg['accounting_chart_of_accounts']['fields']['code']));
+$assert('accounting JE has total debit',      isset($reg['accounting_journal_entries']['fields']['total_debit']));
+$assert('accounting GL detail has debit',     isset($reg['accounting_gl_detail']['fields']['debit']));
+$assert('accounting periods has status',      isset($reg['accounting_periods']['fields']['status']));
+$assert('accounting bank lines has match status', isset($reg['accounting_bank_statement_lines']['fields']['match_status']));
 $assert('billing invoices has invoice_number', isset($reg['billing_invoices']['fields']['invoice_number']));
 $assert('billing payments has payment amount', isset($reg['billing_payments']['fields']['amount']));
 $assert('time entries has hours',             isset($reg['time_entries']['fields']['hours']));
@@ -235,6 +245,22 @@ $assert('raw export uses governed expenses dataset',
                                               && strpos($ex, 'ap.expense.export_selected') !== false);
 
 // ─── Wire-in: billing CSV exports ───
+echo "accounting export datasets\n";
+$accountingExport = file_get_contents(__DIR__ . '/../modules/accounting/api/export.php');
+$assert('accounting export honors template_id', strpos($accountingExport, "(int) (\$_GET['template_id'] ?? 0)") !== false);
+$assert('accounting export uses governed datasets',
+                                              strpos($accountingExport, 'exportDatasetFetchRows') !== false
+                                              && strpos($accountingExport, 'exportTemplateStreamDatasetCsv') !== false
+                                              && strpos($accountingExport, 'accounting_chart_of_accounts') !== false
+                                              && strpos($accountingExport, 'accounting_journal_entries') !== false
+                                              && strpos($accountingExport, 'accounting_gl_detail') !== false
+                                              && strpos($accountingExport, 'accounting_periods') !== false
+                                              && strpos($accountingExport, 'accounting_bank_statement_lines') !== false);
+$assert('accounting raw CSV audits dataset',
+                                              strpos($accountingExport, 'exportDatasetAudit') !== false
+                                              && strpos($accountingExport, "mode' => 'raw'") !== false
+                                              && strpos($accountingExport, 'accounting.ledger.exported') !== false);
+
 echo "billing CSV template exports\n";
 $billingInv = file_get_contents(__DIR__ . '/../modules/billing/api/csv_export.php');
 $billingPay = file_get_contents(__DIR__ . '/../modules/billing/api/payments_csv_export.php');

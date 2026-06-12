@@ -101,6 +101,16 @@ $assert("time_entries export dataset declared by time",
     ($exportDatasets['time_entries']['module_id'] ?? null) === 'time');
 $assert("staffing_clients export dataset declared by staffing",
     ($exportDatasets['staffing_clients']['module_id'] ?? null) === 'staffing');
+$assert("accounting COA export dataset declared by accounting",
+    ($exportDatasets['accounting_chart_of_accounts']['module_id'] ?? null) === 'accounting');
+$assert("accounting JE export dataset declared by accounting",
+    ($exportDatasets['accounting_journal_entries']['module_id'] ?? null) === 'accounting');
+$assert("accounting GL detail export dataset declared by accounting",
+    ($exportDatasets['accounting_gl_detail']['module_id'] ?? null) === 'accounting');
+$assert("accounting periods export dataset declared by accounting",
+    ($exportDatasets['accounting_periods']['module_id'] ?? null) === 'accounting');
+$assert("accounting bank statement lines export dataset declared by accounting",
+    ($exportDatasets['accounting_bank_statement_lines']['module_id'] ?? null) === 'accounting');
 $assert("people_directory report dataset declared by people",
     ($reportDatasets['people_directory']['module_id'] ?? null) === 'people');
 $assert("placements_directory report dataset declared by placements",
@@ -123,6 +133,16 @@ $assert("time entries report dataset declared by time",
     ($reportDatasets['time_entries']['module_id'] ?? null) === 'time');
 $assert("staffing clients report dataset declared by staffing",
     ($reportDatasets['staffing_clients']['module_id'] ?? null) === 'staffing');
+$assert("accounting COA report dataset declared by accounting",
+    ($reportDatasets['accounting_chart_of_accounts']['module_id'] ?? null) === 'accounting');
+$assert("accounting JE report dataset declared by accounting",
+    ($reportDatasets['accounting_journal_entries']['module_id'] ?? null) === 'accounting');
+$assert("accounting GL detail report dataset declared by accounting",
+    ($reportDatasets['accounting_gl_detail']['module_id'] ?? null) === 'accounting');
+$assert("accounting periods report dataset declared by accounting",
+    ($reportDatasets['accounting_periods']['module_id'] ?? null) === 'accounting');
+$assert("accounting bank statement lines report dataset declared by accounting",
+    ($reportDatasets['accounting_bank_statement_lines']['module_id'] ?? null) === 'accounting');
 
 echo "\nDependencies declared\n";
 $placements = $reg->getModule('placements');

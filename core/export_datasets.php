@@ -198,6 +198,150 @@ function exportDatasetRegistry(): array {
             ],
         ],
 
+        'accounting_chart_of_accounts' => [
+            'label'                 => 'Accounting Chart of Accounts',
+            'module_id'             => 'accounting',
+            'permission'            => 'accounting.reports.export',
+            'formats'               => ['csv'],
+            'audit_event'           => 'accounting.ledger.exported',
+            'sensitive_fields'      => [],
+            'custom_field_entities' => [],
+            'fetcher'               => 'exportDatasetFetchAccountingChartOfAccounts',
+            'fields'                => [
+                'account_id'        => ['label' => 'Account ID',       'sample' => '101'],
+                'code'              => ['label' => 'Code',             'sample' => '1010'],
+                'name'              => ['label' => 'Name',             'sample' => 'Operating Cash'],
+                'account_type'      => ['label' => 'Account type',     'sample' => 'asset'],
+                'normal_side'       => ['label' => 'Normal side',      'sample' => 'debit'],
+                'cash_flow_tag'     => ['label' => 'Cash flow tag',    'sample' => 'operating_cash'],
+                'parent_account_id' => ['label' => 'Parent account ID','sample' => '100'],
+                'is_postable'       => ['label' => 'Postable',         'sample' => '1', 'field_type' => 'boolean'],
+                'currency'          => ['label' => 'Currency',         'sample' => 'USD'],
+                'description'       => ['label' => 'Description',      'sample' => 'Primary checking account'],
+                'active'            => ['label' => 'Active',           'sample' => '1', 'field_type' => 'boolean'],
+                'created_at'        => ['label' => 'Created at',       'sample' => '2026-02-01 09:00:00'],
+                'updated_at'        => ['label' => 'Updated at',       'sample' => '2026-02-14 09:00:00'],
+            ],
+        ],
+
+        'accounting_journal_entries' => [
+            'label'                 => 'Accounting Journal Entries',
+            'module_id'             => 'accounting',
+            'permission'            => 'accounting.reports.export',
+            'formats'               => ['csv'],
+            'audit_event'           => 'accounting.ledger.exported',
+            'sensitive_fields'      => [],
+            'custom_field_entities' => [],
+            'fetcher'               => 'exportDatasetFetchAccountingJournalEntries',
+            'fields'                => [
+                'journal_entry_id'    => ['label' => 'Journal entry ID',  'sample' => '501'],
+                'je_number'           => ['label' => 'JE number',         'sample' => 'JE-000501'],
+                'posting_date'        => ['label' => 'Posting date',      'sample' => '2026-02-14'],
+                'entity_id'           => ['label' => 'Entity ID',         'sample' => '1'],
+                'period_id'           => ['label' => 'Period ID',         'sample' => '12'],
+                'source_module'       => ['label' => 'Source module',     'sample' => 'ap'],
+                'source_ref_type'     => ['label' => 'Source ref type',   'sample' => 'bill'],
+                'source_ref_id'       => ['label' => 'Source ref ID',     'sample' => '412'],
+                'status'              => ['label' => 'Posting status',    'sample' => 'posted'],
+                'approval_state'      => ['label' => 'Approval state',    'sample' => 'approved'],
+                'currency'            => ['label' => 'Currency',          'sample' => 'USD'],
+                'total_debit'         => ['label' => 'Total debit',       'sample' => '1080.00', 'field_type' => 'currency'],
+                'total_credit'        => ['label' => 'Total credit',      'sample' => '1080.00', 'field_type' => 'currency'],
+                'memo'                => ['label' => 'Memo',              'sample' => 'AP bill posting'],
+                'posted_at'           => ['label' => 'Posted at',         'sample' => '2026-02-14 10:00:00'],
+                'posted_by_user_id'   => ['label' => 'Posted by user ID', 'sample' => '7'],
+                'created_by_user_id'  => ['label' => 'Created by user ID','sample' => '7'],
+                'created_at'          => ['label' => 'Created at',        'sample' => '2026-02-14 09:00:00'],
+                'updated_at'          => ['label' => 'Updated at',        'sample' => '2026-02-14 10:00:00'],
+            ],
+        ],
+
+        'accounting_gl_detail' => [
+            'label'                 => 'Accounting GL Detail',
+            'module_id'             => 'accounting',
+            'permission'            => 'accounting.reports.export',
+            'formats'               => ['csv'],
+            'audit_event'           => 'accounting.ledger.exported',
+            'sensitive_fields'      => [],
+            'custom_field_entities' => [],
+            'fetcher'               => 'exportDatasetFetchAccountingGlDetail',
+            'fields'                => [
+                'line_id'              => ['label' => 'Line ID',          'sample' => '9001'],
+                'journal_entry_id'     => ['label' => 'Journal entry ID', 'sample' => '501'],
+                'line_no'              => ['label' => 'Line #',           'sample' => '1', 'field_type' => 'number'],
+                'je_number'            => ['label' => 'JE number',        'sample' => 'JE-000501'],
+                'posting_date'         => ['label' => 'Posting date',     'sample' => '2026-02-14'],
+                'entity_id'            => ['label' => 'Entity ID',        'sample' => '1'],
+                'period_id'            => ['label' => 'Period ID',        'sample' => '12'],
+                'account_id'           => ['label' => 'Account ID',       'sample' => '101'],
+                'account_code'         => ['label' => 'Account code',     'sample' => '1010'],
+                'account_name'         => ['label' => 'Account name',     'sample' => 'Operating Cash'],
+                'account_type'         => ['label' => 'Account type',     'sample' => 'asset'],
+                'normal_side'          => ['label' => 'Normal side',      'sample' => 'debit'],
+                'debit'                => ['label' => 'Debit',            'sample' => '1080.00', 'field_type' => 'currency'],
+                'credit'               => ['label' => 'Credit',           'sample' => '0.00', 'field_type' => 'currency'],
+                'normal_balance_delta' => ['label' => 'Normal balance delta', 'sample' => '1080.00', 'field_type' => 'currency'],
+                'memo'                 => ['label' => 'Line memo',        'sample' => 'AP bill posting'],
+                'source_module'        => ['label' => 'Source module',    'sample' => 'ap'],
+                'source_ref_type'      => ['label' => 'Source ref type',  'sample' => 'bill'],
+                'source_ref_id'        => ['label' => 'Source ref ID',    'sample' => '412'],
+                'status'               => ['label' => 'Posting status',   'sample' => 'posted'],
+            ],
+        ],
+
+        'accounting_periods' => [
+            'label'                 => 'Accounting Periods',
+            'module_id'             => 'accounting',
+            'permission'            => 'accounting.reports.export',
+            'formats'               => ['csv'],
+            'audit_event'           => 'accounting.ledger.exported',
+            'sensitive_fields'      => [],
+            'custom_field_entities' => [],
+            'fetcher'               => 'exportDatasetFetchAccountingPeriods',
+            'fields'                => [
+                'period_id'           => ['label' => 'Period ID',         'sample' => '12'],
+                'entity_id'           => ['label' => 'Entity ID',         'sample' => '1'],
+                'period_number'       => ['label' => 'Period number',     'sample' => '2', 'field_type' => 'number'],
+                'start_date'          => ['label' => 'Start date',        'sample' => '2026-02-01'],
+                'end_date'            => ['label' => 'End date',          'sample' => '2026-02-28'],
+                'status'              => ['label' => 'Status',            'sample' => 'open'],
+                'closed_at'           => ['label' => 'Closed at',         'sample' => '2026-03-02 18:00:00'],
+                'closed_by_user_id'   => ['label' => 'Closed by user ID', 'sample' => '7'],
+                'reopened_at'         => ['label' => 'Reopened at',       'sample' => '2026-03-03 09:00:00'],
+                'reopened_by_user_id' => ['label' => 'Reopened by user ID','sample' => '8'],
+                'reopen_reason'       => ['label' => 'Reopen reason',     'sample' => 'Late AP accrual'],
+            ],
+        ],
+
+        'accounting_bank_statement_lines' => [
+            'label'                 => 'Accounting Bank Statement Lines',
+            'module_id'             => 'accounting',
+            'permission'            => 'accounting.reports.export',
+            'formats'               => ['csv'],
+            'audit_event'           => 'accounting.ledger.exported',
+            'sensitive_fields'      => [],
+            'custom_field_entities' => [],
+            'fetcher'               => 'exportDatasetFetchAccountingBankStatementLines',
+            'fields'                => [
+                'bank_statement_line_id' => ['label' => 'Statement line ID', 'sample' => '7301'],
+                'bank_account_id'        => ['label' => 'Bank account ID',   'sample' => '5'],
+                'bank_account_name'      => ['label' => 'Bank account',      'sample' => 'Operating Chase'],
+                'entity_id'              => ['label' => 'Entity ID',         'sample' => '1'],
+                'gl_account_code'        => ['label' => 'GL account code',   'sample' => '1010'],
+                'bank_name'              => ['label' => 'Bank name',         'sample' => 'Chase'],
+                'posted_date'            => ['label' => 'Posted date',       'sample' => '2026-02-14'],
+                'description'            => ['label' => 'Description',       'sample' => 'ACH CREDIT'],
+                'amount'                 => ['label' => 'Amount',            'sample' => '5000.00', 'field_type' => 'currency'],
+                'bank_reference'         => ['label' => 'Bank reference',    'sample' => 'ACH-123'],
+                'fitid'                  => ['label' => 'FITID',             'sample' => '20260214-1'],
+                'match_status'           => ['label' => 'Match status',      'sample' => 'matched'],
+                'matched_je_id'          => ['label' => 'Matched JE ID',     'sample' => '501'],
+                'matched_at'             => ['label' => 'Matched at',        'sample' => '2026-02-14 12:00:00'],
+                'matched_by_user_id'     => ['label' => 'Matched by user ID','sample' => '7'],
+                'created_at'             => ['label' => 'Created at',        'sample' => '2026-02-14 09:00:00'],
+            ],
+        ],
+
         'billing_invoices' => [
             'label'                 => 'Billing Invoices',
             'module_id'             => 'billing',
@@ -727,6 +871,256 @@ function exportDatasetFetchExpenses(int $tenantId, array $opts): array {
         $out[] = $row;
     }
     return $out;
+}
+
+function exportDatasetFetchAccountingChartOfAccounts(int $tenantId, array $opts): array {
+    $pdo = getDB();
+    $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $where = ['tenant_id = :tenant_id'];
+    $params = ['tenant_id' => $tenantId];
+    if (array_key_exists('active', $opts) && $opts['active'] !== '' && $opts['active'] !== null) {
+        $where[] = 'active = :active';
+        $params['active'] = !empty($opts['active']) ? 1 : 0;
+    }
+    if (!empty($opts['account_type'])) {
+        $where[] = 'account_type = :account_type';
+        $params['account_type'] = (string) $opts['account_type'];
+    }
+    if (!empty($opts['code'])) {
+        $where[] = 'code = :code';
+        $params['code'] = (string) $opts['code'];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT id AS account_id, code, name, account_type, normal_side,
+                cash_flow_tag, parent_account_id, is_postable, currency,
+                description, active, created_at, updated_at
+           FROM accounting_accounts
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY code
+          LIMIT ' . $limit
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function exportDatasetFetchAccountingJournalEntries(int $tenantId, array $opts): array {
+    $pdo = getDB();
+    $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $where = ['je.tenant_id = :tenant_id'];
+    $params = ['tenant_id' => $tenantId];
+    $joinLine = '';
+
+    if (!empty($opts['ids'])) {
+        $ids = array_values(array_filter(array_map('intval', (array) $opts['ids']), fn ($x) => $x > 0));
+        if ($ids) {
+            $placeholders = [];
+            foreach ($ids as $i => $id) {
+                $key = 'id' . $i;
+                $placeholders[] = ':' . $key;
+                $params[$key] = $id;
+            }
+            $where[] = 'je.id IN (' . implode(',', $placeholders) . ')';
+        }
+    }
+    if (!empty($opts['status'])) {
+        $where[] = 'je.status = :status';
+        $params['status'] = (string) $opts['status'];
+    }
+    if (!empty($opts['statuses'])) {
+        $statuses = array_values(array_filter(array_map('strval', (array) $opts['statuses']), fn ($x) => $x !== ''));
+        if ($statuses) {
+            $placeholders = [];
+            foreach ($statuses as $i => $status) {
+                $key = 'status' . $i;
+                $placeholders[] = ':' . $key;
+                $params[$key] = $status;
+            }
+            $where[] = 'je.status IN (' . implode(',', $placeholders) . ')';
+        }
+    }
+    if (!empty($opts['exclude_status'])) {
+        $where[] = 'je.status <> :exclude_status';
+        $params['exclude_status'] = (string) $opts['exclude_status'];
+    }
+    if (!empty($opts['approval_state'])) {
+        $where[] = 'je.approval_state = :approval_state';
+        $params['approval_state'] = (string) $opts['approval_state'];
+    }
+    if (!empty($opts['from'])) {
+        $where[] = 'je.posting_date >= :from_date';
+        $params['from_date'] = (string) $opts['from'];
+    }
+    if (!empty($opts['to'])) {
+        $where[] = 'je.posting_date <= :to_date';
+        $params['to_date'] = (string) $opts['to'];
+    }
+    if (!empty($opts['entity_id'])) {
+        $where[] = 'je.entity_id = :entity_id';
+        $params['entity_id'] = (int) $opts['entity_id'];
+    }
+    if (!empty($opts['period_id'])) {
+        $where[] = 'je.period_id = :period_id';
+        $params['period_id'] = (int) $opts['period_id'];
+    }
+    if (!empty($opts['source_module'])) {
+        $where[] = 'je.source_module = :source_module';
+        $params['source_module'] = (string) $opts['source_module'];
+    }
+    if (!empty($opts['account_code'])) {
+        $joinLine = ' INNER JOIN accounting_journal_entry_lines l ON l.je_id = je.id
+                      INNER JOIN accounting_accounts a ON a.id = l.account_id ';
+        $where[] = 'a.code = :account_code';
+        $params['account_code'] = (string) $opts['account_code'];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT DISTINCT je.id AS journal_entry_id, je.je_number, je.posting_date,
+                je.entity_id, je.period_id, je.source_module, je.source_ref_type,
+                je.source_ref_id, je.status, je.approval_state, je.currency,
+                je.total_debit, je.total_credit, je.memo, je.posted_at,
+                je.posted_by_user_id, je.created_by_user_id, je.created_at, je.updated_at
+           FROM accounting_journal_entries je ' . $joinLine . '
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY je.posting_date DESC, je.id DESC
+          LIMIT ' . $limit
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function exportDatasetFetchAccountingGlDetail(int $tenantId, array $opts): array {
+    $pdo = getDB();
+    $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $where = ['je.tenant_id = :tenant_id'];
+    $params = ['tenant_id' => $tenantId];
+    $status = (string) ($opts['status'] ?? 'posted');
+    if ($status !== '' && $status !== 'all') {
+        $where[] = 'je.status = :status';
+        $params['status'] = $status;
+    }
+    if (!empty($opts['from'])) {
+        $where[] = 'je.posting_date >= :from_date';
+        $params['from_date'] = (string) $opts['from'];
+    }
+    if (!empty($opts['to'])) {
+        $where[] = 'je.posting_date <= :to_date';
+        $params['to_date'] = (string) $opts['to'];
+    }
+    if (!empty($opts['entity_id'])) {
+        $where[] = 'je.entity_id = :entity_id';
+        $params['entity_id'] = (int) $opts['entity_id'];
+    }
+    if (!empty($opts['period_id'])) {
+        $where[] = 'je.period_id = :period_id';
+        $params['period_id'] = (int) $opts['period_id'];
+    }
+    if (!empty($opts['account_code'])) {
+        $where[] = 'a.code = :account_code';
+        $params['account_code'] = (string) $opts['account_code'];
+    }
+    if (!empty($opts['source_module'])) {
+        $where[] = 'je.source_module = :source_module';
+        $params['source_module'] = (string) $opts['source_module'];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT l.id AS line_id, je.id AS journal_entry_id, l.line_no,
+                je.je_number, je.posting_date, je.entity_id, je.period_id,
+                a.id AS account_id, a.code AS account_code, a.name AS account_name,
+                a.account_type, a.normal_side, l.debit, l.credit,
+                CASE
+                    WHEN a.normal_side = "debit" THEN l.debit - l.credit
+                    ELSE l.credit - l.debit
+                END AS normal_balance_delta,
+                l.memo, je.source_module, je.source_ref_type, je.source_ref_id, je.status
+           FROM accounting_journal_entry_lines l
+           JOIN accounting_journal_entries je ON je.id = l.je_id
+           JOIN accounting_accounts a ON a.id = l.account_id
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY je.posting_date DESC, je.id DESC, l.line_no
+          LIMIT ' . $limit
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function exportDatasetFetchAccountingPeriods(int $tenantId, array $opts): array {
+    $pdo = getDB();
+    $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $where = ['tenant_id = :tenant_id'];
+    $params = ['tenant_id' => $tenantId];
+    if (!empty($opts['entity_id'])) {
+        $where[] = 'entity_id = :entity_id';
+        $params['entity_id'] = (int) $opts['entity_id'];
+    }
+    if (!empty($opts['status'])) {
+        $where[] = 'status = :status';
+        $params['status'] = (string) $opts['status'];
+    }
+    if (!empty($opts['from'])) {
+        $where[] = 'start_date >= :from_date';
+        $params['from_date'] = (string) $opts['from'];
+    }
+    if (!empty($opts['to'])) {
+        $where[] = 'end_date <= :to_date';
+        $params['to_date'] = (string) $opts['to'];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT id AS period_id, entity_id, period_number, start_date, end_date,
+                status, closed_at, closed_by_user_id, reopened_at,
+                reopened_by_user_id, reopen_reason
+           FROM accounting_periods
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY start_date DESC, period_number DESC
+          LIMIT ' . $limit
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function exportDatasetFetchAccountingBankStatementLines(int $tenantId, array $opts): array {
+    $pdo = getDB();
+    $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $where = ['bsl.tenant_id = :tenant_id'];
+    $params = ['tenant_id' => $tenantId];
+    if (!empty($opts['bank_account_id'])) {
+        $where[] = 'bsl.bank_account_id = :bank_account_id';
+        $params['bank_account_id'] = (int) $opts['bank_account_id'];
+    }
+    if (!empty($opts['entity_id'])) {
+        $where[] = 'ba.entity_id = :entity_id';
+        $params['entity_id'] = (int) $opts['entity_id'];
+    }
+    if (!empty($opts['match_status'])) {
+        $where[] = 'bsl.match_status = :match_status';
+        $params['match_status'] = (string) $opts['match_status'];
+    }
+    if (!empty($opts['from'])) {
+        $where[] = 'bsl.posted_date >= :from_date';
+        $params['from_date'] = (string) $opts['from'];
+    }
+    if (!empty($opts['to'])) {
+        $where[] = 'bsl.posted_date <= :to_date';
+        $params['to_date'] = (string) $opts['to'];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT bsl.id AS bank_statement_line_id, bsl.bank_account_id,
+                ba.name AS bank_account_name, ba.entity_id, ba.gl_account_code, ba.bank_name,
+                bsl.posted_date, bsl.description, bsl.amount, bsl.bank_reference,
+                bsl.fitid, bsl.match_status, bsl.matched_je_id, bsl.matched_at,
+                bsl.matched_by_user_id, bsl.created_at
+           FROM accounting_bank_statement_lines bsl
+      LEFT JOIN accounting_bank_accounts ba
+             ON ba.id = bsl.bank_account_id AND ba.tenant_id = bsl.tenant_id
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY bsl.posted_date DESC, bsl.id DESC
+          LIMIT ' . $limit
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 function exportDatasetFetchBillingInvoices(int $tenantId, array $opts): array {

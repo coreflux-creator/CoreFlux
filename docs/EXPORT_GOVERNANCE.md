@@ -94,11 +94,12 @@ fetches rows with the dataset fetcher, renders the template, normalizes the CSV
 filename, and writes the dataset's declared `audit_event` to `audit_log`.
 
 People Directory, Placements, Time Entries, Staffing Clients, Payroll
-Disbursements, AP Payments, AP Bills, AP Vendors, Expenses, Billing Invoices,
-and Billing Payments use this shared runner for template exports. Raw legacy CSV
-endpoints may remain for backward compatibility, but they should consume the
-same governed dataset fetchers and audit the dataset event with `mode=raw`. Any
-new configurable export should be dataset and template backed.
+Disbursements, AP Payments, AP Bills, AP Vendors, Expenses, Accounting ledger
+datasets, Billing Invoices, and Billing Payments use this shared runner for
+template exports. Raw legacy CSV endpoints may remain for backward
+compatibility, but they should consume the same governed dataset fetchers and
+audit the dataset event with `mode=raw`. Any new configurable export should be
+dataset and template backed.
 
 ## Product Rule
 

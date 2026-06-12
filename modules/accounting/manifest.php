@@ -207,5 +207,76 @@ return [
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
 
+    'export_datasets' => [
+        'accounting_chart_of_accounts' => [
+            'dataset'     => 'accounting_chart_of_accounts',
+            'label'       => 'Accounting Chart of Accounts',
+            'permission'  => 'accounting.reports.export',
+            'formats'     => ['csv'],
+            'audit_event' => 'accounting.ledger.exported',
+        ],
+        'accounting_journal_entries' => [
+            'dataset'     => 'accounting_journal_entries',
+            'label'       => 'Accounting Journal Entries',
+            'permission'  => 'accounting.reports.export',
+            'formats'     => ['csv'],
+            'audit_event' => 'accounting.ledger.exported',
+        ],
+        'accounting_gl_detail' => [
+            'dataset'     => 'accounting_gl_detail',
+            'label'       => 'Accounting GL Detail',
+            'permission'  => 'accounting.reports.export',
+            'formats'     => ['csv'],
+            'audit_event' => 'accounting.ledger.exported',
+        ],
+        'accounting_periods' => [
+            'dataset'     => 'accounting_periods',
+            'label'       => 'Accounting Periods',
+            'permission'  => 'accounting.reports.export',
+            'formats'     => ['csv'],
+            'audit_event' => 'accounting.ledger.exported',
+        ],
+        'accounting_bank_statement_lines' => [
+            'dataset'     => 'accounting_bank_statement_lines',
+            'label'       => 'Accounting Bank Statement Lines',
+            'permission'  => 'accounting.reports.export',
+            'formats'     => ['csv'],
+            'audit_event' => 'accounting.ledger.exported',
+        ],
+    ],
+
+    'report_datasets' => [
+        'accounting_chart_of_accounts' => [
+            'dataset'    => 'accounting_chart_of_accounts',
+            'label'      => 'Accounting Chart of Accounts',
+            'permission' => 'accounting.reports.export',
+            'source'     => 'export_dataset',
+        ],
+        'accounting_journal_entries' => [
+            'dataset'    => 'accounting_journal_entries',
+            'label'      => 'Accounting Journal Entries',
+            'permission' => 'accounting.reports.export',
+            'source'     => 'export_dataset',
+        ],
+        'accounting_gl_detail' => [
+            'dataset'    => 'accounting_gl_detail',
+            'label'      => 'Accounting GL Detail',
+            'permission' => 'accounting.reports.export',
+            'source'     => 'export_dataset',
+        ],
+        'accounting_periods' => [
+            'dataset'    => 'accounting_periods',
+            'label'      => 'Accounting Periods',
+            'permission' => 'accounting.reports.export',
+            'source'     => 'export_dataset',
+        ],
+        'accounting_bank_statement_lines' => [
+            'dataset'    => 'accounting_bank_statement_lines',
+            'label'      => 'Accounting Bank Statement Lines',
+            'permission' => 'accounting.reports.export',
+            'source'     => 'export_dataset',
+        ],
+    ],
+
     'depends_on' => [],
 ];

@@ -19,7 +19,24 @@ $reg = exportDatasetRegistry();
 $moduleRegistry = ModuleRegistry::reset();
 $manifestDatasets = $moduleRegistry->getExportDatasetDeclarations();
 $required = ['label', 'module_id', 'permission', 'formats', 'audit_event', 'sensitive_fields', 'custom_field_entities', 'fetcher', 'fields'];
-foreach (['payroll_disbursements', 'ap_payments', 'ap_bills', 'ap_vendors', 'expenses', 'billing_invoices', 'billing_payments', 'time_entries', 'staffing_clients', 'people_directory', 'placements_directory'] as $dataset) {
+foreach ([
+    'payroll_disbursements',
+    'ap_payments',
+    'ap_bills',
+    'ap_vendors',
+    'expenses',
+    'accounting_chart_of_accounts',
+    'accounting_journal_entries',
+    'accounting_gl_detail',
+    'accounting_periods',
+    'accounting_bank_statement_lines',
+    'billing_invoices',
+    'billing_payments',
+    'time_entries',
+    'staffing_clients',
+    'people_directory',
+    'placements_directory',
+] as $dataset) {
     $assert("dataset registered: {$dataset}", isset($reg[$dataset]));
     foreach ($required as $key) {
         $assert("{$dataset} has {$key}", array_key_exists($key, $reg[$dataset] ?? []));
@@ -53,6 +70,16 @@ $assert('ap bills expose vendor and amount due fields',
     isset($reg['ap_bills']['fields']['vendor_name'], $reg['ap_bills']['fields']['amount_due']));
 $assert('ap vendors expose vendor and tax fields',
     isset($reg['ap_vendors']['fields']['vendor_name'], $reg['ap_vendors']['fields']['tax_id_last4']));
+$assert('accounting COA exposes account fields',
+    isset($reg['accounting_chart_of_accounts']['fields']['code'], $reg['accounting_chart_of_accounts']['fields']['cash_flow_tag']));
+$assert('accounting JE exposes approval and amount fields',
+    isset($reg['accounting_journal_entries']['fields']['approval_state'], $reg['accounting_journal_entries']['fields']['total_debit']));
+$assert('accounting GL detail exposes account and debit/credit fields',
+    isset($reg['accounting_gl_detail']['fields']['account_code'], $reg['accounting_gl_detail']['fields']['debit'], $reg['accounting_gl_detail']['fields']['credit']));
+$assert('accounting periods expose status fields',
+    isset($reg['accounting_periods']['fields']['period_number'], $reg['accounting_periods']['fields']['status']));
+$assert('accounting bank statement lines expose match fields',
+    isset($reg['accounting_bank_statement_lines']['fields']['match_status'], $reg['accounting_bank_statement_lines']['fields']['matched_je_id']));
 $assert('time entries expose placement and hours fields',
     isset($reg['time_entries']['fields']['placement_external_id'], $reg['time_entries']['fields']['hours']));
 $assert('staffing clients expose contact and terms fields',
@@ -107,6 +134,7 @@ $apPaymentsCsv = (string) file_get_contents($root . '/modules/ap/api/payments_cs
 $apBillsCsv = (string) file_get_contents($root . '/modules/ap/api/bills_csv_export.php');
 $apVendorsCsv = (string) file_get_contents($root . '/modules/ap/api/csv_export.php');
 $apExpenses = (string) file_get_contents($root . '/modules/ap/api/expenses.php');
+$accountingExport = (string) file_get_contents($root . '/modules/accounting/api/export.php');
 $billingInvoices = (string) file_get_contents($root . '/modules/billing/api/csv_export.php');
 $billingPayments = (string) file_get_contents($root . '/modules/billing/api/payments_csv_export.php');
 $timeExport = (string) file_get_contents($root . '/modules/time/api/csv_export.php');
@@ -151,6 +179,17 @@ $assert('ap expenses raw export uses shared dataset service',
     str_contains($apExpenses, 'exportDatasetFetchExpenses')
     && str_contains($apExpenses, 'Core\\CsvExportService')
     && str_contains($apExpenses, 'ap.expense.export_selected'));
+$assert('accounting export endpoint consumes governed datasets',
+    str_contains($accountingExport, 'exportDatasetFetchRows')
+    && str_contains($accountingExport, 'accounting_chart_of_accounts')
+    && str_contains($accountingExport, 'accounting_journal_entries')
+    && str_contains($accountingExport, 'accounting_gl_detail')
+    && str_contains($accountingExport, 'accounting_periods')
+    && str_contains($accountingExport, 'accounting_bank_statement_lines')
+    && str_contains($accountingExport, "mode' => 'raw'"));
+$assert('accounting export endpoint supports dataset templates',
+    str_contains($accountingExport, 'exportTemplateStreamDatasetCsv')
+    && str_contains($accountingExport, 'template_id'));
 $assert('billing invoices template export uses shared runner', str_contains($billingInvoices, 'exportTemplateStreamDatasetCsv') && str_contains($billingInvoices, 'billing_invoices'));
 $assert('billing payments template export uses shared runner', str_contains($billingPayments, 'exportTemplateStreamDatasetCsv') && str_contains($billingPayments, 'billing_payments'));
 $assert('billing raw exports audit dataset events',

@@ -25,6 +25,11 @@ $assert('billing invoices dataset exists', isset($reg['billing_invoices']));
 $assert('billing payments dataset exists', isset($reg['billing_payments']));
 $assert('time entries dataset exists', isset($reg['time_entries']));
 $assert('staffing clients dataset exists', isset($reg['staffing_clients']));
+$assert('accounting COA dataset exists', isset($reg['accounting_chart_of_accounts']));
+$assert('accounting JE dataset exists', isset($reg['accounting_journal_entries']));
+$assert('accounting GL detail dataset exists', isset($reg['accounting_gl_detail']));
+$assert('accounting periods dataset exists', isset($reg['accounting_periods']));
+$assert('accounting bank statement lines dataset exists', isset($reg['accounting_bank_statement_lines']));
 foreach (array_keys($reg) as $datasetKey) {
     $assert("report dataset manifest declaration exists: {$datasetKey}", isset($reportDatasetDecls[$datasetKey]));
 }
@@ -37,6 +42,11 @@ $billingInvoices = $reg['billing_invoices'] ?? [];
 $billingPayments = $reg['billing_payments'] ?? [];
 $timeEntries = $reg['time_entries'] ?? [];
 $staffingClients = $reg['staffing_clients'] ?? [];
+$accountingCoa = $reg['accounting_chart_of_accounts'] ?? [];
+$accountingJe = $reg['accounting_journal_entries'] ?? [];
+$accountingGl = $reg['accounting_gl_detail'] ?? [];
+$accountingPeriods = $reg['accounting_periods'] ?? [];
+$accountingBankLines = $reg['accounting_bank_statement_lines'] ?? [];
 $assert('people preserves source dataset', ($people['source_dataset'] ?? null) === 'people_directory');
 $assert('people preserves permission', ($people['permission'] ?? null) === 'people.view');
 $assert('people custom fields entity exposed', in_array('people', $people['custom_field_entities'] ?? [], true));
@@ -82,6 +92,21 @@ $assert('staffing client payment terms classified as measure',
 $assert('staffing client active placements classified as measure',
     (($staffingClients['measures']['active_placements']['role'] ?? null) === 'measure'));
 $assert('staffing client status filter exposed', isset($staffingClients['filters']['status']));
+$assert('accounting COA preserves source dataset', ($accountingCoa['source_dataset'] ?? null) === 'accounting_chart_of_accounts');
+$assert('accounting COA account type filter exposed', isset($accountingCoa['filters']['account_type']));
+$assert('accounting JE preserves source dataset', ($accountingJe['source_dataset'] ?? null) === 'accounting_journal_entries');
+$assert('accounting JE total debit classified as measure',
+    (($accountingJe['measures']['total_debit']['role'] ?? null) === 'measure'));
+$assert('accounting JE status filter exposed', isset($accountingJe['filters']['status']));
+$assert('accounting GL preserves source dataset', ($accountingGl['source_dataset'] ?? null) === 'accounting_gl_detail');
+$assert('accounting GL debit/credit classified as measures',
+    (($accountingGl['measures']['debit']['role'] ?? null) === 'measure')
+    && (($accountingGl['measures']['credit']['role'] ?? null) === 'measure'));
+$assert('accounting GL account code filter exposed', isset($accountingGl['filters']['account_code']));
+$assert('accounting periods status filter exposed', isset($accountingPeriods['filters']['status']));
+$assert('accounting bank statement amount classified as measure',
+    (($accountingBankLines['measures']['amount']['role'] ?? null) === 'measure'));
+$assert('accounting bank statement match status filter exposed', isset($accountingBankLines['filters']['match_status']));
 $assert('report builder text filters support lists', in_array('in', reportBuilderFilterOperators('text'), true));
 $assert('report builder date filters support inclusive upper bounds', in_array('less_than_or_equal', reportBuilderFilterOperators('date'), true));
 $assert('payroll amount classified as measure', (($reg['payroll_disbursements']['measures']['gross_pay_dollars']['role'] ?? null) === 'measure'));
