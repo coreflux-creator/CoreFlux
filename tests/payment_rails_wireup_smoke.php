@@ -60,7 +60,8 @@ $a('AP — payments.php?action=originate, returns NACHA file b64 when rail=nacha
 echo "\nPayroll — runs?action=originate\n";
 $pr = (string) file_get_contents(__DIR__ . '/../modules/payroll/api/runs.php');
 $a('originate action handler present',         $c($pr, "\$action === 'originate'"));
-$a('requires payroll.run.disburse',            $c($pr, "rbac_legacy_require(\$ctx['user'], 'payroll.run.disburse')"));
+$a('requires payroll.run.disburse',            $c($pr, "rbac_legacy_require(\$ctx['user'], 'payroll.run.disburse')")
+                                             || $c($pr, "rbac_legacy_require(\$user, 'payroll.run.disburse')"));
 $a('refuses unless status=approved',           $c($pr, 'Originate requires status=approved'));
 $a('idempotent (refuses if already originated)', $c($pr, 'Already originated on rail'));
 $a('joins people_employees + people_bank_accounts',

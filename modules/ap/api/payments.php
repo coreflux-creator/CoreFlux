@@ -183,43 +183,9 @@ if ($method === 'POST' && $action === 'send') {
     $row = scopedFind('SELECT * FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
     if (!apPaymentTransitionAllowed($row['status'], 'sent')) api_error("Cannot send from status {$row['status']}", 409);
+    apPaymentReleaseGateOrError($tid, $row, (int) ($user['id'] ?? 0), 'send');
 
-    // SoD: the same actor who created the payment cannot release it unless they
-    // also approved the allocated bills (both roles separate recommended).
-    if ((int) ($row['created_by_user_id'] ?? 0) === (int) ($user['id'] ?? 0)) {
-        api_error('Segregation of duties: you cannot release your own payment.', 403);
-    }
-
-    // Refuse if any allocated bill is disputed or void.
     $pdo = getDB();
-    // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
-    $checkStmt = $pdo->prepare(
-        'SELECT b.status, b.internal_ref
-         FROM ap_payment_allocations a
-         JOIN ap_bills b ON b.id = a.bill_id
-         WHERE a.payment_id = :id AND b.status IN ("disputed","void")'
-    );
-    $checkStmt->execute(['id' => $id]);
-    $bad = $checkStmt->fetchAll(\PDO::FETCH_ASSOC);
-    if ($bad) api_error('Cannot release: bill ' . $bad[0]['internal_ref'] . ' is ' . $bad[0]['status'], 409);
-
-    // 4-WAY MATCH GATE: refuse if any allocated bill is in PWP awaiting_ar.
-    // Pay-when-paid contractually requires the client's AR payment to land
-    // BEFORE the vendor disbursement leaves the building — the AP send/
-    // disburse step is the last enforceable point before money moves.
-    // The release is then automatic via billing.allocate() → apPwpReleaseForArInvoice().
-    $pwpBlocked = apPwpAllocatedBillsAwaitingAr($tid, $id);
-    if ($pwpBlocked) {
-        $first = $pwpBlocked[0];
-        $refs  = array_map(fn ($r) => (string) ($r['internal_ref'] ?? ('#' . $r['id'])), $pwpBlocked);
-        api_error(
-            'Pay-when-paid gate: bill ' . ($first['internal_ref'] ?? ('#' . $first['id']))
-            . ' is awaiting AR invoice #' . ($first['linked_ar_invoice_id'] ?? '?')
-            . '. Vendor disbursement is blocked until the client payment is received.',
-            409,
-            ['code' => 'pwp_awaiting_ar', 'blocked_bill_refs' => $refs, 'blocked_bill_ids' => array_column($pwpBlocked, 'id')]
-        );
-    }
 
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare('UPDATE ap_payments SET status = "sent", sent_at = NOW(), sent_by_user_id = :u WHERE id = :id')
@@ -286,6 +252,37 @@ if ($method === 'POST' && $action === 'originate_batch') {
             . ' payment(s) in this batch have bills awaiting AR collection. Resolve or de-select them and retry.',
             409,
             ['code' => 'pwp_awaiting_ar', 'blocked' => $pwpBatchBlocked]
+        );
+    }
+
+    // Release controls (SoD, disputed/void bills, PWP) run before bank
+    // decrypt or rail dispatch so the batch remains all-or-nothing.
+    $releaseBlocked = [];
+    foreach ($rows as $r) {
+        $issue = apPaymentReleaseIssue($tid, $r, (int) ($user['id'] ?? 0));
+        if ($issue) {
+            $releaseBlocked[] = array_merge([
+                'payment_id' => (int) $r['id'],
+                'code' => $issue['code'],
+                'message' => $issue['message'],
+                'status' => $issue['status'],
+            ], $issue['extra']);
+        }
+    }
+    if ($releaseBlocked) {
+        $codes = array_values(array_unique(array_map(fn ($r) => (string) $r['code'], $releaseBlocked)));
+        $topCode = count($codes) === 1 ? $codes[0] : 'payment_release_blocked';
+        $status = in_array('sod_created_by', $codes, true) ? 403 : 409;
+        apAudit('ap.payment.release_blocked', [
+            'surface' => 'originate_batch',
+            'blocked' => $releaseBlocked,
+        ]);
+        api_error(
+            $topCode === 'pwp_awaiting_ar'
+                ? 'Pay-when-paid gate: ' . count($releaseBlocked) . ' payment(s) in this batch have bills awaiting AR collection. Resolve or de-select them and retry.'
+                : 'Payment release controls blocked ' . count($releaseBlocked) . ' payment(s). Resolve or de-select them and retry.',
+            $status,
+            ['code' => $topCode, 'blocked' => $releaseBlocked]
         );
     }
 
@@ -565,6 +562,75 @@ if ($method === 'POST' && $action === 'void') {
 
     apAudit('ap.payment.voided', ['payment_id' => $id, 'reason' => $reason], $id);
     api_ok(['ok' => true]);
+}
+
+function apPaymentReleaseGateOrError(int $tenantId, array $payment, ?int $userId, string $surface): void
+{
+    $issue = apPaymentReleaseIssue($tenantId, $payment, $userId);
+    if (!$issue) return;
+    apAudit('ap.payment.release_blocked', [
+        'payment_id' => (int) ($payment['id'] ?? 0),
+        'surface' => $surface,
+        'code' => $issue['code'],
+        'reason' => $issue['message'],
+        'extra' => $issue['extra'],
+    ], (int) ($payment['id'] ?? 0));
+    api_error($issue['message'], (int) $issue['status'], array_merge(['code' => $issue['code']], $issue['extra']));
+}
+
+function apPaymentReleaseIssue(int $tenantId, array $payment, ?int $userId): ?array
+{
+    $paymentId = (int) ($payment['id'] ?? 0);
+    if ($paymentId <= 0) {
+        return ['code' => 'payment_missing', 'status' => 422, 'message' => 'payment id required', 'extra' => []];
+    }
+
+    $createdBy = (int) ($payment['created_by_user_id'] ?? 0);
+    if ($userId !== null && $userId > 0 && $createdBy > 0 && $createdBy === $userId) {
+        return [
+            'code' => 'sod_created_by',
+            'status' => 403,
+            'message' => 'Segregation of duties: you cannot release your own payment.',
+            'extra' => ['created_by_user_id' => $createdBy],
+        ];
+    }
+
+    $pdo = getDB();
+    $checkStmt = $pdo->prepare(
+        'SELECT b.status, b.internal_ref
+         FROM ap_payment_allocations a
+         JOIN ap_bills b ON b.id = a.bill_id
+         WHERE a.payment_id = :id AND b.status IN ("disputed","void")'
+    );
+    $checkStmt->execute(['id' => $paymentId]);
+    $bad = $checkStmt->fetchAll(\PDO::FETCH_ASSOC);
+    if ($bad) {
+        return [
+            'code' => 'bill_not_releasable',
+            'status' => 409,
+            'message' => 'Cannot release: bill ' . $bad[0]['internal_ref'] . ' is ' . $bad[0]['status'],
+            'extra' => ['bill_ref' => $bad[0]['internal_ref'], 'bill_status' => $bad[0]['status']],
+        ];
+    }
+
+    $pwpBlocked = apPwpAllocatedBillsAwaitingAr($tenantId, $paymentId);
+    if ($pwpBlocked) {
+        $first = $pwpBlocked[0];
+        $refs  = array_map(fn ($r) => (string) ($r['internal_ref'] ?? ('#' . $r['id'])), $pwpBlocked);
+        return [
+            'code' => 'pwp_awaiting_ar',
+            'status' => 409,
+            'message' => 'Pay-when-paid gate: bill ' . ($first['internal_ref'] ?? ('#' . $first['id']))
+                . ' is awaiting AR invoice #' . ($first['linked_ar_invoice_id'] ?? '?')
+                . '. Vendor disbursement is blocked until the client payment is received.',
+            'extra' => [
+                'blocked_bill_refs' => $refs,
+                'blocked_bill_ids' => array_column($pwpBlocked, 'id'),
+            ],
+        ];
+    }
+
+    return null;
 }
 
 api_error('Method not allowed', 405);

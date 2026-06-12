@@ -90,6 +90,7 @@ return [
         'ap.payment.drafted',
         'ap.payment.run_built',
         'ap.payment.sent',
+        'ap.payment.release_blocked',
         'ap.payment.cleared',
         'ap.payment.voided',
         'ap.payment.originated',

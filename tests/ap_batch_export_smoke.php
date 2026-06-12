@@ -26,6 +26,9 @@ $a('caps batch at 500 entries',                       $c($ap, 'Batch limited to 
 $a('refuses ids missing from this tenant',            $c($ap, 'Some ids not found in this tenant'));
 $a('rejects ineligible payment statuses',             $c($ap, 'not eligible (status='));
 $a('rejects non-ach/plaid methods',                   $c($ap, 'not eligible (must be ach|plaid)'));
+$a('runs release controls before rail build',          $c($ap, '$releaseBlocked = []')
+                                                  &&  strpos($ap, '$releaseBlocked = []') < strpos($ap, 'paymentRailsBuildItem('));
+$a('audits release-control blocks',                    $c($ap, "'ap.payment.release_blocked'"));
 $a('builds RailItems via paymentRailsBuildItem',      $c($ap, 'paymentRailsBuildItem('));
 $a('PPD for 1099_individual, CCD for businesses',     $c($ap, "vendor_type'] === '1099_individual' ? 'ppd' : 'ccd'"));
 $a('dispatches single rail batch',                    $c($ap, "paymentRailsDispatch('ap'"));
