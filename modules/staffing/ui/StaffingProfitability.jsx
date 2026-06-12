@@ -1,9 +1,8 @@
 import React from 'react';
 import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 
-// Reuse Reports module pages here so the Staffing sidebar surfaces the
-// economics views without forcing the user out of the umbrella module.
-// Source of truth still lives in modules/reports/ui/* — these are aliases.
+// Workbench aliases for Reports-module analytics. Report definitions and
+// execution remain owned by modules/reports/ui/*.
 import StaffingOverviewReport from '../../reports/ui/StaffingOverview';
 import ExecutiveSnapshot      from '../../reports/ui/ExecutiveSnapshot';
 import ClientProfitability    from '../../reports/ui/ClientProfitability';
@@ -12,18 +11,19 @@ import OvertimeWatch          from '../../reports/ui/OvertimeWatch';
 import WorkerMix              from './WorkerMix';
 
 const SUB_TABS = [
-  { slug: 'overview',           label: 'Staffing Overview' },
+  { slug: 'overview', label: 'Staffing Overview' },
   { slug: 'executive_snapshot', label: 'Executive Snapshot' },
   { slug: 'client_profitability', label: 'Client Profitability' },
-  { slug: 'rate_spread',        label: 'Rate & Spread' },
-  { slug: 'overtime_watch',     label: 'Overtime Watch' },
-  { slug: 'worker_mix',         label: 'Worker Mix' },
+  { slug: 'rate_spread', label: 'Rate & Spread' },
+  { slug: 'overtime_watch', label: 'Overtime Watch' },
+  { slug: 'worker_mix', label: 'Worker Mix' },
 ];
 
 /**
- * Staffing → Profitability — surfaces the Reports module's staffing
- * analytics under the Staffing umbrella so the user doesn't have to
- * context-switch out to see their own KPIs.
+ * Staffing profitability workbench.
+ *
+ * These routes compose Reports surfaces in the Staffing workflow without
+ * moving report ownership into Staffing.
  */
 export default function StaffingProfitability({ session }) {
   const loc = useLocation();
@@ -52,13 +52,13 @@ export default function StaffingProfitability({ session }) {
       </div>
 
       <Routes>
-        <Route index                    element={<Navigate to="overview" replace />} />
-        <Route path="overview"             element={<StaffingOverviewReport session={session} />} />
-        <Route path="executive_snapshot"   element={<ExecutiveSnapshot      session={session} />} />
-        <Route path="client_profitability" element={<ClientProfitability    session={session} />} />
-        <Route path="rate_spread"          element={<RateSpreadMonitor      session={session} />} />
-        <Route path="overtime_watch"       element={<OvertimeWatch          session={session} />} />
-        <Route path="worker_mix"           element={<WorkerMix              session={session} />} />
+        <Route index element={<Navigate to="overview" replace />} />
+        <Route path="overview" element={<StaffingOverviewReport session={session} />} />
+        <Route path="executive_snapshot" element={<ExecutiveSnapshot session={session} />} />
+        <Route path="client_profitability" element={<ClientProfitability session={session} />} />
+        <Route path="rate_spread" element={<RateSpreadMonitor session={session} />} />
+        <Route path="overtime_watch" element={<OvertimeWatch session={session} />} />
+        <Route path="worker_mix" element={<WorkerMix session={session} />} />
       </Routes>
     </div>
   );

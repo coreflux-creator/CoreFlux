@@ -537,7 +537,7 @@ export default function TimesheetDetail({ session }) {
               {Object.entries(byPlacement).map(([k, v]) => (
                 <tr key={k} data-testid={`timesheet-detail-by-placement-row-${k}`}>
                   <td>
-                    <Link to={`/modules/staffing/placements/${k}`}>{v.title}</Link>
+                    <Link to={`/modules/placements/${k}`}>{v.title}</Link>
                   </td>
                   <td style={{ fontSize: 12, color: '#666' }}>{v.client}</td>
                   <td style={{ fontWeight: 600 }}>{v.hours.toFixed(2)}</td>
@@ -608,7 +608,7 @@ export default function TimesheetDetail({ session }) {
                     </select>
                   ) : (
                     <>
-                      <Link to={`/modules/staffing/placements/${e.placement_id}`}>{e.placement_title || `Placement #${e.placement_id}`}</Link>
+                      <Link to={`/modules/placements/${e.placement_id}`}>{e.placement_title || `Placement #${e.placement_id}`}</Link>
                       {e.client_name && <span style={{ display: 'block', color: '#666', fontSize: 11 }}>{e.client_name}</span>}
                     </>
                   )}

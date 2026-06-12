@@ -212,6 +212,11 @@ $a('placements fetch keyed off ts.person_id (not session user)',
 $a('inactive-placement fallback option keeps the row editable',
     str_contains($det, 'inactive'));
 
+$a('placement drill links use canonical Placements module',
+    str_contains($det, '/modules/placements/${k}') &&
+    str_contains($det, '/modules/placements/${e.placement_id}') &&
+    !str_contains($det, '/modules/staffing/placements'));
+
 // ──────────────────────────────────────────────────────────────────────
 // 2) TimesheetWeek.jsx — URL anchor fix
 // ──────────────────────────────────────────────────────────────────────
