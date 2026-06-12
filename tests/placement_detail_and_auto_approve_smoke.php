@@ -35,11 +35,12 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$lib        = (string) file_get_contents('/app/modules/placements/lib/placements.php');
-$rates      = (string) file_get_contents('/app/modules/placements/api/rates.php');
-$placements = (string) file_get_contents('/app/modules/placements/api/placements.php');
-$rateAppr   = (string) file_get_contents('/app/modules/placements/lib/rate_approve.php');
-$detail     = (string) file_get_contents('/app/modules/placements/ui/PlacementDetail.jsx');
+$ROOT = realpath(__DIR__ . '/..');
+$lib        = (string) file_get_contents("{$ROOT}/modules/placements/lib/placements.php");
+$rates      = (string) file_get_contents("{$ROOT}/modules/placements/api/rates.php");
+$placements = (string) file_get_contents("{$ROOT}/modules/placements/api/placements.php");
+$rateAppr   = (string) file_get_contents("{$ROOT}/modules/placements/lib/rate_approve.php");
+$detail     = (string) file_get_contents("{$ROOT}/modules/placements/ui/PlacementDetail.jsx");
 
 echo "\n1. placementGet() joins people + companies\n";
 $a('joins people for person_first_name / person_last_name / person_email_primary',
@@ -106,6 +107,9 @@ $a('auto-approve helper is RBAC-gated via rbac_legacy_can (soft skip, no 403)',
 $a('auto-approve helper iterates each draft rate row',
    str_contains($rateAppr, 'placement_id = :pid AND approved_at IS NULL')
    && str_contains($rateAppr, "ORDER BY id ASC"));
+$a('auto-approve helper acts through WorkflowGraph',
+   str_contains($rateAppr, 'placementsRateWorkflowAct(currentTenantId(), (int) $r[\'id\']')
+   && str_contains($rateAppr, 'placement.rate.auto_approve_pending_workflow'));
 $a('auto-approve catches per-rate errors with auto_approve_failed audit',
    str_contains($rateAppr, "placementsAudit('placement.rate.auto_approve_failed'"));
 $a('rates.php requires the new lib',
@@ -144,13 +148,14 @@ $a('PATCH only triggers on draft → non-terminal',
 $a('PATCH emits placement.rates.auto_approved_on_promotion audit',
    str_contains($placements, "placementsAudit('placement.rates.auto_approved_on_promotion'"));
 $a('PATCH returns rates_auto_approved in response',
-   str_contains($placements, "'rates_auto_approved' => \$autoApproved"));
+   str_contains($placements, "'rates_auto_approved' => \$autoApproved + \$activatedAutoApproved"));
 
 echo "\n6. bulk_status also fires the auto-approve side effect\n";
 $a('bulk_status captures pre-update status per row',
-   str_contains($placements, "'SELECT status FROM placements WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL'"));
+   str_contains($placements, 'SELECT id, status, start_date FROM placements WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL'));
 $a('bulk_status calls auto-approve when prior=draft and target ∉ {draft,cancelled}',
-   str_contains($placements, "if (\$prior && (string) \$prior['status'] === 'draft'\n                    && !in_array(\$newStatus, ['draft', 'cancelled'], true))"));
+   str_contains($placements, "(string) \$prior['status'] === 'draft'")
+   && str_contains($placements, "!in_array(\$newStatus, ['draft', 'cancelled'], true)"));
 $a('bulk_status emits per-row auto_approved audit with via=bulk_status',
    str_contains($placements, "'via'             => 'bulk_status'"));
 $a('bulk_status response includes per-row rates_auto_approved + total',
@@ -159,14 +164,14 @@ $a('bulk_status response includes per-row rates_auto_approved + total',
 
 echo "\n7. PHP syntax\n";
 foreach ([
-    '/app/modules/placements/lib/placements.php',
-    '/app/modules/placements/lib/rate_approve.php',
-    '/app/modules/placements/api/rates.php',
-    '/app/modules/placements/api/placements.php',
-] as $f) {
+    'modules/placements/lib/placements.php',
+    'modules/placements/lib/rate_approve.php',
+    'modules/placements/api/rates.php',
+    'modules/placements/api/placements.php',
+] as $rel) {
     $out = []; $rc = 0;
-    exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
-    $a("php -l {$f}", $rc === 0, implode("\n", $out));
+    exec('php -l ' . escapeshellarg("{$ROOT}/{$rel}") . ' 2>&1', $out, $rc);
+    $a("php -l {$rel}", $rc === 0, implode("\n", $out));
 }
 
 echo "\n=========================================\n";

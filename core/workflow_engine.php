@@ -362,6 +362,12 @@ function _workflowSubjectSync(int $tenantId, string $subjectType, int $subjectId
                 payrollSyncRunFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
             }
         }
+        if ($subjectType === 'placement_rate') {
+            require_once __DIR__ . '/../modules/placements/lib/workflow_sync.php';
+            if (function_exists('placementsSyncRateFromWorkflow')) {
+                placementsSyncRateFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
+            }
+        }
     } catch (\Throwable $_) {
         // Absolutely non-fatal.
     }

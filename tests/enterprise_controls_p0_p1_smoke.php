@@ -48,6 +48,10 @@ check('create active placement is rejected', contains($placements, 'Placements c
 check('bulk active status runs activation guard', contains($placements, "_placementsEnsureActiveReady(\$pid, \$user"));
 check('patch active status runs activation guard', contains($placements, "_placementsEnsureActiveReady(\n            \$id"));
 check('activation requires approved rate coverage', contains($placements, 'cannot become active without an approved rate'));
+$rates = $root . '/modules/placements/api/rates.php';
+$rateWorkflow = $root . '/modules/placements/lib/workflow.php';
+check('rate approval acts through workflow graph', contains($rates, 'placementsRateWorkflowAct(currentTenantId(), $id, $user'));
+check('rate workflow consumes People Graph approval policy', contains($rateWorkflow, "domainPeopleGraphWorkflowApproverResolution('placements', 'rate_snapshot'"));
 
 echo PHP_EOL . "Staffing consumer controls" . PHP_EOL;
 check('staffing manifest says consumer/orchestrator', contains($staffingManifest, 'consumes') && contains($staffingManifest, 'not the source-of-truth domain records'));

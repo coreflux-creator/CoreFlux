@@ -11,8 +11,8 @@
  *     allowed_status, max 500 ids, audits each row, returns
  *     {updated, skipped, results}
  *   - rates.php POST ?action=bulk_approve     — re-uses the shared
- *     placementsRateApproveOne() helper so semantics match single
- *     approve (margin snapshot, supersede, audit)
+ *     Placement Rate WorkflowGraph bridge so semantics match single
+ *     approve (routing, SoD, margin snapshot, supersede, audit)
  *   - rates.php GET  ?action=drafts           — global queue, joined
  *     to placements + people, returns 500-row cap
  *   - single ?action=approve also routes through the shared helper
@@ -31,14 +31,16 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$placements = (string) file_get_contents('/app/modules/placements/api/placements.php');
-$rates      = (string) file_get_contents('/app/modules/placements/api/rates.php');
-$rateApprLib = (string) file_get_contents('/app/modules/placements/lib/rate_approve.php');
-$csvImp     = (string) file_get_contents('/app/modules/placements/ui/CsvImport.jsx');
-$importPg   = (string) file_get_contents('/app/dashboard/src/components/CsvImportPage.jsx');
-$list       = (string) file_get_contents('/app/modules/placements/ui/List.jsx');
-$module     = (string) file_get_contents('/app/modules/placements/ui/PlacementsModule.jsx');
-$queue      = (string) file_get_contents('/app/modules/placements/ui/DraftRatesQueue.jsx');
+$ROOT = realpath(__DIR__ . '/..');
+$placements = (string) file_get_contents("{$ROOT}/modules/placements/api/placements.php");
+$rates      = (string) file_get_contents("{$ROOT}/modules/placements/api/rates.php");
+$rateApprLib = (string) file_get_contents("{$ROOT}/modules/placements/lib/rate_approve.php");
+$rateWorkflow = (string) file_get_contents("{$ROOT}/modules/placements/lib/workflow.php");
+$csvImp     = (string) file_get_contents("{$ROOT}/modules/placements/ui/CsvImport.jsx");
+$importPg   = (string) file_get_contents("{$ROOT}/dashboard/src/components/CsvImportPage.jsx");
+$list       = (string) file_get_contents("{$ROOT}/modules/placements/ui/List.jsx");
+$module     = (string) file_get_contents("{$ROOT}/modules/placements/ui/PlacementsModule.jsx");
+$queue      = (string) file_get_contents("{$ROOT}/modules/placements/ui/DraftRatesQueue.jsx");
 
 echo "\n1. Placements bulk_status endpoint\n";
 $a('handles action=bulk_status',           str_contains($placements, "\$action === 'bulk_status'"));
@@ -68,8 +70,8 @@ $a('helper supersedes prior approved rows',
    && str_contains($rateApprLib, 'superseded_by = :new_id_set'));
 $a('helper computes margin from chain via placementsComputeMargin',
    str_contains($rateApprLib, 'placementsComputeMargin($rate, $chain)'));
-$a('single ?action=approve now calls placementsRateApproveOne',
-   (bool) preg_match("/action === 'approve'.*?placementsRateApproveOne\(\\\$id, \\\$user, \\\$isCorrection, \\\$correctionReason\)/s", $rates));
+$a('single ?action=approve now calls workflow bridge',
+   (bool) preg_match("/action === 'approve'.*?placementsRateWorkflowAct\(currentTenantId\(\), \\\$id, \\\$user, \\\$isCorrection, \\\$correctionReason\)/s", $rates));
 $a('single approve still maps known errors to 404/409',
    str_contains($rates, "api_error('Rate not found', 404)")
    && str_contains($rates, "api_error('Already approved (snapshot is locked; create a correction)', 409)"));
@@ -80,12 +82,16 @@ $a('bulk_approve requires placements.financials.approve',
    (bool) preg_match("/action === 'bulk_approve'.*?rbac_legacy_require\(\\\$user, 'placements\\.financials\\.approve'\)/s", $rates));
 $a('bulk_approve caps at 200 ids',
    str_contains($rates, "api_error('Too many ids (max 200 per call)', 422)"));
-$a('bulk_approve never sets is_correction=true (forces per-row path)',
-   str_contains($rates, '$r = placementsRateApproveOne($rid, $user, false, null);'));
-$a('bulk_approve returns approved + failed + results',
+$a('bulk_approve acts through workflow and blocks corrections',
+   str_contains($rates, 'placementsRateWorkflowAct(currentTenantId(), $rid, $user, false, null)')
+   && str_contains($rates, 'Correction rate requires single-row approval workflow'));
+$a('bulk_approve returns approved + pending + failed + results',
    str_contains($rates, "'approved' => \$approved")
+   && str_contains($rates, "'pending' => \$pending")
    && str_contains($rates, "'failed' => \$failed")
    && str_contains($rates, "'results' => \$results"));
+$a('workflow bridge uses People Graph policy',
+   str_contains($rateWorkflow, "domainPeopleGraphWorkflowApproverResolution('placements', 'rate_snapshot'"));
 
 echo "\n3. Rates draft queue endpoint (?action=drafts)\n";
 $a('GET branch handles action=drafts',
@@ -146,8 +152,11 @@ $a('fetches /modules/placements/api/rates.php?action=drafts',
    str_contains($queue, "'/modules/placements/api/rates.php?action=drafts'"));
 $a('POSTs to bulk_approve endpoint',
    str_contains($queue, "'/modules/placements/api/rates.php?action=bulk_approve'"));
-$a('confirm copy warns about snapshot lock',
-   str_contains($queue, 'Each approval locks the snapshot'));
+$a('confirm copy routes through workflow approval',
+   str_contains($queue, 'Route ${selected.size} draft rate')
+   && str_contains($queue, 'Completed workflow approvals lock the snapshot'));
+$a('result copy surfaces pending workflows',
+   str_contains($queue, 'pending workflow'));
 $a('renders per-rate Review link to placement Rates tab',
    str_contains($queue, 'to={`../${r.placement_id}/rates`}'));
 $a('empty state when no drafts',
@@ -158,12 +167,12 @@ $a('select-all + per-rate select test ids',
 
 echo "\n9. PHP syntax\n";
 foreach ([
-    '/app/modules/placements/api/placements.php',
-    '/app/modules/placements/api/rates.php',
-] as $f) {
+    'modules/placements/api/placements.php',
+    'modules/placements/api/rates.php',
+] as $rel) {
     $out = []; $rc = 0;
-    exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
-    $a("php -l {$f}", $rc === 0, implode("\n", $out));
+    exec('php -l ' . escapeshellarg("{$ROOT}/{$rel}") . ' 2>&1', $out, $rc);
+    $a("php -l {$rel}", $rc === 0, implode("\n", $out));
 }
 
 echo "\n=========================================\n";

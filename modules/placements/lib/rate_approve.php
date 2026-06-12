@@ -1,15 +1,10 @@
 <?php
 /**
- * Rate-approve transaction — shared between:
- *   - /api/placements/rates?action=approve       (single approve)
- *   - /api/placements/rates?action=bulk_approve  (queue + post-import)
- *   - /api/placements/placements (?action=bulk_status & PATCH status)
+ * Placement rate snapshot approval primitives.
  *
- * The same helper means a CSV-imported placement promoted from draft →
- * active gets EXACTLY the same chain-based margin snapshot + supersede
- * audit as an operator clicking Approve in the per-placement Rates tab.
- *
- * SPEC §4 (margin) and §6.2 (rate approval) — single source of truth.
+ * API call sites must route approvals through modules/placements/lib/workflow.php.
+ * The low-level writer below is kept as the single snapshot-lock primitive used
+ * by WorkflowEngine sync after a WorkflowGraph decision is approved.
  */
 declare(strict_types=1);
 
@@ -18,24 +13,47 @@ require_once __DIR__ . '/placements.php';
 if (!function_exists('placementsRateApproveOne')) {
     /**
      * Approve one placement_rates row inside its own transaction.
-     * Throws on failure (caller decides whether to map to HTTP / log /
-     * collect into a bulk-result array).
+     * Compatibility wrapper for tenant-scoped API requests.
      *
      * @return array{margin: array, superseded_count: int}
      */
     function placementsRateApproveOne(int $rateId, array $user, bool $isCorrection, ?string $correctionReason): array
     {
-        $rate = scopedFind('SELECT * FROM placement_rates WHERE tenant_id = :tenant_id AND id = :id', ['id' => $rateId]);
+        return placementsRateApproveOneForTenant(currentTenantId(), $rateId, $user, $isCorrection, $correctionReason);
+    }
+}
+
+if (!function_exists('placementsRateApproveOneForTenant')) {
+    /**
+     * Tenant-explicit snapshot writer used by WorkflowEngine sync.
+     *
+     * @return array{margin: array, superseded_count: int}
+     */
+    function placementsRateApproveOneForTenant(int $tenantId, int $rateId, array $user, bool $isCorrection, ?string $correctionReason): array
+    {
+        $pdo = getDB();
+        if (!$pdo) throw new \RuntimeException('No DB');
+
+        $rateStmt = $pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id = :tenant_id AND id = :id');
+        $rateStmt->execute(['tenant_id' => $tenantId, 'id' => $rateId]);
+        $rate = $rateStmt->fetch(\PDO::FETCH_ASSOC);
         if (!$rate)               throw new \RuntimeException("Rate {$rateId} not found");
         if ($rate['approved_at']) throw new \RuntimeException("Rate {$rateId} already approved");
 
-        $chain  = placementChain((int) $rate['placement_id']);
+        $chainStmt = $pdo->prepare(
+            'SELECT id, tenant_id, placement_id, position, party_name, party_role,
+                    vendor_portal_id, portal_fee_pct, portal_fee_flat
+               FROM placement_client_chain
+              WHERE tenant_id = :tenant_id AND placement_id = :pid
+              ORDER BY position'
+        );
+        $chainStmt->execute(['tenant_id' => $tenantId, 'pid' => (int) $rate['placement_id']]);
+        $chain = $chainStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
         $margin = placementsComputeMargin($rate, $chain);
 
-        $pdo = getDB();
         $pdo->beginTransaction();
         try {
-            // Close prior approved row covering this effective_from
+            // Close prior approved row covering this effective_from.
             $stmt = $pdo->prepare(
                 "UPDATE placement_rates
                  SET effective_to = DATE_SUB(:eff_set, INTERVAL 1 DAY),
@@ -52,12 +70,12 @@ if (!function_exists('placementsRateApproveOne')) {
                 'eff_gt'        => $rate['effective_from'],
                 'new_id_set'    => $rateId,
                 'new_id_filter' => $rateId,
-                'tenant_id'     => currentTenantId(),
+                'tenant_id'     => $tenantId,
                 'pid'           => $rate['placement_id'],
             ]);
             $closed = $stmt->rowCount();
 
-            // Stamp the new row
+            // Stamp the new row.
             $stmt2 = $pdo->prepare(
                 'UPDATE placement_rates SET
                     approved_by_user_id = :uid,
@@ -74,7 +92,7 @@ if (!function_exists('placementsRateApproveOne')) {
                 'ntv'       => $margin['net_to_vendor'],
                 'ic'        => $isCorrection ? 1 : 0,
                 'reason'    => $correctionReason,
-                'tenant_id' => currentTenantId(),
+                'tenant_id' => $tenantId,
                 'id'        => $rateId,
             ]);
             $pdo->commit();
@@ -83,7 +101,7 @@ if (!function_exists('placementsRateApproveOne')) {
             throw $e;
         }
 
-        placementsAudit('placement.rate.approved', [
+        $approvedMeta = [
             'placement_id'         => (int) $rate['placement_id'],
             'rate_id'              => $rateId,
             'effective_from'       => $rate['effective_from'],
@@ -93,43 +111,74 @@ if (!function_exists('placementsRateApproveOne')) {
             'is_correction'        => $isCorrection,
             'correction_reason'    => $correctionReason,
             'superseded_count'     => $closed,
-        ], (int) $rate['placement_id']);
+        ];
+        $currentTenant = function_exists('currentTenantId') ? (int) currentTenantId() : $tenantId;
+        if ($tenantId === $currentTenant) {
+            placementsAudit('placement.rate.approved', $approvedMeta, (int) $rate['placement_id']);
+        } else {
+            placementsRateAuditForTenant($tenantId, (int) ($user['id'] ?? 0), 'placement.rate.approved', $approvedMeta, (int) $rate['placement_id']);
+        }
 
         if ($closed > 0) {
-            placementsAudit('placement.rate.superseded', [
-                'placement_id' => (int) $rate['placement_id'], 'by_rate_id' => $rateId, 'count' => $closed,
-            ], (int) $rate['placement_id']);
+            $supersededMeta = [
+                'placement_id' => (int) $rate['placement_id'],
+                'by_rate_id' => $rateId,
+                'count' => $closed,
+            ];
+            if ($tenantId === $currentTenant) {
+                placementsAudit('placement.rate.superseded', $supersededMeta, (int) $rate['placement_id']);
+            } else {
+                placementsRateAuditForTenant($tenantId, (int) ($user['id'] ?? 0), 'placement.rate.superseded', $supersededMeta, (int) $rate['placement_id']);
+            }
         }
 
         return ['margin' => $margin, 'superseded_count' => $closed];
     }
 }
 
+if (!function_exists('placementsRateAuditForTenant')) {
+    function placementsRateAuditForTenant(int $tenantId, ?int $actorUserId, string $event, array $meta = [], ?int $targetId = null): void
+    {
+        try {
+            $pdo = getDB();
+            if (!$pdo) return;
+            $stmt = $pdo->prepare(
+                'INSERT INTO audit_log
+                 (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, request_id, created_at)
+                 VALUES (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, :ip_address, :request_id, NOW())'
+            );
+            $stmt->execute([
+                'tenant_id'     => $tenantId,
+                'actor_user_id' => $actorUserId,
+                'event'         => $event,
+                'target_id'     => $targetId,
+                'meta_json'     => $meta ? json_encode($meta, JSON_UNESCAPED_SLASHES) : null,
+                'ip_address'    => $_SERVER['REMOTE_ADDR'] ?? null,
+                'request_id'    => $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
+            ]);
+        } catch (\Throwable $e) {
+            error_log("[placements.rate.audit] db-write-failed: " . $e->getMessage() . " event={$event}");
+        }
+    }
+}
+
 if (!function_exists('placementsAutoApproveDraftRates')) {
     /**
-     * Approve every unapproved rate row on a placement. Called when the
-     * placement transitions out of `draft` — operator complaint: the
-     * initial "Approve placement" step should also approve the rates
-     * that were imported alongside it, not leave them dangling in a
-     * separate queue.
-     *
-     * Skips silently if the user doesn't have `placements.financials.approve`
-     * (we don't want a privilege-escalation side effect when a recruiter
-     * with only `placements.manage` promotes a draft). Returns the count
-     * of approved rates (0 when skipped or none pending).
+     * Attempt to approve every unapproved rate row on a placement through
+     * WorkflowGraph. Returns only rows whose workflow completed and snapshot
+     * lock was applied; pending/multi-step approvals do not satisfy activation.
      */
     function placementsAutoApproveDraftRates(int $placementId, array $user): int
     {
-        // Permission check is intentionally soft — rbac_legacy_can()
-        // returns bool; rbac_legacy_require() would 403 the whole
-        // status change which is the wrong UX.
+        require_once __DIR__ . '/workflow.php';
+
+        // Permission check is intentionally soft: rbac_legacy_require() would
+        // 403 the whole status change, while activation readiness can explain
+        // that approved rate coverage is still missing.
         $canApprove = function_exists('rbac_legacy_can')
             ? rbac_legacy_can($user, 'placements.financials.approve')
             : false;
         if (!$canApprove) {
-            // Audit the soft skip so an operator wondering "why are
-            // these still draft?" can trace it back to a permission
-            // issue rather than thinking the feature is broken.
             placementsAudit('placement.rates.auto_approve_skipped_no_permission', [
                 'placement_id' => $placementId,
                 'user_id'      => (int) ($user['id'] ?? 0),
@@ -149,14 +198,18 @@ if (!function_exists('placementsAutoApproveDraftRates')) {
         $count = 0;
         foreach ($rows as $r) {
             try {
-                // Initial promotion → not a correction. (There's by
-                // definition no prior approved row on a draft.)
-                placementsRateApproveOne((int) $r['id'], $user, false, null);
-                $count++;
+                $result = placementsRateWorkflowAct(currentTenantId(), (int) $r['id'], $user, false, null, 'auto_approve');
+                if (!empty($result['approved'])) {
+                    $count++;
+                } else {
+                    placementsAudit('placement.rate.auto_approve_pending_workflow', [
+                        'placement_id' => $placementId,
+                        'rate_id'      => (int) $r['id'],
+                        'workflow_instance_id' => $result['instance']['id'] ?? null,
+                        'workflow_status' => $result['instance']['status'] ?? null,
+                    ], $placementId);
+                }
             } catch (\Throwable $e) {
-                // Don't abort the whole status change — a single bad
-                // rate (e.g. malformed chain) shouldn't prevent the
-                // operator from moving the placement out of draft.
                 placementsAudit('placement.rate.auto_approve_failed', [
                     'placement_id' => $placementId,
                     'rate_id'      => (int) $r['id'],
