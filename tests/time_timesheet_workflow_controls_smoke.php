@@ -79,14 +79,17 @@ $a('workflow payload carries SoD blockers',
     && str_contains($staffing, "'sod_blocked_user_ids' => \$blocked"));
 $a('submit fails if workflow cannot start',
     str_contains($staffing, 'Could not start timesheet approval workflow'));
-$a('approve/reject preflight through WorkflowEngine',
+$a('approve/reject delegates through WorkflowEngine',
     str_contains($staffing, "staffingTimesheetWorkflowAct(currentTenantId(), \$header, \$userId, 'approve'")
     && str_contains($staffing, "staffingTimesheetWorkflowAct(currentTenantId(), \$header, \$userId, 'reject', \$reason)"));
 $a('blocked workflow approvals are audited',
     str_contains($staffing, "timeAudit('time.timesheet.approval_blocked'"));
-$a('legacy GL emit skipped after workflow sync applied',
-    str_contains($staffing, 'if (!$workflowDecisionApplied)')
-    && str_contains($staffing, 'staffingEmitWorkerHoursApprovedEvent(currentTenantId(), $headerId)'));
+$a('staffing decision path fails closed without workflow',
+    str_contains($staffing, 'No pending WorkflowEngine approval exists for this timesheet'));
+$a('staffing decision path no longer owns local approval writes',
+    !str_contains($staffing, 'workflowDecisionApplied')
+    && !str_contains($staffing, "'source' => 'legacy_staffing'")
+    && !str_contains($staffing, 'staffingEmitWorkerHoursApprovedEvent(currentTenantId(), $headerId)'));
 
 echo "\nTime workflow sync and auditability\n";
 $a('time workflow sync exists',

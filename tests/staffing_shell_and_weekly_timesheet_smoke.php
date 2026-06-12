@@ -67,6 +67,7 @@ $a('uses one-statement-per-line PREPARE',        preg_match('/PREPARE stmt FROM 
 
 echo "\nLib /modules/staffing/lib/timesheets.php\n";
 $lib = $read(__DIR__ . '/../modules/staffing/lib/timesheets.php');
+$timeSync = $read(__DIR__ . '/../modules/time/lib/workflow_sync.php');
 $a('STAFFING_HOUR_TYPES constant declared',      str_contains($lib, "const STAFFING_HOUR_TYPES"));
 $a('STAFFING_HOUR_TYPE_TO_CATEGORY map present', str_contains($lib, 'STAFFING_HOUR_TYPE_TO_CATEGORY'));
 $a('staffingTimesheetUpsert idempotent on (person, period_start)', str_contains($lib, 'staffingTimesheetUpsert') && str_contains($lib, 'period_start = :ps') && str_contains($lib, 'staffing_timesheets'));
@@ -79,7 +80,7 @@ $a('still hard-blocks edits on truly locked sheets (downstream JEs)',
    str_contains($lib, "Timesheet is locked"));
 $a('submit() flips header + cascades rows',      str_contains($lib, "scopedUpdate('staffing_timesheets', \$headerId, [") && str_contains($lib, "'submitted'") && str_contains($lib, "status = 'pending_review'"));
 $a('approve() guards two-eye control',           str_contains($lib, 'Two-eye control'));
-$a('reject() requires reason on header',         str_contains($lib, "'rejection_reason'    => \$reason"));
+$a('workflow reject writes reason on header',    str_contains($timeSync, 'rejection_reason = :r'));
 
 echo "\nAPI /modules/staffing/api/timesheets.php\n";
 $api = $read(__DIR__ . '/../modules/staffing/api/timesheets.php');

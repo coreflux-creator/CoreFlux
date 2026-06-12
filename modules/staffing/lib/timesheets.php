@@ -165,9 +165,9 @@ function staffingTimesheetWorkflowStart(int $tenantId, array $header, ?int $acto
 }
 
 /** @internal */
-function staffingTimesheetWorkflowAct(int $tenantId, array $header, int $userId, string $action, ?string $note = null): bool {
+function staffingTimesheetWorkflowAct(int $tenantId, array $header, int $userId, string $action, ?string $note = null): array {
     $timesheetId = (int) ($header['id'] ?? 0);
-    if ($timesheetId <= 0) return false;
+    if ($timesheetId <= 0) throw new \InvalidArgumentException('timesheet.id required');
     try {
         $instanceId = (int) ($header['workflow_instance_id'] ?? 0);
         if ($instanceId <= 0) {
@@ -182,9 +182,14 @@ function staffingTimesheetWorkflowAct(int $tenantId, array $header, int $userId,
         if ($instanceId <= 0) {
             $instanceId = (int) (staffingTimesheetWorkflowStart($tenantId, $header, null) ?? 0);
         }
-        if ($instanceId <= 0) return false;
-        workflowAct($tenantId, $instanceId, $userId, $action, $note ?: null, 'app');
-        return true;
+        if ($instanceId <= 0) {
+            throw new \RuntimeException('No pending WorkflowEngine approval exists for this timesheet');
+        }
+        $result = workflowAct($tenantId, $instanceId, $userId, $action, $note ?: null, 'app');
+        return [
+            'workflow_instance_id' => $instanceId,
+            'workflow_status' => (string) ($result['status'] ?? 'pending'),
+        ];
     } catch (\Throwable $e) {
         timeAudit('time.timesheet.approval_blocked', [
             'timesheet_id' => $timesheetId,
@@ -433,38 +438,7 @@ function staffingTimesheetReject(int $userId, int $personId, string $periodStart
     if ($header['status'] !== 'submitted') {
         throw new \RuntimeException("Cannot reject a {$header['status']} timesheet");
     }
-    $headerId = (int) $header['id'];
-    $workflowDecisionApplied = staffingTimesheetWorkflowAct(currentTenantId(), $header, $userId, 'reject', $reason);
-
-    $pdo = getDB();
-    $pdo->beginTransaction();
-    try {
-        scopedUpdate('staffing_timesheets', $headerId, [
-            'status'              => 'rejected',
-            'rejected_at'         => date('Y-m-d H:i:s'),
-            'rejected_by_user_id' => $userId,
-            'rejection_reason'    => $reason,
-        ]);
-        $upd = $pdo->prepare(
-            "UPDATE time_entries
-                SET status = 'rejected', rejected_reason = :r
-              WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'pending_review'"
-        );
-        $upd->execute(['t' => currentTenantId(), 'tid' => $headerId, 'r' => $reason]);
-        $pdo->commit();
-    } catch (\Throwable $e) {
-        $pdo->rollBack();
-        throw $e;
-    }
-
-    if (!$workflowDecisionApplied) {
-        timeAudit('time.timesheet.rejected', [
-            'timesheet_id' => $headerId,
-            'rejected_by_user_id' => $userId,
-            'reason' => $reason,
-            'source' => 'legacy_staffing',
-        ], $headerId);
-    }
+    staffingTimesheetWorkflowAct(currentTenantId(), $header, $userId, 'reject', $reason);
 
     return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
 }
@@ -523,38 +497,7 @@ function staffingTimesheetApprove(int $userId, int $personId, string $periodStar
         throw new \RuntimeException('Two-eye control: cannot approve your own timesheet');
     }
 
-    $headerId = (int) $header['id'];
-    $workflowDecisionApplied = staffingTimesheetWorkflowAct(currentTenantId(), $header, $userId, 'approve');
-    $pdo = getDB();
-    $pdo->beginTransaction();
-    try {
-        scopedUpdate('staffing_timesheets', $headerId, [
-            'status'              => 'approved',
-            'approved_at'         => date('Y-m-d H:i:s'),
-            'approved_by_user_id' => $userId,
-        ]);
-        $upd = $pdo->prepare(
-            "UPDATE time_entries
-                SET status = 'approved', approved_at = NOW(), approved_by_user_id = :u, approved_via = 'manual'
-              WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'pending_review'"
-        );
-        $upd->execute(['t' => currentTenantId(), 'tid' => $headerId, 'u' => $userId]);
-        $pdo->commit();
-    } catch (\Throwable $e) {
-        $pdo->rollBack();
-        throw $e;
-    }
-
-    // Best-effort: emit the accounting event so the GL gets the staffing
-    // labor revenue / cost / GP journal. Failures don't roll back approval.
-    if (!$workflowDecisionApplied) {
-        timeAudit('time.timesheet.approved', [
-            'timesheet_id' => $headerId,
-            'approved_by_user_id' => $userId,
-            'source' => 'legacy_staffing',
-        ], $headerId);
-        staffingEmitWorkerHoursApprovedEvent(currentTenantId(), $headerId);
-    }
+    staffingTimesheetWorkflowAct(currentTenantId(), $header, $userId, 'approve');
 
     return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
 }
