@@ -59,7 +59,15 @@ $assert('sensitive helper is tenant-aware for custom fields',
     && str_contains($datasetsSrc, 'exportDatasetFieldRegistry($dataset, $tenantId)'));
 $assert('custom-field fetchers opt into sensitive values explicitly',
     str_contains($datasetsSrc, 'include_sensitive_custom_fields')
-    && str_contains($datasetsSrc, 'customFieldValues($tenantId, $entityType, $recordId, $includeSensitive)'));
+    && str_contains($datasetsSrc, 'customFieldValues($tenantId, $entityType, $recordId, $includeSensitive, $includeArchived)'));
+$assert('custom-field export registry includes archived fields',
+    str_contains($datasetsSrc, 'customFieldDefinitions($tenantId, (string) $entityType, true)')
+    && str_contains($datasetsSrc, "'archived'     => !empty(\$def['archived'])")
+    && str_contains($datasetsSrc, "'archived_at'  => \$def['deleted_at'] ?? null"));
+$assert('custom-field dataset fetchers hydrate archived values',
+    str_contains($datasetsSrc, 'include_archived_custom_fields')
+    && str_contains($datasetsSrc, 'customFieldDefinitions($tenantId, $entityType, $includeArchived)')
+    && str_contains($datasetsSrc, 'customFieldValues($tenantId, $entityType, $recordId, $includeSensitive, $includeArchived)'));
 $assert('people directory has custom field entity', in_array('people', $reg['people_directory']['custom_field_entities'] ?? [], true));
 $assert('placements directory has custom field entity', in_array('placements', $reg['placements_directory']['custom_field_entities'] ?? [], true));
 $assert('billing invoices expose client and amount fields',
@@ -215,6 +223,10 @@ $assert('ap vendors UI uses export template picker', str_contains($apVendorsUi, 
 $assert('people/placements template presets seeded', str_contains($seed, 'People Directory (default)') && str_contains($seed, 'Placements (default)'));
 $assert('staffing clients template preset seeded', str_contains($staffingSeed, 'Staffing Clients (default)') && str_contains($staffingSeed, 'staffing_clients'));
 $assert('export governance docs exist', is_file($root . '/docs/EXPORT_GOVERNANCE.md'));
+$exportDocs = (string) file_get_contents($root . '/docs/EXPORT_GOVERNANCE.md');
+$assert('export governance docs cover archived custom fields',
+    str_contains($exportDocs, 'include archived custom-field definitions')
+    && str_contains($exportDocs, 'historical values remain exportable'));
 $assert('export_datasets parses', _php_lint($root . '/core/export_datasets.php'));
 $assert('export_templates parses', _php_lint($root . '/core/export_templates.php'));
 $assert('export_service parses', _php_lint($root . '/core/export_service.php'));

@@ -57,6 +57,12 @@ exports and reports expose. Dataset fetchers do not include sensitive custom
 field values by default; callers must pass an explicit sensitive custom-field
 opt-in after enforcing the stronger export permission.
 
+Governed export datasets include archived custom-field definitions by default.
+This is intentional: deleting a tenant-defined field removes it from active
+forms and current definition lists, but historical values remain exportable for
+audit packets and downstream reporting. Archived field metadata is surfaced as
+`archived` and `archived_at` on the tenant-aware field registry.
+
 ## API Exposure
 
 `GET /api/export_templates.php?action=datasets` returns dataset governance

@@ -115,6 +115,9 @@ $coreText = (string) file_get_contents($root . '/core/report_builder.php');
 $assert('sensitive definition check is tenant-aware',
     str_contains($coreText, 'function reportBuilderDefinitionUsesSensitiveFields(array $definition, ?int $tenantId = null)')
     && str_contains($coreText, 'reportBuilderDatasetGet((string) ($definition[\'dataset\'] ?? \'\'), $tenantId)'));
+$assert('report builder preserves archived custom-field metadata',
+    str_contains($coreText, "'archived'     => !empty(\$field['archived'])")
+    && str_contains($coreText, "'archived_at'  => \$field['archived_at'] ?? null"));
 $assert('people execution supported', !empty($people['execution_supported']));
 $assert('reportBuilderDatasetGet works', (reportBuilderDatasetGet('people_directory')['key'] ?? null) === 'people_directory');
 $presets = reportBuilderPresetRegistry();
@@ -212,6 +215,9 @@ $assert('reports manifest exposes other reports route', in_array('other', $route
 $assert('report builder docs exist', is_file($root . '/docs/REPORT_BUILDER.md'));
 $reportBuilderDocs = (string) file_get_contents($root . '/docs/REPORT_BUILDER.md');
 $assert('report builder docs cover presets', str_contains($reportBuilderDocs, '/api/v1/reports/report-builder/presets') && str_contains($reportBuilderDocs, 'preset_key'));
+$assert('report builder docs cover archived custom fields',
+    str_contains($reportBuilderDocs, 'Archived tenant custom fields remain discoverable')
+    && str_contains($reportBuilderDocs, 'archived_at'));
 $assert('core report builder parses', _php_lint($root . '/core/report_builder.php'));
 $migration = (string) file_get_contents($root . '/core/migrations/115_report_builder_saved_reports.sql');
 $assert('saved reports migration creates table', str_contains($migration, 'CREATE TABLE IF NOT EXISTS report_builder_reports'));

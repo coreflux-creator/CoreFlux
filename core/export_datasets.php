@@ -568,7 +568,7 @@ function exportDatasetFieldRegistry(string $dataset, ?int $tenantId = null): arr
     if ($tenantId !== null) {
         foreach (($ds['custom_field_entities'] ?? []) as $entityType) {
             try {
-                foreach (customFieldDefinitions($tenantId, (string) $entityType) as $def) {
+                foreach (customFieldDefinitions($tenantId, (string) $entityType, true) as $def) {
                     $key = 'custom_fields.' . $entityType . '.' . (string) ($def['field_key'] ?? '');
                     if ($key === 'custom_fields.' . $entityType . '.') continue;
                     $fields[$key] = [
@@ -578,6 +578,8 @@ function exportDatasetFieldRegistry(string $dataset, ?int $tenantId = null): arr
                         'entity_type'  => $entityType,
                         'field_type'   => (string) ($def['field_type'] ?? 'text'),
                         'sensitive'    => !empty($def['pii']),
+                        'archived'     => !empty($def['archived']),
+                        'archived_at'  => $def['deleted_at'] ?? null,
                     ];
                 }
             } catch (\Throwable $e) {
@@ -1320,6 +1322,9 @@ function exportDatasetFetchPeopleDirectory(int $tenantId, array $opts): array {
     $pdo = getDB();
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
     $includeSensitiveCustomFields = !empty($opts['include_sensitive_custom_fields']);
+    $includeArchivedCustomFields = array_key_exists('include_archived_custom_fields', $opts)
+        ? !empty($opts['include_archived_custom_fields'])
+        : true;
     $where = ['tenant_id = :tenant_id', 'deleted_at IS NULL'];
     $params = ['tenant_id' => $tenantId];
     if (!empty($opts['status'])) {
@@ -1345,7 +1350,7 @@ function exportDatasetFetchPeopleDirectory(int $tenantId, array $opts): array {
 
     $defs = [];
     try {
-        foreach (customFieldDefinitions($tenantId, 'people') as $def) {
+        foreach (customFieldDefinitions($tenantId, 'people', $includeArchivedCustomFields) as $def) {
             if (!$includeSensitiveCustomFields && !empty($def['pii'])) continue;
             $defs[(int) $def['id']] = $def;
         }
@@ -1431,15 +1436,25 @@ function exportDatasetFetchPlacementsDirectory(int $tenantId, array $opts): arra
         $tenantId,
         'placements',
         'placement_id',
-        !empty($opts['include_sensitive_custom_fields'])
+        !empty($opts['include_sensitive_custom_fields']),
+        array_key_exists('include_archived_custom_fields', $opts)
+            ? !empty($opts['include_archived_custom_fields'])
+            : true
     );
 }
 
-function exportDatasetAttachCustomFieldValues(array $rows, int $tenantId, string $entityType, string $idKey, bool $includeSensitive = false): array {
+function exportDatasetAttachCustomFieldValues(
+    array $rows,
+    int $tenantId,
+    string $entityType,
+    string $idKey,
+    bool $includeSensitive = false,
+    bool $includeArchived = true
+): array {
     if (!$rows) return $rows;
     try {
         $defs = [];
-        foreach (customFieldDefinitions($tenantId, $entityType) as $def) {
+        foreach (customFieldDefinitions($tenantId, $entityType, $includeArchived) as $def) {
             if (!$includeSensitive && !empty($def['pii'])) continue;
             $defs[(string) ($def['field_key'] ?? '')] = true;
         }
@@ -1447,7 +1462,7 @@ function exportDatasetAttachCustomFieldValues(array $rows, int $tenantId, string
         foreach ($rows as &$row) {
             $recordId = (int) ($row[$idKey] ?? 0);
             if ($recordId <= 0) continue;
-            foreach (customFieldValues($tenantId, $entityType, $recordId, $includeSensitive) as $valueRow) {
+            foreach (customFieldValues($tenantId, $entityType, $recordId, $includeSensitive, $includeArchived) as $valueRow) {
                 $fieldKey = (string) ($valueRow['field_key'] ?? '');
                 if ($fieldKey === '' || !isset($defs[$fieldKey])) continue;
                 $row['custom_fields.' . $entityType . '.' . $fieldKey] = $valueRow['value'] ?? null;

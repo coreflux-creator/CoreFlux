@@ -44,6 +44,15 @@ $assert('customFieldDefinitionDelete exists', function_exists('customFieldDefini
 $assert('customFieldAudit exists', function_exists('customFieldAudit'));
 $assert('customFieldValues exists', function_exists('customFieldValues'));
 $assert('customFieldLegacyActiveWhere exists', function_exists('customFieldLegacyActiveWhere'));
+$assert('custom field reads support archived opt-in',
+    str_contains($core, 'bool $includeArchived = false')
+    && str_contains($core, 'customFieldDefinitions($tenantId, $entityType, $includeArchived)')
+    && str_contains($core, 'customFieldValues('));
+$archivedDefinition = customFieldNormalizeDefinitionRow(['deleted_at' => '2026-06-01 00:00:00']);
+$assert('archived definitions normalize audit metadata',
+    !empty($archivedDefinition['archived'])
+    && ($archivedDefinition['is_archived'] ?? 0) === 1
+    && ($archivedDefinition['deleted_at'] ?? null) === '2026-06-01 00:00:00');
 $assert('people upsert path exists', str_contains($core, 'customFieldPeopleValueUpsert'));
 $assert('people values read path exists', str_contains($core, 'customFieldPeopleValues'));
 $assert('legacy values read path exists', str_contains($core, 'customFieldLegacyValues'));
@@ -133,6 +142,10 @@ $assert('Placement detail applies shared layout ordering', str_contains($placeme
 
 echo "\nDocs\n";
 $assert('custom fields docs exist', is_file($root . '/docs/CUSTOM_FIELDS_LAYOUTS.md'));
+$customFieldsDocs = (string) file_get_contents($root . '/docs/CUSTOM_FIELDS_LAYOUTS.md');
+$assert('custom fields docs require archived exportability',
+    str_contains($customFieldsDocs, 'Archived definitions and values carry')
+    && str_contains($customFieldsDocs, 'export/report surfaces can still include'));
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

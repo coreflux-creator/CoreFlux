@@ -230,6 +230,8 @@ function reportBuilderFieldRegistry(string $datasetKey, ?int $tenantId = null): 
             'sensitive'    => $sensitive,
             'custom_field' => !empty($field['custom_field']),
             'entity_type'  => $field['entity_type'] ?? null,
+            'archived'     => !empty($field['archived']),
+            'archived_at'  => $field['archived_at'] ?? null,
         ];
     }
     return $fields;

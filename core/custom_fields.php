@@ -114,20 +114,22 @@ function customFieldLegacyActiveWhere(array $cols, string $alias = ''): string
     return $clauses ? ' AND ' . implode(' AND ', $clauses) : '';
 }
 
-function customFieldDefinitions(int $tenantId, string $entityType): array
+function customFieldDefinitions(int $tenantId, string $entityType, bool $includeArchived = false): array
 {
     $entity = customFieldEntity($entityType);
     if (!$entity) throw new InvalidArgumentException("Unknown custom field entity: {$entityType}");
 
     if (($entity['definition_table'] ?? null) === 'people_custom_field_defs') {
+        $where = 'tenant_id = :tenant_id';
+        if (!$includeArchived) $where .= ' AND deleted_at IS NULL';
         $stmt = getDB()->prepare(
-            'SELECT id, field_key, field_label, field_type, options_json, required, pii, order_index
+            'SELECT id, field_key, field_label, field_type, options_json, required, pii, order_index, deleted_at
                FROM people_custom_field_defs
-              WHERE tenant_id = :tenant_id AND deleted_at IS NULL
-              ORDER BY order_index, field_label'
+              WHERE ' . $where . '
+              ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END, order_index, field_label'
         );
         $stmt->execute(['tenant_id' => $tenantId]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        return array_map('customFieldNormalizeDefinitionRow', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
     }
 
     $cols = customFieldLegacyColumns();
@@ -138,6 +140,8 @@ function customFieldDefinitions(int $tenantId, string $entityType): array
     $optionsExpr = customFieldLegacyColumn($cols, 'options', 'NULL');
     $piiExpr = customFieldLegacyColumn($cols, 'pii', '0');
     $orderExpr = customFieldLegacyColumn($cols, 'order_index', '0');
+    $deletedAtExpr = customFieldLegacyColumn($cols, 'deleted_at', 'NULL');
+    $activeExpr = customFieldLegacyColumn($cols, 'is_active', '1');
     $orderBy = in_array('order_index', $cols, true) ? 'order_index, ' : '';
     $stmt = getDB()->prepare(
         "SELECT id,
@@ -148,20 +152,35 @@ function customFieldDefinitions(int $tenantId, string $entityType): array
                 {$optionsExpr} AS options,
                 {$requiredExpr} AS required,
                 {$piiExpr} AS pii,
-                {$orderExpr} AS order_index
+                {$orderExpr} AS order_index,
+                {$deletedAtExpr} AS deleted_at,
+                {$activeExpr} AS is_active
            FROM custom_fields
           WHERE tenant_id = :tenant_id AND module = :module
-          " . customFieldLegacyActiveWhere($cols) . "
-          ORDER BY {$orderBy}{$labelCol}"
+          " . ($includeArchived ? '' : customFieldLegacyActiveWhere($cols)) . "
+          ORDER BY CASE WHEN {$deletedAtExpr} IS NULL AND COALESCE({$activeExpr}, 1) = 1 THEN 0 ELSE 1 END,
+                   {$orderBy}{$labelCol}"
     );
     $stmt->execute(['tenant_id' => $tenantId, 'module' => $entityType]);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    return array_map('customFieldNormalizeDefinitionRow', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
 }
 
-function customFieldDefinitionMap(int $tenantId, string $entityType): array
+function customFieldNormalizeDefinitionRow(array $row): array
+{
+    $deletedAt = $row['deleted_at'] ?? null;
+    $isActive = array_key_exists('is_active', $row) ? (int) $row['is_active'] : 1;
+    $archived = ($deletedAt !== null && (string) $deletedAt !== '') || $isActive === 0;
+    $row['deleted_at'] = $deletedAt;
+    $row['is_active'] = $isActive;
+    $row['archived'] = $archived;
+    $row['is_archived'] = $archived ? 1 : 0;
+    return $row;
+}
+
+function customFieldDefinitionMap(int $tenantId, string $entityType, bool $includeArchived = false): array
 {
     $out = [];
-    foreach (customFieldDefinitions($tenantId, $entityType) as $def) {
+    foreach (customFieldDefinitions($tenantId, $entityType, $includeArchived) as $def) {
         $key = (string) ($def['field_key'] ?? '');
         if ($key !== '') $out[$key] = $def;
     }
@@ -355,33 +374,44 @@ function customFieldNormalizeDefinitionPayload(array $args, bool $creating): arr
     return $out;
 }
 
-function customFieldValues(int $tenantId, string $entityType, int $recordId, bool $includeSensitive = false): array
+function customFieldValues(
+    int $tenantId,
+    string $entityType,
+    int $recordId,
+    bool $includeSensitive = false,
+    bool $includeArchived = false
+): array
 {
     $entity = customFieldEntity($entityType);
     if (!$entity) throw new InvalidArgumentException("Unknown custom field entity: {$entityType}");
     if ($recordId <= 0) throw new InvalidArgumentException('record_id is required');
 
     if (($entity['definition_table'] ?? null) === 'people_custom_field_defs') {
-        return customFieldPeopleValues($tenantId, $recordId, $includeSensitive);
+        return customFieldPeopleValues($tenantId, $recordId, $includeSensitive, $includeArchived);
     }
 
-    return customFieldLegacyValues($tenantId, $entityType, $recordId, $includeSensitive);
+    return customFieldLegacyValues($tenantId, $entityType, $recordId, $includeSensitive, $includeArchived);
 }
 
-function customFieldPeopleValues(int $tenantId, int $personId, bool $includeSensitive = false): array
+function customFieldPeopleValues(
+    int $tenantId,
+    int $personId,
+    bool $includeSensitive = false,
+    bool $includeArchived = false
+): array
 {
     $sql = 'SELECT d.id AS field_def_id, d.field_key, d.field_label, d.field_type,
-                   d.options_json, d.required, d.pii,
+                   d.options_json, d.required, d.pii, d.deleted_at,
                    v.value_text, v.value_number, v.value_date, v.value_boolean, v.updated_at
               FROM people_custom_field_defs d
          LEFT JOIN people_custom_field_values v
                 ON v.field_def_id = d.id
                AND v.tenant_id = d.tenant_id
                AND v.person_id = :person_id
-             WHERE d.tenant_id = :tenant_id
-               AND d.deleted_at IS NULL';
+             WHERE d.tenant_id = :tenant_id';
+    if (!$includeArchived) $sql .= ' AND d.deleted_at IS NULL';
     if (!$includeSensitive) $sql .= ' AND COALESCE(d.pii, 0) = 0';
-    $sql .= ' ORDER BY d.order_index, d.field_label';
+    $sql .= ' ORDER BY CASE WHEN d.deleted_at IS NULL THEN 0 ELSE 1 END, d.order_index, d.field_label';
     $stmt = getDB()->prepare($sql);
     $stmt->execute(['tenant_id' => $tenantId, 'person_id' => $personId]);
     $rows = [];
@@ -391,7 +421,13 @@ function customFieldPeopleValues(int $tenantId, int $personId, bool $includeSens
     return $rows;
 }
 
-function customFieldLegacyValues(int $tenantId, string $entityType, int $recordId, bool $includeSensitive = false): array
+function customFieldLegacyValues(
+    int $tenantId,
+    string $entityType,
+    int $recordId,
+    bool $includeSensitive = false,
+    bool $includeArchived = false
+): array
 {
     $cols = customFieldLegacyColumns();
     $keyCol = in_array('field_name', $cols, true) ? 'field_name' : 'label';
@@ -401,6 +437,8 @@ function customFieldLegacyValues(int $tenantId, string $entityType, int $recordI
     $piiExpr = in_array('pii', $cols, true) ? 'f.pii' : '0';
     $optionsExpr = customFieldLegacyColumn($cols, 'options', 'NULL', 'f');
     $orderExpr = customFieldLegacyColumn($cols, 'order_index', '0', 'f');
+    $deletedAtExpr = customFieldLegacyColumn($cols, 'deleted_at', 'NULL', 'f');
+    $activeExpr = customFieldLegacyColumn($cols, 'is_active', '1', 'f');
     $orderBy = in_array('order_index', $cols, true) ? 'f.order_index, ' : '';
     $sql = "SELECT f.id AS field_def_id,
                    f.{$keyCol} AS field_key,
@@ -409,6 +447,8 @@ function customFieldLegacyValues(int $tenantId, string $entityType, int $recordI
                    {$optionsExpr} AS options_json,
                    {$requiredExpr} AS required,
                    {$piiExpr} AS pii,
+                   {$deletedAtExpr} AS deleted_at,
+                   {$activeExpr} AS is_active,
                    v.value AS value_text,
                    NULL AS value_number,
                    NULL AS value_date,
@@ -421,9 +461,10 @@ function customFieldLegacyValues(int $tenantId, string $entityType, int $recordI
                AND v.record_id = :record_id
              WHERE f.tenant_id = :tenant_id
                AND f.module = :module";
-    $sql .= customFieldLegacyActiveWhere($cols, 'f');
+    if (!$includeArchived) $sql .= customFieldLegacyActiveWhere($cols, 'f');
     if (!$includeSensitive && in_array('pii', $cols, true)) $sql .= ' AND COALESCE(f.pii, 0) = 0';
-    $sql .= " ORDER BY {$orderBy}f.{$labelCol}";
+    $sql .= " ORDER BY CASE WHEN {$deletedAtExpr} IS NULL AND COALESCE({$activeExpr}, 1) = 1 THEN 0 ELSE 1 END,
+              {$orderBy}f.{$labelCol}";
     $stmt = getDB()->prepare($sql);
     $stmt->execute(['tenant_id' => $tenantId, 'module' => $entityType, 'record_id' => $recordId]);
     $rows = [];
@@ -436,6 +477,9 @@ function customFieldLegacyValues(int $tenantId, string $entityType, int $recordI
 function customFieldNormalizeValueRow(array $row): array
 {
     $type = (string) ($row['field_type'] ?? 'text');
+    $deletedAt = $row['deleted_at'] ?? null;
+    $isActive = array_key_exists('is_active', $row) ? (int) $row['is_active'] : 1;
+    $archived = ($deletedAt !== null && (string) $deletedAt !== '') || $isActive === 0;
     $value = match ($type) {
         'number'  => $row['value_number'] !== null ? (float) $row['value_number'] : null,
         'date'    => $row['value_date'],
@@ -454,6 +498,9 @@ function customFieldNormalizeValueRow(array $row): array
         'options_json' => $row['options_json'] ?? null,
         'required'     => (int) ($row['required'] ?? 0),
         'pii'          => (int) ($row['pii'] ?? 0),
+        'archived'     => $archived,
+        'is_archived'  => $archived ? 1 : 0,
+        'deleted_at'   => $deletedAt,
         'value'        => $value,
         'updated_at'   => $row['updated_at'] ?? null,
     ];

@@ -98,7 +98,10 @@ $assert('sensitive helper accepts tenant context',
                                               && strpos($datasetsSrc, 'exportDatasetFieldRegistry($dataset, $tenantId)') !== false);
 $assert('custom field values require explicit sensitive opt-in',
                                               strpos($datasetsSrc, 'include_sensitive_custom_fields') !== false
-                                              && strpos($datasetsSrc, 'customFieldValues($tenantId, $entityType, $recordId, $includeSensitive)') !== false);
+                                              && strpos($datasetsSrc, 'customFieldValues($tenantId, $entityType, $recordId, $includeSensitive, $includeArchived)') !== false);
+$assert('custom field templates keep archived fields exportable',
+                                              strpos($datasetsSrc, 'include_archived_custom_fields') !== false
+                                              && strpos($datasetsSrc, 'customFieldDefinitions($tenantId, (string) $entityType, true)') !== false);
 
 // ─── Library: render + validation ───
 echo "core/export_templates.php library\n";

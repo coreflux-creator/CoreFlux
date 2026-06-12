@@ -52,6 +52,13 @@ The service routes People to its spec-aligned tables and supports the legacy
 generic `custom_fields` / `custom_values` tables during migration.
 Placements currently consumes that generic path through the same service.
 
+Normal product forms and definition lists read active fields only. Export,
+reporting, and audit flows can explicitly opt into archived definitions through
+the shared service so a removed custom field remains available for historical
+evidence packets and tenant exports without reappearing as an editable form
+field. Archived definitions and values carry `archived`, `is_archived`, and
+`deleted_at` metadata.
+
 ## Discovery API
 
 Use:
@@ -107,3 +114,6 @@ not invent separate permission, audit, export, or report-builder conventions.
 If a module declares `custom_field_entities`, its product surfaces should use
 the entity-scoped `/api/v1/<module>/custom-field-*` aliases and should expose
 definition management through the declared `manage_permission`.
+Deleting a definition must be audit-preserving: values stay stored, active UI
+surfaces hide the field, and export/report surfaces can still include the
+archived field with metadata.
