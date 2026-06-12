@@ -63,6 +63,7 @@ return [
         'billing.invoice.posted_ic',
         'billing.invoice.disputed',
         'billing.invoice.paid_in_full',
+        'billing.invoice.exported',
         'billing.recurring.created',
         'billing.recurring.run',
         'billing.recurring.paused',
@@ -74,6 +75,7 @@ return [
         'billing.payment.recorded',
         'billing.payment.allocated',
         'billing.payment.unallocated',
+        'billing.payment.exported',
         'billing.dunning.step_sent',
         'billing.dunning.escalated',
         'billing.tax.jurisdiction.created',
@@ -104,6 +106,38 @@ return [
     ],
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
+
+    'export_datasets' => [
+        'billing_invoices' => [
+            'dataset'     => 'billing_invoices',
+            'label'       => 'Billing Invoices',
+            'permission'  => 'billing.view',
+            'formats'     => ['csv'],
+            'audit_event' => 'billing.invoice.exported',
+        ],
+        'billing_payments' => [
+            'dataset'     => 'billing_payments',
+            'label'       => 'Billing Payments',
+            'permission'  => 'billing.view',
+            'formats'     => ['csv'],
+            'audit_event' => 'billing.payment.exported',
+        ],
+    ],
+
+    'report_datasets' => [
+        'billing_invoices' => [
+            'dataset'    => 'billing_invoices',
+            'label'      => 'Billing Invoices',
+            'permission' => 'billing.view',
+            'source'     => 'export_dataset',
+        ],
+        'billing_payments' => [
+            'dataset'    => 'billing_payments',
+            'label'      => 'Billing Payments',
+            'permission' => 'billing.view',
+            'source'     => 'export_dataset',
+        ],
+    ],
 
     'depends_on' => ['placements', 'time'],
 ];

@@ -14,30 +14,51 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvExportService.php';
+require_once __DIR__ . '/../../../core/export_service.php';
 
 use Core\CsvExportService;
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
+$tenantId = (int) $ctx['tenant_id'];
+$userId = (int) ($user['id'] ?? 0);
 rbac_legacy_require($user, 'billing.view');
 
-$where  = ['tenant_id = :tenant_id'];
-$params = [];
-if (!empty($_GET['status']))      { $where[] = 'status = :s';      $params['s']  = $_GET['status']; }
-if (!empty($_GET['from']))        { $where[] = 'issue_date >= :f'; $params['f']  = $_GET['from']; }
-if (!empty($_GET['to']))          { $where[] = 'issue_date <= :t'; $params['t']  = $_GET['to']; }
-if (!empty($_GET['client_name'])) { $where[] = 'client_name = :c'; $params['c']  = $_GET['client_name']; }
+$datasetOptions = [
+    'status'      => (string) ($_GET['status'] ?? ''),
+    'from'        => (string) ($_GET['from'] ?? ''),
+    'to'          => (string) ($_GET['to'] ?? ''),
+    'client_name' => (string) ($_GET['client_name'] ?? ''),
+];
 
-$rows = scopedQuery(
-    'SELECT invoice_number, client_name, currency, issue_date, due_date,
-            period_start, period_end,
-            subtotal, tax_total, total, amount_paid, amount_due,
-            status, po_number, aggregation, notes_external
-       FROM billing_invoices
-      WHERE ' . implode(' AND ', $where) . '
-      ORDER BY issue_date DESC, id DESC',
-    $params
-);
+$tplId = (int) ($_GET['template_id'] ?? 0);
+if ($tplId > 0) {
+    try {
+        exportTemplateStreamDatasetCsv(
+            $tenantId,
+            'billing_invoices',
+            $tplId,
+            $datasetOptions,
+            'billing-invoices',
+            $userId ?: null,
+            null,
+            ['filename_parts' => [date('Y-m-d')]]
+        );
+        exit;
+    } catch (ExportServiceException $e) {
+        api_error($e->getMessage(), 422);
+    }
+}
+
+$rows = exportDatasetFetchBillingInvoices($tenantId, $datasetOptions);
+
+exportDatasetAudit($tenantId, $userId ?: null, 'billing.invoice.exported', null, [
+    'dataset' => 'billing_invoices',
+    'format' => 'csv',
+    'mode' => 'raw',
+    'rows' => count($rows),
+    'option_keys' => array_values(array_filter(array_keys($datasetOptions), fn($key) => $datasetOptions[$key] !== '')),
+]);
 
 (new CsvExportService([
     'invoice_number' => 'Invoice #',

@@ -46,6 +46,8 @@ $reg = exportDatasetRegistry();
 $assert('payroll_disbursements in registry',  isset($reg['payroll_disbursements']));
 $assert('ap_payments in registry',            isset($reg['ap_payments']));
 $assert('expenses in registry',               isset($reg['expenses']));
+$assert('billing_invoices in registry',       isset($reg['billing_invoices']));
+$assert('billing_payments in registry',       isset($reg['billing_payments']));
 $assert('people_directory in registry',        isset($reg['people_directory']));
 $assert('placements_directory in registry',    isset($reg['placements_directory']));
 $assert('payroll permission declared',         ($reg['payroll_disbursements']['permission'] ?? null) === 'payroll.reports.view');
@@ -61,6 +63,8 @@ $assert('payroll has net_pay_cents',          isset($reg['payroll_disbursements'
 $assert('ap has amount_dollars + cents',      isset($reg['ap_payments']['fields']['amount_dollars'])
                                               && isset($reg['ap_payments']['fields']['amount_cents']));
 $assert('expenses has line_id',               isset($reg['expenses']['fields']['line_id']));
+$assert('billing invoices has invoice_number', isset($reg['billing_invoices']['fields']['invoice_number']));
+$assert('billing payments has payment amount', isset($reg['billing_payments']['fields']['amount']));
 $assert('people has email_primary',           isset($reg['people_directory']['fields']['email_primary']));
 $assert('placements has person_email',         isset($reg['placements_directory']['fields']['person_email']));
 $assert('field registry helper exists',        function_exists('exportDatasetFieldRegistry'));
@@ -176,6 +180,23 @@ $assert('rejects non-expenses dataset',       strpos($ex, "'expenses'") !== fals
                                               && strpos(file_get_contents(__DIR__ . '/../core/export_service.php'), "template's dataset must be") !== false);
 $assert('audits export_selected_template',
                                               strpos(file_get_contents(__DIR__ . '/../core/export_datasets.php'), 'ap.expense.export_selected_template') !== false);
+
+// ─── Wire-in: billing CSV exports ───
+echo "billing CSV template exports\n";
+$billingInv = file_get_contents(__DIR__ . '/../modules/billing/api/csv_export.php');
+$billingPay = file_get_contents(__DIR__ . '/../modules/billing/api/payments_csv_export.php');
+$assert('invoice export honors template_id', strpos($billingInv, "(int) (\$_GET['template_id'] ?? 0)") !== false);
+$assert('invoice export rejects mismatched dataset',
+                                              strpos($billingInv, 'billing_invoices') !== false
+                                              && strpos(file_get_contents(__DIR__ . '/../core/export_service.php'), "template's dataset must be") !== false);
+$assert('invoice raw export audits dataset',  strpos($billingInv, 'billing.invoice.exported') !== false
+                                              && strpos($billingInv, "mode' => 'raw'") !== false);
+$assert('payment export honors template_id', strpos($billingPay, "(int) (\$_GET['template_id'] ?? 0)") !== false);
+$assert('payment export rejects mismatched dataset',
+                                              strpos($billingPay, 'billing_payments') !== false
+                                              && strpos(file_get_contents(__DIR__ . '/../core/export_service.php'), "template's dataset must be") !== false);
+$assert('payment raw export audits dataset', strpos($billingPay, 'billing.payment.exported') !== false
+                                              && strpos($billingPay, "mode' => 'raw'") !== false);
 
 // ─── NACHA hidden ───
 echo "NACHA hidden from UI\n";

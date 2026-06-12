@@ -19,7 +19,7 @@ $reg = exportDatasetRegistry();
 $moduleRegistry = ModuleRegistry::reset();
 $manifestDatasets = $moduleRegistry->getExportDatasetDeclarations();
 $required = ['label', 'module_id', 'permission', 'formats', 'audit_event', 'sensitive_fields', 'custom_field_entities', 'fetcher', 'fields'];
-foreach (['payroll_disbursements', 'ap_payments', 'expenses', 'people_directory', 'placements_directory'] as $dataset) {
+foreach (['payroll_disbursements', 'ap_payments', 'expenses', 'billing_invoices', 'billing_payments', 'people_directory', 'placements_directory'] as $dataset) {
     $assert("dataset registered: {$dataset}", isset($reg[$dataset]));
     foreach ($required as $key) {
         $assert("{$dataset} has {$key}", array_key_exists($key, $reg[$dataset] ?? []));
@@ -44,6 +44,10 @@ $assert('custom-field fetchers opt into sensitive values explicitly',
     && str_contains($datasetsSrc, 'customFieldValues($tenantId, $entityType, $recordId, $includeSensitive)'));
 $assert('people directory has custom field entity', in_array('people', $reg['people_directory']['custom_field_entities'] ?? [], true));
 $assert('placements directory has custom field entity', in_array('placements', $reg['placements_directory']['custom_field_entities'] ?? [], true));
+$assert('billing invoices expose client and amount fields',
+    isset($reg['billing_invoices']['fields']['client_name'], $reg['billing_invoices']['fields']['amount_due']));
+$assert('billing payments expose method and amount fields',
+    isset($reg['billing_payments']['fields']['method'], $reg['billing_payments']['fields']['amount']));
 $assert('people field registry has static fields', isset(exportDatasetFieldRegistry('people_directory')['email_primary']));
 $assert('placements field registry has static fields', isset(exportDatasetFieldRegistry('placements_directory')['person_email']));
 $assert('dataset access helper exists', function_exists('exportDatasetUserCanAccess'));
@@ -90,6 +94,8 @@ $placementsExport = (string) file_get_contents($root . '/modules/placements/api/
 $payrollRuns = (string) file_get_contents($root . '/modules/payroll/api/runs.php');
 $apPayments = (string) file_get_contents($root . '/modules/ap/api/payments.php');
 $apExpenses = (string) file_get_contents($root . '/modules/ap/api/expenses.php');
+$billingInvoices = (string) file_get_contents($root . '/modules/billing/api/csv_export.php');
+$billingPayments = (string) file_get_contents($root . '/modules/billing/api/payments_csv_export.php');
 $peopleUi = (string) file_get_contents($root . '/modules/people/ui/Directory.jsx');
 $placementsUi = (string) file_get_contents($root . '/modules/placements/ui/List.jsx');
 $seed = (string) file_get_contents($root . '/core/migrations/120_people_placements_export_template_presets.sql');
@@ -105,6 +111,13 @@ $assert('placements export supports template_id', str_contains($placementsExport
 $assert('payroll template export uses shared runner', str_contains($payrollRuns, 'exportTemplateStreamDatasetCsv') && str_contains($payrollRuns, 'payroll_disbursements'));
 $assert('ap payments template export uses shared runner', str_contains($apPayments, 'exportTemplateStreamDatasetCsv') && str_contains($apPayments, 'ap_payments'));
 $assert('ap expenses template export uses shared runner', str_contains($apExpenses, 'exportTemplateStreamDatasetCsv') && str_contains($apExpenses, "'expenses'"));
+$assert('billing invoices template export uses shared runner', str_contains($billingInvoices, 'exportTemplateStreamDatasetCsv') && str_contains($billingInvoices, 'billing_invoices'));
+$assert('billing payments template export uses shared runner', str_contains($billingPayments, 'exportTemplateStreamDatasetCsv') && str_contains($billingPayments, 'billing_payments'));
+$assert('billing raw exports audit dataset events',
+    str_contains($billingInvoices, 'billing.invoice.exported')
+    && str_contains($billingPayments, 'billing.payment.exported')
+    && str_contains($billingInvoices, "mode' => 'raw'")
+    && str_contains($billingPayments, "mode' => 'raw'"));
 $assert('people UI uses export template picker', str_contains($peopleUi, 'ExportTemplatePicker') && str_contains($peopleUi, 'dataset="people_directory"'));
 $assert('placements UI uses export template picker', str_contains($placementsUi, 'ExportTemplatePicker') && str_contains($placementsUi, 'dataset="placements_directory"'));
 $assert('people/placements template presets seeded', str_contains($seed, 'People Directory (default)') && str_contains($seed, 'Placements (default)'));

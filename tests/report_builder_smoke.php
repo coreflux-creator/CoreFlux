@@ -18,11 +18,15 @@ $reportDatasetDecls = ModuleRegistry::reset()->getReportDatasetDeclarations();
 $assert('people directory dataset exists', isset($reg['people_directory']));
 $assert('placements dataset exists', isset($reg['placements_directory']));
 $assert('payroll dataset exists', isset($reg['payroll_disbursements']));
+$assert('billing invoices dataset exists', isset($reg['billing_invoices']));
+$assert('billing payments dataset exists', isset($reg['billing_payments']));
 foreach (array_keys($reg) as $datasetKey) {
     $assert("report dataset manifest declaration exists: {$datasetKey}", isset($reportDatasetDecls[$datasetKey]));
 }
 $people = $reg['people_directory'] ?? [];
 $placements = $reg['placements_directory'] ?? [];
+$billingInvoices = $reg['billing_invoices'] ?? [];
+$billingPayments = $reg['billing_payments'] ?? [];
 $assert('people preserves source dataset', ($people['source_dataset'] ?? null) === 'people_directory');
 $assert('people preserves permission', ($people['permission'] ?? null) === 'people.view');
 $assert('people custom fields entity exposed', in_array('people', $people['custom_field_entities'] ?? [], true));
@@ -36,6 +40,14 @@ $assert('placements person split fields exposed', isset($placements['fields']['p
 $assert('placements expiring date exposed', isset($placements['fields']['expiring_date']));
 $assert('placements count measure exposed', (($placements['measures']['placement_count']['aggregate'] ?? null) === 'sum'));
 $assert('placements filters exposed', isset($placements['filters']['status']));
+$assert('billing invoices preserves source dataset', ($billingInvoices['source_dataset'] ?? null) === 'billing_invoices');
+$assert('billing invoices amount due classified as measure',
+    (($billingInvoices['measures']['amount_due']['role'] ?? null) === 'measure'));
+$assert('billing invoice status filter exposed', isset($billingInvoices['filters']['status']));
+$assert('billing payments preserves source dataset', ($billingPayments['source_dataset'] ?? null) === 'billing_payments');
+$assert('billing payment amount classified as measure',
+    (($billingPayments['measures']['amount']['role'] ?? null) === 'measure'));
+$assert('billing payment method filter exposed', isset($billingPayments['filters']['method']));
 $assert('report builder text filters support lists', in_array('in', reportBuilderFilterOperators('text'), true));
 $assert('report builder date filters support inclusive upper bounds', in_array('less_than_or_equal', reportBuilderFilterOperators('date'), true));
 $assert('payroll amount classified as measure', (($reg['payroll_disbursements']['measures']['gross_pay_dollars']['role'] ?? null) === 'measure'));

@@ -93,10 +93,10 @@ The shared runner validates that the template belongs to the requested dataset,
 fetches rows with the dataset fetcher, renders the template, normalizes the CSV
 filename, and writes the dataset's declared `audit_event` to `audit_log`.
 
-People Directory, Placements, Payroll Disbursements, AP Payments, and Expenses
-use this shared runner for template exports. Raw legacy CSV endpoints may remain
-for backward compatibility, but any new configurable export should be dataset
-and template backed.
+People Directory, Placements, Payroll Disbursements, AP Payments, Expenses,
+Billing Invoices, and Billing Payments use this shared runner for template
+exports. Raw legacy CSV endpoints may remain for backward compatibility, but
+any new configurable export should be dataset and template backed.
 
 ## Product Rule
 

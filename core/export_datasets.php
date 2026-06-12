@@ -117,6 +117,58 @@ function exportDatasetRegistry(): array {
             ],
         ],
 
+        'billing_invoices' => [
+            'label'                 => 'Billing Invoices',
+            'module_id'             => 'billing',
+            'permission'            => 'billing.view',
+            'formats'               => ['csv'],
+            'audit_event'           => 'billing.invoice.exported',
+            'sensitive_fields'      => [],
+            'custom_field_entities' => [],
+            'fetcher'               => 'exportDatasetFetchBillingInvoices',
+            'fields'                => [
+                'invoice_id'      => ['label' => 'Invoice ID',       'sample' => '1204'],
+                'invoice_number'  => ['label' => 'Invoice #',        'sample' => 'INV-1204'],
+                'client_name'     => ['label' => 'Client name',      'sample' => 'Acme Corp'],
+                'currency'        => ['label' => 'Currency',         'sample' => 'USD'],
+                'issue_date'      => ['label' => 'Issue date',       'sample' => '2026-02-14'],
+                'due_date'        => ['label' => 'Due date',         'sample' => '2026-03-15'],
+                'period_start'    => ['label' => 'Period start',     'sample' => '2026-02-01'],
+                'period_end'      => ['label' => 'Period end',       'sample' => '2026-02-14'],
+                'subtotal'        => ['label' => 'Subtotal',         'sample' => '1000.00', 'field_type' => 'number'],
+                'tax_total'       => ['label' => 'Tax total',        'sample' => '80.00', 'field_type' => 'number'],
+                'total'           => ['label' => 'Total',            'sample' => '1080.00', 'field_type' => 'number'],
+                'amount_paid'     => ['label' => 'Amount paid',      'sample' => '250.00', 'field_type' => 'number'],
+                'amount_due'      => ['label' => 'Amount due',       'sample' => '830.00', 'field_type' => 'number'],
+                'status'          => ['label' => 'Status',           'sample' => 'sent'],
+                'po_number'       => ['label' => 'PO number',        'sample' => 'PO-44'],
+                'aggregation'     => ['label' => 'Aggregation',      'sample' => 'weekly'],
+                'notes_external'  => ['label' => 'Notes (external)', 'sample' => 'Thank you'],
+            ],
+        ],
+
+        'billing_payments' => [
+            'label'                 => 'Billing Payments',
+            'module_id'             => 'billing',
+            'permission'            => 'billing.view',
+            'formats'               => ['csv'],
+            'audit_event'           => 'billing.payment.exported',
+            'sensitive_fields'      => [],
+            'custom_field_entities' => [],
+            'fetcher'               => 'exportDatasetFetchBillingPayments',
+            'fields'                => [
+                'payment_id'         => ['label' => 'Payment ID',     'sample' => '9004'],
+                'client_name'        => ['label' => 'Client name',    'sample' => 'Acme Corp'],
+                'received_at'        => ['label' => 'Received at',    'sample' => '2026-02-14'],
+                'method'             => ['label' => 'Method',         'sample' => 'ach'],
+                'reference'          => ['label' => 'Reference',      'sample' => 'ACH-123'],
+                'amount'             => ['label' => 'Amount',         'sample' => '500.00', 'field_type' => 'number'],
+                'currency'           => ['label' => 'Currency',       'sample' => 'USD'],
+                'unallocated_amount' => ['label' => 'Unallocated',    'sample' => '0.00', 'field_type' => 'number'],
+                'notes'              => ['label' => 'Notes',          'sample' => 'Partial payment'],
+            ],
+        ],
+
         'people_directory' => [
             'label'                 => 'People Directory',
             'module_id'             => 'people',
@@ -360,6 +412,75 @@ function exportDatasetFetchExpenses(int $tenantId, array $opts): array {
         $out[] = $row;
     }
     return $out;
+}
+
+function exportDatasetFetchBillingInvoices(int $tenantId, array $opts): array {
+    $pdo = getDB();
+    $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $where = ['tenant_id = :tenant_id'];
+    $params = ['tenant_id' => $tenantId];
+    if (!empty($opts['status'])) {
+        $where[] = 'status = :status';
+        $params['status'] = (string) $opts['status'];
+    }
+    if (!empty($opts['from'])) {
+        $where[] = 'issue_date >= :from_date';
+        $params['from_date'] = (string) $opts['from'];
+    }
+    if (!empty($opts['to'])) {
+        $where[] = 'issue_date <= :to_date';
+        $params['to_date'] = (string) $opts['to'];
+    }
+    if (!empty($opts['client_name'])) {
+        $where[] = 'client_name = :client_name';
+        $params['client_name'] = (string) $opts['client_name'];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT id AS invoice_id, invoice_number, client_name, currency, issue_date, due_date,
+                period_start, period_end, subtotal, tax_total, total, amount_paid, amount_due,
+                status, po_number, aggregation, notes_external
+           FROM billing_invoices
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY issue_date DESC, id DESC
+          LIMIT ' . $limit
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function exportDatasetFetchBillingPayments(int $tenantId, array $opts): array {
+    $pdo = getDB();
+    $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $where = ['tenant_id = :tenant_id'];
+    $params = ['tenant_id' => $tenantId];
+    if (!empty($opts['from'])) {
+        $where[] = 'received_at >= :from_date';
+        $params['from_date'] = (string) $opts['from'];
+    }
+    if (!empty($opts['to'])) {
+        $where[] = 'received_at <= :to_date';
+        $params['to_date'] = (string) $opts['to'];
+    }
+    if (!empty($opts['client_name'])) {
+        $where[] = 'client_name = :client_name';
+        $params['client_name'] = (string) $opts['client_name'];
+    }
+    if (!empty($opts['method'])) {
+        $where[] = 'method = :method';
+        $params['method'] = (string) $opts['method'];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT id AS payment_id, client_name, received_at, method, reference, amount, currency,
+                unallocated_amount, notes
+           FROM billing_payments
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY received_at DESC, id DESC
+          LIMIT ' . $limit
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 function exportDatasetFetchPeopleDirectory(int $tenantId, array $opts): array {

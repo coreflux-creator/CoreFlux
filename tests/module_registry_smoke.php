@@ -87,12 +87,20 @@ $assert("ap_payments export dataset declared by ap",
     ($exportDatasets['ap_payments']['module_id'] ?? null) === 'ap');
 $assert("expenses export dataset declared by ap",
     ($exportDatasets['expenses']['module_id'] ?? null) === 'ap');
+$assert("billing_invoices export dataset declared by billing",
+    ($exportDatasets['billing_invoices']['module_id'] ?? null) === 'billing');
+$assert("billing_payments export dataset declared by billing",
+    ($exportDatasets['billing_payments']['module_id'] ?? null) === 'billing');
 $assert("people_directory report dataset declared by people",
     ($reportDatasets['people_directory']['module_id'] ?? null) === 'people');
 $assert("placements_directory report dataset declared by placements",
     ($reportDatasets['placements_directory']['module_id'] ?? null) === 'placements');
 $assert("payroll report dataset preserves sensitive field metadata",
     in_array('bank_account_number', $reportDatasets['payroll_disbursements']['sensitive_fields'] ?? [], true));
+$assert("billing invoice report dataset declared by billing",
+    ($reportDatasets['billing_invoices']['module_id'] ?? null) === 'billing');
+$assert("billing payment report dataset declared by billing",
+    ($reportDatasets['billing_payments']['module_id'] ?? null) === 'billing');
 
 echo "\nDependencies declared\n";
 $placements = $reg->getModule('placements');
