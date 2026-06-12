@@ -97,6 +97,8 @@ return [
         'ap.payment.originate_failed',
         'ap.expense.submitted',
         'ap.expense.approved',
+        'ap.expense.bill_routed_for_approval',
+        'ap.expense.bill_routing_failed',
         'ap.expense.rejected',
         'ap.expense.paid',
         'ap.expense.line.attachment.added',
