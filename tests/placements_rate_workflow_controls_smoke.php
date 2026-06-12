@@ -61,6 +61,8 @@ $a('workflow starts placement_rate subject',
 $a('workflow action uses WorkflowEngine approve',
     str_contains($workflow, "workflowAct(\n            \$tenantId")
     && str_contains($workflow, "'approve'"));
+$a('workflow action verifies approved sync applied',
+    str_contains($workflow, 'Workflow approved but placement rate sync did not apply'));
 $a('workflow payload carries SoD blockers',
     str_contains($workflow, 'placementsRateWorkflowSodBlockedUserIds(')
     && str_contains($workflow, "'sod_blocked_user_ids' => \$blocked"));

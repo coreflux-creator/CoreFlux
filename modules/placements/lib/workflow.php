@@ -317,6 +317,9 @@ function placementsRateWorkflowAct(
         );
         $updated = placementsRateWorkflowRow($tenantId, $rateId) ?? $rate;
         $approved = !empty($updated['approved_at']);
+        if (($instance['status'] ?? null) === WORKFLOW_STATUS_APPROVED && !$approved) {
+            throw new \RuntimeException('Workflow approved but placement rate sync did not apply');
+        }
         placementsWorkflowAudit($tenantId, (int) ($user['id'] ?? 0), 'placement.rate.workflow_approved', [
             'placement_id' => (int) $rate['placement_id'],
             'rate_id' => $rateId,
