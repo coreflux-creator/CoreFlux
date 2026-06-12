@@ -61,10 +61,13 @@ $a('comment marks Slice 3 hook',                  str_contains($ap, 'Jaz hook (S
 // --- AR invoices wiring ----------------------------------------
 echo "\nmodules/billing/api/invoices.php — on approve\n";
 $ar = $read("{$ROOT}/modules/billing/api/invoices.php");
-$a('billing approve action still present',        str_contains($ar, "billingAudit('billing.invoice.approved'"));
+$arSync = $read("{$ROOT}/modules/billing/lib/workflow_sync.php");
+$a('billing approved audit emitted by workflow sync',
+    str_contains($arSync, "'billing.invoice.approved'")
+    && str_contains($arSync, "'source' => 'workflow'"));
 $a('requires command_service.php',                str_contains($ar, "require_once __DIR__ . '/../../../core/accounting/command_service.php';"));
 $a('accountingTryEnqueueDraft called with invoice',
-    str_contains($ar, "accountingTryEnqueueDraft(\$tid, 'invoice', \$row, \$user['id'] ?? null);"));
+    str_contains($ar, "accountingTryEnqueueDraft(\$tid, 'invoice', \$updated, \$user['id'] ?? null);"));
 $a('comment marks Slice 3 hook',                  str_contains($ar, 'Jaz hook (Slice 3)'));
 
 // --- JE post wiring --------------------------------------------

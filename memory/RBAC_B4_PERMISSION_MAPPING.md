@@ -132,6 +132,7 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 | `billing.invoice.approve` | `(billing, admin)` |
 | `billing.invoice.create` | `(billing, write)` |
 | `billing.invoice.draft` | `(billing, write)` |
+| `billing.invoice.post` | `(billing, admin)` |
 | `billing.invoice.send` | `(billing, admin)` |
 | `billing.invoice.void` | `(billing, admin)` |
 | `billing.payments.record` | `(billing, write)` |

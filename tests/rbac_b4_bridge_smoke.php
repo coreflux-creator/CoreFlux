@@ -80,6 +80,7 @@ $expected = [
     'billing.invoice.approve'            => ['billing', 'admin'],
     'billing.invoice.create'             => ['billing', 'write'],
     'billing.invoice.draft'              => ['billing', 'write'],
+    'billing.invoice.post'               => ['billing', 'admin'],
     'billing.invoice.send'               => ['billing', 'admin'],
     'billing.invoice.void'               => ['billing', 'admin'],
     'billing.payments.record'            => ['billing', 'write'],

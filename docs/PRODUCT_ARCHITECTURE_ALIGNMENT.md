@@ -320,6 +320,20 @@ Placement activation and rate approval are separate governed actions.
 - Existing draft-rate catch-up remains WorkflowGraph/financial-approval gated
   for non-active draft promotion paths, but activation never invokes it.
 
+### Billing Invoice Approval And Posting
+
+Billing invoice approval is a Workflow Graph decision with People Graph
+approver resolution and separation-of-duties checks. Billing owns the invoice
+state mutation after workflow approval and writes invoice audit metadata with
+workflow source evidence.
+
+Invoice approval and GL posting are separate enterprise controls:
+
+- `billing.invoice.approve` governs draft-to-approved invoice workflow actions.
+- `billing.invoice.post` governs invoice posting and intercompany invoice split
+  posting, with Accounting GL post permissions required where journal entries
+  are created directly.
+
 ### Access Review And Certification
 
 Access reviews are now a platform enterprise control. Campaigns snapshot

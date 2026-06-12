@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../../core/mail_bootstrap.php';
 require_once __DIR__ . '/../../../core/tenant_mail.php';
 require_once __DIR__ . '/../lib/billing.php';
 require_once __DIR__ . '/../lib/invoice_pdf.php';
+require_once __DIR__ . '/../lib/workflow.php';
 require_once __DIR__ . '/../../ap/lib/ap.php';   // apNormalizeItemType() — shared item_type vocabulary
 require_once __DIR__ . '/../../ap/lib/pwp.php';  // apPwpAutoLinkForArInvoice() — pay-when-paid auto-link
 
@@ -370,23 +371,33 @@ if ($method === 'POST' && $action === 'approve') {
     $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
     if (!billingTransitionAllowed($row['status'], 'approved')) api_error("Cannot approve from status {$row['status']}", 409);
-    if ((int) ($row['created_by_user_id'] ?? 0) === (int) ($user['id'] ?? 0)) {
-        api_error('Two-eye control: you cannot approve your own draft.', 403);
+    try {
+        $workflow = billingInvoiceWorkflowAct($tid, $id, (int) ($user['id'] ?? 0), 'approve');
+    } catch (\Throwable $e) {
+        $msg = $e->getMessage();
+        $code = str_contains($msg, 'Separation of duties') || str_contains($msg, 'not an approver') ? 403 : 409;
+        api_error($msg, $code);
     }
-    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    getDB()->prepare('UPDATE billing_invoices SET status = "approved", approved_by_user_id = :u, approved_at = NOW() WHERE id = :id')
-        ->execute(['u' => $user['id'] ?? null, 'id' => $id]);
-    billingAudit('billing.invoice.approved', ['invoice_id' => $id, 'invoice_number' => $row['invoice_number']], $id);
+    if (empty($workflow['applied'])) {
+        api_error('Could not apply billing invoice approval workflow', 503);
+    }
+    $updated = $workflow['invoice'] ?? billingInvoiceWorkflowRow($tid, $id) ?? $row;
 
     // Jaz hook (Slice 3) — enqueue a draft accounting command for the
     // newly approved invoice. Best-effort, no-op when no Jaz wiring;
     // never blocks the approval.
-    require_once __DIR__ . '/../../../core/accounting/command_service.php';
-    $row['status']      = 'approved';
-    $row['approved_at'] = date('Y-m-d H:i:s');
-    accountingTryEnqueueDraft($tid, 'invoice', $row, $user['id'] ?? null);
+    if (($updated['status'] ?? null) === 'approved') {
+        require_once __DIR__ . '/../../../core/accounting/command_service.php';
+        accountingTryEnqueueDraft($tid, 'invoice', $updated, $user['id'] ?? null);
+    }
 
-    api_ok(['ok' => true]);
+    api_ok([
+        'ok' => true,
+        'approved' => ($updated['status'] ?? null) === 'approved',
+        'status' => $updated['status'] ?? $row['status'],
+        'workflow_instance_id' => $workflow['instance']['id'] ?? ($updated['workflow_instance_id'] ?? null),
+        'workflow_status' => $workflow['instance']['status'] ?? null,
+    ]);
 }
 
 if ($method === 'POST' && $action === 'send') {
@@ -541,7 +552,7 @@ if ($method === 'POST' && $action === 'post') {
     //   Cr  Revenue             (4000)
     //   Cr  Sales Tax Payable   (2100)   [only if tax_total > 0]
     // Idempotent on billing:invoice:<id>:post.
-    rbac_legacy_require($user, 'billing.invoice.approve');
+    rbac_legacy_require($user, 'billing.invoice.post');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
@@ -788,7 +799,7 @@ if ($method === 'POST' && $action === 'post') {
 // Idempotency: ic:invoice:<id>
 // =======================================================================
 if ($method === 'POST' && $action === 'post_with_ic_split') {
-    rbac_legacy_require($user, 'billing.invoice.approve');
+    rbac_legacy_require($user, 'billing.invoice.post');
     rbac_legacy_require($user, 'accounting.je.post');
     $id  = (int) ($_GET['id'] ?? 0);
     $row = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);

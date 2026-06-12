@@ -84,7 +84,7 @@ $a('Controlling + NCI rows on BS view',              $c($ui, 'accounting-consol-
 echo "\nBilling invoices.php — post_with_ic_split\n";
 $inv = (string) file_get_contents(__DIR__ . '/../modules/billing/api/invoices.php');
 $a('action=post_with_ic_split handler',              $c($inv, "\$action === 'post_with_ic_split'"));
-$a('requires billing.invoice.approve + je.post',     $c($inv, "'billing.invoice.approve'") && $c($inv, "'accounting.je.post'"));
+$a('requires billing.invoice.post + je.post',        $c($inv, "'billing.invoice.post'") && $c($inv, "'accounting.je.post'"));
 $a('idempotency on ic:invoice:<id>',                 $c($inv, "'ic:invoice:%d'"));
 $a('posts AR side=debit (money owed TO us)',         $c($inv, "'side'         => 'debit'"));
 $a('links group + source je_id to invoice row',      $c($inv, 'UPDATE billing_invoices SET journal_entry_id = :j, intercompany_group_id = :g'));
