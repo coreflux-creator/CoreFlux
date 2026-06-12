@@ -146,6 +146,22 @@ function reportBuilderPresetRegistry(?int $tenantId = null): array
                 'limit'   => 1000,
             ],
         ],
+        'placements.active_by_client' => [
+            'label'       => 'Active Placements by Client',
+            'description' => 'Grouped count of active placements by end client.',
+            'module_id'   => 'placements',
+            'definition'  => [
+                'dataset' => 'placements_directory',
+                'dimensions' => ['end_client_name'],
+                'measures' => ['placement_count'],
+                'filters' => [['field' => 'status', 'operator' => 'equals', 'value' => 'active']],
+                'sorts'   => [
+                    ['field' => 'placement_count', 'direction' => 'desc'],
+                    ['field' => 'end_client_name', 'direction' => 'asc'],
+                ],
+                'limit'   => 1000,
+            ],
+        ],
     ];
 
     $out = [];
@@ -207,6 +223,7 @@ function reportBuilderFieldRegistry(string $datasetKey, ?int $tenantId = null): 
             'label'        => (string) ($field['label'] ?? $key),
             'type'         => $type,
             'role'         => $role,
+            'aggregate'    => $role === 'measure' ? reportBuilderNormalizeAggregate($field['aggregate'] ?? 'sum') : null,
             'filterable'   => true,
             'sortable'     => true,
             'sample'       => $field['sample'] ?? '',
@@ -225,6 +242,12 @@ function reportBuilderFieldRole(string $key, string $type): string
         return 'dimension';
     }
     return in_array($type, ['number', 'currency'], true) ? 'measure' : 'dimension';
+}
+
+function reportBuilderNormalizeAggregate($raw): string
+{
+    $aggregate = strtolower(trim((string) $raw));
+    return in_array($aggregate, ['sum', 'count', 'avg', 'min', 'max'], true) ? $aggregate : 'sum';
 }
 
 function reportBuilderInferFieldType(string $key, array $field): string
@@ -327,12 +350,19 @@ function reportBuilderNormalizeFieldList($raw, array $fields, string $label, ?st
         if ($requiredRole !== null && ($fields[$key]['role'] ?? 'dimension') !== $requiredRole) {
             throw new ReportBuilderException("{$label} field '{$key}' is not a {$requiredRole}");
         }
-        $out[] = [
+        $normalized = [
             'field'     => $key,
             'label'     => (string) ($fields[$key]['label'] ?? $key),
             'type'      => (string) ($fields[$key]['type'] ?? 'text'),
             'sensitive' => !empty($fields[$key]['sensitive']),
         ];
+        if (($fields[$key]['role'] ?? 'dimension') === 'measure') {
+            $rawAggregate = is_array($entry) && array_key_exists('aggregate', $entry)
+                ? $entry['aggregate']
+                : ($fields[$key]['aggregate'] ?? 'sum');
+            $normalized['aggregate'] = reportBuilderNormalizeAggregate($rawAggregate);
+        }
+        $out[] = $normalized;
     }
     return $out;
 }
@@ -438,21 +468,15 @@ function reportBuilderApplyDefinitionToRows(array $definition, iterable $rows): 
         $filtered[] = $row;
     }
 
-    $sorts = $definition['sorts'] ?? [];
-    if ($sorts) {
-        usort($filtered, function (array $a, array $b) use ($sorts): int {
-            foreach ($sorts as $sort) {
-                $field = (string) ($sort['field'] ?? '');
-                $cmp = reportBuilderCompareValues($a[$field] ?? null, $b[$field] ?? null);
-                if ($cmp !== 0) return (($sort['direction'] ?? 'asc') === 'desc') ? -$cmp : $cmp;
-            }
-            return 0;
-        });
-    }
+    $aggregated = !empty($definition['measures']);
+    $working = $aggregated
+        ? reportBuilderAggregateRows($definition, $filtered)
+        : $filtered;
+    reportBuilderSortRows($working, $definition['sorts'] ?? []);
 
     $limit = min(10000, max(1, (int) ($definition['limit'] ?? 1000)));
     $out = [];
-    foreach (array_slice($filtered, 0, $limit) as $row) {
+    foreach (array_slice($working, 0, $limit) as $row) {
         $projected = [];
         foreach ($selected as $field) {
             $projected[$field['field']] = $row[$field['field']] ?? '';
@@ -465,8 +489,115 @@ function reportBuilderApplyDefinitionToRows(array $definition, iterable $rows): 
         'columns' => $selected,
         'rows' => $out,
         'row_count' => count($out),
-        'truncated' => count($filtered) > $limit,
+        'source_row_count' => count($filtered),
+        'aggregated' => $aggregated,
+        'truncated' => count($working) > $limit,
     ];
+}
+
+function reportBuilderSortRows(array &$rows, array $sorts): void
+{
+    if (!$sorts) return;
+    usort($rows, function (array $a, array $b) use ($sorts): int {
+        foreach ($sorts as $sort) {
+            $field = (string) ($sort['field'] ?? '');
+            $cmp = reportBuilderCompareValues($a[$field] ?? null, $b[$field] ?? null);
+            if ($cmp !== 0) return (($sort['direction'] ?? 'asc') === 'desc') ? -$cmp : $cmp;
+        }
+        return 0;
+    });
+}
+
+function reportBuilderAggregateRows(array $definition, array $rows): array
+{
+    $dimensions = $definition['dimensions'] ?? [];
+    $measures = $definition['measures'] ?? [];
+    $groups = [];
+
+    foreach ($rows as $row) {
+        $dimensionValues = [];
+        foreach ($dimensions as $dimension) {
+            $field = (string) ($dimension['field'] ?? '');
+            if ($field !== '') $dimensionValues[$field] = $row[$field] ?? null;
+        }
+
+        $groupKey = json_encode($dimensionValues, JSON_UNESCAPED_SLASHES);
+        if (!isset($groups[$groupKey])) {
+            $groups[$groupKey] = [
+                'row' => $dimensionValues,
+                'state' => [],
+            ];
+            foreach ($measures as $measure) {
+                $field = (string) ($measure['field'] ?? '');
+                if ($field === '') continue;
+                $groups[$groupKey]['state'][$field] = reportBuilderInitialMeasureState(reportBuilderNormalizeAggregate($measure['aggregate'] ?? 'sum'));
+            }
+        }
+
+        foreach ($measures as $measure) {
+            $field = (string) ($measure['field'] ?? '');
+            if ($field === '') continue;
+            $aggregate = reportBuilderNormalizeAggregate($measure['aggregate'] ?? 'sum');
+            reportBuilderApplyMeasureValue($groups[$groupKey]['state'][$field], $aggregate, $row[$field] ?? null);
+        }
+    }
+
+    $out = [];
+    foreach ($groups as $group) {
+        $row = $group['row'];
+        foreach (($group['state'] ?? []) as $field => $state) {
+            $row[$field] = reportBuilderFinalizeMeasureValue($state);
+        }
+        $out[] = $row;
+    }
+    return $out;
+}
+
+function reportBuilderInitialMeasureState(string $aggregate): array
+{
+    return [
+        'aggregate' => $aggregate,
+        'sum' => 0.0,
+        'count' => 0,
+        'value' => null,
+    ];
+}
+
+function reportBuilderApplyMeasureValue(array &$state, string $aggregate, $value): void
+{
+    if ($aggregate === 'count') {
+        $state['count']++;
+        return;
+    }
+
+    if ($value === null || $value === '') return;
+
+    if ($aggregate === 'min') {
+        if ($state['value'] === null || reportBuilderCompareValues($value, $state['value']) < 0) $state['value'] = $value;
+        return;
+    }
+    if ($aggregate === 'max') {
+        if ($state['value'] === null || reportBuilderCompareValues($value, $state['value']) > 0) $state['value'] = $value;
+        return;
+    }
+
+    $numeric = is_numeric($value) ? (float) $value : 0.0;
+    $state['sum'] += $numeric;
+    $state['count']++;
+}
+
+function reportBuilderFinalizeMeasureValue(array $state)
+{
+    $aggregate = (string) ($state['aggregate'] ?? 'sum');
+    if ($aggregate === 'count') return (int) ($state['count'] ?? 0);
+    if ($aggregate === 'avg') {
+        $count = (int) ($state['count'] ?? 0);
+        return $count > 0 ? ((float) ($state['sum'] ?? 0) / $count) : 0;
+    }
+    if ($aggregate === 'min' || $aggregate === 'max') return $state['value'] ?? '';
+
+    $sum = (float) ($state['sum'] ?? 0);
+    return floor($sum) === $sum ? (int) $sum : $sum;
 }
 
 function reportBuilderDefinitionOutputFields(array $definition): array
@@ -482,6 +613,9 @@ function reportBuilderDefinitionOutputFields(array $definition): array
                 'type' => (string) ($entry['type'] ?? 'text'),
                 'sensitive' => !empty($entry['sensitive']),
             ];
+            if (isset($entry['aggregate'])) {
+                $out[$field]['aggregate'] = reportBuilderNormalizeAggregate($entry['aggregate']);
+            }
         }
     }
     return array_values($out);

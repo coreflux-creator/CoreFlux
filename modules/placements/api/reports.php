@@ -25,16 +25,7 @@ if ($type === 'expiring') {
     try {
         [$definition, $cutoff] = placementsExpiringReportDefinition($days, $tenantId);
         $result = reportBuilderRunDefinition($definition, $tenantId);
-        reportBuilderAudit($tenantId, $userId ?: null, 'reports.custom.executed', null, [
-            'dataset' => $definition['dataset'] ?? null,
-            'columns' => array_column($result['columns'] ?? [], 'field'),
-            'row_count' => $result['row_count'] ?? 0,
-            'source' => 'module_preset',
-            'preset_key' => 'placements.expiring_soon',
-            'module_id' => 'placements',
-            'report_type' => 'expiring',
-            'days' => $days,
-        ]);
+        placementsReportBuilderAudit($tenantId, $userId, 'expiring', 'placements.expiring_soon', $definition, $result, ['days' => $days]);
         api_ok([
             'rows' => placementsRowsFromReportBuilder($result),
             'cutoff' => $cutoff,
@@ -48,15 +39,18 @@ if ($type === 'expiring') {
 }
 
 if ($type === 'active_by_client') {
-    $rows = scopedQuery(
-        'SELECT COALESCE(end_client_name, "(unset)") AS end_client_name,
-                COUNT(*) AS active_count
-         FROM placements
-         WHERE tenant_id = :tenant_id AND deleted_at IS NULL AND status = "active"
-         GROUP BY end_client_name
-         ORDER BY active_count DESC, end_client_name ASC'
-    );
-    api_ok(['rows' => $rows]);
+    try {
+        $definition = placementsPresetDefinition('placements.active_by_client', $tenantId);
+        $result = reportBuilderRunDefinition($definition, $tenantId);
+        placementsReportBuilderAudit($tenantId, $userId, 'active_by_client', 'placements.active_by_client', $definition, $result);
+        api_ok([
+            'rows' => placementsActiveClientRowsFromReportBuilder($result),
+            'source' => 'report_builder',
+            'preset_key' => 'placements.active_by_client',
+        ]);
+    } catch (ReportBuilderException $e) {
+        api_error($e->getMessage(), 422);
+    }
 }
 
 api_error('Unknown report type. Use ?type=expiring or ?type=active_by_client', 400);
@@ -64,17 +58,36 @@ api_error('Unknown report type. Use ?type=expiring or ?type=active_by_client', 4
 function placementsExpiringReportDefinition(int $days, int $tenantId): array
 {
     $cutoff = date('Y-m-d', strtotime("+{$days} days"));
-    $preset = reportBuilderPresetGet('placements.expiring_soon', $tenantId);
-    if (!$preset) {
-        throw new ReportBuilderException('Expiring placement report preset is unavailable');
-    }
-    $definition = (array) ($preset['definition'] ?? []);
+    $definition = placementsPresetDefinition('placements.expiring_soon', $tenantId);
     $definition['filters'][] = [
         'field' => 'expiring_date',
         'operator' => 'less_than_or_equal',
         'value' => $cutoff,
     ];
     return [$definition, $cutoff];
+}
+
+function placementsPresetDefinition(string $presetKey, int $tenantId): array
+{
+    $preset = reportBuilderPresetGet($presetKey, $tenantId);
+    if (!$preset) {
+        throw new ReportBuilderException("Placement report preset '{$presetKey}' is unavailable");
+    }
+    return (array) ($preset['definition'] ?? []);
+}
+
+function placementsReportBuilderAudit(int $tenantId, int $userId, string $reportType, string $presetKey, array $definition, array $result, array $extra = []): void
+{
+    reportBuilderAudit($tenantId, $userId ?: null, 'reports.custom.executed', null, array_merge([
+        'dataset' => $definition['dataset'] ?? null,
+        'columns' => array_column($result['columns'] ?? [], 'field'),
+        'row_count' => $result['row_count'] ?? 0,
+        'source_row_count' => $result['source_row_count'] ?? null,
+        'source' => 'module_preset',
+        'preset_key' => $presetKey,
+        'module_id' => 'placements',
+        'report_type' => $reportType,
+    ], $extra));
 }
 
 function placementsRowsFromReportBuilder(array $result): array
@@ -95,6 +108,19 @@ function placementsRowsFromReportBuilder(array $result): array
             'last_name' => $row['person_last_name'] ?? null,
             'person_name' => $row['person_name'] ?? null,
             'email_primary' => $row['person_email'] ?? null,
+        ];
+    }
+    return $rows;
+}
+
+function placementsActiveClientRowsFromReportBuilder(array $result): array
+{
+    $rows = [];
+    foreach ((array) ($result['rows'] ?? []) as $row) {
+        $client = $row['end_client_name'] ?? null;
+        $rows[] = [
+            'end_client_name' => $client === null ? '(unset)' : $client,
+            'active_count' => (int) ($row['placement_count'] ?? 0),
         ];
     }
     return $rows;

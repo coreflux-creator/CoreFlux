@@ -179,6 +179,7 @@ function exportDatasetRegistry(): array {
                 'remote_policy'      => ['label' => 'Remote policy',     'sample' => 'hybrid'],
                 'bill_rate'          => ['label' => 'Bill rate ($/hr)',  'sample' => '100.00', 'field_type' => 'number'],
                 'pay_rate'           => ['label' => 'Pay rate ($/hr)',   'sample' => '60.00', 'field_type' => 'number'],
+                'placement_count'    => ['label' => 'Placement count',   'sample' => '1', 'field_type' => 'number', 'aggregate' => 'sum'],
                 'external_id'        => ['label' => 'External ID',       'sample' => 'jd:1234'],
                 'notes'              => ['label' => 'Notes',             'sample' => ''],
             ],
@@ -460,6 +461,7 @@ function exportDatasetFetchPlacementsDirectory(int $tenantId, array $opts): arra
                 (SELECT pay_rate FROM placement_rates r
                   WHERE r.tenant_id = p.tenant_id AND r.placement_id = p.id
                   ORDER BY r.effective_from DESC LIMIT 1) AS pay_rate,
+                1 AS placement_count,
                 p.external_id, p.notes
            FROM placements p
            LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id

@@ -118,7 +118,8 @@ Current implementation status:
 - Saved report definitions are persisted in `report_builder_reports` after
   validation against governed dataset fields.
 - Query execution uses registered export dataset fetchers and in-memory
-  projection/filter/sort logic; saved definitions do not permit arbitrary SQL.
+  projection, grouped-measure, filter, and sort logic; saved definitions do not
+  permit arbitrary SQL.
 - Sensitive-field execution requires `reports.export` in addition to source
   dataset access.
 - Custom report CSV export uses the shared platform CSV export primitive and
@@ -351,8 +352,9 @@ People API.
   - Placement Expiring Soon now resolves `placements.expiring_soon` and runs
     through `reportBuilderRunDefinition` over `placements_directory`, with the
     module endpoint preserving `placements.view`.
-  - Placement Active by Client remains a legacy aggregate adapter until the
-    shared report builder supports grouped measures.
+  - Placement Active by Client now resolves `placements.active_by_client`, using
+    grouped dimensions/measures in the shared report builder rather than module
+    aggregate SQL.
 
 ### Phase 4: Product Alignment
 

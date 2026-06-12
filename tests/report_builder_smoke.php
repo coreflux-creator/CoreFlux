@@ -29,6 +29,7 @@ $assert('placements custom fields entity exposed', in_array('placements', $place
 $assert('placements fields exposed', isset($placements['fields']['person_email']));
 $assert('placements person split fields exposed', isset($placements['fields']['person_first_name'], $placements['fields']['person_last_name']));
 $assert('placements expiring date exposed', isset($placements['fields']['expiring_date']));
+$assert('placements count measure exposed', (($placements['measures']['placement_count']['aggregate'] ?? null) === 'sum'));
 $assert('placements filters exposed', isset($placements['filters']['status']));
 $assert('report builder text filters support lists', in_array('in', reportBuilderFilterOperators('text'), true));
 $assert('report builder date filters support inclusive upper bounds', in_array('less_than_or_equal', reportBuilderFilterOperators('date'), true));
@@ -44,6 +45,8 @@ $assert('staffing preset preserves source module metadata', ($presets['staffing.
 $assert('placements expiring preset exists', isset($presets['placements.expiring_soon']));
 $assert('placements expiring preset consumes placements dataset', ($presets['placements.expiring_soon']['dataset'] ?? null) === 'placements_directory');
 $assert('placements expiring preset preserves source module metadata', ($presets['placements.expiring_soon']['source_module_id'] ?? null) === 'placements');
+$assert('placements active-by-client preset exists', isset($presets['placements.active_by_client']));
+$assert('placements active-by-client preset consumes placements dataset', ($presets['placements.active_by_client']['dataset'] ?? null) === 'placements_directory');
 $presetDefinition = reportBuilderValidateDefinition((array) ($presets['people.active_directory']['definition'] ?? []));
 $assert('preset definitions validate through governed fields', ($presetDefinition['filters'][0]['field'] ?? null) === 'status');
 $definition = reportBuilderValidateDefinition([
@@ -75,6 +78,24 @@ $placementResult = reportBuilderApplyDefinitionToRows($placementDefinition, [
     ['placement_id' => 3, 'status' => 'active', 'expiring_date' => '2026-08-01'],
 ]);
 $assert('placement report preset filters lists and inclusive dates', ($placementResult['row_count'] ?? 0) === 1 && (($placementResult['rows'][0]['placement_id'] ?? null) === 1));
+$aggregateDefinition = reportBuilderValidateDefinition([
+    'dataset' => 'placements_directory',
+    'dimensions' => ['end_client_name'],
+    'measures' => ['placement_count'],
+    'filters' => [['field' => 'status', 'operator' => 'equals', 'value' => 'active']],
+    'sorts' => [
+        ['field' => 'placement_count', 'direction' => 'desc'],
+        ['field' => 'end_client_name', 'direction' => 'asc'],
+    ],
+]);
+$aggregateResult = reportBuilderApplyDefinitionToRows($aggregateDefinition, [
+    ['end_client_name' => 'Beta', 'status' => 'active', 'placement_count' => 1],
+    ['end_client_name' => 'Acme', 'status' => 'active', 'placement_count' => 1],
+    ['end_client_name' => 'Beta', 'status' => 'active', 'placement_count' => 1],
+    ['end_client_name' => 'Beta', 'status' => 'ended', 'placement_count' => 1],
+]);
+$assert('grouped measures aggregate source rows', !empty($aggregateResult['aggregated']) && ($aggregateResult['source_row_count'] ?? 0) === 3);
+$assert('grouped measures sort by aggregate then dimension', ($aggregateResult['row_count'] ?? 0) === 2 && (($aggregateResult['rows'][0]['end_client_name'] ?? null) === 'Beta') && (($aggregateResult['rows'][0]['placement_count'] ?? null) === 2));
 $csv = reportBuilderRenderCsv($result);
 $assert('execution renders CSV through platform service', str_contains($csv, '"First name","Last name","Primary email"') && str_contains($csv, 'Jordan,Rivera,jordan@example.com'));
 try {

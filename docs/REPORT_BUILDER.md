@@ -13,6 +13,8 @@ definitions. Those remain with the owning module or platform service.
   source dataset contract.
 - Saved report definitions are persisted as governed metadata. Query execution
   uses only registered export dataset fetchers; arbitrary SQL is not accepted.
+- Definitions may combine `dimensions` and `measures` for grouped output. The
+  engine applies source filters first, then aggregates registered measures.
 - Report presets are named metadata over the same governed definitions.
   Vertical modules may expose or deep-link presets, but the report builder
   registry owns validation, execution, export, and save-from-preset behavior.
@@ -87,10 +89,9 @@ The placement module adapter adds the requested cutoff window, executes the
 governed definition, and writes `reports.custom.executed` audit metadata with
 `source=module_preset`.
 
-The placement `active_by_client` report remains a module aggregate adapter for
-now because the shared builder does not yet support grouped measures. That gap
-is intentionally isolated to aggregation support rather than duplicating flat
-placement report logic.
+`placements.active_by_client` is a grouped-measure preset over the same dataset.
+It uses `end_client_name` as the dimension and `placement_count` as the shared
+measure, so the module tab no longer owns a bespoke aggregate query.
 
 ## Priority Alignment
 
