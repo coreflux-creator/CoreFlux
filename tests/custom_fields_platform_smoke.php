@@ -21,6 +21,7 @@ $assert('people record id key', ($entities['people']['record_id_key'] ?? null) =
 $assert('people definition table', ($entities['people']['definition_table'] ?? null) === 'people_custom_field_defs');
 $assert('people surfaces include exports', in_array('exports', $entities['people']['surfaces'] ?? [], true));
 $assert('people surfaces include reports', in_array('reports', $entities['people']['surfaces'] ?? [], true));
+$assert('people PII writes require manage permission', ($entities['people']['pii_manage_permission'] ?? null) === 'people.pii.manage');
 $assert('placements manage permission', ($entities['placements']['manage_permission'] ?? null) === 'placements.custom_fields.manage');
 $assert('placements layout sections declared', !empty($entities['placements']['layouts']['form_sections'] ?? []));
 $peopleFormLayout = customFieldSurfaceLayout('people', 'forms');
@@ -78,7 +79,7 @@ $assert('definitions API creates shared definitions', str_contains($defsApiText,
 $assert('definitions API updates shared definitions', str_contains($defsApiText, 'customFieldDefinitionUpdate('));
 $assert('definitions API deletes shared definitions', str_contains($defsApiText, 'customFieldDefinitionDelete('));
 $assert('definitions API audits mutations', str_contains($defsApiText, 'customFieldAudit(') && str_contains($defsApiText, 'custom_field.definition.created'));
-$assert('definitions API respects PII permission', str_contains($defsApiText, 'pii_permission') && str_contains($defsApiText, 'pii_included'));
+$assert('definitions API respects PII permissions', str_contains($defsApiText, 'pii_permission') && str_contains($defsApiText, 'pii_manage_permission') && str_contains($defsApiText, 'pii_included'));
 $layoutApi = $root . '/api/custom_field_layouts.php';
 $assert('custom field layouts API exists', is_file($layoutApi));
 $assert('custom field layouts API parses', _php_lint($layoutApi));
@@ -91,7 +92,15 @@ $valuesApiText = (string) file_get_contents($valuesApi);
 $assert('values API reads shared service', str_contains($valuesApiText, 'customFieldValues('));
 $assert('values API writes shared service', str_contains($valuesApiText, 'customFieldValueUpsert('));
 $assert('values API audits writes', str_contains($valuesApiText, 'custom_field.value.updated') && str_contains($valuesApiText, 'customFieldAudit('));
-$assert('values API gates PII fields', str_contains($valuesApiText, 'pii_permission') && str_contains($valuesApiText, 'pii_included'));
+$assert('values API audits PII reads', str_contains($valuesApiText, 'custom_field.value.pii_viewed'));
+$assert('values API gates PII fields', str_contains($valuesApiText, 'pii_manage_permission') && str_contains($valuesApiText, 'pii_write_allowed'));
+
+echo "\nLegacy People adapters\n";
+$peopleDefsApi = (string) file_get_contents($root . '/modules/people/api/custom_fields.php');
+$peopleValuesApi = (string) file_get_contents($root . '/modules/people/api/custom_field_values.php');
+$assert('legacy People definitions adapter uses shared service', str_contains($peopleDefsApi, 'customFieldDefinitionCreate(') && str_contains($peopleDefsApi, 'customFieldDefinitionUpdate('));
+$assert('legacy People values adapter uses shared service', str_contains($peopleValuesApi, 'customFieldValues(') && str_contains($peopleValuesApi, 'customFieldValueUpsert('));
+$assert('legacy People values adapter preserves pii_redacted', str_contains($peopleValuesApi, "'pii_redacted'") && str_contains($peopleValuesApi, 'peopleCustomFieldHasPiiDefinitions'));
 
 echo "\nIntegration hook\n";
 $apply = (string) file_get_contents($root . '/core/integrations/field_map_apply.php');

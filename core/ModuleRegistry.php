@@ -318,6 +318,7 @@ class ModuleRegistry {
                     'view_permission'   => $moduleId . '.view',
                     'manage_permission' => $moduleId . '.custom_fields.manage',
                     'pii_permission'    => null,
+                    'pii_manage_permission' => null,
                     'definition_table'  => null,
                     'value_table'       => null,
                     'record_id_key'     => 'record_id',

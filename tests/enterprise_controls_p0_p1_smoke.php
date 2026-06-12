@@ -82,7 +82,9 @@ check('legacy bank accounts require banking permissions', contains($peopleBankAc
 check('legacy tax history requires tax permissions', contains($peopleTaxFederal, "people.tax.view") && contains($peopleTaxFederal, "people.tax.manage"));
 check('legacy addresses require PII permissions', contains($peopleAddresses, "people.pii.view") && contains($peopleAddresses, "people.pii.manage"));
 check('legacy I-9 requires PII permissions', contains($peopleI9, "people.pii.view") && contains($peopleI9, "people.pii.manage"));
-check('PII custom field reads redact without PII view', contains($peopleCustomValues, 'pii_redacted') && contains($peopleCustomValues, "rbac_legacy_can(\$user, 'people.pii.view')"));
+check('PII custom field reads redact without PII view', contains($peopleCustomValues, 'pii_redacted') && contains($peopleCustomValues, 'peopleCustomFieldHasPiiDefinitions'));
+check('PII custom field writes require PII manage', contains($peopleCustomValues, "'people.pii.manage'") && contains($peopleCustomValues, '$canPiiManage'));
+check('legacy custom field values use platform service', contains($peopleCustomValues, 'customFieldValueUpsert(') && contains($peopleCustomValues, 'customFieldAudit('));
 
 $failed = array_values(array_filter($checks, static fn($c) => !$c[1]));
 echo PHP_EOL . 'Total: ' . (count($checks) - count($failed)) . ' passed, ' . count($failed) . ' failed' . PHP_EOL;

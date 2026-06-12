@@ -19,6 +19,7 @@ Modules opt in with `custom_field_entities`:
         'view_permission'   => 'people.view',
         'manage_permission' => 'people.custom_fields.manage',
         'pii_permission'    => 'people.pii.view',
+        'pii_manage_permission' => 'people.pii.manage',
         'surfaces'          => ['forms', 'detail', 'lists', 'exports', 'reports'],
     ],
 ],
@@ -81,7 +82,8 @@ The definitions API returns tenant-scoped definitions through the shared
 service, regardless of whether the owning module is on spec-aligned tables or
 legacy `custom_fields`. Definition writes require the entity's
 `manage_permission`; creating or marking a field as PII also requires the
-entity's `pii_permission` when one is declared.
+entity's `pii_manage_permission` when one is declared, falling back to
+`pii_permission`.
 
 The layout API returns normalized surface layouts for `forms`, `detail`,
 `lists`, `exports`, and `reports`. This lets modules consume shared layout
@@ -89,8 +91,9 @@ metadata without inventing separate form/list/export/report conventions.
 
 The values API reads and upserts tenant custom-field values through the shared
 service. Sensitive custom-field values are omitted from reads unless the actor
-has the entity's `pii_permission`; writes to sensitive values require the same
-PII permission plus the entity's manage permission.
+has the entity's `pii_permission`; writes to sensitive values require the
+entity's `pii_manage_permission` when declared, otherwise `pii_permission`,
+plus the entity's manage permission.
 
 Definition mutations emit `custom_field.definition.*` audit events. Value
 mutations emit `custom_field.value.updated` with entity type, record id, and the

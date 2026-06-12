@@ -1,120 +1,132 @@
 <?php
 /**
- * People API — custom field VALUES (per-person)
+ * People API - custom field values compatibility adapter.
  *
- *   GET  /api/people/custom_field_values?person_id=N
- *   PUT  /api/people/custom_field_values?person_id=N    body: { values: { field_key: value, ... } }
- *
- * Upserts via UNIQUE(person_id, field_def_id). Deletes are explicit by
- * passing null in the values map.
- *
- * SPEC: /app/modules/people/SPEC.md §5.3
+ * Preserves the legacy `person_id` and `pii_redacted` response contract while
+ * delegating reads/writes to core/custom_fields.php.
  */
 
+declare(strict_types=1);
+
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
-require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/custom_fields.php';
 require_once __DIR__ . '/../lib/people.php';
 require_once __DIR__ . '/../lib/audit.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
+$tenantId = (int) $ctx['tenant_id'];
+$userId = (int) ($user['id'] ?? 0);
 $method = api_method();
+$entityType = 'people';
+
+$entity = customFieldEntity($entityType);
+if (!$entity) api_error('People custom-field entity not registered', 500);
+
+$viewPerm = (string) ($entity['view_permission'] ?? 'people.view');
+$managePerm = 'people.manage';
+$piiPerm = (string) ($entity['pii_permission'] ?? 'people.pii.view');
+$piiManagePerm = (string) (($entity['pii_manage_permission'] ?? null) ?: 'people.pii.manage');
+$canView = rbac_legacy_can($user, $viewPerm);
+$canManage = rbac_legacy_can($user, $managePerm);
+$canPii = $piiPerm !== '' && rbac_legacy_can($user, $piiPerm);
+$canPiiManage = $piiManagePerm !== '' && rbac_legacy_can($user, $piiManagePerm);
 
 if ($method === 'GET') {
-    rbac_legacy_require($user, 'people.view');
-    $personId = (int) api_query('person_id', 0);
+    if (!$canView && !$canManage) api_error('Forbidden', 403, ['required' => $viewPerm]);
+    $personId = (int) api_query('person_id', (int) api_query('record_id', 0));
     if ($personId <= 0) api_error('person_id required', 400);
-    $values = peopleCustomFieldValues($personId);
-    $piiValues = array_values(array_filter($values, static fn ($row) => !empty($row['field_pii'])));
-    $canViewPII = rbac_legacy_can($user, 'people.pii.view');
-    if ($piiValues && !$canViewPII) {
-        $values = array_values(array_filter($values, static fn ($row) => empty($row['field_pii'])));
-    }
-    if ($piiValues && $canViewPII) {
-        peopleLogPIIAccess(
-            (int) ($user['id'] ?? 0),
-            $personId,
-            'custom_field_pii.viewed',
-            array_map(static fn ($row) => (string) ($row['field_key'] ?? ''), $piiValues)
-        );
+    $values = customFieldValues($tenantId, $entityType, $personId, $canPii);
+    $piiKeys = peopleCustomFieldPiiKeys($values);
+    if ($piiKeys && $canPii) {
+        peopleLogPIIAccess($userId, $personId, 'custom_field_pii.viewed', $piiKeys);
         peopleAudit('people.pii.viewed', [
             'person_id' => $personId,
             'resource' => 'custom_fields',
-            'field_keys' => array_map(static fn ($row) => (string) ($row['field_key'] ?? ''), $piiValues),
+            'field_keys' => $piiKeys,
         ], $personId);
+        customFieldAudit($tenantId, $userId, 'custom_field.value.pii_viewed', $personId, [
+            'entity_type' => $entityType,
+            'record_id' => $personId,
+            'field_keys' => $piiKeys,
+            'legacy_endpoint' => 'people/custom_field_values.php',
+        ]);
     }
-    api_ok(['values' => $values, 'pii_redacted' => $piiValues && !$canViewPII]);
+    api_ok([
+        'values' => peopleCustomFieldValuesForLegacy($values),
+        'pii_redacted' => peopleCustomFieldHasPiiDefinitions($tenantId) && !$canPii,
+        'pii_included' => $canPii,
+    ]);
 }
 
 if ($method === 'PUT' || $method === 'POST') {
-    rbac_legacy_require($user, 'people.manage');
-    $personId = (int) api_query('person_id', 0);
+    if (!$canManage) api_error('Forbidden', 403, ['required' => $managePerm]);
+    $personId = (int) api_query('person_id', (int) api_query('record_id', 0));
     if ($personId <= 0) api_error('person_id required', 400);
     $body = api_json_body();
-    if (empty($body['values']) || !is_array($body['values'])) {
-        api_error('values map required', 422);
-    }
+    if (empty($body['values']) || !is_array($body['values'])) api_error('values map required', 422);
 
-    $defs = peopleCustomFieldDefs();
-    $byKey = [];
-    foreach ($defs as $d) $byKey[$d['field_key']] = $d;
-
-    $pdo = getDB();
-    if (!$pdo) api_error('No database connection', 500);
-
-    $touched = [];
-    $piiTouched = [];
-    foreach ($body['values'] as $key => $value) {
-        $def = $byKey[$key] ?? null;
-        if (!$def) continue; // ignore unknown keys silently
-        if ($def['pii']) {
-            rbac_legacy_require($user, 'people.pii.manage');
-            $piiTouched[] = (string) $key;
+    $defs = customFieldDefinitionMap($tenantId, $entityType);
+    $updated = [];
+    foreach ($body['values'] as $fieldKey => $value) {
+        $fieldKey = (string) $fieldKey;
+        if ($fieldKey === '' || !isset($defs[$fieldKey])) continue;
+        if (!empty($defs[$fieldKey]['pii']) && !$canPiiManage) {
+            api_error("Forbidden: missing permission for PII custom field '{$fieldKey}'", 403, [
+                'required' => $piiManagePerm,
+                'field_key' => $fieldKey,
+            ]);
         }
-
-        $col = match ($def['field_type']) {
-            'number'        => 'value_number',
-            'date'          => 'value_date',
-            'boolean'       => 'value_boolean',
-            default         => 'value_text', // text, select, multiselect (json string)
-        };
-
-        $coerced = $value;
-        if ($def['field_type'] === 'multiselect' && is_array($value)) $coerced = json_encode($value);
-        if ($def['field_type'] === 'boolean')   $coerced = $value === null ? null : (int) (bool) $value;
-        if ($def['field_type'] === 'number')    $coerced = $value === null ? null : (float) $value;
-
-        $stmt = $pdo->prepare(
-            "INSERT INTO people_custom_field_values
-             (tenant_id, person_id, field_def_id, value_text, value_number, value_date, value_boolean, updated_at)
-             VALUES (:tenant_id, :person_id, :field_def_id, NULL, NULL, NULL, NULL, NOW())
-             ON DUPLICATE KEY UPDATE
-                value_text = NULL, value_number = NULL, value_date = NULL, value_boolean = NULL, updated_at = NOW()"
-        );
-        $stmt->execute([
-            'tenant_id'    => currentTenantId(),
-            'person_id'    => $personId,
-            'field_def_id' => (int) $def['id'],
-        ]);
-
-        $stmt2 = $pdo->prepare(
-            "UPDATE people_custom_field_values
-             SET {$col} = :v, updated_at = NOW()
-             WHERE tenant_id = :tenant_id AND person_id = :person_id AND field_def_id = :field_def_id"
-        );
-        $stmt2->execute([
-            'v'            => $coerced,
-            'tenant_id'    => currentTenantId(),
-            'person_id'    => $personId,
-            'field_def_id' => (int) $def['id'],
-        ]);
-        $touched[] = $key;
+        customFieldValueUpsert($tenantId, $entityType, $personId, $fieldKey, $value);
+        $updated[] = $fieldKey;
     }
-    if ($piiTouched) {
-        peopleLogPIIAccess((int) ($user['id'] ?? 0), $personId, 'custom_field_pii.set', $piiTouched);
+
+    $piiUpdated = peopleCustomFieldPiiKeysFromDefinitions($defs, $updated);
+    if ($piiUpdated) {
+        peopleLogPIIAccess($userId, $personId, 'custom_field_pii.set', $piiUpdated);
     }
-    peopleAudit('people.custom_field.value_set', ['person_id' => $personId, 'fields' => $touched], $personId);
-    api_ok(['ok' => true, 'updated' => $touched]);
+    customFieldAudit($tenantId, $userId, 'custom_field.value.updated', $personId, [
+        'entity_type' => $entityType,
+        'record_id' => $personId,
+        'fields' => $updated,
+        'legacy_endpoint' => 'people/custom_field_values.php',
+    ]);
+    peopleAudit('people.custom_field.value_set', ['person_id' => $personId, 'fields' => $updated], $personId);
+    api_ok(['ok' => true, 'updated' => $updated]);
 }
 
 api_error('Method not allowed', 405);
+
+function peopleCustomFieldValuesForLegacy(array $values): array
+{
+    return array_map(static function (array $row): array {
+        $row['field_pii'] = $row['pii'] ?? 0;
+        return $row;
+    }, $values);
+}
+
+function peopleCustomFieldPiiKeys(array $values): array
+{
+    $keys = [];
+    foreach ($values as $value) {
+        if (!empty($value['pii']) && !empty($value['field_key'])) $keys[] = (string) $value['field_key'];
+    }
+    return array_values(array_unique($keys));
+}
+
+function peopleCustomFieldPiiKeysFromDefinitions(array $defs, array $fieldKeys): array
+{
+    $keys = [];
+    foreach ($fieldKeys as $fieldKey) {
+        if (!empty($defs[$fieldKey]['pii'])) $keys[] = (string) $fieldKey;
+    }
+    return array_values(array_unique($keys));
+}
+
+function peopleCustomFieldHasPiiDefinitions(int $tenantId): bool
+{
+    foreach (customFieldDefinitions($tenantId, 'people') as $def) {
+        if (!empty($def['pii'])) return true;
+    }
+    return false;
+}

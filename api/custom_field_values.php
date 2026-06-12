@@ -29,17 +29,32 @@ if (!$entity) api_error('Custom field entity not found', 404);
 $viewPerm = (string) ($entity['view_permission'] ?? '');
 $managePerm = (string) ($entity['manage_permission'] ?? '');
 $piiPerm = (string) ($entity['pii_permission'] ?? '');
+$piiManagePerm = (string) (($entity['pii_manage_permission'] ?? null) ?: $piiPerm);
 $canView = $viewPerm !== '' && rbac_legacy_can($user, $viewPerm);
 $canManage = $managePerm !== '' && rbac_legacy_can($user, $managePerm);
 $canPii = $piiPerm !== '' && rbac_legacy_can($user, $piiPerm);
+$canPiiManage = $piiManagePerm !== '' && rbac_legacy_can($user, $piiManagePerm);
 
 if ($method === 'GET') {
     if (!$canView && !$canManage) api_error('Forbidden', 403, ['required' => $viewPerm ?: $managePerm]);
+    $values = customFieldValues($tenantId, $entityType, $recordId, $canPii);
+    $piiKeys = customFieldPiiFieldKeys($values);
+    if ($piiKeys && $canPii) {
+        customFieldAudit($tenantId, $userId, 'custom_field.value.pii_viewed', $recordId, [
+            'entity_type' => $entityType,
+            'record_id' => $recordId,
+            'field_keys' => $piiKeys,
+        ]);
+        if ($entityType === 'people') {
+            customFieldPeoplePiiAudit($userId, $recordId, 'custom_field_pii.viewed', $piiKeys);
+        }
+    }
     api_ok([
         'entity_type' => $entityType,
         'record_id' => $recordId,
-        'values' => customFieldValues($tenantId, $entityType, $recordId, $canPii),
+        'values' => $values,
         'pii_included' => $canPii,
+        'pii_write_allowed' => $canPiiManage,
     ]);
 }
 
@@ -52,9 +67,9 @@ if ($method === 'POST' || $method === 'PUT') {
     foreach ($body['values'] as $fieldKey => $value) {
         $fieldKey = (string) $fieldKey;
         if ($fieldKey === '' || !isset($defs[$fieldKey])) continue;
-        if (!empty($defs[$fieldKey]['pii']) && !$canPii) {
+        if (!empty($defs[$fieldKey]['pii']) && !$canPiiManage) {
             api_error("Forbidden: missing permission for PII custom field '{$fieldKey}'", 403, [
-                'required' => $piiPerm,
+                'required' => $piiManagePerm,
                 'field_key' => $fieldKey,
             ]);
         }
@@ -67,8 +82,52 @@ if ($method === 'POST' || $method === 'PUT') {
             'record_id' => $recordId,
             'fields' => $updated,
         ]);
+        $piiUpdated = customFieldPiiKeysFromDefinitions($defs, $updated);
+        if ($piiUpdated && $entityType === 'people') {
+            customFieldPeoplePiiAudit($userId, $recordId, 'custom_field_pii.set', $piiUpdated);
+        }
     }
     api_ok(['ok' => true, 'updated' => $updated]);
 }
 
 api_error('Method not allowed', 405);
+
+function customFieldPiiFieldKeys(array $values): array
+{
+    $keys = [];
+    foreach ($values as $value) {
+        if (!empty($value['pii']) && !empty($value['field_key'])) {
+            $keys[] = (string) $value['field_key'];
+        }
+    }
+    return array_values(array_unique($keys));
+}
+
+function customFieldPiiKeysFromDefinitions(array $defs, array $fieldKeys): array
+{
+    $keys = [];
+    foreach ($fieldKeys as $fieldKey) {
+        if (!empty($defs[$fieldKey]['pii'])) $keys[] = (string) $fieldKey;
+    }
+    return array_values(array_unique($keys));
+}
+
+function customFieldPeoplePiiAudit(int $userId, int $recordId, string $eventType, array $fieldKeys): void
+{
+    require_once __DIR__ . '/../modules/people/lib/people.php';
+    require_once __DIR__ . '/../modules/people/lib/audit.php';
+    if (function_exists('peopleLogPIIAccess')) {
+        peopleLogPIIAccess($userId, $recordId, $eventType, $fieldKeys);
+    }
+    if (function_exists('peopleAudit')) {
+        $event = $eventType === 'custom_field_pii.viewed'
+            ? 'people.pii.viewed'
+            : 'people.custom_field.value_set';
+        peopleAudit($event, [
+            'person_id' => $recordId,
+            'resource' => 'custom_fields',
+            'field_keys' => $fieldKeys,
+            'event_type' => $eventType,
+        ], $recordId);
+    }
+}

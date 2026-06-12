@@ -106,6 +106,7 @@ return [
             'view_permission'   => 'people.view',
             'manage_permission' => 'people.custom_fields.manage',
             'pii_permission'    => 'people.pii.view',
+            'pii_manage_permission' => 'people.pii.manage',
             'surfaces'          => ['forms', 'detail', 'lists', 'exports', 'reports'],
         ],
     ],

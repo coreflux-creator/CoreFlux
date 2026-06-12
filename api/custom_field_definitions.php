@@ -28,9 +28,11 @@ if (!$entity) api_error('Custom field entity not found', 404);
 $viewPerm = (string) ($entity['view_permission'] ?? '');
 $managePerm = (string) ($entity['manage_permission'] ?? '');
 $piiPerm = (string) ($entity['pii_permission'] ?? '');
+$piiManagePerm = (string) (($entity['pii_manage_permission'] ?? null) ?: $piiPerm);
 $canView = $viewPerm !== '' && rbac_legacy_can($user, $viewPerm);
 $canManage = $managePerm !== '' && rbac_legacy_can($user, $managePerm);
 $canPii = $piiPerm !== '' && rbac_legacy_can($user, $piiPerm);
+$canPiiManage = $piiManagePerm !== '' && rbac_legacy_can($user, $piiManagePerm);
 if (!$canView && !$canManage) api_error('Forbidden', 403, ['required' => $viewPerm ?: $managePerm]);
 
 if ($method === 'GET') {
@@ -53,7 +55,7 @@ if ($method === 'GET') {
 if ($method === 'POST') {
     if (!$canManage) api_error('Forbidden', 403, ['required' => $managePerm]);
     $body = api_json_body();
-    if (!empty($body['pii']) && !$canPii) api_error('Forbidden', 403, ['required' => $piiPerm]);
+    if (!empty($body['pii']) && !$canPiiManage) api_error('Forbidden', 403, ['required' => $piiManagePerm]);
     try {
         $id = customFieldDefinitionCreate($tenantId, $entityType, $body);
         customFieldAudit($tenantId, $userId, 'custom_field.definition.created', $id, [
@@ -73,7 +75,7 @@ if ($method === 'PATCH') {
     $id = (int) api_query('id', 0);
     if ($id <= 0) api_error('id required', 422);
     $body = api_json_body();
-    if (!empty($body['pii']) && !$canPii) api_error('Forbidden', 403, ['required' => $piiPerm]);
+    if (!empty($body['pii']) && !$canPiiManage) api_error('Forbidden', 403, ['required' => $piiManagePerm]);
     try {
         customFieldDefinitionUpdate($tenantId, $entityType, $id, $body);
         customFieldAudit($tenantId, $userId, 'custom_field.definition.updated', $id, [

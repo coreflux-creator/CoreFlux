@@ -114,8 +114,16 @@ $a('generic emergency-contact resource switches to PII permissions',
     str_contains($contacts, "\$readPermission = \$resource === 'emergency_contacts' ? 'people.pii.view' : 'people.view'")
     && str_contains($contacts, "\$writePermission = \$resource === 'emergency_contacts' ? 'people.pii.manage' : 'people.manage'"));
 $a('PII custom field reads redact without people.pii.view',
-    str_contains($customValues, "rbac_legacy_can(\$user, 'people.pii.view')")
-    && str_contains($customValues, "'pii_redacted' => \$piiValues && !\$canViewPII"));
+    str_contains($customValues, "'people.pii.view'")
+    && str_contains($customValues, "customFieldValues(\$tenantId, \$entityType, \$personId, \$canPii)")
+    && str_contains($customValues, "peopleCustomFieldHasPiiDefinitions(\$tenantId) && !\$canPii"));
+$a('PII custom field writes require people.pii.manage',
+    str_contains($customValues, "'people.pii.manage'")
+    && str_contains($customValues, "\$canPiiManage")
+    && str_contains($customValues, "'required' => \$piiManagePerm"));
+$a('legacy custom fields use platform service',
+    str_contains($customValues, 'customFieldValueUpsert(')
+    && str_contains($customValues, 'customFieldAudit('));
 $a('PII custom field reads/writes are logged',
     str_contains($customValues, 'custom_field_pii.viewed')
     && str_contains($customValues, 'custom_field_pii.set'));
