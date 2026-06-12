@@ -117,5 +117,26 @@ return [
         ],
     ],
 
+    'export_datasets' => [
+        'people_directory' => [
+            'dataset'               => 'people_directory',
+            'label'                 => 'People Directory',
+            'permission'            => 'people.view',
+            'formats'               => ['csv'],
+            'audit_event'           => 'people.directory.exported',
+            'custom_field_entities' => ['people'],
+        ],
+    ],
+
+    'report_datasets' => [
+        'people_directory' => [
+            'dataset'               => 'people_directory',
+            'label'                 => 'People Directory',
+            'permission'            => 'people.view',
+            'source'                => 'export_dataset',
+            'custom_field_entities' => ['people'],
+        ],
+    ],
+
     'depends_on' => [],
 ];

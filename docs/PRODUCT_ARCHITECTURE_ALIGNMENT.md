@@ -113,6 +113,9 @@ Current implementation status:
 
 - `core/report_builder.php` projects governed export datasets into report
   dimensions, measures, filters, and sensitive-field metadata.
+- Source module manifests declare owned export/report datasets, and
+  `ModuleRegistry` exposes those declarations for validation and admin
+  surfaces.
 - `api/report_builder.php` exposes the builder catalog through the API layer and
   preserves source dataset RBAC checks.
 - Saved report definitions are persisted in `report_builder_reports` after

@@ -159,6 +159,8 @@ class ModuleRegistry {
             'audit_events'          => [],
             'workflows'             => [],
             'exports'               => [],
+            'export_datasets'       => [],
+            'report_datasets'       => [],
             'custom_field_layouts'   => [],
             'default_roles'         => [],
             'depends_on'            => [],
@@ -169,7 +171,8 @@ class ModuleRegistry {
         // Type-check the most-used fields. Non-fatal; just warn and coerce.
         foreach (['actions', 'views', 'nav_sections', 'permissions',
                   'audit_events', 'default_roles', 'depends_on',
-                  'custom_field_entities', 'custom_field_layouts'] as $listField) {
+                  'custom_field_entities', 'custom_field_layouts',
+                  'export_datasets', 'report_datasets'] as $listField) {
             if (!is_array($manifest[$listField])) {
                 $this->validationErrors[$id][] = "field '$listField' must be an array; coerced to []";
                 $manifest[$listField] = [];
@@ -334,6 +337,63 @@ class ModuleRegistry {
     public function getCustomFieldEntity(string $entityType): ?array {
         $all = $this->getCustomFieldEntities();
         return $all[$entityType] ?? null;
+    }
+
+    /**
+     * Return export datasets declared by module manifests.
+     *
+     * The execution registry still lives in core/export_datasets.php; this
+     * manifest view makes dataset ownership, permissions, and audit events
+     * discoverable without loading export execution code.
+     *
+     * @return array<string, array> dataset key => metadata
+     */
+    public function getExportDatasetDeclarations(): array {
+        return $this->getDatasetDeclarations('export_datasets');
+    }
+
+    /**
+     * Return report-builder datasets declared by module manifests.
+     *
+     * @return array<string, array> dataset key => metadata
+     */
+    public function getReportDatasetDeclarations(): array {
+        return $this->getDatasetDeclarations('report_datasets');
+    }
+
+    /** @internal */
+    private function getDatasetDeclarations(string $field): array {
+        $out = [];
+        foreach ($this->modules as $moduleId => $manifest) {
+            foreach (($manifest[$field] ?? []) as $key => $entry) {
+                $raw = is_array($entry) ? $entry : ['dataset' => (string) $entry];
+                $dataset = (string) ($raw['dataset'] ?? $raw['key'] ?? (is_string($key) ? $key : ''));
+                if ($dataset === '') continue;
+                if (isset($out[$dataset])) {
+                    $owner = (string) ($out[$dataset]['module_id'] ?? 'unknown');
+                    $this->validationErrors[$moduleId][] = "{$field} dataset '$dataset' already declared by '$owner'; duplicate ignored";
+                    continue;
+                }
+                $out[$dataset] = array_merge([
+                    'dataset' => $dataset,
+                    'module_id' => $moduleId,
+                    'label' => ucwords(str_replace('_', ' ', $dataset)),
+                    'permission' => null,
+                    'formats' => [],
+                    'audit_event' => null,
+                    'custom_field_entities' => [],
+                    'sensitive_fields' => [],
+                    'source' => $field === 'report_datasets' ? 'export_dataset' : 'registry',
+                ], $raw, [
+                    'dataset' => $dataset,
+                    'module_id' => $moduleId,
+                    'formats' => array_values((array) ($raw['formats'] ?? [])),
+                    'custom_field_entities' => array_values((array) ($raw['custom_field_entities'] ?? [])),
+                    'sensitive_fields' => array_values((array) ($raw['sensitive_fields'] ?? [])),
+                ]);
+            }
+        }
+        return $out;
     }
 
     /**

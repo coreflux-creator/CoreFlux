@@ -100,7 +100,9 @@ return [
         'ap.expense.paid',
         'ap.expense.line.attachment.added',
         'ap.expense.line.extracted_from_receipt',
+        'ap.expense.export_selected_template',
         'ap.export.csv',
+        'ap.payments.exported_template',
         'ap.settings.updated',
         'ap.recurring.created',
         'ap.recurring.updated',
@@ -145,6 +147,40 @@ return [
     ],
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
+
+    'export_datasets' => [
+        'ap_payments' => [
+            'dataset'          => 'ap_payments',
+            'label'            => 'AP Payments',
+            'permission'       => 'ap.export.run',
+            'formats'          => ['csv'],
+            'audit_event'      => 'ap.payments.exported_template',
+            'sensitive_fields' => ['bank_routing_number', 'bank_account_number'],
+        ],
+        'expenses' => [
+            'dataset'     => 'expenses',
+            'label'       => 'Expense Reports',
+            'permission'  => 'ap.export.run',
+            'formats'     => ['csv'],
+            'audit_event' => 'ap.expense.export_selected_template',
+        ],
+    ],
+
+    'report_datasets' => [
+        'ap_payments' => [
+            'dataset'          => 'ap_payments',
+            'label'            => 'AP Payments',
+            'permission'       => 'ap.export.run',
+            'source'           => 'export_dataset',
+            'sensitive_fields' => ['bank_routing_number', 'bank_account_number'],
+        ],
+        'expenses' => [
+            'dataset'    => 'expenses',
+            'label'      => 'Expense Reports',
+            'permission' => 'ap.export.run',
+            'source'     => 'export_dataset',
+        ],
+    ],
 
     'depends_on' => ['placements', 'time'],
 ];

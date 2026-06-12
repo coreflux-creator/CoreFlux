@@ -24,6 +24,12 @@ Datasets live in `core/export_datasets.php`:
 ],
 ```
 
+Source module manifests also declare the datasets they own under
+`export_datasets` and, when report-builder-visible, `report_datasets`. The
+code-side registry remains the execution contract; the manifest declarations are
+the ownership contract used by module discovery, admin surfaces, and governance
+tests.
+
 ## Custom Fields
 
 Datasets that include `custom_field_entities` can expose tenant-defined fields

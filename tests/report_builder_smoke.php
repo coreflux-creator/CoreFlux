@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__);
+require_once $root . '/core/ModuleRegistry.php';
 require_once $root . '/core/report_builder.php';
 
 $pass = 0;
@@ -13,9 +14,13 @@ $assert = function (string $name, bool $ok) use (&$pass, &$fail): void {
 
 echo "Report builder registry\n";
 $reg = reportBuilderDatasetRegistry();
+$reportDatasetDecls = ModuleRegistry::reset()->getReportDatasetDeclarations();
 $assert('people directory dataset exists', isset($reg['people_directory']));
 $assert('placements dataset exists', isset($reg['placements_directory']));
 $assert('payroll dataset exists', isset($reg['payroll_disbursements']));
+foreach (array_keys($reg) as $datasetKey) {
+    $assert("report dataset manifest declaration exists: {$datasetKey}", isset($reportDatasetDecls[$datasetKey]));
+}
 $people = $reg['people_directory'] ?? [];
 $placements = $reg['placements_directory'] ?? [];
 $assert('people preserves source dataset', ($people['source_dataset'] ?? null) === 'people_directory');

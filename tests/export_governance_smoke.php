@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__);
+require_once $root . '/core/ModuleRegistry.php';
 require_once $root . '/core/export_datasets.php';
 require_once $root . '/core/export_templates.php';
 require_once $root . '/core/export_service.php';
@@ -15,11 +16,20 @@ $assert = function (string $name, bool $ok) use (&$pass, &$fail): void {
 
 echo "Dataset governance\n";
 $reg = exportDatasetRegistry();
+$moduleRegistry = ModuleRegistry::reset();
+$manifestDatasets = $moduleRegistry->getExportDatasetDeclarations();
 $required = ['label', 'module_id', 'permission', 'formats', 'audit_event', 'sensitive_fields', 'custom_field_entities', 'fetcher', 'fields'];
 foreach (['payroll_disbursements', 'ap_payments', 'expenses', 'people_directory', 'placements_directory'] as $dataset) {
     $assert("dataset registered: {$dataset}", isset($reg[$dataset]));
     foreach ($required as $key) {
         $assert("{$dataset} has {$key}", array_key_exists($key, $reg[$dataset] ?? []));
+    }
+    $decl = $manifestDatasets[$dataset] ?? null;
+    $assert("manifest declares dataset: {$dataset}", is_array($decl));
+    if ($decl && isset($reg[$dataset])) {
+        $assert("manifest owner matches registry: {$dataset}", ($decl['module_id'] ?? null) === ($reg[$dataset]['module_id'] ?? null));
+        $assert("manifest permission matches registry: {$dataset}", ($decl['permission'] ?? null) === ($reg[$dataset]['permission'] ?? null));
+        $assert("manifest audit event matches registry: {$dataset}", ($decl['audit_event'] ?? null) === ($reg[$dataset]['audit_event'] ?? null));
     }
 }
 

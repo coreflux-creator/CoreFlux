@@ -105,6 +105,27 @@ return [
         ],
     ],
 
+    'export_datasets' => [
+        'placements_directory' => [
+            'dataset'               => 'placements_directory',
+            'label'                 => 'Placements',
+            'permission'            => 'placements.view',
+            'formats'               => ['csv'],
+            'audit_event'           => 'placement.exported',
+            'custom_field_entities' => ['placements'],
+        ],
+    ],
+
+    'report_datasets' => [
+        'placements_directory' => [
+            'dataset'               => 'placements_directory',
+            'label'                 => 'Placements',
+            'permission'            => 'placements.view',
+            'source'                => 'export_dataset',
+            'custom_field_entities' => ['placements'],
+        ],
+    ],
+
     'people_graph' => [
         'consumes' => true,
         'mode' => 'source_module_consumer',

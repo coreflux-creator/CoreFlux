@@ -69,6 +69,30 @@ $assert("people has 'views' field even though not declared",
     is_array($people['views'] ?? null));
 $assert("people has 'audit_events' field populated from spec",
     isset($people['audit_events']) && is_array($people['audit_events']) && count($people['audit_events']) > 0);
+$assert("people has export_datasets field",
+    is_array($people['export_datasets'] ?? null));
+$assert("people has report_datasets field",
+    is_array($people['report_datasets'] ?? null));
+
+echo "\nDataset declarations\n";
+$exportDatasets = $reg->getExportDatasetDeclarations();
+$reportDatasets = $reg->getReportDatasetDeclarations();
+$assert("people_directory export dataset declared by people",
+    ($exportDatasets['people_directory']['module_id'] ?? null) === 'people');
+$assert("placements_directory export dataset declared by placements",
+    ($exportDatasets['placements_directory']['module_id'] ?? null) === 'placements');
+$assert("payroll_disbursements export dataset declared by payroll",
+    ($exportDatasets['payroll_disbursements']['module_id'] ?? null) === 'payroll');
+$assert("ap_payments export dataset declared by ap",
+    ($exportDatasets['ap_payments']['module_id'] ?? null) === 'ap');
+$assert("expenses export dataset declared by ap",
+    ($exportDatasets['expenses']['module_id'] ?? null) === 'ap');
+$assert("people_directory report dataset declared by people",
+    ($reportDatasets['people_directory']['module_id'] ?? null) === 'people');
+$assert("placements_directory report dataset declared by placements",
+    ($reportDatasets['placements_directory']['module_id'] ?? null) === 'placements');
+$assert("payroll report dataset preserves sensitive field metadata",
+    in_array('bank_account_number', $reportDatasets['payroll_disbursements']['sensitive_fields'] ?? [], true));
 
 echo "\nDependencies declared\n";
 $placements = $reg->getModule('placements');

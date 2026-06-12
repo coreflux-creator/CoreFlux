@@ -77,6 +77,7 @@ return [
         'payroll.run.voided',
         'payroll.run.originated',
         'payroll.run.originate_failed',
+        'payroll.run.exported_template',
         'payroll.run.exported_gusto',
         'payroll.run.exported_csv',
         'payroll.run.gusto_synced',
@@ -137,6 +138,27 @@ return [
     ],
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
+
+    'export_datasets' => [
+        'payroll_disbursements' => [
+            'dataset'          => 'payroll_disbursements',
+            'label'            => 'Payroll Disbursements',
+            'permission'       => 'payroll.reports.view',
+            'formats'          => ['csv'],
+            'audit_event'      => 'payroll.run.exported_template',
+            'sensitive_fields' => ['bank_routing_number', 'bank_account_number'],
+        ],
+    ],
+
+    'report_datasets' => [
+        'payroll_disbursements' => [
+            'dataset'          => 'payroll_disbursements',
+            'label'            => 'Payroll Disbursements',
+            'permission'       => 'payroll.reports.view',
+            'source'           => 'export_dataset',
+            'sensitive_fields' => ['bank_routing_number', 'bank_account_number'],
+        ],
+    ],
 
     'depends_on' => ['people', 'placements', 'time', 'accounting'],
 ];
