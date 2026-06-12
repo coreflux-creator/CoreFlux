@@ -69,7 +69,7 @@ $a('detail returns lines joined to accounts',  strpos($japi, 'JOIN accounting_ac
 $a('list filters from/to/status/entity_id',    strpos($japi, "'status'") !== false && strpos($japi, "'from'") !== false);
 $a('reverse perm',                             strpos($japi, "'accounting.je.reverse'") !== false);
 $a('post perm',                                strpos($japi, "'accounting.je.post'") !== false);
-$a('draft support via action=draft',           strpos($japi, "\$postNow = (\$action !== 'draft')") !== false);
+$a('draft support via action=draft',           strpos($japi, "action === 'draft'") !== false && strpos($japi, "'accounting.je.create'") !== false && strpos($japi, 'accountingPostJe($tid, $body, $actorUserId, false)') !== false);
 
 echo "\nAP bill → GL post\n";
 $apbills = (string) file_get_contents(__DIR__ . '/../modules/ap/api/bills.php');

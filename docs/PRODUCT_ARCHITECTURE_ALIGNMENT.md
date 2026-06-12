@@ -334,6 +334,28 @@ Invoice approval and GL posting are separate enterprise controls:
   posting, with Accounting GL post permissions required where journal entries
   are created directly.
 
+### Accounting Journal Entry Controls
+
+Manual journal entries separate draft, submit, approve, post, reverse, and void
+controls. Accounting remains the source of truth for JE rows and posting
+state; Workflow Graph owns approval routing, People Graph approver resolution,
+and separation-of-duties enforcement.
+
+- `accounting.je.view` governs JE listing, detail, and trial-balance reads.
+- `accounting.je.create` governs draft JE creation.
+- `accounting.je.submit` starts the Workflow Graph approval for a draft JE.
+- `accounting.je.approve` governs workflow approve/reject decisions.
+- `accounting.je.post` posts an existing draft only after workflow approval, and
+  blocks the same actor from approving and posting when approval was required.
+- `accounting.je.reverse` and `accounting.je.void` remain separate controls.
+
+For compatibility with existing reports and subledger posting, `status` remains
+the posting lifecycle (`draft`, `posted`, `reversed`, `void`) and
+`approval_state` carries the approval lifecycle (`draft`, `pending_approval`,
+`approved`, `rejected`). Subledgers continue to post via the Accounting
+idempotent posting protocol; manual JEs use the approval overlay before
+promotion to posted state.
+
 ### Treasury Money Movement
 
 Treasury payment and transfer approval is a Workflow Graph decision with People

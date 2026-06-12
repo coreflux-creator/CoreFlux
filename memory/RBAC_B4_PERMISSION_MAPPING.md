@@ -86,8 +86,12 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 | `accounting.entities.view` | `(accounting, read)` |
 | `accounting.intercompany.manage` | `(accounting, admin)` |
 | `accounting.je.create` | `(accounting, write)` |
+| `accounting.je.edit_draft` | `(accounting, write)` |
+| `accounting.je.submit` | `(accounting, write)` |
+| `accounting.je.approve` | `(accounting, admin)` |
 | `accounting.je.post` | `(accounting, admin)` |
 | `accounting.je.reverse` | `(accounting, admin)` |
+| `accounting.je.void` | `(accounting, admin)` |
 | `accounting.je.view` | `(accounting, read)` |
 | `accounting.manage_posting_rules` | `(accounting, admin)` |
 | `accounting.period.view` | `(accounting, read)` |

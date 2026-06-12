@@ -570,6 +570,10 @@ function cf_self_heal_known_column(string $colRef): bool {
         'billing_invoices' => [
             'workflow_instance_id' => 'ADD COLUMN workflow_instance_id BIGINT UNSIGNED NULL AFTER approved_at',
         ],
+        'accounting_journal_entries' => [
+            'approval_state' => "ADD COLUMN approval_state ENUM('draft','pending_approval','approved','rejected') NOT NULL DEFAULT 'draft' AFTER created_by_user_id",
+            'workflow_instance_id' => 'ADD COLUMN workflow_instance_id BIGINT UNSIGNED NULL',
+        ],
         'treasury_payments' => [
             'workflow_instance_id' => 'ADD COLUMN workflow_instance_id BIGINT UNSIGNED NULL AFTER status',
         ],
