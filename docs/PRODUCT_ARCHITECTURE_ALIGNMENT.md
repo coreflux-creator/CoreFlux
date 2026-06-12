@@ -295,6 +295,12 @@ payment, payroll, and integration-write actions must enforce:
 - Idempotency for externally-triggered or retryable actions
 - Consistent error responses
 
+WorkflowEngine action decisions emit platform audit events named
+`workflow.action.{action}` in addition to the internal `workflow_step_actions`
+ledger. Started, advanced, completed, blocked, and People Graph resolution
+events use the canonical audit fields for actor, object, request id, source,
+user agent, and before/after state where available.
+
 ### Separation Of Duties
 
 Separation of duties means the same person should not be able to both originate

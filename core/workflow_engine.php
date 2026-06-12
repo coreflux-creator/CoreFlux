@@ -161,6 +161,9 @@ function workflowStart(int $tenantId, string $defKey, string $subjectType, int $
 
     _workflowAuditEvent($tenantId, $startedByUserId, 'workflow.started', $instanceId, [
         'def_key' => $defKey, 'subject_type' => $subjectType, 'subject_id' => $subjectId,
+        'request_id' => _workflowRequestId($payload),
+        'source' => 'workflow',
+        'after_json' => ['status' => WORKFLOW_STATUS_PENDING, 'current_step' => 1],
     ]);
 
     // Fire push to step-1 approvers, unless the caller (e.g. the AP
@@ -256,6 +259,18 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
         'c'  => $comment,
         'v'  => $via,
     ]);
+    _workflowAuditEvent($tenantId, $userId, "workflow.action.{$action}", $instanceId, [
+        'subject_type' => (string) $instance['subject_type'],
+        'subject_id' => (int) $instance['subject_id'],
+        'step_no' => (int) $instance['current_step'],
+        'action' => $action,
+        'via' => $via,
+        'actor_email' => $actorEmail,
+        'delegated_to_user_id' => $delegatedTo,
+        'comment_present' => $comment !== null && trim((string) $comment) !== '',
+        'request_id' => _workflowRequestId($payload),
+        'source' => 'workflow',
+    ]);
 
     if ($action === 'reject') {
         $result = _workflowComplete($tenantId, $instanceId, WORKFLOW_STATUS_REJECTED, $userId, $comment);
@@ -322,6 +337,12 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
 
     _workflowAuditEvent($tenantId, $userId, 'workflow.advanced', $instanceId, [
         'from_step' => $stepIdx + 1, 'to_step' => $nextIdx + 1,
+        'subject_type' => (string) $instance['subject_type'],
+        'subject_id' => (int) $instance['subject_id'],
+        'request_id' => _workflowRequestId($payload),
+        'source' => 'workflow',
+        'before_json' => ['status' => WORKFLOW_STATUS_PENDING, 'current_step' => $stepIdx + 1],
+        'after_json' => ['status' => WORKFLOW_STATUS_PENDING, 'current_step' => $nextIdx + 1],
     ]);
 
     _workflowPushApprovers($tenantId, $instanceId,
@@ -414,6 +435,8 @@ function _workflowAssertCurrentApprover(int $tenantId, array $instance, array $s
             'subject_id' => (int) $instance['subject_id'],
             'current_step' => (int) $instance['current_step'],
             'reason' => 'not_current_step_approver',
+            'request_id' => _workflowRequestId($payload),
+            'source' => 'workflow',
         ]);
         throw new \RuntimeException('Workflow actor is not an approver for the current step');
     }
@@ -433,6 +456,8 @@ function _workflowEnforceSeparationOfDuties(int $tenantId, array $instance, arra
         'current_step' => (int) $instance['current_step'],
         'blocked_user_id' => $userId,
         'sources' => $blockers[$userId],
+        'request_id' => _workflowRequestId($payload),
+        'source' => 'workflow',
     ]);
     throw new \RuntimeException('Separation of duties: actor cannot approve this workflow step because they originated, prepared, requested, or submitted the item');
 }
@@ -494,6 +519,8 @@ function _workflowApprovalPolicyRequiresSeparationOfDuties(
                     'subject_id' => $subjectId,
                     'policy_id' => $requirement['policy']['id'] ?? null,
                     'rule_id' => $rule['id'] ?? null,
+                    'request_id' => _workflowRequestId($payload),
+                    'source' => 'workflow',
                 ]);
                 return true;
             }
@@ -714,6 +741,9 @@ function _workflowComplete(int $tenantId, int $instanceId, string $status, ?int 
 
     _workflowAuditEvent($tenantId, $actorUserId, 'workflow.completed', $instanceId, [
         'status' => $status, 'comment' => $comment,
+        'source' => 'workflow',
+        'before_json' => ['status' => WORKFLOW_STATUS_PENDING],
+        'after_json' => ['status' => $status],
     ]);
     return _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
 }
@@ -821,7 +851,9 @@ function _workflowResolvePeopleGraphActors(
             }
             _workflowAuditEvent($tenantId, null, 'workflow.people_graph_resolved', $instanceId, [
                 'strategy' => $strategy,
+                'object' => $object,
                 'count' => count($actors),
+                'source' => 'workflow',
             ]);
             return _workflowValidActorRefs($actors);
         }
@@ -836,7 +868,9 @@ function _workflowResolvePeopleGraphActors(
             _workflowAuditEvent($tenantId, null, 'workflow.people_graph_resolved', $instanceId, [
                 'strategy' => $strategy,
                 'question' => $question,
+                'object' => $object,
                 'count' => count($actors),
+                'source' => 'workflow',
             ]);
             return _workflowValidActorRefs($actors);
         }
@@ -1016,16 +1050,117 @@ function _workflowAuditEvent(int $tenantId, ?int $userId, string $event, int $ta
     $pdo = getDB();
     if (!$pdo) return;
     try {
-        $pdo->prepare(
-            "INSERT INTO audit_log (tenant_id, user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:t, :u, :e, :ti, :m, :ip, NOW())"
-        )->execute([
-            't'  => $tenantId,
-            'u'  => $userId,
-            'e'  => $event,
-            'ti' => $targetId,
-            'm'  => json_encode($meta, JSON_UNESCAPED_SLASHES),
-            'ip' => substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 64),
-        ]);
+        $cols = _workflowAuditLogColumns($pdo);
+        $values = [];
+        $has = static fn(string $column): bool => in_array($column, $cols, true);
+        $add = static function (string $column, mixed $value) use (&$values, $has): void {
+            if ($has($column)) $values[$column] = $value;
+        };
+
+        $actorEmail = _workflowAuditScalar($meta['actor_email'] ?? null, 255);
+        $actorType = _workflowAuditScalar(
+            $meta['actor_type'] ?? ($userId ? 'user' : ($actorEmail ? 'external_approver' : 'system')),
+            40
+        );
+        $objectType = _workflowAuditScalar($meta['object_type'] ?? 'workflow_instance', 80);
+        $requestId = _workflowRequestId($meta);
+        $source = _workflowAuditScalar($meta['source'] ?? 'workflow', 80);
+        $before = $meta['before_json'] ?? $meta['before'] ?? null;
+        $after = $meta['after_json'] ?? $meta['after'] ?? null;
+
+        $add('tenant_id', $tenantId);
+        $add('actor_user_id', $userId);
+        $add('user_id', $userId);
+        $add('actor_type', $actorType);
+        $add('actor_email', $actorEmail);
+        if ($has('event')) {
+            $values['event'] = $event;
+        } elseif ($has('action')) {
+            $values['action'] = $event;
+        }
+        if ($has('target_id')) {
+            $values['target_id'] = $targetId;
+        } elseif ($has('entity_id')) {
+            $values['entity_id'] = $targetId;
+        }
+        $add('object_type', $objectType);
+        $add('entity', $objectType);
+        $add('before_json', _workflowAuditJson($before));
+        $add('after_json', _workflowAuditJson($after));
+        $add('meta_json', _workflowAuditJson($meta));
+        $add('ip_address', _workflowAuditScalar($_SERVER['REMOTE_ADDR'] ?? null, 45));
+        $add('request_id', $requestId);
+        $add('source', $source);
+        $add('user_agent', _workflowAuditScalar($_SERVER['HTTP_USER_AGENT'] ?? null, 255));
+
+        if (!$values) return;
+        $columns = array_keys($values);
+        $placeholders = array_map(static fn(string $column): string => ':' . $column, $columns);
+        if ($has('created_at')) {
+            $columns[] = 'created_at';
+            $placeholders[] = 'NOW()';
+        }
+        $sql = 'INSERT INTO audit_log (`' . implode('`, `', $columns) . '`) VALUES (' . implode(', ', $placeholders) . ')';
+        $pdo->prepare($sql)->execute($values);
     } catch (\Throwable $_) { /* audit best-effort */ }
+}
+
+/** @internal */
+function _workflowAuditLogColumns(PDO $pdo): array {
+    static $cache = [];
+    $key = spl_object_id($pdo);
+    if (isset($cache[$key])) return $cache[$key];
+    try {
+        $rows = $pdo->query('SHOW COLUMNS FROM audit_log')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $cache[$key] = array_values(array_filter(array_map(static fn($row) => (string) ($row['Field'] ?? ''), $rows)));
+    } catch (\Throwable $_) {
+        $cache[$key] = [
+            'tenant_id', 'actor_user_id', 'user_id', 'actor_type', 'actor_email',
+            'event', 'action', 'target_id', 'entity_id', 'object_type', 'entity',
+            'before_json', 'after_json', 'meta_json', 'ip_address', 'request_id',
+            'source', 'user_agent', 'created_at',
+        ];
+    }
+    return $cache[$key];
+}
+
+/** @internal */
+function _workflowAuditJson(mixed $value): ?string {
+    if ($value === null) return null;
+    if (is_string($value)) {
+        $trimmed = trim($value);
+        if ($trimmed === '') return null;
+        json_decode($trimmed, true);
+        if (json_last_error() === JSON_ERROR_NONE) return $trimmed;
+    }
+    $json = json_encode($value, JSON_UNESCAPED_SLASHES);
+    return $json === false ? null : $json;
+}
+
+/** @internal */
+function _workflowAuditScalar(mixed $value, int $maxLength): ?string {
+    if ($value === null) return null;
+    if (is_bool($value)) $value = $value ? '1' : '0';
+    if (is_array($value) || is_object($value)) return null;
+    $text = trim((string) $value);
+    if ($text === '') return null;
+    return substr($text, 0, $maxLength);
+}
+
+/** @internal */
+function _workflowRequestId(array $source = []): ?string {
+    $context = is_array($source['context'] ?? null) ? $source['context'] : [];
+    $meta = is_array($source['meta'] ?? null) ? $source['meta'] : [];
+    foreach ([
+        $source['request_id'] ?? null,
+        $context['request_id'] ?? null,
+        $meta['request_id'] ?? null,
+        $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
+        $_SERVER['HTTP_X_CORRELATION_ID'] ?? null,
+        $_SERVER['REQUEST_ID'] ?? null,
+    ] as $candidate) {
+        $requestId = _workflowAuditScalar($candidate, 80);
+        if ($requestId !== null) return $requestId;
+    }
+    return null;
 }

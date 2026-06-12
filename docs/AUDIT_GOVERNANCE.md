@@ -53,6 +53,19 @@ The CSV output includes actor, object, request/source, metadata, before/after,
 IP, user-agent, and timestamp columns so audit packets can be exported without
 screen scraping.
 
+## Workflow Evidence
+
+WorkflowEngine writes platform audit events in addition to its
+`workflow_step_actions` ledger. Every approve, reject, skip, delegate, comment,
+and escalate decision emits `workflow.action.{action}` with actor, workflow
+instance, step, via, request id, and source metadata. State transitions also
+emit `workflow.started`, `workflow.advanced`, and `workflow.completed` with
+before/after status or step snapshots when available.
+
+People Graph-backed routing emits `workflow.people_graph_resolved` with the
+resolution strategy and resolved object, so later reviews can explain why an
+approver was selected before the action was taken.
+
 ## Drift Rules
 
 - New mutating APIs must emit a platform audit event or call a shared service
