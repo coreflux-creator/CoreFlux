@@ -40,8 +40,9 @@ $a('mint actions = [approve, reject]',              str_contains($emailLib, "['a
 $a('72h default TTL',                               str_contains($emailLib, 'int $ttlHours = 72'));
 $a('consume validates subject_type=ap_bill',       str_contains($emailLib, "(\$row['subject_type'] ?? '') !== 'ap_bill'"));
 $a('consume blocks earlier-step bypass',            str_contains($emailLib, "WHERE tenant_id = :t AND bill_id = :b AND step_no < :s AND state = 'pending'"));
-$a('consume mirrors disputed on reject',            str_contains($emailLib, "UPDATE ap_bills SET status = 'disputed'"));
-$a('consume rolls bill to approved on final step', str_contains($emailLib, "UPDATE ap_bills SET status = 'approved'"));
+$a('consume delegates decision to WorkflowEngine bridge', str_contains($emailLib, 'apWorkflowActBillApproval($tenantId, $bill, $userId, $action, $note, true)'));
+$a('consume audits workflow-blocked email decisions', str_contains($emailLib, "apAudit('ap.bill.approval_blocked'") && str_contains($emailLib, "'via' => 'email_approval'"));
+$a('consume never directly flips AP bill state',    !str_contains($emailLib, "UPDATE ap_bills SET status = 'disputed'") && !str_contains($emailLib, "UPDATE ap_bills SET status = 'approved'"));
 $a('body builder has Approve + Reject buttons',     str_contains($emailLib, '>Approve in one click<') && str_contains($emailLib, '>Reject<'));
 $a('body builder warns about 72h expiry',           str_contains($emailLib, 'expire in 72 hours'));
 
