@@ -161,9 +161,17 @@ $assert('datasets endpoint filters by accessible registry', str_contains($api, '
 $assert('template API requires dataset access', str_contains($api, '_xtplRequireDatasetAccess'));
 $assert('shared service validates template dataset', str_contains($service, 'exportTemplateGetForDataset') && str_contains($service, "template's dataset must be"));
 $assert('shared service emits dataset audit event', str_contains($service, 'exportDatasetAudit') && str_contains($service, "'audit_event'"));
+$assert('shared service emits export generation and filter metadata',
+    str_contains($service, 'function exportDatasetAuditMeta')
+    && str_contains($service, "'generated_at' => \$generatedAt")
+    && str_contains($service, "\$meta['filter_params'] = \$filterParams")
+    && str_contains($service, 'exportDatasetAuditFilterParams'));
 $assert('shared service normalizes filenames', str_contains($service, 'exportTemplateCsvFilename'));
 $assert('people export supports template_id', str_contains($peopleExport, 'template_id') && str_contains($peopleExport, 'people_directory'));
 $assert('placements export supports template_id', str_contains($placementsExport, 'template_id') && str_contains($placementsExport, 'placements_directory'));
+$assert('people and placements raw exports use shared metadata helper',
+    str_contains($peopleExport, 'exportDatasetAuditMeta([')
+    && str_contains($placementsExport, 'exportDatasetAuditMeta(['));
 $assert('payroll template export uses shared runner', str_contains($payrollRuns, 'exportTemplateStreamDatasetCsv') && str_contains($payrollRuns, 'payroll_disbursements'));
 $assert('ap payments template export uses shared runner', str_contains($apPayments, 'exportTemplateStreamDatasetCsv') && str_contains($apPayments, 'ap_payments'));
 $assert('ap payments CSV template export uses shared runner', str_contains($apPaymentsCsv, 'exportTemplateStreamDatasetCsv') && str_contains($apPaymentsCsv, 'ap_payments'));
@@ -176,12 +184,19 @@ $assert('ap raw exports audit dataset events',
     && str_contains($apPaymentsCsv, "mode' => 'raw'")
     && str_contains($apBillsCsv, "mode' => 'raw'")
     && str_contains($apVendorsCsv, "mode' => 'raw'"));
+$assert('ap raw exports use shared metadata helper',
+    str_contains($apPaymentsCsv, 'exportDatasetAuditMeta([')
+    && str_contains($apBillsCsv, 'exportDatasetAuditMeta([')
+    && str_contains($apVendorsCsv, 'exportDatasetAuditMeta(['));
 $assert('ap legacy export endpoint consumes governed datasets',
     str_contains($apLegacyExport, 'exportDatasetFetchRows')
     && str_contains($apLegacyExport, "'ap_bills'")
     && str_contains($apLegacyExport, "'ap_payments'")
     && str_contains($apLegacyExport, "'expenses'")
     && str_contains($apLegacyExport, "mode' => 'raw'"));
+$assert('ap legacy export uses shared metadata helper',
+    str_contains($apLegacyExport, 'exportDatasetAuditMeta([')
+    && !str_contains($apLegacyExport, '$optionKeys = function'));
 $assert('ap expenses template export uses shared runner', str_contains($apExpenses, 'exportTemplateStreamDatasetCsv') && str_contains($apExpenses, "'expenses'"));
 $assert('ap expenses raw export uses shared dataset service',
     str_contains($apExpenses, 'exportDatasetFetchExpenses')
@@ -195,6 +210,9 @@ $assert('accounting export endpoint consumes governed datasets',
     && str_contains($accountingExport, 'accounting_periods')
     && str_contains($accountingExport, 'accounting_bank_statement_lines')
     && str_contains($accountingExport, "mode' => 'raw'"));
+$assert('accounting export endpoint uses shared metadata helper',
+    str_contains($accountingExport, 'exportDatasetAuditMeta([')
+    && !str_contains($accountingExport, '$optionKeys = function'));
 $assert('accounting export endpoint supports dataset templates',
     str_contains($accountingExport, 'exportTemplateStreamDatasetCsv')
     && str_contains($accountingExport, 'template_id'));
@@ -205,13 +223,18 @@ $assert('billing raw exports audit dataset events',
     && str_contains($billingPayments, 'billing.payment.exported')
     && str_contains($billingInvoices, "mode' => 'raw'")
     && str_contains($billingPayments, "mode' => 'raw'"));
+$assert('billing raw exports use shared metadata helper',
+    str_contains($billingInvoices, 'exportDatasetAuditMeta([')
+    && str_contains($billingPayments, 'exportDatasetAuditMeta(['));
 $assert('time entries template export uses shared runner', str_contains($timeExport, 'exportTemplateStreamDatasetCsv') && str_contains($timeExport, 'time_entries'));
 $assert('time raw export audits dataset event',
     str_contains($timeExport, 'time.entries.exported') && str_contains($timeExport, "mode' => 'raw'"));
+$assert('time raw export uses shared metadata helper', str_contains($timeExport, 'exportDatasetAuditMeta(['));
 $assert('staffing clients template export uses shared runner',
     str_contains($staffingClientsExport, 'exportTemplateStreamDatasetCsv') && str_contains($staffingClientsExport, 'staffing_clients'));
 $assert('staffing clients raw export audits dataset event',
     str_contains($staffingClientsExport, 'staffing.clients.exported') && str_contains($staffingClientsExport, "mode' => 'raw'"));
+$assert('staffing clients raw export uses shared metadata helper', str_contains($staffingClientsExport, 'exportDatasetAuditMeta(['));
 $assert('staffing clients export uses export permission',
     str_contains($staffingClientsExport, "'staffing.export.run'"));
 $assert('people UI uses export template picker', str_contains($peopleUi, 'ExportTemplatePicker') && str_contains($peopleUi, 'dataset="people_directory"'));
@@ -227,6 +250,10 @@ $exportDocs = (string) file_get_contents($root . '/docs/EXPORT_GOVERNANCE.md');
 $assert('export governance docs cover archived custom fields',
     str_contains($exportDocs, 'include archived custom-field definitions')
     && str_contains($exportDocs, 'historical values remain exportable'));
+$assert('export governance docs cover generation/filter metadata',
+    str_contains($exportDocs, 'generated_at')
+    && str_contains($exportDocs, 'filter_params')
+    && str_contains($exportDocs, 'Raw governed CSV exports use the same metadata helper'));
 $assert('export_datasets parses', _php_lint($root . '/core/export_datasets.php'));
 $assert('export_templates parses', _php_lint($root . '/core/export_templates.php'));
 $assert('export_service parses', _php_lint($root . '/core/export_service.php'));

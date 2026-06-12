@@ -137,14 +137,14 @@ if ($method === 'POST' && $action === 'export') {
             unset($runOptions['include_sensitive_custom_fields']);
         }
         $result = reportBuilderRunDefinition($definition, $tenantId, $runOptions);
-        reportBuilderAudit($tenantId, $userId ?: null, 'reports.custom.exported', $targetId, [
+        reportBuilderAudit($tenantId, $userId ?: null, 'reports.custom.exported', $targetId, array_merge([
             'dataset' => $definition['dataset'],
             'columns' => array_column($result['columns'] ?? [], 'field'),
             'row_count' => $result['row_count'] ?? 0,
             'format' => 'csv',
             'source' => $resolved['source'],
             'preset_key' => $resolved['preset_key'],
-        ]);
+        ], reportBuilderExportAuditMeta($definition, $runOptions)));
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . reportBuilderCsvFilename((string) $definition['dataset']) . '"');
         header('Cache-Control: no-store');

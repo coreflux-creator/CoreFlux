@@ -63,13 +63,12 @@ $rows = scopedQuery(
     $params
 );
 
-exportDatasetAudit($tenantId, $userId ?: null, 'people.directory.exported', null, [
+exportDatasetAudit($tenantId, $userId ?: null, 'people.directory.exported', null, exportDatasetAuditMeta([
     'dataset' => 'people_directory',
     'format' => 'csv',
     'mode' => 'raw',
     'rows' => count($rows),
-    'option_keys' => array_values(array_filter(array_keys($datasetOptions), fn($key) => $datasetOptions[$key] !== '')),
-]);
+], $datasetOptions));
 
 (new CsvExportService([
     'first_name'           => 'First name',

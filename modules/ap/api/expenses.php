@@ -58,13 +58,13 @@ if ($method === 'GET' && $action === 'export_selected') {
     }
 
     $rows = exportDatasetFetchExpenses($tid, ['ids' => $ids]);
-    exportDatasetAudit($tid, $uid ?: null, 'ap.expense.export_selected', null, [
+    exportDatasetAudit($tid, $uid ?: null, 'ap.expense.export_selected', null, exportDatasetAuditMeta([
         'dataset' => 'expenses',
         'format' => 'csv',
         'mode' => 'raw',
         'ids' => $ids,
         'rows' => count($rows),
-    ]);
+    ], ['ids' => $ids]));
 
     $stamp = date('Y-m-d');
     (new CsvExportService([

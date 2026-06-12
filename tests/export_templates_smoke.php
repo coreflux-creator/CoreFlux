@@ -155,6 +155,11 @@ try {
 $assert('PHP parses cleanly (export_datasets)',   $lint(__DIR__ . '/../core/export_datasets.php'));
 $assert('PHP parses cleanly (export_templates)',  $lint(__DIR__ . '/../core/export_templates.php'));
 $assert('PHP parses cleanly (export_service)',    $lint(__DIR__ . '/../core/export_service.php'));
+$exportServiceSrc = file_get_contents(__DIR__ . '/../core/export_service.php');
+$assert('export service includes generation + filter audit metadata',
+                                              strpos($exportServiceSrc, 'function exportDatasetAuditMeta') !== false
+                                              && strpos($exportServiceSrc, "'generated_at' => \$generatedAt") !== false
+                                              && strpos($exportServiceSrc, "\$meta['filter_params'] = \$filterParams") !== false);
 
 // ─── /api/export_templates.php surface ───
 echo "/api/export_templates.php\n";
@@ -213,12 +218,16 @@ $assert('ap legacy export uses governed datasets',
 $assert('ap legacy raw CSV audits dataset',
                                               strpos($apLegacyExport, 'exportDatasetAudit') !== false
                                               && strpos($apLegacyExport, "mode' => 'raw'") !== false);
+$assert('ap legacy raw CSV uses shared audit metadata',
+                                              strpos($apLegacyExport, 'exportDatasetAuditMeta([') !== false);
 $assert('ap payments CSV honors template_id', strpos($apPayCsv, "(int) (\$_GET['template_id'] ?? 0)") !== false);
 $assert('ap payments CSV uses governed dataset',
                                               strpos($apPayCsv, 'ap_payments') !== false
                                               && strpos($apPayCsv, 'exportDatasetFetchApPayments') !== false);
 $assert('ap payments raw CSV audits dataset', strpos($apPayCsv, 'ap.payments.exported') !== false
                                               && strpos($apPayCsv, "mode' => 'raw'") !== false);
+$assert('ap payments raw CSV uses shared audit metadata',
+                                              strpos($apPayCsv, 'exportDatasetAuditMeta([') !== false);
 $assert('ap payments CSV requires export permission',
                                               strpos($apPayCsv, "'ap.export.run'") !== false);
 $assert('ap bills CSV honors template_id',    strpos($apBillsCsv, "(int) (\$_GET['template_id'] ?? 0)") !== false);
@@ -227,12 +236,16 @@ $assert('ap bills CSV uses governed dataset',
                                               && strpos($apBillsCsv, 'exportDatasetFetchApBills') !== false);
 $assert('ap bills raw CSV audits dataset',    strpos($apBillsCsv, 'ap.bills.exported') !== false
                                               && strpos($apBillsCsv, "mode' => 'raw'") !== false);
+$assert('ap bills raw CSV uses shared audit metadata',
+                                              strpos($apBillsCsv, 'exportDatasetAuditMeta([') !== false);
 $assert('ap vendors CSV honors template_id',  strpos($apVendorsCsv, "(int) (\$_GET['template_id'] ?? 0)") !== false);
 $assert('ap vendors CSV uses governed dataset',
                                               strpos($apVendorsCsv, 'ap_vendors') !== false
                                               && strpos($apVendorsCsv, 'exportDatasetFetchApVendors') !== false);
 $assert('ap vendors raw CSV audits dataset',  strpos($apVendorsCsv, 'ap.vendors.exported') !== false
                                               && strpos($apVendorsCsv, "mode' => 'raw'") !== false);
+$assert('ap vendors raw CSV uses shared audit metadata',
+                                              strpos($apVendorsCsv, 'exportDatasetAuditMeta([') !== false);
 
 // ─── Wire-in: ap/expenses.php ───
 echo "ap/expenses.php template export\n";
@@ -246,6 +259,8 @@ $assert('raw export uses governed expenses dataset',
                                               strpos($ex, 'exportDatasetFetchExpenses') !== false
                                               && strpos($ex, 'Core\\CsvExportService') !== false
                                               && strpos($ex, 'ap.expense.export_selected') !== false);
+$assert('raw expense export uses shared audit metadata',
+                                              strpos($ex, 'exportDatasetAuditMeta([') !== false);
 
 // ─── Wire-in: billing CSV exports ───
 echo "accounting export datasets\n";
@@ -263,6 +278,8 @@ $assert('accounting raw CSV audits dataset',
                                               strpos($accountingExport, 'exportDatasetAudit') !== false
                                               && strpos($accountingExport, "mode' => 'raw'") !== false
                                               && strpos($accountingExport, 'accounting.ledger.exported') !== false);
+$assert('accounting raw CSV uses shared audit metadata',
+                                              strpos($accountingExport, 'exportDatasetAuditMeta([') !== false);
 
 echo "billing CSV template exports\n";
 $billingInv = file_get_contents(__DIR__ . '/../modules/billing/api/csv_export.php');
@@ -273,12 +290,16 @@ $assert('invoice export rejects mismatched dataset',
                                               && strpos(file_get_contents(__DIR__ . '/../core/export_service.php'), "template's dataset must be") !== false);
 $assert('invoice raw export audits dataset',  strpos($billingInv, 'billing.invoice.exported') !== false
                                               && strpos($billingInv, "mode' => 'raw'") !== false);
+$assert('invoice raw export uses shared audit metadata',
+                                              strpos($billingInv, 'exportDatasetAuditMeta([') !== false);
 $assert('payment export honors template_id', strpos($billingPay, "(int) (\$_GET['template_id'] ?? 0)") !== false);
 $assert('payment export rejects mismatched dataset',
                                               strpos($billingPay, 'billing_payments') !== false
                                               && strpos(file_get_contents(__DIR__ . '/../core/export_service.php'), "template's dataset must be") !== false);
 $assert('payment raw export audits dataset', strpos($billingPay, 'billing.payment.exported') !== false
                                               && strpos($billingPay, "mode' => 'raw'") !== false);
+$assert('payment raw export uses shared audit metadata',
+                                              strpos($billingPay, 'exportDatasetAuditMeta([') !== false);
 
 // ─── Wire-in: time CSV exports ───
 echo "time CSV template exports\n";
@@ -289,6 +310,8 @@ $assert('time export rejects mismatched dataset',
                                               && strpos(file_get_contents(__DIR__ . '/../core/export_service.php'), "template's dataset must be") !== false);
 $assert('time raw export audits dataset',     strpos($time, 'time.entries.exported') !== false
                                               && strpos($time, "mode' => 'raw'") !== false);
+$assert('time raw export uses shared audit metadata',
+                                              strpos($time, 'exportDatasetAuditMeta([') !== false);
 
 // ─── Wire-in: staffing CSV exports ───
 echo "staffing CSV template exports\n";
@@ -300,6 +323,8 @@ $assert('staffing clients export uses governed dataset',
 $assert('staffing clients raw export audits dataset',
                                               strpos($staffingClients, 'staffing.clients.exported') !== false
                                               && strpos($staffingClients, "mode' => 'raw'") !== false);
+$assert('staffing clients raw export uses shared audit metadata',
+                                              strpos($staffingClients, 'exportDatasetAuditMeta([') !== false);
 $assert('staffing clients export requires export permission',
                                               strpos($staffingClients, "'staffing.export.run'") !== false);
 

@@ -163,18 +163,6 @@ $datasetOptionsForType = function (string $exportType) use ($ids, $from, $to): a
     return $opts;
 };
 
-$optionKeys = function (array $opts): array {
-    $keys = [];
-    foreach ($opts as $key => $value) {
-        if (is_array($value)) {
-            if ($value) $keys[] = $key;
-        } elseif ($value !== null && $value !== '') {
-            $keys[] = $key;
-        }
-    }
-    return $keys;
-};
-
 if (isset($governedExports[$type])) {
     $cfg = $governedExports[$type];
     $dataset = (string) $cfg['dataset'];
@@ -207,15 +195,14 @@ if (isset($governedExports[$type])) {
         api_error($e->getMessage(), 422);
     }
     $event = (string) ((exportDatasetGet($dataset)['audit_event'] ?? 'export.dataset.exported'));
-    exportDatasetAudit($tid, $uid ?: null, $event, null, [
+    exportDatasetAudit($tid, $uid ?: null, $event, null, exportDatasetAuditMeta([
         'dataset' => $dataset,
         'format' => 'csv',
         'mode' => 'raw',
         'legacy_endpoint' => 'ap/export.php',
         'type' => $type,
         'rows' => count($rows),
-        'option_keys' => $optionKeys($options),
-    ]);
+    ], $options));
     apAudit('ap.export.csv', ['type' => $type, 'rows' => count($rows), 'tenant_id' => $tid, 'dataset' => $dataset]);
     (new CsvExportService($cfg['columns']))->stream($rows, (string) $cfg['filename']);
 }

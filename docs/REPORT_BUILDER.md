@@ -65,7 +65,8 @@ governed dataset fetcher and returns projected rows. Requires
 
 Runs the same governed definition, saved report, or `preset_key` and streams
 CSV. Requires `reports.custom.build` and `reports.export`, preserves dataset
-RBAC, and writes `reports.custom.exported` audit metadata.
+RBAC, and writes `reports.custom.exported` audit metadata with `generated_at`
+and normalized `filter_params`.
 
 `POST /api/v1/reports/report-builder`
 

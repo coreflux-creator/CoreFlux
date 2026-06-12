@@ -50,13 +50,12 @@ if ($tplId > 0) {
 
 $rows = exportDatasetFetchStaffingClients($tenantId, $datasetOptions);
 
-exportDatasetAudit($tenantId, $userId ?: null, 'staffing.clients.exported', null, [
+exportDatasetAudit($tenantId, $userId ?: null, 'staffing.clients.exported', null, exportDatasetAuditMeta([
     'dataset' => 'staffing_clients',
     'format' => 'csv',
     'mode' => 'raw',
     'rows' => count($rows),
-    'option_keys' => array_values(array_filter(array_keys($datasetOptions), fn($key) => $datasetOptions[$key] !== '')),
-]);
+], $datasetOptions));
 
 (new CsvExportService([
     'name'                  => 'Client name',

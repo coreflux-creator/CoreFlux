@@ -53,13 +53,12 @@ if ($tplId > 0) {
 
 $rows = exportDatasetFetchApVendors($tenantId, $datasetOptions);
 
-exportDatasetAudit($tenantId, $userId ?: null, 'ap.vendors.exported', null, [
+exportDatasetAudit($tenantId, $userId ?: null, 'ap.vendors.exported', null, exportDatasetAuditMeta([
     'dataset' => 'ap_vendors',
     'format' => 'csv',
     'mode' => 'raw',
     'rows' => count($rows),
-    'option_keys' => array_values(array_filter(array_keys($datasetOptions), fn($key) => $datasetOptions[$key] !== '')),
-]);
+], $datasetOptions));
 
 (new CsvExportService([
     'vendor_name'           => 'Vendor name',

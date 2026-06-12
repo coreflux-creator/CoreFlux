@@ -52,13 +52,12 @@ if ($tplId > 0) {
 
 $rows = exportDatasetFetchBillingInvoices($tenantId, $datasetOptions);
 
-exportDatasetAudit($tenantId, $userId ?: null, 'billing.invoice.exported', null, [
+exportDatasetAudit($tenantId, $userId ?: null, 'billing.invoice.exported', null, exportDatasetAuditMeta([
     'dataset' => 'billing_invoices',
     'format' => 'csv',
     'mode' => 'raw',
     'rows' => count($rows),
-    'option_keys' => array_values(array_filter(array_keys($datasetOptions), fn($key) => $datasetOptions[$key] !== '')),
-]);
+], $datasetOptions));
 
 (new CsvExportService([
     'invoice_number' => 'Invoice #',

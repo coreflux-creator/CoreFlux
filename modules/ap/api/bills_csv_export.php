@@ -52,13 +52,12 @@ if ($tplId > 0) {
 
 $rows = exportDatasetFetchApBills($tenantId, $datasetOptions);
 
-exportDatasetAudit($tenantId, $userId ?: null, 'ap.bills.exported', null, [
+exportDatasetAudit($tenantId, $userId ?: null, 'ap.bills.exported', null, exportDatasetAuditMeta([
     'dataset' => 'ap_bills',
     'format' => 'csv',
     'mode' => 'raw',
     'rows' => count($rows),
-    'option_keys' => array_values(array_filter(array_keys($datasetOptions), fn($key) => $datasetOptions[$key] !== '')),
-]);
+], $datasetOptions));
 
 (new CsvExportService([
     'bill_number'    => 'Bill #',

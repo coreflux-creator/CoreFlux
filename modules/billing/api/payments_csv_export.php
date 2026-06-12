@@ -52,13 +52,12 @@ if ($tplId > 0) {
 
 $rows = exportDatasetFetchBillingPayments($tenantId, $datasetOptions);
 
-exportDatasetAudit($tenantId, $userId ?: null, 'billing.payment.exported', null, [
+exportDatasetAudit($tenantId, $userId ?: null, 'billing.payment.exported', null, exportDatasetAuditMeta([
     'dataset' => 'billing_payments',
     'format' => 'csv',
     'mode' => 'raw',
     'rows' => count($rows),
-    'option_keys' => array_values(array_filter(array_keys($datasetOptions), fn($key) => $datasetOptions[$key] !== '')),
-]);
+], $datasetOptions));
 
 (new CsvExportService([
     'client_name'        => 'Client name',

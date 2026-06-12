@@ -45,6 +45,51 @@ function exportDatasetFetchRows(int $tenantId, string $datasetKey, array $option
     return array_values($rows);
 }
 
+function exportDatasetAuditMeta(array $meta = [], array $options = []): array
+{
+    $filterParams = exportDatasetAuditFilterParams($options);
+    $generatedAt = (string) ($meta['generated_at'] ?? gmdate('c'));
+    unset($meta['generated_at']);
+
+    if (!array_key_exists('filter_params', $meta)) {
+        $meta['filter_params'] = $filterParams;
+    }
+    if (!array_key_exists('option_keys', $meta)) {
+        $meta['option_keys'] = array_values(array_keys($meta['filter_params']));
+    }
+
+    return array_merge(['generated_at' => $generatedAt], $meta);
+}
+
+function exportDatasetAuditFilterParams(array $options): array
+{
+    $out = [];
+    foreach ($options as $key => $value) {
+        $key = (string) $key;
+        if ($key === '' || $value === null || $value === '' || $value === []) continue;
+        $out[$key] = exportDatasetAuditFilterValue($key, $value);
+    }
+    return $out;
+}
+
+function exportDatasetAuditFilterValue(string $key, $value)
+{
+    if (preg_match('/(password|secret|token|credential|authorization)/i', $key)) {
+        return '[redacted]';
+    }
+    if (is_array($value)) {
+        $out = [];
+        foreach ($value as $childKey => $childValue) {
+            if ($childValue === null || $childValue === '' || $childValue === []) continue;
+            $out[$childKey] = exportDatasetAuditFilterValue((string) $childKey, $childValue);
+        }
+        return $out;
+    }
+    if (is_bool($value) || is_int($value) || is_float($value)) return $value;
+    $text = (string) $value;
+    return strlen($text) > 500 ? substr($text, 0, 500) . '...' : $text;
+}
+
 function exportTemplateRenderDatasetToStream(
     int $tenantId,
     string $datasetKey,
@@ -67,20 +112,22 @@ function exportTemplateRenderDatasetToStream(
     }
 
     $event = (string) ($dataset['audit_event'] ?? 'export.dataset.exported');
-    exportDatasetAudit($tenantId, $actorUserId, $event, $targetId, array_merge([
+    $meta = exportDatasetAuditMeta(array_merge([
         'dataset' => $datasetKey,
         'template_id' => $templateId,
         'template_name' => (string) ($template['name'] ?? ''),
         'format' => 'csv',
         'rows' => count($rows),
-        'option_keys' => array_values(array_keys($options)),
-    ], $auditMeta));
+    ], $auditMeta), $options);
+    exportDatasetAudit($tenantId, $actorUserId, $event, $targetId, $meta);
 
     return [
         'dataset' => $datasetKey,
         'template_id' => $templateId,
         'template_name' => (string) ($template['name'] ?? ''),
         'rows' => count($rows),
+        'generated_at' => $meta['generated_at'] ?? null,
+        'filter_params' => $meta['filter_params'] ?? [],
     ];
 }
 
@@ -127,6 +174,7 @@ function exportTemplateCsvFilename(string $prefix, string $templateName, array $
 function exportDatasetAudit(int $tenantId, ?int $actorUserId, string $event, ?int $targetId, array $meta = []): void
 {
     if (!function_exists('getDB')) return;
+    $meta = exportDatasetAuditMeta($meta, $meta['filter_params'] ?? []);
     try {
         getDB()->prepare(
             'INSERT INTO audit_log

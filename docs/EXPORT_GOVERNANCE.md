@@ -98,6 +98,10 @@ exportTemplateStreamDatasetCsv(
 The shared runner validates that the template belongs to the requested dataset,
 fetches rows with the dataset fetcher, renders the template, normalizes the CSV
 filename, and writes the dataset's declared `audit_event` to `audit_log`.
+Audit metadata always includes `generated_at`, `filter_params`, `option_keys`,
+dataset, format, row count, and template metadata when a template was used.
+Raw governed CSV exports use the same metadata helper, so filter values are not
+lost just because the tenant did not choose an export template.
 
 People Directory, Placements, Time Entries, Staffing Clients, Payroll
 Disbursements, AP Payments, AP Bills, AP Vendors, Expenses, Accounting ledger

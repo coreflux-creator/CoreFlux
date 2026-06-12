@@ -461,6 +461,30 @@ function reportBuilderCsvFilename(string $dataset): string
     return $safe . '_custom_report_' . date('Ymd_His') . '.csv';
 }
 
+function reportBuilderExportAuditMeta(array $definition, array $runOptions = []): array
+{
+    return [
+        'generated_at' => gmdate('c'),
+        'filter_params' => [
+            'filters' => $definition['filters'] ?? [],
+            'sorts' => $definition['sorts'] ?? [],
+            'limit' => $definition['limit'] ?? null,
+            'options' => reportBuilderAuditOptionParams($runOptions),
+        ],
+    ];
+}
+
+function reportBuilderAuditOptionParams(array $options): array
+{
+    $out = [];
+    foreach ($options as $key => $value) {
+        $key = (string) $key;
+        if ($key === '' || $value === null || $value === '' || $value === []) continue;
+        $out[$key] = is_array($value) ? array_values($value) : $value;
+    }
+    return $out;
+}
+
 function reportBuilderApplyDefinitionToRows(array $definition, iterable $rows): array
 {
     $selected = reportBuilderDefinitionOutputFields($definition);

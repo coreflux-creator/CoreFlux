@@ -118,6 +118,10 @@ $assert('sensitive definition check is tenant-aware',
 $assert('report builder preserves archived custom-field metadata',
     str_contains($coreText, "'archived'     => !empty(\$field['archived'])")
     && str_contains($coreText, "'archived_at'  => \$field['archived_at'] ?? null"));
+$assert('report builder export audit metadata helper exists',
+    str_contains($coreText, 'function reportBuilderExportAuditMeta')
+    && str_contains($coreText, "'generated_at' => gmdate('c')")
+    && str_contains($coreText, "'filter_params' => ["));
 $assert('people execution supported', !empty($people['execution_supported']));
 $assert('reportBuilderDatasetGet works', (reportBuilderDatasetGet('people_directory')['key'] ?? null) === 'people_directory');
 $presets = reportBuilderPresetRegistry();
@@ -202,6 +206,8 @@ $assert('API checks sensitive fields with tenant context', str_contains($apiText
 $assert('API opts into sensitive custom fields only after the gate', str_contains($apiText, "\$runOptions['include_sensitive_custom_fields'] = true"));
 $assert('API audits execution', str_contains($apiText, "'reports.custom.executed'"));
 $assert('API audits CSV export', str_contains($apiText, "'reports.custom.exported'"));
+$assert('API export audit includes generated filters',
+    str_contains($apiText, 'reportBuilderExportAuditMeta($definition, $runOptions)'));
 $assert('API audits saved report lifecycle', str_contains($apiText, "'reports.custom.saved'") && str_contains($apiText, "'reports.custom.updated'") && str_contains($apiText, "'reports.custom.deleted'"));
 $assert('API exposes governed presets', str_contains($apiText, "action === 'presets'") && str_contains($apiText, 'reportBuilderPresetRegistry'));
 $assert('API resolves preset keys', str_contains($apiText, 'reportBuilderApiResolveDefinition') && str_contains($apiText, "'preset_key'"));
@@ -218,6 +224,9 @@ $assert('report builder docs cover presets', str_contains($reportBuilderDocs, '/
 $assert('report builder docs cover archived custom fields',
     str_contains($reportBuilderDocs, 'Archived tenant custom fields remain discoverable')
     && str_contains($reportBuilderDocs, 'archived_at'));
+$assert('report builder docs cover export metadata',
+    str_contains($reportBuilderDocs, 'generated_at')
+    && str_contains($reportBuilderDocs, 'filter_params'));
 $assert('core report builder parses', _php_lint($root . '/core/report_builder.php'));
 $migration = (string) file_get_contents($root . '/core/migrations/115_report_builder_saved_reports.sql');
 $assert('saved reports migration creates table', str_contains($migration, 'CREATE TABLE IF NOT EXISTS report_builder_reports'));

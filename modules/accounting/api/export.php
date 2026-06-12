@@ -263,18 +263,6 @@ $datasetOptionsForType = function (string $exportType, array $cfg) use ($from, $
     return $opts;
 };
 
-$optionKeys = function (array $opts): array {
-    $keys = [];
-    foreach ($opts as $key => $value) {
-        if (is_array($value)) {
-            if ($value) $keys[] = $key;
-        } elseif ($value !== null && $value !== '') {
-            $keys[] = $key;
-        }
-    }
-    return $keys;
-};
-
 if (isset($governedExports[$type])) {
     $cfg = $governedExports[$type];
     $dataset = (string) $cfg['dataset'];
@@ -305,14 +293,13 @@ if (isset($governedExports[$type])) {
     } catch (ExportServiceException $e) {
         api_error($e->getMessage(), 422);
     }
-    exportDatasetAudit($tid, $uid ?: null, 'accounting.ledger.exported', null, [
+    exportDatasetAudit($tid, $uid ?: null, 'accounting.ledger.exported', null, exportDatasetAuditMeta([
         'dataset' => $dataset,
         'format' => 'csv',
         'mode' => 'raw',
         'type' => $type,
         'rows' => count($rows),
-        'option_keys' => $optionKeys($options),
-    ]);
+    ], $options));
     (new CsvExportService($cfg['columns']))->stream($rows, (string) $cfg['filename']);
 }
 

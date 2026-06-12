@@ -54,13 +54,12 @@ if ($tplId > 0) {
 
 $rows = exportDatasetFetchTimeEntries($tenantId, $datasetOptions);
 
-exportDatasetAudit($tenantId, $userId ?: null, 'time.entries.exported', null, [
+exportDatasetAudit($tenantId, $userId ?: null, 'time.entries.exported', null, exportDatasetAuditMeta([
     'dataset' => 'time_entries',
     'format' => 'csv',
     'mode' => 'raw',
     'rows' => count($rows),
-    'option_keys' => array_values(array_filter(array_keys($datasetOptions), fn($key) => $datasetOptions[$key] !== '')),
-]);
+], $datasetOptions));
 
 (new CsvExportService([
     'placement_external_id' => 'Placement external ID',

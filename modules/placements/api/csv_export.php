@@ -68,13 +68,12 @@ $rows = scopedQuery(
     $params
 );
 
-exportDatasetAudit($tenantId, $userId ?: null, 'placement.exported', null, [
+exportDatasetAudit($tenantId, $userId ?: null, 'placement.exported', null, exportDatasetAuditMeta([
     'dataset' => 'placements_directory',
     'format' => 'csv',
     'mode' => 'raw',
     'rows' => count($rows),
-    'option_keys' => array_values(array_filter(array_keys($datasetOptions), fn($key) => $datasetOptions[$key] !== '')),
-]);
+], $datasetOptions));
 
 (new CsvExportService([
     'person_email'      => 'Person email',
