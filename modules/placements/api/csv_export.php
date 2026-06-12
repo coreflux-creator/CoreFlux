@@ -13,12 +13,39 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvExportService.php';
+require_once __DIR__ . '/../../../core/export_service.php';
 
 use Core\CsvExportService;
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
+$tenantId = (int) $ctx['tenant_id'];
+$userId = (int) ($user['id'] ?? 0);
 rbac_legacy_require($user, 'placements.view');
+
+$datasetOptions = [
+    'status' => (string) ($_GET['status'] ?? ''),
+    'engagement_type' => (string) ($_GET['engagement_type'] ?? ''),
+];
+
+$tplId = (int) ($_GET['template_id'] ?? 0);
+if ($tplId > 0) {
+    try {
+        exportTemplateStreamDatasetCsv(
+            $tenantId,
+            'placements_directory',
+            $tplId,
+            $datasetOptions,
+            'placements',
+            $userId ?: null,
+            null,
+            ['filename_parts' => [date('Y-m-d')]]
+        );
+        exit;
+    } catch (ExportServiceException $e) {
+        api_error($e->getMessage(), 422);
+    }
+}
 
 $where  = ['p.tenant_id = :tenant_id', 'p.deleted_at IS NULL'];
 $params = [];
@@ -40,6 +67,14 @@ $rows = scopedQuery(
       ORDER BY p.start_date DESC, p.id DESC',
     $params
 );
+
+exportDatasetAudit($tenantId, $userId ?: null, 'placement.exported', null, [
+    'dataset' => 'placements_directory',
+    'format' => 'csv',
+    'mode' => 'raw',
+    'rows' => count($rows),
+    'option_keys' => array_values(array_filter(array_keys($datasetOptions), fn($key) => $datasetOptions[$key] !== '')),
+]);
 
 (new CsvExportService([
     'person_email'      => 'Person email',

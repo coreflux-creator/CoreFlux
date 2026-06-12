@@ -35,6 +35,9 @@ $assert('idx_xtpl_tenant_dataset',            strpos($mig, 'idx_xtpl_tenant_data
 $assert('seeds Gusto Payroll Import preset',  strpos($mig, 'Gusto Payroll Import (default)') !== false);
 $assert('seeds AP Payments — Standard CSV',   strpos($mig, 'AP Payments — Standard CSV') !== false);
 $assert('utf8mb4_unicode_ci',                 strpos($mig, 'utf8mb4_unicode_ci') !== false);
+$mig120 = file_get_contents(__DIR__ . '/../core/migrations/120_people_placements_export_template_presets.sql');
+$assert('seeds People Directory preset',      strpos($mig120, 'People Directory (default)') !== false);
+$assert('seeds Placements preset',            strpos($mig120, 'Placements (default)') !== false);
 
 // ─── Dataset registry ───
 echo "Dataset registry\n";
@@ -44,11 +47,14 @@ $assert('payroll_disbursements in registry',  isset($reg['payroll_disbursements'
 $assert('ap_payments in registry',            isset($reg['ap_payments']));
 $assert('expenses in registry',               isset($reg['expenses']));
 $assert('people_directory in registry',        isset($reg['people_directory']));
+$assert('placements_directory in registry',    isset($reg['placements_directory']));
 $assert('payroll permission declared',         ($reg['payroll_disbursements']['permission'] ?? null) === 'payroll.reports.view');
 $assert('payroll sensitive bank fields declared',
                                               in_array('bank_account_number', $reg['payroll_disbursements']['sensitive_fields'] ?? [], true));
 $assert('people directory custom field entity declared',
                                               in_array('people', $reg['people_directory']['custom_field_entities'] ?? [], true));
+$assert('placements directory custom field entity declared',
+                                              in_array('placements', $reg['placements_directory']['custom_field_entities'] ?? [], true));
 $assert('payroll has employee_first_name',    isset($reg['payroll_disbursements']['fields']['employee_first_name']));
 $assert('payroll has net_pay_dollars',        isset($reg['payroll_disbursements']['fields']['net_pay_dollars']));
 $assert('payroll has net_pay_cents',          isset($reg['payroll_disbursements']['fields']['net_pay_cents']));
@@ -56,6 +62,7 @@ $assert('ap has amount_dollars + cents',      isset($reg['ap_payments']['fields'
                                               && isset($reg['ap_payments']['fields']['amount_cents']));
 $assert('expenses has line_id',               isset($reg['expenses']['fields']['line_id']));
 $assert('people has email_primary',           isset($reg['people_directory']['fields']['email_primary']));
+$assert('placements has person_email',         isset($reg['placements_directory']['fields']['person_email']));
 $assert('field registry helper exists',        function_exists('exportDatasetFieldRegistry'));
 $assert('sensitive field helper exists',       function_exists('exportDatasetIsSensitiveField'));
 $assert('bank account marked sensitive',       exportDatasetIsSensitiveField('payroll_disbursements', 'bank_account_number'));
@@ -81,6 +88,14 @@ try {
     $assert('validates people_directory static field', false);
 }
 
+try {
+    _exportTplValidateMappings([['output_header' => 'Person email', 'kind' => 'field', 'source_field' => 'person_email']],
+                               'placements_directory');
+    $assert('validates placements_directory static field', true);
+} catch (ExportTemplateException $e) {
+    $assert('validates placements_directory static field', false);
+}
+
 // Validation accepts and renumbers positions.
 $valid = _exportTplValidateMappings([
     ['position' => 99, 'output_header' => 'A', 'kind' => 'fixed', 'fixed_value' => 'a'],
@@ -103,6 +118,7 @@ try {
 
 $assert('PHP parses cleanly (export_datasets)',   $lint(__DIR__ . '/../core/export_datasets.php'));
 $assert('PHP parses cleanly (export_templates)',  $lint(__DIR__ . '/../core/export_templates.php'));
+$assert('PHP parses cleanly (export_service)',    $lint(__DIR__ . '/../core/export_service.php'));
 
 // ─── /api/export_templates.php surface ───
 echo "/api/export_templates.php\n";
@@ -132,24 +148,27 @@ $pr = file_get_contents(__DIR__ . '/../modules/payroll/api/runs.php');
 $assert('export_template action accepted',    strpos($pr, "'export_template'") !== false);
 $assert('rejects mismatched dataset',         strpos($pr, 'payroll_disbursements') !== false);
 $assert('audits payroll.run.exported_template',
-                                              strpos($pr, 'payroll.run.exported_template') !== false);
-$assert('streams via exportTemplateRenderToStream',
-                                              strpos($pr, 'exportTemplateRenderToStream(') !== false);
+                                              strpos(file_get_contents(__DIR__ . '/../core/export_datasets.php'), 'payroll.run.exported_template') !== false);
+$assert('streams via shared export runner',
+                                              strpos($pr, 'exportTemplateStreamDatasetCsv(') !== false);
 
 // ─── Wire-in: ap/payments.php ───
 echo "ap/payments.php template export\n";
 $ap = file_get_contents(__DIR__ . '/../modules/ap/api/payments.php');
 $assert('export_template GET branch',         strpos($ap, "GET' && \$action === 'export_template'") !== false);
-$assert('rejects mismatched dataset',         strpos($ap, "must be ap_payments") !== false);
+$assert('rejects mismatched dataset',         strpos($ap, 'ap_payments') !== false
+                                              && strpos(file_get_contents(__DIR__ . '/../core/export_service.php'), "template's dataset must be") !== false);
 $assert('audits ap.payments.exported_template',
-                                              strpos($ap, 'ap.payments.exported_template') !== false);
+                                              strpos(file_get_contents(__DIR__ . '/../core/export_datasets.php'), 'ap.payments.exported_template') !== false);
 
 // ─── Wire-in: ap/expenses.php ───
 echo "ap/expenses.php template export\n";
 $ex = file_get_contents(__DIR__ . '/../modules/ap/api/expenses.php');
 $assert('honors template_id query',           strpos($ex, "(int) (\$_GET['template_id'] ?? 0)") !== false);
-$assert('rejects non-expenses dataset',       strpos($ex, "must be expenses") !== false);
-$assert('audits export_selected_template',    strpos($ex, 'ap.expense.export_selected_template') !== false);
+$assert('rejects non-expenses dataset',       strpos($ex, "'expenses'") !== false
+                                              && strpos(file_get_contents(__DIR__ . '/../core/export_service.php'), "template's dataset must be") !== false);
+$assert('audits export_selected_template',
+                                              strpos(file_get_contents(__DIR__ . '/../core/export_datasets.php'), 'ap.expense.export_selected_template') !== false);
 
 // ─── NACHA hidden ───
 echo "NACHA hidden from UI\n";
@@ -203,6 +222,16 @@ $pl2 = file_get_contents(__DIR__ . '/../modules/ap/ui/PaymentsList.jsx');
 $assert('PaymentsList uses picker',           strpos($pl2, 'ExportTemplatePicker') !== false);
 $assert('ap payments picker dataset=ap_payments',
                                               strpos($pl2, 'dataset="ap_payments"') !== false);
+
+$peopleDir = file_get_contents(__DIR__ . '/../modules/people/ui/Directory.jsx');
+$assert('People Directory uses picker',       strpos($peopleDir, 'ExportTemplatePicker') !== false);
+$assert('people picker dataset=people_directory',
+                                              strpos($peopleDir, 'dataset="people_directory"') !== false);
+
+$placementsList = file_get_contents(__DIR__ . '/../modules/placements/ui/List.jsx');
+$assert('Placements list uses picker',        strpos($placementsList, 'ExportTemplatePicker') !== false);
+$assert('placements picker dataset=placements_directory',
+                                              strpos($placementsList, 'dataset="placements_directory"') !== false);
 
 echo "\n";
 echo "Pass: {$pass}\n";

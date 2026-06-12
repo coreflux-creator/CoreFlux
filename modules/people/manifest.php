@@ -58,6 +58,7 @@ return [
         'people.terminated',
         'people.merged',
         'people.csv_imported',
+        'people.directory.exported',
         'people.pii.viewed',
         'people.banking.viewed',
         'people.banking.updated',

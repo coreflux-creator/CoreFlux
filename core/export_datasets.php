@@ -130,16 +130,54 @@ function exportDatasetRegistry(): array {
                 'person_id'          => ['label' => 'Person ID',       'sample' => '42'],
                 'external_id'        => ['label' => 'External ID',     'sample' => 'JD-1001'],
                 'first_name'         => ['label' => 'First name',      'sample' => 'Jordan'],
+                'middle_name'        => ['label' => 'Middle name',     'sample' => 'A.'],
                 'last_name'          => ['label' => 'Last name',       'sample' => 'Rivera'],
                 'preferred_name'     => ['label' => 'Preferred name',  'sample' => 'Jordy'],
                 'email_primary'      => ['label' => 'Primary email',   'sample' => 'jordan@example.com'],
+                'email_secondary'    => ['label' => 'Secondary email', 'sample' => 'j.rivera@example.com'],
                 'phone_primary'      => ['label' => 'Primary phone',   'sample' => '+1 555 0100'],
+                'phone_secondary'    => ['label' => 'Secondary phone', 'sample' => '+1 555 0101'],
                 'classification'     => ['label' => 'Classification',  'sample' => 'w2'],
                 'status'             => ['label' => 'Status',          'sample' => 'active'],
                 'work_auth_status'   => ['label' => 'Work auth',       'sample' => 'authorized'],
                 'work_auth_expiry'   => ['label' => 'Work auth expiry','sample' => '2027-01-31'],
+                'requires_sponsorship' => ['label' => 'Requires sponsorship', 'sample' => '0'],
                 'employment_type'    => ['label' => 'Employment type', 'sample' => 'full_time'],
+                'linkedin_url'       => ['label' => 'LinkedIn URL',    'sample' => 'https://linkedin.com/in/example'],
                 'source'             => ['label' => 'Source',          'sample' => 'jobdiva'],
+                'recruiter_notes'    => ['label' => 'Recruiter notes', 'sample' => 'Strong fit'],
+            ],
+        ],
+
+        'placements_directory' => [
+            'label'                 => 'Placements',
+            'module_id'             => 'placements',
+            'permission'            => 'placements.view',
+            'formats'               => ['csv'],
+            'audit_event'           => 'placement.exported',
+            'sensitive_fields'      => [],
+            'custom_field_entities' => ['placements'],
+            'fetcher'               => 'exportDatasetFetchPlacementsDirectory',
+            'fields'                => [
+                'placement_id'       => ['label' => 'Placement ID',      'sample' => '7001'],
+                'person_id'          => ['label' => 'Person ID',         'sample' => '42'],
+                'person_name'        => ['label' => 'Person name',       'sample' => 'Jordan Rivera'],
+                'person_email'       => ['label' => 'Person email',      'sample' => 'jordan@example.com'],
+                'title'              => ['label' => 'Title',             'sample' => 'Senior Accountant'],
+                'engagement_type'    => ['label' => 'Engagement type',   'sample' => 'w2'],
+                'status'             => ['label' => 'Status',            'sample' => 'active'],
+                'start_date'         => ['label' => 'Start date',        'sample' => '2026-02-01'],
+                'end_date'           => ['label' => 'End date',          'sample' => '2026-08-31'],
+                'actual_end_date'    => ['label' => 'Actual end date',   'sample' => ''],
+                'due_date'           => ['label' => 'Due date',          'sample' => '2026-08-15'],
+                'end_client_name'    => ['label' => 'End client name',   'sample' => 'Acme Corp'],
+                'worksite_state'     => ['label' => 'Worksite state',    'sample' => 'NY'],
+                'worksite_country'   => ['label' => 'Worksite country',  'sample' => 'US'],
+                'remote_policy'      => ['label' => 'Remote policy',     'sample' => 'hybrid'],
+                'bill_rate'          => ['label' => 'Bill rate ($/hr)',  'sample' => '100.00', 'field_type' => 'number'],
+                'pay_rate'           => ['label' => 'Pay rate ($/hr)',   'sample' => '60.00', 'field_type' => 'number'],
+                'external_id'        => ['label' => 'External ID',       'sample' => 'jd:1234'],
+                'notes'              => ['label' => 'Notes',             'sample' => ''],
             ],
         ],
     ];
@@ -323,16 +361,27 @@ function exportDatasetFetchExpenses(int $tenantId, array $opts): array {
 function exportDatasetFetchPeopleDirectory(int $tenantId, array $opts): array {
     $pdo = getDB();
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $where = ['tenant_id = :tenant_id', 'deleted_at IS NULL'];
+    $params = ['tenant_id' => $tenantId];
+    if (!empty($opts['status'])) {
+        $where[] = 'status = :status';
+        $params['status'] = (string) $opts['status'];
+    }
+    if (!empty($opts['classification'])) {
+        $where[] = 'classification = :classification';
+        $params['classification'] = (string) $opts['classification'];
+    }
     $stmt = $pdo->prepare(
-        'SELECT id AS person_id, external_id, first_name, last_name, preferred_name,
-                email_primary, phone_primary, classification, status,
-                work_auth_status, work_auth_expiry, employment_type, source
+        'SELECT id AS person_id, external_id, first_name, middle_name, last_name, preferred_name,
+                email_primary, email_secondary, phone_primary, phone_secondary,
+                classification, status, work_auth_status, work_auth_expiry,
+                requires_sponsorship, employment_type, linkedin_url, source, recruiter_notes
            FROM people
-          WHERE tenant_id = :tenant_id AND deleted_at IS NULL
+          WHERE ' . implode(' AND ', $where) . '
           ORDER BY last_name, first_name
           LIMIT ' . $limit
     );
-    $stmt->execute(['tenant_id' => $tenantId]);
+    $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
     $defs = [];
@@ -370,6 +419,70 @@ function exportDatasetFetchPeopleDirectory(int $tenantId, array $opts): array {
         }
     }
     unset($row);
+    return $rows;
+}
+
+function exportDatasetFetchPlacementsDirectory(int $tenantId, array $opts): array {
+    $pdo = getDB();
+    $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $where = ['p.tenant_id = :tenant_id', 'p.deleted_at IS NULL'];
+    $params = ['tenant_id' => $tenantId];
+    if (!empty($opts['status'])) {
+        $where[] = 'p.status = :status';
+        $params['status'] = (string) $opts['status'];
+    }
+    if (!empty($opts['engagement_type'])) {
+        $where[] = 'p.engagement_type = :engagement_type';
+        $params['engagement_type'] = (string) $opts['engagement_type'];
+    }
+    $stmt = $pdo->prepare(
+        'SELECT p.id AS placement_id,
+                p.person_id,
+                pe.email_primary AS person_email,
+                CONCAT_WS(" ", pe.first_name, pe.last_name) AS person_name,
+                p.title, p.engagement_type, p.status,
+                p.start_date, p.end_date, p.actual_end_date, p.due_date,
+                p.end_client_name, p.worksite_state, p.worksite_country, p.remote_policy,
+                (SELECT bill_rate FROM placement_rates r
+                  WHERE r.tenant_id = p.tenant_id AND r.placement_id = p.id
+                  ORDER BY r.effective_from DESC LIMIT 1) AS bill_rate,
+                (SELECT pay_rate FROM placement_rates r
+                  WHERE r.tenant_id = p.tenant_id AND r.placement_id = p.id
+                  ORDER BY r.effective_from DESC LIMIT 1) AS pay_rate,
+                p.external_id, p.notes
+           FROM placements p
+           LEFT JOIN people pe ON pe.id = p.person_id AND pe.tenant_id = p.tenant_id
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY p.start_date DESC, p.id DESC
+          LIMIT ' . $limit
+    );
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    return exportDatasetAttachCustomFieldValues($rows, $tenantId, 'placements', 'placement_id');
+}
+
+function exportDatasetAttachCustomFieldValues(array $rows, int $tenantId, string $entityType, string $idKey): array {
+    if (!$rows) return $rows;
+    try {
+        $defs = [];
+        foreach (customFieldDefinitions($tenantId, $entityType) as $def) {
+            if (!empty($def['pii'])) continue;
+            $defs[(string) ($def['field_key'] ?? '')] = true;
+        }
+        if (!$defs) return $rows;
+        foreach ($rows as &$row) {
+            $recordId = (int) ($row[$idKey] ?? 0);
+            if ($recordId <= 0) continue;
+            foreach (customFieldValues($tenantId, $entityType, $recordId, false) as $valueRow) {
+                $fieldKey = (string) ($valueRow['field_key'] ?? '');
+                if ($fieldKey === '' || !isset($defs[$fieldKey])) continue;
+                $row['custom_fields.' . $entityType . '.' . $fieldKey] = $valueRow['value'] ?? null;
+            }
+        }
+        unset($row);
+    } catch (\Throwable $e) {
+        error_log('[export_datasets] custom field values unavailable for ' . $entityType . ': ' . $e->getMessage());
+    }
     return $rows;
 }
 

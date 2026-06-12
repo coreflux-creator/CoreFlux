@@ -50,6 +50,7 @@ foreach ($expectedPerms as $p) {
 
 $expectedEvents = [
     'people.created','people.updated','people.terminated','people.merged',
+    'people.directory.exported',
     'people.pii.viewed','people.banking.viewed','people.banking.updated',
     'people.tax.updated','people.document.uploaded','people.document.deleted',
     'people.pipeline.stage_added','people.custom_field.defined','people.custom_field.value_set',

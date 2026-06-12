@@ -4,6 +4,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 require_once $root . '/core/export_datasets.php';
 require_once $root . '/core/export_templates.php';
+require_once $root . '/core/export_service.php';
 
 $pass = 0;
 $fail = 0;
@@ -15,7 +16,7 @@ $assert = function (string $name, bool $ok) use (&$pass, &$fail): void {
 echo "Dataset governance\n";
 $reg = exportDatasetRegistry();
 $required = ['label', 'module_id', 'permission', 'formats', 'audit_event', 'sensitive_fields', 'custom_field_entities', 'fetcher', 'fields'];
-foreach (['payroll_disbursements', 'ap_payments', 'expenses', 'people_directory'] as $dataset) {
+foreach (['payroll_disbursements', 'ap_payments', 'expenses', 'people_directory', 'placements_directory'] as $dataset) {
     $assert("dataset registered: {$dataset}", isset($reg[$dataset]));
     foreach ($required as $key) {
         $assert("{$dataset} has {$key}", array_key_exists($key, $reg[$dataset] ?? []));
@@ -25,9 +26,15 @@ foreach (['payroll_disbursements', 'ap_payments', 'expenses', 'people_directory'
 $assert('payroll bank account sensitive', exportDatasetIsSensitiveField('payroll_disbursements', 'bank_account_number'));
 $assert('ap bank routing sensitive', exportDatasetIsSensitiveField('ap_payments', 'bank_routing_number'));
 $assert('people directory has custom field entity', in_array('people', $reg['people_directory']['custom_field_entities'] ?? [], true));
+$assert('placements directory has custom field entity', in_array('placements', $reg['placements_directory']['custom_field_entities'] ?? [], true));
 $assert('people field registry has static fields', isset(exportDatasetFieldRegistry('people_directory')['email_primary']));
+$assert('placements field registry has static fields', isset(exportDatasetFieldRegistry('placements_directory')['person_email']));
 $assert('dataset access helper exists', function_exists('exportDatasetUserCanAccess'));
 $assert('accessible registry helper exists', function_exists('exportDatasetAccessibleRegistry'));
+$assert('dataset fetch helper exists', function_exists('exportDatasetFetchRows'));
+$assert('template dataset validator exists', function_exists('exportTemplateGetForDataset'));
+$assert('shared template stream helper exists', function_exists('exportTemplateStreamDatasetCsv'));
+$assert('shared export audit helper exists', function_exists('exportDatasetAudit'));
 $assert('dataset access defaults true without RBAC', exportDatasetUserCanAccess([], $reg['people_directory']));
 
 echo "\nTemplate validation\n";
@@ -42,6 +49,15 @@ try {
 
 try {
     _exportTplValidateMappings([
+        ['output_header' => 'Person email', 'kind' => 'field', 'source_field' => 'person_email'],
+    ], 'placements_directory');
+    $assert('placements_directory static mapping accepted', true);
+} catch (Throwable $e) {
+    $assert('placements_directory static mapping accepted', false);
+}
+
+try {
+    _exportTplValidateMappings([
         ['output_header' => 'Nope', 'kind' => 'field', 'source_field' => 'not_a_field'],
     ], 'people_directory');
     $assert('unknown people_directory field rejected', false);
@@ -51,13 +67,34 @@ try {
 
 echo "\nAPI/docs\n";
 $api = (string) file_get_contents($root . '/api/export_templates.php');
+$service = (string) file_get_contents($root . '/core/export_service.php');
+$peopleExport = (string) file_get_contents($root . '/modules/people/api/csv_export.php');
+$placementsExport = (string) file_get_contents($root . '/modules/placements/api/csv_export.php');
+$payrollRuns = (string) file_get_contents($root . '/modules/payroll/api/runs.php');
+$apPayments = (string) file_get_contents($root . '/modules/ap/api/payments.php');
+$apExpenses = (string) file_get_contents($root . '/modules/ap/api/expenses.php');
+$peopleUi = (string) file_get_contents($root . '/modules/people/ui/Directory.jsx');
+$placementsUi = (string) file_get_contents($root . '/modules/placements/ui/List.jsx');
+$seed = (string) file_get_contents($root . '/core/migrations/120_people_placements_export_template_presets.sql');
 $assert('datasets endpoint exposes sensitive_fields', str_contains($api, "'sensitive_fields'"));
 $assert('datasets endpoint uses tenant-aware field registry', str_contains($api, 'exportDatasetFieldRegistry($key, $tenantId)'));
 $assert('datasets endpoint filters by accessible registry', str_contains($api, 'exportDatasetAccessibleRegistry($user)'));
 $assert('template API requires dataset access', str_contains($api, '_xtplRequireDatasetAccess'));
+$assert('shared service validates template dataset', str_contains($service, 'exportTemplateGetForDataset') && str_contains($service, "template's dataset must be"));
+$assert('shared service emits dataset audit event', str_contains($service, 'exportDatasetAudit') && str_contains($service, "'audit_event'"));
+$assert('shared service normalizes filenames', str_contains($service, 'exportTemplateCsvFilename'));
+$assert('people export supports template_id', str_contains($peopleExport, 'template_id') && str_contains($peopleExport, 'people_directory'));
+$assert('placements export supports template_id', str_contains($placementsExport, 'template_id') && str_contains($placementsExport, 'placements_directory'));
+$assert('payroll template export uses shared runner', str_contains($payrollRuns, 'exportTemplateStreamDatasetCsv') && str_contains($payrollRuns, 'payroll_disbursements'));
+$assert('ap payments template export uses shared runner', str_contains($apPayments, 'exportTemplateStreamDatasetCsv') && str_contains($apPayments, 'ap_payments'));
+$assert('ap expenses template export uses shared runner', str_contains($apExpenses, 'exportTemplateStreamDatasetCsv') && str_contains($apExpenses, "'expenses'"));
+$assert('people UI uses export template picker', str_contains($peopleUi, 'ExportTemplatePicker') && str_contains($peopleUi, 'dataset="people_directory"'));
+$assert('placements UI uses export template picker', str_contains($placementsUi, 'ExportTemplatePicker') && str_contains($placementsUi, 'dataset="placements_directory"'));
+$assert('people/placements template presets seeded', str_contains($seed, 'People Directory (default)') && str_contains($seed, 'Placements (default)'));
 $assert('export governance docs exist', is_file($root . '/docs/EXPORT_GOVERNANCE.md'));
 $assert('export_datasets parses', _php_lint($root . '/core/export_datasets.php'));
 $assert('export_templates parses', _php_lint($root . '/core/export_templates.php'));
+$assert('export_service parses', _php_lint($root . '/core/export_service.php'));
 $assert('export API parses', _php_lint($root . '/api/export_templates.php'));
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";

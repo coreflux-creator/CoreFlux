@@ -38,27 +38,19 @@ if ($method === 'GET' && $action === 'export_selected') {
     // raw-dump format below if no template_id is supplied.
     $tplId = (int) ($_GET['template_id'] ?? 0);
     if ($tplId > 0) {
-        require_once __DIR__ . '/../../../core/export_templates.php';
-        require_once __DIR__ . '/../../../core/export_datasets.php';
+        require_once __DIR__ . '/../../../core/export_service.php';
         try {
-            $tpl = exportTemplateGet($tplId, $tid);
-        } catch (\Throwable $e) { api_error($e->getMessage(), 404); }
-        if ($tpl['dataset'] !== 'expenses') {
-            api_error("template's dataset must be expenses", 422);
-        }
-        $rows = exportDatasetFetchExpenses($tid, ['ids' => $ids]);
-        $stamp = date('Y-m-d');
-        $name  = preg_replace('/[^A-Za-z0-9_-]/', '-', strtolower($tpl['name']));
-        header('Content-Type: text/csv; charset=utf-8');
-        header("Content-Disposition: attachment; filename=expenses-{$name}-{$stamp}.csv");
-        $out = fopen('php://output', 'w');
-        exportTemplateRenderToStream($tplId, $rows, $out, $tid);
-        fclose($out);
-        if (function_exists('apAudit')) {
-            apAudit('ap.expense.export_selected_template', [
-                'ids' => $ids, 'template_id' => $tplId, 'rows' => count($rows),
-            ]);
-        }
+            exportTemplateStreamDatasetCsv(
+                $tid,
+                'expenses',
+                $tplId,
+                ['ids' => $ids],
+                'expenses',
+                $uid ?: null,
+                null,
+                ['ids' => $ids, 'filename_parts' => [date('Y-m-d')]]
+            );
+        } catch (ExportServiceException $e) { api_error($e->getMessage(), 422); }
         exit;
     }
 

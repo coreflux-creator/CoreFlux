@@ -42,7 +42,7 @@ $expectedEvents = [
     'placement.commission.removed','placement.referral.added','placement.referral.updated',
     'placement.financials.viewed','placement.corp.viewed','placement.corp.updated',
     'placement.document.uploaded','placement.document.deleted','placement.approval_contact.updated',
-    'placement.csv_imported',
+    'placement.csv_imported','placement.exported',
 ];
 foreach ($expectedEvents as $ev) {
     $assert("audit event: {$ev}", in_array($ev, $pl['audit_events'] ?? [], true));

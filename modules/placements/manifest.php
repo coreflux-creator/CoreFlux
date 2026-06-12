@@ -78,6 +78,7 @@ return [
         'placement.document.deleted',
         'placement.approval_contact.updated',
         'placement.csv_imported',
+        'placement.exported',
     ],
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],

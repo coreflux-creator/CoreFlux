@@ -62,6 +62,30 @@ Dataset registry and template APIs filter by the dataset's `permission`.
 Authenticated users may only discover, list templates for, clone, create,
 update, or delete templates for datasets they can access.
 
+## Execution
+
+Template-backed exports should run through `core/export_service.php`:
+
+```php
+exportTemplateStreamDatasetCsv(
+    $tenantId,
+    'people_directory',
+    $templateId,
+    ['status' => 'active'],
+    'people-directory',
+    $actorUserId
+);
+```
+
+The shared runner validates that the template belongs to the requested dataset,
+fetches rows with the dataset fetcher, renders the template, normalizes the CSV
+filename, and writes the dataset's declared `audit_event` to `audit_log`.
+
+People Directory, Placements, Payroll Disbursements, AP Payments, and Expenses
+use this shared runner for template exports. Raw legacy CSV endpoints may remain
+for backward compatibility, but any new configurable export should be dataset
+and template backed.
+
 ## Product Rule
 
 Modules may ship export presets, but the dataset registry is the authoritative

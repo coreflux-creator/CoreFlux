@@ -25,8 +25,7 @@ $action = $_GET['action'] ?? '';
 
 if ($method === 'GET' && $action === 'export_template') {
     rbac_legacy_require($user, 'ap.payment.send');
-    require_once __DIR__ . '/../../../core/export_templates.php';
-    require_once __DIR__ . '/../../../core/export_datasets.php';
+    require_once __DIR__ . '/../../../core/export_service.php';
 
     $tplId = (int) ($_GET['template_id'] ?? 0);
     if (!$tplId) api_error('template_id required', 400);
@@ -36,29 +35,17 @@ if ($method === 'GET' && $action === 'export_template') {
     if (count($ids) > 500) api_error('too many ids (max 500)', 400);
 
     try {
-        $tpl = exportTemplateGet($tplId, $tid);
-    } catch (\Throwable $e) { api_error($e->getMessage(), 404); }
-    if ($tpl['dataset'] !== 'ap_payments') {
-        api_error("template's dataset must be ap_payments", 422);
-    }
-
-    $rows = exportDatasetFetchApPayments($tid, ['ids' => $ids]);
-
-    if (!headers_sent()) {
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Cache-Control: no-store');
-    }
-    $stamp = date('Y-m-d');
-    $name  = preg_replace('/[^A-Za-z0-9_-]/', '-', strtolower($tpl['name']));
-    header('Content-Disposition: attachment; filename="ap-' . $name . '-' . $stamp . '.csv"');
-    $out = fopen('php://output', 'w');
-    exportTemplateRenderToStream($tplId, $rows, $out, $tid);
-    fclose($out);
-    if (function_exists('apAudit')) {
-        apAudit('ap.payments.exported_template', [
-            'ids' => $ids, 'template_id' => $tplId, 'rows' => count($rows),
-        ]);
-    }
+        exportTemplateStreamDatasetCsv(
+            $tid,
+            'ap_payments',
+            $tplId,
+            ['ids' => $ids],
+            'ap',
+            (int) ($user['id'] ?? 0) ?: null,
+            null,
+            ['ids' => $ids, 'filename_parts' => [date('Y-m-d')]]
+        );
+    } catch (ExportServiceException $e) { api_error($e->getMessage(), 422); }
     exit;
 }
 

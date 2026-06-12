@@ -4,6 +4,7 @@ import { useApiCached, bustApiCachePrefix, prefetchApi, api } from '../../../das
 import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTableList';
 import { fmtDate } from '../../../dashboard/src/lib/formatDate';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
+import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 
 const STATUSES = ['', 'draft', 'pending_start', 'active', 'on_hold', 'ended', 'cancelled'];
 const ETYPES   = ['', 'w2', '1099', 'c2c', 'temp_to_perm', 'direct_hire'];
@@ -57,6 +58,12 @@ export default function List() {
   const perPage = data?.per_page ?? 25;
   const lastPage = Math.max(1, Math.ceil(total / perPage));
   const isDraftView = status === 'draft';
+  const buildTemplateExportHref = (tplId) => {
+    const params = new URLSearchParams({ template_id: String(tplId) });
+    if (status) params.set('status', status);
+    if (engagementType) params.set('engagement_type', engagementType);
+    return `/modules/placements/api/csv_export.php?${params.toString()}`;
+  };
 
   // Client-side sort only — server already handles q/status/type search.
   const { items, sortKey, sortDir, headerProps } = useTableList(rows, {
@@ -136,6 +143,12 @@ export default function List() {
           </Link>
           <Link to="../csv_import" className="btn" data-testid="placements-csv-btn">Import CSV</Link>
           <a href="/modules/placements/api/csv_export.php" className="btn" data-testid="placements-csv-export-btn">Export CSV</a>
+          <ExportTemplatePicker
+            dataset="placements_directory"
+            buildHref={buildTemplateExportHref}
+            label="Export via template"
+            testid="placements-export-template"
+          />
           <Link to="../new"        className="btn btn--primary" data-testid="placements-new-btn">+ New Placement</Link>
         </div>
       </header>

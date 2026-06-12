@@ -46,29 +46,21 @@ if (api_method() === 'GET' && in_array($_GET['action'] ?? '', ['export_gusto', '
     // for a bank portal, etc.). Replaces NACHA fallback per user direction:
     // when Plaid Transfer can't go live, tenants pick a CSV template instead.
     if ($action === 'export_template') {
-        require_once __DIR__ . '/../../../core/export_templates.php';
+        require_once __DIR__ . '/../../../core/export_service.php';
         $tplId = (int) ($_GET['template_id'] ?? 0);
         if (!$tplId) api_error('template_id required', 400);
         try {
-            $tpl = exportTemplateGet($tplId, (int) currentTenantId());
-        } catch (\Throwable $e) { api_error($e->getMessage(), 404); }
-        if ($tpl['dataset'] !== 'payroll_disbursements') {
-            api_error("template's dataset must be payroll_disbursements", 422);
-        }
-        $rows = exportDatasetFetchPayrollDisbursements((int) currentTenantId(), ['run_id' => $runId]);
-        if (!headers_sent()) {
-            header('Content-Type: text/csv; charset=utf-8');
-            header('Cache-Control: no-store');
-        }
-        $fname = 'payroll-' . preg_replace('/[^A-Za-z0-9_-]/', '-', strtolower($tpl['name']))
-               . '-' . $runId . '-' . ($run['pay_date'] ?? date('Ymd')) . '.csv';
-        header('Content-Disposition: attachment; filename="' . $fname . '"');
-        $out = fopen('php://output', 'w');
-        exportTemplateRenderToStream($tplId, $rows, $out, (int) currentTenantId());
-        fclose($out);
-        payrollAudit('payroll.run.exported_template', [
-            'run_id' => $runId, 'template_id' => $tplId, 'rows' => count($rows),
-        ], $runId);
+            exportTemplateStreamDatasetCsv(
+                (int) currentTenantId(),
+                'payroll_disbursements',
+                $tplId,
+                ['run_id' => $runId],
+                'payroll',
+                (int) ($_SESSION['user']['id'] ?? 0) ?: null,
+                $runId,
+                ['run_id' => $runId, 'pay_date' => $run['pay_date'] ?? null, 'filename_parts' => [$runId, $run['pay_date'] ?? date('Ymd')]]
+            );
+        } catch (ExportServiceException $e) { api_error($e->getMessage(), 422); }
         exit;
     }
 
