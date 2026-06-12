@@ -570,6 +570,12 @@ function cf_self_heal_known_column(string $colRef): bool {
         'billing_invoices' => [
             'workflow_instance_id' => 'ADD COLUMN workflow_instance_id BIGINT UNSIGNED NULL AFTER approved_at',
         ],
+        'treasury_payments' => [
+            'workflow_instance_id' => 'ADD COLUMN workflow_instance_id BIGINT UNSIGNED NULL AFTER status',
+        ],
+        'treasury_transfers' => [
+            'workflow_instance_id' => 'ADD COLUMN workflow_instance_id BIGINT UNSIGNED NULL AFTER status',
+        ],
         'payroll_runs' => [
             'created_by_user_id'   => 'ADD COLUMN created_by_user_id INT UNSIGNED NULL AFTER run_type',
             'computed_by_user_id'  => 'ADD COLUMN computed_by_user_id INT UNSIGNED NULL AFTER computed_at',

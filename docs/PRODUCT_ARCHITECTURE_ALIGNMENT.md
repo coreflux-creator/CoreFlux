@@ -334,6 +334,26 @@ Invoice approval and GL posting are separate enterprise controls:
   posting, with Accounting GL post permissions required where journal entries
   are created directly.
 
+### Treasury Money Movement
+
+Treasury payment and transfer approval is a Workflow Graph decision with People
+Graph approver resolution and separation-of-duties checks. Treasury owns the
+payment/transfer state mutation after workflow approval and writes source-row
+audit metadata with workflow evidence.
+
+Money movement separates create, submit, approve, execute, and void/reject
+controls:
+
+- `treasury.create_payment` and `treasury.create_transfer` govern draft creation
+  and submit-to-approval workflow start.
+- `treasury.approve_payment` and `treasury.approve_transfer` govern workflow
+  approve/reject decisions.
+- `treasury.execute_payment` governs payment/transfer execution and accounting
+  event emission after approved or scheduled state.
+- `treasury.payment.view` governs payment and transfer list visibility, while
+  `treasury.view_bank_balances` remains the bank-balance/cash-position read
+  gate.
+
 ### Access Review And Certification
 
 Access reviews are now a platform enterprise control. Campaigns snapshot

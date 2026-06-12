@@ -256,6 +256,7 @@ final class RbacLegacyMap
             'treasury.create_payment'            => ['treasury', 'admin'],
             'treasury.create_transfer'           => ['treasury', 'write'],
             'treasury.execute_payment'           => ['treasury', 'admin'],
+            'treasury.manage_forecast'           => ['treasury', 'write'],
             'treasury.payment.manage'            => ['treasury', 'admin'],
             'treasury.payment.view'              => ['treasury', 'read'],
             'treasury.view_bank_balances'        => ['treasury', 'read'],

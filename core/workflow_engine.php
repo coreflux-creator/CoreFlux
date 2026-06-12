@@ -374,6 +374,18 @@ function _workflowSubjectSync(int $tenantId, string $subjectType, int $subjectId
                 billingSyncInvoiceFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
             }
         }
+        if ($subjectType === 'treasury_payment') {
+            require_once __DIR__ . '/../modules/treasury/lib/workflow_sync.php';
+            if (function_exists('treasurySyncPaymentFromWorkflow')) {
+                treasurySyncPaymentFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
+            }
+        }
+        if ($subjectType === 'treasury_transfer') {
+            require_once __DIR__ . '/../modules/treasury/lib/workflow_sync.php';
+            if (function_exists('treasurySyncTransferFromWorkflow')) {
+                treasurySyncTransferFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
+            }
+        }
     } catch (\Throwable $_) {
         // Absolutely non-fatal.
     }
