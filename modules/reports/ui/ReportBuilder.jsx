@@ -4,14 +4,23 @@ import { ReportFrame } from './ReportToolkit';
 
 export default function ReportBuilder() {
   const datasetsApi = useApi('/api/v1/reports/report-builder/datasets');
+  const presetsApi = useApi('/api/v1/reports/report-builder/presets');
   const reportsApi = useApi('/api/v1/reports/report-builder/reports');
   const datasets = datasetsApi.data?.datasets || {};
+  const presets = presetsApi.data?.presets || {};
   const datasetKeys = Object.keys(datasets);
+  const presetList = useMemo(
+    () => Object.values(presets).sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''))),
+    [presets]
+  );
   const [datasetKey, setDatasetKey] = useState('');
+  const [presetKey, setPresetKey] = useState('');
   const activeKey = datasetKey || datasetKeys[0] || '';
   const dataset = activeKey ? datasets[activeKey] : null;
   const fields = useMemo(() => Object.values(dataset?.fields || {}), [dataset]);
   const [selected, setSelected] = useState([]);
+  const [filters, setFilters] = useState([]);
+  const [sorts, setSorts] = useState([]);
   const [name, setName] = useState('');
   const [visibility, setVisibility] = useState('private');
   const [saving, setSaving] = useState(false);
@@ -22,6 +31,25 @@ export default function ReportBuilder() {
   const [savedAt, setSavedAt] = useState(null);
   const [preview, setPreview] = useState(null);
 
+  const definitionFieldKeys = (definition = {}) => {
+    const keys = [];
+    ['columns', 'dimensions', 'measures'].forEach((section) => {
+      (definition[section] || []).forEach((entry) => {
+        const key = typeof entry === 'string' ? entry : entry?.field || entry?.key;
+        if (key && !keys.includes(key)) keys.push(key);
+      });
+    });
+    return keys;
+  };
+
+  const resetWorkingDefinition = () => {
+    setSelected([]);
+    setFilters([]);
+    setSorts([]);
+    setPresetKey('');
+    setPreview(null);
+  };
+
   const toggleField = (key) => {
     setPreview(null);
     setSelected((prev) => prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]);
@@ -30,10 +58,38 @@ export default function ReportBuilder() {
   const currentDefinition = (limit = 1000) => ({
     dataset: dataset?.key,
     columns: selected,
-    filters: [],
-    sorts: [],
+    filters,
+    sorts,
     limit,
   });
+
+  const applyPreset = (preset) => {
+    const definition = preset?.definition || {};
+    const nextDataset = definition.dataset || preset?.dataset || '';
+    if (nextDataset) setDatasetKey(nextDataset);
+    setPresetKey(preset?.key || '');
+    setSelected(definitionFieldKeys(definition));
+    setFilters(Array.isArray(definition.filters) ? definition.filters : []);
+    setSorts(Array.isArray(definition.sorts) ? definition.sorts : []);
+    setName(preset?.label || '');
+    setPreview(null);
+    setSavedAt(null);
+    setError(null);
+  };
+
+  const loadReport = (report) => {
+    const definition = report?.definition || {};
+    setDatasetKey(report?.dataset || definition.dataset || '');
+    setPresetKey('');
+    setSelected(definitionFieldKeys(definition));
+    setFilters(Array.isArray(definition.filters) ? definition.filters : []);
+    setSorts(Array.isArray(definition.sorts) ? definition.sorts : []);
+    setName(report?.name || '');
+    setVisibility(report?.visibility || 'private');
+    setPreview(null);
+    setSavedAt(null);
+    setError(null);
+  };
 
   const save = async () => {
     if (!dataset || !name.trim() || selected.length === 0) return;
@@ -46,13 +102,13 @@ export default function ReportBuilder() {
         definition: {
           dataset: dataset.key,
           columns: selected,
-          filters: [],
-          sorts: [],
+          filters,
+          sorts,
           limit: 1000,
         },
       });
       setName('');
-      setSelected([]);
+      resetWorkingDefinition();
       setSavedAt(Date.now());
       reportsApi.reload();
     } catch (e) {
@@ -178,7 +234,7 @@ export default function ReportBuilder() {
             <select
               className="input"
               value={activeKey}
-              onChange={(e) => { setDatasetKey(e.target.value); setSelected([]); setPreview(null); }}
+              onChange={(e) => { setDatasetKey(e.target.value); resetWorkingDefinition(); }}
               data-testid="report-builder-dataset-select"
               style={{ width: '100%' }}
             >
@@ -186,6 +242,38 @@ export default function ReportBuilder() {
                 <option key={key} value={key}>{datasets[key].label || key}</option>
               ))}
             </select>
+
+            {presetList.length > 0 && (
+              <div style={{ marginTop: 16 }} data-testid="report-builder-presets">
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  Preset
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8 }}>
+                  <select
+                    className="input"
+                    value={presetKey}
+                    onChange={(e) => setPresetKey(e.target.value)}
+                    data-testid="report-builder-preset-select"
+                    style={{ width: '100%' }}
+                  >
+                    <option value="">Select preset</option>
+                    {presetList.map((preset) => (
+                      <option key={preset.key} value={preset.key}>
+                        {preset.label || preset.key}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="btn btn--ghost"
+                    onClick={() => applyPreset(presets[presetKey])}
+                    disabled={!presetKey || !presets[presetKey]}
+                    data-testid="report-builder-preset-apply"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div style={{ marginTop: 16 }}>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
@@ -218,6 +306,20 @@ export default function ReportBuilder() {
 
             <div style={{ marginTop: 18, fontSize: 12, color: '#64748b' }}>
               <div data-testid="report-builder-selected-count">{selected.length} selected</div>
+              {(filters.length > 0 || sorts.length > 0) && (
+                <div data-testid="report-builder-definition-conditions" style={{ marginTop: 8, display: 'grid', gap: 4 }}>
+                  {filters.map((filter, idx) => (
+                    <div key={`filter-${idx}`}>
+                      Filter: {filter.field || filter.key} {filter.operator || 'equals'} {String(filter.value ?? '')}
+                    </div>
+                  ))}
+                  {sorts.map((sort, idx) => (
+                    <div key={`sort-${idx}`}>
+                      Sort: {sort.field || sort.key} {sort.direction || 'asc'}
+                    </div>
+                  ))}
+                </div>
+              )}
               {savedAt && <div data-testid="report-builder-saved" style={{ color: '#047857', marginTop: 6 }}>Saved.</div>}
               {error && <div className="error" data-testid="report-builder-save-error" style={{ marginTop: 6 }}>Error: {error.message}</div>}
             </div>
@@ -283,14 +385,23 @@ export default function ReportBuilder() {
                 >
                   <span>{report.name}</span>
                   <span style={{ color: '#64748b', fontSize: 12 }}>{report.dataset} - {report.visibility}</span>
-                  <button
-                    className="btn btn--ghost"
-                    data-testid={`report-builder-delete-${report.id}`}
-                    onClick={() => removeReport(report.id)}
-                    disabled={deletingId === report.id}
-                  >
-                    {deletingId === report.id ? 'Deleting...' : 'Delete'}
-                  </button>
+                  <span style={{ display: 'inline-flex', gap: 8 }}>
+                    <button
+                      className="btn btn--ghost"
+                      data-testid={`report-builder-load-${report.id}`}
+                      onClick={() => loadReport(report)}
+                    >
+                      Load
+                    </button>
+                    <button
+                      className="btn btn--ghost"
+                      data-testid={`report-builder-delete-${report.id}`}
+                      onClick={() => removeReport(report.id)}
+                      disabled={deletingId === report.id}
+                    >
+                      {deletingId === report.id ? 'Deleting...' : 'Delete'}
+                    </button>
+                  </span>
                 </div>
               ))}
             </section>

@@ -69,6 +69,90 @@ function reportBuilderDatasetGet(string $key, ?int $tenantId = null): ?array
     return $reg[$key] ?? null;
 }
 
+/**
+ * Named report presets are platform metadata over governed datasets. They do
+ * not bypass dataset permissions or execution; API callers resolve them into a
+ * normal report definition before validation, preview, export, or saving.
+ *
+ * @return array<string, array>
+ */
+function reportBuilderPresetRegistry(?int $tenantId = null): array
+{
+    $raw = [
+        'people.active_directory' => [
+            'label'       => 'Active People Directory',
+            'description' => 'Active people with core identity and classification fields.',
+            'module_id'   => 'people',
+            'definition'  => [
+                'dataset' => 'people_directory',
+                'columns' => ['first_name', 'last_name', 'email_primary', 'classification', 'employment_type', 'status'],
+                'filters' => [['field' => 'status', 'operator' => 'equals', 'value' => 'active']],
+                'sorts'   => [
+                    ['field' => 'last_name', 'direction' => 'asc'],
+                    ['field' => 'first_name', 'direction' => 'asc'],
+                ],
+                'limit'   => 1000,
+            ],
+        ],
+        'staffing.active_placements' => [
+            'label'       => 'Active Placements Roster',
+            'description' => 'Active placement roster with worker, client, dates, and rates.',
+            'module_id'   => 'staffing',
+            'definition'  => [
+                'dataset' => 'placements_directory',
+                'columns' => [
+                    'person_name',
+                    'person_email',
+                    'title',
+                    'engagement_type',
+                    'status',
+                    'start_date',
+                    'end_date',
+                    'end_client_name',
+                    'bill_rate',
+                    'pay_rate',
+                ],
+                'filters' => [['field' => 'status', 'operator' => 'equals', 'value' => 'active']],
+                'sorts'   => [['field' => 'start_date', 'direction' => 'desc']],
+                'limit'   => 1000,
+            ],
+        ],
+    ];
+
+    $out = [];
+    foreach ($raw as $key => $preset) {
+        $definition = (array) ($preset['definition'] ?? []);
+        $datasetKey = (string) ($definition['dataset'] ?? '');
+        $dataset = reportBuilderDatasetGet($datasetKey, $tenantId);
+        if (!$dataset || empty($dataset['execution_supported'])) continue;
+        try {
+            reportBuilderValidateDefinition($definition, $tenantId);
+        } catch (\Throwable $e) {
+            error_log('[report_builder.presets] invalid preset ' . $key . ': ' . $e->getMessage());
+            continue;
+        }
+
+        $out[$key] = [
+            'key'              => $key,
+            'label'            => (string) ($preset['label'] ?? $key),
+            'description'      => (string) ($preset['description'] ?? ''),
+            'module_id'        => $preset['module_id'] ?? ($dataset['module_id'] ?? null),
+            'source_module_id' => $dataset['module_id'] ?? null,
+            'dataset'          => $datasetKey,
+            'dataset_label'    => (string) ($dataset['label'] ?? $datasetKey),
+            'permission'       => $dataset['permission'] ?? null,
+            'definition'       => $definition,
+        ];
+    }
+    return $out;
+}
+
+function reportBuilderPresetGet(string $key, ?int $tenantId = null): ?array
+{
+    $reg = reportBuilderPresetRegistry($tenantId);
+    return $reg[$key] ?? null;
+}
+
 function reportBuilderDatasetExecutionSupported(string $datasetKey): bool
 {
     $dataset = exportDatasetGet($datasetKey);

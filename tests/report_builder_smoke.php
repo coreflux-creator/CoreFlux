@@ -32,6 +32,13 @@ $assert('payroll amount classified as measure', (($reg['payroll_disbursements'][
 $assert('payroll bank account marked sensitive', !empty($reg['payroll_disbursements']['fields']['bank_account_number']['sensitive']));
 $assert('people execution supported', !empty($people['execution_supported']));
 $assert('reportBuilderDatasetGet works', (reportBuilderDatasetGet('people_directory')['key'] ?? null) === 'people_directory');
+$presets = reportBuilderPresetRegistry();
+$assert('people preset exists', isset($presets['people.active_directory']));
+$assert('staffing placement preset exists', isset($presets['staffing.active_placements']));
+$assert('staffing preset consumes placements dataset', ($presets['staffing.active_placements']['dataset'] ?? null) === 'placements_directory');
+$assert('staffing preset preserves source module metadata', ($presets['staffing.active_placements']['source_module_id'] ?? null) === 'placements');
+$presetDefinition = reportBuilderValidateDefinition((array) ($presets['people.active_directory']['definition'] ?? []));
+$assert('preset definitions validate through governed fields', ($presetDefinition['filters'][0]['field'] ?? null) === 'status');
 $definition = reportBuilderValidateDefinition([
     'dataset' => 'people_directory',
     'columns' => ['first_name', 'last_name', 'email_primary'],
@@ -67,6 +74,10 @@ $assert('API supports governed CSV export', str_contains($apiText, "action === '
 $assert('API gates sensitive execution', str_contains($apiText, 'reportBuilderDefinitionUsesSensitiveFields') && str_contains($apiText, "'reports.export'"));
 $assert('API audits execution', str_contains($apiText, "'reports.custom.executed'"));
 $assert('API audits CSV export', str_contains($apiText, "'reports.custom.exported'"));
+$assert('API audits saved report lifecycle', str_contains($apiText, "'reports.custom.saved'") && str_contains($apiText, "'reports.custom.updated'") && str_contains($apiText, "'reports.custom.deleted'"));
+$assert('API exposes governed presets', str_contains($apiText, "action === 'presets'") && str_contains($apiText, 'reportBuilderPresetRegistry'));
+$assert('API resolves preset keys', str_contains($apiText, 'reportBuilderApiResolveDefinition') && str_contains($apiText, "'preset_key'"));
+$assert('API saves presets as report definitions', str_contains($apiText, 'reportBuilderApiHydratePresetBody'));
 $assert('API supports saved report list', str_contains($apiText, "action === 'reports'"));
 $assert('API supports create/update/delete', str_contains($apiText, 'if ($method === \'POST\')') && str_contains($apiText, 'if ($method === \'PATCH\')') && str_contains($apiText, 'if ($method === \'DELETE\')'));
 $manifest = require $root . '/modules/reports/manifest.php';
@@ -74,6 +85,8 @@ $routes = array_map(fn ($a) => $a['route'] ?? '', $manifest['actions'] ?? []);
 $assert('reports manifest exposes custom route', in_array('custom', $routes, true));
 $assert('reports manifest exposes other reports route', in_array('other', $routes, true));
 $assert('report builder docs exist', is_file($root . '/docs/REPORT_BUILDER.md'));
+$reportBuilderDocs = (string) file_get_contents($root . '/docs/REPORT_BUILDER.md');
+$assert('report builder docs cover presets', str_contains($reportBuilderDocs, '/api/v1/reports/report-builder/presets') && str_contains($reportBuilderDocs, 'preset_key'));
 $assert('core report builder parses', _php_lint($root . '/core/report_builder.php'));
 $migration = (string) file_get_contents($root . '/core/migrations/115_report_builder_saved_reports.sql');
 $assert('saved reports migration creates table', str_contains($migration, 'CREATE TABLE IF NOT EXISTS report_builder_reports'));
@@ -85,11 +98,14 @@ $ui = (string) file_get_contents($root . '/modules/reports/ui/ReportBuilder.jsx'
 $moduleUi = (string) file_get_contents($root . '/modules/reports/ui/ReportsModule.jsx');
 $assert('ReportBuilder UI exists', is_file($root . '/modules/reports/ui/ReportBuilder.jsx'));
 $assert('ReportBuilder hits dataset API', str_contains($ui, '/api/v1/reports/report-builder/datasets'));
+$assert('ReportBuilder hits preset API', str_contains($ui, '/api/v1/reports/report-builder/presets'));
 $assert('ReportBuilder hits saved reports API', str_contains($ui, '/api/v1/reports/report-builder/reports'));
 $assert('ReportBuilder saves through platform API', str_contains($ui, "api.post('/api/v1/reports/report-builder'"));
 $assert('ReportBuilder deletes through platform API', str_contains($ui, 'api.delete(`/api/v1/reports/report-builder/${id}`)'));
 $assert('ReportBuilder previews through platform API', str_contains($ui, "/api/v1/reports/report-builder/run") && str_contains($ui, 'report-builder-preview-results'));
 $assert('ReportBuilder exports through platform API', str_contains($ui, "/api/v1/reports/report-builder/export") && str_contains($ui, 'report-builder-export'));
+$assert('ReportBuilder applies presets with conditions', str_contains($ui, 'report-builder-preset-select') && str_contains($ui, 'report-builder-definition-conditions'));
+$assert('ReportBuilder loads saved reports', str_contains($ui, 'loadReport') && str_contains($ui, 'report-builder-load-'));
 $assert('ReportsModule routes custom to ReportBuilder', str_contains($moduleUi, '<ReportBuilder session={session} />'));
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";
