@@ -25,7 +25,7 @@ export default function CustomFields() {
 
   const del = async (id) => {
     if (!confirm('Soft-delete this custom field? (Existing values are preserved.)')) return;
-    await api.delete(`${path}&id=${id}`);
+    await api.delete(`${path}?id=${id}`);
     reload();
   };
 

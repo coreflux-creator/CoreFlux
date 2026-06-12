@@ -114,6 +114,7 @@ const DEMO_SESSION = {
         { name: 'New Placement',     route: 'new' },
         { name: 'Commissions',       route: 'commissions' },
         { name: 'Referrals',         route: 'referrals' },
+        { name: 'Custom Fields',     route: 'custom_fields' },
         { name: 'Reports',           route: 'reports' },
       ]
     },

@@ -99,6 +99,21 @@ function customFieldNormalizeSurfaceLayout(array $raw, string $surface): array
     };
 }
 
+function customFieldLegacyColumn(array $cols, string $column, string $fallback, string $alias = ''): string
+{
+    if (!in_array($column, $cols, true)) return $fallback;
+    return ($alias !== '' ? $alias . '.' : '') . $column;
+}
+
+function customFieldLegacyActiveWhere(array $cols, string $alias = ''): string
+{
+    $prefix = $alias !== '' ? $alias . '.' : '';
+    $clauses = [];
+    if (in_array('deleted_at', $cols, true)) $clauses[] = "{$prefix}deleted_at IS NULL";
+    if (in_array('is_active', $cols, true)) $clauses[] = "COALESCE({$prefix}is_active, 1) = 1";
+    return $clauses ? ' AND ' . implode(' AND ', $clauses) : '';
+}
+
 function customFieldDefinitions(int $tenantId, string $entityType): array
 {
     $entity = customFieldEntity($entityType);
@@ -120,16 +135,24 @@ function customFieldDefinitions(int $tenantId, string $entityType): array
     $labelCol = in_array('field_label', $cols, true) ? 'field_label' : 'label';
     $typeCol = in_array('field_type', $cols, true) ? 'field_type' : 'type';
     $requiredExpr = in_array('is_required', $cols, true) ? 'is_required' : '0';
+    $optionsExpr = customFieldLegacyColumn($cols, 'options', 'NULL');
+    $piiExpr = customFieldLegacyColumn($cols, 'pii', '0');
+    $orderExpr = customFieldLegacyColumn($cols, 'order_index', '0');
+    $orderBy = in_array('order_index', $cols, true) ? 'order_index, ' : '';
     $stmt = getDB()->prepare(
         "SELECT id,
                 {$keyCol} AS field_key,
                 {$labelCol} AS field_label,
                 {$typeCol} AS field_type,
-                options,
-                {$requiredExpr} AS required
+                {$optionsExpr} AS options_json,
+                {$optionsExpr} AS options,
+                {$requiredExpr} AS required,
+                {$piiExpr} AS pii,
+                {$orderExpr} AS order_index
            FROM custom_fields
           WHERE tenant_id = :tenant_id AND module = :module
-          ORDER BY {$labelCol}"
+          " . customFieldLegacyActiveWhere($cols) . "
+          ORDER BY {$orderBy}{$labelCol}"
     );
     $stmt->execute(['tenant_id' => $tenantId, 'module' => $entityType]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -179,6 +202,8 @@ function customFieldDefinitionCreate(int $tenantId, string $entityType, array $a
     if (in_array('is_required', $cols, true)) $insert['is_required'] = $data['required'];
     if (in_array('options', $cols, true)) $insert['options'] = $data['options_json'];
     if (in_array('pii', $cols, true)) $insert['pii'] = $data['pii'];
+    if (in_array('order_index', $cols, true)) $insert['order_index'] = $data['order_index'];
+    if (in_array('is_active', $cols, true)) $insert['is_active'] = 1;
 
     $names = array_keys($insert);
     $placeholders = array_map(static fn($col) => ':' . $col, $names);
@@ -221,6 +246,7 @@ function customFieldDefinitionUpdate(int $tenantId, string $entityType, int $id,
     if (isset($data['required']) && in_array('is_required', $cols, true)) $update['is_required'] = $data['required'];
     if (array_key_exists('options_json', $data) && in_array('options', $cols, true)) $update['options'] = $data['options_json'];
     if (isset($data['pii']) && in_array('pii', $cols, true)) $update['pii'] = $data['pii'];
+    if (isset($data['order_index']) && in_array('order_index', $cols, true)) $update['order_index'] = $data['order_index'];
     if (!$update) throw new InvalidArgumentException('No supported fields to update');
 
     $sets = [];
@@ -230,7 +256,8 @@ function customFieldDefinitionUpdate(int $tenantId, string $entityType, int $id,
     $update['module'] = $entityType;
     $stmt = getDB()->prepare(
         'UPDATE custom_fields SET ' . implode(', ', $sets) .
-        ' WHERE id = :id AND tenant_id = :tenant_id AND module = :module'
+        ' WHERE id = :id AND tenant_id = :tenant_id AND module = :module' .
+        customFieldLegacyActiveWhere($cols)
     );
     $stmt->execute($update);
 }
@@ -372,11 +399,14 @@ function customFieldLegacyValues(int $tenantId, string $entityType, int $recordI
     $typeCol = in_array('field_type', $cols, true) ? 'field_type' : 'type';
     $requiredExpr = in_array('is_required', $cols, true) ? 'f.is_required' : '0';
     $piiExpr = in_array('pii', $cols, true) ? 'f.pii' : '0';
+    $optionsExpr = customFieldLegacyColumn($cols, 'options', 'NULL', 'f');
+    $orderExpr = customFieldLegacyColumn($cols, 'order_index', '0', 'f');
+    $orderBy = in_array('order_index', $cols, true) ? 'f.order_index, ' : '';
     $sql = "SELECT f.id AS field_def_id,
                    f.{$keyCol} AS field_key,
                    f.{$labelCol} AS field_label,
                    f.{$typeCol} AS field_type,
-                   f.options AS options_json,
+                   {$optionsExpr} AS options_json,
                    {$requiredExpr} AS required,
                    {$piiExpr} AS pii,
                    v.value AS value_text,
@@ -391,8 +421,9 @@ function customFieldLegacyValues(int $tenantId, string $entityType, int $recordI
                AND v.record_id = :record_id
              WHERE f.tenant_id = :tenant_id
                AND f.module = :module";
+    $sql .= customFieldLegacyActiveWhere($cols, 'f');
     if (!$includeSensitive && in_array('pii', $cols, true)) $sql .= ' AND COALESCE(f.pii, 0) = 0';
-    $sql .= " ORDER BY f.{$labelCol}";
+    $sql .= " ORDER BY {$orderBy}f.{$labelCol}";
     $stmt = getDB()->prepare($sql);
     $stmt->execute(['tenant_id' => $tenantId, 'module' => $entityType, 'record_id' => $recordId]);
     $rows = [];
@@ -508,6 +539,7 @@ function customFieldLegacyValueUpsert(int $tenantId, string $module, int $record
           WHERE tenant_id = :tenant_id
             AND module = :module
             AND {$keyCol} = :field_key
+            " . customFieldLegacyActiveWhere($cols) . "
           LIMIT 1"
     );
     $defStmt->execute([

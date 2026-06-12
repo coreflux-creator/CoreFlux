@@ -22,6 +22,7 @@ return [
         ['name' => 'New Placement',     'route' => 'new',          'permission' => 'placements.manage'],
         ['name' => 'Commissions',       'route' => 'commissions',  'permission' => 'placements.commissions.view'],
         ['name' => 'Referrals',         'route' => 'referrals',    'permission' => 'placements.referrals.manage'],
+        ['name' => 'Custom Fields',     'route' => 'custom_fields', 'permission' => 'placements.custom_fields.manage'],
         ['name' => 'Reports',           'route' => 'reports',      'permission' => 'placements.financials.view'],
     ],
 

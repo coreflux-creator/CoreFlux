@@ -42,11 +42,24 @@ $assert('customFieldDefinitionUpdate exists', function_exists('customFieldDefini
 $assert('customFieldDefinitionDelete exists', function_exists('customFieldDefinitionDelete'));
 $assert('customFieldAudit exists', function_exists('customFieldAudit'));
 $assert('customFieldValues exists', function_exists('customFieldValues'));
+$assert('customFieldLegacyActiveWhere exists', function_exists('customFieldLegacyActiveWhere'));
 $assert('people upsert path exists', str_contains($core, 'customFieldPeopleValueUpsert'));
 $assert('people values read path exists', str_contains($core, 'customFieldPeopleValues'));
 $assert('legacy values read path exists', str_contains($core, 'customFieldLegacyValues'));
 $assert('legacy upsert path exists', str_contains($core, 'customFieldLegacyValueUpsert'));
 $assert('legacy column detection exists', str_contains($core, 'customFieldLegacyColumns'));
+$assert('legacy definitions expose PII metadata', str_contains($core, 'AS pii'));
+$assert('legacy definitions expose order metadata', str_contains($core, 'AS order_index'));
+$assert('legacy reads filter inactive/soft-deleted fields', substr_count($core, 'customFieldLegacyActiveWhere($cols') >= 3);
+
+echo "\nGovernance migration\n";
+$migration = $root . '/core/migrations/119_custom_fields_governance_columns.sql';
+$migrationText = is_file($migration) ? (string) file_get_contents($migration) : '';
+$assert('custom fields governance migration exists', is_file($migration));
+$assert('migration adds pii metadata', str_contains($migrationText, 'COLUMN_NAME = \'pii\''));
+$assert('migration adds order metadata', str_contains($migrationText, 'COLUMN_NAME = \'order_index\''));
+$assert('migration adds active flag', str_contains($migrationText, 'COLUMN_NAME = \'is_active\''));
+$assert('migration adds soft delete', str_contains($migrationText, 'COLUMN_NAME = \'deleted_at\''));
 
 echo "\nDiscovery API\n";
 $api = $root . '/api/custom_field_entities.php';
@@ -88,11 +101,26 @@ $assert('field map apply calls customFieldValueUpsert', str_contains($apply, 'cu
 echo "\nUI consumers\n";
 $customFieldsUi = (string) file_get_contents($root . '/modules/people/ui/CustomFields.jsx');
 $personDetailUi = (string) file_get_contents($root . '/modules/people/ui/PersonDetail.jsx');
+$placementsCustomFieldsUi = (string) file_get_contents($root . '/modules/placements/ui/CustomFields.jsx');
+$placementDetailUi = (string) file_get_contents($root . '/modules/placements/ui/PlacementDetail.jsx');
+$placementsModuleUi = (string) file_get_contents($root . '/modules/placements/ui/PlacementsModule.jsx');
+$placementsManifest = (string) file_get_contents($root . '/modules/placements/manifest.php');
 $assert('People custom fields admin uses v1 platform definitions API', str_contains($customFieldsUi, '/api/v1/people/custom-field-definitions'));
+$assert('People custom fields delete uses query id', str_contains($customFieldsUi, '?id=${id}'));
 $assert('Person detail uses v1 platform definitions API', str_contains($personDetailUi, '/api/v1/people/custom-field-definitions'));
 $assert('Person detail uses v1 platform values API', str_contains($personDetailUi, '/api/v1/people/custom-field-values/'));
 $assert('Person detail uses v1 platform layout API', str_contains($personDetailUi, '/api/v1/people/custom-field-layouts/detail'));
 $assert('Person detail applies shared layout ordering', str_contains($personDetailUi, 'fieldOrder.indexOf') && str_contains($personDetailUi, 'orderedDefs.map'));
+$assert('Placements manifest exposes custom fields action', str_contains($placementsManifest, "'route' => 'custom_fields'") && str_contains($placementsManifest, "'permission' => 'placements.custom_fields.manage'"));
+$assert('Placements module routes custom fields admin', str_contains($placementsModuleUi, '<Route path="custom_fields" element={<CustomFields />} />'));
+$assert('Placements custom fields admin uses v1 platform definitions API', str_contains($placementsCustomFieldsUi, '/api/v1/placements/custom-field-definitions'));
+$assert('Placements custom fields admin deletes by query id', str_contains($placementsCustomFieldsUi, '?id=${id}'));
+$assert('Placement detail exposes custom fields tab', str_contains($placementDetailUi, "slug: 'custom'") && str_contains($placementDetailUi, 'CustomFieldsTab placementId={placement.id}'));
+$assert('Placement detail uses v1 platform definitions API', str_contains($placementDetailUi, '/api/v1/placements/custom-field-definitions'));
+$assert('Placement detail uses v1 platform values API', str_contains($placementDetailUi, '/api/v1/placements/custom-field-values/'));
+$assert('Placement detail uses v1 platform layout API', str_contains($placementDetailUi, '/api/v1/placements/custom-field-layouts/detail'));
+$assert('Placement detail gates editing on layout permission', str_contains($placementDetailUi, 'can_manage') && str_contains($placementDetailUi, 'placements.custom_fields.manage'));
+$assert('Placement detail applies shared layout ordering', str_contains($placementDetailUi, 'fieldOrder.indexOf') && str_contains($placementDetailUi, 'orderedDefs.map'));
 
 echo "\nDocs\n";
 $assert('custom fields docs exist', is_file($root . '/docs/CUSTOM_FIELDS_LAYOUTS.md'));

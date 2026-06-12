@@ -49,6 +49,7 @@ Use `core/custom_fields.php` for shared behavior:
 
 The service routes People to its spec-aligned tables and supports the legacy
 generic `custom_fields` / `custom_values` tables during migration.
+Placements currently consumes that generic path through the same service.
 
 ## Discovery API
 
@@ -63,6 +64,9 @@ GET    /api/v1/people/custom-field-layouts
 GET    /api/v1/people/custom-field-layouts/forms
 GET    /api/v1/people/custom-field-values/123
 POST   /api/v1/people/custom-field-values/123
+GET    /api/v1/placements/custom-field-definitions
+GET    /api/v1/placements/custom-field-layouts/detail
+POST   /api/v1/placements/custom-field-values/456
 ```
 
 The shared discovery endpoint remains available at
@@ -97,3 +101,6 @@ field keys touched.
 Custom fields must flow into forms, detail views, lists, exports, and reports
 through this shared contract. Modules may ship entity-specific UI, but should
 not invent separate permission, audit, export, or report-builder conventions.
+If a module declares `custom_field_entities`, its product surfaces should use
+the entity-scoped `/api/v1/<module>/custom-field-*` aliases and should expose
+definition management through the declared `manage_permission`.

@@ -104,6 +104,21 @@ $assert("v1 custom field layouts sets entity_type", ($_GET['entity_type'] ?? nul
 $assert("v1 custom field layouts sets surface", ($_GET['surface'] ?? null) === 'detail');
 $_GET = [];
 
+$r = apiRouterParse('', '/api/v1/placements/custom-field-definitions');
+$assert("v1 placements custom field definitions ok", $r['ok'] === true && $r['module_id'] === 'placements' && $r['endpoint'] === 'custom-field-definitions');
+$_GET = [];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 placements custom field definitions sets entity_type", ($_GET['entity_type'] ?? null) === 'placements');
+$_GET = [];
+
+$r = apiRouterParse('', '/api/v1/placements/custom-field-values/456');
+$assert("v1 placements custom field values ok", $r['ok'] === true && $r['module_id'] === 'placements' && $r['endpoint'] === 'custom-field-values');
+$_GET = [];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 placements custom field values sets entity_type", ($_GET['entity_type'] ?? null) === 'placements');
+$assert("v1 placements custom field values sets record_id", ($_GET['record_id'] ?? null) === '456');
+$_GET = [];
+
 $r = apiRouterParse('', '/api/v1/people/graph/resolve');
 $assert("v1 people graph resolve ok", $r['ok'] === true && $r['module_id'] === 'people' && $r['endpoint'] === 'graph');
 $_GET = [];

@@ -168,7 +168,8 @@ class ModuleRegistry {
 
         // Type-check the most-used fields. Non-fatal; just warn and coerce.
         foreach (['actions', 'views', 'nav_sections', 'permissions',
-                  'audit_events', 'default_roles', 'depends_on'] as $listField) {
+                  'audit_events', 'default_roles', 'depends_on',
+                  'custom_field_entities', 'custom_field_layouts'] as $listField) {
             if (!is_array($manifest[$listField])) {
                 $this->validationErrors[$id][] = "field '$listField' must be an array; coerced to []";
                 $manifest[$listField] = [];
@@ -270,12 +271,43 @@ class ModuleRegistry {
      */
     public function getCustomFieldEntities(): array {
         $out = [];
+        $defaultSurfaces = ['forms', 'detail', 'lists', 'exports', 'reports'];
+        $allowedSurfaces = array_flip($defaultSurfaces);
         foreach ($this->modules as $moduleId => $m) {
             $layouts = is_array($m['custom_field_layouts'] ?? null) ? $m['custom_field_layouts'] : [];
             foreach (($m['custom_field_entities'] ?? []) as $entry) {
                 $raw = is_array($entry) ? $entry : ['entity_type' => (string) $entry];
                 $entityType = (string) ($raw['entity_type'] ?? $raw['id'] ?? '');
                 if ($entityType === '') continue;
+                if (isset($out[$entityType])) {
+                    $owner = (string) ($out[$entityType]['module_id'] ?? 'unknown');
+                    $this->validationErrors[$moduleId][] = "custom field entity '$entityType' already owned by '$owner'; duplicate ignored";
+                    continue;
+                }
+
+                $surfaceRaw = $raw['surfaces'] ?? $defaultSurfaces;
+                if (!is_array($surfaceRaw)) {
+                    $this->validationErrors[$moduleId][] = "custom field entity '$entityType' surfaces must be an array; defaulted";
+                    $surfaceRaw = $defaultSurfaces;
+                }
+                $surfaces = [];
+                foreach ($surfaceRaw as $surface) {
+                    $surface = strtolower(trim((string) $surface));
+                    if ($surface === '' || !isset($allowedSurfaces[$surface])) continue;
+                    $surfaces[] = $surface;
+                }
+                $surfaces = array_values(array_unique($surfaces));
+                if ($surfaces === []) {
+                    $this->validationErrors[$moduleId][] = "custom field entity '$entityType' surfaces were empty/invalid; defaulted";
+                    $surfaces = $defaultSurfaces;
+                }
+
+                $layoutDecl = $raw['layouts'] ?? ($layouts[$entityType] ?? []);
+                if (!is_array($layoutDecl)) {
+                    $this->validationErrors[$moduleId][] = "custom field entity '$entityType' layouts must be an array; coerced to []";
+                    $layoutDecl = [];
+                }
+
                 $out[$entityType] = array_merge([
                     'entity_type'       => $entityType,
                     'module_id'         => $moduleId,
@@ -286,12 +318,13 @@ class ModuleRegistry {
                     'definition_table'  => null,
                     'value_table'       => null,
                     'record_id_key'     => 'record_id',
-                    'surfaces'          => ['forms', 'detail', 'lists', 'exports', 'reports'],
-                    'layouts'           => $layouts[$entityType] ?? [],
+                    'surfaces'          => $defaultSurfaces,
+                    'layouts'           => $layoutDecl,
                 ], $raw, [
                     'entity_type' => $entityType,
                     'module_id'   => $moduleId,
-                    'layouts'     => $raw['layouts'] ?? ($layouts[$entityType] ?? []),
+                    'surfaces'    => $surfaces,
+                    'layouts'     => $layoutDecl,
                 ]);
             }
         }
