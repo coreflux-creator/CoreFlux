@@ -42,16 +42,17 @@ $assert('PHP parses cleanly',                         $lint(__DIR__ . '/../modul
 // ─── Bill approvals API ───
 echo "modules/ap/api/bill_approvals.php\n";
 $ba = file_get_contents(__DIR__ . '/../modules/ap/api/bill_approvals.php');
+$sync = file_get_contents(__DIR__ . '/../modules/ap/lib/workflow_sync.php');
 $assert('GET ?inbox=1 returns pending steps',         strpos($ba, 'inbox') !== false && strpos($ba, "a.state            = 'pending'") !== false);
 $assert('?action=submit fans out from rules',         strpos($ba, "action === 'submit'") !== false  // JS-style; real check next
                                                    || strpos($ba, "\$action === 'submit'") !== false);
 $assert('submit delegates to WorkflowEngine bridge',  strpos($ba, 'apWorkflowSubmitBillForApproval($tenantId, $bill, $userId') !== false);
 $assert('submit returns workflow routing evidence',   strpos($ba, "'workflow_instance_id' => \$routing['workflow_instance_id']") !== false
                                                    && strpos($ba, "'policy_id' => \$routing['policy_id']") !== false);
-$assert('approve action advances chain',              strpos($ba, "approve") !== false && strpos($ba, "state = 'pending'") !== false);
-$assert('reject sets bill.status=disputed',           strpos($ba, "SET status = 'disputed'") !== false);
-$assert('all steps approved → bill.status=approved',  strpos($ba, "SET status = 'approved'") !== false);
-$assert('uses approved_by_user_id (not approved_by)', strpos($ba, 'approved_by_user_id') !== false);
+$assert('approve/reject delegates to WorkflowEngine', strpos($ba, 'apWorkflowActBillApproval($tenantId, $bill, $userId, $action, $note, true)') !== false);
+$assert('workflow sync sets bill.status=disputed',    strpos($sync, "SET status = 'disputed'") !== false);
+$assert('workflow sync approved -> bill.status=approved', strpos($sync, "SET status = 'approved'") !== false);
+$assert('sync uses approved_by_user_id (not approved_by)', strpos($sync, 'approved_by_user_id') !== false);
 $assert('blocks step N if N-1 still pending',         strpos($ba, 'A prior step is still pending') !== false);
 $assert('PHP parses cleanly',                         $lint(__DIR__ . '/../modules/ap/api/bill_approvals.php'));
 

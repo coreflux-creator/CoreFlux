@@ -5,8 +5,8 @@
  * Locks the alignment contract for AP bill approvals:
  *   - People Graph-backed Workflow steps are the routing source.
  *   - Legacy AP approval rows mirror resolved Workflow approvers.
- *   - Approve/reject decisions are permissioned and preflighted through
- *     WorkflowEngine gating/SoD before legacy rows change.
+ *   - Approve/reject decisions are permissioned and delegated through the
+ *     WorkflowEngine bridge; subject sync owns legacy row and bill mutation.
  *   - Blocked decisions and Workflow-driven next-step sync are auditable.
  */
 declare(strict_types=1);
@@ -72,16 +72,19 @@ $a('amount evaluator handles AP total fallback',
 
 echo "\nAP decision endpoint gates through WorkflowEngine\n";
 $a('approve/reject require AP approval permission', str_contains($api, "rbac_legacy_require(\$user, 'ap.bill.approve');"));
-$a('decision preflight calls workflow mirror in throwing mode',
-    str_contains($api, 'apMirrorToWorkflow($tenantId, $billId, $userId, $action, $note, true)'));
+$a('decision delegates to WorkflowEngine bridge',
+    str_contains($api, 'apWorkflowActBillApproval($tenantId, $bill, $userId, $action, $note, true)'));
 $a('blocked workflow decisions are audited',
     str_contains($api, "apAudit('ap.bill.approval_blocked'") && str_contains($manifest, "'ap.bill.approval_blocked'"));
-$a('mirror supports strict control mode',
-    str_contains($api, 'bool $throwOnFailure = false') && str_contains($api, 'if ($throwOnFailure) throw $e;'));
-$a('post-commit mirror is skipped after successful preflight',
-    str_contains($api, 'if (!$workflowDecisionApplied)') && str_contains($api, 'apMirrorToWorkflow($tenantId, $billId, $userId, $action, $note);'));
-$a('next legacy step prefers current workflow approvers',
-    str_contains($api, 'apCurrentWorkflowApproverUserIds($tenantId, $billId)'));
+$a('decision uses shared workflow HTTP status mapping',
+    str_contains($api, 'apWorkflowDecisionHttpStatus($e)'));
+$a('approval API no longer carries reverse-mirror decision helpers',
+    !str_contains($api, 'apMirrorToWorkflow') && !str_contains($api, 'workflowDecisionApplied'));
+$a('approval API never flips AP bill status directly',
+    !str_contains($api, "UPDATE ap_bills SET status = 'approved'")
+    && !str_contains($api, "UPDATE ap_bills SET status = 'disputed'"));
+$a('next approver notification reads current mirrored workflow step',
+    str_contains($api, 'apBillApprovalCurrentStepApprovers($pdo, $tenantId, $billId)'));
 
 echo "\nAP direct bill approval compatibility path\n";
 $a('bills.php loads the shared workflow bridge',
