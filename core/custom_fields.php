@@ -35,7 +35,7 @@ function customFieldLayouts(?string $entityType = null): array
     return $out;
 }
 
-function customFieldSurfaceLayout(string $entityType, string $surface): array
+function customFieldSurfaceLayout(string $entityType, string $surface, ?int $tenantId = null): array
 {
     $entity = customFieldEntity($entityType);
     if (!$entity) throw new InvalidArgumentException("Unknown custom field entity: {$entityType}");
@@ -46,16 +46,24 @@ function customFieldSurfaceLayout(string $entityType, string $surface): array
     $enabled = in_array($surface, $declared, true);
     $raw = is_array($entity['layouts'] ?? null) ? $entity['layouts'] : [];
     $layout = customFieldNormalizeSurfaceLayout($raw, $surface);
+    $override = customFieldTenantSurfaceLayout($tenantId, $entityType, $surface);
+    $source = 'manifest';
+    if ($override !== null) {
+        $layout = customFieldMergeSurfaceLayout($layout, $surface, $override);
+        $source = 'tenant_override';
+    }
 
     return [
         'entity_type' => $entityType,
         'surface'     => $surface,
         'enabled'     => $enabled,
         'layout'      => $layout,
+        'source'      => $source,
+        'tenant_id'   => $tenantId,
     ];
 }
 
-function customFieldAllSurfaceLayouts(?string $entityType = null): array
+function customFieldAllSurfaceLayouts(?string $entityType = null, ?int $tenantId = null): array
 {
     $entities = $entityType !== null
         ? array_filter([customFieldEntity($entityType)])
@@ -66,7 +74,7 @@ function customFieldAllSurfaceLayouts(?string $entityType = null): array
         if ($key === '') continue;
         $out[$key] = [];
         foreach (($entity['surfaces'] ?? ['forms', 'detail', 'lists', 'exports', 'reports']) as $surface) {
-            $out[$key][(string) $surface] = customFieldSurfaceLayout($key, (string) $surface);
+            $out[$key][(string) $surface] = customFieldSurfaceLayout($key, (string) $surface, $tenantId);
         }
     }
     return $out;
@@ -97,6 +105,93 @@ function customFieldNormalizeSurfaceLayout(array $raw, string $surface): array
         ],
         default => $raw,
     };
+}
+
+function customFieldTenantSurfaceLayout(?int $tenantId, string $entityType, string $surface): ?array
+{
+    if ($tenantId === null || $tenantId <= 0) return null;
+    try {
+        $stmt = getDB()->prepare(
+            'SELECT layout_json
+               FROM custom_field_layout_overrides
+              WHERE tenant_id = :tenant_id
+                AND entity_type = :entity_type
+                AND surface = :surface
+              LIMIT 1'
+        );
+        $stmt->execute([
+            'tenant_id' => $tenantId,
+            'entity_type' => $entityType,
+            'surface' => $surface,
+        ]);
+        $json = $stmt->fetchColumn();
+        if (!is_string($json) || trim($json) === '') return null;
+        $decoded = json_decode($json, true);
+        return is_array($decoded) ? $decoded : null;
+    } catch (Throwable $e) {
+        error_log('[custom_fields.layouts] tenant override unavailable: ' . $e->getMessage());
+        return null;
+    }
+}
+
+function customFieldMergeSurfaceLayout(array $base, string $surface, array $override): array
+{
+    $normalized = customFieldNormalizeSurfaceLayout([$surface => $override], $surface);
+    foreach ($normalized as $key => $value) {
+        $base[$key] = is_array($value) ? array_values($value) : $value;
+    }
+    return $base;
+}
+
+function customFieldSurfaceLayoutSave(
+    int $tenantId,
+    string $entityType,
+    string $surface,
+    array $layout,
+    ?int $actorUserId = null
+): array {
+    $resolved = customFieldSurfaceLayout($entityType, $surface, null);
+    if (empty($resolved['enabled'])) throw new InvalidArgumentException("Surface '{$surface}' is not enabled for {$entityType}");
+    $surface = (string) $resolved['surface'];
+    $normalized = customFieldNormalizeSurfaceLayout([$surface => $layout], $surface);
+    $json = json_encode($normalized, JSON_UNESCAPED_SLASHES);
+    if ($json === false) throw new InvalidArgumentException('layout could not be encoded');
+
+    getDB()->prepare(
+        'INSERT INTO custom_field_layout_overrides
+            (tenant_id, entity_type, surface, layout_json, created_by_user_id, updated_by_user_id, created_at, updated_at)
+         VALUES
+            (:tenant_id, :entity_type, :surface, :layout_json, :created_by, :updated_by, NOW(), NOW())
+         ON DUPLICATE KEY UPDATE
+            layout_json = VALUES(layout_json),
+            updated_by_user_id = VALUES(updated_by_user_id),
+            updated_at = NOW()'
+    )->execute([
+        'tenant_id' => $tenantId,
+        'entity_type' => $entityType,
+        'surface' => $surface,
+        'layout_json' => $json,
+        'created_by' => $actorUserId,
+        'updated_by' => $actorUserId,
+    ]);
+
+    return customFieldSurfaceLayout($entityType, $surface, $tenantId);
+}
+
+function customFieldSurfaceLayoutReset(int $tenantId, string $entityType, string $surface): void
+{
+    $resolved = customFieldSurfaceLayout($entityType, $surface, null);
+    if (empty($resolved['enabled'])) throw new InvalidArgumentException("Surface '{$surface}' is not enabled for {$entityType}");
+    getDB()->prepare(
+        'DELETE FROM custom_field_layout_overrides
+          WHERE tenant_id = :tenant_id
+            AND entity_type = :entity_type
+            AND surface = :surface'
+    )->execute([
+        'tenant_id' => $tenantId,
+        'entity_type' => $entityType,
+        'surface' => (string) $resolved['surface'],
+    ]);
 }
 
 function customFieldLegacyColumn(array $cols, string $column, string $fallback, string $alias = ''): string

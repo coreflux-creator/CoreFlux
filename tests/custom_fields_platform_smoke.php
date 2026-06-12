@@ -26,10 +26,17 @@ $assert('placements manage permission', ($entities['placements']['manage_permiss
 $assert('placements layout sections declared', !empty($entities['placements']['layouts']['form_sections'] ?? []));
 $peopleFormLayout = customFieldSurfaceLayout('people', 'forms');
 $assert('people form layout normalized', in_array('profile', $peopleFormLayout['layout']['sections'] ?? [], true));
+$assert('people form layout defaults to manifest source', ($peopleFormLayout['source'] ?? null) === 'manifest');
 $placementsListLayout = customFieldSurfaceLayout('placements', 'lists');
 $assert('placements list layout normalized', in_array('field_label', $placementsListLayout['layout']['columns'] ?? [], true));
 $allLayouts = customFieldAllSurfaceLayouts('people');
 $assert('all surface layouts include exports', isset($allLayouts['people']['exports']));
+$mergedLayout = customFieldMergeSurfaceLayout(['sections' => ['profile'], 'field_order' => ['legacy_id']], 'forms', [
+    'field_order' => ['favorite_color', 'legacy_id'],
+]);
+$assert('tenant layout merge preserves defaults and overrides changed keys',
+    ($mergedLayout['sections'] ?? []) === ['profile']
+    && ($mergedLayout['field_order'] ?? []) === ['favorite_color', 'legacy_id']);
 
 echo "\nCore service file\n";
 $core = (string) file_get_contents($root . '/core/custom_fields.php');
@@ -37,6 +44,9 @@ $assert('customFieldEntityRegistry exists', function_exists('customFieldEntityRe
 $assert('customFieldValueUpsert exists', function_exists('customFieldValueUpsert'));
 $assert('customFieldSurfaceLayout exists', function_exists('customFieldSurfaceLayout'));
 $assert('customFieldAllSurfaceLayouts exists', function_exists('customFieldAllSurfaceLayouts'));
+$assert('customFieldSurfaceLayoutSave exists', function_exists('customFieldSurfaceLayoutSave'));
+$assert('customFieldSurfaceLayoutReset exists', function_exists('customFieldSurfaceLayoutReset'));
+$assert('customFieldTenantSurfaceLayout exists', function_exists('customFieldTenantSurfaceLayout'));
 $assert('customFieldDefinitionMap exists', function_exists('customFieldDefinitionMap'));
 $assert('customFieldDefinitionCreate exists', function_exists('customFieldDefinitionCreate'));
 $assert('customFieldDefinitionUpdate exists', function_exists('customFieldDefinitionUpdate'));
@@ -61,6 +71,13 @@ $assert('legacy column detection exists', str_contains($core, 'customFieldLegacy
 $assert('legacy definitions expose PII metadata', str_contains($core, 'AS pii'));
 $assert('legacy definitions expose order metadata', str_contains($core, 'AS order_index'));
 $assert('legacy reads filter inactive/soft-deleted fields', substr_count($core, 'customFieldLegacyActiveWhere($cols') >= 3);
+$assert('surface layout resolves tenant overrides',
+    str_contains($core, 'customFieldTenantSurfaceLayout($tenantId, $entityType, $surface)')
+    && str_contains($core, "'source'      => \$source"));
+$assert('surface layout save persists platform override',
+    str_contains($core, 'custom_field_layout_overrides')
+    && str_contains($core, 'ON DUPLICATE KEY UPDATE')
+    && str_contains($core, 'customFieldSurfaceLayoutSave'));
 
 echo "\nGovernance migration\n";
 $migration = $root . '/core/migrations/119_custom_fields_governance_columns.sql';
@@ -70,6 +87,12 @@ $assert('migration adds pii metadata', str_contains($migrationText, 'COLUMN_NAME
 $assert('migration adds order metadata', str_contains($migrationText, 'COLUMN_NAME = \'order_index\''));
 $assert('migration adds active flag', str_contains($migrationText, 'COLUMN_NAME = \'is_active\''));
 $assert('migration adds soft delete', str_contains($migrationText, 'COLUMN_NAME = \'deleted_at\''));
+$layoutMigration = $root . '/core/migrations/122_custom_field_layout_overrides.sql';
+$layoutMigrationText = is_file($layoutMigration) ? (string) file_get_contents($layoutMigration) : '';
+$assert('custom field layout override migration exists', is_file($layoutMigration));
+$assert('layout override migration creates tenant surface table',
+    str_contains($layoutMigrationText, 'CREATE TABLE IF NOT EXISTS custom_field_layout_overrides')
+    && str_contains($layoutMigrationText, 'UNIQUE KEY uniq_cflo_tenant_entity_surface'));
 
 echo "\nDiscovery API\n";
 $api = $root . '/api/custom_field_entities.php';
@@ -94,6 +117,14 @@ $assert('custom field layouts API exists', is_file($layoutApi));
 $assert('custom field layouts API parses', _php_lint($layoutApi));
 $layoutApiText = (string) file_get_contents($layoutApi);
 $assert('layout API exposes surface layouts', str_contains($layoutApiText, 'customFieldSurfaceLayout') && str_contains($layoutApiText, 'customFieldAllSurfaceLayouts'));
+$assert('layout API writes tenant overrides',
+    str_contains($layoutApiText, "['PUT', 'PATCH', 'DELETE']")
+    && str_contains($layoutApiText, 'customFieldSurfaceLayoutSave')
+    && str_contains($layoutApiText, 'customFieldSurfaceLayoutReset'));
+$assert('layout API audits mutations',
+    str_contains($layoutApiText, 'custom_field.layout.updated')
+    && str_contains($layoutApiText, 'custom_field.layout.reset')
+    && str_contains($layoutApiText, 'customFieldAudit('));
 $valuesApi = $root . '/api/custom_field_values.php';
 $assert('custom field values API exists', is_file($valuesApi));
 $assert('custom field values API parses', _php_lint($valuesApi));
@@ -146,6 +177,10 @@ $customFieldsDocs = (string) file_get_contents($root . '/docs/CUSTOM_FIELDS_LAYO
 $assert('custom fields docs require archived exportability',
     str_contains($customFieldsDocs, 'Archived definitions and values carry')
     && str_contains($customFieldsDocs, 'export/report surfaces can still include'));
+$assert('custom fields docs cover tenant layout overrides',
+    str_contains($customFieldsDocs, 'custom_field_layout_overrides')
+    && str_contains($customFieldsDocs, 'PUT    /api/v1/people/custom-field-layouts/forms')
+    && str_contains($customFieldsDocs, 'custom_field.layout.updated'));
 
 echo "\nTotal: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

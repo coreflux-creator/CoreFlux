@@ -59,6 +59,13 @@ evidence packets and tenant exports without reappearing as an editable form
 field. Archived definitions and values carry `archived`, `is_archived`, and
 `deleted_at` metadata.
 
+Manifest layouts are defaults. Tenant-specific layout overrides live in the
+core `custom_field_layout_overrides` table and are resolved by
+`customFieldSurfaceLayout($entityType, $surface, $tenantId)`. Overrides are
+saved through the platform layout API using the entity's declared
+`manage_permission`; modules consume resolved layouts and do not own separate
+layout storage.
+
 ## Discovery API
 
 Use:
@@ -70,6 +77,9 @@ PATCH  /api/v1/people/custom-field-definitions?id=123
 DELETE /api/v1/people/custom-field-definitions?id=123
 GET    /api/v1/people/custom-field-layouts
 GET    /api/v1/people/custom-field-layouts/forms
+PUT    /api/v1/people/custom-field-layouts/forms
+PATCH  /api/v1/people/custom-field-layouts/forms
+DELETE /api/v1/people/custom-field-layouts/forms
 GET    /api/v1/people/custom-field-values/123
 POST   /api/v1/people/custom-field-values/123
 GET    /api/v1/placements/custom-field-definitions
@@ -93,8 +103,10 @@ entity's `pii_manage_permission` when one is declared, falling back to
 `pii_permission`.
 
 The layout API returns normalized surface layouts for `forms`, `detail`,
-`lists`, `exports`, and `reports`. This lets modules consume shared layout
-metadata without inventing separate form/list/export/report conventions.
+`lists`, `exports`, and `reports`. `PUT`/`PATCH` writes a tenant override for
+one surface, and `DELETE` resets that surface back to its manifest default.
+This lets modules consume shared layout metadata without inventing separate
+form/list/export/report conventions.
 
 The values API reads and upserts tenant custom-field values through the shared
 service. Sensitive custom-field values are omitted from reads unless the actor
@@ -105,6 +117,8 @@ plus the entity's manage permission.
 Definition mutations emit `custom_field.definition.*` audit events. Value
 mutations emit `custom_field.value.updated` with entity type, record id, and the
 field keys touched.
+Layout mutations emit `custom_field.layout.updated`; resets emit
+`custom_field.layout.reset`.
 
 ## Product Rule
 
