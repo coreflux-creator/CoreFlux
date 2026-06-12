@@ -101,6 +101,7 @@ function exportDatasetRegistry(): array {
                 'rail_external_ref'   => ['label' => 'Rail reference',       'sample' => 'trn-abc123'],
                 'rail_status'         => ['label' => 'Rail status',          'sample' => 'submitted'],
                 'rail_originated_at'  => ['label' => 'Rail originated at',   'sample' => '2026-02-14 16:05:00'],
+                'journal_entry_id'    => ['label' => 'Journal entry ID',     'sample' => '901'],
             ],
         ],
 
@@ -179,16 +180,21 @@ function exportDatasetRegistry(): array {
                 'submitter_user_id'         => ['label' => 'Submitter user ID',   'sample' => '12'],
                 'submitter_name'            => ['label' => 'Submitter name',      'sample' => 'Alex K.'],
                 'status'                    => ['label' => 'Status',              'sample' => 'approved'],
+                'report_status'             => ['label' => 'Report status',       'sample' => 'approved'],
+                'total'                     => ['label' => 'Report total',        'sample' => '241.75', 'field_type' => 'number'],
                 'currency'                  => ['label' => 'Currency',            'sample' => 'USD'],
                 'bill_id'                   => ['label' => 'Linked bill ID',      'sample' => '412'],
+                'created_at'                => ['label' => 'Created at',          'sample' => '2026-02-08 09:00:00'],
                 'line_id'                   => ['label' => 'Line ID',             'sample' => '8801'],
                 'expense_date'              => ['label' => 'Expense date',        'sample' => '2026-02-07'],
                 'merchant'                  => ['label' => 'Merchant',            'sample' => 'Uber'],
                 'category'                  => ['label' => 'Category',            'sample' => 'travel'],
+                'amount'                    => ['label' => 'Amount',              'sample' => '24.75', 'field_type' => 'number'],
                 'amount_dollars'            => ['label' => 'Amount ($)',          'sample' => '24.75'],
                 'amount_cents'              => ['label' => 'Amount (¢)',          'sample' => '2475'],
                 'gl_expense_account_code'   => ['label' => 'GL account code',     'sample' => '6200'],
                 'description'               => ['label' => 'Description',        'sample' => 'Client mtg'],
+                'billable_to_client_name'   => ['label' => 'Billable client',     'sample' => 'Acme Corp'],
             ],
         ],
 
@@ -570,7 +576,8 @@ function exportDatasetFetchApPayments(int $tenantId, array $opts): array {
                 p.disbursement_rail,
                 p.rail_external_ref,
                 p.rail_status,
-                p.rail_originated_at
+                p.rail_originated_at,
+                p.journal_entry_id
            FROM ap_payments p
           WHERE ' . implode(' AND ', $where) . '
           ORDER BY p.pay_date DESC, p.id DESC
@@ -654,23 +661,63 @@ function exportDatasetFetchApVendors(int $tenantId, array $opts): array {
 }
 
 function exportDatasetFetchExpenses(int $tenantId, array $opts): array {
-    $ids = array_values(array_filter(array_map('intval', (array) ($opts['ids'] ?? [])), fn ($x) => $x > 0));
-    if (!$ids) return [];
     $pdo = getDB();
-    $place = implode(',', array_fill(0, count($ids), '?'));
-    $params = $ids; array_unshift($params, $tenantId);
-    $stmt = $pdo->prepare("
-        SELECT er.id AS report_id, er.period_label, er.submitter_user_id, er.status,
-               er.currency, er.bill_id,
+    $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $ids = array_values(array_filter(array_map('intval', (array) ($opts['ids'] ?? [])), fn ($x) => $x > 0));
+    $lineIds = array_values(array_filter(array_map('intval', (array) ($opts['line_ids'] ?? [])), fn ($x) => $x > 0));
+    $where = ['er.tenant_id = :tenant_id'];
+    $params = ['tenant_id' => $tenantId];
+
+    if ($ids) {
+        $placeholders = [];
+        foreach ($ids as $i => $id) {
+            $key = 'id' . $i;
+            $placeholders[] = ':' . $key;
+            $params[$key] = $id;
+        }
+        $where[] = 'er.id IN (' . implode(',', $placeholders) . ')';
+    }
+    if ($lineIds) {
+        $placeholders = [];
+        foreach ($lineIds as $i => $id) {
+            $key = 'line_id' . $i;
+            $placeholders[] = ':' . $key;
+            $params[$key] = $id;
+        }
+        $where[] = 'erl.id IN (' . implode(',', $placeholders) . ')';
+    }
+    if (!empty($opts['status'])) {
+        $where[] = 'er.status = :status';
+        $params['status'] = (string) $opts['status'];
+    }
+    if (!empty($opts['from'])) {
+        $where[] = 'erl.expense_date >= :from_date';
+        $params['from_date'] = (string) $opts['from'];
+    }
+    if (!empty($opts['to'])) {
+        $where[] = 'erl.expense_date <= :to_date';
+        $params['to_date'] = (string) $opts['to'];
+    }
+    if (!empty($opts['submitter_user_id'])) {
+        $where[] = 'er.submitter_user_id = :submitter_user_id';
+        $params['submitter_user_id'] = (int) $opts['submitter_user_id'];
+    }
+
+    $stmt = $pdo->prepare('
+        SELECT er.id AS report_id, er.period_label, er.submitter_user_id,
+               er.status, er.status AS report_status, er.total,
+               COALESCE(erl.currency, er.currency) AS currency, er.bill_id, er.created_at,
                COALESCE(u.name, u.email) AS submitter_name,
                erl.id AS line_id, erl.expense_date, erl.merchant, erl.category,
-               erl.amount, erl.description, erl.gl_expense_account_code
+               erl.amount, erl.description, erl.gl_expense_account_code,
+               erl.billable_to_client_name
           FROM ap_expense_reports er
      LEFT JOIN ap_expense_report_lines erl ON erl.expense_report_id = er.id
      LEFT JOIN users u ON u.id = er.submitter_user_id
-         WHERE er.tenant_id = ? AND er.id IN ($place)
-         ORDER BY er.id, erl.id
-    ");
+         WHERE ' . implode(' AND ', $where) . '
+         ORDER BY er.id DESC, erl.expense_date DESC, erl.id DESC
+         LIMIT ' . $limit
+    );
     $stmt->execute($params);
     $out = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {

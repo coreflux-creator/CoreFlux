@@ -186,9 +186,20 @@ $assert('audits ap.payments.exported',
 
 // ─── Wire-in: AP CSV exports ───
 echo "ap CSV template exports\n";
+$apLegacyExport = file_get_contents(__DIR__ . '/../modules/ap/api/export.php');
 $apPayCsv = file_get_contents(__DIR__ . '/../modules/ap/api/payments_csv_export.php');
 $apBillsCsv = file_get_contents(__DIR__ . '/../modules/ap/api/bills_csv_export.php');
 $apVendorsCsv = file_get_contents(__DIR__ . '/../modules/ap/api/csv_export.php');
+$assert('ap legacy export honors template_id', strpos($apLegacyExport, "(int) (\$_GET['template_id'] ?? 0)") !== false);
+$assert('ap legacy export uses governed datasets',
+                                              strpos($apLegacyExport, 'exportDatasetFetchRows') !== false
+                                              && strpos($apLegacyExport, 'exportTemplateStreamDatasetCsv') !== false
+                                              && strpos($apLegacyExport, 'ap_bills') !== false
+                                              && strpos($apLegacyExport, 'ap_payments') !== false
+                                              && strpos($apLegacyExport, "'expenses'") !== false);
+$assert('ap legacy raw CSV audits dataset',
+                                              strpos($apLegacyExport, 'exportDatasetAudit') !== false
+                                              && strpos($apLegacyExport, "mode' => 'raw'") !== false);
 $assert('ap payments CSV honors template_id', strpos($apPayCsv, "(int) (\$_GET['template_id'] ?? 0)") !== false);
 $assert('ap payments CSV uses governed dataset',
                                               strpos($apPayCsv, 'ap_payments') !== false
@@ -218,6 +229,10 @@ $assert('rejects non-expenses dataset',       strpos($ex, "'expenses'") !== fals
                                               && strpos(file_get_contents(__DIR__ . '/../core/export_service.php'), "template's dataset must be") !== false);
 $assert('audits export_selected_template',
                                               strpos(file_get_contents(__DIR__ . '/../core/export_datasets.php'), 'ap.expense.export_selected_template') !== false);
+$assert('raw export uses governed expenses dataset',
+                                              strpos($ex, 'exportDatasetFetchExpenses') !== false
+                                              && strpos($ex, 'Core\\CsvExportService') !== false
+                                              && strpos($ex, 'ap.expense.export_selected') !== false);
 
 // ─── Wire-in: billing CSV exports ───
 echo "billing CSV template exports\n";

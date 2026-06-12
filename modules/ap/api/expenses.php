@@ -14,10 +14,13 @@
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/CsvExportService.php';
+require_once __DIR__ . '/../../../core/export_service.php';
 require_once __DIR__ . '/../../../core/StorageService.php';
 require_once __DIR__ . '/../../../core/storage_register.php';
 require_once __DIR__ . '/../lib/ap.php';
 
+use Core\CsvExportService;
 use Core\StorageService;
 
 $ctx    = api_require_auth();
@@ -38,7 +41,6 @@ if ($method === 'GET' && $action === 'export_selected') {
     // raw-dump format below if no template_id is supplied.
     $tplId = (int) ($_GET['template_id'] ?? 0);
     if ($tplId > 0) {
-        require_once __DIR__ . '/../../../core/export_service.php';
         try {
             exportTemplateStreamDatasetCsv(
                 $tid,
@@ -54,42 +56,32 @@ if ($method === 'GET' && $action === 'export_selected') {
         exit;
     }
 
-    $pdo = getDB();
-    $place = implode(',', array_fill(0, count($ids), '?'));
-    $params = $ids;
-    array_unshift($params, $tid);
-    $stmt = $pdo->prepare(
-        "SELECT er.id, er.period_label, er.submitter_user_id, er.total, er.currency,
-                er.status, er.bill_id, er.created_at,
-                erl.id AS line_id, erl.expense_date, erl.merchant, erl.category,
-                erl.amount, erl.description, erl.gl_expense_account_code
-           FROM ap_expense_reports er
-      LEFT JOIN ap_expense_report_lines erl ON erl.expense_report_id = er.id
-          WHERE er.tenant_id = ? AND er.id IN ($place)
-       ORDER BY er.id, erl.id"
-    );
-    $stmt->execute($params);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $rows = exportDatasetFetchExpenses($tid, ['ids' => $ids]);
+    exportDatasetAudit($tid, $uid ?: null, 'ap.expense.export_selected', null, [
+        'dataset' => 'expenses',
+        'format' => 'csv',
+        'mode' => 'raw',
+        'ids' => $ids,
+        'rows' => count($rows),
+    ]);
 
     $stamp = date('Y-m-d');
-    header('Content-Type: text/csv; charset=utf-8');
-    header("Content-Disposition: attachment; filename=expenses-{$stamp}.csv");
-    $out = fopen('php://output', 'w');
-    fputcsv($out, ['report_id','period_label','submitter_user_id','status','currency','bill_id','created_at',
-                   'line_id','expense_date','merchant','category','amount','gl_account_code','description']);
-    foreach ($rows as $r) {
-        fputcsv($out, [
-            $r['id'], $r['period_label'], $r['submitter_user_id'], $r['status'], $r['currency'],
-            $r['bill_id'], $r['created_at'],
-            $r['line_id'], $r['expense_date'], $r['merchant'], $r['category'],
-            $r['amount'], $r['gl_expense_account_code'], $r['description'],
-        ]);
-    }
-    fclose($out);
-    if (function_exists('apAudit')) {
-        apAudit('ap.expense.export_selected', ['ids' => $ids, 'count' => count($ids)]);
-    }
-    exit;
+    (new CsvExportService([
+        'report_id'               => 'report_id',
+        'period_label'            => 'period_label',
+        'submitter_user_id'       => 'submitter_user_id',
+        'status'                  => 'status',
+        'currency'                => 'currency',
+        'bill_id'                 => 'bill_id',
+        'created_at'              => 'created_at',
+        'line_id'                 => 'line_id',
+        'expense_date'            => 'expense_date',
+        'merchant'                => 'merchant',
+        'category'                => 'category',
+        'amount'                  => 'amount',
+        'gl_expense_account_code' => 'gl_account_code',
+        'description'             => 'description',
+    ]))->stream($rows, "expenses-{$stamp}.csv");
 }
 
 if ($method === 'GET' && $action === 'upload_url') {

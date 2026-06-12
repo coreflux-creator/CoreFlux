@@ -100,6 +100,7 @@ return [
         'ap.expense.paid',
         'ap.expense.line.attachment.added',
         'ap.expense.line.extracted_from_receipt',
+        'ap.expense.export_selected',
         'ap.expense.export_selected_template',
         'ap.export.csv',
         'ap.payments.exported',

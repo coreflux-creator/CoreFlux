@@ -41,12 +41,18 @@ $a('persists by external_ref keyed payments',         $c($ap, "ap_payment:' . \$
 
 echo "\nap/api/export.php — bulk ?ids= filter\n";
 $ex = (string) file_get_contents(__DIR__ . '/../modules/ap/api/export.php');
+$datasets = (string) file_get_contents(__DIR__ . '/../core/export_datasets.php');
 $a('parses ?ids=1,2,3',                              $c($ex, "explode(',', \$idsRaw)"));
 $a('caps ids list at 1000',                          $c($ex, 'ids list too large (max 1000)'));
-$a('bills export honours ids',                       $c($ex, 'id IN (' . "' . implode(',', \$place)") || $c($ex, '$where[] = \'id IN ('));
-$a('payments export honours ids',                    $c($ex, "if (\$ids) {"));
-$a('expenses export filters by line_id (erl.id)',    $c($ex, '$where[] = \'erl.id IN ('));
-$a('positional placeholders avoid PDO param leak',   $c($ex, '$key = "id$i"'));
+$a('legacy endpoint passes ids to governed datasets', $c($ex, "\$opts['ids'] = \$ids")
+                                                  &&  $c($ex, "\$opts['line_ids'] = \$ids"));
+$a('bills dataset honours ids',                      $c($datasets, "function exportDatasetFetchApBills")
+                                                  &&  $c($datasets, "\$where[] = 'id IN ("));
+$a('payments dataset honours ids',                   $c($datasets, "function exportDatasetFetchApPayments")
+                                                  &&  $c($datasets, "\$where[] = 'p.id IN ("));
+$a('expenses dataset filters by line_id (erl.id)',   $c($datasets, "\$where[] = 'erl.id IN ("));
+$a('named placeholders avoid PDO param leak',        $c($datasets, "\$key = 'id' . \$i")
+                                                  &&  $c($datasets, "\$key = 'line_id' . \$i"));
 
 echo "\nuseBulkSelection hook\n";
 $hk = (string) file_get_contents(__DIR__ . '/../dashboard/src/lib/useBulkSelection.js');

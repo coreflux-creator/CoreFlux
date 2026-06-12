@@ -102,6 +102,7 @@ $peopleExport = (string) file_get_contents($root . '/modules/people/api/csv_expo
 $placementsExport = (string) file_get_contents($root . '/modules/placements/api/csv_export.php');
 $payrollRuns = (string) file_get_contents($root . '/modules/payroll/api/runs.php');
 $apPayments = (string) file_get_contents($root . '/modules/ap/api/payments.php');
+$apLegacyExport = (string) file_get_contents($root . '/modules/ap/api/export.php');
 $apPaymentsCsv = (string) file_get_contents($root . '/modules/ap/api/payments_csv_export.php');
 $apBillsCsv = (string) file_get_contents($root . '/modules/ap/api/bills_csv_export.php');
 $apVendorsCsv = (string) file_get_contents($root . '/modules/ap/api/csv_export.php');
@@ -139,7 +140,17 @@ $assert('ap raw exports audit dataset events',
     && str_contains($apPaymentsCsv, "mode' => 'raw'")
     && str_contains($apBillsCsv, "mode' => 'raw'")
     && str_contains($apVendorsCsv, "mode' => 'raw'"));
+$assert('ap legacy export endpoint consumes governed datasets',
+    str_contains($apLegacyExport, 'exportDatasetFetchRows')
+    && str_contains($apLegacyExport, "'ap_bills'")
+    && str_contains($apLegacyExport, "'ap_payments'")
+    && str_contains($apLegacyExport, "'expenses'")
+    && str_contains($apLegacyExport, "mode' => 'raw'"));
 $assert('ap expenses template export uses shared runner', str_contains($apExpenses, 'exportTemplateStreamDatasetCsv') && str_contains($apExpenses, "'expenses'"));
+$assert('ap expenses raw export uses shared dataset service',
+    str_contains($apExpenses, 'exportDatasetFetchExpenses')
+    && str_contains($apExpenses, 'Core\\CsvExportService')
+    && str_contains($apExpenses, 'ap.expense.export_selected'));
 $assert('billing invoices template export uses shared runner', str_contains($billingInvoices, 'exportTemplateStreamDatasetCsv') && str_contains($billingInvoices, 'billing_invoices'));
 $assert('billing payments template export uses shared runner', str_contains($billingPayments, 'exportTemplateStreamDatasetCsv') && str_contains($billingPayments, 'billing_payments'));
 $assert('billing raw exports audit dataset events',
