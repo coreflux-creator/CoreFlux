@@ -30,8 +30,9 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$ba  = (string) file_get_contents('/app/modules/ap/api/bill_approvals.php');
-$rtr = (string) file_get_contents('/app/modules/ap/lib/approval_router.php');
+$ROOT = realpath(__DIR__ . '/..');
+$ba  = (string) file_get_contents("{$ROOT}/modules/ap/api/bill_approvals.php");
+$rtr = (string) file_get_contents("{$ROOT}/modules/ap/lib/approval_router.php");
 
 echo "\n1. Router seeds step 1 with explicit step_no=1\n";
 $a('router INSERT includes step_no column',
@@ -73,8 +74,8 @@ $a('individual approver insert wrapped in try/catch',
 
 echo "\n5. PHP syntax\n";
 foreach ([
-    '/app/modules/ap/api/bill_approvals.php',
-    '/app/modules/ap/lib/approval_router.php',
+    "{$ROOT}/modules/ap/api/bill_approvals.php",
+    "{$ROOT}/modules/ap/lib/approval_router.php",
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);

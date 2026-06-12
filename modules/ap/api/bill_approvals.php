@@ -18,6 +18,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/ap.php';
+require_once __DIR__ . '/../lib/workflow_bridge.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];

@@ -32,6 +32,8 @@ $lint = function (string $rel) use ($ROOT): bool {
 
 $router = (string) file_get_contents("{$ROOT}/modules/ap/lib/approval_router.php");
 $api = (string) file_get_contents("{$ROOT}/modules/ap/api/bill_approvals.php");
+$bills = (string) file_get_contents("{$ROOT}/modules/ap/api/bills.php");
+$bridge = (string) file_get_contents("{$ROOT}/modules/ap/lib/workflow_bridge.php");
 $sync = (string) file_get_contents("{$ROOT}/modules/ap/lib/workflow_sync.php");
 $workflow = (string) file_get_contents("{$ROOT}/core/workflow_engine.php");
 $manifest = (string) file_get_contents("{$ROOT}/modules/ap/manifest.php");
@@ -40,6 +42,8 @@ echo "Files parse\n";
 foreach ([
     'modules/ap/lib/approval_router.php',
     'modules/ap/api/bill_approvals.php',
+    'modules/ap/api/bills.php',
+    'modules/ap/lib/workflow_bridge.php',
     'modules/ap/lib/workflow_sync.php',
     'core/workflow_engine.php',
 ] as $rel) {
@@ -79,6 +83,20 @@ $a('post-commit mirror is skipped after successful preflight',
 $a('next legacy step prefers current workflow approvers',
     str_contains($api, 'apCurrentWorkflowApproverUserIds($tenantId, $billId)'));
 
+echo "\nAP direct bill approval compatibility path\n";
+$a('bills.php loads the shared workflow bridge',
+    str_contains($bills, "../lib/workflow_bridge.php"));
+$a('direct approve delegates decision to WorkflowEngine bridge',
+    str_contains($bills, 'apWorkflowActBillApproval(')
+    && str_contains($bills, "apAudit('ap.bill.approval_blocked'")
+    && str_contains($bills, 'apWorkflowDecisionHttpStatus($e)'));
+$a('direct approve no longer writes approved bill state directly',
+    !preg_match('/action === \'approve\'[\s\S]{0,1600}UPDATE ap_bills SET status = "approved"/', $bills)
+    && !preg_match("/action === 'approve'[\\s\\S]{0,1600}UPDATE ap_bills SET status = 'approved'/", $bills));
+$a('workflow bridge can route then act through common workflow gate',
+    str_contains($bridge, 'apRouteBillForApproval($tenantId, $bill, $routeActorUserId)')
+    && str_contains($bridge, 'workflowAct('));
+
 echo "\nWorkflow sync and shared gate behavior\n";
 $a('WorkflowEngine gates reject decisions too',
     str_contains($workflow, "['approve', 'reject', 'skip']"));
@@ -89,6 +107,9 @@ $a('Workflow->AP sync materializes current resolved step',
     && str_contains($sync, 'workflowResolveCurrentStepApprovers($tenantId'));
 $a('sync only fills missing pending legacy rows',
     str_contains($sync, 'state = \'pending\'') && str_contains($sync, 'fetchColumn() > 0'));
+$a('sync owns final AP approved audit and accounting enqueue',
+    str_contains($sync, "apAudit('ap.bill.approved'")
+    && str_contains($sync, "accountingTryEnqueueDraft(\$tenantId, 'bill', \$bill, \$userId);"));
 
 echo "\nAP common workflow controls smoke: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

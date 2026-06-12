@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/StorageService.php';
 require_once __DIR__ . '/../../../core/storage_register.php';
 require_once __DIR__ . '/../lib/ap.php';
+require_once __DIR__ . '/../lib/workflow_bridge.php';
 
 use Core\StorageService;
 
@@ -179,7 +180,7 @@ if ($method === 'POST' && $action === 'attach') {
         $body['mime'] ?? null, isset($body['size_bytes']) ? (int) $body['size_bytes'] : null,
         $user['id'] ?? null
     );
-    // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
+    // WorkflowEngine owns approver resolution, SoD, audit, and final AP sync.
     getDB()->prepare('UPDATE ap_bills SET attachment_storage_object_id = :s WHERE id = :id')
         ->execute(['s' => $sid, 'id' => $id]);
     apAudit('ap.bill.attachment.added', ['bill_id' => $id, 'storage_object_id' => $sid, 'filename' => $body['filename']], $id);
@@ -632,6 +633,8 @@ if ($method === 'POST' && $action === 'approve') {
     $minTotal = (float) ($lineCheck->fetchColumn() ?? 0);
     if ($minTotal <= 0) api_error('All bill lines must have total > 0', 422);
 
+    $body = api_json_body();
+
     // === 3-WAY MATCH HARD GATE (P1.6) ============================
     // Spec re-audit decision: 3-way match is a HARD rule, not a soft
     // warn. Bills failing PO + receipt + bill reconciliation cannot
@@ -641,7 +644,6 @@ if ($method === 'POST' && $action === 'approve') {
     require_once __DIR__ . '/../lib/three_way_match.php';
     $match = apThreeWayMatch($tid, $id);
     if (!empty($match['warnings']) && !empty($match['enforce'])) {
-        $body          = api_json_body();
         $overrideOk    = !empty($body['three_way_match_override']);
         $overrideReason = trim((string) ($body['three_way_match_override_reason'] ?? ''));
         if (!$overrideOk || $overrideReason === '') {
@@ -670,19 +672,31 @@ if ($method === 'POST' && $action === 'approve') {
     // =================================================================
 
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
-    getDB()->prepare('UPDATE ap_bills SET status = "approved", approved_by_user_id = :u, approved_at = NOW() WHERE id = :id')
-        ->execute(['u' => $user['id'] ?? null, 'id' => $id]);
-    apAudit('ap.bill.approved', ['bill_id' => $id, 'internal_ref' => $row['internal_ref']], $id);
+    try {
+        $workflow = apWorkflowActBillApproval(
+            $tid,
+            $row,
+            (int) ($user['id'] ?? 0),
+            'approve',
+            trim((string) ($body['note'] ?? '')),
+            true
+        );
+    } catch (\Throwable $e) {
+        apAudit('ap.bill.approval_blocked', [
+            'bill_id' => $id,
+            'action' => 'approve',
+            'control' => 'workflow_engine',
+            'reason' => $e->getMessage(),
+        ], $id);
+        api_error('Workflow control blocked approval: ' . $e->getMessage(), apWorkflowDecisionHttpStatus($e));
+    }
 
-    // Jaz hook (Slice 3) — enqueue a draft accounting command for the
-    // newly approved bill. Best-effort: no-op when no Jaz connection
-    // is wired or the entity is ambiguous; never blocks the approval.
-    require_once __DIR__ . '/../../../core/accounting/command_service.php';
-    $row['status']      = 'approved';
-    $row['approved_at'] = date('Y-m-d H:i:s');
-    accountingTryEnqueueDraft($tid, 'bill', $row, $user['id'] ?? null);
-
-    api_ok(['ok' => true]);
+    api_ok([
+        'ok' => true,
+        'workflow_instance_id' => $workflow['workflow_instance_id'],
+        'workflow_status' => $workflow['workflow_status'],
+        'routed' => $workflow['routed'],
+    ]);
 }
 
 if ($method === 'POST' && $action === 'void') {

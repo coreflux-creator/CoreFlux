@@ -13,6 +13,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
+require_once __DIR__ . '/ap.php';
 
 /**
  * Sync a workflow step action back into ap_bill_approvals + ap_bills.
@@ -63,10 +64,31 @@ function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $us
 
         // If the workflow instance as a whole just flipped to approved, mark the bill.
         if ($instanceStatus === 'approved') {
-            $pdo->prepare(
-                "UPDATE ap_bills SET status = 'approved', approved_at = NOW(), updated_at = NOW()
+            $upd = $pdo->prepare(
+                "UPDATE ap_bills
+                    SET status = 'approved',
+                        approved_by_user_id = COALESCE(approved_by_user_id, :u),
+                        approved_at = COALESCE(approved_at, NOW()),
+                        updated_at = NOW()
                   WHERE tenant_id = :t AND id = :b AND status = 'pending_approval'"
-            )->execute(['t' => $tenantId, 'b' => $billId]);
+            );
+            $upd->execute(['u' => $userId, 't' => $tenantId, 'b' => $billId]);
+            if ($upd->rowCount() > 0) {
+                $billStmt = $pdo->prepare('SELECT * FROM ap_bills WHERE tenant_id = :t AND id = :b LIMIT 1');
+                $billStmt->execute(['t' => $tenantId, 'b' => $billId]);
+                $bill = $billStmt->fetch(PDO::FETCH_ASSOC) ?: ['id' => $billId];
+                apAudit('ap.bill.approved', [
+                    'bill_id' => $billId,
+                    'internal_ref' => $bill['internal_ref'] ?? null,
+                    'approved_by_user_id' => $userId,
+                    'source' => 'workflow',
+                    'workflow_instance_status' => $instanceStatus,
+                ], $billId);
+                try {
+                    require_once __DIR__ . '/../../../core/accounting/command_service.php';
+                    accountingTryEnqueueDraft($tenantId, 'bill', $bill, $userId);
+                } catch (\Throwable $_) { /* never block workflow sync */ }
+            }
         }
     } catch (\Throwable $_) {
         // Silently drop — workflow_engine must not break because legacy

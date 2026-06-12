@@ -11,7 +11,7 @@
  *     past next_retry_at, dispatches via execute, per-row error
  *     isolation, --tenant/--max-rows/--dry-run flags
  *   • Wired call sites:
- *       - modules/ap/api/bills.php           — on approve
+ *       - modules/ap/lib/workflow_sync.php   — on WorkflowEngine approve
  *       - modules/billing/api/invoices.php   — on approve
  *       - modules/accounting/lib/accounting.php — on JE post (only when $post===true)
  */
@@ -47,16 +47,21 @@ $a('  payload preserves raw row under \"row\" key',
     str_contains($cs, "'row'                  => \$row,"));
 $a('  swallows enqueue exception (never blocks)', str_contains($cs, "error_log('[accountingTryEnqueueDraft]"));
 
-// --- AP bills wiring -------------------------------------------
-echo "\nmodules/ap/api/bills.php — on approve\n";
+// --- AP bills workflow wiring ----------------------------------
+echo "\nmodules/ap/lib/workflow_sync.php — on WorkflowEngine approve\n";
 $ap = $read("{$ROOT}/modules/ap/api/bills.php");
+$apSync = $read("{$ROOT}/modules/ap/lib/workflow_sync.php");
 $a('approve action present',                      str_contains($ap, "if (\$method === 'POST' && \$action === 'approve')"));
-$a('audit fires first (existing behavior unchanged)',
-    str_contains($ap, "apAudit('ap.bill.approved'"));
-$a('accountingTryEnqueueDraft called with bill',  str_contains($ap, "accountingTryEnqueueDraft(\$tid, 'bill', \$row, \$user['id'] ?? null);"));
-$a('stamps approved status on local row first',   str_contains($ap, "\$row['status']      = 'approved';"));
-$a('  + approved_at timestamp',                   str_contains($ap, "\$row['approved_at'] = date('Y-m-d H:i:s');"));
-$a('comment marks Slice 3 hook',                  str_contains($ap, 'Jaz hook (Slice 3)'));
+$a('approve action delegates to workflow bridge', str_contains($ap, 'apWorkflowActBillApproval('));
+$a('approved audit emitted by workflow sync',
+    str_contains($apSync, "apAudit('ap.bill.approved'")
+    && str_contains($apSync, "'source' => 'workflow'"));
+$a('accountingTryEnqueueDraft called with bill from sync',
+    str_contains($apSync, "accountingTryEnqueueDraft(\$tenantId, 'bill', \$bill, \$userId);"));
+$a('sync stamps approved status and approver',
+    str_contains($apSync, "SET status = 'approved'")
+    && str_contains($apSync, 'approved_by_user_id = COALESCE(approved_by_user_id, :u)'));
+$a('sync gates side effects on actual transition', str_contains($apSync, '$upd->rowCount() > 0'));
 
 // --- AR invoices wiring ----------------------------------------
 echo "\nmodules/billing/api/invoices.php — on approve\n";
