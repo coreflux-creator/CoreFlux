@@ -50,7 +50,7 @@ $av = (string) file_get_contents("{$ROOT}/dashboard/src/pages/AuditLogViewer.jsx
 $assert('hits /api/audit_log.php',                   stripos($av, '/api/audit_log.php') !== false);
 $assert('CSV export href ?format=csv',               stripos($av, 'format=csv') !== false);
 $assert('builds URLSearchParams',                    stripos($av, 'URLSearchParams') !== false);
-foreach (['audit-log-viewer','audit-filter-event','audit-filter-user','audit-filter-from','audit-filter-to','audit-filter-limit','audit-search','audit-export-csv','audit-count','audit-empty','audit-error'] as $tid) {
+foreach (['audit-log-viewer','audit-filter-event','audit-filter-user','audit-filter-actor-type','audit-filter-actor-email','audit-filter-object-type','audit-filter-target','audit-filter-request','audit-filter-source','audit-filter-ip','audit-filter-from','audit-filter-to','audit-filter-limit','audit-search','audit-export-csv','audit-count','audit-empty','audit-error'] as $tid) {
     $assert("testid: {$tid}", stripos($av, "data-testid=\"{$tid}\"") !== false);
 }
 foreach (['audit-row-','audit-toggle-','audit-meta-'] as $tidPrefix) {

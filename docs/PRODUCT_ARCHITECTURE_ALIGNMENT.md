@@ -128,6 +128,26 @@ Current implementation status:
 - Custom report CSV export uses the shared platform CSV export primitive and
   emits explicit audit metadata.
 
+### Audit And Enterprise Controls
+
+The shared audit log is the platform evidence layer. Domain modules can keep
+specialized audit tables, but the unified audit log owns the tenant-scoped
+viewer/export surface, canonical actor/object/request metadata, auditor access,
+and cross-module investigation path.
+
+Current implementation status:
+
+- `api/audit_log.php` normalizes legacy and canonical schemas at read time,
+  including `actor_user_id`/`user_id`, `event`/`action`,
+  `target_id`/`entity_id`, and canonical actor/object/request fields.
+- `/admin/audit-log` exposes filters for event, actor, object, request, source,
+  IP, and date range, and CSV export uses the same role gate and query logic.
+- Admin and auditor roles can read audit evidence; external auditor sessions
+  remain read-only through the shared API bootstrap guard.
+- Audit schema migrations include both fresh-create parity and guarded upgrade
+  fields for actor type/email, object type, before/after snapshots, request id,
+  source, and user agent.
+
 ### People Graph
 
 People Graph is a shared platform primitive for authority, responsibility,
