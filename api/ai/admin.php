@@ -205,6 +205,7 @@ switch ($action) {
             'outgoing'      => $lineage['outgoing'],
             'incoming'      => $lineage['incoming'],
             'event_history' => $lineage['event_history'],
+            'people_graph'  => $lineage['people_graph'] ?? null,
         ]);
     }
 }

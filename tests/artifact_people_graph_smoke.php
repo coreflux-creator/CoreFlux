@@ -21,6 +21,8 @@ $pg = (string) file_get_contents("{$ROOT}/core/people_graph.php");
 $mig = (string) file_get_contents("{$ROOT}/core/migrations/116_people_graph_artifact_roles.sql");
 $docs = (string) file_get_contents("{$ROOT}/docs/PEOPLE_GRAPH.md");
 $arch = (string) file_get_contents("{$ROOT}/docs/PRODUCT_ARCHITECTURE_ALIGNMENT.md");
+$api = (string) file_get_contents("{$ROOT}/api/ai/admin.php");
+$ui = (string) file_get_contents("{$ROOT}/dashboard/src/pages/ArtifactsAdmin.jsx");
 
 echo "Artifact helper contract\n";
 $out = [];
@@ -43,6 +45,13 @@ $a('artifact read calls peopleGraphListResponsibilities', str_contains($art, 'pe
 $a('artifact resolver calls peopleGraphResolve', str_contains($art, 'peopleGraphResolve('));
 $a('lineage includes people_graph', str_contains($art, "'people_graph'  => \$peopleGraph"));
 $a('artifact event records people_graph.assigned', str_contains($art, "'people_graph.assigned'"));
+
+echo "\nAdmin read surface\n";
+$a('get_artifact API returns people_graph projection', str_contains($api, "'people_graph'  => \$lineage['people_graph'] ?? null"));
+$a('ArtifactsAdmin renders People roles section', str_contains($ui, 'testId="artifacts-detail-people-graph"'));
+$a('ArtifactsAdmin renders people role list', str_contains($ui, 'data-testid="artifacts-people-graph-list"'));
+$a('ArtifactsAdmin renders empty people role state', str_contains($ui, 'data-testid="artifacts-people-graph-empty"'));
+$a('ArtifactsAdmin renders per-role test ids', str_contains($ui, 'data-testid={`artifacts-people-role-${a.id || idx}`}'));
 
 echo "\nPeople Graph vocabulary and migration\n";
 foreach (['preparer', 'requester', 'recipient', 'ai_creator'] as $role) {
