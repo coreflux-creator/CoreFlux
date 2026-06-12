@@ -359,6 +359,9 @@ People API.
 ### Phase 4: Product Alignment
 
 - Keep `staffing` as the consumer/orchestrator workbench.
+  - Staffing workbench routes now prefer source-domain permissions for
+    Placements, Time, Payroll, Billing, and Reports, with legacy `staffing.*`
+    permission strings retained as compatibility aliases.
 - Keep People, Placements, Time, Payroll, Billing, Accounting, Treasury, and
   Reports as sources of truth for their respective domains.
 - Update specs and code references to reflect this ownership model.

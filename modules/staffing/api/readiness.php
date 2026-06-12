@@ -37,7 +37,7 @@ $peopleTid     = effectiveTenantIdForModule('people')     ?? currentTenantId();
 $placementsTid = effectiveTenantIdForModule('placements') ?? currentTenantId();
 
 if ($method === 'GET' && $action === 'payroll') {
-    rbac_legacy_require($user, 'staffing.payroll.view');
+    rbac_legacy_require_any($user, ['payroll.view', 'staffing.payroll.view']);
     $ps = (string) ($_GET['period_start'] ?? date('Y-m-d', strtotime('-14 days')));
     $pe = (string) ($_GET['period_end']   ?? date('Y-m-d'));
 
@@ -77,7 +77,7 @@ if ($method === 'GET' && $action === 'payroll') {
 }
 
 if ($method === 'GET' && $action === 'billing') {
-    rbac_legacy_require($user, 'staffing.billing.view');
+    rbac_legacy_require_any($user, ['billing.view', 'staffing.billing.view']);
     $ps = (string) ($_GET['period_start'] ?? date('Y-m-d', strtotime('-14 days')));
     $pe = (string) ($_GET['period_end']   ?? date('Y-m-d'));
 
@@ -135,7 +135,12 @@ if ($method === 'GET' && $action === 'billing') {
 }
 
 if ($method === 'POST' && in_array($action, ['mark_payroll_pushed','mark_billing_invoiced'], true)) {
-    rbac_legacy_require($user, $action === 'mark_payroll_pushed' ? 'staffing.payroll.manage' : 'staffing.billing.manage');
+    rbac_legacy_require_any(
+        $user,
+        $action === 'mark_payroll_pushed'
+            ? ['payroll.run.create', 'staffing.payroll.manage']
+            : ['billing.invoice.draft', 'staffing.billing.manage']
+    );
     $b   = api_json_body();
     $ids = array_map('intval', $b['timesheet_ids'] ?? []);
     if (!$ids) api_error('timesheet_ids required', 422);

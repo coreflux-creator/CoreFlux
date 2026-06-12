@@ -371,7 +371,7 @@ export default function TimesheetWeek({ session }) {
           {loading && <tr><td colSpan={9} className="empty">Loading…</td></tr>}
           {!loading && rowKeys.length === 0 && (
             <tr><td colSpan={9} className="empty" data-testid="ts-empty">
-              No active placements. Create one in <a href="/modules/staffing/placements">Placements</a> first.
+              No active placements. Create one in <a href="/modules/placements/new">Placements</a> first.
             </td></tr>
           )}
           {rowKeys.map((pid) => {

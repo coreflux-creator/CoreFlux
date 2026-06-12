@@ -40,8 +40,12 @@ $a('manifest name is Staffing',                  ($m['name'] ?? null) === 'Staff
 $a('actions include Timesheets',                 in_array('Timesheets', array_column($m['actions'] ?? [], 'name'), true));
 $a('actions include Placements',                 in_array('Placements', array_column($m['actions'] ?? [], 'name'), true));
 $a('actions include Approvals',                  in_array('Approvals',  array_column($m['actions'] ?? [], 'name'), true));
+$actionPerms = array_column($m['actions'] ?? [], 'permission', 'name');
+$a('source permission: Placements action',        ($actionPerms['Placements'] ?? null) === 'placements.view');
+$a('source permission: Timesheets action',        ($actionPerms['Timesheets'] ?? null) === 'time.view');
+$a('source permission: Approvals action',         ($actionPerms['Approvals'] ?? null) === 'time.approve');
 $a('permissions list defines staffing.view',     isset($m['permissions']['staffing.view']));
-$a('permissions list defines staffing.time.approve', isset($m['permissions']['staffing.time.approve']));
+$a('permissions list keeps legacy staffing.time.approve alias', isset($m['permissions']['staffing.time.approve']));
 
 echo "\nMigration 001_timesheets.sql — header table contract\n";
 $mig1 = $read(__DIR__ . '/../modules/staffing/migrations/001_timesheets.sql');

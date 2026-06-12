@@ -634,7 +634,7 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): voi
 // the moment its first entry is touched, so the downstream
 // billing/payroll/journal pipeline re-evaluates on the next submission.
 //
-// Anyone with `staffing.time.create` (enforced at the API layer)
+// Anyone with `time.entry.create` or legacy `staffing.time.create` (enforced at the API layer)
 // may edit any timesheet — original worker OR a manager fixing it
 // in-place, per product direction (2026-02).
 

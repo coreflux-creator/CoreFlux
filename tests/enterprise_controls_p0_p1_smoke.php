@@ -62,13 +62,13 @@ check('rate workflow consumes People Graph approval policy', contains($rateWorkf
 
 echo PHP_EOL . "Staffing consumer controls" . PHP_EOL;
 check('staffing manifest says consumer/orchestrator', contains($staffingManifest, 'consumes') && contains($staffingManifest, 'not the source-of-truth domain records'));
-check('staffing timesheet reads require time view', contains($staffingTimesheets, "rbac_legacy_require(\$user, 'staffing.time.view')"));
-check('staffing timesheet writes require create/submit/approve/reject', contains($staffingTimesheets, "staffing.time.create") && contains($staffingTimesheets, "staffing.time.submit") && contains($staffingTimesheets, "staffing.time.approve") && contains($staffingTimesheets, "staffing.time.reject"));
-check('staffing readiness reads require payroll/billing view', contains($staffingReadiness, "staffing.payroll.view") && contains($staffingReadiness, "staffing.billing.view"));
-check('staffing readiness writes require payroll/billing manage', contains($staffingReadiness, "staffing.payroll.manage") && contains($staffingReadiness, "staffing.billing.manage"));
+check('staffing timesheet reads prefer time.view with legacy fallback', contains($staffingTimesheets, "['time.view', 'staffing.time.view']"));
+check('staffing timesheet writes prefer source time permissions', contains($staffingTimesheets, "['time.entry.create', 'staffing.time.create']") && contains($staffingTimesheets, "['time.entry.create', 'staffing.time.submit']") && contains($staffingTimesheets, "['time.approve', 'staffing.time.approve']") && contains($staffingTimesheets, "['time.reject', 'staffing.time.reject']"));
+check('staffing readiness reads prefer payroll/billing view', contains($staffingReadiness, "['payroll.view', 'staffing.payroll.view']") && contains($staffingReadiness, "['billing.view', 'staffing.billing.view']"));
+check('staffing readiness writes prefer payroll/billing action permissions', contains($staffingReadiness, "['payroll.run.create', 'staffing.payroll.manage']") && contains($staffingReadiness, "['billing.invoice.draft', 'staffing.billing.manage']"));
 check('staffing readiness status flips are audited', contains($staffingReadiness, 'staffingReadinessAudit(') && contains($staffingReadiness, 'staffing.readiness.payroll_marked') && contains($staffingReadiness, 'staffing.readiness.billing_marked'));
 check('staffing manifest declares readiness audit events', contains($staffingManifest, 'staffing.readiness.payroll_marked') && contains($staffingManifest, 'staffing.readiness.billing_marked'));
-check('staffing manifest permissions mapped', contains($legacyMap, "'staffing.time.approve'") && contains($legacyMap, "'staffing.payroll.manage'") && contains($legacyMap, "'staffing.billing.manage'"));
+check('staffing compatibility aliases map to source modules', contains($legacyMap, "'staffing.time.approve'              => ['time', 'admin']") && contains($legacyMap, "'staffing.payroll.manage'            => ['payroll', 'write']") && contains($legacyMap, "'staffing.billing.manage'            => ['billing', 'write']"));
 
 echo PHP_EOL . "People/PII controls" . PHP_EOL;
 check('people endpoint requires RBAC', contains($people, "require_once __DIR__ . '/../../../core/RBAC.php'"));

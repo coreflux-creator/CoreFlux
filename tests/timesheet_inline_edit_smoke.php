@@ -239,19 +239,19 @@ $a('NO LONGER hard-codes personId to session.user only',
 
 // ──────────────────────────────────────────────────────────────────────
 // 3) Backend wiring sanity — entry_save / entry_delete / reopen are
-//     all still gated on staffing.time.create and route through
+//     all still gated on source time.entry.create with staffing fallback and route through
 //     the auto-reopening lib functions (don't accidentally regress).
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── Backend gates ──\n";
 $api = file_get_contents($root . '/modules/staffing/api/timesheets.php');
-$a('entry_save is RBAC-gated on staffing.time.create',
-    preg_match("/'POST' && \\\$action === 'entry_save'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.time\\.create'\\)/", $api) === 1);
-$a('entry_delete is RBAC-gated on staffing.time.create',
-    preg_match("/'POST' && \\\$action === 'entry_delete'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.time\\.create'\\)/", $api) === 1);
-$a('reopen is RBAC-gated on staffing.time.create',
-    preg_match("/'POST' && \\\$action === 'reopen'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.time\\.create'\\)/", $api) === 1);
-$a('entries_bulk_save is RBAC-gated on staffing.time.create',
-    preg_match("/'POST' && \\\$action === 'entries_bulk_save'[\s\S]{0,200}rbac_legacy_require\\(\\\$user, 'staffing\\.time\\.create'\\)/", $api) === 1);
+$a('entry_save is RBAC-gated on time.entry.create with staffing fallback',
+    preg_match("/'POST' && \\\$action === 'entry_save'[\s\S]{0,220}rbac_legacy_require_any\\(\\\$user, \\['time\\.entry\\.create', 'staffing\\.time\\.create'\\]\\)/", $api) === 1);
+$a('entry_delete is RBAC-gated on time.entry.create with staffing fallback',
+    preg_match("/'POST' && \\\$action === 'entry_delete'[\s\S]{0,220}rbac_legacy_require_any\\(\\\$user, \\['time\\.entry\\.create', 'staffing\\.time\\.create'\\]\\)/", $api) === 1);
+$a('reopen is RBAC-gated on time.entry.create with staffing fallback',
+    preg_match("/'POST' && \\\$action === 'reopen'[\s\S]{0,220}rbac_legacy_require_any\\(\\\$user, \\['time\\.entry\\.create', 'staffing\\.time\\.create'\\]\\)/", $api) === 1);
+$a('entries_bulk_save is RBAC-gated on time.entry.create with staffing fallback',
+    preg_match("/'POST' && \\\$action === 'entries_bulk_save'[\s\S]{0,220}rbac_legacy_require_any\\(\\\$user, \\['time\\.entry\\.create', 'staffing\\.time\\.create'\\]\\)/", $api) === 1);
 $a('entries_bulk_save returns {saved, errors[], rows[]} envelope',
     str_contains($api, "'saved'  => count(\$results)")
     && str_contains($api, "'errors' => \$errors"));
