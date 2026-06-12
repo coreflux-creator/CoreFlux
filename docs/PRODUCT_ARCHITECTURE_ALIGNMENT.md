@@ -182,6 +182,11 @@ reads. `/api/ai/workflows.php?action=decide_approval` requires
 `workflowDecideApproval()` writes an `ai.workflow.approval_*` audit event after
 persisting the reviewer decision.
 
+AI worker processes must declare queue and tool capabilities. `cron/ai_worker.php`
+accepts `--tools=...`, stores that list as `tool_allowlist` in
+`ai_workers.capabilities_json`, and `aiWorkerClaim()` filters queued work by
+`tool_name` before a worker can claim and execute it.
+
 ### Artifact Graph Consumption
 
 Artifact Graph is also a consumer of People Graph. Artifact objects own
