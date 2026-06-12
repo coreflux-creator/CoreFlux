@@ -9,6 +9,7 @@ import BillFromTimeBundleModal from './BillFromTimeBundleModal';
 import BillFromTimeEntriesModal from './BillFromTimeEntriesModal';
 import SuggestPaymentRunModal from './SuggestPaymentRunModal';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
+import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile';
 
 const STATUS_FILTERS = ['all','pending_approval','approved','partially_paid','paid','disputed','void'];
@@ -45,6 +46,11 @@ export default function BillsList() {
     a.href = `/modules/ap/api/export.php?type=bills&ids=${sel.ids.join(',')}`;
     a.rel  = 'noopener';
     a.click();
+  };
+  const buildTemplateExportHref = (tplId) => {
+    const params = new URLSearchParams({ template_id: String(tplId) });
+    if (status !== 'all') params.set('status', status);
+    return `/modules/ap/api/bills_csv_export.php?${params.toString()}`;
   };
 
   return (
@@ -86,7 +92,13 @@ export default function BillsList() {
             ✨ Suggest payment run
           </button>
           <Link to="csv_import" className="btn" data-testid="ap-bills-import-csv">Import CSV</Link>
-          <a className="btn" href={`/modules/ap/api/bills_csv_export.php${status ? `?status=${status}` : ''}`} data-testid="ap-bills-export-all-csv">Export all (CSV)</a>
+          <a className="btn" href={`/modules/ap/api/bills_csv_export.php${status !== 'all' ? `?status=${status}` : ''}`} data-testid="ap-bills-export-all-csv">Export all (CSV)</a>
+          <ExportTemplatePicker
+            dataset="ap_bills"
+            buildHref={buildTemplateExportHref}
+            label="Export via template"
+            testid="ap-bills-export-template"
+          />
         </div>
       </div>
 

@@ -18,6 +18,9 @@ $reportDatasetDecls = ModuleRegistry::reset()->getReportDatasetDeclarations();
 $assert('people directory dataset exists', isset($reg['people_directory']));
 $assert('placements dataset exists', isset($reg['placements_directory']));
 $assert('payroll dataset exists', isset($reg['payroll_disbursements']));
+$assert('AP payments dataset exists', isset($reg['ap_payments']));
+$assert('AP bills dataset exists', isset($reg['ap_bills']));
+$assert('AP vendors dataset exists', isset($reg['ap_vendors']));
 $assert('billing invoices dataset exists', isset($reg['billing_invoices']));
 $assert('billing payments dataset exists', isset($reg['billing_payments']));
 $assert('time entries dataset exists', isset($reg['time_entries']));
@@ -26,6 +29,9 @@ foreach (array_keys($reg) as $datasetKey) {
 }
 $people = $reg['people_directory'] ?? [];
 $placements = $reg['placements_directory'] ?? [];
+$apPayments = $reg['ap_payments'] ?? [];
+$apBills = $reg['ap_bills'] ?? [];
+$apVendors = $reg['ap_vendors'] ?? [];
 $billingInvoices = $reg['billing_invoices'] ?? [];
 $billingPayments = $reg['billing_payments'] ?? [];
 $timeEntries = $reg['time_entries'] ?? [];
@@ -42,6 +48,19 @@ $assert('placements person split fields exposed', isset($placements['fields']['p
 $assert('placements expiring date exposed', isset($placements['fields']['expiring_date']));
 $assert('placements count measure exposed', (($placements['measures']['placement_count']['aggregate'] ?? null) === 'sum'));
 $assert('placements filters exposed', isset($placements['filters']['status']));
+$assert('AP payments preserves source dataset', ($apPayments['source_dataset'] ?? null) === 'ap_payments');
+$assert('AP payment amount classified as measure',
+    (($apPayments['measures']['amount']['role'] ?? null) === 'measure'));
+$assert('AP payment status filter exposed', isset($apPayments['filters']['status']));
+$assert('AP bills preserves source dataset', ($apBills['source_dataset'] ?? null) === 'ap_bills');
+$assert('AP bills amount due classified as measure',
+    (($apBills['measures']['amount_due']['role'] ?? null) === 'measure'));
+$assert('AP bill status filter exposed', isset($apBills['filters']['status']));
+$assert('AP vendors preserves source dataset', ($apVendors['source_dataset'] ?? null) === 'ap_vendors');
+$assert('AP vendor last4 fields marked sensitive',
+    !empty($apVendors['fields']['tax_id_last4']['sensitive'])
+    && !empty($apVendors['fields']['payment_account_last4']['sensitive']));
+$assert('AP vendor type filter exposed', isset($apVendors['filters']['vendor_type']));
 $assert('billing invoices preserves source dataset', ($billingInvoices['source_dataset'] ?? null) === 'billing_invoices');
 $assert('billing invoices amount due classified as measure',
     (($billingInvoices['measures']['amount_due']['role'] ?? null) === 'measure'));

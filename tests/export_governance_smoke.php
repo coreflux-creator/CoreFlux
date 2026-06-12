@@ -19,7 +19,7 @@ $reg = exportDatasetRegistry();
 $moduleRegistry = ModuleRegistry::reset();
 $manifestDatasets = $moduleRegistry->getExportDatasetDeclarations();
 $required = ['label', 'module_id', 'permission', 'formats', 'audit_event', 'sensitive_fields', 'custom_field_entities', 'fetcher', 'fields'];
-foreach (['payroll_disbursements', 'ap_payments', 'expenses', 'billing_invoices', 'billing_payments', 'time_entries', 'people_directory', 'placements_directory'] as $dataset) {
+foreach (['payroll_disbursements', 'ap_payments', 'ap_bills', 'ap_vendors', 'expenses', 'billing_invoices', 'billing_payments', 'time_entries', 'people_directory', 'placements_directory'] as $dataset) {
     $assert("dataset registered: {$dataset}", isset($reg[$dataset]));
     foreach ($required as $key) {
         $assert("{$dataset} has {$key}", array_key_exists($key, $reg[$dataset] ?? []));
@@ -35,6 +35,7 @@ foreach (['payroll_disbursements', 'ap_payments', 'expenses', 'billing_invoices'
 
 $assert('payroll bank account sensitive', exportDatasetIsSensitiveField('payroll_disbursements', 'bank_account_number'));
 $assert('ap bank routing sensitive', exportDatasetIsSensitiveField('ap_payments', 'bank_routing_number'));
+$assert('ap vendor payment last4 sensitive', exportDatasetIsSensitiveField('ap_vendors', 'payment_account_last4'));
 $datasetsSrc = (string) file_get_contents($root . '/core/export_datasets.php');
 $assert('sensitive helper is tenant-aware for custom fields',
     str_contains($datasetsSrc, 'function exportDatasetIsSensitiveField(string $dataset, string $field, ?int $tenantId = null): bool')
@@ -48,6 +49,10 @@ $assert('billing invoices expose client and amount fields',
     isset($reg['billing_invoices']['fields']['client_name'], $reg['billing_invoices']['fields']['amount_due']));
 $assert('billing payments expose method and amount fields',
     isset($reg['billing_payments']['fields']['method'], $reg['billing_payments']['fields']['amount']));
+$assert('ap bills expose vendor and amount due fields',
+    isset($reg['ap_bills']['fields']['vendor_name'], $reg['ap_bills']['fields']['amount_due']));
+$assert('ap vendors expose vendor and tax fields',
+    isset($reg['ap_vendors']['fields']['vendor_name'], $reg['ap_vendors']['fields']['tax_id_last4']));
 $assert('time entries expose placement and hours fields',
     isset($reg['time_entries']['fields']['placement_external_id'], $reg['time_entries']['fields']['hours']));
 $assert('people field registry has static fields', isset(exportDatasetFieldRegistry('people_directory')['email_primary']));
@@ -95,6 +100,9 @@ $peopleExport = (string) file_get_contents($root . '/modules/people/api/csv_expo
 $placementsExport = (string) file_get_contents($root . '/modules/placements/api/csv_export.php');
 $payrollRuns = (string) file_get_contents($root . '/modules/payroll/api/runs.php');
 $apPayments = (string) file_get_contents($root . '/modules/ap/api/payments.php');
+$apPaymentsCsv = (string) file_get_contents($root . '/modules/ap/api/payments_csv_export.php');
+$apBillsCsv = (string) file_get_contents($root . '/modules/ap/api/bills_csv_export.php');
+$apVendorsCsv = (string) file_get_contents($root . '/modules/ap/api/csv_export.php');
 $apExpenses = (string) file_get_contents($root . '/modules/ap/api/expenses.php');
 $billingInvoices = (string) file_get_contents($root . '/modules/billing/api/csv_export.php');
 $billingPayments = (string) file_get_contents($root . '/modules/billing/api/payments_csv_export.php');
@@ -102,6 +110,8 @@ $timeExport = (string) file_get_contents($root . '/modules/time/api/csv_export.p
 $peopleUi = (string) file_get_contents($root . '/modules/people/ui/Directory.jsx');
 $placementsUi = (string) file_get_contents($root . '/modules/placements/ui/List.jsx');
 $timeReviewUi = (string) file_get_contents($root . '/modules/time/ui/ReviewQueue.jsx');
+$apBillsUi = (string) file_get_contents($root . '/modules/ap/ui/BillsList.jsx');
+$apVendorsUi = (string) file_get_contents($root . '/modules/ap/ui/VendorsList.jsx');
 $seed = (string) file_get_contents($root . '/core/migrations/120_people_placements_export_template_presets.sql');
 $assert('datasets endpoint exposes sensitive_fields', str_contains($api, "'sensitive_fields'"));
 $assert('datasets endpoint uses tenant-aware field registry', str_contains($api, 'exportDatasetFieldRegistry($key, $tenantId)'));
@@ -114,6 +124,16 @@ $assert('people export supports template_id', str_contains($peopleExport, 'templ
 $assert('placements export supports template_id', str_contains($placementsExport, 'template_id') && str_contains($placementsExport, 'placements_directory'));
 $assert('payroll template export uses shared runner', str_contains($payrollRuns, 'exportTemplateStreamDatasetCsv') && str_contains($payrollRuns, 'payroll_disbursements'));
 $assert('ap payments template export uses shared runner', str_contains($apPayments, 'exportTemplateStreamDatasetCsv') && str_contains($apPayments, 'ap_payments'));
+$assert('ap payments CSV template export uses shared runner', str_contains($apPaymentsCsv, 'exportTemplateStreamDatasetCsv') && str_contains($apPaymentsCsv, 'ap_payments'));
+$assert('ap bills CSV template export uses shared runner', str_contains($apBillsCsv, 'exportTemplateStreamDatasetCsv') && str_contains($apBillsCsv, 'ap_bills'));
+$assert('ap vendors CSV template export uses shared runner', str_contains($apVendorsCsv, 'exportTemplateStreamDatasetCsv') && str_contains($apVendorsCsv, 'ap_vendors'));
+$assert('ap raw exports audit dataset events',
+    str_contains($apPaymentsCsv, 'ap.payments.exported')
+    && str_contains($apBillsCsv, 'ap.bills.exported')
+    && str_contains($apVendorsCsv, 'ap.vendors.exported')
+    && str_contains($apPaymentsCsv, "mode' => 'raw'")
+    && str_contains($apBillsCsv, "mode' => 'raw'")
+    && str_contains($apVendorsCsv, "mode' => 'raw'"));
 $assert('ap expenses template export uses shared runner', str_contains($apExpenses, 'exportTemplateStreamDatasetCsv') && str_contains($apExpenses, "'expenses'"));
 $assert('billing invoices template export uses shared runner', str_contains($billingInvoices, 'exportTemplateStreamDatasetCsv') && str_contains($billingInvoices, 'billing_invoices'));
 $assert('billing payments template export uses shared runner', str_contains($billingPayments, 'exportTemplateStreamDatasetCsv') && str_contains($billingPayments, 'billing_payments'));
@@ -128,6 +148,8 @@ $assert('time raw export audits dataset event',
 $assert('people UI uses export template picker', str_contains($peopleUi, 'ExportTemplatePicker') && str_contains($peopleUi, 'dataset="people_directory"'));
 $assert('placements UI uses export template picker', str_contains($placementsUi, 'ExportTemplatePicker') && str_contains($placementsUi, 'dataset="placements_directory"'));
 $assert('time review UI uses export template picker', str_contains($timeReviewUi, 'ExportTemplatePicker') && str_contains($timeReviewUi, 'dataset="time_entries"'));
+$assert('ap bills UI uses export template picker', str_contains($apBillsUi, 'ExportTemplatePicker') && str_contains($apBillsUi, 'dataset="ap_bills"'));
+$assert('ap vendors UI uses export template picker', str_contains($apVendorsUi, 'ExportTemplatePicker') && str_contains($apVendorsUi, 'dataset="ap_vendors"'));
 $assert('people/placements template presets seeded', str_contains($seed, 'People Directory (default)') && str_contains($seed, 'Placements (default)'));
 $assert('export governance docs exist', is_file($root . '/docs/EXPORT_GOVERNANCE.md'));
 $assert('export_datasets parses', _php_lint($root . '/core/export_datasets.php'));

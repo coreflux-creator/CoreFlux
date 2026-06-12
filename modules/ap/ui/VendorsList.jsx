@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
+import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 
 export default function VendorsList() {
   const [q, setQ] = useState('');
@@ -9,6 +10,10 @@ export default function VendorsList() {
   const { data, loading, error, reload } = useApi(path);
   const rows = data?.rows ?? [];
   const [showCreate, setShowCreate] = useState(false);
+  const buildTemplateExportHref = (tplId) => {
+    const params = new URLSearchParams({ template_id: String(tplId) });
+    return `/modules/ap/api/csv_export.php?${params.toString()}`;
+  };
 
   return (
     <section data-testid="ap-vendors-list">
@@ -17,6 +22,12 @@ export default function VendorsList() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Link to="csv_import" className="btn" data-testid="ap-vendors-import-csv">Import CSV</Link>
           <a className="btn" href="/modules/ap/api/csv_export.php" data-testid="ap-vendors-export-csv">Export CSV</a>
+          <ExportTemplatePicker
+            dataset="ap_vendors"
+            buildHref={buildTemplateExportHref}
+            label="Export via template"
+            testid="ap-vendors-export-template"
+          />
           <button className="btn btn--primary" onClick={() => setShowCreate(true)} data-testid="ap-vendor-new">New vendor</button>
         </div>
       </div>

@@ -17,28 +17,49 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvExportService.php';
+require_once __DIR__ . '/../../../core/export_service.php';
 
 use Core\CsvExportService;
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
-rbac_legacy_require($user, 'ap.view');
+$tenantId = (int) $ctx['tenant_id'];
+$userId = (int) ($user['id'] ?? 0);
+rbac_legacy_require($user, 'ap.export.run');
 
-$where  = ['tenant_id = :tenant_id'];
-$params = [];
-if (!empty($_GET['type']))     { $where[] = 'vendor_type = :vt';     $params['vt']  = $_GET['type']; }
-if (!empty($_GET['category'])) { $where[] = 'vendor_category = :cat'; $params['cat'] = $_GET['category']; }
+$datasetOptions = [
+    'type'     => (string) ($_GET['type'] ?? ''),
+    'category' => (string) ($_GET['category'] ?? ''),
+];
 
-$rows = scopedQuery(
-    'SELECT vendor_name, vendor_type, vendor_category,
-            default_terms, remit_to_email, remit_to_phone,
-            payment_method, tax_id_last4, payment_account_last4,
-            requires_1099, last_bill_at
-       FROM ap_vendors_index
-      WHERE ' . implode(' AND ', $where) . '
-      ORDER BY vendor_name ASC',
-    $params
-);
+$tplId = (int) ($_GET['template_id'] ?? 0);
+if ($tplId > 0) {
+    try {
+        exportTemplateStreamDatasetCsv(
+            $tenantId,
+            'ap_vendors',
+            $tplId,
+            $datasetOptions,
+            'ap-vendors',
+            $userId ?: null,
+            null,
+            ['filename_parts' => [date('Y-m-d')]]
+        );
+        exit;
+    } catch (ExportServiceException $e) {
+        api_error($e->getMessage(), 422);
+    }
+}
+
+$rows = exportDatasetFetchApVendors($tenantId, $datasetOptions);
+
+exportDatasetAudit($tenantId, $userId ?: null, 'ap.vendors.exported', null, [
+    'dataset' => 'ap_vendors',
+    'format' => 'csv',
+    'mode' => 'raw',
+    'rows' => count($rows),
+    'option_keys' => array_values(array_filter(array_keys($datasetOptions), fn($key) => $datasetOptions[$key] !== '')),
+]);
 
 (new CsvExportService([
     'vendor_name'           => 'Vendor name',

@@ -14,28 +14,51 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvExportService.php';
+require_once __DIR__ . '/../../../core/export_service.php';
 
 use Core\CsvExportService;
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
-rbac_legacy_require($user, 'ap.view');
+$tenantId = (int) $ctx['tenant_id'];
+$userId = (int) ($user['id'] ?? 0);
+rbac_legacy_require($user, 'ap.export.run');
 
-$where  = ['tenant_id = :tenant_id'];
-$params = [];
-if (!empty($_GET['status']))      { $where[] = 'status = :s';     $params['s']  = $_GET['status']; }
-if (!empty($_GET['from']))        { $where[] = 'pay_date >= :f';  $params['f']  = $_GET['from']; }
-if (!empty($_GET['to']))          { $where[] = 'pay_date <= :t';  $params['t']  = $_GET['to']; }
-if (!empty($_GET['vendor_name'])) { $where[] = 'vendor_name = :v'; $params['v']  = $_GET['vendor_name']; }
+$datasetOptions = [
+    'status'      => (string) ($_GET['status'] ?? ''),
+    'from'        => (string) ($_GET['from'] ?? ''),
+    'to'          => (string) ($_GET['to'] ?? ''),
+    'vendor_name' => (string) ($_GET['vendor_name'] ?? ''),
+];
 
-$rows = scopedQuery(
-    'SELECT vendor_name, pay_date, method, reference, amount, currency,
-            unallocated_amount, status, cleared_at, sent_at, notes
-       FROM ap_payments
-      WHERE ' . implode(' AND ', $where) . '
-      ORDER BY pay_date DESC, id DESC',
-    $params
-);
+$tplId = (int) ($_GET['template_id'] ?? 0);
+if ($tplId > 0) {
+    try {
+        exportTemplateStreamDatasetCsv(
+            $tenantId,
+            'ap_payments',
+            $tplId,
+            $datasetOptions,
+            'ap-payments',
+            $userId ?: null,
+            null,
+            ['filename_parts' => [date('Y-m-d')]]
+        );
+        exit;
+    } catch (ExportServiceException $e) {
+        api_error($e->getMessage(), 422);
+    }
+}
+
+$rows = exportDatasetFetchApPayments($tenantId, $datasetOptions);
+
+exportDatasetAudit($tenantId, $userId ?: null, 'ap.payments.exported', null, [
+    'dataset' => 'ap_payments',
+    'format' => 'csv',
+    'mode' => 'raw',
+    'rows' => count($rows),
+    'option_keys' => array_values(array_filter(array_keys($datasetOptions), fn($key) => $datasetOptions[$key] !== '')),
+]);
 
 (new CsvExportService([
     'vendor_name'        => 'Vendor name',

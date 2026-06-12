@@ -85,6 +85,10 @@ $assert("payroll_disbursements export dataset declared by payroll",
     ($exportDatasets['payroll_disbursements']['module_id'] ?? null) === 'payroll');
 $assert("ap_payments export dataset declared by ap",
     ($exportDatasets['ap_payments']['module_id'] ?? null) === 'ap');
+$assert("ap_bills export dataset declared by ap",
+    ($exportDatasets['ap_bills']['module_id'] ?? null) === 'ap');
+$assert("ap_vendors export dataset declared by ap",
+    ($exportDatasets['ap_vendors']['module_id'] ?? null) === 'ap');
 $assert("expenses export dataset declared by ap",
     ($exportDatasets['expenses']['module_id'] ?? null) === 'ap');
 $assert("billing_invoices export dataset declared by billing",
@@ -99,6 +103,14 @@ $assert("placements_directory report dataset declared by placements",
     ($reportDatasets['placements_directory']['module_id'] ?? null) === 'placements');
 $assert("payroll report dataset preserves sensitive field metadata",
     in_array('bank_account_number', $reportDatasets['payroll_disbursements']['sensitive_fields'] ?? [], true));
+$assert("ap_payments report dataset declared by ap",
+    ($reportDatasets['ap_payments']['module_id'] ?? null) === 'ap');
+$assert("ap_bills report dataset declared by ap",
+    ($reportDatasets['ap_bills']['module_id'] ?? null) === 'ap');
+$assert("ap_vendors report dataset declared by ap",
+    ($reportDatasets['ap_vendors']['module_id'] ?? null) === 'ap');
+$assert("ap vendors report dataset preserves sensitive field metadata",
+    in_array('payment_account_last4', $reportDatasets['ap_vendors']['sensitive_fields'] ?? [], true));
 $assert("billing invoice report dataset declared by billing",
     ($reportDatasets['billing_invoices']['module_id'] ?? null) === 'billing');
 $assert("billing payment report dataset declared by billing",

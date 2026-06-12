@@ -78,6 +78,7 @@ $a('imports useBulkSelection',                        $c($bl, "from '../../../da
 $a('row-level checkbox + select-all',                 $c($bl, 'data-testid="ap-bills-select-all"')
                                                   &&  $c($bl, 'ap-bill-select-${r.id}'));
 $a('export selected button',                          $c($bl, 'data-testid="ap-bills-export-selected"'));
+$a('export-via-template picker present',              $c($bl, 'ExportTemplatePicker') && $c($bl, 'dataset="ap_bills"'));
 $a('passes ids in CSV URL',                           $c($bl, 'type=bills&ids=${sel.ids.join'));
 
 echo PHP_EOL . "Total: $pass passed, $fail failed" . PHP_EOL;

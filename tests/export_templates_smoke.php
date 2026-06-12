@@ -7,7 +7,7 @@
  *   - core/export_datasets.php registry shape
  *   - core/export_templates.php library: validation + render with mappings
  *   - /api/export_templates.php endpoint surface
- *   - Wire-in: payroll runs + AP payments + AP expenses honour template_id
+ *   - Wire-in: payroll runs + AP CSV exports + AP expenses honour template_id
  *   - NACHA UI button removed from PaymentsList; soft-fall-back removed
  *   - ExportTemplatePicker + ExportTemplatesAdmin exist and link
  */
@@ -45,6 +45,8 @@ require_once __DIR__ . '/../core/export_datasets.php';
 $reg = exportDatasetRegistry();
 $assert('payroll_disbursements in registry',  isset($reg['payroll_disbursements']));
 $assert('ap_payments in registry',            isset($reg['ap_payments']));
+$assert('ap_bills in registry',               isset($reg['ap_bills']));
+$assert('ap_vendors in registry',             isset($reg['ap_vendors']));
 $assert('expenses in registry',               isset($reg['expenses']));
 $assert('billing_invoices in registry',       isset($reg['billing_invoices']));
 $assert('billing_payments in registry',       isset($reg['billing_payments']));
@@ -63,6 +65,9 @@ $assert('payroll has net_pay_dollars',        isset($reg['payroll_disbursements'
 $assert('payroll has net_pay_cents',          isset($reg['payroll_disbursements']['fields']['net_pay_cents']));
 $assert('ap has amount_dollars + cents',      isset($reg['ap_payments']['fields']['amount_dollars'])
                                               && isset($reg['ap_payments']['fields']['amount_cents']));
+$assert('ap bills has amount_due',            isset($reg['ap_bills']['fields']['amount_due']));
+$assert('ap vendors has vendor_name',         isset($reg['ap_vendors']['fields']['vendor_name']));
+$assert('ap vendor last4 marked sensitive',   exportDatasetIsSensitiveField('ap_vendors', 'tax_id_last4'));
 $assert('expenses has line_id',               isset($reg['expenses']['fields']['line_id']));
 $assert('billing invoices has invoice_number', isset($reg['billing_invoices']['fields']['invoice_number']));
 $assert('billing payments has payment amount', isset($reg['billing_payments']['fields']['amount']));
@@ -171,8 +176,34 @@ $ap = file_get_contents(__DIR__ . '/../modules/ap/api/payments.php');
 $assert('export_template GET branch',         strpos($ap, "GET' && \$action === 'export_template'") !== false);
 $assert('rejects mismatched dataset',         strpos($ap, 'ap_payments') !== false
                                               && strpos(file_get_contents(__DIR__ . '/../core/export_service.php'), "template's dataset must be") !== false);
-$assert('audits ap.payments.exported_template',
-                                              strpos(file_get_contents(__DIR__ . '/../core/export_datasets.php'), 'ap.payments.exported_template') !== false);
+$assert('audits ap.payments.exported',
+                                              strpos(file_get_contents(__DIR__ . '/../core/export_datasets.php'), 'ap.payments.exported') !== false);
+
+// ─── Wire-in: AP CSV exports ───
+echo "ap CSV template exports\n";
+$apPayCsv = file_get_contents(__DIR__ . '/../modules/ap/api/payments_csv_export.php');
+$apBillsCsv = file_get_contents(__DIR__ . '/../modules/ap/api/bills_csv_export.php');
+$apVendorsCsv = file_get_contents(__DIR__ . '/../modules/ap/api/csv_export.php');
+$assert('ap payments CSV honors template_id', strpos($apPayCsv, "(int) (\$_GET['template_id'] ?? 0)") !== false);
+$assert('ap payments CSV uses governed dataset',
+                                              strpos($apPayCsv, 'ap_payments') !== false
+                                              && strpos($apPayCsv, 'exportDatasetFetchApPayments') !== false);
+$assert('ap payments raw CSV audits dataset', strpos($apPayCsv, 'ap.payments.exported') !== false
+                                              && strpos($apPayCsv, "mode' => 'raw'") !== false);
+$assert('ap payments CSV requires export permission',
+                                              strpos($apPayCsv, "'ap.export.run'") !== false);
+$assert('ap bills CSV honors template_id',    strpos($apBillsCsv, "(int) (\$_GET['template_id'] ?? 0)") !== false);
+$assert('ap bills CSV uses governed dataset',
+                                              strpos($apBillsCsv, 'ap_bills') !== false
+                                              && strpos($apBillsCsv, 'exportDatasetFetchApBills') !== false);
+$assert('ap bills raw CSV audits dataset',    strpos($apBillsCsv, 'ap.bills.exported') !== false
+                                              && strpos($apBillsCsv, "mode' => 'raw'") !== false);
+$assert('ap vendors CSV honors template_id',  strpos($apVendorsCsv, "(int) (\$_GET['template_id'] ?? 0)") !== false);
+$assert('ap vendors CSV uses governed dataset',
+                                              strpos($apVendorsCsv, 'ap_vendors') !== false
+                                              && strpos($apVendorsCsv, 'exportDatasetFetchApVendors') !== false);
+$assert('ap vendors raw CSV audits dataset',  strpos($apVendorsCsv, 'ap.vendors.exported') !== false
+                                              && strpos($apVendorsCsv, "mode' => 'raw'") !== false);
 
 // ─── Wire-in: ap/expenses.php ───
 echo "ap/expenses.php template export\n";
@@ -262,6 +293,16 @@ $pl2 = file_get_contents(__DIR__ . '/../modules/ap/ui/PaymentsList.jsx');
 $assert('PaymentsList uses picker',           strpos($pl2, 'ExportTemplatePicker') !== false);
 $assert('ap payments picker dataset=ap_payments',
                                               strpos($pl2, 'dataset="ap_payments"') !== false);
+
+$billsList = file_get_contents(__DIR__ . '/../modules/ap/ui/BillsList.jsx');
+$assert('BillsList uses picker',              strpos($billsList, 'ExportTemplatePicker') !== false);
+$assert('ap bills picker dataset=ap_bills',
+                                              strpos($billsList, 'dataset="ap_bills"') !== false);
+
+$vendorsList = file_get_contents(__DIR__ . '/../modules/ap/ui/VendorsList.jsx');
+$assert('VendorsList uses picker',            strpos($vendorsList, 'ExportTemplatePicker') !== false);
+$assert('ap vendors picker dataset=ap_vendors',
+                                              strpos($vendorsList, 'dataset="ap_vendors"') !== false);
 
 $peopleDir = file_get_contents(__DIR__ . '/../modules/people/ui/Directory.jsx');
 $assert('People Directory uses picker',       strpos($peopleDir, 'ExportTemplatePicker') !== false);

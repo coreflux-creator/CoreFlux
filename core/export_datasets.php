@@ -65,27 +65,102 @@ function exportDatasetRegistry(): array {
             'module_id'             => 'ap',
             'permission'            => 'ap.export.run',
             'formats'               => ['csv'],
-            'audit_event'           => 'ap.payments.exported_template',
+            'audit_event'           => 'ap.payments.exported',
             'sensitive_fields'      => ['bank_routing_number', 'bank_account_number'],
             'custom_field_entities' => [],
             'fetcher'               => 'exportDatasetFetchApPayments',
             'fields'                => [
                 'payment_id'          => ['label' => 'Payment ID',           'sample' => '9001'],
                 'payment_date'        => ['label' => 'Payment date',         'sample' => '2026-02-14'],
+                'pay_date'            => ['label' => 'Pay date',             'sample' => '2026-02-14'],
                 'vendor_id'           => ['label' => 'Vendor ID (internal)', 'sample' => '58'],
                 'vendor_external_id'  => ['label' => 'Vendor ID (external)', 'sample' => 'V-058'],
                 'vendor_name'         => ['label' => 'Vendor name',          'sample' => 'Acme Corp'],
                 'bill_id'             => ['label' => 'Bill ID',              'sample' => '412'],
                 'bill_number'         => ['label' => 'Bill number',          'sample' => 'INV-00412'],
+                'bill_ids'            => ['label' => 'Bill IDs',             'sample' => '412,413'],
+                'bill_numbers'        => ['label' => 'Bill numbers',         'sample' => 'INV-00412,INV-00413'],
+                'method'              => ['label' => 'Method',               'sample' => 'ach'],
+                'reference'           => ['label' => 'Reference',            'sample' => 'ACH-123'],
+                'amount'              => ['label' => 'Amount',               'sample' => '1250.00', 'field_type' => 'number'],
                 'amount_dollars'      => ['label' => 'Amount ($)',           'sample' => '1,250.00'],
                 'amount_cents'        => ['label' => 'Amount (¢)',           'sample' => '125000'],
                 'currency'            => ['label' => 'Currency',             'sample' => 'USD'],
+                'unallocated_amount'  => ['label' => 'Unallocated',          'sample' => '0.00', 'field_type' => 'number'],
+                'status'              => ['label' => 'Status',               'sample' => 'sent'],
+                'cleared_at'          => ['label' => 'Cleared at',           'sample' => '2026-02-15 09:30:00'],
+                'sent_at'             => ['label' => 'Sent at',              'sample' => '2026-02-14 16:00:00'],
                 'memo'                => ['label' => 'Memo',                 'sample' => 'Feb services'],
+                'notes'               => ['label' => 'Notes',                'sample' => 'Feb services'],
+                'bank_account_id'     => ['label' => 'Bank account ID',      'sample' => '7'],
                 'bank_routing_number' => ['label' => 'Bank routing',         'sample' => '021000021'],
                 'bank_account_number' => ['label' => 'Bank account',         'sample' => '1234567890'],
                 'bank_account_type'   => ['label' => 'Account type',         'sample' => 'checking'],
                 'rail'                => ['label' => 'Rail',                 'sample' => 'plaid_transfer'],
+                'disbursement_rail'   => ['label' => 'Disbursement rail',    'sample' => 'plaid_transfer'],
                 'rail_external_ref'   => ['label' => 'Rail reference',       'sample' => 'trn-abc123'],
+                'rail_status'         => ['label' => 'Rail status',          'sample' => 'submitted'],
+                'rail_originated_at'  => ['label' => 'Rail originated at',   'sample' => '2026-02-14 16:05:00'],
+            ],
+        ],
+
+        'ap_bills' => [
+            'label'                 => 'AP Bills',
+            'module_id'             => 'ap',
+            'permission'            => 'ap.export.run',
+            'formats'               => ['csv'],
+            'audit_event'           => 'ap.bills.exported',
+            'sensitive_fields'      => [],
+            'custom_field_entities' => [],
+            'fetcher'               => 'exportDatasetFetchApBills',
+            'fields'                => [
+                'bill_id'          => ['label' => 'Bill ID',          'sample' => '412'],
+                'bill_number'      => ['label' => 'Bill #',           'sample' => 'INV-00412'],
+                'internal_ref'     => ['label' => 'Internal ref',     'sample' => 'AP-2026-00412'],
+                'vendor_name'      => ['label' => 'Vendor name',      'sample' => 'Acme Corp'],
+                'vendor_type'      => ['label' => 'Vendor type',      'sample' => 'w9_business'],
+                'received_at'      => ['label' => 'Received at',      'sample' => '2026-02-13'],
+                'bill_date'        => ['label' => 'Bill date',        'sample' => '2026-02-14'],
+                'due_date'         => ['label' => 'Due date',         'sample' => '2026-03-15'],
+                'period_start'     => ['label' => 'Period start',     'sample' => '2026-02-01'],
+                'period_end'       => ['label' => 'Period end',       'sample' => '2026-02-14'],
+                'currency'         => ['label' => 'Currency',         'sample' => 'USD'],
+                'subtotal'         => ['label' => 'Subtotal',         'sample' => '1000.00', 'field_type' => 'number'],
+                'tax_total'        => ['label' => 'Tax total',        'sample' => '80.00', 'field_type' => 'number'],
+                'total'            => ['label' => 'Total',            'sample' => '1080.00', 'field_type' => 'number'],
+                'amount_paid'      => ['label' => 'Amount paid',      'sample' => '250.00', 'field_type' => 'number'],
+                'amount_due'       => ['label' => 'Amount due',       'sample' => '830.00', 'field_type' => 'number'],
+                'status'           => ['label' => 'Status',           'sample' => 'approved'],
+                'source'           => ['label' => 'Source',           'sample' => 'manual'],
+                'po_number'        => ['label' => 'PO number',        'sample' => 'PO-44'],
+                'placement_id'     => ['label' => 'Placement ID',     'sample' => '7001'],
+                'journal_entry_id' => ['label' => 'Journal entry ID', 'sample' => '901'],
+                'notes_internal'   => ['label' => 'Notes (internal)', 'sample' => 'Review complete'],
+            ],
+        ],
+
+        'ap_vendors' => [
+            'label'                 => 'AP Vendors',
+            'module_id'             => 'ap',
+            'permission'            => 'ap.export.run',
+            'formats'               => ['csv'],
+            'audit_event'           => 'ap.vendors.exported',
+            'sensitive_fields'      => ['tax_id_last4', 'payment_account_last4'],
+            'custom_field_entities' => [],
+            'fetcher'               => 'exportDatasetFetchApVendors',
+            'fields'                => [
+                'vendor_id'             => ['label' => 'Vendor ID',          'sample' => '58'],
+                'vendor_name'           => ['label' => 'Vendor name',        'sample' => 'Acme Corp'],
+                'vendor_type'           => ['label' => 'Vendor type',        'sample' => 'w9_business'],
+                'vendor_category'       => ['label' => 'Vendor category',    'sample' => 'service_provider'],
+                'default_terms'         => ['label' => 'Default terms',      'sample' => 'NET30'],
+                'remit_to_email'        => ['label' => 'Remit-to email',     'sample' => 'ap@example.com'],
+                'remit_to_phone'        => ['label' => 'Remit-to phone',     'sample' => '+1 555 0100'],
+                'payment_method'        => ['label' => 'Payment method',     'sample' => 'ach'],
+                'tax_id_last4'          => ['label' => 'Tax ID last 4',      'sample' => '6789'],
+                'payment_account_last4' => ['label' => 'Pay acct last 4',    'sample' => '1234'],
+                'requires_1099'         => ['label' => 'Requires 1099',      'sample' => '1'],
+                'last_bill_at'          => ['label' => 'Last bill at',       'sample' => '2026-02-14 09:00:00'],
             ],
         ],
 
@@ -385,41 +460,160 @@ function exportDatasetFetchPayrollDisbursements(int $tenantId, array $opts): arr
 
 function exportDatasetFetchApPayments(int $tenantId, array $opts): array {
     $ids = array_values(array_filter(array_map('intval', (array) ($opts['ids'] ?? [])), fn ($x) => $x > 0));
-    if (!$ids && !empty($opts['run_id'])) {
-        // Optional: all payments in an AP run.
-        $pdo = getDB();
-        $stmt = $pdo->prepare(
-            'SELECT id FROM ap_payments WHERE tenant_id = :t AND run_id = :r'
-        );
-        $stmt->execute(['t' => $tenantId, 'r' => (int) $opts['run_id']]);
-        $ids = array_map('intval', array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'id'));
-    }
-    if (!$ids) return [];
-
     $pdo = getDB();
-    $place = implode(',', array_fill(0, count($ids), '?'));
-    $params = $ids; array_unshift($params, $tenantId);
-    $stmt = $pdo->prepare("
-        SELECT p.id AS payment_id, p.payment_date, p.amount_cents, p.currency,
-               p.memo, p.rail, p.rail_external_ref,
-               p.bank_routing_number, p.bank_account_number, p.bank_account_type,
-               p.vendor_id, v.external_id AS vendor_external_id, v.name AS vendor_name,
-               p.bill_id, b.bill_number
-          FROM ap_payments p
-          LEFT JOIN ap_vendors v ON v.id = p.vendor_id
-          LEFT JOIN ap_bills   b ON b.id = p.bill_id
-         WHERE p.tenant_id = ? AND p.id IN ($place)
-         ORDER BY p.payment_date, p.id
-    ");
-    $stmt->execute($params);
-    $out = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $c = (int) ($row['amount_cents'] ?? 0);
-        $row['amount_dollars'] = sprintf('%.2f', $c / 100);
-        $row['amount_cents']   = $c;
-        $out[] = $row;
+    $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $where = ['p.tenant_id = :tenant_id'];
+    $params = ['tenant_id' => $tenantId];
+
+    if ($ids) {
+        $placeholders = [];
+        foreach ($ids as $i => $id) {
+            $key = 'id' . $i;
+            $placeholders[] = ':' . $key;
+            $params[$key] = $id;
+        }
+        $where[] = 'p.id IN (' . implode(',', $placeholders) . ')';
     }
-    return $out;
+
+    if (!empty($opts['status'])) {
+        $where[] = 'p.status = :status';
+        $params['status'] = (string) $opts['status'];
+    }
+    if (!empty($opts['from'])) {
+        $where[] = 'p.pay_date >= :from_date';
+        $params['from_date'] = (string) $opts['from'];
+    }
+    if (!empty($opts['to'])) {
+        $where[] = 'p.pay_date <= :to_date';
+        $params['to_date'] = (string) $opts['to'];
+    }
+    if (!empty($opts['vendor_name'])) {
+        $where[] = 'p.vendor_name = :vendor_name';
+        $params['vendor_name'] = (string) $opts['vendor_name'];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT p.id AS payment_id,
+                p.pay_date AS payment_date,
+                p.pay_date,
+                NULL AS vendor_id,
+                NULL AS vendor_external_id,
+                p.vendor_name,
+                (SELECT MIN(a1.bill_id)
+                   FROM ap_payment_allocations a1
+                  WHERE a1.payment_id = p.id) AS bill_id,
+                (SELECT MIN(b1.bill_number)
+                   FROM ap_payment_allocations a1
+                   JOIN ap_bills b1 ON b1.id = a1.bill_id AND b1.tenant_id = p.tenant_id
+                  WHERE a1.payment_id = p.id) AS bill_number,
+                (SELECT GROUP_CONCAT(DISTINCT a2.bill_id ORDER BY a2.bill_id SEPARATOR ",")
+                   FROM ap_payment_allocations a2
+                  WHERE a2.payment_id = p.id) AS bill_ids,
+                (SELECT GROUP_CONCAT(DISTINCT b2.bill_number ORDER BY b2.bill_number SEPARATOR ",")
+                   FROM ap_payment_allocations a2
+                   JOIN ap_bills b2 ON b2.id = a2.bill_id AND b2.tenant_id = p.tenant_id
+                  WHERE a2.payment_id = p.id) AS bill_numbers,
+                p.method,
+                p.reference,
+                p.amount,
+                p.amount AS amount_dollars,
+                ROUND(p.amount * 100) AS amount_cents,
+                p.currency,
+                p.unallocated_amount,
+                p.status,
+                p.cleared_at,
+                p.sent_at,
+                p.notes AS memo,
+                p.notes,
+                p.bank_account_id,
+                NULL AS bank_routing_number,
+                NULL AS bank_account_number,
+                NULL AS bank_account_type,
+                p.disbursement_rail AS rail,
+                p.disbursement_rail,
+                p.rail_external_ref,
+                p.rail_status,
+                p.rail_originated_at
+           FROM ap_payments p
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY p.pay_date DESC, p.id DESC
+          LIMIT ' . $limit
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function exportDatasetFetchApBills(int $tenantId, array $opts): array {
+    $pdo = getDB();
+    $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $ids = array_values(array_filter(array_map('intval', (array) ($opts['ids'] ?? [])), fn ($x) => $x > 0));
+    $where = ['tenant_id = :tenant_id'];
+    $params = ['tenant_id' => $tenantId];
+    if ($ids) {
+        $placeholders = [];
+        foreach ($ids as $i => $id) {
+            $key = 'id' . $i;
+            $placeholders[] = ':' . $key;
+            $params[$key] = $id;
+        }
+        $where[] = 'id IN (' . implode(',', $placeholders) . ')';
+    }
+    if (!empty($opts['status'])) {
+        $where[] = 'status = :status';
+        $params['status'] = (string) $opts['status'];
+    }
+    if (!empty($opts['from'])) {
+        $where[] = 'bill_date >= :from_date';
+        $params['from_date'] = (string) $opts['from'];
+    }
+    if (!empty($opts['to'])) {
+        $where[] = 'bill_date <= :to_date';
+        $params['to_date'] = (string) $opts['to'];
+    }
+    if (!empty($opts['vendor_name'])) {
+        $where[] = 'vendor_name = :vendor_name';
+        $params['vendor_name'] = (string) $opts['vendor_name'];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT id AS bill_id, bill_number, internal_ref, vendor_name, vendor_type,
+                received_at, bill_date, due_date, period_start, period_end, currency,
+                subtotal, tax_total, total, amount_paid, amount_due, status, source,
+                po_number, placement_id, journal_entry_id, notes_internal
+           FROM ap_bills
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY bill_date DESC, id DESC
+          LIMIT ' . $limit
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function exportDatasetFetchApVendors(int $tenantId, array $opts): array {
+    $pdo = getDB();
+    $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $where = ['tenant_id = :tenant_id'];
+    $params = ['tenant_id' => $tenantId];
+    if (!empty($opts['type'])) {
+        $where[] = 'vendor_type = :vendor_type';
+        $params['vendor_type'] = (string) $opts['type'];
+    }
+    if (!empty($opts['category'])) {
+        $where[] = 'vendor_category = :vendor_category';
+        $params['vendor_category'] = (string) $opts['category'];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT id AS vendor_id, vendor_name, vendor_type, vendor_category,
+                default_terms, remit_to_email, remit_to_phone, payment_method,
+                tax_id_last4, payment_account_last4, requires_1099, last_bill_at
+           FROM ap_vendors_index
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY vendor_name ASC
+          LIMIT ' . $limit
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 function exportDatasetFetchExpenses(int $tenantId, array $opts): array {
