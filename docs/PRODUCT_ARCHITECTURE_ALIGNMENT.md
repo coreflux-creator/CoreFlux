@@ -275,6 +275,20 @@ These domains require enterprise controls first:
 - Integration writes to accounting, payroll, banking, or HR systems
 - AI tool execution that creates financial, payroll, payment, or worker records
 
+### Placement Activation And Rates
+
+Placement activation and rate approval are separate governed actions.
+
+- Rate rows are drafted and approved through the placement rate WorkflowGraph,
+  with People Graph approver resolution and separation-of-duties checks.
+- Activation requires an already-approved current rate covering the activation
+  date. Activation must not silently approve draft rates as a side effect.
+- Successful activation readiness writes `placement.activation_rate_verified`.
+  Blocked activation writes `placement.activation_blocked_missing_rate` with the
+  activation date and caller path.
+- Existing draft-rate catch-up remains WorkflowGraph/financial-approval gated
+  for non-active draft promotion paths, but activation never invokes it.
+
 ### Access Review And Certification
 
 Access reviews are now a platform enterprise control. Campaigns snapshot

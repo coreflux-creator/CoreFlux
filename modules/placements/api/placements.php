@@ -105,10 +105,10 @@ if ($method === 'POST') {
         if (!in_array($newStatus, ALLOWED_STATUS, true)) {
             api_error('Invalid status', 422, ['allowed' => ALLOWED_STATUS]);
         }
-        $updated = 0; $skipped = 0; $totalAutoApproved = 0; $results = [];
+        $updated = 0; $skipped = 0; $results = [];
         foreach ($ids as $pid) {
-            // Capture pre-update status so the auto-approve side
-            // effect only fires on draft → non-draft promotions.
+            // Capture pre-update status/start date for activation readiness
+            // and draft-to-non-active rate catch-up.
             $prior = scopedFind(
                 'SELECT id, status, start_date FROM placements WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL',
                 ['id' => $pid]
@@ -118,10 +118,8 @@ if ($method === 'POST') {
                 $results[] = ['id' => $pid, 'ok' => false, 'reason' => 'not_found'];
                 continue;
             }
-            $approvedBeforeActivation = 0;
             if ($newStatus === 'active') {
-                $approvedBeforeActivation = _placementsEnsureActiveReady($pid, $user, (string) $prior['start_date'], 'bulk_status');
-                $totalAutoApproved += $approvedBeforeActivation;
+                _placementsRequireActiveReady($pid, (string) $prior['start_date'], 'bulk_status');
             }
             $rows = scopedUpdate('placements', $pid, ['status' => $newStatus]);
             if ($rows > 0) {
@@ -136,7 +134,6 @@ if ($method === 'POST') {
                     && $prior && (string) $prior['status'] === 'draft'
                     && !in_array($newStatus, ['draft', 'cancelled'], true)) {
                     $autoApproved = placementsAutoApproveDraftRates($pid, $user);
-                    $totalAutoApproved += $autoApproved;
                     if ($autoApproved > 0) {
                         placementsAudit('placement.rates.auto_approved_on_promotion', [
                             'placement_id'    => $pid,
@@ -146,7 +143,7 @@ if ($method === 'POST') {
                         ], $pid);
                     }
                 }
-                $results[] = ['id' => $pid, 'ok' => true, 'rates_auto_approved' => $autoApproved + $approvedBeforeActivation];
+                $results[] = ['id' => $pid, 'ok' => true, 'rates_auto_approved' => $autoApproved];
             } else {
                 $skipped++;
                 $results[] = ['id' => $pid, 'ok' => false, 'reason' => 'not_found_or_no_change'];
@@ -157,7 +154,10 @@ if ($method === 'POST') {
             'updated'              => $updated,
             'skipped'              => $skipped,
             'status'               => $newStatus,
-            'rates_auto_approved'  => $totalAutoApproved,
+            'rates_auto_approved'  => array_sum(array_map(
+                static fn ($row) => (int) ($row['rates_auto_approved'] ?? 0),
+                $results
+            )),
             'results'              => $results,
         ]);
     }
@@ -187,11 +187,11 @@ if ($method === 'POST') {
         if ((string) ($placement['status'] ?? '') === 'active') {
             api_ok(['ok' => true, 'placement' => $placement, 'rates_auto_approved' => 0]);
         }
-        $autoApproved = _placementsEnsureActiveReady($id, $user, (string) ($placement['start_date'] ?? date('Y-m-d')), 'activate_action');
+        _placementsRequireActiveReady($id, (string) ($placement['start_date'] ?? date('Y-m-d')), 'activate_action');
         $rows = scopedUpdate('placements', $id, ['status' => 'active']);
         if ($rows === 0) api_error('Not found or no change', 404);
         placementsAudit('placement.status_changed', ['id' => $id, 'status' => 'active', 'via' => 'activate_action'], $id);
-        api_ok(['ok' => true, 'placement' => placementGet($id), 'rates_auto_approved' => $autoApproved]);
+        api_ok(['ok' => true, 'placement' => placementGet($id), 'rates_auto_approved' => 0]);
     }
 
     // Default POST = create
@@ -296,11 +296,9 @@ if ($method === 'PATCH') {
     // prefix) are unaffected; their fields don't need protection.
     $existing = placementGet($id);
     if (!$existing) api_error('Not found', 404);
-    $activatedAutoApproved = 0;
     if (($body['status'] ?? null) === 'active') {
-        $activatedAutoApproved = _placementsEnsureActiveReady(
+        _placementsRequireActiveReady(
             $id,
-            $user,
             (string) ($body['start_date'] ?? $existing['start_date']),
             'patch_status'
         );
@@ -350,32 +348,34 @@ if ($method === 'PATCH') {
             ], $id);
         }
     }
-    api_ok(['placement' => placementGet($id), 'rates_auto_approved' => $autoApproved + $activatedAutoApproved]);
+    api_ok(['placement' => placementGet($id), 'rates_auto_approved' => $autoApproved]);
 }
 
 api_error('Method not allowed', 405);
 
-function _placementsEnsureActiveReady(int $placementId, array $user, ?string $asOf, string $via): int
+function _placementsRequireActiveReady(int $placementId, ?string $asOf, string $via): void
 {
     $asOf = $asOf ?: date('Y-m-d');
     $rate = placementCurrentRate($placementId, $asOf);
-    if ($rate) return 0;
-
-    $autoApproved = placementsAutoApproveDraftRates($placementId, $user);
-    $rate = placementCurrentRate($placementId, $asOf);
     if ($rate) {
-        placementsAudit('placement.rates.auto_approved_before_activation', [
+        placementsAudit('placement.activation_rate_verified', [
             'placement_id' => $placementId,
-            'rate_count'   => $autoApproved,
+            'rate_id'      => (int) ($rate['id'] ?? 0),
             'as_of'        => $asOf,
             'via'          => $via,
         ], $placementId);
-        return $autoApproved;
+        return;
     }
 
+    placementsAudit('placement.activation_blocked_missing_rate', [
+        'placement_id' => $placementId,
+        'as_of'        => $asOf,
+        'via'          => $via,
+        'reason'       => 'missing_approved_rate_coverage',
+    ], $placementId);
     api_error(
         "Placement cannot become active without an approved rate covering {$asOf}. Approve a bill/pay rate first.",
         422,
-        ['placement_id' => $placementId, 'as_of' => $asOf, 'rates_auto_approved' => $autoApproved]
+        ['placement_id' => $placementId, 'as_of' => $asOf, 'rates_auto_approved' => 0]
     );
 }

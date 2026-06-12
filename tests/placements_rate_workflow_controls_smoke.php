@@ -125,6 +125,10 @@ echo "\nActivation guard and schema\n";
 $a('placement activation still requires approved current rate',
     str_contains($placementsApi, 'cannot become active without an approved rate')
     && str_contains($placementsApi, 'placementCurrentRate($placementId, $asOf)'));
+$a('activation guard verifies only and never auto-approves drafts',
+    str_contains($placementsApi, 'function _placementsRequireActiveReady')
+    && str_contains($placementsApi, 'placement.activation_rate_verified')
+    && !preg_match('/function _placementsRequireActiveReady[\\s\\S]+placementsAutoApproveDraftRates\\(/', $placementsApi));
 $a('base migration has workflow_instance_id + index',
     str_contains($mig1, 'workflow_instance_id BIGINT UNSIGNED NULL')
     && str_contains($mig1, 'idx_prt_workflow'));
@@ -144,6 +148,8 @@ foreach ([
     'placement.rate.approval_blocked',
     'placement.rate.approval_rejected',
     'placement.rate.auto_approve_pending_workflow',
+    'placement.activation_rate_verified',
+    'placement.activation_blocked_missing_rate',
 ] as $event) {
     $a("declares {$event}", str_contains($manifest, "'{$event}'"));
 }

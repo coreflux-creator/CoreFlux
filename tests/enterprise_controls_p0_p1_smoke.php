@@ -45,9 +45,10 @@ check('payroll manifest permissions mapped', contains($legacyMap, "'payroll.run.
 
 echo PHP_EOL . "Placement controls" . PHP_EOL;
 check('create active placement is rejected', contains($placements, 'Placements cannot be created active'));
-check('bulk active status runs activation guard', contains($placements, "_placementsEnsureActiveReady(\$pid, \$user"));
-check('patch active status runs activation guard', contains($placements, "_placementsEnsureActiveReady(\n            \$id"));
+check('bulk active status requires approved rate coverage', contains($placements, "_placementsRequireActiveReady(\$pid"));
+check('patch active status requires approved rate coverage', contains($placements, "_placementsRequireActiveReady(\n            \$id"));
 check('activation requires approved rate coverage', contains($placements, 'cannot become active without an approved rate'));
+check('activation readiness is audited', contains($placements, 'placement.activation_rate_verified') && contains($placements, 'placement.activation_blocked_missing_rate'));
 $rates = $root . '/modules/placements/api/rates.php';
 $rateWorkflow = $root . '/modules/placements/lib/workflow.php';
 check('rate approval acts through workflow graph', contains($rates, 'placementsRateWorkflowAct(currentTenantId(), $id, $user'));

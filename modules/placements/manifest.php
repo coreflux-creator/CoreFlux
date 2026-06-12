@@ -48,6 +48,8 @@ return [
         'placement.created',
         'placement.updated',
         'placement.status_changed',
+        'placement.activation_rate_verified',
+        'placement.activation_blocked_missing_rate',
         'placement.ended',
         'placement.chain.updated',
         'placement.chain.portal.set',
