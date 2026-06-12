@@ -45,6 +45,12 @@ PII custom fields are marked sensitive in the field registry. Fetchers should
 avoid exporting PII custom fields unless an explicit sensitive-export flow has
 checked the required permission and audited the action.
 
+The sensitive-field helper is tenant-aware so tenant-defined PII fields are
+recognized with the same `custom_fields.{entity_type}.{field_key}` keys that
+exports and reports expose. Dataset fetchers do not include sensitive custom
+field values by default; callers must pass an explicit sensitive custom-field
+opt-in after enforcing the stronger export permission.
+
 ## API Exposure
 
 `GET /api/export_templates.php?action=datasets` returns dataset governance

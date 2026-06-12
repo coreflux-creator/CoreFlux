@@ -237,11 +237,11 @@ function exportDatasetFieldRegistry(string $dataset, ?int $tenantId = null): arr
     return $fields;
 }
 
-function exportDatasetIsSensitiveField(string $dataset, string $field): bool {
+function exportDatasetIsSensitiveField(string $dataset, string $field, ?int $tenantId = null): bool {
     $ds = exportDatasetGet($dataset);
     if (!$ds) return false;
     if (in_array($field, $ds['sensitive_fields'] ?? [], true)) return true;
-    $fields = exportDatasetFieldRegistry($dataset, null);
+    $fields = exportDatasetFieldRegistry($dataset, $tenantId);
     return !empty($fields[$field]['sensitive']);
 }
 
@@ -365,6 +365,7 @@ function exportDatasetFetchExpenses(int $tenantId, array $opts): array {
 function exportDatasetFetchPeopleDirectory(int $tenantId, array $opts): array {
     $pdo = getDB();
     $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $includeSensitiveCustomFields = !empty($opts['include_sensitive_custom_fields']);
     $where = ['tenant_id = :tenant_id', 'deleted_at IS NULL'];
     $params = ['tenant_id' => $tenantId];
     if (!empty($opts['status'])) {
@@ -391,7 +392,7 @@ function exportDatasetFetchPeopleDirectory(int $tenantId, array $opts): array {
     $defs = [];
     try {
         foreach (customFieldDefinitions($tenantId, 'people') as $def) {
-            if (!empty($def['pii'])) continue;
+            if (!$includeSensitiveCustomFields && !empty($def['pii'])) continue;
             $defs[(int) $def['id']] = $def;
         }
     } catch (\Throwable $e) {
@@ -471,22 +472,28 @@ function exportDatasetFetchPlacementsDirectory(int $tenantId, array $opts): arra
     );
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    return exportDatasetAttachCustomFieldValues($rows, $tenantId, 'placements', 'placement_id');
+    return exportDatasetAttachCustomFieldValues(
+        $rows,
+        $tenantId,
+        'placements',
+        'placement_id',
+        !empty($opts['include_sensitive_custom_fields'])
+    );
 }
 
-function exportDatasetAttachCustomFieldValues(array $rows, int $tenantId, string $entityType, string $idKey): array {
+function exportDatasetAttachCustomFieldValues(array $rows, int $tenantId, string $entityType, string $idKey, bool $includeSensitive = false): array {
     if (!$rows) return $rows;
     try {
         $defs = [];
         foreach (customFieldDefinitions($tenantId, $entityType) as $def) {
-            if (!empty($def['pii'])) continue;
+            if (!$includeSensitive && !empty($def['pii'])) continue;
             $defs[(string) ($def['field_key'] ?? '')] = true;
         }
         if (!$defs) return $rows;
         foreach ($rows as &$row) {
             $recordId = (int) ($row[$idKey] ?? 0);
             if ($recordId <= 0) continue;
-            foreach (customFieldValues($tenantId, $entityType, $recordId, false) as $valueRow) {
+            foreach (customFieldValues($tenantId, $entityType, $recordId, $includeSensitive) as $valueRow) {
                 $fieldKey = (string) ($valueRow['field_key'] ?? '');
                 if ($fieldKey === '' || !isset($defs[$fieldKey])) continue;
                 $row['custom_fields.' . $entityType . '.' . $fieldKey] = $valueRow['value'] ?? null;

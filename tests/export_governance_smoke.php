@@ -25,6 +25,13 @@ foreach (['payroll_disbursements', 'ap_payments', 'expenses', 'people_directory'
 
 $assert('payroll bank account sensitive', exportDatasetIsSensitiveField('payroll_disbursements', 'bank_account_number'));
 $assert('ap bank routing sensitive', exportDatasetIsSensitiveField('ap_payments', 'bank_routing_number'));
+$datasetsSrc = (string) file_get_contents($root . '/core/export_datasets.php');
+$assert('sensitive helper is tenant-aware for custom fields',
+    str_contains($datasetsSrc, 'function exportDatasetIsSensitiveField(string $dataset, string $field, ?int $tenantId = null): bool')
+    && str_contains($datasetsSrc, 'exportDatasetFieldRegistry($dataset, $tenantId)'));
+$assert('custom-field fetchers opt into sensitive values explicitly',
+    str_contains($datasetsSrc, 'include_sensitive_custom_fields')
+    && str_contains($datasetsSrc, 'customFieldValues($tenantId, $entityType, $recordId, $includeSensitive)'));
 $assert('people directory has custom field entity', in_array('people', $reg['people_directory']['custom_field_entities'] ?? [], true));
 $assert('placements directory has custom field entity', in_array('placements', $reg['placements_directory']['custom_field_entities'] ?? [], true));
 $assert('people field registry has static fields', isset(exportDatasetFieldRegistry('people_directory')['email_primary']));

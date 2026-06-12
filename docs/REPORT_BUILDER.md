@@ -24,6 +24,9 @@ definitions. Those remain with the owning module or platform service.
   `placements.expiring_soon` through `reportBuilderRunDefinition`.
 - Running a definition that includes sensitive fields requires `reports.export`
   in addition to the source dataset permission.
+- Tenant-defined PII custom fields use tenant-aware sensitive-field metadata.
+  The run/export APIs only opt dataset fetchers into sensitive custom-field
+  values after the sensitive-field gate has passed.
 - CSV export uses the platform `CsvExportService` and always requires
   `reports.export`.
 

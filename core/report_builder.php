@@ -410,17 +410,18 @@ function reportBuilderNormalizeSorts($raw, array $fields): array
     return $out;
 }
 
-function reportBuilderDefinitionUsesSensitiveFields(array $definition): bool
+function reportBuilderDefinitionUsesSensitiveFields(array $definition, ?int $tenantId = null): bool
 {
     foreach (['columns', 'dimensions', 'measures', 'filters'] as $section) {
         foreach (($definition[$section] ?? []) as $entry) {
             if (!empty($entry['sensitive'])) return true;
         }
     }
-    $dataset = reportBuilderDatasetGet((string) ($definition['dataset'] ?? ''));
-    $sensitive = array_flip($dataset['sensitive_fields'] ?? []);
+    $dataset = reportBuilderDatasetGet((string) ($definition['dataset'] ?? ''), $tenantId);
+    $fields = $dataset['fields'] ?? [];
     foreach (($definition['sorts'] ?? []) as $sort) {
-        if (isset($sensitive[(string) ($sort['field'] ?? '')])) return true;
+        $field = (string) ($sort['field'] ?? '');
+        if (!empty($fields[$field]['sensitive'])) return true;
     }
     return false;
 }

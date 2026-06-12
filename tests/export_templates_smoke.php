@@ -66,6 +66,13 @@ $assert('placements has person_email',         isset($reg['placements_directory'
 $assert('field registry helper exists',        function_exists('exportDatasetFieldRegistry'));
 $assert('sensitive field helper exists',       function_exists('exportDatasetIsSensitiveField'));
 $assert('bank account marked sensitive',       exportDatasetIsSensitiveField('payroll_disbursements', 'bank_account_number'));
+$datasetsSrc = file_get_contents(__DIR__ . '/../core/export_datasets.php');
+$assert('sensitive helper accepts tenant context',
+                                              strpos($datasetsSrc, '?int $tenantId = null') !== false
+                                              && strpos($datasetsSrc, 'exportDatasetFieldRegistry($dataset, $tenantId)') !== false);
+$assert('custom field values require explicit sensitive opt-in',
+                                              strpos($datasetsSrc, 'include_sensitive_custom_fields') !== false
+                                              && strpos($datasetsSrc, 'customFieldValues($tenantId, $entityType, $recordId, $includeSensitive)') !== false);
 
 // ─── Library: render + validation ───
 echo "core/export_templates.php library\n";

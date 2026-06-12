@@ -91,10 +91,17 @@ if ($method === 'POST' && $action === 'run') {
         if (!reportBuilderUserCanAccessDataset($user, $dataset)) {
             api_error('Forbidden', 403, ['required' => $dataset['permission'] ?? null]);
         }
-        if (reportBuilderDefinitionUsesSensitiveFields($definition) && !reportBuilderUserCanExport($user)) {
+        $usesSensitive = reportBuilderDefinitionUsesSensitiveFields($definition, $tenantId);
+        if ($usesSensitive && !reportBuilderUserCanExport($user)) {
             api_error('Forbidden', 403, ['required' => 'reports.export']);
         }
-        $result = reportBuilderRunDefinition($definition, $tenantId, (array) ($body['options'] ?? []));
+        $runOptions = (array) ($body['options'] ?? []);
+        if ($usesSensitive) {
+            $runOptions['include_sensitive_custom_fields'] = true;
+        } else {
+            unset($runOptions['include_sensitive_custom_fields']);
+        }
+        $result = reportBuilderRunDefinition($definition, $tenantId, $runOptions);
         reportBuilderAudit($tenantId, $userId ?: null, 'reports.custom.executed', $targetId, [
             'dataset' => $definition['dataset'],
             'columns' => array_column($result['columns'] ?? [], 'field'),
@@ -122,7 +129,14 @@ if ($method === 'POST' && $action === 'export') {
         if (!reportBuilderUserCanAccessDataset($user, $dataset)) {
             api_error('Forbidden', 403, ['required' => $dataset['permission'] ?? null]);
         }
-        $result = reportBuilderRunDefinition($definition, $tenantId, (array) ($body['options'] ?? []));
+        $usesSensitive = reportBuilderDefinitionUsesSensitiveFields($definition, $tenantId);
+        $runOptions = (array) ($body['options'] ?? []);
+        if ($usesSensitive) {
+            $runOptions['include_sensitive_custom_fields'] = true;
+        } else {
+            unset($runOptions['include_sensitive_custom_fields']);
+        }
+        $result = reportBuilderRunDefinition($definition, $tenantId, $runOptions);
         reportBuilderAudit($tenantId, $userId ?: null, 'reports.custom.exported', $targetId, [
             'dataset' => $definition['dataset'],
             'columns' => array_column($result['columns'] ?? [], 'field'),

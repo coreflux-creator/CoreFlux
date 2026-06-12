@@ -35,6 +35,10 @@ $assert('report builder text filters support lists', in_array('in', reportBuilde
 $assert('report builder date filters support inclusive upper bounds', in_array('less_than_or_equal', reportBuilderFilterOperators('date'), true));
 $assert('payroll amount classified as measure', (($reg['payroll_disbursements']['measures']['gross_pay_dollars']['role'] ?? null) === 'measure'));
 $assert('payroll bank account marked sensitive', !empty($reg['payroll_disbursements']['fields']['bank_account_number']['sensitive']));
+$coreText = (string) file_get_contents($root . '/core/report_builder.php');
+$assert('sensitive definition check is tenant-aware',
+    str_contains($coreText, 'function reportBuilderDefinitionUsesSensitiveFields(array $definition, ?int $tenantId = null)')
+    && str_contains($coreText, 'reportBuilderDatasetGet((string) ($definition[\'dataset\'] ?? \'\'), $tenantId)'));
 $assert('people execution supported', !empty($people['execution_supported']));
 $assert('reportBuilderDatasetGet works', (reportBuilderDatasetGet('people_directory')['key'] ?? null) === 'people_directory');
 $presets = reportBuilderPresetRegistry();
@@ -115,6 +119,8 @@ $assert('API filters dataset access', str_contains($apiText, 'reportBuilderUserC
 $assert('API supports governed execution', str_contains($apiText, "action === 'run'") && str_contains($apiText, 'reportBuilderRunDefinition'));
 $assert('API supports governed CSV export', str_contains($apiText, "action === 'export'") && str_contains($apiText, 'reportBuilderRenderCsv'));
 $assert('API gates sensitive execution', str_contains($apiText, 'reportBuilderDefinitionUsesSensitiveFields') && str_contains($apiText, "'reports.export'"));
+$assert('API checks sensitive fields with tenant context', str_contains($apiText, 'reportBuilderDefinitionUsesSensitiveFields($definition, $tenantId)'));
+$assert('API opts into sensitive custom fields only after the gate', str_contains($apiText, "\$runOptions['include_sensitive_custom_fields'] = true"));
 $assert('API audits execution', str_contains($apiText, "'reports.custom.executed'"));
 $assert('API audits CSV export', str_contains($apiText, "'reports.custom.exported'"));
 $assert('API audits saved report lifecycle', str_contains($apiText, "'reports.custom.saved'") && str_contains($apiText, "'reports.custom.updated'") && str_contains($apiText, "'reports.custom.deleted'"));
