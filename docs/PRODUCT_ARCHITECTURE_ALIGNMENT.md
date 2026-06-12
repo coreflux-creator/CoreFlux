@@ -370,3 +370,8 @@ People API.
 - Update specs and code references to reflect this ownership model.
 - Treat restaurant and other future verticals as consumers of the same platform
   contracts rather than exceptions.
+  - Restaurant alignment is locked in `docs/RESTAURANT_ALIGNMENT.md`: future
+    Restaurant work must be a native CoreFlux consumer-orchestrator, not a
+    separate service and not the owner of AP, accounting, payroll, reporting,
+    RBAC, audit, custom-field, export, report-builder, Workflow Graph, or
+    People Graph primitives.
