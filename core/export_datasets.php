@@ -281,6 +281,43 @@ function exportDatasetRegistry(): array {
             ],
         ],
 
+        'staffing_clients' => [
+            'label'                 => 'Staffing Clients',
+            'module_id'             => 'staffing',
+            'permission'            => 'staffing.export.run',
+            'formats'               => ['csv'],
+            'audit_event'           => 'staffing.clients.exported',
+            'sensitive_fields'      => [],
+            'custom_field_entities' => [],
+            'fetcher'               => 'exportDatasetFetchStaffingClients',
+            'fields'                => [
+                'client_id'             => ['label' => 'Client ID',             'sample' => '501'],
+                'name'                  => ['label' => 'Client name',           'sample' => 'Acme Corp'],
+                'legal_name'            => ['label' => 'Legal name',            'sample' => 'Acme Corporation'],
+                'external_id'           => ['label' => 'External ID',           'sample' => 'JD-ACME'],
+                'source_system'         => ['label' => 'Source system',         'sample' => 'jobdiva'],
+                'industry'              => ['label' => 'Industry',              'sample' => 'Healthcare'],
+                'primary_contact_name'  => ['label' => 'Primary contact name',  'sample' => 'Morgan Lee'],
+                'primary_contact_email' => ['label' => 'Primary contact email', 'sample' => 'morgan@example.com'],
+                'primary_contact_phone' => ['label' => 'Primary contact phone', 'sample' => '+1 555 0100'],
+                'billing_address_line1' => ['label' => 'Billing address line 1','sample' => '100 Main St'],
+                'billing_address_line2' => ['label' => 'Billing address line 2','sample' => 'Suite 400'],
+                'billing_city'          => ['label' => 'Billing city',          'sample' => 'New York'],
+                'billing_state'         => ['label' => 'Billing state',         'sample' => 'NY'],
+                'billing_postal_code'   => ['label' => 'Billing postal code',   'sample' => '10001'],
+                'billing_country'       => ['label' => 'Billing country',       'sample' => 'US'],
+                'payment_terms_days'    => ['label' => 'Payment terms days',    'sample' => '30', 'field_type' => 'number'],
+                'status'                => ['label' => 'Status',                'sample' => 'active'],
+                'msa_status'            => ['label' => 'MSA status',            'sample' => 'executed'],
+                'msa_executed_at'       => ['label' => 'MSA executed at',       'sample' => '2026-01-15'],
+                'msa_expires_at'        => ['label' => 'MSA expires at',        'sample' => '2027-01-14'],
+                'active_placements'     => ['label' => 'Active placements',     'sample' => '12', 'field_type' => 'number', 'aggregate' => 'sum'],
+                'notes'                 => ['label' => 'Notes',                 'sample' => 'Strategic account'],
+                'created_at'            => ['label' => 'Created at',            'sample' => '2026-01-02 09:00:00'],
+                'updated_at'            => ['label' => 'Updated at',            'sample' => '2026-02-01 12:00:00'],
+            ],
+        ],
+
         'people_directory' => [
             'label'                 => 'People Directory',
             'module_id'             => 'people',
@@ -767,6 +804,71 @@ function exportDatasetFetchTimeEntries(int $tenantId, array $opts): array {
            LEFT JOIN time_periods tp ON tp.id = te.period_id AND tp.tenant_id = te.tenant_id
           WHERE ' . implode(' AND ', $where) . '
           ORDER BY te.work_date DESC, te.id DESC
+          LIMIT ' . $limit
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function exportDatasetFetchStaffingClients(int $tenantId, array $opts): array {
+    $pdo = getDB();
+    $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $ids = array_values(array_filter(array_map('intval', (array) ($opts['ids'] ?? [])), fn ($x) => $x > 0));
+    $where = ['c.tenant_id = :tenant_id'];
+    $params = ['tenant_id' => $tenantId];
+
+    if ($ids) {
+        $placeholders = [];
+        foreach ($ids as $i => $id) {
+            $key = 'id' . $i;
+            $placeholders[] = ':' . $key;
+            $params[$key] = $id;
+        }
+        $where[] = 'c.id IN (' . implode(',', $placeholders) . ')';
+    }
+    if (!empty($opts['status'])) {
+        $where[] = 'c.status = :status';
+        $params['status'] = (string) $opts['status'];
+    }
+    if (!empty($opts['q'])) {
+        $where[] = '(c.name LIKE :q OR c.legal_name LIKE :q2 OR c.primary_contact_email LIKE :q3)';
+        $params['q'] = '%' . (string) $opts['q'] . '%';
+        $params['q2'] = $params['q'];
+        $params['q3'] = $params['q'];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT c.id AS client_id,
+                c.name,
+                c.legal_name,
+                c.external_id,
+                c.source_system,
+                c.industry,
+                c.primary_contact_name,
+                c.primary_contact_email,
+                c.primary_contact_phone,
+                c.billing_address_line1,
+                c.billing_address_line2,
+                c.billing_city,
+                c.billing_state,
+                c.billing_postal_code,
+                c.billing_country,
+                c.payment_terms_days,
+                c.status,
+                c.msa_status,
+                c.msa_executed_at,
+                c.msa_expires_at,
+                (SELECT COUNT(*)
+                   FROM placements p
+                  WHERE p.tenant_id = c.tenant_id
+                    AND p.client_id = c.id
+                    AND p.status = "active") AS active_placements,
+                c.notes,
+                c.created_at,
+                c.updated_at
+           FROM staffing_clients c
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY c.name ASC
           LIMIT ' . $limit
     );
     $stmt->execute($params);

@@ -32,10 +32,19 @@ $a('delete action is soft (status=closed)',   str_contains($api, "'status' => 'c
 $a('stats action queries v_timesheet_day_fin',str_contains($api, 'FROM v_timesheet_day_fin') && str_contains($api, 'mtd_revenue'));
 $a('stats tolerates missing view',            str_contains($api, "\$stats['mtd_revenue'] = null"));
 
+echo "\nClients CSV export\n";
+$csv = $read(__DIR__ . '/../modules/staffing/api/csv_export.php');
+$a('client CSV uses governed dataset',        str_contains($csv, 'exportTemplateStreamDatasetCsv')
+                                             && str_contains($csv, 'staffing_clients')
+                                             && str_contains($csv, 'exportDatasetFetchStaffingClients'));
+$a('client CSV gates on export permission',   str_contains($csv, "'staffing.export.run'"));
+$a('client CSV audits raw dataset event',     str_contains($csv, 'staffing.clients.exported') && str_contains($csv, "mode' => 'raw'"));
+
 echo "\nClients UI\n";
 $ui = $read(__DIR__ . '/../modules/staffing/ui/Clients.jsx');
 $a('renders clients table + new button',      str_contains($ui, 'data-testid="staffing-clients-new"') && str_contains($ui, 'data-testid="staffing-clients-table"'));
 $a('search + status filter',                  str_contains($ui, 'staffing-clients-search') && str_contains($ui, 'staffing-clients-status-filter'));
+$a('export template picker wired',            str_contains($ui, 'ExportTemplatePicker') && str_contains($ui, 'dataset="staffing_clients"'));
 $a('ClientDrawer for new / edit',             str_contains($ui, 'ClientDrawer'));
 $a('soft-delete confirmation',                str_contains($ui, 'Close client'));
 
@@ -45,7 +54,7 @@ $a('5 sub-tabs',                              str_contains($prof, "overview") &&
 $a('reuses Reports module pages',             str_contains($prof, "from '../../reports/ui/"));
 $sm = $read(__DIR__ . '/../modules/staffing/ui/StaffingModule.jsx');
 $a('StaffingModule routes profitability/*',   str_contains($sm, 'path="profitability/*"'));
-$a('StaffingModule routes clients',           str_contains($sm, 'path="clients"      element={<Clients'));
+$a('StaffingModule routes clients',           str_contains($sm, 'path="clients"') && str_contains($sm, 'element={<Clients'));
 
 echo "\nWeekly timesheet economics\n";
 $apit = $read(__DIR__ . '/../modules/staffing/api/timesheets.php');

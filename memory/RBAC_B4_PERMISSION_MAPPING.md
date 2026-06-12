@@ -209,17 +209,18 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 ### staffing
 | Legacy permission | New tuple |
 |---|---|
-| `staffing.billing.manage` | `(staffing, write)` |
-| `staffing.billing.view` | `(staffing, read)` |
-| `staffing.payroll.manage` | `(staffing, write)` |
-| `staffing.payroll.view` | `(staffing, read)` |
-| `staffing.reports.view` | `(staffing, read)` |
+| `staffing.billing.manage` | `(billing, write)` |
+| `staffing.billing.view` | `(billing, read)` |
+| `staffing.payroll.manage` | `(payroll, write)` |
+| `staffing.payroll.view` | `(payroll, read)` |
+| `staffing.export.run` | `(staffing, write)` |
+| `staffing.reports.view` | `(reports, read)` |
 | `staffing.settings.manage` | `(staffing, admin)` |
-| `staffing.time.approve` | `(staffing, admin)` |
-| `staffing.time.create` | `(staffing, write)` |
-| `staffing.time.reject` | `(staffing, admin)` |
-| `staffing.time.submit` | `(staffing, write)` |
-| `staffing.time.view` | `(staffing, read)` |
+| `staffing.time.approve` | `(time, admin)` |
+| `staffing.time.create` | `(time, write)` |
+| `staffing.time.reject` | `(time, admin)` |
+| `staffing.time.submit` | `(time, write)` |
+| `staffing.time.view` | `(time, read)` |
 | `staffing.view` | `(staffing, read)` |
 
 ### tenant *(NOT migrated — platform gate)*

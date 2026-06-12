@@ -38,6 +38,9 @@ $assert('utf8mb4_unicode_ci',                 strpos($mig, 'utf8mb4_unicode_ci')
 $mig120 = file_get_contents(__DIR__ . '/../core/migrations/120_people_placements_export_template_presets.sql');
 $assert('seeds People Directory preset',      strpos($mig120, 'People Directory (default)') !== false);
 $assert('seeds Placements preset',            strpos($mig120, 'Placements (default)') !== false);
+$mig121 = file_get_contents(__DIR__ . '/../core/migrations/121_staffing_clients_export_template_preset.sql');
+$assert('seeds Staffing Clients preset',      strpos($mig121, 'Staffing Clients (default)') !== false
+                                              && strpos($mig121, 'staffing_clients') !== false);
 
 // ─── Dataset registry ───
 echo "Dataset registry\n";
@@ -51,6 +54,7 @@ $assert('expenses in registry',               isset($reg['expenses']));
 $assert('billing_invoices in registry',       isset($reg['billing_invoices']));
 $assert('billing_payments in registry',       isset($reg['billing_payments']));
 $assert('time_entries in registry',           isset($reg['time_entries']));
+$assert('staffing_clients in registry',       isset($reg['staffing_clients']));
 $assert('people_directory in registry',        isset($reg['people_directory']));
 $assert('placements_directory in registry',    isset($reg['placements_directory']));
 $assert('payroll permission declared',         ($reg['payroll_disbursements']['permission'] ?? null) === 'payroll.reports.view');
@@ -72,6 +76,7 @@ $assert('expenses has line_id',               isset($reg['expenses']['fields']['
 $assert('billing invoices has invoice_number', isset($reg['billing_invoices']['fields']['invoice_number']));
 $assert('billing payments has payment amount', isset($reg['billing_payments']['fields']['amount']));
 $assert('time entries has hours',             isset($reg['time_entries']['fields']['hours']));
+$assert('staffing clients has payment terms', isset($reg['staffing_clients']['fields']['payment_terms_days']));
 $assert('people has email_primary',           isset($reg['people_directory']['fields']['email_primary']));
 $assert('placements has person_email',         isset($reg['placements_directory']['fields']['person_email']));
 $assert('field registry helper exists',        function_exists('exportDatasetFieldRegistry'));
@@ -241,6 +246,19 @@ $assert('time export rejects mismatched dataset',
 $assert('time raw export audits dataset',     strpos($time, 'time.entries.exported') !== false
                                               && strpos($time, "mode' => 'raw'") !== false);
 
+// ─── Wire-in: staffing CSV exports ───
+echo "staffing CSV template exports\n";
+$staffingClients = file_get_contents(__DIR__ . '/../modules/staffing/api/csv_export.php');
+$assert('staffing clients export honors template_id', strpos($staffingClients, "(int) (\$_GET['template_id'] ?? 0)") !== false);
+$assert('staffing clients export uses governed dataset',
+                                              strpos($staffingClients, 'staffing_clients') !== false
+                                              && strpos($staffingClients, 'exportDatasetFetchStaffingClients') !== false);
+$assert('staffing clients raw export audits dataset',
+                                              strpos($staffingClients, 'staffing.clients.exported') !== false
+                                              && strpos($staffingClients, "mode' => 'raw'") !== false);
+$assert('staffing clients export requires export permission',
+                                              strpos($staffingClients, "'staffing.export.run'") !== false);
+
 // ─── NACHA hidden ───
 echo "NACHA hidden from UI\n";
 $pl = file_get_contents(__DIR__ . '/../modules/ap/ui/PaymentsList.jsx');
@@ -318,6 +336,11 @@ $timeReview = file_get_contents(__DIR__ . '/../modules/time/ui/ReviewQueue.jsx')
 $assert('Time review uses picker',            strpos($timeReview, 'ExportTemplatePicker') !== false);
 $assert('time picker dataset=time_entries',
                                               strpos($timeReview, 'dataset="time_entries"') !== false);
+
+$staffingClientsUi = file_get_contents(__DIR__ . '/../modules/staffing/ui/Clients.jsx');
+$assert('Staffing Clients uses picker',       strpos($staffingClientsUi, 'ExportTemplatePicker') !== false);
+$assert('staffing clients picker dataset=staffing_clients',
+                                              strpos($staffingClientsUi, 'dataset="staffing_clients"') !== false);
 
 echo "\n";
 echo "Pass: {$pass}\n";

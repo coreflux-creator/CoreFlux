@@ -57,6 +57,8 @@ $assert("assoc-map shape: placements.financials.approve harvested",
     in_array('placements.financials.approve', $perms, true));
 $assert("assoc-map shape: time.tokenized_email.issue harvested",
     in_array('time.tokenized_email.issue', $perms, true));
+$assert("assoc-map shape: staffing.export.run harvested",
+    in_array('staffing.export.run', $perms, true));
 
 $descs = $reg->getAllPermissionsWithDescriptions();
 $assert("permission descriptions for accounting are populated",
@@ -97,6 +99,8 @@ $assert("billing_payments export dataset declared by billing",
     ($exportDatasets['billing_payments']['module_id'] ?? null) === 'billing');
 $assert("time_entries export dataset declared by time",
     ($exportDatasets['time_entries']['module_id'] ?? null) === 'time');
+$assert("staffing_clients export dataset declared by staffing",
+    ($exportDatasets['staffing_clients']['module_id'] ?? null) === 'staffing');
 $assert("people_directory report dataset declared by people",
     ($reportDatasets['people_directory']['module_id'] ?? null) === 'people');
 $assert("placements_directory report dataset declared by placements",
@@ -117,6 +121,8 @@ $assert("billing payment report dataset declared by billing",
     ($reportDatasets['billing_payments']['module_id'] ?? null) === 'billing');
 $assert("time entries report dataset declared by time",
     ($reportDatasets['time_entries']['module_id'] ?? null) === 'time');
+$assert("staffing clients report dataset declared by staffing",
+    ($reportDatasets['staffing_clients']['module_id'] ?? null) === 'staffing');
 
 echo "\nDependencies declared\n";
 $placements = $reg->getModule('placements');

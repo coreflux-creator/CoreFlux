@@ -45,12 +45,33 @@ return [
         'staffing.billing.view'          => 'Compatibility alias; source gate prefers billing.view',
         'staffing.billing.manage'        => 'Compatibility alias; source gate prefers billing.invoice.draft',
         'staffing.reports.view'          => 'Compatibility alias; source gate prefers reports.view',
+        'staffing.export.run'            => 'Export Staffing data through governed datasets',
         'staffing.settings.manage'       => 'Manage staffing module settings (week-start, contracted hours, OT thresholds)',
     ],
 
     'audit_events' => [
         'staffing.readiness.payroll_marked',
         'staffing.readiness.billing_marked',
+        'staffing.clients.exported',
+    ],
+
+    'export_datasets' => [
+        'staffing_clients' => [
+            'dataset'     => 'staffing_clients',
+            'label'       => 'Staffing Clients',
+            'permission'  => 'staffing.export.run',
+            'formats'     => ['csv'],
+            'audit_event' => 'staffing.clients.exported',
+        ],
+    ],
+
+    'report_datasets' => [
+        'staffing_clients' => [
+            'dataset'    => 'staffing_clients',
+            'label'      => 'Staffing Clients',
+            'permission' => 'staffing.export.run',
+            'source'     => 'export_dataset',
+        ],
     ],
 
     'people_graph' => [

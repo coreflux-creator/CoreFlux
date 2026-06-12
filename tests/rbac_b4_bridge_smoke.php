@@ -142,6 +142,7 @@ $expected = [
     'staffing.billing.view'              => ['billing', 'read'],
     'staffing.payroll.manage'            => ['payroll', 'write'],
     'staffing.payroll.view'              => ['payroll', 'read'],
+    'staffing.export.run'                => ['staffing', 'write'],
     'staffing.reports.view'              => ['reports', 'read'],
     'staffing.settings.manage'           => ['staffing', 'admin'],
     'staffing.time.approve'              => ['time', 'admin'],
