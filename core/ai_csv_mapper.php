@@ -43,16 +43,6 @@ function aiSuggestColumnMap(array $args): array
     if (!$headers)      throw new InvalidArgumentException('aiSuggestColumnMap: headers required');
     if (!$schemaFields) throw new InvalidArgumentException('aiSuggestColumnMap: schema_fields required');
 
-    $tenantId = currentTenantId();
-    $userId   = $_SESSION['user']['id'] ?? null;
-
-    // Tenant + per-feature gate. We piggyback on 'classification' since
-    // mapping is a single-token labelling problem.
-    $gate = aiGateForTenant($tenantId, 'classification');
-    if (!$gate['tenant_enabled'])  throw new AIDisabledException('AI is disabled for this tenant');
-    if (!$gate['feature_enabled']) throw new AIDisabledException("AI feature class 'classification' is disabled for this tenant");
-    $logFullContent = (bool) $gate['full_content_logging'];
-
     $model = defined('AI_MODEL_CLASSIFICATION') ? AI_MODEL_CLASSIFICATION : AI_FALLBACK_MODEL;
 
     // Build a compact schema description for the prompt.
@@ -115,42 +105,22 @@ function aiSuggestColumnMap(array $args): array
         "  \"reasoning\": \"<one short sentence explaining the calls>\"\n" .
         "}";
 
-    $payload = [
-        'model' => $model,
-        'messages' => [
-            ['role' => 'system', 'content' => $systemMsg],
-            ['role' => 'user',   'content' => $userMsg],
-        ],
-        'max_completion_tokens' => 800,
-        'response_format' => ['type' => 'json_object'],
-    ];
+    $json = aiExtractJson([
+        'feature_class'     => 'classification',
+        'feature_key'       => $featureKey,
+        'kind'              => 'classification',
+        'system'            => $systemMsg,
+        'prompt'            => $userMsg,
+        'model'             => $model,
+        'max_output_tokens' => 800,
+        'required_keys'     => ['suggestions'],
+    ]);
+    $parsed    = $json['data'];
+    $usedModel = $json['model'];
+    $latencyMs = $json['latency_ms'];
+    $auditId   = $json['interaction_id'];
 
-    [$content, $latencyMs, $usedModel, $http, $rawErr] = aiCallOpenAI($payload);
-    if ($content === null && $model !== AI_FALLBACK_MODEL) {
-        $payload['model'] = AI_FALLBACK_MODEL;
-        [$content, $latencyMs, $usedModel, $http, $rawErr] = aiCallOpenAI($payload);
-    }
-    if ($content === null) {
-        aiAuditWrite([
-            'tenant_id'     => $tenantId, 'user_id' => $userId,
-            'feature_class' => 'classification', 'feature_key' => $featureKey,
-            'kind'          => 'classification', 'status' => 'error',
-            'http_status'   => $http, 'error' => substr((string) $rawErr, 0, 1000),
-        ]);
-        throw new RuntimeException("AI column mapping failed ($http): " . substr((string) $rawErr, 0, 300));
-    }
-
-    $cleaned = preg_replace('/^\s*```(?:json)?\s*|\s*```\s*$/m', '', trim($content));
-    $parsed  = json_decode((string) $cleaned, true);
     if (!is_array($parsed) || !isset($parsed['suggestions']) || !is_array($parsed['suggestions'])) {
-        aiAuditWrite([
-            'tenant_id'     => $tenantId, 'user_id' => $userId,
-            'feature_class' => 'classification', 'feature_key' => $featureKey,
-            'kind'          => 'classification', 'status' => 'error',
-            'http_status'   => $http, 'model' => $usedModel, 'latency_ms' => $latencyMs,
-            'error'         => 'Non-conformant JSON: ' . substr($content, 0, 200),
-            'response'      => $logFullContent ? $content : null,
-        ]);
         throw new AIContractException('AI mapper returned non-conformant JSON');
     }
 
@@ -167,17 +137,6 @@ function aiSuggestColumnMap(array $args): array
     foreach ($alreadyMap as $h => $k) {
         if ($k !== null && $k !== '') $sanitised[$h] = $k;
     }
-
-    $auditId = aiAuditWrite([
-        'tenant_id'     => $tenantId, 'user_id' => $userId,
-        'feature_class' => 'classification', 'feature_key' => $featureKey,
-        'kind'          => 'classification', 'status' => 'ok',
-        'http_status'   => $http, 'model' => $usedModel, 'latency_ms' => $latencyMs,
-        'prompt_hash'   => hash('sha256', $systemMsg . $userMsg),
-        'response_hash' => hash('sha256', $content),
-        'prompt'        => $logFullContent ? ($systemMsg . "\n\n" . $userMsg) : null,
-        'response'      => $logFullContent ? $content : null,
-    ]);
 
     return [
         'suggestions'   => $sanitised,

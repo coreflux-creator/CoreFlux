@@ -187,6 +187,25 @@ accepts `--tools=...`, stores that list as `tool_allowlist` in
 `ai_workers.capabilities_json`, and `aiWorkerClaim()` filters queued work by
 `tool_name` before a worker can claim and execute it.
 
+### AI Provider And Gateway Boundary
+
+CoreFlux has two governed AI surfaces:
+
+- Agentic runs, tool execution, workflow workers, and async jobs go through the
+  AI Gateway, Tool Gateway, Workflow Graph, and AI worker queue. These paths
+  materialize run/job records, enforce RBAC and risk approval gates, and write
+  canonical audit events.
+- Simple module advisory/extraction features use the legacy module-facing AI
+  service helpers: `aiAsk()` for prose, `aiExtract()` for document/image
+  extraction, and `aiExtractJson()` for text-only structured JSON drafts.
+
+Module, API, and UI code must not call provider credentials, provider hosts, or
+the low-level `aiCallOpenAI()` tuple helper directly. Provider access is isolated
+to `core/ai_service.php`, `core/ai/providers/*`, and install/deploy liveness
+checks. CSV mapping, GL categorization, and time settlement grouping now consume
+`aiExtractJson()` so structured drafts inherit tenant feature gates, JSON
+contract checks, provider fallback, and `ai_interactions` audit records.
+
 ### Artifact Graph Consumption
 
 Artifact Graph is also a consumer of People Graph. Artifact objects own
