@@ -20,6 +20,7 @@ $assert('placements dataset exists', isset($reg['placements_directory']));
 $assert('payroll dataset exists', isset($reg['payroll_disbursements']));
 $assert('billing invoices dataset exists', isset($reg['billing_invoices']));
 $assert('billing payments dataset exists', isset($reg['billing_payments']));
+$assert('time entries dataset exists', isset($reg['time_entries']));
 foreach (array_keys($reg) as $datasetKey) {
     $assert("report dataset manifest declaration exists: {$datasetKey}", isset($reportDatasetDecls[$datasetKey]));
 }
@@ -27,6 +28,7 @@ $people = $reg['people_directory'] ?? [];
 $placements = $reg['placements_directory'] ?? [];
 $billingInvoices = $reg['billing_invoices'] ?? [];
 $billingPayments = $reg['billing_payments'] ?? [];
+$timeEntries = $reg['time_entries'] ?? [];
 $assert('people preserves source dataset', ($people['source_dataset'] ?? null) === 'people_directory');
 $assert('people preserves permission', ($people['permission'] ?? null) === 'people.view');
 $assert('people custom fields entity exposed', in_array('people', $people['custom_field_entities'] ?? [], true));
@@ -48,6 +50,11 @@ $assert('billing payments preserves source dataset', ($billingPayments['source_d
 $assert('billing payment amount classified as measure',
     (($billingPayments['measures']['amount']['role'] ?? null) === 'measure'));
 $assert('billing payment method filter exposed', isset($billingPayments['filters']['method']));
+$assert('time entries preserves source dataset', ($timeEntries['source_dataset'] ?? null) === 'time_entries');
+$assert('time entries hours classified as measure',
+    (($timeEntries['measures']['hours']['role'] ?? null) === 'measure'));
+$assert('time entries work date filter exposed', isset($timeEntries['filters']['work_date']));
+$assert('time entries status filter exposed', isset($timeEntries['filters']['status']));
 $assert('report builder text filters support lists', in_array('in', reportBuilderFilterOperators('text'), true));
 $assert('report builder date filters support inclusive upper bounds', in_array('less_than_or_equal', reportBuilderFilterOperators('date'), true));
 $assert('payroll amount classified as measure', (($reg['payroll_disbursements']['measures']['gross_pay_dollars']['role'] ?? null) === 'measure'));

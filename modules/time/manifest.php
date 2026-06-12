@@ -100,6 +100,7 @@ return [
         'time.settlement.unextracted_billing',
         'time.settlement.unextracted_ap',
         'time.settlement.unextracted_payroll',
+        'time.entries.exported',
     ],
 
     'people_graph' => [
@@ -124,6 +125,25 @@ return [
     ],
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
+
+    'export_datasets' => [
+        'time_entries' => [
+            'dataset'     => 'time_entries',
+            'label'       => 'Time Entries',
+            'permission'  => 'time.view',
+            'formats'     => ['csv'],
+            'audit_event' => 'time.entries.exported',
+        ],
+    ],
+
+    'report_datasets' => [
+        'time_entries' => [
+            'dataset'    => 'time_entries',
+            'label'      => 'Time Entries',
+            'permission' => 'time.view',
+            'source'     => 'export_dataset',
+        ],
+    ],
 
     'depends_on' => ['people', 'placements'],
 ];

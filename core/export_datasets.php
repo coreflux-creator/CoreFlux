@@ -169,6 +169,43 @@ function exportDatasetRegistry(): array {
             ],
         ],
 
+        'time_entries' => [
+            'label'                 => 'Time Entries',
+            'module_id'             => 'time',
+            'permission'            => 'time.view',
+            'formats'               => ['csv'],
+            'audit_event'           => 'time.entries.exported',
+            'sensitive_fields'      => [],
+            'custom_field_entities' => [],
+            'fetcher'               => 'exportDatasetFetchTimeEntries',
+            'fields'                => [
+                'entry_id'              => ['label' => 'Entry ID',              'sample' => '4401'],
+                'placement_id'          => ['label' => 'Placement ID',          'sample' => '7001'],
+                'placement_external_id' => ['label' => 'Placement external ID', 'sample' => 'JD-7001'],
+                'placement_title'       => ['label' => 'Placement title',       'sample' => 'Senior Accountant'],
+                'end_client_name'       => ['label' => 'End client name',       'sample' => 'Acme Corp'],
+                'person_id'             => ['label' => 'Person ID',             'sample' => '42'],
+                'person_first_name'     => ['label' => 'Person first name',     'sample' => 'Jordan'],
+                'person_last_name'      => ['label' => 'Person last name',      'sample' => 'Rivera'],
+                'person_name'           => ['label' => 'Person name',           'sample' => 'Jordan Rivera'],
+                'person_email'          => ['label' => 'Person email',          'sample' => 'jordan@example.com'],
+                'period_id'             => ['label' => 'Period ID',             'sample' => '203'],
+                'period_label'          => ['label' => 'Period',                'sample' => '2026-W07'],
+                'period_start'          => ['label' => 'Period start',          'sample' => '2026-02-09'],
+                'period_end'            => ['label' => 'Period end',            'sample' => '2026-02-15'],
+                'work_date'             => ['label' => 'Work date',             'sample' => '2026-02-14'],
+                'category'              => ['label' => 'Category',              'sample' => 'regular_billable'],
+                'hours'                 => ['label' => 'Hours',                 'sample' => '8.00', 'field_type' => 'number'],
+                'status'                => ['label' => 'Status',                'sample' => 'approved'],
+                'source'                => ['label' => 'Source',                'sample' => 'manual_entry'],
+                'description'           => ['label' => 'Description',           'sample' => 'Client work'],
+                'approved_at'           => ['label' => 'Approved at',           'sample' => '2026-02-15 09:30:00'],
+                'approved_via'          => ['label' => 'Approved via',          'sample' => 'manual'],
+                'client_approver_email' => ['label' => 'Client approver email', 'sample' => 'manager@example.com'],
+                'rate_snapshot_id'      => ['label' => 'Rate snapshot ID',      'sample' => '118'],
+            ],
+        ],
+
         'people_directory' => [
             'label'                 => 'People Directory',
             'module_id'             => 'people',
@@ -477,6 +514,65 @@ function exportDatasetFetchBillingPayments(int $tenantId, array $opts): array {
            FROM billing_payments
           WHERE ' . implode(' AND ', $where) . '
           ORDER BY received_at DESC, id DESC
+          LIMIT ' . $limit
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function exportDatasetFetchTimeEntries(int $tenantId, array $opts): array {
+    $pdo = getDB();
+    $limit = min(10000, max(1, (int) ($opts['limit'] ?? 10000)));
+    $where = ['te.tenant_id = :tenant_id'];
+    $params = ['tenant_id' => $tenantId];
+    if (!empty($opts['from'])) {
+        $where[] = 'te.work_date >= :from_date';
+        $params['from_date'] = (string) $opts['from'];
+    }
+    if (!empty($opts['to'])) {
+        $where[] = 'te.work_date <= :to_date';
+        $params['to_date'] = (string) $opts['to'];
+    }
+    if (!empty($opts['status'])) {
+        $where[] = 'te.status = :status';
+        $params['status'] = (string) $opts['status'];
+    }
+    if (!empty($opts['placement_external_id'])) {
+        $where[] = 'pl.external_id = :placement_external_id';
+        $params['placement_external_id'] = (string) $opts['placement_external_id'];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT te.id AS entry_id,
+                te.placement_id,
+                pl.external_id AS placement_external_id,
+                pl.title AS placement_title,
+                pl.end_client_name,
+                te.person_id,
+                pe.first_name AS person_first_name,
+                pe.last_name AS person_last_name,
+                CONCAT_WS(" ", pe.first_name, pe.last_name) AS person_name,
+                pe.email_primary AS person_email,
+                te.period_id,
+                tp.label AS period_label,
+                tp.start_date AS period_start,
+                tp.end_date AS period_end,
+                te.work_date,
+                te.category,
+                te.hours,
+                te.status,
+                te.source,
+                te.description,
+                te.approved_at,
+                te.approved_via,
+                te.client_approver_email,
+                te.rate_snapshot_id
+           FROM time_entries te
+           LEFT JOIN placements pl ON pl.id = te.placement_id AND pl.tenant_id = te.tenant_id
+           LEFT JOIN people pe ON pe.id = te.person_id AND pe.tenant_id = te.tenant_id
+           LEFT JOIN time_periods tp ON tp.id = te.period_id AND tp.tenant_id = te.tenant_id
+          WHERE ' . implode(' AND ', $where) . '
+          ORDER BY te.work_date DESC, te.id DESC
           LIMIT ' . $limit
     );
     $stmt->execute($params);

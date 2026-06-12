@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import TokenIssueModal from './TokenIssueModal';
+import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 
 /**
  * Review Queue — pending_review entries, grouped by source; inline approve/reject
@@ -66,6 +67,10 @@ export default function ReviewQueue() {
   };
 
   const bySource = rows.reduce((acc, r) => { (acc[r.source] = acc[r.source] || []).push(r); return acc; }, {});
+  const buildTemplateExportHref = (tplId) => {
+    const params = new URLSearchParams({ status: 'pending_review', template_id: String(tplId) });
+    return `/modules/time/api/csv_export.php?${params.toString()}`;
+  };
 
   return (
     <section className="people-directory" data-testid="time-review-queue">
@@ -74,7 +79,15 @@ export default function ReviewQueue() {
           <h2>Review Queue</h2>
           <p style={{ color: 'var(--cf-text-secondary)' }}>Pending entries grouped by source. Two-eye control: you cannot approve your own entries.</p>
         </div>
-        <a className="btn" href="/modules/time/api/csv_export.php?status=pending_review" data-testid="time-review-export-csv">Export CSV</a>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <a className="btn" href="/modules/time/api/csv_export.php?status=pending_review" data-testid="time-review-export-csv">Export CSV</a>
+          <ExportTemplatePicker
+            dataset="time_entries"
+            buildHref={buildTemplateExportHref}
+            label="Export via template"
+            testid="time-entries-export-template"
+          />
+        </div>
       </div>
 
       {selected.size > 0 && (

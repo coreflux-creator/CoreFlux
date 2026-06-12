@@ -48,6 +48,7 @@ $assert('ap_payments in registry',            isset($reg['ap_payments']));
 $assert('expenses in registry',               isset($reg['expenses']));
 $assert('billing_invoices in registry',       isset($reg['billing_invoices']));
 $assert('billing_payments in registry',       isset($reg['billing_payments']));
+$assert('time_entries in registry',           isset($reg['time_entries']));
 $assert('people_directory in registry',        isset($reg['people_directory']));
 $assert('placements_directory in registry',    isset($reg['placements_directory']));
 $assert('payroll permission declared',         ($reg['payroll_disbursements']['permission'] ?? null) === 'payroll.reports.view');
@@ -65,6 +66,7 @@ $assert('ap has amount_dollars + cents',      isset($reg['ap_payments']['fields'
 $assert('expenses has line_id',               isset($reg['expenses']['fields']['line_id']));
 $assert('billing invoices has invoice_number', isset($reg['billing_invoices']['fields']['invoice_number']));
 $assert('billing payments has payment amount', isset($reg['billing_payments']['fields']['amount']));
+$assert('time entries has hours',             isset($reg['time_entries']['fields']['hours']));
 $assert('people has email_primary',           isset($reg['people_directory']['fields']['email_primary']));
 $assert('placements has person_email',         isset($reg['placements_directory']['fields']['person_email']));
 $assert('field registry helper exists',        function_exists('exportDatasetFieldRegistry'));
@@ -198,6 +200,16 @@ $assert('payment export rejects mismatched dataset',
 $assert('payment raw export audits dataset', strpos($billingPay, 'billing.payment.exported') !== false
                                               && strpos($billingPay, "mode' => 'raw'") !== false);
 
+// ─── Wire-in: time CSV exports ───
+echo "time CSV template exports\n";
+$time = file_get_contents(__DIR__ . '/../modules/time/api/csv_export.php');
+$assert('time export honors template_id',     strpos($time, "(int) (\$_GET['template_id'] ?? 0)") !== false);
+$assert('time export rejects mismatched dataset',
+                                              strpos($time, 'time_entries') !== false
+                                              && strpos(file_get_contents(__DIR__ . '/../core/export_service.php'), "template's dataset must be") !== false);
+$assert('time raw export audits dataset',     strpos($time, 'time.entries.exported') !== false
+                                              && strpos($time, "mode' => 'raw'") !== false);
+
 // ─── NACHA hidden ───
 echo "NACHA hidden from UI\n";
 $pl = file_get_contents(__DIR__ . '/../modules/ap/ui/PaymentsList.jsx');
@@ -260,6 +272,11 @@ $placementsList = file_get_contents(__DIR__ . '/../modules/placements/ui/List.js
 $assert('Placements list uses picker',        strpos($placementsList, 'ExportTemplatePicker') !== false);
 $assert('placements picker dataset=placements_directory',
                                               strpos($placementsList, 'dataset="placements_directory"') !== false);
+
+$timeReview = file_get_contents(__DIR__ . '/../modules/time/ui/ReviewQueue.jsx');
+$assert('Time review uses picker',            strpos($timeReview, 'ExportTemplatePicker') !== false);
+$assert('time picker dataset=time_entries',
+                                              strpos($timeReview, 'dataset="time_entries"') !== false);
 
 echo "\n";
 echo "Pass: {$pass}\n";

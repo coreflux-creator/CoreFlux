@@ -19,7 +19,7 @@ $reg = exportDatasetRegistry();
 $moduleRegistry = ModuleRegistry::reset();
 $manifestDatasets = $moduleRegistry->getExportDatasetDeclarations();
 $required = ['label', 'module_id', 'permission', 'formats', 'audit_event', 'sensitive_fields', 'custom_field_entities', 'fetcher', 'fields'];
-foreach (['payroll_disbursements', 'ap_payments', 'expenses', 'billing_invoices', 'billing_payments', 'people_directory', 'placements_directory'] as $dataset) {
+foreach (['payroll_disbursements', 'ap_payments', 'expenses', 'billing_invoices', 'billing_payments', 'time_entries', 'people_directory', 'placements_directory'] as $dataset) {
     $assert("dataset registered: {$dataset}", isset($reg[$dataset]));
     foreach ($required as $key) {
         $assert("{$dataset} has {$key}", array_key_exists($key, $reg[$dataset] ?? []));
@@ -48,6 +48,8 @@ $assert('billing invoices expose client and amount fields',
     isset($reg['billing_invoices']['fields']['client_name'], $reg['billing_invoices']['fields']['amount_due']));
 $assert('billing payments expose method and amount fields',
     isset($reg['billing_payments']['fields']['method'], $reg['billing_payments']['fields']['amount']));
+$assert('time entries expose placement and hours fields',
+    isset($reg['time_entries']['fields']['placement_external_id'], $reg['time_entries']['fields']['hours']));
 $assert('people field registry has static fields', isset(exportDatasetFieldRegistry('people_directory')['email_primary']));
 $assert('placements field registry has static fields', isset(exportDatasetFieldRegistry('placements_directory')['person_email']));
 $assert('dataset access helper exists', function_exists('exportDatasetUserCanAccess'));
@@ -96,8 +98,10 @@ $apPayments = (string) file_get_contents($root . '/modules/ap/api/payments.php')
 $apExpenses = (string) file_get_contents($root . '/modules/ap/api/expenses.php');
 $billingInvoices = (string) file_get_contents($root . '/modules/billing/api/csv_export.php');
 $billingPayments = (string) file_get_contents($root . '/modules/billing/api/payments_csv_export.php');
+$timeExport = (string) file_get_contents($root . '/modules/time/api/csv_export.php');
 $peopleUi = (string) file_get_contents($root . '/modules/people/ui/Directory.jsx');
 $placementsUi = (string) file_get_contents($root . '/modules/placements/ui/List.jsx');
+$timeReviewUi = (string) file_get_contents($root . '/modules/time/ui/ReviewQueue.jsx');
 $seed = (string) file_get_contents($root . '/core/migrations/120_people_placements_export_template_presets.sql');
 $assert('datasets endpoint exposes sensitive_fields', str_contains($api, "'sensitive_fields'"));
 $assert('datasets endpoint uses tenant-aware field registry', str_contains($api, 'exportDatasetFieldRegistry($key, $tenantId)'));
@@ -118,8 +122,12 @@ $assert('billing raw exports audit dataset events',
     && str_contains($billingPayments, 'billing.payment.exported')
     && str_contains($billingInvoices, "mode' => 'raw'")
     && str_contains($billingPayments, "mode' => 'raw'"));
+$assert('time entries template export uses shared runner', str_contains($timeExport, 'exportTemplateStreamDatasetCsv') && str_contains($timeExport, 'time_entries'));
+$assert('time raw export audits dataset event',
+    str_contains($timeExport, 'time.entries.exported') && str_contains($timeExport, "mode' => 'raw'"));
 $assert('people UI uses export template picker', str_contains($peopleUi, 'ExportTemplatePicker') && str_contains($peopleUi, 'dataset="people_directory"'));
 $assert('placements UI uses export template picker', str_contains($placementsUi, 'ExportTemplatePicker') && str_contains($placementsUi, 'dataset="placements_directory"'));
+$assert('time review UI uses export template picker', str_contains($timeReviewUi, 'ExportTemplatePicker') && str_contains($timeReviewUi, 'dataset="time_entries"'));
 $assert('people/placements template presets seeded', str_contains($seed, 'People Directory (default)') && str_contains($seed, 'Placements (default)'));
 $assert('export governance docs exist', is_file($root . '/docs/EXPORT_GOVERNANCE.md'));
 $assert('export_datasets parses', _php_lint($root . '/core/export_datasets.php'));

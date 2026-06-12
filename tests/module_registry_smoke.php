@@ -91,6 +91,8 @@ $assert("billing_invoices export dataset declared by billing",
     ($exportDatasets['billing_invoices']['module_id'] ?? null) === 'billing');
 $assert("billing_payments export dataset declared by billing",
     ($exportDatasets['billing_payments']['module_id'] ?? null) === 'billing');
+$assert("time_entries export dataset declared by time",
+    ($exportDatasets['time_entries']['module_id'] ?? null) === 'time');
 $assert("people_directory report dataset declared by people",
     ($reportDatasets['people_directory']['module_id'] ?? null) === 'people');
 $assert("placements_directory report dataset declared by placements",
@@ -101,6 +103,8 @@ $assert("billing invoice report dataset declared by billing",
     ($reportDatasets['billing_invoices']['module_id'] ?? null) === 'billing');
 $assert("billing payment report dataset declared by billing",
     ($reportDatasets['billing_payments']['module_id'] ?? null) === 'billing');
+$assert("time entries report dataset declared by time",
+    ($reportDatasets['time_entries']['module_id'] ?? null) === 'time');
 
 echo "\nDependencies declared\n";
 $placements = $reg->getModule('placements');
