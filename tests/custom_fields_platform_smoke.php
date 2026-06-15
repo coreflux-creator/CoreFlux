@@ -113,6 +113,11 @@ $assert('surface layout reads can filter field-level gates',
     str_contains($core, 'customFieldSurfaceLayoutForUser')
     && str_contains($core, 'customFieldFilterSurfaceLayoutForUser')
     && str_contains($core, "'field_access_enforced'"));
+$assert('custom fields audit uses canonical platform writer',
+    str_contains($core, "/audit.php")
+    && str_contains($core, 'platformAuditLogWrite')
+    && str_contains($core, 'customFieldAuditObjectType')
+    && str_contains($core, "'source' => 'custom_fields'"));
 
 echo "\nGovernance migration\n";
 $migration = $root . '/core/migrations/119_custom_fields_governance_columns.sql';

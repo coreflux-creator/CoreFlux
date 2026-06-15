@@ -153,6 +153,10 @@ Current implementation status:
 - Audit schema migrations include both fresh-create parity and guarded upgrade
   fields for actor type/email, object type, before/after snapshots, request id,
   source, and user agent.
+- `core/audit.php` provides the shared schema-adaptive writer. Platform
+  services now use `platformAuditLogWrite` so exports, report-builder actions,
+  custom-field governance, and access-review lifecycle events emit canonical
+  evidence fields while remaining compatible with legacy audit schemas.
 
 ### People Graph
 

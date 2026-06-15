@@ -24,6 +24,21 @@ The read API normalizes legacy installs that still use `user_id`, `action`,
 `entity`, or `entity_id`, so older evidence remains visible while new modules
 write the canonical fields.
 
+## Write Model
+
+Platform services should write shared audit evidence through `core/audit.php`
+via `platformAuditLogWrite`. The writer detects the installed `audit_log`
+schema, emits canonical enterprise fields when present, falls back to legacy aliases
+such as `user_id`, `action`, `entity`, and `entity_id`, and mirrors
+`request_id`, `source`, and `object_type` into `meta_json` so older schemas
+remain searchable through the normalized API.
+
+Shared services that generate evidence packets or governance events, including
+exports, report builder execution, custom-field administration, and access
+reviews, should use this writer instead of issuing direct `INSERT INTO
+audit_log` statements. Domain-specific ledgers may still exist, but the
+platform audit row is the cross-module evidence record.
+
 ## Access Model
 
 Audit evidence is tenant-scoped and read-only through

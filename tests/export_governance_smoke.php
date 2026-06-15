@@ -184,6 +184,11 @@ $assert('shared service rejects templates with hidden custom-field mappings',
     str_contains($service, 'exportTemplateAssertMappingsVisibleForUser')
     && str_contains($service, 'exportDatasetFieldRegistryForUser($datasetKey, $actorUser, $tenantId)')
     && str_contains($service, 'Template references a field hidden from the current user'));
+$assert('shared service audits through canonical platform writer',
+    str_contains($service, "/audit.php")
+    && str_contains($service, 'platformAuditLogWrite')
+    && str_contains($service, "'object_type' => 'export_dataset'")
+    && str_contains($service, "'source' => 'exports'"));
 $assert('shared service normalizes filenames', str_contains($service, 'exportTemplateCsvFilename'));
 $assert('people export supports template_id', str_contains($peopleExport, 'template_id') && str_contains($peopleExport, 'people_directory'));
 $assert('placements export supports template_id', str_contains($placementsExport, 'template_id') && str_contains($placementsExport, 'placements_directory'));

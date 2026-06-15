@@ -12,6 +12,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/ModuleRegistry.php';
 require_once __DIR__ . '/RBAC.php';
 require_once __DIR__ . '/people_graph.php';
+require_once __DIR__ . '/audit.php';
 
 const ACCESS_REVIEW_DECISIONS = ['certified', 'revoked', 'exception', 'needs_change'];
 
@@ -89,6 +90,8 @@ function accessReviewCreateCampaign(int $tenantId, string $name, array $opts = [
     accessReviewAudit($tenantId, (int) $campaign['id'], null, $actorUserId, 'people.access_review.campaign.created', [
         'campaign_key' => $key,
         'name' => $name,
+    ], [
+        'after' => $campaign,
     ]);
     return $campaign;
 }
@@ -104,10 +107,14 @@ function accessReviewOpenCampaign(int $tenantId, int $campaignId, ?int $actorUse
           WHERE tenant_id = :tenant_id AND id = :id"
     )->execute(['tenant_id' => $tenantId, 'id' => $campaignId, 'actor' => $actorUserId]);
     $count = accessReviewSnapshotCampaign($tenantId, $campaignId, $actorUserId);
+    $updated = accessReviewGetCampaign($tenantId, $campaignId) ?: $campaign;
     accessReviewAudit($tenantId, $campaignId, null, $actorUserId, 'people.access_review.campaign.opened', [
         'items_snapshot' => $count,
+    ], [
+        'before' => $campaign,
+        'after' => $updated,
     ]);
-    return accessReviewGetCampaign($tenantId, $campaignId) ?: $campaign;
+    return $updated;
 }
 
 function accessReviewSnapshotCampaign(int $tenantId, int $campaignId, ?int $actorUserId = null): int
@@ -193,12 +200,16 @@ function accessReviewRecordDecision(int $tenantId, int $itemId, string $decision
         'note' => $note,
         'remediation' => $remediation,
     ]);
+    $updated = accessReviewGetItem($tenantId, $itemId) ?: $item;
     accessReviewAudit($tenantId, (int) $item['campaign_id'], $itemId, $actorUserId, 'people.access_review.item.decided', [
         'decision' => $decision,
         'remediation_status' => $remediation,
         'source' => $item['source'] ?? null,
+    ], [
+        'before' => $item,
+        'after' => $updated,
     ]);
-    return accessReviewGetItem($tenantId, $itemId) ?: $item;
+    return $updated;
 }
 
 function accessReviewCompleteCampaign(int $tenantId, int $campaignId, ?int $actorUserId = null): array
@@ -210,13 +221,18 @@ function accessReviewCompleteCampaign(int $tenantId, int $campaignId, ?int $acto
     if ((int) $pending > 0) {
         throw new \RuntimeException('Cannot complete access review while items are pending');
     }
+    $before = accessReviewGetCampaign($tenantId, $campaignId) ?: [];
     accessReviewPdo()->prepare(
         "UPDATE access_review_campaigns
             SET status = 'completed', completed_by_user_id = :actor, completed_at = NOW(), updated_at = NOW()
           WHERE tenant_id = :tenant_id AND id = :id"
     )->execute(['tenant_id' => $tenantId, 'id' => $campaignId, 'actor' => $actorUserId]);
-    accessReviewAudit($tenantId, $campaignId, null, $actorUserId, 'people.access_review.campaign.completed', []);
-    return accessReviewGetCampaign($tenantId, $campaignId) ?: [];
+    $after = accessReviewGetCampaign($tenantId, $campaignId) ?: [];
+    accessReviewAudit($tenantId, $campaignId, null, $actorUserId, 'people.access_review.campaign.completed', [], [
+        'before' => $before,
+        'after' => $after,
+    ]);
+    return $after;
 }
 
 function accessReviewPermissionRisk(string $permission, ?string $moduleKey = null, ?string $accessLevel = null): string
@@ -537,7 +553,7 @@ function accessReviewMembershipAudit(int $tenantId, array $item, ?int $actorUser
     }
 }
 
-function accessReviewAudit(int $tenantId, ?int $campaignId, ?int $itemId, ?int $actorUserId, string $event, array $payload): void
+function accessReviewAudit(int $tenantId, ?int $campaignId, ?int $itemId, ?int $actorUserId, string $event, array $payload, array $opts = []): void
 {
     try {
         accessReviewPdo()->prepare(
@@ -555,6 +571,16 @@ function accessReviewAudit(int $tenantId, ?int $campaignId, ?int $itemId, ?int $
     } catch (\Throwable $_) {
         // Audit failure should not block the control operation.
     }
+
+    platformAuditLogWrite($tenantId, $actorUserId, $event, $itemId ?: $campaignId, array_merge([
+        'campaign_id' => $campaignId,
+        'item_id' => $itemId,
+    ], $payload), [
+        'object_type' => $opts['object_type'] ?? ($itemId ? 'access_review_item' : 'access_review_campaign'),
+        'source' => 'access_reviews',
+        'before' => $opts['before'] ?? null,
+        'after' => $opts['after'] ?? null,
+    ]);
 }
 
 function accessReviewFindCampaignByKey(int $tenantId, string $key): array

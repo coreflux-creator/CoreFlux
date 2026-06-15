@@ -71,6 +71,20 @@ $a('revokes module access by setting none', str_contains($svc, 'UPDATE membershi
 $a('revokes People Graph grant through service', str_contains($svc, 'peopleGraphRevokePermissionGrant'));
 $a('writes membership audit on module revoke', str_contains($svc, 'membership_audit'));
 $a('campaign cannot complete with pending items', str_contains($svc, 'Cannot complete access review while items are pending'));
+$a('mirrors access-review evidence into platform audit log',
+    str_contains($svc, "/audit.php")
+    && str_contains($svc, 'platformAuditLogWrite')
+    && str_contains($svc, "'source' => 'access_reviews'")
+    && str_contains($svc, "'access_review_item'")
+    && str_contains($svc, "'access_review_campaign'"));
+$a('decision audit captures before/after item snapshots',
+    str_contains($svc, "'before' => \$item")
+    && str_contains($svc, "'after' => \$updated"));
+$a('campaign lifecycle audit captures before/after campaign snapshots',
+    str_contains($svc, "'before' => \$campaign")
+    && str_contains($svc, "'after' => \$updated")
+    && str_contains($svc, "'before' => \$before")
+    && str_contains($svc, "'after' => \$after"));
 
 echo "\nPure risk helpers\n";
 $a('PII permission is critical', accessReviewPermissionRisk('people.pii.view') === 'critical');

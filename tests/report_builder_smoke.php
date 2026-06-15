@@ -139,6 +139,12 @@ $assert('report builder export audit metadata helper exists',
     str_contains($coreText, 'function reportBuilderExportAuditMeta')
     && str_contains($coreText, "'generated_at' => gmdate('c')")
     && str_contains($coreText, "'filter_params' => ["));
+$assert('report builder audits through canonical platform writer',
+    str_contains($coreText, "/audit.php")
+    && str_contains($coreText, 'platformAuditLogWrite')
+    && str_contains($coreText, "'source' => 'report_builder'")
+    && str_contains($coreText, "'report_builder_report'")
+    && str_contains($coreText, "'report_builder_run'"));
 $assert('people execution supported', !empty($people['execution_supported']));
 $assert('reportBuilderDatasetGet works', (reportBuilderDatasetGet('people_directory')['key'] ?? null) === 'people_directory');
 $presets = reportBuilderPresetRegistry();

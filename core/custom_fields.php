@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/ModuleRegistry.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/audit.php';
 
 function customFieldEntityRegistry(): array
 {
@@ -629,25 +630,18 @@ function customFieldDefinitionDelete(int $tenantId, string $entityType, int $id)
 
 function customFieldAudit(int $tenantId, ?int $actorUserId, string $event, ?int $targetId, array $meta = []): void
 {
-    try {
-        $pdo = getDB();
-        if (!$pdo) return;
-        $pdo->prepare(
-            'INSERT INTO audit_log
-                (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES
-                (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, :ip_address, NOW())'
-        )->execute([
-            'tenant_id' => $tenantId,
-            'actor_user_id' => $actorUserId,
-            'event' => $event,
-            'target_id' => $targetId,
-            'meta_json' => $meta ? json_encode($meta, JSON_UNESCAPED_SLASHES) : null,
-            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
-    } catch (Throwable $e) {
-        error_log('[custom_fields.audit] ' . $event . ' failed: ' . $e->getMessage());
-    }
+    platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, [
+        'object_type' => customFieldAuditObjectType($event),
+        'source' => 'custom_fields',
+    ]);
+}
+
+function customFieldAuditObjectType(string $event): string
+{
+    if (str_contains($event, '.definition.')) return 'custom_field_definition';
+    if (str_contains($event, '.layout.')) return 'custom_field_layout';
+    if (str_contains($event, '.value.')) return 'custom_field_value';
+    return 'custom_field';
 }
 
 function customFieldNormalizeDefinitionPayload(array $args, bool $creating): array

@@ -33,6 +33,33 @@ $containsAll = function (string $haystack, array $needles): bool {
 
 $ROOT = realpath(__DIR__ . '/..');
 
+echo "Audit writer\n";
+$writerPath = "{$ROOT}/core/audit.php";
+$writer = (string) file_get_contents($writerPath);
+$assert('shared writer parses', $lint($writerPath));
+$assert('shared writer detects audit_log schema',
+    $containsAll($writer, ['function platformAuditLogColumns', 'SHOW COLUMNS FROM audit_log']));
+$assert('shared writer emits canonical and legacy fields',
+    $containsAll($writer, [
+        'actor_user_id',
+        'user_id',
+        'actor_type',
+        'actor_email',
+        'event',
+        'action',
+        'target_id',
+        'entity_id',
+        'object_type',
+        'entity',
+        'before_json',
+        'after_json',
+        'request_id',
+        'source',
+        'user_agent',
+    ]));
+$assert('shared writer keeps request/source searchable on old schemas',
+    $containsAll($writer, ["\$metaForSearch['request_id']", "\$metaForSearch['source']", "\$metaForSearch['object_type']"]));
+
 echo "Audit API\n";
 $apiPath = "{$ROOT}/api/audit_log.php";
 $api = (string) file_get_contents($apiPath);
@@ -98,6 +125,8 @@ $alignment = (string) file_get_contents("{$ROOT}/docs/PRODUCT_ARCHITECTURE_ALIGN
 $assert('audit governance doc exists', strlen($doc) > 0);
 $assert('doc states canonical event shape',
     $containsAll($doc, ['Canonical Event Shape', 'actor_type', 'object_type', 'request_id', 'before_json', 'after_json']));
+$assert('doc states shared write model',
+    $containsAll($doc, ['Write Model', 'core/audit.php', 'platformAuditLogWrite', 'legacy aliases']));
 $assert('doc states access/export model',
     $containsAll($doc, ['Access Model', 'external_auditor', 'CSV export', 'same endpoint']));
 $assert('alignment record links audit controls',

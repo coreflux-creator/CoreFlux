@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/export_datasets.php';
 require_once __DIR__ . '/CsvExportService.php';
+require_once __DIR__ . '/audit.php';
 
 class ReportBuilderException extends RuntimeException {}
 class ReportBuilderAccessException extends ReportBuilderException {}
@@ -792,23 +793,12 @@ function reportBuilderCompareValues($left, $right): int
 
 function reportBuilderAudit(int $tenantId, ?int $actorUserId, string $event, ?int $targetId, array $meta = []): void
 {
-    if (!function_exists('getDB')) return;
-    try {
-        getDB()->prepare(
-            'INSERT INTO audit_log
-                (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
-             VALUES
-                (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, NOW())'
-        )->execute([
-            'tenant_id' => $tenantId,
-            'actor_user_id' => $actorUserId,
-            'event' => $event,
-            'target_id' => $targetId,
-            'meta_json' => json_encode($meta, JSON_UNESCAPED_SLASHES),
-        ]);
-    } catch (\Throwable $e) {
-        error_log('[report_builder.audit] ' . $event . ' failed: ' . $e->getMessage());
-    }
+    platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, [
+        'object_type' => str_contains($event, '.saved') || str_contains($event, '.updated') || str_contains($event, '.deleted')
+            ? 'report_builder_report'
+            : 'report_builder_run',
+        'source' => 'report_builder',
+    ]);
 }
 
 function reportBuilderSavedReportList(int $tenantId, int $userId, ?string $dataset = null): array

@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/export_templates.php';
 require_once __DIR__ . '/export_datasets.php';
+require_once __DIR__ . '/audit.php';
 
 class ExportServiceException extends RuntimeException {}
 
@@ -201,22 +202,9 @@ function exportTemplateCsvFilename(string $prefix, string $templateName, array $
 
 function exportDatasetAudit(int $tenantId, ?int $actorUserId, string $event, ?int $targetId, array $meta = []): void
 {
-    if (!function_exists('getDB')) return;
     $meta = exportDatasetAuditMeta($meta, $meta['filter_params'] ?? []);
-    try {
-        getDB()->prepare(
-            'INSERT INTO audit_log
-                (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
-             VALUES
-                (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, NOW())'
-        )->execute([
-            'tenant_id' => $tenantId,
-            'actor_user_id' => $actorUserId,
-            'event' => $event,
-            'target_id' => $targetId,
-            'meta_json' => json_encode($meta, JSON_UNESCAPED_SLASHES),
-        ]);
-    } catch (\Throwable $e) {
-        error_log('[export.audit] ' . $event . ' failed: ' . $e->getMessage());
-    }
+    platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, [
+        'object_type' => 'export_dataset',
+        'source' => 'exports',
+    ]);
 }

@@ -164,6 +164,10 @@ $assert('export service rejects hidden custom-field mappings at execution',
                                               strpos($exportServiceSrc, 'exportTemplateAssertMappingsVisibleForUser') !== false
                                               && strpos($exportServiceSrc, 'exportDatasetFieldRegistryForUser($datasetKey, $actorUser, $tenantId)') !== false
                                               && strpos($exportServiceSrc, 'Template references a field hidden from the current user') !== false);
+$assert('export service uses canonical platform audit writer',
+                                              strpos($exportServiceSrc, 'platformAuditLogWrite') !== false
+                                              && strpos($exportServiceSrc, "'object_type' => 'export_dataset'") !== false
+                                              && strpos($exportServiceSrc, "'source' => 'exports'") !== false);
 $assert('export service includes generation + filter audit metadata',
                                               strpos($exportServiceSrc, 'function exportDatasetAuditMeta') !== false
                                               && strpos($exportServiceSrc, "'generated_at' => \$generatedAt") !== false
