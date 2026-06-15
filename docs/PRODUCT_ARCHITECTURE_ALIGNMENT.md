@@ -38,6 +38,10 @@ Staffing owns:
 
 Staffing may emit domain events, but it should not become the source of truth
 for people, placements, time, payroll, billing, accounting, or reporting data.
+Existing `staffing_clients` workbench records remain a compatibility surface
+for client terms and UI workflows while client/company ownership is unified;
+mutations require `staffing.clients.manage` and emit `staffing.client.*` or
+`staffing.clients.imported` audit events.
 
 ## 2. Platform Priorities
 

@@ -25,12 +25,21 @@ $a('one statement per line for PREPARE',      preg_match('/PREPARE s FROM @sql[^
 
 echo "\nClients API\n";
 $api = $read(__DIR__ . '/../modules/staffing/api/clients.php');
+$a('clients API loads shared audit helper',    str_contains($api, "/../lib/client_audit.php"));
+$a('read actions require staffing.view',      substr_count($api, "rbac_legacy_require(\$user, 'staffing.view')") >= 3);
+$a('mutating actions require staffing.clients.manage', substr_count($api, "rbac_legacy_require(\$user, 'staffing.clients.manage')") >= 3);
 $a('list action with q + status + active_placements join', str_contains($api, "action === 'list'") && str_contains($api, 'active_placements'));
 $a('create action validates unique name',     str_contains($api, "Client '{\$name}' already exists"));
 $a('update action allow-list of fields',      str_contains($api, "'billing_city','billing_state'"));
 $a('delete action is soft (status=closed)',   str_contains($api, "'status' => 'closed'"));
+$a('client mutations are audited',            str_contains($api, "staffing.client.created") && str_contains($api, "staffing.client.updated") && str_contains($api, "staffing.client.closed"));
+$a('client audit captures before/after',      str_contains($api, "'before' => staffingClientAuditSnapshot") && str_contains($api, "'after' => staffingClientAuditSnapshot"));
 $a('stats action queries v_timesheet_day_fin',str_contains($api, 'FROM v_timesheet_day_fin') && str_contains($api, 'mtd_revenue'));
 $a('stats tolerates missing view',            str_contains($api, "\$stats['mtd_revenue'] = null"));
+
+$audit = $read(__DIR__ . '/../modules/staffing/lib/client_audit.php');
+$a('client audit helper writes audit_log',     str_contains($audit, 'INSERT INTO audit_log') && str_contains($audit, 'function staffingClientAudit('));
+$a('client audit helper snapshots material fields', str_contains($audit, 'function staffingClientAuditSnapshot(') && str_contains($audit, 'payment_terms_days'));
 
 echo "\nClients CSV export\n";
 $csv = $read(__DIR__ . '/../modules/staffing/api/csv_export.php');
@@ -39,6 +48,10 @@ $a('client CSV uses governed dataset',        str_contains($csv, 'exportTemplate
                                              && str_contains($csv, 'exportDatasetFetchStaffingClients'));
 $a('client CSV gates on export permission',   str_contains($csv, "'staffing.export.run'"));
 $a('client CSV audits raw dataset event',     str_contains($csv, 'staffing.clients.exported') && str_contains($csv, "mode' => 'raw'"));
+
+$import = $read(__DIR__ . '/../modules/staffing/api/csv_import.php');
+$a('client import commit requires manage permission', str_contains($import, "action === 'commit'") && str_contains($import, "rbac_legacy_require(\$user, 'staffing.clients.manage')"));
+$a('client import commit is audited',         str_contains($import, "staffing.clients.imported") && str_contains($import, 'staffingClientAudit('));
 
 echo "\nClients UI\n";
 $ui = $read(__DIR__ . '/../modules/staffing/ui/Clients.jsx');

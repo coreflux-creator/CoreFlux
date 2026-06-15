@@ -211,6 +211,7 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 |---|---|
 | `staffing.billing.manage` | `(billing, write)` |
 | `staffing.billing.view` | `(billing, read)` |
+| `staffing.clients.manage` | `(staffing, write)` |
 | `staffing.payroll.manage` | `(payroll, write)` |
 | `staffing.payroll.view` | `(payroll, read)` |
 | `staffing.export.run` | `(staffing, write)` |

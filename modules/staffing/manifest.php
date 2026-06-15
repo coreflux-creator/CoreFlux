@@ -45,6 +45,7 @@ return [
         'staffing.billing.view'          => 'Compatibility alias; source gate prefers billing.view',
         'staffing.billing.manage'        => 'Compatibility alias; source gate prefers billing.invoice.draft',
         'staffing.reports.view'          => 'Compatibility alias; source gate prefers reports.view',
+        'staffing.clients.manage'        => 'Manage staffing client workbench records',
         'staffing.export.run'            => 'Export Staffing data through governed datasets',
         'staffing.settings.manage'       => 'Manage staffing module settings (week-start, contracted hours, OT thresholds)',
     ],
@@ -52,6 +53,10 @@ return [
     'audit_events' => [
         'staffing.readiness.payroll_marked',
         'staffing.readiness.billing_marked',
+        'staffing.client.created',
+        'staffing.client.updated',
+        'staffing.client.closed',
+        'staffing.clients.imported',
         'staffing.clients.exported',
     ],
 

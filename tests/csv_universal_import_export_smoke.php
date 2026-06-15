@@ -65,7 +65,8 @@ $a('client template action',                 str_contains($cli, "action === 'tem
 $a('client dry_run action',                  str_contains($cli, "action === 'dry_run'") && str_contains($cli, "dryRun('staffing_clients'"));
 $a('client commit action',                   str_contains($cli, "action === 'commit'") && str_contains($cli, "commit('staffing_clients'"));
 $a('client duplicate-name rejection',        str_contains($cli, "already exists"));
-$a('client RBAC gate staffing.view',         str_contains($cli, "'staffing.view'"));
+$a('client read/import prep gates staffing.view', str_contains($cli, "'staffing.view'"));
+$a('client commit gate staffing.clients.manage',  str_contains($cli, "'staffing.clients.manage'"));
 
 echo "\nCSV export endpoints\n";
 foreach ([
