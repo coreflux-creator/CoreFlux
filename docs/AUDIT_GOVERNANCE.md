@@ -39,6 +39,11 @@ reviews, should use this writer instead of issuing direct `INSERT INTO
 audit_log` statements. Domain-specific ledgers may still exist, but the
 platform audit row is the cross-module evidence record.
 
+Legacy People surfaces use the same write model through `peopleAudit`, which
+preserves People-local PII/change ledgers while mirroring PII, banking, tax,
+compensation, custom-field, and employee lifecycle events into the platform
+audit stream with `source=people`.
+
 ## Access Model
 
 Audit evidence is tenant-scoped and read-only through

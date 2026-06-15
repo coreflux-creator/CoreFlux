@@ -13,6 +13,7 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/employees.php';
+require_once __DIR__ . '/../lib/audit.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -23,7 +24,9 @@ switch (api_method()) {
         $empId = (int) (api_query('employee_id') ?? 0);
         if (!$empId) api_error('Missing employee_id', 422);
         if ((int) api_query('active') === 1) {
-            api_ok(['compensation' => peopleActiveCompensation($empId)]);
+            $active = peopleActiveCompensation($empId);
+            peopleAudit('people.comp.viewed', ['employee_id' => $empId, 'mode' => 'active'], $empId);
+            api_ok(['compensation' => $active]);
         }
         $rows = scopedQuery(
             'SELECT * FROM people_compensation
@@ -31,6 +34,7 @@ switch (api_method()) {
              ORDER BY effective_from DESC, id DESC',
             ['emp' => $empId]
         );
+        peopleAudit('people.comp.viewed', ['employee_id' => $empId, 'row_count' => count($rows)], $empId);
         api_ok(['compensation' => $rows]);
     }
 
@@ -80,6 +84,12 @@ switch (api_method()) {
                 'ip_address'     => $_SERVER['REMOTE_ADDR'] ?? null,
             ]);
         } catch (Throwable $e) { error_log($e->getMessage()); }
+        peopleAudit('people.comp.updated', [
+            'employee_id' => $empId,
+            'compensation_id' => $id,
+            'action' => 'create',
+            'fields' => ['pay_type','pay_rate_cents','pay_frequency','effective_from'],
+        ], $empId);
 
         api_ok(['id' => $id], 201);
     }

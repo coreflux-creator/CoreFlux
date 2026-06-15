@@ -156,6 +156,11 @@ if ($method === 'POST') {
             (int) ($user['id'] ?? 0), $id, 'pii.set',
             ['fields' => $piiTouched, 'on' => 'create']
         );
+        peopleAudit('people.pii.updated', [
+            'id' => $id,
+            'fields' => $piiTouched,
+            'action' => 'create',
+        ], $id);
     }
     peopleAudit('people.created', ['id' => $id, 'classification' => $insert['classification']], $id);
 
@@ -211,6 +216,13 @@ if ($method === 'PATCH') {
     if (!$body) api_error('No fields to update', 422);
     $rows = scopedUpdate('people', $id, $body);
     if ($rows === 0) api_error('Not found or no change', 404);
+    if ($touchingPII) {
+        peopleAudit('people.pii.updated', [
+            'id' => $id,
+            'fields' => array_values(array_intersect(array_keys($body), $piiKeys)),
+            'action' => 'update',
+        ], $id);
+    }
     peopleAudit('people.updated', ['id' => $id, 'fields' => array_keys($body)], $id);
     api_ok(['person' => peopleGet($id)]);
 }

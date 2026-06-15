@@ -484,6 +484,14 @@ People API.
 - Legacy bridge/sync helpers should avoid copying PII between People-era tables
   unless a governed write path explicitly requires it.
 
+Current implementation status:
+
+- `modules/people/lib/audit.php` delegates to the shared
+  `platformAuditLogWrite` writer with `source=people` and People-specific object
+  types. Legacy People-local PII/change ledgers are preserved, while unified
+  person PII writes, legacy employee PII/change events, banking, tax,
+  compensation, and custom-field PII events emit canonical platform audit rows.
+
 ## 4. Correction Plan
 
 ### Phase 1: Contract Lock

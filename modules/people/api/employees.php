@@ -15,6 +15,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/encryption.php';
 require_once __DIR__ . '/../lib/employees.php';
+require_once __DIR__ . '/../lib/audit.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -214,6 +215,18 @@ function _logChange(int $employeeId, string $entity, ?int $entityId, string $act
     } catch (Throwable $e) {
         error_log('[people_change_log] ' . $e->getMessage());
     }
+    $eventAction = match ($action) {
+        'create' => 'created',
+        'terminate' => 'terminated',
+        default => 'updated',
+    };
+    peopleAudit("people.{$entity}.{$eventAction}", [
+        'employee_id' => $employeeId,
+        'entity' => $entity,
+        'entity_id' => $entityId,
+        'action' => $action,
+        'fields' => $fields,
+    ], $entityId ?: $employeeId);
 }
 
 function _logPiiAccess(int $employeeId, string $event, array $meta = []): void {
@@ -230,4 +243,13 @@ function _logPiiAccess(int $employeeId, string $event, array $meta = []): void {
     } catch (Throwable $e) {
         error_log('[people_pii_audit] ' . $e->getMessage());
     }
+    $platformEvent = str_contains($event, 'updated') || str_contains($event, 'set')
+        ? 'people.pii.updated'
+        : 'people.pii.viewed';
+    peopleAudit($platformEvent, [
+        'employee_id' => $employeeId,
+        'legacy_event' => $event,
+    ] + $meta, $employeeId, [
+        'object_type' => 'people_employee_pii',
+    ]);
 }

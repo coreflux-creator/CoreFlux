@@ -24,6 +24,7 @@ $lint = static function (string $rel) use ($ROOT): bool {
 };
 
 $people = $read('modules/people/api/people.php');
+$peopleAudit = $read('modules/people/lib/audit.php');
 $employees = $read('modules/people/api/employees.php');
 $employeesLib = $read('modules/people/lib/employees.php');
 $bank = $read('modules/people/api/bank_accounts.php');
@@ -63,13 +64,30 @@ foreach ([
     'modules/people/api/compensation.php',
     'modules/people/api/org_chart.php',
     'modules/people/lib/employees.php',
+    'modules/people/lib/audit.php',
 ] as $rel) {
     $a("php -l {$rel}", $lint($rel));
 }
 
+echo "\nPeople platform audit bridge\n";
+$a('peopleAudit delegates to canonical platform writer',
+    str_contains($peopleAudit, "/../../../core/audit.php")
+    && str_contains($peopleAudit, 'platformAuditLogWrite')
+    && str_contains($peopleAudit, "'source' => 'people'")
+    && str_contains($peopleAudit, 'function peopleAuditObjectType'));
+$a('peopleAudit classifies sensitive People objects',
+    str_contains($peopleAudit, "'people_pii'")
+    && str_contains($peopleAudit, "'people_banking'")
+    && str_contains($peopleAudit, "'people_tax'")
+    && str_contains($peopleAudit, "'people_compensation'")
+    && str_contains($peopleAudit, "'people_employee'"));
+
 echo "\nUnified and legacy employee PII\n";
 $a('gender and marital_status are gated as PII on unified person writes',
     str_contains($people, "'dob', 'ssn_last4', 'gender', 'marital_status'"));
+$a('unified person PII writes emit platform audit',
+    str_contains($people, "peopleAudit('people.pii.updated'")
+    && substr_count($people, "peopleAudit('people.pii.updated'") >= 2);
 $a('legacy employee detail only shows PII with people.pii.view',
     str_contains($employees, "rbac_legacy_can(\$user, 'people.pii.view')")
     && str_contains($employees, "unset(\$out['ssn_last4'], \$out['date_of_birth'], \$out['gender'], \$out['marital_status'], \$out['citizenship_status'])"));
@@ -78,7 +96,11 @@ $a('legacy employee PII writes require people.pii.manage',
     && str_contains($employees, "rbac_legacy_require(\$user, 'people.pii.manage')"));
 $a('legacy employee PII read/write is audit logged',
     str_contains($employees, 'employee.pii.viewed')
-    && str_contains($employees, 'employee.pii.updated'));
+    && str_contains($employees, 'employee.pii.updated')
+    && str_contains($employees, 'peopleAudit($platformEvent'));
+$a('legacy employee change log mirrors platform audit',
+    str_contains($employees, 'match ($action)')
+    && str_contains($employees, 'peopleAudit("people.{$entity}.{$eventAction}"'));
 $a('W-2 bridge does not copy DOB into legacy employee rows',
     !str_contains($employeesLib, 'p.dob')
     && !str_contains($employeesLib, "'date_of_birth'    =>"));
@@ -127,7 +149,8 @@ $a('legacy custom fields use platform service',
     && str_contains($customValues, 'customFieldAudit('));
 $a('PII custom field reads/writes are logged',
     str_contains($customValues, 'custom_field_pii.viewed')
-    && str_contains($customValues, 'custom_field_pii.set'));
+    && str_contains($customValues, 'custom_field_pii.set')
+    && str_contains($customValues, "peopleAudit('people.pii.updated'"));
 $a('AI missing-fields readiness requires PII view',
     str_contains($aiMissing, "rbac_legacy_require(\$user, 'people.pii.view')"));
 $a('AI setup email requires manage and PII view',
@@ -139,17 +162,27 @@ $a('send setup email requires manage and PII view',
 $a('legacy compensation endpoint requires comp permissions',
     str_contains($comp, "rbac_legacy_require(\$user, 'people.comp.view')")
     && str_contains($comp, "rbac_legacy_require(\$user, 'people.comp.manage')"));
+$a('legacy compensation endpoint emits platform audit',
+    str_contains($comp, "peopleAudit('people.comp.viewed'")
+    && str_contains($comp, "peopleAudit('people.comp.updated'"));
 $a('org chart read endpoint requires people.view',
     str_contains($orgChart, "rbac_legacy_require(\$user, 'people.view')"));
 
 echo "\nManifest, RBAC map, and docs\n";
 $a('manifest declares tax viewed event',
     str_contains($manifest, "'people.tax.viewed'"));
+$a('manifest declares People sensitive audit events',
+    str_contains($manifest, "'people.pii.updated'")
+    && str_contains($manifest, "'people.comp.viewed'")
+    && str_contains($manifest, "'people.comp.updated'")
+    && str_contains($manifest, "'people.employee.updated'"));
 $a('legacy RBAC map declares people.comp permissions',
     str_contains($legacyMap, "'people.comp.view'")
     && str_contains($legacyMap, "'people.comp.manage'"));
 $a('alignment doc records legacy People/PII hardening',
-    str_contains($docs, 'Legacy People/PII Controls'));
+    str_contains($docs, 'Legacy People/PII Controls')
+    && str_contains($docs, 'platformAuditLogWrite')
+    && str_contains($docs, 'source=people'));
 
 echo "\nLegacy People/PII controls smoke: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

@@ -94,6 +94,11 @@ if ($method === 'PUT' || $method === 'POST') {
     $piiUpdated = peopleCustomFieldPiiKeysFromDefinitions($defs, $updated);
     if ($piiUpdated) {
         peopleLogPIIAccess($userId, $personId, 'custom_field_pii.set', $piiUpdated);
+        peopleAudit('people.pii.updated', [
+            'person_id' => $personId,
+            'resource' => 'custom_fields',
+            'field_keys' => $piiUpdated,
+        ], $personId);
     }
     customFieldAudit($tenantId, $userId, 'custom_field.value.updated', $personId, [
         'entity_type' => $entityType,
