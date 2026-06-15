@@ -33,21 +33,38 @@ if ($method === 'POST' && $action === 'act') {
     api_require_fields($body, ['action']);
     $allowed = ['approve','reject','skip','delegate','comment','escalate'];
     if (!in_array($body['action'], $allowed, true)) api_error('invalid action', 422, ['allowed' => $allowed]);
-    $row = workflowAct(
-        $tenantId,
-        $instanceId,
-        (int) ($user['id'] ?? 0),
-        (string) $body['action'],
-        $body['comment'] ?? null,
-        (string) ($body['via'] ?? 'app'),
-        isset($body['delegated_to_user_id']) ? (int) $body['delegated_to_user_id'] : null
-    );
+    if ((string) $body['action'] === 'comment' && !workflowCanViewInstance($tenantId, $instanceId, $ctx)) {
+        api_error('Forbidden', 403);
+    }
+    try {
+        $row = workflowAct(
+            $tenantId,
+            $instanceId,
+            (int) ($user['id'] ?? 0),
+            (string) $body['action'],
+            $body['comment'] ?? null,
+            (string) ($body['via'] ?? 'app'),
+            isset($body['delegated_to_user_id']) ? (int) $body['delegated_to_user_id'] : null
+        );
+    } catch (RuntimeException $e) {
+        $msg = $e->getMessage();
+        if (str_contains($msg, 'not an approver')
+            || str_contains($msg, 'no current approvers')
+            || str_contains($msg, 'Separation of duties')) {
+            api_error($msg, 403);
+        }
+        if (str_contains($msg, 'Instance not found')) api_error('Instance not found', 404);
+        if (str_contains($msg, 'Instance already')) api_error($msg, 409);
+        throw $e;
+    }
     api_ok(['instance' => $row]);
 }
 
 if ($method === 'GET' && (int) (api_query('id') ?? 0) > 0) {
-    $row = workflowGetInstance($tenantId, (int) api_query('id'));
+    $instanceId = (int) api_query('id');
+    $row = workflowGetInstance($tenantId, $instanceId);
     if (!$row) api_error('Instance not found', 404);
+    if (!workflowCanViewInstance($tenantId, $instanceId, $ctx)) api_error('Forbidden', 403);
     api_ok(['instance' => $row]);
 }
 

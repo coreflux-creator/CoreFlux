@@ -210,6 +210,10 @@ The canonical API router exposes Workflow Graph through
 `/api/v1/platform/workflow/instances/{id}`, and
 `/api/v1/platform/workflow/instances/{id}/act`; legacy `/api/workflow.php`
 callers continue to work during migration.
+Workflow detail reads are participant-scoped: current approvers, originators,
+payload participants, prior action actors/delegates, and admin/auditor roles can
+view an instance. Comments require that same visibility, while delegate and
+escalate actions require current-step authority just like approve/reject/skip.
 
 AI workflow approval decisions are state-changing approval actions, not audit
 reads. `/api/ai/workflows.php?action=decide_approval` requires

@@ -237,8 +237,10 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
     $payload = json_decode((string) ($instance['payload_json'] ?? '{}'), true) ?: [];
     $currentStepDef = $steps[(int) $instance['current_step'] - 1] ?? null;
 
-    if (in_array($action, ['approve', 'reject', 'skip'], true) && is_array($currentStepDef)) {
+    if (in_array($action, ['approve', 'reject', 'skip', 'delegate', 'escalate'], true) && is_array($currentStepDef)) {
         _workflowAssertCurrentApprover($tenantId, $instance, $currentStepDef, $payload, $userId);
+    }
+    if (in_array($action, ['approve', 'reject', 'skip'], true) && is_array($currentStepDef)) {
         _workflowEnforceSeparationOfDuties($tenantId, $instance, $currentStepDef, $payload, $userId);
     }
 
@@ -429,16 +431,18 @@ function _workflowAssertCurrentApprover(int $tenantId, array $instance, array $s
         $stepDef,
         $payload
     );
-    if ($approvers && !in_array($userId, $approvers, true)) {
+    if (!$approvers || !in_array($userId, $approvers, true)) {
         _workflowAuditEvent($tenantId, $userId, 'workflow.approver_blocked', (int) $instance['id'], [
             'subject_type' => (string) $instance['subject_type'],
             'subject_id' => (int) $instance['subject_id'],
             'current_step' => (int) $instance['current_step'],
-            'reason' => 'not_current_step_approver',
+            'reason' => $approvers ? 'not_current_step_approver' : 'no_current_step_approvers',
             'request_id' => _workflowRequestId($payload),
             'source' => 'workflow',
         ]);
-        throw new \RuntimeException('Workflow actor is not an approver for the current step');
+        throw new \RuntimeException($approvers
+            ? 'Workflow actor is not an approver for the current step'
+            : 'Workflow step has no current approvers');
     }
 }
 
@@ -673,6 +677,11 @@ function workflowGetInstance(int $tenantId, int $instanceId): ?array {
     return $row ? _workflowHydrate($row) : null;
 }
 
+function workflowCanViewInstance(int $tenantId, int $instanceId, array $ctx): bool {
+    $row = _workflowFetchRow($tenantId, $instanceId);
+    return $row ? _workflowCanViewRow($tenantId, $row, $ctx) : false;
+}
+
 /**
  * Resolve the current step's approver users, including People Graph-backed
  * dynamic routing when the step declares approver_resolution.
@@ -729,6 +738,107 @@ function _workflowHydrate(array $row): array {
         'started_at'    => $row['started_at'],
         'completed_at'  => $row['completed_at'],
     ];
+}
+
+/** @internal */
+function _workflowCanViewRow(int $tenantId, array $row, array $ctx): bool {
+    if (_workflowContextCanAudit($ctx)) return true;
+    $user = is_array($ctx['user'] ?? null) ? $ctx['user'] : $ctx;
+    $userId = (int) ($user['id'] ?? $ctx['user_id'] ?? 0);
+    if ($userId <= 0) return false;
+
+    if ((int) ($row['started_by_user_id'] ?? 0) === $userId) return true;
+
+    $payload = $row['payload_json'] ? (json_decode((string) $row['payload_json'], true) ?: []) : [];
+    if (_workflowPayloadReferencesUser($payload, $userId)) return true;
+
+    $steps = $row['steps_json'] ? (json_decode((string) $row['steps_json'], true) ?: []) : [];
+    $stepDef = $steps[(int) $row['current_step'] - 1] ?? null;
+    if (is_array($stepDef)) {
+        $approvers = _workflowResolveStepApproverUserIds(
+            $tenantId,
+            (int) $row['id'],
+            (string) $row['subject_type'],
+            (int) $row['subject_id'],
+            $stepDef,
+            $payload
+        );
+        if (in_array($userId, $approvers, true)) return true;
+    }
+
+    return _workflowStepActionsReferenceUser($tenantId, (int) $row['id'], $userId);
+}
+
+/** @internal */
+function _workflowContextCanAudit(array $ctx): bool {
+    $user = is_array($ctx['user'] ?? null) ? $ctx['user'] : $ctx;
+    $role = (string) ($ctx['role'] ?? $user['role'] ?? '');
+    $globalRole = (string) ($ctx['global_role'] ?? $user['global_role'] ?? $role);
+    if ($globalRole === 'master_admin' || (bool) ($ctx['is_global_admin'] ?? $user['is_global_admin'] ?? false)) {
+        return true;
+    }
+    if (in_array($role, ['master_admin', 'tenant_admin', 'admin', 'auditor', 'external_auditor'], true)) {
+        return true;
+    }
+    return function_exists('rbac_legacy_can') && rbac_legacy_can($user, 'tenant.manage');
+}
+
+/** @internal */
+function _workflowPayloadReferencesUser(array $payload, int $userId): bool {
+    $userIdKeys = [
+        'actor_user_id',
+        'approved_by_user_id',
+        'created_by_user_id',
+        'computed_by_user_id',
+        'paid_by_user_id',
+        'prepared_by_user_id',
+        'preparer_user_id',
+        'requested_by_user_id',
+        'requester_user_id',
+        'started_by_user_id',
+        'submitted_by_user_id',
+        'submitter_user_id',
+        'user_id',
+        'worker_user_id',
+    ];
+    foreach ($payload as $key => $value) {
+        if (in_array((string) $key, $userIdKeys, true) && (int) $value === $userId) {
+            return true;
+        }
+        if (in_array((string) $key, ['actor_id', 'source_actor_id'], true)
+            && (int) $value === $userId
+            && (string) ($payload['actor_type'] ?? $payload['source_actor_type'] ?? '') === 'user') {
+            return true;
+        }
+        if (is_array($value) && _workflowPayloadReferencesUser($value, $userId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** @internal */
+function _workflowStepActionsReferenceUser(int $tenantId, int $instanceId, int $userId): bool {
+    $pdo = getDB();
+    if (!$pdo) return false;
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT 1
+               FROM workflow_step_actions
+              WHERE tenant_id = :tenant_id
+                AND instance_id = :instance_id
+                AND (actor_user_id = :user_id OR delegated_to_user_id = :user_id)
+              LIMIT 1'
+        );
+        $stmt->execute([
+            'tenant_id' => $tenantId,
+            'instance_id' => $instanceId,
+            'user_id' => $userId,
+        ]);
+        return (bool) $stmt->fetchColumn();
+    } catch (\Throwable $_) {
+        return false;
+    }
 }
 
 /** @internal */
