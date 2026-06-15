@@ -38,6 +38,8 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
     $tenantId = currentTenantId();
     $pdo      = getDB();
     $place    = implode(',', array_fill(0, count($entryIds), '?'));
+    $beforeRows = [];
+    $afterRows = [];
 
     $cols = match ($target) {
         'billing' => ['at' => 'bill_extracted_at',     'ref' => 'bill_extracted_ref',     'by' => 'bill_extracted_by_user_id'],
@@ -78,6 +80,7 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
                 throw new TimeSettlementException("Entry #{$e['id']} already extracted to $target");
             }
         }
+        $beforeRows = timeSettlementAuditRowsForTenant($tenantId, $entryIds);
 
         // 2) Group by placement_id.
         $byPlacement = [];
@@ -221,6 +224,7 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
             $upd->execute(array_merge([$targetRefForStamp, $actorUserId, $tenantId], $entryIdsForPlacement));
         }
 
+        $afterRows = timeSettlementAuditRowsForTenant($tenantId, $entryIds);
         $pdo->commit();
     } catch (\Throwable $e) {
         $pdo->rollBack();
@@ -228,7 +232,12 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
     }
 
     settlementAudit("time.settlement.auto_extracted_$target", [
-        'count' => count($entryIds), 'created' => $created, 'ids' => $entryIds,
+        'count' => count($entryIds), 'target' => $target, 'created' => $created, 'ids' => $entryIds,
+    ], null, [
+        'tenant_id' => $tenantId,
+        'actor_user_id' => $actorUserId,
+        'before' => $beforeRows,
+        'after' => $afterRows,
     ]);
     return ['created' => $created, 'extracted_count' => count($entryIds)];
 }
@@ -256,6 +265,9 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
 function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId, int $tenantId, \PDO $pdo, string $place): array
 {
     require_once __DIR__ . '/../../payroll/lib/payroll.php';
+
+    $beforeRows = [];
+    $afterRows = [];
 
     $pdo->beginTransaction();
     try {
@@ -287,6 +299,7 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
                 throw new TimeSettlementException("Entry #{$e['id']} already extracted to payroll");
             }
         }
+        $beforeRows = timeSettlementAuditRowsForTenant($tenantId, $entryIds);
 
         // 2. Resolve person → employee for the unique person set.
         $personIds = array_values(array_unique(array_map(fn($r) => (int) $r['person_id'], $entries)));
@@ -440,6 +453,7 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
             $stamp->execute(array_merge([$stampRef, $actorUserId, $tenantId], $ids));
         }
 
+        $afterRows = timeSettlementAuditRowsForTenant($tenantId, $entryIds);
         $pdo->commit();
     } catch (\Throwable $e) {
         $pdo->rollBack();
@@ -449,9 +463,15 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
     $stamped = array_sum(array_map(fn($c) => $c['line_count'], $created));
     settlementAudit('time.settlement.auto_extracted_payroll', [
         'count'        => $stamped,
+        'target'       => 'payroll',
         'created'      => $created,
         'skipped_count'=> count($skipped),
         'ids'          => $entryIds,
+    ], null, [
+        'tenant_id' => $tenantId,
+        'actor_user_id' => $actorUserId,
+        'before' => $beforeRows,
+        'after' => $afterRows,
     ]);
     return [
         'created'         => $created,

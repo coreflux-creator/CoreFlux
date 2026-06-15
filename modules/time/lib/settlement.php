@@ -27,6 +27,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/time.php';
 
 const TIME_SETTLEMENT_TARGETS = ['billing','ap','payroll'];
 
@@ -121,6 +122,8 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
     $tenantId = currentTenantId();
     $pdo = getDB();
     $place = implode(',', array_fill(0, count($entryIds), '?'));
+    $beforeRows = [];
+    $afterRows = [];
 
     $pdo->beginTransaction();
     try {
@@ -144,6 +147,7 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
                 throw new TimeSettlementException("Entry #{$r['id']} already extracted to $target (ref={$r['already_ref']})");
             }
         }
+        $beforeRows = timeSettlementAuditRowsForTenant($tenantId, $entryIds);
 
         // Stamp the batch.
         $upd = $pdo->prepare(
@@ -154,6 +158,7 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
              WHERE tenant_id = ? AND id IN ($place)"
         );
         $upd->execute(array_merge([$targetRef, $actorUserId, $tenantId], $entryIds));
+        $afterRows = timeSettlementAuditRowsForTenant($tenantId, $entryIds);
         $pdo->commit();
     } catch (\Throwable $e) {
         $pdo->rollBack();
@@ -161,7 +166,12 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
     }
 
     settlementAudit("time.settlement.extracted_$target", [
-        'count' => count($entryIds), 'target_ref' => $targetRef, 'ids' => $entryIds,
+        'count' => count($entryIds), 'target' => $target, 'target_ref' => $targetRef, 'ids' => $entryIds,
+    ], null, [
+        'tenant_id' => $tenantId,
+        'actor_user_id' => $actorUserId,
+        'before' => $beforeRows,
+        'after' => $afterRows,
     ]);
     return ['extracted_count' => count($entryIds), 'ids' => $entryIds];
 }
@@ -180,6 +190,8 @@ function timeSettlementUnExtract(array $entryIds, string $target, string $reason
     $tenantId = currentTenantId();
     $pdo = getDB();
     $place = implode(',', array_fill(0, count($entryIds), '?'));
+    $beforeRows = [];
+    $afterRows = [];
 
     $pdo->beginTransaction();
     try {
@@ -197,12 +209,14 @@ function timeSettlementUnExtract(array $entryIds, string $target, string $reason
                 throw new TimeSettlementException("Entry #{$r['id']} is not extracted to $target");
             }
         }
+        $beforeRows = timeSettlementAuditRowsForTenant($tenantId, $entryIds);
         $upd = $pdo->prepare(
             "UPDATE time_entries
              SET {$cols['at']} = NULL, {$cols['ref']} = NULL, {$cols['by_user']} = NULL
              WHERE tenant_id = ? AND id IN ($place)"
         );
         $upd->execute(array_merge([$tenantId], $entryIds));
+        $afterRows = timeSettlementAuditRowsForTenant($tenantId, $entryIds);
         $pdo->commit();
     } catch (\Throwable $e) {
         $pdo->rollBack();
@@ -210,7 +224,12 @@ function timeSettlementUnExtract(array $entryIds, string $target, string $reason
     }
 
     settlementAudit("time.settlement.unextracted_$target", [
-        'count' => count($entryIds), 'reason' => $reason, 'ids' => $entryIds, 'actor_user_id' => $actorUserId,
+        'count' => count($entryIds), 'target' => $target, 'reason' => $reason, 'ids' => $entryIds,
+    ], null, [
+        'tenant_id' => $tenantId,
+        'actor_user_id' => $actorUserId,
+        'before' => $beforeRows,
+        'after' => $afterRows,
     ]);
     return ['unextracted_count' => count($entryIds), 'ids' => $entryIds];
 }
@@ -287,23 +306,39 @@ function timeSettlementCycleSuggestion(string $cycle, ?string $anchorDate, strin
     }
 }
 
-function settlementAudit(string $event, array $meta = [], ?int $targetId = null): void
+function timeSettlementAuditRowsForTenant(int $tenantId, array $entryIds): array
+{
+    $entryIds = array_values(array_unique(array_filter(
+        array_map('intval', $entryIds),
+        static fn (int $id): bool => $id > 0
+    )));
+    if (!$entryIds) return [];
+
+    $place = implode(',', array_fill(0, count($entryIds), '?'));
+    $stmt = getDB()->prepare(
+        "SELECT *
+         FROM time_entries
+         WHERE tenant_id = ? AND id IN ($place)
+         ORDER BY id ASC"
+    );
+    $stmt->execute(array_merge([$tenantId], $entryIds));
+    return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+}
+
+function settlementAudit(string $event, array $meta = [], ?int $targetId = null, array $opts = []): void
 {
     try {
-        $pdo = function_exists('getDB') ? getDB() : null;
-        if (!$pdo) return;
-        $ctx = function_exists('currentTenantContext') ? currentTenantContext() : null;
-        $pdo->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:tenant_id, :actor, :event, :target_id, :meta_json, :ip, NOW())'
-        )->execute([
-            'tenant_id' => $ctx['tenant_id'] ?? null,
-            'actor'     => $ctx['user']['id'] ?? null,
-            'event'     => $event,
-            'target_id' => $targetId,
-            'meta_json' => json_encode($meta),
-            'ip'        => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        $auditOpts = array_merge([
+            'object_type' => 'time_settlement',
+            'source' => $meta['source'] ?? 'time',
+        ], $opts);
+        if (!array_key_exists('tenant_id', $auditOpts) && function_exists('currentTenantId')) {
+            $auditOpts['tenant_id'] = currentTenantId();
+        }
+        if (!array_key_exists('actor_user_id', $auditOpts) && isset($_SESSION['user']['id'])) {
+            $auditOpts['actor_user_id'] = (int) $_SESSION['user']['id'];
+        }
+        timeAudit($event, $meta, $targetId, $auditOpts);
     } catch (\Throwable $e) {
         error_log('[time.settlement.audit] ' . $event . ' write-failed: ' . $e->getMessage());
     }

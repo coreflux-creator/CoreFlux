@@ -378,6 +378,9 @@ consumes the Time workflow subject.
   timesheet header only after the workflow decision is approved.
 - Tokenized client email approval is an external approval channel with token
   response evidence, not an authenticated user shortcut.
+- Settlement extraction and un-extraction are material downstream handoffs; the
+  source Time rows must remain reconstructable before and after they are stamped
+  into Billing, AP, or Payroll.
 
 Current implementation status:
 
@@ -387,6 +390,9 @@ Current implementation status:
   approval, external email approval, timesheet WorkflowGraph start/submit, and
   workflow approval/rejection sync capture before/after entry, timesheet, or
   token snapshots where approval state is created or materially changed.
+- Manual settlement extract/un-extract and Billing/AP/Payroll auto-create
+  settlement paths emit `time_settlement` audit evidence with before/after Time
+  row snapshots and the created downstream target metadata.
 
 ### Payroll Run Controls
 
