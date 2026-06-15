@@ -25,6 +25,7 @@ $lint = function (string $rel) use ($ROOT): bool {
 $engine = (string) file_get_contents("{$ROOT}/core/workflow_engine.php");
 $workflow = (string) file_get_contents("{$ROOT}/modules/billing/lib/workflow.php");
 $sync = (string) file_get_contents("{$ROOT}/modules/billing/lib/workflow_sync.php");
+$billingLib = (string) file_get_contents("{$ROOT}/modules/billing/lib/billing.php");
 $api = (string) file_get_contents("{$ROOT}/modules/billing/api/invoices.php");
 $mig1 = (string) file_get_contents("{$ROOT}/modules/billing/migrations/001_init.sql");
 $mig12 = (string) file_get_contents("{$ROOT}/modules/billing/migrations/012_invoice_workflow_controls.sql");
@@ -37,6 +38,7 @@ foreach ([
     'core/workflow_engine.php',
     'modules/billing/lib/workflow.php',
     'modules/billing/lib/workflow_sync.php',
+    'modules/billing/lib/billing.php',
     'modules/billing/api/invoices.php',
 ] as $rel) {
     $a("php -l {$rel}", $lint($rel));
@@ -61,6 +63,19 @@ $a('workflow payload identifies billing.invoice resource',
 $a('workflow payload carries SoD blockers',
     str_contains($workflow, 'billingInvoiceWorkflowSodBlockedUserIds(')
     && str_contains($workflow, "'sod_blocked_user_ids' => \$blocked"));
+$a('billing audit helper uses canonical platform writer',
+    str_contains($billingLib, "/../../../core/audit.php")
+    && str_contains($billingLib, 'platformAuditLogWrite')
+    && str_contains($billingLib, 'billingAuditObjectType')
+    && str_contains($billingLib, "'source' => \$meta['source'] ?? 'billing'"));
+$a('workflow audit helper uses canonical platform writer',
+    str_contains($workflow, "/../../../core/audit.php")
+    && str_contains($workflow, 'platformAuditLogWrite')
+    && str_contains($workflow, "'object_type' => 'billing_invoice'"));
+$a('workflow bridge audits before/after invoice snapshots',
+    str_contains($workflow, "'before' => \$invoice")
+    && str_contains($workflow, "'after' => \$latest")
+    && str_contains($workflow, "'after' => \$updated"));
 
 echo "\nAPI approval and posting gates\n";
 $a('invoices API requires workflow bridge',
@@ -83,6 +98,10 @@ $a('GL post uses billing.invoice.post gate',
     && !preg_match("/action === 'post'[\\s\\S]{0,120}billing\\.invoice\\.approve/", $api));
 $a('IC split post uses billing.invoice.post + accounting.je.post',
     preg_match("/action === 'post_with_ic_split'[\\s\\S]{0,180}'billing\\.invoice\\.post'[\\s\\S]{0,120}'accounting\\.je\\.post'/", $api) === 1);
+$a('post and void audits carry before/after invoice snapshots',
+    substr_count($api, "'before' => \$row") >= 5
+    && substr_count($api, "'after' => \$posted") >= 4
+    && str_contains($api, "'after' => scopedFind('SELECT * FROM billing_invoices"));
 
 echo "\nWorkflow sync and auditability\n";
 $a('sync approves invoice status from workflow',
@@ -96,6 +115,9 @@ $a('sync records rejected workflow decisions',
     str_contains($sync, 'billing.invoice.approval_rejected'));
 $a('blocked workflow decisions are audited',
     str_contains($workflow, "'billing.invoice.approval_blocked'"));
+$a('sync audits before/after invoice snapshots',
+    substr_count($sync, "'before' => \$invoice") >= 2
+    && str_contains($sync, "'after' => \$updated"));
 
 echo "\nSchema, RBAC, and manifest\n";
 $a('base migration has workflow_instance_id + index',

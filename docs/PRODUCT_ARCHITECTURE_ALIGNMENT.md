@@ -409,6 +409,13 @@ Invoice approval and GL posting are separate enterprise controls:
   posting, with Accounting GL post permissions required where journal entries
   are created directly.
 
+Current implementation status:
+
+- `billingAudit` and `billingWorkflowAudit` delegate to the shared
+  `platformAuditLogWrite` writer with Billing source/object metadata. Invoice
+  WorkflowGraph start/approval sync and invoice post/void paths capture
+  before/after source-row snapshots for material state changes.
+
 ### Accounting Journal Entry Controls
 
 Manual journal entries separate draft, submit, approve, post, reverse, and void

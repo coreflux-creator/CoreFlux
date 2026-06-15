@@ -8,39 +8,25 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
+require_once __DIR__ . '/../../../core/audit.php';
 require_once __DIR__ . '/../../../core/domain_people_graph.php';
 require_once __DIR__ . '/../../../core/workflow_engine.php';
 require_once __DIR__ . '/billing.php';
 
 /** @internal */
-function billingWorkflowAudit(int $tenantId, ?int $actorUserId, string $event, array $meta = [], ?int $targetId = null): void
+function billingWorkflowAudit(
+    int $tenantId,
+    ?int $actorUserId,
+    string $event,
+    array $meta = [],
+    ?int $targetId = null,
+    array $opts = []
+): void
 {
-    $currentTenant = function_exists('currentTenantId') ? (int) (currentTenantId() ?? 0) : 0;
-    if ($currentTenant > 0 && $currentTenant === $tenantId) {
-        billingAudit($event, $meta, $targetId);
-        return;
-    }
-
-    try {
-        $pdo = getDB();
-        if (!$pdo) return;
-        $stmt = $pdo->prepare(
-            'INSERT INTO audit_log
-             (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, request_id, created_at)
-             VALUES (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, :ip_address, :request_id, NOW())'
-        );
-        $stmt->execute([
-            'tenant_id' => $tenantId,
-            'actor_user_id' => $actorUserId,
-            'event' => $event,
-            'target_id' => $targetId,
-            'meta_json' => $meta ? json_encode($meta, JSON_UNESCAPED_SLASHES) : null,
-            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
-            'request_id' => $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
-        ]);
-    } catch (\Throwable $e) {
-        error_log("[billing.workflow.audit] db-write-failed: " . $e->getMessage() . " event={$event}");
-    }
+    platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, array_merge([
+        'object_type' => 'billing_invoice',
+        'source' => $meta['source'] ?? 'billing',
+    ], $opts));
 }
 
 function billingInvoiceWorkflowRow(int $tenantId, int $invoiceId): ?array
@@ -198,6 +184,8 @@ function billingInvoiceWorkflowStart(int $tenantId, int $invoiceId, ?int $starte
             )->execute(['w' => $instanceId, 't' => $tenantId, 'id' => $invoiceId]);
         } catch (\Throwable $_) { /* schema drift: workflow instance still exists */ }
 
+        $latest = billingInvoiceWorkflowRow($tenantId, $invoiceId) ?? $invoice;
+        $payload = billingInvoiceWorkflowPayload($latest, $starterUserId);
         $pdo->prepare(
             'UPDATE workflow_instances
                 SET payload_json = :payload, last_activity_at = NOW()
@@ -214,7 +202,10 @@ function billingInvoiceWorkflowStart(int $tenantId, int $invoiceId, ?int $starte
             'invoice_number' => $invoice['invoice_number'] ?? null,
             'workflow_instance_id' => $instanceId,
             'created_by_user_id' => $invoice['created_by_user_id'] ?? null,
-        ], $invoiceId);
+        ], $invoiceId, [
+            'before' => $invoice,
+            'after' => $latest,
+        ]);
         return $instanceId;
     } catch (\Throwable $e) {
         billingWorkflowAudit($tenantId, $starterUserId, 'billing.invoice.workflow_start_failed', [
@@ -302,7 +293,10 @@ function billingInvoiceWorkflowAct(
             'workflow_instance_id' => $instanceId,
             'workflow_status' => $instance['status'] ?? null,
             'approved' => $approved,
-        ], $invoiceId);
+        ], $invoiceId, [
+            'before' => $invoice,
+            'after' => $updated,
+        ]);
         return [
             'applied' => true,
             'approved' => $approved,

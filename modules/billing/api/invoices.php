@@ -543,7 +543,10 @@ if ($method === 'POST' && $action === 'void') {
     billingAudit('billing.invoice.voided', [
         'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
         'reason' => $reason, 'had_payments' => $hasPayments,
-    ], $id);
+    ], $id, [
+        'before' => $row,
+        'after' => scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]) ?? $row,
+    ]);
     api_ok(['ok' => true, 'bundles_released' => !$hasPayments]);
 }
 
@@ -650,13 +653,17 @@ if ($method === 'POST' && $action === 'post') {
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare('UPDATE billing_invoices SET journal_entry_id = :j WHERE id = :id')
             ->execute(['j' => $eventResult['journal_entry_id'], 'id' => $id]);
+        $posted = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]) ?? $row;
         billingAudit('billing.invoice.posted', [
             'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
             'journal_entry_id' => (int) $eventResult['journal_entry_id'],
             'accounting_event_id' => (int) ($eventResult['event_id'] ?? 0),
             'idempotent_replay' => !empty($eventResult['idempotent_replay']),
             'via' => 'event_layer',
-        ], $id);
+        ], $id, [
+            'before' => $row,
+            'after' => $posted,
+        ]);
         api_ok([
             'ok' => true,
             'journal_entry_id' => (int) $eventResult['journal_entry_id'],
@@ -711,12 +718,16 @@ if ($method === 'POST' && $action === 'post') {
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo_mp->prepare('UPDATE billing_invoices SET journal_entry_id = :j WHERE id = :id')
             ->execute(['j' => (int) $resRc['je_id'], 'id' => $id]);
+        $posted = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]) ?? $row;
         billingAudit('billing.invoice.posted', [
             'invoice_id' => $id, 'invoice_number' => $row['invoice_number'],
             'journal_entry_id' => (int) $resRc['je_id'],
             'idempotent_replay' => (bool) ($resRc['idempotent_replay'] ?? false),
             'via' => 'ar_reclassification',
-        ], $id);
+        ], $id, [
+            'before' => $row,
+            'after' => $posted,
+        ]);
         api_ok([
             'ok' => true,
             'journal_entry_id'  => (int) $resRc['je_id'],
@@ -755,6 +766,7 @@ if ($method === 'POST' && $action === 'post') {
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare('UPDATE billing_invoices SET journal_entry_id = :j WHERE id = :id')
         ->execute(['j' => $res['je_id'], 'id' => $id]);
+    $posted = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]) ?? $row;
 
     // Sprint 7e fallback: write subledger_links + flip event status.
     try {
@@ -784,7 +796,10 @@ if ($method === 'POST' && $action === 'post') {
         'idempotent_replay' => $res['idempotent_replay'],
         'via' => 'legacy_direct',
         'event_layer_status' => $eventResult['status'] ?? null,
-    ], $id);
+    ], $id, [
+        'before' => $row,
+        'after' => $posted,
+    ]);
     api_ok([
         'ok' => true,
         'journal_entry_id' => $res['je_id'],
@@ -865,13 +880,17 @@ if ($method === 'POST' && $action === 'post_with_ic_split') {
     getDB()->prepare(
         'UPDATE billing_invoices SET journal_entry_id = :j, intercompany_group_id = :g WHERE id = :id AND tenant_id = :t'
     )->execute(['j' => $sourceLeg['je_id'], 'g' => $res['group_id'], 'id' => $id, 't' => $tid]);
+    $posted = scopedFind('SELECT * FROM billing_invoices WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]) ?? $row;
 
     billingAudit('billing.invoice.posted_ic', [
         'invoice_id'           => $id, 'invoice_number' => $row['invoice_number'],
         'journal_entry_id'     => (int) $sourceLeg['je_id'],
         'intercompany_group_id'=> $res['group_id'],
         'leg_count'            => count($res['jes']),
-    ], $id);
+    ], $id, [
+        'before' => $row,
+        'after' => $posted,
+    ]);
 
     api_ok(['ok' => true, 'journal_entry_id' => (int) $sourceLeg['je_id'], 'intercompany_group_id' => $res['group_id'], 'jes' => $res['jes']]);
 }

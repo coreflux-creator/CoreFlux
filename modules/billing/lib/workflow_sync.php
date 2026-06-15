@@ -30,7 +30,10 @@ function billingSyncInvoiceFromWorkflow(
                 'rejected_by_user_id' => $userId,
                 'reason' => $comment ?: 'Rejected through workflow',
                 'source' => 'workflow',
-            ], $invoiceId);
+            ], $invoiceId, [
+                'before' => $invoice,
+                'after' => $invoice,
+            ]);
             return;
         }
 
@@ -50,13 +53,17 @@ function billingSyncInvoiceFromWorkflow(
               WHERE tenant_id = :t AND id = :id AND status = 'draft'"
         )->execute(['u' => $userId, 't' => $tenantId, 'id' => $invoiceId]);
 
+        $updated = billingInvoiceWorkflowRow($tenantId, $invoiceId) ?? $invoice;
         billingWorkflowAudit($tenantId, $userId, 'billing.invoice.approved', [
             'invoice_id' => $invoiceId,
             'invoice_number' => $invoice['invoice_number'] ?? null,
             'approved_by_user_id' => $userId,
             'source' => 'workflow',
             'workflow_instance_status' => $instanceStatus,
-        ], $invoiceId);
+        ], $invoiceId, [
+            'before' => $invoice,
+            'after' => $updated,
+        ]);
     } catch (\Throwable $e) {
         error_log('[billing.workflow_sync] sync failed: ' . $e->getMessage());
     }
