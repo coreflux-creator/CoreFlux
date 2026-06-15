@@ -152,6 +152,7 @@ final class RbacLegacyMap
 
             // ── payroll ───────────────────────────────────────────────────
             'payroll.anomalies.acknowledge'     => ['payroll', 'write'],
+            'payroll.anomalies.detect'          => ['payroll', 'write'],
             'payroll.anomalies.view'            => ['payroll', 'read'],
             'payroll.cycles.manage'             => ['payroll', 'admin'],
             'payroll.deductions.manage'         => ['payroll', 'admin'],
@@ -169,6 +170,8 @@ final class RbacLegacyMap
             'payroll.run.reverse'               => ['payroll', 'admin'],
             'payroll.runs.approve'               => ['payroll', 'admin'],
             'payroll.schedules.manage'          => ['payroll', 'admin'],
+            'payroll.settings.manage'            => ['payroll', 'admin'],
+            'payroll.settings.view'              => ['payroll', 'read'],
             'payroll.tax.manage'                => ['payroll', 'admin'],
             'payroll.tax.view'                  => ['payroll', 'read'],
             'payroll.view'                      => ['payroll', 'read'],

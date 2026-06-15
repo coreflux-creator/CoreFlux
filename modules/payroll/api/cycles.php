@@ -20,9 +20,11 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../lib/cycles.php';
 
 $ctx = api_require_auth();
+$user = $ctx['user'];
 
 switch (api_method()) {
     case 'GET': {
+        rbac_legacy_require($user, 'payroll.view');
         $id = (int) (api_query('id') ?? 0);
         if ($id) {
             $row = scopedFind(
@@ -53,6 +55,7 @@ switch (api_method()) {
         $body   = api_json_body();
 
         if ($action === 'advance') {
+            rbac_legacy_require($user, 'payroll.cycles.manage');
             $cycleId = (int) ($body['cycle_id'] ?? api_query('id') ?? 0);
             if (!$cycleId) api_error('cycle_id required', 422);
             try {
@@ -64,6 +67,7 @@ switch (api_method()) {
         }
 
         if ($action === 'auto_advance') {
+            rbac_legacy_require($user, 'payroll.cycles.manage');
             $log = payrollCycleAutoAdvanceAll();
             $advanced = 0; $notDue = 0; $errors = 0;
             foreach ($log as $r) {
@@ -76,6 +80,7 @@ switch (api_method()) {
         }
 
         // Default POST = create.
+        rbac_legacy_require($user, 'payroll.cycles.manage');
         api_require_fields($body, ['name', 'schedule_id']);
         $sched = scopedFind(
             'SELECT id FROM payroll_pay_schedules WHERE tenant_id = :tenant_id AND id = :id',
@@ -106,6 +111,7 @@ switch (api_method()) {
 
     case 'PUT':
     case 'PATCH': {
+        rbac_legacy_require($user, 'payroll.cycles.manage');
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
         $body = api_json_body();
@@ -124,6 +130,7 @@ switch (api_method()) {
     }
 
     case 'DELETE': {
+        rbac_legacy_require($user, 'payroll.cycles.manage');
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
         scopedUpdate('payroll_pay_cycles', $id, ['active' => 0]);

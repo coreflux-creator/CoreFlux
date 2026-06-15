@@ -219,7 +219,9 @@ class GustoEngine       implements PayrollEngine { ... }   // Phase C — adapte
 |---|---|
 | `payroll.view` | View payroll dashboards |
 | `payroll.schedules.manage` | Define pay schedules |
+| `payroll.settings.view` / `payroll.settings.manage` | Tenant payroll tax, company, and disbursement settings |
 | `payroll.profiles.view` / `payroll.profiles.manage` | Per-employee setup |
+| `payroll.anomalies.view` / `.detect` / `.acknowledge` | Payroll anomaly review and governance |
 | `payroll.profiles.banking.view` / `.manage` | Encrypted DD info |
 | `payroll.run.create` | Create or preflight a payroll run |
 | `payroll.run.build` | Access the payroll run-building workbench |
@@ -289,7 +291,8 @@ class GustoEngine       implements PayrollEngine { ... }   // Phase C — adapte
 ## 8. Audit events
 
 `payroll.schedule.*` (created/updated/deactivated)
-`payroll.profile.*` (created/updated/banking_viewed/banking_updated)
+`payroll.settings.*` (created/updated)
+`payroll.profile.*` (created/updated/disabled/banking_viewed/banking_updated)
 `payroll.run.*` (created/built/approved/disbursed/posted/reversed/voided)
 `payroll.deduction.*`
 `payroll.tax.*` (liability_accrued/paid/filed)

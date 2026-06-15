@@ -95,6 +95,9 @@ $expected = [
     'integrations.qbo.manage'            => ['integrations', 'admin'],
     'integrations.qbo.view'              => ['integrations', 'read'],
     // payroll
+    'payroll.anomalies.detect'           => ['payroll', 'write'],
+    'payroll.settings.manage'            => ['payroll', 'admin'],
+    'payroll.settings.view'              => ['payroll', 'read'],
     'payroll.runs.approve'               => ['payroll', 'admin'],
     // people
     'people.banking.manage'              => ['people', 'admin'],

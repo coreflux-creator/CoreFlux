@@ -16,9 +16,11 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../lib/anomalies.php';
 
 $ctx = api_require_auth();
+$user = $ctx['user'];
 
 switch (api_method()) {
     case 'GET': {
+        rbac_legacy_require($user, 'payroll.anomalies.view');
         if ((int) (api_query('dashboard') ?? 0) === 1) {
             $rows = payrollAnomaliesListUnacked((int) (api_query('limit') ?? 25));
             api_ok([
@@ -34,6 +36,7 @@ switch (api_method()) {
     }
 
     case 'POST': {
+        rbac_legacy_require($user, 'payroll.anomalies.detect');
         $body  = api_json_body();
         api_require_fields($body, ['run_id']);
         $runId = (int) $body['run_id'];
@@ -48,6 +51,7 @@ switch (api_method()) {
 
     case 'PATCH':
     case 'PUT': {
+        rbac_legacy_require($user, 'payroll.anomalies.acknowledge');
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
         $rows = payrollAnomaliesAcknowledge($id, (int) ($ctx['user']['id'] ?? 0));

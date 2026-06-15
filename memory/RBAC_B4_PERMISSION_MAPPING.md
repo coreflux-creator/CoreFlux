@@ -153,6 +153,9 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 ### payroll
 | Legacy permission | New tuple |
 |---|---|
+| `payroll.anomalies.detect` | `(payroll, write)` |
+| `payroll.settings.manage` | `(payroll, admin)` |
+| `payroll.settings.view` | `(payroll, read)` |
 | `payroll.runs.approve` | `(payroll, admin)` |
 
 ### people
