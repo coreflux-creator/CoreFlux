@@ -165,6 +165,7 @@ if ($method === 'GET') {
 // ─── Poll: pulls metadata from M365 / Gmail folder via MailService ───
 if ($method === 'POST' && $action === 'poll') {
     rbac_legacy_require($user, 'time.review');
+    rbac_legacy_require($user, 'ai.use');
     $folderRow = $pdo->prepare(
         "SELECT mf.id AS folder_id, mf.connection_id, mc.provider
            FROM tenant_mail_folders mf
@@ -237,6 +238,7 @@ if ($method === 'POST' && $action === 'poll') {
 // ─── Process a single intake row (re-fetch + AI extract) ───
 if ($method === 'POST' && $action === 'process') {
     rbac_legacy_require($user, 'time.review');
+    rbac_legacy_require($user, 'ai.use');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
     $row = $pdo->prepare('SELECT * FROM time_intake_events WHERE tenant_id = :t AND id = :id LIMIT 1');
@@ -309,4 +311,3 @@ if ($method === 'POST' && $action === 'record_alias') {
 }
 
 api_error('Method not allowed', 405);
-

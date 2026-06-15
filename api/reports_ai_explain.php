@@ -23,6 +23,7 @@ require_once __DIR__ . '/../core/ai_service.php';
 
 $ctx     = api_require_auth();
 $role    = $ctx['role'] ?? 'employee';
+$user    = $ctx['user'];
 // Sub-tenant scope: this endpoint reads placements/people/recruiters which
 // are SHARED catalogs. Pin module scope so effectiveTenantIdForRequest()
 // resolves to the master parent when the active user is on a shared-mode sub.
@@ -32,6 +33,8 @@ if (!$tenantId) api_error('No active tenant', 400);
 if (!in_array($role, ['master_admin','tenant_admin','admin','manager'], true)) {
     api_error('Forbidden — manager+ required', 403);
 }
+rbac_legacy_require($user, 'reports.view');
+rbac_legacy_require($user, 'ai.use');
 
 $pdo = getDB();
 if (!$pdo) api_error('No database connection', 500);

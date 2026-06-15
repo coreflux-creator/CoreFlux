@@ -41,6 +41,7 @@ switch (api_method()) {
         api_require_fields($body, ['run_id']);
         $runId = (int) $body['run_id'];
         $ai    = !empty($body['ai']);
+        if ($ai) rbac_legacy_require($user, 'ai.use');
         try {
             $summary = payrollAnomaliesDetect($runId, $ai);
             api_ok($summary, 201);

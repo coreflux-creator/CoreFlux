@@ -66,6 +66,7 @@ if ($method === 'POST' && $action === 'inspect') {
 
 if ($method === 'POST' && $action === 'ai_suggest_map') {
     rbac_legacy_require($user, 'time.bulk_upload');
+    rbac_legacy_require($user, 'ai.use');
     require_once __DIR__ . '/../../../core/ai_csv_mapper.php';
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);

@@ -240,6 +240,13 @@ to `core/ai_service.php`, `core/ai/providers/*`, and install/deploy liveness
 checks. CSV mapping, GL categorization, and time settlement grouping now consume
 `aiExtractJson()` so structured drafts inherit tenant feature gates, JSON
 contract checks, provider fallback, and `ai_interactions` audit records.
+User-triggered advisory, extraction, mapping, narrative, and AI-agent run
+endpoints require both their source-domain permission and `ai.use`. Deterministic
+read endpoints may still return the underlying data without AI enrichment; they
+must suppress or omit generated suggestions unless the caller has `ai.use`.
+External self-service/webhook ingestion remains governed by tenant feature gates,
+signature/session verification, and downstream human review rather than an
+internal user RBAC grant.
 
 ### Artifact Graph Consumption
 

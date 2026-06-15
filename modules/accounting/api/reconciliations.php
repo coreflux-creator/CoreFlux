@@ -151,6 +151,7 @@ if ($method === 'POST' && $action === 'reopen') {
 // ── action=generate_ai_narrative ─────────────────────────────────────────
 if ($method === 'POST' && $action === 'generate_ai_narrative') {
     rbac_legacy_require($user, 'accounting.bank.reconcile');
+    rbac_legacy_require($user, 'ai.use');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
     try {

@@ -15,6 +15,7 @@ $user = $ctx['user'];
 
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
 rbac_legacy_require($user, 'people.view');
+rbac_legacy_require($user, 'ai.use');
 
 $body = api_json_body();
 api_require_fields($body, ['employee_id']);

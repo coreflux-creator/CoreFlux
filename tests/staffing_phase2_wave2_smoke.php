@@ -67,8 +67,11 @@ $a('generate button + content/error testids',       str_contains($ov, 'data-test
 
 echo "\nAccounting event emission\n";
 $lib = $read(__DIR__ . '/../modules/staffing/lib/timesheets.php');
+$sync = $read(__DIR__ . '/../modules/time/lib/workflow_sync.php');
 $a('staffingEmitWorkerHoursApprovedEvent defined',  str_contains($lib, 'function staffingEmitWorkerHoursApprovedEvent'));
-$a('called from staffingTimesheetApprove',          preg_match('/staffingEmitWorkerHoursApprovedEvent\(currentTenantId\(\), \$headerId\)/', $lib) === 1);
+$a('not emitted directly from staffingTimesheetApprove',
+                                                       !str_contains($lib, 'staffingEmitWorkerHoursApprovedEvent(currentTenantId(), $headerId)'));
+$a('emitted after WorkflowGraph approval sync',     str_contains($sync, 'staffingEmitWorkerHoursApprovedEvent($tenantId, $timesheetId)'));
 $a('uses accountingProcessEvent',                   str_contains($lib, 'accountingProcessEvent($tenantId,'));
 $a('event_type = staffing.worker_hours.approved',   str_contains($lib, "'event_type'       => 'staffing.worker_hours.approved'"));
 $a('payload includes revenue + cost + gp',          str_contains($lib, "'revenue'") && str_contains($lib, "'cost'") && str_contains($lib, "'gross_profit'"));

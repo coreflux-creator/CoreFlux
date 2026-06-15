@@ -91,6 +91,7 @@ if ($method === 'GET') {
 
 if ($method === 'POST' && $action === 'suggest-from-placement') {
     rbac_legacy_require($user, 'billing.invoice.draft');
+    rbac_legacy_require($user, 'ai.use');
     $body = api_json_body();
     $placementId = (int) ($body['placement_id'] ?? 0);
     if ($placementId <= 0) api_error('placement_id required', 422);

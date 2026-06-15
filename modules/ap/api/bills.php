@@ -35,6 +35,7 @@ if ($method === 'POST' && $action === 'extract_receipt') {
     // and return suggested fields (item_type, qty, unit, unit_price, GL guess).
     // The user must accept each value; the response is suggestion, not authoritative.
     rbac_legacy_require($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ai.use');
     require_once __DIR__ . '/../../../core/ai_service.php';
     $lineId = (int) ($_GET['line_id'] ?? 0);
     if ($lineId <= 0) api_error('line_id required', 400);
@@ -82,6 +83,7 @@ if ($method === 'POST' && $action === 'extract_from_pdf') {
     // responsible for reviewing every field — the response is suggestion,
     // not authoritative data.
     rbac_legacy_require($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ai.use');
     require_once __DIR__ . '/../../../core/ai_service.php';
     $body = api_json_body();
     api_require_fields($body, ['storage_key']);
@@ -274,6 +276,7 @@ if ($method === 'GET') {
 
 if ($method === 'POST' && $action === 'suggest-payment-run') {
     rbac_legacy_require($user, 'ap.payment.create');
+    rbac_legacy_require($user, 'ai.use');
     $body = api_json_body();
     $days = (int) ($body['days_ahead'] ?? 7);
     $rail = isset($body['rail']) && $body['rail'] !== '' ? (string) $body['rail'] : null;

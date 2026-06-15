@@ -24,7 +24,9 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];
-rbac_legacy_require($ctx['user'], 'accounting.bank.manage');
+$user     = $ctx['user'];
+rbac_legacy_require($user, 'accounting.bank.manage');
+$canUseAi = rbac_legacy_can($user, 'ai.use');
 $pdo = getDB();
 
 if (api_method() === 'POST') {
@@ -523,73 +525,79 @@ foreach ($rows as $r) {
 // Run AI categorization for every UNMATCHED row. Cached: if a draft suggestion
 // already exists for a (line_id, feature_key) we re-use it instead of calling
 // the cascade again — keeps GET cheap and avoids duplicate ai_suggestions rows.
-require_once __DIR__ . '/../../../core/ai_categorization.php';
-$accountsList = $pdo->prepare(
-    'SELECT id, code, name, account_type, is_postable
-       FROM accounting_accounts
-      WHERE tenant_id = :t AND active = 1
-      ORDER BY code ASC LIMIT 1000'
-);
-$accountsList->execute(['t' => $tenantId]);
-$allAccounts = $accountsList->fetchAll(PDO::FETCH_ASSOC);
-
-if ($type === 'deposit') {
-    $s = $pdo->prepare(
-        'SELECT aa.id FROM accounting_bank_accounts ba
-           JOIN accounting_accounts aa ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
-          WHERE ba.tenant_id = :t AND ba.id = :id LIMIT 1'
+if ($canUseAi) {
+    require_once __DIR__ . '/../../../core/ai_categorization.php';
+    $accountsList = $pdo->prepare(
+        'SELECT id, code, name, account_type, is_postable
+           FROM accounting_accounts
+          WHERE tenant_id = :t AND active = 1
+          ORDER BY code ASC LIMIT 1000'
     );
-    $s->execute(['t' => $tenantId, 'id' => $accountId]);
-    $sideAccountId = (int) $s->fetchColumn();
-} else {
-    $sideAccountId = $accountId;  // liability_account_id IS accounting_accounts.id
-}
+    $accountsList->execute(['t' => $tenantId]);
+    $allAccounts = $accountsList->fetchAll(PDO::FETCH_ASSOC);
 
-$subjectType = $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line';
-$cacheStmt = $pdo->prepare(
-    "SELECT id, suggested_value, confidence_score, suggestion_source, draft_content
-       FROM ai_suggestions
-      WHERE tenant_id    = :t
-        AND feature_key  = :fk
-        AND subject_type = :st
-        AND subject_id   = :sid
-        AND status       = 'draft'
-      ORDER BY id DESC LIMIT 1"
-);
-
-foreach ($rows as $i => $r) {
-    if ($r['match_status'] !== 'unmatched') continue;
-    $cacheStmt->execute([
-        't'   => $tenantId,
-        'fk'  => AI_CATEGORIZATION_FEATURE_KEY,
-        'st'  => $subjectType,
-        'sid' => (int) $r['id'],
-    ]);
-    $cached = $cacheStmt->fetch(PDO::FETCH_ASSOC);
-
-    if ($cached) {
-        $aid  = $cached['suggested_value'] ? (int) $cached['suggested_value'] : null;
-        $conf = $cached['confidence_score'] !== null ? (float) $cached['confidence_score'] : 0.0;
-        $rows[$i]['ai_suggestion'] = [
-            'suggestion_id'        => (int) $cached['id'],
-            'suggested_account_id' => $aid,
-            'confidence'           => $conf,
-            'source'               => (string) ($cached['suggestion_source'] ?? 'none'),
-            'reasoning'            => (string) ($cached['draft_content']     ?? ''),
-            'auto_accept'          => $conf >= AI_CATEGORIZATION_AUTO_ACCEPT,
-        ];
-        continue;
+    if ($type === 'deposit') {
+        $s = $pdo->prepare(
+            'SELECT aa.id FROM accounting_bank_accounts ba
+               JOIN accounting_accounts aa ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
+              WHERE ba.tenant_id = :t AND ba.id = :id LIMIT 1'
+        );
+        $s->execute(['t' => $tenantId, 'id' => $accountId]);
+        $sideAccountId = (int) $s->fetchColumn();
+    } else {
+        $sideAccountId = $accountId;  // liability_account_id IS accounting_accounts.id
     }
 
-    $sug = aiSuggestCounterpartAccount($tenantId, $r, $type, $sideAccountId, $allAccounts);
-    $rows[$i]['ai_suggestion'] = [
-        'suggestion_id'        => $sug['suggestion_id'],
-        'suggested_account_id' => $sug['suggested_account_id'],
-        'confidence'           => $sug['confidence'],
-        'source'               => $sug['source'],
-        'reasoning'            => $sug['reasoning'],
-        'auto_accept'          => $sug['auto_accept'],
-    ];
+    $subjectType = $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line';
+    $cacheStmt = $pdo->prepare(
+        "SELECT id, suggested_value, confidence_score, suggestion_source, draft_content
+           FROM ai_suggestions
+          WHERE tenant_id    = :t
+            AND feature_key  = :fk
+            AND subject_type = :st
+            AND subject_id   = :sid
+            AND status       = 'draft'
+          ORDER BY id DESC LIMIT 1"
+    );
+
+    foreach ($rows as $i => $r) {
+        if ($r['match_status'] !== 'unmatched') continue;
+        $cacheStmt->execute([
+            't'   => $tenantId,
+            'fk'  => AI_CATEGORIZATION_FEATURE_KEY,
+            'st'  => $subjectType,
+            'sid' => (int) $r['id'],
+        ]);
+        $cached = $cacheStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($cached) {
+            $aid  = $cached['suggested_value'] ? (int) $cached['suggested_value'] : null;
+            $conf = $cached['confidence_score'] !== null ? (float) $cached['confidence_score'] : 0.0;
+            $rows[$i]['ai_suggestion'] = [
+                'suggestion_id'        => (int) $cached['id'],
+                'suggested_account_id' => $aid,
+                'confidence'           => $conf,
+                'source'               => (string) ($cached['suggestion_source'] ?? 'none'),
+                'reasoning'            => (string) ($cached['draft_content']     ?? ''),
+                'auto_accept'          => $conf >= AI_CATEGORIZATION_AUTO_ACCEPT,
+            ];
+            continue;
+        }
+
+        $sug = aiSuggestCounterpartAccount($tenantId, $r, $type, $sideAccountId, $allAccounts);
+        $rows[$i]['ai_suggestion'] = [
+            'suggestion_id'        => $sug['suggestion_id'],
+            'suggested_account_id' => $sug['suggested_account_id'],
+            'confidence'           => $sug['confidence'],
+            'source'               => $sug['source'],
+            'reasoning'            => $sug['reasoning'],
+            'auto_accept'          => $sug['auto_accept'],
+        ];
+    }
+} else {
+    foreach ($rows as $i => $r) {
+        if ($r['match_status'] === 'unmatched') $rows[$i]['ai_suggestion'] = null;
+    }
 }
 
 // Locate the Plaid item for the "Sync from Plaid" button (if linked).

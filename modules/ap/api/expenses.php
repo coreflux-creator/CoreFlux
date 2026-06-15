@@ -132,6 +132,7 @@ if ($method === 'POST' && $action === 'extract_receipt') {
     // AI-assist for an expense-line receipt — same shape as ap.bill.line.from_receipt
     // but maps onto the expense-line schema (date / category / merchant / amount).
     rbac_legacy_require($user, 'ap.expense.submit');
+    rbac_legacy_require($user, 'ai.use');
     require_once __DIR__ . '/../../../core/ai_service.php';
     $body = api_json_body();
     api_require_fields($body, ['storage_key']);

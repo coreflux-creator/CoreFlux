@@ -16,6 +16,7 @@ require_once __DIR__ . '/../lib/payroll.php';
 
 $ctx = api_require_auth();
 rbac_legacy_require($ctx['user'], 'payroll.view');
+rbac_legacy_require($ctx['user'], 'ai.use');
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
 
 $body = api_json_body();
