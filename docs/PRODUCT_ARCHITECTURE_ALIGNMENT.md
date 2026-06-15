@@ -552,6 +552,11 @@ Current implementation status:
   failure, and void paths write through `treasuryWorkflowAudit`, which delegates
   to the shared `platformAuditLogWrite` writer with Treasury source/object
   metadata and before/after source-row snapshots for material state changes.
+- Mercury payment instruction, co-approval, connection, recipient, and
+  reconciliation rail events write through `mercuryAuditLogWrite`, which
+  delegates to the shared platform audit writer with Treasury source metadata,
+  Mercury object types, masked recipient/connection snapshots, and payment
+  before/after source-row snapshots for material rail state changes.
 
 ### Access Review And Certification
 

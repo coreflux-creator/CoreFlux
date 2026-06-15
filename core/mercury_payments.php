@@ -16,7 +16,7 @@
  *   7. Slice 4 will add Settled → Reconciled by matching mercury_transactions.
  *
  * Every state change writes to payment_instruction_audit + emits a
- * `mercury.payment.transition` event into audit_log.
+ * `mercury.payment.transition` event through the platform audit writer.
  *
  * NEVER calls Mercury synchronously from the UI — all adapter calls happen
  * inside mpAdvance() (the worker entry point) so user-facing endpoints stay
@@ -32,6 +32,7 @@ require_once __DIR__ . '/mercury_service.php';
 require_once __DIR__ . '/mercury_recipients.php';
 require_once __DIR__ . '/approval_policy.php';
 require_once __DIR__ . '/integrations/verify_create.php';
+require_once __DIR__ . '/mercury_audit.php';
 
 // ----------------------------------------------------------------- state machine
 
@@ -69,16 +70,19 @@ function mpTransitionAllowed(string $from, string $to): bool
 function mpTransition(int $tenantId, int $instructionId, string $toState, ?string $reason, ?int $actorUserId, array $patch = [], array $meta = []): bool
 {
     $pdo = getDB();
-    $cur = $pdo->prepare('SELECT state FROM payment_instructions WHERE tenant_id = :t AND id = :id FOR UPDATE');
+    $cur = $pdo->prepare('SELECT * FROM payment_instructions WHERE tenant_id = :t AND id = :id FOR UPDATE');
     // Wrap in a transaction so the SELECT FOR UPDATE locks the row.
+    $before = null;
+    $after = null;
     $pdo->beginTransaction();
     try {
         $cur->execute(['t' => $tenantId, 'id' => $instructionId]);
-        $from = $cur->fetchColumn();
-        if ($from === false) {
+        $before = $cur->fetch(\PDO::FETCH_ASSOC);
+        if (!$before) {
             $pdo->rollBack();
             throw new \RuntimeException('payment_instruction not found');
         }
+        $from = (string) $before['state'];
         if ($from === $toState) {
             $pdo->rollBack();
             return false;
@@ -115,6 +119,7 @@ function mpTransition(int $tenantId, int $instructionId, string $toState, ?strin
             'mt' => $meta ? json_encode($meta) : null,
         ]);
 
+        $after = mercuryAuditPaymentInstructionRow($tenantId, $instructionId);
         $pdo->commit();
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
@@ -123,14 +128,13 @@ function mpTransition(int $tenantId, int $instructionId, string $toState, ?strin
 
     // Best-effort cross-module audit event
     try {
-        $pdo->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
-             VALUES (:t, :u, "mercury.payment.transition", :id, :m, NOW())'
-        )->execute([
-            't'  => $tenantId,
-            'u'  => $actorUserId,
-            'id' => $instructionId,
-            'm'  => json_encode(['from' => $from, 'to' => $toState, 'reason' => $reason] + $meta),
+        mercuryAuditLogWrite($tenantId, $actorUserId, 'mercury.payment.transition', $instructionId, [
+            'from' => $from,
+            'to' => $toState,
+            'reason' => $reason,
+        ] + $meta, [
+            'before' => $before,
+            'after' => $after,
         ]);
     } catch (\Throwable $e) {}
     return true;
@@ -209,7 +213,16 @@ function mpCreate(int $tenantId, array $data, ?int $userId = null): array
         'oma' => $sourceMercuryAccountId,
         'u'   => $userId,
     ]);
-    return mpGet($tenantId, (int) $pdo->lastInsertId());
+    $row = mpGet($tenantId, (int) $pdo->lastInsertId());
+    mercuryAuditLogWrite($tenantId, $userId, 'mercury.payment.created', (int) $row['id'], [
+        'source_module' => $row['source_module'] ?? ($data['source_module'] ?? 'manual'),
+        'source_ref' => $row['source_ref'] ?? ($data['source_ref'] ?? null),
+        'recipient_id' => (int) ($row['recipient_id'] ?? 0),
+        'amount_cents' => (int) ($row['amount_cents'] ?? 0),
+    ], [
+        'after' => $row,
+    ]);
+    return $row;
 }
 
 function mpGet(int $tenantId, int $id): array
@@ -362,17 +375,13 @@ function mpApprove(int $tenantId, int $id, $approver, ?string $note = null, arra
         : 1;
     if ($ackCount < $minApprovers) {
         try {
-            getDB()->prepare(
-                'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
-                 VALUES (:t, :u, "mercury.payment.coapproval_recorded", :id, :m, NOW())'
-            )->execute([
-                't'  => $tenantId, 'u' => $approverId, 'id' => $id,
-                'm'  => json_encode([
-                    'acks_collected'  => $ackCount,
-                    'acks_required'   => $minApprovers,
-                    'policy_id'       => $policy['id'] ?? null,
-                    'policy_name'     => $policy['name'] ?? null,
-                ]),
+            mercuryAuditLogWrite($tenantId, $approverId, 'mercury.payment.coapproval_recorded', $id, [
+                'acks_collected'  => $ackCount,
+                'acks_required'   => $minApprovers,
+                'policy_id'       => $policy['id'] ?? null,
+                'policy_name'     => $policy['name'] ?? null,
+            ], [
+                'after' => mercuryAuditPaymentInstructionRow($tenantId, $id),
             ]);
         } catch (\Throwable $_) {}
         return false; // not enough approvals yet
@@ -431,15 +440,11 @@ function mpApprove(int $tenantId, int $id, $approver, ?string $note = null, arra
         $coolOff = $patch['cool_off_until'] ?? null;
         if ($coolOff !== null && strtotime($coolOff) > time()) {
             try {
-                getDB()->prepare(
-                    'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
-                     VALUES (:t, :u, "mercury.payment.cool_off_deferred", :id, :m, NOW())'
-                )->execute([
-                    't'  => $tenantId, 'u' => $approverId, 'id' => $id,
-                    'm'  => json_encode([
-                        'cool_off_until' => $coolOff,
-                        'policy_id'      => $policy['id'] ?? null,
-                    ]),
+                mercuryAuditLogWrite($tenantId, $approverId, 'mercury.payment.cool_off_deferred', $id, [
+                    'cool_off_until' => $coolOff,
+                    'policy_id'      => $policy['id'] ?? null,
+                ], [
+                    'after' => mercuryAuditPaymentInstructionRow($tenantId, $id),
                 ]);
             } catch (\Throwable $_) {}
             return $ok;
@@ -449,14 +454,10 @@ function mpApprove(int $tenantId, int $id, $approver, ?string $note = null, arra
         } catch (\Throwable $e) {
             error_log('[mercury.payment.auto_advance] approval-time advance failed (will retry next worker tick): ' . $e->getMessage());
             try {
-                getDB()->prepare(
-                    'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
-                     VALUES (:t, :u, "mercury.payment.auto_advance_failed", :id, :m, NOW())'
-                )->execute([
-                    't'  => $tenantId,
-                    'u'  => $approverId,
-                    'id' => $id,
-                    'm'  => json_encode(['error' => substr($e->getMessage(), 0, 400)]),
+                mercuryAuditLogWrite($tenantId, $approverId, 'mercury.payment.auto_advance_failed', $id, [
+                    'error' => substr($e->getMessage(), 0, 400),
+                ], [
+                    'after' => mercuryAuditPaymentInstructionRow($tenantId, $id),
                 ]);
             } catch (\Throwable $_) {}
         }
@@ -544,19 +545,13 @@ function mercuryNotifyCfoOfApproval(int $tenantId, int $instructionId, ?array $a
         // Audit the notification attempt regardless of send outcome so the
         // CFO can later verify "did I get pinged on instruction #X?".
         try {
-            $pdo->prepare(
-                'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
-                 VALUES (:t, :u, "mercury.payment.cfo_notified", :id, :m, NOW())'
-            )->execute([
-                't'  => $tenantId,
-                'u'  => $approverUser['id'] ?? null,
-                'id' => $instructionId,
-                'm'  => json_encode([
-                    'recipients_count' => count($recipients),
-                    'sent'             => $sent,
-                    'failed'           => $failed,
-                    'mailer_present'   => function_exists('mailerSend'),
-                ]),
+            mercuryAuditLogWrite($tenantId, isset($approverUser['id']) ? (int) $approverUser['id'] : null, 'mercury.payment.cfo_notified', $instructionId, [
+                'recipients_count' => count($recipients),
+                'sent'             => $sent,
+                'failed'           => $failed,
+                'mailer_present'   => function_exists('mailerSend'),
+            ], [
+                'after' => mercuryAuditPaymentInstructionRow($tenantId, $instructionId),
             ]);
         } catch (\Throwable $e) {}
     } catch (\Throwable $e) {

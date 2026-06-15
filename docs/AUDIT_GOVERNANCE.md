@@ -38,8 +38,8 @@ exports, report builder execution, custom-field administration, access reviews,
 Time entry/timesheet approvals and settlement extraction, AP bill approvals and
 payment release, Billing invoice workflows, Accounting journal-entry approvals,
 Payroll run controls, Placement activation and rate approvals, and Treasury
-money movement should use this writer instead of issuing direct
-`INSERT INTO audit_log` statements.
+money movement, including Mercury rail lifecycle events, should use this writer
+instead of issuing direct `INSERT INTO audit_log` statements.
 Domain-specific ledgers may still exist, but the platform audit row is the
 cross-module evidence record.
 
