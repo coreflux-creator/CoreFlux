@@ -151,6 +151,7 @@ function staffingTimesheetWorkflowStart(int $tenantId, array $header, ?int $acto
 
     $instanceId = (int) ($instance['id'] ?? 0);
     if ($instanceId > 0) {
+        $beforeHeader = timeTimesheetAuditRowForTenant($tenantId, $timesheetId) ?? $header;
         try {
             getDB()->prepare(
                 'UPDATE staffing_timesheets SET workflow_instance_id = :w WHERE tenant_id = :t AND id = :id'
@@ -159,7 +160,12 @@ function staffingTimesheetWorkflowStart(int $tenantId, array $header, ?int $acto
         timeAudit('time.timesheet.workflow_started', [
             'timesheet_id' => $timesheetId,
             'workflow_instance_id' => $instanceId,
-        ], $timesheetId);
+        ], $timesheetId, [
+            'tenant_id' => $tenantId,
+            'actor_user_id' => $actorUserId,
+            'before' => $beforeHeader,
+            'after' => timeTimesheetAuditRowForTenant($tenantId, $timesheetId),
+        ]);
     }
     return $instanceId > 0 ? $instanceId : null;
 }
@@ -196,7 +202,12 @@ function staffingTimesheetWorkflowAct(int $tenantId, array $header, int $userId,
             'action' => $action,
             'control' => 'workflow_engine',
             'reason' => $e->getMessage(),
-        ], $timesheetId);
+        ], $timesheetId, [
+            'tenant_id' => $tenantId,
+            'actor_user_id' => $userId,
+            'before' => timeTimesheetAuditRowForTenant($tenantId, $timesheetId) ?? $header,
+            'after' => timeTimesheetAuditRowForTenant($tenantId, $timesheetId) ?? $header,
+        ]);
         throw $e;
     }
 }
@@ -393,6 +404,9 @@ function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart
         throw new \RuntimeException("Cannot submit a {$header['status']} timesheet");
     }
     $headerId = (int) $header['id'];
+    $tenantId = (int) currentTenantId();
+    $beforeHeader = timeTimesheetAuditRowForTenant($tenantId, $headerId) ?? $header;
+    $beforeEntries = timeEntryAuditRowsForTimesheet($tenantId, $headerId);
 
     $pdo = getDB();
     $workflowInstanceId = null;
@@ -409,8 +423,8 @@ function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart
                 SET status = 'pending_review'
               WHERE tenant_id = :t AND timesheet_id = :tid AND status IN ('draft','rejected')"
         );
-        $upd->execute(['t' => currentTenantId(), 'tid' => $headerId]);
-        $workflowInstanceId = staffingTimesheetWorkflowStart(currentTenantId(), array_merge($header, [
+        $upd->execute(['t' => $tenantId, 'tid' => $headerId]);
+        $workflowInstanceId = staffingTimesheetWorkflowStart($tenantId, array_merge($header, [
             'status' => 'submitted',
             'submitted_at' => $submittedAt,
         ]), $userId);
@@ -427,7 +441,18 @@ function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart
         'timesheet_id' => $headerId,
         'submitted_by_user_id' => $userId,
         'workflow_instance_id' => $workflowInstanceId,
-    ], $headerId);
+    ], $headerId, [
+        'tenant_id' => $tenantId,
+        'actor_user_id' => $userId,
+        'before' => [
+            'timesheet' => $beforeHeader,
+            'entries' => $beforeEntries,
+        ],
+        'after' => [
+            'timesheet' => timeTimesheetAuditRowForTenant($tenantId, $headerId),
+            'entries' => timeEntryAuditRowsForTimesheet($tenantId, $headerId),
+        ],
+    ]);
 
     return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
 }

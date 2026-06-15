@@ -362,6 +362,32 @@ These domains require enterprise controls first:
 - Integration writes to accounting, payroll, banking, or HR systems
 - AI tool execution that creates financial, payroll, payment, or worker records
 
+### Time Entry And Timesheet Controls
+
+Time approval is the source recognition gate feeding Billing, AP, Payroll, and
+Accounting downstream bundles. Time owns time-entry state, rate-snapshot locking,
+and approval evidence; Staffing may host legacy weekly UI surfaces, but it
+consumes the Time workflow subject.
+
+- Time entry create/update paths cannot set approved status directly.
+- Entry submit, approve, reject, correction, and CSV pre-approval paths record
+  source-row evidence.
+- Weekly timesheet submit starts the `time_timesheet` Workflow Graph with People
+  Graph approver resolution and separation-of-duties checks.
+- Workflow approval/rejection sync mutates the Time entries and legacy
+  timesheet header only after the workflow decision is approved.
+- Tokenized client email approval is an external approval channel with token
+  response evidence, not an authenticated user shortcut.
+
+Current implementation status:
+
+- `timeAudit` delegates to the shared `platformAuditLogWrite` writer with Time
+  source/object metadata.
+- Manual entry submit/approve/reject/correct, CSV pre-approval, tokenized client
+  approval, external email approval, timesheet WorkflowGraph start/submit, and
+  workflow approval/rejection sync capture before/after entry, timesheet, or
+  token snapshots where approval state is created or materially changed.
+
 ### Payroll Run Controls
 
 Payroll run transitions are governed as separate actions, not one broad

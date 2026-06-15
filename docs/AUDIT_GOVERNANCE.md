@@ -35,11 +35,12 @@ remain searchable through the normalized API.
 
 Shared services that generate evidence packets or governance events, including
 exports, report builder execution, custom-field administration, access reviews,
-AP bill approvals and payment release, Billing invoice workflows, Accounting
-journal-entry approvals, Payroll run controls, Placement activation and rate approvals,
-and Treasury money movement should use this writer instead of issuing direct
-`INSERT INTO audit_log` statements. Domain-specific ledgers may still exist, but
-the platform audit row is the cross-module evidence record.
+Time entry/timesheet approvals, AP bill approvals and payment release, Billing
+invoice workflows, Accounting journal-entry approvals, Payroll run controls,
+Placement activation and rate approvals, and Treasury money movement should use
+this writer instead of issuing direct `INSERT INTO audit_log` statements.
+Domain-specific ledgers may still exist, but the platform audit row is the
+cross-module evidence record.
 
 Legacy People surfaces use the same write model through `peopleAudit`, which
 preserves People-local PII/change ledgers while mirroring PII, banking, tax,

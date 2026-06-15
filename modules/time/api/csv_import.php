@@ -177,7 +177,7 @@ if ($method === 'POST' && $action === 'commit') {
         $existing = null;
         if ($externalId !== null) {
             $existing = scopedFind(
-                'SELECT id, status FROM time_entries
+                'SELECT * FROM time_entries
                   WHERE tenant_id = :tenant_id AND source_system = :s AND external_id = :e',
                 ['s' => $sourceSystem, 'e' => $externalId]
             );
@@ -187,7 +187,7 @@ if ($method === 'POST' && $action === 'commit') {
         }
         if (!$existing && $updateExisting) {
             $existing = scopedFind(
-                'SELECT id, status FROM time_entries
+                'SELECT * FROM time_entries
                   WHERE tenant_id = :tenant_id
                     AND placement_id = :pl AND person_id = :p
                     AND work_date = :wd AND category = :cat',
@@ -238,7 +238,10 @@ if ($method === 'POST' && $action === 'commit') {
         // going through the manual two-eye gate; emit a per-row audit
         // so downstream dashboards see consistent granularity.
         if ($preApproved) {
-            timeEntryApprovedEmit($resultId, $payload, 'bulk_pre_approved', [
+            $approvedEntry = timeEntryGet($resultId) ?? $payload;
+            timeEntryApprovedEmit($resultId, $approvedEntry, 'bulk_pre_approved', [
+                'before' => $existing,
+                'after' => $approvedEntry,
                 'approver_user_id' => $user['id'] ?? null,
                 'source'           => 'bulk_upload',
             ]);

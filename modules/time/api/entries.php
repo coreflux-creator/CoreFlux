@@ -33,8 +33,12 @@ if ($method === 'POST' && $action !== '') {
         _timeRequireEntryWriteAccess($user, $entry);
         if ($entry['status'] !== 'draft') api_error('Only draft entries can be submitted', 409, ['status' => $entry['status']]);
         scopedUpdate('time_entries', $id, ['status' => 'pending_review']);
-        timeAudit('time.entry.submitted', ['entry_id' => $id], $id);
-        api_ok(['ok' => true, 'entry' => timeEntryGet($id)]);
+        $updatedEntry = timeEntryGet($id);
+        timeAudit('time.entry.submitted', ['entry_id' => $id], $id, [
+            'before' => $entry,
+            'after' => $updatedEntry,
+        ]);
+        api_ok(['ok' => true, 'entry' => $updatedEntry]);
     }
 
     if ($action === 'approve') {
@@ -60,6 +64,7 @@ if ($method === 'POST' && $action !== '') {
         // audit_log row downstream dashboards subscribe to.
         $approvedEntry = timeEntryGet($id) ?? $entry;
         timeEntryApprovedEmit((int) $id, $approvedEntry, 'manual', [
+            'before' => $entry,
             'approver_user_id' => $user['id'] ?? null,
         ]);
         api_ok(['ok' => true, 'entry' => $approvedEntry]);
@@ -71,8 +76,12 @@ if ($method === 'POST' && $action !== '') {
         $body = api_json_body();
         api_require_fields($body, ['reason']);
         scopedUpdate('time_entries', $id, ['status' => 'rejected', 'rejected_reason' => $body['reason']]);
-        timeAudit('time.entry.rejected', ['entry_id' => $id, 'reason' => $body['reason']], $id);
-        api_ok(['ok' => true, 'entry' => timeEntryGet($id)]);
+        $updatedEntry = timeEntryGet($id);
+        timeAudit('time.entry.rejected', ['entry_id' => $id, 'reason' => $body['reason']], $id, [
+            'before' => $entry,
+            'after' => $updatedEntry,
+        ]);
+        api_ok(['ok' => true, 'entry' => $updatedEntry]);
     }
 
     if ($action === 'correct') {
@@ -104,7 +113,13 @@ if ($method === 'POST' && $action !== '') {
             $pdo->rollBack();
             api_error('Correct failed: ' . $e->getMessage(), 500);
         }
-        timeAudit('time.entry.superseded', ['entry_id' => $id, 'by_entry_id' => $newId, 'reason' => $body['correction_reason']], $id);
+        timeAudit('time.entry.superseded', ['entry_id' => $id, 'by_entry_id' => $newId, 'reason' => $body['correction_reason']], $id, [
+            'before' => $entry,
+            'after' => [
+                'superseded_entry' => timeEntryGet($id),
+                'new_entry' => timeEntryGet($newId),
+            ],
+        ]);
         api_ok(['ok' => true, 'superseded_entry_id' => $id, 'new_entry_id' => $newId]);
     }
 
@@ -207,8 +222,11 @@ if ($method === 'POST') {
         'status'             => 'draft',
         'created_by_user_id' => $user['id'] ?? null,
     ]);
-    timeAudit('time.entry.created', ['entry_id' => $id, 'placement_id' => (int) $body['placement_id'], 'category' => $body['category']], $id);
-    api_ok(['entry' => timeEntryGet($id)], 201);
+    $createdEntry = timeEntryGet($id);
+    timeAudit('time.entry.created', ['entry_id' => $id, 'placement_id' => (int) $body['placement_id'], 'category' => $body['category']], $id, [
+        'after' => $createdEntry,
+    ]);
+    api_ok(['entry' => $createdEntry], 201);
 }
 
 // ─── PATCH ───
@@ -234,8 +252,12 @@ if ($method === 'PATCH') {
     if (!$body) api_error('No fields to update', 422);
     $rows = scopedUpdate('time_entries', $id, $body);
     if ($rows === 0) api_error('Not found or no change', 404);
-    timeAudit('time.entry.updated', ['entry_id' => $id, 'fields' => array_keys($body)], $id);
-    api_ok(['entry' => timeEntryGet($id)]);
+    $updatedEntry = timeEntryGet($id);
+    timeAudit('time.entry.updated', ['entry_id' => $id, 'fields' => array_keys($body)], $id, [
+        'before' => $entry,
+        'after' => $updatedEntry,
+    ]);
+    api_ok(['entry' => $updatedEntry]);
 }
 
 api_error('Method not allowed', 405);

@@ -23,6 +23,8 @@ function timeSyncTimesheetFromWorkflow(
     try {
         $pdo = getDB();
         if (!$pdo) return;
+        $beforeHeader = timeTimesheetAuditRowForTenant($tenantId, $timesheetId);
+        $beforeEntries = timeEntryAuditRowsForTimesheet($tenantId, $timesheetId);
 
         if ($action === 'reject' && $userId) {
             $reason = $comment ?: 'Rejected through workflow';
@@ -46,7 +48,18 @@ function timeSyncTimesheetFromWorkflow(
                 'rejected_by_user_id' => $userId,
                 'reason' => $reason,
                 'source' => 'workflow',
-            ], $timesheetId);
+            ], $timesheetId, [
+                'tenant_id' => $tenantId,
+                'actor_user_id' => $userId,
+                'before' => [
+                    'timesheet' => $beforeHeader,
+                    'entries' => $beforeEntries,
+                ],
+                'after' => [
+                    'timesheet' => timeTimesheetAuditRowForTenant($tenantId, $timesheetId),
+                    'entries' => timeEntryAuditRowsForTimesheet($tenantId, $timesheetId),
+                ],
+            ]);
             return;
         }
 
@@ -72,7 +85,7 @@ function timeSyncTimesheetFromWorkflow(
               WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'pending_review'"
         )->execute(['t' => $tenantId, 'tid' => $timesheetId, 'u' => $userId]);
 
-        timeSyncTimesheetApprovedAudit($pdo, $tenantId, $timesheetId, $userId);
+        timeSyncTimesheetApprovedAudit($pdo, $tenantId, $timesheetId, $userId, $beforeHeader, $beforeEntries);
 
         try {
             require_once __DIR__ . '/../../staffing/lib/timesheets.php';
@@ -86,15 +99,29 @@ function timeSyncTimesheetFromWorkflow(
 }
 
 /** @internal */
-function timeSyncTimesheetApprovedAudit(\PDO $pdo, int $tenantId, int $timesheetId, int $approverUserId): void {
+function timeSyncTimesheetApprovedAudit(
+    \PDO $pdo,
+    int $tenantId,
+    int $timesheetId,
+    int $approverUserId,
+    ?array $beforeHeader = null,
+    array $beforeEntries = []
+): void {
     $stmt = $pdo->prepare(
-        "SELECT id, placement_id, person_id, period_id, work_date, category, hours, rate_snapshot_id
+        "SELECT *
            FROM time_entries
           WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'approved'"
     );
     $stmt->execute(['t' => $tenantId, 'tid' => $timesheetId]);
+    $beforeById = [];
+    foreach ($beforeEntries as $beforeEntry) {
+        $beforeById[(int) ($beforeEntry['id'] ?? 0)] = $beforeEntry;
+    }
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $entry) {
         timeEntryApprovedEmit((int) $entry['id'], $entry, 'manual', [
+            'tenant_id' => $tenantId,
+            'actor_user_id' => $approverUserId,
+            'before' => $beforeById[(int) $entry['id']] ?? null,
             'approver_user_id' => $approverUserId,
             'timesheet_id' => $timesheetId,
             'source' => 'workflow',
@@ -104,5 +131,16 @@ function timeSyncTimesheetApprovedAudit(\PDO $pdo, int $tenantId, int $timesheet
         'timesheet_id' => $timesheetId,
         'approved_by_user_id' => $approverUserId,
         'source' => 'workflow',
-    ], $timesheetId);
+    ], $timesheetId, [
+        'tenant_id' => $tenantId,
+        'actor_user_id' => $approverUserId,
+        'before' => [
+            'timesheet' => $beforeHeader,
+            'entries' => $beforeEntries,
+        ],
+        'after' => [
+            'timesheet' => timeTimesheetAuditRowForTenant($tenantId, $timesheetId),
+            'entries' => timeEntryAuditRowsForTimesheet($tenantId, $timesheetId),
+        ],
+    ]);
 }

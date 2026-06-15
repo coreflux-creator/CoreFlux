@@ -7,6 +7,7 @@
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
+require_once __DIR__ . '/../../../core/audit.php';
 
 const TIME_CATEGORIES = [
     'regular_billable','regular_nonbillable','OT_billable','OT_nonbillable',
@@ -64,6 +65,49 @@ function timeEntryGet(int $id): ?array
         'SELECT * FROM time_entries WHERE tenant_id = :tenant_id AND id = :id',
         ['id' => $id]
     );
+}
+
+function timeEntryAuditRowForTenant(int $tenantId, int $entryId): ?array
+{
+    $pdo = getDB();
+    if (!$pdo) return null;
+    $stmt = $pdo->prepare('SELECT * FROM time_entries WHERE tenant_id = :t AND id = :id LIMIT 1');
+    $stmt->execute(['t' => $tenantId, 'id' => $entryId]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+function timeEntryAuditRowsForTimesheet(int $tenantId, int $timesheetId): array
+{
+    $pdo = getDB();
+    if (!$pdo) return [];
+    $stmt = $pdo->prepare(
+        'SELECT * FROM time_entries
+          WHERE tenant_id = :t AND timesheet_id = :tid AND status != "superseded"
+          ORDER BY work_date ASC, id ASC'
+    );
+    $stmt->execute(['t' => $tenantId, 'tid' => $timesheetId]);
+    return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+}
+
+function timeTimesheetAuditRowForTenant(int $tenantId, int $timesheetId): ?array
+{
+    $pdo = getDB();
+    if (!$pdo) return null;
+    $stmt = $pdo->prepare('SELECT * FROM staffing_timesheets WHERE tenant_id = :t AND id = :id LIMIT 1');
+    $stmt->execute(['t' => $tenantId, 'id' => $timesheetId]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+function timeTokenAuditRowForTenant(int $tenantId, int $tokenId): ?array
+{
+    $pdo = getDB();
+    if (!$pdo) return null;
+    $stmt = $pdo->prepare('SELECT * FROM time_approval_tokens WHERE tenant_id = :t AND id = :id LIMIT 1');
+    $stmt->execute(['t' => $tenantId, 'id' => $tokenId]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    return $row ?: null;
 }
 
 function timeEntriesList(array $filters = []): array
@@ -378,27 +422,34 @@ function timePreviewBundlesForPeriod(int $periodId): array
     ];
 }
 
-function timeAudit(string $event, array $meta = [], ?int $targetId = null): void
+function timeAudit(string $event, array $meta = [], ?int $targetId = null, array $opts = []): void
 {
-    $pdo = getDB();
-    if (!$pdo) { error_log("[time.audit] {$event} " . json_encode($meta)); return; }
     try {
-        $stmt = $pdo->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, request_id, created_at)
-             VALUES (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, :ip_address, :request_id, NOW())'
-        );
-        $stmt->execute([
-            'tenant_id'     => currentTenantId(),
-            'actor_user_id' => $_SESSION['user']['id'] ?? null,
-            'event'         => $event,
-            'target_id'     => $targetId,
-            'meta_json'     => $meta ? json_encode($meta, JSON_UNESCAPED_SLASHES) : null,
-            'ip_address'    => $_SERVER['REMOTE_ADDR'] ?? null,
-            'request_id'    => $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
-        ]);
+        $tenantId = isset($opts['tenant_id']) ? (int) $opts['tenant_id'] : (function_exists('currentTenantId') ? currentTenantId() : null);
+        $actorUserId = array_key_exists('actor_user_id', $opts)
+            ? ($opts['actor_user_id'] !== null ? (int) $opts['actor_user_id'] : null)
+            : (isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : null);
+        platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, array_merge([
+            'object_type' => timeAuditObjectType($event),
+            'source' => $meta['source'] ?? 'time',
+        ], $opts));
     } catch (\Throwable $e) {
         error_log("[time.audit] db-write-failed: " . $e->getMessage());
     }
+}
+
+function timeAuditObjectType(string $event): string
+{
+    if (str_contains($event, '.entry.')) return 'time_entry';
+    if (str_contains($event, '.timesheet.')) return 'time_timesheet';
+    if (str_contains($event, '.tokenized_email.') || str_contains($event, '.token.')) return 'time_approval_token';
+    if (str_contains($event, '.period.')) return 'time_period';
+    if (str_contains($event, '.feed.') || str_contains($event, '.bundle.')) return 'time_feed_bundle';
+    if (str_contains($event, '.category.')) return 'time_category';
+    if (str_contains($event, '.intake.')) return 'time_intake';
+    if (str_contains($event, '.upload.')) return 'time_upload';
+    if (str_contains($event, '.settlement.')) return 'time_settlement';
+    return 'time';
 }
 
 /**
@@ -423,6 +474,13 @@ function timeAudit(string $event, array $meta = [], ?int $targetId = null): void
  */
 function timeEntryApprovedEmit(int $entryId, array $entry, string $approvedVia, array $approverContext = []): void
 {
+    $opts = ['after' => $entry];
+    foreach (['before', 'after', 'tenant_id', 'actor_user_id', 'actor_type', 'actor_email'] as $key) {
+        if (array_key_exists($key, $approverContext)) {
+            $opts[$key] = $approverContext[$key];
+            unset($approverContext[$key]);
+        }
+    }
     $meta = array_merge([
         'entry_id'         => $entryId,
         'placement_id'     => isset($entry['placement_id']) ? (int) $entry['placement_id'] : null,
@@ -434,5 +492,5 @@ function timeEntryApprovedEmit(int $entryId, array $entry, string $approvedVia, 
         'rate_snapshot_id' => isset($entry['rate_snapshot_id']) ? (int) $entry['rate_snapshot_id'] : null,
         'approved_via'     => $approvedVia,
     ], $approverContext);
-    timeAudit('time.entry.approved', $meta, $entryId);
+    timeAudit('time.entry.approved', $meta, $entryId, $opts);
 }

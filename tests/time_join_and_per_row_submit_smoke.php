@@ -28,8 +28,9 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$timeLib = (string) file_get_contents('/app/modules/time/lib/time.php');
-$myTime  = (string) file_get_contents('/app/modules/time/ui/MyTime.jsx');
+$ROOT = realpath(__DIR__ . '/..');
+$timeLib = (string) file_get_contents("{$ROOT}/modules/time/lib/time.php");
+$myTime  = (string) file_get_contents("{$ROOT}/modules/time/ui/MyTime.jsx");
 
 echo "\n1. timeEntriesList JOIN uses effective module tenant\n";
 $a('lib loads core/sub_tenants.php',
@@ -78,7 +79,7 @@ $a('drafts row falls back to "Placement #N" when placement title is null',
 
 echo "\n4. PHP syntax\n";
 $out = []; $rc = 0;
-exec('php -l /app/modules/time/lib/time.php 2>&1', $out, $rc);
+exec('php -l ' . escapeshellarg("{$ROOT}/modules/time/lib/time.php") . ' 2>&1', $out, $rc);
 $a("php -l modules/time/lib/time.php", $rc === 0, implode("\n", $out));
 
 echo "\n=========================================\n";

@@ -108,6 +108,13 @@ function staffingEmailApprovalConsume(string $rawToken, string $action, ?string 
         ];
     }
 
+    $beforeHeader = timeTimesheetAuditRowForTenant($tenantId, $headerId) ?? $header;
+    $beforeEntries = timeEntryAuditRowsForTimesheet($tenantId, $headerId);
+    $beforeEntriesById = [];
+    foreach ($beforeEntries as $beforeEntry) {
+        $beforeEntriesById[(int) ($beforeEntry['id'] ?? 0)] = $beforeEntry;
+    }
+
     $newStatus = $action === 'approve' ? 'approved' : 'rejected';
     $pdo->beginTransaction();
     try {
@@ -159,13 +166,17 @@ function staffingEmailApprovalConsume(string $rawToken, string $action, ?string 
     if ($newStatus === 'approved') {
         try {
             $approvedStmt = $pdo->prepare(
-                "SELECT id, placement_id, person_id, period_id, work_date, category, hours, rate_snapshot_id
+                "SELECT *
                    FROM time_entries
                   WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'approved'"
             );
             $approvedStmt->execute(['t' => $tenantId, 'tid' => $headerId]);
             foreach ($approvedStmt->fetchAll(\PDO::FETCH_ASSOC) as $approved) {
                 timeEntryApprovedEmit((int) $approved['id'], $approved, 'external_email', [
+                    'tenant_id' => $tenantId,
+                    'actor_type' => 'external_approver',
+                    'actor_email' => $approverEmail,
+                    'before' => $beforeEntriesById[(int) $approved['id']] ?? null,
                     'timesheet_id' => $headerId,
                     'token_id' => (int) ($row['id'] ?? 0),
                     'external_approver_email' => $approverEmail,
@@ -177,7 +188,19 @@ function staffingEmailApprovalConsume(string $rawToken, string $action, ?string 
                 'approved_via' => 'external_email',
                 'external_approver_email' => $approverEmail,
                 'token_id' => (int) ($row['id'] ?? 0),
-            ], $headerId);
+            ], $headerId, [
+                'tenant_id' => $tenantId,
+                'actor_type' => 'external_approver',
+                'actor_email' => $approverEmail,
+                'before' => [
+                    'timesheet' => $beforeHeader,
+                    'entries' => $beforeEntries,
+                ],
+                'after' => [
+                    'timesheet' => timeTimesheetAuditRowForTenant($tenantId, $headerId),
+                    'entries' => timeEntryAuditRowsForTimesheet($tenantId, $headerId),
+                ],
+            ]);
         } catch (\Throwable $e) {
             error_log("[staffing-email-approval] audit emit failed: " . $e->getMessage());
         }
@@ -195,7 +218,19 @@ function staffingEmailApprovalConsume(string $rawToken, string $action, ?string 
                 'external_approver_email' => $approverEmail,
                 'token_id' => (int) ($row['id'] ?? 0),
                 'reason' => $note ?: 'Rejected by external approver',
-            ], $headerId);
+            ], $headerId, [
+                'tenant_id' => $tenantId,
+                'actor_type' => 'external_approver',
+                'actor_email' => $approverEmail,
+                'before' => [
+                    'timesheet' => $beforeHeader,
+                    'entries' => $beforeEntries,
+                ],
+                'after' => [
+                    'timesheet' => timeTimesheetAuditRowForTenant($tenantId, $headerId),
+                    'entries' => timeEntryAuditRowsForTimesheet($tenantId, $headerId),
+                ],
+            ]);
         } catch (\Throwable $e) {
             error_log("[staffing-email-approval] rejection audit failed: " . $e->getMessage());
         }
