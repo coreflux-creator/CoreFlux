@@ -27,7 +27,8 @@ write the canonical fields.
 ## Access Model
 
 Audit evidence is tenant-scoped and read-only through
-`GET /api/audit_log.php`.
+`GET /api/v1/platform/audit-log`. The legacy direct-file endpoint
+`GET /api/audit_log.php` remains a compatibility surface.
 
 Allowed readers:
 

@@ -37,6 +37,10 @@ POST /api/v1/people/graph/responsibilities
 POST /api/v1/people/graph/delegations
 POST /api/v1/people/graph/check-permission
 POST /api/v1/people/graph/resolve-approvers
+GET  /api/v1/platform/audit-log
+GET  /api/v1/platform/workflow/inbox
+GET  /api/v1/platform/workflow/instances/123
+POST /api/v1/platform/workflow/instances/123/act
 ```
 
 ## Compatibility Behavior
@@ -104,6 +108,21 @@ keys such as `resolve`, `responsibilities`, `delegations`,
 Access review campaigns dispatch to `/api/access_reviews.php` through
 `/api/v1/people/access-reviews` and use explicit action keys for `create`,
 `open`, `snapshot`, `decision`, and `complete`.
+
+Platform enterprise-control services are exposed through narrow v1 aliases
+while the underlying endpoints remain direct-file compatibility surfaces:
+
+```text
+/api/v1/platform/audit-log
+/api/v1/platform/workflow/inbox
+/api/v1/platform/workflow/instances/{id}
+/api/v1/platform/workflow/instances/{id}/act
+```
+
+These dispatch to `/api/audit_log.php` and `/api/workflow.php`. The router does
+not invent a broad `platform.view` base permission for these paths; the target
+endpoint keeps the specific guard, such as audit admin/auditor access or
+WorkflowEngine current-step approver checks.
 
 ## Endpoint Rules
 

@@ -54,12 +54,14 @@ if ($endpointFile === null) {
 // Auth (idempotent — module file may also call api_require_auth())
 $authCtx = api_require_auth();
 
-// Module-level RBAC gate. The user must hold at least the base
-// '<module>.view' permission to reach any endpoint inside that module.
-// Per-endpoint permissions remain the module's responsibility (it can call
-// rbac_legacy_require($authCtx['user'], 'foo.bar.action') itself).
-$baseModulePerm = $parsed['module_id'] . '.view';
-rbac_legacy_require($authCtx['user'], $baseModulePerm);
+// Module-level RBAC gate. Normal module routes require at least the base
+// '<module>.view' permission. Platform aliases may return null because their
+// target endpoint owns the more specific guard (for example audit/admin roles
+// or current-step workflow approver checks).
+$baseModulePerm = apiRouterBasePermission($parsed);
+if ($baseModulePerm !== null) {
+    rbac_legacy_require($authCtx['user'], $baseModulePerm);
+}
 
 // Stash router context for the included module file
 $GLOBALS['CF_API_REQUEST_ID'] = $requestId;

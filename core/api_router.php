@@ -90,6 +90,28 @@ function apiRouterApplyV1Compatibility(array $parsed): void {
     $endpoint = (string) ($parsed['endpoint'] ?? '');
     $subpath = $parsed['subpath'] ?? [];
 
+    if ($moduleId === 'platform' && $endpoint === 'workflow') {
+        if (!is_array($subpath) || $subpath === []) return;
+        $first = (string) ($subpath[0] ?? '');
+        if ($first === 'inbox') {
+            if (!isset($_GET['path']) && !isset($_GET['action'])) $_GET['path'] = 'inbox';
+            return;
+        }
+        if ($first === 'instances') {
+            $id = (string) ($subpath[1] ?? '');
+            if ($id !== '' && ctype_digit($id) && !isset($_GET['id'])) $_GET['id'] = $id;
+            $action = (string) ($subpath[2] ?? '');
+            if ($action !== '' && preg_match('/^[a-z][a-z0-9_-]*$/', $action) && !isset($_GET['action'])) {
+                $_GET['action'] = str_replace('-', '_', $action);
+            }
+            return;
+        }
+        if ($first !== '' && preg_match('/^[a-z][a-z0-9_-]*$/', $first) && !isset($_GET['action'])) {
+            $_GET['action'] = str_replace('-', '_', $first);
+        }
+        return;
+    }
+
     $customFieldEndpoints = [
         'custom-field-definitions' => true,
         'custom-field-values' => true,
@@ -133,12 +155,11 @@ function apiRouterApplyV1Compatibility(array $parsed): void {
  * Caller is expected to have already loaded ModuleRegistry.
  */
 function apiRouterResolveFile(string $moduleId, string $endpoint, ?string $modulesDir = null): ?string {
-    $registry = ModuleRegistry::getInstance();
-    if (!$registry->hasModule($moduleId)) return null;
-
     $root = dirname(__DIR__);
     $aliasKey = $moduleId . '/' . $endpoint;
     $aliases = [
+        'platform/audit-log' => $root . '/api/audit_log.php',
+        'platform/workflow' => $root . '/api/workflow.php',
         'people/graph' => $root . '/api/people_graph.php',
         'people/access-reviews' => $root . '/api/access_reviews.php',
         'reports/export-templates' => $root . '/api/export_templates.php',
@@ -147,6 +168,9 @@ function apiRouterResolveFile(string $moduleId, string $endpoint, ?string $modul
     if (isset($aliases[$aliasKey]) && file_exists($aliases[$aliasKey])) {
         return $aliases[$aliasKey];
     }
+
+    $registry = ModuleRegistry::getInstance();
+    if (!$registry->hasModule($moduleId)) return null;
 
     $platformAliases = [
         'custom-field-definitions' => $root . '/api/custom_field_definitions.php',
@@ -168,4 +192,21 @@ function apiRouterResolveFile(string $moduleId, string $endpoint, ?string $modul
         if (file_exists($c)) return $c;
     }
     return null;
+}
+
+/**
+ * Base permission enforced by /api/index.php before dispatch.
+ *
+ * Most module routes require `<module>.view`. Platform aliases dispatch to
+ * governed direct-file endpoints whose own guards are more specific than a
+ * synthetic `platform.view` permission, so the router does not add a second
+ * base gate for those compatibility paths.
+ */
+function apiRouterBasePermission(array $parsed): ?string {
+    $moduleId = (string) ($parsed['module_id'] ?? '');
+    $endpoint = (string) ($parsed['endpoint'] ?? '');
+    if ($moduleId === 'platform' && in_array($endpoint, ['audit-log', 'workflow'], true)) {
+        return null;
+    }
+    return $moduleId !== '' ? $moduleId . '.view' : null;
 }

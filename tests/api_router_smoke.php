@@ -126,6 +126,40 @@ apiRouterApplyV1Compatibility($r);
 $assert("v1 people graph resolve sets action", ($_GET['action'] ?? null) === 'resolve');
 $_GET = [];
 
+$r = apiRouterParse('', '/api/v1/platform/audit-log?event=workflow');
+$assert("v1 platform audit-log ok", $r['ok'] === true && $r['module_id'] === 'platform' && $r['endpoint'] === 'audit-log');
+$_GET = [];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 platform audit-log adds no synthetic action", !isset($_GET['action']));
+$_GET = [];
+
+$r = apiRouterParse('', '/api/v1/platform/workflow/inbox');
+$assert("v1 platform workflow inbox ok", $r['ok'] === true && $r['module_id'] === 'platform' && $r['endpoint'] === 'workflow');
+$_GET = [];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 platform workflow inbox sets path", ($_GET['path'] ?? null) === 'inbox');
+$_GET = [];
+
+$r = apiRouterParse('', '/api/v1/platform/workflow/instances/123');
+$assert("v1 platform workflow instance detail ok", $r['ok'] === true && $r['subpath'] === ['instances', '123']);
+$_GET = [];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 platform workflow instance detail sets id", ($_GET['id'] ?? null) === '123');
+$assert("v1 platform workflow instance detail adds no action", !isset($_GET['action']));
+$_GET = [];
+
+$r = apiRouterParse('', '/api/v1/platform/workflow/instances/123/act');
+$assert("v1 platform workflow instance action ok", $r['ok'] === true && $r['subpath'] === ['instances', '123', 'act']);
+$_GET = [];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 platform workflow instance action sets id", ($_GET['id'] ?? null) === '123');
+$assert("v1 platform workflow instance action sets action", ($_GET['action'] ?? null) === 'act');
+$_GET = ['id' => '999', 'action' => 'comment'];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 platform workflow preserves explicit id", $_GET['id'] === '999');
+$assert("v1 platform workflow preserves explicit action", $_GET['action'] === 'comment');
+$_GET = [];
+
 $r = apiRouterParse('', '/api/');
 $assert("missing module + endpoint → 400", $r['ok'] === false && $r['status'] === 400);
 
@@ -150,6 +184,21 @@ $assert("resolves real people/employees endpoint",
 $file = apiRouterResolveFile('people', 'graph');
 $assert("resolves people/graph platform alias",
     $file !== null && str_ends_with($file, '/api/people_graph.php'));
+
+$file = apiRouterResolveFile('platform', 'audit-log');
+$assert("resolves platform/audit-log alias without module manifest",
+    $file !== null && str_ends_with($file, '/api/audit_log.php'));
+
+$file = apiRouterResolveFile('platform', 'workflow');
+$assert("resolves platform/workflow alias without module manifest",
+    $file !== null && str_ends_with($file, '/api/workflow.php'));
+
+$assert("platform audit-log skips synthetic base permission",
+    apiRouterBasePermission(['module_id' => 'platform', 'endpoint' => 'audit-log']) === null);
+$assert("platform workflow skips synthetic base permission",
+    apiRouterBasePermission(['module_id' => 'platform', 'endpoint' => 'workflow']) === null);
+$assert("normal module keeps base permission",
+    apiRouterBasePermission(['module_id' => 'people', 'endpoint' => 'employees']) === 'people.view');
 
 $file = apiRouterResolveFile('people', 'nope_does_not_exist');
 $assert("returns null for missing endpoint", $file === null);

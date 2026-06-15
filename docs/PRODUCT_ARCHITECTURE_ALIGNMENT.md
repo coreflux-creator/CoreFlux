@@ -140,6 +140,8 @@ Current implementation status:
 - `api/audit_log.php` normalizes legacy and canonical schemas at read time,
   including `actor_user_id`/`user_id`, `event`/`action`,
   `target_id`/`entity_id`, and canonical actor/object/request fields.
+- `/api/v1/platform/audit-log` exposes the same governed audit surface through
+  the canonical API router while `/api/audit_log.php` remains compatible.
 - `/admin/audit-log` exposes filters for event, actor, object, request, source,
   IP, and date range, and CSV export uses the same role gate and query logic.
 - Admin and auditor roles can read audit evidence; external auditor sessions
@@ -198,6 +200,12 @@ assignees and approvers through `approver_resolution` strategies:
 The workflow inbox and push-notification paths resolve these strategies at
 runtime, then fall back to explicit approver IDs only when the graph has no
 answer.
+
+The canonical API router exposes Workflow Graph through
+`/api/v1/platform/workflow/inbox`,
+`/api/v1/platform/workflow/instances/{id}`, and
+`/api/v1/platform/workflow/instances/{id}/act`; legacy `/api/workflow.php`
+callers continue to work during migration.
 
 AI workflow approval decisions are state-changing approval actions, not audit
 reads. `/api/ai/workflows.php?action=decide_approval` requires
