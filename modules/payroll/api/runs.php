@@ -164,7 +164,7 @@ switch (api_method()) {
         $action = $body['action'] ?? api_query('action');
 
         if (!$action) {
-            rbac_legacy_require($user, 'payroll.run.build');
+            rbac_legacy_require($user, 'payroll.run.create');
             api_require_fields($body, ['pay_period_id']);
             $period = scopedFind(
                 'SELECT * FROM payroll_pay_periods WHERE tenant_id = :tenant_id AND id = :id',
@@ -194,7 +194,7 @@ switch (api_method()) {
         if (!$run) api_error('Run not found', 404);
 
         if ($action === 'compute') {
-            rbac_legacy_require($user, 'payroll.run.build');
+            rbac_legacy_require($user, 'payroll.run.compute');
             _payrollRequireStatus($run, ['draft', 'computed'], 'Compute');
             if (($run['status'] ?? '') === 'computed') {
                 payrollRunWorkflowCancelPending(currentTenantId(), $runId, (int) ($user['id'] ?? 0), 'recompute');

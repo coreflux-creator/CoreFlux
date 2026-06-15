@@ -38,7 +38,8 @@ check('submit requires owner/manage permission', contains($time, '_timeRequireEn
 
 echo PHP_EOL . "Payroll controls" . PHP_EOL;
 check('GET requires payroll.view', contains($payroll, "rbac_legacy_require(\$user, 'payroll.view')"));
-check('create/compute requires payroll.run.build', contains($payroll, "rbac_legacy_require(\$user, 'payroll.run.build')"));
+check('create requires payroll.run.create', contains($payroll, "rbac_legacy_require(\$user, 'payroll.run.create')"));
+check('compute requires payroll.run.compute', contains($payroll, "rbac_legacy_require(\$user, 'payroll.run.compute')"));
 check('approve requires payroll.run.approve', contains($payroll, "rbac_legacy_require(\$user, 'payroll.run.approve')"));
 check('paid/disburse requires payroll.run.disburse', contains($payroll, "rbac_legacy_require(\$user, 'payroll.run.disburse')"));
 check('approve requires computed status', contains($payroll, "_payrollRequireStatus(\$run, ['computed'], 'Approve')"));

@@ -343,6 +343,25 @@ These domains require enterprise controls first:
 - Integration writes to accounting, payroll, banking, or HR systems
 - AI tool execution that creates financial, payroll, payment, or worker records
 
+### Payroll Run Controls
+
+Payroll run transitions are governed as separate actions, not one broad
+"build" capability.
+
+- Draft run creation requires `payroll.run.create` and records
+  `created_by_user_id` plus `payroll.run.created`.
+- Gross-to-net computation/recomputation requires `payroll.run.compute`, stamps
+  `computed_by_user_id`, cancels stale pending approvals on recompute, starts the
+  `payroll_run` Workflow Graph, and fails closed if the workflow cannot start.
+- Approval requires `payroll.run.approve`, a computed run, Workflow Graph
+  approval through People Graph approver resolution, and SoD against the creator
+  or computer of the run.
+- Submit/originate, Gusto submission, Gusto paid marking, and local paid marking
+  require `payroll.run.disburse`, an approved run where applicable, and SoD
+  against the approving actor.
+- `payroll.run.build` remains a workbench/navigation permission, not the
+  authority for material create, compute, approve, submit, or paid transitions.
+
 ### Placement Activation And Rates
 
 Placement activation and rate approval are separate governed actions.
@@ -460,8 +479,8 @@ People API.
 
 - Fix time approval so clients cannot create or patch records into approved
   state without the approval workflow.
-- Enforce payroll run permissions and separation of duties for compute, approve,
-  submit, and paid transitions.
+- Enforce payroll run permissions and separation of duties for create, compute,
+  approve, submit, and paid transitions.
 - Prevent placement activation without approved rate coverage.
 - Lock down legacy People/PII endpoints behind explicit PII permissions.
 

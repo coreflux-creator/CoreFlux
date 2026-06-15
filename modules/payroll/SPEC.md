@@ -36,7 +36,7 @@ Outputs:
 1. **Deterministic. Always.** No AI in the pay calculation path. AI may be used for narrative summaries (run-level commentary, anomaly detection) but never for numbers.
 2. **Engine swappable**. The MVP engine is a simple gross-to-net calculator. The interface (`PayrollEngine`) is designed so a Check HQ / Gusto adapter can be dropped in without touching the surrounding workflow.
 3. **Rate snapshot semantics** carry: each pay-run line locks to the `placement_rates.id` snapshot from time entries.
-4. **Approval before disbursement.** Always two-eye: build run ≠ approve run ≠ release payments.
+4. **Approval before disbursement.** Always two-eye: create/compute run != approve run != release payments.
 5. **W2 only** at this module. Non-W2 worker pay is `ap/`'s job.
 6. **Tax tables are versioned** — every calculation records the `tax_table_version_id` used, so re-run/replay is exact.
 7. **Off-cycle runs supported** (bonuses, corrections, terminations) without breaking the regular schedule.
@@ -221,7 +221,9 @@ class GustoEngine       implements PayrollEngine { ... }   // Phase C — adapte
 | `payroll.schedules.manage` | Define pay schedules |
 | `payroll.profiles.view` / `payroll.profiles.manage` | Per-employee setup |
 | `payroll.profiles.banking.view` / `.manage` | Encrypted DD info |
-| `payroll.run.build` | Build a payroll run |
+| `payroll.run.create` | Create or preflight a payroll run |
+| `payroll.run.build` | Access the payroll run-building workbench |
+| `payroll.run.compute` | Compute or import a payroll run |
 | `payroll.run.approve` | Approve a built run |
 | `payroll.run.disburse` | Release disbursements |
 | `payroll.run.reverse` | Reverse a disbursed run |
@@ -231,7 +233,7 @@ class GustoEngine       implements PayrollEngine { ... }   // Phase C — adapte
 | `payroll.w2.view` / `payroll.w2.generate` | W-2 ledger + form generation |
 | `payroll.reports.view` | Payroll reports |
 
-`default_roles`: `master_admin`, `tenant_admin`, `admin`. SoD: `run.build` ≠ `run.approve` ≠ `run.disburse`.
+`default_roles`: `master_admin`, `tenant_admin`, `admin`. SoD: `run.create` / `run.compute` != `run.approve` != `run.disburse`.
 
 ---
 
@@ -247,7 +249,8 @@ class GustoEngine       implements PayrollEngine { ... }   // Phase C — adapte
 - `GET|PUT /api/payroll/profiles/{id}/banking` — encrypted, audit-logged
 
 ### 6.3 Runs
-- `POST /api/payroll/runs/build` — body `{period_id, run_type}`; pulls W2 time bundles, calls `PayrollEngine::build_run`.
+- `POST /api/payroll/runs` - body `{pay_period_id, run_type}`; creates a draft run, gated by `payroll.run.create`.
+- `POST /api/payroll/runs/{id}/compute` - pulls W2 time bundles, calls `PayrollEngine::build_run`, starts Workflow Graph approval, gated by `payroll.run.compute`.
 - `GET /api/payroll/runs` / `GET /api/payroll/runs/{id}` (with all lines).
 - `POST /api/payroll/runs/{id}/approve` — gated by `payroll.run.approve`.
 - `POST /api/payroll/runs/{id}/disburse` — gated by `payroll.run.disburse`; generates DD/check files.
@@ -287,7 +290,7 @@ class GustoEngine       implements PayrollEngine { ... }   // Phase C — adapte
 
 `payroll.schedule.*` (created/updated/deactivated)
 `payroll.profile.*` (created/updated/banking_viewed/banking_updated)
-`payroll.run.*` (built/approved/disbursed/posted/reversed/voided)
+`payroll.run.*` (created/built/approved/disbursed/posted/reversed/voided)
 `payroll.deduction.*`
 `payroll.tax.*` (liability_accrued/paid/filed)
 `payroll.w2.*` (ledger_built/form_generated/submitted)

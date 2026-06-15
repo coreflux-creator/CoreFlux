@@ -66,8 +66,12 @@ $a('recompute cancels stale pending workflow',
     && str_contains($runs, "payrollRunWorkflowCancelPending(currentTenantId(), \$runId"));
 
 echo "\nRun transitions\n";
+$a('create requires payroll.run.create',
+    str_contains($runs, "rbac_legacy_require(\$user, 'payroll.run.create')"));
 $a('create stamps created_by_user_id',
     str_contains($runs, "'created_by_user_id' => \$user['id'] ?? null"));
+$a('compute requires payroll.run.compute',
+    str_contains($runs, "rbac_legacy_require(\$user, 'payroll.run.compute')"));
 $a('compute stamps computed_by_user_id',
     str_contains($runs, "'computed_by_user_id'    => \$actorUserId"));
 $a('compute starts workflow and fails closed',
@@ -134,6 +138,7 @@ $a('workflow index declared',
 foreach ([
     'payroll.run.create',
     'payroll.run.compute',
+    'payroll.run.created',
     'payroll.run.workflow_started',
     'payroll.run.workflow_start_failed',
     'payroll.run.workflow_cancelled',
