@@ -64,7 +64,8 @@ $a('helper begins + commits a transaction',
    str_contains($rateApprLib, '$pdo->beginTransaction()')
    && str_contains($rateApprLib, '$pdo->commit()')
    && str_contains($rateApprLib, '$pdo->rollBack()'));
-$a('helper emits placement.rate.approved audit', str_contains($rateApprLib, "placementsAudit('placement.rate.approved'"));
+$a('helper emits placement.rate.approved audit through tenant platform helper',
+   str_contains($rateApprLib, "placementsRateAuditForTenant(\$tenantId, (int) (\$user['id'] ?? 0), 'placement.rate.approved'"));
 $a('helper supersedes prior approved rows',
    str_contains($rateApprLib, 'SET effective_to = DATE_SUB(:eff_set, INTERVAL 1 DAY)')
    && str_contains($rateApprLib, 'superseded_by = :new_id_set'));

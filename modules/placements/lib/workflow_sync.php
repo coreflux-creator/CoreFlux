@@ -25,13 +25,16 @@ function placementsSyncRateFromWorkflow(
         $placementId = (int) ($rate['placement_id'] ?? 0);
 
         if ($action === 'reject' && $userId) {
-            placementsAudit('placement.rate.approval_rejected', [
+            placementsWorkflowAudit($tenantId, $userId, 'placement.rate.approval_rejected', [
                 'placement_id' => $placementId,
                 'rate_id' => $rateId,
                 'rejected_by_user_id' => $userId,
                 'reason' => $comment ?: 'Rejected through workflow',
                 'source' => 'workflow',
-            ], $placementId);
+            ], $placementId, [
+                'before' => $rate,
+                'after' => $rate,
+            ]);
             return;
         }
 
@@ -52,13 +55,17 @@ function placementsSyncRateFromWorkflow(
         $reason = $comment ?: ($hasPriorApproved ? 'Rate update (auto-detected supersede of prior approved row)' : null);
 
         placementsRateApproveOneForTenant($tenantId, $rateId, ['id' => $userId], $isCorrection, $reason);
-        placementsAudit('placement.rate.workflow_snapshot_locked', [
+        $updated = placementsRateWorkflowRow($tenantId, $rateId) ?? $rate;
+        placementsWorkflowAudit($tenantId, $userId, 'placement.rate.workflow_snapshot_locked', [
             'placement_id' => $placementId,
             'rate_id' => $rateId,
             'approved_by_user_id' => $userId,
             'source' => 'workflow',
             'workflow_instance_status' => $instanceStatus,
-        ], $placementId);
+        ], $placementId, [
+            'before' => $rate,
+            'after' => $updated,
+        ]);
     } catch (\Throwable $e) {
         error_log('[placements.workflow_sync] sync failed: ' . $e->getMessage());
     }

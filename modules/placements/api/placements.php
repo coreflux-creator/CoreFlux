@@ -70,6 +70,7 @@ if ($method === 'POST') {
         if (empty($fields)) api_error('fields[] required', 422);
         $row = placementGet($id);
         if (!$row) api_error('Not found', 404);
+        $before = placementAuditRow($id) ?? $row;
         $current = [];
         if (!empty($row['coreflux_overridden_fields'])) {
             $decoded = json_decode((string) $row['coreflux_overridden_fields'], true);
@@ -79,7 +80,10 @@ if ($method === 'POST') {
         scopedUpdate('placements', $id, [
             'coreflux_overridden_fields' => $remaining === [] ? null : json_encode($remaining),
         ]);
-        placementsAudit('placement.override_cleared', ['id' => $id, 'fields' => array_values($fields)], $id);
+        placementsAudit('placement.override_cleared', ['id' => $id, 'fields' => array_values($fields)], $id, [
+            'before' => $before,
+            'after' => placementAuditRow($id),
+        ]);
         api_ok(['placement' => placementGet($id)]);
     }
 
@@ -121,6 +125,7 @@ if ($method === 'POST') {
             if ($newStatus === 'active') {
                 _placementsRequireActiveReady($pid, (string) $prior['start_date'], 'bulk_status');
             }
+            $before = placementAuditRow($pid) ?? $prior;
             $rows = scopedUpdate('placements', $pid, ['status' => $newStatus]);
             if ($rows > 0) {
                 $updated++;
@@ -128,7 +133,10 @@ if ($method === 'POST') {
                     'id'     => $pid,
                     'status' => $newStatus,
                     'via'    => 'bulk_status',
-                ], $pid);
+                ], $pid, [
+                    'before' => $before,
+                    'after' => placementAuditRow($pid),
+                ]);
                 $autoApproved = 0;
                 if ($newStatus !== 'active'
                     && $prior && (string) $prior['status'] === 'draft'
@@ -169,12 +177,16 @@ if ($method === 'POST') {
         $body = api_json_body();
         $newStatus = in_array(($body['status'] ?? 'ended'), ['ended', 'cancelled'], true)
                    ? $body['status'] : 'ended';
+        $before = placementAuditRow($id);
         $rows = scopedUpdate('placements', $id, [
             'status'           => $newStatus,
             'actual_end_date'  => $body['actual_end_date'] ?? date('Y-m-d'),
         ]);
         if ($rows === 0) api_error('Not found or no change', 404);
-        placementsAudit('placement.ended', ['id' => $id, 'status' => $newStatus, 'reason' => $body['reason'] ?? null], $id);
+        placementsAudit('placement.ended', ['id' => $id, 'status' => $newStatus, 'reason' => $body['reason'] ?? null], $id, [
+            'before' => $before,
+            'after' => placementAuditRow($id),
+        ]);
         api_ok(['ok' => true, 'placement' => placementGet($id)]);
     }
 
@@ -187,10 +199,14 @@ if ($method === 'POST') {
         if ((string) ($placement['status'] ?? '') === 'active') {
             api_ok(['ok' => true, 'placement' => $placement, 'rates_auto_approved' => 0]);
         }
+        $before = placementAuditRow($id) ?? $placement;
         _placementsRequireActiveReady($id, (string) ($placement['start_date'] ?? date('Y-m-d')), 'activate_action');
         $rows = scopedUpdate('placements', $id, ['status' => 'active']);
         if ($rows === 0) api_error('Not found or no change', 404);
-        placementsAudit('placement.status_changed', ['id' => $id, 'status' => 'active', 'via' => 'activate_action'], $id);
+        placementsAudit('placement.status_changed', ['id' => $id, 'status' => 'active', 'via' => 'activate_action'], $id, [
+            'before' => $before,
+            'after' => placementAuditRow($id),
+        ]);
         api_ok(['ok' => true, 'placement' => placementGet($id), 'rates_auto_approved' => 0]);
     }
 
@@ -268,7 +284,9 @@ if ($method === 'POST') {
         } catch (\Throwable $e) { /* non-fatal */ }
     }
 
-    placementsAudit('placement.created', ['id' => $id, 'engagement_type' => $insert['engagement_type']], $id);
+    placementsAudit('placement.created', ['id' => $id, 'engagement_type' => $insert['engagement_type']], $id, [
+        'after' => placementAuditRow($id),
+    ]);
     api_ok(['placement' => placementGet($id)], 201);
 }
 
@@ -296,6 +314,7 @@ if ($method === 'PATCH') {
     // prefix) are unaffected; their fields don't need protection.
     $existing = placementGet($id);
     if (!$existing) api_error('Not found', 404);
+    $before = placementAuditRow($id) ?? $existing;
     if (($body['status'] ?? null) === 'active') {
         _placementsRequireActiveReady(
             $id,
@@ -322,9 +341,15 @@ if ($method === 'PATCH') {
     }
 
     if (isset($body['status'])) {
-        placementsAudit('placement.status_changed', ['id' => $id, 'status' => $body['status']], $id);
+        placementsAudit('placement.status_changed', ['id' => $id, 'status' => $body['status']], $id, [
+            'before' => $before,
+            'after' => placementAuditRow($id),
+        ]);
     } else {
-        placementsAudit('placement.updated', ['id' => $id, 'fields' => array_keys($body)], $id);
+        placementsAudit('placement.updated', ['id' => $id, 'fields' => array_keys($body)], $id, [
+            'before' => $before,
+            'after' => placementAuditRow($id),
+        ]);
     }
 
     // Auto-approve side effect: when a placement leaves `draft` for any
@@ -356,6 +381,7 @@ api_error('Method not allowed', 405);
 function _placementsRequireActiveReady(int $placementId, ?string $asOf, string $via): void
 {
     $asOf = $asOf ?: date('Y-m-d');
+    $placement = placementAuditRow($placementId);
     $rate = placementCurrentRate($placementId, $asOf);
     if ($rate) {
         placementsAudit('placement.activation_rate_verified', [
@@ -363,7 +389,10 @@ function _placementsRequireActiveReady(int $placementId, ?string $asOf, string $
             'rate_id'      => (int) ($rate['id'] ?? 0),
             'as_of'        => $asOf,
             'via'          => $via,
-        ], $placementId);
+        ], $placementId, [
+            'before' => $placement,
+            'after' => $placement,
+        ]);
         return;
     }
 
@@ -372,7 +401,10 @@ function _placementsRequireActiveReady(int $placementId, ?string $asOf, string $
         'as_of'        => $asOf,
         'via'          => $via,
         'reason'       => 'missing_approved_rate_coverage',
-    ], $placementId);
+    ], $placementId, [
+        'before' => $placement,
+        'after' => $placement,
+    ]);
     api_error(
         "Placement cannot become active without an approved rate covering {$asOf}. Approve a bill/pay rate first.",
         422,

@@ -218,7 +218,9 @@ if ($method === 'POST') {
         'background_fee_total' => $body['background_fee_total'] ?? null,
         'created_by_user_id'   => $user['id'] ?? null,
     ]);
-    placementsAudit('placement.rate.drafted', ['placement_id' => $pid, 'rate_id' => $id], $pid);
+    placementsAudit('placement.rate.drafted', ['placement_id' => $pid, 'rate_id' => $id], $pid, [
+        'after' => placementsRateAuditRowForTenant(currentTenantId(), $id),
+    ]);
     $workflowInstanceId = placementsRateWorkflowStart(currentTenantId(), $id, (int) ($user['id'] ?? 0));
     if (!$workflowInstanceId) {
         api_error('Could not start placement rate approval workflow', 503);

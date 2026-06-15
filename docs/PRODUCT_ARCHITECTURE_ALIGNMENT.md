@@ -404,6 +404,16 @@ Placement activation and rate approval are separate governed actions.
 - Existing draft-rate catch-up remains WorkflowGraph/financial-approval gated
   for non-active draft promotion paths, but activation never invokes it.
 
+Current implementation status:
+
+- `placementsAudit`, `placementsWorkflowAudit`, and placement rate tenant-audit
+  helpers delegate to the shared `platformAuditLogWrite` writer with placement
+  source/object metadata.
+- Rate drafting, WorkflowGraph start, approval/rejection sync, snapshot locking,
+  supersede closure, activation readiness, and placement status transitions
+  capture source-row snapshots where placement or rate state is created or
+  materially changed.
+
 ### Accounts Payable Bill And Payment Controls
 
 AP bill approval is a Workflow Graph decision with People Graph approver

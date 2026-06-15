@@ -50,6 +50,12 @@ if (!function_exists('placementsRateApproveOneForTenant')) {
         $chainStmt->execute(['tenant_id' => $tenantId, 'pid' => (int) $rate['placement_id']]);
         $chain = $chainStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
         $margin = placementsComputeMargin($rate, $chain);
+        $supersededBefore = placementsRateAuditRowsForTenant(
+            $tenantId,
+            (int) $rate['placement_id'],
+            (string) $rate['effective_from'],
+            $rateId
+        );
 
         $pdo->beginTransaction();
         try {
@@ -101,6 +107,7 @@ if (!function_exists('placementsRateApproveOneForTenant')) {
             throw $e;
         }
 
+        $approvedRate = placementsRateAuditRowForTenant($tenantId, $rateId) ?? $rate;
         $approvedMeta = [
             'placement_id'         => (int) $rate['placement_id'],
             'rate_id'              => $rateId,
@@ -112,50 +119,107 @@ if (!function_exists('placementsRateApproveOneForTenant')) {
             'correction_reason'    => $correctionReason,
             'superseded_count'     => $closed,
         ];
-        $currentTenant = function_exists('currentTenantId') ? (int) currentTenantId() : $tenantId;
-        if ($tenantId === $currentTenant) {
-            placementsAudit('placement.rate.approved', $approvedMeta, (int) $rate['placement_id']);
-        } else {
-            placementsRateAuditForTenant($tenantId, (int) ($user['id'] ?? 0), 'placement.rate.approved', $approvedMeta, (int) $rate['placement_id']);
-        }
+        placementsRateAuditForTenant($tenantId, (int) ($user['id'] ?? 0), 'placement.rate.approved', $approvedMeta, (int) $rate['placement_id'], [
+            'before' => $rate,
+            'after' => $approvedRate,
+        ]);
 
         if ($closed > 0) {
+            $supersededAfter = placementsRateAuditRowsByIdsForTenant(
+                $tenantId,
+                array_map(static fn(array $row): int => (int) $row['id'], $supersededBefore)
+            );
             $supersededMeta = [
                 'placement_id' => (int) $rate['placement_id'],
                 'by_rate_id' => $rateId,
                 'count' => $closed,
             ];
-            if ($tenantId === $currentTenant) {
-                placementsAudit('placement.rate.superseded', $supersededMeta, (int) $rate['placement_id']);
-            } else {
-                placementsRateAuditForTenant($tenantId, (int) ($user['id'] ?? 0), 'placement.rate.superseded', $supersededMeta, (int) $rate['placement_id']);
-            }
+            placementsRateAuditForTenant($tenantId, (int) ($user['id'] ?? 0), 'placement.rate.superseded', $supersededMeta, (int) $rate['placement_id'], [
+                'before' => $supersededBefore,
+                'after' => $supersededAfter,
+            ]);
         }
 
         return ['margin' => $margin, 'superseded_count' => $closed];
     }
 }
 
+if (!function_exists('placementsRateAuditRowForTenant')) {
+    function placementsRateAuditRowForTenant(int $tenantId, int $rateId): ?array
+    {
+        $pdo = getDB();
+        if (!$pdo) return null;
+        $stmt = $pdo->prepare('SELECT * FROM placement_rates WHERE tenant_id = :t AND id = :id LIMIT 1');
+        $stmt->execute(['t' => $tenantId, 'id' => $rateId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+}
+
+if (!function_exists('placementsRateAuditRowsForTenant')) {
+    function placementsRateAuditRowsForTenant(int $tenantId, int $placementId, string $effectiveFrom, int $newRateId): array
+    {
+        $pdo = getDB();
+        if (!$pdo) return [];
+        $stmt = $pdo->prepare(
+            'SELECT * FROM placement_rates
+              WHERE tenant_id = :t AND placement_id = :pid
+                AND id != :rid
+                AND approved_at IS NOT NULL
+                AND effective_from <= :eff_lo
+                AND (effective_to IS NULL OR effective_to >= :eff_hi)
+              ORDER BY id ASC'
+        );
+        $stmt->execute([
+            't' => $tenantId,
+            'pid' => $placementId,
+            'rid' => $newRateId,
+            'eff_lo' => $effectiveFrom,
+            'eff_hi' => $effectiveFrom,
+        ]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+}
+
+if (!function_exists('placementsRateAuditRowsByIdsForTenant')) {
+    function placementsRateAuditRowsByIdsForTenant(int $tenantId, array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0)));
+        if (!$ids) return [];
+        $pdo = getDB();
+        if (!$pdo) return [];
+        $placeholders = [];
+        $params = ['t' => $tenantId];
+        foreach ($ids as $i => $id) {
+            $key = 'id' . $i;
+            $placeholders[] = ':' . $key;
+            $params[$key] = $id;
+        }
+        $stmt = $pdo->prepare(
+            'SELECT * FROM placement_rates
+              WHERE tenant_id = :t AND id IN (' . implode(',', $placeholders) . ')
+              ORDER BY id ASC'
+        );
+        $stmt->execute($params);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+}
+
 if (!function_exists('placementsRateAuditForTenant')) {
-    function placementsRateAuditForTenant(int $tenantId, ?int $actorUserId, string $event, array $meta = [], ?int $targetId = null): void
+    function placementsRateAuditForTenant(
+        int $tenantId,
+        ?int $actorUserId,
+        string $event,
+        array $meta = [],
+        ?int $targetId = null,
+        array $opts = []
+    ): void
     {
         try {
-            $pdo = getDB();
-            if (!$pdo) return;
-            $stmt = $pdo->prepare(
-                'INSERT INTO audit_log
-                 (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, request_id, created_at)
-                 VALUES (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, :ip_address, :request_id, NOW())'
-            );
-            $stmt->execute([
-                'tenant_id'     => $tenantId,
-                'actor_user_id' => $actorUserId,
-                'event'         => $event,
-                'target_id'     => $targetId,
-                'meta_json'     => $meta ? json_encode($meta, JSON_UNESCAPED_SLASHES) : null,
-                'ip_address'    => $_SERVER['REMOTE_ADDR'] ?? null,
-                'request_id'    => $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
-            ]);
+            platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, array_merge([
+                'object_type' => placementsAuditObjectType($event),
+                'source' => $meta['source'] ?? 'placements',
+            ], $opts));
         } catch (\Throwable $e) {
             error_log("[placements.rate.audit] db-write-failed: " . $e->getMessage() . " event={$event}");
         }

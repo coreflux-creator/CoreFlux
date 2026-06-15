@@ -8,38 +8,25 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
+require_once __DIR__ . '/../../../core/audit.php';
 require_once __DIR__ . '/../../../core/domain_people_graph.php';
 require_once __DIR__ . '/../../../core/workflow_engine.php';
 require_once __DIR__ . '/placements.php';
 
 /** @internal */
-function placementsWorkflowAudit(int $tenantId, ?int $actorUserId, string $event, array $meta = [], ?int $targetId = null): void
+function placementsWorkflowAudit(
+    int $tenantId,
+    ?int $actorUserId,
+    string $event,
+    array $meta = [],
+    ?int $targetId = null,
+    array $opts = []
+): void
 {
-    $currentTenant = function_exists('currentTenantId') ? (int) (currentTenantId() ?? 0) : 0;
-    if ($currentTenant > 0 && $currentTenant === $tenantId) {
-        placementsAudit($event, $meta, $targetId);
-        return;
-    }
-    try {
-        $pdo = getDB();
-        if (!$pdo) return;
-        $stmt = $pdo->prepare(
-            'INSERT INTO audit_log
-             (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, request_id, created_at)
-             VALUES (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, :ip_address, :request_id, NOW())'
-        );
-        $stmt->execute([
-            'tenant_id' => $tenantId,
-            'actor_user_id' => $actorUserId,
-            'event' => $event,
-            'target_id' => $targetId,
-            'meta_json' => $meta ? json_encode($meta, JSON_UNESCAPED_SLASHES) : null,
-            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
-            'request_id' => $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
-        ]);
-    } catch (\Throwable $e) {
-        error_log("[placements.workflow.audit] db-write-failed: " . $e->getMessage() . " event={$event}");
-    }
+    platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, array_merge([
+        'object_type' => 'placement_rate',
+        'source' => $meta['source'] ?? 'placements',
+    ], $opts));
 }
 
 function placementsRateWorkflowRow(int $tenantId, int $rateId): ?array
@@ -215,6 +202,8 @@ function placementsRateWorkflowStart(int $tenantId, int $rateId, ?int $actorUser
             )->execute(['w' => $instanceId, 't' => $tenantId, 'id' => $rateId]);
         } catch (\Throwable $_) { /* schema drift: workflow instance still exists */ }
 
+        $latest = placementsRateWorkflowRow($tenantId, $rateId) ?? $rate;
+        $payload = placementsRateWorkflowPayload($latest, $actorUserId);
         $pdo->prepare(
             'UPDATE workflow_instances
                 SET payload_json = :payload, last_activity_at = NOW()
@@ -231,14 +220,20 @@ function placementsRateWorkflowStart(int $tenantId, int $rateId, ?int $actorUser
             'rate_id' => $rateId,
             'workflow_instance_id' => $instanceId,
             'drafted_by_user_id' => $rate['created_by_user_id'] ?? null,
-        ], (int) $rate['placement_id']);
+        ], (int) $rate['placement_id'], [
+            'before' => $rate,
+            'after' => $latest,
+        ]);
         return $instanceId;
     } catch (\Throwable $e) {
         placementsWorkflowAudit($tenantId, $actorUserId, 'placement.rate.workflow_start_failed', [
             'placement_id' => (int) ($rate['placement_id'] ?? 0),
             'rate_id' => $rateId,
             'reason' => $e->getMessage(),
-        ], (int) ($rate['placement_id'] ?? 0));
+        ], (int) ($rate['placement_id'] ?? 0), [
+            'before' => $rate,
+            'after' => $rate,
+        ]);
         error_log('[placements.rate.workflow] start failed: ' . $e->getMessage());
         return null;
     }
@@ -326,7 +321,10 @@ function placementsRateWorkflowAct(
             'workflow_instance_id' => $instanceId,
             'workflow_status' => $instance['status'] ?? null,
             'approved' => $approved,
-        ], (int) $rate['placement_id']);
+        ], (int) $rate['placement_id'], [
+            'before' => $rate,
+            'after' => $updated,
+        ]);
         return [
             'applied' => true,
             'approved' => $approved,
@@ -339,7 +337,10 @@ function placementsRateWorkflowAct(
             'rate_id' => $rateId,
             'control' => 'workflow_engine',
             'reason' => $e->getMessage(),
-        ], (int) ($rate['placement_id'] ?? 0));
+        ], (int) ($rate['placement_id'] ?? 0), [
+            'before' => $rate,
+            'after' => $rate,
+        ]);
         throw $e;
     }
 }
