@@ -59,7 +59,9 @@ $a('Rate-limit (429) Retry-After honored',   strpos($svc, '$http === 429') !== f
 $a('Bearer auth header',                     strpos($svc, "'Authorization: Bearer '") !== false);
 $a('X-Gusto-API-Version pinned',             strpos($svc, 'X-Gusto-API-Version: 2024-04-01') !== false);
 $a('Webhook HMAC verifier',                  strpos($svc, 'function gustoVerifyWebhook') !== false);
-$a('Audit helper writes audit_log',          strpos($svc, "INSERT INTO audit_log") !== false);
+$a('Audit helper uses platform audit writer',
+    strpos($svc, 'platformAuditLogWrite(') !== false &&
+    strpos($svc, "INSERT INTO audit_log") === false);
 $a('GustoApiException + GustoAuthException', strpos($svc, 'class GustoApiException') !== false && strpos($svc, 'class GustoAuthException') !== false);
 
 echo "\ncore/gusto_service.php — pure runtime tests\n";

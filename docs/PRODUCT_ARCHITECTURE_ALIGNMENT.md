@@ -425,6 +425,10 @@ Current implementation status:
   `payrollAuditLight`, which delegates to `payrollAudit` and emits cycle,
   period, and draft-run snapshots where cycle generation creates downstream
   payroll artifacts.
+- Gusto connection, token refresh, webhook, and Track B sync events write
+  through `gustoAudit`, which delegates to the shared platform audit writer,
+  carries explicit tenant/actor context where available, and scrubs encrypted
+  token ciphertext from connection snapshots.
 
 ### Placement Activation And Rates
 

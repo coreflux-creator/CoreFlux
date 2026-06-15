@@ -67,14 +67,14 @@ function gustoSyncEmployees(array $conn): array
             if (!empty($emp['gusto_employee_uuid'])) {
                 gustoRequest('PUT',
                     '/v1/employees/' . urlencode((string) $emp['gusto_employee_uuid']),
-                    $payload, ['conn' => $conn]
+                    $payload, ['connection' => $conn]
                 );
                 $result['skipped']++;
                 $result['details'][] = ['id' => $emp['id'], 'status' => 'updated', 'uuid' => $emp['gusto_employee_uuid']];
             } else {
                 $resp = gustoRequest('POST',
                     '/v1/companies/' . urlencode($companyUuid) . '/employees',
-                    $payload, ['conn' => $conn]
+                    $payload, ['connection' => $conn]
                 );
                 $uuid = (string) ($resp['uuid'] ?? '');
                 if ($uuid !== '') {
@@ -92,7 +92,9 @@ function gustoSyncEmployees(array $conn): array
         }
     }
 
-    gustoAudit('payroll.gusto.employees_synced', $result, null);
+    gustoAudit('payroll.gusto.employees_synced', $result, null, [
+        'tenant_id' => $tenantId,
+    ]);
     return $result;
 }
 
@@ -141,13 +143,13 @@ function gustoSyncPaySchedules(array $conn): array
                 gustoRequest('PUT',
                     '/v1/companies/' . urlencode($companyUuid)
                     . '/pay_schedules/' . urlencode((string) $sch['gusto_pay_schedule_uuid']),
-                    $payload, ['conn' => $conn]
+                    $payload, ['connection' => $conn]
                 );
                 $result['skipped']++;
             } else {
                 $resp = gustoRequest('POST',
                     '/v1/companies/' . urlencode($companyUuid) . '/pay_schedules',
-                    $payload, ['conn' => $conn]
+                    $payload, ['connection' => $conn]
                 );
                 $uuid = (string) ($resp['uuid'] ?? '');
                 if ($uuid !== '') {
@@ -165,7 +167,9 @@ function gustoSyncPaySchedules(array $conn): array
         }
     }
 
-    gustoAudit('payroll.gusto.pay_schedules_synced', $result, null);
+    gustoAudit('payroll.gusto.pay_schedules_synced', $result, null, [
+        'tenant_id' => $tenantId,
+    ]);
     return $result;
 }
 
@@ -202,7 +206,7 @@ function gustoSyncCompensations(array $conn): array
             // Find latest job for the employee, then update its compensation.
             $jobs = gustoRequest('GET',
                 '/v1/employees/' . urlencode((string) $r['gusto_employee_uuid']) . '/jobs',
-                null, ['conn' => $conn]
+                null, ['connection' => $conn]
             );
             $job = is_array($jobs) ? ($jobs[0] ?? null) : null;
             $jobUuid = is_array($job) ? (string) ($job['uuid'] ?? '') : '';
@@ -214,12 +218,12 @@ function gustoSyncCompensations(array $conn): array
             if ($compUuid !== '') {
                 gustoRequest('PUT',
                     '/v1/compensations/' . urlencode($compUuid),
-                    $payload, ['conn' => $conn]
+                    $payload, ['connection' => $conn]
                 );
             } else {
                 gustoRequest('POST',
                     '/v1/jobs/' . urlencode($jobUuid) . '/compensations',
-                    $payload, ['conn' => $conn]
+                    $payload, ['connection' => $conn]
                 );
             }
             $result['synced']++;
@@ -229,7 +233,9 @@ function gustoSyncCompensations(array $conn): array
         }
     }
 
-    gustoAudit('payroll.gusto.compensations_synced', $result, null);
+    gustoAudit('payroll.gusto.compensations_synced', $result, null, [
+        'tenant_id' => $tenantId,
+    ]);
     return $result;
 }
 
@@ -248,7 +254,7 @@ function gustoEnsureWebhookSubscription(array $conn): array
     try {
         $resp = gustoRequest('GET',
             '/v1/companies/' . urlencode($companyUuid) . '/webhook_subscriptions',
-            null, ['conn' => $conn]
+            null, ['connection' => $conn]
         );
         $existing = is_array($resp) ? $resp : [];
     } catch (\Throwable $e) {
@@ -271,13 +277,15 @@ function gustoEnsureWebhookSubscription(array $conn): array
     ];
     $resp = gustoRequest('POST',
         '/v1/companies/' . urlencode($companyUuid) . '/webhook_subscriptions',
-        $payload, ['conn' => $conn]
+        $payload, ['connection' => $conn]
     );
     gustoAudit('payroll.gusto.webhook_subscribed', [
         'company_uuid' => $companyUuid,
         'url'          => $url,
         'subscription_uuid' => (string) ($resp['uuid'] ?? ''),
-    ], null);
+    ], null, [
+        'tenant_id' => (int) ($conn['tenant_id'] ?? 0),
+    ]);
     return ['status' => 'created', 'subscription_uuid' => (string) ($resp['uuid'] ?? '')];
 }
 

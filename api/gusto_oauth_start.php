@@ -24,7 +24,10 @@ try {
     api_error('Failed to build Gusto authorization URL: ' . $e->getMessage(), 500);
 }
 
-gustoAudit('payroll.gusto.connect_initiated', ['env' => gustoEnv()]);
+gustoAudit('payroll.gusto.connect_initiated', ['env' => gustoEnv()], null, [
+    'tenant_id' => (int) $ctx['tenant_id'],
+    'actor_user_id' => (int) ($ctx['user']['id'] ?? 0),
+]);
 
 // Browser-friendly redirect; clients that prefer JSON can pass ?format=json.
 if (($_GET['format'] ?? '') === 'json') api_ok(['authorize_url' => $url]);

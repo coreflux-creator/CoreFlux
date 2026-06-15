@@ -239,7 +239,12 @@ try {
         'after' => payrollGustoRunAuditRow((int) $ctx['tenant_id'], $runId) ?? $run,
     ]);
     gustoAudit('payroll.gusto.run_submitted',
-        ['run_id' => $runId, 'payroll_uuid' => $payrollUuid, 'final_status' => $finalStatus], $runId);
+        ['run_id' => $runId, 'payroll_uuid' => $payrollUuid, 'final_status' => $finalStatus], $runId, [
+            'tenant_id' => (int) $ctx['tenant_id'],
+            'actor_user_id' => (int) ($ctx['user']['id'] ?? 0),
+            'before' => $run,
+            'after' => payrollGustoRunAuditRow((int) $ctx['tenant_id'], $runId) ?? $run,
+        ]);
 
     // touch last_used_at
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
