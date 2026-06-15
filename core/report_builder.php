@@ -368,6 +368,20 @@ function reportBuilderAssertDefinitionFieldsAccessible(array $definition, array 
     }
 }
 
+function reportBuilderDefinitionAccessibleToUser(array $definition, array $user, ?int $tenantId = null): bool
+{
+    try {
+        $datasetKey = (string) ($definition['dataset'] ?? '');
+        $dataset = reportBuilderDatasetGetForUser($datasetKey, $user, $tenantId);
+        if (!$dataset || !reportBuilderUserCanAccessDataset($user, $dataset)) return false;
+        $validated = reportBuilderValidateDefinition($definition, $tenantId);
+        reportBuilderAssertDefinitionFieldsAccessible($validated, $user, $tenantId);
+        return true;
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
 function reportBuilderDefinitionFieldKeys(array $definition): array
 {
     $out = [];
@@ -815,6 +829,23 @@ function reportBuilderSavedReportList(int $tenantId, int $userId, ?string $datas
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     return array_map('reportBuilderHydrateSavedReport', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
+}
+
+function reportBuilderSavedReportAccessibleToUser(array $report, array $user, ?int $tenantId = null): bool
+{
+    $definition = is_array($report['definition'] ?? null) ? $report['definition'] : [];
+    return reportBuilderDefinitionAccessibleToUser($definition, $user, $tenantId);
+}
+
+function reportBuilderFilterSavedReportsForUser(array $reports, array $user, ?int $tenantId = null): array
+{
+    $out = [];
+    foreach ($reports as $report) {
+        if (is_array($report) && reportBuilderSavedReportAccessibleToUser($report, $user, $tenantId)) {
+            $out[] = $report;
+        }
+    }
+    return $out;
 }
 
 function reportBuilderSavedReportGet(int $id, int $tenantId, int $userId, bool $canManageShared = false): array

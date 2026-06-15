@@ -56,9 +56,11 @@ as `visible_to` and `editable_by`. Discovery APIs call
 `exportDatasetFieldRegistryForUser()` so users only see template fields their
 role can view. Template create, update, clone, and single-template reads reject
 or hide templates that reference a custom field hidden from the current actor.
-Execution passes the actor into dataset fetchers; People and Placements custom
-field values are only hydrated when the actor satisfies the field's
-`visible_to` set.
+The shared export runner repeats that mapping-visibility check before any CSV
+headers are sent, so module export endpoints cannot execute a stale or guessed
+template that references a hidden field. Execution passes the actor into dataset
+fetchers; People and Placements custom field values are only hydrated when the
+actor satisfies the field's `visible_to` set.
 
 The sensitive-field helper is tenant-aware so tenant-defined PII fields are
 recognized with the same `custom_fields.{entity_type}.{field_key}` keys that

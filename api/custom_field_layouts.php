@@ -38,7 +38,7 @@ if (in_array($method, ['PUT', 'PATCH', 'DELETE'], true)) {
                 'entity_type' => $entityType,
                 'surface' => strtolower($surface),
             ]);
-            api_ok(['layout' => customFieldSurfaceLayout($entityType, $surface, $tenantId) + [
+            api_ok(['layout' => customFieldSurfaceLayoutForUser($entityType, $surface, $tenantId, $user, $presented['can_manage']) + [
                 'can_view' => $presented['can_view'],
                 'can_manage' => $presented['can_manage'],
             ]]);
@@ -51,7 +51,7 @@ if (in_array($method, ['PUT', 'PATCH', 'DELETE'], true)) {
             'surface' => (string) ($saved['surface'] ?? strtolower($surface)),
             'layout_keys' => array_keys($saved['layout'] ?? []),
         ]);
-        api_ok(['layout' => $saved + [
+        api_ok(['layout' => customFieldSurfaceLayoutForUser($entityType, $surface, $tenantId, $user, $presented['can_manage']) + [
             'can_view' => $presented['can_view'],
             'can_manage' => $presented['can_manage'],
         ]]);
@@ -69,7 +69,7 @@ if ($entityType !== '') {
     if (!$presented['can_view'] && !$presented['can_manage']) api_error('Forbidden', 403);
     if ($surface !== '') {
         try {
-            api_ok(['layout' => customFieldSurfaceLayout($entityType, $surface, $tenantId) + [
+            api_ok(['layout' => customFieldSurfaceLayoutForUser($entityType, $surface, $tenantId, $user, $presented['can_manage']) + [
                 'can_view' => $presented['can_view'],
                 'can_manage' => $presented['can_manage'],
             ]]);
@@ -78,7 +78,7 @@ if ($entityType !== '') {
         }
     }
     api_ok(['entity' => $presented + [
-        'surface_layouts' => customFieldAllSurfaceLayouts($entityType, $tenantId)[$entityType] ?? [],
+        'surface_layouts' => customFieldAllSurfaceLayoutsForUser($entityType, $tenantId, $user, $presented['can_manage']),
     ]]);
 }
 
@@ -88,7 +88,7 @@ foreach (customFieldEntityRegistry() as $entity) {
     if ($presented['can_view'] || $presented['can_manage']) {
         $key = (string) $presented['entity_type'];
         $entities[] = $presented + [
-            'surface_layouts' => customFieldAllSurfaceLayouts($key, $tenantId)[$key] ?? [],
+            'surface_layouts' => customFieldAllSurfaceLayoutsForUser($key, $tenantId, $user, $presented['can_manage']),
         ];
     }
 }

@@ -143,6 +143,170 @@ function customFieldMergeSurfaceLayout(array $base, string $surface, array $over
     return $base;
 }
 
+function customFieldSurfaceLayoutFieldSlots(string $surface): array
+{
+    return match (strtolower(trim($surface))) {
+        'forms', 'detail' => ['field_order'],
+        'lists', 'exports' => ['columns'],
+        'reports' => ['dimensions', 'filters'],
+        default => [],
+    };
+}
+
+function customFieldSurfaceLayoutMetadataKeys(): array
+{
+    return [
+        'field_def_id' => true,
+        'field_key' => true,
+        'field_label' => true,
+        'field_type' => true,
+        'options_json' => true,
+        'required' => true,
+        'is_required' => true,
+        'pii' => true,
+        'order_index' => true,
+        'visible_to' => true,
+        'editable_by' => true,
+        'archived' => true,
+        'is_archived' => true,
+        'deleted_at' => true,
+        'value' => true,
+        'updated_at' => true,
+    ];
+}
+
+function customFieldSurfaceLayoutIncludesArchived(string $surface): bool
+{
+    return in_array(strtolower(trim($surface)), ['exports', 'reports'], true);
+}
+
+function customFieldSurfaceLayoutAllowedFieldKeys(
+    int $tenantId,
+    string $entityType,
+    string $surface
+): array {
+    $allowed = [];
+    foreach (customFieldDefinitions($tenantId, $entityType, customFieldSurfaceLayoutIncludesArchived($surface)) as $def) {
+        $key = (string) ($def['field_key'] ?? '');
+        if ($key === '') continue;
+        $allowed[$key] = true;
+        if (customFieldSurfaceLayoutIncludesArchived($surface)) {
+            $allowed['custom_fields.' . $entityType . '.' . $key] = true;
+        }
+    }
+    if (strtolower(trim($surface)) === 'lists') {
+        $allowed += customFieldSurfaceLayoutMetadataKeys();
+    }
+    return $allowed;
+}
+
+function customFieldValidateSurfaceLayout(int $tenantId, string $entityType, string $surface, array $layout): array
+{
+    $surface = strtolower(trim($surface));
+    $normalized = customFieldNormalizeSurfaceLayout([$surface => $layout], $surface);
+    $slots = customFieldSurfaceLayoutFieldSlots($surface);
+    if (!$slots) return $normalized;
+
+    $allowed = customFieldSurfaceLayoutAllowedFieldKeys($tenantId, $entityType, $surface);
+    foreach ($slots as $slot) {
+        foreach (array_values((array) ($normalized[$slot] ?? [])) as $fieldKey) {
+            $fieldKey = (string) $fieldKey;
+            if ($fieldKey === '' || isset($allowed[$fieldKey])) continue;
+            throw new InvalidArgumentException("Layout {$surface}.{$slot} references unknown custom field '{$fieldKey}'");
+        }
+    }
+    return $normalized;
+}
+
+function customFieldSurfaceLayoutVisibleFieldKeys(
+    int $tenantId,
+    string $entityType,
+    string $surface,
+    array $user,
+    bool $includeRestricted = false
+): array {
+    $visible = [];
+    try {
+        foreach (customFieldDefinitions($tenantId, $entityType, customFieldSurfaceLayoutIncludesArchived($surface)) as $def) {
+            if (!$includeRestricted && !customFieldUserCanViewDefinition($user, $def)) continue;
+            $key = (string) ($def['field_key'] ?? '');
+            if ($key === '') continue;
+            $visible[$key] = true;
+            if (customFieldSurfaceLayoutIncludesArchived($surface)) {
+                $visible['custom_fields.' . $entityType . '.' . $key] = true;
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('[custom_fields.layouts] field visibility unavailable: ' . $e->getMessage());
+    }
+    if (strtolower(trim($surface)) === 'lists') {
+        $visible += customFieldSurfaceLayoutMetadataKeys();
+    }
+    return $visible;
+}
+
+function customFieldFilterSurfaceLayoutForUser(
+    int $tenantId,
+    string $entityType,
+    string $surface,
+    array $layout,
+    array $user,
+    bool $includeRestricted = false
+): array {
+    $slots = customFieldSurfaceLayoutFieldSlots($surface);
+    if (!$slots) return $layout;
+    $visible = customFieldSurfaceLayoutVisibleFieldKeys($tenantId, $entityType, $surface, $user, $includeRestricted);
+    foreach ($slots as $slot) {
+        if (!isset($layout[$slot]) || !is_array($layout[$slot])) continue;
+        $layout[$slot] = array_values(array_filter(
+            $layout[$slot],
+            static fn($fieldKey) => isset($visible[(string) $fieldKey])
+        ));
+    }
+    return $layout;
+}
+
+function customFieldSurfaceLayoutForUser(
+    string $entityType,
+    string $surface,
+    int $tenantId,
+    array $user,
+    bool $includeRestricted = false
+): array {
+    $resolved = customFieldSurfaceLayout($entityType, $surface, $tenantId);
+    $resolved['layout'] = customFieldFilterSurfaceLayoutForUser(
+        $tenantId,
+        $entityType,
+        (string) ($resolved['surface'] ?? $surface),
+        (array) ($resolved['layout'] ?? []),
+        $user,
+        $includeRestricted
+    );
+    $resolved['field_access_enforced'] = true;
+    return $resolved;
+}
+
+function customFieldAllSurfaceLayoutsForUser(
+    string $entityType,
+    int $tenantId,
+    array $user,
+    bool $includeRestricted = false
+): array {
+    $entity = customFieldEntity($entityType);
+    if (!$entity) throw new InvalidArgumentException("Unknown custom field entity: {$entityType}");
+    $out = [];
+    foreach (($entity['surfaces'] ?? ['forms', 'detail', 'lists', 'exports', 'reports']) as $surface) {
+        $out[(string) $surface] = customFieldSurfaceLayoutForUser(
+            $entityType,
+            (string) $surface,
+            $tenantId,
+            $user,
+            $includeRestricted
+        );
+    }
+    return $out;
+}
+
 function customFieldSurfaceLayoutSave(
     int $tenantId,
     string $entityType,
@@ -153,7 +317,7 @@ function customFieldSurfaceLayoutSave(
     $resolved = customFieldSurfaceLayout($entityType, $surface, null);
     if (empty($resolved['enabled'])) throw new InvalidArgumentException("Surface '{$surface}' is not enabled for {$entityType}");
     $surface = (string) $resolved['surface'];
-    $normalized = customFieldNormalizeSurfaceLayout([$surface => $layout], $surface);
+    $normalized = customFieldValidateSurfaceLayout($tenantId, $entityType, $surface, $layout);
     $json = json_encode($normalized, JSON_UNESCAPED_SLASHES);
     if ($json === false) throw new InvalidArgumentException('layout could not be encoded');
 

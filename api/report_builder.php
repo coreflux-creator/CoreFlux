@@ -33,9 +33,14 @@ if ($method === 'GET' && $action === 'reports') {
     $id = (int) api_query('id', 0);
     try {
         if ($id > 0) {
-            api_ok(['report' => reportBuilderSavedReportGet($id, $tenantId, $userId, reportBuilderUserCanShare($user))]);
+            $report = reportBuilderSavedReportGet($id, $tenantId, $userId, reportBuilderUserCanShare($user));
+            if (!reportBuilderSavedReportAccessibleToUser($report, $user, $tenantId)) {
+                api_error('Saved report not found', 404);
+            }
+            api_ok(['report' => $report]);
         }
-        api_ok(['reports' => reportBuilderSavedReportList($tenantId, $userId, $datasetKey ?: null)]);
+        $reports = reportBuilderSavedReportList($tenantId, $userId, $datasetKey ?: null);
+        api_ok(['reports' => reportBuilderFilterSavedReportsForUser($reports, $user, $tenantId)]);
     } catch (ReportBuilderException $e) {
         api_error($e->getMessage(), 404);
     }
@@ -46,6 +51,7 @@ if ($method === 'GET' && $action === 'presets') {
     foreach (reportBuilderPresetRegistry($tenantId) as $key => $preset) {
         $dataset = reportBuilderDatasetGetForUser((string) ($preset['dataset'] ?? ''), $user, $tenantId);
         if (!$dataset || !reportBuilderUserCanAccessDataset($user, $dataset)) continue;
+        if (!reportBuilderDefinitionAccessibleToUser((array) ($preset['definition'] ?? []), $user, $tenantId)) continue;
         $presets[$key] = $preset;
     }
     api_ok([
@@ -82,7 +88,7 @@ if ($method === 'POST' && $action === 'run') {
     if (!reportBuilderUserCanBuild($user)) api_error('Forbidden', 403, ['required' => 'reports.custom.build']);
     $body = api_json_body();
     try {
-        $resolved = reportBuilderApiResolveDefinition($body, $tenantId, $userId, reportBuilderUserCanShare($user));
+        $resolved = reportBuilderApiResolveDefinition($body, $tenantId, $userId, reportBuilderUserCanShare($user), $user);
         $definition = $resolved['definition'];
         $targetId = $resolved['target_id'];
         $definition = reportBuilderValidateDefinition((array) $definition, $tenantId);
@@ -124,7 +130,7 @@ if ($method === 'POST' && $action === 'export') {
     if (!reportBuilderUserCanExport($user)) api_error('Forbidden', 403, ['required' => 'reports.export']);
     $body = api_json_body();
     try {
-        $resolved = reportBuilderApiResolveDefinition($body, $tenantId, $userId, reportBuilderUserCanShare($user));
+        $resolved = reportBuilderApiResolveDefinition($body, $tenantId, $userId, reportBuilderUserCanShare($user), $user);
         $definition = $resolved['definition'];
         $targetId = $resolved['target_id'];
         $definition = reportBuilderValidateDefinition((array) $definition, $tenantId);
@@ -232,10 +238,13 @@ if ($method === 'DELETE') {
 
 api_error('Method not allowed', 405);
 
-function reportBuilderApiResolveDefinition(array $body, int $tenantId, int $userId, bool $canShare): array
+function reportBuilderApiResolveDefinition(array $body, int $tenantId, int $userId, bool $canShare, ?array $user = null): array
 {
     if (!empty($body['report_id'])) {
         $saved = reportBuilderSavedReportGet((int) $body['report_id'], $tenantId, $userId, $canShare);
+        if ($user !== null && !reportBuilderSavedReportAccessibleToUser($saved, $user, $tenantId)) {
+            throw new ReportBuilderAccessException('Saved report is not visible to the current user');
+        }
         return [
             'definition' => $saved['definition'] ?? [],
             'target_id' => (int) ($saved['id'] ?? 0),

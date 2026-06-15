@@ -125,8 +125,13 @@ $assert('report builder filters datasets by field-level visibility',
     function_exists('reportBuilderDatasetRegistryForUser')
     && function_exists('reportBuilderDatasetGetForUser')
     && function_exists('reportBuilderAssertDefinitionFieldsAccessible')
+    && function_exists('reportBuilderDefinitionAccessibleToUser')
     && class_exists('ReportBuilderAccessException')
     && str_contains($coreText, 'reportBuilderFilterDatasetForUser'));
+$assert('saved report discovery is dataset and field scoped',
+    function_exists('reportBuilderSavedReportAccessibleToUser')
+    && function_exists('reportBuilderFilterSavedReportsForUser')
+    && str_contains($coreText, 'reportBuilderDefinitionAccessibleToUser($definition, $user, $tenantId)'));
 $assert('report builder passes actor user into dataset fetchers',
     str_contains($coreText, "\$fetchOptions['actor_user'] = \$actorUser")
     && str_contains($coreText, "if (\$key === 'actor_user') continue"));
@@ -233,6 +238,12 @@ $assert('API exposes governed presets', str_contains($apiText, "action === 'pres
 $assert('API resolves preset keys', str_contains($apiText, 'reportBuilderApiResolveDefinition') && str_contains($apiText, "'preset_key'"));
 $assert('API saves presets as report definitions', str_contains($apiText, 'reportBuilderApiHydratePresetBody'));
 $assert('API supports saved report list', str_contains($apiText, "action === 'reports'"));
+$assert('API filters saved reports by source access',
+    str_contains($apiText, 'reportBuilderSavedReportAccessibleToUser($report, $user, $tenantId)')
+    && str_contains($apiText, 'reportBuilderFilterSavedReportsForUser($reports, $user, $tenantId)')
+    && str_contains($apiText, 'Saved report is not visible to the current user'));
+$assert('API filters presets by definition access',
+    str_contains($apiText, 'reportBuilderDefinitionAccessibleToUser((array) ($preset[\'definition\'] ?? []), $user, $tenantId)'));
 $assert('API supports create/update/delete', str_contains($apiText, 'if ($method === \'POST\')') && str_contains($apiText, 'if ($method === \'PATCH\')') && str_contains($apiText, 'if ($method === \'DELETE\')'));
 $manifest = require $root . '/modules/reports/manifest.php';
 $routes = array_map(fn ($a) => $a['route'] ?? '', $manifest['actions'] ?? []);

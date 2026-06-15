@@ -180,6 +180,10 @@ $assert('shared service emits export generation and filter metadata',
     && str_contains($service, "'generated_at' => \$generatedAt")
     && str_contains($service, "\$meta['filter_params'] = \$filterParams")
     && str_contains($service, 'exportDatasetAuditFilterParams'));
+$assert('shared service rejects templates with hidden custom-field mappings',
+    str_contains($service, 'exportTemplateAssertMappingsVisibleForUser')
+    && str_contains($service, 'exportDatasetFieldRegistryForUser($datasetKey, $actorUser, $tenantId)')
+    && str_contains($service, 'Template references a field hidden from the current user'));
 $assert('shared service normalizes filenames', str_contains($service, 'exportTemplateCsvFilename'));
 $assert('people export supports template_id', str_contains($peopleExport, 'template_id') && str_contains($peopleExport, 'people_directory'));
 $assert('placements export supports template_id', str_contains($placementsExport, 'template_id') && str_contains($placementsExport, 'placements_directory'));

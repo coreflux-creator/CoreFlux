@@ -47,6 +47,11 @@ $assert('customFieldAllSurfaceLayouts exists', function_exists('customFieldAllSu
 $assert('customFieldSurfaceLayoutSave exists', function_exists('customFieldSurfaceLayoutSave'));
 $assert('customFieldSurfaceLayoutReset exists', function_exists('customFieldSurfaceLayoutReset'));
 $assert('customFieldTenantSurfaceLayout exists', function_exists('customFieldTenantSurfaceLayout'));
+$assert('custom field layout access helpers exist',
+    function_exists('customFieldValidateSurfaceLayout')
+    && function_exists('customFieldSurfaceLayoutForUser')
+    && function_exists('customFieldAllSurfaceLayoutsForUser')
+    && function_exists('customFieldFilterSurfaceLayoutForUser'));
 $assert('customFieldDefinitionMap exists', function_exists('customFieldDefinitionMap'));
 $assert('customFieldDefinitionCreate exists', function_exists('customFieldDefinitionCreate'));
 $assert('customFieldDefinitionUpdate exists', function_exists('customFieldDefinitionUpdate'));
@@ -100,6 +105,14 @@ $assert('surface layout save persists platform override',
     str_contains($core, 'custom_field_layout_overrides')
     && str_contains($core, 'ON DUPLICATE KEY UPDATE')
     && str_contains($core, 'customFieldSurfaceLayoutSave'));
+$assert('surface layout save validates field keys against definitions',
+    str_contains($core, 'customFieldValidateSurfaceLayout')
+    && str_contains($core, 'customFieldSurfaceLayoutAllowedFieldKeys')
+    && str_contains($core, "references unknown custom field"));
+$assert('surface layout reads can filter field-level gates',
+    str_contains($core, 'customFieldSurfaceLayoutForUser')
+    && str_contains($core, 'customFieldFilterSurfaceLayoutForUser')
+    && str_contains($core, "'field_access_enforced'"));
 
 echo "\nGovernance migration\n";
 $migration = $root . '/core/migrations/119_custom_fields_governance_columns.sql';
@@ -156,6 +169,10 @@ $assert('layout API writes tenant overrides',
     str_contains($layoutApiText, "['PUT', 'PATCH', 'DELETE']")
     && str_contains($layoutApiText, 'customFieldSurfaceLayoutSave')
     && str_contains($layoutApiText, 'customFieldSurfaceLayoutReset'));
+$assert('layout API filters layouts for the current actor',
+    str_contains($layoutApiText, 'customFieldSurfaceLayoutForUser')
+    && str_contains($layoutApiText, 'customFieldAllSurfaceLayoutsForUser')
+    && str_contains($layoutApiText, "\$presented['can_manage']"));
 $assert('layout API audits mutations',
     str_contains($layoutApiText, 'custom_field.layout.updated')
     && str_contains($layoutApiText, 'custom_field.layout.reset')

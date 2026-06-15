@@ -95,6 +95,23 @@ function exportDatasetAuditFilterValue(string $key, $value)
     return strlen($text) > 500 ? substr($text, 0, 500) . '...' : $text;
 }
 
+function exportTemplateAssertMappingsVisibleForUser(
+    array $template,
+    string $datasetKey,
+    int $tenantId,
+    ?array $actorUser
+): void {
+    if ($actorUser === null) return;
+    $visibleFields = exportDatasetFieldRegistryForUser($datasetKey, $actorUser, $tenantId);
+    foreach (($template['column_mappings'] ?? []) as $mapping) {
+        if (!is_array($mapping) || (($mapping['kind'] ?? 'field') === 'fixed')) continue;
+        $field = (string) ($mapping['source_field'] ?? '');
+        if ($field !== '' && !isset($visibleFields[$field])) {
+            throw new ExportServiceException('Template references a field hidden from the current user');
+        }
+    }
+}
+
 function exportTemplateRenderDatasetToStream(
     int $tenantId,
     string $datasetKey,
@@ -109,6 +126,9 @@ function exportTemplateRenderDatasetToStream(
     $dataset = exportDatasetGet($datasetKey);
     if (!$dataset) throw new ExportServiceException("Unknown dataset: {$datasetKey}");
     $template = $template ?: exportTemplateGetForDataset($templateId, $tenantId, $datasetKey);
+    $actorUser = exportDatasetActorUserFromOptions($options);
+    if ($actorUser !== null && !isset($options['actor_user'])) $options['actor_user'] = $actorUser;
+    exportTemplateAssertMappingsVisibleForUser($template, $datasetKey, $tenantId, $actorUser);
     $rows = exportDatasetFetchRows($tenantId, $datasetKey, $options);
     try {
         exportTemplateRenderToStream($templateId, $rows, $stream, $tenantId);
@@ -147,6 +167,9 @@ function exportTemplateStreamDatasetCsv(
     array $auditMeta = []
 ): array {
     $template = exportTemplateGetForDataset($templateId, $tenantId, $datasetKey);
+    $actorUser = exportDatasetActorUserFromOptions($options);
+    if ($actorUser !== null && !isset($options['actor_user'])) $options['actor_user'] = $actorUser;
+    exportTemplateAssertMappingsVisibleForUser($template, $datasetKey, $tenantId, $actorUser);
     $filename = exportTemplateCsvFilename($filenamePrefix, (string) ($template['name'] ?? 'template'), $auditMeta['filename_parts'] ?? []);
     if (!headers_sent()) {
         header('Content-Type: text/csv; charset=utf-8');

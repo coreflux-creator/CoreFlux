@@ -77,7 +77,10 @@ core `custom_field_layout_overrides` table and are resolved by
 `customFieldSurfaceLayout($entityType, $surface, $tenantId)`. Overrides are
 saved through the platform layout API using the entity's declared
 `manage_permission`; modules consume resolved layouts and do not own separate
-layout storage.
+layout storage. Override writes validate field-bearing layout slots against
+the entity's tenant custom-field definitions. Active product surfaces can only
+reference active definitions, while export and report layouts may continue to
+reference archived definitions for historical evidence and downstream reporting.
 
 ## Discovery API
 
@@ -121,7 +124,9 @@ The layout API returns normalized surface layouts for `forms`, `detail`,
 `lists`, `exports`, and `reports`. `PUT`/`PATCH` writes a tenant override for
 one surface, and `DELETE` resets that surface back to its manifest default.
 This lets modules consume shared layout metadata without inventing separate
-form/list/export/report conventions.
+form/list/export/report conventions. Read responses filter field-bearing layout
+slots through the actor's field-level `visible_to` gates unless the actor also
+has the entity's management permission.
 
 The values API reads and upserts tenant custom-field values through the shared
 service. Sensitive custom-field values are omitted from reads unless the actor

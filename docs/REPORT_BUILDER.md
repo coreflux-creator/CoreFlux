@@ -32,6 +32,9 @@ definitions. Those remain with the owning module or platform service.
   through `reportBuilderDatasetRegistryForUser`, definitions are checked with
   `reportBuilderAssertDefinitionFieldsAccessible`, and execution passes the
   actor into dataset fetchers so hidden custom-field values are not hydrated.
+- Saved-report discovery is also source-scoped. Private and shared saved
+  reports are returned only when the actor can access the source dataset and
+  every referenced field through the current tenant-aware field registry.
 - Archived tenant custom fields remain discoverable as report fields with
   `archived` and `archived_at` metadata so saved historical reports and audit
   exports do not lose removed values.
@@ -51,13 +54,14 @@ Returns one governed report dataset.
 
 `GET /api/v1/reports/report-builder/reports`
 
-Returns private reports owned by the actor and shared reports in the tenant.
+Returns private reports owned by the actor and shared reports in the tenant,
+filtered by source dataset permission and field-level custom-field visibility.
 
 `GET /api/v1/reports/report-builder/presets`
 
 Returns accessible named presets. Presets preserve the source dataset,
 permission, filters, sorts, and selected fields; inaccessible dataset presets
-are filtered out.
+or presets referencing hidden fields are filtered out.
 
 `POST /api/v1/reports/report-builder/run`
 
