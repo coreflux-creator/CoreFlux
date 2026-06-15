@@ -381,6 +381,15 @@ Payroll run transitions are governed as separate actions, not one broad
 - `payroll.run.build` remains a workbench/navigation permission, not the
   authority for material create, compute, approve, submit, or paid transitions.
 
+Current implementation status:
+
+- `payrollAudit` delegates to the shared `platformAuditLogWrite` writer with
+  Payroll source/object metadata.
+- Payroll run WorkflowGraph start, approval sync, rejection sync, compute,
+  paid, rail origination, Gusto submission, Gusto paid marking, Gusto unlink,
+  and pay-period patch events capture before/after source-row snapshots where
+  run or period state is created or materially changed.
+
 ### Placement Activation And Rates
 
 Placement activation and rate approval are separate governed actions.

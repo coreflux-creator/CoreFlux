@@ -234,7 +234,10 @@ try {
         'run_id' => $runId, 'payroll_uuid' => $payrollUuid,
         'matched' => $matched, 'skipped_count' => count($skipped),
         'final_status' => $finalStatus,
-    ], $runId);
+    ], $runId, [
+        'before' => $run,
+        'after' => payrollGustoRunAuditRow((int) $ctx['tenant_id'], $runId) ?? $run,
+    ]);
     gustoAudit('payroll.gusto.run_submitted',
         ['run_id' => $runId, 'payroll_uuid' => $payrollUuid, 'final_status' => $finalStatus], $runId);
 
@@ -259,9 +262,26 @@ try {
         'run_id' => $runId, 'payroll_uuid' => $payrollUuid,
         'error_key' => $e->errorKey, 'error_category' => $e->errorCategory,
         'http_code' => $e->httpCode, 'message' => $e->getMessage(),
-    ], $runId);
+    ], $runId, [
+        'before' => $run,
+        'after' => payrollGustoRunAuditRow((int) $ctx['tenant_id'], $runId) ?? $run,
+    ]);
     api_error('Gusto submission failed: ' . $e->getMessage(), 502, [
         'error_key' => $e->errorKey, 'error_category' => $e->errorCategory,
         'http_code' => $e->httpCode, 'matched' => $matched, 'skipped' => $skipped,
     ]);
+}
+
+function payrollGustoRunAuditRow(int $tenantId, int $runId): ?array
+{
+    $pdo = getDB();
+    if (!$pdo || $tenantId <= 0 || $runId <= 0) return null;
+    $stmt = $pdo->prepare(
+        'SELECT * FROM payroll_runs
+          WHERE tenant_id = :t AND id = :id
+          LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $runId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
 }

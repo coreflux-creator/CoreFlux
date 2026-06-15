@@ -11,6 +11,7 @@
  */
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/audit.php';
 require_once __DIR__ . '/../../people/lib/employees.php';
 
 /**
@@ -229,26 +230,37 @@ function payrollGetTenantSettings(): array {
  * Append-only audit log writer for payroll events.
  * Mirrors apAudit() / billingAudit() — never throws.
  */
-function payrollAudit(string $event, array $meta = [], ?int $targetId = null): void
+function payrollAudit(string $event, array $meta = [], ?int $targetId = null, array $opts = []): void
 {
     try {
         $ctx  = function_exists('currentTenantContext') ? currentTenantContext() : null;
-        $pdo  = getDB();
-        if (!$pdo) return;
-        $pdo->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:tenant_id, :actor, :event, :target_id, :meta_json, :ip, NOW())'
-        )->execute([
-            'tenant_id' => $ctx['tenant_id'] ?? null,
-            'actor'     => $ctx['user']['id'] ?? null,
-            'event'     => $event,
-            'target_id' => $targetId,
-            'meta_json' => json_encode($meta),
-            'ip'        => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        $tenantId = isset($ctx['tenant_id']) ? (int) $ctx['tenant_id'] : (function_exists('currentTenantId') ? currentTenantId() : null);
+        if ($tenantId === null && isset($meta['tenant_id'])) $tenantId = (int) $meta['tenant_id'];
+        $actorUserId = isset($ctx['user']['id']) ? (int) $ctx['user']['id'] : null;
+        if ($actorUserId === null && isset($meta['actor_user_id'])) $actorUserId = (int) $meta['actor_user_id'];
+        platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, array_merge([
+            'object_type' => payrollAuditObjectType($event),
+            'source' => $meta['source'] ?? 'payroll',
+        ], $opts));
     } catch (\Throwable $e) {
         error_log('[payroll.audit] ' . $event . ' write-failed: ' . $e->getMessage());
     }
+}
+
+function payrollAuditObjectType(string $event): string
+{
+    if (str_contains($event, '.run.')) return 'payroll_run';
+    if (str_contains($event, '.period.')) return 'payroll_period';
+    if (str_contains($event, '.profile.')) return 'payroll_profile';
+    if (str_contains($event, '.settings.')) return 'payroll_settings';
+    if (str_contains($event, '.schedule.')) return 'payroll_schedule';
+    if (str_contains($event, '.cycle.')) return 'payroll_cycle';
+    if (str_contains($event, '.tax.')) return 'payroll_tax_liability';
+    if (str_contains($event, '.w2.')) return 'payroll_w2';
+    if (str_contains($event, '.gusto.')) return 'payroll_gusto';
+    if (str_contains($event, '.anomalies.')) return 'payroll_anomaly';
+    if (str_contains($event, '.deduction.')) return 'payroll_deduction';
+    return 'payroll';
 }
 
 /**

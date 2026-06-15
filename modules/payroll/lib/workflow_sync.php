@@ -21,6 +21,7 @@ function payrollSyncRunFromWorkflow(
     try {
         $pdo = getDB();
         if (!$pdo) return;
+        $beforeRun = payrollSyncRunRow($tenantId, $runId) ?? ['id' => $runId];
 
         if ($action === 'reject' && $userId) {
             payrollAudit('payroll.run.approval_rejected', [
@@ -28,7 +29,10 @@ function payrollSyncRunFromWorkflow(
                 'rejected_by_user_id' => $userId,
                 'reason' => $comment ?: 'Rejected through workflow',
                 'source' => 'workflow',
-            ], $runId);
+            ], $runId, [
+                'before' => $beforeRun,
+                'after' => payrollSyncRunRow($tenantId, $runId) ?? $beforeRun,
+            ]);
             return;
         }
 
@@ -36,13 +40,7 @@ function payrollSyncRunFromWorkflow(
             return;
         }
 
-        $stmt = $pdo->prepare(
-            'SELECT * FROM payroll_runs
-              WHERE tenant_id = :t AND id = :id
-              LIMIT 1'
-        );
-        $stmt->execute(['t' => $tenantId, 'id' => $runId]);
-        $run = $stmt->fetch(PDO::FETCH_ASSOC);
+        $run = payrollSyncRunRow($tenantId, $runId);
         if (!$run || !in_array((string) ($run['status'] ?? ''), ['computed', 'approved'], true)) {
             return;
         }
@@ -68,13 +66,31 @@ function payrollSyncRunFromWorkflow(
               WHERE tenant_id = :t AND id = :pid AND status <> 'paid'"
         )->execute(['t' => $tenantId, 'pid' => (int) ($run['pay_period_id'] ?? 0)]);
 
+        $updated = payrollSyncRunRow($tenantId, $runId) ?? $run;
         payrollAudit('payroll.run.approved', [
             'run_id' => $runId,
             'approved_by_user_id' => $userId,
             'source' => 'workflow',
             'workflow_instance_status' => $instanceStatus,
-        ], $runId);
+        ], $runId, [
+            'before' => $beforeRun,
+            'after' => $updated,
+        ]);
     } catch (\Throwable $e) {
         error_log('[payroll.workflow_sync] sync failed: ' . $e->getMessage());
     }
+}
+
+function payrollSyncRunRow(int $tenantId, int $runId): ?array
+{
+    $pdo = getDB();
+    if (!$pdo) return null;
+    $stmt = $pdo->prepare(
+        'SELECT * FROM payroll_runs
+          WHERE tenant_id = :t AND id = :id
+          LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $runId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
 }

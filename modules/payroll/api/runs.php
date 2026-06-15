@@ -181,7 +181,9 @@ switch (api_method()) {
                 'run_id' => $runId,
                 'pay_period_id' => (int) $body['pay_period_id'],
                 'created_by_user_id' => $user['id'] ?? null,
-            ], $runId);
+            ], $runId, [
+                'after' => payrollRunAuditRow((int) currentTenantId(), $runId),
+            ]);
             api_ok(['id' => $runId], 201);
         }
 
@@ -214,7 +216,10 @@ switch (api_method()) {
                 'action' => 'compute',
                 'computed_by_user_id' => $user['id'] ?? null,
                 'workflow_instance_id' => $workflowInstanceId,
-            ], $runId);
+            ], $runId, [
+                'before' => $run,
+                'after' => payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run,
+            ]);
             $detail = _payrollRunDetail($runId);
             $detail['workflow_instance_id'] = $workflowInstanceId;
             api_ok($detail);
@@ -259,10 +264,14 @@ switch (api_method()) {
                 $stmt->execute(['tenant_id' => currentTenantId(), 'rid' => $runId]);
             }
             scopedUpdate('payroll_pay_periods', (int) $run['pay_period_id'], ['status' => 'paid']);
+            $paidRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
             payrollAudit('payroll.run.marked_paid', [
                 'run_id' => $runId,
                 'paid_by_user_id' => $user['id'] ?? null,
-            ], $runId);
+            ], $runId, [
+                'before' => $run,
+                'after' => $paidRun,
+            ]);
             api_ok(['ok' => true, 'status' => 'paid']);
         }
 
@@ -343,7 +352,9 @@ switch (api_method()) {
             try {
                 $res = paymentRailsDispatch('payroll', $run, $settings, $items);
             } catch (PaymentRailsOriginateException $e) {
-                payrollAudit('payroll.run.originate_failed', ['run_id' => $runId, 'error' => $e->getMessage()], $runId);
+                payrollAudit('payroll.run.originate_failed', ['run_id' => $runId, 'error' => $e->getMessage()], $runId, [
+                    'before' => $run,
+                ]);
                 api_error($e->getMessage(), 422);
             }
 
@@ -353,6 +364,7 @@ switch (api_method()) {
                 'rail_status'        => $res['status'],
                 'rail_originated_at' => date('Y-m-d H:i:s'),
             ]);
+            $originatedRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
             payrollAudit('payroll.run.originated', [
                 'run_id'  => $runId,
                 'rail'    => $res['rail'],
@@ -360,7 +372,10 @@ switch (api_method()) {
                 'status'  => $res['status'],
                 'item_count' => count($items),
                 'skipped_count' => count($skipped),
-            ], $runId);
+            ], $runId, [
+                'before' => $run,
+                'after' => $originatedRun,
+            ]);
 
             $resp = [
                 'ok'          => true,
@@ -401,8 +416,12 @@ switch (api_method()) {
                 'gusto_synced_at'   => date('Y-m-d H:i:s'),
                 'gusto_synced_by'   => $ctx['user']['id'] ?? null,
             ]);
+            $syncedRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
             payrollAudit('payroll.run.gusto_synced',
-                ['gusto_run_id' => $gid, 'has_url' => $url ? true : false], $runId);
+                ['gusto_run_id' => $gid, 'has_url' => $url ? true : false], $runId, [
+                    'before' => $run,
+                    'after' => $syncedRun,
+                ]);
             api_ok(['ok' => true, 'gusto_status' => 'submitted', 'gusto_run_id' => $gid]);
         }
         if ($action === 'mark_gusto_paid') {
@@ -434,8 +453,12 @@ switch (api_method()) {
                 }
                 scopedUpdate('payroll_pay_periods', (int) $run['pay_period_id'], ['status' => 'paid']);
             }
+            $gustoPaidRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
             payrollAudit('payroll.run.gusto_marked_paid',
-                ['gusto_run_id' => $run['gusto_run_id'], 'paid_by_user_id' => $user['id'] ?? null], $runId);
+                ['gusto_run_id' => $run['gusto_run_id'], 'paid_by_user_id' => $user['id'] ?? null], $runId, [
+                    'before' => $run,
+                    'after' => $gustoPaidRun,
+                ]);
             api_ok(['ok' => true, 'gusto_status' => 'paid', 'status' => 'paid']);
         }
         if ($action === 'unlink_gusto') {
@@ -449,8 +472,12 @@ switch (api_method()) {
                 'gusto_synced_by'   => null,
                 'gusto_paid_at'     => null,
             ]);
+            $unlinkedRun = payrollRunAuditRow((int) currentTenantId(), $runId) ?? $run;
             payrollAudit('payroll.run.gusto_unlinked',
-                ['previous_gusto_run_id' => $run['gusto_run_id']], $runId);
+                ['previous_gusto_run_id' => $run['gusto_run_id']], $runId, [
+                    'before' => $run,
+                    'after' => $unlinkedRun,
+                ]);
             api_ok(['ok' => true]);
         }
 
@@ -464,6 +491,19 @@ api_error('Method not allowed', 405);
 // =========================================================================
 // Helpers
 // =========================================================================
+
+function payrollRunAuditRow(int $tenantId, int $runId): ?array {
+    $pdo = getDB();
+    if (!$pdo || $tenantId <= 0 || $runId <= 0) return null;
+    $stmt = $pdo->prepare(
+        'SELECT * FROM payroll_runs
+          WHERE tenant_id = :t AND id = :id
+          LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $runId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
 
 function _payrollRunDetail(int $runId): array {
     $run = scopedFind(

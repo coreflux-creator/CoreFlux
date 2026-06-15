@@ -163,6 +163,8 @@ function payrollRunWorkflowStart(int $tenantId, int $runId, ?int $actorUserId = 
             )->execute(['w' => $instanceId, 't' => $tenantId, 'id' => $runId]);
         } catch (\Throwable $_) { /* schema drift: workflow instance still exists */ }
 
+        $latest = payrollRunWorkflowRow($runId) ?? $run;
+        $payload = payrollRunWorkflowPayload($latest, $actorUserId);
         $pdo->prepare(
             'UPDATE workflow_instances
                 SET payload_json = :payload, last_activity_at = NOW()
@@ -178,13 +180,18 @@ function payrollRunWorkflowStart(int $tenantId, int $runId, ?int $actorUserId = 
             'run_id' => $runId,
             'workflow_instance_id' => $instanceId,
             'computed_by_user_id' => $run['computed_by_user_id'] ?? null,
-        ], $runId);
+        ], $runId, [
+            'before' => $run,
+            'after' => $latest,
+        ]);
         return $instanceId;
     } catch (\Throwable $e) {
         payrollAudit('payroll.run.workflow_start_failed', [
             'run_id' => $runId,
             'reason' => $e->getMessage(),
-        ], $runId);
+        ], $runId, [
+            'before' => $run,
+        ]);
         error_log('[payroll.workflow] start failed: ' . $e->getMessage());
         return null;
     }
@@ -266,7 +273,9 @@ function payrollRunWorkflowAct(int $tenantId, array $run, int $userId, string $a
             'action' => $action,
             'control' => 'workflow_engine',
             'reason' => $e->getMessage(),
-        ], $runId);
+        ], $runId, [
+            'before' => $run,
+        ]);
         throw $e;
     }
 }

@@ -57,7 +57,9 @@ $a('Earnings classification covers bonus / commission / reimbursement',
 echo "\nPayroll lib — payrollAudit() helper\n";
 $lib = (string) file_get_contents(__DIR__ . '/../modules/payroll/lib/payroll.php');
 $a('payrollAudit declared',                    strpos($lib, 'function payrollAudit') !== false);
-$a('payrollAudit writes to audit_log',         strpos($lib, 'INSERT INTO audit_log') !== false);
+$a('payrollAudit writes via platform audit writer',
+    strpos($lib, 'platformAuditLogWrite') !== false
+    && strpos($lib, 'payrollAuditObjectType') !== false);
 $a('payrollAudit never throws',                strpos($lib, "catch (\\Throwable") !== false);
 
 echo "\nPayroll manifest — Phase A1 audit events\n";

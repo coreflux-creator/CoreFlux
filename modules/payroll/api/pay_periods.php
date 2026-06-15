@@ -74,12 +74,19 @@ switch (api_method()) {
         );
         if (!$before) api_error('Not found', 404);
         scopedUpdate('payroll_pay_periods', $id, $data);
+        $after = scopedFind(
+            'SELECT * FROM payroll_pay_periods WHERE tenant_id = :tenant_id AND id = :id',
+            ['id' => $id]
+        ) ?: $before;
         payrollAudit('payroll.period.updated', [
             'period_id' => $id,
             'changed_fields' => array_keys($data),
             'before_status' => $before['status'] ?? null,
-            'after_status' => $data['status'] ?? ($before['status'] ?? null),
-        ], $id);
+            'after_status' => $after['status'] ?? ($data['status'] ?? ($before['status'] ?? null)),
+        ], $id, [
+            'before' => $before,
+            'after' => $after,
+        ]);
         api_ok(['ok' => true]);
     }
 }
