@@ -64,12 +64,14 @@ function apWorkflowSubmitBillForApproval(
         throw new \RuntimeException('AP approval route did not create a WorkflowEngine instance');
     }
 
+    $beforeBill = apWorkflowBillRow($tenantId, $billId) ?? $bill;
     $pdo->prepare(
         "UPDATE ap_bills
             SET status = 'pending_approval', updated_at = NOW()
           WHERE tenant_id = :t AND id = :b
             AND status IN ('inbox', 'pending_review', 'pending_approval')"
     )->execute(['t' => $tenantId, 'b' => $billId]);
+    $afterBill = apWorkflowBillRow($tenantId, $billId) ?? $beforeBill;
 
     try {
         require_once __DIR__ . '/ap.php';
@@ -81,7 +83,10 @@ function apWorkflowSubmitBillForApproval(
             'risk_level' => $routing['risk']['level'] ?? null,
             'source' => 'workflow',
             'via' => $via,
-        ], $billId);
+        ], $billId, [
+            'before' => $beforeBill,
+            'after' => $afterBill,
+        ]);
     } catch (\Throwable $_) { /* non-fatal */ }
 
     return $routing;
@@ -96,6 +101,19 @@ function apWorkflowFindBillInstance(int $tenantId, int $billId, bool $pendingOnl
     $sql .= " ORDER BY id DESC LIMIT 1";
     $stmt = $pdo->prepare($sql);
     $stmt->execute(['t' => $tenantId, 's' => $billId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+function apWorkflowBillRow(int $tenantId, int $billId): ?array {
+    $pdo = getDB();
+    if (!$pdo) return null;
+    $stmt = $pdo->prepare(
+        'SELECT * FROM ap_bills
+          WHERE tenant_id = :t AND id = :b
+          LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'b' => $billId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     return $row ?: null;
 }

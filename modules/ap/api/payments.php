@@ -151,7 +151,9 @@ if ($method === 'POST' && $action === '') {
     ]);
     apAudit('ap.payment.drafted', [
         'payment_id' => $id, 'vendor_name' => $body['vendor_name'], 'amount' => $amount, 'method' => $body['method'],
-    ], $id);
+    ], $id, [
+        'after' => apPaymentAuditRow($tid, $id),
+    ]);
 
     if (!empty($body['auto_allocate'])) {
         try {
@@ -168,12 +170,16 @@ if ($method === 'POST' && $action === 'allocate') {
     rbac_legacy_require($user, 'ap.payment.allocate');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 400);
-    $row = scopedFind('SELECT id FROM ap_payments WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    $row = apPaymentAuditRow($tid, $id);
     if (!$row) api_error('Not found', 404);
 
     $body  = api_json_body();
     $alloc = apAllocatePayment($id, $body, $user['id'] ?? null);
-    apAudit('ap.payment.allocated', ['payment_id' => $id, 'request' => $body, 'applied' => $alloc['applied']], $id);
+    $updated = apPaymentAuditRow($tid, $id) ?? $row;
+    apAudit('ap.payment.allocated', ['payment_id' => $id, 'request' => $body, 'applied' => $alloc['applied']], $id, [
+        'before' => $row,
+        'after' => $updated,
+    ]);
     api_ok($alloc);
 }
 
@@ -190,10 +196,14 @@ if ($method === 'POST' && $action === 'send') {
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     $pdo->prepare('UPDATE ap_payments SET status = "sent", sent_at = NOW(), sent_by_user_id = :u WHERE id = :id')
         ->execute(['u' => $user['id'] ?? null, 'id' => $id]);
+    $sent = apPaymentAuditRow($tid, $id) ?? $row;
     apAudit('ap.payment.sent', [
         'payment_id' => $id, 'vendor_name' => $row['vendor_name'], 'amount' => $row['amount'], 'method' => $row['method'],
         'rail' => $row['method'] === 'plaid' ? 'plaid_transfer' : 'manual',
-    ], $id);
+    ], $id, [
+        'before' => $row,
+        'after' => $sent,
+    ]);
     api_ok(['ok' => true]);
 }
 
@@ -276,6 +286,8 @@ if ($method === 'POST' && $action === 'originate_batch') {
         apAudit('ap.payment.release_blocked', [
             'surface' => 'originate_batch',
             'blocked' => $releaseBlocked,
+        ], null, [
+            'before' => $rows,
         ]);
         api_error(
             $topCode === 'pwp_awaiting_ar'
@@ -328,6 +340,8 @@ if ($method === 'POST' && $action === 'originate_batch') {
     } catch (PaymentRailsOriginateException $e) {
         apAudit('ap.payment.batch_originate_failed', [
             'count' => count($ids), 'ids' => $ids, 'error' => $e->getMessage(),
+        ], null, [
+            'before' => $rows,
         ]);
         api_error($e->getMessage(), 422);
     }
@@ -361,14 +375,21 @@ if ($method === 'POST' && $action === 'originate_batch') {
         $pdo->rollBack();
         apAudit('ap.payment.batch_originate_failed', [
             'count' => count($ids), 'ids' => $ids, 'error' => 'persist: ' . $e->getMessage(),
+        ], null, [
+            'before' => $rows,
+            'after' => apPaymentAuditRows($tid, $ids),
         ]);
         api_error('Persist failed: ' . $e->getMessage(), 500);
     }
 
+    $originatedRows = apPaymentAuditRows($tid, $ids);
     apAudit('ap.payment.batch_originated', [
         'count'    => count($ids), 'ids' => $ids,
         'rail'     => $res['rail'], 'batch_id' => $res['batch_id'],
         'amount_total' => array_sum(array_map(fn($r) => (float) $r['amount'], $rows)),
+    ], null, [
+        'before' => $rows,
+        'after' => $originatedRows,
     ]);
 
     $resp = [
@@ -456,7 +477,9 @@ if ($method === 'POST' && $action === 'originate') {
     try {
         $res = paymentRailsDispatch('ap', $row, $settings, [$item]);
     } catch (PaymentRailsOriginateException $e) {
-        apAudit('ap.payment.originate_failed', ['payment_id' => $id, 'error' => $e->getMessage()], $id);
+        apAudit('ap.payment.originate_failed', ['payment_id' => $id, 'error' => $e->getMessage()], $id, [
+            'before' => $row,
+        ]);
         api_error($e->getMessage(), 422);
     }
 
@@ -472,10 +495,14 @@ if ($method === 'POST' && $action === 'originate') {
         't'  => $tid,
         'id' => $id,
     ]);
+    $originated = apPaymentAuditRow($tid, $id) ?? $row;
     apAudit('ap.payment.originated', [
         'payment_id' => $id, 'rail' => $res['rail'], 'batch_id' => $res['batch_id'],
         'status' => $itemRes['status'] ?? $res['status'], 'amount' => $row['amount'],
-    ], $id);
+    ], $id, [
+        'before' => $row,
+        'after' => $originated,
+    ]);
 
     // Surface NACHA file content for client download (driver-specific).
     $resp = [
@@ -501,7 +528,11 @@ if ($method === 'POST' && $action === 'clear') {
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
     getDB()->prepare('UPDATE ap_payments SET status = "cleared", cleared_at = NOW() WHERE id = :id')
         ->execute(['id' => $id]);
-    apAudit('ap.payment.cleared', ['payment_id' => $id], $id);
+    $cleared = apPaymentAuditRow($tid, $id) ?? $row;
+    apAudit('ap.payment.cleared', ['payment_id' => $id], $id, [
+        'before' => $row,
+        'after' => $cleared,
+    ]);
     api_ok(['ok' => true]);
 }
 
@@ -560,7 +591,11 @@ if ($method === 'POST' && $action === 'void') {
         throw $e;
     }
 
-    apAudit('ap.payment.voided', ['payment_id' => $id, 'reason' => $reason], $id);
+    $voided = apPaymentAuditRow($tid, $id) ?? $row;
+    apAudit('ap.payment.voided', ['payment_id' => $id, 'reason' => $reason], $id, [
+        'before' => $row,
+        'after' => $voided,
+    ]);
     api_ok(['ok' => true]);
 }
 
@@ -574,7 +609,9 @@ function apPaymentReleaseGateOrError(int $tenantId, array $payment, ?int $userId
         'code' => $issue['code'],
         'reason' => $issue['message'],
         'extra' => $issue['extra'],
-    ], (int) ($payment['id'] ?? 0));
+    ], (int) ($payment['id'] ?? 0), [
+        'before' => $payment,
+    ]);
     api_error($issue['message'], (int) $issue['status'], array_merge(['code' => $issue['code']], $issue['extra']));
 }
 
@@ -631,6 +668,36 @@ function apPaymentReleaseIssue(int $tenantId, array $payment, ?int $userId): ?ar
     }
 
     return null;
+}
+
+function apPaymentAuditRow(int $tenantId, int $paymentId): ?array
+{
+    $pdo = getDB();
+    if (!$pdo || $paymentId <= 0) return null;
+    $stmt = $pdo->prepare(
+        'SELECT * FROM ap_payments
+          WHERE tenant_id = :t AND id = :id
+          LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $paymentId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+function apPaymentAuditRows(int $tenantId, array $paymentIds): array
+{
+    $ids = array_values(array_unique(array_filter(array_map('intval', $paymentIds), static fn ($id) => $id > 0)));
+    if (!$ids) return [];
+    $pdo = getDB();
+    if (!$pdo) return [];
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $stmt = $pdo->prepare(
+        "SELECT * FROM ap_payments
+          WHERE tenant_id = ? AND id IN ({$placeholders})
+          ORDER BY id"
+    );
+    $stmt->execute(array_merge([$tenantId], $ids));
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 api_error('Method not allowed', 405);

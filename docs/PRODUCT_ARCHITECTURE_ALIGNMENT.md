@@ -395,6 +395,36 @@ Placement activation and rate approval are separate governed actions.
 - Existing draft-rate catch-up remains WorkflowGraph/financial-approval gated
   for non-active draft promotion paths, but activation never invokes it.
 
+### Accounts Payable Bill And Payment Controls
+
+AP bill approval is a Workflow Graph decision with People Graph approver
+resolution and separation-of-duties checks. AP owns bill, payment, allocation,
+vendor, expense, and 1099 state. Workflow Graph owns approval routing, while
+AP owns the source-row mutation after approval and the payment-release state
+machine.
+
+Bill approval and vendor payment release are separate enterprise controls:
+
+- `ap.bill.create` governs bill intake, review submission, and draft creation.
+- `ap.bill.approve` governs Workflow Graph approve/reject decisions for bills.
+- `ap.bill.post` governs AP-to-Accounting posting after bill approval.
+- `ap.payment.create` and `ap.payment.allocate` govern payment drafts and bill
+  allocations.
+- `ap.payment.send` governs payment release, rail origination, clear, and void
+  actions. Release checks enforce maker/checker separation, disputed/void bill
+  blocks, and pay-when-paid AR collection gates before any rail dispatch.
+
+Current implementation status:
+
+- `apAudit` delegates to the shared `platformAuditLogWrite` writer with AP
+  source/object metadata.
+- AP bill workflow submission and approval/rejection sync capture before/after
+  bill snapshots while preserving Workflow Graph and People Graph routing
+  evidence.
+- AP payment draft, allocation, release, batch origination, rail origination,
+  clear, void, and blocked-release events capture source-row snapshots where
+  payment state is created or materially changed.
+
 ### Billing Invoice Approval And Posting
 
 Billing invoice approval is a Workflow Graph decision with People Graph

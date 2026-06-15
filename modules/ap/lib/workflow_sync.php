@@ -31,6 +31,7 @@ function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $us
     try {
         $pdo = getDB();
         if (!$pdo) return;
+        $beforeBill = apSyncBillRow($tenantId, $billId) ?? ['id' => $billId];
 
         if (in_array($action, ['approve', 'skip'], true) && $userId) {
             // Mark this approver's row as approved (first pending one they own for this bill).
@@ -59,6 +60,17 @@ function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $us
                 "UPDATE ap_bills SET status = 'disputed', updated_at = NOW()
                   WHERE tenant_id = :t AND id = :b AND status = 'pending_approval'"
             )->execute(['t' => $tenantId, 'b' => $billId]);
+            $updated = apSyncBillRow($tenantId, $billId) ?? $beforeBill;
+            apAudit('ap.bill.approval_rejected', [
+                'bill_id' => $billId,
+                'rejected_by_user_id' => $userId,
+                'reason' => $comment ?: 'Rejected through workflow',
+                'source' => 'workflow',
+                'workflow_instance_status' => $instanceStatus,
+            ], $billId, [
+                'before' => $beforeBill,
+                'after' => $updated,
+            ]);
             return;
         }
 
@@ -74,16 +86,18 @@ function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $us
             );
             $upd->execute(['u' => $userId, 't' => $tenantId, 'b' => $billId]);
             if ($upd->rowCount() > 0) {
-                $billStmt = $pdo->prepare('SELECT * FROM ap_bills WHERE tenant_id = :t AND id = :b LIMIT 1');
-                $billStmt->execute(['t' => $tenantId, 'b' => $billId]);
-                $bill = $billStmt->fetch(PDO::FETCH_ASSOC) ?: ['id' => $billId];
+                $updated = apSyncBillRow($tenantId, $billId) ?? ['id' => $billId];
+                $bill = $updated;
                 apAudit('ap.bill.approved', [
                     'bill_id' => $billId,
-                    'internal_ref' => $bill['internal_ref'] ?? null,
+                    'internal_ref' => $updated['internal_ref'] ?? null,
                     'approved_by_user_id' => $userId,
                     'source' => 'workflow',
                     'workflow_instance_status' => $instanceStatus,
-                ], $billId);
+                ], $billId, [
+                    'before' => $beforeBill,
+                    'after' => $updated,
+                ]);
                 try {
                     require_once __DIR__ . '/../../../core/accounting/command_service.php';
                     accountingTryEnqueueDraft($tenantId, 'bill', $bill, $userId);
@@ -94,6 +108,20 @@ function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $us
         // Silently drop — workflow_engine must not break because legacy
         // schema is missing a column. Surface via audit_log instead.
     }
+}
+
+/** @internal */
+function apSyncBillRow(int $tenantId, int $billId): ?array {
+    $pdo = getDB();
+    if (!$pdo) return null;
+    $stmt = $pdo->prepare(
+        'SELECT * FROM ap_bills
+          WHERE tenant_id = :t AND id = :b
+          LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'b' => $billId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
 }
 
 /** @internal */
