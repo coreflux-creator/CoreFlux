@@ -233,10 +233,13 @@ function payrollGetTenantSettings(): array {
 function payrollAudit(string $event, array $meta = [], ?int $targetId = null, array $opts = []): void
 {
     try {
-        $ctx  = function_exists('currentTenantContext') ? currentTenantContext() : null;
-        $tenantId = isset($ctx['tenant_id']) ? (int) $ctx['tenant_id'] : (function_exists('currentTenantId') ? currentTenantId() : null);
+        $tenantId = array_key_exists('tenant_id', $opts)
+            ? ($opts['tenant_id'] !== null ? (int) $opts['tenant_id'] : null)
+            : (function_exists('currentTenantId') ? currentTenantId() : null);
         if ($tenantId === null && isset($meta['tenant_id'])) $tenantId = (int) $meta['tenant_id'];
-        $actorUserId = isset($ctx['user']['id']) ? (int) $ctx['user']['id'] : null;
+        $actorUserId = array_key_exists('actor_user_id', $opts)
+            ? ($opts['actor_user_id'] !== null ? (int) $opts['actor_user_id'] : null)
+            : (isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : null);
         if ($actorUserId === null && isset($meta['actor_user_id'])) $actorUserId = (int) $meta['actor_user_id'];
         platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, array_merge([
             'object_type' => payrollAuditObjectType($event),

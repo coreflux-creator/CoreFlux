@@ -421,6 +421,10 @@ Current implementation status:
   paid, rail origination, Gusto submission, Gusto paid marking, Gusto unlink,
   and pay-period patch events capture before/after source-row snapshots where
   run or period state is created or materially changed.
+- Pay-cycle create/update/deactivate/advance events write through
+  `payrollAuditLight`, which delegates to `payrollAudit` and emits cycle,
+  period, and draft-run snapshots where cycle generation creates downstream
+  payroll artifacts.
 
 ### Placement Activation And Rates
 

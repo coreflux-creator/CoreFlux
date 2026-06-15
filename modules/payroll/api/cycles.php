@@ -21,6 +21,8 @@ require_once __DIR__ . '/../lib/cycles.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
+$tenantId = (int) $ctx['tenant_id'];
+$actorUserId = isset($ctx['user']['id']) ? (int) $ctx['user']['id'] : null;
 
 switch (api_method()) {
     case 'GET': {
@@ -59,7 +61,7 @@ switch (api_method()) {
             $cycleId = (int) ($body['cycle_id'] ?? api_query('id') ?? 0);
             if (!$cycleId) api_error('cycle_id required', 422);
             try {
-                $res = payrollCycleAdvance($cycleId, (int) ($ctx['user']['id'] ?? 0));
+                $res = payrollCycleAdvance($cycleId, $actorUserId);
                 api_ok(['ok' => true] + $res, 201);
             } catch (PayCycleException $e) {
                 api_error($e->getMessage(), 422);
@@ -105,7 +107,11 @@ switch (api_method()) {
             'active'                        => 1,
             'notes'                         => $body['notes'] ?? null,
         ]);
-        payrollAuditLight('payroll.cycle.created', ['cycle_id' => $id, 'name' => $body['name']], $id);
+        payrollAuditLight('payroll.cycle.created', ['cycle_id' => $id, 'name' => $body['name']], $id, [
+            'tenant_id' => $tenantId,
+            'actor_user_id' => $actorUserId,
+            'after' => payrollCycleAuditRow($tenantId, $id),
+        ]);
         api_ok(['id' => $id], 201);
     }
 
@@ -115,6 +121,7 @@ switch (api_method()) {
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
         $body = api_json_body();
+        $before = payrollCycleAuditRow($tenantId, $id);
         $allowed = ['name','cohort_filter_json','anchor_date_override',
                     'pay_date_offset_days_override','active','notes'];
         $data = [];
@@ -125,7 +132,12 @@ switch (api_method()) {
             $data[$f] = $v;
         }
         scopedUpdate('payroll_pay_cycles', $id, $data);
-        payrollAuditLight('payroll.cycle.updated', ['cycle_id' => $id, 'fields' => array_keys($data)], $id);
+        payrollAuditLight('payroll.cycle.updated', ['cycle_id' => $id, 'fields' => array_keys($data)], $id, [
+            'tenant_id' => $tenantId,
+            'actor_user_id' => $actorUserId,
+            'before' => $before,
+            'after' => payrollCycleAuditRow($tenantId, $id),
+        ]);
         api_ok(['ok' => true]);
     }
 
@@ -133,8 +145,14 @@ switch (api_method()) {
         rbac_legacy_require($user, 'payroll.cycles.manage');
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
+        $before = payrollCycleAuditRow($tenantId, $id);
         scopedUpdate('payroll_pay_cycles', $id, ['active' => 0]);
-        payrollAuditLight('payroll.cycle.deactivated', ['cycle_id' => $id], $id);
+        payrollAuditLight('payroll.cycle.deactivated', ['cycle_id' => $id], $id, [
+            'tenant_id' => $tenantId,
+            'actor_user_id' => $actorUserId,
+            'before' => $before,
+            'after' => payrollCycleAuditRow($tenantId, $id),
+        ]);
         api_ok(['ok' => true]);
     }
 }
