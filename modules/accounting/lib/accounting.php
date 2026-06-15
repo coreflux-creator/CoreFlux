@@ -19,6 +19,7 @@
  */
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/audit.php';
 require_once __DIR__ . '/../../../core/financial_state_cache.php';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -492,24 +493,34 @@ function accountingTrialBalance(int $tenantId, string $asOf, ?int $entityId = nu
 // ─────────────────────────────────────────────────────────────────────────
 // Audit helper
 // ─────────────────────────────────────────────────────────────────────────
-function accountingAudit(string $event, array $meta = [], ?int $targetId = null): void
+function accountingAudit(string $event, array $meta = [], ?int $targetId = null, array $opts = []): void
 {
     try {
         $ctx = function_exists('currentTenantContext') ? currentTenantContext() : null;
-        getDB()->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:tenant_id, :actor, :event, :target_id, :meta_json, :ip, NOW())'
-        )->execute([
-            'tenant_id' => $ctx['tenant_id'] ?? null,
-            'actor'     => $ctx['user']['id'] ?? null,
-            'event'     => $event,
-            'target_id' => $targetId,
-            'meta_json' => json_encode($meta),
-            'ip'        => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        $tenantId = isset($ctx['tenant_id']) ? (int) $ctx['tenant_id'] : currentTenantId();
+        $actorUserId = isset($ctx['user']['id']) ? (int) $ctx['user']['id'] : null;
+        platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, array_merge([
+            'object_type' => accountingAuditObjectType($event),
+            'source' => $meta['source'] ?? 'accounting',
+        ], $opts));
     } catch (\Throwable $e) {
         error_log('[accounting.audit] ' . $event . ' write-failed: ' . $e->getMessage());
     }
+}
+
+function accountingAuditObjectType(string $event): string
+{
+    if (str_contains($event, '.je.')) return 'accounting_journal_entry';
+    if (str_contains($event, '.journal_entry.')) return 'accounting_journal_entry';
+    if (str_contains($event, '.period.')) return 'accounting_period';
+    if (str_contains($event, '.account.')) return 'accounting_account';
+    if (str_contains($event, '.bank.')) return 'accounting_bank';
+    if (str_contains($event, '.reconciliation.')) return 'accounting_reconciliation';
+    if (str_contains($event, '.intercompany.')) return 'accounting_intercompany';
+    if (str_contains($event, '.recurring_je.')) return 'accounting_recurring_journal_entry';
+    if (str_contains($event, '.consolidation.')) return 'accounting_consolidation';
+    if (str_contains($event, '.ledger.')) return 'accounting_ledger';
+    return 'accounting';
 }
 
 // ─────────────────────────────────────────────────────────────────────────

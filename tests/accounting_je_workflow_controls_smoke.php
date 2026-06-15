@@ -66,6 +66,20 @@ $a('workflow payload carries maker/checker blockers',
     && str_contains($workflow, "'sod_blocked_user_ids' => \$blocked")
     && str_contains($workflow, 'created_by_user_id')
     && str_contains($workflow, 'submitted_by_user_id'));
+$a('accounting audit helper uses canonical platform writer',
+    str_contains($lib, "/../../../core/audit.php")
+    && str_contains($lib, 'platformAuditLogWrite')
+    && str_contains($lib, 'accountingAuditObjectType')
+    && str_contains($lib, "'source' => \$meta['source'] ?? 'accounting'"));
+$a('workflow audit helper uses canonical platform writer',
+    str_contains($workflow, "/../../../core/audit.php")
+    && str_contains($workflow, 'platformAuditLogWrite')
+    && str_contains($workflow, "'object_type' => 'accounting_journal_entry'"));
+$a('workflow bridge audits before/after JE snapshots',
+    str_contains($workflow, "'before' => \$je")
+    && str_contains($workflow, "'after' => \$latest")
+    && str_contains($workflow, "'before' => \$latest")
+    && str_contains($workflow, "'after' => \$updated"));
 
 echo "\nAPI gates\n";
 $a('journal API requires workflow bridge',
@@ -116,6 +130,9 @@ $a('sync emits source=workflow audit events',
     str_contains($sync, 'accounting.je.approved')
     && str_contains($sync, 'accounting.je.rejected')
     && str_contains($sync, "'source' => 'workflow'"));
+$a('sync audits before/after JE snapshots',
+    substr_count($sync, "'before' => \$je") >= 2
+    && substr_count($sync, "'after' => \$updated") >= 2);
 $a('workflow bridge audits started/blocked outcomes',
     str_contains($workflow, 'accounting.je.workflow_started')
     && str_contains($workflow, 'accounting.je.workflow_start_failed')

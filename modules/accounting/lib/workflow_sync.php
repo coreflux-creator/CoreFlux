@@ -40,13 +40,17 @@ function accountingSyncJournalEntryFromWorkflow(
                 'id' => $jeId,
             ]);
 
+            $updated = accountingJeWorkflowRow($tenantId, $jeId) ?? $je;
             accountingWorkflowAudit($tenantId, $userId, 'accounting.je.rejected', [
                 'je_id' => $jeId,
                 'je_number' => $je['je_number'] ?? null,
                 'rejected_by_user_id' => $userId,
                 'reason' => $comment ?: 'Rejected through workflow',
                 'source' => 'workflow',
-            ], $jeId);
+            ], $jeId, [
+                'before' => $je,
+                'after' => $updated,
+            ]);
             return;
         }
 
@@ -71,13 +75,17 @@ function accountingSyncJournalEntryFromWorkflow(
                 AND approval_state IN ('draft','pending_approval','rejected')"
         )->execute(['u' => $userId, 't' => $tenantId, 'id' => $jeId]);
 
+        $updated = accountingJeWorkflowRow($tenantId, $jeId) ?? $je;
         accountingWorkflowAudit($tenantId, $userId, 'accounting.je.approved', [
             'je_id' => $jeId,
             'je_number' => $je['je_number'] ?? null,
             'approved_by_user_id' => $userId,
             'source' => 'workflow',
             'workflow_instance_status' => $instanceStatus,
-        ], $jeId);
+        ], $jeId, [
+            'before' => $je,
+            'after' => $updated,
+        ]);
     } catch (\Throwable $e) {
         error_log('[accounting.je.workflow_sync] sync failed: ' . $e->getMessage());
     }

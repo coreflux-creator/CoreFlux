@@ -431,6 +431,13 @@ and separation-of-duties enforcement.
   blocks the same actor from approving and posting when approval was required.
 - `accounting.je.reverse` and `accounting.je.void` remain separate controls.
 
+Current implementation status:
+
+- `accountingAudit` and `accountingWorkflowAudit` delegate to the shared
+  `platformAuditLogWrite` writer with Accounting source/object metadata.
+  Journal-entry WorkflowGraph submission and approval/rejection sync events
+  capture before/after source-row snapshots for approval-state changes.
+
 For compatibility with existing reports and subledger posting, `status` remains
 the posting lifecycle (`draft`, `posted`, `reversed`, `void`) and
 `approval_state` carries the approval lifecycle (`draft`, `pending_approval`,
