@@ -35,13 +35,17 @@ function treasurySyncPaymentFromWorkflow(
                 'id' => $paymentId,
             ]);
 
+            $updated = treasuryPaymentWorkflowRow($tenantId, $paymentId) ?? $payment;
             treasuryWorkflowAudit($tenantId, $userId, 'treasury.payment.approval_rejected', [
                 'payment_id' => $paymentId,
                 'payment_number' => $payment['payment_number'] ?? null,
                 'rejected_by_user_id' => $userId,
                 'reason' => $comment ?: 'Rejected through workflow',
                 'source' => 'workflow',
-            ], $paymentId);
+            ], $paymentId, [
+                'before' => $payment,
+                'after' => $updated,
+            ]);
             return;
         }
 
@@ -61,13 +65,17 @@ function treasurySyncPaymentFromWorkflow(
               WHERE tenant_id = :t AND id = :id AND status IN ('draft', 'pending_approval')"
         )->execute(['u' => $userId, 't' => $tenantId, 'id' => $paymentId]);
 
+        $updated = treasuryPaymentWorkflowRow($tenantId, $paymentId) ?? $payment;
         treasuryWorkflowAudit($tenantId, $userId, 'treasury.payment.approved', [
             'payment_id' => $paymentId,
             'payment_number' => $payment['payment_number'] ?? null,
             'approved_by_user_id' => $userId,
             'source' => 'workflow',
             'workflow_instance_status' => $instanceStatus,
-        ], $paymentId);
+        ], $paymentId, [
+            'before' => $payment,
+            'after' => $updated,
+        ]);
     } catch (\Throwable $e) {
         error_log('[treasury.payment.workflow_sync] sync failed: ' . $e->getMessage());
     }
@@ -98,13 +106,17 @@ function treasurySyncTransferFromWorkflow(
                 'id' => $transferId,
             ]);
 
+            $updated = treasuryTransferWorkflowRow($tenantId, $transferId) ?? $transfer;
             treasuryWorkflowAudit($tenantId, $userId, 'treasury.transfer.approval_rejected', [
                 'transfer_id' => $transferId,
                 'transfer_number' => $transfer['transfer_number'] ?? null,
                 'rejected_by_user_id' => $userId,
                 'reason' => $comment ?: 'Rejected through workflow',
                 'source' => 'workflow',
-            ], $transferId);
+            ], $transferId, [
+                'before' => $transfer,
+                'after' => $updated,
+            ]);
             return;
         }
 
@@ -124,13 +136,17 @@ function treasurySyncTransferFromWorkflow(
               WHERE tenant_id = :t AND id = :id AND status IN ('draft', 'pending_approval')"
         )->execute(['u' => $userId, 't' => $tenantId, 'id' => $transferId]);
 
+        $updated = treasuryTransferWorkflowRow($tenantId, $transferId) ?? $transfer;
         treasuryWorkflowAudit($tenantId, $userId, 'treasury.transfer.approved', [
             'transfer_id' => $transferId,
             'transfer_number' => $transfer['transfer_number'] ?? null,
             'approved_by_user_id' => $userId,
             'source' => 'workflow',
             'workflow_instance_status' => $instanceStatus,
-        ], $transferId);
+        ], $transferId, [
+            'before' => $transfer,
+            'after' => $updated,
+        ]);
     } catch (\Throwable $e) {
         error_log('[treasury.transfer.workflow_sync] sync failed: ' . $e->getMessage());
     }

@@ -8,30 +8,32 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
+require_once __DIR__ . '/../../../core/audit.php';
 require_once __DIR__ . '/../../../core/domain_people_graph.php';
 require_once __DIR__ . '/../../../core/workflow_engine.php';
 
 /** @internal */
-function treasuryWorkflowAudit(int $tenantId, ?int $actorUserId, string $event, array $meta = [], ?int $targetId = null): void
+function treasuryWorkflowAudit(
+    int $tenantId,
+    ?int $actorUserId,
+    string $event,
+    array $meta = [],
+    ?int $targetId = null,
+    array $opts = []
+): void
 {
-    try {
-        $pdo = getDB();
-        if (!$pdo) return;
-        $stmt = $pdo->prepare(
-            'INSERT INTO audit_log
-             (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
-             VALUES (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, NOW())'
-        );
-        $stmt->execute([
-            'tenant_id' => $tenantId,
-            'actor_user_id' => $actorUserId,
-            'event' => $event,
-            'target_id' => $targetId,
-            'meta_json' => $meta ? json_encode($meta, JSON_UNESCAPED_SLASHES) : null,
-        ]);
-    } catch (\Throwable $e) {
-        error_log("[treasury.workflow.audit] db-write-failed: " . $e->getMessage() . " event={$event}");
-    }
+    platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, array_merge([
+        'object_type' => treasuryWorkflowAuditObjectType($event),
+        'source' => $meta['source'] ?? 'treasury',
+    ], $opts));
+}
+
+/** @internal */
+function treasuryWorkflowAuditObjectType(string $event): string
+{
+    if (str_contains($event, '.transfer.')) return 'treasury_transfer';
+    if (str_contains($event, '.payment.')) return 'treasury_payment';
+    return 'treasury_money_movement';
 }
 
 function treasuryPaymentWorkflowRow(int $tenantId, int $paymentId): ?array
@@ -335,7 +337,10 @@ function treasuryPaymentWorkflowStart(int $tenantId, int $paymentId, ?int $start
             'payment_number' => $payment['payment_number'] ?? null,
             'workflow_instance_id' => $instanceId,
             'created_by_user_id' => $payment['created_by_user_id'] ?? null,
-        ], $paymentId);
+        ], $paymentId, [
+            'before' => $payment,
+            'after' => $latest,
+        ]);
         return $instanceId;
     } catch (\Throwable $e) {
         treasuryWorkflowAudit($tenantId, $starterUserId, 'treasury.payment.workflow_start_failed', [
@@ -395,7 +400,10 @@ function treasuryTransferWorkflowStart(int $tenantId, int $transferId, ?int $sta
             'transfer_number' => $transfer['transfer_number'] ?? null,
             'workflow_instance_id' => $instanceId,
             'created_by_user_id' => $transfer['created_by_user_id'] ?? null,
-        ], $transferId);
+        ], $transferId, [
+            'before' => $transfer,
+            'after' => $latest,
+        ]);
         return $instanceId;
     } catch (\Throwable $e) {
         treasuryWorkflowAudit($tenantId, $starterUserId, 'treasury.transfer.workflow_start_failed', [
@@ -518,7 +526,10 @@ function treasuryPaymentWorkflowAct(
             'workflow_status' => $instance['status'] ?? null,
             'approved' => $approved,
             'rejected' => $rejected,
-        ], $paymentId);
+        ], $paymentId, [
+            'before' => $latest,
+            'after' => $updated,
+        ]);
         return [
             'applied' => true,
             'approved' => $approved,
@@ -600,7 +611,10 @@ function treasuryTransferWorkflowAct(
             'workflow_status' => $instance['status'] ?? null,
             'approved' => $approved,
             'rejected' => $rejected,
-        ], $transferId);
+        ], $transferId, [
+            'before' => $latest,
+            'after' => $updated,
+        ]);
         return [
             'applied' => true,
             'approved' => $approved,

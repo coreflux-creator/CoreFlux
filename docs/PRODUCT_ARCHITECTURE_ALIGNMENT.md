@@ -451,6 +451,13 @@ controls:
   `treasury.view_bank_balances` remains the bank-balance/cash-position read
   gate.
 
+Current implementation status:
+
+- Treasury payment and transfer create, submit, approve/reject, execute,
+  failure, and void paths write through `treasuryWorkflowAudit`, which delegates
+  to the shared `platformAuditLogWrite` writer with Treasury source/object
+  metadata and before/after source-row snapshots for material state changes.
+
 ### Access Review And Certification
 
 Access reviews are now a platform enterprise control. Campaigns snapshot

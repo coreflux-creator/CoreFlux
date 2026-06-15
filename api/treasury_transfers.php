@@ -106,13 +106,16 @@ if ($method === 'POST' && $action === '') {
         'u' => $actorUserId,
     ]);
     $transferId = (int) $pdo->lastInsertId();
+    $created = treasuryTransferWorkflowRow($tid, $transferId) ?? [];
     treasuryWorkflowAudit($tid, $actorUserId, 'treasury.transfer.created', [
         'transfer_id' => $transferId,
         'transfer_number' => $num,
         'transfer_kind' => $kind,
         'amount' => round((float) $body['amount'], 2),
         'currency' => (string) ($body['currency'] ?? 'USD'),
-    ], $transferId);
+    ], $transferId, [
+        'after' => $created,
+    ]);
     api_ok([
         'id' => $transferId,
         'transfer_number' => $num,
@@ -141,7 +144,10 @@ if ($method === 'POST' && $action === 'submit') {
     treasuryWorkflowAudit($tid, $actorUserId, 'treasury.transfer.submitted', [
         'transfer_id' => $id,
         'workflow_instance_id' => $instanceId,
-    ], $id);
+    ], $id, [
+        'before' => $xfer,
+        'after' => $updated,
+    ]);
     api_ok([
         'id' => $id,
         'status' => $updated['status'] ?? 'pending_approval',
@@ -247,11 +253,15 @@ if ($method === 'POST' && $action === 'execute') {
     } catch (\Throwable $e) {
         $pdo->prepare('UPDATE treasury_transfers SET status="failed", failure_reason=:f WHERE id=:id')
             ->execute(['f' => $e->getMessage(), 'id' => $id]);
+        $failed = treasuryTransferWorkflowRow($tid, $id) ?? $xfer;
         treasuryWorkflowAudit($tid, $actorUserId, 'treasury.transfer.execution_failed', [
             'transfer_id' => $id,
             'event_type' => $eventType,
             'reason' => $e->getMessage(),
-        ], $id);
+        ], $id, [
+            'before' => $xfer,
+            'after' => $failed,
+        ]);
         api_error('Execute failed: ' . $e->getMessage(), 422);
     }
 
@@ -259,12 +269,16 @@ if ($method === 'POST' && $action === 'execute') {
         $msg = $r['error'] ?? 'event not posted';
         $pdo->prepare('UPDATE treasury_transfers SET status="failed", failure_reason=:f, accounting_event_id=:ev WHERE id=:id')
             ->execute(['f' => $msg, 'ev' => $r['event_id'] ?? null, 'id' => $id]);
+        $failed = treasuryTransferWorkflowRow($tid, $id) ?? $xfer;
         treasuryWorkflowAudit($tid, $actorUserId, 'treasury.transfer.execution_failed', [
             'transfer_id' => $id,
             'event_type' => $eventType,
             'event_id' => $r['event_id'] ?? null,
             'reason' => $msg,
-        ], $id);
+        ], $id, [
+            'before' => $xfer,
+            'after' => $failed,
+        ]);
         api_error('Execute failed: ' . $msg, 422);
     }
 
@@ -279,13 +293,17 @@ if ($method === 'POST' && $action === 'execute') {
         'ev' => $r['event_id'] ?? null,
         'id' => $id,
     ]);
+    $executed = treasuryTransferWorkflowRow($tid, $id) ?? $xfer;
     treasuryWorkflowAudit($tid, $actorUserId, 'treasury.transfer.executed', [
         'transfer_id' => $id,
         'transfer_kind' => (string) $xfer['transfer_kind'],
         'event_type' => $eventType,
         'source_journal_entry_id' => (int) $r['journal_entry_id'],
         'event_id' => $r['event_id'] ?? null,
-    ], $id);
+    ], $id, [
+        'before' => $xfer,
+        'after' => $executed,
+    ]);
     api_ok([
         'id' => $id,
         'status' => 'executed',
@@ -305,9 +323,13 @@ if ($method === 'POST' && $action === 'void') {
     }
     $pdo->prepare('UPDATE treasury_transfers SET status="voided" WHERE id=:id')
         ->execute(['id' => $id]);
+    $voided = treasuryTransferWorkflowRow($tid, $id) ?? $xfer;
     treasuryWorkflowAudit($tid, $actorUserId, 'treasury.transfer.voided', [
         'transfer_id' => $id,
-    ], $id);
+    ], $id, [
+        'before' => $xfer,
+        'after' => $voided,
+    ]);
     api_ok(['id' => $id, 'status' => 'voided']);
 }
 

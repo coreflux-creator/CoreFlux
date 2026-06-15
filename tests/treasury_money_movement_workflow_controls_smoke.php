@@ -72,6 +72,19 @@ $a('workflow payloads identify Treasury resources and SoD blockers',
     && str_contains($workflow, 'treasuryPaymentWorkflowSodBlockedUserIds(')
     && str_contains($workflow, 'treasuryTransferWorkflowSodBlockedUserIds(')
     && substr_count($workflow, "'sod_blocked_user_ids' => \$blocked") >= 2);
+$a('treasury audit helper uses canonical platform writer',
+    str_contains($workflow, "/../../../core/audit.php")
+    && str_contains($workflow, 'platformAuditLogWrite')
+    && str_contains($workflow, 'treasuryWorkflowAuditObjectType')
+    && str_contains($workflow, "'source' => \$meta['source'] ?? 'treasury'"));
+$a('treasury audit helper classifies payment and transfer objects',
+    str_contains($workflow, "'treasury_payment'")
+    && str_contains($workflow, "'treasury_transfer'"));
+$a('workflow bridge audits before/after state snapshots',
+    substr_count($workflow, "'before' => \$payment") >= 1
+    && substr_count($workflow, "'after' => \$latest") >= 2
+    && substr_count($workflow, "'before' => \$latest") >= 2
+    && substr_count($workflow, "'after' => \$updated") >= 2);
 
 echo "\nAPI gates\n";
 $a('payments API requires workflow bridge',
@@ -114,6 +127,13 @@ $a('execution posts accounting events and audits failures',
     && str_contains($payments, 'treasury.payment.execution_failed')
     && str_contains($transfers, 'accountingProcessEvent($tid, $event, $actorUserId)')
     && str_contains($transfers, 'treasury.transfer.execution_failed'));
+$a('execution and void audits carry before/after source rows',
+    substr_count($payments, "'before' => \$payment") >= 4
+    && str_contains($payments, "'after' => \$executed")
+    && str_contains($payments, "'after' => \$voided")
+    && substr_count($transfers, "'before' => \$xfer") >= 4
+    && str_contains($transfers, "'after' => \$executed")
+    && str_contains($transfers, "'after' => \$voided"));
 
 echo "\nWorkflow sync and auditability\n";
 $a('payment sync writes approved/rejected source state',
@@ -130,6 +150,10 @@ $a('sync emits source=workflow audit events',
     && str_contains($sync, 'treasury.transfer.approved')
     && str_contains($sync, 'treasury.transfer.approval_rejected')
     && str_contains($sync, "'source' => 'workflow'"));
+$a('sync audits before/after source rows',
+    substr_count($sync, "'before' => \$payment") >= 2
+    && substr_count($sync, "'after' => \$updated") >= 4
+    && substr_count($sync, "'before' => \$transfer") >= 2);
 
 echo "\nSchema and declarations\n";
 $a('base payment migration has workflow index',
