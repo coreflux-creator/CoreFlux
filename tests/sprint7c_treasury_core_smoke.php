@@ -127,9 +127,25 @@ $assert('joins accounting_bank_accounts → accounting_accounts',
 $assert('outflow pending status whitelist',
     strpos($cp, "'pending_approval','approved','scheduled'") !== false);
 $assert('forecast_days clamped 0..60',        strpos($cp, 'min(60, (int) (api_query') !== false);
+$assert('minimum liquidity threshold input',
+    strpos($cp, "api_query('minimum_liquidity_threshold')") !== false
+    && strpos($cp, "api_query('minimum_liquidity_currency')") !== false);
 $assert('per-currency totals + projected balance',
     strpos($cp, "'projected_balance'") !== false
     && strpos($cp, "'by_currency'") !== false);
+$assert('available-to-spend control envelope',
+    strpos($cp, "'liquidity_controls'") !== false
+    && strpos($cp, "'available_to_spend'") !== false
+    && strpos($cp, 'available_to_spend = current_cash') !== false);
+$assert('cash safety score and risk level',
+    strpos($cp, "'cash_safety_score'") !== false
+    && strpos($cp, "'coverage_ratio'") !== false
+    && strpos($cp, "'risk_level'") !== false);
+$assert('high-confidence AP/AR source signals',
+    strpos($cp, 'FROM ap_bills') !== false
+    && strpos($cp, 'FROM billing_invoices') !== false
+    && strpos($cp, "'high_confidence_near_term_outflows'") !== false
+    && strpos($cp, "'high_confidence_near_term_inflows'") !== false);
 $assert('graceful when no reconciliations table',
     strpos($cp, "SHOW TABLES LIKE 'accounting_reconciliations'") !== false);
 
