@@ -65,7 +65,7 @@ function liquidityBaselineDatasets(int $tenantId, string $today, string $endDate
     )->fetchColumn();
 
     $arStmt = $pdo->prepare(
-        "SELECT due_date, COALESCE(amount_due, total - amount_paid) AS due
+        "SELECT id, invoice_number, client_name, status, due_date, COALESCE(amount_due, total - amount_paid) AS due
            FROM billing_invoices
           WHERE tenant_id = :t AND status IN ('approved','sent','partially_paid')
             AND due_date BETWEEN :s AND :e
@@ -75,7 +75,7 @@ function liquidityBaselineDatasets(int $tenantId, string $today, string $endDate
     $arRows = $arStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
     $tpStmt = $pdo->prepare(
-        "SELECT payment_date, amount, payee_name
+        "SELECT id, payment_number, payment_date, amount, payee_name, status
            FROM treasury_payments
           WHERE tenant_id = :t
             AND status IN ('draft','pending_approval','approved','scheduled')
@@ -93,7 +93,7 @@ function liquidityBaselineDatasets(int $tenantId, string $today, string $endDate
     }
 
     $apStmt = $pdo->prepare(
-        "SELECT id, due_date, amount_due, vendor_name
+        "SELECT id, bill_number, due_date, amount_due, vendor_name, status
            FROM ap_bills
           WHERE tenant_id = :t AND status IN ('approved','partially_paid','pending_approval')
             AND due_date BETWEEN :s AND :e AND amount_due > 0"
@@ -215,6 +215,187 @@ function liquidityProjectionEvidence(
         'source_population' => $sourcePopulation,
         'replay_key' => hash('sha256', json_encode($basis, JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION) ?: ''),
     ];
+}
+
+/**
+ * Build explainable source detail for a projection without changing the
+ * projection math. These records are the daily drilldown beneath the totals:
+ * which source object moved cash, how it was classified, and how confident the
+ * schedule is.
+ */
+function liquidityProjectionSourceDetail(array $datasets, array $overlays = []): array
+{
+    $byDate = [];
+    $summary = [
+        'inflows' => [],
+        'outflows' => [],
+    ];
+    $classificationTotals = [
+        'actual' => ['inflows' => 0.0, 'outflows' => 0.0],
+        'scheduled' => ['inflows' => 0.0, 'outflows' => 0.0],
+        'expected' => ['inflows' => 0.0, 'outflows' => 0.0],
+        'forecasted' => ['inflows' => 0.0, 'outflows' => 0.0],
+    ];
+
+    $add = static function (array $item) use (&$byDate, &$summary, &$classificationTotals): void {
+        $date = (string) $item['date'];
+        $direction = (string) $item['direction'];
+        $source = (string) $item['source'];
+        $amount = round((float) $item['amount'], 2);
+        $classification = (string) ($item['classification'] ?? 'expected');
+
+        if (!isset($byDate[$date])) {
+            $byDate[$date] = [
+                'date' => $date,
+                'inflows' => [],
+                'outflows' => [],
+                'inflow_total' => 0.0,
+                'outflow_total' => 0.0,
+                'net' => 0.0,
+            ];
+        }
+
+        $bucket = $direction === 'inflow' ? 'inflows' : 'outflows';
+        $totalKey = $direction === 'inflow' ? 'inflow_total' : 'outflow_total';
+        $byDate[$date][$bucket][] = $item;
+        $byDate[$date][$totalKey] = round($byDate[$date][$totalKey] + $amount, 2);
+        $byDate[$date]['net'] = round($byDate[$date]['inflow_total'] - $byDate[$date]['outflow_total'], 2);
+
+        $summary[$bucket][$source] = $summary[$bucket][$source] ?? [
+            'source' => $source,
+            'count' => 0,
+            'amount' => 0.0,
+        ];
+        $summary[$bucket][$source]['count']++;
+        $summary[$bucket][$source]['amount'] = round($summary[$bucket][$source]['amount'] + $amount, 2);
+
+        if (!isset($classificationTotals[$classification])) {
+            $classificationTotals[$classification] = ['inflows' => 0.0, 'outflows' => 0.0];
+        }
+        $classificationTotals[$classification][$bucket] = round($classificationTotals[$classification][$bucket] + $amount, 2);
+    };
+
+    foreach ($datasets['ar'] ?? [] as $r) {
+        $add([
+            'date' => (string) $r['due_date'],
+            'direction' => 'inflow',
+            'source' => 'billing_invoice',
+            'source_record_type' => 'billing_invoice',
+            'source_record_id' => (int) ($r['id'] ?? 0),
+            'label' => (string) (($r['invoice_number'] ?? '') ?: ('Invoice #' . (int) ($r['id'] ?? 0))),
+            'counterparty' => (string) ($r['client_name'] ?? ''),
+            'status' => (string) ($r['status'] ?? ''),
+            'amount' => round((float) ($r['due'] ?? 0), 2),
+            'classification' => 'expected',
+            'confidence' => 'high',
+            'basis' => 'open_ar_due_date',
+        ]);
+    }
+
+    foreach ($datasets['tp'] ?? [] as $r) {
+        $status = (string) ($r['status'] ?? '');
+        $scheduled = in_array($status, ['approved', 'scheduled'], true);
+        $add([
+            'date' => (string) $r['payment_date'],
+            'direction' => 'outflow',
+            'source' => 'treasury_payment',
+            'source_record_type' => 'treasury_payment',
+            'source_record_id' => (int) ($r['id'] ?? 0),
+            'label' => (string) (($r['payment_number'] ?? '') ?: ('Payment #' . (int) ($r['id'] ?? 0))),
+            'counterparty' => (string) ($r['payee_name'] ?? ''),
+            'status' => $status,
+            'amount' => round((float) ($r['amount'] ?? 0), 2),
+            'classification' => $scheduled ? 'scheduled' : 'expected',
+            'confidence' => $scheduled ? 'high' : 'medium',
+            'basis' => 'treasury_payment_date',
+        ]);
+    }
+
+    foreach ($datasets['ap'] ?? [] as $r) {
+        $status = (string) ($r['status'] ?? '');
+        $add([
+            'date' => (string) $r['due_date'],
+            'direction' => 'outflow',
+            'source' => 'ap_bill',
+            'source_record_type' => 'ap_bill',
+            'source_record_id' => (int) ($r['id'] ?? 0),
+            'label' => (string) (($r['bill_number'] ?? '') ?: ('Bill #' . (int) ($r['id'] ?? 0))),
+            'counterparty' => (string) ($r['vendor_name'] ?? ''),
+            'status' => $status,
+            'amount' => round((float) ($r['amount_due'] ?? 0), 2),
+            'classification' => 'expected',
+            'confidence' => in_array($status, ['approved', 'partially_paid'], true) ? 'high' : 'medium',
+            'basis' => 'ap_bill_due_date',
+        ]);
+    }
+
+    foreach (($overlays['extra_inflows_by_date'] ?? []) as $date => $amount) {
+        if ((float) $amount <= 0) continue;
+        $add([
+            'date' => (string) $date,
+            'direction' => 'inflow',
+            'source' => 'scenario_overlay',
+            'source_record_type' => 'scenario_overlay',
+            'source_record_id' => null,
+            'label' => 'Scenario inflow',
+            'counterparty' => '',
+            'status' => 'simulated',
+            'amount' => round((float) $amount, 2),
+            'classification' => 'forecasted',
+            'confidence' => 'user_supplied',
+            'basis' => 'scenario_overlay',
+        ]);
+    }
+
+    foreach (($overlays['extra_outflows_by_date'] ?? []) as $date => $amount) {
+        if ((float) $amount <= 0) continue;
+        $add([
+            'date' => (string) $date,
+            'direction' => 'outflow',
+            'source' => 'scenario_overlay',
+            'source_record_type' => 'scenario_overlay',
+            'source_record_id' => null,
+            'label' => 'Scenario outflow',
+            'counterparty' => '',
+            'status' => 'simulated',
+            'amount' => round((float) $amount, 2),
+            'classification' => 'forecasted',
+            'confidence' => 'user_supplied',
+            'basis' => 'scenario_overlay',
+        ]);
+    }
+
+    ksort($byDate);
+
+    return [
+        'by_date' => $byDate,
+        'summary' => [
+            'inflows' => array_values($summary['inflows']),
+            'outflows' => array_values($summary['outflows']),
+        ],
+        'classification_totals' => $classificationTotals,
+    ];
+}
+
+/**
+ * Attach per-day source detail to an existing daily projection series.
+ */
+function liquidityAttachDailySourceDetail(array $daily, array $sourceDetail): array
+{
+    $byDate = $sourceDetail['by_date'] ?? [];
+    foreach ($daily as &$row) {
+        $date = (string) ($row['date'] ?? '');
+        $row['source_detail'] = $byDate[$date] ?? [
+            'date' => $date,
+            'inflows' => [],
+            'outflows' => [],
+            'inflow_total' => 0.0,
+            'outflow_total' => 0.0,
+            'net' => 0.0,
+        ];
+    }
+    unset($row);
+    return $daily;
 }
 
 /**

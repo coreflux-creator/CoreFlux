@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApi } from '../lib/api';
-import { TrendingDown, TrendingUp, AlertTriangle, Wallet } from 'lucide-react';
+import { TrendingDown, TrendingUp, AlertTriangle, Wallet, FileSearch } from 'lucide-react';
 
 /**
  * Liquidity Forecast page (P2).
@@ -18,6 +18,11 @@ export default function LiquidityForecast() {
   const totals = data?.totals || {};
   const daily  = data?.daily  || [];
   const guards = data?.guards || {};
+  const sourceDetail = data?.source_detail || {};
+  const classificationTotals = sourceDetail.classification_totals || {};
+  const sourceDates = daily
+    .filter((d) => (d.source_detail?.inflows?.length || 0) + (d.source_detail?.outflows?.length || 0) > 0)
+    .slice(0, 8);
   const fmt = (n) => (n == null ? '—' : '$' + Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 }));
 
   // Sparkline-ish bar viz: each day's closing balance scaled within a min/max band.
@@ -74,6 +79,49 @@ export default function LiquidityForecast() {
         <Tile testId="liquidity-tile-lowest"   label="Lowest balance" value={fmt(totals.lowest_balance)} subtitle={totals.lowest_balance_date} />
       </div>
 
+      <div data-testid="liquidity-source-detail"
+           style={{ padding: 16, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, display: 'grid', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <FileSearch size={18} color="#0f766e" />
+          <strong style={{ fontSize: 14 }}>Forecast source detail</strong>
+        </div>
+        <div data-testid="liquidity-classification-totals"
+             style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10 }}>
+          {['actual', 'scheduled', 'expected', 'forecasted'].map((key) => {
+            const row = classificationTotals[key] || {};
+            return (
+              <div key={key} data-testid={`liquidity-classification-${key}`}
+                   style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 10, background: '#f8fafc' }}>
+                <div style={{ textTransform: 'uppercase', color: '#64748b', fontSize: 11, letterSpacing: 0.4 }}>{key}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 6, fontSize: 12 }}>
+                  <span style={{ color: '#047857' }}>In {fmt(row.inflows || 0)}</span>
+                  <span style={{ color: '#b91c1c' }}>Out {fmt(row.outflows || 0)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div data-testid="liquidity-source-daily-list" style={{ display: 'grid', gap: 8 }}>
+          {sourceDates.length === 0 && (
+            <div data-testid="liquidity-source-empty" style={{ color: '#64748b', fontSize: 13 }}>
+              No source movements in this window.
+            </div>
+          )}
+          {sourceDates.map((day) => (
+            <div key={day.date} data-testid={`liquidity-source-day-${day.date}`}
+                 style={{ borderTop: '1px solid #e2e8f0', paddingTop: 8, display: 'grid', gap: 6 }}>
+              <div style={{ fontSize: 12, color: '#334155', fontWeight: 700 }}>{day.date}</div>
+              {(day.source_detail?.inflows || []).map((item, idx) => (
+                <SourceMovement key={`in-${idx}`} item={item} fmt={fmt} tone="inflow" />
+              ))}
+              {(day.source_detail?.outflows || []).map((item, idx) => (
+                <SourceMovement key={`out-${idx}`} item={item} fmt={fmt} tone="outflow" />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div data-testid="liquidity-daily-card"
            style={{ padding: 16, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}>
         <strong style={{ fontSize: 14 }}>Daily projection</strong>
@@ -101,6 +149,23 @@ export default function LiquidityForecast() {
         </div>
       </div>
     </section>
+  );
+}
+
+function SourceMovement({ item, fmt, tone }) {
+  const color = tone === 'inflow' ? '#047857' : '#b91c1c';
+  return (
+    <div data-testid={`liquidity-source-movement-${item.source_record_type}-${item.source_record_id || 'overlay'}`}
+         style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 8, alignItems: 'center', fontSize: 12 }}>
+      <div style={{ minWidth: 0 }}>
+        <span style={{ color, fontWeight: 700 }}>{tone === 'inflow' ? '+' : '-'}{fmt(item.amount)}</span>
+        <span style={{ color: '#0f172a' }}> {item.label}</span>
+        {item.counterparty && <span style={{ color: '#64748b' }}> / {item.counterparty}</span>}
+      </div>
+      <span style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
+        {item.classification} / {item.confidence}
+      </span>
+    </div>
   );
 }
 

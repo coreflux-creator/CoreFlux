@@ -25,6 +25,7 @@ $artifacts = (string) file_get_contents($ROOT . '/core/ai/artifacts.php');
 $cashForecast = (string) file_get_contents($ROOT . '/core/ai/cash_forecast.php');
 $treasuryManifest = (string) file_get_contents($ROOT . '/modules/treasury/manifest.php');
 $forecastApi = (string) file_get_contents($ROOT . '/api/liquidity_forecast.php');
+$forecastUi = (string) file_get_contents($ROOT . '/dashboard/src/pages/LiquidityForecast.jsx');
 $scenarioApi = (string) file_get_contents($ROOT . '/api/treasury_scenario.php');
 $compareApi = (string) file_get_contents($ROOT . '/api/treasury_scenario_compare.php');
 $shareApi = (string) file_get_contents($ROOT . '/api/treasury_scenario_share.php');
@@ -63,6 +64,20 @@ $a('liquidity APIs surface projection evidence',
     && $c($compareApi, 'liquidityProjectionEvidence(')
     && $c($shareApi, 'liquidityProjectionEvidence(')
     && $c($impactApi, 'liquidityProjectionEvidence('));
+$a('liquidity forecast exposes source drilldown and timing classes',
+    $c($liquidity, 'function liquidityProjectionSourceDetail(')
+    && $c($liquidity, "'source_record_type'")
+    && $c($liquidity, "'scheduled' => ['inflows' => 0.0, 'outflows' => 0.0]")
+    && $c($liquidity, "\$scheduled ? 'scheduled' : 'expected'")
+    && $c($liquidity, "'classification' => 'expected'")
+    && $c($liquidity, "'classification' => 'forecasted'")
+    && $c($forecastApi, "'source_detail'")
+    && $c($forecastApi, 'liquidityAttachDailySourceDetail('));
+$a('liquidity forecast UI renders source drilldown',
+    $c($forecastUi, 'data-testid="liquidity-source-detail"')
+    && $c($forecastUi, 'data-testid="liquidity-classification-totals"')
+    && $c($forecastUi, 'liquidity-source-daily-list')
+    && $c($forecastUi, 'SourceMovement'));
 $a('artifact lifecycle helpers exist',
     $c($artifacts, 'function artifactCreate(')
     && $c($artifacts, 'function artifactTransition(')
