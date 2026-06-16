@@ -253,8 +253,51 @@ function LiquidityImpactPanel({ billId, amountDue }) {
               ✓ Balance stays positive across the {data.days_horizon}-day horizon.
             </p>
           )}
+          <div data-testid="ap-bill-liquidity-impact-source-detail"
+               style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8, marginTop: 10 }}>
+            <LiquiditySourceMini title="Baseline sources" detail={data.baseline.source_detail} testid="ap-bill-liquidity-source-baseline" fmt={fmt} />
+            <LiquiditySourceMini title="With payment" detail={data.simulated.source_detail} testid="ap-bill-liquidity-source-simulated" fmt={fmt} />
+          </div>
         </>
       )}
+    </div>
+  );
+}
+
+function LiquiditySourceMini({ title, detail, testid, fmt }) {
+  const classes = detail?.classification_totals || {};
+  const sources = [
+    ...(detail?.summary?.inflows || []).map((row) => ({ ...row, direction: 'In' })),
+    ...(detail?.summary?.outflows || []).map((row) => ({ ...row, direction: 'Out' })),
+  ].slice(0, 4);
+  return (
+    <div data-testid={testid}
+         style={{ padding: 10, border: '1px solid #ddd6fe', borderRadius: 8, background: '#fff', display: 'grid', gap: 6 }}>
+      <strong style={{ fontSize: 12, color: '#475569' }}>{title}</strong>
+      <div data-testid={`${testid}-classes`} style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {['scheduled', 'expected', 'forecasted'].map((key) => {
+          const row = classes[key] || {};
+          const total = Number(row.inflows || 0) - Number(row.outflows || 0);
+          return (
+            <span key={key} data-testid={`${testid}-class-${key}`}
+                  style={{ fontSize: 11, color: '#64748b', background: '#f8fafc', borderRadius: 6, padding: '3px 6px' }}>
+              {key}: {fmt(total)}
+            </span>
+          );
+        })}
+      </div>
+      <div data-testid={`${testid}-sources`} style={{ display: 'grid', gap: 3 }}>
+        {sources.length === 0 ? (
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>No source movements.</span>
+        ) : sources.map((row) => (
+          <div key={`${row.direction}-${row.source}`}
+               style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 6, fontSize: 11, color: '#475569' }}>
+            <span style={{ color: row.direction === 'In' ? '#047857' : '#b91c1c', fontWeight: 700 }}>{row.direction}</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.source}</span>
+            <span>{fmt(row.amount)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

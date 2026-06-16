@@ -80,6 +80,10 @@ $a('treasury scenario APIs preserve source drilldown through overlays',
     && $c($compareApi, '$sourceDetailB = liquidityProjectionSourceDetail($datasets, [')
     && $c($scenarioApi, "'source_detail'        => \$simulatedSourceDetail")
     && $c($compareApi, "'source_detail'        => \$sourceDetailA"));
+$a('AP bill liquidity impact preserves source drilldown',
+    $c($impactApi, '$baselineSourceDetail = liquidityProjectionSourceDetail($datasets);')
+    && $c($impactApi, '$simulatedSourceDetail = liquidityProjectionSourceDetail($datasets, [')
+    && $c($impactApi, "'source_detail'        => \$simulatedSourceDetail"));
 $a('liquidity forecast UI renders source drilldown',
     $c($forecastUi, 'data-testid="liquidity-source-detail"')
     && $c($forecastUi, 'data-testid="liquidity-classification-totals"')
