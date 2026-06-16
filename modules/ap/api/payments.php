@@ -336,7 +336,10 @@ if ($method === 'POST' && $action === 'originate_batch') {
 
     $settings = scopedFind('SELECT * FROM ap_settings WHERE tenant_id = :tenant_id LIMIT 1') ?: [];
     try {
-        $res = paymentRailsDispatch('ap', ['effective_date' => date('Y-m-d', strtotime('+1 day'))], $settings, $items);
+        $res = paymentRailsDispatch('ap', [
+            'tenant_id' => (int) currentTenantId(),
+            'effective_date' => date('Y-m-d', strtotime('+1 day')),
+        ], $settings, $items);
     } catch (PaymentRailsOriginateException $e) {
         apAudit('ap.payment.batch_originate_failed', [
             'count' => count($ids), 'ids' => $ids, 'error' => $e->getMessage(),
