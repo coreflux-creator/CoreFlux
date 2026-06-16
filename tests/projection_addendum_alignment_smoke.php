@@ -73,6 +73,13 @@ $a('liquidity forecast exposes source drilldown and timing classes',
     && $c($liquidity, "'classification' => 'forecasted'")
     && $c($forecastApi, "'source_detail'")
     && $c($forecastApi, 'liquidityAttachDailySourceDetail('));
+$a('treasury scenario APIs preserve source drilldown through overlays',
+    $c($scenarioApi, '$baselineSourceDetail = liquidityProjectionSourceDetail($datasets);')
+    && $c($scenarioApi, '$simulatedSourceDetail = liquidityProjectionSourceDetail($datasets, [')
+    && $c($compareApi, '$sourceDetailA = liquidityProjectionSourceDetail($datasets, [')
+    && $c($compareApi, '$sourceDetailB = liquidityProjectionSourceDetail($datasets, [')
+    && $c($scenarioApi, "'source_detail'        => \$simulatedSourceDetail")
+    && $c($compareApi, "'source_detail'        => \$sourceDetailA"));
 $a('liquidity forecast UI renders source drilldown',
     $c($forecastUi, 'data-testid="liquidity-source-detail"')
     && $c($forecastUi, 'data-testid="liquidity-classification-totals"')

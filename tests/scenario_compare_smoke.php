@@ -70,14 +70,27 @@ $assert('projection A overlays scenario_a maps',
 $assert('projection B overlays scenario_b maps',
     strpos($api, '$projB = liquidityWalkProjection(') !== false
     && strpos($api, "\$b['inflows_by_date'], \$b['outflows_by_date']") !== false);
+$assert('source detail generated for baseline + both scenarios',
+    strpos($api, '$baselineSourceDetail = liquidityProjectionSourceDetail($datasets);') !== false
+    && strpos($api, '$sourceDetailA = liquidityProjectionSourceDetail($datasets, [') !== false
+    && strpos($api, '$sourceDetailB = liquidityProjectionSourceDetail($datasets, [') !== false);
+$assert('daily rows include attached source detail for all three series',
+    strpos($api, '$baselineDaily = liquidityAttachDailySourceDetail(') !== false
+    && strpos($api, '$dailyA = liquidityAttachDailySourceDetail(') !== false
+    && strpos($api, '$dailyB = liquidityAttachDailySourceDetail(') !== false);
 
 echo "\nResponse envelope — three series + pairwise deltas\n";
-$assert('returns baseline series with daily',    preg_match("/'baseline'\\s*=>.*?'daily'\\s*=> \\\$baseline\\['daily'\\]/s", $api) === 1);
+$assert('returns baseline series with enriched daily',    preg_match("/'baseline'\\s*=>.*?'daily'\\s*=> \\\$baselineDaily/s", $api) === 1);
 $assert('returns scenario_a (label, events, daily, totals)',
     strpos($api, "'scenario_a'") !== false
+    && strpos($api, "'source_detail'        => \$sourceDetailA") !== false
+    && strpos($api, "'daily'               => \$dailyA") !== false
     && strpos($api, "'inflow_total'") !== false
     && strpos($api, "'net_event_impact'") !== false);
-$assert('returns scenario_b symmetrically',      strpos($api, "'scenario_b'") !== false);
+$assert('returns scenario_b symmetrically',
+    strpos($api, "'scenario_b'") !== false
+    && strpos($api, "'source_detail'        => \$sourceDetailB") !== false
+    && strpos($api, "'daily'               => \$dailyB") !== false);
 $assert("returns 'deltas' envelope with all three pairs",
     strpos($api, "'a_vs_baseline'") !== false
     && strpos($api, "'b_vs_baseline'") !== false

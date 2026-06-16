@@ -109,6 +109,11 @@ foreach ($rawEvents as $idx => $e) {
 // ──────────────────────────────────────────────────────────────────
 $datasets = liquidityBaselineDatasets($tid, $today, $endDate, $entityId);
 $buckets  = liquidityBucketDatasets($datasets);
+$baselineSourceDetail = liquidityProjectionSourceDetail($datasets);
+$simulatedSourceDetail = liquidityProjectionSourceDetail($datasets, [
+    'extra_inflows_by_date' => $extraInflowsByDate,
+    'extra_outflows_by_date' => $extraOutflowsByDate,
+]);
 
 $baseline  = liquidityWalkProjection(
     $datasets['starting_cash'], $days, $today,
@@ -124,9 +129,11 @@ $simulatedProjection = liquidityProjectionEvidence($tid, $today, $endDate, $days
     'extra_inflows_by_date' => $extraInflowsByDate,
     'extra_outflows_by_date' => $extraOutflowsByDate,
 ]);
+$baselineDaily = liquidityAttachDailySourceDetail($baseline['daily'], $baselineSourceDetail);
+$simulatedDaily = liquidityAttachDailySourceDetail($simulated['daily'], $simulatedSourceDetail);
 
-$baselineEnd  = $baseline['daily']  ? end($baseline['daily'])['closing']  : round($datasets['starting_cash'], 2);
-$simulatedEnd = $simulated['daily'] ? end($simulated['daily'])['closing'] : round($datasets['starting_cash'], 2);
+$baselineEnd  = $baselineDaily  ? end($baselineDaily)['closing']  : round($datasets['starting_cash'], 2);
+$simulatedEnd = $simulatedDaily ? end($simulatedDaily)['closing'] : round($datasets['starting_cash'], 2);
 
 $lowestShift = round($simulated['lowest_balance'] - $baseline['lowest_balance'], 2);
 $lowestDateShift = (int) round((strtotime($simulated['lowest_balance_date']) - strtotime($baseline['lowest_balance_date'])) / 86400);
@@ -155,21 +162,23 @@ api_ok([
     'events'      => $events,
     'baseline'    => [
         'projection'           => $baselineProjection,
+        'source_detail'        => $baselineSourceDetail,
         'lowest_balance'      => $baseline['lowest_balance'],
         'lowest_balance_date' => $baseline['lowest_balance_date'],
         'runway_days_to_zero' => $baseline['runway_days_to_zero'],
         'ending_cash'         => $baselineEnd,
         'starting_cash'       => round($datasets['starting_cash'], 2),
-        'daily'               => $baseline['daily'],
+        'daily'               => $baselineDaily,
     ],
     'simulated'   => [
         'projection'           => $simulatedProjection,
+        'source_detail'        => $simulatedSourceDetail,
         'lowest_balance'      => $simulated['lowest_balance'],
         'lowest_balance_date' => $simulated['lowest_balance_date'],
         'runway_days_to_zero' => $simulated['runway_days_to_zero'],
         'ending_cash'         => $simulatedEnd,
         'starting_cash'       => round($datasets['starting_cash'], 2),
-        'daily'               => $simulated['daily'],
+        'daily'               => $simulatedDaily,
     ],
     'delta'       => [
         'lowest_balance_shift'   => $lowestShift,

@@ -83,6 +83,16 @@ $assert('returns events (echoed back)',           strpos($api, "'events'      =>
 $assert('returns baseline + simulated',
     strpos($api, "'baseline'    => [") !== false
     && strpos($api, "'simulated'   => [") !== false);
+$assert('returns source detail for baseline + simulated',
+    strpos($api, '$baselineSourceDetail = liquidityProjectionSourceDetail($datasets);') !== false
+    && strpos($api, '$simulatedSourceDetail = liquidityProjectionSourceDetail($datasets, [') !== false
+    && strpos($api, "'source_detail'        => \$baselineSourceDetail") !== false
+    && strpos($api, "'source_detail'        => \$simulatedSourceDetail") !== false);
+$assert('daily rows include attached source detail',
+    strpos($api, '$baselineDaily = liquidityAttachDailySourceDetail(') !== false
+    && strpos($api, '$simulatedDaily = liquidityAttachDailySourceDetail(') !== false
+    && strpos($api, "'daily'               => \$baselineDaily") !== false
+    && strpos($api, "'daily'               => \$simulatedDaily") !== false);
 $assert('returns delta envelope',                 strpos($api, "'delta'       => [") !== false);
 $assert('delta includes net_event_impact',        strpos($api, "'net_event_impact'") !== false);
 $assert('delta includes inflow_total + outflow_total',
