@@ -119,8 +119,9 @@ export default function TreasuryRecommendations() {
           approval_gate: row.approval_gate,
         },
       });
-      setDecisions((prev) => ({ ...prev, [row.id]: action }));
-      setFlash({ kind: 'success', message: `Recommendation ${action === 'accept' ? 'accepted' : 'dismissed'} and audit logged.` });
+      setDecisions((prev) => ({ ...prev, [row.id]: { decision: action, pending: true } }));
+      recommendations.reload();
+      setFlash({ kind: 'success', message: `Recommendation ${action === 'accept' ? 'accepted' : 'dismissed'} and audit logged to the decision ledger.` });
     } catch (err) {
       setFlash({ kind: 'error', message: err.message || String(err) });
     } finally {
@@ -245,7 +246,7 @@ export default function TreasuryRecommendations() {
                 key={row.id}
                 row={row}
                 currency={currency}
-                decision={decisions[row.id]}
+                decision={decisions[row.id] || row.latest_decision}
                 busy={busyId === row.id}
                 onAccept={() => decide(row, 'accept')}
                 onDismiss={() => decide(row, 'dismiss')}
@@ -287,6 +288,9 @@ function RecommendationRow({ row, currency, decision, busy, onAccept, onDismiss 
   const payment = row.payment || {};
   const impact = row.cash_impact || {};
   const gate = row.approval_gate || {};
+  const decisionLabel = typeof decision === 'string' ? decision : decision?.decision;
+  const decidedAt = typeof decision === 'object' ? decision?.decided_at : null;
+  const evidenceHash = typeof decision === 'object' ? decision?.evidence_hash : null;
   return (
     <article data-testid={`treasury-recommendation-${payment.id || row.id}`}
              style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, background: '#fff', display: 'grid', gap: 10 }}>
@@ -309,7 +313,11 @@ function RecommendationRow({ row, currency, decision, busy, onAccept, onDismiss 
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          {decision && <span data-testid={`treasury-recommendation-decision-${payment.id}`} style={{ color: '#047857', fontSize: 12 }}>{decision}</span>}
+          {decisionLabel && (
+            <span data-testid={`treasury-recommendation-decision-${payment.id}`} style={{ color: '#047857', fontSize: 12 }}>
+              {decisionLabel}{decidedAt ? ` / ${decidedAt}` : ''}
+            </span>
+          )}
           <button type="button" className="btn btn--ghost" disabled={busy} onClick={onAccept} data-testid={`treasury-recommendation-accept-${payment.id}`} title="Accept recommendation">
             <CheckCircle size={15} /> Accept
           </button>
@@ -325,6 +333,7 @@ function RecommendationRow({ row, currency, decision, busy, onAccept, onDismiss 
         <Evidence label="Lowest after payment" value={fmtMoney(impact.lowest_available_after_payment, currency)} />
         <Evidence label="Next workflow step" value={gate.next_workflow_step || 'review'} />
         <Evidence label="Approval permission" value={gate.approval_permission || 'treasury.approve_payment'} />
+        <Evidence label="Decision evidence hash" value={evidenceHash || 'None'} />
       </div>
     </article>
   );

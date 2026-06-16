@@ -27,6 +27,7 @@ $policyApi = (string) file_get_contents("{$ROOT}/api/treasury_policy.php");
 $policyLib = (string) file_get_contents("{$ROOT}/modules/treasury/lib/policy.php");
 $policyAlias = (string) file_get_contents("{$ROOT}/modules/treasury/api/policy.php");
 $policyMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/008_treasury_policy.sql");
+$decisionMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/009_treasury_recommendation_decisions.sql");
 $page = (string) file_get_contents("{$ROOT}/dashboard/src/pages/TreasuryRecommendations.jsx");
 $module = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryModule.jsx");
 $manifest = (string) file_get_contents("{$ROOT}/modules/treasury/manifest.php");
@@ -53,6 +54,26 @@ $a('policy save increments version and audits before/after',
     && str_contains($policyLib, "'object_type' => 'treasury_policy'")
     && str_contains($policyLib, "'before' => \$before")
     && str_contains($policyLib, "'after' => \$after"));
+
+echo "\nDecision ledger\n";
+$a('migration creates recommendation decision ledger',
+    str_contains($decisionMig, 'CREATE TABLE IF NOT EXISTS treasury_recommendation_decisions')
+    && str_contains($decisionMig, 'recommendation_id VARCHAR(160) NOT NULL')
+    && str_contains($decisionMig, "decision ENUM('accept','dismiss') NOT NULL")
+    && str_contains($decisionMig, 'evidence_hash CHAR(64) NOT NULL')
+    && str_contains($decisionMig, 'evidence_json MEDIUMTEXT NULL')
+    && str_contains($decisionMig, 'idx_trd_tenant_recommendation')
+    && str_contains($decisionMig, 'idx_trd_tenant_payment'));
+$a('POST writes queryable decision ledger with evidence hash',
+    str_contains($endpoint, 'function treasuryRecommendationRecordDecision(')
+    && str_contains($endpoint, 'INSERT INTO treasury_recommendation_decisions')
+    && str_contains($endpoint, "hash('sha256', \$evidenceJson ?: '{}')")
+    && str_contains($endpoint, "'evidence_hash' => \$evidenceHash"));
+$a('GET returns latest backend decision per recommendation/payment',
+    str_contains($endpoint, 'function treasuryRecommendationLatestDecisions(')
+    && str_contains($endpoint, "\$recommendation['latest_decision'] = \$decision")
+    && str_contains($endpoint, "'decision_ledger' => 'treasury_recommendation_decisions'")
+    && str_contains($endpoint, "'payment:' . \$decision['payment_id']"));
 
 echo "\nReserve policy and evidence\n";
 foreach ([
@@ -106,6 +127,8 @@ $a('accept/dismiss decisions write canonical audit',
     str_contains($endpoint, "treasury.recommendation.accepted")
     && str_contains($endpoint, "treasury.recommendation.dismissed")
     && str_contains($endpoint, 'platformAuditLogWrite(')
+    && str_contains($endpoint, "'decision_id' => \$decision['id']")
+    && str_contains($endpoint, "'evidence_hash' => \$decision['evidence_hash']")
     && str_contains($endpoint, "'object_type' => 'treasury_recommendation'")
     && str_contains($endpoint, "'source' => 'treasury_recommendations'"));
 $a('manifest declares recommendation audit events',
@@ -138,7 +161,10 @@ $a('UI renders cash envelope, gates, evidence, and audit decisions',
     && str_contains($page, 'data-testid={`treasury-recommendation-gate-${payment.id}`}')
     && str_contains($page, 'data-testid={`treasury-recommendation-evidence-${payment.id}`}')
     && str_contains($page, 'action=${action}')
-    && str_contains($page, "recommendation_id: row.id"));
+    && str_contains($page, "recommendation_id: row.id")
+    && str_contains($page, 'row.latest_decision')
+    && str_contains($page, 'recommendations.reload()')
+    && str_contains($page, 'Decision evidence hash'));
 
 echo "\nTreasury recommendations alignment smoke: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

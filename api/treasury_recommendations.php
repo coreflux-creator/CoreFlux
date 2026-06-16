@@ -75,6 +75,18 @@ if ($method === 'GET') {
             ]
         );
     }
+    $decisionsByRecommendation = treasuryRecommendationLatestDecisions(
+        $tid,
+        array_map(static fn(array $row): string => (string) $row['id'], $recommendations),
+        array_values(array_filter(array_map(static fn(array $row): ?int => $row['payment']['id'] ?? null, $recommendations)))
+    );
+    foreach ($recommendations as &$recommendation) {
+        $decision = $decisionsByRecommendation[$recommendation['id']]
+            ?? $decisionsByRecommendation['payment:' . ($recommendation['payment']['id'] ?? 0)]
+            ?? null;
+        $recommendation['latest_decision'] = $decision;
+    }
+    unset($recommendation);
 
     api_ok([
         'as_of_date' => $today,
@@ -95,6 +107,7 @@ if ($method === 'GET') {
         'recommendations' => $recommendations,
         'auditability' => [
             'decision_events' => ['treasury.recommendation.accepted', 'treasury.recommendation.dismissed'],
+            'decision_ledger' => 'treasury_recommendation_decisions',
             'money_movement_gate' => 'Treasury recommendations are advisory. Payments still require submit, approval, and execution through treasury_payments.php.',
             'policy_version' => $reservePolicy['policy_version'],
             'effective_date' => $reservePolicy['effective_date'],
@@ -123,10 +136,13 @@ if ($method === 'POST' && in_array($action, ['accept', 'dismiss'], true)) {
     $decisionNote = trim((string) ($body['decision_note'] ?? ''));
     $evidence = is_array($body['evidence'] ?? null) ? $body['evidence'] : [];
     $event = $action === 'accept' ? 'treasury.recommendation.accepted' : 'treasury.recommendation.dismissed';
+    $decision = treasuryRecommendationRecordDecision($tid, $actorUserId, $recommendationId, $paymentId, $action, $decisionNote, $evidence);
 
     platformAuditLogWrite($tid, $actorUserId, $event, $paymentId ?: null, [
         'recommendation_id' => $recommendationId,
         'payment_id' => $paymentId,
+        'decision_id' => $decision['id'],
+        'evidence_hash' => $decision['evidence_hash'],
         'decision_note' => $decisionNote,
         'recommendation_action' => $evidence['recommendation_action'] ?? null,
         'reserve_policy' => $evidence['reserve_policy'] ?? null,
@@ -151,6 +167,7 @@ if ($method === 'POST' && in_array($action, ['accept', 'dismiss'], true)) {
         'audit_event' => $event,
         'recommendation_id' => $recommendationId,
         'payment_id' => $paymentId,
+        'decision' => $decision,
     ]);
 }
 
@@ -320,6 +337,127 @@ function treasuryRecommendationRiskLevel(float $lowestAvailable, float $projecte
     if ($lowestAvailable < 0) return 'critical';
     if ($projectedAvailable < 0 || $lowestAvailable < 10000) return 'watch';
     return 'stable';
+}
+
+function treasuryRecommendationRecordDecision(
+    int $tenantId,
+    ?int $actorUserId,
+    string $recommendationId,
+    ?int $paymentId,
+    string $decision,
+    string $decisionNote,
+    array $evidence
+): array {
+    $pdo = getDB();
+    $evidenceJson = json_encode($evidence, JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION);
+    $evidenceHash = hash('sha256', $evidenceJson ?: '{}');
+    $policyVersion = isset($evidence['reserve_policy']['policy_version'])
+        ? (int) $evidence['reserve_policy']['policy_version']
+        : (isset($evidence['approval_gate']['policy_version']) ? (int) $evidence['approval_gate']['policy_version'] : null);
+    $recommendationAction = isset($evidence['recommendation_action'])
+        ? substr((string) $evidence['recommendation_action'], 0, 80)
+        : null;
+
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO treasury_recommendation_decisions
+                (tenant_id, recommendation_id, payment_id, decision, recommendation_action,
+                 policy_version, evidence_hash, evidence_json, decision_note, actor_user_id)
+             VALUES
+                (:tenant_id, :recommendation_id, :payment_id, :decision, :recommendation_action,
+                 :policy_version, :evidence_hash, :evidence_json, :decision_note, :actor_user_id)'
+        );
+        $stmt->execute([
+            'tenant_id' => $tenantId,
+            'recommendation_id' => $recommendationId,
+            'payment_id' => $paymentId ?: null,
+            'decision' => $decision,
+            'recommendation_action' => $recommendationAction,
+            'policy_version' => $policyVersion,
+            'evidence_hash' => $evidenceHash,
+            'evidence_json' => $evidenceJson ?: '{}',
+            'decision_note' => $decisionNote,
+            'actor_user_id' => $actorUserId,
+        ]);
+        $id = (int) $pdo->lastInsertId();
+    } catch (\Throwable $e) {
+        error_log('[treasury.recommendations] decision ledger write failed: ' . $e->getMessage());
+        $id = 0;
+    }
+
+    return [
+        'id' => $id,
+        'recommendation_id' => $recommendationId,
+        'payment_id' => $paymentId,
+        'decision' => $decision,
+        'recommendation_action' => $recommendationAction,
+        'policy_version' => $policyVersion,
+        'evidence_hash' => $evidenceHash,
+        'decision_note' => $decisionNote,
+        'actor_user_id' => $actorUserId,
+    ];
+}
+
+function treasuryRecommendationLatestDecisions(int $tenantId, array $recommendationIds, array $paymentIds): array
+{
+    $recommendationIds = array_values(array_unique(array_filter(array_map('strval', $recommendationIds))));
+    $paymentIds = array_values(array_unique(array_filter(array_map('intval', $paymentIds))));
+    if (!$recommendationIds && !$paymentIds) return [];
+
+    $pdo = getDB();
+    try {
+        $where = [];
+        $params = ['tenant_id' => $tenantId];
+        if ($recommendationIds) {
+            $ph = [];
+            foreach ($recommendationIds as $i => $id) {
+                $key = 'rid' . $i;
+                $ph[] = ':' . $key;
+                $params[$key] = $id;
+            }
+            $where[] = 'recommendation_id IN (' . implode(',', $ph) . ')';
+        }
+        if ($paymentIds) {
+            $ph = [];
+            foreach ($paymentIds as $i => $id) {
+                $key = 'pid' . $i;
+                $ph[] = ':' . $key;
+                $params[$key] = $id;
+            }
+            $where[] = 'payment_id IN (' . implode(',', $ph) . ')';
+        }
+        $stmt = $pdo->prepare(
+            'SELECT id, recommendation_id, payment_id, decision, recommendation_action,
+                    policy_version, evidence_hash, decision_note, actor_user_id, decided_at
+               FROM treasury_recommendation_decisions
+              WHERE tenant_id = :tenant_id AND (' . implode(' OR ', $where) . ')
+              ORDER BY decided_at DESC, id DESC'
+        );
+        $stmt->execute($params);
+    } catch (\Throwable $_) {
+        return [];
+    }
+
+    $out = [];
+    while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+        $decision = [
+            'id' => (int) $row['id'],
+            'recommendation_id' => (string) $row['recommendation_id'],
+            'payment_id' => $row['payment_id'] !== null ? (int) $row['payment_id'] : null,
+            'decision' => (string) $row['decision'],
+            'recommendation_action' => $row['recommendation_action'],
+            'policy_version' => $row['policy_version'] !== null ? (int) $row['policy_version'] : null,
+            'evidence_hash' => (string) $row['evidence_hash'],
+            'decision_note' => $row['decision_note'],
+            'actor_user_id' => $row['actor_user_id'] !== null ? (int) $row['actor_user_id'] : null,
+            'decided_at' => $row['decided_at'],
+        ];
+        if (!isset($out[$decision['recommendation_id']])) $out[$decision['recommendation_id']] = $decision;
+        if ($decision['payment_id'] !== null && !isset($out['payment:' . $decision['payment_id']])) {
+            $out['payment:' . $decision['payment_id']] = $decision;
+        }
+    }
+    return $out;
 }
 
 function treasuryRecommendationVarianceContext(int $tenantId, string $today): array
