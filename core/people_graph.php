@@ -11,6 +11,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/audit.php';
 
 class PeopleGraphException extends RuntimeException {}
 
@@ -1434,22 +1435,21 @@ function peopleGraphAudit(int $tenantId, ?int $actorUserId, string $event, ?stri
             'target_id'     => $targetId,
             'meta_json'     => $payload,
             'ip_address'    => $_SERVER['REMOTE_ADDR'] ?? null,
-            'request_id'    => $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
+                'request_id'    => $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
         ]);
-        $pdo->prepare(
-            'INSERT INTO audit_log
-                (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, request_id, created_at)
-             VALUES
-                (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, :ip_address, :request_id, NOW())'
-        )->execute([
-            'tenant_id'     => $tenantId,
-            'actor_user_id' => $actorUserId,
-            'event'         => $event,
-            'target_id'     => $targetId,
-            'meta_json'     => $payload,
-            'ip_address'    => $_SERVER['REMOTE_ADDR'] ?? null,
-            'request_id'    => $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
-        ]);
+        platformAuditLogWrite(
+            $tenantId,
+            $actorUserId,
+            $event,
+            $targetId,
+            $meta,
+            [
+                'source' => 'people_graph',
+                'object_type' => $targetTable ?: 'people_graph',
+                'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+                'request_id' => $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
+            ]
+        );
     } catch (Throwable $e) {
         error_log('[people_graph.audit] ' . $event . ' failed: ' . $e->getMessage());
     }

@@ -49,6 +49,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../db.php';
+require_once __DIR__ . '/../../audit.php';
 
 /**
  * Sentinel thrown by a node to halt and request human approval.
@@ -393,43 +394,19 @@ function _workflowInsertApproval(int $tenantId, string $runId, string $node, Wor
 
 function _aiWorkflowAuditEvent(int $tenantId, ?int $userId, string $event, int $targetId, array $meta): void
 {
-    $pdo = getDB();
-    if (!$pdo) return;
-
-    $payload = json_encode($meta, JSON_UNESCAPED_SLASHES) ?: '{}';
-    $ip = substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 64);
-
     try {
-        $pdo->prepare(
-            'INSERT INTO audit_log
-                (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:t, :u, :e, :ti, :m, :ip, NOW())'
-        )->execute([
-            't' => $tenantId,
-            'u' => $userId,
-            'e' => $event,
-            'ti' => $targetId,
-            'm' => $payload,
-            'ip' => $ip,
-        ]);
-        return;
-    } catch (\Throwable $e) {
-        // Some legacy environments still name the actor column user_id.
-    }
-
-    try {
-        $pdo->prepare(
-            'INSERT INTO audit_log
-                (tenant_id, user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:t, :u, :e, :ti, :m, :ip, NOW())'
-        )->execute([
-            't' => $tenantId,
-            'u' => $userId,
-            'e' => $event,
-            'ti' => $targetId,
-            'm' => $payload,
-            'ip' => $ip,
-        ]);
+        platformAuditLogWrite(
+            $tenantId,
+            $userId,
+            $event,
+            $targetId,
+            $meta,
+            [
+                'source' => 'workflow',
+                'object_type' => 'workflow_run',
+                'ip_address' => substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 64),
+            ]
+        );
     } catch (\Throwable $e) {
         error_log('[_aiWorkflowAuditEvent] ' . $e->getMessage());
     }

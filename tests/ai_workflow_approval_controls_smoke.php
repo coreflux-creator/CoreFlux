@@ -45,8 +45,8 @@ $a('accounting.approve remains accounting admin compatibility', str_contains($rb
 
 echo "\nWorkflow decision audit\n";
 $a('engine declares AI workflow audit helper', str_contains($engine, 'function _aiWorkflowAuditEvent('));
-$a('audit helper prefers actor_user_id', str_contains($engine, '(tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)'));
-$a('audit helper falls back to user_id', str_contains($engine, '(tenant_id, user_id, event, target_id, meta_json, ip_address, created_at)'));
+$a('audit helper delegates to shared writer', str_contains($engine, 'platformAuditLogWrite('));
+$a('audit helper stamps workflow source/object', str_contains($engine, "'source' => 'workflow'") && str_contains($engine, "'object_type' => 'workflow_run'"));
 $a('decision writes ai.workflow.approval_* event', str_contains($engine, '"ai.workflow.approval_{$decision}"'));
 $a('decision audit includes workflow_run_id', str_contains($engine, "'workflow_run_id' => (string) \$row['workflow_run_id']"));
 $a('decision audit avoids storing full payload copy', str_contains($engine, "'decision_payload_keys' => array_values(array_keys(\$decisionPayload))"));

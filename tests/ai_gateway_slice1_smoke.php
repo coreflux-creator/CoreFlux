@@ -120,8 +120,7 @@ $a('  limit clamped [1,500]',                      str_contains($g, '$limit = ma
 $a('  status whitelist guard',                     str_contains($g, "in_array(\$status, ['queued','running','completed','failed','cancelled','awaiting_approval'], true)"));
 
 $a('declares aiGatewayAuditEvent',                 str_contains($g, 'function aiGatewayAuditEvent('));
-$a('  writes into existing audit_log table',       str_contains($g, 'INSERT INTO audit_log')
-                                                && str_contains($g, "tenant_id, actor_user_id, event, target_id, meta_json, created_at"));
+$a('  writes via shared platformAuditLogWrite',    str_contains($g, 'platformAuditLogWrite('));
 $a('  never throws — wrapped in try/catch',        str_contains($g, "catch (\\Throwable \$e) {")
                                                 && str_contains($g, "error_log('[aiGatewayAuditEvent]"));
 
