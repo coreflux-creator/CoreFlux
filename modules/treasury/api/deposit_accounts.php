@@ -15,8 +15,23 @@
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/audit.php';
 
 $ctx = api_require_auth();
+
+function treasuryDepositAuditRow(int $tenantId, int $id): ?array {
+    if ($tenantId <= 0 || $id <= 0) return null;
+    $pdo = getDB();
+    if (!$pdo) return null;
+    $stmt = $pdo->prepare(
+        'SELECT * FROM accounting_bank_accounts
+          WHERE tenant_id = :t AND id = :id
+          LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
 
 /**
  * Self-heal: ensure the live-balance columns exist on plaid_accounts before
@@ -98,6 +113,8 @@ switch (api_method()) {
         $body = api_json_body();
         api_require_fields($body, ['name', 'gl_account_code']);
 
+        $tenantId = (int) currentTenantId();
+        $actorUserId = (int) ($ctx['user']['id'] ?? 0);
         $id = scopedInsert('accounting_bank_accounts', [
             'name'            => trim((string) $body['name']),
             'gl_account_code' => trim((string) $body['gl_account_code']),
@@ -108,17 +125,13 @@ switch (api_method()) {
             'status'          => 'active',
         ]);
 
-        try {
-            $pdo = getDB();
-            $pdo->prepare(
-                'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
-                 VALUES (:t, :u, :e, :tid, :m, NOW())'
-            )->execute([
-                't' => currentTenantId(), 'u' => (int) ($ctx['user']['id'] ?? 0),
-                'e' => 'treasury.deposit.created',
-                'tid' => $id, 'm' => json_encode(['name' => $body['name']]),
-            ]);
-        } catch (\Throwable $_) {}
+        platformAuditLogWrite($tenantId, $actorUserId, 'treasury.deposit.created', $id, [
+            'name' => $body['name'],
+        ], [
+            'source' => 'treasury',
+            'object_type' => 'treasury_deposit_account',
+            'after' => treasuryDepositAuditRow($tenantId, $id),
+        ]);
 
         api_ok(['id' => $id], 201);
     }
@@ -138,6 +151,9 @@ switch (api_method()) {
             ['id' => $id]
         );
         if (!$row) api_error('Deposit account not found', 404);
+        $tenantId = (int) currentTenantId();
+        $actorUserId = (int) ($ctx['user']['id'] ?? 0);
+        $before = treasuryDepositAuditRow($tenantId, $id);
 
         $pdo = getDB();
         if ($mode === 'delete') {
@@ -162,23 +178,21 @@ switch (api_method()) {
             $pdo->prepare(
                 'DELETE FROM accounting_bank_statement_lines
                   WHERE tenant_id = :t AND bank_account_id = :id'
-            )->execute(['t' => currentTenantId(), 'id' => $id]);
+            )->execute(['t' => $tenantId, 'id' => $id]);
             scopedDelete('accounting_bank_accounts', $id);
         } else {
             scopedUpdate('accounting_bank_accounts', $id, ['status' => 'closed']);
         }
 
-        try {
-            $pdo->prepare(
-                'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
-                 VALUES (:t, :u, :e, :tid, :m, NOW())'
-            )->execute([
-                't' => currentTenantId(), 'u' => (int) ($ctx['user']['id'] ?? 0),
-                'e' => 'treasury.deposit.' . ($mode === 'delete' ? 'deleted' : 'hidden'),
-                'tid' => $id,
-                'm' => json_encode(['name' => $row['name'], 'plaid_account_id' => $row['plaid_account_id']]),
-            ]);
-        } catch (\Throwable $_) {}
+        platformAuditLogWrite($tenantId, $actorUserId, 'treasury.deposit.' . ($mode === 'delete' ? 'deleted' : 'hidden'), $id, [
+            'name' => $row['name'],
+            'plaid_account_id' => $row['plaid_account_id'],
+        ], [
+            'source' => 'treasury',
+            'object_type' => 'treasury_deposit_account',
+            'before' => $before,
+            'after' => treasuryDepositAuditRow($tenantId, $id),
+        ]);
 
         api_ok(['ok' => true, 'mode' => $mode]);
     }

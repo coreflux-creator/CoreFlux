@@ -15,8 +15,27 @@
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/audit.php';
 
 $ctx = api_require_auth();
+
+function treasuryLiabilityAuditRow(int $tenantId, int $id): ?array {
+    if ($tenantId <= 0 || $id <= 0) return null;
+    $pdo = getDB();
+    if (!$pdo) return null;
+    $stmt = $pdo->prepare(
+        "SELECT aa.*, tla.subtype, tla.last4, tla.institution_name, tla.plaid_account_id,
+                tla.credit_limit_cents, tla.apr_bps, tla.statement_day, tla.autopay_from_bank_account_id
+           FROM accounting_accounts aa
+      LEFT JOIN treasury_liability_accounts tla
+             ON tla.tenant_id = aa.tenant_id AND tla.account_id = aa.id
+          WHERE aa.tenant_id = :t AND aa.id = :id
+          LIMIT 1"
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
 
 /**
  * Self-heal: ensure the live-balance columns exist on plaid_accounts before
@@ -126,6 +145,8 @@ switch (api_method()) {
         }
 
         $pdo = getDB();
+        $tenantId = (int) currentTenantId();
+        $actorUserId = (int) ($ctx['user']['id'] ?? 0);
         $pdo->beginTransaction();
         try {
             $accountId = scopedInsert('accounting_accounts', [
@@ -144,14 +165,13 @@ switch (api_method()) {
                 'statement_day'       => isset($body['statement_day']) ? (int) $body['statement_day'] : null,
                 'autopay_from_bank_account_id' => $body['autopay_from_bank_account_id'] ?? null,
             ]);
-            $pdo->prepare(
-                'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
-                 VALUES (:t, :u, :e, :tid, :m, NOW())'
-            )->execute([
-                't' => currentTenantId(), 'u' => (int) ($ctx['user']['id'] ?? 0),
-                'e' => 'treasury.liability.created',
-                'tid' => $accountId,
-                'm' => json_encode(['subtype' => $body['subtype'], 'name' => $body['name']]),
+            platformAuditLogWrite($tenantId, $actorUserId, 'treasury.liability.created', $accountId, [
+                'subtype' => $body['subtype'],
+                'name' => $body['name'],
+            ], [
+                'source' => 'treasury',
+                'object_type' => 'treasury_liability_account',
+                'after' => treasuryLiabilityAuditRow($tenantId, $accountId),
             ]);
             $pdo->commit();
             api_ok(['id' => $accountId, 'account_id' => $accountId], 201);
@@ -177,6 +197,9 @@ switch (api_method()) {
             ['id' => $id]
         );
         if (!$row) api_error('Liability account not found', 404);
+        $tenantId = (int) currentTenantId();
+        $actorUserId = (int) ($ctx['user']['id'] ?? 0);
+        $before = treasuryLiabilityAuditRow($tenantId, $id);
 
         $pdo = getDB();
         if ($mode === 'delete') {
@@ -197,29 +220,27 @@ switch (api_method()) {
                 $pdo->prepare(
                     'DELETE FROM treasury_liability_statement_lines
                       WHERE tenant_id = :t AND liability_account_id = :id'
-                )->execute(['t' => currentTenantId(), 'id' => $id]);
+                )->execute(['t' => $tenantId, 'id' => $id]);
             } catch (\Throwable $_) { /* table may not exist on fresh tenant */ }
             // Companion row in treasury_liability_accounts is keyed by account_id.
             $pdo->prepare(
                 'DELETE FROM treasury_liability_accounts
                   WHERE tenant_id = :t AND account_id = :aid'
-            )->execute(['t' => currentTenantId(), 'aid' => $id]);
+            )->execute(['t' => $tenantId, 'aid' => $id]);
             scopedDelete('accounting_accounts', $id);
         } else {
             scopedUpdate('accounting_accounts', $id, ['active' => 0]);
         }
 
-        try {
-            $pdo->prepare(
-                'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
-                 VALUES (:t, :u, :e, :tid, :m, NOW())'
-            )->execute([
-                't' => currentTenantId(), 'u' => (int) ($ctx['user']['id'] ?? 0),
-                'e' => 'treasury.liability.' . ($mode === 'delete' ? 'deleted' : 'hidden'),
-                'tid' => $id,
-                'm' => json_encode(['code' => $row['code'], 'name' => $row['name']]),
-            ]);
-        } catch (\Throwable $_) {}
+        platformAuditLogWrite($tenantId, $actorUserId, 'treasury.liability.' . ($mode === 'delete' ? 'deleted' : 'hidden'), $id, [
+            'code' => $row['code'],
+            'name' => $row['name'],
+        ], [
+            'source' => 'treasury',
+            'object_type' => 'treasury_liability_account',
+            'before' => $before,
+            'after' => treasuryLiabilityAuditRow($tenantId, $id),
+        ]);
 
         api_ok(['ok' => true, 'mode' => $mode]);
     }
