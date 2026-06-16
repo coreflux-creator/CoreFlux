@@ -32,6 +32,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
 
+const LIQUIDITY_PROJECTION_RULE_VERSION = 'treasury.liquidity.daily.v2026-06-16.1';
+
 /**
  * Pull the four baseline datasets in a single shape so the projection
  * walker doesn't have to know about SQL.
@@ -163,6 +165,55 @@ function liquidityWalkProjection(
         'lowest_balance_date' => $lowestDate,
         'runway_days_to_zero' => $runwayDay,
         'daily'               => $daily,
+    ];
+}
+
+/**
+ * Standard projection evidence envelope for replay/version governance.
+ *
+ * The projection math is deterministic; this captures which rule version,
+ * source population, grain, and overlay shape produced a response.
+ */
+function liquidityProjectionEvidence(
+    int $tenantId,
+    string $today,
+    string $endDate,
+    int $days,
+    array $datasets,
+    array $overlays = []
+): array {
+    $sourcePopulation = [
+        'bank_accounts' => (int) ($datasets['bank_count'] ?? 0),
+        'open_ar' => count($datasets['ar'] ?? []),
+        'scheduled_treasury_payments' => count($datasets['tp'] ?? []),
+        'open_ap' => count($datasets['ap'] ?? []),
+        'overlay_inflow_dates' => count($overlays['extra_inflows_by_date'] ?? []),
+        'overlay_outflow_dates' => count($overlays['extra_outflows_by_date'] ?? []),
+    ];
+    $basis = [
+        'tenant_id' => $tenantId,
+        'rule_version' => LIQUIDITY_PROJECTION_RULE_VERSION,
+        'grain' => 'daily',
+        'as_of_date' => $today,
+        'window_end_date' => $endDate,
+        'window_days' => $days,
+        'source_population' => $sourcePopulation,
+        'overlays' => [
+            'extra_inflows_by_date' => $overlays['extra_inflows_by_date'] ?? [],
+            'extra_outflows_by_date' => $overlays['extra_outflows_by_date'] ?? [],
+        ],
+    ];
+
+    return [
+        'projection_engine' => 'treasury.liquidity',
+        'rule_version' => LIQUIDITY_PROJECTION_RULE_VERSION,
+        'grain' => 'daily',
+        'replay_basis' => 'graph_state_plus_business_events',
+        'as_of_date' => $today,
+        'window_end_date' => $endDate,
+        'window_days' => $days,
+        'source_population' => $sourcePopulation,
+        'replay_key' => hash('sha256', json_encode($basis, JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION) ?: ''),
     ];
 }
 

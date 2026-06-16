@@ -121,6 +121,11 @@ if ($action === 'view' && $method === 'GET') {
         $buckets['inflows_by_date'], $buckets['outflows_by_date'],
         $aIn, $aOut
     );
+    $baselineProjection = liquidityProjectionEvidence($tid, $today, $endDate, $days, $datasets);
+    $projectionA = liquidityProjectionEvidence($tid, $today, $endDate, $days, $datasets, [
+        'extra_inflows_by_date' => $aIn,
+        'extra_outflows_by_date' => $aOut,
+    ]);
 
     // Audit: bump view counters. Best-effort — never block the read.
     try {
@@ -143,7 +148,9 @@ if ($action === 'view' && $method === 'GET') {
         'label'        => $row['label'],
         'days_horizon' => $days,
         'expires_at'   => $row['expires_at'],
+        'projection'   => $baselineProjection,
         'baseline'     => [
+            'projection'           => $baselineProjection,
             'starting_cash'       => round($datasets['starting_cash'], 2),
             'lowest_balance'      => $baseline['lowest_balance'],
             'lowest_balance_date' => $baseline['lowest_balance_date'],
@@ -151,6 +158,7 @@ if ($action === 'view' && $method === 'GET') {
             'daily'               => $baseline['daily'],
         ],
         'scenario_a'   => [
+            'projection'           => $projectionA,
             'name'                => $pa['name'],
             'description'         => $pa['description'],
             'events'              => $pa['events'],
@@ -170,7 +178,12 @@ if ($action === 'view' && $method === 'GET') {
                 $buckets['inflows_by_date'], $buckets['outflows_by_date'],
                 $bIn, $bOut
             );
+            $projectionB = liquidityProjectionEvidence($tid, $today, $endDate, $days, $datasets, [
+                'extra_inflows_by_date' => $bIn,
+                'extra_outflows_by_date' => $bOut,
+            ]);
             $payload['scenario_b'] = [
+                'projection'           => $projectionB,
                 'name'                => $pb['name'],
                 'description'         => $pb['description'],
                 'events'              => $pb['events'],

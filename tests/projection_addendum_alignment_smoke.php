@@ -22,6 +22,11 @@ $c = static fn(string $hay, string $needle): bool => str_contains($hay, $needle)
 $alignment = (string) file_get_contents($ROOT . '/docs/PRODUCT_ARCHITECTURE_ALIGNMENT.md');
 $liquidity = (string) file_get_contents($ROOT . '/core/treasury/liquidity_projection.php');
 $artifacts = (string) file_get_contents($ROOT . '/core/ai/artifacts.php');
+$forecastApi = (string) file_get_contents($ROOT . '/api/liquidity_forecast.php');
+$scenarioApi = (string) file_get_contents($ROOT . '/api/treasury_scenario.php');
+$compareApi = (string) file_get_contents($ROOT . '/api/treasury_scenario_compare.php');
+$shareApi = (string) file_get_contents($ROOT . '/api/treasury_scenario_share.php');
+$impactApi = (string) file_get_contents($ROOT . '/api/ap_bill_liquidity_impact.php');
 $replayApi = (string) file_get_contents($ROOT . '/api/posting_rules_replay.php');
 $apReplay  = (string) file_get_contents($ROOT . '/api/ap_bill_replay.php');
 $biReplay  = (string) file_get_contents($ROOT . '/api/billing_invoice_replay.php');
@@ -46,6 +51,16 @@ $a('doc locks AI restrictions for projection operations',
 echo "\nCore surfaces\n";
 $a('shared liquidity projection walker exists',
     $c($liquidity, 'function liquidityWalkProjection('));
+$a('liquidity projection rule version is explicit',
+    $c($liquidity, 'LIQUIDITY_PROJECTION_RULE_VERSION')
+    && $c($liquidity, 'function liquidityProjectionEvidence(')
+    && $c($liquidity, "'replay_key'"));
+$a('liquidity APIs surface projection evidence',
+    $c($forecastApi, "'projection'")
+    && $c($scenarioApi, 'liquidityProjectionEvidence(')
+    && $c($compareApi, 'liquidityProjectionEvidence(')
+    && $c($shareApi, 'liquidityProjectionEvidence(')
+    && $c($impactApi, 'liquidityProjectionEvidence('));
 $a('artifact lifecycle helpers exist',
     $c($artifacts, 'function artifactCreate(')
     && $c($artifacts, 'function artifactTransition(')
@@ -59,6 +74,11 @@ echo "\nSyntax checks\n";
 foreach ([
     '/core/treasury/liquidity_projection.php',
     '/core/ai/artifacts.php',
+    '/api/liquidity_forecast.php',
+    '/api/treasury_scenario.php',
+    '/api/treasury_scenario_compare.php',
+    '/api/treasury_scenario_share.php',
+    '/api/ap_bill_liquidity_impact.php',
     '/api/posting_rules_replay.php',
     '/api/ap_bill_replay.php',
     '/api/billing_invoice_replay.php',

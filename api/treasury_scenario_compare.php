@@ -104,6 +104,15 @@ $projB = liquidityWalkProjection(
     $buckets['inflows_by_date'], $buckets['outflows_by_date'],
     $b['inflows_by_date'], $b['outflows_by_date']
 );
+$baselineProjection = liquidityProjectionEvidence($tid, $today, $endDate, $days, $datasets);
+$projectionA = liquidityProjectionEvidence($tid, $today, $endDate, $days, $datasets, [
+    'extra_inflows_by_date' => $a['inflows_by_date'],
+    'extra_outflows_by_date' => $a['outflows_by_date'],
+]);
+$projectionB = liquidityProjectionEvidence($tid, $today, $endDate, $days, $datasets, [
+    'extra_inflows_by_date' => $b['inflows_by_date'],
+    'extra_outflows_by_date' => $b['outflows_by_date'],
+]);
 
 /**
  * Build a delta envelope between two projections — the same shape every
@@ -137,7 +146,9 @@ $endBase = $baseline['daily']? end($baseline['daily'])['closing'] : round($datas
 
 api_ok([
     'window_days' => $days,
+    'projection'  => $baselineProjection,
     'baseline'    => [
+        'projection'           => $baselineProjection,
         'starting_cash'       => round($datasets['starting_cash'], 2),
         'ending_cash'         => $endBase,
         'lowest_balance'      => $baseline['lowest_balance'],
@@ -146,6 +157,7 @@ api_ok([
         'daily'               => $baseline['daily'],
     ],
     'scenario_a'  => [
+        'projection'           => $projectionA,
         'label'               => $a['label'],
         'events'              => $a['events'],
         'ending_cash'         => $endA,
@@ -158,6 +170,7 @@ api_ok([
         'net_event_impact'    => round($a['inflow_total'] - $a['outflow_total'], 2),
     ],
     'scenario_b'  => [
+        'projection'           => $projectionB,
         'label'               => $b['label'],
         'events'              => $b['events'],
         'ending_cash'         => $endB,

@@ -119,6 +119,11 @@ $simulated = liquidityWalkProjection(
     $buckets['inflows_by_date'], $buckets['outflows_by_date'],
     $extraInflowsByDate, $extraOutflowsByDate
 );
+$baselineProjection = liquidityProjectionEvidence($tid, $today, $endDate, $days, $datasets);
+$simulatedProjection = liquidityProjectionEvidence($tid, $today, $endDate, $days, $datasets, [
+    'extra_inflows_by_date' => $extraInflowsByDate,
+    'extra_outflows_by_date' => $extraOutflowsByDate,
+]);
 
 $baselineEnd  = $baseline['daily']  ? end($baseline['daily'])['closing']  : round($datasets['starting_cash'], 2);
 $simulatedEnd = $simulated['daily'] ? end($simulated['daily'])['closing'] : round($datasets['starting_cash'], 2);
@@ -146,8 +151,10 @@ if ($baseRunway === null && $simRunway === null) {
 
 api_ok([
     'window_days' => $days,
+    'projection'  => $simulatedProjection,
     'events'      => $events,
     'baseline'    => [
+        'projection'           => $baselineProjection,
         'lowest_balance'      => $baseline['lowest_balance'],
         'lowest_balance_date' => $baseline['lowest_balance_date'],
         'runway_days_to_zero' => $baseline['runway_days_to_zero'],
@@ -156,6 +163,7 @@ api_ok([
         'daily'               => $baseline['daily'],
     ],
     'simulated'   => [
+        'projection'           => $simulatedProjection,
         'lowest_balance'      => $simulated['lowest_balance'],
         'lowest_balance_date' => $simulated['lowest_balance_date'],
         'runway_days_to_zero' => $simulated['runway_days_to_zero'],
