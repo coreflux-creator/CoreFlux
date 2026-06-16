@@ -22,6 +22,7 @@ $c = static fn(string $hay, string $needle): bool => str_contains($hay, $needle)
 $alignment = (string) file_get_contents($ROOT . '/docs/PRODUCT_ARCHITECTURE_ALIGNMENT.md');
 $liquidity = (string) file_get_contents($ROOT . '/core/treasury/liquidity_projection.php');
 $artifacts = (string) file_get_contents($ROOT . '/core/ai/artifacts.php');
+$cashForecast = (string) file_get_contents($ROOT . '/core/ai/cash_forecast.php');
 $forecastApi = (string) file_get_contents($ROOT . '/api/liquidity_forecast.php');
 $scenarioApi = (string) file_get_contents($ROOT . '/api/treasury_scenario.php');
 $compareApi = (string) file_get_contents($ROOT . '/api/treasury_scenario_compare.php');
@@ -65,6 +66,10 @@ $a('artifact lifecycle helpers exist',
     $c($artifacts, 'function artifactCreate(')
     && $c($artifacts, 'function artifactTransition(')
     && $c($artifacts, 'function artifactLineage('));
+$a('cash forecast runs create projection artifacts',
+    $c($cashForecast, "artifactCreate(\$tenantId, 'cash_forecast'")
+    && $c($cashForecast, "source_record_type' => 'cash_forecast_runs'")
+    && $c($cashForecast, "'artifact_id'             => \$artifactId"));
 $a('posting replay API exists and is parseable reference',
     $c($replayApi, 'idempotent_replay') || $c($replayApi, 'replayed'));
 $a('AP and Billing replay APIs emit replay markers',
@@ -74,6 +79,7 @@ echo "\nSyntax checks\n";
 foreach ([
     '/core/treasury/liquidity_projection.php',
     '/core/ai/artifacts.php',
+    '/core/ai/cash_forecast.php',
     '/api/liquidity_forecast.php',
     '/api/treasury_scenario.php',
     '/api/treasury_scenario_compare.php',

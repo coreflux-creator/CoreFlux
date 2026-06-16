@@ -23,6 +23,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/artifacts.php';
 
 const CASH_FORECAST_DEFAULT_WEEKS = 13;
 
@@ -104,9 +105,43 @@ function cashForecastRun(int $tenantId, array $opts = []): array
         'u'  => $actorUid,
     ]);
     $forecastId = (int) $pdo->lastInsertId();
+    $artifactId = null;
+    try {
+        $artifact = artifactCreate($tenantId, 'cash_forecast', [
+            'title' => "Cash forecast - {$start} ({$weeks} weeks)",
+            'sub_tenant_id' => isset($opts['sub_tenant_id']) ? (int) $opts['sub_tenant_id'] : null,
+            'source_module' => 'treasury',
+            'source_record_type' => 'cash_forecast_runs',
+            'source_record_id' => $forecastId,
+            'payload' => [
+                'forecast_id' => $forecastId,
+                'starting_at' => $start,
+                'weeks_count' => $weeks,
+                'currency' => $currency,
+                'starting_balance_cents' => $openingCents,
+                'ending_balance_cents' => $runningCents,
+                'min_week_balance_cents' => $minWeekCents,
+                'weeks' => $buckets,
+            ],
+            'created_by_user_id' => $actorUid,
+            'created_by_ai_run' => $opts['ai_run_id'] ?? null,
+            'initial_status' => 'review',
+        ]);
+        $artifactId = $artifact['id'] ?? null;
+        if ($artifactId) {
+            $pdo->prepare(
+                'UPDATE cash_forecast_runs
+                    SET artifact_id = :aid
+                  WHERE id = :id AND tenant_id = :t'
+            )->execute(['aid' => $artifactId, 'id' => $forecastId, 't' => $tenantId]);
+        }
+    } catch (\Throwable $e) {
+        error_log('[cash_forecast] artifactCreate failed: ' . $e->getMessage());
+    }
 
     return [
         'forecast_id'             => $forecastId,
+        'artifact_id'             => $artifactId,
         'starting_at'             => $start,
         'weeks_count'             => $weeks,
         'currency'                => $currency,
@@ -147,7 +182,7 @@ function cashForecastList(int $tenantId, array $filters = []): array
     $stmt = getDB()->prepare(
         'SELECT id, tenant_id, weeks_count, starting_at, currency,
                 starting_balance_cents, ending_balance_cents,
-                min_week_balance_cents, created_at
+                min_week_balance_cents, artifact_id, created_at
            FROM cash_forecast_runs
           WHERE tenant_id = :t
           ORDER BY id DESC LIMIT ' . $limit
