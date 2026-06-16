@@ -90,6 +90,7 @@ if ($action === 'view' && $method === 'GET') {
 
     $datasets = liquidityBaselineDatasets($tid, $today, $endDate);
     $buckets  = liquidityBucketDatasets($datasets);
+    $baselineSourceDetail = liquidityProjectionSourceDetail($datasets);
 
     $applyPreset = static function (array $events, string $today, string $endDate): array {
         $in = []; $out = [];
@@ -112,6 +113,10 @@ if ($action === 'view' && $method === 'GET') {
     if (!$pa) api_error('Source scenario no longer exists', 410);
 
     [$aIn, $aOut] = $applyPreset($pa['events'], $today, $endDate);
+    $sourceDetailA = liquidityProjectionSourceDetail($datasets, [
+        'extra_inflows_by_date' => $aIn,
+        'extra_outflows_by_date' => $aOut,
+    ]);
     $baseline  = liquidityWalkProjection(
         $datasets['starting_cash'], $days, $today,
         $buckets['inflows_by_date'], $buckets['outflows_by_date']
@@ -126,6 +131,8 @@ if ($action === 'view' && $method === 'GET') {
         'extra_inflows_by_date' => $aIn,
         'extra_outflows_by_date' => $aOut,
     ]);
+    $baselineDaily = liquidityAttachDailySourceDetail($baseline['daily'], $baselineSourceDetail);
+    $dailyA = liquidityAttachDailySourceDetail($simA['daily'], $sourceDetailA);
 
     // Audit: bump view counters. Best-effort — never block the read.
     try {
@@ -151,21 +158,23 @@ if ($action === 'view' && $method === 'GET') {
         'projection'   => $baselineProjection,
         'baseline'     => [
             'projection'           => $baselineProjection,
+            'source_detail'        => $baselineSourceDetail,
             'starting_cash'       => round($datasets['starting_cash'], 2),
             'lowest_balance'      => $baseline['lowest_balance'],
             'lowest_balance_date' => $baseline['lowest_balance_date'],
             'runway_days_to_zero' => $baseline['runway_days_to_zero'],
-            'daily'               => $baseline['daily'],
+            'daily'               => $baselineDaily,
         ],
         'scenario_a'   => [
             'projection'           => $projectionA,
+            'source_detail'        => $sourceDetailA,
             'name'                => $pa['name'],
             'description'         => $pa['description'],
             'events'              => $pa['events'],
             'lowest_balance'      => $simA['lowest_balance'],
             'lowest_balance_date' => $simA['lowest_balance_date'],
             'runway_days_to_zero' => $simA['runway_days_to_zero'],
-            'daily'               => $simA['daily'],
+            'daily'               => $dailyA,
         ],
     ];
 
@@ -173,6 +182,10 @@ if ($action === 'view' && $method === 'GET') {
         $pb = $loadPreset($pdo, $tid, (int) $row['preset_b_id']);
         if ($pb) {
             [$bIn, $bOut] = $applyPreset($pb['events'], $today, $endDate);
+            $sourceDetailB = liquidityProjectionSourceDetail($datasets, [
+                'extra_inflows_by_date' => $bIn,
+                'extra_outflows_by_date' => $bOut,
+            ]);
             $simB = liquidityWalkProjection(
                 $datasets['starting_cash'], $days, $today,
                 $buckets['inflows_by_date'], $buckets['outflows_by_date'],
@@ -182,15 +195,17 @@ if ($action === 'view' && $method === 'GET') {
                 'extra_inflows_by_date' => $bIn,
                 'extra_outflows_by_date' => $bOut,
             ]);
+            $dailyB = liquidityAttachDailySourceDetail($simB['daily'], $sourceDetailB);
             $payload['scenario_b'] = [
                 'projection'           => $projectionB,
+                'source_detail'        => $sourceDetailB,
                 'name'                => $pb['name'],
                 'description'         => $pb['description'],
                 'events'              => $pb['events'],
                 'lowest_balance'      => $simB['lowest_balance'],
                 'lowest_balance_date' => $simB['lowest_balance_date'],
                 'runway_days_to_zero' => $simB['runway_days_to_zero'],
-                'daily'               => $simB['daily'],
+                'daily'               => $dailyB,
             ];
         }
     }

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { api, useApi } from '../lib/api';
-import { Wallet, Plus, Trash2, TrendingUp, TrendingDown, AlertTriangle, FlaskConical, Wand2, Save, Bookmark } from 'lucide-react';
+import { Wallet, Plus, Trash2, TrendingUp, TrendingDown, AlertTriangle, FlaskConical, Wand2, Save, Bookmark, FileSearch } from 'lucide-react';
 
 /**
  * Treasury What-If Scenario Builder.
@@ -466,6 +466,22 @@ export default function TreasuryScenario() {
         </div>
       )}
 
+      {data && (
+        <div data-testid="scenario-source-detail"
+             style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+          <SourceDetailPanel
+            title="Baseline sources"
+            detail={baseline.source_detail}
+            testid="scenario-source-baseline"
+          />
+          <SourceDetailPanel
+            title="Simulated sources"
+            detail={simulated.source_detail}
+            testid="scenario-source-simulated"
+          />
+        </div>
+      )}
+
       {/* Runway alert */}
       {delta.runway_days_lost > 0 && (
         <div data-testid="scenario-runway-alert"
@@ -538,6 +554,51 @@ function Tile({ label, value, tone, testid }) {
       </div>
       <div style={{ fontSize: 20, fontWeight: 600, marginTop: 4, fontVariantNumeric: 'tabular-nums', color: tone ? colorMap[tone] : '#1e293b' }}>
         {value}
+      </div>
+    </div>
+  );
+}
+
+function SourceDetailPanel({ title, detail, testid }) {
+  const classes = detail?.classification_totals || {};
+  const sourceRows = [
+    ...(detail?.summary?.inflows || []).map((row) => ({ ...row, direction: 'In' })),
+    ...(detail?.summary?.outflows || []).map((row) => ({ ...row, direction: 'Out' })),
+  ].slice(0, 6);
+  return (
+    <div data-testid={testid}
+         style={{ padding: 14, border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff', display: 'grid', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <FileSearch size={14} color="#0f766e" />
+        <strong style={{ fontSize: 13 }}>{title}</strong>
+      </div>
+      <div data-testid={`${testid}-classes`}
+           style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+        {['scheduled', 'expected', 'forecasted', 'actual'].map((key) => {
+          const row = classes[key] || {};
+          return (
+            <div key={key} data-testid={`${testid}-class-${key}`}
+                 style={{ padding: 8, background: '#f8fafc', borderRadius: 8, fontSize: 11, color: '#475569' }}>
+              <div style={{ textTransform: 'uppercase', letterSpacing: 0.4, color: '#64748b' }}>{key}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginTop: 4 }}>
+                <span style={{ color: '#047857' }}>{fmt(row.inflows || 0)}</span>
+                <span style={{ color: '#b91c1c' }}>{fmt(row.outflows || 0)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div data-testid={`${testid}-sources`} style={{ display: 'grid', gap: 4 }}>
+        {sourceRows.length === 0 ? (
+          <span style={{ color: '#94a3b8', fontSize: 12 }}>No source movements.</span>
+        ) : sourceRows.map((row) => (
+          <div key={`${row.direction}-${row.source}`}
+               style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 8, fontSize: 12, color: '#475569' }}>
+            <span style={{ color: row.direction === 'In' ? '#047857' : '#b91c1c', fontWeight: 700 }}>{row.direction}</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.source}</span>
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(row.amount)}</span>
+          </div>
+        ))}
       </div>
     </div>
   );

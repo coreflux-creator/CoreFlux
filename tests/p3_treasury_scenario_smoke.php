@@ -128,6 +128,11 @@ $assert('event add button testid',                strpos($pg, 'data-testid="scen
 $assert('per-event row testid template',          strpos($pg, 'data-testid={`scenario-event-row-${idx}`}') !== false);
 $assert('per-event remove testid template',       strpos($pg, 'data-testid={`scenario-event-remove-${idx}`}') !== false);
 $assert('summary tiles testid',                   strpos($pg, 'data-testid="scenario-summary-tiles"') !== false);
+$assert('source detail panel testids',
+    strpos($pg, 'data-testid="scenario-source-detail"') !== false
+    && strpos($pg, 'testid="scenario-source-baseline"') !== false
+    && strpos($pg, 'testid="scenario-source-simulated"') !== false
+    && strpos($pg, 'function SourceDetailPanel(') !== false);
 $assert('chart testid',                           strpos($pg, 'data-testid="scenario-chart"') !== false);
 $assert('runway alert testid',                    strpos($pg, 'data-testid="scenario-runway-alert"') !== false);
 $assert('safe banner testid',                     strpos($pg, 'data-testid="scenario-safe-banner"') !== false);

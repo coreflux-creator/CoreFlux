@@ -127,6 +127,12 @@ $assert('three pairwise delta cards (a-vs-baseline, b-vs-baseline, a-vs-b)',
     strpos($pg, 'testid="scenario-compare-delta-a-vs-baseline"') !== false
     && strpos($pg, 'testid="scenario-compare-delta-b-vs-baseline"') !== false
     && strpos($pg, 'testid="scenario-compare-delta-a-vs-b"') !== false);
+$assert('source detail panels for baseline + A + B',
+    strpos($pg, 'data-testid="scenario-compare-source-detail"') !== false
+    && strpos($pg, 'testid="scenario-compare-source-baseline"') !== false
+    && strpos($pg, 'testid="scenario-compare-source-a"') !== false
+    && strpos($pg, 'testid="scenario-compare-source-b"') !== false
+    && strpos($pg, 'function SourceDetailPanel(') !== false);
 $assert('chart testid',                          strpos($pg, 'data-testid="scenario-compare-chart"') !== false);
 $assert('uses SVG <path> for three series',
     strpos($pg, 'pathFor(s.points)') !== false
