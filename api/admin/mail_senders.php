@@ -23,6 +23,7 @@
 require_once __DIR__ . '/../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../core/RBAC.php';
 require_once __DIR__ . '/../../core/tenant_mail.php';
+require_once __DIR__ . '/../../core/audit.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
@@ -65,17 +66,18 @@ if ($method === 'POST') {
 
     // Best-effort audit.
     try {
-        getDB()->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:tenant_id, :actor, :event, :target_id, :meta, :ip, NOW())'
-        )->execute([
-            'tenant_id' => $tid,
-            'actor'     => $user['id'] ?? null,
-            'event'     => 'tenant.mail_senders.updated',
-            'target_id' => null,
-            'meta'      => json_encode(['purpose' => $purpose, 'fields' => array_keys($payload)]),
-            'ip'        => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        platformAuditLogWrite(
+            $tid,
+            (int) ($user['id'] ?? 0) ?: null,
+            'tenant.mail_senders.updated',
+            null,
+            ['purpose' => $purpose, 'fields' => array_keys($payload)],
+            [
+                'source' => 'mail',
+                'object_type' => 'tenant_mail_sender',
+                'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+            ]
+        );
     } catch (\Throwable $e) { error_log('[mail_senders] audit failed: ' . $e->getMessage()); }
 
     api_ok([
