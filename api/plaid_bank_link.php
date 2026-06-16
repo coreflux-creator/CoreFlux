@@ -169,6 +169,7 @@ if ($action === 'exchange') {
     );
     $stmt->execute(['t' => $tenantId, 'iid' => $itemId]);
     $itemPk = (int) $stmt->fetchColumn();
+    $itemBefore = plaidItemAuditRow($tenantId, $itemPk);
 
     // Hydrate accounts from /accounts/get for canonical metadata.
     try {
@@ -516,7 +517,12 @@ if ($action === 'exchange') {
         'selected_account_ids'     => $selectedIds,
         'skipped_opt_out'          => $skippedOptOut,
         'errors'                   => $itemErrors,
-    ], null);
+    ], $itemPk, [
+        'tenant_id' => $tenantId,
+        'actor_user_id' => (int) ($user['id'] ?? 0),
+        'before' => $itemBefore,
+        'after' => plaidItemAuditRow($tenantId, $itemPk),
+    ]);
 
     // Cache live Plaid balances so the Treasury list shows a non-zero "Bank
     // balance" column the moment the user lands back on the page. Done AFTER
@@ -537,5 +543,4 @@ if ($action === 'exchange') {
 }
 
 api_error('Unknown action: ' . $action, 422);
-
 

@@ -48,6 +48,7 @@ $item = scopedFind(
     ['iid' => $itemIdExt]
 );
 if (!$item) api_error('Item not found', 404);
+$itemBefore = plaidItemAuditRow((int) $ctx['tenant_id'], (int) $item['id']) ?? plaidAuditScrubTokenRow($item);
 
 $accessToken = plaidDecryptAccessToken($item['access_token_ct']);
 if (!$accessToken) api_error('Could not decrypt access token', 500);
@@ -112,24 +113,29 @@ while (true) {
         }
         plaidAudit('core.plaid.transactions_sync_failed', [
             'item_id' => $itemIdExt, 'error_code' => $e->errorCode,
-        ], (int) $item['id']);
+        ], (int) $item['id'], [
+            'tenant_id' => (int) $ctx['tenant_id'],
+            'actor_user_id' => (int) ($user['id'] ?? 0),
+            'before' => $itemBefore,
+            'after' => plaidItemAuditRow((int) $ctx['tenant_id'], (int) $item['id']) ?? $itemBefore,
+        ]);
         api_error('Plaid sync failed: ' . $e->getMessage(), 502, ['plaid_error_code' => $e->errorCode]);
     }
     $results['pages']++;
 
     foreach (($resp['added'] ?? []) as $t) {
-        if (_plaidRouteTxn($accountMap, $t, false, $results)) $results['added']++;
+        if (_plaidRouteTxn($tenantId, $accountMap, $t, false, $results)) $results['added']++;
         else $results['unmapped']++;
     }
     foreach (($resp['modified'] ?? []) as $t) {
-        if (_plaidRouteTxn($accountMap, $t, true, $results)) $results['modified']++;
+        if (_plaidRouteTxn($tenantId, $accountMap, $t, true, $results)) $results['modified']++;
         else $results['unmapped']++;
     }
     foreach (($resp['removed'] ?? []) as $r) {
         $accId = (string) ($r['account_id'] ?? '');
         $txnId = (string) ($r['transaction_id'] ?? '');
         if ($accId === '' || $txnId === '' || !isset($accountMap[$accId])) { $results['unmapped']++; continue; }
-        _plaidMarkRemovedRouted($accountMap[$accId], $txnId);
+        _plaidMarkRemovedRouted($tenantId, $accountMap[$accId], $txnId);
         $results['removed']++;
     }
 
@@ -155,7 +161,12 @@ foreach ($accountMap as $dest) {
 
 plaidAudit('core.plaid.transactions_synced', [
     'item_id' => $itemIdExt, 'results' => $results, 'accounts' => count($accountMap),
-], (int) $item['id']);
+], (int) $item['id'], [
+    'tenant_id' => (int) $ctx['tenant_id'],
+    'actor_user_id' => (int) ($user['id'] ?? 0),
+    'before' => $itemBefore,
+    'after' => plaidItemAuditRow((int) $ctx['tenant_id'], (int) $item['id']) ?? $itemBefore,
+]);
 
 // Also refresh balance cache so the Treasury list pages can show the live
 // current balance without firing /accounts/balance/get on every render.
@@ -209,7 +220,7 @@ function _plaidBuildAccountDestinationMap(int $tenantId, int $itemPk): array {
     return $map;
 }
 
-function _plaidRouteTxn(array $map, array $t, bool $isModification, array &$results): bool {
+function _plaidRouteTxn(int $tenantId, array $map, array $t, bool $isModification, array &$results): bool {
     $accId = (string) ($t['account_id'] ?? '');
     if ($accId === '' || !isset($map[$accId])) return false;
     $dest  = $map[$accId];
@@ -219,7 +230,6 @@ function _plaidRouteTxn(array $map, array $t, bool $isModification, array &$resu
     // Plaid 'amount' convention: positive = outflow (charge / debit).
     // Bank statement lines convention: signed (+ = credit/inflow, - = debit/outflow).
     $signed = round(((float) ($t['amount'] ?? 0)) * -1, 2);
-    $tenantId = currentTenantId();
     $pdo = getDB();
 
     if ($dest['kind'] === 'deposit') {
@@ -275,9 +285,8 @@ function _plaidRouteTxn(array $map, array $t, bool $isModification, array &$resu
     return true;
 }
 
-function _plaidMarkRemovedRouted(array $dest, string $txnId): void {
+function _plaidMarkRemovedRouted(int $tenantId, array $dest, string $txnId): void {
     $pdo = getDB();
-    $tenantId = currentTenantId();
     $table = $dest['kind'] === 'deposit'
         ? 'accounting_bank_statement_lines'
         : 'treasury_liability_statement_lines';
