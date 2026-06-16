@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../../core/audit.php';
+
 function staffingClientAuditSnapshot(array $row): array
 {
     $keys = [
@@ -30,19 +32,18 @@ function staffingClientAuditSnapshot(array $row): array
 function staffingClientAudit(int $tenantId, ?int $actorUserId, string $event, ?int $targetId, array $meta): void
 {
     try {
-        getDB()->prepare(
-            'INSERT INTO audit_log
-                (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES
-                (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, :ip_address, NOW())'
-        )->execute([
-            'tenant_id' => $tenantId,
-            'actor_user_id' => $actorUserId,
-            'event' => $event,
-            'target_id' => $targetId,
-            'meta_json' => json_encode($meta, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        platformAuditLogWrite(
+            $tenantId,
+            $actorUserId,
+            $event,
+            $targetId,
+            $meta,
+            [
+                'source' => 'staffing',
+                'object_type' => 'staffing_client',
+                'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+            ]
+        );
     } catch (\Throwable $e) {
         error_log('[staffing.client.audit] ' . $event . ' failed: ' . $e->getMessage());
     }

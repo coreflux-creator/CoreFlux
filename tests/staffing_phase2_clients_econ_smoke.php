@@ -38,7 +38,7 @@ $a('stats action queries v_timesheet_day_fin',str_contains($api, 'FROM v_timeshe
 $a('stats tolerates missing view',            str_contains($api, "\$stats['mtd_revenue'] = null"));
 
 $audit = $read(__DIR__ . '/../modules/staffing/lib/client_audit.php');
-$a('client audit helper writes audit_log',     str_contains($audit, 'INSERT INTO audit_log') && str_contains($audit, 'function staffingClientAudit('));
+$a('client audit helper uses shared audit writer', str_contains($audit, 'platformAuditLogWrite(') && str_contains($audit, 'function staffingClientAudit('));
 $a('client audit helper snapshots material fields', str_contains($audit, 'function staffingClientAuditSnapshot(') && str_contains($audit, 'payment_terms_days'));
 
 echo "\nClients CSV export\n";

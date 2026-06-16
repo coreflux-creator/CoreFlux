@@ -20,6 +20,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
+require_once __DIR__ . '/../../../core/audit.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -169,18 +170,18 @@ api_error('Unknown action', 404);
 function staffingReadinessAudit(int $tenantId, ?int $actorUserId, string $event, array $meta): void
 {
     try {
-        getDB()->prepare(
-            'INSERT INTO audit_log
-                (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES
-                (:tenant_id, :actor_user_id, :event, NULL, :meta_json, :ip_address, NOW())'
-        )->execute([
-            'tenant_id' => $tenantId,
-            'actor_user_id' => $actorUserId,
-            'event' => $event,
-            'meta_json' => json_encode($meta, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        platformAuditLogWrite(
+            $tenantId,
+            $actorUserId,
+            $event,
+            null,
+            $meta,
+            [
+                'source' => 'staffing',
+                'object_type' => 'staffing_readiness',
+                'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+            ]
+        );
     } catch (\Throwable $e) {
         error_log('[staffing.readiness.audit] ' . $event . ' failed: ' . $e->getMessage());
     }
