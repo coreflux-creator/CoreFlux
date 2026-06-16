@@ -24,6 +24,15 @@ $actorUserId = isset($user['id']) ? (int) $user['id'] : null;
 
 if ($method === 'GET') {
     rbac_legacy_require($user, 'treasury.payment.view');
+    if ($action === 'decisions') {
+        $limit = max(1, min(200, (int) (api_query('limit') ?? 50)));
+        api_ok([
+            'rows' => treasuryRecommendationDecisionHistory($tid, $limit),
+            'limit' => $limit,
+            'decision_ledger' => 'treasury_recommendation_decisions',
+        ]);
+    }
+
     $today = date('Y-m-d');
     $storedPolicy = treasuryPolicyGet($tid);
     $forecastDays = max(1, min(365, (int) (api_query('forecast_days') ?? $storedPolicy['forecast_days'] ?? 30)));
@@ -87,6 +96,8 @@ if ($method === 'GET') {
         $recommendation['latest_decision'] = $decision;
     }
     unset($recommendation);
+    $summary = treasuryRecommendationSummary($recommendations);
+    $reviewQueue = treasuryRecommendationReviewQueue($recommendations);
 
     api_ok([
         'as_of_date' => $today,
@@ -105,6 +116,8 @@ if ($method === 'GET') {
             'risk_level' => treasuryRecommendationRiskLevel($lowestAvailable, $projectedAvailable),
         ],
         'recommendations' => $recommendations,
+        'summary' => $summary,
+        'review_queue' => $reviewQueue,
         'auditability' => [
             'decision_events' => ['treasury.recommendation.accepted', 'treasury.recommendation.dismissed'],
             'decision_ledger' => 'treasury_recommendation_decisions',
@@ -339,6 +352,76 @@ function treasuryRecommendationRiskLevel(float $lowestAvailable, float $projecte
     return 'stable';
 }
 
+function treasuryRecommendationSummary(array $recommendations): array
+{
+    $actions = [
+        'pay_now' => 0,
+        'submit_for_approval' => 0,
+        'hold_for_review' => 0,
+        'split' => 0,
+        'defer_or_escalate' => 0,
+    ];
+    $decisions = [
+        'accepted' => 0,
+        'dismissed' => 0,
+        'undecided' => 0,
+    ];
+    $reviewQueueCount = 0;
+
+    foreach ($recommendations as $row) {
+        $action = (string) ($row['recommendation_action'] ?? '');
+        if (array_key_exists($action, $actions)) $actions[$action]++;
+        $decision = (string) ($row['latest_decision']['decision'] ?? '');
+        if ($decision === 'accept') {
+            $decisions['accepted']++;
+        } elseif ($decision === 'dismiss') {
+            $decisions['dismissed']++;
+        } else {
+            $decisions['undecided']++;
+        }
+        if (treasuryRecommendationNeedsReview($row)) $reviewQueueCount++;
+    }
+
+    return [
+        'total' => count($recommendations),
+        'actions' => $actions,
+        'decisions' => $decisions,
+        'review_queue_count' => $reviewQueueCount,
+    ];
+}
+
+function treasuryRecommendationReviewQueue(array $recommendations): array
+{
+    $queue = [];
+    foreach ($recommendations as $row) {
+        if (!treasuryRecommendationNeedsReview($row)) continue;
+        $queue[] = [
+            'id' => $row['id'] ?? null,
+            'recommendation_action' => $row['recommendation_action'] ?? null,
+            'rationale' => $row['rationale'] ?? null,
+            'payment' => $row['payment'] ?? [],
+            'approval_gate' => $row['approval_gate'] ?? [],
+            'cash_impact' => $row['cash_impact'] ?? [],
+            'latest_decision' => $row['latest_decision'] ?? null,
+            'handoff' => [
+                'next_workflow_step' => $row['approval_gate']['next_workflow_step'] ?? 'review',
+                'workflow_resource' => $row['approval_gate']['workflow_resource'] ?? 'treasury.payment',
+                'approval_permission' => $row['approval_gate']['approval_permission'] ?? 'treasury.approve_payment',
+                'execution_permission' => $row['approval_gate']['execution_permission'] ?? 'treasury.execute_payment',
+            ],
+        ];
+    }
+    return $queue;
+}
+
+function treasuryRecommendationNeedsReview(array $row): bool
+{
+    $action = (string) ($row['recommendation_action'] ?? '');
+    return in_array($action, ['defer_or_escalate', 'split', 'hold_for_review'], true)
+        || !empty($row['approval_gate']['material_recommendation'])
+        || ((float) ($row['cash_impact']['lowest_available_after_payment'] ?? 0) < 0);
+}
+
 function treasuryRecommendationRecordDecision(
     int $tenantId,
     ?int $actorUserId,
@@ -458,6 +541,41 @@ function treasuryRecommendationLatestDecisions(int $tenantId, array $recommendat
         }
     }
     return $out;
+}
+
+function treasuryRecommendationDecisionHistory(int $tenantId, int $limit): array
+{
+    $pdo = getDB();
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT id, recommendation_id, payment_id, decision, recommendation_action,
+                    policy_version, evidence_hash, decision_note, actor_user_id, decided_at
+               FROM treasury_recommendation_decisions
+              WHERE tenant_id = :tenant_id
+              ORDER BY decided_at DESC, id DESC
+              LIMIT ' . $limit
+        );
+        $stmt->execute(['tenant_id' => $tenantId]);
+    } catch (\Throwable $_) {
+        return [];
+    }
+
+    $rows = [];
+    while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+        $rows[] = [
+            'id' => (int) $row['id'],
+            'recommendation_id' => (string) $row['recommendation_id'],
+            'payment_id' => $row['payment_id'] !== null ? (int) $row['payment_id'] : null,
+            'decision' => (string) $row['decision'],
+            'recommendation_action' => $row['recommendation_action'],
+            'policy_version' => $row['policy_version'] !== null ? (int) $row['policy_version'] : null,
+            'evidence_hash' => (string) $row['evidence_hash'],
+            'decision_note' => $row['decision_note'],
+            'actor_user_id' => $row['actor_user_id'] !== null ? (int) $row['actor_user_id'] : null,
+            'decided_at' => $row['decided_at'],
+        ];
+    }
+    return $rows;
 }
 
 function treasuryRecommendationVarianceContext(int $tenantId, string $today): array

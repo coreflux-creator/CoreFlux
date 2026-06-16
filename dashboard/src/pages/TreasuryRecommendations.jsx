@@ -32,6 +32,7 @@ export default function TreasuryRecommendations() {
   const [decisions, setDecisions] = useState({});
   const [loadedPolicyVersion, setLoadedPolicyVersion] = useState(null);
   const policyDefaults = useApi('/api/treasury_policy.php');
+  const decisionHistory = useApi('/api/treasury_recommendations.php?action=decisions&limit=25');
 
   useEffect(() => {
     const saved = policyDefaults.data?.policy;
@@ -66,6 +67,8 @@ export default function TreasuryRecommendations() {
   const envelope = data.cash_envelope || {};
   const reservePolicy = data.reserve_policy || {};
   const rows = data.recommendations || [];
+  const summary = data.summary || {};
+  const reviewQueue = data.review_queue || [];
   const currency = data.currency || appliedPolicy.currency || 'USD';
 
   const updatePolicy = (key, value) => {
@@ -121,6 +124,7 @@ export default function TreasuryRecommendations() {
       });
       setDecisions((prev) => ({ ...prev, [row.id]: { decision: action, pending: true } }));
       recommendations.reload();
+      decisionHistory.reload();
       setFlash({ kind: 'success', message: `Recommendation ${action === 'accept' ? 'accepted' : 'dismissed'} and audit logged to the decision ledger.` });
     } catch (err) {
       setFlash({ kind: 'error', message: err.message || String(err) });
@@ -227,6 +231,16 @@ export default function TreasuryRecommendations() {
             <Metric label="Risk level" value={envelope.risk_level || 'stable'} tone={envelope.risk_level === 'critical' ? '#b91c1c' : envelope.risk_level === 'watch' ? '#b45309' : '#047857'} />
           </div>
 
+          <div data-testid="treasury-recommendations-summary"
+               style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(145px,1fr))', gap: 10 }}>
+            <Metric label="Pay now" value={summary.actions?.pay_now || 0} />
+            <Metric label="Submit" value={summary.actions?.submit_for_approval || 0} />
+            <Metric label="Hold" value={summary.actions?.hold_for_review || 0} tone="#b45309" />
+            <Metric label="Split/escalate" value={(summary.actions?.split || 0) + (summary.actions?.defer_or_escalate || 0)} tone="#b91c1c" />
+            <Metric label="Review queue" value={summary.review_queue_count || 0} tone={(summary.review_queue_count || 0) > 0 ? '#b91c1c' : '#047857'} />
+            <Metric label="Decided" value={(summary.decisions?.accepted || 0) + (summary.decisions?.dismissed || 0)} />
+          </div>
+
           <div data-testid="treasury-recommendations-auditability"
                style={{ border: '1px solid #dbeafe', borderRadius: 8, padding: 12, background: '#eff6ff', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
             <ShieldCheck size={18} color="#1d4ed8" />
@@ -234,6 +248,8 @@ export default function TreasuryRecommendations() {
               Decisions write recommendation audit events. Payment execution still requires Treasury payment workflow approval and execute permission.
             </div>
           </div>
+
+          <ReviewQueue rows={reviewQueue} currency={currency} />
 
           <div data-testid="treasury-recommendations-list" style={{ display: 'grid', gap: 10 }}>
             {rows.length === 0 && (
@@ -253,6 +269,8 @@ export default function TreasuryRecommendations() {
               />
             ))}
           </div>
+
+          <DecisionHistory data={decisionHistory} />
         </>
       )}
     </section>
@@ -332,10 +350,78 @@ function RecommendationRow({ row, currency, decision, busy, onAccept, onDismiss 
         <Evidence label="Available after payment" value={fmtMoney(impact.available_after_payment, currency)} />
         <Evidence label="Lowest after payment" value={fmtMoney(impact.lowest_available_after_payment, currency)} />
         <Evidence label="Next workflow step" value={gate.next_workflow_step || 'review'} />
+        <Evidence label="Workflow handoff" value={`${gate.workflow_resource || 'treasury.payment'} / ${gate.next_workflow_step || 'review'}`} />
         <Evidence label="Approval permission" value={gate.approval_permission || 'treasury.approve_payment'} />
         <Evidence label="Decision evidence hash" value={evidenceHash || 'None'} />
       </div>
     </article>
+  );
+}
+
+function ReviewQueue({ rows, currency }) {
+  return (
+    <section data-testid="treasury-recommendations-review-queue"
+             style={{ border: '1px solid #fee2e2', borderRadius: 8, padding: 14, background: '#fff7ed', display: 'grid', gap: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
+        <strong style={{ fontSize: 14 }}>Review queue</strong>
+        <span style={{ color: '#9a3412', fontSize: 12 }}>{rows.length} item{rows.length === 1 ? '' : 's'}</span>
+      </div>
+      {rows.length === 0 && (
+        <div data-testid="treasury-recommendations-review-empty" style={{ color: '#64748b', fontSize: 13 }}>
+          No reserve-breach, split, or escalation recommendations in this window.
+        </div>
+      )}
+      {rows.slice(0, 6).map((row) => (
+        <div key={row.id}
+             data-testid={`treasury-review-queue-row-${row.payment?.id || row.id}`}
+             style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 10, borderTop: '1px solid #fed7aa', paddingTop: 8, fontSize: 13 }}>
+          <div>
+            <strong>{row.payment?.payee_name || 'Payment'}</strong>
+            <div style={{ color: '#64748b', fontSize: 12 }}>
+              {row.recommendation_action} / {row.handoff?.next_workflow_step || 'review'} / {fmtMoney(row.payment?.amount, row.payment?.currency || currency)}
+            </div>
+            <div style={{ color: '#7c2d12', fontSize: 12 }}>{row.rationale}</div>
+          </div>
+          <div style={{ color: '#64748b', fontSize: 12, textAlign: 'right' }}>
+            Policy v{row.approval_gate?.policy_version || 0}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function DecisionHistory({ data }) {
+  const rows = data.data?.rows || [];
+  return (
+    <section data-testid="treasury-recommendations-decision-history"
+             style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, background: '#fff', display: 'grid', gap: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
+        <strong style={{ fontSize: 14 }}>Decision history</strong>
+        <span style={{ color: '#64748b', fontSize: 12 }}>{rows.length} recent</span>
+      </div>
+      {data.loading && <div style={{ color: '#64748b', fontSize: 13 }}>Loading decision history...</div>}
+      {data.error && <div className="error" style={{ fontSize: 13 }}>{data.error.message}</div>}
+      {!data.loading && !data.error && rows.length === 0 && (
+        <div data-testid="treasury-recommendations-decision-history-empty" style={{ color: '#64748b', fontSize: 13 }}>
+          No recommendation decisions have been recorded yet.
+        </div>
+      )}
+      {rows.slice(0, 10).map((row) => (
+        <div key={row.id}
+             data-testid={`treasury-decision-history-row-${row.id}`}
+             style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', gap: 10, borderTop: '1px solid #e2e8f0', paddingTop: 8, fontSize: 12 }}>
+          <strong style={{ color: row.decision === 'accept' ? '#047857' : '#b45309' }}>{row.decision}</strong>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: '#0f172a' }}>{row.recommendation_action || 'recommendation'} / payment {row.payment_id || 'N/A'}</div>
+            <div style={{ color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {row.decision_note || 'No note'} / hash {row.evidence_hash}
+            </div>
+          </div>
+          <span style={{ color: '#64748b', whiteSpace: 'nowrap' }}>{row.decided_at}</span>
+        </div>
+      ))}
+    </section>
   );
 }
 

@@ -29,6 +29,7 @@ $policyAlias = (string) file_get_contents("{$ROOT}/modules/treasury/api/policy.p
 $policyMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/008_treasury_policy.sql");
 $decisionMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/009_treasury_recommendation_decisions.sql");
 $page = (string) file_get_contents("{$ROOT}/dashboard/src/pages/TreasuryRecommendations.jsx");
+$overview = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryOverview.jsx");
 $module = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryModule.jsx");
 $manifest = (string) file_get_contents("{$ROOT}/modules/treasury/manifest.php");
 
@@ -74,6 +75,10 @@ $a('GET returns latest backend decision per recommendation/payment',
     && str_contains($endpoint, "\$recommendation['latest_decision'] = \$decision")
     && str_contains($endpoint, "'decision_ledger' => 'treasury_recommendation_decisions'")
     && str_contains($endpoint, "'payment:' . \$decision['payment_id']"));
+$a('GET exposes decision history endpoint',
+    str_contains($endpoint, "if (\$action === 'decisions')")
+    && str_contains($endpoint, 'function treasuryRecommendationDecisionHistory(')
+    && str_contains($endpoint, "'rows' => treasuryRecommendationDecisionHistory(\$tid, \$limit)"));
 
 echo "\nReserve policy and evidence\n";
 foreach ([
@@ -109,6 +114,13 @@ $a('recommendation evidence carries payment, cash impact, reserve policy, projec
     && str_contains($endpoint, "'reserve_policy' => \$reservePolicy")
     && str_contains($endpoint, "'projection' => \$context['projection']")
     && str_contains($endpoint, "'variance_context' => \$context['variance_context']"));
+$a('recommendations return summary and review queue',
+    str_contains($endpoint, 'function treasuryRecommendationSummary(')
+    && str_contains($endpoint, 'function treasuryRecommendationReviewQueue(')
+    && str_contains($endpoint, 'function treasuryRecommendationNeedsReview(')
+    && str_contains($endpoint, "'summary' => \$summary")
+    && str_contains($endpoint, "'review_queue' => \$reviewQueue")
+    && str_contains($endpoint, "'next_workflow_step' => \$row['approval_gate']['next_workflow_step'] ?? 'review'"));
 
 echo "\nWorkflow gating and auditability\n";
 $a('endpoint is advisory and preserves money movement workflow',
@@ -165,6 +177,19 @@ $a('UI renders cash envelope, gates, evidence, and audit decisions',
     && str_contains($page, 'row.latest_decision')
     && str_contains($page, 'recommendations.reload()')
     && str_contains($page, 'Decision evidence hash'));
+$a('UI renders summary, review queue, handoff, and history panels',
+    str_contains($page, 'data-testid="treasury-recommendations-summary"')
+    && str_contains($page, 'data-testid="treasury-recommendations-review-queue"')
+    && str_contains($page, 'data-testid="treasury-recommendations-decision-history"')
+    && str_contains($page, "/api/treasury_recommendations.php?action=decisions&limit=25")
+    && str_contains($page, 'Workflow handoff')
+    && str_contains($page, 'decisionHistory.reload()'));
+$a('Treasury overview renders recommendation queue summary',
+    str_contains($overview, "/api/treasury_recommendations.php?forecast_days=30")
+    && str_contains($overview, 'data-testid="treasury-overview-recommendation-summary"')
+    && str_contains($overview, 'data-testid="treasury-overview-recommendations-link"')
+    && str_contains($overview, 'treasury-recommendations-review-count')
+    && str_contains($overview, 'treasury-recommendations-decided'));
 
 echo "\nTreasury recommendations alignment smoke: {$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

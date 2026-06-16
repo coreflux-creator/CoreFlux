@@ -7,12 +7,14 @@ export default function TreasuryOverview() {
   const dep = useApi('/modules/treasury/api/deposit_accounts.php');
   const lia = useApi('/modules/treasury/api/liability_accounts.php');
   const cash = useApi('/api/treasury_cash_position.php?forecast_days=7');
+  const recs = useApi('/api/treasury_recommendations.php?forecast_days=30');
 
   const depositRows   = dep.data?.rows || [];
   const liabilityRows = lia.data?.rows || [];
   const controlsByCurrency = cash.data?.liquidity_controls?.by_currency || {};
   const controlCurrency = controlsByCurrency.USD ? 'USD' : (Object.keys(controlsByCurrency)[0] || 'USD');
   const liquidityControls = controlsByCurrency[controlCurrency] || null;
+  const recommendationSummary = recs.data?.summary || {};
   // Headline figures prefer the live Plaid balance (what's actually in the
   // bank right now) and fall back to the GL balance only when no feed exists.
   const balanceOf = (r) => (r.bank_balance !== null && r.bank_balance !== undefined)
@@ -107,6 +109,48 @@ export default function TreasuryOverview() {
           {cash.error && <p className="error" data-testid="treasury-overview-cash-position-error">{cash.error.message}</p>}
         </section>
       )}
+
+      <section className="treasury-overview__section" data-testid="treasury-overview-recommendation-summary">
+        <header className="treasury-overview__section-head">
+          <h3>Recommendation queue</h3>
+          <Link to="../recommendations" className="btn btn--ghost" data-testid="treasury-overview-recommendations-link">
+            Open recommendations
+          </Link>
+        </header>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
+          <LiquidityControlTile
+            label="Pay now"
+            value={recommendationSummary.actions?.pay_now ?? 'N/A'}
+            testId="treasury-recommendations-pay-now"
+          />
+          <LiquidityControlTile
+            label="Submit"
+            value={recommendationSummary.actions?.submit_for_approval ?? 'N/A'}
+            testId="treasury-recommendations-submit"
+          />
+          <LiquidityControlTile
+            label="Hold"
+            value={recommendationSummary.actions?.hold_for_review ?? 'N/A'}
+            testId="treasury-recommendations-hold"
+          />
+          <LiquidityControlTile
+            label="Split/escalate"
+            value={(recommendationSummary.actions?.split ?? 0) + (recommendationSummary.actions?.defer_or_escalate ?? 0)}
+            testId="treasury-recommendations-escalate"
+          />
+          <LiquidityControlTile
+            label="Review queue"
+            value={recommendationSummary.review_queue_count ?? 'N/A'}
+            testId="treasury-recommendations-review-count"
+          />
+          <LiquidityControlTile
+            label="Decided"
+            value={(recommendationSummary.decisions?.accepted ?? 0) + (recommendationSummary.decisions?.dismissed ?? 0)}
+            testId="treasury-recommendations-decided"
+          />
+        </div>
+        {recs.error && <p className="error" data-testid="treasury-overview-recommendations-error">{recs.error.message}</p>}
+      </section>
 
       <section className="treasury-overview__section">
         <header className="treasury-overview__section-head">
