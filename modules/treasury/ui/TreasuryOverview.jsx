@@ -6,9 +6,13 @@ import { fmtMoney, fmtRelative } from '../../../dashboard/src/lib/format';
 export default function TreasuryOverview() {
   const dep = useApi('/modules/treasury/api/deposit_accounts.php');
   const lia = useApi('/modules/treasury/api/liability_accounts.php');
+  const cash = useApi('/api/treasury_cash_position.php?forecast_days=7');
 
   const depositRows   = dep.data?.rows || [];
   const liabilityRows = lia.data?.rows || [];
+  const controlsByCurrency = cash.data?.liquidity_controls?.by_currency || {};
+  const controlCurrency = controlsByCurrency.USD ? 'USD' : (Object.keys(controlsByCurrency)[0] || 'USD');
+  const liquidityControls = controlsByCurrency[controlCurrency] || null;
   // Headline figures prefer the live Plaid balance (what's actually in the
   // bank right now) and fall back to the GL balance only when no feed exists.
   const balanceOf = (r) => (r.bank_balance !== null && r.bank_balance !== undefined)
@@ -25,7 +29,7 @@ export default function TreasuryOverview() {
           <h2>Treasury</h2>
           <p className="muted">
             Cash positions, credit exposure, and bank-feed health — one view.
-            Dashboards + 13-week forecast coming soon.
+            Forecasts, scenarios, and controls are available from the Treasury tabs.
           </p>
         </div>
       </header>
@@ -49,7 +53,60 @@ export default function TreasuryOverview() {
           </div>
           <div className="stat-card__label">Net cash position</div>
         </div>
+        <div className="stat-card" data-testid="treasury-overview-available-to-spend">
+          <div
+            className="stat-card__value"
+            style={{ color: (liquidityControls?.available_to_spend ?? 0) < 0 ? '#dc2626' : undefined }}
+          >
+            {liquidityControls ? fmtMoney(liquidityControls.available_to_spend, controlCurrency) : 'N/A'}
+          </div>
+          <div className="stat-card__label">Available to spend ({controlCurrency})</div>
+        </div>
+        <div className="stat-card" data-testid="treasury-overview-cash-safety">
+          <div
+            className="stat-card__value"
+            style={{ color: safetyColor(liquidityControls?.risk_level), display: 'flex', alignItems: 'baseline', gap: 6 }}
+          >
+            {liquidityControls ? liquidityControls.cash_safety_score : 'N/A'}
+            {liquidityControls && <span style={{ fontSize: 12, fontWeight: 600 }}>{liquidityControls.risk_level}</span>}
+          </div>
+          <div className="stat-card__label">Cash safety score</div>
+        </div>
       </div>
+
+      {liquidityControls && (
+        <section className="treasury-overview__section" data-testid="treasury-overview-liquidity-controls">
+          <header className="treasury-overview__section-head">
+            <h3>Liquidity controls</h3>
+            <Link to="../forecast" className="btn btn--ghost" data-testid="treasury-overview-forecast-link">
+              Open forecast
+            </Link>
+          </header>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
+            <LiquidityControlTile
+              label="Pending payments"
+              value={fmtMoney(liquidityControls.pending_payments, controlCurrency)}
+              testId="treasury-liquidity-pending-payments"
+            />
+            <LiquidityControlTile
+              label="Near-term outflows"
+              value={fmtMoney(liquidityControls.high_confidence_near_term_outflows, controlCurrency)}
+              testId="treasury-liquidity-outflows"
+            />
+            <LiquidityControlTile
+              label="Near-term inflows"
+              value={fmtMoney(liquidityControls.high_confidence_near_term_inflows, controlCurrency)}
+              testId="treasury-liquidity-inflows"
+            />
+            <LiquidityControlTile
+              label="Coverage"
+              value={`${Number(liquidityControls.coverage_ratio || 0).toFixed(2)}x`}
+              testId="treasury-liquidity-coverage"
+            />
+          </div>
+          {cash.error && <p className="error" data-testid="treasury-overview-cash-position-error">{cash.error.message}</p>}
+        </section>
+      )}
 
       <section className="treasury-overview__section">
         <header className="treasury-overview__section-head">
@@ -142,6 +199,24 @@ export default function TreasuryOverview() {
         <PlaidTransferFundingCard />
       </section>
     </section>
+  );
+}
+
+function safetyColor(risk) {
+  if (risk === 'critical') return '#dc2626';
+  if (risk === 'watch') return '#b45309';
+  return '#059669';
+}
+
+function LiquidityControlTile({ label, value, testId }) {
+  return (
+    <div
+      data-testid={testId}
+      style={{ padding: 12, border: '1px solid var(--cf-border, #e5e7eb)', borderRadius: 6, background: '#fff' }}
+    >
+      <div style={{ fontSize: 12, color: 'var(--cf-text-muted, #64748b)' }}>{label}</div>
+      <div style={{ marginTop: 4, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+    </div>
   );
 }
 

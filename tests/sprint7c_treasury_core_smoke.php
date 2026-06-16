@@ -149,5 +149,22 @@ $assert('high-confidence AP/AR source signals',
 $assert('graceful when no reconciliations table',
     strpos($cp, "SHOW TABLES LIKE 'accounting_reconciliations'") !== false);
 
+echo "\nmodules/treasury/ui/TreasuryOverview.jsx\n";
+$overview = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryOverview.jsx");
+$assert('overview reads treasury cash position controls',
+    strpos($overview, "/api/treasury_cash_position.php?forecast_days=7") !== false
+    && strpos($overview, 'liquidity_controls?.by_currency') !== false);
+$assert('overview renders available-to-spend and safety cards',
+    strpos($overview, 'data-testid="treasury-overview-available-to-spend"') !== false
+    && strpos($overview, 'data-testid="treasury-overview-cash-safety"') !== false);
+$assert('overview renders liquidity control detail strip',
+    strpos($overview, 'data-testid="treasury-overview-liquidity-controls"') !== false
+    && strpos($overview, 'treasury-liquidity-pending-payments') !== false
+    && strpos($overview, 'treasury-liquidity-outflows') !== false
+    && strpos($overview, 'treasury-liquidity-inflows') !== false
+    && strpos($overview, 'treasury-liquidity-coverage') !== false);
+$assert('overview no longer says forecast coming soon',
+    strpos($overview, '13-week forecast coming soon') === false);
+
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);
