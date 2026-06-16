@@ -3,8 +3,8 @@
  * Workflow audit governance smoke.
  *
  * Verifies WorkflowEngine emits canonical platform audit evidence for
- * decisions, state transitions, People Graph routing, and legacy schema
- * fallback without requiring a database.
+ * decisions, state transitions, and People Graph routing through the
+ * shared platform audit writer, without requiring a database.
  */
 declare(strict_types=1);
 
