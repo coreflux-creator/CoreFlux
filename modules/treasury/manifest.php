@@ -40,6 +40,7 @@ return [
         'treasury.liability.created',
         'treasury.liability.updated',
         'treasury.feed.synced',
+        'treasury.forecast.run',
         'treasury.payment.created',
         'treasury.payment.submitted',
         'treasury.payment.workflow_started',

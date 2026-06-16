@@ -23,6 +23,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../audit.php';
 require_once __DIR__ . '/artifacts.php';
 
 const CASH_FORECAST_DEFAULT_WEEKS = 13;
@@ -137,6 +138,32 @@ function cashForecastRun(int $tenantId, array $opts = []): array
         }
     } catch (\Throwable $e) {
         error_log('[cash_forecast] artifactCreate failed: ' . $e->getMessage());
+    }
+    try {
+        platformAuditLogWrite($tenantId, $actorUid, 'treasury.forecast.run', $forecastId, [
+            'forecast_id' => $forecastId,
+            'artifact_id' => $artifactId,
+            'starting_at' => $start,
+            'weeks_count' => $weeks,
+            'currency' => $currency,
+            'starting_balance_cents' => $openingCents,
+            'ending_balance_cents' => $runningCents,
+            'min_week_balance_cents' => $minWeekCents,
+            'source' => 'treasury',
+        ], [
+            'source' => 'treasury',
+            'object_type' => 'cash_forecast',
+            'after' => [
+                'forecast_id' => $forecastId,
+                'artifact_id' => $artifactId,
+                'starting_at' => $start,
+                'weeks_count' => $weeks,
+                'ending_balance_cents' => $runningCents,
+                'min_week_balance_cents' => $minWeekCents,
+            ],
+        ]);
+    } catch (\Throwable $e) {
+        error_log('[cash_forecast] audit failed: ' . $e->getMessage());
     }
 
     return [

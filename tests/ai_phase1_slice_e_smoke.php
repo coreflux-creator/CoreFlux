@@ -84,6 +84,7 @@ $a('apNormalizeVendorName: trailing comma stripped',
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── core/ai/cash_forecast.php ──\n";
 $cf = (string) file_get_contents($ROOT . '/core/ai/cash_forecast.php');
+$treasuryManifest = (string) file_get_contents($ROOT . '/modules/treasury/manifest.php');
 $a('cashForecastRun defined',                                 $c($cf, 'function cashForecastRun(int $tenantId, array $opts = []): array'));
 $a('cashForecastGet defined',                                 $c($cf, 'function cashForecastGet(int $tenantId, int $forecastId): ?array'));
 $a('cashForecastList defined',                                $c($cf, 'function cashForecastList(int $tenantId, array $filters = []): array'));
@@ -99,6 +100,12 @@ $a('forecast stamps cash_forecast_runs.artifact_id',
     $c($cf, 'UPDATE cash_forecast_runs')
     && $c($cf, 'SET artifact_id = :aid')
     && $c($cf, "'artifact_id'             => \$artifactId"));
+$a('forecast run writes canonical treasury audit event',
+    $c($cf, 'platformAuditLogWrite($tenantId, $actorUid, \'treasury.forecast.run\'')
+    && $c($cf, "'object_type' => 'cash_forecast'")
+    && $c($cf, "'artifact_id' => \$artifactId"));
+$a('Treasury manifest declares forecast audit event',
+    $c($treasuryManifest, "'treasury.forecast.run'"));
 $a('forecast bucket carries shortfall note',                  $c($cf, "'NEGATIVE — shortfall flagged'"));
 $a('forecast tracks min_week_balance for shortfall alerts',   $c($cf, 'minWeekCents'));
 $a('opening cash from accounting_bank_accounts',              $c($cf, 'accounting_bank_accounts'));
