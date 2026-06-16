@@ -269,6 +269,49 @@ Artifact helpers expose `artifactAssignPeopleGraph()`,
 artifact people roles without adding local artifact owner/reviewer/approver
 columns.
 
+### Projection Architecture And Economics
+
+CoreFlux projection architecture treats Business Events as the canonical
+operational history and derives downstream economic/financial interpretations via
+deterministic projection engines.
+
+Projection flow:
+
+- Graph State
+- Business Events (canonical; immutable)
+- Projection Engines (deterministic transforms)
+- Projection Artifacts (snapshots, rollforwards, projected journals/cash/tax)
+- External Systems (consumers of projection outputs)
+
+Projection rules:
+
+- Do not introduce a second "economic event" source of truth.
+- Economic significance is classification metadata on Business Events.
+- Projection rules are versioned; Business Events stay immutable.
+- Projection outputs must be replayable from graph snapshots + event population.
+- Daily resolution is the default projection grain when operationally available.
+- Accounting/Treasury/Tax/Management outputs should reconcile to the same event
+  population.
+
+AI in projection operations:
+
+- AI may supervise, explain variances, validate, recommend corrections, and
+  orchestrate workflows around projections.
+- AI may not invent events, alter operational truth, bypass approvals, or post
+  material changes without governed authorization.
+
+Current implementation status:
+
+- Shared deterministic treasury walkers in `core/treasury/liquidity_projection.php`
+  are reused by scenario, compare, and impact APIs.
+- Replay endpoints (`api/posting_rules_replay.php`, `api/ap_bill_replay.php`,
+  `api/billing_invoice_replay.php`) preserve idempotent regeneration paths for
+  historical posting/event projections.
+- Artifact lifecycle/provenance is implemented via `core/ai/artifacts.php` and
+  consumed by AI/close packet/admin artifact surfaces.
+- Governance docs and enterprise controls retain deterministic + approval-gated
+  boundaries for AI-assisted flows.
+
 ### Domain Module Consumption
 
 Domain modules consume People Graph through manifest declarations and

@@ -1,0 +1,73 @@
+<?php
+/**
+ * Projection addendum alignment smoke.
+ *
+ * Static contract check that architecture docs and core projection surfaces
+ * reflect the projection addendum principles:
+ * - business events remain canonical
+ * - projection engines are deterministic + replayable
+ * - artifacts preserve interpretations
+ * - AI is supervisory/orchestrative but cannot alter truth or bypass controls
+ */
+declare(strict_types=1);
+
+$ROOT = dirname(__DIR__);
+$pass = 0; $fail = 0;
+$a = function (string $name, bool $ok) use (&$pass, &$fail): void {
+    if ($ok) { $pass++; echo "  ok    {$name}\n"; }
+    else     { $fail++; echo "  FAIL  {$name}\n"; }
+};
+$c = static fn(string $hay, string $needle): bool => str_contains($hay, $needle);
+
+$alignment = (string) file_get_contents($ROOT . '/docs/PRODUCT_ARCHITECTURE_ALIGNMENT.md');
+$liquidity = (string) file_get_contents($ROOT . '/core/treasury/liquidity_projection.php');
+$artifacts = (string) file_get_contents($ROOT . '/core/ai/artifacts.php');
+$replayApi = (string) file_get_contents($ROOT . '/api/posting_rules_replay.php');
+$apReplay  = (string) file_get_contents($ROOT . '/api/ap_bill_replay.php');
+$biReplay  = (string) file_get_contents($ROOT . '/api/billing_invoice_replay.php');
+
+echo "Projection addendum alignment\n";
+$a('architecture doc has projection section',
+    $c($alignment, '### Projection Architecture And Economics'));
+$a('doc preserves canonical business-event principle',
+    $c($alignment, 'Business Events (canonical; immutable)')
+    && $c($alignment, 'Do not introduce a second "economic event" source of truth.'));
+$a('doc defines deterministic projection flow',
+    $c($alignment, 'Projection Engines (deterministic transforms)')
+    && $c($alignment, 'Projection Artifacts (snapshots, rollforwards, projected journals/cash/tax)'));
+$a('doc locks replayability + versioning',
+    $c($alignment, 'Projection rules are versioned; Business Events stay immutable.')
+    && $c($alignment, 'Projection outputs must be replayable from graph snapshots + event population.'));
+$a('doc locks AI restrictions for projection operations',
+    $c($alignment, 'AI may not invent events')
+    && $c($alignment, 'bypass approvals')
+    && $c($alignment, 'material changes without governed authorization.'));
+
+echo "\nCore surfaces\n";
+$a('shared liquidity projection walker exists',
+    $c($liquidity, 'function liquidityWalkProjection('));
+$a('artifact lifecycle helpers exist',
+    $c($artifacts, 'function artifactCreate(')
+    && $c($artifacts, 'function artifactTransition(')
+    && $c($artifacts, 'function artifactLineage('));
+$a('posting replay API exists and is parseable reference',
+    $c($replayApi, 'idempotent_replay') || $c($replayApi, 'replayed'));
+$a('AP and Billing replay APIs emit replay markers',
+    $c($apReplay, "'replay'") && $c($biReplay, "'replay'"));
+
+echo "\nSyntax checks\n";
+foreach ([
+    '/core/treasury/liquidity_projection.php',
+    '/core/ai/artifacts.php',
+    '/api/posting_rules_replay.php',
+    '/api/ap_bill_replay.php',
+    '/api/billing_invoice_replay.php',
+    '/tests/projection_addendum_alignment_smoke.php',
+] as $path) {
+    $out = []; $rc = 0;
+    @exec('php -l ' . escapeshellarg($ROOT . $path) . ' 2>&1', $out, $rc);
+    $a("php -l {$path}", $rc === 0);
+}
+
+echo "\nTotal: {$pass} passed, {$fail} failed\n";
+exit($fail === 0 ? 0 : 1);
