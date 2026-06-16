@@ -44,6 +44,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/audit.php';
 require_once __DIR__ . '/push_service.php';
 require_once __DIR__ . '/people_graph.php';
 
@@ -1157,16 +1158,7 @@ function _workflowPeopleGraphActorToUserIds(int $tenantId, array $actor, array $
 
 /** @internal */
 function _workflowAuditEvent(int $tenantId, ?int $userId, string $event, int $targetId, array $meta): void {
-    $pdo = getDB();
-    if (!$pdo) return;
     try {
-        $cols = _workflowAuditLogColumns($pdo);
-        $values = [];
-        $has = static fn(string $column): bool => in_array($column, $cols, true);
-        $add = static function (string $column, mixed $value) use (&$values, $has): void {
-            if ($has($column)) $values[$column] = $value;
-        };
-
         $actorEmail = _workflowAuditScalar($meta['actor_email'] ?? null, 255);
         $actorType = _workflowAuditScalar(
             $meta['actor_type'] ?? ($userId ? 'user' : ($actorEmail ? 'external_approver' : 'system')),
@@ -1175,76 +1167,25 @@ function _workflowAuditEvent(int $tenantId, ?int $userId, string $event, int $ta
         $objectType = _workflowAuditScalar($meta['object_type'] ?? 'workflow_instance', 80);
         $requestId = _workflowRequestId($meta);
         $source = _workflowAuditScalar($meta['source'] ?? 'workflow', 80);
-        $before = $meta['before_json'] ?? $meta['before'] ?? null;
-        $after = $meta['after_json'] ?? $meta['after'] ?? null;
-
-        $add('tenant_id', $tenantId);
-        $add('actor_user_id', $userId);
-        $add('user_id', $userId);
-        $add('actor_type', $actorType);
-        $add('actor_email', $actorEmail);
-        if ($has('event')) {
-            $values['event'] = $event;
-        } elseif ($has('action')) {
-            $values['action'] = $event;
-        }
-        if ($has('target_id')) {
-            $values['target_id'] = $targetId;
-        } elseif ($has('entity_id')) {
-            $values['entity_id'] = $targetId;
-        }
-        $add('object_type', $objectType);
-        $add('entity', $objectType);
-        $add('before_json', _workflowAuditJson($before));
-        $add('after_json', _workflowAuditJson($after));
-        $add('meta_json', _workflowAuditJson($meta));
-        $add('ip_address', _workflowAuditScalar($_SERVER['REMOTE_ADDR'] ?? null, 45));
-        $add('request_id', $requestId);
-        $add('source', $source);
-        $add('user_agent', _workflowAuditScalar($_SERVER['HTTP_USER_AGENT'] ?? null, 255));
-
-        if (!$values) return;
-        $columns = array_keys($values);
-        $placeholders = array_map(static fn(string $column): string => ':' . $column, $columns);
-        if ($has('created_at')) {
-            $columns[] = 'created_at';
-            $placeholders[] = 'NOW()';
-        }
-        $sql = 'INSERT INTO audit_log (`' . implode('`, `', $columns) . '`) VALUES (' . implode(', ', $placeholders) . ')';
-        $pdo->prepare($sql)->execute($values);
+        platformAuditLogWrite(
+            $tenantId,
+            $userId,
+            $event,
+            $targetId,
+            $meta,
+            [
+                'actor_email' => $actorEmail,
+                'actor_type' => $actorType,
+                'object_type' => $objectType,
+                'request_id' => $requestId,
+                'source' => $source,
+                'before' => $meta['before_json'] ?? $meta['before'] ?? null,
+                'after' => $meta['after_json'] ?? $meta['after'] ?? null,
+                'ip_address' => _workflowAuditScalar($_SERVER['REMOTE_ADDR'] ?? null, 45),
+                'user_agent' => _workflowAuditScalar($_SERVER['HTTP_USER_AGENT'] ?? null, 255),
+            ]
+        );
     } catch (\Throwable $_) { /* audit best-effort */ }
-}
-
-/** @internal */
-function _workflowAuditLogColumns(PDO $pdo): array {
-    static $cache = [];
-    $key = spl_object_id($pdo);
-    if (isset($cache[$key])) return $cache[$key];
-    try {
-        $rows = $pdo->query('SHOW COLUMNS FROM audit_log')->fetchAll(PDO::FETCH_ASSOC) ?: [];
-        $cache[$key] = array_values(array_filter(array_map(static fn($row) => (string) ($row['Field'] ?? ''), $rows)));
-    } catch (\Throwable $_) {
-        $cache[$key] = [
-            'tenant_id', 'actor_user_id', 'user_id', 'actor_type', 'actor_email',
-            'event', 'action', 'target_id', 'entity_id', 'object_type', 'entity',
-            'before_json', 'after_json', 'meta_json', 'ip_address', 'request_id',
-            'source', 'user_agent', 'created_at',
-        ];
-    }
-    return $cache[$key];
-}
-
-/** @internal */
-function _workflowAuditJson(mixed $value): ?string {
-    if ($value === null) return null;
-    if (is_string($value)) {
-        $trimmed = trim($value);
-        if ($trimmed === '') return null;
-        json_decode($trimmed, true);
-        if (json_last_error() === JSON_ERROR_NONE) return $trimmed;
-    }
-    $json = json_encode($value, JSON_UNESCAPED_SLASHES);
-    return $json === false ? null : $json;
 }
 
 /** @internal */

@@ -49,7 +49,7 @@ foreach (['workflowDefine','workflowStart','workflowAct','workflowGetPendingForU
     $assert("exports {$fn}", stripos($src, "function {$fn}(") !== false);
 }
 $assert('parses', $lint(__DIR__ . '/../core/workflow_engine.php'));
-$assert('audits to audit_log', stripos($src, 'INSERT INTO audit_log') !== false);
+$assert('audits via shared writer', stripos($src, 'platformAuditLogWrite(') !== false);
 $assert('fires push to approvers', stripos($src, 'pushSendToUser(') !== false);
 $assert('idempotent start (returns prior pending)', stripos($src, 'workflow_instances') !== false && stripos($src, 'WHERE i.tenant_id') !== false);
 $assert('versioned definitions',  stripos($src, "SELECT id, version FROM workflow_definitions") !== false);

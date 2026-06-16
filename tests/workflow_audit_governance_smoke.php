@@ -37,8 +37,8 @@ $a('workflow actions emit platform audit events',
     str_contains($src, '"workflow.action.{$action}"')
     && str_contains($src, 'comment_present')
     && str_contains($src, 'delegated_to_user_id'));
-$a('audit writer detects audit_log schema',
-    $containsAll($src, ['function _workflowAuditLogColumns', 'SHOW COLUMNS FROM audit_log']));
+$a('audit writer delegates to shared platform helper',
+    $containsAll($src, ['function _workflowAuditEvent', 'platformAuditLogWrite(']));
 $a('canonical actor/object/request fields are written when available',
     $containsAll($src, [
         "actor_user_id",
@@ -51,8 +51,8 @@ $a('canonical actor/object/request fields are written when available',
         "source",
         "user_agent",
     ]));
-$a('legacy audit schema fallback remains',
-    $containsAll($src, ["'user_id'", "elseif (\$has('action'))", "elseif (\$has('entity_id'))", "\$add('entity'"]));
+$a('legacy audit schema compatibility is centralized',
+    str_contains($src, "require_once __DIR__ . '/audit.php';"));
 $a('state transitions include before/after snapshots',
     $containsAll($src, ["'workflow.started'", "'workflow.advanced'", "'workflow.completed'", "'before_json'", "'after_json'"]));
 $a('People Graph resolution audit includes object and source',
