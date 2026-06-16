@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api, useApi } from '../lib/api';
 import { CheckCircle, RefreshCw, ShieldCheck, XCircle } from 'lucide-react';
 
@@ -27,8 +27,31 @@ export default function TreasuryRecommendations() {
   });
   const [appliedPolicy, setAppliedPolicy] = useState(policy);
   const [busyId, setBusyId] = useState(null);
+  const [savingPolicy, setSavingPolicy] = useState(false);
   const [flash, setFlash] = useState(null);
   const [decisions, setDecisions] = useState({});
+  const [loadedPolicyVersion, setLoadedPolicyVersion] = useState(null);
+  const policyDefaults = useApi('/api/treasury_policy.php');
+
+  useEffect(() => {
+    const saved = policyDefaults.data?.policy;
+    if (!saved || loadedPolicyVersion === saved.policy_version) return;
+    const nextPolicy = {
+      currency: saved.currency || 'USD',
+      forecast_days: saved.forecast_days || 30,
+      minimum_cash_reserve: saved.minimum_cash_reserve || 0,
+      payroll_reserve: saved.payroll_reserve || 0,
+      tax_reserve: saved.tax_reserve || 0,
+      ap_reserve: saved.ap_reserve || 0,
+      operating_reserve: saved.operating_reserve || 0,
+      materiality_threshold: saved.materiality_threshold || 10000,
+      review_cadence_days: saved.review_cadence_days || 30,
+      effective_date: saved.effective_date || new Date().toISOString().slice(0, 10),
+    };
+    setPolicy(nextPolicy);
+    setAppliedPolicy(nextPolicy);
+    setLoadedPolicyVersion(saved.policy_version);
+  }, [policyDefaults.data, loadedPolicyVersion]);
 
   const url = useMemo(() => {
     const qs = new URLSearchParams();
@@ -47,6 +70,37 @@ export default function TreasuryRecommendations() {
 
   const updatePolicy = (key, value) => {
     setPolicy((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const savePolicy = async () => {
+    setSavingPolicy(true);
+    setFlash(null);
+    try {
+      const res = await api.post('/api/treasury_policy.php', policy);
+      const saved = res.policy || {};
+      const nextPolicy = {
+        ...policy,
+        currency: saved.currency || policy.currency,
+        forecast_days: saved.forecast_days || policy.forecast_days,
+        minimum_cash_reserve: saved.minimum_cash_reserve ?? policy.minimum_cash_reserve,
+        payroll_reserve: saved.payroll_reserve ?? policy.payroll_reserve,
+        tax_reserve: saved.tax_reserve ?? policy.tax_reserve,
+        ap_reserve: saved.ap_reserve ?? policy.ap_reserve,
+        operating_reserve: saved.operating_reserve ?? policy.operating_reserve,
+        materiality_threshold: saved.materiality_threshold ?? policy.materiality_threshold,
+        review_cadence_days: saved.review_cadence_days ?? policy.review_cadence_days,
+        effective_date: saved.effective_date || policy.effective_date,
+      };
+      setPolicy(nextPolicy);
+      setAppliedPolicy(nextPolicy);
+      setLoadedPolicyVersion(saved.policy_version);
+      policyDefaults.reload();
+      setFlash({ kind: 'success', message: `Treasury policy saved as version ${saved.policy_version || '1'}.` });
+    } catch (err) {
+      setFlash({ kind: 'error', message: err.message || String(err) });
+    } finally {
+      setSavingPolicy(false);
+    }
   };
 
   const decide = async (row, action) => {
@@ -83,20 +137,36 @@ export default function TreasuryRecommendations() {
             Reserve-aware payment timing with workflow gates and decision audit.
           </p>
         </div>
-        <button
-          type="button"
-          className="btn btn--primary"
-          onClick={() => setAppliedPolicy(policy)}
-          data-testid="treasury-recommendations-refresh"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-        >
-          <RefreshCw size={15} /> Refresh
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={savePolicy}
+            disabled={savingPolicy}
+            data-testid="treasury-policy-save"
+          >
+            {savingPolicy ? 'Saving...' : 'Save policy'}
+          </button>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => setAppliedPolicy(policy)}
+            data-testid="treasury-recommendations-refresh"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <RefreshCw size={15} /> Refresh
+          </button>
+        </div>
       </header>
 
       <div data-testid="treasury-reserve-policy-inputs"
            style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, background: '#fff', display: 'grid', gap: 12 }}>
-        <strong style={{ fontSize: 14 }}>Reserve policy inputs</strong>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+          <strong style={{ fontSize: 14 }}>Reserve policy inputs</strong>
+          <span data-testid="treasury-policy-version" style={{ color: '#64748b', fontSize: 12 }}>
+            Policy v{data.reserve_policy?.policy_version ?? policyDefaults.data?.policy?.policy_version ?? 0} / effective {data.reserve_policy?.effective_date ?? policy.effective_date ?? 'today'}
+          </span>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10 }}>
           <PolicyInput label="Minimum cash" value={policy.minimum_cash_reserve} onChange={(v) => updatePolicy('minimum_cash_reserve', v)} />
           <PolicyInput label="Payroll reserve" value={policy.payroll_reserve} onChange={(v) => updatePolicy('payroll_reserve', v)} />
@@ -117,7 +187,17 @@ export default function TreasuryRecommendations() {
             Currency
             <input className="input" value={policy.currency} maxLength={3} onChange={(e) => updatePolicy('currency', e.target.value.toUpperCase())} />
           </label>
+          <PolicyInput label="Review cadence days" value={policy.review_cadence_days || 30} onChange={(v) => updatePolicy('review_cadence_days', v)} />
+          <label style={fieldStyle}>
+            Effective date
+            <input className="input" type="date" value={policy.effective_date || ''} onChange={(e) => updatePolicy('effective_date', e.target.value)} />
+          </label>
         </div>
+        {policyDefaults.error && (
+          <div data-testid="treasury-policy-load-error" className="error" style={{ fontSize: 12 }}>
+            {policyDefaults.error.message}
+          </div>
+        )}
       </div>
 
       {flash && (

@@ -13,6 +13,7 @@ require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/audit.php';
 require_once __DIR__ . '/../core/treasury/liquidity_projection.php';
+require_once __DIR__ . '/../modules/treasury/lib/policy.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -24,13 +25,14 @@ $actorUserId = isset($user['id']) ? (int) $user['id'] : null;
 if ($method === 'GET') {
     rbac_legacy_require($user, 'treasury.payment.view');
     $today = date('Y-m-d');
-    $forecastDays = max(1, min(365, (int) (api_query('forecast_days') ?? 30)));
+    $storedPolicy = treasuryPolicyGet($tid);
+    $forecastDays = max(1, min(365, (int) (api_query('forecast_days') ?? $storedPolicy['forecast_days'] ?? 30)));
     $endDate = date('Y-m-d', strtotime("+{$forecastDays} days"));
     $entityId = (int) (api_query('entity_id') ?? 0) ?: null;
-    $currency = strtoupper(substr((string) (api_query('currency') ?? 'USD'), 0, 3)) ?: 'USD';
+    $currency = strtoupper(substr((string) (api_query('currency') ?? $storedPolicy['currency'] ?? 'USD'), 0, 3)) ?: 'USD';
 
-    $reservePolicy = treasuryRecommendationReservePolicy($currency);
-    $materialityThreshold = max(0.0, round((float) (api_query('materiality_threshold') ?? 10000), 2));
+    $reservePolicy = treasuryRecommendationReservePolicy($storedPolicy, $currency);
+    $materialityThreshold = (float) $reservePolicy['materiality_threshold'];
     $datasets = liquidityBaselineDatasets($tid, $today, $endDate, $entityId);
     $buckets = liquidityBucketDatasets($datasets);
     $walk = liquidityWalkProjection(
@@ -94,8 +96,10 @@ if ($method === 'GET') {
         'auditability' => [
             'decision_events' => ['treasury.recommendation.accepted', 'treasury.recommendation.dismissed'],
             'money_movement_gate' => 'Treasury recommendations are advisory. Payments still require submit, approval, and execution through treasury_payments.php.',
-            'approval_permission' => 'treasury.approve_payment',
-            'execution_permission' => 'treasury.execute_payment',
+            'policy_version' => $reservePolicy['policy_version'],
+            'effective_date' => $reservePolicy['effective_date'],
+            'approval_permission' => $reservePolicy['approval_permission'],
+            'execution_permission' => $reservePolicy['execution_permission'],
         ],
         'evidence' => [
             'projection' => $projectionEvidence,
@@ -152,17 +156,33 @@ if ($method === 'POST' && in_array($action, ['accept', 'dismiss'], true)) {
 
 api_error('Method not allowed', 405);
 
-function treasuryRecommendationReservePolicy(string $currency): array
+function treasuryRecommendationReservePolicy(array $storedPolicy, string $currency): array
 {
-    $minimumCashReserve = max(0.0, round((float) (api_query('minimum_cash_reserve') ?? 0), 2));
-    $payrollReserve = max(0.0, round((float) (api_query('payroll_reserve') ?? 0), 2));
-    $taxReserve = max(0.0, round((float) (api_query('tax_reserve') ?? 0), 2));
-    $apReserve = max(0.0, round((float) (api_query('ap_reserve') ?? 0), 2));
-    $operatingReserve = max(0.0, round((float) (api_query('operating_reserve') ?? 0), 2));
+    $overrides = [];
+    $read = static function (string $key) use ($storedPolicy, &$overrides): float {
+        $queryValue = api_query($key);
+        if ($queryValue !== null && $queryValue !== '') {
+            $overrides[] = $key;
+            return treasuryPolicyMoney($queryValue);
+        }
+        return treasuryPolicyMoney($storedPolicy[$key] ?? 0);
+    };
+
+    $minimumCashReserve = $read('minimum_cash_reserve');
+    $payrollReserve = $read('payroll_reserve');
+    $taxReserve = $read('tax_reserve');
+    $apReserve = $read('ap_reserve');
+    $operatingReserve = $read('operating_reserve');
+    $materialityThreshold = $read('materiality_threshold');
     $requiredReserves = round($minimumCashReserve + $payrollReserve + $taxReserve + $apReserve + $operatingReserve, 2);
 
     return [
         'currency' => $currency,
+        'policy_version' => (int) ($storedPolicy['policy_version'] ?? 0),
+        'effective_date' => (string) ($storedPolicy['effective_date'] ?? date('Y-m-d')),
+        'review_cadence_days' => (int) ($storedPolicy['review_cadence_days'] ?? 30),
+        'source' => (string) ($storedPolicy['source'] ?? 'system_default'),
+        'overrides_applied' => $overrides,
         'inputs' => [
             'minimum_cash_reserve' => $minimumCashReserve,
             'payroll_reserve' => $payrollReserve,
@@ -170,8 +190,12 @@ function treasuryRecommendationReservePolicy(string $currency): array
             'ap_reserve' => $apReserve,
             'operating_reserve' => $operatingReserve,
         ],
+        'materiality_threshold' => $materialityThreshold,
         'required_reserves' => $requiredReserves,
         'formula' => 'required_reserves = minimum_cash_reserve + payroll_reserve + tax_reserve + ap_reserve + operating_reserve',
+        'approval_resource' => (string) ($storedPolicy['approval_resource'] ?? 'treasury.payment'),
+        'approval_permission' => (string) ($storedPolicy['approval_permission'] ?? 'treasury.approve_payment'),
+        'execution_permission' => (string) ($storedPolicy['execution_permission'] ?? 'treasury.execute_payment'),
     ];
 }
 
@@ -260,9 +284,10 @@ function treasuryRecommendationForPayment(array $payment, array $reservePolicy, 
         'approval_gate' => [
             'approval_required' => $approvalRequired,
             'material_recommendation' => $material,
-            'workflow_resource' => 'treasury.payment',
-            'approval_permission' => 'treasury.approve_payment',
-            'execution_permission' => 'treasury.execute_payment',
+            'workflow_resource' => (string) ($reservePolicy['approval_resource'] ?? 'treasury.payment'),
+            'approval_permission' => (string) ($reservePolicy['approval_permission'] ?? 'treasury.approve_payment'),
+            'execution_permission' => (string) ($reservePolicy['execution_permission'] ?? 'treasury.execute_payment'),
+            'policy_version' => (int) ($reservePolicy['policy_version'] ?? 0),
             'next_workflow_step' => treasuryRecommendationNextWorkflowStep($status, $action),
             'money_movement_blocked_until_workflow_complete' => !in_array($status, ['approved', 'scheduled'], true),
         ],

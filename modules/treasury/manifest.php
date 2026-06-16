@@ -53,6 +53,7 @@ return [
         'treasury.payment.executed',
         'treasury.payment.execution_failed',
         'treasury.payment.voided',
+        'treasury.policy.updated',
         'treasury.recommendation.accepted',
         'treasury.recommendation.dismissed',
         'treasury.transfer.created',

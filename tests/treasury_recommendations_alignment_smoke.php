@@ -23,24 +23,47 @@ $lint = function (string $rel) use ($ROOT): bool {
 
 $endpoint = (string) file_get_contents("{$ROOT}/api/treasury_recommendations.php");
 $alias = (string) file_get_contents("{$ROOT}/modules/treasury/api/recommendations.php");
+$policyApi = (string) file_get_contents("{$ROOT}/api/treasury_policy.php");
+$policyLib = (string) file_get_contents("{$ROOT}/modules/treasury/lib/policy.php");
+$policyAlias = (string) file_get_contents("{$ROOT}/modules/treasury/api/policy.php");
+$policyMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/008_treasury_policy.sql");
 $page = (string) file_get_contents("{$ROOT}/dashboard/src/pages/TreasuryRecommendations.jsx");
 $module = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryModule.jsx");
 $manifest = (string) file_get_contents("{$ROOT}/modules/treasury/manifest.php");
 
 echo "Files parse\n";
 $a('endpoint parses', $lint('api/treasury_recommendations.php'));
+$a('policy endpoint parses', $lint('api/treasury_policy.php'));
+$a('policy helper parses', $lint('modules/treasury/lib/policy.php'));
 $a('module alias points to endpoint', str_contains($alias, "/../../../api/treasury_recommendations.php"));
+$a('policy alias points to endpoint', str_contains($policyAlias, "/../../../api/treasury_policy.php"));
+
+echo "\nDurable policy\n";
+$a('migration creates tenant_treasury_policy',
+    str_contains($policyMig, 'CREATE TABLE IF NOT EXISTS tenant_treasury_policy')
+    && str_contains($policyMig, 'policy_version INT UNSIGNED NOT NULL DEFAULT 1')
+    && str_contains($policyMig, 'effective_date DATE NOT NULL')
+    && str_contains($policyMig, 'review_cadence_days INT UNSIGNED NOT NULL DEFAULT 30'));
+$a('policy API gates read/write separately',
+    str_contains($policyApi, "rbac_legacy_require(\$user, 'treasury.payment.view')")
+    && str_contains($policyApi, "rbac_legacy_require(\$user, 'treasury.manage_forecast')"));
+$a('policy save increments version and audits before/after',
+    str_contains($policyLib, "\$policy['policy_version'] = max(1, (int) (\$before['policy_version'] ?? 0) + 1)")
+    && str_contains($policyLib, "treasury.policy.updated")
+    && str_contains($policyLib, "'object_type' => 'treasury_policy'")
+    && str_contains($policyLib, "'before' => \$before")
+    && str_contains($policyLib, "'after' => \$after"));
 
 echo "\nReserve policy and evidence\n";
 foreach ([
-    "api_query('minimum_cash_reserve')",
-    "api_query('payroll_reserve')",
-    "api_query('tax_reserve')",
-    "api_query('ap_reserve')",
-    "api_query('operating_reserve')",
-    "api_query('materiality_threshold')",
+    "'minimum_cash_reserve'",
+    "'payroll_reserve'",
+    "'tax_reserve'",
+    "'ap_reserve'",
+    "'operating_reserve'",
+    "'materiality_threshold'",
 ] as $needle) {
-    $a("endpoint reads {$needle}", str_contains($endpoint, $needle));
+    $a("endpoint supports override key {$needle}", str_contains($endpoint, $needle));
 }
 $a('reserve formula is explicit',
     str_contains($endpoint, 'required_reserves = minimum_cash_reserve + payroll_reserve + tax_reserve + ap_reserve + operating_reserve'));
@@ -48,6 +71,11 @@ $a('recommendations use shared liquidity projection evidence',
     str_contains($endpoint, 'liquidityProjectionEvidence(')
     && str_contains($endpoint, 'liquidityWalkProjection(')
     && str_contains($endpoint, 'variance_context'));
+$a('recommendations load saved policy and stamp version evidence',
+    str_contains($endpoint, 'treasuryPolicyGet($tid)')
+    && str_contains($endpoint, "'policy_version' => (int) (\$storedPolicy['policy_version'] ?? 0)")
+    && str_contains($endpoint, "'effective_date' => (string) (\$storedPolicy['effective_date'] ?? date('Y-m-d'))")
+    && str_contains($endpoint, "'overrides_applied' => \$overrides"));
 $a('payment timing actions are deterministic',
     str_contains($endpoint, "'pay_now'")
     && str_contains($endpoint, "'submit_for_approval'")
@@ -70,9 +98,9 @@ $a('GET requires payment view permission',
 $a('decision POST requires payment manage permission',
     str_contains($endpoint, "rbac_legacy_require(\$user, 'treasury.payment.manage')"));
 $a('approval gate names workflow resource and permissions',
-    str_contains($endpoint, "'workflow_resource' => 'treasury.payment'")
-    && str_contains($endpoint, "'approval_permission' => 'treasury.approve_payment'")
-    && str_contains($endpoint, "'execution_permission' => 'treasury.execute_payment'")
+    str_contains($endpoint, "'workflow_resource' => (string) (\$reservePolicy['approval_resource'] ?? 'treasury.payment')")
+    && str_contains($endpoint, "'approval_permission' => (string) (\$reservePolicy['approval_permission'] ?? 'treasury.approve_payment')")
+    && str_contains($endpoint, "'execution_permission' => (string) (\$reservePolicy['execution_permission'] ?? 'treasury.execute_payment')")
     && str_contains($endpoint, "'money_movement_blocked_until_workflow_complete'"));
 $a('accept/dismiss decisions write canonical audit',
     str_contains($endpoint, "treasury.recommendation.accepted")
@@ -82,7 +110,8 @@ $a('accept/dismiss decisions write canonical audit',
     && str_contains($endpoint, "'source' => 'treasury_recommendations'"));
 $a('manifest declares recommendation audit events',
     str_contains($manifest, "'treasury.recommendation.accepted'")
-    && str_contains($manifest, "'treasury.recommendation.dismissed'"));
+    && str_contains($manifest, "'treasury.recommendation.dismissed'")
+    && str_contains($manifest, "'treasury.policy.updated'"));
 
 echo "\nUI workbench\n";
 $a('Treasury module exposes Recommendations tab and route',
@@ -90,14 +119,19 @@ $a('Treasury module exposes Recommendations tab and route',
     && str_contains($module, 'to="recommendations"')
     && str_contains($module, 'path="recommendations"'));
 $a('UI reads recommendations endpoint',
-    str_contains($page, "/api/treasury_recommendations.php?"));
+    str_contains($page, "/api/treasury_recommendations.php?")
+    && str_contains($page, "/api/treasury_policy.php"));
 $a('UI renders reserve policy inputs',
     str_contains($page, 'data-testid="treasury-reserve-policy-inputs"')
     && str_contains($page, 'Minimum cash')
     && str_contains($page, 'Payroll reserve')
     && str_contains($page, 'Tax reserve')
     && str_contains($page, 'AP reserve')
-    && str_contains($page, 'Operating reserve'));
+    && str_contains($page, 'Operating reserve')
+    && str_contains($page, 'Review cadence days')
+    && str_contains($page, 'Effective date')
+    && str_contains($page, 'data-testid="treasury-policy-save"')
+    && str_contains($page, 'data-testid="treasury-policy-version"'));
 $a('UI renders cash envelope, gates, evidence, and audit decisions',
     str_contains($page, 'data-testid="treasury-recommendations-envelope"')
     && str_contains($page, 'data-testid="treasury-recommendations-auditability"')
