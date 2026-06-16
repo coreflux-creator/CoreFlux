@@ -111,6 +111,26 @@ $assert('5 KPI tiles wired',
     && strpos($pg, 'liquidity-tile-lowest') !== false);
 $assert('per-day bar testid template',             strpos($pg, 'data-testid={`liquidity-daily-bar-${i}`}') !== false);
 $assert('no-banks operator nudge',                 strpos($pg, 'data-testid="liquidity-no-banks"') !== false);
+$assert('forecast accuracy panel reads variance endpoint',
+    strpos($pg, "useApi('/api/liquidity_forecast_variance.php?days=30')") !== false
+    && strpos($pg, 'data-testid="liquidity-forecast-accuracy"') !== false
+    && strpos($pg, 'data-testid="liquidity-accuracy-metrics"') !== false);
+
+echo "\nLiquidity Forecast Variance\n";
+$variancePath = "{$ROOT}/api/liquidity_forecast_variance.php";
+$varianceApi = (string) file_get_contents($variancePath);
+$assert('variance endpoint parses',                $lint($variancePath));
+$assert('variance endpoint uses shared projection replay + posted actuals',
+    strpos($varianceApi, 'liquidityProjectionEvidence($tid, $startDate, $endDate, $days, $datasets)') !== false
+    && strpos($varianceApi, 'function liquidityForecastVarianceActuals(') !== false
+    && strpos($varianceApi, "je.status = 'posted'") !== false);
+$assert('variance endpoint emits WAPE and bias metrics',
+    strpos($varianceApi, "'wape' => \$wape") !== false
+    && strpos($varianceApi, "'bias' => \$bias") !== false
+    && strpos($varianceApi, "'accuracy_score'") !== false);
+$varianceAlias = "{$ROOT}/modules/treasury/api/liquidity_forecast_variance.php";
+$assert('variance alias delegates',                is_readable($varianceAlias)
+    && strpos((string) file_get_contents($varianceAlias), '/../../../api/liquidity_forecast_variance.php') !== false);
 
 echo "\nRouting — TreasuryModule\n";
 $tm = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryModule.jsx");

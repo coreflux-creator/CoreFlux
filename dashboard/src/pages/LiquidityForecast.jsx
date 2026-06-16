@@ -11,6 +11,7 @@ import { TrendingDown, TrendingUp, AlertTriangle, Wallet, FileSearch } from 'luc
 export default function LiquidityForecast() {
   const [days, setDays] = useState(90);
   const { data, loading, error } = useApi(`/api/liquidity_forecast.php?days=${days}`);
+  const variance = useApi('/api/liquidity_forecast_variance.php?days=30');
 
   if (loading) return <p data-testid="liquidity-loading">Loading forecast…</p>;
   if (error)   return <p className="error" data-testid="liquidity-error">{error.message}</p>;
@@ -122,6 +123,8 @@ export default function LiquidityForecast() {
         </div>
       </div>
 
+      <ForecastAccuracyPanel variance={variance} fmt={fmt} />
+
       <div data-testid="liquidity-daily-card"
            style={{ padding: 16, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12 }}>
         <strong style={{ fontSize: 14 }}>Daily projection</strong>
@@ -165,6 +168,53 @@ function SourceMovement({ item, fmt, tone }) {
       <span style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
         {item.classification} / {item.confidence}
       </span>
+    </div>
+  );
+}
+
+function ForecastAccuracyPanel({ variance, fmt }) {
+  const metrics = variance.data?.metrics || {};
+  const window = variance.data?.window || {};
+  const wape = metrics.wape == null ? 'N/A' : `${(Number(metrics.wape) * 100).toFixed(1)}%`;
+  const accuracy = metrics.accuracy_score == null ? 'N/A' : `${Number(metrics.accuracy_score).toFixed(1)}%`;
+
+  return (
+    <div data-testid="liquidity-forecast-accuracy"
+         style={{ padding: 16, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, display: 'grid', gap: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: 14 }}>Forecast accuracy</strong>
+        <span style={{ color: '#64748b', fontSize: 12 }}>
+          {window.start_date && window.end_date ? `${window.start_date} to ${window.end_date}` : 'Last 30 days'}
+        </span>
+      </div>
+      {variance.loading && <div data-testid="liquidity-accuracy-loading" style={{ color: '#64748b', fontSize: 13 }}>Loading accuracy...</div>}
+      {variance.error && <div data-testid="liquidity-accuracy-error" className="error" style={{ fontSize: 13 }}>{variance.error.message}</div>}
+      {!variance.loading && !variance.error && (
+        <>
+          <div data-testid="liquidity-accuracy-metrics"
+               style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10 }}>
+            <AccuracyMetric label="Accuracy" value={accuracy} />
+            <AccuracyMetric label="WAPE" value={wape} />
+            <AccuracyMetric label="Bias" value={fmt(metrics.bias || 0)} tone={Number(metrics.bias || 0) > 0 ? '#b45309' : '#047857'} />
+            <AccuracyMetric label="Abs. error" value={fmt(metrics.absolute_error_total || 0)} />
+          </div>
+          <div data-testid="liquidity-accuracy-exceptions"
+               style={{ display: 'flex', flexWrap: 'wrap', gap: 8, color: '#64748b', fontSize: 12 }}>
+            <span>Missed inflow days: <strong>{metrics.missed_inflow_days || 0}</strong></span>
+            <span>Early/late outflow days: <strong>{metrics.early_or_late_outflow_days || 0}</strong></span>
+            <span>Actual cash activity: <strong>{variance.data?.guards?.has_actual_cash_activity ? 'yes' : 'no'}</strong></span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function AccuracyMetric({ label, value, tone = '#0e7490' }) {
+  return (
+    <div style={{ padding: 10, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+      <div style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: tone, marginTop: 3 }}>{value}</div>
     </div>
   );
 }

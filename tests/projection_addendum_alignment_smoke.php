@@ -25,6 +25,7 @@ $artifacts = (string) file_get_contents($ROOT . '/core/ai/artifacts.php');
 $cashForecast = (string) file_get_contents($ROOT . '/core/ai/cash_forecast.php');
 $treasuryManifest = (string) file_get_contents($ROOT . '/modules/treasury/manifest.php');
 $forecastApi = (string) file_get_contents($ROOT . '/api/liquidity_forecast.php');
+$varianceApi = (string) file_get_contents($ROOT . '/api/liquidity_forecast_variance.php');
 $forecastUi = (string) file_get_contents($ROOT . '/dashboard/src/pages/LiquidityForecast.jsx');
 $scenarioApi = (string) file_get_contents($ROOT . '/api/treasury_scenario.php');
 $compareApi = (string) file_get_contents($ROOT . '/api/treasury_scenario_compare.php');
@@ -89,6 +90,12 @@ $a('liquidity forecast UI renders source drilldown',
     && $c($forecastUi, 'data-testid="liquidity-classification-totals"')
     && $c($forecastUi, 'liquidity-source-daily-list')
     && $c($forecastUi, 'SourceMovement'));
+$a('liquidity forecast variance closes replay audit loop',
+    $c($varianceApi, 'liquidityProjectionEvidence($tid, $startDate, $endDate, $days, $datasets)')
+    && $c($varianceApi, 'function liquidityForecastVarianceActuals(')
+    && $c($varianceApi, "'wape' => \$wape")
+    && $c($varianceApi, "'bias' => \$bias")
+    && $c($forecastUi, 'data-testid="liquidity-forecast-accuracy"'));
 $a('artifact lifecycle helpers exist',
     $c($artifacts, 'function artifactCreate(')
     && $c($artifacts, 'function artifactTransition(')
@@ -113,6 +120,7 @@ foreach ([
     '/core/ai/cash_forecast.php',
     '/modules/treasury/manifest.php',
     '/api/liquidity_forecast.php',
+    '/api/liquidity_forecast_variance.php',
     '/api/treasury_scenario.php',
     '/api/treasury_scenario_compare.php',
     '/api/treasury_scenario_share.php',
