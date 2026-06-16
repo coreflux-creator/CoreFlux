@@ -184,6 +184,19 @@ $a('UI renders summary, review queue, handoff, and history panels',
     && str_contains($page, "/api/treasury_recommendations.php?action=decisions&limit=25")
     && str_contains($page, 'Workflow handoff')
     && str_contains($page, 'decisionHistory.reload()'));
+$a('UI handoff buttons require accepted decisions and call payment workflow API',
+    str_contains($page, 'const accepted = decisionLabel === \'accept\'')
+    && str_contains($page, 'recommendationHandoffActions(row)')
+    && str_contains($page, '/api/treasury_payments.php?action=${action}&id=${paymentId}')
+    && str_contains($page, "status === 'draft' && action === 'submit_for_approval'")
+    && str_contains($page, "status === 'pending_approval'")
+    && str_contains($page, "['approved', 'scheduled'].includes(status) && action === 'pay_now'")
+    && str_contains($page, 'data-testid={`treasury-recommendation-handoff-${action.action}-${payment.id}`}'));
+$a('UI does not bypass payment workflow with direct status writes',
+    !str_contains($page, 'UPDATE treasury_payments')
+    && !str_contains($page, 'status="executed"')
+    && !str_contains($page, 'status = "approved"')
+    && !str_contains($page, "status: 'approved'"));
 $a('Treasury overview renders recommendation queue summary',
     str_contains($overview, "/api/treasury_recommendations.php?forecast_days=30")
     && str_contains($overview, 'data-testid="treasury-overview-recommendation-summary"')

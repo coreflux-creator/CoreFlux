@@ -133,6 +133,29 @@ export default function TreasuryRecommendations() {
     }
   };
 
+  const handoff = async (row, action) => {
+    const paymentId = row.payment?.id;
+    if (!paymentId) return;
+    let body = {};
+    if (action === 'reject') {
+      const reason = window.prompt('Reason for rejection');
+      if (!reason) return;
+      body = { reason };
+    }
+    setBusyId(`${row.id}:${action}`);
+    setFlash(null);
+    try {
+      const res = await api.post(`/api/treasury_payments.php?action=${action}&id=${paymentId}`, body);
+      recommendations.reload();
+      decisionHistory.reload();
+      setFlash({ kind: 'success', message: `Payment workflow ${action} completed. Status: ${res.status || (res.approved ? 'approved' : 'updated')}.` });
+    } catch (err) {
+      setFlash({ kind: 'error', message: err.message || String(err) });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <section data-testid="treasury-recommendations-page" style={{ padding: 24, display: 'grid', gap: 16 }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -263,9 +286,10 @@ export default function TreasuryRecommendations() {
                 row={row}
                 currency={currency}
                 decision={decisions[row.id] || row.latest_decision}
-                busy={busyId === row.id}
+                busy={busyId === row.id || String(busyId || '').startsWith(`${row.id}:`)}
                 onAccept={() => decide(row, 'accept')}
                 onDismiss={() => decide(row, 'dismiss')}
+                onHandoff={(action) => handoff(row, action)}
               />
             ))}
           </div>
@@ -302,13 +326,15 @@ function Metric({ label, value, tone = '#0f172a' }) {
   );
 }
 
-function RecommendationRow({ row, currency, decision, busy, onAccept, onDismiss }) {
+function RecommendationRow({ row, currency, decision, busy, onAccept, onDismiss, onHandoff }) {
   const payment = row.payment || {};
   const impact = row.cash_impact || {};
   const gate = row.approval_gate || {};
   const decisionLabel = typeof decision === 'string' ? decision : decision?.decision;
+  const accepted = decisionLabel === 'accept';
   const decidedAt = typeof decision === 'object' ? decision?.decided_at : null;
   const evidenceHash = typeof decision === 'object' ? decision?.evidence_hash : null;
+  const handoffActions = accepted ? recommendationHandoffActions(row) : [];
   return (
     <article data-testid={`treasury-recommendation-${payment.id || row.id}`}
              style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, background: '#fff', display: 'grid', gap: 10 }}>
@@ -354,8 +380,45 @@ function RecommendationRow({ row, currency, decision, busy, onAccept, onDismiss 
         <Evidence label="Approval permission" value={gate.approval_permission || 'treasury.approve_payment'} />
         <Evidence label="Decision evidence hash" value={evidenceHash || 'None'} />
       </div>
+      <div data-testid={`treasury-recommendation-handoff-${payment.id}`}
+           style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid #e2e8f0', paddingTop: 10 }}>
+        <span style={{ color: '#64748b', fontSize: 12 }}>
+          {accepted ? 'Accepted recommendation handoff' : 'Accept recommendation to enable workflow handoff'}
+        </span>
+        {handoffActions.map((action) => (
+          <button
+            key={action.action}
+            type="button"
+            className="btn btn--ghost"
+            disabled={busy}
+            onClick={() => onHandoff(action.action)}
+            data-testid={`treasury-recommendation-handoff-${action.action}-${payment.id}`}
+            title={action.title}
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
     </article>
   );
+}
+
+function recommendationHandoffActions(row) {
+  const status = row.payment?.status;
+  const action = row.recommendation_action;
+  if (status === 'draft' && action === 'submit_for_approval') {
+    return [{ action: 'submit', label: 'Submit', title: 'Submit through Treasury payment workflow' }];
+  }
+  if (status === 'pending_approval') {
+    return [
+      { action: 'approve', label: 'Approve', title: 'Approve through Treasury payment workflow' },
+      { action: 'reject', label: 'Reject', title: 'Reject through Treasury payment workflow' },
+    ];
+  }
+  if (['approved', 'scheduled'].includes(status) && action === 'pay_now') {
+    return [{ action: 'execute', label: 'Execute', title: 'Execute through Treasury payment workflow' }];
+  }
+  return [];
 }
 
 function ReviewQueue({ rows, currency }) {
