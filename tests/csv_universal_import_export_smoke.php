@@ -102,17 +102,40 @@ $a('preview table renders errors',           str_contains($cmp, 'errorsByRow'));
 $a('test ids are prefix-driven',             str_contains($cmp, '${testidPrefix}'));
 
 echo "\nVendor + Client import pages\n";
-$vp = $read(__DIR__ . '/../modules/ap/ui/VendorsCsvImport.jsx');
-$a('VendorsCsvImport.jsx exists',            $vp !== '');
-$a('VendorsCsvImport uses shared component', str_contains($vp, 'CsvImportPage'));
-$a('VendorsCsvImport points at /ap',         str_contains($vp, '/modules/ap/api/csv_import.php'));
-$a('VendorsCsvImport test prefix',           str_contains($vp, 'ap-vendors-csv-import'));
+$importPages = [
+    'VendorsCsvImport'         => ['../modules/ap/ui/VendorsCsvImport.jsx', '/api/v1/ap/csv-import', 'ap-vendors-csv-import'],
+    'BillsCsvImport'           => ['../modules/ap/ui/BillsCsvImport.jsx', '/api/v1/ap/bills-csv-import', 'ap-bills-csv-import'],
+    'PaymentsCsvImport'        => ['../modules/ap/ui/PaymentsCsvImport.jsx', '/api/v1/ap/payments-csv-import', 'ap-payments-csv-import'],
+    'InvoicesCsvImport'        => ['../modules/billing/ui/InvoicesCsvImport.jsx', '/api/v1/billing/csv-import', 'billing-invoices-csv-import'],
+    'BillingPaymentsCsvImport' => ['../modules/billing/ui/PaymentsCsvImport.jsx', '/api/v1/billing/payments-csv-import', 'billing-payments-csv-import'],
+    'PeopleCsvImport'          => ['../modules/people/ui/CsvImport.jsx', '/api/v1/people/csv-import', 'people-csv-import'],
+    'PlacementsCsvImport'      => ['../modules/placements/ui/CsvImport.jsx', '/api/v1/placements/csv-import', 'placements-csv-import'],
+    'ClientsCsvImport'         => ['../modules/staffing/ui/ClientsCsvImport.jsx', '/api/v1/staffing/csv-import', 'staffing-clients-csv-import'],
+    'TimeCsvImport'            => ['../modules/time/ui/CsvImport.jsx', '/api/v1/time/csv-import', 'time-csv-import'],
+];
+foreach ($importPages as $name => [$rel, $route, $prefix]) {
+    $src = $read(__DIR__ . '/' . $rel);
+    $a("{$name}.jsx exists",                  $src !== '');
+    $a("{$name} uses shared component",       str_contains($src, 'CsvImportPage'));
+    $a("{$name} uses v1 import route",        str_contains($src, $route) && !preg_match('#/modules/[a-z]+/api/#', $src));
+    $a("{$name} test prefix",                 str_contains($src, $prefix));
+}
 
-$cp = $read(__DIR__ . '/../modules/staffing/ui/ClientsCsvImport.jsx');
-$a('ClientsCsvImport.jsx exists',            $cp !== '');
-$a('ClientsCsvImport uses shared component', str_contains($cp, 'CsvImportPage'));
-$a('ClientsCsvImport points at /staffing',   str_contains($cp, '/modules/staffing/api/csv_import.php'));
-$a('ClientsCsvImport test prefix',           str_contains($cp, 'staffing-clients-csv-import'));
+$bulk = $read(__DIR__ . '/../dashboard/src/pages/CsvBulkImport.jsx');
+foreach ([
+    '/api/v1/people/csv-import',
+    '/api/v1/ap/csv-import',
+    '/api/v1/staffing/csv-import',
+    '/api/v1/placements/csv-import',
+    '/api/v1/time/csv-import',
+    '/api/v1/ap/bills-csv-import',
+    '/api/v1/billing/csv-import',
+    '/api/v1/ap/payments-csv-import',
+    '/api/v1/billing/payments-csv-import',
+] as $route) {
+    $a("CsvBulkImport uses {$route}",         str_contains($bulk, $route));
+}
+$a('CsvBulkImport hides module api paths',    !str_contains($bulk, '/modules/'));
 
 echo "\nModule router wiring\n";
 $apm = $read(__DIR__ . '/../modules/ap/ui/APModule.jsx');

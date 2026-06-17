@@ -31,47 +31,47 @@ const ENTITY_ORDER = [
 const ENTITY_CONFIG = {
   people: {
     label: 'People',
-    endpoint: '/modules/people/api/csv_import.php',
+    endpoint: '/api/v1/people/csv-import',
     signature: ['First name','Last name','Primary email','Classification'],
   },
   ap_vendors: {
     label: 'Vendors',
-    endpoint: '/modules/ap/api/csv_import.php',
+    endpoint: '/api/v1/ap/csv-import',
     signature: ['Vendor name','Vendor type'],
   },
   staffing_clients: {
     label: 'Clients',
-    endpoint: '/modules/staffing/api/csv_import.php',
+    endpoint: '/api/v1/staffing/csv-import',
     signature: ['Client name','Primary contact email'],
   },
   placements: {
     label: 'Placements',
-    endpoint: '/modules/placements/api/csv_import.php',
+    endpoint: '/api/v1/placements/csv-import',
     signature: ['Person email','Title','Engagement type','Start date'],
   },
   time: {
     label: 'Time entries',
-    endpoint: '/modules/time/api/csv_import.php',
+    endpoint: '/api/v1/time/csv-import',
     signature: ['Placement external ID','Work date','Category','Hours'],
   },
   ap_bills: {
     label: 'AP Bills',
-    endpoint: '/modules/ap/api/bills_csv_import.php',
+    endpoint: '/api/v1/ap/bills-csv-import',
     signature: ['Bill #','Vendor name','Bill date','Line description'],
   },
   billing_invoices: {
     label: 'AR Invoices',
-    endpoint: '/modules/billing/api/csv_import.php',
+    endpoint: '/api/v1/billing/csv-import',
     signature: ['Invoice #','Client name','Issue date','Line description'],
   },
   ap_payments: {
     label: 'AP Payments',
-    endpoint: '/modules/ap/api/payments_csv_import.php',
+    endpoint: '/api/v1/ap/payments-csv-import',
     signature: ['Vendor name','Pay date','Method','Amount'],
   },
   billing_payments: {
     label: 'Billing Payments',
-    endpoint: '/modules/billing/api/payments_csv_import.php',
+    endpoint: '/api/v1/billing/payments-csv-import',
     signature: ['Client name','Received at','Method','Amount'],
   },
 };function detectEntity(headerLine) {

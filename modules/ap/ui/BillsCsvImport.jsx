@@ -6,12 +6,12 @@ import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
  *
  * Mounted at /modules/ap/bills/csv_import. Header + line items live in
  * the SAME CSV, grouped by `bill_number`. Powered by Core\CsvImportService
- * via /api/ap/bills_csv_import.php.
+ * via /api/v1/ap/bills-csv-import.
  */
 export default function BillsCsvImport() {
   return (
     <CsvImportPage
-      endpoint="/modules/ap/api/bills_csv_import.php"
+      endpoint="/api/v1/ap/bills-csv-import"
       entityLabel="AP Bills"
       backTo="../bills"
       backLabel="← Bills"

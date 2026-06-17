@@ -6,12 +6,12 @@ import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
  *
  * Bulk-loads historical AP payments. Bill allocations stay out of scope
  * (done via the Payment Detail UI). Powered by Core\CsvImportService
- * via /api/ap/payments_csv_import.php.
+ * via /api/v1/ap/payments-csv-import.
  */
 export default function PaymentsCsvImport() {
   return (
     <CsvImportPage
-      endpoint="/modules/ap/api/payments_csv_import.php"
+      endpoint="/api/v1/ap/payments-csv-import"
       entityLabel="AP Payments"
       backTo="../payments"
       backLabel="← Payments"

@@ -298,6 +298,42 @@ $file = apiRouterResolveFile('treasury', 'import-csv');
 $assert("resolves treasury/import-csv module endpoint",
     $file !== null && str_ends_with($file, '/modules/treasury/api/import_csv.php'));
 
+$file = apiRouterResolveFile('people', 'csv-import');
+$assert("resolves people/csv-import module endpoint",
+    $file !== null && str_ends_with($file, '/modules/people/api/csv_import.php'));
+
+$file = apiRouterResolveFile('placements', 'csv-import');
+$assert("resolves placements/csv-import module endpoint",
+    $file !== null && str_ends_with($file, '/modules/placements/api/csv_import.php'));
+
+$file = apiRouterResolveFile('time', 'csv-import');
+$assert("resolves time/csv-import module endpoint",
+    $file !== null && str_ends_with($file, '/modules/time/api/csv_import.php'));
+
+$file = apiRouterResolveFile('staffing', 'csv-import');
+$assert("resolves staffing/csv-import module endpoint",
+    $file !== null && str_ends_with($file, '/modules/staffing/api/csv_import.php'));
+
+$file = apiRouterResolveFile('ap', 'csv-import');
+$assert("resolves ap/csv-import module endpoint",
+    $file !== null && str_ends_with($file, '/modules/ap/api/csv_import.php'));
+
+$file = apiRouterResolveFile('ap', 'bills-csv-import');
+$assert("resolves ap/bills-csv-import module endpoint",
+    $file !== null && str_ends_with($file, '/modules/ap/api/bills_csv_import.php'));
+
+$file = apiRouterResolveFile('ap', 'payments-csv-import');
+$assert("resolves ap/payments-csv-import module endpoint",
+    $file !== null && str_ends_with($file, '/modules/ap/api/payments_csv_import.php'));
+
+$file = apiRouterResolveFile('billing', 'csv-import');
+$assert("resolves billing/csv-import module endpoint",
+    $file !== null && str_ends_with($file, '/modules/billing/api/csv_import.php'));
+
+$file = apiRouterResolveFile('billing', 'payments-csv-import');
+$assert("resolves billing/payments-csv-import module endpoint",
+    $file !== null && str_ends_with($file, '/modules/billing/api/payments_csv_import.php'));
+
 $file = apiRouterResolveFile('staffing', 'csv-export');
 $assert("resolves staffing/csv-export module endpoint",
     $file !== null && str_ends_with($file, '/modules/staffing/api/csv_export.php'));
