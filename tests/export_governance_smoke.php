@@ -264,6 +264,9 @@ $assert('people UI uses export template picker', str_contains($peopleUi, 'Export
 $assert('placements UI uses export template picker', str_contains($placementsUi, 'ExportTemplatePicker') && str_contains($placementsUi, 'dataset="placements_directory"'));
 $assert('time review UI uses export template picker', str_contains($timeReviewUi, 'ExportTemplatePicker') && str_contains($timeReviewUi, 'dataset="time_entries"'));
 $assert('staffing clients UI uses export template picker', str_contains($staffingClientsUi, 'ExportTemplatePicker') && str_contains($staffingClientsUi, 'dataset="staffing_clients"'));
+$assert('staffing clients UI uses v1 export route',
+    str_contains($staffingClientsUi, '/api/v1/staffing/csv-export')
+    && !str_contains($staffingClientsUi, '/modules/staffing/api/csv_export.php'));
 $assert('ap bills UI uses export template picker', str_contains($apBillsUi, 'ExportTemplatePicker') && str_contains($apBillsUi, 'dataset="ap_bills"'));
 $assert('ap vendors UI uses export template picker', str_contains($apVendorsUi, 'ExportTemplatePicker') && str_contains($apVendorsUi, 'dataset="ap_vendors"'));
 $assert('people/placements template presets seeded', str_contains($seed, 'People Directory (default)') && str_contains($seed, 'Placements (default)'));

@@ -2,7 +2,7 @@
 /**
  * Staffing module — clients CSV export.
  *
- *   GET /api/staffing/csv_export → streams CSV of clients in tenant.
+ *   GET /api/v1/staffing/csv-export → streams CSV of clients in tenant.
  *
  * Optional filter:
  *   ?status=active|prospect|on_hold|inactive|closed

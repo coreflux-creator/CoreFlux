@@ -43,7 +43,7 @@ export default function Clients() {
     const params = new URLSearchParams({ template_id: String(tplId) });
     if (statusFilter) params.set('status', statusFilter);
     if (q.trim()) params.set('q', q.trim());
-    return `/modules/staffing/api/csv_export.php?${params.toString()}`;
+    return `/api/v1/staffing/csv-export?${params.toString()}`;
   };
 
   const save = async (e) => {
@@ -96,7 +96,7 @@ export default function Clients() {
           </select>
           <button className="btn btn--primary" onClick={openNew} data-testid="staffing-clients-new">+ New Client</button>
           <Link to="csv_import" className="btn" data-testid="staffing-clients-import-csv">Import CSV</Link>
-          <a className="btn" href={`/modules/staffing/api/csv_export.php${exportSearch() ? `?${exportSearch()}` : ''}`} data-testid="staffing-clients-export-csv">Export CSV</a>
+          <a className="btn" href={`/api/v1/staffing/csv-export${exportSearch() ? `?${exportSearch()}` : ''}`} data-testid="staffing-clients-export-csv">Export CSV</a>
           <ExportTemplatePicker
             dataset="staffing_clients"
             buildHref={buildTemplateExportHref}

@@ -58,6 +58,7 @@ $ui = $read(__DIR__ . '/../modules/staffing/ui/Clients.jsx');
 $a('renders clients table + new button',      str_contains($ui, 'data-testid="staffing-clients-new"') && str_contains($ui, 'data-testid="staffing-clients-table"'));
 $a('search + status filter',                  str_contains($ui, 'staffing-clients-search') && str_contains($ui, 'staffing-clients-status-filter'));
 $a('export template picker wired',            str_contains($ui, 'ExportTemplatePicker') && str_contains($ui, 'dataset="staffing_clients"'));
+$a('exports route through v1 staffing API',   str_contains($ui, '/api/v1/staffing/csv-export') && !str_contains($ui, '/modules/staffing/api/csv_export.php'));
 $a('ClientDrawer for new / edit',             str_contains($ui, 'ClientDrawer'));
 $a('soft-delete confirmation',                str_contains($ui, 'Close client'));
 

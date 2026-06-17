@@ -278,6 +278,10 @@ $file = apiRouterResolveFile('treasury', 'import-csv');
 $assert("resolves treasury/import-csv module endpoint",
     $file !== null && str_ends_with($file, '/modules/treasury/api/import_csv.php'));
 
+$file = apiRouterResolveFile('staffing', 'csv-export');
+$assert("resolves staffing/csv-export module endpoint",
+    $file !== null && str_ends_with($file, '/modules/staffing/api/csv_export.php'));
+
 $file = apiRouterResolveFile('people', 'custom-field-definitions');
 $assert("resolves custom field definitions platform alias",
     $file !== null && str_ends_with($file, '/api/custom_field_definitions.php'));
