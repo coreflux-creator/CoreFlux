@@ -72,6 +72,7 @@ export default function TreasuryRecommendations() {
   const reviewQueue = data.review_queue || [];
   const reviewControl = data.review_control || {};
   const policyReview = reviewControl.policy_review || {};
+  const sourceDetail = data.evidence?.source_detail || {};
   const currency = data.currency || appliedPolicy.currency || 'USD';
 
   const updatePolicy = (key, value) => {
@@ -332,6 +333,7 @@ export default function TreasuryRecommendations() {
           </div>
 
           <ReviewControlPanel data={reviewControl} />
+          <ProjectionSourcePanel data={sourceDetail} currency={currency} />
 
           <div data-testid="treasury-recommendations-auditability"
                style={{ border: '1px solid #dbeafe', borderRadius: 8, padding: 12, background: '#eff6ff', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -421,6 +423,32 @@ function ReviewControlPanel({ data }) {
       </div>
       <div style={{ color: '#4338ca', fontSize: 12 }}>
         Cadence source: {data.cadence_source || 'tenant_treasury_policy.review_cadence_days'} / ownership source: {data.ownership_source || 'treasury_recommendation_exceptions.owner_user_id'}
+      </div>
+    </section>
+  );
+}
+
+function ProjectionSourcePanel({ data, currency }) {
+  const totals = data.classification_totals || {};
+  const summary = data.summary || {};
+  const net = (row) => Number(row?.inflows || 0) - Number(row?.outflows || 0);
+  return (
+    <section data-testid="treasury-recommendations-source-detail"
+             style={{ border: '1px solid #dcfce7', borderRadius: 8, padding: 14, background: '#f0fdf4', display: 'grid', gap: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: 14 }}>Projection source detail</strong>
+        <span style={{ color: '#166534', fontSize: 12 }}>
+          {(summary.inflows || []).length} inflow sources / {(summary.outflows || []).length} outflow sources
+        </span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(145px,1fr))', gap: 8 }}>
+        {['actual', 'scheduled', 'expected', 'forecasted'].map((key) => (
+          <Evidence
+            key={key}
+            label={key}
+            value={fmtMoney(net(totals[key]), currency)}
+          />
+        ))}
       </div>
     </section>
   );

@@ -61,6 +61,7 @@ if ($method === 'GET') {
         $buckets['outflows_by_date']
     );
     $projectionEvidence = liquidityProjectionEvidence($tid, $today, $endDate, $forecastDays, $datasets);
+    $sourceDetail = liquidityProjectionSourceDetail($datasets);
     $variance = treasuryRecommendationVarianceContext($tid, $today);
     $payments = treasuryRecommendationOpenPayments($tid, $today, $endDate, $entityId, $currency);
 
@@ -90,6 +91,8 @@ if ($method === 'GET') {
                 'materiality_threshold' => $materialityThreshold,
                 'variance_context' => $variance,
                 'projection' => $projectionEvidence,
+                'source_detail_summary' => $sourceDetail['summary'] ?? ['inflows' => [], 'outflows' => []],
+                'source_classification_totals' => $sourceDetail['classification_totals'] ?? [],
             ]
         );
     }
@@ -167,6 +170,7 @@ if ($method === 'GET') {
         ],
         'evidence' => [
             'projection' => $projectionEvidence,
+            'source_detail' => $sourceDetail,
             'variance_context' => $variance,
             'source_population' => [
                 'open_payments' => count($payments),
@@ -439,6 +443,8 @@ function treasuryRecommendationForPayment(array $payment, array $reservePolicy, 
             'materiality_threshold' => (float) $context['materiality_threshold'],
             'variance_context' => $context['variance_context'],
             'projection' => $context['projection'],
+            'source_detail_summary' => $context['source_detail_summary'] ?? ['inflows' => [], 'outflows' => []],
+            'source_classification_totals' => $context['source_classification_totals'] ?? [],
         ],
     ];
 }

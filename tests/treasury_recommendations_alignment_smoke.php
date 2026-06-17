@@ -152,6 +152,8 @@ $a('reserve formula is explicit',
 $a('recommendations use shared liquidity projection evidence',
     str_contains($endpoint, 'liquidityProjectionEvidence(')
     && str_contains($endpoint, 'liquidityWalkProjection(')
+    && str_contains($endpoint, 'liquidityProjectionSourceDetail($datasets)')
+    && str_contains($endpoint, "'source_detail' => \$sourceDetail")
     && str_contains($endpoint, 'variance_context'));
 $a('recommendations load saved policy and stamp version evidence',
     str_contains($endpoint, 'treasuryPolicyGet($tid)')
@@ -169,6 +171,8 @@ $a('recommendation evidence carries payment, cash impact, reserve policy, projec
     && str_contains($endpoint, "'cash_impact' => [")
     && str_contains($endpoint, "'reserve_policy' => \$reservePolicy")
     && str_contains($endpoint, "'projection' => \$context['projection']")
+    && str_contains($endpoint, "'source_detail_summary' => \$context['source_detail_summary']")
+    && str_contains($endpoint, "'source_classification_totals' => \$context['source_classification_totals']")
     && str_contains($endpoint, "'variance_context' => \$context['variance_context']"));
 $a('recommendations return summary and review queue',
     str_contains($endpoint, 'function treasuryRecommendationSummary(')
@@ -263,6 +267,11 @@ $a('UI renders review control freshness and ownership gaps',
     && str_contains($page, 'treasury-review-freshness-')
     && str_contains($page, 'reviewControl.counts?.stale_review_items')
     && str_contains($page, 'reviewControl.counts?.unowned_exceptions'));
+$a('UI renders projection source drilldown classification totals',
+    str_contains($page, 'function ProjectionSourcePanel')
+    && str_contains($page, 'data-testid="treasury-recommendations-source-detail"')
+    && str_contains($page, 'data.evidence?.source_detail')
+    && str_contains($page, "['actual', 'scheduled', 'expected', 'forecasted']"));
 $a('UI renders exception ownership and lifecycle panel',
     str_contains($page, "/api/treasury_recommendations.php?action=exceptions&status=all&limit=50")
     && str_contains($page, 'function ExceptionPanel')
