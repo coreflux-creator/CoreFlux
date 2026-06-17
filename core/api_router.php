@@ -80,6 +80,7 @@ function apiRouterParse(string $pathInfo, string $requestUri): array {
  * Examples:
  *   /api/v1/time/entries/123         -> $_GET['id'] = 123
  *   /api/v1/time/entries/123/approve -> $_GET['id'] = 123, $_GET['action'] = approve
+ *   /api/v1/reports/saved-reports/delete/123 -> $_GET['action'] = delete, $_GET['id'] = 123
  *   /api/v1/reports/report-builder/run -> $_GET['action'] = run
  *
  * Explicit query-string values win so old callers remain stable.
@@ -141,6 +142,9 @@ function apiRouterApplyV1Compatibility(array $parsed): void {
 
     if ($first !== '' && !ctype_digit($first) && preg_match('/^[a-z][a-z0-9_-]*$/', $first) && !isset($_GET['action'])) {
         $_GET['action'] = str_replace('-', '_', $first);
+    }
+    if ($first !== '' && !ctype_digit($first) && $second !== '' && ctype_digit($second) && !isset($_GET['id'])) {
+        $_GET['id'] = $second;
     }
 }
 

@@ -194,7 +194,7 @@ export default function TreasuryRecommendations() {
     setDecisionEvidenceLoading(true);
     setFlash(null);
     try {
-      const res = await api.get(`/api/treasury_recommendations.php?action=decision_detail&id=${row.id}`);
+      const res = await api.get(`/api/v1/treasury/recommendations/decision-detail/${row.id}`);
       setDecisionEvidence(res.decision || null);
     } catch (err) {
       setFlash({ kind: 'error', message: err.message || String(err) });

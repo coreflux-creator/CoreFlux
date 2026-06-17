@@ -73,6 +73,14 @@ apiRouterApplyV1Compatibility($r);
 $assert("v1 collection action sets action", ($_GET['action'] ?? null) === 'run');
 $_GET = [];
 
+$r = apiRouterParse('', '/api/v1/treasury/recommendations/decision-detail/123');
+$assert("v1 action-first item route ok", $r['ok'] === true && $r['module_id'] === 'treasury' && $r['endpoint'] === 'recommendations');
+$_GET = [];
+apiRouterApplyV1Compatibility($r);
+$assert("v1 action-first item route sets action", ($_GET['action'] ?? null) === 'decision_detail');
+$assert("v1 action-first item route sets id", ($_GET['id'] ?? null) === '123');
+$_GET = [];
+
 $r = apiRouterParse('', '/api/v1/reports/export-templates/123/clone');
 $assert("v1 export template item action ok", $r['ok'] === true && $r['module_id'] === 'reports' && $r['endpoint'] === 'export-templates');
 $_GET = [];

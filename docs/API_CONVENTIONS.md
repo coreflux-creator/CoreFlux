@@ -23,6 +23,7 @@ POST /api/v1/time/entries/123/submit
 POST /api/v1/time/entries/123/approve
 POST /api/v1/payroll/runs/456/approve
 POST /api/v1/placements/placements/789/activate
+GET  /api/v1/treasury/recommendations/decision-detail/123
 GET  /api/v1/reports/report-builder/datasets
 POST /api/v1/reports/report-builder/run
 POST /api/v1/reports/report-builder/export
@@ -67,6 +68,20 @@ action=approve
 
 Explicit query-string values win. This lets old clients keep working while new
 clients move to resource/action paths.
+
+Action-first item routes are also supported for collection actions that naturally
+name the action before the target record:
+
+```text
+/api/v1/treasury/recommendations/decision-detail/123
+```
+
+dispatches with:
+
+```text
+action=decision_detail
+id=123
+```
 
 Some platform services still live at legacy direct-file endpoints during the
 migration window. The router exposes narrow v1 aliases for those services; for

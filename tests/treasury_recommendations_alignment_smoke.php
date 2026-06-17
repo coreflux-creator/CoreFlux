@@ -268,7 +268,7 @@ $a('UI renders summary, review queue, handoff, and history panels',
     && str_contains($page, 'data-testid="treasury-recommendations-review-queue"')
     && str_contains($page, 'data-testid="treasury-recommendations-decision-history"')
     && str_contains($page, "/api/treasury_recommendations.php?action=decisions&limit=25")
-    && str_contains($page, "/api/treasury_recommendations.php?action=decision_detail&id=")
+    && str_contains($page, "/api/v1/treasury/recommendations/decision-detail/")
     && str_contains($page, 'treasury-decision-evidence-')
     && str_contains($page, 'data-testid="treasury-decision-evidence-detail"')
     && str_contains($page, 'Workflow handoff')
