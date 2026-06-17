@@ -61,7 +61,9 @@ $assert('404 on unknown period',                        preg_match("#api_error\\
 
 echo "\nPeriodCloseWorkflow UI — readiness affordance\n";
 $pcw = (string) file_get_contents("{$ROOT}/modules/accounting/ui/PeriodCloseWorkflow.jsx");
-$assert('hits /modules/accounting/api/close_ai.php',    stripos($pcw, '/modules/accounting/api/close_ai.php?action=readiness&period_id=') !== false);
+$assert('hits v1 close readiness API',                  stripos($pcw, '/api/v1/accounting/close-ai') !== false
+                                                        && stripos($pcw, 'action=readiness') !== false
+                                                        && stripos($pcw, '/modules/accounting/api/close_ai.php') === false);
 $assert('readiness ask button testid',                  stripos($pcw, 'data-testid="close-readiness-ask"') !== false);
 $assert('readiness card testid',                        stripos($pcw, 'data-testid="close-readiness-card"') !== false);
 $assert('readiness summary testid',                     stripos($pcw, 'data-testid="close-readiness-summary"') !== false);

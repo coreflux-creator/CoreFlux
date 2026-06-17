@@ -331,6 +331,17 @@ $file = apiRouterResolveFile('accounting', 'dimensional-pnl');
 $assert("resolves accounting/dimensional-pnl module endpoint",
     $file !== null && str_ends_with($file, '/modules/accounting/api/dimensional_pnl.php'));
 
+foreach ([
+    'periods' => 'periods',
+    'close-tasks' => 'close_tasks',
+    'close-packet' => 'close_packet',
+    'close-ai' => 'close_ai',
+] as $route => $fileStem) {
+    $file = apiRouterResolveFile('accounting', $route);
+    $assert("resolves accounting/{$route} module endpoint",
+        $file !== null && str_ends_with($file, "/modules/accounting/api/{$fileStem}.php"));
+}
+
 $file = apiRouterResolveFile('people', 'csv-import');
 $assert("resolves people/csv-import module endpoint",
     $file !== null && str_ends_with($file, '/modules/people/api/csv_import.php'));

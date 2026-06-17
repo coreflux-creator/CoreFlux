@@ -74,12 +74,17 @@ foreach (['dimensions-row-','dimensions-deactivate-','dimensions-values-','dimen
 
 echo "\nPeriodCloseWorkflow component\n";
 $pc = (string) file_get_contents("{$ROOT}/modules/accounting/ui/PeriodCloseWorkflow.jsx");
-$assert('GET periods list',                          stripos($pc, "/modules/accounting/api/periods.php") !== false);
-$assert('GET close_tasks by period',                 stripos($pc, "/modules/accounting/api/close_tasks.php?period_id=") !== false);
-$assert('POST seed checklist',                       stripos($pc, "/modules/accounting/api/close_tasks.php?action=seed") !== false);
-$assert('POST complete task',                        stripos($pc, "/modules/accounting/api/close_tasks.php?action=complete&id=") !== false);
-$assert('PATCH task status',                         preg_match("#api\\.patch\\(\\s*['\"]/modules/accounting/api/close_tasks\\.php['\"]#", $pc) === 1);
-$assert('POST record close packet',                  stripos($pc, "/modules/accounting/api/close_packet.php?period_id=") !== false && stripos($pc, "&action=record") !== false);
+$assert('GET periods list',                          stripos($pc, "PERIODS_API = '/api/v1/accounting/periods'") !== false);
+$assert('GET close_tasks by period',                 stripos($pc, "CLOSE_TASKS_API = '/api/v1/accounting/close-tasks'") !== false);
+$assert('POST seed checklist',                       stripos($pc, '?action=seed') !== false);
+$assert('POST complete task',                        stripos($pc, '?action=complete&id=') !== false);
+$assert('PATCH task status',                         preg_match("#api\\.patch\\(\\s*CLOSE_TASKS_API\\s*,#", $pc) === 1);
+$assert('POST record close packet',                  stripos($pc, "CLOSE_PACKET_API = '/api/v1/accounting/close-packet'") !== false && stripos($pc, "&action=record") !== false);
+$assert('close workflow hides module API paths',
+    stripos($pc, '/modules/accounting/api/periods.php') === false
+    && stripos($pc, '/modules/accounting/api/close_tasks.php') === false
+    && stripos($pc, '/modules/accounting/api/close_packet.php') === false
+    && stripos($pc, '/modules/accounting/api/close_ai.php') === false);
 $assert('opens close packet HTML in new tab',        stripos($pc, "format=html") !== false && stripos($pc, "window.open(") !== false);
 foreach (['accounting-period-close-workflow','close-period-select','close-seed','close-build-packet','close-error','close-empty','close-stats','close-task-list'] as $tid) {
     $assert("testid: {$tid}", stripos($pc, "data-testid=\"{$tid}\"") !== false);
