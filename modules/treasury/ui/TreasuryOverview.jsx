@@ -7,7 +7,7 @@ export default function TreasuryOverview() {
   const dep = useApi('/modules/treasury/api/deposit_accounts.php');
   const lia = useApi('/modules/treasury/api/liability_accounts.php');
   const cash = useApi('/api/treasury_cash_position.php?forecast_days=7');
-  const recs = useApi('/api/treasury_recommendations.php?forecast_days=30');
+  const recs = useApi('/api/v1/treasury/recommendations?forecast_days=30');
 
   const depositRows   = dep.data?.rows || [];
   const liabilityRows = lia.data?.rows || [];

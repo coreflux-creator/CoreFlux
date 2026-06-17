@@ -235,8 +235,8 @@ $a('Treasury module exposes Recommendations tab and route',
     && str_contains($module, 'to="recommendations"')
     && str_contains($module, 'path="recommendations"'));
 $a('UI reads recommendations endpoint',
-    str_contains($page, "/api/treasury_recommendations.php?")
-    && str_contains($page, "/api/treasury_policy.php"));
+    str_contains($page, "/api/v1/treasury/recommendations?")
+    && str_contains($page, "/api/v1/treasury/policy"));
 $a('UI renders reserve policy inputs',
     str_contains($page, 'data-testid="treasury-reserve-policy-inputs"')
     && str_contains($page, 'Minimum cash')
@@ -253,7 +253,7 @@ $a('UI renders cash envelope, gates, evidence, and audit decisions',
     && str_contains($page, 'data-testid="treasury-recommendations-auditability"')
     && str_contains($page, 'data-testid={`treasury-recommendation-gate-${payment.id}`}')
     && str_contains($page, 'data-testid={`treasury-recommendation-evidence-${payment.id}`}')
-    && str_contains($page, 'action=${action}')
+    && str_contains($page, '/api/v1/treasury/recommendations/${action}')
     && str_contains($page, "recommendation_id: row.id")
     && str_contains($page, 'projection: row.evidence?.projection')
     && str_contains($page, 'variance_context: row.evidence?.variance_context')
@@ -267,7 +267,7 @@ $a('UI renders summary, review queue, handoff, and history panels',
     str_contains($page, 'data-testid="treasury-recommendations-summary"')
     && str_contains($page, 'data-testid="treasury-recommendations-review-queue"')
     && str_contains($page, 'data-testid="treasury-recommendations-decision-history"')
-    && str_contains($page, "/api/treasury_recommendations.php?action=decisions&limit=25")
+    && str_contains($page, "/api/v1/treasury/recommendations/decisions?limit=25")
     && str_contains($page, "/api/v1/treasury/recommendations/decision-detail/")
     && str_contains($page, 'treasury-decision-evidence-')
     && str_contains($page, 'data-testid="treasury-decision-evidence-detail"')
@@ -287,7 +287,7 @@ $a('UI renders projection source drilldown classification totals',
     && str_contains($page, 'data.evidence?.source_detail')
     && str_contains($page, "['actual', 'scheduled', 'expected', 'forecasted']"));
 $a('UI renders exception ownership and lifecycle panel',
-    str_contains($page, "/api/treasury_recommendations.php?action=exceptions&status=all&limit=50")
+    str_contains($page, "/api/v1/treasury/recommendations/exceptions?status=all&limit=50")
     && str_contains($page, 'function ExceptionPanel')
     && str_contains($page, 'data-testid="treasury-recommendations-exception-panel"')
     && str_contains($page, 'treasury-exception-open-')
@@ -299,8 +299,8 @@ $a('UI renders exception ownership and lifecycle panel',
 $a('UI handoff buttons require accepted decisions and call payment workflow API',
     str_contains($page, 'const accepted = decisionLabel === \'accept\'')
     && str_contains($page, 'recommendationHandoffActions(row)')
-    && str_contains($page, '/api/treasury_payments.php?action=${action}&id=${paymentId}')
-    && str_contains($page, "/api/treasury_recommendations.php?action=handoff_log")
+    && str_contains($page, '/api/v1/treasury/payments/${paymentId}/${action}')
+    && str_contains($page, "/api/v1/treasury/recommendations/handoff-log")
     && str_contains($page, "await logHandoff(row, action, 'success'")
     && str_contains($page, "await logHandoff(row, action, 'failure'")
     && str_contains($page, 'payment_status_before: beforeStatus')
@@ -316,7 +316,7 @@ $a('UI does not bypass payment workflow with direct status writes',
     && !str_contains($page, 'status = "approved"')
     && !str_contains($page, "status: 'approved'"));
 $a('Treasury overview renders recommendation queue summary',
-    str_contains($overview, "/api/treasury_recommendations.php?forecast_days=30")
+    str_contains($overview, "/api/v1/treasury/recommendations?forecast_days=30")
     && str_contains($overview, 'data-testid="treasury-overview-recommendation-summary"')
     && str_contains($overview, 'data-testid="treasury-overview-recommendations-link"')
     && str_contains($overview, 'treasury-recommendations-review-count')

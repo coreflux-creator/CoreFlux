@@ -222,6 +222,18 @@ $file = apiRouterResolveFile('reports', 'export-templates');
 $assert("resolves reports/export-templates platform alias",
     $file !== null && str_ends_with($file, '/api/export_templates.php'));
 
+$file = apiRouterResolveFile('treasury', 'recommendations');
+$assert("resolves treasury/recommendations module endpoint",
+    $file !== null && str_ends_with($file, '/modules/treasury/api/recommendations.php'));
+
+$file = apiRouterResolveFile('treasury', 'policy');
+$assert("resolves treasury/policy module endpoint",
+    $file !== null && str_ends_with($file, '/modules/treasury/api/policy.php'));
+
+$file = apiRouterResolveFile('treasury', 'payments');
+$assert("resolves treasury/payments module endpoint",
+    $file !== null && str_ends_with($file, '/modules/treasury/api/payments.php'));
+
 $file = apiRouterResolveFile('people', 'custom-field-definitions');
 $assert("resolves custom field definitions platform alias",
     $file !== null && str_ends_with($file, '/api/custom_field_definitions.php'));

@@ -33,9 +33,9 @@ export default function TreasuryRecommendations() {
   const [decisionEvidence, setDecisionEvidence] = useState(null);
   const [decisionEvidenceLoading, setDecisionEvidenceLoading] = useState(false);
   const [loadedPolicyVersion, setLoadedPolicyVersion] = useState(null);
-  const policyDefaults = useApi('/api/treasury_policy.php');
-  const decisionHistory = useApi('/api/treasury_recommendations.php?action=decisions&limit=25');
-  const exceptionList = useApi('/api/treasury_recommendations.php?action=exceptions&status=all&limit=50');
+  const policyDefaults = useApi('/api/v1/treasury/policy');
+  const decisionHistory = useApi('/api/v1/treasury/recommendations/decisions?limit=25');
+  const exceptionList = useApi('/api/v1/treasury/recommendations/exceptions?status=all&limit=50');
 
   useEffect(() => {
     const saved = policyDefaults.data?.policy;
@@ -62,7 +62,7 @@ export default function TreasuryRecommendations() {
     Object.entries(appliedPolicy).forEach(([key, value]) => {
       if (value !== '' && value !== null && value !== undefined) qs.set(key, String(value));
     });
-    return `/api/treasury_recommendations.php?${qs.toString()}`;
+    return `/api/v1/treasury/recommendations?${qs.toString()}`;
   }, [appliedPolicy]);
 
   const recommendations = useApi(url);
@@ -85,7 +85,7 @@ export default function TreasuryRecommendations() {
     setSavingPolicy(true);
     setFlash(null);
     try {
-      const res = await api.post('/api/treasury_policy.php', policy);
+      const res = await api.post('/api/v1/treasury/policy', policy);
       const saved = res.policy || {};
       const nextPolicy = {
         ...policy,
@@ -117,7 +117,7 @@ export default function TreasuryRecommendations() {
     setBusyId(row.id);
     setFlash(null);
     try {
-      await api.post(`/api/treasury_recommendations.php?action=${action}`, {
+      await api.post(`/api/v1/treasury/recommendations/${action}`, {
         recommendation_id: row.id,
         payment_id: row.payment?.id,
         decision_note: note,
@@ -158,7 +158,7 @@ export default function TreasuryRecommendations() {
     setBusyId(`${row.id}:${action}`);
     setFlash(null);
     try {
-      const res = await api.post(`/api/treasury_payments.php?action=${action}&id=${paymentId}`, body);
+      const res = await api.post(`/api/v1/treasury/payments/${paymentId}/${action}`, body);
       await logHandoff(row, action, 'success', beforeStatus, res.status || (res.approved ? 'approved' : beforeStatus), res, null);
       recommendations.reload();
       decisionHistory.reload();
@@ -174,7 +174,7 @@ export default function TreasuryRecommendations() {
 
   const logHandoff = async (row, action, result, beforeStatus, afterStatus, workflowResponse, errorText) => {
     try {
-      await api.post('/api/treasury_recommendations.php?action=handoff_log', {
+      await api.post('/api/v1/treasury/recommendations/handoff-log', {
         recommendation_id: row.id,
         payment_id: row.payment?.id,
         handoff_action: action,
@@ -231,7 +231,7 @@ export default function TreasuryRecommendations() {
         };
         action = 'resolve_exception';
       }
-      const res = await api.post(`/api/treasury_recommendations.php?action=${action}`, body);
+      const res = await api.post(`/api/v1/treasury/recommendations/${action}`, body);
       recommendations.reload();
       exceptionList.reload();
       setFlash({ kind: 'success', message: `Exception ${res.exception?.status || 'updated'} and audit logged.` });
