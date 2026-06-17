@@ -81,6 +81,12 @@ $a('GET exposes decision history endpoint',
     str_contains($endpoint, "if (\$action === 'decisions')")
     && str_contains($endpoint, 'function treasuryRecommendationDecisionHistory(')
     && str_contains($endpoint, "'rows' => treasuryRecommendationDecisionHistory(\$tid, \$limit)"));
+$a('GET exposes decision evidence detail endpoint',
+    str_contains($endpoint, "if (\$action === 'decision_detail')")
+    && str_contains($endpoint, 'function treasuryRecommendationDecisionDetail(')
+    && str_contains($endpoint, 'evidence_json')
+    && str_contains($endpoint, "'evidence' => \$evidence")
+    && str_contains($endpoint, "'decision_ledger' => 'treasury_recommendation_decisions'"));
 
 echo "\nHandoff ledger\n";
 $a('migration creates recommendation handoff ledger',
@@ -262,6 +268,9 @@ $a('UI renders summary, review queue, handoff, and history panels',
     && str_contains($page, 'data-testid="treasury-recommendations-review-queue"')
     && str_contains($page, 'data-testid="treasury-recommendations-decision-history"')
     && str_contains($page, "/api/treasury_recommendations.php?action=decisions&limit=25")
+    && str_contains($page, "/api/treasury_recommendations.php?action=decision_detail&id=")
+    && str_contains($page, 'treasury-decision-evidence-')
+    && str_contains($page, 'data-testid="treasury-decision-evidence-detail"')
     && str_contains($page, 'Workflow handoff')
     && str_contains($page, 'decisionHistory.reload()'));
 $a('UI renders review control freshness and ownership gaps',

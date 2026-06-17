@@ -32,6 +32,16 @@ if ($method === 'GET') {
             'decision_ledger' => 'treasury_recommendation_decisions',
         ]);
     }
+    if ($action === 'decision_detail') {
+        $decisionId = max(0, (int) (api_query('id') ?? 0));
+        if ($decisionId <= 0) api_error('id required', 400);
+        $decision = treasuryRecommendationDecisionDetail($tid, $decisionId);
+        if (!$decision) api_error('Decision not found', 404);
+        api_ok([
+            'decision' => $decision,
+            'decision_ledger' => 'treasury_recommendation_decisions',
+        ]);
+    }
     if ($action === 'exceptions') {
         $status = (string) (api_query('status') ?? 'open');
         $limit = max(1, min(200, (int) (api_query('limit') ?? 100)));
@@ -1126,6 +1136,40 @@ function treasuryRecommendationDecisionHistory(int $tenantId, int $limit): array
         ];
     }
     return $rows;
+}
+
+function treasuryRecommendationDecisionDetail(int $tenantId, int $decisionId): ?array
+{
+    $pdo = getDB();
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT id, recommendation_id, payment_id, decision, recommendation_action,
+                    policy_version, evidence_hash, evidence_json, decision_note, actor_user_id, decided_at
+               FROM treasury_recommendation_decisions
+              WHERE tenant_id = :tenant_id AND id = :id
+              LIMIT 1'
+        );
+        $stmt->execute(['tenant_id' => $tenantId, 'id' => $decisionId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    } catch (\Throwable $_) {
+        return null;
+    }
+    if (!$row) return null;
+    $evidence = json_decode((string) ($row['evidence_json'] ?? '{}'), true);
+    if (!is_array($evidence)) $evidence = [];
+    return [
+        'id' => (int) $row['id'],
+        'recommendation_id' => (string) $row['recommendation_id'],
+        'payment_id' => $row['payment_id'] !== null ? (int) $row['payment_id'] : null,
+        'decision' => (string) $row['decision'],
+        'recommendation_action' => $row['recommendation_action'],
+        'policy_version' => $row['policy_version'] !== null ? (int) $row['policy_version'] : null,
+        'evidence_hash' => (string) $row['evidence_hash'],
+        'evidence' => $evidence,
+        'decision_note' => $row['decision_note'],
+        'actor_user_id' => $row['actor_user_id'] !== null ? (int) $row['actor_user_id'] : null,
+        'decided_at' => $row['decided_at'],
+    ];
 }
 
 function treasuryRecommendationVarianceContext(int $tenantId, string $today): array

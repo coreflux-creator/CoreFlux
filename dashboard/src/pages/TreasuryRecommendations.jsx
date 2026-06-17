@@ -30,6 +30,8 @@ export default function TreasuryRecommendations() {
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [flash, setFlash] = useState(null);
   const [decisions, setDecisions] = useState({});
+  const [decisionEvidence, setDecisionEvidence] = useState(null);
+  const [decisionEvidenceLoading, setDecisionEvidenceLoading] = useState(false);
   const [loadedPolicyVersion, setLoadedPolicyVersion] = useState(null);
   const policyDefaults = useApi('/api/treasury_policy.php');
   const decisionHistory = useApi('/api/treasury_recommendations.php?action=decisions&limit=25');
@@ -184,6 +186,20 @@ export default function TreasuryRecommendations() {
       });
     } catch (logErr) {
       console.warn('Recommendation handoff log failed', logErr);
+    }
+  };
+
+  const loadDecisionEvidence = async (row) => {
+    if (!row?.id) return;
+    setDecisionEvidenceLoading(true);
+    setFlash(null);
+    try {
+      const res = await api.get(`/api/treasury_recommendations.php?action=decision_detail&id=${row.id}`);
+      setDecisionEvidence(res.decision || null);
+    } catch (err) {
+      setFlash({ kind: 'error', message: err.message || String(err) });
+    } finally {
+      setDecisionEvidenceLoading(false);
     }
   };
 
@@ -375,7 +391,12 @@ export default function TreasuryRecommendations() {
             ))}
           </div>
 
-          <DecisionHistory data={decisionHistory} />
+          <DecisionHistory
+            data={decisionHistory}
+            onLoadEvidence={loadDecisionEvidence}
+            evidenceDetail={decisionEvidence}
+            evidenceLoading={decisionEvidenceLoading}
+          />
           <ExceptionPanel data={exceptionList} />
         </>
       )}
@@ -674,7 +695,7 @@ function ExceptionPanel({ data }) {
   );
 }
 
-function DecisionHistory({ data }) {
+function DecisionHistory({ data, onLoadEvidence, evidenceDetail, evidenceLoading }) {
   const rows = data.data?.rows || [];
   return (
     <section data-testid="treasury-recommendations-decision-history"
@@ -701,9 +722,25 @@ function DecisionHistory({ data }) {
               {row.decision_note || 'No note'} / hash {row.evidence_hash}
             </div>
           </div>
-          <span style={{ color: '#64748b', whiteSpace: 'nowrap' }}>{row.decided_at}</span>
+          <div style={{ display: 'grid', gap: 6, justifyItems: 'end' }}>
+            <span style={{ color: '#64748b', whiteSpace: 'nowrap' }}>{row.decided_at}</span>
+            <button type="button" className="btn btn--ghost" onClick={() => onLoadEvidence(row)} data-testid={`treasury-decision-evidence-${row.id}`}>
+              Evidence
+            </button>
+          </div>
         </div>
       ))}
+      {evidenceLoading && <div style={{ color: '#64748b', fontSize: 13 }}>Loading decision evidence...</div>}
+      {evidenceDetail && (
+        <div data-testid="treasury-decision-evidence-detail"
+             style={{ borderTop: '1px solid #e2e8f0', paddingTop: 10, display: 'grid', gap: 6 }}>
+          <strong style={{ fontSize: 13 }}>Evidence packet #{evidenceDetail.id}</strong>
+          <div style={{ color: '#64748b', fontSize: 12 }}>Hash {evidenceDetail.evidence_hash}</div>
+          <pre style={{ margin: 0, maxHeight: 220, overflow: 'auto', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: 8, fontSize: 11 }}>
+            {JSON.stringify(evidenceDetail.evidence || {}, null, 2)}
+          </pre>
+        </div>
+      )}
     </section>
   );
 }
