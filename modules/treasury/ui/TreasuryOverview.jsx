@@ -4,9 +4,9 @@ import { useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtRelative } from '../../../dashboard/src/lib/format';
 
 export default function TreasuryOverview() {
-  const dep = useApi('/modules/treasury/api/deposit_accounts.php');
-  const lia = useApi('/modules/treasury/api/liability_accounts.php');
-  const cash = useApi('/api/treasury_cash_position.php?forecast_days=7');
+  const dep = useApi('/api/v1/treasury/deposit-accounts');
+  const lia = useApi('/api/v1/treasury/liability-accounts');
+  const cash = useApi('/api/v1/treasury/cash-position?forecast_days=7');
   const recs = useApi('/api/v1/treasury/recommendations?forecast_days=30');
 
   const depositRows   = dep.data?.rows || [];

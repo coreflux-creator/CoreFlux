@@ -234,6 +234,18 @@ $file = apiRouterResolveFile('treasury', 'payments');
 $assert("resolves treasury/payments module endpoint",
     $file !== null && str_ends_with($file, '/modules/treasury/api/payments.php'));
 
+$file = apiRouterResolveFile('treasury', 'deposit-accounts');
+$assert("resolves treasury/deposit-accounts module endpoint",
+    $file !== null && str_ends_with($file, '/modules/treasury/api/deposit_accounts.php'));
+
+$file = apiRouterResolveFile('treasury', 'liability-accounts');
+$assert("resolves treasury/liability-accounts module endpoint",
+    $file !== null && str_ends_with($file, '/modules/treasury/api/liability_accounts.php'));
+
+$file = apiRouterResolveFile('treasury', 'cash-position');
+$assert("resolves treasury/cash-position module endpoint",
+    $file !== null && str_ends_with($file, '/modules/treasury/api/cash_position.php'));
+
 $file = apiRouterResolveFile('people', 'custom-field-definitions');
 $assert("resolves custom field definitions platform alias",
     $file !== null && str_ends_with($file, '/api/custom_field_definitions.php'));
