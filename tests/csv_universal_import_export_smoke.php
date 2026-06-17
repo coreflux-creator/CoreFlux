@@ -126,26 +126,37 @@ $a('StaffingModule mounts clients/csv_import', str_contains($stm, 'path="clients
 echo "\nList-page Export/Import wiring\n";
 $vl = $read(__DIR__ . '/../modules/ap/ui/VendorsList.jsx');
 $a('VendorsList Import CSV link',            str_contains($vl, 'data-testid="ap-vendors-import-csv"'));
-$a('VendorsList Export CSV link',            str_contains($vl, 'data-testid="ap-vendors-export-csv"'));
+$a('VendorsList Export CSV link',            str_contains($vl, 'data-testid="ap-vendors-export-csv"')
+                                             && str_contains($vl, '/api/v1/ap/csv-export'));
 
 $cl = $read(__DIR__ . '/../modules/staffing/ui/Clients.jsx');
 $a('Clients Import CSV link',                str_contains($cl, 'data-testid="staffing-clients-import-csv"'));
-$a('Clients Export CSV link',                str_contains($cl, 'data-testid="staffing-clients-export-csv"'));
+$a('Clients Export CSV link',                str_contains($cl, 'data-testid="staffing-clients-export-csv"')
+                                             && str_contains($cl, '/api/v1/staffing/csv-export'));
 
 $pd = $read(__DIR__ . '/../modules/people/ui/Directory.jsx');
-$a('Directory Export CSV link',              str_contains($pd, 'data-testid="people-csv-export-btn"'));
+$a('Directory Export CSV link',              str_contains($pd, 'data-testid="people-csv-export-btn"')
+                                             && str_contains($pd, '/api/v1/people/csv-export'));
 
 $pl = $read(__DIR__ . '/../modules/placements/ui/List.jsx');
-$a('Placements Export CSV link',             str_contains($pl, 'data-testid="placements-csv-export-btn"'));
+$a('Placements Export CSV link',             str_contains($pl, 'data-testid="placements-csv-export-btn"')
+                                             && str_contains($pl, '/api/v1/placements/csv-export'));
 
 $bl = $read(__DIR__ . '/../modules/ap/ui/BillsList.jsx');
-$a('BillsList Export-all CSV link',          str_contains($bl, 'data-testid="ap-bills-export-all-csv"'));
+$a('BillsList Export-all CSV link',          str_contains($bl, 'data-testid="ap-bills-export-all-csv"')
+                                             && str_contains($bl, '/api/v1/ap/bills-csv-export'));
 
 $il = $read(__DIR__ . '/../modules/billing/ui/InvoicesList.jsx');
-$a('InvoicesList Export CSV link',           str_contains($il, 'data-testid="billing-invoices-export-csv"'));
+$a('InvoicesList Export CSV link',           str_contains($il, 'data-testid="billing-invoices-export-csv"')
+                                             && str_contains($il, '/api/v1/billing/csv-export'));
+
+$bp = $read(__DIR__ . '/../modules/billing/ui/PaymentsList.jsx');
+$a('Billing PaymentsList Export CSV link',   str_contains($bp, 'data-testid="billing-payments-export-csv"')
+                                             && str_contains($bp, '/api/v1/billing/payments-csv-export'));
 
 $rq = $read(__DIR__ . '/../modules/time/ui/ReviewQueue.jsx');
-$a('Time ReviewQueue Export CSV link',       str_contains($rq, 'data-testid="time-review-export-csv"'));
+$a('Time ReviewQueue Export CSV link',       str_contains($rq, 'data-testid="time-review-export-csv"')
+                                             && str_contains($rq, '/api/v1/time/csv-export'));
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

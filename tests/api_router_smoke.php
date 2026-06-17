@@ -282,6 +282,38 @@ $file = apiRouterResolveFile('staffing', 'csv-export');
 $assert("resolves staffing/csv-export module endpoint",
     $file !== null && str_ends_with($file, '/modules/staffing/api/csv_export.php'));
 
+$file = apiRouterResolveFile('people', 'csv-export');
+$assert("resolves people/csv-export module endpoint",
+    $file !== null && str_ends_with($file, '/modules/people/api/csv_export.php'));
+
+$file = apiRouterResolveFile('placements', 'csv-export');
+$assert("resolves placements/csv-export module endpoint",
+    $file !== null && str_ends_with($file, '/modules/placements/api/csv_export.php'));
+
+$file = apiRouterResolveFile('time', 'csv-export');
+$assert("resolves time/csv-export module endpoint",
+    $file !== null && str_ends_with($file, '/modules/time/api/csv_export.php'));
+
+$file = apiRouterResolveFile('ap', 'csv-export');
+$assert("resolves ap/csv-export module endpoint",
+    $file !== null && str_ends_with($file, '/modules/ap/api/csv_export.php'));
+
+$file = apiRouterResolveFile('ap', 'bills-csv-export');
+$assert("resolves ap/bills-csv-export module endpoint",
+    $file !== null && str_ends_with($file, '/modules/ap/api/bills_csv_export.php'));
+
+$file = apiRouterResolveFile('ap', 'payments-csv-export');
+$assert("resolves ap/payments-csv-export module endpoint",
+    $file !== null && str_ends_with($file, '/modules/ap/api/payments_csv_export.php'));
+
+$file = apiRouterResolveFile('billing', 'csv-export');
+$assert("resolves billing/csv-export module endpoint",
+    $file !== null && str_ends_with($file, '/modules/billing/api/csv_export.php'));
+
+$file = apiRouterResolveFile('billing', 'payments-csv-export');
+$assert("resolves billing/payments-csv-export module endpoint",
+    $file !== null && str_ends_with($file, '/modules/billing/api/payments_csv_export.php'));
+
 $file = apiRouterResolveFile('people', 'custom-field-definitions');
 $assert("resolves custom field definitions platform alias",
     $file !== null && str_ends_with($file, '/api/custom_field_definitions.php'));

@@ -261,14 +261,29 @@ $assert('staffing clients raw export uses shared metadata helper', str_contains(
 $assert('staffing clients export uses export permission',
     str_contains($staffingClientsExport, "'staffing.export.run'"));
 $assert('people UI uses export template picker', str_contains($peopleUi, 'ExportTemplatePicker') && str_contains($peopleUi, 'dataset="people_directory"'));
+$assert('people UI uses v1 export route',
+    str_contains($peopleUi, '/api/v1/people/csv-export')
+    && !str_contains($peopleUi, '/modules/people/api/csv_export.php'));
 $assert('placements UI uses export template picker', str_contains($placementsUi, 'ExportTemplatePicker') && str_contains($placementsUi, 'dataset="placements_directory"'));
+$assert('placements UI uses v1 export route',
+    str_contains($placementsUi, '/api/v1/placements/csv-export')
+    && !str_contains($placementsUi, '/modules/placements/api/csv_export.php'));
 $assert('time review UI uses export template picker', str_contains($timeReviewUi, 'ExportTemplatePicker') && str_contains($timeReviewUi, 'dataset="time_entries"'));
+$assert('time review UI uses v1 export route',
+    str_contains($timeReviewUi, '/api/v1/time/csv-export')
+    && !str_contains($timeReviewUi, '/modules/time/api/csv_export.php'));
 $assert('staffing clients UI uses export template picker', str_contains($staffingClientsUi, 'ExportTemplatePicker') && str_contains($staffingClientsUi, 'dataset="staffing_clients"'));
 $assert('staffing clients UI uses v1 export route',
     str_contains($staffingClientsUi, '/api/v1/staffing/csv-export')
     && !str_contains($staffingClientsUi, '/modules/staffing/api/csv_export.php'));
 $assert('ap bills UI uses export template picker', str_contains($apBillsUi, 'ExportTemplatePicker') && str_contains($apBillsUi, 'dataset="ap_bills"'));
+$assert('ap bills UI uses v1 export route',
+    str_contains($apBillsUi, '/api/v1/ap/bills-csv-export')
+    && !str_contains($apBillsUi, '/modules/ap/api/bills_csv_export.php'));
 $assert('ap vendors UI uses export template picker', str_contains($apVendorsUi, 'ExportTemplatePicker') && str_contains($apVendorsUi, 'dataset="ap_vendors"'));
+$assert('ap vendors UI uses v1 export route',
+    str_contains($apVendorsUi, '/api/v1/ap/csv-export')
+    && !str_contains($apVendorsUi, '/modules/ap/api/csv_export.php'));
 $assert('people/placements template presets seeded', str_contains($seed, 'People Directory (default)') && str_contains($seed, 'Placements (default)'));
 $assert('staffing clients template preset seeded', str_contains($staffingSeed, 'Staffing Clients (default)') && str_contains($staffingSeed, 'staffing_clients'));
 $assert('export governance docs exist', is_file($root . '/docs/EXPORT_GOVERNANCE.md'));

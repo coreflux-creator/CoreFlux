@@ -69,7 +69,7 @@ export default function ReviewQueue() {
   const bySource = rows.reduce((acc, r) => { (acc[r.source] = acc[r.source] || []).push(r); return acc; }, {});
   const buildTemplateExportHref = (tplId) => {
     const params = new URLSearchParams({ status: 'pending_review', template_id: String(tplId) });
-    return `/modules/time/api/csv_export.php?${params.toString()}`;
+    return `/api/v1/time/csv-export?${params.toString()}`;
   };
 
   return (
@@ -80,7 +80,7 @@ export default function ReviewQueue() {
           <p style={{ color: 'var(--cf-text-secondary)' }}>Pending entries grouped by source. Two-eye control: you cannot approve your own entries.</p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <a className="btn" href="/modules/time/api/csv_export.php?status=pending_review" data-testid="time-review-export-csv">Export CSV</a>
+          <a className="btn" href="/api/v1/time/csv-export?status=pending_review" data-testid="time-review-export-csv">Export CSV</a>
           <ExportTemplatePicker
             dataset="time_entries"
             buildHref={buildTemplateExportHref}

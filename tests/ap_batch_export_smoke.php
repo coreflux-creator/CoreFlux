@@ -72,6 +72,8 @@ $a('row-level checkbox + select-all',                 $c($pl, 'data-testid="ap-p
 $a('bulk-actions bar (NACHA copy intentionally removed 2026-02)',
     $c($pl, 'data-testid="ap-payments-bulk-bar"'));
 $a('export-via-template picker present',              $c($pl, 'ExportTemplatePicker'));
+$a('payment exports use v1 API routes',               $c($pl, '/api/v1/ap/payments-csv-export')
+                                                  &&  $c($pl, '/api/v1/ap/payments/export-template'));
 $a('export selected button',                          $c($pl, 'data-testid="ap-payments-export-selected"'));
 $a('triggers blob download for NACHA file',           $c($pl, 'new Blob') && $c($pl, 'res.nacha_filename'));
 $a('eligibility = ach|plaid + draft|queued|sent w/o rail',
@@ -88,6 +90,7 @@ $a('row-level checkbox + select-all',                 $c($bl, 'data-testid="ap-b
                                                   &&  $c($bl, 'ap-bill-select-${r.id}'));
 $a('export selected button',                          $c($bl, 'data-testid="ap-bills-export-selected"'));
 $a('export-via-template picker present',              $c($bl, 'ExportTemplatePicker') && $c($bl, 'dataset="ap_bills"'));
+$a('bill exports use v1 API route',                   $c($bl, '/api/v1/ap/bills-csv-export'));
 $a('passes ids in CSV URL',                           $c($bl, 'type=bills&ids=${sel.ids.join'));
 
 echo PHP_EOL . "Total: $pass passed, $fail failed" . PHP_EOL;

@@ -41,7 +41,7 @@ export default function Directory() {
     const params = new URLSearchParams({ template_id: String(tplId) });
     if (classification) params.set('classification', classification);
     if (status) params.set('status', status);
-    return `/modules/people/api/csv_export.php?${params.toString()}`;
+    return `/api/v1/people/csv-export?${params.toString()}`;
   };
 
   return (
@@ -57,7 +57,7 @@ export default function Directory() {
           <Link to="../csv_import" className="btn" data-testid="people-csv-import-btn">
             Import CSV
           </Link>
-          <a href="/modules/people/api/csv_export.php" className="btn" data-testid="people-csv-export-btn">
+          <a href="/api/v1/people/csv-export" className="btn" data-testid="people-csv-export-btn">
             Export CSV
           </a>
           <ExportTemplatePicker

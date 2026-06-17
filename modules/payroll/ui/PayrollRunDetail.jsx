@@ -435,19 +435,19 @@ function GustoSyncPanel({ run, reload, runId }) {
       <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
         <a
           className="btn btn--ghost"
-          href={`/modules/payroll/api/runs.php?action=export_run&id=${run.id}`}
+          href={`/api/v1/payroll/runs/${run.id}/export-run`}
           data-testid="payroll-run-export-csv"
           download
         >Download audit CSV</a>
         <a
           className="btn btn--ghost"
-          href={`/modules/payroll/api/runs.php?action=export_gusto&id=${run.id}`}
+          href={`/api/v1/payroll/runs/${run.id}/export-gusto`}
           data-testid="payroll-run-export-gusto"
           download
         >Download Gusto-import CSV</a>
         <ExportTemplatePicker
           dataset="payroll_disbursements"
-          buildHref={(tplId) => `/modules/payroll/api/runs.php?action=export_template&id=${run.id}&template_id=${tplId}`}
+          buildHref={(tplId) => `/api/v1/payroll/runs/${run.id}/export-template?template_id=${tplId}`}
           label="Export via template"
           testid="payroll-run-export-template"
         />

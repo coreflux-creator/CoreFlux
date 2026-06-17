@@ -62,7 +62,7 @@ export default function List() {
     const params = new URLSearchParams({ template_id: String(tplId) });
     if (status) params.set('status', status);
     if (engagementType) params.set('engagement_type', engagementType);
-    return `/modules/placements/api/csv_export.php?${params.toString()}`;
+    return `/api/v1/placements/csv-export?${params.toString()}`;
   };
 
   // Client-side sort only — server already handles q/status/type search.
@@ -142,7 +142,7 @@ export default function List() {
             ⚡ Try GraphQL (beta)
           </Link>
           <Link to="../csv_import" className="btn" data-testid="placements-csv-btn">Import CSV</Link>
-          <a href="/modules/placements/api/csv_export.php" className="btn" data-testid="placements-csv-export-btn">Export CSV</a>
+          <a href="/api/v1/placements/csv-export" className="btn" data-testid="placements-csv-export-btn">Export CSV</a>
           <ExportTemplatePicker
             dataset="placements_directory"
             buildHref={buildTemplateExportHref}

@@ -387,25 +387,37 @@ $pdetail = file_get_contents(__DIR__ . '/../modules/payroll/ui/PayrollRunDetail.
 $assert('PayrollRunDetail uses picker',       strpos($pdetail, 'ExportTemplatePicker') !== false);
 $assert('payroll picker dataset=payroll_disbursements',
                                               strpos($pdetail, 'dataset="payroll_disbursements"') !== false);
+$assert('payroll run exports use v1 route',
+                                              strpos($pdetail, '/api/v1/payroll/runs/${run.id}/export-run') !== false
+                                              && strpos($pdetail, '/api/v1/payroll/runs/${run.id}/export-template') !== false);
 
 $el = file_get_contents(__DIR__ . '/../modules/ap/ui/ExpensesList.jsx');
 $assert('ExpensesList uses picker',           strpos($el, 'ExportTemplatePicker') !== false);
 $assert('expenses picker dataset=expenses',   strpos($el, 'dataset="expenses"') !== false);
+$assert('expenses export selected uses v1 route',
+                                              strpos($el, '/api/v1/ap/expenses/export-selected') !== false);
 
 $pl2 = file_get_contents(__DIR__ . '/../modules/ap/ui/PaymentsList.jsx');
 $assert('PaymentsList uses picker',           strpos($pl2, 'ExportTemplatePicker') !== false);
 $assert('ap payments picker dataset=ap_payments',
                                               strpos($pl2, 'dataset="ap_payments"') !== false);
+$assert('ap payments exports use v1 route',
+                                              strpos($pl2, '/api/v1/ap/payments-csv-export') !== false
+                                              && strpos($pl2, '/api/v1/ap/payments/export-template') !== false);
 
 $billsList = file_get_contents(__DIR__ . '/../modules/ap/ui/BillsList.jsx');
 $assert('BillsList uses picker',              strpos($billsList, 'ExportTemplatePicker') !== false);
 $assert('ap bills picker dataset=ap_bills',
                                               strpos($billsList, 'dataset="ap_bills"') !== false);
+$assert('ap bills exports use v1 route',
+                                              strpos($billsList, '/api/v1/ap/bills-csv-export') !== false);
 
 $vendorsList = file_get_contents(__DIR__ . '/../modules/ap/ui/VendorsList.jsx');
 $assert('VendorsList uses picker',            strpos($vendorsList, 'ExportTemplatePicker') !== false);
 $assert('ap vendors picker dataset=ap_vendors',
                                               strpos($vendorsList, 'dataset="ap_vendors"') !== false);
+$assert('ap vendor exports use v1 route',
+                                              strpos($vendorsList, '/api/v1/ap/csv-export') !== false);
 
 $peopleDir = file_get_contents(__DIR__ . '/../modules/people/ui/Directory.jsx');
 $assert('People Directory uses picker',       strpos($peopleDir, 'ExportTemplatePicker') !== false);

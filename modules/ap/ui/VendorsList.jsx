@@ -12,7 +12,7 @@ export default function VendorsList() {
   const [showCreate, setShowCreate] = useState(false);
   const buildTemplateExportHref = (tplId) => {
     const params = new URLSearchParams({ template_id: String(tplId) });
-    return `/modules/ap/api/csv_export.php?${params.toString()}`;
+    return `/api/v1/ap/csv-export?${params.toString()}`;
   };
 
   return (
@@ -21,7 +21,7 @@ export default function VendorsList() {
         <input className="input" placeholder="Search vendors…" value={q} onChange={(e) => setQ(e.target.value)} data-testid="ap-vendors-search" style={{ maxWidth: 320 }} />
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Link to="csv_import" className="btn" data-testid="ap-vendors-import-csv">Import CSV</Link>
-          <a className="btn" href="/modules/ap/api/csv_export.php" data-testid="ap-vendors-export-csv">Export CSV</a>
+          <a className="btn" href="/api/v1/ap/csv-export" data-testid="ap-vendors-export-csv">Export CSV</a>
           <ExportTemplatePicker
             dataset="ap_vendors"
             buildHref={buildTemplateExportHref}

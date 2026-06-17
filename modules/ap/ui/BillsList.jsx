@@ -50,7 +50,7 @@ export default function BillsList() {
   const buildTemplateExportHref = (tplId) => {
     const params = new URLSearchParams({ template_id: String(tplId) });
     if (status !== 'all') params.set('status', status);
-    return `/modules/ap/api/bills_csv_export.php?${params.toString()}`;
+    return `/api/v1/ap/bills-csv-export?${params.toString()}`;
   };
 
   return (
@@ -92,7 +92,7 @@ export default function BillsList() {
             ✨ Suggest payment run
           </button>
           <Link to="csv_import" className="btn" data-testid="ap-bills-import-csv">Import CSV</Link>
-          <a className="btn" href={`/modules/ap/api/bills_csv_export.php${status !== 'all' ? `?status=${status}` : ''}`} data-testid="ap-bills-export-all-csv">Export all (CSV)</a>
+          <a className="btn" href={`/api/v1/ap/bills-csv-export${status !== 'all' ? `?status=${status}` : ''}`} data-testid="ap-bills-export-all-csv">Export all (CSV)</a>
           <ExportTemplatePicker
             dataset="ap_bills"
             buildHref={buildTemplateExportHref}
