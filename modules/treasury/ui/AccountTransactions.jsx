@@ -157,7 +157,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
       {type === 'deposit' && (
         <CsvUploadWidget
           testIdPrefix={`treasury-${type}-csv`}
-          endpoint="/api/treasury/import_csv.php"
+          endpoint="/api/v1/treasury/import-csv"
           extraFields={{ bank_account_id: accountId }}
           accept=".csv,text/csv"
           label={plaidItemExternalId

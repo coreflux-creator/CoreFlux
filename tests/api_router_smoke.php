@@ -274,6 +274,10 @@ $file = apiRouterResolveFile('treasury', 'scenario-share');
 $assert("resolves treasury/scenario-share module endpoint",
     $file !== null && str_ends_with($file, '/modules/treasury/api/scenario_share.php'));
 
+$file = apiRouterResolveFile('treasury', 'import-csv');
+$assert("resolves treasury/import-csv module endpoint",
+    $file !== null && str_ends_with($file, '/modules/treasury/api/import_csv.php'));
+
 $file = apiRouterResolveFile('people', 'custom-field-definitions');
 $assert("resolves custom field definitions platform alias",
     $file !== null && str_ends_with($file, '/api/custom_field_definitions.php'));

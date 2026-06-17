@@ -143,6 +143,8 @@ $assert('CategorizeRow groups by expense/asset/revenue',
 $assert('CategorizeRow links matched JE',    strpos($at_ui, 'treasury-txn-je-${r.id}') !== false);
 $assert('CategorizeRow shows live JE preview',
                                              strpos($at_ui, "Will create a balanced JE") !== false);
+$assert('CSV import uses v1 treasury route',
+                                             strpos($at_ui, 'endpoint="/api/v1/treasury/import-csv"') !== false);
 
 $dep_ui = file_get_contents(__DIR__ . '/../modules/treasury/ui/DepositAccounts.jsx');
 $assert('Deposit row labels Transactions (not Open reconciliation)',
