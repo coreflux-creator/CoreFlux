@@ -44,6 +44,7 @@ echo "\nTreasury account_transactions API — split_categorize\n";
 $at = (string) file_get_contents("{$ROOT}/modules/treasury/api/account_transactions.php");
 $assert('account_transactions.php parses',              $lint("{$ROOT}/modules/treasury/api/account_transactions.php"));
 $assert('handles ?action=split_categorize',             stripos($at, "\$action === 'split_categorize'") !== false);
+$assert('split_categorize is not rejected by POST allowlist', stripos($at, "match|split_categorize") !== false);
 $assert('rejects when splits empty',                    stripos($at, 'At least one split row required') !== false);
 $assert('validates sum vs line amount',                 stripos($at, "Splits sum to {\$sum} but line amount is {\$abs}") !== false);
 $assert('supports per-row entity_id (intercompany)',    preg_match("#'entity_id'\\s*=>.*\\\$s\\['entity_id'\\]#", $at) === 1);
@@ -57,7 +58,8 @@ $tx = (string) file_get_contents("{$ROOT}/modules/treasury/ui/AccountTransaction
 $assert('AI cat button per row',                        stripos($tx, 'data-testid={`treasury-txn-ai-cat-${r.id}`}') !== false);
 $assert('Split/IC button per row',                      stripos($tx, 'data-testid={`treasury-txn-split-${r.id}`}') !== false);
 $assert('fetchAiCat hits bank_ai endpoint',             stripos($tx, '/modules/accounting/api/bank_ai.php?action=suggest_categorize') !== false);
-$assert('split panel posts to split_categorize',        stripos($tx, '/modules/treasury/api/account_transactions.php?action=split_categorize') !== false);
+$assert('split panel posts to split_categorize',        stripos($tx, "ACCOUNT_TRANSACTIONS_API = '/api/v1/treasury/account-transactions'") !== false
+                                                      && stripos($tx, 'ACCOUNT_TRANSACTIONS_API}/split-categorize') !== false);
 $assert('TreasuryAiResultPanel reads ai.suggestion shape',
                                                         stripos($tx, 'const sug = ai.suggestion') !== false
                                                       && stripos($tx, 'sug.suggested_account_id') !== false);

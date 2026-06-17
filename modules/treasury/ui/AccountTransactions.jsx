@@ -3,6 +3,8 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtDate } from '../../../dashboard/src/lib/format';
 import CsvUploadWidget from '../../../dashboard/src/components/CsvUploadWidget';
 
+const ACCOUNT_TRANSACTIONS_API = '/api/v1/treasury/account-transactions';
+
 const fmtMoneyOriginal = (n) =>
   (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 // Keep backwards compatibility for inline calls; prefer the imported fmtMoney
@@ -16,7 +18,7 @@ const fmtMoneyOriginal = (n) =>
  */
 export default function AccountTransactions({ accountId, type, accountLabel }) {
   const { data, loading, reload } = useApi(
-    `/modules/treasury/api/account_transactions.php?account_id=${accountId}&type=${type}&limit=200`
+    `${ACCOUNT_TRANSACTIONS_API}?account_id=${accountId}&type=${type}&limit=200`
   );
   // Postable expense / revenue accounts for the categorize dropdown. Filtered
   // to is_postable=1 (no header rows) when the API supplies it.
@@ -60,7 +62,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
     setRowError(null);
     try {
       await api.post(
-        `/modules/treasury/api/account_transactions.php?action=${action}`,
+        `${ACCOUNT_TRANSACTIONS_API}/${action}`,
         { line_id: lineId, type, ...extra }
       );
       setCategorizingId(null);
@@ -364,7 +366,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                         accounts={eligibleAccounts}
                         onSubmit={async (splits) => {
                           try {
-                            await api.post('/modules/treasury/api/account_transactions.php?action=split_categorize', {
+                            await api.post(`${ACCOUNT_TRANSACTIONS_API}/split-categorize`, {
                               line_id: r.id, type, splits,
                             });
                             setSplitId(null); reload();
