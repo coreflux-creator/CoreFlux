@@ -14,7 +14,7 @@ import { TrendingUp, TrendingDown } from 'lucide-react';
  */
 export default function StaffingOverview() {
   const [period, setPeriod] = useState('4w');
-  const { data, loading, error } = useApi(`/modules/reports/api/overview.php?period=${period}`);
+  const { data, loading, error } = useApi(`/api/v1/reports/overview?period=${period}`);
 
   return (
     <section data-testid="reports-overview" style={{ paddingBottom: 32 }}>

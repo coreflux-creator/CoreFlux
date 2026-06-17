@@ -222,6 +222,26 @@ $file = apiRouterResolveFile('reports', 'export-templates');
 $assert("resolves reports/export-templates platform alias",
     $file !== null && str_ends_with($file, '/api/export_templates.php'));
 
+$file = apiRouterResolveFile('reports', 'overview');
+$assert("resolves reports/overview module endpoint",
+    $file !== null && str_ends_with($file, '/modules/reports/api/overview.php'));
+
+$file = apiRouterResolveFile('reports', 'executive-snapshot');
+$assert("resolves reports/executive-snapshot module endpoint",
+    $file !== null && str_ends_with($file, '/modules/reports/api/executive_snapshot.php'));
+
+$file = apiRouterResolveFile('reports', 'client-profitability');
+$assert("resolves reports/client-profitability module endpoint",
+    $file !== null && str_ends_with($file, '/modules/reports/api/client_profitability.php'));
+
+$file = apiRouterResolveFile('reports', 'rate-spread');
+$assert("resolves reports/rate-spread module endpoint",
+    $file !== null && str_ends_with($file, '/modules/reports/api/rate_spread.php'));
+
+$file = apiRouterResolveFile('reports', 'overtime-watch');
+$assert("resolves reports/overtime-watch module endpoint",
+    $file !== null && str_ends_with($file, '/modules/reports/api/overtime_watch.php'));
+
 $file = apiRouterResolveFile('treasury', 'recommendations');
 $assert("resolves treasury/recommendations module endpoint",
     $file !== null && str_ends_with($file, '/modules/treasury/api/recommendations.php'));

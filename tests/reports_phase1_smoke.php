@@ -124,7 +124,7 @@ $ov = (string) file_get_contents("{$uiDir}/StaffingOverview.jsx");
 foreach (['kpi-revenue','kpi-gp','kpi-gp-pct','kpi-hours','kpi-ot-pct','kpi-spread'] as $tid) {
     $assert("StaffingOverview tile: {$tid}", stripos($ov, "testid=\"{$tid}\"") !== false);
 }
-$assert('Overview reads /api/overview.php',  stripos($ov, '/modules/reports/api/overview.php') !== false);
+$assert('Overview reads v1 reports overview API', stripos($ov, '/api/v1/reports/overview') !== false);
 $assert('Overview default period = 4w',       stripos($ov, "useState('4w')") !== false);
 $assert('Overview renders weekly trend',      stripos($ov, 'reports-overview-weekly') !== false);
 $assert('Overview renders headcount',         stripos($ov, 'reports-overview-headcount') !== false);
