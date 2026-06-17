@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import AISuggestion from '../../../dashboard/src/components/AISuggestion';
 
+const RECONCILIATIONS_API = '/api/v1/accounting/reconciliations';
+
 /**
  * Reconciliation packet — print-friendly one-pager.
  * - Header: bank account, period_end, status with open/close/reopen timestamps
@@ -14,7 +16,7 @@ import AISuggestion from '../../../dashboard/src/components/AISuggestion';
  */
 export default function ReconciliationPacket() {
   const { id } = useParams();
-  const { data, loading, error, reload } = useApi(`/modules/accounting/api/reconciliations.php?action=packet&id=${id}`);
+  const { data, loading, error, reload } = useApi(`${RECONCILIATIONS_API}?action=packet&id=${id}`);
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
   const [reason, setReason] = useState('');
@@ -30,7 +32,7 @@ export default function ReconciliationPacket() {
 
   const doAction = async (action, body) => {
     setBusy(true); setErr(null);
-    try { await api.post(`/modules/accounting/api/reconciliations.php?action=${action}&id=${id}`, body || {}); reload(); }
+    try { await api.post(`${RECONCILIATIONS_API}?action=${action}&id=${id}`, body || {}); reload(); }
     catch (e) { setErr(e.message); }
     finally { setBusy(false); }
   };
@@ -38,7 +40,7 @@ export default function ReconciliationPacket() {
   const generateNarrative = async () => {
     setBusy(true); setAiError(null); setAiEnvelope(null);
     try {
-      const env = await api.post(`/modules/accounting/api/reconciliations.php?action=generate_ai_narrative&id=${id}`, {});
+      const env = await api.post(`${RECONCILIATIONS_API}?action=generate_ai_narrative&id=${id}`, {});
       setAiEnvelope(env);
     } catch (e) { setAiError(e.message); }
     finally { setBusy(false); }
@@ -49,7 +51,7 @@ export default function ReconciliationPacket() {
     // written the approve row to ai_suggestions; we additionally copy the
     // final text onto accounting_reconciliations.ai_narrative.
     try {
-      await api.post(`/modules/accounting/api/reconciliations.php?action=save_ai_narrative&id=${id}`, { final_content: finalContent });
+      await api.post(`${RECONCILIATIONS_API}?action=save_ai_narrative&id=${id}`, { final_content: finalContent });
       reload();
     } catch (e) { setAiError(e.message); }
   };

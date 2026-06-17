@@ -310,6 +310,19 @@ $file = apiRouterResolveFile('accounting', 'import');
 $assert("resolves accounting/import module endpoint",
     $file !== null && str_ends_with($file, '/modules/accounting/api/import.php'));
 
+foreach ([
+    'bank-accounts' => 'bank_accounts',
+    'bank-statements' => 'bank_statements',
+    'reconciliations' => 'reconciliations',
+    'bank-ai' => 'bank_ai',
+    'account-transactions' => 'account_transactions',
+    'bank-rules' => 'bank_rules',
+] as $route => $fileStem) {
+    $file = apiRouterResolveFile('accounting', $route);
+    $assert("resolves accounting/{$route} module endpoint",
+        $file !== null && str_ends_with($file, "/modules/accounting/api/{$fileStem}.php"));
+}
+
 $file = apiRouterResolveFile('people', 'csv-import');
 $assert("resolves people/csv-import module endpoint",
     $file !== null && str_ends_with($file, '/modules/people/api/csv_import.php'));

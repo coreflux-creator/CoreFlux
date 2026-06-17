@@ -75,7 +75,8 @@ echo "\nBank Reconciliation UI — AI cat result reads nested suggestion\n";
 $br = (string) file_get_contents("{$ROOT}/modules/accounting/ui/BankReconciliation.jsx");
 $assert('AiResultPanel reads ai.suggestion shape',      stripos($br, 'const sug = ai.suggestion') !== false);
 $assert('renders confidence chip',                      stripos($br, '{conf}% confidence · {source}') !== false);
-$assert('Accept-and-post posts categorize_and_post',    stripos($br, "/modules/accounting/api/account_transactions.php?action=categorize_and_post") !== false);
+$assert('Accept-and-post posts categorize_and_post',    stripos($br, "/api/v1/accounting/account-transactions") !== false
+                                                      && stripos($br, "action=categorize_and_post") !== false);
 $assert('Accept passes counterpart_account_id correctly',stripos($br, 'counterpart_account_id: suggestedAccountId') !== false);
 $assert('No more raw JSON.stringify dump',              stripos($br, 'JSON.stringify(aiResp.candidates') === false);
 

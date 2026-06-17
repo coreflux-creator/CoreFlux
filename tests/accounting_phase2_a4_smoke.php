@@ -142,6 +142,19 @@ $a('packet/:id route',                          $contains($br, 'path="packet/:id
 $a('reconciliations-list test-id',              $contains($br, 'data-testid="accounting-reconciliations-list"'));
 $a('recon-open button test-id',                 $contains($br, 'accounting-recon-open'));
 $a('recon packet link test-id',                 $contains($br, 'accounting-recon-packet-'));
+$a('bank rec routes through v1 API',
+    $contains($br, '/api/v1/accounting/bank-accounts') &&
+    $contains($br, '/api/v1/accounting/bank-statements') &&
+    $contains($br, '/api/v1/accounting/reconciliations') &&
+    $contains($br, '/api/v1/accounting/bank-ai') &&
+    $contains($br, '/api/v1/accounting/account-transactions') &&
+    $contains($br, '/api/v1/accounting/bank-rules') &&
+    !$contains($br, '/modules/accounting/api/bank_accounts.php') &&
+    !$contains($br, '/modules/accounting/api/bank_statements.php') &&
+    !$contains($br, '/modules/accounting/api/reconciliations.php') &&
+    !$contains($br, '/modules/accounting/api/bank_ai.php') &&
+    !$contains($br, '/modules/accounting/api/account_transactions.php') &&
+    !$contains($br, '/modules/accounting/api/bank_rules.php'));
 
 echo "\nStandardReports.jsx — test-ids\n";
 $ui = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/StandardReports.jsx');
@@ -207,6 +220,9 @@ $a('AISuggestion wired with featureKey + subject',
     $contains($rp, 'subjectType="accounting_reconciliation"'));
 $a('onAccepted persists via save_ai_narrative',
     $contains($rp, 'action=save_ai_narrative'));
+$a('packet workflow routes through v1 API',
+    $contains($rp, '/api/v1/accounting/reconciliations') &&
+    !$contains($rp, '/modules/accounting/api/reconciliations.php'));
 $a('close button',                              $contains($rp, 'accounting-packet-close'));
 $a('reopen button + reason input',
     $contains($rp, 'accounting-packet-reopen-reason') &&
