@@ -164,6 +164,11 @@ $a('Approval queue table',                      $contains($ui, 'accounting-repor
 $a('Audit log table',                           $contains($ui, 'accounting-report-audit-table'));
 $a('Account activity table',                    $contains($ui, 'accounting-report-account-table'));
 $a('account activity requires code',            $contains($ui, 'accounting-report-account-code'));
+$a('standard reports route through v1 API',
+    $contains($ui, '/api/v1/accounting/standard-reports') &&
+    $contains($ui, '/api/v1/accounting/export') &&
+    !$contains($ui, '/modules/accounting/api/standard_reports.php') &&
+    !$contains($ui, '/modules/accounting/api/export.php'));
 
 echo "\nAccountingImport.jsx — test-ids\n";
 $ai = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/AccountingImport.jsx');
@@ -182,6 +187,9 @@ $rp = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/Reconcilia
 $a('root test-id',                              $contains($rp, 'data-testid="accounting-reconciliation-packet"'));
 $a('print button',                              $contains($rp, 'accounting-packet-print'));
 $a('csv download link',                         $contains($rp, 'accounting-packet-csv'));
+$a('packet CSV export routes through v1 API',
+    $contains($rp, '/api/v1/accounting/export?type=bank_statements') &&
+    !$contains($rp, '/modules/accounting/api/export.php'));
 $a('summary table',                             $contains($rp, 'accounting-packet-summary'));
 $a('matched + unmatched tables',
     $contains($rp, 'accounting-packet-matched-table') &&

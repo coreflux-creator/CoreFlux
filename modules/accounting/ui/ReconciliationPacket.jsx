@@ -73,7 +73,7 @@ export default function ReconciliationPacket() {
           <button className="btn btn--ghost cf-no-print" onClick={() => window.print()} data-testid="accounting-packet-print">🖨 Print / Save PDF</button>
           <a
             className="btn btn--ghost cf-no-print"
-            href={`/modules/accounting/api/export.php?type=bank_statements&bank_account_id=${r.bank_account_id}&to=${r.period_end}`}
+            href={`/api/v1/accounting/export?type=bank_statements&bank_account_id=${r.bank_account_id}&to=${r.period_end}`}
             data-testid="accounting-packet-csv"
           >⬇ CSV (all lines)</a>
         </div>

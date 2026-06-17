@@ -298,6 +298,14 @@ $file = apiRouterResolveFile('treasury', 'import-csv');
 $assert("resolves treasury/import-csv module endpoint",
     $file !== null && str_ends_with($file, '/modules/treasury/api/import_csv.php'));
 
+$file = apiRouterResolveFile('accounting', 'standard-reports');
+$assert("resolves accounting/standard-reports module endpoint",
+    $file !== null && str_ends_with($file, '/modules/accounting/api/standard_reports.php'));
+
+$file = apiRouterResolveFile('accounting', 'export');
+$assert("resolves accounting/export module endpoint",
+    $file !== null && str_ends_with($file, '/modules/accounting/api/export.php'));
+
 $file = apiRouterResolveFile('people', 'csv-import');
 $assert("resolves people/csv-import module endpoint",
     $file !== null && str_ends_with($file, '/modules/people/api/csv_import.php'));
