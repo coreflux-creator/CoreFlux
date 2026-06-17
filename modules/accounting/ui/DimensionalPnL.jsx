@@ -1,6 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { useApi } from '../../../dashboard/src/lib/api';
 
+const DIMENSIONS_API = '/api/v1/accounting/dimensions';
+const DIMENSIONAL_PNL_API = '/api/v1/accounting/dimensional-pnl';
+
 /**
  * Dimensional P&L — pivot the income statement along any active
  * accounting dimension (department, project, location, etc.).
@@ -16,11 +19,11 @@ export default function DimensionalPnL() {
   const [start, setStart]   = useState(yearStart);
   const [end, setEnd]       = useState(today);
 
-  const dimsApi = useApi('/modules/accounting/api/dimensions.php');
+  const dimsApi = useApi(DIMENSIONS_API);
   const dims = (dimsApi.data?.rows || []).filter(d => d.active);
 
   const url = dimKey
-    ? `/api/dimensional_pnl.php?dim_key=${encodeURIComponent(dimKey)}&start=${start}&end=${end}`
+    ? `${DIMENSIONAL_PNL_API}?dim_key=${encodeURIComponent(dimKey)}&start=${start}&end=${end}`
     : null;
   const { data, error, loading, reload } = useApi(url);
 

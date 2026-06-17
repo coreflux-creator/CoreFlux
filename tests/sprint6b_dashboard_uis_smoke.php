@@ -59,11 +59,12 @@ foreach (['audit-row-','audit-toggle-','audit-meta-'] as $tidPrefix) {
 
 echo "\nDimensionsAdmin component\n";
 $da = (string) file_get_contents("{$ROOT}/modules/accounting/ui/DimensionsAdmin.jsx");
-$assert('GET /modules/accounting/api/dimensions.php',         stripos($da, "useApi('/modules/accounting/api/dimensions.php')") !== false);
-$assert('POST upsert dimension',                              preg_match("#api\\.post\\(\\s*['\"]/modules/accounting/api/dimensions\\.php['\"]\\s*,#", $da) === 1);
-$assert('DELETE dimension by id',                             stripos($da, "api.delete(`/modules/accounting/api/dimensions.php?id=") !== false);
+$assert('GET /api/v1/accounting/dimensions',                  stripos($da, "DIMENSIONS_API = '/api/v1/accounting/dimensions'") !== false);
+$assert('POST upsert dimension',                              preg_match("#api\\.post\\(\\s*DIMENSIONS_API\\s*,#", $da) === 1);
+$assert('DELETE dimension by id',                             stripos($da, 'api.delete(`${DIMENSIONS_API}?id=') !== false);
 $assert('add_value action',                                   stripos($da, '?action=add_value') !== false);
 $assert('values action',                                      stripos($da, '?action=values&id=') !== false);
+$assert('dimensions UI hides module API path',                 stripos($da, '/modules/accounting/api/dimensions.php') === false);
 foreach (['accounting-dimensions','dimensions-new','dimensions-empty','dimensions-error','dimensions-action-error','dimensions-create-modal','dimensions-create-key','dimensions-create-label','dimensions-create-type','dimensions-create-required','dimensions-create-submit','dimensions-values-panel','dimensions-values-code','dimensions-values-label','dimensions-values-add'] as $tid) {
     $assert("testid: {$tid}", stripos($da, "data-testid=\"{$tid}\"") !== false);
 }
