@@ -258,6 +258,22 @@ $file = apiRouterResolveFile('treasury', 'liquidity-forecast-variance');
 $assert("resolves treasury/liquidity-forecast-variance module endpoint",
     $file !== null && str_ends_with($file, '/modules/treasury/api/liquidity_forecast_variance.php'));
 
+$file = apiRouterResolveFile('treasury', 'scenario');
+$assert("resolves treasury/scenario module endpoint",
+    $file !== null && str_ends_with($file, '/modules/treasury/api/scenario.php'));
+
+$file = apiRouterResolveFile('treasury', 'scenario-presets');
+$assert("resolves treasury/scenario-presets module endpoint",
+    $file !== null && str_ends_with($file, '/modules/treasury/api/scenario_presets.php'));
+
+$file = apiRouterResolveFile('treasury', 'scenario-compare');
+$assert("resolves treasury/scenario-compare module endpoint",
+    $file !== null && str_ends_with($file, '/modules/treasury/api/scenario_compare.php'));
+
+$file = apiRouterResolveFile('treasury', 'scenario-share');
+$assert("resolves treasury/scenario-share module endpoint",
+    $file !== null && str_ends_with($file, '/modules/treasury/api/scenario_share.php'));
+
 $file = apiRouterResolveFile('people', 'custom-field-definitions');
 $assert("resolves custom field definitions platform alias",
     $file !== null && str_ends_with($file, '/api/custom_field_definitions.php'));

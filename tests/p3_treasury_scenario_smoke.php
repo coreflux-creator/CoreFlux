@@ -116,7 +116,7 @@ $pgPath = "{$ROOT}/dashboard/src/pages/TreasuryScenario.jsx";
 $assert('page file exists',                       is_readable($pgPath));
 $pg = (string) file_get_contents($pgPath);
 $assert('imports api client',                     strpos($pg, "import { api, useApi } from '../lib/api'") !== false);
-$assert('posts to /api/treasury_scenario.php',    strpos($pg, "api.post('/api/treasury_scenario.php'") !== false);
+$assert('posts to /api/v1/treasury/scenario',     strpos($pg, "api.post('/api/v1/treasury/scenario'") !== false);
 $assert('page root testid',                       strpos($pg, 'data-testid="treasury-scenario-page"') !== false);
 $assert('window selector testid',                 strpos($pg, 'data-testid="scenario-window-select"') !== false);
 $assert('event composer testid',                  strpos($pg, 'data-testid="scenario-event-composer"') !== false);

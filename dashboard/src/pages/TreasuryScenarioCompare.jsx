@@ -40,7 +40,7 @@ export default function TreasuryScenarioCompare() {
   const [shareError, setShareError] = useState(null);
   const [copied, setCopied] = useState(false);
 
-  const savedQuery = useApi('/api/treasury_scenario_presets.php');
+  const savedQuery = useApi('/api/v1/treasury/scenario-presets');
   const presets = savedQuery.data?.presets ?? [];
 
   // Default to the two most-recently-updated presets when the library
@@ -66,7 +66,7 @@ export default function TreasuryScenarioCompare() {
     if (a.id === b.id) return; // same scenario picked twice — useless comparison
     let cancelled = false;
     setLoading(true); setError(null);
-    api.post('/api/treasury_scenario_compare.php', {
+    api.post('/api/v1/treasury/scenario-compare', {
       days,
       scenario_a: { label: a.name, events: a.events },
       scenario_b: { label: b.name, events: b.events },
@@ -97,7 +97,7 @@ export default function TreasuryScenarioCompare() {
       return;
     }
     try {
-      const res = await api.post('/api/treasury_scenario_share.php?action=create', {
+      const res = await api.post('/api/v1/treasury/scenario-share?action=create', {
         kind: 'compare',
         preset_a_id: a.id,
         preset_b_id: b.id,

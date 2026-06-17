@@ -106,13 +106,13 @@ export default function TreasuryScenario() {
   const [saveStatus, setSaveStatus] = useState(null); // {kind:'ok'|'error', text}
 
   // Saved presets — tenant library, separate from the built-in catalog.
-  const savedQuery = useApi('/api/treasury_scenario_presets.php');
+  const savedQuery = useApi('/api/v1/treasury/scenario-presets');
   const savedPresets = savedQuery.data?.presets ?? [];
 
   const run = async (eventList = events, daysVal = days) => {
     setLoading(true); setError(null);
     try {
-      const res = await api.post('/api/treasury_scenario.php', { days: daysVal, events: eventList });
+      const res = await api.post('/api/v1/treasury/scenario', { days: daysVal, events: eventList });
       setData(res);
     } catch (e) {
       setError(e);
@@ -171,7 +171,7 @@ export default function TreasuryScenario() {
       return;
     }
     try {
-      const res = await api.post('/api/treasury_scenario_presets.php', {
+      const res = await api.post('/api/v1/treasury/scenario-presets', {
         name: saveDraft.name.trim(),
         description: saveDraft.description.trim(),
         events,
@@ -196,7 +196,7 @@ export default function TreasuryScenario() {
   const deleteSavedPreset = async (preset) => {
     if (!window.confirm(`Delete saved scenario "${preset.name}"?`)) return;
     try {
-      await api.delete(`/api/treasury_scenario_presets.php?id=${preset.id}`);
+      await api.delete(`/api/v1/treasury/scenario-presets?id=${preset.id}`);
       savedQuery.reload?.();
     } catch (e) {
       setError(e);

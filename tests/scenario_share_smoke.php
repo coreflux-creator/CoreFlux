@@ -199,7 +199,7 @@ $assert('share-result url testid',                strpos($cmp, 'data-testid="sce
 $assert('share-copy button testid',               strpos($cmp, 'data-testid="scenario-compare-share-copy"') !== false);
 $assert('share-error testid',                     strpos($cmp, 'data-testid="scenario-compare-share-error"') !== false);
 $assert('createShareLink POSTs to share endpoint',
-    strpos($cmp, "api.post('/api/treasury_scenario_share.php?action=create'") !== false
+    strpos($cmp, "api.post('/api/v1/treasury/scenario-share?action=create'") !== false
     && strpos($cmp, "kind: 'compare'") !== false);
 $assert('createShareLink blocks self-comparison',
     strpos($cmp, '!a || !b || a.id === b.id') !== false);
