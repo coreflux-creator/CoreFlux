@@ -121,10 +121,12 @@ if ($method === 'GET') {
         $recommendation['latest_decision'] = $decision;
         $recommendation['latest_handoff'] = $handoff;
         $recommendation['latest_exception'] = $exception;
+        $recommendation['freshness_control'] = treasuryRecommendationItemFreshness($recommendation, $reservePolicy, $today);
     }
     unset($recommendation);
     $summary = treasuryRecommendationSummary($recommendations);
     $reviewQueue = treasuryRecommendationReviewQueue($recommendations);
+    $reviewControl = treasuryRecommendationReviewControl($recommendations, $reservePolicy, $today);
 
     api_ok([
         'as_of_date' => $today,
@@ -145,6 +147,7 @@ if ($method === 'GET') {
         'recommendations' => $recommendations,
         'summary' => $summary,
         'review_queue' => $reviewQueue,
+        'review_control' => $reviewControl,
         'auditability' => [
             'decision_events' => ['treasury.recommendation.accepted', 'treasury.recommendation.dismissed'],
             'decision_ledger' => 'treasury_recommendation_decisions',
@@ -407,6 +410,7 @@ function treasuryRecommendationForPayment(array $payment, array $reservePolicy, 
             'bank_account_id' => isset($payment['bank_account_id']) ? (int) $payment['bank_account_id'] : null,
             'status' => $status,
             'workflow_instance_id' => isset($payment['workflow_instance_id']) ? (int) $payment['workflow_instance_id'] : null,
+            'created_at' => (string) ($payment['created_at'] ?? ''),
         ],
         'cash_impact' => [
             'available_now_after_reserves' => $availableNow,
@@ -508,6 +512,7 @@ function treasuryRecommendationReviewQueue(array $recommendations): array
             'cash_impact' => $row['cash_impact'] ?? [],
             'latest_decision' => $row['latest_decision'] ?? null,
             'latest_exception' => $row['latest_exception'] ?? null,
+            'freshness_control' => $row['freshness_control'] ?? null,
             'handoff' => [
                 'next_workflow_step' => $row['approval_gate']['next_workflow_step'] ?? 'review',
                 'workflow_resource' => $row['approval_gate']['workflow_resource'] ?? 'treasury.payment',
@@ -517,6 +522,113 @@ function treasuryRecommendationReviewQueue(array $recommendations): array
         ];
     }
     return $queue;
+}
+
+function treasuryRecommendationReviewControl(array $recommendations, array $reservePolicy, string $today): array
+{
+    $counts = [
+        'review_items' => 0,
+        'attention_items' => 0,
+        'stale_review_items' => 0,
+        'open_exceptions' => 0,
+        'unowned_exceptions' => 0,
+        'terminal_exceptions' => 0,
+    ];
+
+    foreach ($recommendations as $row) {
+        if (treasuryRecommendationNeedsReview($row)) {
+            $counts['review_items']++;
+            $status = (string) ($row['freshness_control']['review_status'] ?? 'current');
+            if (in_array($status, ['attention', 'stale'], true)) $counts['attention_items']++;
+            if ($status === 'stale') $counts['stale_review_items']++;
+        }
+        $exception = $row['latest_exception'] ?? null;
+        if (is_array($exception)) {
+            if (in_array((string) ($exception['status'] ?? ''), ['resolved', 'dismissed'], true)) {
+                $counts['terminal_exceptions']++;
+            } else {
+                $counts['open_exceptions']++;
+                if (empty($exception['owner_user_id'])) $counts['unowned_exceptions']++;
+            }
+        }
+    }
+
+    return [
+        'policy_review' => treasuryRecommendationPolicyReviewStatus($reservePolicy, $today),
+        'counts' => $counts,
+        'cadence_source' => 'tenant_treasury_policy.review_cadence_days',
+        'ownership_source' => 'treasury_recommendation_exceptions.owner_user_id',
+        'stale_rule' => 'Review items become stale when the payment is due/past due or the review item age reaches its derived review SLA.',
+        'money_movement_gate' => 'Review control metadata is advisory; payment submit, approval, and execution remain gated by Treasury workflow.',
+    ];
+}
+
+function treasuryRecommendationPolicyReviewStatus(array $reservePolicy, string $today): array
+{
+    $cadenceDays = max(1, (int) ($reservePolicy['review_cadence_days'] ?? 30));
+    $effectiveDate = (string) ($reservePolicy['effective_date'] ?? $today);
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $effectiveDate)) $effectiveDate = $today;
+    $dueDate = date('Y-m-d', strtotime($effectiveDate . " +{$cadenceDays} days"));
+    $daysUntilDue = treasuryRecommendationDateDiffDays($today, $dueDate);
+    $status = 'current';
+    if ($daysUntilDue < 0) {
+        $status = 'overdue';
+    } elseif ($daysUntilDue <= min(7, $cadenceDays)) {
+        $status = 'due_soon';
+    }
+
+    return [
+        'effective_date' => $effectiveDate,
+        'review_cadence_days' => $cadenceDays,
+        'next_review_due_date' => $dueDate,
+        'days_until_due' => $daysUntilDue,
+        'status' => $status,
+    ];
+}
+
+function treasuryRecommendationItemFreshness(array $row, array $reservePolicy, string $today): array
+{
+    $cadenceDays = max(1, (int) ($reservePolicy['review_cadence_days'] ?? 30));
+    $reviewSlaDays = max(1, min(14, (int) ceil($cadenceDays / 4)));
+    $payment = $row['payment'] ?? [];
+    $paymentDate = (string) ($payment['payment_date'] ?? $today);
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $paymentDate)) $paymentDate = $today;
+    $createdDate = substr((string) ($payment['created_at'] ?? $today), 0, 10);
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $createdDate)) $createdDate = $today;
+    $exception = $row['latest_exception'] ?? null;
+    $openedDate = is_array($exception) ? substr((string) ($exception['opened_at'] ?? ''), 0, 10) : '';
+    $ageStartDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $openedDate) ? $openedDate : $createdDate;
+    $reviewAgeDays = max(0, treasuryRecommendationDateDiffDays($ageStartDate, $today));
+    $paymentDueInDays = treasuryRecommendationDateDiffDays($today, $paymentDate);
+    $needsReview = treasuryRecommendationNeedsReview($row);
+
+    $status = 'current';
+    if ($needsReview && ($paymentDueInDays <= 0 || $reviewAgeDays >= $reviewSlaDays)) {
+        $status = 'stale';
+    } elseif ($needsReview && ($paymentDueInDays <= 3 || $reviewAgeDays >= max(1, $reviewSlaDays - 1))) {
+        $status = 'attention';
+    }
+
+    return [
+        'as_of_date' => $today,
+        'review_status' => $status,
+        'review_sla_days' => $reviewSlaDays,
+        'review_age_days' => $reviewAgeDays,
+        'payment_due_in_days' => $paymentDueInDays,
+        'age_start_date' => $ageStartDate,
+        'requires_owner' => $needsReview && $status === 'stale' && (!is_array($exception) || empty($exception['owner_user_id'])),
+    ];
+}
+
+function treasuryRecommendationDateDiffDays(string $from, string $to): int
+{
+    try {
+        $fromDate = new \DateTimeImmutable($from);
+        $toDate = new \DateTimeImmutable($to);
+        return (int) $fromDate->diff($toDate)->format('%r%a');
+    } catch (\Throwable $_) {
+        return 0;
+    }
 }
 
 function treasuryRecommendationExceptionSeverity(array $row): string

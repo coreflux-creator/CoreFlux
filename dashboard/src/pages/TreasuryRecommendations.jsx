@@ -70,6 +70,8 @@ export default function TreasuryRecommendations() {
   const rows = data.recommendations || [];
   const summary = data.summary || {};
   const reviewQueue = data.review_queue || [];
+  const reviewControl = data.review_control || {};
+  const policyReview = reviewControl.policy_review || {};
   const currency = data.currency || appliedPolicy.currency || 'USD';
 
   const updatePolicy = (key, value) => {
@@ -314,6 +316,7 @@ export default function TreasuryRecommendations() {
             <Metric label="Available now" value={fmtMoney(envelope.available_now_after_reserves, currency)} />
             <Metric label="Lowest available" value={fmtMoney(envelope.lowest_available_after_reserves, currency)} />
             <Metric label="Risk level" value={envelope.risk_level || 'stable'} tone={envelope.risk_level === 'critical' ? '#b91c1c' : envelope.risk_level === 'watch' ? '#b45309' : '#047857'} />
+            <Metric label="Policy review" value={policyReview.status || 'current'} tone={policyReview.status === 'overdue' ? '#b91c1c' : policyReview.status === 'due_soon' ? '#b45309' : '#047857'} />
           </div>
 
           <div data-testid="treasury-recommendations-summary"
@@ -324,13 +327,17 @@ export default function TreasuryRecommendations() {
             <Metric label="Split/escalate" value={(summary.actions?.split || 0) + (summary.actions?.defer_or_escalate || 0)} tone="#b91c1c" />
             <Metric label="Review queue" value={summary.review_queue_count || 0} tone={(summary.review_queue_count || 0) > 0 ? '#b91c1c' : '#047857'} />
             <Metric label="Decided" value={(summary.decisions?.accepted || 0) + (summary.decisions?.dismissed || 0)} />
+            <Metric label="Stale reviews" value={reviewControl.counts?.stale_review_items || 0} tone={(reviewControl.counts?.stale_review_items || 0) > 0 ? '#b91c1c' : '#047857'} />
+            <Metric label="Unowned exceptions" value={reviewControl.counts?.unowned_exceptions || 0} tone={(reviewControl.counts?.unowned_exceptions || 0) > 0 ? '#b45309' : '#047857'} />
           </div>
+
+          <ReviewControlPanel data={reviewControl} />
 
           <div data-testid="treasury-recommendations-auditability"
                style={{ border: '1px solid #dbeafe', borderRadius: 8, padding: 12, background: '#eff6ff', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
             <ShieldCheck size={18} color="#1d4ed8" />
             <div style={{ fontSize: 13, color: '#1e3a8a' }}>
-              Decisions write recommendation audit events. Payment execution still requires Treasury payment workflow approval and execute permission.
+              Decisions, exceptions, and review freshness are advisory controls. Payment execution still requires Treasury payment workflow approval and execute permission.
             </div>
           </div>
 
@@ -391,6 +398,31 @@ function Metric({ label, value, tone = '#0f172a' }) {
       <div style={{ fontSize: 11, textTransform: 'uppercase', color: '#64748b' }}>{label}</div>
       <div style={{ marginTop: 4, fontSize: 20, fontWeight: 700, color: tone }}>{value}</div>
     </div>
+  );
+}
+
+function ReviewControlPanel({ data }) {
+  const policy = data.policy_review || {};
+  const counts = data.counts || {};
+  return (
+    <section data-testid="treasury-recommendations-review-control"
+             style={{ border: '1px solid #e0e7ff', borderRadius: 8, padding: 14, background: '#eef2ff', display: 'grid', gap: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: 14 }}>Review control</strong>
+        <span data-testid="treasury-policy-review-due" style={{ color: '#4338ca', fontSize: 12 }}>
+          Policy {policy.status || 'current'} / due {policy.next_review_due_date || 'N/A'}
+        </span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(145px,1fr))', gap: 8 }}>
+        <Evidence label="Attention items" value={counts.attention_items || 0} />
+        <Evidence label="Stale review items" value={counts.stale_review_items || 0} />
+        <Evidence label="Open exceptions" value={counts.open_exceptions || 0} />
+        <Evidence label="Unowned exceptions" value={counts.unowned_exceptions || 0} />
+      </div>
+      <div style={{ color: '#4338ca', fontSize: 12 }}>
+        Cadence source: {data.cadence_source || 'tenant_treasury_policy.review_cadence_days'} / ownership source: {data.ownership_source || 'treasury_recommendation_exceptions.owner_user_id'}
+      </div>
+    </section>
   );
 }
 
@@ -528,6 +560,7 @@ function ReviewQueue({ rows, currency, busyId, onExceptionAction }) {
 
 function ReviewQueueRow({ row, currency, busy, onExceptionAction }) {
   const exception = row.latest_exception;
+  const freshness = row.freshness_control || {};
   const openStatus = exception?.status;
   const terminal = ['resolved', 'dismissed'].includes(openStatus);
   return (
@@ -540,6 +573,9 @@ function ReviewQueueRow({ row, currency, busy, onExceptionAction }) {
               {row.recommendation_action} / {row.handoff?.next_workflow_step || 'review'} / {fmtMoney(row.payment?.amount, row.payment?.currency || currency)}
             </div>
             <div style={{ color: '#7c2d12', fontSize: 12 }}>{row.rationale}</div>
+            <div data-testid={`treasury-review-freshness-${row.payment?.id || row.id}`} style={{ marginTop: 4, color: freshness.review_status === 'stale' ? '#b91c1c' : freshness.review_status === 'attention' ? '#b45309' : '#475569', fontSize: 12 }}>
+              Freshness {freshness.review_status || 'current'} / age {freshness.review_age_days ?? 0}d / due in {freshness.payment_due_in_days ?? 0}d
+            </div>
             {exception && (
               <div data-testid={`treasury-exception-status-${row.payment?.id || row.id}`} style={{ marginTop: 4, color: '#0f172a', fontSize: 12 }}>
                 Exception {exception.status} / severity {exception.severity} / owner {exception.owner_user_id || 'unassigned'}

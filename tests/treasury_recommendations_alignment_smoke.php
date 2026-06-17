@@ -177,11 +177,22 @@ $a('recommendations return summary and review queue',
     && str_contains($endpoint, "'summary' => \$summary")
     && str_contains($endpoint, "'review_queue' => \$reviewQueue")
     && str_contains($endpoint, "'next_workflow_step' => \$row['approval_gate']['next_workflow_step'] ?? 'review'"));
+$a('recommendations expose policy cadence and stale review controls',
+    str_contains($endpoint, 'function treasuryRecommendationReviewControl(')
+    && str_contains($endpoint, 'function treasuryRecommendationPolicyReviewStatus(')
+    && str_contains($endpoint, 'function treasuryRecommendationItemFreshness(')
+    && str_contains($endpoint, "'review_control' => \$reviewControl")
+    && str_contains($endpoint, "'cadence_source' => 'tenant_treasury_policy.review_cadence_days'")
+    && str_contains($endpoint, "'ownership_source' => 'treasury_recommendation_exceptions.owner_user_id'")
+    && str_contains($endpoint, "'stale_review_items'")
+    && str_contains($endpoint, "'requires_owner'"));
 
 echo "\nWorkflow gating and auditability\n";
 $a('endpoint is advisory and preserves money movement workflow',
     str_contains($endpoint, 'never executes or approves money movement')
     && str_contains($endpoint, 'Payments still require submit, approval, and execution'));
+$a('review control metadata remains advisory',
+    str_contains($endpoint, "'money_movement_gate' => 'Review control metadata is advisory; payment submit, approval, and execution remain gated by Treasury workflow.'"));
 $a('GET requires payment view permission',
     str_contains($endpoint, "rbac_legacy_require(\$user, 'treasury.payment.view')"));
 $a('decision POST requires payment manage permission',
@@ -244,6 +255,14 @@ $a('UI renders summary, review queue, handoff, and history panels',
     && str_contains($page, "/api/treasury_recommendations.php?action=decisions&limit=25")
     && str_contains($page, 'Workflow handoff')
     && str_contains($page, 'decisionHistory.reload()'));
+$a('UI renders review control freshness and ownership gaps',
+    str_contains($page, 'data-testid="treasury-recommendations-review-control"')
+    && str_contains($page, 'data-testid="treasury-policy-review-due"')
+    && str_contains($page, 'Stale reviews')
+    && str_contains($page, 'Unowned exceptions')
+    && str_contains($page, 'treasury-review-freshness-')
+    && str_contains($page, 'reviewControl.counts?.stale_review_items')
+    && str_contains($page, 'reviewControl.counts?.unowned_exceptions'));
 $a('UI renders exception ownership and lifecycle panel',
     str_contains($page, "/api/treasury_recommendations.php?action=exceptions&status=all&limit=50")
     && str_contains($page, 'function ExceptionPanel')
