@@ -181,6 +181,9 @@ $a('commit button',                             $contains($ai, 'accounting-impor
 $a('skip-invalid checkbox',                     $contains($ai, 'accounting-import-skip-invalid'));
 $a('dry result panel',                          $contains($ai, 'accounting-import-dry-result'));
 $a('commit result panel',                       $contains($ai, 'accounting-import-commit-result'));
+$a('accounting import routes through v1 API',
+    $contains($ai, '/api/v1/accounting/import') &&
+    !$contains($ai, '/modules/accounting/api/import.php'));
 
 echo "\nReconciliationPacket.jsx — test-ids\n";
 $rp = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/ReconciliationPacket.jsx');

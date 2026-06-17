@@ -306,6 +306,10 @@ $file = apiRouterResolveFile('accounting', 'export');
 $assert("resolves accounting/export module endpoint",
     $file !== null && str_ends_with($file, '/modules/accounting/api/export.php'));
 
+$file = apiRouterResolveFile('accounting', 'import');
+$assert("resolves accounting/import module endpoint",
+    $file !== null && str_ends_with($file, '/modules/accounting/api/import.php'));
+
 $file = apiRouterResolveFile('people', 'csv-import');
 $assert("resolves people/csv-import module endpoint",
     $file !== null && str_ends_with($file, '/modules/people/api/csv_import.php'));
