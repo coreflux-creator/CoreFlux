@@ -56,6 +56,7 @@ return [
         'treasury.policy.updated',
         'treasury.recommendation.accepted',
         'treasury.recommendation.dismissed',
+        'treasury.recommendation.handoff_logged',
         'treasury.transfer.created',
         'treasury.transfer.submitted',
         'treasury.transfer.workflow_started',

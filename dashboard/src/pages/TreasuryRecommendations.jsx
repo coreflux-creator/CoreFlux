@@ -136,6 +136,7 @@ export default function TreasuryRecommendations() {
   const handoff = async (row, action) => {
     const paymentId = row.payment?.id;
     if (!paymentId) return;
+    const beforeStatus = row.payment?.status || null;
     let body = {};
     if (action === 'reject') {
       const reason = window.prompt('Reason for rejection');
@@ -146,13 +147,32 @@ export default function TreasuryRecommendations() {
     setFlash(null);
     try {
       const res = await api.post(`/api/treasury_payments.php?action=${action}&id=${paymentId}`, body);
+      await logHandoff(row, action, 'success', beforeStatus, res.status || (res.approved ? 'approved' : beforeStatus), res, null);
       recommendations.reload();
       decisionHistory.reload();
       setFlash({ kind: 'success', message: `Payment workflow ${action} completed. Status: ${res.status || (res.approved ? 'approved' : 'updated')}.` });
     } catch (err) {
+      await logHandoff(row, action, 'failure', beforeStatus, beforeStatus, {}, err.message || String(err));
       setFlash({ kind: 'error', message: err.message || String(err) });
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const logHandoff = async (row, action, result, beforeStatus, afterStatus, workflowResponse, errorText) => {
+    try {
+      await api.post('/api/treasury_recommendations.php?action=handoff_log', {
+        recommendation_id: row.id,
+        payment_id: row.payment?.id,
+        handoff_action: action,
+        result,
+        payment_status_before: beforeStatus,
+        payment_status_after: afterStatus,
+        workflow_response: workflowResponse || {},
+        error_text: errorText || null,
+      });
+    } catch (logErr) {
+      console.warn('Recommendation handoff log failed', logErr);
     }
   };
 
@@ -335,6 +355,7 @@ function RecommendationRow({ row, currency, decision, busy, onAccept, onDismiss,
   const decidedAt = typeof decision === 'object' ? decision?.decided_at : null;
   const evidenceHash = typeof decision === 'object' ? decision?.evidence_hash : null;
   const handoffActions = accepted ? recommendationHandoffActions(row) : [];
+  const latestHandoff = row.latest_handoff;
   return (
     <article data-testid={`treasury-recommendation-${payment.id || row.id}`}
              style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, background: '#fff', display: 'grid', gap: 10 }}>
@@ -379,6 +400,10 @@ function RecommendationRow({ row, currency, decision, busy, onAccept, onDismiss,
         <Evidence label="Workflow handoff" value={`${gate.workflow_resource || 'treasury.payment'} / ${gate.next_workflow_step || 'review'}`} />
         <Evidence label="Approval permission" value={gate.approval_permission || 'treasury.approve_payment'} />
         <Evidence label="Decision evidence hash" value={evidenceHash || 'None'} />
+        <Evidence
+          label="Latest handoff"
+          value={latestHandoff ? `${latestHandoff.handoff_action} / ${latestHandoff.result} / ${latestHandoff.payment_status_before || 'N/A'} -> ${latestHandoff.payment_status_after || 'N/A'}` : 'None'}
+        />
       </div>
       <div data-testid={`treasury-recommendation-handoff-${payment.id}`}
            style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid #e2e8f0', paddingTop: 10 }}>

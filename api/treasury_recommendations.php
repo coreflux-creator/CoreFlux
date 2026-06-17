@@ -89,11 +89,20 @@ if ($method === 'GET') {
         array_map(static fn(array $row): string => (string) $row['id'], $recommendations),
         array_values(array_filter(array_map(static fn(array $row): ?int => $row['payment']['id'] ?? null, $recommendations)))
     );
+    $handoffsByRecommendation = treasuryRecommendationLatestHandoffs(
+        $tid,
+        array_map(static fn(array $row): string => (string) $row['id'], $recommendations),
+        array_values(array_filter(array_map(static fn(array $row): ?int => $row['payment']['id'] ?? null, $recommendations)))
+    );
     foreach ($recommendations as &$recommendation) {
         $decision = $decisionsByRecommendation[$recommendation['id']]
             ?? $decisionsByRecommendation['payment:' . ($recommendation['payment']['id'] ?? 0)]
             ?? null;
+        $handoff = $handoffsByRecommendation[$recommendation['id']]
+            ?? $handoffsByRecommendation['payment:' . ($recommendation['payment']['id'] ?? 0)]
+            ?? null;
         $recommendation['latest_decision'] = $decision;
+        $recommendation['latest_handoff'] = $handoff;
     }
     unset($recommendation);
     $summary = treasuryRecommendationSummary($recommendations);
@@ -121,6 +130,8 @@ if ($method === 'GET') {
         'auditability' => [
             'decision_events' => ['treasury.recommendation.accepted', 'treasury.recommendation.dismissed'],
             'decision_ledger' => 'treasury_recommendation_decisions',
+            'handoff_event' => 'treasury.recommendation.handoff_logged',
+            'handoff_ledger' => 'treasury_recommendation_handoffs',
             'money_movement_gate' => 'Treasury recommendations are advisory. Payments still require submit, approval, and execution through treasury_payments.php.',
             'policy_version' => $reservePolicy['policy_version'],
             'effective_date' => $reservePolicy['effective_date'],
@@ -181,6 +192,44 @@ if ($method === 'POST' && in_array($action, ['accept', 'dismiss'], true)) {
         'recommendation_id' => $recommendationId,
         'payment_id' => $paymentId,
         'decision' => $decision,
+    ]);
+}
+
+if ($method === 'POST' && $action === 'handoff_log') {
+    rbac_legacy_require($user, 'treasury.payment.manage');
+    $body = api_json_body();
+    $recommendationId = trim((string) ($body['recommendation_id'] ?? ''));
+    if ($recommendationId === '') api_error('recommendation_id required', 400);
+    $paymentId = isset($body['payment_id']) ? max(0, (int) $body['payment_id']) : null;
+    $handoffAction = (string) ($body['handoff_action'] ?? '');
+    if (!in_array($handoffAction, ['submit', 'approve', 'reject', 'execute'], true)) {
+        api_error('handoff_action must be submit, approve, reject, or execute', 400);
+    }
+    $result = (string) ($body['result'] ?? '');
+    if (!in_array($result, ['success', 'failure'], true)) {
+        api_error('result must be success or failure', 400);
+    }
+
+    $handoff = treasuryRecommendationRecordHandoff($tid, $actorUserId, $recommendationId, $paymentId, $handoffAction, $result, $body);
+    platformAuditLogWrite($tid, $actorUserId, 'treasury.recommendation.handoff_logged', $paymentId ?: null, [
+        'recommendation_id' => $recommendationId,
+        'payment_id' => $paymentId,
+        'handoff_id' => $handoff['id'],
+        'handoff_action' => $handoffAction,
+        'result' => $result,
+        'payment_status_before' => $handoff['payment_status_before'],
+        'payment_status_after' => $handoff['payment_status_after'],
+        'source' => 'treasury_recommendations',
+    ], [
+        'object_type' => 'treasury_recommendation_handoff',
+        'source' => 'treasury_recommendations',
+        'after' => $handoff,
+    ]);
+
+    api_ok([
+        'ok' => true,
+        'handoff' => $handoff,
+        'audit_event' => 'treasury.recommendation.handoff_logged',
     ]);
 }
 
@@ -538,6 +587,128 @@ function treasuryRecommendationLatestDecisions(int $tenantId, array $recommendat
         if (!isset($out[$decision['recommendation_id']])) $out[$decision['recommendation_id']] = $decision;
         if ($decision['payment_id'] !== null && !isset($out['payment:' . $decision['payment_id']])) {
             $out['payment:' . $decision['payment_id']] = $decision;
+        }
+    }
+    return $out;
+}
+
+function treasuryRecommendationRecordHandoff(
+    int $tenantId,
+    ?int $actorUserId,
+    string $recommendationId,
+    ?int $paymentId,
+    string $handoffAction,
+    string $result,
+    array $body
+): array {
+    $pdo = getDB();
+    $statusBefore = isset($body['payment_status_before']) ? substr((string) $body['payment_status_before'], 0, 40) : null;
+    $statusAfter = isset($body['payment_status_after']) ? substr((string) $body['payment_status_after'], 0, 40) : null;
+    $workflowResponse = is_array($body['workflow_response'] ?? null) ? $body['workflow_response'] : [];
+    $workflowResponseJson = json_encode($workflowResponse, JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION) ?: '{}';
+    $errorText = isset($body['error_text']) ? substr((string) $body['error_text'], 0, 1000) : null;
+
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO treasury_recommendation_handoffs
+                (tenant_id, recommendation_id, payment_id, handoff_action, result,
+                 payment_status_before, payment_status_after, workflow_response_json,
+                 error_text, actor_user_id)
+             VALUES
+                (:tenant_id, :recommendation_id, :payment_id, :handoff_action, :result,
+                 :payment_status_before, :payment_status_after, :workflow_response_json,
+                 :error_text, :actor_user_id)'
+        );
+        $stmt->execute([
+            'tenant_id' => $tenantId,
+            'recommendation_id' => $recommendationId,
+            'payment_id' => $paymentId ?: null,
+            'handoff_action' => $handoffAction,
+            'result' => $result,
+            'payment_status_before' => $statusBefore,
+            'payment_status_after' => $statusAfter,
+            'workflow_response_json' => $workflowResponseJson,
+            'error_text' => $errorText,
+            'actor_user_id' => $actorUserId,
+        ]);
+        $id = (int) $pdo->lastInsertId();
+    } catch (\Throwable $e) {
+        error_log('[treasury.recommendations] handoff ledger write failed: ' . $e->getMessage());
+        $id = 0;
+    }
+
+    return [
+        'id' => $id,
+        'recommendation_id' => $recommendationId,
+        'payment_id' => $paymentId,
+        'handoff_action' => $handoffAction,
+        'result' => $result,
+        'payment_status_before' => $statusBefore,
+        'payment_status_after' => $statusAfter,
+        'workflow_response' => $workflowResponse,
+        'error_text' => $errorText,
+        'actor_user_id' => $actorUserId,
+    ];
+}
+
+function treasuryRecommendationLatestHandoffs(int $tenantId, array $recommendationIds, array $paymentIds): array
+{
+    $recommendationIds = array_values(array_unique(array_filter(array_map('strval', $recommendationIds))));
+    $paymentIds = array_values(array_unique(array_filter(array_map('intval', $paymentIds))));
+    if (!$recommendationIds && !$paymentIds) return [];
+
+    $pdo = getDB();
+    try {
+        $where = [];
+        $params = ['tenant_id' => $tenantId];
+        if ($recommendationIds) {
+            $ph = [];
+            foreach ($recommendationIds as $i => $id) {
+                $key = 'hrid' . $i;
+                $ph[] = ':' . $key;
+                $params[$key] = $id;
+            }
+            $where[] = 'recommendation_id IN (' . implode(',', $ph) . ')';
+        }
+        if ($paymentIds) {
+            $ph = [];
+            foreach ($paymentIds as $i => $id) {
+                $key = 'hpid' . $i;
+                $ph[] = ':' . $key;
+                $params[$key] = $id;
+            }
+            $where[] = 'payment_id IN (' . implode(',', $ph) . ')';
+        }
+        $stmt = $pdo->prepare(
+            'SELECT id, recommendation_id, payment_id, handoff_action, result,
+                    payment_status_before, payment_status_after, error_text,
+                    actor_user_id, attempted_at
+               FROM treasury_recommendation_handoffs
+              WHERE tenant_id = :tenant_id AND (' . implode(' OR ', $where) . ')
+              ORDER BY attempted_at DESC, id DESC'
+        );
+        $stmt->execute($params);
+    } catch (\Throwable $_) {
+        return [];
+    }
+
+    $out = [];
+    while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+        $handoff = [
+            'id' => (int) $row['id'],
+            'recommendation_id' => (string) $row['recommendation_id'],
+            'payment_id' => $row['payment_id'] !== null ? (int) $row['payment_id'] : null,
+            'handoff_action' => (string) $row['handoff_action'],
+            'result' => (string) $row['result'],
+            'payment_status_before' => $row['payment_status_before'],
+            'payment_status_after' => $row['payment_status_after'],
+            'error_text' => $row['error_text'],
+            'actor_user_id' => $row['actor_user_id'] !== null ? (int) $row['actor_user_id'] : null,
+            'attempted_at' => $row['attempted_at'],
+        ];
+        if (!isset($out[$handoff['recommendation_id']])) $out[$handoff['recommendation_id']] = $handoff;
+        if ($handoff['payment_id'] !== null && !isset($out['payment:' . $handoff['payment_id']])) {
+            $out['payment:' . $handoff['payment_id']] = $handoff;
         }
     }
     return $out;

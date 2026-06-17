@@ -28,6 +28,7 @@ $policyLib = (string) file_get_contents("{$ROOT}/modules/treasury/lib/policy.php
 $policyAlias = (string) file_get_contents("{$ROOT}/modules/treasury/api/policy.php");
 $policyMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/008_treasury_policy.sql");
 $decisionMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/009_treasury_recommendation_decisions.sql");
+$handoffMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/010_treasury_recommendation_handoffs.sql");
 $page = (string) file_get_contents("{$ROOT}/dashboard/src/pages/TreasuryRecommendations.jsx");
 $overview = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryOverview.jsx");
 $module = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryModule.jsx");
@@ -79,6 +80,27 @@ $a('GET exposes decision history endpoint',
     str_contains($endpoint, "if (\$action === 'decisions')")
     && str_contains($endpoint, 'function treasuryRecommendationDecisionHistory(')
     && str_contains($endpoint, "'rows' => treasuryRecommendationDecisionHistory(\$tid, \$limit)"));
+
+echo "\nHandoff ledger\n";
+$a('migration creates recommendation handoff ledger',
+    str_contains($handoffMig, 'CREATE TABLE IF NOT EXISTS treasury_recommendation_handoffs')
+    && str_contains($handoffMig, "handoff_action ENUM('submit','approve','reject','execute') NOT NULL")
+    && str_contains($handoffMig, "result ENUM('success','failure') NOT NULL")
+    && str_contains($handoffMig, 'payment_status_before VARCHAR(40) NULL')
+    && str_contains($handoffMig, 'payment_status_after VARCHAR(40) NULL')
+    && str_contains($handoffMig, 'workflow_response_json MEDIUMTEXT NULL')
+    && str_contains($handoffMig, 'idx_trh_tenant_recommendation'));
+$a('POST logs handoff attempts separately from payment workflow',
+    str_contains($endpoint, "\$action === 'handoff_log'")
+    && str_contains($endpoint, 'function treasuryRecommendationRecordHandoff(')
+    && str_contains($endpoint, 'INSERT INTO treasury_recommendation_handoffs')
+    && str_contains($endpoint, "'treasury.recommendation.handoff_logged'")
+    && str_contains($endpoint, "'object_type' => 'treasury_recommendation_handoff'"));
+$a('GET returns latest handoff per recommendation/payment',
+    str_contains($endpoint, 'function treasuryRecommendationLatestHandoffs(')
+    && str_contains($endpoint, "\$recommendation['latest_handoff'] = \$handoff")
+    && str_contains($endpoint, "'handoff_ledger' => 'treasury_recommendation_handoffs'")
+    && str_contains($endpoint, "'payment:' . \$handoff['payment_id']"));
 
 echo "\nReserve policy and evidence\n";
 foreach ([
@@ -146,6 +168,7 @@ $a('accept/dismiss decisions write canonical audit',
 $a('manifest declares recommendation audit events',
     str_contains($manifest, "'treasury.recommendation.accepted'")
     && str_contains($manifest, "'treasury.recommendation.dismissed'")
+    && str_contains($manifest, "'treasury.recommendation.handoff_logged'")
     && str_contains($manifest, "'treasury.policy.updated'"));
 
 echo "\nUI workbench\n";
@@ -188,6 +211,12 @@ $a('UI handoff buttons require accepted decisions and call payment workflow API'
     str_contains($page, 'const accepted = decisionLabel === \'accept\'')
     && str_contains($page, 'recommendationHandoffActions(row)')
     && str_contains($page, '/api/treasury_payments.php?action=${action}&id=${paymentId}')
+    && str_contains($page, "/api/treasury_recommendations.php?action=handoff_log")
+    && str_contains($page, "await logHandoff(row, action, 'success'")
+    && str_contains($page, "await logHandoff(row, action, 'failure'")
+    && str_contains($page, 'payment_status_before: beforeStatus')
+    && str_contains($page, 'payment_status_after: afterStatus')
+    && str_contains($page, 'Latest handoff')
     && str_contains($page, "status === 'draft' && action === 'submit_for_approval'")
     && str_contains($page, "status === 'pending_approval'")
     && str_contains($page, "['approved', 'scheduled'].includes(status) && action === 'pay_now'")
