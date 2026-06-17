@@ -249,6 +249,11 @@ $a('UI renders cash envelope, gates, evidence, and audit decisions',
     && str_contains($page, 'data-testid={`treasury-recommendation-evidence-${payment.id}`}')
     && str_contains($page, 'action=${action}')
     && str_contains($page, "recommendation_id: row.id")
+    && str_contains($page, 'projection: row.evidence?.projection')
+    && str_contains($page, 'variance_context: row.evidence?.variance_context')
+    && str_contains($page, 'source_detail_summary: row.evidence?.source_detail_summary')
+    && str_contains($page, 'source_classification_totals: row.evidence?.source_classification_totals')
+    && str_contains($page, 'freshness_control: row.freshness_control')
     && str_contains($page, 'row.latest_decision')
     && str_contains($page, 'recommendations.reload()')
     && str_contains($page, 'Decision evidence hash'));

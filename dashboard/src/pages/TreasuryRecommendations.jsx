@@ -124,6 +124,11 @@ export default function TreasuryRecommendations() {
           reserve_policy: row.evidence?.reserve_policy,
           cash_envelope: row.cash_impact,
           approval_gate: row.approval_gate,
+          projection: row.evidence?.projection,
+          variance_context: row.evidence?.variance_context,
+          source_detail_summary: row.evidence?.source_detail_summary,
+          source_classification_totals: row.evidence?.source_classification_totals,
+          freshness_control: row.freshness_control,
         },
       });
       setDecisions((prev) => ({ ...prev, [row.id]: { decision: action, pending: true } }));
