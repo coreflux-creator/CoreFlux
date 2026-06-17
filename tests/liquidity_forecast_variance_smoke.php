@@ -66,7 +66,7 @@ $a('module alias exists and delegates', is_readable($aliasPath)
 
 echo "\nUI\n";
 $a('LiquidityForecast reads variance endpoint',
-    str_contains($ui, "useApi('/api/liquidity_forecast_variance.php?days=30')"));
+    str_contains($ui, "useApi('/api/v1/treasury/liquidity-forecast-variance?days=30')"));
 $a('Forecast accuracy panel renders metrics and exceptions',
     str_contains($ui, 'data-testid="liquidity-forecast-accuracy"')
     && str_contains($ui, 'data-testid="liquidity-accuracy-metrics"')

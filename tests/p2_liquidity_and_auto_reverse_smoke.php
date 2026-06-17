@@ -93,7 +93,7 @@ echo "\nUI — LiquidityForecast.jsx page\n";
 $pgPath = "{$ROOT}/dashboard/src/pages/LiquidityForecast.jsx";
 $pg = (string) file_get_contents($pgPath);
 $assert('default export',                          strpos($pg, 'export default function LiquidityForecast') !== false);
-$assert('reads /api/liquidity_forecast.php',       strpos($pg, "/api/liquidity_forecast.php?days=") !== false);
+$assert('reads /api/v1/treasury/liquidity-forecast', strpos($pg, "/api/v1/treasury/liquidity-forecast?days=") !== false);
 $assert('window selector testid + 4 horizons',
     strpos($pg, 'data-testid="liquidity-window-select"') !== false
     && strpos($pg, '<option value={30}>') !== false
@@ -112,7 +112,7 @@ $assert('5 KPI tiles wired',
 $assert('per-day bar testid template',             strpos($pg, 'data-testid={`liquidity-daily-bar-${i}`}') !== false);
 $assert('no-banks operator nudge',                 strpos($pg, 'data-testid="liquidity-no-banks"') !== false);
 $assert('forecast accuracy panel reads variance endpoint',
-    strpos($pg, "useApi('/api/liquidity_forecast_variance.php?days=30')") !== false
+    strpos($pg, "useApi('/api/v1/treasury/liquidity-forecast-variance?days=30')") !== false
     && strpos($pg, 'data-testid="liquidity-forecast-accuracy"') !== false
     && strpos($pg, 'data-testid="liquidity-accuracy-metrics"') !== false);
 

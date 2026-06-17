@@ -6,12 +6,12 @@ import { TrendingDown, TrendingUp, AlertTriangle, Wallet, FileSearch } from 'luc
  * Liquidity Forecast page (P2).
  * Renders a 30/60/90-day cash projection: starting cash → daily inflows/
  * outflows → ending balance + runway-to-zero alert. Reads
- * /api/liquidity_forecast.php.
+ * /api/v1/treasury/liquidity-forecast.
  */
 export default function LiquidityForecast() {
   const [days, setDays] = useState(90);
-  const { data, loading, error } = useApi(`/api/liquidity_forecast.php?days=${days}`);
-  const variance = useApi('/api/liquidity_forecast_variance.php?days=30');
+  const { data, loading, error } = useApi(`/api/v1/treasury/liquidity-forecast?days=${days}`);
+  const variance = useApi('/api/v1/treasury/liquidity-forecast-variance?days=30');
 
   if (loading) return <p data-testid="liquidity-loading">Loading forecast…</p>;
   if (error)   return <p className="error" data-testid="liquidity-error">{error.message}</p>;
