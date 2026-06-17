@@ -33,6 +33,7 @@ export default function TreasuryRecommendations() {
   const [loadedPolicyVersion, setLoadedPolicyVersion] = useState(null);
   const policyDefaults = useApi('/api/treasury_policy.php');
   const decisionHistory = useApi('/api/treasury_recommendations.php?action=decisions&limit=25');
+  const exceptionList = useApi('/api/treasury_recommendations.php?action=exceptions&status=all&limit=50');
 
   useEffect(() => {
     const saved = policyDefaults.data?.policy;
@@ -125,6 +126,7 @@ export default function TreasuryRecommendations() {
       setDecisions((prev) => ({ ...prev, [row.id]: { decision: action, pending: true } }));
       recommendations.reload();
       decisionHistory.reload();
+      exceptionList.reload();
       setFlash({ kind: 'success', message: `Recommendation ${action === 'accept' ? 'accepted' : 'dismissed'} and audit logged to the decision ledger.` });
     } catch (err) {
       setFlash({ kind: 'error', message: err.message || String(err) });
@@ -150,6 +152,7 @@ export default function TreasuryRecommendations() {
       await logHandoff(row, action, 'success', beforeStatus, res.status || (res.approved ? 'approved' : beforeStatus), res, null);
       recommendations.reload();
       decisionHistory.reload();
+      exceptionList.reload();
       setFlash({ kind: 'success', message: `Payment workflow ${action} completed. Status: ${res.status || (res.approved ? 'approved' : 'updated')}.` });
     } catch (err) {
       await logHandoff(row, action, 'failure', beforeStatus, beforeStatus, {}, err.message || String(err));
@@ -173,6 +176,45 @@ export default function TreasuryRecommendations() {
       });
     } catch (logErr) {
       console.warn('Recommendation handoff log failed', logErr);
+    }
+  };
+
+  const exceptionAction = async (action, row, existingException = null) => {
+    setBusyId(`${row.id}:${action}`);
+    setFlash(null);
+    try {
+      let body = {};
+      if (action === 'open_exception') {
+        body = {
+          recommendation_id: row.id,
+          payment_id: row.payment?.id,
+          recommendation_action: row.recommendation_action,
+          severity: recommendationSeverity(row),
+          reason: row.rationale || 'Treasury recommendation requires review',
+          policy_version: row.approval_gate?.policy_version,
+        };
+      } else if (action === 'assign_exception') {
+        const owner = window.prompt('Owner user id');
+        if (!owner) return;
+        body = { exception_id: existingException?.id, owner_user_id: Number(owner) };
+      } else {
+        const note = window.prompt(action === 'resolve_exception' ? 'Resolution note' : 'Dismissal note');
+        if (!note) return;
+        body = {
+          exception_id: existingException?.id,
+          resolution_note: note,
+          status: action === 'dismiss_exception' ? 'dismissed' : 'resolved',
+        };
+        action = 'resolve_exception';
+      }
+      const res = await api.post(`/api/treasury_recommendations.php?action=${action}`, body);
+      recommendations.reload();
+      exceptionList.reload();
+      setFlash({ kind: 'success', message: `Exception ${res.exception?.status || 'updated'} and audit logged.` });
+    } catch (err) {
+      setFlash({ kind: 'error', message: err.message || String(err) });
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -292,7 +334,12 @@ export default function TreasuryRecommendations() {
             </div>
           </div>
 
-          <ReviewQueue rows={reviewQueue} currency={currency} />
+          <ReviewQueue
+            rows={reviewQueue}
+            currency={currency}
+            busyId={busyId}
+            onExceptionAction={exceptionAction}
+          />
 
           <div data-testid="treasury-recommendations-list" style={{ display: 'grid', gap: 10 }}>
             {rows.length === 0 && (
@@ -315,6 +362,7 @@ export default function TreasuryRecommendations() {
           </div>
 
           <DecisionHistory data={decisionHistory} />
+          <ExceptionPanel data={exceptionList} />
         </>
       )}
     </section>
@@ -446,7 +494,13 @@ function recommendationHandoffActions(row) {
   return [];
 }
 
-function ReviewQueue({ rows, currency }) {
+function recommendationSeverity(row) {
+  if (Number(row.cash_impact?.lowest_available_after_payment || 0) < 0) return 'critical';
+  if (['split', 'defer_or_escalate'].includes(row.recommendation_action)) return 'high';
+  return row.approval_gate?.material_recommendation ? 'medium' : 'medium';
+}
+
+function ReviewQueue({ rows, currency, busyId, onExceptionAction }) {
   return (
     <section data-testid="treasury-recommendations-review-queue"
              style={{ border: '1px solid #fee2e2', borderRadius: 8, padding: 14, background: '#fff7ed', display: 'grid', gap: 10 }}>
@@ -460,6 +514,23 @@ function ReviewQueue({ rows, currency }) {
         </div>
       )}
       {rows.slice(0, 6).map((row) => (
+        <ReviewQueueRow
+          key={row.id}
+          row={row}
+          currency={currency}
+          busy={String(busyId || '').startsWith(`${row.id}:`)}
+          onExceptionAction={onExceptionAction}
+        />
+      ))}
+    </section>
+  );
+}
+
+function ReviewQueueRow({ row, currency, busy, onExceptionAction }) {
+  const exception = row.latest_exception;
+  const openStatus = exception?.status;
+  const terminal = ['resolved', 'dismissed'].includes(openStatus);
+  return (
         <div key={row.id}
              data-testid={`treasury-review-queue-row-${row.payment?.id || row.id}`}
              style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 10, borderTop: '1px solid #fed7aa', paddingTop: 8, fontSize: 13 }}>
@@ -469,10 +540,65 @@ function ReviewQueue({ rows, currency }) {
               {row.recommendation_action} / {row.handoff?.next_workflow_step || 'review'} / {fmtMoney(row.payment?.amount, row.payment?.currency || currency)}
             </div>
             <div style={{ color: '#7c2d12', fontSize: 12 }}>{row.rationale}</div>
+            {exception && (
+              <div data-testid={`treasury-exception-status-${row.payment?.id || row.id}`} style={{ marginTop: 4, color: '#0f172a', fontSize: 12 }}>
+                Exception {exception.status} / severity {exception.severity} / owner {exception.owner_user_id || 'unassigned'}
+              </div>
+            )}
           </div>
-          <div style={{ color: '#64748b', fontSize: 12, textAlign: 'right' }}>
-            Policy v{row.approval_gate?.policy_version || 0}
+          <div style={{ color: '#64748b', fontSize: 12, textAlign: 'right', display: 'grid', gap: 6, justifyItems: 'end' }}>
+            <span>Policy v{row.approval_gate?.policy_version || 0}</span>
+            {!exception && (
+              <button type="button" className="btn btn--ghost" disabled={busy} onClick={() => onExceptionAction('open_exception', row)} data-testid={`treasury-exception-open-${row.payment?.id || row.id}`}>
+                Open
+              </button>
+            )}
+            {exception && !terminal && (
+              <>
+                <button type="button" className="btn btn--ghost" disabled={busy} onClick={() => onExceptionAction('assign_exception', row, exception)} data-testid={`treasury-exception-assign-${row.payment?.id || row.id}`}>
+                  Assign
+                </button>
+                <button type="button" className="btn btn--ghost" disabled={busy} onClick={() => onExceptionAction('resolve_exception', row, exception)} data-testid={`treasury-exception-resolve-${row.payment?.id || row.id}`}>
+                  Resolve
+                </button>
+                <button type="button" className="btn btn--ghost" disabled={busy} onClick={() => onExceptionAction('dismiss_exception', row, exception)} data-testid={`treasury-exception-dismiss-${row.payment?.id || row.id}`}>
+                  Dismiss
+                </button>
+              </>
+            )}
           </div>
+        </div>
+  );
+}
+
+function ExceptionPanel({ data }) {
+  const rows = data.data?.rows || [];
+  return (
+    <section data-testid="treasury-recommendations-exception-panel"
+             style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, background: '#fff', display: 'grid', gap: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
+        <strong style={{ fontSize: 14 }}>Exception ownership</strong>
+        <span style={{ color: '#64748b', fontSize: 12 }}>{rows.length} recent</span>
+      </div>
+      {data.loading && <div style={{ color: '#64748b', fontSize: 13 }}>Loading exceptions...</div>}
+      {data.error && <div className="error" style={{ fontSize: 13 }}>{data.error.message}</div>}
+      {!data.loading && !data.error && rows.length === 0 && (
+        <div data-testid="treasury-recommendations-exception-empty" style={{ color: '#64748b', fontSize: 13 }}>
+          No recommendation exceptions have been opened.
+        </div>
+      )}
+      {rows.slice(0, 10).map((row) => (
+        <div key={row.id}
+             data-testid={`treasury-exception-row-${row.id}`}
+             style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', gap: 10, borderTop: '1px solid #e2e8f0', paddingTop: 8, fontSize: 12 }}>
+          <strong style={{ color: row.status === 'resolved' ? '#047857' : row.severity === 'critical' ? '#b91c1c' : '#b45309' }}>{row.status}</strong>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: '#0f172a' }}>{row.recommendation_action} / payment {row.payment_id || 'N/A'} / owner {row.owner_user_id || 'unassigned'}</div>
+            <div style={{ color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {row.resolution_note || row.reason || 'No note'}
+            </div>
+          </div>
+          <span style={{ color: '#64748b', whiteSpace: 'nowrap' }}>Policy v{row.policy_version || 0}</span>
         </div>
       ))}
     </section>

@@ -29,6 +29,7 @@ $policyAlias = (string) file_get_contents("{$ROOT}/modules/treasury/api/policy.p
 $policyMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/008_treasury_policy.sql");
 $decisionMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/009_treasury_recommendation_decisions.sql");
 $handoffMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/010_treasury_recommendation_handoffs.sql");
+$exceptionMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/011_treasury_recommendation_exceptions.sql");
 $page = (string) file_get_contents("{$ROOT}/dashboard/src/pages/TreasuryRecommendations.jsx");
 $overview = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryOverview.jsx");
 $module = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryModule.jsx");
@@ -102,6 +103,39 @@ $a('GET returns latest handoff per recommendation/payment',
     && str_contains($endpoint, "'handoff_ledger' => 'treasury_recommendation_handoffs'")
     && str_contains($endpoint, "'payment:' . \$handoff['payment_id']"));
 
+echo "\nException ledger\n";
+$a('migration creates recommendation exception ledger',
+    str_contains($exceptionMig, 'CREATE TABLE IF NOT EXISTS treasury_recommendation_exceptions')
+    && str_contains($exceptionMig, 'recommendation_id VARCHAR(160) NOT NULL')
+    && str_contains($exceptionMig, "severity ENUM('low','medium','high','critical') NOT NULL DEFAULT 'medium'")
+    && str_contains($exceptionMig, "status ENUM('open','assigned','resolved','dismissed') NOT NULL DEFAULT 'open'")
+    && str_contains($exceptionMig, 'owner_user_id BIGINT UNSIGNED NULL')
+    && str_contains($exceptionMig, 'opened_by_user_id BIGINT UNSIGNED NULL')
+    && str_contains($exceptionMig, 'resolved_by_user_id BIGINT UNSIGNED NULL')
+    && str_contains($exceptionMig, 'idx_tre_tenant_recommendation')
+    && str_contains($exceptionMig, 'idx_tre_tenant_owner'));
+$a('GET exposes queryable recommendation exceptions',
+    str_contains($endpoint, "if (\$action === 'exceptions')")
+    && str_contains($endpoint, 'function treasuryRecommendationExceptions(')
+    && str_contains($endpoint, "'exception_ledger' => 'treasury_recommendation_exceptions'"));
+$a('GET returns latest exception per recommendation/payment',
+    str_contains($endpoint, 'function treasuryRecommendationLatestExceptions(')
+    && str_contains($endpoint, "\$recommendation['latest_exception'] = \$exception")
+    && str_contains($endpoint, "'payment:' . \$exception['payment_id']"));
+$a('POST manages exception lifecycle with ownership',
+    str_contains($endpoint, "in_array(\$action, ['open_exception', 'assign_exception', 'resolve_exception'], true)")
+    && str_contains($endpoint, 'function treasuryRecommendationHandleExceptionAction(')
+    && str_contains($endpoint, 'INSERT INTO treasury_recommendation_exceptions')
+    && str_contains($endpoint, 'owner_user_id')
+    && str_contains($endpoint, 'resolution_note')
+    && str_contains($endpoint, 'resolved_by_user_id'));
+$a('exception lifecycle is audited and remains advisory',
+    str_contains($endpoint, 'treasury.recommendation.exception_opened')
+    && str_contains($endpoint, 'treasury.recommendation.exception_assigned')
+    && str_contains($endpoint, 'treasury.recommendation.exception_resolved')
+    && str_contains($endpoint, "'object_type' => 'treasury_recommendation_exception'")
+    && str_contains($endpoint, "'money_movement_gate' => 'Exception resolution records human disposition only; payment movement remains gated by treasury_payments.php.'"));
+
 echo "\nReserve policy and evidence\n";
 foreach ([
     "'minimum_cash_reserve'",
@@ -169,6 +203,9 @@ $a('manifest declares recommendation audit events',
     str_contains($manifest, "'treasury.recommendation.accepted'")
     && str_contains($manifest, "'treasury.recommendation.dismissed'")
     && str_contains($manifest, "'treasury.recommendation.handoff_logged'")
+    && str_contains($manifest, "'treasury.recommendation.exception_opened'")
+    && str_contains($manifest, "'treasury.recommendation.exception_assigned'")
+    && str_contains($manifest, "'treasury.recommendation.exception_resolved'")
     && str_contains($manifest, "'treasury.policy.updated'"));
 
 echo "\nUI workbench\n";
@@ -207,6 +244,16 @@ $a('UI renders summary, review queue, handoff, and history panels',
     && str_contains($page, "/api/treasury_recommendations.php?action=decisions&limit=25")
     && str_contains($page, 'Workflow handoff')
     && str_contains($page, 'decisionHistory.reload()'));
+$a('UI renders exception ownership and lifecycle panel',
+    str_contains($page, "/api/treasury_recommendations.php?action=exceptions&status=all&limit=50")
+    && str_contains($page, 'function ExceptionPanel')
+    && str_contains($page, 'data-testid="treasury-recommendations-exception-panel"')
+    && str_contains($page, 'treasury-exception-open-')
+    && str_contains($page, 'treasury-exception-assign-')
+    && str_contains($page, 'treasury-exception-resolve-')
+    && str_contains($page, 'treasury-exception-dismiss-')
+    && str_contains($page, 'exceptionList.reload()')
+    && str_contains($page, 'recommendationSeverity(row)'));
 $a('UI handoff buttons require accepted decisions and call payment workflow API',
     str_contains($page, 'const accepted = decisionLabel === \'accept\'')
     && str_contains($page, 'recommendationHandoffActions(row)')

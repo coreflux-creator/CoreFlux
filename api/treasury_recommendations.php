@@ -32,6 +32,15 @@ if ($method === 'GET') {
             'decision_ledger' => 'treasury_recommendation_decisions',
         ]);
     }
+    if ($action === 'exceptions') {
+        $status = (string) (api_query('status') ?? 'open');
+        $limit = max(1, min(200, (int) (api_query('limit') ?? 100)));
+        api_ok([
+            'rows' => treasuryRecommendationExceptions($tid, $status, $limit),
+            'limit' => $limit,
+            'exception_ledger' => 'treasury_recommendation_exceptions',
+        ]);
+    }
 
     $today = date('Y-m-d');
     $storedPolicy = treasuryPolicyGet($tid);
@@ -94,6 +103,11 @@ if ($method === 'GET') {
         array_map(static fn(array $row): string => (string) $row['id'], $recommendations),
         array_values(array_filter(array_map(static fn(array $row): ?int => $row['payment']['id'] ?? null, $recommendations)))
     );
+    $exceptionsByRecommendation = treasuryRecommendationLatestExceptions(
+        $tid,
+        array_map(static fn(array $row): string => (string) $row['id'], $recommendations),
+        array_values(array_filter(array_map(static fn(array $row): ?int => $row['payment']['id'] ?? null, $recommendations)))
+    );
     foreach ($recommendations as &$recommendation) {
         $decision = $decisionsByRecommendation[$recommendation['id']]
             ?? $decisionsByRecommendation['payment:' . ($recommendation['payment']['id'] ?? 0)]
@@ -101,8 +115,12 @@ if ($method === 'GET') {
         $handoff = $handoffsByRecommendation[$recommendation['id']]
             ?? $handoffsByRecommendation['payment:' . ($recommendation['payment']['id'] ?? 0)]
             ?? null;
+        $exception = $exceptionsByRecommendation[$recommendation['id']]
+            ?? $exceptionsByRecommendation['payment:' . ($recommendation['payment']['id'] ?? 0)]
+            ?? null;
         $recommendation['latest_decision'] = $decision;
         $recommendation['latest_handoff'] = $handoff;
+        $recommendation['latest_exception'] = $exception;
     }
     unset($recommendation);
     $summary = treasuryRecommendationSummary($recommendations);
@@ -132,6 +150,12 @@ if ($method === 'GET') {
             'decision_ledger' => 'treasury_recommendation_decisions',
             'handoff_event' => 'treasury.recommendation.handoff_logged',
             'handoff_ledger' => 'treasury_recommendation_handoffs',
+            'exception_events' => [
+                'treasury.recommendation.exception_opened',
+                'treasury.recommendation.exception_assigned',
+                'treasury.recommendation.exception_resolved',
+            ],
+            'exception_ledger' => 'treasury_recommendation_exceptions',
             'money_movement_gate' => 'Treasury recommendations are advisory. Payments still require submit, approval, and execution through treasury_payments.php.',
             'policy_version' => $reservePolicy['policy_version'],
             'effective_date' => $reservePolicy['effective_date'],
@@ -230,6 +254,37 @@ if ($method === 'POST' && $action === 'handoff_log') {
         'ok' => true,
         'handoff' => $handoff,
         'audit_event' => 'treasury.recommendation.handoff_logged',
+    ]);
+}
+
+if ($method === 'POST' && in_array($action, ['open_exception', 'assign_exception', 'resolve_exception'], true)) {
+    rbac_legacy_require($user, 'treasury.payment.manage');
+    $body = api_json_body();
+    $exception = treasuryRecommendationHandleExceptionAction($tid, $actorUserId, $action, $body);
+    $event = [
+        'open_exception' => 'treasury.recommendation.exception_opened',
+        'assign_exception' => 'treasury.recommendation.exception_assigned',
+        'resolve_exception' => 'treasury.recommendation.exception_resolved',
+    ][$action];
+    platformAuditLogWrite($tid, $actorUserId, $event, $exception['payment_id'] ?: null, [
+        'exception_id' => $exception['id'],
+        'recommendation_id' => $exception['recommendation_id'],
+        'payment_id' => $exception['payment_id'],
+        'status' => $exception['status'],
+        'owner_user_id' => $exception['owner_user_id'],
+        'source' => 'treasury_recommendations',
+    ], [
+        'object_type' => 'treasury_recommendation_exception',
+        'source' => 'treasury_recommendations',
+        'after' => $exception,
+    ]);
+
+    api_ok([
+        'ok' => true,
+        'action' => $action,
+        'audit_event' => $event,
+        'exception' => $exception,
+        'money_movement_gate' => 'Exception resolution records human disposition only; payment movement remains gated by treasury_payments.php.',
     ]);
 }
 
@@ -452,6 +507,7 @@ function treasuryRecommendationReviewQueue(array $recommendations): array
             'approval_gate' => $row['approval_gate'] ?? [],
             'cash_impact' => $row['cash_impact'] ?? [],
             'latest_decision' => $row['latest_decision'] ?? null,
+            'latest_exception' => $row['latest_exception'] ?? null,
             'handoff' => [
                 'next_workflow_step' => $row['approval_gate']['next_workflow_step'] ?? 'review',
                 'workflow_resource' => $row['approval_gate']['workflow_resource'] ?? 'treasury.payment',
@@ -461,6 +517,15 @@ function treasuryRecommendationReviewQueue(array $recommendations): array
         ];
     }
     return $queue;
+}
+
+function treasuryRecommendationExceptionSeverity(array $row): string
+{
+    if ((float) ($row['cash_impact']['lowest_available_after_payment'] ?? 0) < 0) return 'critical';
+    if (($row['recommendation_action'] ?? '') === 'defer_or_escalate') return 'high';
+    if (($row['recommendation_action'] ?? '') === 'split') return 'high';
+    if (!empty($row['approval_gate']['material_recommendation'])) return 'medium';
+    return 'medium';
 }
 
 function treasuryRecommendationNeedsReview(array $row): bool
@@ -712,6 +777,202 @@ function treasuryRecommendationLatestHandoffs(int $tenantId, array $recommendati
         }
     }
     return $out;
+}
+
+function treasuryRecommendationHandleExceptionAction(int $tenantId, ?int $actorUserId, string $action, array $body): array
+{
+    if ($action === 'open_exception') {
+        $recommendationId = trim((string) ($body['recommendation_id'] ?? ''));
+        if ($recommendationId === '') api_error('recommendation_id required', 400);
+        $paymentId = isset($body['payment_id']) ? max(0, (int) $body['payment_id']) : null;
+        $recommendationAction = substr(trim((string) ($body['recommendation_action'] ?? 'review')), 0, 80) ?: 'review';
+        $severity = (string) ($body['severity'] ?? 'medium');
+        if (!in_array($severity, ['low', 'medium', 'high', 'critical'], true)) $severity = 'medium';
+        $reason = substr(trim((string) ($body['reason'] ?? 'Treasury recommendation requires review')), 0, 1000);
+        $policyVersion = isset($body['policy_version']) ? max(0, (int) $body['policy_version']) : null;
+        $ownerUserId = isset($body['owner_user_id']) ? max(0, (int) $body['owner_user_id']) : null;
+        $status = $ownerUserId ? 'assigned' : 'open';
+
+        $pdo = getDB();
+        try {
+            $stmt = $pdo->prepare(
+                'INSERT INTO treasury_recommendation_exceptions
+                    (tenant_id, recommendation_id, payment_id, recommendation_action,
+                     severity, status, reason, policy_version, owner_user_id,
+                     opened_by_user_id, assigned_at)
+                 VALUES
+                    (:tenant_id, :recommendation_id, :payment_id, :recommendation_action,
+                     :severity, :status, :reason, :policy_version, :owner_user_id,
+                     :opened_by_user_id, ' . ($ownerUserId ? 'NOW()' : 'NULL') . ')'
+            );
+            $stmt->execute([
+                'tenant_id' => $tenantId,
+                'recommendation_id' => $recommendationId,
+                'payment_id' => $paymentId ?: null,
+                'recommendation_action' => $recommendationAction,
+                'severity' => $severity,
+                'status' => $status,
+                'reason' => $reason,
+                'policy_version' => $policyVersion,
+                'owner_user_id' => $ownerUserId ?: null,
+                'opened_by_user_id' => $actorUserId,
+            ]);
+            return treasuryRecommendationExceptionById($tenantId, (int) $pdo->lastInsertId()) ?? [
+                'id' => 0,
+                'recommendation_id' => $recommendationId,
+                'payment_id' => $paymentId,
+                'status' => $status,
+                'owner_user_id' => $ownerUserId,
+            ];
+        } catch (\Throwable $e) {
+            error_log('[treasury.recommendations] exception open failed: ' . $e->getMessage());
+            api_error('Could not open recommendation exception', 500);
+        }
+    }
+
+    $exceptionId = max(0, (int) ($body['exception_id'] ?? 0));
+    if ($exceptionId <= 0) api_error('exception_id required', 400);
+    $pdo = getDB();
+    $before = treasuryRecommendationExceptionById($tenantId, $exceptionId);
+    if (!$before) api_error('Exception not found', 404);
+
+    if ($action === 'assign_exception') {
+        $ownerUserId = max(0, (int) ($body['owner_user_id'] ?? 0));
+        if ($ownerUserId <= 0) api_error('owner_user_id required', 400);
+        $pdo->prepare(
+            'UPDATE treasury_recommendation_exceptions
+                SET owner_user_id = :owner_user_id, status = "assigned", assigned_at = NOW()
+              WHERE tenant_id = :tenant_id AND id = :id'
+        )->execute(['owner_user_id' => $ownerUserId, 'tenant_id' => $tenantId, 'id' => $exceptionId]);
+        return treasuryRecommendationExceptionById($tenantId, $exceptionId) ?? $before;
+    }
+
+    $resolutionNote = substr(trim((string) ($body['resolution_note'] ?? '')), 0, 1000);
+    if ($resolutionNote === '') api_error('resolution_note required', 400);
+    $status = ((string) ($body['status'] ?? 'resolved')) === 'dismissed' ? 'dismissed' : 'resolved';
+    $pdo->prepare(
+        'UPDATE treasury_recommendation_exceptions
+            SET status = :status, resolution_note = :resolution_note,
+                resolved_by_user_id = :resolved_by_user_id, resolved_at = NOW()
+          WHERE tenant_id = :tenant_id AND id = :id'
+    )->execute([
+        'status' => $status,
+        'resolution_note' => $resolutionNote,
+        'resolved_by_user_id' => $actorUserId,
+        'tenant_id' => $tenantId,
+        'id' => $exceptionId,
+    ]);
+    return treasuryRecommendationExceptionById($tenantId, $exceptionId) ?? $before;
+}
+
+function treasuryRecommendationExceptionById(int $tenantId, int $exceptionId): ?array
+{
+    $stmt = getDB()->prepare(
+        'SELECT id, recommendation_id, payment_id, recommendation_action, severity,
+                status, reason, policy_version, owner_user_id, opened_by_user_id,
+                resolved_by_user_id, resolution_note, opened_at, assigned_at,
+                resolved_at, updated_at
+           FROM treasury_recommendation_exceptions
+          WHERE tenant_id = :tenant_id AND id = :id LIMIT 1'
+    );
+    $stmt->execute(['tenant_id' => $tenantId, 'id' => $exceptionId]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    return $row ? treasuryRecommendationHydrateException($row) : null;
+}
+
+function treasuryRecommendationExceptions(int $tenantId, string $status, int $limit): array
+{
+    $allowed = ['open', 'assigned', 'resolved', 'dismissed', 'all'];
+    if (!in_array($status, $allowed, true)) $status = 'open';
+    $sql = 'SELECT id, recommendation_id, payment_id, recommendation_action, severity,
+                   status, reason, policy_version, owner_user_id, opened_by_user_id,
+                   resolved_by_user_id, resolution_note, opened_at, assigned_at,
+                   resolved_at, updated_at
+              FROM treasury_recommendation_exceptions
+             WHERE tenant_id = :tenant_id'
+        . ($status === 'all' ? '' : ' AND status = :status')
+        . ' ORDER BY updated_at DESC, id DESC LIMIT ' . $limit;
+    $params = ['tenant_id' => $tenantId];
+    if ($status !== 'all') $params['status'] = $status;
+    $stmt = getDB()->prepare($sql);
+    $stmt->execute($params);
+    $rows = [];
+    while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+        $rows[] = treasuryRecommendationHydrateException($row);
+    }
+    return $rows;
+}
+
+function treasuryRecommendationLatestExceptions(int $tenantId, array $recommendationIds, array $paymentIds): array
+{
+    $recommendationIds = array_values(array_unique(array_filter(array_map('strval', $recommendationIds))));
+    $paymentIds = array_values(array_unique(array_filter(array_map('intval', $paymentIds))));
+    if (!$recommendationIds && !$paymentIds) return [];
+    try {
+        $where = [];
+        $params = ['tenant_id' => $tenantId];
+        if ($recommendationIds) {
+            $ph = [];
+            foreach ($recommendationIds as $i => $id) {
+                $key = 'erid' . $i;
+                $ph[] = ':' . $key;
+                $params[$key] = $id;
+            }
+            $where[] = 'recommendation_id IN (' . implode(',', $ph) . ')';
+        }
+        if ($paymentIds) {
+            $ph = [];
+            foreach ($paymentIds as $i => $id) {
+                $key = 'epid' . $i;
+                $ph[] = ':' . $key;
+                $params[$key] = $id;
+            }
+            $where[] = 'payment_id IN (' . implode(',', $ph) . ')';
+        }
+        $stmt = getDB()->prepare(
+            'SELECT id, recommendation_id, payment_id, recommendation_action, severity,
+                    status, reason, policy_version, owner_user_id, opened_by_user_id,
+                    resolved_by_user_id, resolution_note, opened_at, assigned_at,
+                    resolved_at, updated_at
+               FROM treasury_recommendation_exceptions
+              WHERE tenant_id = :tenant_id AND (' . implode(' OR ', $where) . ')
+              ORDER BY updated_at DESC, id DESC'
+        );
+        $stmt->execute($params);
+    } catch (\Throwable $_) {
+        return [];
+    }
+    $out = [];
+    while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+        $exception = treasuryRecommendationHydrateException($row);
+        if (!isset($out[$exception['recommendation_id']])) $out[$exception['recommendation_id']] = $exception;
+        if ($exception['payment_id'] !== null && !isset($out['payment:' . $exception['payment_id']])) {
+            $out['payment:' . $exception['payment_id']] = $exception;
+        }
+    }
+    return $out;
+}
+
+function treasuryRecommendationHydrateException(array $row): array
+{
+    return [
+        'id' => (int) $row['id'],
+        'recommendation_id' => (string) $row['recommendation_id'],
+        'payment_id' => $row['payment_id'] !== null ? (int) $row['payment_id'] : null,
+        'recommendation_action' => (string) $row['recommendation_action'],
+        'severity' => (string) $row['severity'],
+        'status' => (string) $row['status'],
+        'reason' => $row['reason'],
+        'policy_version' => $row['policy_version'] !== null ? (int) $row['policy_version'] : null,
+        'owner_user_id' => $row['owner_user_id'] !== null ? (int) $row['owner_user_id'] : null,
+        'opened_by_user_id' => $row['opened_by_user_id'] !== null ? (int) $row['opened_by_user_id'] : null,
+        'resolved_by_user_id' => $row['resolved_by_user_id'] !== null ? (int) $row['resolved_by_user_id'] : null,
+        'resolution_note' => $row['resolution_note'],
+        'opened_at' => $row['opened_at'],
+        'assigned_at' => $row['assigned_at'],
+        'resolved_at' => $row['resolved_at'],
+        'updated_at' => $row['updated_at'],
+    ];
 }
 
 function treasuryRecommendationDecisionHistory(int $tenantId, int $limit): array
