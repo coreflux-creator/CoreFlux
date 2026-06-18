@@ -1,5 +1,75 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (P1 Phase 5 + P2 Engagements + P2 CFO RBAC + P3 Auditor verify)
+
+### What shipped — P1 Phase 5 (Intuit hosted tokenizer in QboPaymentsCollectModal)
+
+- **`/app/modules/billing/ui/QboPaymentsCollectModal.jsx`** — two-mode collect:
+  - **Live tokenizer**: loads `https://js.intuit.com/v1/intuit-js`, calls `intuit.ipp.payments.init(publishableKey, {environment})`, then `intuit.ipp.payments.tokenize({card | bankAccount})` to obtain the opaque token client-side. Card data lives only in Intuit-controlled DOM never reaches CoreFlux.
+  - **Paste fallback**: operator pastes an off-band token (sandbox/dev). Always available.
+  - Mode picker appears only when `window.__INTUIT_PAYMENTS_KEY` is set; otherwise the modal gracefully degrades to paste mode with a helpful "register your pod's domain with Intuit" hint.
+  - Submit button is disabled until the SDK reports ready; loading + error states are surfaced via dedicated `data-testid`s (`qbo-payments-sdk-loading`, `qbo-payments-sdk-error`).
+- **`/app/spa.php`** — config bridge: reads `INTUIT_PAYMENTS_PUBLISHABLE_KEY` + `INTUIT_PAYMENTS_ENV` from server env, injects them onto `window.__INTUIT_PAYMENTS_KEY/__INTUIT_PAYMENTS_ENV` so the React bundle never has provider keys baked in.
+- **Smoke `qbo_intuit_tokenizer_smoke.php`** — **23 ✓** (modal surface, SDK URL, init/tokenize calls, card + bank payload shape, error envelope parse, SDK guards, paste fallback, spa.php bridge, **bundle integration** verified via `.deploy-version` pointer).
+
+### What shipped — P2 (Engagements module — fixed-fee project accounting)
+
+- **Migration `modules/engagements/migrations/001_init.sql`** — three tables:
+  - `engagements` — `client_name`, `project_name`, `currency`, `total_fee`, `invoiced_amount`, `paid_amount`, `status ENUM(draft, active, completed, archived)`, entity_id, start/end dates, JSON metadata, soft-delete via `archived_at`.
+  - `engagement_milestones` — `engagement_id`, denormalised `tenant_id` (leak guard), `sort_order`, `name`, `amount`, `target_date`, `status ENUM(pending, ready_to_invoice, invoiced, paid, cancelled)`, linked `invoice_id`, stage timestamps.
+  - `engagement_audit_log` — every transition with `actor_user_id` + JSON meta.
+- **`modules/engagements/lib/engagements.php`** — public surface:
+  - `engagementsList / engagementsGet / engagementsCreate / engagementsUpdate / engagementsArchive`
+  - `engagementsMilestonesList / engagementsMilestoneCreate / engagementsMilestoneUpdate / engagementsMilestoneAttachInvoice / engagementsMilestoneMarkPaid`
+  - Internal: `_engagementsRecalcRollups` (invoiced + paid amount totals; auto-flips engagement → `completed` when all non-cancelled milestones are `paid`), `_milestoneTransitionAllowed` (explicit state-machine graph rejecting illegal transitions like `pending → paid`).
+  - `engagementsAudit` — never blocks the caller.
+- **APIs** under `modules/engagements/api/`:
+  - `list.php` (GET list w/ filters & counts, POST create with bulk milestones in one round-trip)
+  - `detail.php` (GET, PATCH, DELETE = archive)
+  - `milestones.php` (POST create, PATCH update + special-cased `status=invoiced` path that attaches a `billing_invoices.id`)
+- **`modules/engagements/manifest.php`** — declares `id`, `name`, `rbac_module_key=engagements`, sidebar route. Cleanly registered in `Core\\ModuleRegistry` (validation errors → 0).
+- **Frontend**:
+  - `EngagementsList.jsx` — status tab strip (draft/active/completed/archived/all), sortable data table, dual-bar progress (invoiced / paid), inline status pills.
+  - `EngagementCreateModal` — bulk milestone editor with add/remove rows; auto-computes total fee from milestone sums.
+  - `EngagementsModule.jsx` — top-level Router wrapper.
+  - Mounted at `/modules/engagements/*` in `App.jsx`.
+  - `data-testid` coverage: `engagements-list`, `engagements-create-btn`, `engagements-tab-{key}`, `engagement-row-{id}`, `engagement-status-{id}`, `engagements-create-modal`, `engagements-create-{client,project,totalfee,currency,milestone-name-{i},milestone-amount-{i},milestone-add,submit}`, `engagements-create-error`.
+- **Smoke `engagements_module_smoke.php`** — **58 ✓** (migration shape, manifest, lib surface, API endpoints, **full lifecycle exercise**: create with 2 milestones → invoice both → mark both paid → engagement auto-flips to `completed` → archive locks edits → illegal `pending → paid` rejected → tenant isolation verified → audit log records all transitions).
+
+### What shipped — P2 (CFO Dashboard new-RBAC integration)
+
+- **`/app/session.php`** — `_buildModuleAccessMap($user, $tenantId, $membershipId)` now populates `user.module_access` keyed by module ID with the granted access level (`read | write | admin`). Pulls from `membership_module_access` for the active tenant_membership. Master admins + global admins get a wildcard map so client-side gates pass uniformly. Degrades silently to `{}` when the resolver class isn't loaded or the DB query trips on schema drift.
+- **`/app/dashboard/src/pages/CFOGuard.jsx`** — adds an explicit `module_access.cfo ∈ {read, write, admin}` check alongside the legacy role gate. Mirrors the backend `api_require_cfo()` policy (which already used `RBACResolver::moduleAccessFor`). Operators with an explicit "cfo" grant on their membership now reach the dashboard without `tenant_admin` or `master_admin`.
+- **Smoke `cfo_rbac_integration_smoke.php`** — **13 ✓** (session payload shape, helper signature, master_admin wildcard, graceful degradation, frontend guard layers, backend regression guard on `api_require_cfo()`).
+
+### What was already shipped (no action needed)
+
+- **P3 External Auditor view** — verified complete:
+  - Schema (`migrations/061_auditor_tokens.sql`), redemption flow (`/auditor.php`), admin CRUD (`/api/admin/auditor_tokens.php`), frontend admin UI (`AuditorTokensAdmin.jsx`), session enforcement (`auditor_mode` flag → `api_bootstrap.php` 403s every non-GET), site-wide read-only banner (`App.jsx:415`), audit log table, default landing on `/cfo/audit-snapshot`.
+  - Smoke `auditor_session_log_smoke.php` passes at 15/15.
+
+### Code reality (this session — added/edited)
+
+New:
+- `/app/modules/engagements/{manifest,lib/engagements,api/{list,detail,milestones},ui/{EngagementsModule,EngagementsList},migrations/001_init.sql}` (8 files)
+- `/app/tests/{engagements_module,cfo_rbac_integration,qbo_intuit_tokenizer}_smoke.php` (3 smokes)
+
+Edited:
+- `/app/modules/billing/ui/QboPaymentsCollectModal.jsx` (live tokenizer + paste fallback)
+- `/app/spa.php` (env → window bridge for Intuit publishable key)
+- `/app/session.php` (user.module_access map)
+- `/app/dashboard/src/pages/CFOGuard.jsx` (module-grant check)
+- `/app/dashboard/src/App.jsx` (Engagements route + import)
+
+Vite bundle: `index-uHQzITxY.js` / `index-BC5g6YJu.css` (sync_bundle.sh ran clean; `.deploy-version` updated).
+
+### Suite health
+**430/439 ✓** — same 9 pre-existing sandbox-boundary failures (5 AI gateway, Plaid live-curl, accounting_phase2_a7, legacy tenant_leak in `integration_triage.php:173`, treasury_csv_import). Zero new regressions.
+
+---
+
+
+
 ## Session — 2026-02 (P0/P1/P2 cleanup: webhooks, polling, Plaid charter, frontend tokenizer + toggles)
 
 ### What shipped — P0/P1 (Step 6 Phase 2 + Phase 4 + Phase 3)
