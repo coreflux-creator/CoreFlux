@@ -90,10 +90,10 @@ export default function TimesheetUpload() {
     setExtracting(true); setExtractError(null); setSaveResult(null);
     try {
       const upload = await uploadFileViaPresignedPost(
-        `/modules/time/api/upload.php?action=upload_url&file_name=${encodeURIComponent(file.name)}`,
+        `/api/v1/time/upload?action=upload_url&file_name=${encodeURIComponent(file.name)}`,
         file
       );
-      const r = await api.post('/modules/time/api/upload.php?action=extract', {
+      const r = await api.post('/api/v1/time/upload?action=extract', {
         storage_key: upload.storage_key,
         file_name:   file.name,
         mime_type:   file.type || 'application/pdf',
@@ -136,7 +136,7 @@ export default function TimesheetUpload() {
       for (const l of g.lines) {
         if (!l.include || l.saved_id) continue;
         try {
-          const r = await api.post('/modules/time/api/entries.php', {
+          const r = await api.post('/api/v1/time/entries', {
             placement_id:  l.placement_id,
             work_date:     l.work_date,
             category:      l.category,
@@ -155,7 +155,7 @@ export default function TimesheetUpload() {
     }
 
     if (savedIds.length > 0 && docId) {
-      try { await api.post(`/modules/time/api/upload.php?id=${docId}&action=consume`, { entry_ids: savedIds }); } catch (_) {}
+      try { await api.post(`/api/v1/time/upload?id=${docId}&action=consume`, { entry_ids: savedIds }); } catch (_) {}
       // Record sender→person alias per group so future emails from the same
       // address auto-resolve. Best-effort; no-op when there's no intake row.
       for (const g of groups) {
@@ -163,7 +163,7 @@ export default function TimesheetUpload() {
         const groupHadSave = g.lines.some((l) => l.saved_id);
         if (!groupHadSave) continue;
         try {
-          await api.post('/modules/time/api/intake.php?action=record_alias', {
+          await api.post('/api/v1/time/intake?action=record_alias', {
             document_id: docId,
             person_id:   g.person_id,
           });

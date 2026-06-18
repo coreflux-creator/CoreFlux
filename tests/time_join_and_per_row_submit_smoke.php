@@ -57,10 +57,10 @@ $a('derives drafts from entries.filter(status === draft)',
 $a('submitBusy state guards both single and bulk paths',
    str_contains($myTime, 'const [submitBusy, setSubmitBusy] = useState(null);'));
 $a('submitOne POSTs to per-entry submit action',
-   str_contains($myTime, 'api.post(`/modules/time/api/entries.php?action=submit&id=${entryId}`, {})'));
+   str_contains($myTime, 'api.post(`/api/v1/time/entries?action=submit&id=${entryId}`, {})'));
 $a('submitAll loops via Promise.allSettled (partial-failure tolerant)',
    str_contains($myTime, 'Promise.allSettled(')
-   && str_contains($myTime, 'drafts.map(e => api.post(`/modules/time/api/entries.php?action=submit&id=${e.id}`'));
+   && str_contains($myTime, 'drafts.map(e => api.post(`/api/v1/time/entries?action=submit&id=${e.id}`'));
 $a('submitAll requires confirmation',
    str_contains($myTime, 'if (!confirm(`Submit all ${drafts.length} draft entr'));
 $a('drafts panel only renders when drafts > 0',

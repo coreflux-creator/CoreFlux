@@ -68,8 +68,8 @@ $assert('Review table renders groups',                     strpos($ui, 'time-upl
 $assert('Save-all button',                                 strpos($ui, 'data-testid="time-upload-save"') !== false);
 $assert('Cancel button',                                   strpos($ui, 'data-testid="time-upload-cancel"') !== false);
 $assert('uses uploadFileViaPresignedPost',                 strpos($ui, 'uploadFileViaPresignedPost') !== false);
-$assert('posts to /modules/time/api/upload.php?action=extract', strpos($ui, '/modules/time/api/upload.php?action=extract') !== false);
-$assert('saves entries via entries.php POST',              strpos($ui, "'/modules/time/api/entries.php'") !== false);
+$assert('posts to v1 time upload?action=extract',          strpos($ui, '/api/v1/time/upload?action=extract') !== false);
+$assert('saves entries via v1 entries POST',               strpos($ui, "'/api/v1/time/entries'") !== false);
 $assert('marks doc consumed on save success',              strpos($ui, "action=consume") !== false);
 $assert('placement typeahead from active placements',      strpos($ui, "placements.php?status=active") !== false);
 $assert('source: ai_inbox stamp on saved entries',         preg_match("/source:\\s+'ai_inbox'/", $ui) === 1);

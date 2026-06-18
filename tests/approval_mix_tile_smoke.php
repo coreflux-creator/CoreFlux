@@ -74,7 +74,7 @@ $a('last_week div-by-zero guarded with max(1, ...)',
 echo "\n7. CFO tile wiring\n";
 $tile = (string) file_get_contents($ROOT . '/dashboard/src/components/ApprovalMixTile.jsx');
 $a('tile fetches the endpoint',
-   str_contains($tile, "useApi('/modules/time/api/approval_mix.php?weeks=12')"));
+   str_contains($tile, "useApi('/api/v1/time/approval-mix?weeks=12')"));
 $a('tile has data-testid for testing',
    str_contains($tile, "data-testid=\"cfo-approval-mix-tile\""));
 $a('per-channel sparklines testid scaffold',

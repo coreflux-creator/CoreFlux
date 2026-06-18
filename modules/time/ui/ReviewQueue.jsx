@@ -9,7 +9,7 @@ import ExportTemplatePicker from '../../../dashboard/src/components/ExportTempla
  * Two-eye: approver must NOT be the creator (enforced server-side).
  */
 export default function ReviewQueue() {
-  const path = '/modules/time/api/entries.php?status=pending_review&per_page=500';
+  const path = '/api/v1/time/entries?status=pending_review&per_page=500';
   const { data, loading, error, reload } = useApi(path);
   const rows = data?.rows ?? [];
 
@@ -21,14 +21,14 @@ export default function ReviewQueue() {
 
   const approve = async (id) => {
     setBusy(id); setUiError(null);
-    try { await api.post(`/modules/time/api/entries.php?action=approve&id=${id}`, {}); reload(); }
+    try { await api.post(`/api/v1/time/entries?action=approve&id=${id}`, {}); reload(); }
     catch (e) { setUiError(e); } finally { setBusy(null); }
   };
   const reject = async (id) => {
     const reason = prompt('Reject reason (required):');
     if (!reason) return;
     setBusy(id); setUiError(null);
-    try { await api.post(`/modules/time/api/entries.php?action=reject&id=${id}`, { reason }); reload(); }
+    try { await api.post(`/api/v1/time/entries?action=reject&id=${id}`, { reason }); reload(); }
     catch (e) { setUiError(e); } finally { setBusy(null); }
   };
 

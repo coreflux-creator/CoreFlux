@@ -229,6 +229,23 @@ foreach ([
         $file !== null && str_ends_with($file, "/modules/payroll/api/{$fileStem}.php"));
 }
 
+foreach ([
+    'approval-mix' => 'approval_mix',
+    'approval-tokens' => 'approval_tokens',
+    'categories' => 'categories',
+    'entries' => 'entries',
+    'feed' => 'feed',
+    'intake' => 'intake',
+    'periods' => 'periods',
+    'reports' => 'reports',
+    'settlement' => 'settlement',
+    'upload' => 'upload',
+] as $route => $fileStem) {
+    $file = apiRouterResolveFile('time', $route);
+    $assert("resolves time/{$route} module endpoint",
+        $file !== null && str_ends_with($file, "/modules/time/api/{$fileStem}.php"));
+}
+
 $file = apiRouterResolveFile('people', 'nope_does_not_exist');
 $assert("returns null for missing endpoint", $file === null);
 
