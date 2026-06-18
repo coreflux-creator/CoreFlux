@@ -128,8 +128,8 @@ $a('editor line test-ids',
     strpos($ui, 'accounting-recurring-line-credit-')  !== false);
 $a('balance status indicator',                         strpos($ui, 'accounting-recurring-balance-status') !== false);
 $a('save-template button',                             strpos($ui, 'accounting-recurring-save') !== false);
-$a('calls create POST on new path',                    strpos($ui, "api.post('/modules/accounting/api/recurring_journal_entries.php'") !== false);
-$a('calls replace_lines on edit',                      strpos($ui, "action=replace_lines&id=") !== false);
+$a('calls create POST on v1 path',                     strpos($ui, 'api.post(RECURRING_JOURNAL_ENTRIES_API') !== false);
+$a('calls replace_lines on edit',                      strpos($ui, '/replace_lines') !== false);
 
 echo "\nmanifest.php\n";
 $man = (string) file_get_contents(__DIR__ . '/../modules/accounting/manifest.php');

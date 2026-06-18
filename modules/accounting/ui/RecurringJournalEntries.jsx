@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 
+const RECURRING_JOURNAL_ENTRIES_API = '/api/v1/accounting/recurring-journal-entries';
+const ACCOUNTS_API = '/api/v1/accounting/accounts';
+
 /**
  * Recurring journal entries module.
  *  - /modules/accounting/recurring                → list + Run-due button
@@ -19,20 +22,20 @@ export default function RecurringJournalEntries() {
 }
 
 function List() {
-  const { data, loading, error, reload } = useApi('/modules/accounting/api/recurring_journal_entries.php');
+  const { data, loading, error, reload } = useApi(RECURRING_JOURNAL_ENTRIES_API);
   const [busy, setBusy]   = useState(null);
   const [runRes, setRun]  = useState(null);
   const [err, setErr]     = useState(null);
 
   const act = async (id, action) => {
     setBusy(`${action}-${id}`); setErr(null);
-    try { await api.post(`/modules/accounting/api/recurring_journal_entries.php?action=${action}&id=${id}`); reload(); }
+    try { await api.post(`${RECURRING_JOURNAL_ENTRIES_API}/${id}/${action}`); reload(); }
     catch (e) { setErr(e.message); }
     finally { setBusy(null); }
   };
   const runDue = async () => {
     setBusy('run-due'); setErr(null); setRun(null);
-    try { setRun(await api.post('/modules/accounting/api/recurring_journal_entries.php?action=run_due')); reload(); }
+    try { setRun(await api.post(`${RECURRING_JOURNAL_ENTRIES_API}/run_due`)); reload(); }
     catch (e) { setErr(e.message); }
     finally { setBusy(null); }
   };
@@ -120,9 +123,9 @@ function Editor({ edit }) {
   const [err, setErr]   = useState(null);
 
   useEffect(() => {
-    api.get('/modules/accounting/api/accounts.php').then(d => setAccounts(d?.rows || d?.accounts || []));
+    api.get(`${ACCOUNTS_API}?postable=1&active=1`).then(d => setAccounts(d?.rows || d?.accounts || []));
     if (edit && id) {
-      api.get(`/modules/accounting/api/recurring_journal_entries.php?id=${id}`).then(d => {
+      api.get(`${RECURRING_JOURNAL_ENTRIES_API}/${id}`).then(d => {
         if (d?.template) setForm({
           name: d.template.name || '',
           cadence: d.template.cadence || 'monthly',
@@ -152,11 +155,11 @@ function Editor({ edit }) {
         })),
       };
       if (edit && id) {
-        await api.put(`/modules/accounting/api/recurring_journal_entries.php?id=${id}`, payload);
-        await api.post(`/modules/accounting/api/recurring_journal_entries.php?action=replace_lines&id=${id}`, { lines: payload.lines });
+        await api.put(`${RECURRING_JOURNAL_ENTRIES_API}/${id}`, payload);
+        await api.post(`${RECURRING_JOURNAL_ENTRIES_API}/${id}/replace_lines`, { lines: payload.lines });
         navigate('/modules/accounting/recurring');
       } else {
-        await api.post('/modules/accounting/api/recurring_journal_entries.php', payload);
+        await api.post(RECURRING_JOURNAL_ENTRIES_API, payload);
         navigate('/modules/accounting/recurring');
       }
     } catch (e) { setErr(e.message); }
