@@ -98,7 +98,7 @@ ok('removedNow resets on every new runSync',
 ok('removeAccount() helper exists',
    str_contains($ui, 'const removeAccount = async'));
 ok('removeAccount POSTs to the right action endpoint',
-   str_contains($ui, '`/api/accounting.php?action=' . '$' . '{action}&provider=jaz`'));
+   str_contains($ui, '`${ACCOUNTING_INTEGRATIONS_API}?action=' . '$' . '{action}&provider=jaz`'));
 ok('Confirm prompt warns about journal lines + bank feed before hard delete',
    str_contains($ui, 'posted journal lines') && str_contains($ui, 'active bank feed'));
 ok('On 409 → confirm fallback offers Deactivate instead',

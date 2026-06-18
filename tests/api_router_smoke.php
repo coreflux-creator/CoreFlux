@@ -326,6 +326,7 @@ foreach ([
     'missing-dimensions' => 'missing_dimensions',
     'tax-mappings' => 'tax_mappings',
     'tax-form-export' => 'tax_form_export',
+    'integrations' => 'integrations',
 ] as $route => $fileStem) {
     $file = apiRouterResolveFile('accounting', $route);
     $assert("resolves accounting/{$route} module endpoint",
