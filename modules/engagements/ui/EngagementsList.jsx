@@ -129,7 +129,13 @@ function EngagementRow({ row, onChanged }) {
         </button>
       </td>
       <td>{row.client_name}</td>
-      <td>{row.project_name}</td>
+      <td>
+        <Link
+          to={`/modules/engagements/${row.id}`}
+          data-testid={`engagement-link-${row.id}`}
+          style={{ color: '#0f172a', textDecoration: 'none', fontWeight: 600 }}
+        >{row.project_name}</Link>
+      </td>
       <td style={{ textAlign: 'right' }}>{fmtMoney(row.total_fee, row.currency)}</td>
       <td style={{ textAlign: 'right' }}>{fmtMoney(row.invoiced_amount, row.currency)}</td>
       <td style={{ textAlign: 'right' }}>{fmtMoney(row.paid_amount, row.currency)}</td>

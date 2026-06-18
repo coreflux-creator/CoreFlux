@@ -1,5 +1,85 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Engagement detail + Revenue stream widget + JE-tx hygiene + RBAC persona wildcard)
+
+### What shipped — Features
+
+#### 1. Engagement detail page (`/modules/engagements/:id`)
+- **`/app/modules/engagements/ui/EngagementDetail.jsx`** — full per-engagement surface:
+  - **Editable header card**: client/project/dates/total fee/currency/description/notes → PATCH `/modules/engagements/api/detail.php?id=:id`.
+  - **Stat grid**: Total fee · Invoiced · Paid · Outstanding (computed) with dual-bar progress (invoiced/paid).
+  - **Milestones editor** (`MilestonesEditor`): full CRUD with per-row Edit button.
+    - **Add milestone** inline row → POST `/milestones.php?engagement_id=…`.
+    - **Edit milestone** swaps row to inline form with name/amount/target_date/description.
+    - **State transition CTAs** per milestone, gated by `canMarkReady` / `canInvoice` / `canMarkPaid` / `canCancel`:
+      - `pending → ready_to_invoice` via PATCH `{status: 'ready_to_invoice'}`.
+      - `pending|ready → invoiced` via POST `/invoice_milestone.php` (the bridge from the previous session).
+      - `invoiced → paid` via PATCH `{status: 'paid'}` (out-of-band escape hatch).
+      - Cancel transitions via PATCH `{status: 'cancelled'}`.
+    - `window.confirm` gates on every destructive/billing action.
+  - **Archive** button in the header (DELETE on detail.php) — engagement becomes read-only (all CTAs hidden when status='archived').
+  - **`/app/modules/engagements/ui/EngagementsModule.jsx`** — route added: `<Route path=":id" element={<EngagementDetail />} />`.
+  - **`EngagementsList.jsx`** — project_name now renders as a `<Link>` to the detail page (`engagement-link-{id}` testid).
+  - `data-testid` coverage: `engagement-detail`, `engagement-detail-back`, `engagement-detail-edit`, `engagement-detail-save`, `engagement-detail-archive`, `engagement-detail-status`, `engagement-detail-add-milestone`, `engagement-detail-milestones-table`, `engagement-detail-add-submit`, plus per-milestone IDs `milestone-detail-row-{id}`, `milestone-detail-invoice-btn-{id}`, `milestone-mark-ready-{id}`, `milestone-detail-markpaid-{id}`, `milestone-detail-cancel-{id}`, `milestone-detail-edit-{id}`, `milestone-edit-{name,amount,date,save,cancel}-{id}`.
+
+#### 2. Revenue stream widget (CFO Dashboard)
+- **`/app/api/cfo_revenue_stream.php`** — new endpoint:
+  - GET `?weeks=N` (clamped 1..26, default 4).
+  - Splits invoiced GMV into **four buckets**:
+    1. **T&M billing** — `billing_invoice_lines.source_type ∈ ('time_entry','placement','timesheet','time')`.
+    2. **Fixed-fee Engagements** — `source_type = 'engagement_milestone'`.
+    3. **Manual invoices** — everything else (operator-typed lines).
+    4. **QBO recon'd** — `billing_payments WHERE source_system='qbo'` net (payments routed around CoreFlux that we picked up via Two-Way Sync).
+  - **Weekly trend** via `YEARWEEK(issue_date, 3)` ISO mode for stacked-bar chart.
+  - Excludes `draft`/`void`/`cancelled` invoices.
+  - **Schema-defensive**: catches PDO exceptions when older pods lack `source_type` on `billing_invoice_lines` and degrades to a single "manual" bucket.
+  - RBAC gate: `api_require_cfo()` (uses new RBACResolver — see fix below).
+- **`/app/dashboard/src/components/RevenueStreamWidget.jsx`** — Vite/React component:
+  - SVG donut + legend (with $ amount + % per bucket).
+  - Stacked-bar week-over-week trend.
+  - Period picker buttons: 4w / 8w / 13w / 26w.
+  - **"% from fixed-fee" pulse banner** — green pill when ≥30%, amber otherwise with a "shift toward predictable revenue" nudge.
+  - Mounted at the top of CFO Dashboard (above FscHealthPanel).
+  - `data-testid` coverage: `cfo-revenue-stream`, `cfo-revenue-stream-weeks-{N}`, `cfo-revenue-stream-bucket-{key}`, `cfo-revenue-stream-bar-{week}`, `cfo-revenue-stream-donut`, `cfo-revenue-stream-fixed-pulse`, `cfo-revenue-stream-trend`, `cfo-revenue-stream-legend`.
+
+### What shipped — Bug fixes (regression-tested)
+
+#### 3. RBAC persona wildcard for master_admin / tenant_admin
+- **Symptom**: master_admin and tenant_admin users locked out of every action that ran through `api_can($module, $action)` → timesheets, journal entries, engagements all returned 403.
+- **Root cause**: Migration 055 created `tenant_memberships` rows for them with `persona_type='master_admin'`/`'tenant_admin'` but **no `membership_module_access` rows were backfilled**. `RBACResolver::can()` saw the membership existed (so the legacy fallback was skipped) but found no module access row → returned `false`.
+- **Fix**: `/app/core/rbac/permissions.php` — wired a persona-type shortcut in `can()` AFTER the membership-exists check but BEFORE the `moduleAccessFor` lookup. `master_admin`/`tenant_admin` get true for every (module, action) pair within their tenant. Sub-tenant scope intentionally not enforced (these personas are tenant-wide by definition).
+- **Smoke `rbac_persona_wildcard_smoke.php`** — **18 ✓** (source check, full live exercise on SQLite mirror covering master_admin/tenant_admin/employee-with-grant/employee-without-grant + cross-tenant boundary preserved).
+
+#### 4. JE "already an active transaction" error
+- **Symptom**: "any time I post a journal entry it says there's already an active transaction."
+- **Root cause**: Two un-guarded `$pdo->beginTransaction()` calls in `/app/modules/accounting/api/recurring_journal_entries.php` (lines 76 + 114). When the cron path looped over the same PHP-FPM worker without a clean exit, the stale transaction persisted into the next JE-post request, blowing up `$pdo->beginTransaction()` in `accountingPostJe`.
+- **Fix**: Added stale-tx rollback guards to both call sites — same idiom as the existing guard in `accountingPostJe()`. Static analysis sweep in the smoke test now blocks future regressions.
+- **Smoke `je_transaction_hygiene_smoke.php`** — **12 ✓** (per-call-site guard check, helper existence, shutdown handler registration, **static analyzer sweep across JE-adjacent files asserting no unguarded `beginTransaction` remain**).
+
+### Code reality (this session — added/edited)
+
+New:
+- `/app/api/cfo_revenue_stream.php`
+- `/app/dashboard/src/components/RevenueStreamWidget.jsx`
+- `/app/modules/engagements/ui/EngagementDetail.jsx`
+- `/app/tests/{rbac_persona_wildcard,je_transaction_hygiene,engagement_detail_and_revenue_stream}_smoke.php`
+
+Edited:
+- `/app/core/rbac/permissions.php` (persona-type wildcard shortcut)
+- `/app/modules/accounting/api/recurring_journal_entries.php` (stale-tx guards added to both `beginTransaction` calls)
+- `/app/modules/engagements/ui/EngagementsModule.jsx` (`:id` route)
+- `/app/modules/engagements/ui/EngagementsList.jsx` (project_name → detail Link)
+- `/app/dashboard/src/pages/CFODashboard.jsx` (RevenueStreamWidget mount)
+
+Vite bundle: `index-NDNlUUuA.js` / `index-BC5g6YJu.css` (sync_bundle.sh ran clean).
+
+### Suite health
+**435/443 ✓** — same pre-existing sandbox-boundary failures (5 AI gateway, accounting_phase2_a7, tenant_leak warning in `integration_triage.php:173`, treasury_csv_import). Zero new regressions.
+
+---
+
+
+
 ## Session — 2026-02 (P2: Engagements → AR billing bridge)
 
 ### What shipped

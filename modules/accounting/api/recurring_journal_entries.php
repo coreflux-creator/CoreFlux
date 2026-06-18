@@ -73,6 +73,7 @@ if ($method === 'POST' && $action === '') {
     if (abs($td - $tc) > 0.005 || $td <= 0) api_error('Lines must balance and total > 0', 422);
 
     $pdo = getDB();
+    if ($pdo->inTransaction()) { error_log('[accounting/recurring-je create] rolling back stale active transaction before begin'); $pdo->rollBack(); }
     $pdo->beginTransaction();
     try {
         $id = scopedInsert('accounting_recurring_journal_entries', [
@@ -111,6 +112,7 @@ if ($method === 'POST' && $action === 'replace_lines') {
     foreach ($lines as $l) { $td += (float) ($l['debit'] ?? 0); $tc += (float) ($l['credit'] ?? 0); }
     if (abs($td - $tc) > 0.005 || $td <= 0) api_error('Lines must balance and total > 0', 422);
     $pdo = getDB();
+    if ($pdo->inTransaction()) { error_log('[accounting/recurring-je replace] rolling back stale active transaction before begin'); $pdo->rollBack(); }
     $pdo->beginTransaction();
     try {
         $pdo->prepare('DELETE FROM accounting_recurring_je_lines WHERE tenant_id = :t AND recurring_je_id = :r')

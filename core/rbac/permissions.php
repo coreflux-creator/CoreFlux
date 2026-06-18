@@ -74,6 +74,23 @@ final class RBACResolver
         }
         if (($membership['status'] ?? 'active') !== 'active') return false;
 
+        // Persona-type wildcard. master_admin + tenant_admin historically had
+        // wildcard access across every module via role-only checks; the new
+        // `membership_module_access` table doesn't backfill rows for them on
+        // the B1 sweep (they're the "everything" personas, not module-level
+        // grants). Without this shortcut, master_admin / tenant_admin posts
+        // to /api/staffing/timesheets, /api/accounting/journal_entries, etc.
+        // hit `moduleAccessFor() === null → deny` and the operator is locked
+        // out of every action that runs through the bridge.
+        //
+        // Sub-tenant scope check is skipped here because master_admin and
+        // tenant_admin are tenant-wide by definition — they're not bounded
+        // to a sub-tenant scope.
+        $personaType = (string) ($membership['persona_type'] ?? '');
+        if (in_array($personaType, ['master_admin', 'tenant_admin'], true)) {
+            return true;
+        }
+
         $access = self::moduleAccessFor((int) $membership['id'], $module);
         if (!$access) return false;
         $level = (string) ($access['access_level'] ?? 'none');
