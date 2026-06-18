@@ -121,19 +121,73 @@ function qboApiBase(): string
 
 function qboConnection(int $tenantId): ?array
 {
-    $stmt = getDB()->prepare(
-        'SELECT id, tenant_id, realm_id, company_name, environment,
-                access_token_ct, refresh_token_ct,
-                access_token_exp, refresh_token_exp,
-                scope, status, sync_config,
-                last_probe_at, last_probe_error,
-                connected_by_user_id, created_at, updated_at
-           FROM qbo_connections
-          WHERE tenant_id = :t LIMIT 1'
-    );
-    $stmt->execute(['t' => $tenantId]);
-    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-    return $row ?: null;
+    // auto_reconcile_paid_out_of_band landed in migration 115. Older
+    // pods (or smoke envs running a partial schema) may not have it
+    // yet — fall back to the legacy column list on failure so the
+    // function stays usable.
+    try {
+        $stmt = getDB()->prepare(
+            'SELECT id, tenant_id, realm_id, company_name, environment,
+                    access_token_ct, refresh_token_ct,
+                    access_token_exp, refresh_token_exp,
+                    scope, status, sync_config,
+                    auto_reconcile_paid_out_of_band,
+                    last_probe_at, last_probe_error,
+                    connected_by_user_id, created_at, updated_at
+               FROM qbo_connections
+              WHERE tenant_id = :t LIMIT 1'
+        );
+        $stmt->execute(['t' => $tenantId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row ?: null;
+    } catch (\Throwable $_) {
+        $stmt = getDB()->prepare(
+            'SELECT id, tenant_id, realm_id, company_name, environment,
+                    access_token_ct, refresh_token_ct,
+                    access_token_exp, refresh_token_exp,
+                    scope, status, sync_config,
+                    last_probe_at, last_probe_error,
+                    connected_by_user_id, created_at, updated_at
+               FROM qbo_connections
+              WHERE tenant_id = :t LIMIT 1'
+        );
+        $stmt->execute(['t' => $tenantId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$row) return null;
+        $row['auto_reconcile_paid_out_of_band'] = 0;
+        return $row;
+    }
+}
+
+// ---------------------------------------------------------------------
+// Auto-reconcile flag — opt-in per tenant. When true, paid_out_of_band
+// drift rows are automatically closed by writing matching CoreFlux
+// payments. See core/qbo/auto_reconcile.php.
+// ---------------------------------------------------------------------
+
+function qboAutoReconcileEnabled(int $tenantId): bool
+{
+    $row = qboConnection($tenantId);
+    return $row && (int) ($row['auto_reconcile_paid_out_of_band'] ?? 0) === 1;
+}
+
+function qboAutoReconcileSet(int $tenantId, bool $enabled, ?int $userId = null): bool
+{
+    $row = qboConnection($tenantId);
+    if (!$row) {
+        throw new \RuntimeException('Connect QuickBooks before changing auto-reconcile.');
+    }
+    getDB()->prepare(
+        'UPDATE qbo_connections
+            SET auto_reconcile_paid_out_of_band = :v
+          WHERE tenant_id = :t'
+    )->execute(['v' => $enabled ? 1 : 0, 't' => $tenantId]);
+
+    qboAudit($tenantId, 'auto_reconcile_toggle', [
+        'actor_user_id' => $userId,
+        'detail'        => ['enabled' => $enabled],
+    ]);
+    return $enabled;
 }
 
 // ---------------------------------------------------------------------

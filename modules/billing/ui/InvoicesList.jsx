@@ -7,6 +7,7 @@ import { fmtDate } from '../../../dashboard/src/lib/formatDate';
 import InvoiceFromTimeBundleModal from './InvoiceFromTimeBundleModal';
 import InvoiceFromTimeEntriesModal from './InvoiceFromTimeEntriesModal';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
+import { QboDriftBadge, useQboDriftBadges } from '../../../dashboard/src/components/QboDriftBadge';
 import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile';
 
 const STATUS_FILTERS = ['all','draft','approved','sent','partially_paid','paid','void'];
@@ -25,6 +26,9 @@ export default function InvoicesList() {
     { cacheKey: `billing-invoices-list:${path}` }
   );
   const rows = data?.rows ?? [];
+  // Batch-fetch QBO drift snapshots so we can render a chip per row
+  // without N+1 round-trips.
+  const qboDrift = useQboDriftBadges('invoice', rows.map(r => r.id));
 
   const {
     items, sortKey, sortDir, search, setSearch, headerProps,
@@ -125,7 +129,7 @@ export default function InvoicesList() {
               <td>{fmtDate(r.due_date)}</td>
               <td style={{ textAlign: 'right' }}>{Number(r.total).toFixed(2)} {r.currency}</td>
               <td style={{ textAlign: 'right' }}>{Number(r.amount_due).toFixed(2)}</td>
-              <td><span className={`badge badge--${r.status}`}>{r.status.replace('_',' ')}</span></td>
+              <td><span className={`badge badge--${r.status}`}>{r.status.replace('_',' ')}</span><QboDriftBadge entry={qboDrift[r.id]} /></td>
             </tr>
           ))}
         </tbody>

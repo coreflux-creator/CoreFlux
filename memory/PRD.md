@@ -1,5 +1,68 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (QBO Step 4: Auto-Reconcile + Step 6 Phase 1: Payments API foundation)
+
+### What shipped — Step 4 (Auto-reconciliation for `paid_out_of_band` drift)
+- **Migration 115** — adds `qbo_connections.auto_reconcile_paid_out_of_band TINYINT(1) DEFAULT 0`. Opt-in flag, off by default.
+- **`core/qbo/auto_reconcile.php`** — exposes `qboAutoReconcileTenant(int $tid)`. Per pass:
+  1. Reads OPEN drift rows where `drift_kind='paid_out_of_band'` and `entity_type IN ('invoice','bill')`.
+  2. Joins to `qbo_inbound_payments` / `qbo_inbound_billpayments` via the `linked_invoice_ids` / `linked_bill_ids` JSON arrays (portable `LIKE '"<qboId>"'` matcher works on MySQL + SQLite).
+  3. Idempotently INSERTs a `billing_payments` / `ap_payments` row keyed by `(tenant_id, source_system='qbo', external_id=qbo_payment_id)` — UNIQUE KEY from migration 096 prevents replay double-inserts.
+  4. Allocates via the canonical `billingAllocatePayment` / `apAllocatePayment` engines (same code path operators hit manually).
+  5. When the CoreFlux entity reaches `status='paid'`, stamps the drift row `status='reconciled'` with a resolution note.
+  6. Stale drift cleanup: if CoreFlux is already paid/void/cancelled, the drift row auto-closes as a no-op.
+- **`core/qbo/client.php`** — `qboConnection()` now selects the new column (with a graceful schema-fallback `try/catch` for pods still on migration 114). New helpers: `qboAutoReconcileEnabled(int $tid): bool`, `qboAutoReconcileSet(int $tid, bool, ?int $userId): bool`.
+- **`cron/qbo_two_way_sync.php`** — invokes `qboAutoReconcileTenant($tid)` after a successful pull pass; emits `auto_reconciled=N auto_payments=N` in the summary line.
+- **`/api/admin/qbo/auto_reconcile.php`** — GET returns the flag; POST sets it (with optional `run_now: true` to synchronously run one pass). RBAC: master_admin / tenant_admin / wildcard.
+- **Smoke** `tests/qbo_auto_reconcile_smoke.php` — **67 ✓** (migration, module surface, client helpers, cron wiring, admin endpoint, default-off behaviour, full end-to-end AR+AP reconciliation, idempotency on re-run, stale-drift cleanup).
+
+### What shipped — Step 6 Phase 1 (QBO Payments API foundation)
+- **Migration 116** — `qbo_payment_charges` shadow table with:
+  - `charge_type ENUM('card','echeck')`, lifecycle `status` column, monetary in cents
+  - card-specific (`card_brand`, `card_last4`, `card_exp_month/year`) and echeck-specific (`bank_name`, `account_last4`, `routing_last4`) fields
+  - links to `coreflux_invoice_id` (origin) + `coreflux_payment_id` (created on capture) + outbound `context_token`
+  - Charter primitive #6: `error_code`, `error_message`, `raw_payload` for vendor-error transparency
+  - UNIQUE `(tenant_id, qbo_charge_id)` to make webhook + cron replays safe
+- **`core/qbo/payments_client.php`** — Net-new client distinct from the Accounting client:
+  - `QBO_PAYMENTS_SCOPE = 'com.intuit.quickbooks.payment'` + `QBO_PAYMENTS_API_SANDBOX/PRODUCTION` constants
+  - `qboPaymentsConfigured(int $tid): bool` — checks the active connection's OAuth `scope` field
+  - `qboPaymentsCall(...)` — adds the `Request-Id:` idempotency header on every outbound call, auto-refreshes access tokens on 401 (one retry), parses Intuit's Payments error envelope (`errors[0].code/message`) into `QboApiException.errorCode`
+  - `qboCreateCharge` / `qboGetCharge` (cards: POST `/quickbooks/v4/payments/charges`)
+  - `qboCreateECheck` / `qboGetECheck` (ACH: POST `/quickbooks/v4/payments/echecks`)
+  - `qboRecordChargeShadow(int $tid, array $charge, array $context)` — idempotent upsert into `qbo_payment_charges`; preserves `captured_at` / `settled_at` across re-upserts; extracts card last4 from the masked PAN QBO returns.
+- **`/api/admin/qbo/payments_charge.php`** — operator endpoint to collect on an AR invoice:
+  - POST `{ invoice_id, amount, token, type:'card'|'echeck', card?, bankAccount?, description? }` → validates tenant-scoped invoice + open balance, fires `qboCreate{Charge,ECheck}`, persists the shadow, on `status='CAPTURED'` creates a `billing_payments` row (`source_system='qbo'`, `external_id=chargeId`) and allocates via `billingAllocatePayment`.
+  - GET `?charge_id=…` — returns the shadow row + a live QBO refresh, re-upserting on each poll (for the operator UI to refresh pending charges before the webhook lands).
+  - Refuses with HTTP 412 when the tenant lacks the `com.intuit.quickbooks.payment` scope.
+- **Smoke** `tests/qbo_payments_client_smoke.php` — **73 ✓** (migration shape, client surface, scope gating, end-to-end charge with stubbed transport, Request-Id round-trip, shadow upsert idempotency, status advancement CAPTURED→SETTLED, error envelope parsing, scope refusal, audit trail).
+
+### Code reality (what's in /app right now)
+- `/app/core/migrations/115_qbo_auto_reconcile.sql`
+- `/app/core/migrations/116_qbo_payments_api.sql`
+- `/app/core/qbo/auto_reconcile.php`
+- `/app/core/qbo/payments_client.php`
+- `/app/core/qbo/client.php` (extended: new helpers + column-aware `qboConnection()`)
+- `/app/cron/qbo_two_way_sync.php` (extended: auto-reconcile invocation + summary)
+- `/app/api/admin/qbo/auto_reconcile.php`
+- `/app/api/admin/qbo/payments_charge.php`
+- `/app/tests/qbo_auto_reconcile_smoke.php`
+- `/app/tests/qbo_payments_client_smoke.php`
+
+### Suite health
+**423/432 — same 9 pre-existing sandbox-boundary failures (5 AI gateway, Plaid, accounting_phase2_a7, tenant_leak (legacy `integration_triage.php:173`), treasury_csv_import). Zero new regressions.**
+
+### Remaining for QBO Payments (Step 6 — future phases)
+- **Phase 2**: Settlement webhook listener (`/api/webhooks/qbo_payments.php`) + signature verification + lifecycle advance.
+- **Phase 3**: Frontend tokenizer modal (Intuit hosted iframe) wired to the operator endpoint. Plus an "Accept payment" CTA on AR invoice list rows.
+- **Phase 4**: Daily reconciliation cron that polls pending ISSUED/PENDING charges via `qboGetCharge` when the webhook hasn't fired within SLA.
+
+### Frontend toggle for Auto-Reconcile (deferred)
+- Step 4 backend is complete and reachable via `/api/admin/qbo/auto_reconcile.php`. The Integration Triage page does NOT yet surface a UI switch for the flag. Future work: add a single-row "Auto-reconcile QBO drift" toggle to the IntegrationTriage header + a "Run now" button beside it.
+
+---
+
+
+
 ## Session — 2026-02 (QBO two-way sync: Phases 1-3)
 
 ### What shipped
