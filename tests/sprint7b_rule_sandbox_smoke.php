@@ -43,10 +43,11 @@ $assert('total credit testid',                      strpos($jsx, 'data-testid="r
 $assert('error testid',                             strpos($jsx, 'data-testid="rule-sandbox-error"') !== false);
 $assert('parse error testid',                       strpos($jsx, 'data-testid="rule-sandbox-parse-error"') !== false);
 $assert('raw response testid (collapsed)',          strpos($jsx, 'data-testid="rule-sandbox-raw"') !== false);
-$assert('hits sandbox endpoint',                    strpos($jsx, "/api/accounting_events.php?action=sandbox") !== false);
+$assert('hits v1 sandbox endpoint',
+    strpos($jsx, "const ACCOUNTING_EVENTS_API = '/api/v1/accounting/events'") !== false
+    && strpos($jsx, '`${ACCOUNTING_EVENTS_API}/sandbox`') !== false);
 $assert('FlaskConical icon for the brand',          strpos($jsx, 'FlaskConical') !== false);
-$assert('does NOT post real events (dry only)',     strpos($jsx, "'/api/accounting_events.php'") === false
-                                                  || strpos($jsx, 'action=sandbox') !== false);
+$assert('does NOT post real events (dry only)',     strpos($jsx, "'/api/accounting_events.php'") === false);
 
 echo "\nAdminModule.jsx — Rule Sandbox wired\n";
 $adm = (string) file_get_contents("{$ROOT}/dashboard/src/pages/AdminModule.jsx");

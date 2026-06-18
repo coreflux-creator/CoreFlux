@@ -102,7 +102,9 @@ $assert('seed strip testid',               strpos($jsx, 'data-testid="rule-sandb
 $assert('seed button testid',              strpos($jsx, 'data-testid="rule-sandbox-seed-defaults"') !== false);
 $assert('seed result testid',              strpos($jsx, 'data-testid="rule-sandbox-seed-result"') !== false);
 $assert('seed error testid',               strpos($jsx, 'data-testid="rule-sandbox-seed-error"') !== false);
-$assert('hits seed endpoint',              strpos($jsx, "/api/posting_rules_seed.php") !== false);
+$assert('hits v1 seed endpoint',
+    strpos($jsx, "const POSTING_RULES_SEED_API = '/api/v1/accounting/posting-rules-seed'") !== false
+    && strpos($jsx, 'api.post(POSTING_RULES_SEED_API') !== false);
 $assert('seedResult state hooks',          strpos($jsx, 'setSeedResult') !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";

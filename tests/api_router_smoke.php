@@ -317,6 +317,15 @@ foreach ([
     'bank-ai' => 'bank_ai',
     'account-transactions' => 'account_transactions',
     'bank-rules' => 'bank_rules',
+    'books-health' => 'books_health',
+    'transactions-to-review' => 'transactions_to_review',
+    'events' => 'events',
+    'posting-rules-seed' => 'posting_rules_seed',
+    'posting-rules-replay' => 'posting_rules_replay',
+    'gl-detail' => 'gl_detail',
+    'missing-dimensions' => 'missing_dimensions',
+    'tax-mappings' => 'tax_mappings',
+    'tax-form-export' => 'tax_form_export',
 ] as $route => $fileStem) {
     $file = apiRouterResolveFile('accounting', $route);
     $assert("resolves accounting/{$route} module endpoint",

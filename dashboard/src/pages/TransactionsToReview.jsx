@@ -8,6 +8,9 @@ import {
 } from 'lucide-react';
 
 const ACCOUNTING_ACCOUNTS_API = '/api/v1/accounting/accounts';
+const TRANSACTIONS_TO_REVIEW_API = '/api/v1/accounting/transactions-to-review';
+const BANK_AI_API = '/api/v1/accounting/bank-ai';
+const BANK_STATEMENTS_API = '/api/v1/accounting/bank-statements';
 
 /**
  * TransactionsToReview — Layer-style "5 to review → first one ready in 2 clicks".
@@ -30,7 +33,7 @@ export default function TransactionsToReview() {
   const autoload = params.get('autoload') === '1';
   const bankId   = parseInt(params.get('bank_account_id') || '0', 10) || 0;
 
-  const queueUrl = `/api/transactions_to_review.php?order=${encodeURIComponent(order)}${bankId ? `&bank_account_id=${bankId}` : ''}`;
+  const queueUrl = `${TRANSACTIONS_TO_REVIEW_API}?order=${encodeURIComponent(order)}${bankId ? `&bank_account_id=${bankId}` : ''}`;
   const { data, error, loading, reload } = useApi(queueUrl);
   const accountsApi = useApi(`${ACCOUNTING_ACCOUNTS_API}?active=1`);
 
@@ -65,7 +68,7 @@ export default function TransactionsToReview() {
     setAiBusy(b => ({ ...b, [lineId]: true }));
     setErrMsg(null);
     try {
-      const res = await api.post(`/modules/accounting/api/bank_ai.php?action=suggest_categorize&line_id=${lineId}`);
+      const res = await api.post(`${BANK_AI_API}/suggest-categorize?line_id=${lineId}`);
       setAiByLine(m => ({ ...m, [lineId]: res?.suggestion || null }));
       // pre-populate the picker with the AI suggestion
       const code = res?.suggestion?.account_code;
@@ -102,7 +105,7 @@ export default function TransactionsToReview() {
     setErrMsg(null);
     try {
       await api.post(
-        `/modules/accounting/api/bank_statements.php?action=accept_ai_categorize&line_id=${lineId}`,
+        `${BANK_STATEMENTS_API}/accept-ai-categorize?line_id=${lineId}`,
         { account_code: accountCode, ai_suggestion_id: suggestionId || null }
       );
       setAccepted(s => { const n = new Set(s); n.add(lineId); return n; });
@@ -124,7 +127,7 @@ export default function TransactionsToReview() {
   async function skipLine(lineId) {
     setAcceptBusy(b => ({ ...b, [lineId]: true }));
     try {
-      await api.post(`/modules/accounting/api/bank_statements.php?action=ignore&line_id=${lineId}`);
+      await api.post(`${BANK_STATEMENTS_API}/ignore?line_id=${lineId}`);
       setSkipped(s => { const n = new Set(s); n.add(lineId); return n; });
       const nextRow = visibleRows.find(r => r.id !== lineId);
       if (nextRow) {

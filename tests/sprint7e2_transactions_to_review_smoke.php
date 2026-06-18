@@ -4,7 +4,7 @@
  *
  * Asserts:
  *   - api/transactions_to_review.php (RBAC, GET-only, ordering, filter, paging)
- *   - module alias /api/accounting/transactions-to-review delegates correctly
+ *   - module alias /api/v1/accounting/transactions-to-review delegates correctly
  *   - TransactionsToReview.jsx renders and honours ?prefilter / ?autoload
  *   - BookkeepingOverview "Transactions to review" task row deep-links into
  *     the new queue with the exact spec query string
@@ -51,7 +51,7 @@ $assert('row coerces id+amount to numeric',
 $assert('age_days computed via DATEDIFF',
     strpos($api, 'DATEDIFF(CURRENT_DATE, bsl.posted_date) AS age_days') !== false);
 
-echo "\nModule alias — /api/accounting/transactions-to-review\n";
+echo "\nModule alias — /api/v1/accounting/transactions-to-review\n";
 $alias = "{$ROOT}/modules/accounting/api/transactions_to_review.php";
 $assert('alias file exists',                  is_file($alias));
 $assert('alias parses',                       $lint($alias));
@@ -65,16 +65,18 @@ $assert('reads ?prefilter from URL',          strpos($jsx, "params.get('prefilte
 $assert('reads ?autoload from URL',           strpos($jsx, "params.get('autoload') === '1'") !== false);
 $assert('reads ?bank_account_id from URL',    strpos($jsx, "params.get('bank_account_id')") !== false);
 $assert('hits queue endpoint',
-    strpos($jsx, '/api/transactions_to_review.php?order=') !== false);
+    strpos($jsx, "const TRANSACTIONS_TO_REVIEW_API = '/api/v1/accounting/transactions-to-review'") !== false);
 $assert('autoload triggers AI suggest on first row',
     strpos($jsx, 'autoloadFiredRef.current = true') !== false
     && strpos($jsx, 'fetchAiSuggestion(first.id)') !== false);
 $assert('AI suggest endpoint',
-    strpos($jsx, '/modules/accounting/api/bank_ai.php?action=suggest_categorize&line_id=') !== false);
+    strpos($jsx, "const BANK_AI_API = '/api/v1/accounting/bank-ai'") !== false
+    && strpos($jsx, '/suggest-categorize?line_id=') !== false);
 $assert('Accept endpoint stamps history moat',
-    strpos($jsx, '/modules/accounting/api/bank_statements.php?action=accept_ai_categorize&line_id=') !== false);
+    strpos($jsx, "const BANK_STATEMENTS_API = '/api/v1/accounting/bank-statements'") !== false
+    && strpos($jsx, '/accept-ai-categorize?line_id=') !== false);
 $assert('Skip endpoint flips match_status=ignored',
-    strpos($jsx, '/modules/accounting/api/bank_statements.php?action=ignore&line_id=') !== false);
+    strpos($jsx, '/ignore?line_id=') !== false);
 $assert('advance focus to next row after accept',
     strpos($jsx, 'const nextRow = visibleRows.find') !== false);
 

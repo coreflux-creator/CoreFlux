@@ -5,6 +5,7 @@ import CsvUploadWidget from '../../../dashboard/src/components/CsvUploadWidget';
 
 const ACCOUNT_TRANSACTIONS_API = '/api/v1/treasury/account-transactions';
 const ACCOUNTING_ACCOUNTS_API = '/api/v1/accounting/accounts';
+const ACCOUNTING_BANK_AI_API = '/api/v1/accounting/bank-ai';
 
 const fmtMoneyOriginal = (n) =>
   (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
@@ -38,7 +39,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   const fetchAiCat = async (lineId) => {
     setAiBusyId(lineId); setRowError(null);
     try {
-      const res = await api.post(`/modules/accounting/api/bank_ai.php?action=suggest_categorize&line_id=${lineId}`);
+      const res = await api.post(`${ACCOUNTING_BANK_AI_API}/suggest-categorize?line_id=${lineId}`);
       setAiPanelByLine(prev => ({ ...prev, [lineId]: { action: 'suggest_categorize', ...res } }));
     } catch (e) {
       setRowError(`AI suggestion failed: ${e.message}`);

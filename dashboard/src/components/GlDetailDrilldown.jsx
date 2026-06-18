@@ -11,12 +11,14 @@
  *   </span>
  *   {drill && <GlDetailDrilldown {...drill} onClose={() => setDrill(null)} />}
  *
- * Reads from /api/gl_detail.php (existing, RBAC: accounting.coa.view).
+ * Reads from /api/v1/accounting/gl-detail (RBAC: accounting.coa.view).
  */
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { fmtMoney } from '../lib/format';
 import { X, ExternalLink } from 'lucide-react';
+
+const GL_DETAIL_API = '/api/v1/accounting/gl-detail';
 
 export default function GlDetailDrilldown({
   accountCode = null,
@@ -39,7 +41,7 @@ export default function GlDetailDrilldown({
     if (accountId)   qs.set('account_id',   String(accountId));
     if (accountCode) qs.set('account_code', accountCode);
     if (entityId)    qs.set('entity_id',    String(entityId));
-    api.get(`/api/gl_detail.php?${qs.toString()}`)
+    api.get(`${GL_DETAIL_API}?${qs.toString()}`)
       .then(r => { if (!cancelled) setData(r); })
       .catch(e => { if (!cancelled) setError(e.message || 'Failed to load GL detail'); })
       .finally(() => { if (!cancelled) setLoading(false); });

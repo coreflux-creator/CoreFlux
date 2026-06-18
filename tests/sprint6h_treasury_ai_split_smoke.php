@@ -57,7 +57,9 @@ echo "\nTreasury UI — AI cat + Split/IC affordances\n";
 $tx = (string) file_get_contents("{$ROOT}/modules/treasury/ui/AccountTransactions.jsx");
 $assert('AI cat button per row',                        stripos($tx, 'data-testid={`treasury-txn-ai-cat-${r.id}`}') !== false);
 $assert('Split/IC button per row',                      stripos($tx, 'data-testid={`treasury-txn-split-${r.id}`}') !== false);
-$assert('fetchAiCat hits bank_ai endpoint',             stripos($tx, '/modules/accounting/api/bank_ai.php?action=suggest_categorize') !== false);
+$assert('fetchAiCat hits v1 bank-ai endpoint',
+    stripos($tx, "ACCOUNTING_BANK_AI_API = '/api/v1/accounting/bank-ai'") !== false
+    && stripos($tx, '/suggest-categorize?line_id=') !== false);
 $assert('split panel posts to split_categorize',        stripos($tx, "ACCOUNT_TRANSACTIONS_API = '/api/v1/treasury/account-transactions'") !== false
                                                       && stripos($tx, 'ACCOUNT_TRANSACTIONS_API}/split-categorize') !== false);
 $assert('TreasuryAiResultPanel reads ai.suggestion shape',
