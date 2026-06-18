@@ -1,5 +1,69 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Timesheet Lifecycle visibility + Pay-When-Paid UI surface)
+
+### What shipped
+
+#### 1. Timesheet Lifecycle Resolver (backend)
+- **`/app/modules/staffing/lib/lifecycle.php`** — pure-function downstream cascade resolver:
+  - `staffingTimesheetLifecycle(int $tenantId, int $timesheetId)` walks the full chain:
+    1. Timesheet header + every entry (joins `placements.title` / `placements.end_client_name`)
+    2. **Approval audit** — `submitted_at` / `approved_at` + relevant `audit_log` events (`staffing.timesheet.submitted|approved|rejected|reopened`)
+    3. **Accrual JEs** — `accounting_events WHERE source_module='staffing' AND source_record_id LIKE '<ts_id>:%'` joined to `accounting_journal_entries` (catches per-engagement-type accrual rows from `_emitAccountingEvents()`)
+    4. **AR side** — `billing_invoice_lines.source_type='time_entry'/source_ref_id IN (entry_ids)` → invoice → billing JE (`source_module='billing'`) → `billing_payment_allocations` → `billing_payments`
+    5. **AP side** — `ap_bill_lines.source_type='time_entry'` → bill (with `pwp_status`, `linked_ar_invoice_id`, `pwp_released_at`) → AP JE → `ap_payment_allocations` → `ap_payments` (with `disbursement_rail`, `rail_external_ref`, `rail_status`)
+    6. **PWP audit events** — `audit_log` rows for `ap.bill.pwp.linked/cleared/released` keyed to each bill
+    7. **Summary rollups** — `revenue_billed`, `ar_collected`, `vendor_owed`, `vendor_paid`
+  - `staffingTimeEntryLifecycle(int $tenantId, int $entryId)` — same payload narrowed to AR/AP rows that referenced ONLY this entry; adds `focused_entry` block.
+  - Read-only. Tenant-scoped everywhere. Degrades gracefully when `audit_log` or `accounting_events` tables are missing (catches PDO exceptions → returns empty arrays).
+
+#### 2. Lifecycle API endpoint
+- **`/app/modules/staffing/api/lifecycle.php`** — `GET ?action=timesheet&id=N` or `?action=entry&id=N`. Auth + `staffing.timesheets.read` gated. Only-GET.
+
+#### 3. Vertical-timeline UI components
+- **`/app/dashboard/src/components/TimesheetLifecycleTimeline.jsx`** — pure-presentation timeline (4 numbered steps: Approval / Accruals / AR / AP). Renders:
+  - Summary band (`lifecycle-stat-revenue-billed/ar-collected/vendor-owed/vendor-paid`)
+  - Per-AR-invoice card with link to invoice + billing JE + each cash receipt (with QBO tag when `source_system='qbo'`)
+  - Per-AP-bill card with **inline PWP banner** (awaiting_ar amber, triggered green), AP JE link, PWP audit collapsible, and vendor disbursement rows showing rail (`mercury`/`plaid`/`nacha`), `rail_external_ref`, and `rail_status`.
+  - All elements carry `data-testid`s (`lifecycle-step-{approval|accruals|ar|ap}`, `lifecycle-ar-{id}`, `lifecycle-ap-{id}`, `lifecycle-pwp-banner-{bill_id}`, `lifecycle-ap-pay-{bill_id}-{i}`, etc.).
+- **`/app/modules/staffing/ui/TimesheetLifecycle.jsx`** — full-page wrapper at `/modules/staffing/timesheets/:id/lifecycle` (optional `?entry_id=N` for entry-narrow). Loading + error states + back link.
+
+#### 4. PWP visibility on AP Bill Detail
+- **`/app/modules/ap/ui/BillDetail.jsx`** — new banner (`ap-bill-pwp-banner`) that renders for any PWP-termed bill:
+  - **awaiting_ar** (amber, `ap-bill-pwp-awaiting`) — "Vendor disbursement blocked until AR #<id> is paid by the client (4-way match gate)" with deep-link to the AR invoice.
+  - **triggered** (green, `ap-bill-pwp-released`) — shows release timestamp + deep-link to the now-paid AR invoice.
+
+#### 5. Wire-ups
+- **`StaffingModule.jsx`** — route added: `<Route path="timesheets/:id/lifecycle" element={<TimesheetLifecycle />} />`.
+- **`TimesheetDetail.jsx`** — "View downstream cascade →" link (`timesheet-detail-view-lifecycle`) in the header action row.
+
+### Pre-existing infrastructure that already shipped (verified, no changes needed)
+- **Pay-When-Paid backend** (`/app/modules/ap/lib/pwp.php`): `apPwpReleaseForArInvoice` auto-fires from `billingAllocatePayment()` when an AR invoice flips to `paid`. `apPwpAutoLinkForArInvoice` links sibling AP bills by placement + period. The four-way-match gate is enforced at `ap/api/payments.php?action=send` AND `?action=originate_batch` via `apPwpAllocatedBillsAwaitingAr()` — vendor cash CANNOT leave on a PWP bill while AR is unpaid.
+- **Payment rails dispatch** (`/app/core/payment_rails.php` + `apExecutePaymentRun` in `ap.php`): approved AP payments route through `paymentRailsDispatch('ap', ...)` to Mercury / Plaid / Nacha drivers; the lifecycle UI surfaces every dispatched `rail_external_ref` + `rail_status` so the operator can trace cash to the external rail.
+
+### Tests
+- **New** `tests/timesheet_lifecycle_smoke.php` — **56 ✓** asserts:
+  - lib surface (resolver functions, SQL shape, rail metadata, PWP audit traversal, summary rollups)
+  - api gate (auth + `staffing.timesheets.read` + only-GET + both actions)
+  - UI wiring (route, cascade link, banner, all timeline test-ids, rail metadata rendering)
+  - **Live SQLite cascade exercise**: builds a 12-table mirror (`tenants`, `people`, `placements`, `staffing_timesheets`, `time_entries`, `billing_invoices`, `billing_invoice_lines`, `billing_payments`, `billing_payment_allocations`, `ap_bills`, `ap_bill_lines`, `ap_payments`, `ap_payment_allocations`, `accounting_journal_entries`, `accounting_events`, `audit_log`) and drives a full timesheet → AR invoice (paid via Mercury wire) → PWP-released vendor bill (paid via Mercury ACH) cascade — asserts every step resolves correctly, including the entry-narrowed view and an empty-timesheet negative case.
+  - Bundle integration check (resolves the live `/app/spa-assets/index-*.js` via `.deploy-version` and confirms `lifecycle-step-approval` testid embeds in the built bundle).
+- Schema-contract clean: corrected `billing_payments.method` (NOT `payment_method`) — surfaced by `schema_contract_smoke.php` static analyzer.
+
+### Vite build
+- Built fresh: `index-DLOTA731.js` / `index-DabV-Xbn.css` (sync_bundle.sh ran clean; `.deploy-version` updated to `spa-assets/index-DLOTA731.js`).
+
+### Suite health
+**436/444 ✓** — same 8 pre-existing sandbox-boundary failures (5 AI-gateway, accounting_phase2_a7, tenant_leak legacy `integration_triage.php:173`, treasury_csv_import). **Zero new regressions.**
+
+### Code reality (this session)
+- **New**: `/app/modules/staffing/lib/lifecycle.php`, `/app/modules/staffing/api/lifecycle.php`, `/app/dashboard/src/components/TimesheetLifecycleTimeline.jsx`, `/app/modules/staffing/ui/TimesheetLifecycle.jsx`, `/app/tests/timesheet_lifecycle_smoke.php`.
+- **Edited**: `/app/modules/staffing/ui/StaffingModule.jsx` (route + import), `/app/modules/staffing/ui/TimesheetDetail.jsx` (cascade link), `/app/modules/ap/ui/BillDetail.jsx` (PWP banner).
+
+---
+
+
+
 ## Session — 2026-02 (Engagement detail + Revenue stream widget + JE-tx hygiene + RBAC persona wildcard)
 
 ### What shipped — Features

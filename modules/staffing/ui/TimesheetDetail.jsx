@@ -368,6 +368,11 @@ export default function TimesheetDetail({ session }) {
               Open weekly grid
             </Link>
           )}
+          <Link to={`/modules/staffing/timesheets/${ts.id}/lifecycle`}
+                className="btn btn--ghost"
+                data-testid="timesheet-detail-view-lifecycle">
+            View downstream cascade →
+          </Link>
           {isApproved && (
             <button type="button" className="btn btn--ghost" disabled={busy}
                     onClick={reopenForEdit}

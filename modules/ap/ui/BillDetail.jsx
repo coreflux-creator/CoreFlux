@@ -71,6 +71,36 @@ export default function BillDetail() {
       {bill.status === 'disputed' && bill.dispute_reason && (
         <p className="error" data-testid="ap-bill-disputed-reason" style={{ marginBottom: 12 }}>Disputed: {bill.dispute_reason}</p>
       )}
+      {(bill.pwp_status === 'awaiting_ar' || bill.pwp_status === 'triggered' || (bill.payment_terms || '').startsWith('PWP')) && (
+        <div
+          data-testid="ap-bill-pwp-banner"
+          style={{
+            marginBottom: 12, padding: 10,
+            background: bill.pwp_status === 'triggered' ? '#ecfdf5' : '#fef3c7',
+            border: '1px solid ' + (bill.pwp_status === 'triggered' ? '#a7f3d0' : '#fde68a'),
+            borderRadius: 6, fontSize: 13,
+          }}
+        >
+          <strong>Pay-When-Paid · {bill.payment_terms || 'PWP'}</strong> —{' '}
+          {bill.pwp_status === 'triggered' ? (
+            <span data-testid="ap-bill-pwp-released">
+              ✓ Released {bill.pwp_released_at ? new Date(bill.pwp_released_at).toLocaleString() : ''}
+              {bill.linked_ar_invoice_id && (
+                <> · AR <Link to={`/modules/billing/invoices/${bill.linked_ar_invoice_id}`} data-testid="ap-bill-pwp-ar-link">#{bill.linked_ar_invoice_id}</Link> paid in full</>
+              )}
+            </span>
+          ) : bill.pwp_status === 'awaiting_ar' ? (
+            <span data-testid="ap-bill-pwp-awaiting">
+              ⚠ Vendor disbursement blocked until AR{' '}
+              {bill.linked_ar_invoice_id && (
+                <Link to={`/modules/billing/invoices/${bill.linked_ar_invoice_id}`} data-testid="ap-bill-pwp-ar-link">#{bill.linked_ar_invoice_id}</Link>
+              )} is paid by the client (4-way match gate).
+            </span>
+          ) : (
+            <span>{bill.pwp_status}</span>
+          )}
+        </div>
+      )}
       {actionError && <p className="error" data-testid="ap-bill-action-error">Error: {actionError.message}</p>}
 
       {icSplitOpen && (

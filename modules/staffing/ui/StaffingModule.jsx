@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import TimesheetWeek from './TimesheetWeek';
 import TimesheetsList from './TimesheetsList';
 import TimesheetDetail from './TimesheetDetail';
+import TimesheetLifecycle from './TimesheetLifecycle';
 import StaffingOverview from './StaffingOverview';
 import StaffingApprovals from './StaffingApprovals';
 import StaffingSettings from './StaffingSettings';
@@ -38,6 +39,7 @@ export default function StaffingModule({ session }) {
         <Route path="timesheets"            element={<TimesheetsList session={session} />} />
         <Route path="timesheets/week"       element={<TimesheetWeek session={session} />} />
         <Route path="timesheets/:id"        element={<TimesheetDetail session={session} />} />
+        <Route path="timesheets/:id/lifecycle" element={<TimesheetLifecycle session={session} />} />
         <Route path="approvals/*"  element={<StaffingApprovals session={session} />} />
         <Route path="placements/*" element={<PlacementsModule session={session} />} />
         <Route path="settings"     element={<StaffingSettings session={session} />} />
