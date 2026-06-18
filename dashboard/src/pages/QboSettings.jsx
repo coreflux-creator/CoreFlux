@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useApi, api } from '../lib/api';
 import { CheckCircle2, ExternalLink, RefreshCw, XCircle, ArrowRight, ArrowLeft, ArrowLeftRight, MinusCircle, Send, AlertTriangle } from 'lucide-react';
 
+const ACCOUNTING_ACCOUNTS_API = '/api/v1/accounting/accounts';
+
 /**
  * QboSettings — QuickBooks Online connection + per-entity sync direction
  * picker. Mounted at /admin/integrations/qbo.
@@ -23,7 +25,7 @@ export default function QboSettings() {
   const [coaPullResult, setCoaPullResult] = useState(null);
   // CF accounts list for the inline "Map to existing CF account"
   // dropdown.  Loaded lazily on first render of the unmapped card.
-  const cfAccounts = useApi('/modules/accounting/api/accounts.php?active=1');
+  const cfAccounts = useApi(`${ACCOUNTING_ACCOUNTS_API}?active=1`);
   // Per-row "Removed/Imported/Mapped" status so the operator sees
   // immediate feedback without re-pulling.  Keyed on QBO id.
   const [accountRowAction, setAccountRowAction] = useState({});

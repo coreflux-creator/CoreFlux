@@ -283,7 +283,7 @@ sentinels:
 - modules/billing/ui/BillingModule.jsx
 - tests/dunning_smoke.php
 expected_bundle:
-- spa-assets/index-BlTT_Cny.js
+- spa-assets/index-ChmhipJQ.js
 - spa-assets/index-BC5g6YJu.css
 last_known_features:
 - master_tenants.crud_in_spa

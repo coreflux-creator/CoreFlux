@@ -175,7 +175,7 @@ $a('handleRemoveCfAccount falls back to account_deactivate on 409',
 $a('UnmappedQboAccountsCard component declared',
     $c($ui, 'function UnmappedQboAccountsCard'));
 $a('Card uses CF accounts list endpoint',
-    $c($ui, "useApi('/modules/accounting/api/accounts.php?active=1')"));
+    $c($ui, 'ACCOUNTING_ACCOUNTS_API') && $c($ui, '?active=1'));
 $a('Card mounts only after a pull (coaPullResult)',
     preg_match('/UnmappedQboAccountsCard[\s\S]{0,300}result=\{coaPullResult\}/', $ui) === 1);
 foreach ([

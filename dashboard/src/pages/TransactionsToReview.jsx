@@ -7,6 +7,8 @@ import {
   Receipt, RefreshCw, Sparkles, SkipForward, Wallet,
 } from 'lucide-react';
 
+const ACCOUNTING_ACCOUNTS_API = '/api/v1/accounting/accounts';
+
 /**
  * TransactionsToReview — Layer-style "5 to review → first one ready in 2 clicks".
  *
@@ -30,7 +32,7 @@ export default function TransactionsToReview() {
 
   const queueUrl = `/api/transactions_to_review.php?order=${encodeURIComponent(order)}${bankId ? `&bank_account_id=${bankId}` : ''}`;
   const { data, error, loading, reload } = useApi(queueUrl);
-  const accountsApi = useApi('/modules/accounting/api/accounts.php?active=1');
+  const accountsApi = useApi(`${ACCOUNTING_ACCOUNTS_API}?active=1`);
 
   const [openId, setOpenId]       = useState(null);
   const [aiByLine, setAiByLine]   = useState({});      // line_id → suggestion payload
