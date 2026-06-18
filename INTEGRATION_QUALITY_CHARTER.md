@@ -24,7 +24,7 @@ The charter exists because we kept hitting the same class of "we thought it work
 | **QBO**       | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **7/7** |
 | **ZohoBooks** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **7/7** |
 | **Mercury**   | ✅ | ✅ | ✅ | n/a (no CoA) | ✅ | ✅ | ✅ | **6/6** |
-| **Plaid**     | ❌ | ❌ | ❌ | n/a (read-only) | n/a | partial | ❌ | **0/4** |
+| **Plaid**     | 🟡 | 🟡 | n/a (read-only) | n/a | n/a | 🟡 | n/a | **3/4** |
 | **LayerFi**   | n/a — SDK enforces shape | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 
 ## Post-charter polish layer (additive, applies once 7/7 is hit)

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApi, api } from '../../../dashboard/src/lib/api';
+import MercuryWebhookCard from './MercuryWebhookCard';
 
 /**
  * Mercury connection + accounts panel — paste a tenant-owned Mercury API
@@ -253,6 +254,8 @@ export default function MercurySettings() {
           )}
         </div>
       )}
+
+      {connected && <MercuryWebhookCard />}
     </section>
   );
 }

@@ -1,5 +1,80 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (P0/P1/P2 cleanup: webhooks, polling, Plaid charter, frontend tokenizer + toggles)
+
+### What shipped — P0/P1 (Step 6 Phase 2 + Phase 4 + Phase 3)
+
+- **QBO Accounting webhook receiver** (`/app/api/webhooks/qbo.php`):
+  - Verifies `intuit-signature` header via base64(HMAC-SHA256(verifier_token, raw_body)) with `hash_equals` constant-time compare; verifier token reads from `QBO_WEBHOOK_VERIFIER_TOKEN` env or define.
+  - Walks `eventNotifications[].dataChangeEvent.entities[]`, resolves tenant by `realmId`, fires targeted pull via `qboPull{Invoices,Payments,Bills,BillPayments,Deposits}` for each touched entity.
+  - Idempotent: event_id is `sha1(realmId|name|qboId|op|lastUpdated)` with UNIQUE on `qbo_webhook_events.event_id` so retries no-op.
+  - Auto-invokes `qboAutoReconcileTenant` synchronously when an entity-update surfaces new `paid_out_of_band` drift AND the tenant has the auto-reconcile flag on.
+  - Liveness probe: non-POST returns 200 immediately so Intuit's health probe doesn't retry-storm.
+  - Allow-listed in `auth_gate_static_analyzer_smoke.php` (Intuit is the caller, not a logged-in user).
+- **QBO Payments polling cron** (`/app/cron/qbo_payments_poll.php`, hourly):
+  - SELECTs `qbo_payment_charges` rows still in pending statuses (`ISSUED/PENDING/CAPTURED/AUTHORIZED`) with `settled_at IS NULL`, scoped to tenants with active connections, within the past 30 days.
+  - Calls `qboGetCharge` per row and re-upserts via `qboRecordChargeShadow` to advance `status`/`captured_at`/`settled_at`.
+  - On poll failure, stamps `error_message` on the shadow row so the operator sees it in the IntegrationTriage.
+  - Emits structured summary `qbo_payments_poll done: tenants=N polled=N advanced=N errors=N`.
+- **Smoke `qbo_webhook_smoke.php`** — **21 ✓** (file shape, HMAC verification cryptography, idempotency key shape).
+- **Smoke `qbo_payments_poll_smoke.php`** — **20 ✓** (file shape, live SQLite mirror exercise: ISSUED→CAPTURED, CAPTURED→SETTLED, already-SETTLED skipped).
+
+### What shipped — Frontend (single Vite build)
+
+- **`QboPaymentsCollectModal.jsx`** (in `/app/modules/billing/ui/`):
+  - Modal with `card`/`echeck` type picker, amount + description + Intuit token paste, posts to `/api/admin/qbo/payments_charge.php`.
+  - Surfaces charge status, payment_id, and allocation result inline; renders allocation errors as warnings without blocking the modal.
+  - `data-testid` coverage: `qbo-payments-modal`, `qbo-payments-type-{card|echeck}`, `qbo-payments-amount`, `qbo-payments-token`, `qbo-payments-submit`, `qbo-payments-result`, `qbo-payments-error`.
+- **`InvoicesList.jsx`** — added "Accept payment" button per row when `amount_due > 0` and `status ∉ {paid,void,cancelled,draft}`. Opens the modal; on success reloads the list. New `Actions` column → `colSpan` bumped from 8 → 9 (smoke test updated to match).
+- **`MercuryWebhookCard.jsx`** (in `/app/modules/treasury/ui/`):
+  - Surfaces the canonical delivery URL with a Copy button.
+  - Lets operators paste / rotate the signing secret (last-4 echo only; AES-GCM encrypted on the backend).
+  - Pause/Resume deliveries toggle.
+  - Collapsible "Recent events" table showing verified/outcome/PI-id rollups.
+  - Mounted at the bottom of `MercurySettings` (treasury → Pay-out Rails → Mercury), only renders when `connected===true`.
+  - `data-testid` coverage: `mercury-webhook-card`, `mercury-webhook-delivery-url`, `mercury-webhook-copy-url`, `mercury-webhook-secret`, `mercury-webhook-save`, `mercury-webhook-pause-toggle`, `mercury-webhook-events-table`, `mercury-webhook-event-{i}`.
+- **`IntegrationTriage.jsx`** — added `AutoReconcileToggle` row above the filter bar. Calls GET/POST `/api/admin/qbo/auto_reconcile.php`; Run-now button executes one pass synchronously and renders `Closed N drift · created N payment(s)`.
+  - `data-testid` coverage: `qbo-auto-reconcile-toggle`, `qbo-auto-reconcile-checkbox`, `qbo-auto-reconcile-run-now`, `qbo-auto-reconcile-result`.
+
+### What shipped — P2 (Plaid charter row)
+
+- **`spec/plaid_schema.json`** — lightweight charter-style spec with `TransferCreate`, `TransferUserInRequest`, `ItemPublicTokenExchange`, `AccountsBalanceGet`, `TransfersWebhook` definitions + 7-code `errorCodes` map (`INVALID_REQUEST`, `INVALID_INPUT`, `ITEM_LOGIN_REQUIRED`, `RATE_LIMIT_EXCEEDED`, `INVALID_ACCESS_TOKEN`, `INSTITUTION_DOWN`, `INSUFFICIENT_FUNDS`). Plaid Transfer's `description.maxLength=15` constraint is captured (catches the ACH-15-byte limit at contract time).
+- **`tools/refresh_plaid_spec.sh`** — freshness probe to `plaid.com/docs/api/products/transfer/` + JSON `fetched_at` stamp (mirrors `refresh_mercury_spec.sh`).
+- **`tests/plaid_spec_freshness_smoke.php`** — **13 ✓** (definitions present, ENUM correctness, error-code mapping).
+- **`tests/plaid_payload_contract_smoke.php`** — **21 ✓** (definitions parse, transfer driver payload aligns with `writableProperties`, webhook event taxonomy, error-code completeness).
+- **`api/admin/integrations_health.php`** — Plaid row added with `verify_create=true`, `error_surface=true`, `mapping_fallback=null` (no CoA — primitive #4 is n/a).
+
+### What was actually already done (handoff hangover)
+
+- **Resend driver wire-up for `mailerSend()`** — verified done. `core/mail_bootstrap.php` registers `Core\Mail\ResendDriver` when `RESEND_API_KEY` is set (env or `config.local.php`); becomes default outbound. LogDriver kicks in as fallback. The previous handoff entry was stale.
+- **Mercury Webhooks backend** — fully built: `core/mercury_webhooks.php`, `/api/webhooks/mercury.php` (receiver), `/api/admin/treasury/mercury_webhook.php` (config). The only missing piece was the operator UI; this session adds `MercuryWebhookCard.jsx`.
+
+### Code reality (this session — added/edited)
+
+- `/app/api/webhooks/qbo.php` (new)
+- `/app/cron/qbo_payments_poll.php` (new)
+- `/app/spec/plaid_schema.json` (new) + `/app/tools/refresh_plaid_spec.sh` (new, executable)
+- `/app/api/admin/integrations_health.php` (extended — Plaid row added)
+- `/app/dashboard/src/pages/IntegrationTriage.jsx` (extended — `AutoReconcileToggle`)
+- `/app/modules/billing/ui/QboPaymentsCollectModal.jsx` (new)
+- `/app/modules/billing/ui/InvoicesList.jsx` (extended — Accept payment button + Actions column)
+- `/app/modules/treasury/ui/MercuryWebhookCard.jsx` (new)
+- `/app/modules/treasury/ui/MercurySettings.jsx` (extended — mounts the card)
+- `/app/tests/qbo_webhook_smoke.php` (new)
+- `/app/tests/qbo_payments_poll_smoke.php` (new)
+- `/app/tests/plaid_spec_freshness_smoke.php` (new)
+- `/app/tests/plaid_payload_contract_smoke.php` (new)
+- `/app/tests/auth_gate_static_analyzer_smoke.php` (allow-list qbo.php webhook)
+- `/app/tests/idbadge_product_wide_rollout_smoke.php` (colSpan bumped 8→9)
+- Vite bundle hashes: index-c2Gf0gUA.js / index-BC5g6YJu.css (sync_bundle.sh ran clean)
+
+### Suite health
+**427/436 ✓** — same 9 pre-existing sandbox-boundary failures (5 AI-gateway, Plaid live-curl, accounting_phase2_a7, legacy tenant_leak warning in `integration_triage.php:173`, treasury_csv_import). Zero new regressions.
+
+---
+
+
+
 ## Session — 2026-02 (QBO Step 4: Auto-Reconcile + Step 6 Phase 1: Payments API foundation)
 
 ### What shipped — Step 4 (Auto-reconciliation for `paid_out_of_band` drift)

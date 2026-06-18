@@ -112,6 +112,8 @@ export default function IntegrationTriage() {
 
       {data?.counts && <CountsBar counts={data.counts} />}
 
+      <AutoReconcileToggle />
+
       <FilterRow filter={filter} setFilter={setFilter} counts={data?.counts} />
 
       {loading && <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>}
@@ -197,6 +199,105 @@ function CountPill({ label, n, bg, fg, testid, bold }) {
     </span>
   );
 }
+
+function AutoReconcileToggle() {
+  const [state, setState] = useState({ loading: true, enabled: false, error: null });
+  const [busy, setBusy] = useState(false);
+  const [runResult, setRunResult] = useState(null);
+
+  const load = async () => {
+    try {
+      const res = await api.get('/api/admin/qbo/auto_reconcile.php');
+      setState({ loading: false, enabled: !!res.enabled, error: null });
+    } catch (e) {
+      setState({ loading: false, enabled: false, error: e.message || 'Failed to load' });
+    }
+  };
+  useEffect(() => { load(); }, []);
+
+  const toggle = async (next, runNow = false) => {
+    setBusy(true);
+    setRunResult(null);
+    try {
+      const res = await api.post('/api/admin/qbo/auto_reconcile.php', {
+        enabled: next, run_now: runNow,
+      });
+      setState((s) => ({ ...s, enabled: !!res.enabled, error: null }));
+      if (res.run_now) setRunResult(res.run_now);
+    } catch (e) {
+      setState((s) => ({ ...s, error: e.message || 'Update failed' }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runNow = async () => {
+    setBusy(true);
+    setRunResult(null);
+    try {
+      const res = await api.post('/api/admin/qbo/auto_reconcile.php', {
+        enabled: true, run_now: true,
+      });
+      setRunResult(res.run_now);
+    } catch (e) {
+      setState((s) => ({ ...s, error: e.message || 'Run failed' }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (state.loading) return null;
+
+  return (
+    <div
+      data-testid="qbo-auto-reconcile-toggle"
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '10px 14px', marginBottom: 12, borderRadius: 8,
+        background: state.enabled ? '#ecfdf5' : '#f9fafb',
+        border: `1px solid ${state.enabled ? '#a7f3d0' : '#e5e7eb'}`,
+        fontSize: 13,
+      }}
+    >
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600 }}>
+        <input
+          type="checkbox"
+          checked={state.enabled}
+          onChange={(e) => toggle(e.target.checked, false)}
+          disabled={busy}
+          data-testid="qbo-auto-reconcile-checkbox"
+        />
+        Auto-reconcile QBO drift
+      </label>
+      <span style={{ color: '#6b7280', flex: 1 }}>
+        {state.enabled
+          ? 'Paid-out-of-band drift is automatically applied: CoreFlux invoices/bills move to paid when QBO settles them out-of-band.'
+          : 'Drift is detected but stays open until an operator triages it manually. Flip on to close the loop automatically.'}
+      </span>
+      <button
+        type="button"
+        onClick={runNow}
+        disabled={!state.enabled || busy}
+        data-testid="qbo-auto-reconcile-run-now"
+        style={{
+          padding: '4px 12px', borderRadius: 4, fontSize: 12, fontWeight: 600,
+          background: state.enabled && !busy ? '#0f172a' : '#cbd5e1',
+          color: '#fff', border: 'none', cursor: state.enabled && !busy ? 'pointer' : 'not-allowed',
+        }}
+      >{busy ? 'Running…' : 'Run now'}</button>
+      {state.error && (
+        <span data-testid="qbo-auto-reconcile-error" style={{ color: '#991b1b', fontSize: 12 }}>{state.error}</span>
+      )}
+      {runResult && (
+        <span data-testid="qbo-auto-reconcile-result" style={{ color: '#065f46', fontSize: 12 }}>
+          Closed {runResult.drift_rows_closed} drift · created {runResult.payments_created} payment(s)
+        </span>
+      )}
+    </div>
+  );
+}
+
+
 
 function FilterRow({ filter, setFilter, counts }) {
   const sourceLabels = {

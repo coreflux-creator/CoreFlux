@@ -6,6 +6,7 @@ import { useTableList, SortIndicator } from '../../../dashboard/src/lib/useTable
 import { fmtDate } from '../../../dashboard/src/lib/formatDate';
 import InvoiceFromTimeBundleModal from './InvoiceFromTimeBundleModal';
 import InvoiceFromTimeEntriesModal from './InvoiceFromTimeEntriesModal';
+import QboPaymentsCollectModal from './QboPaymentsCollectModal';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 import { QboDriftBadge, useQboDriftBadges } from '../../../dashboard/src/components/QboDriftBadge';
 import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile';
@@ -16,6 +17,7 @@ export default function InvoicesList() {
   const [status, setStatus] = useState('all');
   const [showCreate, setShowCreate] = useState(false);
   const [showEntries, setShowEntries] = useState(false);
+  const [collectInvoice, setCollectInvoice] = useState(null);
   const { activeEntityId, activeEntity } = useActiveEntity();
   const qs = new URLSearchParams();
   if (status !== 'all') qs.set('status', status);
@@ -106,10 +108,13 @@ export default function InvoicesList() {
           <th {...headerProps('total', 'billing-invoices-sort')} style={{ cursor: 'pointer', userSelect: 'none', textAlign:'right'}}>Total <SortIndicator active={sortKey === 'total'} dir={sortDir} /></th>
           <th {...headerProps('amount_due', 'billing-invoices-sort')} style={{ cursor: 'pointer', userSelect: 'none', textAlign:'right'}}>Due <SortIndicator active={sortKey === 'amount_due'} dir={sortDir} /></th>
           <th {...headerProps('status', 'billing-invoices-sort')}>Status <SortIndicator active={sortKey === 'status'} dir={sortDir} /></th>
+          <th style={{ textAlign: 'right' }}>Actions</th>
         </tr></thead>
         <tbody>
-          {items.length === 0 && !loading && <tr><td colSpan={8} className="empty" data-testid="billing-invoices-empty">No invoices yet.</td></tr>}
-          {items.map(r => (
+          {items.length === 0 && !loading && <tr><td colSpan={9} className="empty" data-testid="billing-invoices-empty">No invoices yet.</td></tr>}
+          {items.map(r => {
+            const collectable = Number(r.amount_due) > 0 && !['paid', 'void', 'cancelled', 'draft'].includes(r.status);
+            return (
             <tr key={r.id} data-testid={`billing-invoice-row-${r.id}`}>
               <td><IdBadge id={r.id} prefix="INV" /></td>
               <td>
@@ -130,8 +135,21 @@ export default function InvoicesList() {
               <td style={{ textAlign: 'right' }}>{Number(r.total).toFixed(2)} {r.currency}</td>
               <td style={{ textAlign: 'right' }}>{Number(r.amount_due).toFixed(2)}</td>
               <td><span className={`badge badge--${r.status}`}>{r.status.replace('_',' ')}</span><QboDriftBadge entry={qboDrift[r.id]} /></td>
+              <td style={{ textAlign: 'right' }}>
+                {collectable && (
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => setCollectInvoice(r)}
+                    data-testid={`billing-accept-payment-${r.id}`}
+                    title="Accept card / ACH via QuickBooks Payments"
+                    style={{ fontSize: 11, padding: '2px 8px' }}
+                  >Accept payment</button>
+                )}
+              </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
 
@@ -154,6 +172,18 @@ export default function InvoicesList() {
           onClose={() => setShowEntries(false)}
           onCreated={() => {
             setShowEntries(false);
+            bustApiCachePrefix('billing-invoices-list:');
+            reload();
+          }}
+        />
+      )}
+
+      {collectInvoice && (
+        <QboPaymentsCollectModal
+          invoice={collectInvoice}
+          onClose={() => setCollectInvoice(null)}
+          onCollected={() => {
+            setCollectInvoice(null);
             bustApiCachePrefix('billing-invoices-list:');
             reload();
           }}
