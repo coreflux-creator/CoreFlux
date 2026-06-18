@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Briefcase, Plus, X, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Briefcase, Plus, X, Trash2, ChevronRight, ChevronDown, Receipt, CheckCircle2 } from 'lucide-react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney } from '../../../dashboard/src/lib/format';
 import { fmtDate } from '../../../dashboard/src/lib/formatDate';
@@ -109,11 +110,24 @@ export default function EngagementsList() {
 }
 
 function EngagementRow({ row, onChanged }) {
+  const [expanded, setExpanded] = useState(false);
   const pct = row.total_fee > 0 ? Math.min(100, (Number(row.invoiced_amount) / Number(row.total_fee)) * 100) : 0;
   const paidPct = row.total_fee > 0 ? Math.min(100, (Number(row.paid_amount) / Number(row.total_fee)) * 100) : 0;
   return (
+    <>
     <tr data-testid={`engagement-row-${row.id}`}>
-      <td>{row.id}</td>
+      <td>
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          data-testid={`engagement-expand-${row.id}`}
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+          title={expanded ? 'Collapse milestones' : 'Expand milestones'}
+        >
+          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <span>{row.id}</span>
+        </button>
+      </td>
       <td>{row.client_name}</td>
       <td>{row.project_name}</td>
       <td style={{ textAlign: 'right' }}>{fmtMoney(row.total_fee, row.currency)}</td>
@@ -143,8 +157,161 @@ function EngagementRow({ row, onChanged }) {
       </td>
       <td style={{ fontSize: 11, color: '#6b7280' }}>{fmtDate(row.updated_at)}</td>
     </tr>
+    {expanded && (
+      <tr data-testid={`engagement-milestones-${row.id}`}>
+        <td colSpan={9} style={{ background: '#f9fafb', padding: 0 }}>
+          <MilestoneSubTable engagementId={row.id} onChanged={onChanged} />
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
+
+function MilestoneSubTable({ engagementId, onChanged }) {
+  const detail = useApi(`/modules/engagements/api/detail.php?id=${engagementId}`);
+  const ms = detail.data?.engagement?.milestones || [];
+
+  if (detail.loading) return <div style={{ padding: 12, fontSize: 12, color: '#6b7280' }}>Loading milestones…</div>;
+  if (detail.error)   return <div style={{ padding: 12, fontSize: 12, color: '#991b1b' }}>{detail.error}</div>;
+  if (ms.length === 0) return <div style={{ padding: 12, fontSize: 12, color: '#6b7280' }}>No milestones on this engagement.</div>;
+
+  return (
+    <table data-testid={`engagement-milestones-table-${engagementId}`} style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+      <thead>
+        <tr style={{ color: '#6b7280' }}>
+          <th style={mthStyle}>Milestone</th>
+          <th style={{ ...mthStyle, textAlign: 'right' }}>Amount</th>
+          <th style={mthStyle}>Target</th>
+          <th style={mthStyle}>Status</th>
+          <th style={mthStyle}>Linked invoice</th>
+          <th style={{ ...mthStyle, textAlign: 'right' }}>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {ms.map((m) => (
+          <MilestoneRow
+            key={m.id}
+            milestone={m}
+            engagementId={engagementId}
+            onChanged={() => { detail.reload?.(); onChanged?.(); }}
+          />
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function MilestoneRow({ milestone, engagementId, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const [flash, setFlash] = useState(null);
+  const canInvoice = ['pending', 'ready_to_invoice'].includes(milestone.status)
+                  && Number(milestone.amount) > 0;
+  const canMarkPaid = milestone.status === 'invoiced';
+
+  const invoiceNow = async () => {
+    if (!window.confirm(`Generate a draft invoice for "${milestone.name}" (${fmtMoney(milestone.amount, 'USD')})?\n\nThe invoice will be created in DRAFT status — you can review and send it from the Billing module.`)) return;
+    setBusy(true);
+    setFlash(null);
+    try {
+      const res = await api.post(`/modules/engagements/api/invoice_milestone.php?milestone_id=${milestone.id}`);
+      setFlash({ kind: 'success', msg: `Invoice ${res.invoice?.invoice_number || ('#' + res.invoice?.id)} created.` });
+      onChanged?.();
+    } catch (err) {
+      setFlash({ kind: 'error', msg: err.message || 'Invoice creation failed' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const markPaid = async () => {
+    if (!window.confirm('Mark this milestone as PAID? This bypasses the normal payment-applied workflow and should only be used when the underlying invoice was paid out-of-band.')) return;
+    setBusy(true);
+    setFlash(null);
+    try {
+      await api.patch(`/modules/engagements/api/milestones.php?id=${milestone.id}`, { status: 'paid' });
+      onChanged?.();
+    } catch (err) {
+      setFlash({ kind: 'error', msg: err.message || 'Mark-paid failed' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <tr data-testid={`milestone-row-${milestone.id}`}>
+      <td style={mtdStyle}>
+        <strong>{milestone.name}</strong>
+        {milestone.description && <div style={{ fontSize: 10, color: '#9ca3af' }}>{milestone.description}</div>}
+        {flash && (
+          <div data-testid={`milestone-flash-${milestone.id}`} style={{
+            marginTop: 4, padding: '2px 6px', borderRadius: 3, fontSize: 10,
+            background: flash.kind === 'success' ? '#d1fae5' : '#fee2e2',
+            color:      flash.kind === 'success' ? '#065f46' : '#991b1b',
+          }}>{flash.msg}</div>
+        )}
+      </td>
+      <td style={{ ...mtdStyle, textAlign: 'right' }}>{fmtMoney(milestone.amount, 'USD')}</td>
+      <td style={mtdStyle}>{milestone.target_date ? fmtDate(milestone.target_date) : '—'}</td>
+      <td style={mtdStyle}>
+        <span data-testid={`milestone-status-${milestone.id}`} style={milestoneStatusStyle(milestone.status)}>
+          {milestone.status.replace(/_/g, ' ')}
+        </span>
+      </td>
+      <td style={mtdStyle}>
+        {milestone.invoice_id
+          ? <Link to={`/modules/billing/invoices/${milestone.invoice_id}`} data-testid={`milestone-invoice-link-${milestone.id}`}>#{milestone.invoice_id}</Link>
+          : <span style={{ color: '#9ca3af' }}>—</span>}
+      </td>
+      <td style={{ ...mtdStyle, textAlign: 'right' }}>
+        {canInvoice && (
+          <button
+            type="button"
+            onClick={invoiceNow}
+            disabled={busy}
+            data-testid={`milestone-invoice-btn-${milestone.id}`}
+            style={{ ...smallBtn, opacity: busy ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            title="Generate a draft invoice for this milestone"
+          ><Receipt size={11} /> {busy ? 'Creating…' : 'Invoice'}</button>
+        )}
+        {canMarkPaid && (
+          <button
+            type="button"
+            onClick={markPaid}
+            disabled={busy}
+            data-testid={`milestone-markpaid-btn-${milestone.id}`}
+            style={{ ...smallBtn, opacity: busy ? 0.5 : 1, marginLeft: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            title="Mark milestone as paid (use only when invoice was paid out-of-band)"
+          ><CheckCircle2 size={11} /> Mark paid</button>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+const mthStyle = { padding: '6px 10px', fontSize: 11, textAlign: 'left', fontWeight: 600, borderBottom: '1px solid #e5e7eb' };
+const mtdStyle = { padding: '6px 10px', borderBottom: '1px solid #f1f5f9' };
+
+function milestoneStatusStyle(status) {
+  const colors = {
+    pending:          { bg: '#fef3c7', fg: '#92400e' },
+    ready_to_invoice: { bg: '#dbeafe', fg: '#1e40af' },
+    invoiced:         { bg: '#e0e7ff', fg: '#3730a3' },
+    paid:             { bg: '#d1fae5', fg: '#065f46' },
+    cancelled:        { bg: '#f3f4f6', fg: '#6b7280' },
+  };
+  const c = colors[status] || colors.pending;
+  return {
+    padding: '2px 6px', borderRadius: 999, fontSize: 10, fontWeight: 600,
+    background: c.bg, color: c.fg,
+  };
+}
+
+const smallBtn = {
+  padding: '3px 8px', borderRadius: 4,
+  border: '1px solid #d1d5db', background: '#fff', color: '#374151',
+  cursor: 'pointer', fontSize: 11, fontWeight: 600,
+};
 
 function statusColor(status) {
   switch (status) {

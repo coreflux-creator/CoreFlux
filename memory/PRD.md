@@ -1,5 +1,47 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (P2: Engagements → AR billing bridge)
+
+### What shipped
+- **`/app/modules/engagements/api/invoice_milestone.php`** — POST endpoint that converts an engagement milestone into a draft `billing_invoices` row in a single transaction:
+  1. Validates milestone belongs to caller's tenant + is in `pending`/`ready_to_invoice` + parent engagement isn't archived.
+  2. Looks up tenant tax % + payment terms (with per-client `staffing_clients.payment_terms_days` override).
+  3. Builds a single line via `billingComputeTax` and inserts via `scopedInsert('billing_invoices', …)`. Line is tagged `source_type='engagement_milestone'` for downstream filtering.
+  4. Calls `engagementsMilestoneAttachInvoice()` to flip the milestone → `invoiced` and link the new `billing_invoices.id`.
+  5. Emits `billing.invoice.created` audit with `source='engagement_milestone'` + the `engagement_id` / `milestone_id` for forensics.
+  - **Idempotent**: if the milestone is already `invoiced`/`paid`, returns the existing linked invoice (`reused: true`) instead of double-billing. Defends against double-click on the UI button + replay attacks.
+  - **Refuses** to invoice when the parent engagement is `archived` (409).
+- **`/app/modules/engagements/ui/EngagementsList.jsx`** — expandable row with inline milestones:
+  - Click the row's chevron to expand → fetches engagement detail and renders a sub-table of milestones with name / amount / target / status pill / linked invoice / actions.
+  - **"Invoice" CTA** per milestone — shows only when `status ∈ {pending, ready_to_invoice}` and `amount > 0`. Gated behind a `window.confirm` so accidental clicks don't auto-bill the customer.
+  - **"Mark paid" CTA** per `invoiced` milestone (escape hatch for out-of-band payments not flowing through CoreFlux's payment-applied path).
+  - Linked invoice id renders as a `<Link>` straight to `/modules/billing/invoices/:id`.
+  - Status pill colors: pending (amber), ready_to_invoice (blue), invoiced (indigo), paid (green), cancelled (grey).
+  - Flash banner per milestone surfaces success/error from the invoice POST inline (no toast spam).
+  - `data-testid` coverage: `engagement-expand-{id}`, `engagement-milestones-{id}`, `engagement-milestones-table-{id}`, `milestone-row-{id}`, `milestone-status-{id}`, `milestone-invoice-link-{id}`, `milestone-invoice-btn-{id}`, `milestone-markpaid-btn-{id}`, `milestone-flash-{id}`.
+- **Smoke `engagements_invoice_bridge_smoke.php`** — **37 ✓**:
+  - File shape + RBAC + transaction guard + per-client terms override.
+  - UI CTA wiring + window.confirm gate + state-machine gating.
+  - **Live SQLite exercise**: create engagement (2 milestones) → invoice the kickoff milestone → milestone flips to `invoiced` + invoice_id linked + invoiced_at stamped + rollups update → **replay returns reused=true with NO duplicate invoice** → archive lock refuses further invoicing.
+
+### Code reality (this session — added/edited)
+
+New:
+- `/app/modules/engagements/api/invoice_milestone.php`
+- `/app/tests/engagements_invoice_bridge_smoke.php`
+
+Edited:
+- `/app/modules/engagements/ui/EngagementsList.jsx` (expandable rows + `MilestoneSubTable` + `MilestoneRow`)
+
+Vite bundle: `index-J9z0JecN.js` / `index-BC5g6YJu.css` (sync_bundle.sh ran clean).
+
+### Suite health
+**431/440 ✓** — same 9 pre-existing sandbox-boundary failures. Zero new regressions.
+
+---
+
+
+
 ## Session — 2026-02 (P1 Phase 5 + P2 Engagements + P2 CFO RBAC + P3 Auditor verify)
 
 ### What shipped — P1 Phase 5 (Intuit hosted tokenizer in QboPaymentsCollectModal)
