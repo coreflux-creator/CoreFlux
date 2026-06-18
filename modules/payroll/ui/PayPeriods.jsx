@@ -4,8 +4,8 @@ import { useApi, api } from '../../../dashboard/src/lib/api';
 import CsvUploadWidget from '../../../dashboard/src/components/CsvUploadWidget';
 
 export default function PayPeriods() {
-  const periodsApi = useApi('/modules/payroll/api/pay_periods.php');
-  const schedulesApi = useApi('/modules/payroll/api/pay_schedules.php');
+  const periodsApi = useApi('/api/v1/payroll/pay-periods');
+  const schedulesApi = useApi('/api/v1/payroll/pay-schedules');
   const periods = periodsApi.data?.periods ?? [];
   const schedules = schedulesApi.data?.schedules ?? [];
   const [busy, setBusy] = useState(null);
@@ -14,7 +14,7 @@ export default function PayPeriods() {
   const generateMore = async (scheduleId) => {
     setBusy(scheduleId);
     try {
-      await api.post('/modules/payroll/api/pay_periods.php', { schedule_id: scheduleId, count: 6 });
+      await api.post('/api/v1/payroll/pay-periods', { schedule_id: scheduleId, count: 6 });
       periodsApi.reload();
     } finally { setBusy(null); }
   };
@@ -22,7 +22,7 @@ export default function PayPeriods() {
   const startRun = async (periodId) => {
     setBusy(`run-${periodId}`);
     try {
-      const res = await api.post('/modules/payroll/api/runs.php', { pay_period_id: periodId });
+      const res = await api.post('/api/v1/payroll/runs', { pay_period_id: periodId });
       window.location.assign(`#/modules/payroll/runs/${res.id}`);
       window.location.reload();
     } finally { setBusy(null); }

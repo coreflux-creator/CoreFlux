@@ -87,8 +87,8 @@ echo "\nPayrollRunDetail.jsx — export buttons\n";
 $rd = (string) file_get_contents(__DIR__ . '/../modules/payroll/ui/PayrollRunDetail.jsx');
 $a('audit CSV download link',                  strpos($rd, 'payroll-run-export-csv')   !== false);
 $a('Gusto CSV download link',                  strpos($rd, 'payroll-run-export-gusto') !== false);
-$a('export hrefs use action=export_run',       strpos($rd, 'action=export_run')   !== false);
-$a('export hrefs use action=export_gusto',     strpos($rd, 'action=export_gusto') !== false);
+$a('export hrefs use v1 export-run route',     strpos($rd, '/api/v1/payroll/runs/${run.id}/export-run')   !== false);
+$a('export hrefs use v1 export-gusto route',   strpos($rd, '/api/v1/payroll/runs/${run.id}/export-gusto') !== false);
 $a('exports hidden until compute finished',    strpos($rd, "run.status !== 'draft'") !== false);
 
 echo "\nPayroll runs.php — Gusto sync API\n";

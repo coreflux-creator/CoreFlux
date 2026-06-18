@@ -7,13 +7,13 @@ import { useApi, api } from '../../../dashboard/src/lib/api';
  * badge in PayrollOverview.
  */
 export default function PayrollAnomalies() {
-  const { data, loading, reload } = useApi('/modules/payroll/api/anomalies.php?dashboard=1&limit=200');
+  const { data, loading, reload } = useApi('/api/v1/payroll/anomalies?dashboard=1&limit=200');
   const items = data?.unacknowledged ?? [];
   const [busy, setBusy] = useState(null);
 
   const ack = async (id) => {
     setBusy(id);
-    try { await api.put(`/modules/payroll/api/anomalies.php?id=${id}`, {}); await reload(); }
+    try { await api.put(`/api/v1/payroll/anomalies?id=${id}`, {}); await reload(); }
     finally { setBusy(null); }
   };
 

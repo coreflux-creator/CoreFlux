@@ -13,7 +13,7 @@ const GAP_LABEL = {
 };
 
 export default function PayrollProfiles() {
-  const { data, loading, error, reload } = useApi('/modules/payroll/api/profiles.php');
+  const { data, loading, error, reload } = useApi('/api/v1/payroll/profiles');
   const profiles = data?.profiles ?? [];
 
   return (

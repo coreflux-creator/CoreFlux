@@ -208,6 +208,27 @@ $assert("platform workflow skips synthetic base permission",
 $assert("normal module keeps base permission",
     apiRouterBasePermission(['module_id' => 'people', 'endpoint' => 'employees']) === 'people.view');
 
+foreach ([
+    'ai-run-summary' => 'ai_run_summary',
+    'anomalies' => 'anomalies',
+    'cycles' => 'cycles',
+    'gusto-connect' => 'gusto_connect',
+    'gusto-preview' => 'gusto_preview',
+    'gusto-submit' => 'gusto_submit',
+    'gusto-sync' => 'gusto_sync',
+    'pay-periods' => 'pay_periods',
+    'pay-schedules' => 'pay_schedules',
+    'pay-stub' => 'pay_stub',
+    'preflight' => 'preflight',
+    'profiles' => 'profiles',
+    'runs' => 'runs',
+    'settings' => 'settings',
+] as $route => $fileStem) {
+    $file = apiRouterResolveFile('payroll', $route);
+    $assert("resolves payroll/{$route} module endpoint",
+        $file !== null && str_ends_with($file, "/modules/payroll/api/{$fileStem}.php"));
+}
+
 $file = apiRouterResolveFile('people', 'nope_does_not_exist');
 $assert("returns null for missing endpoint", $file === null);
 

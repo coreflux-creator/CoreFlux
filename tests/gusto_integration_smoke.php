@@ -217,7 +217,7 @@ $a('period-select testid',                       strpos($rd, 'payroll-run-gusto-
 $a('submit button testid',                       strpos($rd, 'payroll-run-gusto-submit-btn') !== false);
 $a('submit-result testid',                       strpos($rd, 'payroll-run-gusto-submit-result') !== false);
 $a('CSV-fallback hint when not connected',       strpos($rd, 'payroll-run-gusto-csv-fallback-hint') !== false);
-$a('loads connection status on mount',           strpos($rd, "/modules/payroll/api/gusto_connect.php") !== false);
+$a('loads connection status on mount',           strpos($rd, "/api/v1/payroll/gusto-connect") !== false);
 $a('CSV-paste flow preserved as fallback',
     strpos($rd, 'payroll-run-gusto-id-input') !== false &&
     strpos($rd, 'payroll-run-gusto-link-btn')  !== false);

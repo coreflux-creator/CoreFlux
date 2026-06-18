@@ -25,7 +25,7 @@ export default function GustoConnectCard() {
   const load = async () => {
     setState((s) => ({ ...s, loading: true }));
     try {
-      const data = await api.get('/modules/payroll/api/gusto_connect.php');
+      const data = await api.get('/api/v1/payroll/gusto-connect');
       setState({ loading: false, ...data });
     } catch (e) { setErr(e.message); setState({ loading: false }); }
   };
@@ -53,7 +53,7 @@ export default function GustoConnectCard() {
   const submitManual = async () => {
     setManualBusy(true); setErr(null);
     try {
-      await api.post('/modules/payroll/api/gusto_connect.php', manualForm);
+      await api.post('/api/v1/payroll/gusto-connect', manualForm);
       setShowManual(false);
       setManualForm({ company_uuid: '', company_name: '', access_token: '', refresh_token: '' });
       await load();
@@ -62,7 +62,7 @@ export default function GustoConnectCard() {
 
   const disconnect = async () => {
     if (!window.confirm('Disconnect Gusto? Existing payroll runs will keep their submission history. You can reconnect at any time.')) return;
-    try { await api.delete('/modules/payroll/api/gusto_connect.php'); await load(); }
+    try { await api.delete('/api/v1/payroll/gusto-connect'); await load(); }
     catch (e) { setErr(e.message); }
   };
 
@@ -238,7 +238,7 @@ function GustoTrackBSyncPanel() {
   const run = async (action, label) => {
     setBusy(action); setErr(null); setResult(null);
     try {
-      const res = await fetch(`/modules/payroll/api/gusto_sync.php?action=${action}`, {
+      const res = await fetch(`/api/v1/payroll/gusto-sync?action=${action}`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
       });
