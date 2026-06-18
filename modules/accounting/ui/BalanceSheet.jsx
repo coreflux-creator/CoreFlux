@@ -16,6 +16,8 @@ import GlDetailDrilldown from '../../../dashboard/src/components/GlDetailDrilldo
 import { fmtMoney } from '../../../dashboard/src/lib/format';
 import { useReportPeriod } from '../../../dashboard/src/lib/useReportPeriod';
 
+const ACCOUNTING_REPORTS_API = '/api/v1/accounting/reports';
+
 export default function BalanceSheet() {
   const period = useReportPeriod();
 
@@ -214,7 +216,7 @@ function Section({ title, rows, total, testIdPrefix, columns }) {
 }
 
 function url(asOf) {
-  return `/modules/accounting/api/reports.php?type=balance_sheet&as_of=${asOf}`;
+  return `${ACCOUNTING_REPORTS_API}?type=balance_sheet&as_of=${asOf}`;
 }
 
 const sectionHeadingStyle = {

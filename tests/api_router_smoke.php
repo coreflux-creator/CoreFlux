@@ -332,6 +332,14 @@ $assert("resolves accounting/dimensional-pnl module endpoint",
     $file !== null && str_ends_with($file, '/modules/accounting/api/dimensional_pnl.php'));
 
 foreach ([
+    'reports' => 'reports',
+    'entities' => 'entities',
+    'accounts' => 'accounts',
+    'journal-entries' => 'journal_entries',
+    'recurring-journal-entries' => 'recurring_journal_entries',
+    'entity-relationships' => 'entity_relationships',
+    'consolidation-runs' => 'consolidation_runs',
+    'intercompany' => 'intercompany',
     'periods' => 'periods',
     'close-tasks' => 'close_tasks',
     'close-packet' => 'close_packet',
