@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
+import PwpReleasedNudge from '../../../dashboard/src/components/PwpReleasedNudge';
 
 const BLOCKER_META = {
   awaiting_client:  { label: 'Awaiting client', color: '#0891b2', bg: '#cffafe' },
@@ -84,6 +85,11 @@ export default function WeeklyQueue() {
       </header>
 
       <SummaryRibbon summary={summary} />
+
+      {/* P2.2 — when AR-paid cash unlocks PWP-gated bills, surface them
+          here so the operator notices the freshly-releasable payables
+          without having to comb the list. Hides when the count is 0. */}
+      <PwpReleasedNudge variant="banner" days={7} />
 
       {result && <ResultBlock result={result} />}
 

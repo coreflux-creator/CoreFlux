@@ -1,5 +1,61 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Nested-tx fix + P2.1 inverse cascade + P2.2/P2.3 PWP nudge)
+
+### What shipped
+
+#### 0. 🔴 Bug fix — "There is already an active transaction" on Create Bill
+- Root cause: `apNextInternalRef()` opened a raw `$pdo->beginTransaction()` while the Create-Bill handler already held a `cf_begin_transaction()`. The previous JE-only fix didn't propagate to AP/billing helpers.
+- Patched with the `$ownsTxn = !$pdo->inTransaction();` owning-transaction guard pattern:
+  - **`apNextInternalRef`** (`/app/modules/ap/lib/ap.php:24`) — direct cause of the Create-Bill regression.
+  - **`apAllocatePayment`** (`/app/modules/ap/lib/ap.php:881`)
+  - **`apPwpAutoLinkForArInvoice`** (`/app/modules/ap/lib/pwp.php:97`) — auto-fires inside billingAllocatePayment.
+  - **`apPwpReleaseForArInvoice`** (`/app/modules/ap/lib/pwp.php:231`) — same.
+  - **`billingNextInvoiceNumber`** (`/app/modules/billing/lib/billing.php:15`) — proactive (Create-Invoice flow has the same pattern).
+  - **`billingAllocatePayment`** (`/app/modules/billing/lib/billing.php:673`) — called from inbound payment webhooks that may own a tx.
+- New regression smoke `tests/nested_transaction_safety_smoke.php` (**35 ✓**) statically asserts all 6 helpers carry the guard AND drives a live SQLite exercise: opens an outer tx, calls `apNextInternalRef` + `billingNextInvoiceNumber` from inside it, confirms no exception fires and the seq advance is durable.
+
+#### 1. P2.1 — BillDetail → originating time entry deep-link (inverse cascade)
+- **`bills.php`** (`GET ?id=N`): enriches each `ap_bill_lines` row whose `source_type IN ('time_entry','time')` with `source_timesheet_id` + `source_work_date` via a single batched lookup against `time_entries`. Wrapped in try/catch so minimal tenants without the table still work.
+- **`BillDetail.jsx`**: in the Lines table, each time-sourced line now renders a `↳ time entry #N` link to `/modules/staffing/timesheets/{timesheet_id}/lifecycle?entry_id={N}`. Inverse of the existing TimesheetDetail → cascade link, closing the loop in both directions.
+
+#### 2. P2.2 — AR-paid → AP-payment-run nudge on Weekly AP Queue
+- **New `pwp_released.php` API** (`/app/modules/ap/api/pwp_released.php`): `GET ?days=7` returns `{ count, total_due, bills[] }` for bills where `pwp_status='triggered' AND pwp_released_at >= NOW()-:d AND status IN ('approved','partially_paid') AND amount_due > 0`. Tenant-scoped, `ap.view` gated, GET-only, `days` capped at 60.
+- **New `PwpReleasedNudge.jsx`** component — two variants:
+  - **`variant="banner"`** (mounted on WeeklyQueue.jsx): green-left-border banner *above* the queue list. Expandable "What changed?" details lists up to 5 recently-released bills with deep-links to the bill + originating AR invoice. One-click "Suggest payment run →" button POSTs to `bills.php?action=suggest-payment-run` and navigates to the queue.
+- Hides entirely when `count === 0` so quiet weeks stay quiet.
+
+#### 3. P2.3 — Auto-suggest payment run tile on CFO Dashboard
+- Same `PwpReleasedNudge` component, **`variant="tile"`** mounted on `CFODashboard.jsx`. Renders the same data as a celebratory green tile with a single bold call-to-action. Reuses the same API and the same one-click suggest flow.
+
+### Tests
+- **New** `tests/timesheet_lifecycle_p2_smoke.php` — **35 ✓** asserts:
+  - P2.1: bills.php JOIN + enrichment + graceful fallback; BillDetail link routing + test-ids.
+  - P2.2/P2.3: pwp_released.php auth gate, SQL filters, response shape; nudge component variants, hide-on-zero, suggest-run wiring, deep-links; mount points on WeeklyQueue.jsx + CFODashboard.jsx.
+  - Bundle integration: confirms `pwp-released-*` and `ap-bill-line-time-entry-*` test-ids embed in the live `/app/spa-assets/index-*.js`.
+- **New** `tests/nested_transaction_safety_smoke.php` — **35 ✓** static + live PDO guard checks.
+
+### Suite health
+**438/446 ✓** — same 8 pre-existing sandbox-boundary failures. **Zero new regressions.**
+
+### Vite build
+Fresh bundle: `index-CejJ6W5r.js` / `index-BC5g6YJu.css` (sync_bundle.sh ran clean; `.deploy-version`, `dashboard/dist/index.html`, and `service-worker` CACHE_VERSION all aligned).
+
+### Code reality (this session)
+- **New**: `/app/modules/ap/api/pwp_released.php`, `/app/dashboard/src/components/PwpReleasedNudge.jsx`, `/app/tests/timesheet_lifecycle_p2_smoke.php`, `/app/tests/nested_transaction_safety_smoke.php`.
+- **Edited**:
+  - `/app/modules/ap/lib/ap.php` (apNextInternalRef, apAllocatePayment guards)
+  - `/app/modules/ap/lib/pwp.php` (both PWP functions guards)
+  - `/app/modules/billing/lib/billing.php` (billingNextInvoiceNumber, billingAllocatePayment guards)
+  - `/app/modules/ap/api/bills.php` (time-entry line enrichment)
+  - `/app/modules/ap/ui/BillDetail.jsx` (inverse cascade link)
+  - `/app/modules/ap/ui/WeeklyQueue.jsx` (banner mount)
+  - `/app/dashboard/src/pages/CFODashboard.jsx` (tile mount)
+
+---
+
+
+
 ## Session — 2026-02 (Timesheet Lifecycle visibility + Pay-When-Paid UI surface)
 
 ### What shipped

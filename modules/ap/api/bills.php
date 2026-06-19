@@ -233,6 +233,36 @@ if ($method === 'GET' && !empty($_GET['id'])) {
     $linesStmt = $pdo->prepare('SELECT * FROM ap_bill_lines WHERE bill_id = :id ORDER BY line_no');
     $linesStmt->execute(['id' => $id]);
     $lines = $linesStmt->fetchAll(\PDO::FETCH_ASSOC);
+
+    // Enrich time_entry-sourced lines with timesheet_id so the
+    // BillDetail UI can deep-link back to the originating timesheet
+    // lifecycle view (P2.1 — inverse cascade).
+    $teLineIds = [];
+    foreach ($lines as $l) {
+        if (in_array($l['source_type'] ?? '', ['time_entry','time'], true) && !empty($l['source_ref_id'])) {
+            $teLineIds[(int) $l['source_ref_id']] = true;
+        }
+    }
+    if (!empty($teLineIds)) {
+        $ids = array_keys($teLineIds);
+        $place = implode(',', array_fill(0, count($ids), '?'));
+        try {
+            $tsStmt = $pdo->prepare("SELECT id, timesheet_id, work_date FROM time_entries WHERE tenant_id = ? AND id IN ({$place})");
+            $tsStmt->execute(array_merge([$tid], $ids));
+            $byEntry = [];
+            foreach ($tsStmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
+                $byEntry[(int) $r['id']] = $r;
+            }
+            foreach ($lines as &$l) {
+                if (in_array($l['source_type'] ?? '', ['time_entry','time'], true) && !empty($byEntry[(int) ($l['source_ref_id'] ?? 0)])) {
+                    $r = $byEntry[(int) $l['source_ref_id']];
+                    $l['source_timesheet_id'] = (int) $r['timesheet_id'];
+                    $l['source_work_date']    = $r['work_date'];
+                }
+            }
+            unset($l);
+        } catch (\Throwable $_) { /* time_entries table may be unavailable on minimal tenants */ }
+    }
     // tenant-leak-allow: defense-in-depth — caller scoped row by tenant_id before this id-only write
     $allocStmt = $pdo->prepare(
         'SELECT appa.amount_applied, appa.applied_at, app.id AS payment_id, app.pay_date, app.method, app.reference, app.amount AS payment_amount, app.status AS payment_status
