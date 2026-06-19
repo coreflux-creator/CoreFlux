@@ -13,7 +13,7 @@
  *
  * Usage:
  *   const { activeEntityId, entities, entityQuery } = useActiveEntity();
- *   const url = `/modules/accounting/api/journal_entries.php${entityQuery('?')}`;
+ *   const url = `/api/v1/accounting/journal-entries${entityQuery('?')}`;
  *   // entityQuery('?') returns '?entity_id=3' or '' when nothing active.
  */
 import { useEffect, useState, useCallback } from 'react';

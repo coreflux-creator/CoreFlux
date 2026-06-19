@@ -4,9 +4,11 @@
  * One file serves both resources distinguished by ?resource=
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/employees.php';
 
 $ctx = api_require_auth();
+$user = $ctx['user'];
 $resource = api_query('resource', 'phones');
 $tables = [
     'phones'              => ['people_phones',              ['kind','number','is_preferred']],
@@ -14,9 +16,12 @@ $tables = [
 ];
 if (!isset($tables[$resource])) api_error('Invalid resource', 422);
 [$table, $allowed] = $tables[$resource];
+$readPermission = $resource === 'emergency_contacts' ? 'people.pii.view' : 'people.view';
+$writePermission = $resource === 'emergency_contacts' ? 'people.pii.manage' : 'people.manage';
 
 switch (api_method()) {
     case 'GET': {
+        rbac_legacy_require($user, $readPermission);
         $empId = (int) (api_query('employee_id') ?? 0);
         if (!$empId) api_error('Missing employee_id', 422);
         $rows = scopedQuery(
@@ -26,6 +31,7 @@ switch (api_method()) {
         api_ok([$resource => $rows]);
     }
     case 'POST': {
+        rbac_legacy_require($user, $writePermission);
         $body = api_json_body();
         api_require_fields($body, ['employee_id']);
         $data = ['employee_id' => (int) $body['employee_id']];
@@ -35,6 +41,7 @@ switch (api_method()) {
     }
     case 'PUT':
     case 'PATCH': {
+        rbac_legacy_require($user, $writePermission);
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
         $body = api_json_body();
@@ -44,6 +51,7 @@ switch (api_method()) {
         api_ok(['ok' => true]);
     }
     case 'DELETE': {
+        rbac_legacy_require($user, $writePermission);
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
         scopedDelete($table, $id);

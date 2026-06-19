@@ -12,6 +12,7 @@
  */
 
 const CACHE_VERSION = 'coreflux-DLOTA731';
+const CACHE_VERSION = 'coreflux-c2dkoLnp';
 const APP_SHELL = [
   '/',
   '/spa.php',

@@ -53,6 +53,7 @@ return [
         'accounting.*',
         'payroll.*',
         'treasury.*',
+        'admin.export_templates.manage',
         'reports.*',         // new mapping naming
         'reporting.*',       // legacy naming kept for back-compat
         'finance.*',

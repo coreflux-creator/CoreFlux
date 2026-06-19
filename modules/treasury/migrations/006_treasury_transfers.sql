@@ -41,5 +41,6 @@ CREATE TABLE IF NOT EXISTS treasury_transfers (
     INDEX idx_tt_tenant_status (tenant_id, status, transfer_date),
     INDEX idx_tt_tenant_kind (tenant_id, transfer_kind, status),
     INDEX idx_tt_tenant_src_bank (tenant_id, source_bank_account_id),
-    INDEX idx_tt_tenant_dst_bank (tenant_id, destination_bank_account_id)
+    INDEX idx_tt_tenant_dst_bank (tenant_id, destination_bank_account_id),
+    INDEX idx_tt_workflow (tenant_id, workflow_instance_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

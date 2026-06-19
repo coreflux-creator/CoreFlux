@@ -12,9 +12,11 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../lib/payroll.php';
 
 $ctx = api_require_auth();
+$user = $ctx['user'];
 
 switch (api_method()) {
     case 'GET': {
+        rbac_legacy_require($user, 'payroll.profiles.view');
         $empId = (int) (api_query('employee_id') ?? 0);
         if ($empId) {
             $emp = peopleGetEmployee($empId);
@@ -63,6 +65,7 @@ switch (api_method()) {
     case 'POST':
     case 'PUT':
     case 'PATCH': {
+        rbac_legacy_require($user, 'payroll.profiles.manage');
         $body = api_json_body();
         $empId = (int) ($body['employee_id'] ?? api_query('employee_id') ?? 0);
         if (!$empId) api_error('Missing employee_id', 422);
@@ -81,6 +84,11 @@ switch (api_method()) {
 
         if ($existing) {
             scopedUpdate('payroll_profiles', (int) $existing['id'], $data);
+            payrollAudit('payroll.profile.updated', [
+                'employee_id' => $empId,
+                'profile_id' => (int) $existing['id'],
+                'changed_fields' => array_keys($data),
+            ], (int) $existing['id']);
             api_ok(['id' => (int) $existing['id']]);
         } else {
             $id = scopedInsert('payroll_profiles', $data + [
@@ -89,16 +97,26 @@ switch (api_method()) {
                 'payment_method' => $data['payment_method'] ?? 'direct_deposit',
                 'enabled'        => $data['enabled'] ?? 1,
             ]);
+            payrollAudit('payroll.profile.created', [
+                'employee_id' => $empId,
+                'profile_id' => $id,
+                'changed_fields' => array_keys($data),
+            ], $id);
             api_ok(['id' => $id], 201);
         }
     }
 
     case 'DELETE': {
+        rbac_legacy_require($user, 'payroll.profiles.manage');
         $empId = (int) (api_query('employee_id') ?? 0);
         if (!$empId) api_error('Missing employee_id', 422);
         $existing = payrollGetProfile($empId);
         if (!$existing) api_error('Not found', 404);
         scopedUpdate('payroll_profiles', (int) $existing['id'], ['enabled' => 0]);
+        payrollAudit('payroll.profile.disabled', [
+            'employee_id' => $empId,
+            'profile_id' => (int) $existing['id'],
+        ], (int) $existing['id']);
         api_ok(['ok' => true]);
     }
 }

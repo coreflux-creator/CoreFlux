@@ -23,7 +23,7 @@ export default function MyTime() {
   const from = toISO(weekDays[0]);
   const to   = toISO(weekDays[6]);
 
-  const entriesPath = `/modules/time/api/entries.php?work_date_from=${from}&work_date_to=${to}&per_page=500`;
+  const entriesPath = `/api/v1/time/entries?work_date_from=${from}&work_date_to=${to}&per_page=500`;
   const { data, loading, error, reload } = useApi(entriesPath);
   const entries = data?.rows ?? [];
 
@@ -49,7 +49,7 @@ export default function MyTime() {
     if (!quickAdd.placementId) return;
     setSavingQa(true); setQaError(null);
     try {
-      await api.post('/modules/time/api/entries.php', {
+      await api.post('/api/v1/time/entries', {
         placement_id: quickAdd.placementId,
         work_date:    quickAdd.workDate,
         category:     qaForm.category,
@@ -67,7 +67,7 @@ export default function MyTime() {
 
   // Operator complaint: "can't submit a single timesheet, only all at
   // once." The API already supports per-entry submit
-  // (`/modules/time/api/entries.php?action=submit&id=N`) — we just
+  // (`/api/v1/time/entries?action=submit&id=N`) — we just
   // never surfaced it here. Now we list every draft this week with a
   // per-row Submit button, plus a single "Submit all N drafts" CTA
   // that loops through them (parallel, all-or-nothing-friendly).
@@ -76,7 +76,7 @@ export default function MyTime() {
   const submitOne = async (entryId) => {
     setSubmitBusy(entryId);
     try {
-      await api.post(`/modules/time/api/entries.php?action=submit&id=${entryId}`, {});
+      await api.post(`/api/v1/time/entries?action=submit&id=${entryId}`, {});
       reload();
     } catch (e) { alert(`Submit failed: ${e.message}`); }
     finally     { setSubmitBusy(null); }
@@ -89,7 +89,7 @@ export default function MyTime() {
       // Parallel — backend is idempotent on already-submitted rows
       // (returns 409) so a partial failure just leaves the rest queued.
       const results = await Promise.allSettled(
-        drafts.map(e => api.post(`/modules/time/api/entries.php?action=submit&id=${e.id}`, {}))
+        drafts.map(e => api.post(`/api/v1/time/entries?action=submit&id=${e.id}`, {}))
       );
       const failed = results.filter(r => r.status === 'rejected').length;
       if (failed > 0) alert(`${results.length - failed} submitted, ${failed} failed. Reload to see which.`);

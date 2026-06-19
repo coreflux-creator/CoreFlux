@@ -24,14 +24,16 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 
 $ctx      = api_require_auth();
 $tenantId = (int) $ctx['tenant_id'];
-rbac_legacy_require($ctx['user'], 'accounting.bank.manage');
+$user     = $ctx['user'];
+rbac_legacy_require($user, 'accounting.bank.manage');
+$canUseAi = rbac_legacy_can($user, 'ai.use');
 $pdo = getDB();
 
 if (api_method() === 'POST') {
     $action = (string) ($_GET['action'] ?? '');
-    if (!in_array($action, ['ignore', 'unmatch', 'categorize_and_post', 'match'], true)) {
+    if (!in_array($action, ['ignore', 'unmatch', 'categorize_and_post', 'match', 'split_categorize'], true)) {
         api_error(
-            "POST requires action=ignore|unmatch|categorize_and_post|match. "
+            "POST requires action=ignore|unmatch|categorize_and_post|match|split_categorize. "
             . "To pull from Plaid, call /api/plaid_sync_transactions.php directly.",
             422
         );
@@ -93,6 +95,130 @@ if (api_method() === 'POST') {
                         WHERE tenant_id = :t AND id = :id")
             ->execute(['t' => $tenantId, 'id' => $lineId, 'je' => $jeId]);
         api_ok(['ok' => true, 'line_id' => $lineId, 'matched_je_id' => $jeId]);
+    }
+
+    if ($action === 'split_categorize') {
+        require_once __DIR__ . '/../../accounting/lib/accounting.php';
+        require_once __DIR__ . '/../../../core/module_emission_discipline.php';
+        require_once __DIR__ . '/../../../core/posting_engine/process.php';
+
+        if (($line['match_status'] ?? '') !== 'unmatched') api_error('Already matched', 422);
+        $splits = (array) ($body['splits'] ?? []);
+        if (count($splits) < 1) api_error('At least one split row required', 422);
+
+        $abs = round(abs((float) $line['amount']), 2);
+        $sum = 0.0;
+        foreach ($splits as $s) {
+            if (empty($s['account_id']) || !is_numeric($s['amount'])) api_error('Each split needs account_id + amount', 422);
+            $sum += round((float) $s['amount'], 2);
+        }
+        if (round($sum, 2) !== $abs) api_error("Splits sum to {$sum} but line amount is {$abs}", 422);
+
+        if ($type === 'deposit') {
+            $bank = $pdo->prepare(
+                'SELECT aa.id AS account_id FROM accounting_bank_accounts ba
+                  JOIN accounting_accounts aa
+                    ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
+                  WHERE ba.tenant_id = :t AND ba.id = :id LIMIT 1'
+            );
+            $bank->execute(['t' => $tenantId, 'id' => (int) $line[$col]]);
+            $row = $bank->fetch(PDO::FETCH_ASSOC);
+            if (!$row) api_error('Could not resolve deposit GL account', 500);
+            $sideAccountId = (int) $row['account_id'];
+        } else {
+            $sideAccountId = (int) $line[$col];
+        }
+
+        $isOutflow = (float) $line['amount'] < 0;
+        $jeLines = [[
+            'account_id' => $sideAccountId,
+            'debit' => $isOutflow ? 0 : $abs,
+            'credit' => $isOutflow ? $abs : 0,
+            'memo' => 'split categorize',
+        ]];
+        foreach ($splits as $s) {
+            $portion = round((float) $s['amount'], 2);
+            $jeLines[] = [
+                'account_id' => (int) $s['account_id'],
+                'debit' => $isOutflow ? $portion : 0,
+                'credit' => $isOutflow ? 0 : $portion,
+                'memo' => trim((string) ($s['memo'] ?? '')) ?: ($line['description'] ?? 'split'),
+                'entity_id' => !empty($s['entity_id']) ? (int) $s['entity_id'] : null,
+            ];
+        }
+
+        $payloadLines = array_map(static function ($l) {
+            return [
+                'account_id' => (int) $l['account_id'],
+                'debit' => (float) ($l['debit'] ?? 0),
+                'credit' => (float) ($l['credit'] ?? 0),
+                'description' => (string) ($l['memo'] ?? ''),
+                'entity_id' => $l['entity_id'] ?? null,
+            ];
+        }, $jeLines);
+
+        $eventResult = null; $eventError = null;
+        try {
+            $eventResult = accountingProcessEvent($tenantId, [
+                'entity_id' => 0,
+                'event_type' => 'treasury.bank_transaction.categorized',
+                'source_module' => 'treasury_feed',
+                'source_record_id' => ($type === 'deposit' ? 'bank_line:split:' : 'liab_line:split:') . $lineId,
+                'event_date' => (string) $line['posted_date'],
+                'payload' => [
+                    'bank_txn_id' => (int) $lineId,
+                    'amount' => $abs,
+                    'currency' => 'USD',
+                    'direction' => $isOutflow ? 'outflow' : 'inflow',
+                    'memo' => 'split categorize - ' . ($line['description'] ?? ''),
+                    'split_count' => count($splits),
+                    'lines' => $payloadLines,
+                ],
+            ], (int) ($ctx['user']['id'] ?? 0));
+        } catch (\Throwable $e) {
+            $eventError = $e->getMessage();
+        }
+
+        if ($eventResult && ($eventResult['status'] ?? null) === 'posted') {
+            $res = [
+                'je_id' => (int) $eventResult['journal_entry_id'],
+                'je_number' => $eventResult['je_number'] ?? null,
+            ];
+        } else {
+            try {
+                $res = accountingPostJe($tenantId, [
+                    'posting_date' => (string) $line['posted_date'],
+                    'memo' => 'split categorize - ' . ($line['description'] ?? ''),
+                    'currency' => 'USD',
+                    'source_module' => 'treasury_feed',
+                    'source_ref_type' => $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line',
+                    'source_ref_id' => $lineId,
+                    'idempotency_key' => "treasury_feed_split:{$type}:{$lineId}",
+                    'lines' => $jeLines,
+                ], (int) ($ctx['user']['id'] ?? 0), true);
+            } catch (\Throwable $e) {
+                api_error('Could not post split JE: ' . $e->getMessage()
+                    . ($eventError ? ' | event-layer error: ' . $eventError : ''), 422);
+            }
+            moduleEmissionDisciplineLog('treasury_feed', 'treasury.bank_transaction.categorized', [
+                'line_id' => $lineId, 'type' => $type, 'split_count' => count($splits),
+                'je_id' => (int) $res['je_id'],
+                'event_error' => $eventError,
+                'event_status' => $eventResult['status'] ?? null,
+            ]);
+        }
+
+        $pdo->prepare("UPDATE {$table} SET match_status = 'matched', matched_je_id = :je
+                        WHERE tenant_id = :t AND id = :id")
+            ->execute(['t' => $tenantId, 'id' => $lineId, 'je' => $res['je_id']]);
+
+        api_ok([
+            'ok' => true,
+            'line_id' => $lineId,
+            'matched_je_id' => $res['je_id'],
+            'je_number' => $res['je_number'],
+            'split_count' => count($splits),
+        ]);
     }
 
     // categorize_and_post — auto-create a balanced JE from the statement line.
@@ -523,73 +649,79 @@ foreach ($rows as $r) {
 // Run AI categorization for every UNMATCHED row. Cached: if a draft suggestion
 // already exists for a (line_id, feature_key) we re-use it instead of calling
 // the cascade again — keeps GET cheap and avoids duplicate ai_suggestions rows.
-require_once __DIR__ . '/../../../core/ai_categorization.php';
-$accountsList = $pdo->prepare(
-    'SELECT id, code, name, account_type, is_postable
-       FROM accounting_accounts
-      WHERE tenant_id = :t AND active = 1
-      ORDER BY code ASC LIMIT 1000'
-);
-$accountsList->execute(['t' => $tenantId]);
-$allAccounts = $accountsList->fetchAll(PDO::FETCH_ASSOC);
-
-if ($type === 'deposit') {
-    $s = $pdo->prepare(
-        'SELECT aa.id FROM accounting_bank_accounts ba
-           JOIN accounting_accounts aa ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
-          WHERE ba.tenant_id = :t AND ba.id = :id LIMIT 1'
+if ($canUseAi) {
+    require_once __DIR__ . '/../../../core/ai_categorization.php';
+    $accountsList = $pdo->prepare(
+        'SELECT id, code, name, account_type, is_postable
+           FROM accounting_accounts
+          WHERE tenant_id = :t AND active = 1
+          ORDER BY code ASC LIMIT 1000'
     );
-    $s->execute(['t' => $tenantId, 'id' => $accountId]);
-    $sideAccountId = (int) $s->fetchColumn();
-} else {
-    $sideAccountId = $accountId;  // liability_account_id IS accounting_accounts.id
-}
+    $accountsList->execute(['t' => $tenantId]);
+    $allAccounts = $accountsList->fetchAll(PDO::FETCH_ASSOC);
 
-$subjectType = $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line';
-$cacheStmt = $pdo->prepare(
-    "SELECT id, suggested_value, confidence_score, suggestion_source, draft_content
-       FROM ai_suggestions
-      WHERE tenant_id    = :t
-        AND feature_key  = :fk
-        AND subject_type = :st
-        AND subject_id   = :sid
-        AND status       = 'draft'
-      ORDER BY id DESC LIMIT 1"
-);
-
-foreach ($rows as $i => $r) {
-    if ($r['match_status'] !== 'unmatched') continue;
-    $cacheStmt->execute([
-        't'   => $tenantId,
-        'fk'  => AI_CATEGORIZATION_FEATURE_KEY,
-        'st'  => $subjectType,
-        'sid' => (int) $r['id'],
-    ]);
-    $cached = $cacheStmt->fetch(PDO::FETCH_ASSOC);
-
-    if ($cached) {
-        $aid  = $cached['suggested_value'] ? (int) $cached['suggested_value'] : null;
-        $conf = $cached['confidence_score'] !== null ? (float) $cached['confidence_score'] : 0.0;
-        $rows[$i]['ai_suggestion'] = [
-            'suggestion_id'        => (int) $cached['id'],
-            'suggested_account_id' => $aid,
-            'confidence'           => $conf,
-            'source'               => (string) ($cached['suggestion_source'] ?? 'none'),
-            'reasoning'            => (string) ($cached['draft_content']     ?? ''),
-            'auto_accept'          => $conf >= AI_CATEGORIZATION_AUTO_ACCEPT,
-        ];
-        continue;
+    if ($type === 'deposit') {
+        $s = $pdo->prepare(
+            'SELECT aa.id FROM accounting_bank_accounts ba
+               JOIN accounting_accounts aa ON aa.tenant_id = ba.tenant_id AND aa.code = ba.gl_account_code
+              WHERE ba.tenant_id = :t AND ba.id = :id LIMIT 1'
+        );
+        $s->execute(['t' => $tenantId, 'id' => $accountId]);
+        $sideAccountId = (int) $s->fetchColumn();
+    } else {
+        $sideAccountId = $accountId;  // liability_account_id IS accounting_accounts.id
     }
 
-    $sug = aiSuggestCounterpartAccount($tenantId, $r, $type, $sideAccountId, $allAccounts);
-    $rows[$i]['ai_suggestion'] = [
-        'suggestion_id'        => $sug['suggestion_id'],
-        'suggested_account_id' => $sug['suggested_account_id'],
-        'confidence'           => $sug['confidence'],
-        'source'               => $sug['source'],
-        'reasoning'            => $sug['reasoning'],
-        'auto_accept'          => $sug['auto_accept'],
-    ];
+    $subjectType = $type === 'deposit' ? 'bank_statement_line' : 'liability_statement_line';
+    $cacheStmt = $pdo->prepare(
+        "SELECT id, suggested_value, confidence_score, suggestion_source, draft_content
+           FROM ai_suggestions
+          WHERE tenant_id    = :t
+            AND feature_key  = :fk
+            AND subject_type = :st
+            AND subject_id   = :sid
+            AND status       = 'draft'
+          ORDER BY id DESC LIMIT 1"
+    );
+
+    foreach ($rows as $i => $r) {
+        if ($r['match_status'] !== 'unmatched') continue;
+        $cacheStmt->execute([
+            't'   => $tenantId,
+            'fk'  => AI_CATEGORIZATION_FEATURE_KEY,
+            'st'  => $subjectType,
+            'sid' => (int) $r['id'],
+        ]);
+        $cached = $cacheStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($cached) {
+            $aid  = $cached['suggested_value'] ? (int) $cached['suggested_value'] : null;
+            $conf = $cached['confidence_score'] !== null ? (float) $cached['confidence_score'] : 0.0;
+            $rows[$i]['ai_suggestion'] = [
+                'suggestion_id'        => (int) $cached['id'],
+                'suggested_account_id' => $aid,
+                'confidence'           => $conf,
+                'source'               => (string) ($cached['suggestion_source'] ?? 'none'),
+                'reasoning'            => (string) ($cached['draft_content']     ?? ''),
+                'auto_accept'          => $conf >= AI_CATEGORIZATION_AUTO_ACCEPT,
+            ];
+            continue;
+        }
+
+        $sug = aiSuggestCounterpartAccount($tenantId, $r, $type, $sideAccountId, $allAccounts);
+        $rows[$i]['ai_suggestion'] = [
+            'suggestion_id'        => $sug['suggestion_id'],
+            'suggested_account_id' => $sug['suggested_account_id'],
+            'confidence'           => $sug['confidence'],
+            'source'               => $sug['source'],
+            'reasoning'            => $sug['reasoning'],
+            'auto_accept'          => $sug['auto_accept'],
+        ];
+    }
+} else {
+    foreach ($rows as $i => $r) {
+        if ($r['match_status'] === 'unmatched') $rows[$i]['ai_suggestion'] = null;
+    }
 }
 
 // Locate the Plaid item for the "Sync from Plaid" button (if linked).

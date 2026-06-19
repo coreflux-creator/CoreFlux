@@ -44,6 +44,7 @@ echo "\nTreasury account_transactions API — split_categorize\n";
 $at = (string) file_get_contents("{$ROOT}/modules/treasury/api/account_transactions.php");
 $assert('account_transactions.php parses',              $lint("{$ROOT}/modules/treasury/api/account_transactions.php"));
 $assert('handles ?action=split_categorize',             stripos($at, "\$action === 'split_categorize'") !== false);
+$assert('split_categorize is not rejected by POST allowlist', stripos($at, "match|split_categorize") !== false);
 $assert('rejects when splits empty',                    stripos($at, 'At least one split row required') !== false);
 $assert('validates sum vs line amount',                 stripos($at, "Splits sum to {\$sum} but line amount is {\$abs}") !== false);
 $assert('supports per-row entity_id (intercompany)',    preg_match("#'entity_id'\\s*=>.*\\\$s\\['entity_id'\\]#", $at) === 1);
@@ -56,8 +57,11 @@ echo "\nTreasury UI — AI cat + Split/IC affordances\n";
 $tx = (string) file_get_contents("{$ROOT}/modules/treasury/ui/AccountTransactions.jsx");
 $assert('AI cat button per row',                        stripos($tx, 'data-testid={`treasury-txn-ai-cat-${r.id}`}') !== false);
 $assert('Split/IC button per row',                      stripos($tx, 'data-testid={`treasury-txn-split-${r.id}`}') !== false);
-$assert('fetchAiCat hits bank_ai endpoint',             stripos($tx, '/modules/accounting/api/bank_ai.php?action=suggest_categorize') !== false);
-$assert('split panel posts to split_categorize',        stripos($tx, '/modules/treasury/api/account_transactions.php?action=split_categorize') !== false);
+$assert('fetchAiCat hits v1 bank-ai endpoint',
+    stripos($tx, "ACCOUNTING_BANK_AI_API = '/api/v1/accounting/bank-ai'") !== false
+    && stripos($tx, '/suggest-categorize?line_id=') !== false);
+$assert('split panel posts to split_categorize',        stripos($tx, "ACCOUNT_TRANSACTIONS_API = '/api/v1/treasury/account-transactions'") !== false
+                                                      && stripos($tx, 'ACCOUNT_TRANSACTIONS_API}/split-categorize') !== false);
 $assert('TreasuryAiResultPanel reads ai.suggestion shape',
                                                         stripos($tx, 'const sug = ai.suggestion') !== false
                                                       && stripos($tx, 'sug.suggested_account_id') !== false);
@@ -73,7 +77,8 @@ echo "\nBank Reconciliation UI — AI cat result reads nested suggestion\n";
 $br = (string) file_get_contents("{$ROOT}/modules/accounting/ui/BankReconciliation.jsx");
 $assert('AiResultPanel reads ai.suggestion shape',      stripos($br, 'const sug = ai.suggestion') !== false);
 $assert('renders confidence chip',                      stripos($br, '{conf}% confidence · {source}') !== false);
-$assert('Accept-and-post posts categorize_and_post',    stripos($br, "/modules/accounting/api/account_transactions.php?action=categorize_and_post") !== false);
+$assert('Accept-and-post posts categorize_and_post',    stripos($br, "/api/v1/accounting/account-transactions") !== false
+                                                      && stripos($br, "action=categorize_and_post") !== false);
 $assert('Accept passes counterpart_account_id correctly',stripos($br, 'counterpart_account_id: suggestedAccountId') !== false);
 $assert('No more raw JSON.stringify dump',              stripos($br, 'JSON.stringify(aiResp.candidates') === false);
 

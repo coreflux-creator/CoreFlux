@@ -88,6 +88,50 @@ function aiWorkerGetByKey(string $key): ?array
     return $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
 }
 
+function aiWorkerCapabilityList(array $worker, array $keys): array
+{
+    $caps = [];
+    if (isset($worker['capabilities']) && is_array($worker['capabilities'])) {
+        $caps = $worker['capabilities'];
+    } elseif (!empty($worker['capabilities_json'])) {
+        $decoded = json_decode((string) $worker['capabilities_json'], true);
+        $caps = is_array($decoded) ? $decoded : [];
+    }
+
+    $raw = null;
+    foreach ($keys as $key) {
+        if (array_key_exists($key, $caps)) {
+            $raw = $caps[$key];
+            break;
+        }
+    }
+
+    if (is_string($raw)) {
+        $raw = array_map('trim', explode(',', $raw));
+    }
+    if (!is_array($raw)) {
+        return [];
+    }
+
+    $out = [];
+    foreach ($raw as $item) {
+        $value = trim((string) $item);
+        if ($value !== '') {
+            $out[] = $value;
+        }
+    }
+    return array_values(array_unique($out));
+}
+
+function aiWorkerToolAllowlist(array $worker): array
+{
+    $tools = aiWorkerCapabilityList($worker, ['tool_allowlist', 'allowed_tools', 'tools']);
+    if (in_array('*', $tools, true) || in_array('all', $tools, true)) {
+        return [];
+    }
+    return $tools;
+}
+
 /**
  * List workers; sweeps stalled rows (last_heartbeat_at > AI_WORKER_STALL_AFTER
  * ago) → status='stalled' before returning so the admin UI is accurate.
@@ -193,6 +237,9 @@ function aiWorkerClaim(int $workerId, array $queues = [], int $limit = 1): array
     if ($workerId <= 0) throw new \InvalidArgumentException('workerId required');
     $limit = max(1, min(50, $limit));
     $pdo = getDB();
+    $worker = aiWorkerGet($workerId);
+    if (!$worker) throw new \InvalidArgumentException('worker not registered');
+    $allowedTools = aiWorkerToolAllowlist($worker);
 
     // Pick candidate ids in a tight transaction.
     $where = ["status = 'queued'", 'scheduled_at <= NOW()'];
@@ -201,6 +248,11 @@ function aiWorkerClaim(int $workerId, array $queues = [], int $limit = 1): array
         $place = [];
         foreach ($queues as $i => $q) { $place[] = ":q$i"; $params["q$i"] = (string) $q; }
         $where[] = 'queue IN (' . implode(',', $place) . ')';
+    }
+    if ($allowedTools) {
+        $place = [];
+        foreach ($allowedTools as $i => $tool) { $place[] = ":tool$i"; $params["tool$i"] = (string) $tool; }
+        $where[] = 'tool_name IN (' . implode(',', $place) . ')';
     }
     $sql = 'SELECT id FROM ai_worker_jobs WHERE ' . implode(' AND ', $where)
          . ' ORDER BY scheduled_at ASC, id ASC LIMIT ' . $limit . ' FOR UPDATE';

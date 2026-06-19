@@ -4,6 +4,8 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney } from '../../../dashboard/src/lib/format';
 import AccountTransactions from './AccountTransactions';
 
+const LIABILITY_ACCOUNTS_API = '/api/v1/treasury/liability-accounts';
+
 const SUBTYPE_LABELS = {
   credit_card:     'Credit card',
   loan:            'Loan',
@@ -21,7 +23,7 @@ export default function LiabilityAccounts() {
 }
 
 function LiabilityList() {
-  const { data, loading, reload } = useApi('/modules/treasury/api/liability_accounts.php');
+  const { data, loading, reload } = useApi(LIABILITY_ACCOUNTS_API);
   const rows = data?.rows || [];
   const [showNew, setShowNew] = useState(false);
   const navigate = useNavigate();
@@ -112,7 +114,7 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
     if (!confirm(`Hide "${r.name}"? Historical journal entries remain; the account just won't appear in Treasury.`)) return;
     setBusy('hide'); setErr(null);
     try {
-      await api.delete(`/modules/treasury/api/liability_accounts.php?id=${r.id}&mode=hide`);
+      await api.delete(`${LIABILITY_ACCOUNTS_API}/${r.id}?mode=hide`);
       onChanged && onChanged();
     } catch (e) { setErr(e.message || 'Hide failed'); }
     finally { setBusy(null); }
@@ -123,7 +125,7 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
     if (!confirm(`Permanently DELETE "${r.name}"?\n\nThis cannot be undone. (Allowed only when no posted journal entries reference this liability.)`)) return;
     setBusy('delete'); setErr(null);
     try {
-      await api.delete(`/modules/treasury/api/liability_accounts.php?id=${r.id}&mode=delete`);
+      await api.delete(`${LIABILITY_ACCOUNTS_API}/${r.id}?mode=delete`);
       onChanged && onChanged();
     } catch (e) { setErr(e.message || 'Delete failed'); }
     finally { setBusy(null); }
@@ -203,7 +205,7 @@ function LiabilityRow({ row: r, navigate, onChanged }) {
 function LiabilityDetail() {
   const { id } = useParams();
   const accountId = Number(id);
-  const { data: listData } = useApi('/modules/treasury/api/liability_accounts.php');
+  const { data: listData } = useApi(LIABILITY_ACCOUNTS_API);
   const account = (listData?.rows || []).find((r) => r.id === accountId);
 
   const label = account
@@ -239,7 +241,7 @@ function NewLiabilityForm({ onDone }) {
       if (body.credit_limit === '')   delete body.credit_limit;   else body.credit_limit = Number(body.credit_limit);
       if (body.apr_pct === '')        delete body.apr_pct;        else body.apr_pct = Number(body.apr_pct);
       if (body.statement_day === '')  delete body.statement_day;  else body.statement_day = Number(body.statement_day);
-      await api.post('/modules/treasury/api/liability_accounts.php', body);
+      await api.post(LIABILITY_ACCOUNTS_API, body);
       onDone();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };

@@ -36,7 +36,7 @@ export default function PayStub() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    api.get(`/modules/payroll/api/pay_stub.php?line_item_id=${lineId}`)
+    api.get(`/api/v1/payroll/pay-stub?line_item_id=${lineId}`)
       .then(setData).catch((e) => setError(e.message));
   }, [lineId]);
 

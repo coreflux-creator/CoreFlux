@@ -81,12 +81,13 @@ $assert('public page has print button',        strpos($pubSrc, 'window.print()')
 
 echo "\nAPI endpoint actions wired\n";
 $inv = (string) file_get_contents(__DIR__ . '/../modules/billing/api/invoices.php');
-foreach (['from-time-bundle','approve','send','void'] as $a) {
+foreach (['from-time-bundle','approve','send','void','post'] as $a) {
     $assert("invoices has action={$a}",         strpos($inv, "action === '{$a}'") !== false);
 }
-$assert('two-eye approve guard',               strpos($inv, 'cannot approve your own draft') !== false);
+$assert('approve acts through workflow bridge', strpos($inv, 'billingInvoiceWorkflowAct(') !== false);
 $assert('void releases bundles when no pmts',  strpos($inv, 'consumed_by_module = NULL') !== false);
 $assert('approve checks transition allowed',   strpos($inv, "billingTransitionAllowed(\$row['status'], 'approved')") !== false);
+$assert('post uses billing.invoice.post',       strpos($inv, "'billing.invoice.post'") !== false);
 $assert('send issues token + emails',          strpos($inv, 'billingIssueViewToken') !== false && strpos($inv, "cf_mail_bootstrap") !== false);
 $assert('send uses tenant mail sender',        strpos($inv, "cf_tenant_mail_sender(\$tid, 'billing')") !== false);
 $assert('from-time-bundle marks bundles consumed', strpos($inv, 'status = "consumed"') !== false);
@@ -100,7 +101,7 @@ $assert('aging validates as_of date format',   strpos($aging, '\d{4}-\d{2}-\d{2}
 
 echo "\nManifest\n";
 $man = (string) file_get_contents(__DIR__ . '/../modules/billing/manifest.php');
-foreach (['billing.view','billing.invoice.draft','billing.invoice.approve','billing.invoice.send','billing.invoice.void','billing.payments.record'] as $p) {
+foreach (['billing.view','billing.invoice.draft','billing.invoice.approve','billing.invoice.post','billing.invoice.send','billing.invoice.void','billing.payments.record'] as $p) {
     $assert("perm {$p}",                        strpos($man, "'{$p}'") !== false);
 }
 $assert('depends_on placements + time',        strpos($man, "['placements', 'time']") !== false);

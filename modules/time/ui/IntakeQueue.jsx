@@ -27,7 +27,7 @@ const SOURCE_LABEL = {
  * page (linked from each row's Open button).
  */
 export default function IntakeQueue() {
-  const { data, loading, reload } = useApi('/modules/time/api/intake.php');
+  const { data, loading, reload } = useApi('/api/v1/time/intake');
   const rows = data?.rows || [];
   const [busy, setBusy] = React.useState(null);
   const [pollResult, setPollResult] = React.useState(null);
@@ -36,7 +36,7 @@ export default function IntakeQueue() {
   const poll = async () => {
     setBusy('poll'); setErr(null); setPollResult(null);
     try {
-      const r = await api.post('/modules/time/api/intake.php?action=poll', {});
+      const r = await api.post('/api/v1/time/intake?action=poll', {});
       setPollResult(r);
       reload();
     } catch (e) { setErr(e.message); }
@@ -46,7 +46,7 @@ export default function IntakeQueue() {
   const dismiss = async (id) => {
     setBusy(`dismiss-${id}`); setErr(null);
     try {
-      await api.post(`/modules/time/api/intake.php?id=${id}&action=dismiss`, {});
+      await api.post(`/api/v1/time/intake?id=${id}&action=dismiss`, {});
       reload();
     } catch (e) { setErr(e.message); }
     finally { setBusy(null); }
@@ -54,7 +54,7 @@ export default function IntakeQueue() {
   const reprocess = async (id) => {
     setBusy(`process-${id}`); setErr(null);
     try {
-      await api.post(`/modules/time/api/intake.php?id=${id}&action=process`, {});
+      await api.post(`/api/v1/time/intake?id=${id}&action=process`, {});
       reload();
     } catch (e) { setErr(e.message); }
     finally { setBusy(null); }

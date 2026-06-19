@@ -3,6 +3,8 @@ import { Link, useParams, useNavigate } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import JeTracePane from './JeTracePane';
 
+const JOURNAL_ENTRIES_API = '/api/v1/accounting/journal-entries';
+
 /**
  * Journal Entry detail.
  * Renders header + lines + reverse-entry action.
@@ -13,7 +15,7 @@ import JeTracePane from './JeTracePane';
 export default function JournalEntryDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { data, loading, error, reload } = useApi(`/modules/accounting/api/journal_entries.php?id=${id}`);
+  const { data, loading, error, reload } = useApi(`${JOURNAL_ENTRIES_API}/${id}`);
   const [busy, setBusy]     = useState(false);
   const [actionErr, setErr] = useState(null);
 
@@ -22,7 +24,7 @@ export default function JournalEntryDetail() {
     if (!reason) return;
     setBusy(true); setErr(null);
     try {
-      const res = await api.post(`/modules/accounting/api/journal_entries.php?action=reverse&id=${id}`, { reason });
+      const res = await api.post(`${JOURNAL_ENTRIES_API}/${id}/reverse`, { reason });
       reload();
       window.alert(`Reversal posted. New JE #${res.je_id}.`);
       navigate(`/modules/accounting/journal-entries/${res.je_id}`);

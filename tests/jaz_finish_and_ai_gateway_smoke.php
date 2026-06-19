@@ -51,7 +51,8 @@ $a('  exception falls back to safe shape',        str_contains($apiA, "'configur
 // --- IntegrationsHub.jsx Jaz tile ------------------------------
 echo "\ndashboard/src/pages/IntegrationsHub.jsx\n";
 $ih = $read("{$ROOT}/dashboard/src/pages/IntegrationsHub.jsx");
-$a('useApi pull for tenant_status',               str_contains($ih, "useApi('/api/accounting.php?action=tenant_status&provider=jaz')"));
+$a('useApi pull for tenant_status',               str_contains($ih, 'ACCOUNTING_INTEGRATIONS_API')
+                                               && str_contains($ih, 'useApi(`${ACCOUNTING_INTEGRATIONS_API}?action=tenant_status&provider=jaz`)'));
 $a('Jaz tile status reflects live data',          str_contains($ih, "status={jaz.loading ? 'loading' :")
                                                && str_contains($ih, "jaz.data?.connected ? 'connected' :"));
 $a('Jaz tile shows entity count meta',            str_contains($ih, 'entities_active}/${jaz.data.entities_total} entities active'));
@@ -70,7 +71,7 @@ $a('bill throws on missing vendor_id',            str_contains($mp, 'bill missin
 $a('bill throws on missing line account_id',      str_contains($mp, "missing account_id"));
 $a('bill emits contactResourceId',                str_contains($mp, "'contactResourceId' => \$contactRid,"));
 $a('bill emits lineItems[].accountResourceId',    str_contains($mp, "'accountResourceId' => _accLookupJazResourceId(\$tenantId, \$subTenantId, 'account'"));
-$a('invoice uses invoiceDate/customer flow',      str_contains($mp, "'invoiceDate'") && str_contains($mp, "_accLookupJazResourceId(\$tenantId, \$subTenantId, 'customer'"));
+$a('invoice uses valueDate/customer flow',        str_contains($mp, "'valueDate'") && str_contains($mp, "_accLookupJazResourceId(\$tenantId, \$subTenantId, 'customer'"));
 $a('journal requires ≥2 lines',                   str_contains($mp, 'journal entry needs ≥2 lines'));
 $a('journal validates dr == cr',                  str_contains($mp, "journal entry unbalanced"));
 $a('mapCorefluxRowToJaz dispatches by type',      str_contains($mp, "case 'bill':    return mapBillToJaz")

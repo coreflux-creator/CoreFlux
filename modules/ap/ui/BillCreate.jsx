@@ -9,6 +9,7 @@ import VendorTypeahead from './VendorTypeahead';
 import VendorQuickCreate from './VendorQuickCreate';
 
 const ITEM_TYPE_FALLBACK = ITEM_TYPES.map((t) => t.value);
+const ACCOUNTING_ACCOUNTS_API = '/api/v1/accounting/accounts';
 
 /**
  * Manual AP bill creator — supports any item_type (labor, expense, materials,
@@ -18,7 +19,7 @@ const ITEM_TYPE_FALLBACK = ITEM_TYPES.map((t) => t.value);
  */
 export default function BillCreate() {
   const nav = useNavigate();
-  const accountsApi = useApi('/modules/accounting/api/accounts.php?type=expense&active=1');
+  const accountsApi = useApi(`${ACCOUNTING_ACCOUNTS_API}?type=expense&active=1`);
   const expenseAccounts = accountsApi.data?.rows ?? [];
 
   const [vendor, setVendor]       = useState(null);

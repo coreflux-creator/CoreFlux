@@ -14,8 +14,8 @@ export default function PayrollProfileEdit() {
   useEffect(() => {
     let mounted = true;
     Promise.all([
-      api.get(`/modules/payroll/api/profiles.php?employee_id=${employeeId}`),
-      api.get('/modules/payroll/api/pay_schedules.php'),
+      api.get(`/api/v1/payroll/profiles?employee_id=${employeeId}`),
+      api.get('/api/v1/payroll/pay-schedules'),
     ]).then(([d, s]) => {
       if (!mounted) return;
       setData(d);
@@ -39,7 +39,7 @@ export default function PayrollProfileEdit() {
     e.preventDefault();
     setBusy(true); setError(null);
     try {
-      await api.post('/modules/payroll/api/profiles.php', {
+      await api.post('/api/v1/payroll/profiles', {
         employee_id: parseInt(employeeId, 10),
         ...form,
         schedule_id: form.schedule_id ? parseInt(form.schedule_id, 10) : null,

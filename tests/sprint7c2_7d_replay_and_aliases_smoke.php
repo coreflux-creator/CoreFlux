@@ -60,7 +60,9 @@ $assert('replay dry-run checkbox testid',        strpos($jsx, 'data-testid="rule
 $assert('replay run button testid',              strpos($jsx, 'data-testid="rule-sandbox-replay-run"') !== false);
 $assert('replay result testid',                  strpos($jsx, 'data-testid="rule-sandbox-replay-result"') !== false);
 $assert('replay error testid',                   strpos($jsx, 'data-testid="rule-sandbox-replay-error"') !== false);
-$assert('hits replay endpoint',                  strpos($jsx, '/api/posting_rules_replay.php') !== false);
+$assert('hits v1 replay endpoint',
+    strpos($jsx, "const POSTING_RULES_REPLAY_API = '/api/v1/accounting/posting-rules-replay'") !== false
+    && strpos($jsx, 'api.post(POSTING_RULES_REPLAY_API + qs') !== false);
 $assert('window options 7/30/90/180/365',
     strpos($jsx, 'value={7}>7d') !== false
     && strpos($jsx, 'value={30}>30d') !== false

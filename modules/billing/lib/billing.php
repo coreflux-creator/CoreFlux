@@ -7,6 +7,7 @@
  */
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/audit.php';
 
 /**
  * Atomically allocate the next invoice number for a tenant.
@@ -820,23 +821,31 @@ function billingComputeAging(int $tenantId, string $asOf): array
     return $q->fetchAll(\PDO::FETCH_ASSOC);
 }
 
-function billingAudit(string $event, array $meta = [], ?int $targetId = null): void
+function billingAudit(string $event, array $meta = [], ?int $targetId = null, array $opts = []): void
 {
     try {
         $ctx  = function_exists('currentTenantContext') ? currentTenantContext() : null;
-        $pdo  = getDB();
-        $pdo->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:tenant_id, :actor, :event, :target_id, :meta_json, :ip, NOW())'
-        )->execute([
-            'tenant_id' => $ctx['tenant_id'] ?? null,
-            'actor'     => $ctx['user']['id'] ?? null,
-            'event'     => $event,
-            'target_id' => $targetId,
-            'meta_json' => json_encode($meta),
-            'ip'        => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        $tenantId = isset($ctx['tenant_id']) ? (int) $ctx['tenant_id'] : currentTenantId();
+        $actorUserId = isset($ctx['user']['id']) ? (int) $ctx['user']['id'] : null;
+        platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, array_merge([
+            'object_type' => billingAuditObjectType($event),
+            'source' => $meta['source'] ?? 'billing',
+        ], $opts));
     } catch (\Throwable $e) {
         error_log('[billing.audit] ' . $event . ' write-failed: ' . $e->getMessage());
     }
+}
+
+function billingAuditObjectType(string $event): string
+{
+    if (str_contains($event, '.invoice.')) return 'billing_invoice';
+    if (str_contains($event, '.payment.')) return 'billing_payment';
+    if (str_contains($event, '.recurring.')) return 'billing_recurring';
+    if (str_contains($event, '.credit.')) return 'billing_credit';
+    if (str_contains($event, '.dunning.')) return 'billing_dunning_case';
+    if (str_contains($event, '.tax.')) return 'billing_tax';
+    if (str_contains($event, '.template.')) return 'billing_template';
+    if (str_contains($event, '.money_movement.')) return 'billing_money_movement';
+    if (str_contains($event, '.statement.')) return 'billing_statement';
+    return 'billing';
 }

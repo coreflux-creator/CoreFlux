@@ -10,8 +10,8 @@
  * Usage:
  *     import { api } from '../../lib/api';
  *
- *     const employees = await api.get('/modules/payroll/api/employees.php');
- *     const created   = await api.post('/modules/payroll/api/employees.php', { name, email });
+ *     const employees = await api.get('/api/v1/payroll/employees');
+ *     const created   = await api.post('/api/v1/payroll/employees', { name, email });
  */
 
 const BASE = ''; // same-origin; override via VITE_API_BASE if ever needed

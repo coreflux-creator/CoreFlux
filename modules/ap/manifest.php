@@ -74,6 +74,7 @@ return [
         'ap.bill.approval_submitted',
         'ap.bill.approval_approved',
         'ap.bill.approval_rejected',
+        'ap.bill.approval_blocked',
         'ap.bill.approval_comment_added',
         'ap.vendor.extracted_from_w9',
         'ap.vendor.portal_invited',
@@ -89,17 +90,26 @@ return [
         'ap.payment.drafted',
         'ap.payment.run_built',
         'ap.payment.sent',
+        'ap.payment.release_blocked',
         'ap.payment.cleared',
         'ap.payment.voided',
         'ap.payment.originated',
         'ap.payment.originate_failed',
         'ap.expense.submitted',
         'ap.expense.approved',
+        'ap.expense.bill_routed_for_approval',
+        'ap.expense.bill_routing_failed',
         'ap.expense.rejected',
         'ap.expense.paid',
         'ap.expense.line.attachment.added',
         'ap.expense.line.extracted_from_receipt',
+        'ap.expense.export_selected',
+        'ap.expense.export_selected_template',
         'ap.export.csv',
+        'ap.payments.exported',
+        'ap.payments.exported_template',
+        'ap.bills.exported',
+        'ap.vendors.exported',
         'ap.settings.updated',
         'ap.recurring.created',
         'ap.recurring.updated',
@@ -121,7 +131,91 @@ return [
         'ap.vendor.tax_id_updated',
     ],
 
+    'people_graph' => [
+        'consumes' => true,
+        'mode' => 'source_module_consumer',
+        'object_types' => [
+            'bill' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'ai_supervisor', 'notifier', 'escalation_contact'],
+                'approval_resource' => 'ap.bill',
+            ],
+            'payment' => [
+                'responsibilities' => ['owner', 'preparer', 'approver', 'operator', 'escalation_contact'],
+                'approval_resource' => 'ap.payment',
+            ],
+            'vendor' => [
+                'responsibilities' => ['owner', 'reviewer', 'requester', 'ai_supervisor', 'escalation_contact'],
+            ],
+            'expense_report' => [
+                'responsibilities' => ['owner', 'requester', 'preparer', 'reviewer', 'approver'],
+                'approval_resource' => 'ap.expense_report',
+            ],
+        ],
+    ],
+
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
+
+    'export_datasets' => [
+        'ap_payments' => [
+            'dataset'          => 'ap_payments',
+            'label'            => 'AP Payments',
+            'permission'       => 'ap.export.run',
+            'formats'          => ['csv'],
+            'audit_event'      => 'ap.payments.exported',
+            'sensitive_fields' => ['bank_routing_number', 'bank_account_number'],
+        ],
+        'ap_bills' => [
+            'dataset'     => 'ap_bills',
+            'label'       => 'AP Bills',
+            'permission'  => 'ap.export.run',
+            'formats'     => ['csv'],
+            'audit_event' => 'ap.bills.exported',
+        ],
+        'ap_vendors' => [
+            'dataset'          => 'ap_vendors',
+            'label'            => 'AP Vendors',
+            'permission'       => 'ap.export.run',
+            'formats'          => ['csv'],
+            'audit_event'      => 'ap.vendors.exported',
+            'sensitive_fields' => ['tax_id_last4', 'payment_account_last4'],
+        ],
+        'expenses' => [
+            'dataset'     => 'expenses',
+            'label'       => 'Expense Reports',
+            'permission'  => 'ap.export.run',
+            'formats'     => ['csv'],
+            'audit_event' => 'ap.expense.export_selected_template',
+        ],
+    ],
+
+    'report_datasets' => [
+        'ap_payments' => [
+            'dataset'          => 'ap_payments',
+            'label'            => 'AP Payments',
+            'permission'       => 'ap.export.run',
+            'source'           => 'export_dataset',
+            'sensitive_fields' => ['bank_routing_number', 'bank_account_number'],
+        ],
+        'ap_bills' => [
+            'dataset'    => 'ap_bills',
+            'label'      => 'AP Bills',
+            'permission' => 'ap.export.run',
+            'source'     => 'export_dataset',
+        ],
+        'ap_vendors' => [
+            'dataset'          => 'ap_vendors',
+            'label'            => 'AP Vendors',
+            'permission'       => 'ap.export.run',
+            'source'           => 'export_dataset',
+            'sensitive_fields' => ['tax_id_last4', 'payment_account_last4'],
+        ],
+        'expenses' => [
+            'dataset'    => 'expenses',
+            'label'      => 'Expense Reports',
+            'permission' => 'ap.export.run',
+            'source'     => 'export_dataset',
+        ],
+    ],
 
     'depends_on' => ['placements', 'time'],
 ];

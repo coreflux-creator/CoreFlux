@@ -510,23 +510,31 @@ function PIITab({ person }) {
 // Tab 7 — Custom fields (per-tenant defs, per-person values)
 // ─────────────────────────────────────────────────────────────────────────
 function CustomFieldsTab({ personId }) {
-  const defsApi  = useApi('/modules/people/api/custom_fields.php');
-  const valsApi  = useApi(`/modules/people/api/custom_field_values.php?person_id=${personId}`);
-  const defs     = defsApi.data?.fields ?? [];
+  const defsApi  = useApi('/api/v1/people/custom-field-definitions');
+  const valsApi  = useApi(`/api/v1/people/custom-field-values/${personId}`);
+  const layoutApi = useApi('/api/v1/people/custom-field-layouts/detail');
+  const defs     = defsApi.data?.definitions ?? [];
   const valsRaw  = valsApi.data?.values ?? [];
+  const layout    = layoutApi.data?.layout?.layout ?? {};
+  const fieldOrder = Array.isArray(layout.field_order) ? layout.field_order : [];
+  const orderedDefs = [...defs].sort((a, b) => {
+    const ai = fieldOrder.indexOf(a.field_key);
+    const bi = fieldOrder.indexOf(b.field_key);
+    if (ai !== -1 || bi !== -1) return (ai === -1 ? 99999 : ai) - (bi === -1 ? 99999 : bi);
+    return (a.order_index ?? 0) - (b.order_index ?? 0);
+  });
   // Normalise values by field_key.
   const valByKey = {};
   for (const v of valsRaw) {
-    const d = defs.find((dd) => Number(dd.id) === Number(v.field_def_id));
-    if (!d) continue;
-    valByKey[d.field_key] = v.value_text ?? v.value_number ?? v.value_date ?? v.value_boolean;
+    if (!v.field_key) continue;
+    valByKey[v.field_key] = v.value;
   }
   const [draft, setDraft]     = useState({});
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState(null);
   const [savedAt, setSavedAt] = useState(null);
 
-  const loading = defsApi.loading || valsApi.loading;
+  const loading = defsApi.loading || valsApi.loading || layoutApi.loading;
   if (loading) return <p data-testid="tab-custom-loading">Loading…</p>;
   if (defsApi.error) return <p className="error" data-testid="tab-custom-error">Error: {defsApi.error.message}</p>;
 
@@ -544,7 +552,7 @@ function CustomFieldsTab({ personId }) {
       const payload = {};
       for (const k of Object.keys(draft)) payload[k] = draft[k] === '' ? null : draft[k];
       if (Object.keys(payload).length === 0) { setSaving(false); return; }
-      await api.post(`/modules/people/api/custom_field_values.php?person_id=${personId}`, { values: payload });
+      await api.post(`/api/v1/people/custom-field-values/${personId}`, { values: payload });
       setDraft({});
       setSavedAt(Date.now());
       valsApi.reload();
@@ -580,7 +588,7 @@ function CustomFieldsTab({ personId }) {
       {savedAt && !saving && <p data-testid="custom-values-saved" style={{ color: '#065f46', fontSize: 13 }}>Saved.</p>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.75rem' }}>
-        {defs.map((d) => (
+        {orderedDefs.map((d) => (
           <label key={d.id} data-testid={`custom-values-field-${d.field_key}`} style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ fontSize: '0.85em', color: '#555', marginBottom: 4 }}>
               {d.field_label}

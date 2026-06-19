@@ -22,7 +22,7 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 export default function InvoiceFromTimeBundleModal({ onClose, onCreated }) {
   // Drop the status filter — accounting period close is the LAST step,
   // not a prerequisite for invoicing.
-  const { data: periods } = useApi('/modules/time/api/periods.php?per_page=20');
+  const { data: periods } = useApi('/api/v1/time/periods?per_page=20');
   const [periodId, setPeriodId] = useState(null);
   const [aggregation, setAggregation] = useState('per_placement');
   const [bundles, setBundles] = useState([]);
@@ -49,7 +49,7 @@ export default function InvoiceFromTimeBundleModal({ onClose, onCreated }) {
 
   const loadBundles = (pid) => {
     if (!pid) { setBundles([]); return; }
-    return api.get(`/modules/time/api/feed.php?period_id=${pid}&bundle_type=ar&status=ready`)
+    return api.get(`/api/v1/time/feed?period_id=${pid}&bundle_type=ar&status=ready`)
       .then(r => {
         setBundles(r.rows || []);
         setSelected(new Set((r.rows || []).map(b => b.placement_id)));
@@ -72,7 +72,7 @@ export default function InvoiceFromTimeBundleModal({ onClose, onCreated }) {
     if (!periodId) return;
     setBuilding(true); setError(null); setInfo(null);
     try {
-      const r = await api.post(`/modules/time/api/periods.php?action=build_bundles&id=${periodId}`, {});
+      const r = await api.post(`/api/v1/time/periods?action=build_bundles&id=${periodId}`, {});
       setInfo(`Built ${r.bundles_built} bundle${r.bundles_built === 1 ? '' : 's'} for this period.`);
       await loadBundles(periodId);
     } catch (e) { setError(e); }

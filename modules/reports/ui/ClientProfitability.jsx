@@ -2,7 +2,7 @@
  * Client Profitability — Reports Overhaul Pass 2 (Tier-2).
  *
  * Per-client margin breakdown. Wraps the existing
- * /modules/reports/api/client_profitability.php response in the
+ * /api/v1/reports/client-profitability response in the
  * shared ReportShell with a KPI band (totals + alert count + median
  * GP%) and a ComparisonTable for the per-client breakdown.
  *
@@ -19,7 +19,7 @@ import { fmtMoney } from '../../../dashboard/src/lib/format';
 export default function ClientProfitability() {
   const [period, setPeriod] = useState('4w');
   const { data, loading, error } = useApi(
-    `/modules/reports/api/client_profitability.php?period=${period}`
+    `/api/v1/reports/client-profitability?period=${period}`
   );
 
   const rows = data?.rows || [];

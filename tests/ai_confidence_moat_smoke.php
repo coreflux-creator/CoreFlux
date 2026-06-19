@@ -52,7 +52,9 @@ $assert('history → 0.97 for ≥3 prior accepts',  strpos($svc, "0.97") !== fal
 $assert('PFC rule ladder includes FOOD_AND_DRINK',
                                                 strpos($svc, "'FOOD_AND_DRINK'") !== false);
 $assert('LLM fallback gated by aiGateForTenant',strpos($svc, 'aiGateForTenant(') !== false);
-$assert('LLM uses aiCallOpenAI tuple unpack',   strpos($svc, '[$content, $latencyMs, $modelUsed, $http, $error] = aiCallOpenAI(') !== false);
+$assert('LLM fallback uses aiExtractJson chokepoint',
+                                                strpos($svc, 'aiExtractJson([') !== false
+                                             && strpos($svc, "'required_keys'     => ['account_id']") !== false);
 $assert('rollup helper aiRollupAccuracyDaily',  strpos($svc, 'function aiRollupAccuracyDaily(') !== false);
 $assert('rollup uses REPLACE INTO ai_accuracy_daily',
                                                 strpos($svc, 'REPLACE INTO ai_accuracy_daily') !== false);

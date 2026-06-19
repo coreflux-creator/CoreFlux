@@ -4,9 +4,9 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 const TYPES = ['text','number','date','boolean','select','multiselect'];
 
 export default function CustomFields() {
-  const path = '/modules/people/api/custom_fields.php';
+  const path = '/api/v1/people/custom-field-definitions';
   const { data, loading, error, reload } = useApi(path);
-  const fields = data?.fields ?? [];
+  const fields = data?.definitions ?? [];
 
   const [form, setForm] = useState({ field_key: '', field_label: '', field_type: 'text', required: false, pii: false });
   const [adding, setAdding] = useState(false);

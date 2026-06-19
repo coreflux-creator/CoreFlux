@@ -6,11 +6,14 @@
  * GET                      returns the full tenant tree (forest — list of roots)
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/employees.php';
 
 $ctx = api_require_auth();
+$user = $ctx['user'];
 
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
+rbac_legacy_require($user, 'people.view');
 
 $rows = scopedQuery(
     "SELECT id, legal_first_name, preferred_name, legal_last_name, job_title,

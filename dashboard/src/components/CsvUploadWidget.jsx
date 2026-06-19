@@ -6,7 +6,7 @@
  *
  *   <CsvUploadWidget
  *     testIdPrefix="treasury-csv"
- *     endpoint="/api/treasury/import_csv.php"
+ *     endpoint="/api/v1/treasury/import-csv"
  *     extraFields={{ bank_account_id: 42 }}
  *     accept=".csv,text/csv"
  *     label="Upload bank statement CSV"

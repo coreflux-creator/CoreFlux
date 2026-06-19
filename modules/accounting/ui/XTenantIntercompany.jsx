@@ -25,7 +25,7 @@ const TAB_INBOX = 'inbox';
 const TAB_OUTBOX = 'outbox';
 const TAB_NEW = 'new';
 
-const API = '/modules/accounting/api/intercompany.php';
+const API = '/api/v1/accounting/intercompany';
 
 export default function XTenantIntercompany() {
   const [tab, setTab] = useState(TAB_INBOX);

@@ -59,7 +59,9 @@ $a('Rate-limit (429) Retry-After honored',   strpos($svc, '$http === 429') !== f
 $a('Bearer auth header',                     strpos($svc, "'Authorization: Bearer '") !== false);
 $a('X-Gusto-API-Version pinned',             strpos($svc, 'X-Gusto-API-Version: 2024-04-01') !== false);
 $a('Webhook HMAC verifier',                  strpos($svc, 'function gustoVerifyWebhook') !== false);
-$a('Audit helper writes audit_log',          strpos($svc, "INSERT INTO audit_log") !== false);
+$a('Audit helper uses platform audit writer',
+    strpos($svc, 'platformAuditLogWrite(') !== false &&
+    strpos($svc, "INSERT INTO audit_log") === false);
 $a('GustoApiException + GustoAuthException', strpos($svc, 'class GustoApiException') !== false && strpos($svc, 'class GustoAuthException') !== false);
 
 echo "\ncore/gusto_service.php — pure runtime tests\n";
@@ -158,6 +160,7 @@ echo "\nmodules/payroll/api/gusto_submit.php\n";
 $sub = (string) file_get_contents(__DIR__ . '/../modules/payroll/api/gusto_submit.php');
 $a('requires payroll.run.disburse',              strpos($sub, "rbac_legacy_require(\$ctx['user'], 'payroll.run.disburse')") !== false);
 $a('rejects unapproved runs',                    strpos($sub, "'Run must be approved before submitting to Gusto") !== false);
+$a('blocks approver from submitting same run',   strpos($sub, '_gustoSubmitDenySameActor') !== false && strpos($sub, 'Approver cannot submit the same payroll run to Gusto') !== false);
 $a('returns 412 if not connected',               strpos($sub, ', 412') !== false);
 $a('list_unprocessed action',                    strpos($sub, "if (\$action === 'list_unprocessed')") !== false);
 $a('matches employees by employee_number',       strpos($sub, '$linesByEmpNum') !== false);
@@ -214,7 +217,7 @@ $a('period-select testid',                       strpos($rd, 'payroll-run-gusto-
 $a('submit button testid',                       strpos($rd, 'payroll-run-gusto-submit-btn') !== false);
 $a('submit-result testid',                       strpos($rd, 'payroll-run-gusto-submit-result') !== false);
 $a('CSV-fallback hint when not connected',       strpos($rd, 'payroll-run-gusto-csv-fallback-hint') !== false);
-$a('loads connection status on mount',           strpos($rd, "/modules/payroll/api/gusto_connect.php") !== false);
+$a('loads connection status on mount',           strpos($rd, "/api/v1/payroll/gusto-connect") !== false);
 $a('CSV-paste flow preserved as fallback',
     strpos($rd, 'payroll-run-gusto-id-input') !== false &&
     strpos($rd, 'payroll-run-gusto-link-btn')  !== false);

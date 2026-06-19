@@ -35,6 +35,7 @@ if (file_exists($_gustoLocalConfig)) require_once $_gustoLocalConfig;
 unset($_gustoLocalConfig);
 
 require_once __DIR__ . '/encryption.php';
+require_once __DIR__ . '/audit.php';
 
 // ---------------------------------------------------------------- exceptions
 class GustoApiException extends \RuntimeException
@@ -313,6 +314,11 @@ function gustoTokenForConnection(array $conn): string
     $payload = gustoRefreshAccessToken($refresh);
 
     require_once __DIR__ . '/db.php';
+    $tenantId = (int) ($conn['tenant_id'] ?? 0);
+    $connectionId = (int) ($conn['id'] ?? 0);
+    $before = $tenantId > 0 && $connectionId > 0
+        ? gustoConnectionAuditRow($tenantId, $connectionId)
+        : gustoScrubConnectionAuditRow($conn);
     $accessCt  = encryptField((string) $payload['access_token']);
     $refreshCt = encryptField((string) $payload['refresh_token']);
     $newExp    = date('Y-m-d H:i:s', time() + (int) ($payload['expires_in'] ?? 7200));
@@ -325,7 +331,14 @@ function gustoTokenForConnection(array $conn): string
           WHERE id = :id'
     );
     $stmt->execute(['a' => $accessCt, 'r' => $refreshCt, 'exp' => $newExp, 'id' => (int) $conn['id']]);
-    gustoAudit('payroll.gusto.token_refreshed', ['connection_id' => (int) $conn['id']], (int) $conn['id']);
+    $after = $tenantId > 0 && $connectionId > 0
+        ? gustoConnectionAuditRow($tenantId, $connectionId)
+        : null;
+    gustoAudit('payroll.gusto.token_refreshed', ['connection_id' => $connectionId], $connectionId, [
+        'tenant_id' => $tenantId > 0 ? $tenantId : null,
+        'before' => $before,
+        'after' => $after,
+    ]);
     return (string) $payload['access_token'];
 }
 
@@ -397,6 +410,11 @@ function _gustoHttp(string $method, string $endpoint, $body, string $accessToken
             try {
                 $payload = gustoRefreshAccessToken($refresh);
                 require_once __DIR__ . '/db.php';
+                $tenantId = (int) ($connection['tenant_id'] ?? 0);
+                $connectionId = (int) ($connection['id'] ?? 0);
+                $before = $tenantId > 0 && $connectionId > 0
+                    ? gustoConnectionAuditRow($tenantId, $connectionId)
+                    : gustoScrubConnectionAuditRow($connection);
                 // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
                 getDB()->prepare(
                     'UPDATE tenant_gusto_connections SET
@@ -409,7 +427,14 @@ function _gustoHttp(string $method, string $endpoint, $body, string $accessToken
                     'exp' => date('Y-m-d H:i:s', time() + (int) ($payload['expires_in'] ?? 7200)),
                     'id' => (int) $connection['id'],
                 ]);
-                gustoAudit('payroll.gusto.token_refreshed_on_401', ['connection_id' => (int) $connection['id']], (int) $connection['id']);
+                $after = $tenantId > 0 && $connectionId > 0
+                    ? gustoConnectionAuditRow($tenantId, $connectionId)
+                    : null;
+                gustoAudit('payroll.gusto.token_refreshed_on_401', ['connection_id' => $connectionId], $connectionId, [
+                    'tenant_id' => $tenantId > 0 ? $tenantId : null,
+                    'before' => $before,
+                    'after' => $after,
+                ]);
                 return _gustoHttp($method, $endpoint, $body, (string) $payload['access_token'], $connection, false, $retries + 1);
             } catch (\Throwable $e) {
                 error_log('[gusto] refresh-on-401 failed: ' . $e->getMessage());
@@ -502,25 +527,89 @@ function gustoVerifyWebhook(string $signatureHeader, string $rawBody): bool
 }
 
 // ---------------------------------------------------------------- Audit
-function gustoAudit(string $event, array $meta = [], ?int $targetId = null): void
+function gustoConnectionAuditRow(int $tenantId, int $connectionId): ?array
 {
     try {
         require_once __DIR__ . '/db.php';
         $pdo = function_exists('getDB') ? getDB() : null;
-        if (!$pdo) return;
-        $ctx = function_exists('currentTenantContext') ? currentTenantContext() : null;
-        $pdo->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:tenant_id, :actor, :event, :target_id, :meta_json, :ip, NOW())'
-        )->execute([
-            'tenant_id' => $ctx['tenant_id'] ?? null,
-            'actor'     => $ctx['user']['id'] ?? null,
-            'event'     => $event,
-            'target_id' => $targetId,
-            'meta_json' => json_encode($meta),
-            'ip'        => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        if (!$pdo || $tenantId <= 0 || $connectionId <= 0) return null;
+        $stmt = $pdo->prepare(
+            'SELECT * FROM tenant_gusto_connections
+              WHERE tenant_id = :t AND id = :id
+              LIMIT 1'
+        );
+        $stmt->execute(['t' => $tenantId, 'id' => $connectionId]);
+        return gustoScrubConnectionAuditRow($stmt->fetch(\PDO::FETCH_ASSOC) ?: null);
+    } catch (\Throwable $e) {
+        error_log('[gusto.audit] connection snapshot failed: ' . $e->getMessage());
+        return null;
+    }
+}
+
+function gustoConnectionAuditRowById(int $connectionId): ?array
+{
+    try {
+        require_once __DIR__ . '/db.php';
+        $pdo = function_exists('getDB') ? getDB() : null;
+        if (!$pdo || $connectionId <= 0) return null;
+        $stmt = $pdo->prepare(
+            'SELECT * FROM tenant_gusto_connections
+              WHERE id = :id
+              LIMIT 1'
+        );
+        $stmt->execute(['id' => $connectionId]);
+        return gustoScrubConnectionAuditRow($stmt->fetch(\PDO::FETCH_ASSOC) ?: null);
+    } catch (\Throwable $e) {
+        error_log('[gusto.audit] connection snapshot failed: ' . $e->getMessage());
+        return null;
+    }
+}
+
+function gustoScrubConnectionAuditRow(?array $row): ?array
+{
+    if (!$row) return null;
+    unset($row['access_token_ct'], $row['refresh_token_ct']);
+    return $row;
+}
+
+function gustoAudit(string $event, array $meta = [], ?int $targetId = null, array $opts = []): void
+{
+    try {
+        $tenantId = gustoAuditInt($opts['tenant_id'] ?? $meta['tenant_id'] ?? null);
+        $actorUserId = gustoAuditInt($opts['actor_user_id'] ?? $meta['actor_user_id'] ?? null);
+
+        $metaConnectionId = gustoAuditInt($meta['connection_id'] ?? null);
+        if ($tenantId === null && $targetId !== null && $metaConnectionId === $targetId) {
+            $connectionRow = gustoConnectionAuditRowById($targetId);
+            $tenantId = gustoAuditInt($connectionRow['tenant_id'] ?? null);
+        }
+        if ($tenantId === null && function_exists('currentTenantId')) {
+            try {
+                $tenantId = gustoAuditInt(currentTenantId());
+            } catch (\Throwable $_) {
+                $tenantId = null;
+            }
+        }
+        if ($tenantId === null) {
+            $tenantId = gustoAuditInt($_SESSION['tenant_id'] ?? null);
+        }
+        if ($actorUserId === null) {
+            $actorUserId = gustoAuditInt($_SESSION['user']['id'] ?? null);
+        }
+
+        platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, array_merge([
+            'object_type' => 'payroll_gusto',
+            'source' => 'payroll',
+        ], $opts));
     } catch (\Throwable $e) {
         error_log('[gusto.audit] ' . $event . ' write-failed: ' . $e->getMessage());
     }
+}
+
+function gustoAuditInt(mixed $value): ?int
+{
+    if ($value === null || $value === '') return null;
+    if (is_array($value) || is_object($value)) return null;
+    $int = (int) $value;
+    return $int > 0 ? $int : null;
 }

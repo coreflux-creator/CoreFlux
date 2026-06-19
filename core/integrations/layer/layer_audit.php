@@ -12,6 +12,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../db.php';
+require_once __DIR__ . '/../../audit.php';
 require_once __DIR__ . '/layer_config.php';
 
 const LAYER_AUDIT_SECRET_KEYS = [
@@ -59,17 +60,19 @@ function layer_audit(string $action, string $status, array $opts = []): void
 
     // Mirror into the unified audit_log (event-shaped) — best-effort.
     try {
-        getDB()->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:t, :u, :ev, :tid, :mj, :ip, NOW())'
-        )->execute([
-            't'   => $tenantId,
-            'u'   => $userId,
-            'ev'  => $action,
-            'tid' => null,
-            'mj'  => json_encode(['status' => $status] + $meta, JSON_UNESCAPED_SLASHES),
-            'ip'  => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        platformAuditLogWrite(
+            $tenantId !== null ? (int) $tenantId : null,
+            $userId !== null ? (int) $userId : null,
+            $action,
+            null,
+            ['status' => $status] + $meta,
+            [
+                'source' => 'integration_layer',
+                'object_type' => (string) ($opts['object_type'] ?? 'integration_event'),
+                'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+                'request_id' => $requestId,
+            ]
+        );
     } catch (\Throwable $e) {
         /* unified mirror is optional */
     }

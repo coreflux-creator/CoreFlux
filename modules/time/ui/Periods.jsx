@@ -3,7 +3,7 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 import PeriodCloseWizard from './PeriodCloseWizard';
 
 export default function Periods() {
-  const { data, loading, error, reload } = useApi('/modules/time/api/periods.php');
+  const { data, loading, error, reload } = useApi('/api/v1/time/periods');
   const rows = data?.rows ?? [];
   const [busy, setBusy] = useState(null);
   const [uiError, setUiError] = useState(null);
@@ -12,13 +12,13 @@ export default function Periods() {
   const reopen = async (id) => {
     if (!confirm('Reopen? Only possible if no downstream bundles are consumed.')) return;
     setBusy(id); setUiError(null);
-    try { await api.post(`/modules/time/api/periods.php?action=reopen&id=${id}`, {}); reload(); }
+    try { await api.post(`/api/v1/time/periods?action=reopen&id=${id}`, {}); reload(); }
     catch (e) { setUiError(e); } finally { setBusy(null); }
   };
   const generate = async () => {
     setBusy('gen'); setUiError(null);
     try {
-      const res = await api.post('/modules/time/api/periods.php?action=generate&weeks=8', {});
+      const res = await api.post('/api/v1/time/periods?action=generate&weeks=8', {});
       alert(`Generated ${res.count} new weekly periods.`);
       reload();
     } catch (e) { setUiError(e); } finally { setBusy(null); }

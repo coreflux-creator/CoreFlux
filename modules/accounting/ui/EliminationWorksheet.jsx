@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 
+const INTERCOMPANY_API = '/api/v1/accounting/intercompany';
+
 /**
  * Intercompany Elimination Worksheet —
  * month-end sanity check: did we book both sides of every IC transaction?
@@ -20,7 +22,7 @@ export default function EliminationWorksheet() {
   const [aiError, setAiError]     = useState(null);
 
   const qs = new URLSearchParams({ action: 'elimination_worksheet', from, to }).toString();
-  const { data, loading, error, reload } = useApi(`/modules/accounting/api/intercompany.php?${qs}`);
+  const { data, loading, error, reload } = useApi(`${INTERCOMPANY_API}?${qs}`);
 
   const summary = data?.summary || {};
   const imbalancedPairs = useMemo(() => (data?.pairs || []).filter(p => Math.abs(p.imbalance_signed) > 0.005), [data]);
@@ -42,7 +44,7 @@ export default function EliminationWorksheet() {
       // Reuse the reconciliation narrative pipeline-style call: send the
       // summary + imbalanced pairs as context. aiAsk is exposed via a
       // generic endpoint? No — we'll pipe via an ad-hoc narrative endpoint.
-      const res = await api.post('/modules/accounting/api/intercompany.php?action=narrate_elimination', { from, to });
+      const res = await api.post(`${INTERCOMPANY_API}?action=narrate_elimination`, { from, to });
       setAiNarr(res);
     } catch (e) { setAiError(e.message); }
     finally { setAiBusy(false); }

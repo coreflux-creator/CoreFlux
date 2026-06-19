@@ -159,7 +159,7 @@ $a('auto-advance button testid',               strpos($pc, 'payroll-cycles-auto-
 $a('cycles table testid',                      strpos($pc, 'payroll-cycles-table')                  !== false);
 $a('per-row advance testid',                   strpos($pc, 'payroll-cycle-advance-')                !== false);
 $a('per-row toggle testid',                    strpos($pc, 'payroll-cycle-toggle-')                 !== false);
-$a('uses /modules/payroll/api/cycles.php',     strpos($pc, '/modules/payroll/api/cycles.php')       !== false);
+$a('uses v1 payroll cycles endpoint',          strpos($pc, '/api/v1/payroll/cycles')               !== false);
 
 echo "\nUI — PayrollAnomalies.jsx\n";
 $pa = (string) file_get_contents(__DIR__ . '/../modules/payroll/ui/PayrollAnomalies.jsx');
@@ -167,7 +167,7 @@ $a('page testid',                              strpos($pa, 'payroll-anomalies-pa
 $a('table testid',                             strpos($pa, 'payroll-anomalies-table')               !== false);
 $a('per-row ack testid',                       strpos($pa, 'payroll-anomalies-ack-')                !== false);
 $a('open-run link testid',                     strpos($pa, 'payroll-anomalies-open-run-')           !== false);
-$a('uses dashboard feed endpoint',             strpos($pa, 'anomalies.php?dashboard=1')             !== false);
+$a('uses dashboard feed endpoint',             strpos($pa, 'anomalies?dashboard=1')                 !== false);
 
 echo "\nUI — PayrollOverview alert badge\n";
 $ov = (string) file_get_contents(__DIR__ . '/../modules/payroll/ui/PayrollOverview.jsx');

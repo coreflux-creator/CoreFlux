@@ -9,6 +9,7 @@
  */
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/audit.php';
 
 /**
  * Allowed values for the placements.remote_policy ENUM. The MySQL column is
@@ -74,6 +75,17 @@ function placementGet(int $id): ?array
     $row = scopedFind($sql, ['id' => $id]);
     if (!$row) return null;
     return placementHydratePersonFields($row);
+}
+
+function placementAuditRow(int $id): ?array
+{
+    return scopedFind(
+        'SELECT ' . placementsSafeFields('p') . '
+           FROM placements p
+          WHERE p.tenant_id = :tenant_id AND p.id = :id
+          LIMIT 1',
+        ['id' => $id]
+    );
 }
 
 /**
@@ -323,32 +335,35 @@ function placementsComputeMargin(array $rate, array $chain): array
 }
 
 /**
- * Audit logger for placements.* events. Writes to audit_log;
- * never blocks calling request on failure.
+ * Audit logger for placements.* events. Writes through the shared platform
+ * audit writer and never blocks the calling request on failure.
  */
-function placementsAudit(string $event, array $meta = [], ?int $targetId = null): void
+function placementsAudit(string $event, array $meta = [], ?int $targetId = null, array $opts = []): void
 {
-    $pdo = getDB();
-    if (!$pdo) {
-        error_log("[placements.audit] {$event} target={$targetId} meta=" . json_encode($meta));
-        return;
-    }
     try {
-        $stmt = $pdo->prepare(
-            'INSERT INTO audit_log
-             (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, request_id, created_at)
-             VALUES (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, :ip_address, :request_id, NOW())'
-        );
-        $stmt->execute([
-            'tenant_id'     => currentTenantId(),
-            'actor_user_id' => $_SESSION['user']['id'] ?? null,
-            'event'         => $event,
-            'target_id'     => $targetId,
-            'meta_json'     => $meta ? json_encode($meta, JSON_UNESCAPED_SLASHES) : null,
-            'ip_address'    => $_SERVER['REMOTE_ADDR'] ?? null,
-            'request_id'    => $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
-        ]);
+        $tenantId = function_exists('currentTenantId') ? currentTenantId() : null;
+        $actorUserId = isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : null;
+        platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, array_merge([
+            'object_type' => placementsAuditObjectType($event),
+            'source' => $meta['source'] ?? 'placements',
+        ], $opts));
     } catch (\Throwable $e) {
         error_log("[placements.audit] db-write-failed: " . $e->getMessage() . " event={$event}");
     }
+}
+
+function placementsAuditObjectType(string $event): string
+{
+    if (str_contains($event, '.rate.')) return 'placement_rate';
+    if (str_contains($event, '.chain.')) return 'placement_chain';
+    if (str_contains($event, '.commission_plan.')) return 'placement_commission_plan';
+    if (str_contains($event, '.commission.')) return 'placement_commission';
+    if (str_contains($event, '.referral.')) return 'placement_referral';
+    if (str_contains($event, '.document.')) return 'placement_document';
+    if (str_contains($event, '.corp.')) return 'placement_corp';
+    if (str_contains($event, '.approval_contact.')) return 'placement_approval_contact';
+    if (str_contains($event, '.financials.')) return 'placement_financials';
+    if (str_contains($event, '.csv_')) return 'placement_import';
+    if (str_contains($event, '.exported')) return 'placement_export';
+    return 'placement';
 }

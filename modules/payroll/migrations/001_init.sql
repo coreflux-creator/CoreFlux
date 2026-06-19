@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS payroll_runs (
     tenant_id           INT UNSIGNED NOT NULL,
     pay_period_id       INT UNSIGNED NOT NULL,
     run_type            ENUM('regular','off_cycle','correction','final') NOT NULL DEFAULT 'regular',
+    created_by_user_id  INT UNSIGNED NULL,
     status              ENUM('draft','computed','approved','paid','voided') NOT NULL DEFAULT 'draft',
     employee_count      INT UNSIGNED NOT NULL DEFAULT 0,
     gross_total_cents   BIGINT NOT NULL DEFAULT 0,
@@ -116,14 +117,18 @@ CREATE TABLE IF NOT EXISTS payroll_runs (
     net_total_cents     BIGINT NOT NULL DEFAULT 0,
     employer_taxes_cents BIGINT NOT NULL DEFAULT 0,
     computed_at         TIMESTAMP NULL DEFAULT NULL,
+    computed_by_user_id INT UNSIGNED NULL,
     approved_at         TIMESTAMP NULL DEFAULT NULL,
     approved_by         INT UNSIGNED NULL,
+    workflow_instance_id BIGINT UNSIGNED NULL,
     paid_at             TIMESTAMP NULL DEFAULT NULL,
+    paid_by_user_id     INT UNSIGNED NULL,
     notes               TEXT NULL,
     created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP NULL DEFAULT NULL,
     INDEX idx_run_tenant_period (tenant_id, pay_period_id),
-    INDEX idx_run_tenant_status (tenant_id, status)
+    INDEX idx_run_tenant_status (tenant_id, status),
+    INDEX idx_run_workflow (tenant_id, workflow_instance_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =======================================================================

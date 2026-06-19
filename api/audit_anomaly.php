@@ -42,6 +42,7 @@ if (!in_array($role, ['master_admin', 'tenant_admin', 'admin'], true)) {
 if ($method !== 'POST' || $action !== 'spot') {
     api_error('Unknown method/action', 405);
 }
+rbac_legacy_require($user, 'ai.use');
 
 $hours = (int) (api_query('hours') ?? 24);
 if ($hours < 1)   $hours = 1;

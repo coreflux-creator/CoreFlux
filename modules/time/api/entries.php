@@ -30,10 +30,15 @@ if ($method === 'POST' && $action !== '') {
     if (!$entry) api_error('Entry not found', 404);
 
     if ($action === 'submit') {
+        _timeRequireEntryWriteAccess($user, $entry);
         if ($entry['status'] !== 'draft') api_error('Only draft entries can be submitted', 409, ['status' => $entry['status']]);
         scopedUpdate('time_entries', $id, ['status' => 'pending_review']);
-        timeAudit('time.entry.submitted', ['entry_id' => $id], $id);
-        api_ok(['ok' => true, 'entry' => timeEntryGet($id)]);
+        $updatedEntry = timeEntryGet($id);
+        timeAudit('time.entry.submitted', ['entry_id' => $id], $id, [
+            'before' => $entry,
+            'after' => $updatedEntry,
+        ]);
+        api_ok(['ok' => true, 'entry' => $updatedEntry]);
     }
 
     if ($action === 'approve') {
@@ -59,6 +64,7 @@ if ($method === 'POST' && $action !== '') {
         // audit_log row downstream dashboards subscribe to.
         $approvedEntry = timeEntryGet($id) ?? $entry;
         timeEntryApprovedEmit((int) $id, $approvedEntry, 'manual', [
+            'before' => $entry,
             'approver_user_id' => $user['id'] ?? null,
         ]);
         api_ok(['ok' => true, 'entry' => $approvedEntry]);
@@ -70,8 +76,12 @@ if ($method === 'POST' && $action !== '') {
         $body = api_json_body();
         api_require_fields($body, ['reason']);
         scopedUpdate('time_entries', $id, ['status' => 'rejected', 'rejected_reason' => $body['reason']]);
-        timeAudit('time.entry.rejected', ['entry_id' => $id, 'reason' => $body['reason']], $id);
-        api_ok(['ok' => true, 'entry' => timeEntryGet($id)]);
+        $updatedEntry = timeEntryGet($id);
+        timeAudit('time.entry.rejected', ['entry_id' => $id, 'reason' => $body['reason']], $id, [
+            'before' => $entry,
+            'after' => $updatedEntry,
+        ]);
+        api_ok(['ok' => true, 'entry' => $updatedEntry]);
     }
 
     if ($action === 'correct') {
@@ -103,7 +113,13 @@ if ($method === 'POST' && $action !== '') {
             $pdo->rollBack();
             api_error('Correct failed: ' . $e->getMessage(), 500);
         }
-        timeAudit('time.entry.superseded', ['entry_id' => $id, 'by_entry_id' => $newId, 'reason' => $body['correction_reason']], $id);
+        timeAudit('time.entry.superseded', ['entry_id' => $id, 'by_entry_id' => $newId, 'reason' => $body['correction_reason']], $id, [
+            'before' => $entry,
+            'after' => [
+                'superseded_entry' => timeEntryGet($id),
+                'new_entry' => timeEntryGet($newId),
+            ],
+        ]);
         api_ok(['ok' => true, 'superseded_entry_id' => $id, 'new_entry_id' => $newId]);
     }
 
@@ -166,6 +182,9 @@ if ($method === 'POST') {
     } else {
         rbac_legacy_require($user, 'time.entry.manage');
     }
+    if (array_key_exists('status', $body) && (string) $body['status'] !== 'draft') {
+        api_error('status cannot be set during create; use submit/approve/reject actions', 422);
+    }
 
     // Resolve or create period
     $periodId = (int) ($body['period_id'] ?? 0);
@@ -200,11 +219,14 @@ if ($method === 'POST') {
         'hours'              => (float) $body['hours'],
         'description'        => $body['description'] ?? null,
         'source'             => $body['source']      ?? 'manual_entry',
-        'status'             => $body['status']      ?? 'draft',
+        'status'             => 'draft',
         'created_by_user_id' => $user['id'] ?? null,
     ]);
-    timeAudit('time.entry.created', ['entry_id' => $id, 'placement_id' => (int) $body['placement_id'], 'category' => $body['category']], $id);
-    api_ok(['entry' => timeEntryGet($id)], 201);
+    $createdEntry = timeEntryGet($id);
+    timeAudit('time.entry.created', ['entry_id' => $id, 'placement_id' => (int) $body['placement_id'], 'category' => $body['category']], $id, [
+        'after' => $createdEntry,
+    ]);
+    api_ok(['entry' => $createdEntry], 201);
 }
 
 // ─── PATCH ───
@@ -219,15 +241,36 @@ if ($method === 'PATCH') {
     rbac_legacy_require($user, 'time.entry.manage');
 
     $body = api_json_body();
+    if (array_key_exists('status', $body)) {
+        api_error('status transitions must use submit/approve/reject actions', 422);
+    }
     foreach (['id','tenant_id','placement_id','person_id','period_id',
               'rate_snapshot_id','approved_by_user_id','approved_at','approved_via',
-              'superseded_by_id','created_by_user_id','created_at'] as $k) unset($body[$k]);
+              'rejected_reason','superseded_by_id','created_by_user_id','created_at',
+              'status'] as $k) unset($body[$k]);
     if (isset($body['category']) && !in_array($body['category'], TIME_CATEGORIES, true)) api_error('Invalid category', 422);
     if (!$body) api_error('No fields to update', 422);
     $rows = scopedUpdate('time_entries', $id, $body);
     if ($rows === 0) api_error('Not found or no change', 404);
-    timeAudit('time.entry.updated', ['entry_id' => $id, 'fields' => array_keys($body)], $id);
-    api_ok(['entry' => timeEntryGet($id)]);
+    $updatedEntry = timeEntryGet($id);
+    timeAudit('time.entry.updated', ['entry_id' => $id, 'fields' => array_keys($body)], $id, [
+        'before' => $entry,
+        'after' => $updatedEntry,
+    ]);
+    api_ok(['entry' => $updatedEntry]);
 }
 
 api_error('Method not allowed', 405);
+
+function _timeRequireEntryWriteAccess(array $user, array $entry): void
+{
+    $isCreator = !empty($entry['created_by_user_id'])
+        && (int) $entry['created_by_user_id'] === (int) ($user['id'] ?? 0);
+    $isOwnPerson = !empty($entry['person_id'])
+        && (int) $entry['person_id'] === (int) ($user['person_id'] ?? 0);
+    if ($isCreator || $isOwnPerson) {
+        rbac_legacy_require($user, 'time.entry.self');
+        return;
+    }
+    rbac_legacy_require($user, 'time.entry.manage');
+}

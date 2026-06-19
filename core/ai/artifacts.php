@@ -23,6 +23,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../people_graph.php';
 
 // ─────────────────────────────────────────────────────────────────
 // Lifecycle state machine.
@@ -38,6 +39,11 @@ const ARTIFACT_TRANSITIONS = [
     'final'    => ['archived'],
     'archived' => [],
     'rejected' => ['draft', 'archived'],
+];
+
+const ARTIFACT_PEOPLE_GRAPH_RESPONSIBILITIES = [
+    'owner', 'preparer', 'reviewer', 'approver', 'requester', 'recipient',
+    'ai_creator', 'ai_supervisor', 'escalation_contact',
 ];
 
 /**
@@ -105,6 +111,14 @@ function artifactCreate(int $tenantId, string $artifactType, array $opts = []): 
         'actor_ai_run'    => $opts['created_by_ai_run']  ?? null,
         'payload'         => ['artifact_type' => $artifactType, 'title' => $opts['title'] ?? null],
     ]);
+
+    if (!empty($opts['people_graph']) && is_array($opts['people_graph'])) {
+        try {
+            artifactSyncPeopleGraph($tenantId, $id, $opts['people_graph'], $opts['created_by_user_id'] ?? null);
+        } catch (\Throwable $e) {
+            error_log('[artifact.people_graph] sync failed for ' . $id . ': ' . $e->getMessage());
+        }
+    }
 
     return artifactGet($tenantId, $id);
 }
@@ -245,6 +259,114 @@ function artifactLink(
     return ['ok' => true, 'edge_id' => (int) $pdo->lastInsertId(), 'relationship_type' => $relationshipType];
 }
 
+/**
+ * Assign a People Graph actor to an artifact role.
+ *
+ * This keeps Artifact Graph as the artifact/provenance store while People
+ * Graph remains the source of truth for who owns, prepared, reviewed,
+ * approved, requested, received, created through AI, or supervises an artifact.
+ */
+function artifactAssignPeopleGraph(
+    int $tenantId,
+    string $artifactId,
+    string $responsibilityType,
+    string $actorType,
+    int $actorId,
+    array $opts = [],
+    ?int $actorUserId = null
+): array {
+    $artifact = artifactGet($tenantId, $artifactId);
+    if (!$artifact) throw new \RuntimeException("artifact {$artifactId} not found");
+    if (!in_array($responsibilityType, ARTIFACT_PEOPLE_GRAPH_RESPONSIBILITIES, true)) {
+        throw new \InvalidArgumentException("Unsupported artifact People Graph responsibility: {$responsibilityType}");
+    }
+
+    $assignment = peopleGraphAssignResponsibility($tenantId, [
+        'object_module' => 'artifacts',
+        'object_type' => (string) ($opts['object_type'] ?? $artifact['artifact_type'] ?? 'artifact'),
+        'object_id' => $artifactId,
+        'responsibility_type' => $responsibilityType,
+        'actor_type' => $actorType,
+        'actor_id' => $actorId,
+        'priority' => $opts['priority'] ?? 100,
+        'conditions' => $opts['conditions'] ?? null,
+        'source' => 'artifact_graph',
+    ], $actorUserId);
+
+    artifactWriteEvent($tenantId, $artifactId, 'people_graph.assigned', [
+        'prior_status' => $artifact['status'] ?? null,
+        'new_status' => $artifact['status'] ?? null,
+        'actor_user_id' => $actorUserId,
+        'payload' => [
+            'responsibility_type' => $responsibilityType,
+            'actor_type' => $actorType,
+            'actor_id' => $actorId,
+            'people_graph_assignment_id' => $assignment['id'] ?? null,
+        ],
+    ]);
+
+    return $assignment;
+}
+
+/**
+ * Bulk artifact People Graph assignment.
+ *
+ * @param list<array{responsibility_type:string, actor_type:string, actor_id:int, priority?:int, conditions?:array}> $assignments
+ * @return list<array>
+ */
+function artifactSyncPeopleGraph(int $tenantId, string $artifactId, array $assignments, ?int $actorUserId = null): array
+{
+    $out = [];
+    foreach ($assignments as $assignment) {
+        if (!is_array($assignment)) continue;
+        $out[] = artifactAssignPeopleGraph(
+            $tenantId,
+            $artifactId,
+            (string) ($assignment['responsibility_type'] ?? ''),
+            (string) ($assignment['actor_type'] ?? ''),
+            (int) ($assignment['actor_id'] ?? 0),
+            $assignment,
+            $actorUserId
+        );
+    }
+    return $out;
+}
+
+function artifactPeopleGraph(int $tenantId, string $artifactId): array
+{
+    $artifact = artifactGet($tenantId, $artifactId);
+    if (!$artifact) throw new \RuntimeException("artifact {$artifactId} not found");
+    $assignments = peopleGraphListResponsibilities($tenantId, [
+        'object_module' => 'artifacts',
+        'object_type' => (string) ($artifact['artifact_type'] ?? 'artifact'),
+        'object_id' => $artifactId,
+        'limit' => 500,
+    ]);
+    $byType = [];
+    foreach ($assignments as $assignment) {
+        $type = (string) ($assignment['responsibility_type'] ?? 'unknown');
+        $byType[$type] = $byType[$type] ?? [];
+        $byType[$type][] = $assignment;
+    }
+    return [
+        'artifact_id' => $artifactId,
+        'artifact_type' => $artifact['artifact_type'] ?? null,
+        'assignments' => $assignments,
+        'by_responsibility' => $byType,
+    ];
+}
+
+function artifactResolvePeopleGraph(int $tenantId, string $artifactId, string $question = 'who_owns'): array
+{
+    $artifact = artifactGet($tenantId, $artifactId);
+    if (!$artifact) throw new \RuntimeException("artifact {$artifactId} not found");
+    return peopleGraphResolve($tenantId, $question, [
+        'object_module' => 'artifacts',
+        'object_type' => (string) ($artifact['artifact_type'] ?? 'artifact'),
+        'object_id' => $artifactId,
+    ], ['limit' => 500]);
+}
+
 function artifactGet(int $tenantId, string $artifactId): ?array
 {
     $st = getDB()->prepare(
@@ -353,11 +475,19 @@ function artifactLineage(int $tenantId, string $artifactId): array
         $e['payload'] = $e['payload'] ? json_decode((string) $e['payload'], true) : null;
     }
 
+    $peopleGraph = null;
+    try {
+        $peopleGraph = artifactPeopleGraph($tenantId, $artifactId);
+    } catch (\Throwable $_) {
+        $peopleGraph = null;
+    }
+
     return [
         'artifact_id'   => $artifactId,
         'outgoing'      => $outgoing,
         'incoming'      => $incoming,
         'event_history' => $events,
+        'people_graph'  => $peopleGraph,
     ];
 }
 

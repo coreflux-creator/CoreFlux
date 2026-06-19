@@ -18,6 +18,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/placements.php';
 require_once __DIR__ . '/../lib/rate_approve.php';
+require_once __DIR__ . '/../lib/workflow.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -37,7 +38,7 @@ if ($method === 'GET') {
         $pdo = getDB();
         $stmt = $pdo->prepare(
             "SELECT pr.id, pr.placement_id, pr.effective_from, pr.bill_rate, pr.bill_rate_unit,
-                    pr.pay_rate, pr.pay_rate_unit, pr.currency, pr.created_at,
+                    pr.pay_rate, pr.pay_rate_unit, pr.currency, pr.created_at, pr.workflow_instance_id,
                     p.title AS placement_title, p.status AS placement_status,
                     p.external_id AS placement_external_id, p.start_date AS placement_start_date,
                     p.person_id, p.end_client_name,
@@ -74,10 +75,9 @@ if ($method === 'POST' && $action === 'approve_all_for_placement') {
     $pid = (int) api_query('placement_id', 0);
     if ($pid <= 0) api_error('placement_id required', 400);
     // Catch-up affordance for placements that were promoted from draft
-    // BEFORE the auto-approve side effect shipped (or where the
-    // operator lacked the financials.approve permission at promotion
-    // time). Reuses the same shared helper as bulk_status / PATCH so
-    // the audit trail and margin snapshots are identical.
+    // BEFORE the workflow-backed approval side effect shipped. Reuses
+    // the same WorkflowGraph bridge as bulk_status / PATCH so routing,
+    // SoD, and snapshot locking are identical.
     $count = placementsAutoApproveDraftRates($pid, $user);
     placementsAudit('placement.rates.approve_all_clicked', [
         'placement_id' => $pid,
@@ -98,18 +98,37 @@ if ($method === 'POST' && $action === 'bulk_approve') {
     // shape of the workflow a CSV-imported draft is always a fresh
     // rate, never a correction (corrections are explicit single-row).
     // Forces operators to use the per-row Approve flow for corrections.
-    $approved = 0; $failed = 0; $results = [];
+    $approved = 0; $pending = 0; $failed = 0; $results = [];
     foreach ($ids as $rid) {
         try {
-            $r = placementsRateApproveOne($rid, $user, false, null);
-            $approved++;
-            $results[] = ['id' => $rid, 'ok' => true, 'adjusted_bill_rate' => $r['margin']['adjusted_bill_rate']];
+            $rateRow = placementsRateWorkflowRow(currentTenantId(), $rid);
+            if (!$rateRow) throw new \RuntimeException("Rate {$rid} not found");
+            $prior = scopedFind(
+                'SELECT id FROM placement_rates
+                  WHERE tenant_id = :tenant_id AND placement_id = :pid
+                    AND id != :rid AND approved_at IS NOT NULL
+                  LIMIT 1',
+                ['pid' => (int) $rateRow['placement_id'], 'rid' => $rid]
+            );
+            if ($prior) {
+                throw new \RuntimeException('Correction rate requires single-row approval workflow');
+            }
+            $r = placementsRateWorkflowAct(currentTenantId(), $rid, $user, false, null);
+            if (!empty($r['approved'])) $approved++;
+            else $pending++;
+            $results[] = [
+                'id' => $rid,
+                'ok' => true,
+                'approved' => !empty($r['approved']),
+                'workflow_instance_id' => $r['instance']['id'] ?? null,
+                'workflow_status' => $r['instance']['status'] ?? null,
+            ];
         } catch (\Throwable $e) {
             $failed++;
             $results[] = ['id' => $rid, 'ok' => false, 'reason' => $e->getMessage()];
         }
     }
-    api_ok(['ok' => true, 'approved' => $approved, 'failed' => $failed, 'results' => $results]);
+    api_ok(['ok' => true, 'approved' => $approved, 'pending' => $pending, 'failed' => $failed, 'results' => $results]);
 }
 
 if ($method === 'POST' && $action === 'approve') {
@@ -152,14 +171,29 @@ if ($method === 'POST' && $action === 'approve') {
     }
 
     try {
-        $r = placementsRateApproveOne($id, $user, $isCorrection, $correctionReason);
+        $r = placementsRateWorkflowAct(currentTenantId(), $id, $user, $isCorrection, $correctionReason);
     } catch (\Throwable $e) {
         $msg = $e->getMessage();
         if (str_contains($msg, 'not found'))    api_error('Rate not found', 404);
         if (str_contains($msg, 'already approved')) api_error('Already approved (snapshot is locked; create a correction)', 409);
+        if (str_contains($msg, 'Separation of duties') || str_contains($msg, 'not an approver')) {
+            api_error($msg, 403);
+        }
         api_error('Approve failed: ' . $msg, 500);
     }
-    api_ok(['ok' => true, 'snapshot' => $r['margin'], 'auto_correction' => $autoCorrection]);
+    $rate = $r['rate'] ?? [];
+    $snapshot = !empty($rate['approved_at']) ? [
+        'adjusted_bill_rate' => isset($rate['adjusted_bill_rate']) ? (float) $rate['adjusted_bill_rate'] : null,
+        'net_to_vendor' => isset($rate['net_to_vendor']) ? (float) $rate['net_to_vendor'] : null,
+    ] : null;
+    api_ok([
+        'ok' => true,
+        'approved' => !empty($r['approved']),
+        'snapshot' => $snapshot,
+        'auto_correction' => $autoCorrection,
+        'workflow_instance_id' => $r['instance']['id'] ?? null,
+        'workflow_status' => $r['instance']['status'] ?? null,
+    ]);
 }
 
 if ($method === 'POST') {
@@ -184,8 +218,14 @@ if ($method === 'POST') {
         'background_fee_total' => $body['background_fee_total'] ?? null,
         'created_by_user_id'   => $user['id'] ?? null,
     ]);
-    placementsAudit('placement.rate.drafted', ['placement_id' => $pid, 'rate_id' => $id], $pid);
-    api_ok(['id' => $id], 201);
+    placementsAudit('placement.rate.drafted', ['placement_id' => $pid, 'rate_id' => $id], $pid, [
+        'after' => placementsRateAuditRowForTenant(currentTenantId(), $id),
+    ]);
+    $workflowInstanceId = placementsRateWorkflowStart(currentTenantId(), $id, (int) ($user['id'] ?? 0));
+    if (!$workflowInstanceId) {
+        api_error('Could not start placement rate approval workflow', 503);
+    }
+    api_ok(['id' => $id, 'workflow_instance_id' => $workflowInstanceId], 201);
 }
 
 api_error('Method not allowed', 405);

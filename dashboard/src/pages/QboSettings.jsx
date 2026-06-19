@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { useApi, api } from '../lib/api';
 import { CheckCircle2, ExternalLink, RefreshCw, XCircle, ArrowRight, ArrowLeft, ArrowLeftRight, MinusCircle, Send, AlertTriangle } from 'lucide-react';
 
+const ACCOUNTING_ACCOUNTS_API = '/api/v1/accounting/accounts';
+const ACCOUNTING_INTEGRATIONS_API = '/api/v1/accounting/integrations';
+
 /**
  * QboSettings — QuickBooks Online connection + per-entity sync direction
  * picker. Mounted at /admin/integrations/qbo.
@@ -23,7 +26,7 @@ export default function QboSettings() {
   const [coaPullResult, setCoaPullResult] = useState(null);
   // CF accounts list for the inline "Map to existing CF account"
   // dropdown.  Loaded lazily on first render of the unmapped card.
-  const cfAccounts = useApi('/modules/accounting/api/accounts.php?active=1');
+  const cfAccounts = useApi(`${ACCOUNTING_ACCOUNTS_API}?active=1`);
   // Per-row "Removed/Imported/Mapped" status so the operator sees
   // immediate feedback without re-pulling.  Keyed on QBO id.
   const [accountRowAction, setAccountRowAction] = useState({});
@@ -190,7 +193,7 @@ export default function QboSettings() {
     if (!window.confirm(`Permanently delete CF account "${cfLabel}"? Refused if any posted journal lines reference it.`)) return;
     setBusy(true); setFlash(null);
     try {
-      await api.post('/api/accounting.php?action=account_delete', {
+      await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=account_delete`, {
         coreflux_account_id: cfAccountId,
       });
       setFlash({ kind: 'success', msg: `Removed CF account "${cfLabel}".` });
@@ -200,7 +203,7 @@ export default function QboSettings() {
       const status409 = (e.status === 409) || /409/.test(String(e.message || ''));
       if (status409 && window.confirm(`${e.message}\n\nDeactivate "${cfLabel}" instead (soft archive)?`)) {
         try {
-          await api.post('/api/accounting.php?action=account_deactivate', {
+          await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=account_deactivate`, {
             coreflux_account_id: cfAccountId,
           });
           setFlash({ kind: 'success', msg: `Deactivated CF account "${cfLabel}".` });

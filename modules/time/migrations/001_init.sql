@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS time_entries (
     rate_snapshot_id BIGINT UNSIGNED NULL,
     approved_by_user_id BIGINT UNSIGNED NULL,
     approved_at DATETIME NULL,
-    approved_via ENUM('manual','tokenized_client_email','bulk_pre_approved') NULL,
+    approved_via ENUM('manual','tokenized_client_email','bulk_pre_approved','external_email') NULL,
     client_approver_email VARCHAR(255) NULL,
     rejected_reason VARCHAR(500) NULL,
     superseded_by_id BIGINT UNSIGNED NULL,

@@ -17,7 +17,7 @@ import { fmtMoney } from '../../../dashboard/src/lib/format';
 export default function RateSpreadMonitor() {
   const [period, setPeriod] = useState('4w');
   const { data, loading, error } = useApi(
-    `/modules/reports/api/rate_spread.php?period=${period}`
+    `/api/v1/reports/rate-spread?period=${period}`
   );
 
   const rows = data?.rows || [];

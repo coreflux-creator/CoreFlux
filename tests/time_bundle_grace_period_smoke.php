@@ -10,7 +10,8 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../modules/time/lib/time.php';
+$ROOT = realpath(__DIR__ . '/..');
+require_once "{$ROOT}/modules/time/lib/time.php";
 
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
@@ -19,7 +20,7 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
 };
 
 echo "\n1. Migration 080 — tenants.time_bundle_correction_grace_days\n";
-$m = (string) file_get_contents('/app/core/migrations/080_time_bundle_grace_period.sql');
+$m = (string) file_get_contents("{$ROOT}/core/migrations/080_time_bundle_grace_period.sql");
 $a('adds column with default 7',
     str_contains($m, 'time_bundle_correction_grace_days INT NOT NULL DEFAULT 7'));
 $a('places it after ap_three_way_match_enforce',
@@ -42,7 +43,7 @@ $a('unparseable timestamp degrades to within (no silent block)',
     timeBundleWithinGrace('not-a-date', 7) === true);
 
 echo "\n3. Bundle builder applies the grace check at supersession point\n";
-$lib = (string) file_get_contents('/app/modules/time/lib/time.php');
+$lib = (string) file_get_contents("{$ROOT}/modules/time/lib/time.php");
 $a('SELECT pulls consumed_at alongside id/status',
     str_contains($lib, 'SELECT id, status, consumed_at FROM time_downstream_feed'));
 $a('grace lookup uses timeBundleCorrectionGraceDays()',
@@ -72,8 +73,8 @@ $a('fallback safeguard: 0 or negative collapses to 7',
 
 echo "\n6. PHP syntax\n";
 $out = []; $rc = 0;
-exec('php -l /app/modules/time/lib/time.php 2>&1', $out, $rc);
-$a('php -l /app/modules/time/lib/time.php', $rc === 0, implode("\n", $out));
+exec('php -l ' . escapeshellarg("{$ROOT}/modules/time/lib/time.php") . ' 2>&1', $out, $rc);
+$a('php -l modules/time/lib/time.php', $rc === 0, implode("\n", $out));
 
 echo "\n=========================================\n";
 echo "Time bundle grace-period (P1.9) smoke: {$pass} ✓ / {$fail} ✗\n";

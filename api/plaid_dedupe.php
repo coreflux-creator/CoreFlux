@@ -153,7 +153,11 @@ if ($method === 'POST' && $action === 'run') {
     plaidAudit('payment_rails.plaid.dedupe_run', [
         'hidden_deposit_ids'    => $hiddenDeposits,
         'hidden_liability_ids'  => $hiddenLiabilities,
-    ], null);
+    ], null, [
+        'tenant_id' => $tenantId,
+        'actor_user_id' => (int) ($ctx['user']['id'] ?? 0),
+        'source' => 'plaid_diagnostics',
+    ]);
 
     api_ok([
         'ok'                    => true,

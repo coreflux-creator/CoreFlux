@@ -21,6 +21,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/payroll.php';
 
 class PayCycleException extends \RuntimeException {}
 
@@ -85,11 +86,13 @@ function payrollCycleAdvance(int $cycleId, ?int $actorUserId = null): array
 {
     $tenantId = currentTenantId();
     $pdo = getDB();
+    $beforeCycle = null;
     $pdo->beginTransaction();
     try {
         $cycle = scopedFind('SELECT * FROM payroll_pay_cycles WHERE tenant_id = :tenant_id AND id = :id', ['id' => $cycleId]);
         if (!$cycle)              throw new PayCycleException('Cycle not found');
         if (!$cycle['active'])    throw new PayCycleException('Cycle is inactive');
+        $beforeCycle = $cycle;
 
         $schedule = scopedFind('SELECT * FROM payroll_pay_schedules WHERE tenant_id = :tenant_id AND id = :id',
                                ['id' => (int) $cycle['schedule_id']]);
@@ -136,7 +139,16 @@ function payrollCycleAdvance(int $cycleId, ?int $actorUserId = null): array
     payrollAuditLight('payroll.cycle.advanced', [
         'cycle_id' => $cycleId, 'period_id' => $periodId, 'run_id' => $runId,
         'window' => $win, 'actor_user_id' => $actorUserId,
-    ], $cycleId);
+    ], $cycleId, [
+        'tenant_id' => $tenantId,
+        'actor_user_id' => $actorUserId,
+        'before' => ['cycle' => $beforeCycle],
+        'after' => [
+            'cycle' => payrollCycleAuditRow($tenantId, $cycleId),
+            'period' => payrollPayPeriodAuditRow($tenantId, $periodId),
+            'run' => payrollCycleRunAuditRow($tenantId, $runId),
+        ],
+    ]);
 
     return ['period_id' => $periodId, 'run_id' => $runId, 'window' => $win];
 }
@@ -152,6 +164,42 @@ function payrollCycleList(): array
     );
     $stmt->execute(['tenant_id' => currentTenantId()]);
     return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+}
+
+function payrollCycleAuditRow(int $tenantId, int $cycleId): ?array
+{
+    try {
+        $stmt = getDB()->prepare('SELECT * FROM payroll_pay_cycles WHERE tenant_id = :t AND id = :id LIMIT 1');
+        $stmt->execute(['t' => $tenantId, 'id' => $cycleId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row ?: null;
+    } catch (\Throwable $_) {
+        return null;
+    }
+}
+
+function payrollPayPeriodAuditRow(int $tenantId, int $periodId): ?array
+{
+    try {
+        $stmt = getDB()->prepare('SELECT * FROM payroll_pay_periods WHERE tenant_id = :t AND id = :id LIMIT 1');
+        $stmt->execute(['t' => $tenantId, 'id' => $periodId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row ?: null;
+    } catch (\Throwable $_) {
+        return null;
+    }
+}
+
+function payrollCycleRunAuditRow(int $tenantId, int $runId): ?array
+{
+    try {
+        $stmt = getDB()->prepare('SELECT * FROM payroll_runs WHERE tenant_id = :t AND id = :id LIMIT 1');
+        $stmt->execute(['t' => $tenantId, 'id' => $runId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row ?: null;
+    } catch (\Throwable $_) {
+        return null;
+    }
 }
 
 /**
@@ -213,21 +261,15 @@ function payrollCycleAutoAdvanceAll(?string $asOf = null): array
     return $log;
 }
 
-function payrollAuditLight(string $event, array $meta = [], ?int $targetId = null): void
+function payrollAuditLight(string $event, array $meta = [], ?int $targetId = null, array $opts = []): void
 {
     try {
-        $pdo = getDB();
-        $ctx = function_exists('currentTenantContext') ? currentTenantContext() : null;
-        $pdo->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:tenant_id, :actor, :event, :target_id, :meta_json, :ip, NOW())'
-        )->execute([
-            'tenant_id' => $ctx['tenant_id'] ?? null,
-            'actor'     => $ctx['user']['id'] ?? null,
-            'event'     => $event,
-            'target_id' => $targetId,
-            'meta_json' => json_encode($meta),
-            'ip'        => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        if (!array_key_exists('tenant_id', $opts) && function_exists('currentTenantId')) {
+            $opts['tenant_id'] = currentTenantId();
+        }
+        if (!array_key_exists('actor_user_id', $opts) && isset($meta['actor_user_id'])) {
+            $opts['actor_user_id'] = $meta['actor_user_id'] !== null ? (int) $meta['actor_user_id'] : null;
+        }
+        payrollAudit($event, $meta, $targetId, $opts);
     } catch (\Throwable $e) { error_log('[payroll.audit] ' . $event . ' failed: ' . $e->getMessage()); }
 }

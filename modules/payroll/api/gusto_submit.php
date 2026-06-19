@@ -43,6 +43,7 @@ if (!$run) api_error('Run not found', 404);
 if (!in_array($run['status'], ['approved', 'paid'], true)) {
     api_error('Run must be approved before submitting to Gusto (current: ' . $run['status'] . ')', 409);
 }
+_gustoSubmitDenySameActor((int) ($run['approved_by'] ?? 0), $ctx['user'], 'Approver cannot submit the same payroll run to Gusto');
 
 $conn = gustoActiveConnection((int) $ctx['tenant_id']);
 if (!$conn) api_error('No active Gusto connection. Connect Gusto in Payroll Settings first.', 412);
@@ -117,6 +118,13 @@ try {
     api_error('Gusto fetch payroll failed: ' . $e->getMessage(), 502, [
         'error_key' => $e->errorKey, 'http_code' => $e->httpCode,
     ]);
+}
+
+function _gustoSubmitDenySameActor(int $blockedActorId, array $user, string $message): void
+{
+    if ($blockedActorId > 0 && $blockedActorId === (int) ($user['id'] ?? 0)) {
+        api_error('Two-eye control: ' . $message, 403);
+    }
 }
 
 if (($payroll['processing_status'] ?? '') !== 'unprocessed') {
@@ -226,9 +234,17 @@ try {
         'run_id' => $runId, 'payroll_uuid' => $payrollUuid,
         'matched' => $matched, 'skipped_count' => count($skipped),
         'final_status' => $finalStatus,
-    ], $runId);
+    ], $runId, [
+        'before' => $run,
+        'after' => payrollGustoRunAuditRow((int) $ctx['tenant_id'], $runId) ?? $run,
+    ]);
     gustoAudit('payroll.gusto.run_submitted',
-        ['run_id' => $runId, 'payroll_uuid' => $payrollUuid, 'final_status' => $finalStatus], $runId);
+        ['run_id' => $runId, 'payroll_uuid' => $payrollUuid, 'final_status' => $finalStatus], $runId, [
+            'tenant_id' => (int) $ctx['tenant_id'],
+            'actor_user_id' => (int) ($ctx['user']['id'] ?? 0),
+            'before' => $run,
+            'after' => payrollGustoRunAuditRow((int) $ctx['tenant_id'], $runId) ?? $run,
+        ]);
 
     // touch last_used_at
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
@@ -251,9 +267,26 @@ try {
         'run_id' => $runId, 'payroll_uuid' => $payrollUuid,
         'error_key' => $e->errorKey, 'error_category' => $e->errorCategory,
         'http_code' => $e->httpCode, 'message' => $e->getMessage(),
-    ], $runId);
+    ], $runId, [
+        'before' => $run,
+        'after' => payrollGustoRunAuditRow((int) $ctx['tenant_id'], $runId) ?? $run,
+    ]);
     api_error('Gusto submission failed: ' . $e->getMessage(), 502, [
         'error_key' => $e->errorKey, 'error_category' => $e->errorCategory,
         'http_code' => $e->httpCode, 'matched' => $matched, 'skipped' => $skipped,
     ]);
+}
+
+function payrollGustoRunAuditRow(int $tenantId, int $runId): ?array
+{
+    $pdo = getDB();
+    if (!$pdo || $tenantId <= 0 || $runId <= 0) return null;
+    $stmt = $pdo->prepare(
+        'SELECT * FROM payroll_runs
+          WHERE tenant_id = :t AND id = :id
+          LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $runId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
 }

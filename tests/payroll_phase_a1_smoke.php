@@ -57,7 +57,9 @@ $a('Earnings classification covers bonus / commission / reimbursement',
 echo "\nPayroll lib — payrollAudit() helper\n";
 $lib = (string) file_get_contents(__DIR__ . '/../modules/payroll/lib/payroll.php');
 $a('payrollAudit declared',                    strpos($lib, 'function payrollAudit') !== false);
-$a('payrollAudit writes to audit_log',         strpos($lib, 'INSERT INTO audit_log') !== false);
+$a('payrollAudit writes via platform audit writer',
+    strpos($lib, 'platformAuditLogWrite') !== false
+    && strpos($lib, 'payrollAuditObjectType') !== false);
 $a('payrollAudit never throws',                strpos($lib, "catch (\\Throwable") !== false);
 
 echo "\nPayroll manifest — Phase A1 audit events\n";
@@ -85,14 +87,15 @@ echo "\nPayrollRunDetail.jsx — export buttons\n";
 $rd = (string) file_get_contents(__DIR__ . '/../modules/payroll/ui/PayrollRunDetail.jsx');
 $a('audit CSV download link',                  strpos($rd, 'payroll-run-export-csv')   !== false);
 $a('Gusto CSV download link',                  strpos($rd, 'payroll-run-export-gusto') !== false);
-$a('export hrefs use action=export_run',       strpos($rd, 'action=export_run')   !== false);
-$a('export hrefs use action=export_gusto',     strpos($rd, 'action=export_gusto') !== false);
+$a('export hrefs use v1 export-run route',     strpos($rd, '/api/v1/payroll/runs/${run.id}/export-run')   !== false);
+$a('export hrefs use v1 export-gusto route',   strpos($rd, '/api/v1/payroll/runs/${run.id}/export-gusto') !== false);
 $a('exports hidden until compute finished',    strpos($rd, "run.status !== 'draft'") !== false);
 
 echo "\nPayroll runs.php — Gusto sync API\n";
 $a('mark_gusto_synced action',                 strpos($runs, "action === 'mark_gusto_synced'") !== false);
 $a('mark_gusto_synced requires gusto_run_id',  strpos($runs, "['gusto_run_id']") !== false);
 $a('mark_gusto_synced rejects non-http URL',   strpos($runs, "preg_match('#^https?://#i'") !== false);
+$a('mark_gusto_synced blocks approver',        strpos($runs, 'Approver cannot submit the same payroll run to Gusto') !== false);
 $a('mark_gusto_synced sets status submitted',  strpos($runs, "'gusto_status'      => 'submitted'") !== false);
 $a('mark_gusto_synced audits',                 strpos($runs, 'payroll.run.gusto_synced') !== false);
 $a('mark_gusto_paid action',                   strpos($runs, "action === 'mark_gusto_paid'") !== false);

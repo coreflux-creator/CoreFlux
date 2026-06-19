@@ -64,6 +64,11 @@ return [
         'time.entry.approved',
         'time.entry.rejected',
         'time.entry.superseded',
+        'time.timesheet.workflow_started',
+        'time.timesheet.submitted',
+        'time.timesheet.approved',
+        'time.timesheet.rejected',
+        'time.timesheet.approval_blocked',
         'time.intake.received',
         'time.intake.parsed',
         'time.intake.unreadable',
@@ -95,9 +100,50 @@ return [
         'time.settlement.unextracted_billing',
         'time.settlement.unextracted_ap',
         'time.settlement.unextracted_payroll',
+        'time.entries.exported',
+    ],
+
+    'people_graph' => [
+        'consumes' => true,
+        'mode' => 'source_module_consumer',
+        'object_types' => [
+            'entry' => [
+                'responsibilities' => ['owner', 'requester', 'preparer', 'reviewer', 'approver', 'recipient', 'ai_supervisor'],
+                'approval_resource' => 'time.entry',
+            ],
+            'timesheet' => [
+                'responsibilities' => ['owner', 'requester', 'preparer', 'reviewer', 'approver', 'recipient', 'escalation_contact'],
+                'approval_resource' => 'time.timesheet',
+            ],
+            'approval_token' => [
+                'responsibilities' => ['owner', 'requester', 'recipient', 'notifier', 'escalation_contact'],
+            ],
+            'settlement_period' => [
+                'responsibilities' => ['owner', 'reviewer', 'approver', 'operator', 'escalation_contact'],
+            ],
+        ],
     ],
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
+
+    'export_datasets' => [
+        'time_entries' => [
+            'dataset'     => 'time_entries',
+            'label'       => 'Time Entries',
+            'permission'  => 'time.view',
+            'formats'     => ['csv'],
+            'audit_event' => 'time.entries.exported',
+        ],
+    ],
+
+    'report_datasets' => [
+        'time_entries' => [
+            'dataset'    => 'time_entries',
+            'label'      => 'Time Entries',
+            'permission' => 'time.view',
+            'source'     => 'export_dataset',
+        ],
+    ],
 
     'depends_on' => ['people', 'placements'],
 ];

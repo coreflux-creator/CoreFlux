@@ -2,17 +2,22 @@ import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 
+const PERIODS_API = '/api/v1/accounting/periods';
+const CLOSE_TASKS_API = '/api/v1/accounting/close-tasks';
+const CLOSE_PACKET_API = '/api/v1/accounting/close-packet';
+const CLOSE_AI_API = '/api/v1/accounting/close-ai';
+
 /**
  * PeriodCloseWorkflow — runs the 9-step accounting close checklist
  * (Sprint 2 / B4) end-to-end for a single period.
  *
  * Endpoints:
- *   GET   /modules/accounting/api/close_tasks.php?period_id=N
- *   POST  /modules/accounting/api/close_tasks.php?action=seed         { period_id }
- *   POST  /modules/accounting/api/close_tasks.php?action=complete&id=N { notes? }
- *   PATCH /modules/accounting/api/close_tasks.php                     { id, status?, assignee_user_id?, due_date?, notes? }
- *   GET   /modules/accounting/api/close_packet.php?period_id=N
- *   POST  /modules/accounting/api/close_packet.php?period_id=N&action=record
+ *   GET   /api/v1/accounting/close-tasks?period_id=N
+ *   POST  /api/v1/accounting/close-tasks?action=seed         { period_id }
+ *   POST  /api/v1/accounting/close-tasks?action=complete&id=N { notes? }
+ *   PATCH /api/v1/accounting/close-tasks                     { id, status?, assignee_user_id?, due_date?, notes? }
+ *   GET   /api/v1/accounting/close-packet?period_id=N
+ *   POST  /api/v1/accounting/close-packet?period_id=N&action=record
  *
  * Picks period from the existing periods endpoint; surfaces the
  * checklist with completion stamps and a one-click "Build close packet"
@@ -21,11 +26,11 @@ import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
  */
 export default function PeriodCloseWorkflow() {
   const { activeEntityId, activeEntity, entityQuery } = useActiveEntity();
-  const periodsApi = useApi('/modules/accounting/api/periods.php' + entityQuery('?'));
+  const periodsApi = useApi(PERIODS_API + entityQuery('?'));
   const periods = periodsApi.data?.rows ?? [];
   const [periodId, setPeriodId] = useState(null);
 
-  const tasksApi = useApi(periodId ? `/modules/accounting/api/close_tasks.php?period_id=${periodId}` : null,
+  const tasksApi = useApi(periodId ? `${CLOSE_TASKS_API}?period_id=${periodId}` : null,
                           { enabled: !!periodId });
   const tasks = tasksApi.data?.tasks ?? [];
   const stats = tasksApi.data?.stats ?? null;
@@ -39,7 +44,7 @@ export default function PeriodCloseWorkflow() {
     if (!periodId) return;
     setReadinessBusy(true);
     try {
-      const r = await api.post(`/modules/accounting/api/close_ai.php?action=readiness&period_id=${periodId}`, {});
+      const r = await api.post(`${CLOSE_AI_API}?action=readiness&period_id=${periodId}`, {});
       setReadiness(r);
     } catch {
       setReadiness({ summary: '', signals: null, _error: true });
@@ -53,7 +58,7 @@ export default function PeriodCloseWorkflow() {
     if (!confirm('Seed the default 9-step close checklist into this period?')) return;
     setBusy('seed'); setErr(null);
     try {
-      await api.post('/modules/accounting/api/close_tasks.php?action=seed', { period_id: periodId });
+      await api.post(`${CLOSE_TASKS_API}?action=seed`, { period_id: periodId });
       await tasksApi.reload();
     } catch (e) { setErr(e); } finally { setBusy(null); }
   };
@@ -61,7 +66,7 @@ export default function PeriodCloseWorkflow() {
   const complete = async (taskId) => {
     setBusy(`complete-${taskId}`); setErr(null);
     try {
-      await api.post(`/modules/accounting/api/close_tasks.php?action=complete&id=${taskId}`, {});
+      await api.post(`${CLOSE_TASKS_API}?action=complete&id=${taskId}`, {});
       await tasksApi.reload();
     } catch (e) { setErr(e); } finally { setBusy(null); }
   };
@@ -69,7 +74,7 @@ export default function PeriodCloseWorkflow() {
   const setStatus = async (taskId, status) => {
     setBusy(`status-${taskId}`); setErr(null);
     try {
-      await api.patch('/modules/accounting/api/close_tasks.php', { id: taskId, status });
+      await api.patch(CLOSE_TASKS_API, { id: taskId, status });
       await tasksApi.reload();
     } catch (e) { setErr(e); } finally { setBusy(null); }
   };
@@ -79,8 +84,8 @@ export default function PeriodCloseWorkflow() {
     setBusy('packet'); setErr(null);
     try {
       // Record the build event then open the packet in a new tab.
-      await api.post(`/modules/accounting/api/close_packet.php?period_id=${periodId}&action=record`, {});
-      window.open(`/modules/accounting/api/close_packet.php?period_id=${periodId}&format=html`, '_blank', 'noopener');
+      await api.post(`${CLOSE_PACKET_API}?period_id=${periodId}&action=record`, {});
+      window.open(`${CLOSE_PACKET_API}?period_id=${periodId}&format=html`, '_blank', 'noopener');
     } catch (e) { setErr(e); } finally { setBusy(null); }
   };
 

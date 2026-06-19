@@ -11,9 +11,9 @@
  *      Engagement, Client+approver, JobDiva metadata, Notes) covering
  *      every safe-to-display column from the schema.
  *
- *   3. Initial placement approval (draft → non-terminal) auto-approves
- *      the placement's draft rate rows. Operator request: "initial
- *      placement approval should include approved rates."
+ *   3. Draft placement promotion (draft → non-active, non-terminal)
+ *      can use the governed rate catch-up helper, but activation itself
+ *      only verifies already-approved current rate coverage.
  *      - Wired in PATCH and bulk_status.
  *      - Soft-gated by RBAC inside placementsAutoApproveDraftRates()
  *        so a recruiter without financials.approve can't escalate.
@@ -35,11 +35,12 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$lib        = (string) file_get_contents('/app/modules/placements/lib/placements.php');
-$rates      = (string) file_get_contents('/app/modules/placements/api/rates.php');
-$placements = (string) file_get_contents('/app/modules/placements/api/placements.php');
-$rateAppr   = (string) file_get_contents('/app/modules/placements/lib/rate_approve.php');
-$detail     = (string) file_get_contents('/app/modules/placements/ui/PlacementDetail.jsx');
+$ROOT = realpath(__DIR__ . '/..');
+$lib        = (string) file_get_contents("{$ROOT}/modules/placements/lib/placements.php");
+$rates      = (string) file_get_contents("{$ROOT}/modules/placements/api/rates.php");
+$placements = (string) file_get_contents("{$ROOT}/modules/placements/api/placements.php");
+$rateAppr   = (string) file_get_contents("{$ROOT}/modules/placements/lib/rate_approve.php");
+$detail     = (string) file_get_contents("{$ROOT}/modules/placements/ui/PlacementDetail.jsx");
 
 echo "\n1. placementGet() joins people + companies\n";
 $a('joins people for person_first_name / person_last_name / person_email_primary',
@@ -106,6 +107,9 @@ $a('auto-approve helper is RBAC-gated via rbac_legacy_can (soft skip, no 403)',
 $a('auto-approve helper iterates each draft rate row',
    str_contains($rateAppr, 'placement_id = :pid AND approved_at IS NULL')
    && str_contains($rateAppr, "ORDER BY id ASC"));
+$a('auto-approve helper acts through WorkflowGraph',
+   str_contains($rateAppr, 'placementsRateWorkflowAct(currentTenantId(), (int) $r[\'id\']')
+   && str_contains($rateAppr, 'placement.rate.auto_approve_pending_workflow'));
 $a('auto-approve catches per-rate errors with auto_approve_failed audit',
    str_contains($rateAppr, "placementsAudit('placement.rate.auto_approve_failed'"));
 $a('rates.php requires the new lib',
@@ -136,37 +140,49 @@ $a('UI approve handler POSTs an empty body',
 $a('UI logs auto_correction quietly via console.info',
    str_contains($detail, 'console.info(`Rate ${rateId} approved as a correction'));
 
-echo "\n5. Initial placement approval auto-approves rates (PATCH path)\n";
-$a('PATCH calls placementsAutoApproveDraftRates when leaving draft',
+echo "\n5. Draft promotion catch-up is separate from activation (PATCH path)\n";
+$a('PATCH calls placementsAutoApproveDraftRates when leaving draft for non-active status',
    str_contains($placements, '$autoApproved = placementsAutoApproveDraftRates($id, $user);'));
-$a('PATCH only triggers on draft → non-terminal',
+$a('PATCH catch-up still requires draft source and non-terminal target',
    (bool) preg_match("/\\(string\\) \\\$existing\\['status'\\] === 'draft'\\s*\\&\\&\\s*!in_array\\(\\(string\\) \\\$body\\['status'\\], \\['draft', 'cancelled'\\], true\\)/", $placements));
+$a('PATCH active status uses readiness guard instead of rate auto-approve',
+   str_contains($placements, "if ((\$body['status'] ?? null) === 'active')")
+   && str_contains($placements, "_placementsRequireActiveReady(\n            \$id")
+   && str_contains($placements, "(string) \$body['status'] !== 'active'"));
 $a('PATCH emits placement.rates.auto_approved_on_promotion audit',
    str_contains($placements, "placementsAudit('placement.rates.auto_approved_on_promotion'"));
 $a('PATCH returns rates_auto_approved in response',
    str_contains($placements, "'rates_auto_approved' => \$autoApproved"));
 
-echo "\n6. bulk_status also fires the auto-approve side effect\n";
+echo "\n6. bulk_status enforces activation coverage and keeps catch-up non-active\n";
 $a('bulk_status captures pre-update status per row',
-   str_contains($placements, "'SELECT status FROM placements WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL'"));
-$a('bulk_status calls auto-approve when prior=draft and target ∉ {draft,cancelled}',
-   str_contains($placements, "if (\$prior && (string) \$prior['status'] === 'draft'\n                    && !in_array(\$newStatus, ['draft', 'cancelled'], true))"));
+   str_contains($placements, 'SELECT id, status, start_date FROM placements WHERE tenant_id = :tenant_id AND id = :id AND deleted_at IS NULL'));
+$a('bulk_status catch-up still requires draft source and non-terminal target',
+   str_contains($placements, "(string) \$prior['status'] === 'draft'")
+   && str_contains($placements, "!in_array(\$newStatus, ['draft', 'cancelled'], true)"));
+$a('bulk_status active status uses readiness guard',
+   str_contains($placements, "_placementsRequireActiveReady(\$pid, (string) \$prior['start_date'], 'bulk_status')"));
+$a('bulk_status draft-rate catch-up explicitly excludes active',
+   str_contains($placements, "\$newStatus !== 'active'"));
 $a('bulk_status emits per-row auto_approved audit with via=bulk_status',
    str_contains($placements, "'via'             => 'bulk_status'"));
-$a('bulk_status response includes per-row rates_auto_approved + total',
+$a('bulk_status response includes per-row rates_auto_approved + computed total',
    str_contains($placements, "'rates_auto_approved' => \$autoApproved")
-   && str_contains($placements, "'rates_auto_approved'  => \$totalAutoApproved"));
+   && str_contains($placements, "array_sum(array_map("));
+$a('activation readiness emits verified/blocked audit events',
+   str_contains($placements, "placement.activation_rate_verified")
+   && str_contains($placements, "placement.activation_blocked_missing_rate"));
 
 echo "\n7. PHP syntax\n";
 foreach ([
-    '/app/modules/placements/lib/placements.php',
-    '/app/modules/placements/lib/rate_approve.php',
-    '/app/modules/placements/api/rates.php',
-    '/app/modules/placements/api/placements.php',
-] as $f) {
+    'modules/placements/lib/placements.php',
+    'modules/placements/lib/rate_approve.php',
+    'modules/placements/api/rates.php',
+    'modules/placements/api/placements.php',
+] as $rel) {
     $out = []; $rc = 0;
-    exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);
-    $a("php -l {$f}", $rc === 0, implode("\n", $out));
+    exec('php -l ' . escapeshellarg("{$ROOT}/{$rel}") . ' 2>&1', $out, $rc);
+    $a("php -l {$rel}", $rc === 0, implode("\n", $out));
 }
 
 echo "\n=========================================\n";

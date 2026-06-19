@@ -104,6 +104,21 @@ if ($method === 'POST' && $action === 'respond') {
     $ua  = substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255);
 
     $entryIds = json_decode((string) $row['entries_json'], true)['entry_ids'] ?? [];
+    $beforeEntriesById = [];
+    if (!empty($entryIds)) {
+        $in = implode(',', array_map('intval', $entryIds));
+        // tenant-leak-allow: token row pins the tenant and entry id list.
+        $beforeStmt = $pdo->prepare(
+            "SELECT *
+               FROM time_entries
+              WHERE tenant_id = :t AND id IN ({$in})
+              ORDER BY id ASC"
+        );
+        $beforeStmt->execute(['t' => (int) $row['tenant_id']]);
+        foreach ($beforeStmt->fetchAll(\PDO::FETCH_ASSOC) as $beforeEntry) {
+            $beforeEntriesById[(int) $beforeEntry['id']] = $beforeEntry;
+        }
+    }
     $pdo->beginTransaction();
     try {
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
@@ -165,7 +180,7 @@ if ($method === 'POST' && $action === 'respond') {
             $in = implode(',', array_map('intval', $entryIds));
             // tenant-leak-allow: defense-in-depth — tenant_id pinned to $row's tenant which is the token-bound tenant
             $approvedStmt = $pdo->prepare(
-                "SELECT id, placement_id, person_id, period_id, work_date, category, hours, rate_snapshot_id
+                "SELECT *
                    FROM time_entries
                   WHERE tenant_id = :t AND id IN ({$in}) AND status = 'approved'"
             );
@@ -176,6 +191,10 @@ if ($method === 'POST' && $action === 'respond') {
                     $approved,
                     'tokenized_client_email',
                     [
+                        'tenant_id'              => (int) $row['tenant_id'],
+                        'actor_type'             => 'external_approver',
+                        'actor_email'            => $row['client_approver_email'],
+                        'before'                 => $beforeEntriesById[(int) $approved['id']] ?? null,
                         'token_id'              => (int) $row['id'],
                         'client_approver_email' => $row['client_approver_email'],
                         'ip_address'            => $ip,
@@ -187,24 +206,27 @@ if ($method === 'POST' && $action === 'respond') {
         }
     }
 
-    // Public audit: use raw PDO (no tenant scope available here beyond the row).
+    // Public audit: use the token-bound tenant because no authenticated tenant
+    // session exists on this endpoint.
     try {
-        $pdo->prepare('INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-                       VALUES (:tenant_id, NULL, :event, :target_id, :meta_json, :ip, NOW())')
-            ->execute([
-                'tenant_id' => $row['tenant_id'],
-                'event'     => 'time.entry.approved.via_token',
-                'target_id' => $row['id'],
-                'meta_json' => json_encode([
-                    'token_id'    => $row['id'],
-                    'placement_id'=> $row['placement_id'],
-                    'period_id'   => $row['period_id'],
-                    'entry_ids'   => $entryIds,
-                    'choice'      => $choice,
-                    'email'       => $row['client_approver_email'],
-                ]),
-                'ip'        => $ip,
-            ]);
+        $updatedToken = timeTokenAuditRowForTenant((int) $row['tenant_id'], (int) $row['id']);
+        platformAuditLogWrite((int) $row['tenant_id'], null, 'time.token.responded', (int) $row['id'], [
+            'token_id'    => (int) $row['id'],
+            'placement_id'=> (int) $row['placement_id'],
+            'period_id'   => (int) $row['period_id'],
+            'entry_ids'   => array_map('intval', $entryIds),
+            'choice'      => $choice,
+            'email'       => $row['client_approver_email'],
+            'source'      => 'time',
+        ], [
+            'object_type' => 'time_approval_token',
+            'actor_type' => 'external_approver',
+            'actor_email' => $row['client_approver_email'],
+            'ip_address' => $ip,
+            'user_agent' => $ua,
+            'before' => $row,
+            'after' => $updatedToken,
+        ]);
     } catch (\Throwable $e) { error_log('[time.token.respond] audit failed: ' . $e->getMessage()); }
 
     api_ok([
@@ -343,7 +365,9 @@ if ($method === 'POST' && $action === 'issue') {
         'token_id' => $tokenId, 'placement_id' => $placementId, 'period_id' => $periodId,
         'entry_count' => count($entryIds), 'total_hours' => round($totalHours, 2),
         'email_status' => $emailStatus, 'driver' => $sendRes['driver'] ?? null,
-    ], $tokenId);
+    ], $tokenId, [
+        'after' => timeTokenAuditRowForTenant((int) $ctx['tenant_id'], $tokenId),
+    ]);
 
     if ($emailStatus === 'failed') {
         api_ok([
@@ -367,11 +391,15 @@ if ($method === 'POST' && $action === 'revoke') {
     $row = scopedFind('SELECT id, response FROM time_approval_tokens WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
     if (!$row) api_error('Not found', 404);
     if ($row['response'] !== 'pending') api_error('Token already ' . $row['response'], 409);
+    $before = timeTokenAuditRowForTenant((int) $ctx['tenant_id'], $id) ?? $row;
 
     $pdo = getDB();
     $pdo->prepare('UPDATE time_approval_tokens SET response = "revoked", revoked_at = NOW(), revoked_by_user_id = :uid WHERE id = :id AND tenant_id = :tid AND response = "pending"')
         ->execute(['uid' => $user['id'] ?? null, 'id' => $id, 'tid' => $ctx['tenant_id']]);
-    timeAudit('time.tokenized_email.revoked', ['token_id' => $id], $id);
+    timeAudit('time.tokenized_email.revoked', ['token_id' => $id], $id, [
+        'before' => $before,
+        'after' => timeTokenAuditRowForTenant((int) $ctx['tenant_id'], $id),
+    ]);
     api_ok(['ok' => true]);
 }
 

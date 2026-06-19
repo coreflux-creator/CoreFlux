@@ -120,6 +120,7 @@ if ($method === 'GET' && $action === 'elimination_worksheet') {
 // ── POST action=narrate_elimination — AI narrative on the worksheet ──────
 if ($method === 'POST' && $action === 'narrate_elimination') {
     rbac_legacy_require($user, 'accounting.reports.view');
+    rbac_legacy_require($user, 'ai.use');
     require_once __DIR__ . '/../../../core/ai_service.php';
     $body = api_json_body();
     $from = $body['from'] ?? null;

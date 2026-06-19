@@ -5,6 +5,7 @@ import PersonCreate from './PersonCreate';
 import PersonDetail from './PersonDetail';
 import Pipeline from './Pipeline';
 import DocumentVault from './DocumentVault';
+import PeopleGraph from './PeopleGraph';
 import CustomFields from './CustomFields';
 import PIIAuditLog from './PIIAuditLog';
 import CsvImport from './CsvImport';
@@ -30,6 +31,7 @@ export default function PeopleModule({ session }) {
         <Route path="csv_import"    element={<CsvImport      session={session} />} />
         <Route path="pipeline"      element={<Pipeline       session={session} />} />
         <Route path="documents"     element={<DocumentVault  session={session} />} />
+        <Route path="graph"         element={<PeopleGraph    session={session} />} />
         <Route path="custom_fields" element={<CustomFields   session={session} />} />
         <Route path="clients/*"     element={<ClientsModule  session={session} />} />
         <Route path="vendors/*"     element={<VendorsModule  session={session} />} />

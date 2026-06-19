@@ -293,6 +293,11 @@ function ArtifactDetail({ detail, loading, selectedId }) {
         )}
       </DetailSection>
 
+      <DetailSection title={`People roles (${detail.people_graph?.assignments?.length || 0})`}
+                     testId="artifacts-detail-people-graph">
+        <PeopleGraphRoles peopleGraph={detail.people_graph} />
+      </DetailSection>
+
       <DetailSection title={`Event history (${detail.event_history.length})`}
                      testId="artifacts-detail-events">
         {detail.event_history.length === 0 ? (
@@ -328,6 +333,33 @@ function ArtifactDetail({ detail, loading, selectedId }) {
         <EdgeList edges={detail.incoming} direction="in" />
       </DetailSection>
     </div>
+  );
+}
+
+function PeopleGraphRoles({ peopleGraph }) {
+  const assignments = peopleGraph?.assignments || [];
+  if (assignments.length === 0) {
+    return (
+      <p style={{ fontSize: 12, color: 'var(--cf-text-secondary)' }}
+         data-testid="artifacts-people-graph-empty">
+        No artifact people roles assigned.
+      </p>
+    );
+  }
+  return (
+    <ul data-testid="artifacts-people-graph-list"
+        style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: 11 }}>
+      {assignments.map((a, idx) => (
+        <li key={a.id || `${a.responsibility_type}-${idx}`}
+            data-testid={`artifacts-people-role-${a.id || idx}`}
+            style={{ padding: '5px 0', borderBottom: '1px solid var(--cf-border-muted, #f1f5f9)' }}>
+          <code style={{ marginRight: 6 }}>{a.responsibility_type}</code>
+          <span>{a.actor_type} #{a.actor_id}</span>
+          {a.priority !== undefined && <> · priority {a.priority}</>}
+          {a.source && <> · <span style={{ color: 'var(--cf-text-secondary)' }}>{a.source}</span></>}
+        </li>
+      ))}
+    </ul>
   );
 }
 

@@ -64,6 +64,7 @@ if ($method !== 'POST') api_error('Method not allowed', 405);
 // POST ?action=disconnect — soft-revoke the linked funding source so the
 // tenant can re-link cleanly. Keeps the row for audit, flips status='revoked'.
 if ($action === 'disconnect') {
+    $before = plaidPaymentRailAuditRow($tenantId, 'plaid_transfer');
     try {
         $pdo = getDB();
         $pdo->prepare(
@@ -74,7 +75,13 @@ if ($action === 'disconnect') {
     } catch (\Throwable $e) {
         api_error('Disconnect failed: ' . $e->getMessage(), 500);
     }
-    plaidAudit('payment_rails.plaid.disconnected', ['tenant_id' => $tenantId], null);
+    $after = plaidPaymentRailAuditRow($tenantId, 'plaid_transfer');
+    plaidAudit('payment_rails.plaid.disconnected', ['tenant_id' => $tenantId], null, [
+        'tenant_id' => $tenantId,
+        'actor_user_id' => (int) ($user['id'] ?? 0),
+        'before' => $before,
+        'after' => $after,
+    ]);
     api_ok(['ok' => true, 'status' => 'revoked']);
 }
 
@@ -124,6 +131,7 @@ if ($action === 'exchange') {
     $ct = plaidEncryptAccessToken($accessToken);
 
     $pdo = getDB();
+    $before = plaidPaymentRailAuditRow($tenantId, 'plaid_transfer');
     $pdo->prepare(
         "INSERT INTO tenant_payment_rails
            (tenant_id, rail, access_token_ct, item_id, account_id, status, created_at)
@@ -143,7 +151,12 @@ if ($action === 'exchange') {
 
     plaidAudit('payment_rails.plaid.linked', [
         'item_id' => $itemId, 'account_id' => $accountId,
-    ], null);
+    ], null, [
+        'tenant_id' => $tenantId,
+        'actor_user_id' => (int) ($user['id'] ?? 0),
+        'before' => $before,
+        'after' => plaidPaymentRailAuditRow($tenantId, 'plaid_transfer'),
+    ]);
 
     api_ok(['ok' => true, 'item_id' => $itemId, 'account_id' => $accountId, 'status' => 'linked']);
 }

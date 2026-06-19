@@ -5,6 +5,8 @@ import { Section, ActionCardsGrid, ActionCard } from '../components/UIComponents
 import { PlugZap, Building2, Banknote, BookOpen, Database, TrendingUp, ChevronRight, ShieldCheck, AlertTriangle, AlertOctagon, Sparkles } from 'lucide-react';
 import MailHealthCard from './MailHealthCard';
 
+const ACCOUNTING_INTEGRATIONS_API = '/api/v1/accounting/integrations';
+
 /**
  * IntegrationsHub — tenant admin "single pane of glass" for every external
  * integration CoreFlux supports. Mounted at /admin/integrations.
@@ -22,7 +24,7 @@ export default function IntegrationsHub() {
   const qbo      = useApi('/api/qbo/status.php?action=status');
   const zoho     = useApi('/api/zoho_books/status.php?action=status');
   const airtable = useApi('/api/airtable/status.php?action=status');
-  const jaz      = useApi('/api/accounting.php?action=tenant_status&provider=jaz');
+  const jaz      = useApi(`${ACCOUNTING_INTEGRATIONS_API}?action=tenant_status&provider=jaz`);
   const health   = useApi('/api/admin/schema_health.php');
 
   const plaidStatus = plaid.loading

@@ -6,7 +6,7 @@ import { Sparkles, FlaskConical, AlertTriangle, CheckCircle2, RefreshCw } from '
  * Rule Sandbox — dry-run any accounting event against the posting-rule
  * engine and see the rendered JE WITHOUT inserting anything.
  *
- * Backed by `POST /api/accounting_events.php?action=sandbox`.
+ * Backed by `POST /api/v1/accounting/events/sandbox`.
  *
  * Goals (Sprint 7b):
  *   - Build trust in posting-rules before flipping AP/AR/Payroll/Time
@@ -41,6 +41,10 @@ const SAMPLE_BILL_APPROVED = {
   payload: { amount: 2500, vendor_id: 42, expense_account_code: '6010', currency: 'USD' },
 };
 
+const ACCOUNTING_EVENTS_API = '/api/v1/accounting/events';
+const POSTING_RULES_SEED_API = '/api/v1/accounting/posting-rules-seed';
+const POSTING_RULES_REPLAY_API = '/api/v1/accounting/posting-rules-replay';
+
 export default function RuleSandbox() {
   const [json, setJson] = useState(JSON.stringify(SAMPLE_BANK_FEE, null, 2));
   const [running, setRunning] = useState(false);
@@ -58,7 +62,7 @@ export default function RuleSandbox() {
     if (!parsed) return;
     setRunning(true); setResult(null);
     try {
-      const r = await api.post('/api/accounting_events.php?action=sandbox', parsed);
+      const r = await api.post(`${ACCOUNTING_EVENTS_API}/sandbox`, parsed);
       setResult(r);
     } catch (e) {
       setResult({ status: 'error', error: e?.message || String(e) });
@@ -76,7 +80,7 @@ export default function RuleSandbox() {
   const seedDefaults = async () => {
     setSeeding(true); setSeedResult(null);
     try {
-      const r = await api.post('/api/posting_rules_seed.php', {});
+      const r = await api.post(POSTING_RULES_SEED_API, {});
       setSeedResult(r);
     } catch (e) {
       setSeedResult({ error: e?.message || 'Seed failed' });
@@ -93,7 +97,7 @@ export default function RuleSandbox() {
     setReplaying(true); setReplayResult(null);
     try {
       const qs = `?days=${replayDays}${replayDryRun ? '&dry_run=1' : ''}`;
-      const r = await api.post('/api/posting_rules_replay.php' + qs, {});
+      const r = await api.post(POSTING_RULES_REPLAY_API + qs, {});
       setReplayResult(r);
     } catch (e) {
       setReplayResult({ error: e?.message || 'Replay failed' });

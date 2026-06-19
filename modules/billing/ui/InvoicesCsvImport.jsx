@@ -6,12 +6,12 @@ import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
  *
  * Mounted at /modules/billing/invoices/csv_import. Header + line items
  * live in the same CSV, grouped by `invoice_number`. Powered by
- * Core\CsvImportService via /api/billing/csv_import.php.
+ * Core\CsvImportService via /api/v1/billing/csv-import.
  */
 export default function InvoicesCsvImport() {
   return (
     <CsvImportPage
-      endpoint="/modules/billing/api/csv_import.php"
+      endpoint="/api/v1/billing/csv-import"
       entityLabel="AR Invoices"
       backTo="../invoices"
       backLabel="← Invoices"

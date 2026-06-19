@@ -5,7 +5,7 @@ import PayCyclesPanel from './PayCyclesPanel';
 const FREQS = ['weekly', 'biweekly', 'semimonthly', 'monthly'];
 
 export default function PaySchedules() {
-  const { data, loading, error, reload } = useApi('/modules/payroll/api/pay_schedules.php');
+  const { data, loading, error, reload } = useApi('/api/v1/payroll/pay-schedules');
   const schedules = data?.schedules ?? [];
 
   const [showForm, setShowForm] = useState(false);
@@ -22,7 +22,7 @@ export default function PaySchedules() {
     e.preventDefault();
     setSubmitting(true); setFormErr(null);
     try {
-      await api.post('/modules/payroll/api/pay_schedules.php', form);
+      await api.post('/api/v1/payroll/pay-schedules', form);
       setShowForm(false);
       setForm({ ...form, name: '' });
       reload();
@@ -35,9 +35,9 @@ export default function PaySchedules() {
 
   const toggleActive = async (s) => {
     if (s.active) {
-      await api.delete(`/modules/payroll/api/pay_schedules.php?id=${s.id}`);
+      await api.delete(`/api/v1/payroll/pay-schedules?id=${s.id}`);
     } else {
-      await api.put(`/modules/payroll/api/pay_schedules.php?id=${s.id}`, { active: 1 });
+      await api.put(`/api/v1/payroll/pay-schedules?id=${s.id}`, { active: 1 });
     }
     reload();
   };

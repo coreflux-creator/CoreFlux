@@ -52,12 +52,18 @@ return [
         'billing.invoice.created',
         'billing.invoice.updated',
         'billing.invoice.approved',
+        'billing.invoice.workflow_started',
+        'billing.invoice.workflow_start_failed',
+        'billing.invoice.workflow_approved',
+        'billing.invoice.approval_blocked',
+        'billing.invoice.approval_rejected',
         'billing.invoice.sent',
         'billing.invoice.voided',
         'billing.invoice.posted',
         'billing.invoice.posted_ic',
         'billing.invoice.disputed',
         'billing.invoice.paid_in_full',
+        'billing.invoice.exported',
         'billing.recurring.created',
         'billing.recurring.run',
         'billing.recurring.paused',
@@ -69,6 +75,7 @@ return [
         'billing.payment.recorded',
         'billing.payment.allocated',
         'billing.payment.unallocated',
+        'billing.payment.exported',
         'billing.dunning.step_sent',
         'billing.dunning.escalated',
         'billing.tax.jurisdiction.created',
@@ -77,7 +84,60 @@ return [
         'billing.aging.snapshot.built',
     ],
 
+    'people_graph' => [
+        'consumes' => true,
+        'mode' => 'source_module_consumer',
+        'object_types' => [
+            'invoice' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'recipient', 'notifier', 'escalation_contact'],
+                'approval_resource' => 'billing.invoice',
+            ],
+            'payment' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'operator'],
+            ],
+            'credit_memo' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver'],
+                'approval_resource' => 'billing.credit_memo',
+            ],
+            'dunning_case' => [
+                'responsibilities' => ['owner', 'notifier', 'escalation_contact'],
+            ],
+        ],
+    ],
+
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
+
+    'export_datasets' => [
+        'billing_invoices' => [
+            'dataset'     => 'billing_invoices',
+            'label'       => 'Billing Invoices',
+            'permission'  => 'billing.view',
+            'formats'     => ['csv'],
+            'audit_event' => 'billing.invoice.exported',
+        ],
+        'billing_payments' => [
+            'dataset'     => 'billing_payments',
+            'label'       => 'Billing Payments',
+            'permission'  => 'billing.view',
+            'formats'     => ['csv'],
+            'audit_event' => 'billing.payment.exported',
+        ],
+    ],
+
+    'report_datasets' => [
+        'billing_invoices' => [
+            'dataset'    => 'billing_invoices',
+            'label'      => 'Billing Invoices',
+            'permission' => 'billing.view',
+            'source'     => 'export_dataset',
+        ],
+        'billing_payments' => [
+            'dataset'    => 'billing_payments',
+            'label'      => 'Billing Payments',
+            'permission' => 'billing.view',
+            'source'     => 'export_dataset',
+        ],
+    ],
 
     'depends_on' => ['placements', 'time'],
 ];

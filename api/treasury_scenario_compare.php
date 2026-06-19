@@ -89,6 +89,15 @@ $b = $prepScenario(is_array($body['scenario_b'] ?? null) ? $body['scenario_b'] :
 
 $datasets = liquidityBaselineDatasets($tid, $today, $endDate);
 $buckets  = liquidityBucketDatasets($datasets);
+$baselineSourceDetail = liquidityProjectionSourceDetail($datasets);
+$sourceDetailA = liquidityProjectionSourceDetail($datasets, [
+    'extra_inflows_by_date' => $a['inflows_by_date'],
+    'extra_outflows_by_date' => $a['outflows_by_date'],
+]);
+$sourceDetailB = liquidityProjectionSourceDetail($datasets, [
+    'extra_inflows_by_date' => $b['inflows_by_date'],
+    'extra_outflows_by_date' => $b['outflows_by_date'],
+]);
 
 $baseline = liquidityWalkProjection(
     $datasets['starting_cash'], $days, $today,
@@ -104,6 +113,18 @@ $projB = liquidityWalkProjection(
     $buckets['inflows_by_date'], $buckets['outflows_by_date'],
     $b['inflows_by_date'], $b['outflows_by_date']
 );
+$baselineProjection = liquidityProjectionEvidence($tid, $today, $endDate, $days, $datasets);
+$projectionA = liquidityProjectionEvidence($tid, $today, $endDate, $days, $datasets, [
+    'extra_inflows_by_date' => $a['inflows_by_date'],
+    'extra_outflows_by_date' => $a['outflows_by_date'],
+]);
+$projectionB = liquidityProjectionEvidence($tid, $today, $endDate, $days, $datasets, [
+    'extra_inflows_by_date' => $b['inflows_by_date'],
+    'extra_outflows_by_date' => $b['outflows_by_date'],
+]);
+$baselineDaily = liquidityAttachDailySourceDetail($baseline['daily'], $baselineSourceDetail);
+$dailyA = liquidityAttachDailySourceDetail($projA['daily'], $sourceDetailA);
+$dailyB = liquidityAttachDailySourceDetail($projB['daily'], $sourceDetailB);
 
 /**
  * Build a delta envelope between two projections — the same shape every
@@ -131,40 +152,47 @@ $buildDelta = static function (array $left, array $right, int $days): array {
     ];
 };
 
-$endA = $projA['daily']     ? end($projA['daily'])['closing']     : round($datasets['starting_cash'], 2);
-$endB = $projB['daily']     ? end($projB['daily'])['closing']     : round($datasets['starting_cash'], 2);
-$endBase = $baseline['daily']? end($baseline['daily'])['closing'] : round($datasets['starting_cash'], 2);
+$endA = $dailyA        ? end($dailyA)['closing']        : round($datasets['starting_cash'], 2);
+$endB = $dailyB        ? end($dailyB)['closing']        : round($datasets['starting_cash'], 2);
+$endBase = $baselineDaily ? end($baselineDaily)['closing'] : round($datasets['starting_cash'], 2);
 
 api_ok([
     'window_days' => $days,
+    'projection'  => $baselineProjection,
     'baseline'    => [
+        'projection'           => $baselineProjection,
+        'source_detail'        => $baselineSourceDetail,
         'starting_cash'       => round($datasets['starting_cash'], 2),
         'ending_cash'         => $endBase,
         'lowest_balance'      => $baseline['lowest_balance'],
         'lowest_balance_date' => $baseline['lowest_balance_date'],
         'runway_days_to_zero' => $baseline['runway_days_to_zero'],
-        'daily'               => $baseline['daily'],
+        'daily'               => $baselineDaily,
     ],
     'scenario_a'  => [
+        'projection'           => $projectionA,
+        'source_detail'        => $sourceDetailA,
         'label'               => $a['label'],
         'events'              => $a['events'],
         'ending_cash'         => $endA,
         'lowest_balance'      => $projA['lowest_balance'],
         'lowest_balance_date' => $projA['lowest_balance_date'],
         'runway_days_to_zero' => $projA['runway_days_to_zero'],
-        'daily'               => $projA['daily'],
+        'daily'               => $dailyA,
         'inflow_total'        => round($a['inflow_total'], 2),
         'outflow_total'       => round($a['outflow_total'], 2),
         'net_event_impact'    => round($a['inflow_total'] - $a['outflow_total'], 2),
     ],
     'scenario_b'  => [
+        'projection'           => $projectionB,
+        'source_detail'        => $sourceDetailB,
         'label'               => $b['label'],
         'events'              => $b['events'],
         'ending_cash'         => $endB,
         'lowest_balance'      => $projB['lowest_balance'],
         'lowest_balance_date' => $projB['lowest_balance_date'],
         'runway_days_to_zero' => $projB['runway_days_to_zero'],
-        'daily'               => $projB['daily'],
+        'daily'               => $dailyB,
         'inflow_total'        => round($b['inflow_total'], 2),
         'outflow_total'       => round($b['outflow_total'], 2),
         'net_event_impact'    => round($b['inflow_total'] - $b['outflow_total'], 2),

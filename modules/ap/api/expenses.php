@@ -7,17 +7,21 @@
  *   POST  /api/ap/expenses                → create draft with lines
  *   PATCH /api/ap/expenses?id=N           → edit draft
  *   POST  /api/ap/expenses?action=submit&id=N
- *   POST  /api/ap/expenses?action=approve&id=N   → converts to bill (source=expense_report)
+ *   POST  /api/ap/expenses?action=approve&id=N   → approves report + routes AP bill
  *   POST  /api/ap/expenses?action=reject&id=N    → body: {reason}
  *
  * SPEC: /app/modules/ap/SPEC.md §5.4, §3.6.
  */
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
+require_once __DIR__ . '/../../../core/CsvExportService.php';
+require_once __DIR__ . '/../../../core/export_service.php';
 require_once __DIR__ . '/../../../core/StorageService.php';
 require_once __DIR__ . '/../../../core/storage_register.php';
 require_once __DIR__ . '/../lib/ap.php';
+require_once __DIR__ . '/../lib/approval_router.php';
 
+use Core\CsvExportService;
 use Core\StorageService;
 
 $ctx    = api_require_auth();
@@ -38,66 +42,47 @@ if ($method === 'GET' && $action === 'export_selected') {
     // raw-dump format below if no template_id is supplied.
     $tplId = (int) ($_GET['template_id'] ?? 0);
     if ($tplId > 0) {
-        require_once __DIR__ . '/../../../core/export_templates.php';
-        require_once __DIR__ . '/../../../core/export_datasets.php';
         try {
-            $tpl = exportTemplateGet($tplId, $tid);
-        } catch (\Throwable $e) { api_error($e->getMessage(), 404); }
-        if ($tpl['dataset'] !== 'expenses') {
-            api_error("template's dataset must be expenses", 422);
-        }
-        $rows = exportDatasetFetchExpenses($tid, ['ids' => $ids]);
-        $stamp = date('Y-m-d');
-        $name  = preg_replace('/[^A-Za-z0-9_-]/', '-', strtolower($tpl['name']));
-        header('Content-Type: text/csv; charset=utf-8');
-        header("Content-Disposition: attachment; filename=expenses-{$name}-{$stamp}.csv");
-        $out = fopen('php://output', 'w');
-        exportTemplateRenderToStream($tplId, $rows, $out, $tid);
-        fclose($out);
-        if (function_exists('apAudit')) {
-            apAudit('ap.expense.export_selected_template', [
-                'ids' => $ids, 'template_id' => $tplId, 'rows' => count($rows),
-            ]);
-        }
+            exportTemplateStreamDatasetCsv(
+                $tid,
+                'expenses',
+                $tplId,
+                ['ids' => $ids],
+                'expenses',
+                $uid ?: null,
+                null,
+                ['ids' => $ids, 'filename_parts' => [date('Y-m-d')]]
+            );
+        } catch (ExportServiceException $e) { api_error($e->getMessage(), 422); }
         exit;
     }
 
-    $pdo = getDB();
-    $place = implode(',', array_fill(0, count($ids), '?'));
-    $params = $ids;
-    array_unshift($params, $tid);
-    $stmt = $pdo->prepare(
-        "SELECT er.id, er.period_label, er.submitter_user_id, er.total, er.currency,
-                er.status, er.bill_id, er.created_at,
-                erl.id AS line_id, erl.expense_date, erl.merchant, erl.category,
-                erl.amount, erl.description, erl.gl_expense_account_code
-           FROM ap_expense_reports er
-      LEFT JOIN ap_expense_report_lines erl ON erl.expense_report_id = er.id
-          WHERE er.tenant_id = ? AND er.id IN ($place)
-       ORDER BY er.id, erl.id"
-    );
-    $stmt->execute($params);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $rows = exportDatasetFetchExpenses($tid, ['ids' => $ids]);
+    exportDatasetAudit($tid, $uid ?: null, 'ap.expense.export_selected', null, exportDatasetAuditMeta([
+        'dataset' => 'expenses',
+        'format' => 'csv',
+        'mode' => 'raw',
+        'ids' => $ids,
+        'rows' => count($rows),
+    ], ['ids' => $ids]));
 
     $stamp = date('Y-m-d');
-    header('Content-Type: text/csv; charset=utf-8');
-    header("Content-Disposition: attachment; filename=expenses-{$stamp}.csv");
-    $out = fopen('php://output', 'w');
-    fputcsv($out, ['report_id','period_label','submitter_user_id','status','currency','bill_id','created_at',
-                   'line_id','expense_date','merchant','category','amount','gl_account_code','description']);
-    foreach ($rows as $r) {
-        fputcsv($out, [
-            $r['id'], $r['period_label'], $r['submitter_user_id'], $r['status'], $r['currency'],
-            $r['bill_id'], $r['created_at'],
-            $r['line_id'], $r['expense_date'], $r['merchant'], $r['category'],
-            $r['amount'], $r['gl_expense_account_code'], $r['description'],
-        ]);
-    }
-    fclose($out);
-    if (function_exists('apAudit')) {
-        apAudit('ap.expense.export_selected', ['ids' => $ids, 'count' => count($ids)]);
-    }
-    exit;
+    (new CsvExportService([
+        'report_id'               => 'report_id',
+        'period_label'            => 'period_label',
+        'submitter_user_id'       => 'submitter_user_id',
+        'status'                  => 'status',
+        'currency'                => 'currency',
+        'bill_id'                 => 'bill_id',
+        'created_at'              => 'created_at',
+        'line_id'                 => 'line_id',
+        'expense_date'            => 'expense_date',
+        'merchant'                => 'merchant',
+        'category'                => 'category',
+        'amount'                  => 'amount',
+        'gl_expense_account_code' => 'gl_account_code',
+        'description'             => 'description',
+    ]))->stream($rows, "expenses-{$stamp}.csv");
 }
 
 if ($method === 'GET' && $action === 'upload_url') {
@@ -147,6 +132,7 @@ if ($method === 'POST' && $action === 'extract_receipt') {
     // AI-assist for an expense-line receipt — same shape as ap.bill.line.from_receipt
     // but maps onto the expense-line schema (date / category / merchant / amount).
     rbac_legacy_require($user, 'ap.expense.submit');
+    rbac_legacy_require($user, 'ai.use');
     require_once __DIR__ . '/../../../core/ai_service.php';
     $body = api_json_body();
     api_require_fields($body, ['storage_key']);
@@ -291,10 +277,14 @@ if ($method === 'POST' && $action === 'approve') {
     if ($row['status'] !== 'submitted') api_error('Only submitted reports can be approved', 409);
     if ((int) $row['submitter_user_id'] === $uid) api_error('Two-eye: cannot approve your own report', 403);
 
-    $pdo = getDB();
-    $pdo->beginTransaction();
+    $submitterUserId = (int) ($row['submitter_user_id'] ?? 0);
+    $internalRef = apNextInternalRef($tid);
+    $routing = null;
+    $routingStatus = 'not_routed';
+    $pdo = cf_begin_transaction();
     try {
-        // Create the corresponding bill (source=expense_report, vendor=submitter)
+        // Create the corresponding AP bill as pending: AP bill approval remains
+        // owned by the common AP workflow, not by the expense-report approver.
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare('UPDATE ap_expense_reports SET status = "approved", approved_at = NOW(), approved_by_user_id = :u WHERE id = :id')
             ->execute(['u' => $uid, 'id' => $id]);
@@ -311,7 +301,6 @@ if ($method === 'POST' && $action === 'approve') {
             $submitterName = (string) ($uStmt->fetchColumn() ?: $submitterName);
         }
 
-        $internalRef = apNextInternalRef($tid);
         $billId = scopedInsert('ap_bills', [
             'tenant_id'         => $tid,
             'bill_number'       => "EXP-{$id}",
@@ -326,12 +315,10 @@ if ($method === 'POST' && $action === 'approve') {
             'tax_total'         => 0,
             'total'             => (float) $row['total'],
             'amount_due'        => (float) $row['total'],
-            'status'            => 'approved',
+            'status'            => 'pending_approval',
             'source'            => 'expense_report',
             'source_ref_id'     => $id,
-            'created_by_user_id'=> $uid,
-            'approved_by_user_id' => $uid,
-            'approved_at'       => date('Y-m-d H:i:s'),
+            'created_by_user_id'=> $submitterUserId ?: null,
             'notes_internal'    => "From expense report #{$id}",
         ]);
 
@@ -357,13 +344,61 @@ if ($method === 'POST' && $action === 'approve') {
         $pdo->prepare('UPDATE ap_expense_reports SET bill_id = :b WHERE id = :id')
             ->execute(['b' => $billId, 'id' => $id]);
 
+        apAudit('ap.bill.created', [
+            'bill_id'           => $billId,
+            'internal_ref'      => $internalRef,
+            'source'            => 'expense_report',
+            'expense_report_id' => $id,
+            'created_by_user_id'=> $submitterUserId ?: null,
+        ], $billId);
+
+        $billForRouting = [
+            'id'                   => $billId,
+            'tenant_id'            => $tid,
+            'total'                => (float) $row['total'],
+            'total_amount'         => (float) $row['total'],
+            'currency'             => (string) $row['currency'],
+            'vendor_type'          => 'other',
+            'source'               => 'expense_report',
+            'source_ref_id'        => $id,
+            'created_by_user_id'   => $submitterUserId ?: null,
+            'submitted_by_user_id' => $submitterUserId ?: null,
+        ];
+        $routing = apRouteBillForApproval($tid, $billForRouting, $submitterUserId ?: null);
+        $hasRoute = !empty($routing['workflow_instance_id']) || !empty($routing['approval_ids']);
+        if ($hasRoute) {
+            $routingStatus = 'routed';
+            apAudit('ap.expense.bill_routed_for_approval', [
+                'expense_report_id'    => $id,
+                'bill_id'              => $billId,
+                'policy_id'            => $routing['policy_id'] ?? null,
+                'approval_ids'         => $routing['approval_ids'] ?? [],
+                'workflow_instance_id' => $routing['workflow_instance_id'] ?? null,
+                'risk_level'           => $routing['risk']['level'] ?? null,
+            ], $id);
+        } else {
+            $routingStatus = 'unmatched_policy';
+            apAudit('ap.expense.bill_routing_failed', [
+                'expense_report_id' => $id,
+                'bill_id'           => $billId,
+                'reason'            => 'no_matching_approval_policy',
+                'matched'           => $routing['matched'] ?? false,
+                'risk_level'        => $routing['risk']['level'] ?? null,
+            ], $id);
+        }
+
         $pdo->commit();
     } catch (\Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
-    apAudit('ap.expense.approved', ['expense_report_id' => $id, 'bill_id' => $billId], $id);
-    api_ok(['ok' => true, 'bill_id' => $billId]);
+    apAudit('ap.expense.approved', [
+        'expense_report_id' => $id,
+        'bill_id'           => $billId,
+        'bill_status'       => 'pending_approval',
+        'routing_status'    => $routingStatus,
+    ], $id);
+    api_ok(['ok' => true, 'bill_id' => $billId, 'bill_status' => 'pending_approval', 'routing' => $routing]);
 }
 
 if ($method === 'POST' && $action === 'reject') {

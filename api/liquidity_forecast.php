@@ -53,12 +53,14 @@ $endDate  = date('Y-m-d', strtotime("+{$days} days"));
 
 $datasets = liquidityBaselineDatasets($tid, $today, $endDate, $entityId);
 $buckets  = liquidityBucketDatasets($datasets);
+$sourceDetail = liquidityProjectionSourceDetail($datasets);
 $result   = liquidityWalkProjection(
     $datasets['starting_cash'], $days, $today,
     $buckets['inflows_by_date'], $buckets['outflows_by_date']
 );
+$projection = liquidityProjectionEvidence($tid, $today, $endDate, $days, $datasets);
 
-$daily         = $result['daily'];
+$daily         = liquidityAttachDailySourceDetail($result['daily'], $sourceDetail);
 $totalInflows  = array_sum(array_column($daily, 'inflows'));
 $totalOutflows = array_sum(array_column($daily, 'outflows'));
 $tpAmount      = array_sum(array_column($datasets['tp'], 'amount'));
@@ -66,6 +68,8 @@ $apAmount      = array_sum(array_column($datasets['ap'], 'amount_due'));
 
 api_ok([
     'window_days'    => $days,
+    'projection'     => $projection,
+    'source_detail'  => $sourceDetail,
     'starting_cash'  => round($datasets['starting_cash'], 2),
     'daily'          => $daily,
     'totals'         => [

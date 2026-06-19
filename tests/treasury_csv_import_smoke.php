@@ -161,7 +161,7 @@ $a('Credit-only row stored as positive', (float) $st->fetchColumn() === 1000.0);
 unlink($tmp); unlink($tmp2);
 
 // 6) Endpoint structural checks.
-echo "\n6. /api/treasury/import_csv.php endpoint\n";
+echo "\n6. /api/v1/treasury/import-csv endpoint\n";
 $ep = dirname(__DIR__) . '/modules/treasury/api/import_csv.php';
 $a('endpoint exists', file_exists($ep));
 $src = (string) file_get_contents($ep);
@@ -174,6 +174,10 @@ $a('endpoint enforces 25MB upload cap',
     str_contains($src, '25 * 1024 * 1024'));
 $a('endpoint invokes treasuryImportBankCsv',
     str_contains($src, 'treasuryImportBankCsv($pdo, $tid, $bankAccountId, $tmp)'));
+
+$ui = (string) file_get_contents(dirname(__DIR__) . '/modules/treasury/ui/AccountTransactions.jsx');
+$a('AccountTransactions uploads CSV through v1 treasury route',
+    str_contains($ui, 'endpoint="/api/v1/treasury/import-csv"'));
 
 echo "\n===========================\n";
 echo "Treasury CSV importer smoke: $pass ✓ / $fail ✗\n";

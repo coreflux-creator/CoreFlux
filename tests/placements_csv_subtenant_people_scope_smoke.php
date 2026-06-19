@@ -30,7 +30,10 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$svc = (string) file_get_contents('/app/modules/placements/api/csv_import.php');
+$root = dirname(__DIR__);
+$csvImportPath = $root . '/modules/placements/api/csv_import.php';
+$subTenantsPath = $root . '/core/sub_tenants.php';
+$svc = (string) file_get_contents($csvImportPath);
 
 echo "\n1. sub_tenants.php is loaded so effectiveTenantIdForModule() is callable\n";
 $a('require_once core/sub_tenants.php present',
@@ -56,7 +59,7 @@ $a('commit no longer routes person lookups through plain scopedFind (placements 
     !preg_match("/\\\$person\\s*=\\s*scopedFind\\(\\s*'SELECT id FROM people /", $svc));
 
 echo "\n4. effectiveTenantIdForModule() default policy still maps people→shared\n";
-require_once '/app/core/sub_tenants.php';
+require_once $subTenantsPath;
 $a('SUBTENANT_MODULE_SCOPE_DEFAULTS[\'people\'] === \'shared\'',
     (defined('SUBTENANT_MODULE_SCOPE_DEFAULTS')
      ? (SUBTENANT_MODULE_SCOPE_DEFAULTS['people'] ?? null)
@@ -64,8 +67,8 @@ $a('SUBTENANT_MODULE_SCOPE_DEFAULTS[\'people\'] === \'shared\'',
 
 echo "\n5. PHP syntax\n";
 $out = []; $rc = 0;
-exec('php -l /app/modules/placements/api/csv_import.php 2>&1', $out, $rc);
-$a('php -l /app/modules/placements/api/csv_import.php', $rc === 0, implode("\n", $out));
+exec('php -l ' . escapeshellarg($csvImportPath) . ' 2>&1', $out, $rc);
+$a('php -l modules/placements/api/csv_import.php', $rc === 0, implode("\n", $out));
 
 echo "\n=========================================\n";
 echo "Placements CSV sub-tenant people-scope smoke: {$pass} ✓ / {$fail} ✗\n";

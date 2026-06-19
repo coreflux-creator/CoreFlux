@@ -168,14 +168,15 @@ $a('PERIOD CLOSE NOT REFERENCED in auto-create',
 echo "\nlib/settlement_ai.php — AI assist + fallback\n";
 $ai = (string) file_get_contents(__DIR__ . '/../modules/time/lib/settlement_ai.php');
 $a('timeSettlementAiSuggest()',                    $c($ai, 'function timeSettlementAiSuggest'));
-$a('uses gpt-4o-mini',                             $c($ai, "'model'           => 'gpt-4o-mini'"));
-$a('low temperature (0.2) for deterministic output', $c($ai, "'temperature'     => 0.2"));
-$a('forces JSON response_format',                  $c($ai, "'response_format' => ['type' => 'json_object']"));
+$a('uses shared aiExtractJson chokepoint',          $c($ai, 'aiExtractJson(['));
+$a('uses gpt-4o-mini',                             $c($ai, "'model'             => 'gpt-4o-mini'"));
+$a('low temperature (0.2) for deterministic output', $c($ai, "'temperature'       => 0.2"));
+$a('requires suggestions JSON key',                $c($ai, "'required_keys'     => ['suggestions']"));
 $a('compresses blocks before send',                $c($ai, '$compact'));
 $a('caps payload at 200 blocks',                   $c($ai, 'count($blocks) > 200'));
 $a('rules-based fallback when AI unavailable',     $c($ai, '_settlementFallbackGroup'));
 $a('fallback flags weekend + long_day',            $c($ai, "'weekend'") && $c($ai, "'long_day'"));
-$a('writes ai_audit row',                          $c($ai, 'aiAuditWrite('));
+$a('inherits audit write from aiExtractJson',       !$c($ai, 'aiCallOpenAI(') && $c($ai, 'time.settlement.ai_suggest'));
 $a('gracefully handles unparseable AI output',     $c($ai, 'unparseable'));
 
 echo "\napi — auto_extract + ai_suggest actions\n";

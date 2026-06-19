@@ -8,7 +8,7 @@
  * on every account row via GlDetailDrilldown.
  *
  * Drops the old route-based drill in favour of the in-page slide-over.
- * Existing endpoint contract (/modules/accounting/api/reports.php?
+ * Existing endpoint contract (/api/v1/accounting/reports?
  * type=income_statement&from=&to=) is unchanged — comparison windows
  * are fetched in parallel and merged client-side.
  */
@@ -21,6 +21,8 @@ import ComparisonTable from '../../../dashboard/src/components/ComparisonTable';
 import GlDetailDrilldown from '../../../dashboard/src/components/GlDetailDrilldown';
 import { fmtMoney } from '../../../dashboard/src/lib/format';
 import { useReportPeriod } from '../../../dashboard/src/lib/useReportPeriod';
+
+const ACCOUNTING_REPORTS_API = '/api/v1/accounting/reports';
 
 export default function IncomeStatement() {
   const period = useReportPeriod();
@@ -234,7 +236,7 @@ function SectionBlock({ title, testIdPrefix, columns, rows, total, totalLabel, i
 }
 
 function url(from, to) {
-  return `/modules/accounting/api/reports.php?type=income_statement&from=${from}&to=${to}`;
+  return `${ACCOUNTING_REPORTS_API}?type=income_statement&from=${from}&to=${to}`;
 }
 
 const sectionHeadingStyle = {

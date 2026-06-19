@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 
+const PERIODS_API = '/api/v1/accounting/periods';
+
 /**
  * Periods — list with status badges + close / reopen actions.
  *
@@ -11,7 +13,7 @@ import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
  */
 export default function Periods() {
   const { activeEntityId, activeEntity, entityQuery } = useActiveEntity();
-  const apiUrl = '/modules/accounting/api/periods.php' + entityQuery('?');
+  const apiUrl = PERIODS_API + entityQuery('?');
   const { data, loading, error, reload } = useApi(apiUrl);
   const rows = data?.rows ?? [];
   const [busy, setBusy] = useState(null);
@@ -30,7 +32,7 @@ export default function Periods() {
     }
     setBusy(id + ':' + action); setErr2(null);
     try {
-      await api.post(`/modules/accounting/api/periods.php?action=${action}&id=${id}`, body);
+      await api.post(`${PERIODS_API}?action=${action}&id=${id}`, body);
       reload();
     } catch (e) { setErr2(e); }
     finally     { setBusy(null); }
@@ -45,7 +47,7 @@ export default function Periods() {
     }
     setBusy('create'); setErr2(null);
     try {
-      await api.post('/modules/accounting/api/periods.php?action=create', {
+      await api.post(`${PERIODS_API}?action=create`, {
         entity_id: activeEntityId,
         start_date: createForm.start_date,
         end_date:   createForm.end_date,

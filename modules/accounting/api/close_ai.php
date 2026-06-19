@@ -21,6 +21,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/ai_service.php';
 
 $ctx      = api_require_auth();
+$user     = $ctx['user'];
 $tenantId = (int) $ctx['tenant_id'];
 $method   = api_method();
 $action   = (string) (api_query('action') ?? '');
@@ -28,6 +29,8 @@ $action   = (string) (api_query('action') ?? '');
 if ($method !== 'POST' || $action !== 'readiness') {
     api_error('Unknown method/action', 405);
 }
+rbac_legacy_require($user, 'accounting.period.view');
+rbac_legacy_require($user, 'ai.use');
 
 $periodId = (int) (api_query('period_id') ?? 0);
 if (!$periodId) api_error('period_id required', 422);

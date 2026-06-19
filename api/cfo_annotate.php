@@ -21,6 +21,7 @@ require_once __DIR__ . '/../core/event_registry.php';
 $ctx    = api_require_cfo();
 $method = api_method();
 if ($method !== 'POST') api_error('Method not allowed', 405);
+rbac_legacy_require($ctx['user'], 'ai.use');
 
 $body       = api_json_body();
 $widgetKey  = trim((string) ($body['widget_key'] ?? ''));

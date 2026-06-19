@@ -59,7 +59,7 @@ $a('audits elimination_narrative_generated',   $contains($api, "'accounting.inte
 echo "\ncomponents/IntercompanySplitDialog.jsx — postUrl override\n";
 $dlg = (string) file_get_contents(__DIR__ . '/../dashboard/src/components/IntercompanySplitDialog.jsx');
 $a('accepts postUrl prop (defaults to IC engine)',
-    $contains($dlg, "postUrl = '/modules/accounting/api/intercompany.php?action=post_split'"));
+    $contains($dlg, 'postUrl = `${INTERCOMPANY_API}?action=post_split`'));
 $a('submits to props.postUrl not hardcoded',   $contains($dlg, 'api.post(postUrl'));
 
 echo "\nAP BillDetail.jsx — IC split button\n";
