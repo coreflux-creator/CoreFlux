@@ -23,7 +23,7 @@ return [
         ['name' => 'Entities & Groups',    'route' => 'entities',          'permission' => 'accounting.entities.view'],
         ['name' => 'Chart of Accounts',    'route' => 'coa',               'permission' => 'accounting.coa.view'],
         ['name' => 'Dimensions',           'route' => 'dimensions',        'permission' => 'accounting.dimensions.view'],
-        ['name' => 'Journal Entries',      'route' => 'journal',           'permission' => 'accounting.je.create'],
+        ['name' => 'Journal Entries',      'route' => 'journal',           'permission' => 'accounting.je.view'],
         ['name' => 'Approval Queue',       'route' => 'approval-queue',    'permission' => 'accounting.je.approve'],
         ['name' => 'Periods',              'route' => 'periods',           'permission' => 'accounting.period.view'],
         ['name' => 'Period Close',         'route' => 'close',             'permission' => 'accounting.close_workflow.manage'],
@@ -52,6 +52,7 @@ return [
         'accounting.dimensions.view'            => 'View dimensions',
         'accounting.dimensions.manage'          => 'Manage dimension types + values',
         'accounting.dimensions.security.manage' => 'Manage dimension-level security',
+        'accounting.je.view'                    => 'View journal entries',
         'accounting.je.create'                  => 'Create draft journal entry',
         'accounting.je.edit_draft'              => 'Edit draft journal entry',
         'accounting.je.submit'                  => 'Submit JE for approval',
@@ -99,6 +100,11 @@ return [
         'accounting.dimension.security_changed',
         'accounting.je.drafted',
         'accounting.je.submitted',
+        'accounting.je.workflow_started',
+        'accounting.je.workflow_start_failed',
+        'accounting.je.workflow_approved',
+        'accounting.je.workflow_rejected',
+        'accounting.je.approval_blocked',
         'accounting.je.approved',
         'accounting.je.rejected',
         'accounting.je.posted',
@@ -173,7 +179,104 @@ return [
         'accounting.webhook.retried',
     ],
 
+    'people_graph' => [
+        'consumes' => true,
+        'mode' => 'source_module_consumer',
+        'object_types' => [
+            'journal_entry' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'operator', 'ai_supervisor', 'escalation_contact'],
+                'approval_resource' => 'accounting.journal_entry',
+            ],
+            'period_close' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'operator', 'escalation_contact'],
+                'approval_resource' => 'accounting.period_close',
+            ],
+            'reconciliation' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'ai_supervisor', 'escalation_contact'],
+                'approval_resource' => 'accounting.reconciliation',
+            ],
+            'consolidation_run' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'operator'],
+                'approval_resource' => 'accounting.consolidation_run',
+            ],
+            'integration_write' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver', 'operator', 'escalation_contact'],
+            ],
+        ],
+    ],
+
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
+
+    'export_datasets' => [
+        'accounting_chart_of_accounts' => [
+            'dataset'     => 'accounting_chart_of_accounts',
+            'label'       => 'Accounting Chart of Accounts',
+            'permission'  => 'accounting.reports.export',
+            'formats'     => ['csv'],
+            'audit_event' => 'accounting.ledger.exported',
+        ],
+        'accounting_journal_entries' => [
+            'dataset'     => 'accounting_journal_entries',
+            'label'       => 'Accounting Journal Entries',
+            'permission'  => 'accounting.reports.export',
+            'formats'     => ['csv'],
+            'audit_event' => 'accounting.ledger.exported',
+        ],
+        'accounting_gl_detail' => [
+            'dataset'     => 'accounting_gl_detail',
+            'label'       => 'Accounting GL Detail',
+            'permission'  => 'accounting.reports.export',
+            'formats'     => ['csv'],
+            'audit_event' => 'accounting.ledger.exported',
+        ],
+        'accounting_periods' => [
+            'dataset'     => 'accounting_periods',
+            'label'       => 'Accounting Periods',
+            'permission'  => 'accounting.reports.export',
+            'formats'     => ['csv'],
+            'audit_event' => 'accounting.ledger.exported',
+        ],
+        'accounting_bank_statement_lines' => [
+            'dataset'     => 'accounting_bank_statement_lines',
+            'label'       => 'Accounting Bank Statement Lines',
+            'permission'  => 'accounting.reports.export',
+            'formats'     => ['csv'],
+            'audit_event' => 'accounting.ledger.exported',
+        ],
+    ],
+
+    'report_datasets' => [
+        'accounting_chart_of_accounts' => [
+            'dataset'    => 'accounting_chart_of_accounts',
+            'label'      => 'Accounting Chart of Accounts',
+            'permission' => 'accounting.reports.export',
+            'source'     => 'export_dataset',
+        ],
+        'accounting_journal_entries' => [
+            'dataset'    => 'accounting_journal_entries',
+            'label'      => 'Accounting Journal Entries',
+            'permission' => 'accounting.reports.export',
+            'source'     => 'export_dataset',
+        ],
+        'accounting_gl_detail' => [
+            'dataset'    => 'accounting_gl_detail',
+            'label'      => 'Accounting GL Detail',
+            'permission' => 'accounting.reports.export',
+            'source'     => 'export_dataset',
+        ],
+        'accounting_periods' => [
+            'dataset'    => 'accounting_periods',
+            'label'      => 'Accounting Periods',
+            'permission' => 'accounting.reports.export',
+            'source'     => 'export_dataset',
+        ],
+        'accounting_bank_statement_lines' => [
+            'dataset'    => 'accounting_bank_statement_lines',
+            'label'      => 'Accounting Bank Statement Lines',
+            'permission' => 'accounting.reports.export',
+            'source'     => 'export_dataset',
+        ],
+    ],
 
     'depends_on' => [],
 ];

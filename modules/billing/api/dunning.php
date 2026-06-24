@@ -134,6 +134,7 @@ if ($method === 'POST' && $action === 'resume') {
 
 if ($method === 'GET' && $action === 'ai_suggest') {
     rbac_legacy_require($user, 'billing.view');
+    rbac_legacy_require($user, 'ai.use');
     $client = trim((string) ($_GET['client'] ?? ''));
     if ($client === '') api_error('client required', 422);
     $policy = billingDunningGetPolicy($tid);

@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "postbuild": "bash ../scripts/sync_bundle.sh",
+    "postbuild": "node ../scripts/sync_bundle.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

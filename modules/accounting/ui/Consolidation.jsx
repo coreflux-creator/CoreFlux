@@ -1,6 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 
+const ACCOUNTING_ENTITIES_API = '/api/v1/accounting/entities';
+const ENTITY_RELATIONSHIPS_API = '/api/v1/accounting/entity-relationships';
+const ACCOUNTING_REPORTS_API = '/api/v1/accounting/reports';
+const CONSOLIDATION_RUNS_API = '/api/v1/accounting/consolidation-runs';
+
 /**
  * Consolidation page — two halves:
  *
@@ -26,10 +31,10 @@ export default function Consolidation() {
 }
 
 function RelationshipsSection() {
-  const { data, loading, error, reload } = useApi('/modules/accounting/api/entity_relationships.php');
+  const { data, loading, error, reload } = useApi(ENTITY_RELATIONSHIPS_API);
   // Hierarchy scope = include sub-tenant entities so a master_admin viewing
   // the parent can wire consolidation edges across the entire group.
-  const entitiesApi = useApi('/modules/accounting/api/entities.php?scope=hierarchy');
+  const entitiesApi = useApi(`${ACCOUNTING_ENTITIES_API}?scope=hierarchy`);
   const entities    = entitiesApi.data?.rows ?? entitiesApi.data?.entities ?? [];
   const [form, setForm] = useState({
     parent_entity_id: '', child_entity_id: '', ownership_pct: '100',
@@ -43,7 +48,7 @@ function RelationshipsSection() {
     e.preventDefault();
     setBusy(true); setErr(null);
     try {
-      await api.post('/modules/accounting/api/entity_relationships.php', {
+      await api.post(ENTITY_RELATIONSHIPS_API, {
         ...form,
         parent_entity_id: Number(form.parent_entity_id),
         child_entity_id: Number(form.child_entity_id),
@@ -57,7 +62,7 @@ function RelationshipsSection() {
   };
   const remove = async (id) => {
     if (!window.confirm('Deactivate this relationship?')) return;
-    try { await api.delete(`/modules/accounting/api/entity_relationships.php?id=${id}`); reload(); }
+    try { await api.delete(`${ENTITY_RELATIONSHIPS_API}?id=${id}`); reload(); }
     catch (e) { alert(e.message); }
   };
 
@@ -97,7 +102,7 @@ function RelationshipsSection() {
         </label>
         <label style={{fontSize:12}}>Method
           <select className="input" value={form.consolidation_method} onChange={e => setForm({...form, consolidation_method:e.target.value})} data-testid="accounting-consol-method">
-            <option value="full">Full</option><option value="equity">Equity</option>
+            <option value="full">Full</option><option value="proportionate">Proportionate</option><option value="equity">Equity</option>
             <option value="cost">Cost (exclude)</option><option value="none">None (exclude)</option>
           </select>
         </label>
@@ -137,7 +142,7 @@ function ConsolidatedReport() {
   const [to, setTo]     = useState(() => new Date().toISOString().slice(0, 10));
   // Hierarchy scope so consolidated runs can pick any entity in the
   // tenant + sub-tenant tree.
-  const entitiesApi = useApi('/modules/accounting/api/entities.php?scope=hierarchy');
+  const entitiesApi = useApi(`${ACCOUNTING_ENTITIES_API}?scope=hierarchy`);
   const entities    = entitiesApi.data?.rows ?? entitiesApi.data?.entities ?? [];
 
   const qs = useMemo(() => {
@@ -152,13 +157,13 @@ function ConsolidatedReport() {
     return params.toString();
   }, [reportType, entityIds, from, to]);
 
-  const { data, loading, error } = useApi(qs ? `/modules/accounting/api/reports.php?${qs}` : null);
+  const { data, loading, error } = useApi(qs ? `${ACCOUNTING_REPORTS_API}?${qs}` : null);
 
   // Lock & publish state (was previously referenced but never declared,
   // crashing the page with "runsApi is not defined" / "setLockBusy is
   // not defined" the moment a user clicked Consolidation).
   const runsApi = useApi(
-    qs ? `/modules/accounting/api/consolidation_runs.php?report_type=${reportType}` : null
+    qs ? `${CONSOLIDATION_RUNS_API}?report_type=${reportType}` : null
   );
   const [lockBusy, setLockBusy] = useState(false);
   const [lockErr,  setLockErr]  = useState(null);
@@ -220,7 +225,7 @@ function ConsolidatedReport() {
               if (!window.confirm('Lock this consolidation? A snapshot will be persisted; you\'ll need to reverse it with a reason to re-lock for the same period.')) return;
               setLockBusy(true); setLockErr(null);
               try {
-                const res = await api.post('/modules/accounting/api/consolidation_runs.php?action=lock', {
+                const res = await api.post(`${CONSOLIDATION_RUNS_API}?action=lock`, {
                   report_type: reportType,
                   entity_ids: entityIds,
                   period_from: reportType === 'income_statement' ? from : null,
@@ -263,7 +268,7 @@ function ConsolidatedReport() {
                         const reason = prompt('Reason for reversing this locked run?');
                         if (!reason) return;
                         try {
-                          await api.post(`/modules/accounting/api/consolidation_runs.php?action=reverse&id=${r.id}`, { reason });
+                          await api.post(`${CONSOLIDATION_RUNS_API}?action=reverse&id=${r.id}`, { reason });
                           runsApi.reload();
                         } catch (e) { alert(e.message); }
                       }}

@@ -105,7 +105,7 @@ $a('add row button',                            $contains($dlg, 'ic-split-add'))
 $a('post button',                               $contains($dlg, 'ic-split-post'));
 $a('total indicator',                           $contains($dlg, 'ic-split-total'));
 $a('date + memo inputs',                        $contains($dlg, 'ic-split-date') && $contains($dlg, 'ic-split-memo'));
-$a('posts to post_split API',                   $contains($dlg, "'/modules/accounting/api/intercompany.php?action=post_split'"));
+$a('posts to post_split API',                   $contains($dlg, "INTERCOMPANY_API") && $contains($dlg, "?action=post_split"));
 $a('passes bank_statement_line_id',             $contains($dlg, 'bank_statement_line_id: bankStatementLineId'));
 $a('shows missing-mapping warning',             $contains($dlg, 'ic-split-mapping-missing-'));
 

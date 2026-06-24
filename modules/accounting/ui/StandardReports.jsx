@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
-import { useApi, api } from '../../../dashboard/src/lib/api';
+import { useApi } from '../../../dashboard/src/lib/api';
+
+const STANDARD_REPORTS_API = '/api/v1/accounting/standard-reports';
+const ACCOUNTING_EXPORT_API = '/api/v1/accounting/export';
 
 /**
  * Standard (operational) reports — 5 tabs:
@@ -85,11 +88,11 @@ function GlDetail() {
   const [to, setTo]     = useState(new Date().toISOString().slice(0,10));
   const [code, setCode] = useState('');
   const qs  = new URLSearchParams({ type: 'gl_detail', from, to, ...(code ? { account_code: code } : {}) }).toString();
-  const { data, loading, error } = useApi(`/modules/accounting/api/standard_reports.php?${qs}`);
+  const { data, loading, error } = useApi(`${STANDARD_REPORTS_API}?${qs}`);
   return (
     <div>
       <FilterBar
-        onExport={() => downloadCsv(`/modules/accounting/api/export.php?${qs}`, `gl-detail-${from}-${to}.csv`)}
+        onExport={() => downloadCsv(`${ACCOUNTING_EXPORT_API}?${qs}`, `gl-detail-${from}-${to}.csv`)}
         exportTestId="accounting-report-gl-detail-export"
       >
         <label>From <input type="date" className="input" value={from} onChange={e => setFrom(e.target.value)} data-testid="accounting-report-gl-from" /></label>
@@ -127,11 +130,11 @@ function GlDetail() {
 
 // ── Unposted JEs ────────────────────────────────────────────────────────
 function Unposted() {
-  const { data, loading, error } = useApi('/modules/accounting/api/standard_reports.php?type=unposted_jes');
+  const { data, loading, error } = useApi(`${STANDARD_REPORTS_API}?type=unposted_jes`);
   return (
     <div>
       <FilterBar
-        onExport={() => downloadCsv('/modules/accounting/api/export.php?type=unposted_jes', 'unposted-jes.csv')}
+        onExport={() => downloadCsv(`${ACCOUNTING_EXPORT_API}?type=unposted_jes`, 'unposted-jes.csv')}
         exportTestId="accounting-report-unposted-export"
       />
       {loading && <p>Loading…</p>}
@@ -163,11 +166,11 @@ function Unposted() {
 
 // ── Approval Queue ──────────────────────────────────────────────────────
 function ApprovalQueue() {
-  const { data, loading, error } = useApi('/modules/accounting/api/standard_reports.php?type=approval_queue');
+  const { data, loading, error } = useApi(`${STANDARD_REPORTS_API}?type=approval_queue`);
   return (
     <div>
       <FilterBar
-        onExport={() => downloadCsv('/modules/accounting/api/export.php?type=approval_queue', 'approval-queue.csv')}
+        onExport={() => downloadCsv(`${ACCOUNTING_EXPORT_API}?type=approval_queue`, 'approval-queue.csv')}
         exportTestId="accounting-report-approval-export"
       />
       {loading && <p>Loading…</p>}
@@ -207,11 +210,11 @@ function AuditLog() {
     ...(to   ? { to   } : {}),
     ...(eventLike ? { event_like: eventLike } : {}),
   }).toString();
-  const { data, loading, error } = useApi(`/modules/accounting/api/standard_reports.php?${qs}`);
+  const { data, loading, error } = useApi(`${STANDARD_REPORTS_API}?${qs}`);
   return (
     <div>
       <FilterBar
-        onExport={() => downloadCsv(`/modules/accounting/api/export.php?${qs}`, 'audit-log.csv')}
+        onExport={() => downloadCsv(`${ACCOUNTING_EXPORT_API}?${qs}`, 'audit-log.csv')}
         exportTestId="accounting-report-audit-export"
       >
         <label>From <input type="date" className="input" value={from} onChange={e => setFrom(e.target.value)} data-testid="accounting-report-audit-from" /></label>
@@ -251,11 +254,11 @@ function AccountActivity() {
   const [from, setFrom] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0,10));
   const [to, setTo]     = useState(new Date().toISOString().slice(0,10));
   const qs = code ? new URLSearchParams({ type: 'account_activity', code, from, to }).toString() : '';
-  const { data, loading, error } = useApi(code ? `/modules/accounting/api/standard_reports.php?${qs}` : null);
+  const { data, loading, error } = useApi(code ? `${STANDARD_REPORTS_API}?${qs}` : null);
   return (
     <div>
       <FilterBar
-        onExport={() => code && downloadCsv(`/modules/accounting/api/export.php?${qs}`, `account-activity-${code}.csv`)}
+        onExport={() => code && downloadCsv(`${ACCOUNTING_EXPORT_API}?${qs}`, `account-activity-${code}.csv`)}
         exportTestId="accounting-report-account-export"
       >
         <label>Account code <input className="input" value={code} onChange={e => setCode(e.target.value)} placeholder="e.g. 1010" data-testid="accounting-report-account-code" /></label>

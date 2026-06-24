@@ -21,6 +21,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/encryption.php';
+require_once __DIR__ . '/../core/audit.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -193,15 +194,17 @@ api_error('Method/action not allowed', 405);
  */
 function auditWrite(string $event, array $meta): void {
     try {
-        getDB()->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, meta_json, ip_address, created_at)
-             VALUES (:tid, :a, :e, :m, :ip, NOW())'
-        )->execute([
-            'tid' => (int) ($meta['tenant_id'] ?? 0) ?: null,
-            'a'   => (int) ($_SESSION['user_id'] ?? 0) ?: null,
-            'e'   => $event,
-            'm'   => json_encode($meta),
-            'ip'  => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        platformAuditLogWrite(
+            (int) ($meta['tenant_id'] ?? 0) ?: null,
+            (int) ($_SESSION['user_id'] ?? 0) ?: null,
+            $event,
+            null,
+            $meta,
+            [
+                'source' => 'sso',
+                'object_type' => 'tenant_sso_config',
+                'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+            ]
+        );
     } catch (\Throwable $_) { /* audit table missing — swallow */ }
 }

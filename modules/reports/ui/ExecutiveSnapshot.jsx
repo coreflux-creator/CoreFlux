@@ -19,7 +19,7 @@ import { ReportFrame, KpiTile, reportFmt } from './ReportToolkit';
  */
 export default function ExecutiveSnapshot() {
   const [period, setPeriod] = useState('4w');
-  const { data, loading, error } = useApi(`/modules/reports/api/executive_snapshot.php?period=${period}`);
+  const { data, loading, error } = useApi(`/api/v1/reports/executive-snapshot?period=${period}`);
   const handlePrint = () => window.print();
   const s = data?.snapshot || {};
   const periodSub = data

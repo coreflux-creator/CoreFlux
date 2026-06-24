@@ -4,16 +4,29 @@ import { ScrollText, Download, RefreshCw, Sparkles } from 'lucide-react';
 
 /**
  * AuditLogViewer — admin-gated viewer for the unified audit_log
- * (Sprint 4 / A3). Filters by event substring, user_id, date range.
+ * (Sprint 4 / A3). Filters by event, actor, object, target, request/source, and date range.
  * CSV export hits the same endpoint with `?format=csv` and downloads
  * via a one-click anchor (the PHP side sets Content-Disposition).
  *
- *   GET /api/audit_log.php?event=&user_id=&from=&to=&limit=&format=json|csv
+ *   GET /api/audit_log.php?event=&user_id=&actor_type=&actor_email=&object_type=&target_id=&request_id=&source=&from=&to=&limit=&format=json|csv
  *
  * Mounted under /admin/audit-log.
  */
 export default function AuditLogViewer({ session }) {
-  const [filters, setFilters] = useState({ event: '', user_id: '', from: '', to: '', limit: 200 });
+  const [filters, setFilters] = useState({
+    event: '',
+    user_id: '',
+    actor_type: '',
+    actor_email: '',
+    object_type: '',
+    target_id: '',
+    request_id: '',
+    source: '',
+    ip: '',
+    from: '',
+    to: '',
+    limit: 200,
+  });
   const [rows, setRows]       = useState([]);
   const [count, setCount]     = useState(0);
   const [loading, setLoading] = useState(false);
@@ -25,13 +38,27 @@ export default function AuditLogViewer({ session }) {
 
   const queryString = useMemo(() => {
     const p = new URLSearchParams();
-    if (filters.event)   p.set('event',   filters.event);
-    if (filters.user_id) p.set('user_id', filters.user_id);
-    if (filters.from)    p.set('from',    filters.from);
-    if (filters.to)      p.set('to',      filters.to);
-    if (filters.limit)   p.set('limit',   filters.limit);
+    if (filters.event)      p.set('event',      filters.event);
+    if (filters.user_id)    p.set('user_id',    filters.user_id);
+    if (filters.actor_type) p.set('actor_type', filters.actor_type);
+    if (filters.actor_email) p.set('actor_email', filters.actor_email);
+    if (filters.object_type) p.set('object_type', filters.object_type);
+    if (filters.target_id)  p.set('target_id',  filters.target_id);
+    if (filters.request_id) p.set('request_id', filters.request_id);
+    if (filters.source)     p.set('source',     filters.source);
+    if (filters.ip)         p.set('ip',         filters.ip);
+    if (filters.from)       p.set('from',       filters.from);
+    if (filters.to)         p.set('to',         filters.to);
+    if (filters.limit)      p.set('limit',      filters.limit);
     return p.toString();
   }, [filters]);
+
+  const formatMeta = (value) => {
+    if (!value) return '(no meta)';
+    if (typeof value === 'string') return value;
+    try { return JSON.stringify(value, null, 2); }
+    catch { return String(value); }
+  };
 
   const search = async () => {
     setLoading(true); setError(null);
@@ -80,9 +107,53 @@ export default function AuditLogViewer({ session }) {
                  placeholder="e.g. ap.bill.approved" />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#475569' }}>
-          User id
+          Actor user id
           <input className="input" type="number" data-testid="audit-filter-user" value={filters.user_id}
                  onChange={e => setFilters({ ...filters, user_id: e.target.value })} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#475569' }}>
+          Actor type
+          <select className="input" data-testid="audit-filter-actor-type" value={filters.actor_type}
+                  onChange={e => setFilters({ ...filters, actor_type: e.target.value })}>
+            <option value="">Any</option>
+            <option value="user">User</option>
+            <option value="external_approver">External approver</option>
+            <option value="system">System</option>
+          </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#475569' }}>
+          Actor email
+          <input className="input" data-testid="audit-filter-actor-email" value={filters.actor_email}
+                 onChange={e => setFilters({ ...filters, actor_email: e.target.value })}
+                 placeholder="approver@example.com" />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#475569' }}>
+          Object type
+          <input className="input" data-testid="audit-filter-object-type" value={filters.object_type}
+                 onChange={e => setFilters({ ...filters, object_type: e.target.value })}
+                 placeholder="invoice, workflow, export" />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#475569' }}>
+          Target id
+          <input className="input" type="number" data-testid="audit-filter-target" value={filters.target_id}
+                 onChange={e => setFilters({ ...filters, target_id: e.target.value })} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#475569' }}>
+          Request id
+          <input className="input" data-testid="audit-filter-request" value={filters.request_id}
+                 onChange={e => setFilters({ ...filters, request_id: e.target.value })}
+                 placeholder="req_..." />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#475569' }}>
+          Source
+          <input className="input" data-testid="audit-filter-source" value={filters.source}
+                 onChange={e => setFilters({ ...filters, source: e.target.value })}
+                 placeholder="api, workflow, export" />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#475569' }}>
+          IP
+          <input className="input" data-testid="audit-filter-ip" value={filters.ip}
+                 onChange={e => setFilters({ ...filters, ip: e.target.value })} />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#475569' }}>
           From
@@ -212,12 +283,12 @@ export default function AuditLogViewer({ session }) {
         <table className="data-table" style={{ width: '100%', minWidth: 900 }}>
           <thead>
             <tr>
-              <th>When</th><th>Event</th><th>User</th><th>Target</th><th>IP</th><th></th>
+              <th>When</th><th>Event</th><th>Actor</th><th>Target</th><th>Request</th><th>Source</th><th>IP</th><th></th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && !loading && (
-              <tr><td colSpan={6} className="empty" data-testid="audit-empty" style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>
+              <tr><td colSpan={8} className="empty" data-testid="audit-empty" style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>
                 No matching events. Try widening filters or click Search.
               </td></tr>
             )}
@@ -226,9 +297,11 @@ export default function AuditLogViewer({ session }) {
                 <tr data-testid={`audit-row-${r.id}`}>
                   <td style={{ whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 12 }}>{r.created_at}</td>
                   <td><span className="badge">{r.event}</span></td>
-                  <td>{r.user_name || r.user_email || (r.user_id ? `#${r.user_id}` : '—')}</td>
-                  <td>{r.target_id || '—'}</td>
-                  <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{r.ip_address || '—'}</td>
+                  <td>{r.user_name || r.actor_email || r.user_email || (r.actor_user_id ? `#${r.actor_user_id}` : r.actor_type || '-')}</td>
+                  <td>{r.object_type ? `${r.object_type} #${r.target_id || '-'}` : (r.target_id || '-')}</td>
+                  <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{r.request_id || '-'}</td>
+                  <td>{r.source || '-'}</td>
+                  <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{r.ip_address || '-'}</td>
                   <td>
                     <button className="btn btn--ghost" style={{ fontSize: 12 }}
                             data-testid={`audit-toggle-${r.id}`}
@@ -239,10 +312,15 @@ export default function AuditLogViewer({ session }) {
                 </tr>
                 {expanded === r.id && (
                   <tr>
-                    <td colSpan={6} style={{ background: '#f8fafc' }}>
+                    <td colSpan={8} style={{ background: '#f8fafc' }}>
                       <pre data-testid={`audit-meta-${r.id}`}
                            style={{ margin: 0, padding: 12, fontSize: 12, fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                        {r.meta_json || '(no meta)'}
+                        {formatMeta({
+                          meta: r.meta_json || null,
+                          before: r.before_json || null,
+                          after: r.after_json || null,
+                          user_agent: r.user_agent || null,
+                        })}
                       </pre>
                     </td>
                   </tr>

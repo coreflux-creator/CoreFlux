@@ -58,7 +58,7 @@ $prd = (string) file_get_contents(__DIR__ . '/../modules/payroll/ui/PayrollRunDe
 _p('PayrollRunDetail renders PayrollPreflightCard',        str_contains($prd, '<PayrollPreflightCard'));
 _p('PayrollRunDetail wires Preview diff button',           str_contains($prd, 'payroll-run-gusto-preview-btn'));
 _p('PayrollRunDetail renders GustoPreviewPanel',           str_contains($prd, 'GustoPreviewPanel'));
-_p('Preview hits /api/gusto_preview.php',                  str_contains($prd, '/modules/payroll/api/gusto_preview.php'));
+_p('Preview hits v1 payroll gusto-preview endpoint',        str_contains($prd, '/api/v1/payroll/gusto-preview'));
 
 echo "\nSchema contract gate is GREEN\n";
 $gate = file_get_contents(__DIR__ . '/schema_contract_smoke.php');

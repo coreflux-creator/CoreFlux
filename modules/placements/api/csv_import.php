@@ -16,6 +16,7 @@ require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
 require_once __DIR__ . '/../lib/placements.php';
+require_once __DIR__ . '/../lib/workflow.php';
 
 use Core\CsvImportService;
 
@@ -86,6 +87,7 @@ if ($method === 'POST' && $action === 'inspect') {
 
 if ($method === 'POST' && $action === 'ai_suggest_map') {
     rbac_legacy_require($user, 'placements.manage');
+    rbac_legacy_require($user, 'ai.use');
     require_once __DIR__ . '/../../../core/ai_csv_mapper.php';
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
@@ -391,7 +393,7 @@ if ($method === 'POST' && $action === 'commit') {
         if (!empty($row['bill_rate']) && !empty($row['pay_rate'])) {
             $hasRate = $existing ? scopedFind('SELECT id FROM placement_rates WHERE placement_id = :p LIMIT 1', ['p' => $pid]) : null;
             if (!$hasRate) {
-                scopedInsert('placement_rates', [
+                $rateId = scopedInsert('placement_rates', [
                     'placement_id'        => $pid,
                     'effective_from'      => $row['start_date'],
                     'bill_rate'           => (float) $row['bill_rate'],
@@ -399,6 +401,10 @@ if ($method === 'POST' && $action === 'commit') {
                     'currency'            => 'USD',
                     'created_by_user_id'  => $user['id'] ?? null,
                 ]);
+                $workflowId = placementsRateWorkflowStart(currentTenantId(), $rateId, (int) ($user['id'] ?? 0));
+                if (!$workflowId) {
+                    throw new \RuntimeException('Could not start placement rate approval workflow');
+                }
             }
         }
 

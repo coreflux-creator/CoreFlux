@@ -14,6 +14,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../core/db.php';
+require_once __DIR__ . '/../../core/audit.php';
 require_once __DIR__ . '/../../modules/billing/lib/money_movement.php';
 
 header('X-Robots-Tag: noindex, nofollow');
@@ -48,12 +49,18 @@ try {
         ->execute(['id' => $link['id']]);
 } catch (\Throwable $_) { /* swallow */ }
 try {
-    $pdo->prepare('INSERT INTO audit_log (tenant_id, actor_user_id, event, meta_json, ip_address, created_at)
-                   VALUES (:t, NULL, :e, :m, :ip, NOW())')->execute([
-        't' => (int) $link['tenant_id'], 'e' => 'billing.money_movement.share_link_viewed',
-        'm' => json_encode(['link_id' => (int) $link['id'], 'as_of' => $link['as_of']]),
-        'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
-    ]);
+    platformAuditLogWrite(
+        (int) $link['tenant_id'],
+        null,
+        'billing.money_movement.share_link_viewed',
+        (int) $link['id'],
+        ['link_id' => (int) $link['id'], 'as_of' => $link['as_of']],
+        [
+            'source' => 'billing',
+            'object_type' => 'money_movement_share_link',
+            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]
+    );
 } catch (\Throwable $_) { /* swallow */ }
 
 // Load snapshot (frozen JSON) — fall back to live computation if the

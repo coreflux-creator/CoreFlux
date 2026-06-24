@@ -45,6 +45,7 @@ $assert("can people.view",            RBAC::hasPermission($admin, 'people.view')
 $assert("can people.banking.view",    RBAC::hasPermission($admin, 'people.banking.view'));
 $assert("can payroll.runs.approve",   RBAC::hasPermission($admin, 'payroll.runs.approve'));
 $assert("can accounting.journal.post", RBAC::hasPermission($admin, 'accounting.journal.post'));
+$assert("can admin.export_templates.manage", RBAC::hasPermission($admin, 'admin.export_templates.manage'));
 $assert("CANNOT some.other.module",   !RBAC::hasPermission($admin, 'tax.audit.view'));
 
 // ---------------------------------------------------------------------------

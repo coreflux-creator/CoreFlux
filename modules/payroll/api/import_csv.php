@@ -23,6 +23,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../lib/csv_import.php';
+require_once __DIR__ . '/../lib/workflow.php';
 
 $ctx = api_require_auth();
 $tid = (int) $ctx['tenant_id'];
@@ -47,10 +48,24 @@ if ($size > 25 * 1024 * 1024) api_error('csv too large — split into chunks und
 
 $pdo = getDB();
 $summary = payrollImportRunCsv($pdo, $tid, $payPeriodId, $tmp, $runType);
+$workflowInstanceId = null;
+if (!empty($summary['run_id'])) {
+    scopedUpdate('payroll_runs', (int) $summary['run_id'], [
+        'created_by_user_id' => $ctx['user']['id'] ?? null,
+        'computed_by_user_id' => $ctx['user']['id'] ?? null,
+    ]);
+    $workflowInstanceId = payrollRunWorkflowStart($tid, (int) $summary['run_id'], (int) ($ctx['user']['id'] ?? 0));
+    if (!$workflowInstanceId) {
+        api_error('Could not start payroll approval workflow for imported run', 503, [
+            'run_id' => $summary['run_id'],
+        ]);
+    }
+}
 
 api_ok([
     'ok'             => $summary['run_id'] !== null,
     'run_id'         => $summary['run_id'],
+    'workflow_instance_id' => $workflowInstanceId,
     'rows_seen'      => (int) $summary['rows_seen'],
     'rows_inserted'  => (int) $summary['rows_inserted'],
     'rows_skipped'   => (int) $summary['rows_skipped'],

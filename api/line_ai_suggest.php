@@ -49,6 +49,7 @@ if (!in_array($kind, ['ap_bill','billing_invoice'], true)) {
     api_error("kind must be 'ap_bill' or 'billing_invoice'", 422);
 }
 rbac_legacy_require($user, $kind === 'ap_bill' ? 'ap.bill.create' : 'billing.invoice.create');
+rbac_legacy_require($user, 'ai.use');
 
 $description = trim((string) ($body['description'] ?? ''));
 $itemType    = trim((string) ($body['item_type']   ?? ''));

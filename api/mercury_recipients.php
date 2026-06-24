@@ -34,6 +34,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/mercury_recipients.php';
+require_once __DIR__ . '/../core/mercury_audit.php';
 
 $ctx = api_require_auth();
 $user = $ctx['user'];
@@ -43,21 +44,11 @@ $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
 $id     = (int) ($_GET['id'] ?? 0);
 
-function mrAudit(string $event, array $meta, int $tenantId, ?int $userId): void
+function mrAudit(string $event, array $meta, int $tenantId, ?int $userId, array $opts = []): void
 {
     try {
-        $pdo = getDB();
-        $pdo->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:t, :u, :e, :tid, :m, :ip, NOW())'
-        )->execute([
-            't'   => $tenantId,
-            'u'   => $userId,
-            'e'   => $event,
-            'tid' => $meta['recipient_id'] ?? null,
-            'm'   => json_encode($meta),
-            'ip'  => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        $targetId = isset($meta['recipient_id']) ? (int) $meta['recipient_id'] : null;
+        mercuryAuditLogWrite($tenantId, $userId, $event, $targetId, $meta, $opts);
     } catch (\Throwable $e) { /* best-effort */ }
 }
 
@@ -90,6 +81,7 @@ if (!$canManage) api_error('Permission denied', 403);
 // ----------------------------------------------------------------- POST create / actions
 if ($method === 'POST' && $action === 'push') {
     if ($id <= 0) api_error('id required', 422);
+    $before = mercuryAuditRecipientRow($tenantId, $id);
     try {
         $res = mercuryRecipientPushToMercury($tenantId, $id, $user['id'] ?? null);
     } catch (MercuryApiException $e) {
@@ -97,7 +89,10 @@ if ($method === 'POST' && $action === 'push') {
     } catch (\Throwable $e) {
         api_error($e->getMessage(), 422);
     }
-    mrAudit('mercury.recipient.pushed', ['recipient_id' => $id, 'mercury_id' => $res['mercury_id']], $tenantId, $user['id'] ?? null);
+    mrAudit('mercury.recipient.pushed', ['recipient_id' => $id, 'mercury_id' => $res['mercury_id']], $tenantId, $user['id'] ?? null, [
+        'before' => $before,
+        'after' => mercuryAuditRecipientRow($tenantId, $id),
+    ]);
     api_ok(['ok' => true] + $res);
 }
 
@@ -107,6 +102,7 @@ if ($method === 'POST' && $action === 'set_funding_default') {
     $mercuryAcctId = trim((string) ($body['mercury_account_id'] ?? ''));
     if ($recipientId <= 0)   api_error('recipient_id required', 422);
     if ($mercuryAcctId === '') api_error('mercury_account_id required', 422);
+    $before = mercuryAuditConnectionRow($tenantId);
     try {
         mercuryRecipientSetFundingDefault($tenantId, $recipientId, $mercuryAcctId, $user['id'] ?? null);
     } catch (\Throwable $e) {
@@ -114,7 +110,10 @@ if ($method === 'POST' && $action === 'set_funding_default') {
     }
     mrAudit('mercury.funding_default.set', [
         'recipient_id' => $recipientId, 'mercury_account_id' => $mercuryAcctId,
-    ], $tenantId, $user['id'] ?? null);
+    ], $tenantId, $user['id'] ?? null, [
+        'before' => $before,
+        'after' => mercuryAuditConnectionRow($tenantId),
+    ]);
     api_ok(['ok' => true]);
 }
 
@@ -127,6 +126,7 @@ if ($method === 'POST' && $action === 'set_sweep_counterparty') {
     $counterpartyId = trim((string) ($body['counterparty_id'] ?? ''));
     if ($recipientId <= 0)        api_error('recipient_id required', 422);
     if ($counterpartyId === '')   api_error('counterparty_id required', 422);
+    $before = mercuryAuditRecipientRow($tenantId, $recipientId);
     try {
         $res = mercurySweepDestinationSetCounterparty($tenantId, $recipientId, $counterpartyId, $user['id'] ?? null);
     } catch (\Throwable $e) {
@@ -134,7 +134,10 @@ if ($method === 'POST' && $action === 'set_sweep_counterparty') {
     }
     mrAudit('mercury.sweep_destination.counterparty_set', [
         'recipient_id' => $recipientId, 'mercury_id' => $res['mercury_id'],
-    ], $tenantId, $user['id'] ?? null);
+    ], $tenantId, $user['id'] ?? null, [
+        'before' => $before,
+        'after' => mercuryAuditRecipientRow($tenantId, $recipientId),
+    ]);
     api_ok(['ok' => true] + $res);
 }
 
@@ -147,26 +150,36 @@ if ($method === 'POST') {
     }
     mrAudit('mercury.recipient.created', [
         'recipient_id' => $rec['id'] ?? null, 'kind' => $body['kind'] ?? null,
-    ], $tenantId, $user['id'] ?? null);
+    ], $tenantId, $user['id'] ?? null, [
+        'after' => mercuryAuditRecipientRow($tenantId, (int) ($rec['id'] ?? 0)),
+    ]);
     api_ok(['ok' => true, 'recipient' => $rec], 201);
 }
 
 if ($method === 'PATCH') {
     if ($id <= 0) api_error('id required', 422);
     $body = api_json_body();
+    $before = mercuryAuditRecipientRow($tenantId, $id);
     try {
         mercuryRecipientUpdate($tenantId, $id, $body);
     } catch (\Throwable $e) {
         api_error($e->getMessage(), 422);
     }
-    mrAudit('mercury.recipient.updated', ['recipient_id' => $id, 'patch' => array_keys($body)], $tenantId, $user['id'] ?? null);
+    mrAudit('mercury.recipient.updated', ['recipient_id' => $id, 'patch' => array_keys($body)], $tenantId, $user['id'] ?? null, [
+        'before' => $before,
+        'after' => mercuryAuditRecipientRow($tenantId, $id),
+    ]);
     api_ok(['ok' => true]);
 }
 
 if ($method === 'DELETE') {
     if ($id <= 0) api_error('id required', 422);
+    $before = mercuryAuditRecipientRow($tenantId, $id);
     mercuryRecipientRevoke($tenantId, $id);
-    mrAudit('mercury.recipient.revoked', ['recipient_id' => $id], $tenantId, $user['id'] ?? null);
+    mrAudit('mercury.recipient.revoked', ['recipient_id' => $id], $tenantId, $user['id'] ?? null, [
+        'before' => $before,
+        'after' => mercuryAuditRecipientRow($tenantId, $id),
+    ]);
     api_ok(['ok' => true]);
 }
 

@@ -41,5 +41,6 @@ CREATE TABLE IF NOT EXISTS treasury_payments (
     INDEX idx_tp_tenant_status (tenant_id, status, payment_date),
     INDEX idx_tp_tenant_entity (tenant_id, entity_id, status),
     INDEX idx_tp_tenant_bank (tenant_id, bank_account_id),
-    INDEX idx_tp_payee (tenant_id, payee_type, payee_id)
+    INDEX idx_tp_payee (tenant_id, payee_type, payee_id),
+    INDEX idx_tp_workflow (tenant_id, workflow_instance_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

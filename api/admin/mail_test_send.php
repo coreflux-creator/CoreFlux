@@ -31,6 +31,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../core/mailer.php';
+require_once __DIR__ . '/../../core/audit.php';
 
 $ctx = api_require_auth();
 if (api_method() !== 'POST') api_error('Method not allowed', 405);
@@ -105,20 +106,23 @@ $result = mailerSend([
 // ----------------------------------------------------------------- audit
 try {
     if (!empty($pdo)) {
-        $pdo->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
-             VALUES (:t, :u, "mail.test_send", NULL, :m, NOW())'
-        )->execute([
-            't' => $tenantId,
-            'u' => $actorId,
-            'm' => json_encode([
+        platformAuditLogWrite(
+            $tenantId,
+            $actorId ?: null,
+            'mail.test_send',
+            null,
+            [
                 'recipient' => $recipient,
                 'ok'        => (bool) ($result['ok'] ?? false),
                 'driver'    => (string) ($result['driver'] ?? 'unknown'),
                 'error'     => $result['error'] ?? null,
                 'fallback'  => $result['fallback'] ?? null,
-            ], JSON_UNESCAPED_SLASHES),
-        ]);
+            ],
+            [
+                'source' => 'mail',
+                'object_type' => 'mail_test_send',
+            ]
+        );
     }
 } catch (\Throwable $_) { /* audit failure non-fatal */ }
 

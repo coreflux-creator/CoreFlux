@@ -6,7 +6,7 @@ const fmtMoney = (cents) =>
   ((cents || 0) / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 
 export default function PayrollRuns() {
-  const { data, loading, error } = useApi('/modules/payroll/api/runs.php');
+  const { data, loading, error } = useApi('/api/v1/payroll/runs');
   const runs = data?.runs ?? [];
 
   return (

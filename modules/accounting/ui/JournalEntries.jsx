@@ -3,6 +3,9 @@ import { useSearchParams } from 'react-router-dom';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 
+const JOURNAL_ENTRIES_API = '/api/v1/accounting/journal-entries';
+const ACCOUNTS_API = '/api/v1/accounting/accounts';
+
 /**
  * Journal Entries — list, detail, manual post, reverse.
  */
@@ -29,7 +32,7 @@ function List({ onOpen, onNew }) {
   if (from)        qs.set('from', from);
   if (to)          qs.set('to', to);
   if (activeEntityId) qs.set('entity_id', String(activeEntityId));
-  const apiUrl = '/modules/accounting/api/journal_entries.php' + (qs.toString() ? `?${qs}` : '');
+  const apiUrl = JOURNAL_ENTRIES_API + (qs.toString() ? `?${qs}` : '');
   const { data, loading, error } = useApi(apiUrl);
   const rows = data?.rows ?? [];
   const filterActive = !!(accountCode || from || to || activeEntityId);
@@ -73,7 +76,7 @@ function List({ onOpen, onNew }) {
 }
 
 function Detail({ id, onBack }) {
-  const { data, loading, error, reload } = useApi(`/modules/accounting/api/journal_entries.php?id=${id}`);
+  const { data, loading, error, reload } = useApi(`${JOURNAL_ENTRIES_API}/${id}`);
   const [reason, setReason] = useState('');
   const [busy, setBusy]     = useState(false);
   const [err2, setErr2]     = useState(null);
@@ -87,7 +90,7 @@ function Detail({ id, onBack }) {
     if (!confirm(`Reverse ${je.je_number}? A new JE with opposite signs will be posted.`)) return;
     setBusy(true); setErr2(null);
     try {
-      await api.post(`/modules/accounting/api/journal_entries.php?action=reverse&id=${id}`, { reason });
+      await api.post(`${JOURNAL_ENTRIES_API}/${id}/reverse`, { reason });
       reload();
     } catch (e) { setErr2(e); }
     finally     { setBusy(false); }
@@ -140,7 +143,7 @@ function Detail({ id, onBack }) {
 }
 
 function ManualPost({ onDone, onCancel }) {
-  const accts = useApi('/modules/accounting/api/accounts.php');
+  const accts = useApi(`${ACCOUNTS_API}?postable=1&active=1`);
   const accounts = (accts.data?.rows ?? []).filter((a) => a.is_postable && a.active);
 
   const [header, setHeader] = useState({ posting_date: new Date().toISOString().slice(0, 10), memo: '' });
@@ -171,7 +174,7 @@ function ManualPost({ onDone, onCancel }) {
           .filter((l) => l.account_code && (Number(l.debit) || Number(l.credit)))
           .map((l) => ({ account_code: l.account_code, debit: Number(l.debit) || 0, credit: Number(l.credit) || 0, memo: l.memo || null })),
       };
-      await api.post('/modules/accounting/api/journal_entries.php', payload);
+      await api.post(JOURNAL_ENTRIES_API, payload);
       onDone();
     } catch (e2) { setErr(e2); }
     finally      { setBusy(false); }

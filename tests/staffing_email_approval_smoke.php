@@ -36,6 +36,8 @@ $a('consume verifies subject is staffing_timesheet', str_contains($hf, "Token is
 $a('approve path stamps external_approver_email + approval_note', str_contains($hf, 'external_approver_email = :em') && str_contains($hf, 'approval_note = :n'));
 $a('approve path sets approved_via=external_email', str_contains($hf, "approved_via = 'external_email'"));
 $a('approve cascades to time_entries pending_review', str_contains($hf, "time_entries") && str_contains($hf, "status = 'approved'") && str_contains($hf, "approved_via = 'external_email'"));
+$a('approve path emits Time per-entry audit', str_contains($hf, "timeEntryApprovedEmit((int) \$approved['id'], \$approved, 'external_email'"));
+$a('approve/reject path emits Time timesheet audit', str_contains($hf, "timeAudit('time.timesheet.approved'") && str_contains($hf, "timeAudit('time.timesheet.rejected'"));
 $a('reject path stamps rejection_reason + status',  str_contains($hf, "status = 'rejected'") && str_contains($hf, 'rejection_reason = :r'));
 $a('reject path cascades to time_entries',         str_contains($hf, "UPDATE time_entries\n                    SET status = 'rejected'"));
 $a('best-effort accounting event emit on approve', str_contains($hf, 'staffingEmitWorkerHoursApprovedEvent($tenantId, $headerId)'));

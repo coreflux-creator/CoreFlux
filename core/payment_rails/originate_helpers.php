@@ -95,15 +95,19 @@ function paymentRailsDispatch(string $module, array $sourceRow, array $settings,
             'via Admin → Export Templates and upload to your bank manually.'
         );
     }
+    $tenantId = isset($sourceRow['tenant_id']) ? (int) $sourceRow['tenant_id']
+        : (isset($settings['tenant_id']) ? (int) $settings['tenant_id'] : 0);
+    if ($tenantId <= 0) {
+        throw new PaymentRailsOriginateException('Payment rail dispatch requires tenant_id');
+    }
+
     $opts = [
         'company_name'    => (string) ($settings['nacha_company_name']    ?? ($module === 'payroll' ? 'PAYROLL'  : 'AP')),
         'company_id'      => (string) ($settings['nacha_company_id']      ?? '1234567890'),
         'origin_routing'  => (string) ($settings['nacha_origin_routing']  ?? ''),
         'service_class'   => 'credits_only',
         'effective_date'  => (string) ($sourceRow['effective_date'] ?? date('Y-m-d', strtotime('+1 day'))),
-        'tenant_id'       => isset($sourceRow['tenant_id']) ? (int) $sourceRow['tenant_id']
-                              : (isset($settings['tenant_id']) ? (int) $settings['tenant_id']
-                              : (function_exists('currentTenantContext') ? (int) (currentTenantContext()['tenant_id'] ?? 0) : 0)),
+        'tenant_id'       => $tenantId,
     ];
     $res = $driver->originate($items, $opts);
     $res['rail'] = $rail;

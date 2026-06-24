@@ -12,7 +12,7 @@
  *     /modules/accounting/missing-dimensions, shows top-offenders sample.
  *   - MissingDimensions.jsx page renders by-account + per-row tables with
  *     "Open JE" deep-link.
- *   - Module-namespaced kebab alias /api/accounting/missing-dimensions.
+ *   - Module-namespaced kebab alias /api/v1/accounting/missing-dimensions.
  *   - AccountingModule routes /missing-dimensions.
  */
 declare(strict_types=1);
@@ -51,7 +51,7 @@ $assert('rows envelope includes je_id + line_id + dim keys',
     strpos($api, "'je_id'            => (int) \$r['je_id']") !== false
     && strpos($api, "'missing_dim_keys' => \$missing") !== false);
 
-echo "\nAlias — /api/accounting/missing-dimensions\n";
+echo "\nAlias — /api/v1/accounting/missing-dimensions\n";
 $aliasPath = "{$ROOT}/modules/accounting/api/missing_dimensions.php";
 $assert('alias file exists',                      file_exists($aliasPath));
 $assert('alias delegates via require_once',
@@ -88,7 +88,9 @@ echo "\nUI — MissingDimensions.jsx page\n";
 $mdPath = "{$ROOT}/dashboard/src/pages/MissingDimensions.jsx";
 $md = (string) file_get_contents($mdPath);
 $assert('page exists',                            strlen($md) > 0);
-$assert('reads missing_dimensions endpoint',      strpos($md, "'/api/missing_dimensions.php?days=90&limit=200'") !== false);
+$assert('reads v1 missing-dimensions endpoint',
+    strpos($md, "const MISSING_DIMENSIONS_API = '/api/v1/accounting/missing-dimensions'") !== false
+    && strpos($md, 'useApi(`${MISSING_DIMENSIONS_API}?days=90&limit=200`)') !== false);
 $assert('page testid',                            strpos($md, 'data-testid="missing-dims-page"') !== false);
 $assert('empty-state testid',                     strpos($md, 'data-testid="missing-dims-empty"') !== false);
 $assert('by-account row dynamic testid',          strpos($md, 'data-testid={`missing-dims-account-row-${a.account_id}`}') !== false);

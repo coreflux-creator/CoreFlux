@@ -33,6 +33,8 @@ if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $asOf)) api_error('as_of must be YYYY-M
 $entityId = api_query('entity_id') ? (int) api_query('entity_id') : null;
 $forecastDays = max(0, min(60, (int) (api_query('forecast_days') ?? 7)));
 $forecastEnd  = date('Y-m-d', strtotime("$asOf +{$forecastDays} days"));
+$minimumLiquidityThreshold = max(0.0, round((float) (api_query('minimum_liquidity_threshold') ?? 0), 2));
+$minimumLiquidityCurrency = strtoupper(substr((string) (api_query('minimum_liquidity_currency') ?? 'USD'), 0, 3)) ?: 'USD';
 
 $pdo = getDB();
 
@@ -85,6 +87,52 @@ if ($hasRecon) {
     );
 }
 
+$currencySums = static function (string $sql, array $params): array {
+    try {
+        $stmt = getDB()->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $_) {
+        return [];
+    }
+    $out = [];
+    foreach ($rows as $row) {
+        $cur = strtoupper(substr((string) ($row['currency'] ?? 'USD'), 0, 3)) ?: 'USD';
+        $out[$cur] = round((float) ($row['amount'] ?? 0), 2);
+    }
+    return $out;
+};
+
+$pendingPaymentsByCurrency = $currencySums(
+    "SELECT COALESCE(currency, 'USD') AS currency, COALESCE(SUM(amount), 0) AS amount
+       FROM treasury_payments
+      WHERE tenant_id = :t
+        AND status IN ('pending_approval','approved','scheduled')
+        AND payment_date <= :end
+      GROUP BY COALESCE(currency, 'USD')",
+    ['t' => $tid, 'end' => $forecastEnd]
+);
+$nearTermApByCurrency = $currencySums(
+    "SELECT COALESCE(currency, 'USD') AS currency, COALESCE(SUM(amount_due), 0) AS amount
+       FROM ap_bills
+      WHERE tenant_id = :t
+        AND status NOT IN ('paid','void')
+        AND amount_due > 0
+        AND due_date <= :end
+      GROUP BY COALESCE(currency, 'USD')",
+    ['t' => $tid, 'end' => $forecastEnd]
+);
+$nearTermArByCurrency = $currencySums(
+    "SELECT COALESCE(currency, 'USD') AS currency, COALESCE(SUM(amount_due), 0) AS amount
+       FROM billing_invoices
+      WHERE tenant_id = :t
+        AND status NOT IN ('paid','void','draft')
+        AND amount_due > 0
+        AND due_date <= :end
+      GROUP BY COALESCE(currency, 'USD')",
+    ['t' => $tid, 'end' => $forecastEnd]
+);
+
 $report = [];
 $grandTotal = ['by_currency' => []];
 foreach ($banks as $b) {
@@ -126,6 +174,62 @@ foreach ($banks as $b) {
 foreach ($grandTotal['by_currency'] as &$g) {
     foreach ($g as &$v) $v = round($v, 2);
 }
+unset($g, $v);
+
+$currencies = array_unique(array_merge(
+    array_keys($grandTotal['by_currency']),
+    array_keys($pendingPaymentsByCurrency),
+    array_keys($nearTermApByCurrency),
+    array_keys($nearTermArByCurrency),
+    [$minimumLiquidityCurrency]
+));
+sort($currencies);
+
+$liquidityControls = [
+    'formula' => 'available_to_spend = current_cash - pending_payments - required_reserves - minimum_liquidity_threshold - high_confidence_near_term_outflows + high_confidence_near_term_inflows',
+    'forecast_days' => $forecastDays,
+    'forecast_end' => $forecastEnd,
+    'by_currency' => [],
+];
+foreach ($currencies as $cur) {
+    $currentCash = round((float) ($grandTotal['by_currency'][$cur]['gl_balance'] ?? 0), 2);
+    $pendingPayments = round((float) ($pendingPaymentsByCurrency[$cur] ?? 0), 2);
+    $requiredReserves = 0.0;
+    $minimumThreshold = $cur === $minimumLiquidityCurrency ? $minimumLiquidityThreshold : 0.0;
+    $nearTermOutflows = round((float) ($nearTermApByCurrency[$cur] ?? 0), 2);
+    $nearTermInflows = round((float) ($nearTermArByCurrency[$cur] ?? 0), 2);
+    $availableToSpend = round(
+        $currentCash
+        - $pendingPayments
+        - $requiredReserves
+        - $minimumThreshold
+        - $nearTermOutflows
+        + $nearTermInflows,
+        2
+    );
+    $projectedNetCash = round($currentCash - $pendingPayments - $nearTermOutflows + $nearTermInflows, 2);
+    $obligations = max(0.01, $pendingPayments + $requiredReserves + $minimumThreshold + $nearTermOutflows);
+    $coverageRatio = round($currentCash / $obligations, 3);
+    $cashSafetyScore = (int) max(0, min(100, round(
+        min($coverageRatio, 1.5) * 40
+        + ($projectedNetCash >= 0 ? 30 : 0)
+        + ($availableToSpend >= 0 ? 30 : 0)
+    )));
+
+    $liquidityControls['by_currency'][$cur] = [
+        'current_cash' => $currentCash,
+        'pending_payments' => $pendingPayments,
+        'required_reserves' => $requiredReserves,
+        'minimum_liquidity_threshold' => $minimumThreshold,
+        'high_confidence_near_term_outflows' => $nearTermOutflows,
+        'high_confidence_near_term_inflows' => $nearTermInflows,
+        'available_to_spend' => $availableToSpend,
+        'projected_net_cash' => $projectedNetCash,
+        'cash_safety_score' => $cashSafetyScore,
+        'coverage_ratio' => $coverageRatio,
+        'risk_level' => $cashSafetyScore < 40 ? 'critical' : ($cashSafetyScore < 70 ? 'watch' : 'stable'),
+    ];
+}
 
 api_ok([
     'as_of' => $asOf,
@@ -134,4 +238,5 @@ api_ok([
     'entity_id_filter' => $entityId,
     'rows' => $report,
     'totals' => $grandTotal,
+    'liquidity_controls' => $liquidityControls,
 ]);

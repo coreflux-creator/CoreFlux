@@ -66,6 +66,8 @@ if ($method === 'DELETE') {
     );
     if (!$item) api_error('Plaid item not found', 404);
 
+    $before = plaidItemAuditRow($tenantId, $id);
+
     // 1) Revoke at Plaid. Best-effort: if Plaid returns ITEM_NOT_FOUND or the
     //    token is already invalid we still proceed with local cleanup.
     $plaidErr = null;
@@ -135,7 +137,12 @@ if ($method === 'DELETE') {
         'cascaded_deposit_ids'    => $cascadedDeposits,
         'cascaded_liability_ids'  => $cascadedLiabilities,
         'plaid_remove_warning'    => $plaidErr,
-    ], $id);
+    ], $id, [
+        'tenant_id' => $tenantId,
+        'actor_user_id' => (int) ($user['id'] ?? 0),
+        'before' => $before,
+        'after' => plaidItemAuditRow($tenantId, $id),
+    ]);
 
     api_ok([
         'ok'                     => true,

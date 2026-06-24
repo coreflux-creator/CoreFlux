@@ -71,7 +71,7 @@ $a('page testid',                               strpos($bc, 'data-testid="ap-bil
 $a('vendor typeahead',                          strpos($bc, 'VendorTypeahead') !== false && strpos($bc, 'testId="ap-bill-create-vendor"') !== false);
 $a('uses LineItemEditor',                       strpos($bc, "import LineItemEditor") !== false);
 $a('passes glField=gl_expense_account_code',    strpos($bc, 'glField="gl_expense_account_code"') !== false);
-$a('fetches expense accounts only',             strpos($bc, '/modules/accounting/api/accounts.php?type=expense') !== false);
+$a('fetches expense accounts only',             strpos($bc, 'ACCOUNTING_ACCOUNTS_API') !== false && strpos($bc, '?type=expense&active=1') !== false);
 $a('vendor type select',                        strpos($bc, 'data-testid="ap-bill-create-vendor-type"') !== false);
 $a('1099 individual auto-flag',                 strpos($bc, "is_1099_eligible: vendorType === '1099_individual'") !== false);
 $a('submit posts to bills.php',                 strpos($bc, "api.post('/modules/ap/api/bills.php'") !== false);
@@ -82,7 +82,7 @@ $a('page testid',                               strpos($ic, 'data-testid="billin
 $a('client typeahead role=client',              strpos($ic, 'role="client"') !== false);
 $a('uses LineItemEditor',                       strpos($ic, "import LineItemEditor") !== false);
 $a('passes glField=gl_revenue_account_code',    strpos($ic, 'glField="gl_revenue_account_code"') !== false);
-$a('fetches revenue accounts only',             strpos($ic, '/modules/accounting/api/accounts.php?type=revenue') !== false);
+$a('fetches revenue accounts only',             strpos($ic, 'ACCOUNTING_ACCOUNTS_API') !== false && strpos($ic, '?type=revenue&active=1') !== false);
 $a('separate internal/external notes',          strpos($ic, 'notes-internal') !== false && strpos($ic, 'notes-external') !== false);
 $a('submit posts to invoices.php',              strpos($ic, "api.post('/modules/billing/api/invoices.php'") !== false);
 

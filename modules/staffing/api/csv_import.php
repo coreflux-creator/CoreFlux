@@ -17,6 +17,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvImportService.php';
+require_once __DIR__ . '/../lib/client_audit.php';
 
 use Core\CsvImportService;
 
@@ -87,6 +88,7 @@ if ($method === 'POST' && $action === 'inspect') {
 
 if ($method === 'POST' && $action === 'ai_suggest_map') {
     rbac_legacy_require($user, 'staffing.view');
+    rbac_legacy_require($user, 'ai.use');
     require_once __DIR__ . '/../../../core/ai_csv_mapper.php';
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
@@ -157,7 +159,7 @@ if ($method === 'POST' && $action === 'dry_run') {
 }
 
 if ($method === 'POST' && $action === 'commit') {
-    rbac_legacy_require($user, 'staffing.view');
+    rbac_legacy_require($user, 'staffing.clients.manage');
     $csv = CsvImportService::readRequestCsv();
     if (!$csv) api_error('No CSV body received', 400);
     $columnMap = CsvImportService::readRequestColumnMap();
@@ -217,6 +219,15 @@ if ($method === 'POST' && $action === 'commit') {
         return scopedInsert('staffing_clients', $payload);
     }, ['skip_invalid' => $skipInvalid, 'column_map' => $columnMap]);
 
+    staffingClientAudit($tid, (int) ($user['id'] ?? 0), 'staffing.clients.imported', null, [
+        'source' => 'staffing_clients_csv_import',
+        'created' => $result['created'] ?? $result['inserted'] ?? null,
+        'updated' => $result['updated'] ?? null,
+        'skipped' => $result['skipped'] ?? null,
+        'error_count' => $result['error_count'] ?? null,
+        'skip_invalid' => $skipInvalid,
+        'update_existing' => $updateExisting,
+    ]);
     api_ok($result);
 }
 

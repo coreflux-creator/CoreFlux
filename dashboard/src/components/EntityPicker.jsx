@@ -1,6 +1,8 @@
 import React from 'react';
 import { useApi } from '../lib/api';
 
+const ACCOUNTING_ENTITIES_API = '/api/v1/accounting/entities';
+
 /**
  * <EntityPicker /> — reusable entity dropdown for module create forms
  * (AP bill, AR invoice, employee, etc.). Returns the accounting_entities
@@ -18,7 +20,7 @@ export default function EntityPicker({
   value, onChange, required = false, testId = 'entity-picker',
   label = 'Entity', allowNone = true,
 }) {
-  const { data } = useApi('/modules/accounting/api/entities.php');
+  const { data } = useApi(ACCOUNTING_ENTITIES_API);
   const entities = data?.rows || data?.entities || [];
   return (
     <label style={{ fontSize: 12 }}>

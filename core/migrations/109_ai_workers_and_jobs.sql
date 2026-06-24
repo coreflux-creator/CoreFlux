@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS ai_workers (
     worker_key          VARCHAR(120) NOT NULL,           -- "host:pid" or stable id
     label               VARCHAR(200) NULL,
     status              ENUM('online','draining','stalled','offline') NOT NULL DEFAULT 'online',
-    capabilities_json   LONGTEXT NULL,                   -- {"queues":["default","close_agent"], "max_concurrency":1}
+    capabilities_json   LONGTEXT NULL,                   -- {"queues":["default"], "tool_allowlist":["coreflux.x"], "max_concurrency":1}
     last_heartbeat_at   DATETIME NULL,
     registered_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_seen_ip        VARCHAR(45) NULL,

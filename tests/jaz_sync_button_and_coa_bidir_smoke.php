@@ -98,7 +98,7 @@ $a('JazSyncNowCard mounted next to sync_config',          $c($ui, '<JazSyncNowCa
 $a('JazSyncNowCard component defined',                    $c($ui, 'function JazSyncNowCard'));
 $a('Sync now button testid',                              $c($ui, 'data-testid="jaz-sync-now-all"'));
 $a('CoA-only sync button testid',                         $c($ui, 'data-testid="jaz-sync-now-coa"'));
-$a('Sync now POSTs ?action=sync_now',                     $c($ui, "'/api/accounting.php?action=sync_now&provider=jaz'"));
+$a('Sync now POSTs ?action=sync_now',                     $c($ui, '`${ACCOUNTING_INTEGRATIONS_API}?action=sync_now&provider=jaz`'));
 $a('Sync now passes entity_types filter',                 $c($ui, "payload.entity_types = entityTypes"));
 $a('Sync now results table testid',                       $c($ui, 'data-testid="jaz-sync-now-results"'));
 $a('per-entity row testid',                               $c($ui, 'data-testid={`jaz-sync-row-${entity}`}'));

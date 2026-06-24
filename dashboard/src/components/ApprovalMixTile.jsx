@@ -12,7 +12,7 @@ import { CheckCircle2, AlertTriangle } from 'lucide-react';
  * High `bulk_pre_approved` concentration in the most recent week is
  * an early-warning signal for collection-risk concentration.
  *
- * Reads /modules/time/api/approval_mix.php. Silently hides on error
+ * Reads /api/v1/time/approval-mix. Silently hides on error
  * — this is a supplementary tile, not a blocker.
  */
 const CHANNEL_META = {
@@ -30,7 +30,7 @@ const BULK_WARN_THRESHOLD = 0.4;
 const BULK_ALERT_THRESHOLD = 0.7;
 
 export default function ApprovalMixTile() {
-  const { data, loading, error } = useApi('/modules/time/api/approval_mix.php?weeks=12');
+  const { data, loading, error } = useApi('/api/v1/time/approval-mix?weeks=12');
 
   const view = useMemo(() => {
     if (!data || !data.weeks?.length) return null;

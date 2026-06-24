@@ -3,6 +3,7 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 
 const TYPES = ['asset','liability','equity','revenue','expense'];
 const NORMAL = { asset: 'debit', expense: 'debit', liability: 'credit', equity: 'credit', revenue: 'credit' };
+const ACCOUNTS_API = '/api/v1/accounting/accounts';
 
 const DEFAULT_COA = [
   { code: '1000', name: 'Cash', account_type: 'asset' },
@@ -74,7 +75,7 @@ function descendantSet(rows, accountId) {
 }
 
 export default function ChartOfAccounts() {
-  const { data, loading, error, reload } = useApi('/modules/accounting/api/accounts.php');
+  const { data, loading, error, reload } = useApi(ACCOUNTS_API);
   const rows = data?.rows ?? [];
   const [form, setForm]       = useState({ code: '', name: '', account_type: 'expense' });
   const [busy, setBusy]       = useState(false);
@@ -94,7 +95,7 @@ export default function ChartOfAccounts() {
     e.preventDefault();
     setBusy(true); setNotice(null);
     try {
-      await api.post('/modules/accounting/api/accounts.php', form);
+      await api.post(ACCOUNTS_API, form);
       setForm({ code: '', name: '', account_type: 'expense' });
       reload();
     } catch (err) { setNotice({ type: 'err', text: err.message }); }
@@ -107,7 +108,7 @@ export default function ChartOfAccounts() {
     let created = 0, skipped = 0;
     for (const a of DEFAULT_COA) {
       if (existing.has(a.code)) { skipped++; continue; }
-      try { await api.post('/modules/accounting/api/accounts.php', a); created++; } catch { /* ignore */ }
+      try { await api.post(ACCOUNTS_API, a); created++; } catch { /* ignore */ }
     }
     setSeedBusy(false);
     setNotice({ type: 'ok', text: `Seeded ${created} accounts (skipped ${skipped}).` });
@@ -118,7 +119,7 @@ export default function ChartOfAccounts() {
     if (!confirm('Auto-group Plaid-mirrored liability accounts (credit cards, loans) under their institution as parent?')) return;
     setAutoBusy(true); setNotice(null);
     try {
-      const res = await api.post('/modules/accounting/api/accounts.php?action=auto_group_plaid', {});
+      const res = await api.post(`${ACCOUNTS_API}?action=auto_group_plaid`, {});
       if (res.count === 0) {
         setNotice({ type: 'ok', text: 'Nothing to group — all Plaid liabilities already have a parent or no institution metadata.' });
       } else {
@@ -133,7 +134,7 @@ export default function ChartOfAccounts() {
   const reparent = async (childId, newParentId) => {
     try {
       await api.patch(
-        `/modules/accounting/api/accounts.php?id=${childId}`,
+        `${ACCOUNTS_API}?id=${childId}`,
         { parent_account_id: newParentId || null }
       );
       setMoveTarget(null);

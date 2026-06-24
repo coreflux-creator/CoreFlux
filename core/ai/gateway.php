@@ -46,6 +46,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../audit.php';
 require_once __DIR__ . '/tool_gateway.php';
 require_once __DIR__ . '/prompt_versions.php';
 require_once __DIR__ . '/providers/factory.php';
@@ -283,14 +284,17 @@ function aiGatewayListRuns(
 function aiGatewayAuditEvent(int $tenantId, ?int $userId, string $event, array $payload): void
 {
     try {
-        getDB()->prepare(
-            'INSERT INTO audit_log
-                (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
-             VALUES (:t, :u, :e, NULL, :m, NOW())'
-        )->execute([
-            't' => $tenantId, 'u' => $userId, 'e' => $event,
-            'm' => json_encode($payload, JSON_UNESCAPED_SLASHES) ?: null,
-        ]);
+        platformAuditLogWrite(
+            $tenantId,
+            $userId,
+            $event,
+            null,
+            $payload,
+            [
+                'source' => 'ai',
+                'object_type' => 'ai_run',
+            ]
+        );
     } catch (\Throwable $e) {
         error_log('[aiGatewayAuditEvent] ' . $event . ': ' . $e->getMessage());
     }

@@ -20,7 +20,7 @@ export default function PayrollRunDetail() {
 
   const load = async () => {
     try {
-      const d = await api.get(`/modules/payroll/api/runs.php?id=${runId}`);
+      const d = await api.get(`/api/v1/payroll/runs?id=${runId}`);
       setData(d);
     } catch (e) { setError(e.message); }
   };
@@ -28,7 +28,7 @@ export default function PayrollRunDetail() {
   const loadAnomalies = async () => {
     setAnomaliesLoading(true);
     try {
-      const r = await api.get(`/modules/payroll/api/anomalies.php?run_id=${runId}`);
+      const r = await api.get(`/api/v1/payroll/anomalies?run_id=${runId}`);
       setAnomalies(r.findings || []);
     } catch (e) { /* swallow — panel just hides */ }
     finally { setAnomaliesLoading(false); }
@@ -39,7 +39,7 @@ export default function PayrollRunDetail() {
   const compute = async () => {
     setBusy('compute'); setError(null);
     try {
-      await api.post('/modules/payroll/api/runs.php', { run_id: parseInt(runId, 10), action: 'compute' });
+      await api.post('/api/v1/payroll/runs', { run_id: parseInt(runId, 10), action: 'compute' });
       await load();
       await loadAnomalies();
     } catch (e) { setError(e.message); } finally { setBusy(null); }
@@ -48,7 +48,7 @@ export default function PayrollRunDetail() {
   const approve = async () => {
     setBusy('approve');
     try {
-      await api.post('/modules/payroll/api/runs.php', { run_id: parseInt(runId, 10), action: 'approve' });
+      await api.post('/api/v1/payroll/runs', { run_id: parseInt(runId, 10), action: 'approve' });
       await load();
     } finally { setBusy(null); }
   };
@@ -56,7 +56,7 @@ export default function PayrollRunDetail() {
   const markPaid = async () => {
     setBusy('paid');
     try {
-      await api.post('/modules/payroll/api/runs.php', { run_id: parseInt(runId, 10), action: 'paid' });
+      await api.post('/api/v1/payroll/runs', { run_id: parseInt(runId, 10), action: 'paid' });
       await load();
     } finally { setBusy(null); }
   };
@@ -64,7 +64,7 @@ export default function PayrollRunDetail() {
   const askAi = async () => {
     setBusy('ai'); setAiError(null);
     try {
-      const res = await api.post('/modules/payroll/api/ai_run_summary.php', { run_id: parseInt(runId, 10) });
+      const res = await api.post('/api/v1/payroll/ai-run-summary', { run_id: parseInt(runId, 10) });
       setAiEnvelope(res.ai);
     } catch (e) {
       setAiError(e.message);
@@ -74,7 +74,7 @@ export default function PayrollRunDetail() {
   const rerunAnomalies = async (withAi) => {
     setBusy('anomalies'); setError(null);
     try {
-      const res = await api.post('/modules/payroll/api/anomalies.php', {
+      const res = await api.post('/api/v1/payroll/anomalies', {
         run_id: parseInt(runId, 10),
         ai: !!withAi,
       });
@@ -85,7 +85,7 @@ export default function PayrollRunDetail() {
 
   const ackAnomaly = async (id) => {
     try {
-      await api.put(`/modules/payroll/api/anomalies.php?id=${id}`, {});
+      await api.put(`/api/v1/payroll/anomalies?id=${id}`, {});
       await loadAnomalies();
     } catch (e) { setError(e.message); }
   };
@@ -351,7 +351,7 @@ function GustoSyncPanel({ run, reload, runId }) {
   const [submitResult, setSubmitResult] = React.useState(null);
 
   React.useEffect(() => {
-    api.get('/modules/payroll/api/gusto_connect.php')
+    api.get('/api/v1/payroll/gusto-connect')
       .then((d) => setConn(d))
       .catch(() => setConn({ configured: false, connection: null }));
   }, []);
@@ -359,7 +359,7 @@ function GustoSyncPanel({ run, reload, runId }) {
   const post = async (action, body = {}) => {
     setBusy(action); setErr(null);
     try {
-      const res = await api.post('/modules/payroll/api/runs.php', { run_id: runId, action, ...body });
+      const res = await api.post('/api/v1/payroll/runs', { run_id: runId, action, ...body });
       await reload();
       return res;
     } catch (e) {
@@ -370,7 +370,7 @@ function GustoSyncPanel({ run, reload, runId }) {
   const listUnprocessed = async () => {
     setBusy('list_unprocessed'); setErr(null);
     try {
-      const res = await api.post('/modules/payroll/api/gusto_submit.php', {
+      const res = await api.post('/api/v1/payroll/gusto-submit', {
         run_id: runId, action: 'list_unprocessed',
       });
       setUnprocessed(res.payrolls || []);
@@ -383,7 +383,7 @@ function GustoSyncPanel({ run, reload, runId }) {
     if (!window.confirm('Submit this run to Gusto? Hours, overtime, bonuses, and reimbursements will be pushed to the selected Gusto payroll period and the run will be moved to "submitted" in Gusto.')) return;
     setBusy('submit_to_gusto'); setErr(null);
     try {
-      const res = await api.post('/modules/payroll/api/gusto_submit.php', {
+      const res = await api.post('/api/v1/payroll/gusto-submit', {
         run_id: runId, gusto_payroll_uuid: pickedUuid,
       });
       setSubmitResult(res);
@@ -396,7 +396,7 @@ function GustoSyncPanel({ run, reload, runId }) {
     if (!pickedUuid) { setErr('Pick a Gusto payroll period first'); return; }
     setBusy('preview_to_gusto'); setErr(null); setPreviewResult(null);
     try {
-      const res = await api.post('/modules/payroll/api/gusto_preview.php', {
+      const res = await api.post('/api/v1/payroll/gusto-preview', {
         run_id: runId, gusto_payroll_uuid: pickedUuid,
       });
       setPreviewResult(res);
@@ -435,19 +435,19 @@ function GustoSyncPanel({ run, reload, runId }) {
       <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
         <a
           className="btn btn--ghost"
-          href={`/modules/payroll/api/runs.php?action=export_run&id=${run.id}`}
+          href={`/api/v1/payroll/runs/${run.id}/export-run`}
           data-testid="payroll-run-export-csv"
           download
         >Download audit CSV</a>
         <a
           className="btn btn--ghost"
-          href={`/modules/payroll/api/runs.php?action=export_gusto&id=${run.id}`}
+          href={`/api/v1/payroll/runs/${run.id}/export-gusto`}
           data-testid="payroll-run-export-gusto"
           download
         >Download Gusto-import CSV</a>
         <ExportTemplatePicker
           dataset="payroll_disbursements"
-          buildHref={(tplId) => `/modules/payroll/api/runs.php?action=export_template&id=${run.id}&template_id=${tplId}`}
+          buildHref={(tplId) => `/api/v1/payroll/runs/${run.id}/export-template?template_id=${tplId}`}
           label="Export via template"
           testid="payroll-run-export-template"
         />
@@ -660,7 +660,7 @@ function PayrollPreflightCard({ periodId }) {
   useEffect(() => {
     let cancelled = false;
     setBusy(true); setErr(null);
-    api.get(`/modules/payroll/api/preflight.php?period_id=${periodId}`)
+    api.get(`/api/v1/payroll/preflight?period_id=${periodId}`)
       .then((d) => { if (!cancelled) setData(d); })
       .catch((e) => { if (!cancelled) setErr(e.message); })
       .finally(() => { if (!cancelled) setBusy(false); });

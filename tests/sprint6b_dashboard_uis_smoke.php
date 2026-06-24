@@ -50,7 +50,7 @@ $av = (string) file_get_contents("{$ROOT}/dashboard/src/pages/AuditLogViewer.jsx
 $assert('hits /api/audit_log.php',                   stripos($av, '/api/audit_log.php') !== false);
 $assert('CSV export href ?format=csv',               stripos($av, 'format=csv') !== false);
 $assert('builds URLSearchParams',                    stripos($av, 'URLSearchParams') !== false);
-foreach (['audit-log-viewer','audit-filter-event','audit-filter-user','audit-filter-from','audit-filter-to','audit-filter-limit','audit-search','audit-export-csv','audit-count','audit-empty','audit-error'] as $tid) {
+foreach (['audit-log-viewer','audit-filter-event','audit-filter-user','audit-filter-actor-type','audit-filter-actor-email','audit-filter-object-type','audit-filter-target','audit-filter-request','audit-filter-source','audit-filter-ip','audit-filter-from','audit-filter-to','audit-filter-limit','audit-search','audit-export-csv','audit-count','audit-empty','audit-error'] as $tid) {
     $assert("testid: {$tid}", stripos($av, "data-testid=\"{$tid}\"") !== false);
 }
 foreach (['audit-row-','audit-toggle-','audit-meta-'] as $tidPrefix) {
@@ -59,11 +59,12 @@ foreach (['audit-row-','audit-toggle-','audit-meta-'] as $tidPrefix) {
 
 echo "\nDimensionsAdmin component\n";
 $da = (string) file_get_contents("{$ROOT}/modules/accounting/ui/DimensionsAdmin.jsx");
-$assert('GET /modules/accounting/api/dimensions.php',         stripos($da, "useApi('/modules/accounting/api/dimensions.php')") !== false);
-$assert('POST upsert dimension',                              preg_match("#api\\.post\\(\\s*['\"]/modules/accounting/api/dimensions\\.php['\"]\\s*,#", $da) === 1);
-$assert('DELETE dimension by id',                             stripos($da, "api.delete(`/modules/accounting/api/dimensions.php?id=") !== false);
+$assert('GET /api/v1/accounting/dimensions',                  stripos($da, "DIMENSIONS_API = '/api/v1/accounting/dimensions'") !== false);
+$assert('POST upsert dimension',                              preg_match("#api\\.post\\(\\s*DIMENSIONS_API\\s*,#", $da) === 1);
+$assert('DELETE dimension by id',                             stripos($da, 'api.delete(`${DIMENSIONS_API}?id=') !== false);
 $assert('add_value action',                                   stripos($da, '?action=add_value') !== false);
 $assert('values action',                                      stripos($da, '?action=values&id=') !== false);
+$assert('dimensions UI hides module API path',                 stripos($da, '/modules/accounting/api/dimensions.php') === false);
 foreach (['accounting-dimensions','dimensions-new','dimensions-empty','dimensions-error','dimensions-action-error','dimensions-create-modal','dimensions-create-key','dimensions-create-label','dimensions-create-type','dimensions-create-required','dimensions-create-submit','dimensions-values-panel','dimensions-values-code','dimensions-values-label','dimensions-values-add'] as $tid) {
     $assert("testid: {$tid}", stripos($da, "data-testid=\"{$tid}\"") !== false);
 }
@@ -73,12 +74,17 @@ foreach (['dimensions-row-','dimensions-deactivate-','dimensions-values-','dimen
 
 echo "\nPeriodCloseWorkflow component\n";
 $pc = (string) file_get_contents("{$ROOT}/modules/accounting/ui/PeriodCloseWorkflow.jsx");
-$assert('GET periods list',                          stripos($pc, "/modules/accounting/api/periods.php") !== false);
-$assert('GET close_tasks by period',                 stripos($pc, "/modules/accounting/api/close_tasks.php?period_id=") !== false);
-$assert('POST seed checklist',                       stripos($pc, "/modules/accounting/api/close_tasks.php?action=seed") !== false);
-$assert('POST complete task',                        stripos($pc, "/modules/accounting/api/close_tasks.php?action=complete&id=") !== false);
-$assert('PATCH task status',                         preg_match("#api\\.patch\\(\\s*['\"]/modules/accounting/api/close_tasks\\.php['\"]#", $pc) === 1);
-$assert('POST record close packet',                  stripos($pc, "/modules/accounting/api/close_packet.php?period_id=") !== false && stripos($pc, "&action=record") !== false);
+$assert('GET periods list',                          stripos($pc, "PERIODS_API = '/api/v1/accounting/periods'") !== false);
+$assert('GET close_tasks by period',                 stripos($pc, "CLOSE_TASKS_API = '/api/v1/accounting/close-tasks'") !== false);
+$assert('POST seed checklist',                       stripos($pc, '?action=seed') !== false);
+$assert('POST complete task',                        stripos($pc, '?action=complete&id=') !== false);
+$assert('PATCH task status',                         preg_match("#api\\.patch\\(\\s*CLOSE_TASKS_API\\s*,#", $pc) === 1);
+$assert('POST record close packet',                  stripos($pc, "CLOSE_PACKET_API = '/api/v1/accounting/close-packet'") !== false && stripos($pc, "&action=record") !== false);
+$assert('close workflow hides module API paths',
+    stripos($pc, '/modules/accounting/api/periods.php') === false
+    && stripos($pc, '/modules/accounting/api/close_tasks.php') === false
+    && stripos($pc, '/modules/accounting/api/close_packet.php') === false
+    && stripos($pc, '/modules/accounting/api/close_ai.php') === false);
 $assert('opens close packet HTML in new tab',        stripos($pc, "format=html") !== false && stripos($pc, "window.open(") !== false);
 foreach (['accounting-period-close-workflow','close-period-select','close-seed','close-build-packet','close-error','close-empty','close-stats','close-task-list'] as $tid) {
     $assert("testid: {$tid}", stripos($pc, "data-testid=\"{$tid}\"") !== false);

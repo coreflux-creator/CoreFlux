@@ -70,7 +70,11 @@ switch (api_method()) {
             gustoAudit('payroll.gusto.connected_manual', [
                 'connection_id' => $id, 'env' => 'sandbox',
                 'company_uuid'  => trim((string) $body['company_uuid']),
-            ], $id);
+            ], $id, [
+                'tenant_id' => (int) $ctx['tenant_id'],
+                'actor_user_id' => (int) ($ctx['user']['id'] ?? 0),
+                'after' => gustoConnectionAuditRow((int) $ctx['tenant_id'], $id),
+            ]);
             api_ok(['ok' => true, 'connection_id' => $id], 201);
         } catch (\Throwable $e) {
             api_error('Manual connect failed: ' . $e->getMessage(), 422);
@@ -81,8 +85,15 @@ switch (api_method()) {
         rbac_legacy_require($ctx['user'], 'payroll.run.disburse');
         $conn = gustoActiveConnection((int) $ctx['tenant_id']);
         if (!$conn) api_error('No active Gusto connection', 404);
+        $before = gustoConnectionAuditRow((int) $ctx['tenant_id'], (int) $conn['id']);
         scopedUpdate('tenant_gusto_connections', (int) $conn['id'], ['status' => 'revoked']);
-        gustoAudit('payroll.gusto.disconnected', ['connection_id' => (int) $conn['id']], (int) $conn['id']);
+        $after = gustoConnectionAuditRow((int) $ctx['tenant_id'], (int) $conn['id']);
+        gustoAudit('payroll.gusto.disconnected', ['connection_id' => (int) $conn['id']], (int) $conn['id'], [
+            'tenant_id' => (int) $ctx['tenant_id'],
+            'actor_user_id' => (int) ($ctx['user']['id'] ?? 0),
+            'before' => $before,
+            'after' => $after,
+        ]);
         api_ok(['ok' => true]);
     }
 }

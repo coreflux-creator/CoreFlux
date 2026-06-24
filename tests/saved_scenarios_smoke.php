@@ -107,7 +107,7 @@ $assert('per-saved delete testid template',        strpos($pg, 'data-testid={`sc
 
 echo "\nBehaviour — save / apply / delete handlers\n";
 $assert('saveAsPreset POSTs the current event stack',
-    strpos($pg, "api.post('/api/treasury_scenario_presets.php', {") !== false
+    strpos($pg, "api.post('/api/v1/treasury/scenario-presets', {") !== false
     && strpos($pg, 'events,') !== false);
 $assert('saveAsPreset reloads the saved-list',     strpos($pg, 'savedQuery.reload?.()') !== false);
 $assert('save-open disabled when events empty',
@@ -118,7 +118,7 @@ $assert('applySavedPreset replaces the stack (not additive)',
 $assert('deleteSavedPreset confirms before deleting',
     strpos($pg, 'window.confirm(') !== false);
 $assert('deleteSavedPreset DELETEs by id',
-    strpos($pg, 'api.delete(`/api/treasury_scenario_presets.php?id=${preset.id}`)') !== false);
+    strpos($pg, 'api.delete(`/api/v1/treasury/scenario-presets?id=${preset.id}`)') !== false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

@@ -18,6 +18,8 @@
  */
 declare(strict_types=1);
 
+$ROOT = dirname(__DIR__);
+
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
     if ($cond) { echo "  ✓ $msg\n"; $pass++; }
@@ -29,7 +31,7 @@ $c = function (string $hay, string $needle): bool { return strpos($hay, $needle)
 // 1) Migration 108 — both new tables.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── Migration 108 ──\n";
-$mig = (string) file_get_contents('/app/core/migrations/108_ap_invoice_extractions_and_cash_forecast.sql');
+$mig = (string) file_get_contents($ROOT . '/core/migrations/108_ap_invoice_extractions_and_cash_forecast.sql');
 $a('migration file exists',                                   $mig !== '');
 $a('CREATE ap_invoice_extraction_runs',                       $c($mig, 'CREATE TABLE IF NOT EXISTS ap_invoice_extraction_runs'));
 $a('CREATE cash_forecast_runs',                               $c($mig, 'CREATE TABLE IF NOT EXISTS cash_forecast_runs'));
@@ -52,7 +54,7 @@ $a('cash_forecast links to artifact_id',                      $c($mig, 'artifact
 // 2) core/ai/ap_extraction.php
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── core/ai/ap_extraction.php ──\n";
-$ap = (string) file_get_contents('/app/core/ai/ap_extraction.php');
+$ap = (string) file_get_contents($ROOT . '/core/ai/ap_extraction.php');
 $a('apNormalizeVendorName defined',                           $c($ap, 'function apNormalizeVendorName(string $s): string'));
 $a('apExtractionCreate defined',                              $c($ap, 'function apExtractionCreate(int $tenantId, array $opts): array'));
 $a('apExtractionRecordPayload defined',                       $c($ap, 'function apExtractionRecordPayload(int $tenantId, int $runId, array $payload, ?float $confidence = null, ?string $aiRunId = null): array'));
@@ -67,11 +69,11 @@ $a('draft bill refuses when run flagged as duplicate',        $c($ap, "is flagge
 $a('draft bill is idempotent on re-entry',                    $c($ap, 'idempotent_replay'));
 $a('draft bill inserts ap_bills with status=inbox',           $c($ap, "status, source, source_ref_id") && $c($ap, '"inbox", "manual"'));
 
-$lint = []; exec('php -l /app/core/ai/ap_extraction.php 2>&1', $lint, $rc);
+$lint = []; exec('php -l ' . escapeshellarg($ROOT . '/core/ai/ap_extraction.php') . ' 2>&1', $lint, $rc);
 $a('ap_extraction.php passes php -l',                         $rc === 0);
 
 // Pure-function probe.
-require_once '/app/core/ai/ap_extraction.php';
+require_once $ROOT . '/core/ai/ap_extraction.php';
 $a('apNormalizeVendorName: "ACME Co." == "acme  co"',
     apNormalizeVendorName('ACME Co.') === apNormalizeVendorName('acme  co'));
 $a('apNormalizeVendorName: trailing comma stripped',
@@ -81,7 +83,8 @@ $a('apNormalizeVendorName: trailing comma stripped',
 // 3) core/ai/cash_forecast.php
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── core/ai/cash_forecast.php ──\n";
-$cf = (string) file_get_contents('/app/core/ai/cash_forecast.php');
+$cf = (string) file_get_contents($ROOT . '/core/ai/cash_forecast.php');
+$treasuryManifest = (string) file_get_contents($ROOT . '/modules/treasury/manifest.php');
 $a('cashForecastRun defined',                                 $c($cf, 'function cashForecastRun(int $tenantId, array $opts = []): array'));
 $a('cashForecastGet defined',                                 $c($cf, 'function cashForecastGet(int $tenantId, int $forecastId): ?array'));
 $a('cashForecastList defined',                                $c($cf, 'function cashForecastList(int $tenantId, array $filters = []): array'));
@@ -89,6 +92,20 @@ $a('CASH_FORECAST_DEFAULT_WEEKS = 13',                        $c($cf, 'const CAS
 $a('weeks_count clamped 1..52',                               $c($cf, 'max(1, min(52, (int) ($opts[\'weeks\'] ?? CASH_FORECAST_DEFAULT_WEEKS)))'));
 $a('starting_at format validated',                            $c($cf, "starting_at must be YYYY-MM-DD"));
 $a('forecast persists into cash_forecast_runs',               $c($cf, 'INSERT INTO cash_forecast_runs'));
+$a('forecast creates first-class cash_forecast artifact',
+    $c($cf, "artifactCreate(\$tenantId, 'cash_forecast'")
+    && $c($cf, "source_record_type' => 'cash_forecast_runs'")
+    && $c($cf, "initial_status' => 'review'"));
+$a('forecast stamps cash_forecast_runs.artifact_id',
+    $c($cf, 'UPDATE cash_forecast_runs')
+    && $c($cf, 'SET artifact_id = :aid')
+    && $c($cf, "'artifact_id'             => \$artifactId"));
+$a('forecast run writes canonical treasury audit event',
+    $c($cf, 'platformAuditLogWrite($tenantId, $actorUid, \'treasury.forecast.run\'')
+    && $c($cf, "'object_type' => 'cash_forecast'")
+    && $c($cf, "'artifact_id' => \$artifactId"));
+$a('Treasury manifest declares forecast audit event',
+    $c($treasuryManifest, "'treasury.forecast.run'"));
 $a('forecast bucket carries shortfall note',                  $c($cf, "'NEGATIVE — shortfall flagged'"));
 $a('forecast tracks min_week_balance for shortfall alerts',   $c($cf, 'minWeekCents'));
 $a('opening cash from accounting_bank_accounts',              $c($cf, 'accounting_bank_accounts'));
@@ -96,14 +113,14 @@ $a('AP outflow query reads ap_bills by due_date',             $c($cf, 'FROM ap_b
 $a('AR inflow query reads billing_invoices',                  $c($cf, 'FROM billing_invoices'));
 $a('Payroll outflow query reads payroll_runs.pay_date',       $c($cf, 'FROM payroll_runs') && $c($cf, 'pay_date BETWEEN'));
 
-$lint2 = []; exec('php -l /app/core/ai/cash_forecast.php 2>&1', $lint2, $rc2);
+$lint2 = []; exec('php -l ' . escapeshellarg($ROOT . '/core/ai/cash_forecast.php') . ' 2>&1', $lint2, $rc2);
 $a('cash_forecast.php passes php -l',                         $rc2 === 0);
 
 // ──────────────────────────────────────────────────────────────────────
 // 4) core/ai/timesheet_anomaly.php
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── core/ai/timesheet_anomaly.php ──\n";
-$ta = (string) file_get_contents('/app/core/ai/timesheet_anomaly.php');
+$ta = (string) file_get_contents($ROOT . '/core/ai/timesheet_anomaly.php');
 $a('detectTimesheetAnomalies defined',                        $c($ta, 'function detectTimesheetAnomalies(int $tenantId, array $opts = []): array'));
 $a('timesheetFinding factory defined',                        $c($ta, 'function timesheetFinding('));
 $a('week_start format validated',                             $c($ta, "week_start must be YYYY-MM-DD"));
@@ -118,11 +135,11 @@ $a('returns summary_by_rule headline counts',                 $c($ta, "summary_b
 $a('returns scanned_people count',                            $c($ta, "scanned_people"));
 $a('tolerant of missing schema (sandbox)',                    $c($ta, "'unable to scan: '"));
 
-$lint3 = []; exec('php -l /app/core/ai/timesheet_anomaly.php 2>&1', $lint3, $rc3);
+$lint3 = []; exec('php -l ' . escapeshellarg($ROOT . '/core/ai/timesheet_anomaly.php') . ' 2>&1', $lint3, $rc3);
 $a('timesheet_anomaly.php passes php -l',                     $rc3 === 0);
 
 // Pure-function probe — empty tenant returns a structured shell.
-require_once '/app/core/ai/timesheet_anomaly.php';
+require_once $ROOT . '/core/ai/timesheet_anomaly.php';
 try {
     $r = detectTimesheetAnomalies(999999, ['week_start' => '2026-02-02']);
     $a('detectTimesheetAnomalies returns array shape',        is_array($r) && isset($r['window'], $r['findings'], $r['summary_by_rule']));
@@ -144,7 +161,7 @@ try {
 // 5) Tool registry — 5 new tools wired + handlers present.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── tool_gateway.php registry ──\n";
-$gw = (string) file_get_contents('/app/core/ai/tool_gateway.php');
+$gw = (string) file_get_contents($ROOT . '/core/ai/tool_gateway.php');
 foreach ([
     'coreflux.check_duplicate_invoice'    => "'risk_level'  => 'read'",
     'coreflux.draft_bill'                 => "'risk_level'  => 'draft'",
@@ -174,19 +191,22 @@ $a('draft_bill handler reads _actor_user_id from threaded args',
 // 6) /api/ai/forecasts.php + /api/ai/payroll_review.php
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── /api/ai/forecasts.php ──\n";
-$apiF = (string) file_get_contents('/app/api/ai/forecasts.php');
+$apiF = (string) file_get_contents($ROOT . '/api/ai/forecasts.php');
 $a('strict_types',                                            $c($apiF, 'declare(strict_types=1)'));
 $a('GET list returns cashForecastList',                       $c($apiF, 'cashForecastList('));
 $a('GET detail returns cashForecastGet',                      $c($apiF, 'cashForecastGet('));
 $a('POST run invokes cashForecastRun',                        $c($apiF, 'cashForecastRun('));
+$a('forecast API returns artifact-aware forecast payloads',
+    $c($apiF, "api_ok(['forecast' => \$row])")
+    && $c($apiF, "api_ok(['forecast' => \$result])"));
 $a('list+detail gated on accounting.read',                    $c($apiF, "rbac_legacy_can(\$user, 'accounting.read')"));
 $a('run gated on accounting.write',                           $c($apiF, "rbac_legacy_can(\$user, 'accounting.write')"));
 
-$lint4 = []; exec('php -l /app/api/ai/forecasts.php 2>&1', $lint4, $rc4);
+$lint4 = []; exec('php -l ' . escapeshellarg($ROOT . '/api/ai/forecasts.php') . ' 2>&1', $lint4, $rc4);
 $a('forecasts.php passes php -l',                             $rc4 === 0);
 
 echo "\n── /api/ai/payroll_review.php ──\n";
-$apiP = (string) file_get_contents('/app/api/ai/payroll_review.php');
+$apiP = (string) file_get_contents($ROOT . '/api/ai/payroll_review.php');
 $a('strict_types',                                            $c($apiP, 'declare(strict_types=1)'));
 $a('GET-only endpoint',                                       $c($apiP, "if (\$method !== 'GET') api_error('GET only', 405)"));
 $a('Accepts ?week_start= or defaults to last Monday',         $c($apiP, "monday last week"));
@@ -196,14 +216,14 @@ $a('Gated on staffing.read OR accounting.read',
     $c($apiP, "rbac_legacy_can(\$user, 'staffing.read')")
     && $c($apiP, "rbac_legacy_can(\$user, 'accounting.read')"));
 
-$lint5 = []; exec('php -l /app/api/ai/payroll_review.php 2>&1', $lint5, $rc5);
+$lint5 = []; exec('php -l ' . escapeshellarg($ROOT . '/api/ai/payroll_review.php') . ' 2>&1', $lint5, $rc5);
 $a('payroll_review.php passes php -l',                        $rc5 === 0);
 
 // ──────────────────────────────────────────────────────────────────────
 // 7) CashForecastReview.jsx
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── CashForecastReview.jsx ──\n";
-$cfui = (string) file_get_contents('/app/dashboard/src/pages/CashForecastReview.jsx');
+$cfui = (string) file_get_contents($ROOT . '/dashboard/src/pages/CashForecastReview.jsx');
 $a('default export CashForecastReview',                       $c($cfui, 'export default function CashForecastReview()'));
 $a('reads /api/ai/forecasts.php',                             $c($cfui, "/api/ai/forecasts.php"));
 $a('POST run kicks new forecast',                             $c($cfui, "?action=run"));
@@ -230,7 +250,7 @@ $a("template testid 'cash-forecast-week-\${w.week_no}' present", $c($cfui, 'cash
 // 8) PayrollReviewPacket.jsx
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── PayrollReviewPacket.jsx ──\n";
-$prui = (string) file_get_contents('/app/dashboard/src/pages/PayrollReviewPacket.jsx');
+$prui = (string) file_get_contents($ROOT . '/dashboard/src/pages/PayrollReviewPacket.jsx');
 $a('default export PayrollReviewPacket',                      $c($prui, 'export default function PayrollReviewPacket()'));
 $a('reads /api/ai/payroll_review.php',                        $c($prui, "/api/ai/payroll_review.php"));
 $a('passes week_start query param',                           $c($prui, "?week_start="));
@@ -262,8 +282,8 @@ $a("template testid 'payroll-review-severity-\${severity}' present",
 // 9) AccountingModule + AdminModule routing wire-in.
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── AccountingModule.jsx + AdminModule.jsx routing ──\n";
-$am  = (string) file_get_contents('/app/dashboard/src/modules/AccountingModule.jsx');
-$adm = (string) file_get_contents('/app/dashboard/src/pages/AdminModule.jsx');
+$am  = (string) file_get_contents($ROOT . '/dashboard/src/modules/AccountingModule.jsx');
+$adm = (string) file_get_contents($ROOT . '/dashboard/src/pages/AdminModule.jsx');
 
 $a('AccountingModule imports CashForecastReview',             $c($am,  "import CashForecastReview from '../pages/CashForecastReview'"));
 $a('AccountingModule routes /modules/accounting/cash-forecast', $c($am,  'path="cash-forecast"'));

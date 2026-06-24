@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../lib/api';
 
+const ACCOUNTING_INTEGRATIONS_API = '/api/v1/accounting/integrations';
+
 /**
  * <JazIntegrationSettings /> — operator-facing config for the
  * provider-neutral accounting backend (Slice 1). Per spec §24,
@@ -67,7 +69,7 @@ export default function JazIntegrationSettings() {
     if (!subTenantId) { setLoading(false); return; }
     setLoading(true); setError(null);
     try {
-      const r = await api.get(`/api/accounting.php?action=status&sub_tenant_id=${subTenantId}&provider=jaz`);
+      const r = await api.get(`${ACCOUNTING_INTEGRATIONS_API}?action=status&sub_tenant_id=${subTenantId}&provider=jaz`);
       setConnection(r.connection || null);
       if (r.connection?.provider_org_id) setOrgId(r.connection.provider_org_id);
       if (r.connection?.base_currency)   setBaseCurrency(r.connection.base_currency);
@@ -82,7 +84,7 @@ export default function JazIntegrationSettings() {
     if (apiKey.length < 16) return setError('API key must be at least 16 characters.');
     setBusy(true); setError(null);
     try {
-      await api.post('/api/accounting.php?action=connect&provider=jaz', {
+      await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=connect&provider=jaz`, {
         sub_tenant_id: subTenantId,
         api_key: apiKey,
         provider_org_id: orgId || undefined,
@@ -98,7 +100,7 @@ export default function JazIntegrationSettings() {
   const handleValidate = async () => {
     setBusy(true); setError(null);
     try {
-      const r = await api.post('/api/accounting.php?action=validate&provider=jaz', {
+      const r = await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=validate&provider=jaz`, {
         sub_tenant_id: subTenantId,
       });
       setFlash({
@@ -116,7 +118,7 @@ export default function JazIntegrationSettings() {
     if (!confirm('Disconnect Jaz for this entity? Credentials will be wiped.')) return;
     setBusy(true); setError(null);
     try {
-      await api.post('/api/accounting.php?action=disconnect&provider=jaz', { sub_tenant_id: subTenantId });
+      await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=disconnect&provider=jaz`, { sub_tenant_id: subTenantId });
       setFlash({ kind: 'success', msg: 'Disconnected. You can re-connect any time.' });
       await reload();
     } catch (e) { setError(e.message || 'Disconnect failed'); }
@@ -357,7 +359,7 @@ function JazSyncConfigCard({ subTenantId, onFlash }) {
   const reload = useCallback(async () => {
     if (!subTenantId) return;
     try {
-      const r = await api.get(`/api/accounting.php?action=sync_config&sub_tenant_id=${subTenantId}&provider=jaz`);
+      const r = await api.get(`${ACCOUNTING_INTEGRATIONS_API}?action=sync_config&sub_tenant_id=${subTenantId}&provider=jaz`);
       setConfig(r.sync_config || {});
       setDraft(null);
       if (Array.isArray(r.allowed_directions)) setAllowedDirs(r.allowed_directions);
@@ -371,7 +373,7 @@ function JazSyncConfigCard({ subTenantId, onFlash }) {
   const save = async () => {
     setBusy(true); setError(null);
     try {
-      const r = await api.post('/api/accounting.php?action=sync_config_set&provider=jaz', {
+      const r = await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=sync_config_set&provider=jaz`, {
         sub_tenant_id: subTenantId,
         sync_config:   current,
       });
@@ -472,7 +474,7 @@ function JazCopyConfigCard({ subTenantId, entities, onFlash }) {
     }
     setBusy(true);
     try {
-      const r = await api.post('/api/accounting.php?action=sync_config_copy&provider=jaz', {
+      const r = await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=sync_config_copy&provider=jaz`, {
         from_sub_tenant_id: from,
         to_sub_tenant_id:   subTenantId,
         include_account_mappings: true,
@@ -574,7 +576,7 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
         source:                'manual',
         confidence:            100,
       };
-      await api.post('/api/accounting.php?action=account_mapping_save&provider=jaz', body);
+      await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=account_mapping_save&provider=jaz`, body);
       setMappedNow((prev) => ({
         ...prev,
         [cfId]: { provider_id: providerOption.provider_id, name: providerOption.name },
@@ -605,7 +607,7 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
     setSavingId(cfId);
     try {
       const action = mode === 'delete' ? 'account_delete' : 'account_deactivate';
-      await api.post(`/api/accounting.php?action=${action}&provider=jaz`, {
+      await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=${action}&provider=jaz`, {
         coreflux_account_id: cfId,
       });
       setRemovedNow((prev) => ({ ...prev, [cfId]: mode === 'delete' ? 'deleted' : 'deactivated' }));
@@ -640,7 +642,7 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
     try {
       const payload = { sub_tenant_id: subTenantId };
       if (entityTypes) payload.entity_types = entityTypes;
-      const r = await api.post('/api/accounting.php?action=sync_now&provider=jaz', payload);
+      const r = await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=sync_now&provider=jaz`, payload);
       setResult(r);
       const coa  = r?.results?.chart_of_accounts;
       const pull = coa?.pull?.mapped         ?? 0;
@@ -714,7 +716,7 @@ function JazSyncNowCard({ subTenantId, onFlash }) {
         Chart-of-accounts entries flow inline (pull, push, or both depending on the
         direction picker above).  Bills / Invoices / Payments / Journals flow via the
         Command Service async outbox — this button surfaces a pointer to
-        <code> /api/accounting.php?action=command_status</code> for those.
+        <code> /api/v1/accounting/integrations?action=command_status</code> for those.
       </p>
       <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
         <button
@@ -1053,7 +1055,7 @@ function JazAccountMappingCard({ subTenantId, onFlash }) {
     if (!subTenantId) return;
     setLoading(true); setError(null);
     try {
-      const r = await api.get(`/api/accounting.php?action=account_mappings&sub_tenant_id=${subTenantId}&provider=jaz`);
+      const r = await api.get(`${ACCOUNTING_INTEGRATIONS_API}?action=account_mappings&sub_tenant_id=${subTenantId}&provider=jaz`);
       setMappings(r.mappings || []);
       setUnmapped(r.unmapped || []);
     } catch (e) { setError(e.message || 'Failed to load'); }
@@ -1064,7 +1066,7 @@ function JazAccountMappingCard({ subTenantId, onFlash }) {
   const handleAutoMap = async () => {
     setBusy(true); setError(null);
     try {
-      const r = await api.post('/api/accounting.php?action=account_mapping_auto&provider=jaz', {
+      const r = await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=account_mapping_auto&provider=jaz`, {
         sub_tenant_id: subTenantId,
       });
       const created = r.mapped ?? r.new_mappings?.length ?? 0;
@@ -1083,7 +1085,7 @@ function JazAccountMappingCard({ subTenantId, onFlash }) {
     if (!confirm('Remove this mapping? Unmapped accounts can still post in CoreFlux but won\'t sync to Jaz.')) return;
     setBusy(true);
     try {
-      await api.post('/api/accounting.php?action=account_mapping_delete&provider=jaz', {
+      await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=account_mapping_delete&provider=jaz`, {
         sub_tenant_id: subTenantId, mapping_id: mappingId,
       });
       reload();
@@ -1096,7 +1098,7 @@ function JazAccountMappingCard({ subTenantId, onFlash }) {
     if (!addRow || !addRow.coreflux_account_id || !addRow.provider_account_id) return;
     setBusy(true); setError(null);
     try {
-      await api.post('/api/accounting.php?action=account_mapping_save&provider=jaz', {
+      await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=account_mapping_save&provider=jaz`, {
         sub_tenant_id:        subTenantId,
         coreflux_account_id:  addRow.coreflux_account_id,
         provider_account_id:  addRow.provider_account_id,

@@ -113,7 +113,7 @@ $rq = (string) file_get_contents(__DIR__ . '/../modules/time/ui/ReviewQueue.jsx'
 $assert('ReviewQueue imports TokenIssueModal',  strpos($rq, "import TokenIssueModal from './TokenIssueModal'") !== false);
 $assert('ReviewQueue has selection UI',         strpos($rq, 'time-review-request-client-approval') !== false);
 $tim = (string) file_get_contents(__DIR__ . '/../modules/time/ui/TokenIssueModal.jsx');
-$assert('Modal posts to issue endpoint',        strpos($tim, 'approval_tokens.php?action=issue') !== false);
+$assert('Modal posts to issue endpoint',        strpos($tim, '/api/v1/time/approval-tokens?action=issue') !== false);
 $assert('Modal collects ttl_days',              strpos($tim, 'ttl_days') !== false);
 
 echo "\nMail bootstrap\n";

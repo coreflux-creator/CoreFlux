@@ -9,7 +9,7 @@ import { Download, ChevronDown, Settings } from 'lucide-react';
  *
  *   <ExportTemplatePicker
  *     dataset="ap_payments"
- *     buildHref={(tplId) => `/modules/ap/api/payments.php?action=export_template&template_id=${tplId}&ids=${ids}`}
+ *     buildHref={(tplId) => `/api/v1/ap/payments/export-template?template_id=${tplId}&ids=${ids}`}
  *     disabled={ids.length === 0}
  *     label="Export to CSV"
  *   />
@@ -32,7 +32,7 @@ export default function ExportTemplatePicker({
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    fetch(`/api/export_templates.php?dataset=${encodeURIComponent(dataset)}`, {
+    fetch(`/api/v1/reports/export-templates?dataset=${encodeURIComponent(dataset)}`, {
       credentials: 'include',
     })
       .then((r) => r.json().then((d) => r.ok ? d : Promise.reject(d)))

@@ -24,19 +24,20 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/approval_policy.php';
 
+$root = dirname(__DIR__);
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
     if ($ok) { echo "  ✓ {$msg}\n"; $pass++; }
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$mig    = (string) file_get_contents('/app/core/migrations/072_mercury_approval_policies.sql');
-$policy = (string) file_get_contents('/app/core/approval_policy.php');
-$svc    = (string) file_get_contents('/app/core/mercury_payments.php');
-$crn    = (string) file_get_contents('/app/cron/mercury_payment_worker.php');
-$apiF   = (string) file_get_contents('/app/api/admin/treasury/approval_policies.php');
-$ui     = (string) file_get_contents('/app/dashboard/src/pages/ApprovalPoliciesAdmin.jsx');
-$adm    = (string) file_get_contents('/app/dashboard/src/pages/AdminModule.jsx');
+$mig    = (string) file_get_contents($root . '/core/migrations/072_mercury_approval_policies.sql');
+$policy = (string) file_get_contents($root . '/core/approval_policy.php');
+$svc    = (string) file_get_contents($root . '/core/mercury_payments.php');
+$crn    = (string) file_get_contents($root . '/cron/mercury_payment_worker.php');
+$apiF   = (string) file_get_contents($root . '/api/admin/treasury/approval_policies.php');
+$ui     = (string) file_get_contents($root . '/dashboard/src/pages/ApprovalPoliciesAdmin.jsx');
+$adm    = (string) file_get_contents($root . '/dashboard/src/pages/AdminModule.jsx');
 
 echo "\n1. Migration 072 — schema shape\n";
 $a('creates tenant_approval_policies',
@@ -155,10 +156,10 @@ $a('Action card on overview',
 
 echo "\n9. PHP syntax\n";
 foreach ([
-    '/app/core/approval_policy.php',
-    '/app/core/mercury_payments.php',
-    '/app/cron/mercury_payment_worker.php',
-    '/app/api/admin/treasury/approval_policies.php',
+    $root . '/core/approval_policy.php',
+    $root . '/core/mercury_payments.php',
+    $root . '/cron/mercury_payment_worker.php',
+    $root . '/api/admin/treasury/approval_policies.php',
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);

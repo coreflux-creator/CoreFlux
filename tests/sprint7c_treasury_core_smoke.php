@@ -33,7 +33,8 @@ $assert('workflow_instance_id link',          stripos($m5, 'workflow_instance_id
 $assert('uq_tp_tenant_number',                stripos($m5, 'uq_tp_tenant_number') !== false);
 $assert('hot indexes',                        stripos($m5, 'idx_tp_tenant_status') !== false
                                             && stripos($m5, 'idx_tp_tenant_bank') !== false
-                                            && stripos($m5, 'idx_tp_payee') !== false);
+                                            && stripos($m5, 'idx_tp_payee') !== false
+                                            && stripos($m5, 'idx_tp_workflow') !== false);
 
 echo "\nMigration 006 — treasury_transfers\n";
 $m6 = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/006_treasury_transfers.sql");
@@ -49,20 +50,24 @@ $assert('source + destination entity cols',
 $assert('source + destination JE cols',
     stripos($m6, 'source_journal_entry_id') !== false
     && stripos($m6, 'destination_journal_entry_id') !== false);
+$assert('workflow index',                     stripos($m6, 'idx_tt_workflow') !== false);
 
 echo "\napi/treasury_payments.php\n";
 $tp = (string) file_get_contents("{$ROOT}/api/treasury_payments.php");
 $assert('parses',                             $lint("{$ROOT}/api/treasury_payments.php"));
-$assert('GET requires treasury.view_bank_balances',
-    strpos($tp, "rbac_legacy_require(\$user, 'treasury.view_bank_balances')") !== false);
+$assert('GET requires treasury.payment.view',
+    strpos($tp, "rbac_legacy_require(\$user, 'treasury.payment.view')") !== false);
 $assert('create requires treasury.create_payment',
     strpos($tp, "rbac_legacy_require(\$user, 'treasury.create_payment')") !== false);
 $assert('approve requires treasury.approve_payment',
     strpos($tp, "rbac_legacy_require(\$user, 'treasury.approve_payment')") !== false);
+$assert('approve routes through Treasury WorkflowGraph',
+    strpos($tp, 'treasuryPaymentWorkflowAct($tid, $id') !== false
+    && strpos($tp, "'approve'") !== false);
 $assert('execute requires treasury.execute_payment',
     strpos($tp, "rbac_legacy_require(\$user, 'treasury.execute_payment')") !== false);
 $assert('execute emits treasury.payment.executed event',
-    strpos($tp, "'event_type'       => 'treasury.payment.executed'") !== false);
+    strpos($tp, "'event_type' => 'treasury.payment.executed'") !== false);
 $assert('execute calls accountingProcessEvent',
     strpos($tp, 'accountingProcessEvent($tid, $event') !== false);
 $assert('execute → status=executed when posted',
@@ -81,6 +86,8 @@ $assert('payment_number auto-generated when missing',
 echo "\napi/treasury_transfers.php\n";
 $tt = (string) file_get_contents("{$ROOT}/api/treasury_transfers.php");
 $assert('parses',                             $lint("{$ROOT}/api/treasury_transfers.php"));
+$assert('GET requires treasury.payment.view',
+    strpos($tt, "rbac_legacy_require(\$user, 'treasury.payment.view')") !== false);
 $assert('create rejects same src+dst',        strpos($tt, 'source and destination cannot be the same') !== false);
 $assert('detects intercompany via entity mismatch',
     strpos($tt, "\$srcEntity !== \$dstEntity) ? 'intercompany' : 'internal'") !== false);
@@ -90,6 +97,9 @@ $assert('execute intercompany emits treasury.intercompany.transfer.completed',
     strpos($tt, "'treasury.intercompany.transfer.completed'") !== false);
 $assert('approve requires treasury.approve_transfer',
     strpos($tt, "rbac_legacy_require(\$user, 'treasury.approve_transfer')") !== false);
+$assert('approve routes through Treasury WorkflowGraph',
+    strpos($tt, 'treasuryTransferWorkflowAct($tid, $id') !== false
+    && strpos($tt, "'approve'") !== false);
 $assert('create requires treasury.create_transfer',
     strpos($tt, "rbac_legacy_require(\$user, 'treasury.create_transfer')") !== false);
 $assert('payload carries both bank account ids',
@@ -117,11 +127,44 @@ $assert('joins accounting_bank_accounts → accounting_accounts',
 $assert('outflow pending status whitelist',
     strpos($cp, "'pending_approval','approved','scheduled'") !== false);
 $assert('forecast_days clamped 0..60',        strpos($cp, 'min(60, (int) (api_query') !== false);
+$assert('minimum liquidity threshold input',
+    strpos($cp, "api_query('minimum_liquidity_threshold')") !== false
+    && strpos($cp, "api_query('minimum_liquidity_currency')") !== false);
 $assert('per-currency totals + projected balance',
     strpos($cp, "'projected_balance'") !== false
     && strpos($cp, "'by_currency'") !== false);
+$assert('available-to-spend control envelope',
+    strpos($cp, "'liquidity_controls'") !== false
+    && strpos($cp, "'available_to_spend'") !== false
+    && strpos($cp, 'available_to_spend = current_cash') !== false);
+$assert('cash safety score and risk level',
+    strpos($cp, "'cash_safety_score'") !== false
+    && strpos($cp, "'coverage_ratio'") !== false
+    && strpos($cp, "'risk_level'") !== false);
+$assert('high-confidence AP/AR source signals',
+    strpos($cp, 'FROM ap_bills') !== false
+    && strpos($cp, 'FROM billing_invoices') !== false
+    && strpos($cp, "'high_confidence_near_term_outflows'") !== false
+    && strpos($cp, "'high_confidence_near_term_inflows'") !== false);
 $assert('graceful when no reconciliations table',
     strpos($cp, "SHOW TABLES LIKE 'accounting_reconciliations'") !== false);
+
+echo "\nmodules/treasury/ui/TreasuryOverview.jsx\n";
+$overview = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryOverview.jsx");
+$assert('overview reads treasury cash position controls',
+    strpos($overview, "/api/v1/treasury/cash-position?forecast_days=7") !== false
+    && strpos($overview, 'liquidity_controls?.by_currency') !== false);
+$assert('overview renders available-to-spend and safety cards',
+    strpos($overview, 'data-testid="treasury-overview-available-to-spend"') !== false
+    && strpos($overview, 'data-testid="treasury-overview-cash-safety"') !== false);
+$assert('overview renders liquidity control detail strip',
+    strpos($overview, 'data-testid="treasury-overview-liquidity-controls"') !== false
+    && strpos($overview, 'treasury-liquidity-pending-payments') !== false
+    && strpos($overview, 'treasury-liquidity-outflows') !== false
+    && strpos($overview, 'treasury-liquidity-inflows') !== false
+    && strpos($overview, 'treasury-liquidity-coverage') !== false);
+$assert('overview no longer says forecast coming soon',
+    strpos($overview, '13-week forecast coming soon') === false);
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

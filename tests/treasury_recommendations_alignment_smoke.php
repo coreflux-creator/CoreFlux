@@ -1,0 +1,326 @@
+<?php
+/**
+ * Treasury recommendations alignment smoke.
+ *
+ * Locks reserve-policy inputs, payment timing evidence, human approval gates,
+ * and accept/dismiss auditability for Treasury recommendations.
+ */
+declare(strict_types=1);
+
+$ROOT = realpath(__DIR__ . '/..');
+$pass = 0;
+$fail = 0;
+$a = function (string $msg, bool $ok) use (&$pass, &$fail): void {
+    if ($ok) { echo "  OK  {$msg}\n"; $pass++; }
+    else     { echo "  BAD {$msg}\n"; $fail++; }
+};
+$lint = function (string $rel) use ($ROOT): bool {
+    $out = [];
+    $rc = 0;
+    exec('php -l ' . escapeshellarg("{$ROOT}/{$rel}") . ' 2>&1', $out, $rc);
+    return $rc === 0;
+};
+
+$endpoint = (string) file_get_contents("{$ROOT}/api/treasury_recommendations.php");
+$alias = (string) file_get_contents("{$ROOT}/modules/treasury/api/recommendations.php");
+$policyApi = (string) file_get_contents("{$ROOT}/api/treasury_policy.php");
+$policyLib = (string) file_get_contents("{$ROOT}/modules/treasury/lib/policy.php");
+$policyAlias = (string) file_get_contents("{$ROOT}/modules/treasury/api/policy.php");
+$policyMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/008_treasury_policy.sql");
+$decisionMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/009_treasury_recommendation_decisions.sql");
+$handoffMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/010_treasury_recommendation_handoffs.sql");
+$exceptionMig = (string) file_get_contents("{$ROOT}/modules/treasury/migrations/011_treasury_recommendation_exceptions.sql");
+$page = (string) file_get_contents("{$ROOT}/dashboard/src/pages/TreasuryRecommendations.jsx");
+$overview = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryOverview.jsx");
+$module = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryModule.jsx");
+$manifest = (string) file_get_contents("{$ROOT}/modules/treasury/manifest.php");
+
+echo "Files parse\n";
+$a('endpoint parses', $lint('api/treasury_recommendations.php'));
+$a('policy endpoint parses', $lint('api/treasury_policy.php'));
+$a('policy helper parses', $lint('modules/treasury/lib/policy.php'));
+$a('module alias points to endpoint', str_contains($alias, "/../../../api/treasury_recommendations.php"));
+$a('policy alias points to endpoint', str_contains($policyAlias, "/../../../api/treasury_policy.php"));
+
+echo "\nDurable policy\n";
+$a('migration creates tenant_treasury_policy',
+    str_contains($policyMig, 'CREATE TABLE IF NOT EXISTS tenant_treasury_policy')
+    && str_contains($policyMig, 'policy_version INT UNSIGNED NOT NULL DEFAULT 1')
+    && str_contains($policyMig, 'effective_date DATE NOT NULL')
+    && str_contains($policyMig, 'review_cadence_days INT UNSIGNED NOT NULL DEFAULT 30'));
+$a('policy API gates read/write separately',
+    str_contains($policyApi, "rbac_legacy_require(\$user, 'treasury.payment.view')")
+    && str_contains($policyApi, "rbac_legacy_require(\$user, 'treasury.manage_forecast')"));
+$a('policy save increments version and audits before/after',
+    str_contains($policyLib, "\$policy['policy_version'] = max(1, (int) (\$before['policy_version'] ?? 0) + 1)")
+    && str_contains($policyLib, "treasury.policy.updated")
+    && str_contains($policyLib, "'object_type' => 'treasury_policy'")
+    && str_contains($policyLib, "'before' => \$before")
+    && str_contains($policyLib, "'after' => \$after"));
+
+echo "\nDecision ledger\n";
+$a('migration creates recommendation decision ledger',
+    str_contains($decisionMig, 'CREATE TABLE IF NOT EXISTS treasury_recommendation_decisions')
+    && str_contains($decisionMig, 'recommendation_id VARCHAR(160) NOT NULL')
+    && str_contains($decisionMig, "decision ENUM('accept','dismiss') NOT NULL")
+    && str_contains($decisionMig, 'evidence_hash CHAR(64) NOT NULL')
+    && str_contains($decisionMig, 'evidence_json MEDIUMTEXT NULL')
+    && str_contains($decisionMig, 'idx_trd_tenant_recommendation')
+    && str_contains($decisionMig, 'idx_trd_tenant_payment'));
+$a('POST writes queryable decision ledger with evidence hash',
+    str_contains($endpoint, 'function treasuryRecommendationRecordDecision(')
+    && str_contains($endpoint, 'INSERT INTO treasury_recommendation_decisions')
+    && str_contains($endpoint, "hash('sha256', \$evidenceJson ?: '{}')")
+    && str_contains($endpoint, "'evidence_hash' => \$evidenceHash"));
+$a('GET returns latest backend decision per recommendation/payment',
+    str_contains($endpoint, 'function treasuryRecommendationLatestDecisions(')
+    && str_contains($endpoint, "\$recommendation['latest_decision'] = \$decision")
+    && str_contains($endpoint, "'decision_ledger' => 'treasury_recommendation_decisions'")
+    && str_contains($endpoint, "'payment:' . \$decision['payment_id']"));
+$a('GET exposes decision history endpoint',
+    str_contains($endpoint, "if (\$action === 'decisions')")
+    && str_contains($endpoint, 'function treasuryRecommendationDecisionHistory(')
+    && str_contains($endpoint, "'rows' => treasuryRecommendationDecisionHistory(\$tid, \$limit)"));
+$a('GET exposes decision evidence detail endpoint',
+    str_contains($endpoint, "if (\$action === 'decision_detail')")
+    && str_contains($endpoint, 'function treasuryRecommendationDecisionDetail(')
+    && str_contains($endpoint, 'evidence_json')
+    && str_contains($endpoint, "'evidence' => \$evidence")
+    && str_contains($endpoint, "'decision_ledger' => 'treasury_recommendation_decisions'"));
+
+echo "\nHandoff ledger\n";
+$a('migration creates recommendation handoff ledger',
+    str_contains($handoffMig, 'CREATE TABLE IF NOT EXISTS treasury_recommendation_handoffs')
+    && str_contains($handoffMig, "handoff_action ENUM('submit','approve','reject','execute') NOT NULL")
+    && str_contains($handoffMig, "result ENUM('success','failure') NOT NULL")
+    && str_contains($handoffMig, 'payment_status_before VARCHAR(40) NULL')
+    && str_contains($handoffMig, 'payment_status_after VARCHAR(40) NULL')
+    && str_contains($handoffMig, 'workflow_response_json MEDIUMTEXT NULL')
+    && str_contains($handoffMig, 'idx_trh_tenant_recommendation'));
+$a('POST logs handoff attempts separately from payment workflow',
+    str_contains($endpoint, "\$action === 'handoff_log'")
+    && str_contains($endpoint, 'function treasuryRecommendationRecordHandoff(')
+    && str_contains($endpoint, 'INSERT INTO treasury_recommendation_handoffs')
+    && str_contains($endpoint, "'treasury.recommendation.handoff_logged'")
+    && str_contains($endpoint, "'object_type' => 'treasury_recommendation_handoff'"));
+$a('GET returns latest handoff per recommendation/payment',
+    str_contains($endpoint, 'function treasuryRecommendationLatestHandoffs(')
+    && str_contains($endpoint, "\$recommendation['latest_handoff'] = \$handoff")
+    && str_contains($endpoint, "'handoff_ledger' => 'treasury_recommendation_handoffs'")
+    && str_contains($endpoint, "'payment:' . \$handoff['payment_id']"));
+
+echo "\nException ledger\n";
+$a('migration creates recommendation exception ledger',
+    str_contains($exceptionMig, 'CREATE TABLE IF NOT EXISTS treasury_recommendation_exceptions')
+    && str_contains($exceptionMig, 'recommendation_id VARCHAR(160) NOT NULL')
+    && str_contains($exceptionMig, "severity ENUM('low','medium','high','critical') NOT NULL DEFAULT 'medium'")
+    && str_contains($exceptionMig, "status ENUM('open','assigned','resolved','dismissed') NOT NULL DEFAULT 'open'")
+    && str_contains($exceptionMig, 'owner_user_id BIGINT UNSIGNED NULL')
+    && str_contains($exceptionMig, 'opened_by_user_id BIGINT UNSIGNED NULL')
+    && str_contains($exceptionMig, 'resolved_by_user_id BIGINT UNSIGNED NULL')
+    && str_contains($exceptionMig, 'idx_tre_tenant_recommendation')
+    && str_contains($exceptionMig, 'idx_tre_tenant_owner'));
+$a('GET exposes queryable recommendation exceptions',
+    str_contains($endpoint, "if (\$action === 'exceptions')")
+    && str_contains($endpoint, 'function treasuryRecommendationExceptions(')
+    && str_contains($endpoint, "'exception_ledger' => 'treasury_recommendation_exceptions'"));
+$a('GET returns latest exception per recommendation/payment',
+    str_contains($endpoint, 'function treasuryRecommendationLatestExceptions(')
+    && str_contains($endpoint, "\$recommendation['latest_exception'] = \$exception")
+    && str_contains($endpoint, "'payment:' . \$exception['payment_id']"));
+$a('POST manages exception lifecycle with ownership',
+    str_contains($endpoint, "in_array(\$action, ['open_exception', 'assign_exception', 'resolve_exception'], true)")
+    && str_contains($endpoint, 'function treasuryRecommendationHandleExceptionAction(')
+    && str_contains($endpoint, 'INSERT INTO treasury_recommendation_exceptions')
+    && str_contains($endpoint, 'owner_user_id')
+    && str_contains($endpoint, 'resolution_note')
+    && str_contains($endpoint, 'resolved_by_user_id'));
+$a('exception lifecycle is audited and remains advisory',
+    str_contains($endpoint, 'treasury.recommendation.exception_opened')
+    && str_contains($endpoint, 'treasury.recommendation.exception_assigned')
+    && str_contains($endpoint, 'treasury.recommendation.exception_resolved')
+    && str_contains($endpoint, "'object_type' => 'treasury_recommendation_exception'")
+    && str_contains($endpoint, "'money_movement_gate' => 'Exception resolution records human disposition only; payment movement remains gated by treasury_payments.php.'"));
+
+echo "\nReserve policy and evidence\n";
+foreach ([
+    "'minimum_cash_reserve'",
+    "'payroll_reserve'",
+    "'tax_reserve'",
+    "'ap_reserve'",
+    "'operating_reserve'",
+    "'materiality_threshold'",
+] as $needle) {
+    $a("endpoint supports override key {$needle}", str_contains($endpoint, $needle));
+}
+$a('reserve formula is explicit',
+    str_contains($endpoint, 'required_reserves = minimum_cash_reserve + payroll_reserve + tax_reserve + ap_reserve + operating_reserve'));
+$a('recommendations use shared liquidity projection evidence',
+    str_contains($endpoint, 'liquidityProjectionEvidence(')
+    && str_contains($endpoint, 'liquidityWalkProjection(')
+    && str_contains($endpoint, 'liquidityProjectionSourceDetail($datasets)')
+    && str_contains($endpoint, "'source_detail' => \$sourceDetail")
+    && str_contains($endpoint, 'variance_context'));
+$a('recommendations load saved policy and stamp version evidence',
+    str_contains($endpoint, 'treasuryPolicyGet($tid)')
+    && str_contains($endpoint, "'policy_version' => (int) (\$storedPolicy['policy_version'] ?? 0)")
+    && str_contains($endpoint, "'effective_date' => (string) (\$storedPolicy['effective_date'] ?? date('Y-m-d'))")
+    && str_contains($endpoint, "'overrides_applied' => \$overrides"));
+$a('payment timing actions are deterministic',
+    str_contains($endpoint, "'pay_now'")
+    && str_contains($endpoint, "'submit_for_approval'")
+    && str_contains($endpoint, "'hold_for_review'")
+    && str_contains($endpoint, "'split'")
+    && str_contains($endpoint, "'defer_or_escalate'"));
+$a('recommendation evidence carries payment, cash impact, reserve policy, projection, variance',
+    str_contains($endpoint, "'payment' => [")
+    && str_contains($endpoint, "'cash_impact' => [")
+    && str_contains($endpoint, "'reserve_policy' => \$reservePolicy")
+    && str_contains($endpoint, "'projection' => \$context['projection']")
+    && str_contains($endpoint, "'source_detail_summary' => \$context['source_detail_summary']")
+    && str_contains($endpoint, "'source_classification_totals' => \$context['source_classification_totals']")
+    && str_contains($endpoint, "'variance_context' => \$context['variance_context']"));
+$a('recommendations return summary and review queue',
+    str_contains($endpoint, 'function treasuryRecommendationSummary(')
+    && str_contains($endpoint, 'function treasuryRecommendationReviewQueue(')
+    && str_contains($endpoint, 'function treasuryRecommendationNeedsReview(')
+    && str_contains($endpoint, "'summary' => \$summary")
+    && str_contains($endpoint, "'review_queue' => \$reviewQueue")
+    && str_contains($endpoint, "'next_workflow_step' => \$row['approval_gate']['next_workflow_step'] ?? 'review'"));
+$a('recommendations expose policy cadence and stale review controls',
+    str_contains($endpoint, 'function treasuryRecommendationReviewControl(')
+    && str_contains($endpoint, 'function treasuryRecommendationPolicyReviewStatus(')
+    && str_contains($endpoint, 'function treasuryRecommendationItemFreshness(')
+    && str_contains($endpoint, "'review_control' => \$reviewControl")
+    && str_contains($endpoint, "'cadence_source' => 'tenant_treasury_policy.review_cadence_days'")
+    && str_contains($endpoint, "'ownership_source' => 'treasury_recommendation_exceptions.owner_user_id'")
+    && str_contains($endpoint, "'stale_review_items'")
+    && str_contains($endpoint, "'requires_owner'"));
+
+echo "\nWorkflow gating and auditability\n";
+$a('endpoint is advisory and preserves money movement workflow',
+    str_contains($endpoint, 'never executes or approves money movement')
+    && str_contains($endpoint, 'Payments still require submit, approval, and execution'));
+$a('review control metadata remains advisory',
+    str_contains($endpoint, "'money_movement_gate' => 'Review control metadata is advisory; payment submit, approval, and execution remain gated by Treasury workflow.'"));
+$a('GET requires payment view permission',
+    str_contains($endpoint, "rbac_legacy_require(\$user, 'treasury.payment.view')"));
+$a('decision POST requires payment manage permission',
+    str_contains($endpoint, "rbac_legacy_require(\$user, 'treasury.payment.manage')"));
+$a('approval gate names workflow resource and permissions',
+    str_contains($endpoint, "'workflow_resource' => (string) (\$reservePolicy['approval_resource'] ?? 'treasury.payment')")
+    && str_contains($endpoint, "'approval_permission' => (string) (\$reservePolicy['approval_permission'] ?? 'treasury.approve_payment')")
+    && str_contains($endpoint, "'execution_permission' => (string) (\$reservePolicy['execution_permission'] ?? 'treasury.execute_payment')")
+    && str_contains($endpoint, "'money_movement_blocked_until_workflow_complete'"));
+$a('accept/dismiss decisions write canonical audit',
+    str_contains($endpoint, "treasury.recommendation.accepted")
+    && str_contains($endpoint, "treasury.recommendation.dismissed")
+    && str_contains($endpoint, 'platformAuditLogWrite(')
+    && str_contains($endpoint, "'decision_id' => \$decision['id']")
+    && str_contains($endpoint, "'evidence_hash' => \$decision['evidence_hash']")
+    && str_contains($endpoint, "'object_type' => 'treasury_recommendation'")
+    && str_contains($endpoint, "'source' => 'treasury_recommendations'"));
+$a('manifest declares recommendation audit events',
+    str_contains($manifest, "'treasury.recommendation.accepted'")
+    && str_contains($manifest, "'treasury.recommendation.dismissed'")
+    && str_contains($manifest, "'treasury.recommendation.handoff_logged'")
+    && str_contains($manifest, "'treasury.recommendation.exception_opened'")
+    && str_contains($manifest, "'treasury.recommendation.exception_assigned'")
+    && str_contains($manifest, "'treasury.recommendation.exception_resolved'")
+    && str_contains($manifest, "'treasury.policy.updated'"));
+
+echo "\nUI workbench\n";
+$a('Treasury module exposes Recommendations tab and route',
+    str_contains($module, "TreasuryRecommendations")
+    && str_contains($module, 'to="recommendations"')
+    && str_contains($module, 'path="recommendations"'));
+$a('UI reads recommendations endpoint',
+    str_contains($page, "/api/v1/treasury/recommendations?")
+    && str_contains($page, "/api/v1/treasury/policy"));
+$a('UI renders reserve policy inputs',
+    str_contains($page, 'data-testid="treasury-reserve-policy-inputs"')
+    && str_contains($page, 'Minimum cash')
+    && str_contains($page, 'Payroll reserve')
+    && str_contains($page, 'Tax reserve')
+    && str_contains($page, 'AP reserve')
+    && str_contains($page, 'Operating reserve')
+    && str_contains($page, 'Review cadence days')
+    && str_contains($page, 'Effective date')
+    && str_contains($page, 'data-testid="treasury-policy-save"')
+    && str_contains($page, 'data-testid="treasury-policy-version"'));
+$a('UI renders cash envelope, gates, evidence, and audit decisions',
+    str_contains($page, 'data-testid="treasury-recommendations-envelope"')
+    && str_contains($page, 'data-testid="treasury-recommendations-auditability"')
+    && str_contains($page, 'data-testid={`treasury-recommendation-gate-${payment.id}`}')
+    && str_contains($page, 'data-testid={`treasury-recommendation-evidence-${payment.id}`}')
+    && str_contains($page, '/api/v1/treasury/recommendations/${action}')
+    && str_contains($page, "recommendation_id: row.id")
+    && str_contains($page, 'projection: row.evidence?.projection')
+    && str_contains($page, 'variance_context: row.evidence?.variance_context')
+    && str_contains($page, 'source_detail_summary: row.evidence?.source_detail_summary')
+    && str_contains($page, 'source_classification_totals: row.evidence?.source_classification_totals')
+    && str_contains($page, 'freshness_control: row.freshness_control')
+    && str_contains($page, 'row.latest_decision')
+    && str_contains($page, 'recommendations.reload()')
+    && str_contains($page, 'Decision evidence hash'));
+$a('UI renders summary, review queue, handoff, and history panels',
+    str_contains($page, 'data-testid="treasury-recommendations-summary"')
+    && str_contains($page, 'data-testid="treasury-recommendations-review-queue"')
+    && str_contains($page, 'data-testid="treasury-recommendations-decision-history"')
+    && str_contains($page, "/api/v1/treasury/recommendations/decisions?limit=25")
+    && str_contains($page, "/api/v1/treasury/recommendations/decision-detail/")
+    && str_contains($page, 'treasury-decision-evidence-')
+    && str_contains($page, 'data-testid="treasury-decision-evidence-detail"')
+    && str_contains($page, 'Workflow handoff')
+    && str_contains($page, 'decisionHistory.reload()'));
+$a('UI renders review control freshness and ownership gaps',
+    str_contains($page, 'data-testid="treasury-recommendations-review-control"')
+    && str_contains($page, 'data-testid="treasury-policy-review-due"')
+    && str_contains($page, 'Stale reviews')
+    && str_contains($page, 'Unowned exceptions')
+    && str_contains($page, 'treasury-review-freshness-')
+    && str_contains($page, 'reviewControl.counts?.stale_review_items')
+    && str_contains($page, 'reviewControl.counts?.unowned_exceptions'));
+$a('UI renders projection source drilldown classification totals',
+    str_contains($page, 'function ProjectionSourcePanel')
+    && str_contains($page, 'data-testid="treasury-recommendations-source-detail"')
+    && str_contains($page, 'data.evidence?.source_detail')
+    && str_contains($page, "['actual', 'scheduled', 'expected', 'forecasted']"));
+$a('UI renders exception ownership and lifecycle panel',
+    str_contains($page, "/api/v1/treasury/recommendations/exceptions?status=all&limit=50")
+    && str_contains($page, 'function ExceptionPanel')
+    && str_contains($page, 'data-testid="treasury-recommendations-exception-panel"')
+    && str_contains($page, 'treasury-exception-open-')
+    && str_contains($page, 'treasury-exception-assign-')
+    && str_contains($page, 'treasury-exception-resolve-')
+    && str_contains($page, 'treasury-exception-dismiss-')
+    && str_contains($page, 'exceptionList.reload()')
+    && str_contains($page, 'recommendationSeverity(row)'));
+$a('UI handoff buttons require accepted decisions and call payment workflow API',
+    str_contains($page, 'const accepted = decisionLabel === \'accept\'')
+    && str_contains($page, 'recommendationHandoffActions(row)')
+    && str_contains($page, '/api/v1/treasury/payments/${paymentId}/${action}')
+    && str_contains($page, "/api/v1/treasury/recommendations/handoff-log")
+    && str_contains($page, "await logHandoff(row, action, 'success'")
+    && str_contains($page, "await logHandoff(row, action, 'failure'")
+    && str_contains($page, 'payment_status_before: beforeStatus')
+    && str_contains($page, 'payment_status_after: afterStatus')
+    && str_contains($page, 'Latest handoff')
+    && str_contains($page, "status === 'draft' && action === 'submit_for_approval'")
+    && str_contains($page, "status === 'pending_approval'")
+    && str_contains($page, "['approved', 'scheduled'].includes(status) && action === 'pay_now'")
+    && str_contains($page, 'data-testid={`treasury-recommendation-handoff-${action.action}-${payment.id}`}'));
+$a('UI does not bypass payment workflow with direct status writes',
+    !str_contains($page, 'UPDATE treasury_payments')
+    && !str_contains($page, 'status="executed"')
+    && !str_contains($page, 'status = "approved"')
+    && !str_contains($page, "status: 'approved'"));
+$a('Treasury overview renders recommendation queue summary',
+    str_contains($overview, "/api/v1/treasury/recommendations?forecast_days=30")
+    && str_contains($overview, 'data-testid="treasury-overview-recommendation-summary"')
+    && str_contains($overview, 'data-testid="treasury-overview-recommendations-link"')
+    && str_contains($overview, 'treasury-recommendations-review-count')
+    && str_contains($overview, 'treasury-recommendations-decided'));
+
+echo "\nTreasury recommendations alignment smoke: {$pass} passed, {$fail} failed\n";
+exit($fail === 0 ? 0 : 1);

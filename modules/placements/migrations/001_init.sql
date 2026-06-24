@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS placement_rates (
 
     approved_by_user_id BIGINT UNSIGNED NULL,
     approved_at DATETIME NULL,
+    workflow_instance_id BIGINT UNSIGNED NULL,
     is_correction BOOLEAN NOT NULL DEFAULT 0,
     correction_reason TEXT NULL,
     superseded_by BIGINT UNSIGNED NULL,
@@ -126,6 +127,7 @@ CREATE TABLE IF NOT EXISTS placement_rates (
 
     INDEX idx_prt_placement_eff (placement_id, effective_from),
     INDEX idx_prt_tenant_approved (tenant_id, approved_at),
+    INDEX idx_prt_workflow (tenant_id, workflow_instance_id),
     INDEX idx_prt_superseded (superseded_by)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

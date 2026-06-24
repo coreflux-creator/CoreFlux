@@ -21,6 +21,7 @@
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/tenant_mail.php';
+require_once __DIR__ . '/../core/audit.php';
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
@@ -93,16 +94,18 @@ if ($method === 'PUT' || $method === 'POST') {
 
     // Audit (best-effort)
     try {
-        $pdo->prepare('INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-                       VALUES (:tenant_id, :actor, :event, :target_id, :meta_json, :ip, NOW())')
-            ->execute([
-                'tenant_id' => $tid,
-                'actor'     => $user['id'] ?? null,
-                'event'     => 'tenant.mail_settings.updated',
-                'target_id' => $tid,
-                'meta_json' => json_encode(['fields' => array_keys($update)]),
-                'ip'        => $_SERVER['REMOTE_ADDR'] ?? null,
-            ]);
+        platformAuditLogWrite(
+            $tid,
+            (int) ($user['id'] ?? 0) ?: null,
+            'tenant.mail_settings.updated',
+            $tid,
+            ['fields' => array_keys($update)],
+            [
+                'source' => 'mail',
+                'object_type' => 'tenant_mail_settings',
+                'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+            ]
+        );
     } catch (\Throwable $e) { error_log('[mail_settings] audit failed: ' . $e->getMessage()); }
 
     api_ok(['ok' => true]);

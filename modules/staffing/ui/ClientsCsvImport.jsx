@@ -5,12 +5,12 @@ import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
  * Staffing module — clients CSV import screen.
  *
  * Mounted at /modules/staffing/clients/csv_import. Powered by
- * Core\CsvImportService via /api/staffing/csv_import.php.
+ * Core\CsvImportService via /api/v1/staffing/csv-import.
  */
 export default function ClientsCsvImport() {
   return (
     <CsvImportPage
-      endpoint="/modules/staffing/api/csv_import.php"
+      endpoint="/api/v1/staffing/csv-import"
       entityLabel="Clients"
       backTo="../clients"
       backLabel="← Clients"

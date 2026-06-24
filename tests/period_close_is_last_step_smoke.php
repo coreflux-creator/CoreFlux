@@ -35,8 +35,9 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$periods = (string) file_get_contents('/app/modules/time/api/periods.php');
-$modal   = (string) file_get_contents('/app/modules/billing/ui/InvoiceFromTimeBundleModal.jsx');
+$ROOT = dirname(__DIR__);
+$periods = (string) file_get_contents($ROOT . '/modules/time/api/periods.php');
+$modal   = (string) file_get_contents($ROOT . '/modules/billing/ui/InvoiceFromTimeBundleModal.jsx');
 
 echo "\n1. Backend — explicit build_bundles endpoint (any open/locked period)\n";
 $a('declares action=build_bundles POST handler',
@@ -57,7 +58,7 @@ $a('rationale comment names the deadlock',
 
 echo "\n2. Frontend — modal no longer forces closed periods\n";
 $a('useApi path drops the status=closed filter',
-   str_contains($modal, "'/modules/time/api/periods.php?per_page=20'"));
+   str_contains($modal, "'/api/v1/time/periods?per_page=20'"));
 $a('drops the prior `status=closed` URL filter completely',
    !str_contains($modal, '?status=closed'));
 $a('default-selects the most recent OPEN period',
@@ -76,7 +77,7 @@ $a('Build bundles CTA renders when periodId set, bundles empty, NOT closed',
    str_contains($modal, '{periodId && bundles.length === 0 && !isClosed && ('))
    && str_contains($modal, 'data-testid="billing-from-time-build-bundles"');
 $a('buildBundles handler POSTs to new backend endpoint',
-   str_contains($modal, '/modules/time/api/periods.php?action=build_bundles&id=${periodId}'));
+   str_contains($modal, '/api/v1/time/periods?action=build_bundles&id=${periodId}'));
 $a('handler reloads bundles after build (no full reload)',
    str_contains($modal, 'await loadBundles(periodId);'));
 $a('info banner reports built count',
@@ -96,8 +97,8 @@ $a('closed-empty hint nudges toward reopen / manual invoice',
 
 echo "\n5. PHP syntax\n";
 $out = []; $rc = 0;
-exec('php -l /app/modules/time/api/periods.php 2>&1', $out, $rc);
-$a("php -l /app/modules/time/api/periods.php", $rc === 0, implode("\n", $out));
+exec('php -l ' . escapeshellarg($ROOT . '/modules/time/api/periods.php') . ' 2>&1', $out, $rc);
+$a('php -l modules/time/api/periods.php', $rc === 0, implode("\n", $out));
 
 echo "\n=========================================\n";
 echo "Period close-is-last-step smoke: {$pass} ✓ / {$fail} ✗\n";

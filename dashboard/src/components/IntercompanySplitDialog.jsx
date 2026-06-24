@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../../dashboard/src/lib/api';
 
+const ACCOUNTING_ENTITIES_API = '/api/v1/accounting/entities';
+const ACCOUNTING_ACCOUNTS_API = '/api/v1/accounting/accounts';
+const INTERCOMPANY_API = '/api/v1/accounting/intercompany';
+
 /**
  * <IntercompanySplitDialog /> — the ONLY UI that posts an intercompany
  * split. Reused from:
@@ -23,7 +27,7 @@ export default function IntercompanySplitDialog({
   open, onClose, onPosted,
   amount, sourceEntityId, sourceOffsetAccountCode, sourceOffsetSide = 'credit',
   bankStatementLineId = null, defaultMemo = '',
-  postUrl = '/modules/accounting/api/intercompany.php?action=post_split',
+  postUrl = `${INTERCOMPANY_API}?action=post_split`,
 }) {
   const [entities, setEntities] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -37,9 +41,9 @@ export default function IntercompanySplitDialog({
   useEffect(() => {
     if (!open) return;
     Promise.all([
-      api.get('/modules/accounting/api/entities.php').catch(() => ({ rows: [] })),
-      api.get('/modules/accounting/api/accounts.php'),
-      api.get('/modules/accounting/api/intercompany.php'),
+      api.get(ACCOUNTING_ENTITIES_API).catch(() => ({ rows: [] })),
+      api.get(ACCOUNTING_ACCOUNTS_API),
+      api.get(INTERCOMPANY_API),
     ]).then(([ents, accts, maps]) => {
       setEntities(ents?.rows || ents?.entities || []);
       setAccounts(accts?.rows || accts?.accounts || []);

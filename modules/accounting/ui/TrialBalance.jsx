@@ -16,6 +16,8 @@ import GlDetailDrilldown from '../../../dashboard/src/components/GlDetailDrilldo
 import { fmtMoney } from '../../../dashboard/src/lib/format';
 import { useReportPeriod } from '../../../dashboard/src/lib/useReportPeriod';
 
+const JOURNAL_ENTRIES_API = '/api/v1/accounting/journal-entries';
+
 export default function TrialBalance() {
   const period = useReportPeriod();
 
@@ -173,5 +175,5 @@ export default function TrialBalance() {
 }
 
 function url(asOf) {
-  return `/modules/accounting/api/journal_entries.php?action=trial_balance&as_of=${asOf}`;
+  return `${JOURNAL_ENTRIES_API}?action=trial_balance&as_of=${asOf}`;
 }

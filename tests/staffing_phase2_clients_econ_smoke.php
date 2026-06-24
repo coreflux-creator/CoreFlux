@@ -25,17 +25,40 @@ $a('one statement per line for PREPARE',      preg_match('/PREPARE s FROM @sql[^
 
 echo "\nClients API\n";
 $api = $read(__DIR__ . '/../modules/staffing/api/clients.php');
+$a('clients API loads shared audit helper',    str_contains($api, "/../lib/client_audit.php"));
+$a('read actions require staffing.view',      substr_count($api, "rbac_legacy_require(\$user, 'staffing.view')") >= 3);
+$a('mutating actions require staffing.clients.manage', substr_count($api, "rbac_legacy_require(\$user, 'staffing.clients.manage')") >= 3);
 $a('list action with q + status + active_placements join', str_contains($api, "action === 'list'") && str_contains($api, 'active_placements'));
 $a('create action validates unique name',     str_contains($api, "Client '{\$name}' already exists"));
 $a('update action allow-list of fields',      str_contains($api, "'billing_city','billing_state'"));
 $a('delete action is soft (status=closed)',   str_contains($api, "'status' => 'closed'"));
+$a('client mutations are audited',            str_contains($api, "staffing.client.created") && str_contains($api, "staffing.client.updated") && str_contains($api, "staffing.client.closed"));
+$a('client audit captures before/after',      str_contains($api, "'before' => staffingClientAuditSnapshot") && str_contains($api, "'after' => staffingClientAuditSnapshot"));
 $a('stats action queries v_timesheet_day_fin',str_contains($api, 'FROM v_timesheet_day_fin') && str_contains($api, 'mtd_revenue'));
 $a('stats tolerates missing view',            str_contains($api, "\$stats['mtd_revenue'] = null"));
+
+$audit = $read(__DIR__ . '/../modules/staffing/lib/client_audit.php');
+$a('client audit helper uses shared audit writer', str_contains($audit, 'platformAuditLogWrite(') && str_contains($audit, 'function staffingClientAudit('));
+$a('client audit helper snapshots material fields', str_contains($audit, 'function staffingClientAuditSnapshot(') && str_contains($audit, 'payment_terms_days'));
+
+echo "\nClients CSV export\n";
+$csv = $read(__DIR__ . '/../modules/staffing/api/csv_export.php');
+$a('client CSV uses governed dataset',        str_contains($csv, 'exportTemplateStreamDatasetCsv')
+                                             && str_contains($csv, 'staffing_clients')
+                                             && str_contains($csv, 'exportDatasetFetchStaffingClients'));
+$a('client CSV gates on export permission',   str_contains($csv, "'staffing.export.run'"));
+$a('client CSV audits raw dataset event',     str_contains($csv, 'staffing.clients.exported') && str_contains($csv, "mode' => 'raw'"));
+
+$import = $read(__DIR__ . '/../modules/staffing/api/csv_import.php');
+$a('client import commit requires manage permission', str_contains($import, "action === 'commit'") && str_contains($import, "rbac_legacy_require(\$user, 'staffing.clients.manage')"));
+$a('client import commit is audited',         str_contains($import, "staffing.clients.imported") && str_contains($import, 'staffingClientAudit('));
 
 echo "\nClients UI\n";
 $ui = $read(__DIR__ . '/../modules/staffing/ui/Clients.jsx');
 $a('renders clients table + new button',      str_contains($ui, 'data-testid="staffing-clients-new"') && str_contains($ui, 'data-testid="staffing-clients-table"'));
 $a('search + status filter',                  str_contains($ui, 'staffing-clients-search') && str_contains($ui, 'staffing-clients-status-filter'));
+$a('export template picker wired',            str_contains($ui, 'ExportTemplatePicker') && str_contains($ui, 'dataset="staffing_clients"'));
+$a('exports route through v1 staffing API',   str_contains($ui, '/api/v1/staffing/csv-export') && !str_contains($ui, '/modules/staffing/api/csv_export.php'));
 $a('ClientDrawer for new / edit',             str_contains($ui, 'ClientDrawer'));
 $a('soft-delete confirmation',                str_contains($ui, 'Close client'));
 
@@ -45,7 +68,7 @@ $a('5 sub-tabs',                              str_contains($prof, "overview") &&
 $a('reuses Reports module pages',             str_contains($prof, "from '../../reports/ui/"));
 $sm = $read(__DIR__ . '/../modules/staffing/ui/StaffingModule.jsx');
 $a('StaffingModule routes profitability/*',   str_contains($sm, 'path="profitability/*"'));
-$a('StaffingModule routes clients',           str_contains($sm, 'path="clients"      element={<Clients'));
+$a('StaffingModule routes clients',           str_contains($sm, 'path="clients"') && str_contains($sm, 'element={<Clients'));
 
 echo "\nWeekly timesheet economics\n";
 $apit = $read(__DIR__ . '/../modules/staffing/api/timesheets.php');

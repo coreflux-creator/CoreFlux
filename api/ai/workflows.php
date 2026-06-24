@@ -19,8 +19,8 @@
  *   start         → ai.use
  *   resume        → ai.use
  *   list/detail   → ai.audit.view
- *   decide_approval → ai.audit.view (Slice 3 floor; Slice 4 introduces
- *                     module-specific reviewer roles per spec §15)
+ *   decide_approval -> ai.workflow.approve, accounting.approve, or
+ *                      platform.ai.admin
  *
  * Slice 3 ships one graph: `transaction_classification`. Future
  * graphs land as additional files in core/ai/workflows/graphs/ and
@@ -41,6 +41,13 @@ $user   = $ctx['user'];
 $tid    = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = (string) ($_GET['action'] ?? '');
+
+function aiWorkflowCanDecideApproval(array $user): bool
+{
+    return rbac_legacy_can($user, 'ai.workflow.approve')
+        || rbac_legacy_can($user, 'accounting.approve')
+        || rbac_legacy_can($user, 'platform.ai.admin');
+}
 
 if ($method === 'GET' && $action === '' && empty($_GET['id'])) {
     rbac_legacy_require($user, 'ai.audit.view');
@@ -110,7 +117,11 @@ if ($method === 'POST' && $action === 'resume') {
 }
 
 if ($method === 'POST' && $action === 'decide_approval') {
-    rbac_legacy_require($user, 'ai.audit.view');
+    if (!aiWorkflowCanDecideApproval($user)) {
+        api_error('Forbidden - approval permission required', 403, [
+            'required_any' => ['ai.workflow.approve', 'accounting.approve', 'platform.ai.admin'],
+        ]);
+    }
     $body = api_json_body();
     $apprId   = (int) ($body['approval_id'] ?? 0);
     $decision = (string) ($body['decision'] ?? '');

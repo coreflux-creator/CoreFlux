@@ -55,6 +55,10 @@ $a('plaidJwkToPem() — P-256 only',$c($svc, 'function plaidJwkToPem'));
 $a('plaidEs256RawToDer()',        $c($svc, 'function plaidEs256RawToDer'));
 $a('plaidEncryptAccessToken()',   $c($svc, 'function plaidEncryptAccessToken'));
 $a('plaidAudit()',                $c($svc, 'function plaidAudit'));
+$a('plaidAudit uses platform audit writer (no direct audit insert)',
+    $c($svc, 'platformAuditLogWrite(') &&
+    !$c($svc, 'INSERT INTO audit_log') &&
+    !$c($svc, 'currentTenantContext'));
 $a('plaidProductsHealthCheck() helper',        $c($svc, 'function plaidProductsHealthCheck'));
 $a('health check exposes request_url for INVALID_PRODUCT',
     $c($svc, 'request_url') && $c($svc, 'overview/request-products'));

@@ -3,11 +3,14 @@ import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../../../dashboard/src/lib/api';
 import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
 
+const JOURNAL_ENTRIES_API = '/api/v1/accounting/journal-entries';
+const ACCOUNTS_API = '/api/v1/accounting/accounts';
+
 /**
  * Manual Journal Entry creator.
  *
- * POST /modules/accounting/api/journal_entries.php          → create + post immediately
- * POST /modules/accounting/api/journal_entries.php?action=draft → save as draft
+ * POST /api/v1/accounting/journal-entries       → create + post immediately
+ * POST /api/v1/accounting/journal-entries/draft → save as draft
  *
  * Validation:
  *   - posting_date required
@@ -29,7 +32,7 @@ export default function JournalEntryCreate() {
   const [icSeed, setIcSeed] = useState(null);
 
   useEffect(() => {
-    api.get('/modules/accounting/api/accounts.php').then((d) => {
+    api.get(`${ACCOUNTS_API}?postable=1&active=1`).then((d) => {
       setAccounts(d?.rows || d?.accounts || []);
     }).catch(() => setAccounts([]));
   }, []);
@@ -63,7 +66,7 @@ export default function JournalEntryCreate() {
             description: l.description || null,
           })),
       };
-      const url = '/modules/accounting/api/journal_entries.php' + (action === 'draft' ? '?action=draft' : '');
+      const url = action === 'draft' ? `${JOURNAL_ENTRIES_API}/draft` : JOURNAL_ENTRIES_API;
       const res = await api.post(url, payload);
       navigate(`/modules/accounting/journal-entries/${res.je_id}`);
     } catch (e) {

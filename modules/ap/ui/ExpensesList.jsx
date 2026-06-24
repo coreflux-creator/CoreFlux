@@ -42,14 +42,14 @@ export default function ExpensesList() {
   const exportSelected = () => {
     if (selected.size === 0) return;
     const ids = Array.from(selected).join(',');
-    const url = `/modules/ap/api/expenses.php?action=export_selected&ids=${ids}`;
+    const url = `/api/v1/ap/expenses/export-selected?ids=${ids}`;
     window.open(url, '_blank');
   };
 
   const exportSelectedTpl = (tplId) => {
     if (selected.size === 0) return null;
     const ids = Array.from(selected).join(',');
-    return `/modules/ap/api/expenses.php?action=export_selected&template_id=${tplId}&ids=${ids}`;
+    return `/api/v1/ap/expenses/export-selected?template_id=${tplId}&ids=${ids}`;
   };
 
   const totalSelected = useMemo(() => {

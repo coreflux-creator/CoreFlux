@@ -5,12 +5,12 @@ import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
  * AP module — vendors CSV import screen.
  *
  * Mounted at /modules/ap/vendors/csv_import (or wherever the AP router puts
- * us). Powered by Core\CsvImportService via /api/ap/csv_import.php.
+ * us). Powered by Core\CsvImportService via /api/v1/ap/csv-import.
  */
 export default function VendorsCsvImport() {
   return (
     <CsvImportPage
-      endpoint="/modules/ap/api/csv_import.php"
+      endpoint="/api/v1/ap/csv-import"
       entityLabel="Vendors"
       backTo="../vendors"
       backLabel="← Vendors"

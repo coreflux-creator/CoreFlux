@@ -157,7 +157,7 @@ DEALLOCATE PREPARE s
 
 SET @col := (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'time_entries' AND column_name = 'approved_via')
 ;
-SET @sql := IF(@te = 1 AND @col = 0, "ALTER TABLE time_entries ADD COLUMN approved_via ENUM('manual','tokenized_client_email','bulk_pre_approved') NULL", 'DO 0')
+SET @sql := IF(@te = 1 AND @col = 0, "ALTER TABLE time_entries ADD COLUMN approved_via ENUM('manual','tokenized_client_email','bulk_pre_approved','external_email') NULL", 'DO 0')
 ;
 PREPARE s FROM @sql
 ;

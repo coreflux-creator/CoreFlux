@@ -3,6 +3,9 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
 import DataWarning from '../../../dashboard/src/components/DataWarning';
 
+const ACCOUNTS_API = '/api/v1/accounting/accounts';
+const GL_DETAIL_API = '/api/v1/accounting/gl-detail';
+
 /**
  * GL Detail — every JE line that hit a single account between two dates.
  *
@@ -27,12 +30,12 @@ export default function GLDetail() {
   useEffect(() => { setDraftCode(accountCode); }, [accountCode]);
 
   // Fetch postable accounts for the picker.
-  const accountsApi = useApi('/modules/accounting/api/accounts.php?postable=1');
+  const accountsApi = useApi(`${ACCOUNTS_API}?postable=1`);
   const accounts = accountsApi.data?.rows || [];
 
   const queryReady = !!(accountId || accountCode);
   const url = queryReady
-    ? '/api/gl_detail.php?'
+    ? `${GL_DETAIL_API}?`
       + (accountId ? `account_id=${accountId}` : `account_code=${encodeURIComponent(accountCode)}`)
       + `&start=${start}&end=${end}`
       + (entityId ? `&entity_id=${entityId}` : '')

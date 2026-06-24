@@ -110,7 +110,11 @@ foreach (($acctResp['accounts'] ?? []) as $a) {
 plaidAudit('core.plaid.item_linked', [
     'plaid_item_pk' => $itemPk, 'item_id' => $itemId, 'purpose' => $purpose,
     'institution'   => $institutionName, 'account_count' => count($acctResp['accounts'] ?? []),
-], $itemPk);
+], $itemPk, [
+    'tenant_id' => $tid,
+    'actor_user_id' => (int) ($user['id'] ?? 0),
+    'after' => plaidItemAuditRow($tid, (int) $itemPk),
+]);
 
 api_ok([
     'plaid_item_pk' => $itemPk,

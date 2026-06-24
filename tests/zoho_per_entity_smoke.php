@@ -17,12 +17,13 @@
  */
 declare(strict_types=1);
 
+$ROOT = dirname(__DIR__);
 $pass = 0; $fail = 0;
 function ok(string $m): void  { global $pass; $pass++; echo "  ✓ $m\n"; }
 function bad(string $m): void { global $fail; $fail++; echo "  ✗ $m\n"; }
 
 echo "Migration 099 — Zoho Books per-entity\n";
-$mig = @file_get_contents('/app/core/migrations/099_zoho_books_per_entity.sql');
+$mig = @file_get_contents($ROOT . '/core/migrations/099_zoho_books_per_entity.sql');
 if ($mig === false) bad('migration 099 missing');
 else {
     if (strpos($mig, 'zoho_books_connections') !== false && strpos($mig, 'sub_tenant_id') !== false) ok('adds sub_tenant_id to zoho_books_connections');
@@ -32,7 +33,7 @@ else {
 }
 
 echo "core/zoho_books/client.php signatures\n";
-$client = file_get_contents('/app/core/zoho_books/client.php');
+$client = file_get_contents($ROOT . '/core/zoho_books/client.php');
 foreach ([
     'function zohoBooksConnection(int $tenantId, ?int $subTenantId = null)' => 'zohoBooksConnection accepts sub_tenant_id',
     'function zohoBooksConnectionsForTenant(int $tenantId'                  => 'zohoBooksConnectionsForTenant helper present',
@@ -58,7 +59,7 @@ if (strpos($client, '$GLOBALS[\'__zb_sub_tenant_id\']') !== false || strpos($cli
 }
 
 echo "api/zoho_books.php per-entity wiring\n";
-$apiSrc = file_get_contents('/app/api/zoho_books.php');
+$apiSrc = file_get_contents($ROOT . '/api/zoho_books.php');
 foreach ([
     'function _zbSub('                       => '_zbSub helper present',
     "'sync_config_copy'"                     => 'sync_config_copy action wired',
@@ -76,33 +77,33 @@ foreach ([
     'sync_accounts', 'sync_bills', 'sync_billables', 'sync_contacts',
     'sync_invoices', 'sync_je',    'sync_payments',
 ] as $w) {
-    $body = @file_get_contents("/app/core/zoho_books/{$w}.php");
+    $body = @file_get_contents($ROOT . "/core/zoho_books/{$w}.php");
     if ($body && strpos($body, '$GLOBALS["__zb_sub_tenant_id"]') !== false) ok("{$w}.php sets global");
     else                                                                     bad("{$w}.php missing global set");
 }
 
 echo "Generic /api/accounting.php sync_config_copy route\n";
-$accApi = file_get_contents('/app/api/accounting.php');
+$accApi = file_get_contents($ROOT . '/api/accounting.php');
 if (strpos($accApi, "\$action === 'sync_config_copy'") !== false) ok('accounting.php has sync_config_copy route');
 else                                                              bad('accounting.php missing sync_config_copy route');
 
-require_once '/app/core/accounting/sync_config_service.php';
+require_once $ROOT . '/core/accounting/sync_config_service.php';
 if (function_exists('accountingSyncConfigCopy')) ok('accountingSyncConfigCopy declared');
 else                                              bad('accountingSyncConfigCopy missing');
 
 echo "JazIntegrationSettings UI + ZohoBooksSettings UI\n";
-$jaz = file_get_contents('/app/dashboard/src/pages/JazIntegrationSettings.jsx');
+$jaz = file_get_contents($ROOT . '/dashboard/src/pages/JazIntegrationSettings.jsx');
 foreach ([
     'function JazCopyConfigCard'                  => 'Jaz copy-config card declared',
     'data-testid="jaz-copy-config-card"'          => 'jaz copy card testid',
     'data-testid="jaz-copy-from-select"'          => 'jaz copy source picker testid',
     'data-testid="jaz-copy-config-btn"'           => 'jaz copy button testid',
-    "/api/accounting.php?action=sync_config_copy" => 'jaz copy calls generic backend route',
+    "?action=sync_config_copy"                    => 'jaz copy calls generic backend route',
 ] as $needle => $label) {
     if (strpos($jaz, $needle) !== false) ok($label);
     else                                 bad($label . ' missing');
 }
-$zoh = file_get_contents('/app/dashboard/src/pages/ZohoBooksSettings.jsx');
+$zoh = file_get_contents($ROOT . '/dashboard/src/pages/ZohoBooksSettings.jsx');
 foreach ([
     'data-testid="zoho-books-entity-picker"'          => 'entity picker testid',
     'data-testid="zoho-books-entity-select"'          => 'entity <select> testid',

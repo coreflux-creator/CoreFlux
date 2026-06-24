@@ -13,15 +13,15 @@ import { useApi } from '../../../dashboard/src/lib/api';
 import MetricCard from '../../../dashboard/src/components/MetricCard';
 
 export default function Reports() {
-  const periods = useApi('/modules/time/api/periods.php');
+  const periods = useApi('/api/v1/time/periods');
   const [periodId, setPeriodId] = useState(null);
   useEffect(() => {
     if (periods.data?.rows?.length && !periodId) setPeriodId(periods.data.rows[0].id);
   }, [periods.data, periodId]);
 
-  const byPlacement = useApi(periodId ? `/modules/time/api/reports.php?type=by_placement&period_id=${periodId}` : null);
-  const byPerson    = useApi(periodId ? `/modules/time/api/reports.php?type=by_person&period_id=${periodId}` : null);
-  const util        = useApi(periodId ? `/modules/time/api/reports.php?type=utilization&period_id=${periodId}` : null);
+  const byPlacement = useApi(periodId ? `/api/v1/time/reports?type=by_placement&period_id=${periodId}` : null);
+  const byPerson    = useApi(periodId ? `/api/v1/time/reports?type=by_person&period_id=${periodId}` : null);
+  const util        = useApi(periodId ? `/api/v1/time/reports?type=utilization&period_id=${periodId}` : null);
 
   return (
     <section data-testid="time-reports" style={{ paddingBottom: 32 }}>

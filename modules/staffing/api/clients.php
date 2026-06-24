@@ -13,13 +13,17 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
+require_once __DIR__ . '/../lib/client_audit.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
+$tenantId = (int) ($ctx['tenant_id'] ?? currentTenantId());
+$actorUserId = isset($user['id']) ? (int) $user['id'] : null;
 $method = api_method();
 $action = $_GET['action'] ?? 'list';
 
 if ($method === 'GET' && $action === 'list') {
+    rbac_legacy_require($user, 'staffing.view');
     $where  = ['tenant_id = :tenant_id'];
     $params = [];
     if (!empty($_GET['status'])) { $where[] = 'status = :s'; $params['s'] = $_GET['status']; }
@@ -50,6 +54,7 @@ if ($method === 'GET' && $action === 'list') {
 }
 
 if ($method === 'GET' && $action === 'get') {
+    rbac_legacy_require($user, 'staffing.view');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
     $row = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
@@ -58,6 +63,7 @@ if ($method === 'GET' && $action === 'get') {
 }
 
 if ($method === 'POST' && $action === 'create') {
+    rbac_legacy_require($user, 'staffing.clients.manage');
     $b = api_json_body();
     $name = trim((string) ($b['name'] ?? ''));
     if ($name === '') api_error('name required', 422);
@@ -84,14 +90,20 @@ if ($method === 'POST' && $action === 'create') {
         'notes'                 => $b['notes']                 ?? null,
         'msa_status'            => $b['msa_status']            ?? 'none',
     ]);
-    api_ok(['client' => scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id])]);
+    $client = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    staffingClientAudit($tenantId, $actorUserId, 'staffing.client.created', $id, [
+        'source' => 'staffing_clients_api',
+        'after' => staffingClientAuditSnapshot($client ?: ['id' => $id, 'name' => $name]),
+    ]);
+    api_ok(['client' => $client]);
 }
 
 if ($method === 'POST' && $action === 'update') {
+    rbac_legacy_require($user, 'staffing.clients.manage');
     $b  = api_json_body();
     $id = (int) ($b['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
-    $existing = scopedFind('SELECT id FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :i', ['i' => $id]);
+    $existing = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :i', ['i' => $id]);
     if (!$existing) api_error('Not found', 404);
 
     $allowed = [
@@ -104,19 +116,36 @@ if ($method === 'POST' && $action === 'update') {
     if (!$patch) api_error('No updatable fields supplied', 422);
 
     scopedUpdate('staffing_clients', $id, $patch);
-    api_ok(['client' => scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id])]);
+    $client = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    staffingClientAudit($tenantId, $actorUserId, 'staffing.client.updated', $id, [
+        'source' => 'staffing_clients_api',
+        'changed_fields' => array_keys($patch),
+        'before' => staffingClientAuditSnapshot($existing),
+        'after' => staffingClientAuditSnapshot($client ?: []),
+    ]);
+    api_ok(['client' => $client]);
 }
 
 if ($method === 'POST' && $action === 'delete') {
+    rbac_legacy_require($user, 'staffing.clients.manage');
     $b  = api_json_body();
     $id = (int) ($b['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
     // Soft delete — flip status to closed. Keeps FK links intact for history.
+    $existing = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :i', ['i' => $id]);
+    if (!$existing) api_error('Not found', 404);
     scopedUpdate('staffing_clients', $id, ['status' => 'closed']);
+    $client = scopedFind('SELECT * FROM staffing_clients WHERE tenant_id = :tenant_id AND id = :id', ['id' => $id]);
+    staffingClientAudit($tenantId, $actorUserId, 'staffing.client.closed', $id, [
+        'source' => 'staffing_clients_api',
+        'before' => staffingClientAuditSnapshot($existing),
+        'after' => staffingClientAuditSnapshot($client ?: []),
+    ]);
     api_ok(['ok' => true, 'closed_id' => $id]);
 }
 
 if ($method === 'GET' && $action === 'stats') {
+    rbac_legacy_require($user, 'staffing.view');
     $id = (int) ($_GET['id'] ?? 0);
     if ($id <= 0) api_error('id required', 422);
 

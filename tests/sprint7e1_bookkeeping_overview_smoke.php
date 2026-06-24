@@ -4,7 +4,7 @@
  *
  * Asserts:
  *   - api/books_health.php is RBAC-gated and returns the spec-shaped envelope
- *   - module alias mounted at /api/accounting/books-health
+ *   - module alias mounted at /api/v1/accounting/books-health
  *   - BookkeepingOverview.jsx page renders + carries every test id
  *   - Wired into AccountingModule routes + sidebar
  */
@@ -64,7 +64,7 @@ $assert('PL groups by month + account_type',     strpos($api, "GROUP BY month, a
 $assert('PL covers full account-type spread',
     strpos($api, "'revenue','expense','contra_revenue','cost_of_goods_sold','other_income','other_expense'") !== false);
 
-echo "\nModule alias — /api/accounting/books-health\n";
+echo "\nModule alias — /api/v1/accounting/books-health\n";
 $alias = "{$ROOT}/modules/accounting/api/books_health.php";
 $assert('alias file exists',                     is_file($alias));
 $assert('alias parses',                          $lint($alias));
@@ -74,7 +74,9 @@ $assert('alias delegates to root handler',
 echo "\nFrontend — BookkeepingOverview.jsx\n";
 $jsx = (string) file_get_contents("{$ROOT}/dashboard/src/pages/BookkeepingOverview.jsx");
 $assert('page file exists',                      strlen($jsx) > 0);
-$assert('hits books_health endpoint',            strpos($jsx, "useApi('/api/books_health.php')") !== false);
+$assert('hits v1 books-health endpoint',
+    strpos($jsx, "const BOOKS_HEALTH_API = '/api/v1/accounting/books-health'") !== false
+    && strpos($jsx, 'useApi(BOOKS_HEALTH_API)') !== false);
 $assert('top-level testid',                      strpos($jsx, 'data-testid="bookkeeping-overview-page"') !== false);
 $assert('error testid',                          strpos($jsx, 'data-testid="bookkeeping-overview-error"') !== false);
 $assert('loading testid',                        strpos($jsx, 'data-testid="bookkeeping-overview-loading"') !== false);
