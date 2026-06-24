@@ -68,7 +68,7 @@ function apRecurringGenerateDue(int $tenantId, ?string $asOf = null): array
         $billDate = $r['next_bill_date'];
         $dueDate  = date('Y-m-d', strtotime('+30 days', strtotime($billDate)));
 
-        $pdo->beginTransaction();
+        $ownsTxn = cf_tx_begin($pdo);
         try {
             $pdo->prepare(
                 'INSERT INTO ap_bills
@@ -134,7 +134,7 @@ function apRecurringGenerateDue(int $tenantId, ?string $asOf = null): array
                 't' => $tenantId,
             ]);
 
-            $pdo->commit();
+            cf_tx_commit($pdo, $ownsTxn);
             $billIds[] = $billId;
             apAudit('ap.recurring.generated', [
                 'recurring_id' => (int) $r['id'],
@@ -143,7 +143,7 @@ function apRecurringGenerateDue(int $tenantId, ?string $asOf = null): array
                 'next_bill_date' => $next,
             ], (int) $r['id']);
         } catch (\Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
+            cf_tx_rollback($pdo, $ownsTxn);
             error_log('[ap.recurring] generate failed for ' . (int) $r['id'] . ': ' . $e->getMessage());
         }
     }

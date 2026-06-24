@@ -19,6 +19,7 @@
  * Run:  php -d zend.assertions=1 tests/payroll_csv_import_smoke.php
  */
 declare(strict_types=1);
+require_once '/app/core/tx_helpers.php';
 
 require_once dirname(__DIR__) . '/modules/payroll/lib/csv_import.php';
 

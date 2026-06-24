@@ -52,7 +52,7 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
         return _settleTimeIntoPayroll($entryIds, $cols, $actorUserId, $tenantId, $pdo, $place);
     }
 
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         // 1) Pull entries + placement context, lock with FOR UPDATE.
         $stmt = $pdo->prepare(
@@ -221,9 +221,9 @@ function timeSettlementAutoCreate(array $entryIds, string $target, ?int $actorUs
             $upd->execute(array_merge([$targetRefForStamp, $actorUserId, $tenantId], $entryIdsForPlacement));
         }
 
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 
@@ -257,7 +257,7 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
 {
     require_once __DIR__ . '/../../payroll/lib/payroll.php';
 
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         // 1. Pull entries + employee resolution in a single trip. We can't
         //    use a hard JOIN because the email/user_id crosswalk is fuzzy,
@@ -440,9 +440,9 @@ function _settleTimeIntoPayroll(array $entryIds, array $cols, ?int $actorUserId,
             $stamp->execute(array_merge([$stampRef, $actorUserId, $tenantId], $ids));
         }
 
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 

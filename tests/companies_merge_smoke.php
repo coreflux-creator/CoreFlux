@@ -20,7 +20,7 @@ $a('companiesMerge() exists',                  strpos($lib, 'function companiesM
 $a('merge blocks self-merge',                  strpos($lib, 'Cannot merge a company into itself') !== false);
 $a('merge blocks cross-tenant',                strpos($lib, 'Cross-tenant merge blocked') !== false);
 $a('merge refuses already-deleted',            strpos($lib, 'is already soft-deleted') !== false);
-$a('merge wrapped in transaction',             strpos($lib, '$pdo->beginTransaction()') !== false && strpos($lib, 'rollBack()') !== false);
+$a('merge wrapped in transaction',             (strpos($lib, '$pdo->beginTransaction()') !== false || strpos($lib, 'cf_tx_begin($pdo)') !== false) && (strpos($lib, 'rollBack()') !== false || strpos($lib, 'cf_tx_rollback') !== false));
 foreach ([
     'ap_vendors_index'        => 'company_id',
     'ap_bills'                => 'vendor_company_id',

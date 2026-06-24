@@ -133,7 +133,7 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
     }
 
     $pdo = getDB();
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         foreach ($rows as $r) {
             $hourType = $r['hour_type'] ?? 'regular';
@@ -217,9 +217,9 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
         );
         scopedUpdate('staffing_timesheets', $headerId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
 
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 
@@ -235,7 +235,7 @@ function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart
     $headerId = (int) $header['id'];
 
     $pdo = getDB();
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         scopedUpdate('staffing_timesheets', $headerId, [
             'status'       => 'submitted',
@@ -248,9 +248,9 @@ function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart
               WHERE tenant_id = :t AND timesheet_id = :tid AND status IN ('draft','rejected')"
         );
         $upd->execute(['t' => currentTenantId(), 'tid' => $headerId]);
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 
@@ -266,7 +266,7 @@ function staffingTimesheetReject(int $userId, int $personId, string $periodStart
     $headerId = (int) $header['id'];
 
     $pdo = getDB();
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         scopedUpdate('staffing_timesheets', $headerId, [
             'status'              => 'rejected',
@@ -280,9 +280,9 @@ function staffingTimesheetReject(int $userId, int $personId, string $periodStart
               WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'pending_review'"
         );
         $upd->execute(['t' => currentTenantId(), 'tid' => $headerId, 'r' => $reason]);
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 
@@ -345,7 +345,7 @@ function staffingTimesheetApprove(int $userId, int $personId, string $periodStar
 
     $headerId = (int) $header['id'];
     $pdo = getDB();
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         scopedUpdate('staffing_timesheets', $headerId, [
             'status'              => 'approved',
@@ -358,9 +358,9 @@ function staffingTimesheetApprove(int $userId, int $personId, string $periodStar
               WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'pending_review'"
         );
         $upd->execute(['t' => currentTenantId(), 'tid' => $headerId, 'u' => $userId]);
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 
@@ -470,7 +470,7 @@ function staffingTimesheetReopen(int $userId, int $timesheetId, string $reason =
     // existing settlement code and the journal_entry_lines reference
     // them by id.  Operators must reverse the JE first.
     $pdo = getDB();
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         scopedUpdate('staffing_timesheets', $timesheetId, [
             'status'           => 'draft',
@@ -485,9 +485,9 @@ function staffingTimesheetReopen(int $userId, int $timesheetId, string $reason =
                 AND status IN ('pending_review','approved','rejected','payroll_ready','billing_ready')"
         );
         $upd->execute(['t' => currentTenantId(), 'tid' => $timesheetId]);
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
     return scopedFind(

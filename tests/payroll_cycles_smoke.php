@@ -57,7 +57,7 @@ $a('handles biweekly frequency',              strpos($cy, "case 'biweekly':")   
 $a('handles semimonthly frequency',           strpos($cy, "case 'semimonthly':") !== false);
 $a('handles monthly frequency',               strpos($cy, "case 'monthly':")    !== false);
 $a('audit emits payroll.cycle.advanced',      strpos($cy, "'payroll.cycle.advanced'") !== false);
-$a('advance is transactional',                strpos($cy, 'beginTransaction') !== false && strpos($cy, 'rollBack') !== false);
+$a('advance is transactional',                (strpos($cy, 'beginTransaction') !== false || strpos($cy, 'cf_tx_begin') !== false) && (strpos($cy, 'rollBack') !== false || strpos($cy, 'cf_tx_rollback') !== false));
 $a('PayCycleException thrown on missing cycle', strpos($cy, "throw new PayCycleException('Cycle not found')") !== false);
 
 echo "\nlib/cycles.php — pure window math (biweekly anchor 2026-01-05, period 1)\n";

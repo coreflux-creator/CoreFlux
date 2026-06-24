@@ -33,7 +33,7 @@ if (!function_exists('placementsRateApproveOne')) {
         $margin = placementsComputeMargin($rate, $chain);
 
         $pdo = getDB();
-        $pdo->beginTransaction();
+        $ownsTxn = cf_tx_begin($pdo);
         try {
             // Close prior approved row covering this effective_from
             $stmt = $pdo->prepare(
@@ -77,9 +77,9 @@ if (!function_exists('placementsRateApproveOne')) {
                 'tenant_id' => currentTenantId(),
                 'id'        => $rateId,
             ]);
-            $pdo->commit();
+            cf_tx_commit($pdo, $ownsTxn);
         } catch (\Throwable $e) {
-            $pdo->rollBack();
+            cf_tx_rollback($pdo, $ownsTxn);
             throw $e;
         }
 

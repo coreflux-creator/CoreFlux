@@ -1,5 +1,52 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Nested-tx sweep + users.tenant_id baseline migration)
+
+### What shipped
+
+#### 0. Defense-in-depth — every lib-level helper is now nested-tx safe
+- New `/app/core/tx_helpers.php` declares three primitives — `cf_tx_begin(\PDO)` / `cf_tx_commit(\PDO, bool $owns)` / `cf_tx_rollback(\PDO, bool $owns)` — that no-op when an outer caller already owns the tx.
+- `/app/core/api_bootstrap.php` requires it (production loads the helpers as part of the API bootstrap path).
+- All 16 lib-level helpers that previously opened a raw `$pdo->beginTransaction()` have been converted to the helper pattern:
+  - `/app/modules/ap/lib/recurring.php` (loop-body tx per generated bill)
+  - `/app/modules/accounting/lib/intercompany.php` (intercompany split posting)
+  - `/app/modules/engagements/lib/engagements.php` (engagementsCreate)
+  - `/app/modules/payroll/lib/csv_import.php` (payrollImportRunCsv)
+  - `/app/modules/payroll/lib/cycles.php` (payrollCycleAdvance)
+  - `/app/modules/people/lib/companies.php` (companiesMerge)
+  - `/app/modules/placements/lib/rate_approve.php` (placementsRateApproveOne)
+  - `/app/modules/staffing/lib/timesheets.php` (5 sites: bulk_save, submit, reject, approve, reopen)
+  - `/app/modules/time/lib/settlement.php` (extract + unExtract)
+  - `/app/modules/time/lib/settlement_create.php` (autoCreate + _settleTimeIntoPayroll)
+  - `/app/core/mercury_payments.php` (mpTransition)
+  - `/app/core/mercury_recipients.php` (mercuryRecipientCreate)
+  - `/app/core/sub_tenants.php` (subTenantProvision)
+- The previously-patched 6 helpers (`ap.php`, `pwp.php`, `billing.php`) keep their inline owning-tx pattern (`$ownsTxn = !$pdo->inTransaction();`) — semantically equivalent, accepted by both old and new smoke checks.
+- New regression smoke `tests/nested_tx_sweep_smoke.php` (**64 ✓**) statically inventories all 16 sites + drives a live SQLite nested-cascade exercise (outer tx → 3 levels of helper calls → atomic commit at the outer level).
+
+#### 1. users.tenant_id baseline migration (P2 from prior fork)
+- New `/app/core/migrations/056_users_tenant_id_baseline.sql` — idempotent:
+  - Adds the column ONLY when missing (gated by `information_schema.columns` lookup via prepared statement).
+  - Backfills from `tenant_memberships` (picks each user's oldest active membership as the "home" tenant).
+  - Falls back to `0` sentinel for users with zero memberships (legacy system rows).
+  - Doesn't enforce NOT-NULL in this pass — deferred to 057 once ops confirms every tenant_id is non-zero.
+
+### Tests
+- New `tests/nested_tx_sweep_smoke.php` — **64 ✓** (full inventory + live nested cascade).
+- Updated 7 pre-existing smokes that hard-coded `$pdo->beginTransaction()` literal checks to also accept `cf_tx_begin($pdo)` (semantically equivalent).
+- Updated 3 eval-based smokes to `require_once '/app/core/tx_helpers.php'` so they can resolve the helpers when sourcing patched lib code via eval.
+
+### Suite health
+**440/448 ✓** — same 8 pre-existing sandbox-boundary failures as the baseline before this sweep. **Zero new regressions.**
+
+### Code reality (this session)
+- **New**: `/app/core/tx_helpers.php`, `/app/core/migrations/056_users_tenant_id_baseline.sql`, `/app/tests/nested_tx_sweep_smoke.php`.
+- **Edited (refactor only — semantics unchanged)**: 16 lib-level helper files (listed above) + `/app/core/api_bootstrap.php` (helper extraction) + 10 smoke tests (relaxed string assertions or polyfill includes).
+
+---
+
+
+
 ## Session — 2026-02 (Nested-tx fix + P2.1 inverse cascade + P2.2/P2.3 PWP nudge)
 
 ### What shipped

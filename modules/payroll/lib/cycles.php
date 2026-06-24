@@ -85,7 +85,7 @@ function payrollCycleAdvance(int $cycleId, ?int $actorUserId = null): array
 {
     $tenantId = currentTenantId();
     $pdo = getDB();
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         $cycle = scopedFind('SELECT * FROM payroll_pay_cycles WHERE tenant_id = :tenant_id AND id = :id', ['id' => $cycleId]);
         if (!$cycle)              throw new PayCycleException('Cycle not found');
@@ -127,9 +127,9 @@ function payrollCycleAdvance(int $cycleId, ?int $actorUserId = null): array
             'id' => $cycleId,
         ]);
 
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 

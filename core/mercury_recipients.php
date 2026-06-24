@@ -58,7 +58,7 @@ function mercuryRecipientCreate(int $tenantId, array $data, ?int $userId = null)
     if (!in_array($acctType, ['checking', 'savings'], true)) $acctType = 'checking';
 
     $pdo = getDB();
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         $pdo->prepare(
             'INSERT INTO mercury_recipients
@@ -92,9 +92,9 @@ function mercuryRecipientCreate(int $tenantId, array $data, ?int $userId = null)
             'nk' => $bank['nickname'] ?? null,
         ]);
 
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 

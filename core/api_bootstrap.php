@@ -521,6 +521,15 @@ function cf_begin_transaction(): \PDO {
 }
 
 /**
+ * Nested-safe tx primitives — 2026-02.
+ *
+ * The implementations live in /app/core/tx_helpers.php so they can be
+ * pulled into smoke tests without the full API bootstrap stack. See
+ * that file for the documented contract.
+ */
+require_once __DIR__ . '/tx_helpers.php';
+
+/**
  * Self-heal a known schema-drift column reference. Returns true if the
  * column was missing and has now been added (or skipped because the host
  * table doesn't exist on this tenant). Returns false if we don't have a

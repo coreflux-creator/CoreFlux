@@ -55,9 +55,9 @@ $a('only allows status=approved on extract',
 $a('idempotent guard: refuses if already extracted',
     $c($lib, 'already extracted to'));
 $a('FOR UPDATE row lock on extract',         $c($lib, 'FOR UPDATE'));
-$a('atomic transaction wrap',                $c($lib, '$pdo->beginTransaction()')
-                                          && $c($lib, '$pdo->commit()')
-                                          && $c($lib, '$pdo->rollBack()'));
+$a('atomic transaction wrap',                ($c($lib, '$pdo->beginTransaction()') || $c($lib, 'cf_tx_begin($pdo)'))
+                                          && ($c($lib, '$pdo->commit()') || $c($lib, 'cf_tx_commit('))
+                                          && ($c($lib, '$pdo->rollBack()') || $c($lib, 'cf_tx_rollback(')));
 $a('5000 batch cap',                         $c($lib, 'Batch limit 5000'));
 $a('un-extract requires reason',             $c($lib, 'reason required for un-extract'));
 $a('audits time.settlement.extracted_*',     $c($lib, 'time.settlement.extracted_'));
@@ -157,7 +157,7 @@ $a('OT multiplier applied for OT_billable',        $c($cr, "OT_billable") && $c(
 $a('billing creates draft AR invoice + per-day lines',
     $c($cr, "scopedInsert('billing_invoices'") && $c($cr, "INSERT INTO billing_invoice_lines"));
 $a('AP creates pending_approval bill',             $c($cr, "scopedInsert('ap_bills'") && $c($cr, "'status'         => 'pending_approval'"));
-$a('atomic: begin/commit/rollBack',                $c($cr, '$pdo->beginTransaction()') && $c($cr, '$pdo->commit()') && $c($cr, '$pdo->rollBack()'));
+$a('atomic: begin/commit/rollBack',                ($c($cr, '$pdo->beginTransaction()') || $c($cr, 'cf_tx_begin($pdo)')) && ($c($cr, '$pdo->commit()') || $c($cr, 'cf_tx_commit(')) && ($c($cr, '$pdo->rollBack()') || $c($cr, 'cf_tx_rollback(')));
 $a('only allows status=approved entries',          $c($cr, "\$e['status'] !== 'approved'"));
 $a('refuses already-extracted entries',            $c($cr, 'already extracted to'));
 $a('audits time.settlement.auto_extracted_*',      $c($cr, 'time.settlement.auto_extracted_'));
