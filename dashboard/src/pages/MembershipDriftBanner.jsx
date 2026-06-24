@@ -20,6 +20,7 @@ export default function MembershipDriftBanner({ onHealed }) {
   const [error, setError]     = useState(null);
   const [busy, setBusy]       = useState(false);
   const [open, setOpen]       = useState(false);
+  const [healErrors, setHealErrors] = useState([]);
 
   const reload = useCallback(async () => {
     setLoading(true); setError(null);
@@ -50,8 +51,6 @@ export default function MembershipDriftBanner({ onHealed }) {
             <code style={{ marginLeft: 4 }}>tenant_memberships</code>.</span>
     </div>
   );
-
-  const [healErrors, setHealErrors] = useState([]);
 
   const healOne = async (userId) => {
     setBusy(true);
