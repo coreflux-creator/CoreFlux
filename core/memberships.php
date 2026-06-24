@@ -94,10 +94,10 @@ function membershipTenantCountForUser(int $userId): int {
  * tenant-leak-allow: heals every tenant the user already legitimately
  * belongs to in the legacy table; tenant scope is the user's own data.
  */
-function healMembershipsForUser(int $userId): int {
-    if ($userId <= 0) return 0;
+function healMembershipsForUser(int $userId): array {
+    if ($userId <= 0) return ['healed' => 0, 'errors' => []];
     $pdo = getDB();
-    if (!$pdo) return 0;
+    if (!$pdo) return ['healed' => 0, 'errors' => ['no DB connection']];
 
     try {
         $stmt = $pdo->prepare(
@@ -115,10 +115,11 @@ function healMembershipsForUser(int $userId): int {
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     } catch (\Throwable $e) {
         // Table missing / migration not applied — nothing to heal.
-        return 0;
+        return ['healed' => 0, 'errors' => ['user_tenants read failed: ' . $e->getMessage()]];
     }
 
     $healed = 0;
+    $errors = [];
     foreach ($rows as $r) {
         try {
             provisionMembership(
@@ -133,10 +134,12 @@ function healMembershipsForUser(int $userId): int {
             );
             $healed++;
         } catch (\Throwable $e) {
-            error_log('[memberships.heal] ' . $e->getMessage());
+            $msg = 'tenant=' . (int) $r['tenant_id'] . ' role=' . ($r['role'] ?? '?') . ' err=' . $e->getMessage();
+            error_log('[memberships.heal] ' . $msg);
+            $errors[] = $msg;
         }
     }
-    return $healed;
+    return ['healed' => $healed, 'errors' => $errors];
 }
 
 /**

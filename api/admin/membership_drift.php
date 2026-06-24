@@ -130,8 +130,12 @@ if ($method === 'POST') {
     if ($action === 'heal') {
         $uid = (int) api_query('user_id', 0);
         if ($uid <= 0) api_error('user_id required', 422);
-        $healed = healMembershipsForUser($uid);
-        api_ok(['user_id' => $uid, 'rows_healed' => $healed]);
+        $result = healMembershipsForUser($uid);
+        api_ok([
+            'user_id'     => $uid,
+            'rows_healed' => $result['healed'],
+            'errors'      => $result['errors'],
+        ]);
     }
 
     if ($action === 'heal_all') {
@@ -151,15 +155,22 @@ if ($method === 'POST') {
         $ids = $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
 
         $totalHealed = 0;
+        $allErrors = [];
         foreach ($ids as $id) {
-            try { $totalHealed += healMembershipsForUser((int) $id); }
-            catch (\Throwable $e) {
-                error_log('[membership_drift.heal_all] uid=' . $id . ' ' . $e->getMessage());
+            try {
+                $r = healMembershipsForUser((int) $id);
+                $totalHealed += $r['healed'];
+                foreach ($r['errors'] as $e) $allErrors[] = "uid={$id} {$e}";
+            } catch (\Throwable $e) {
+                $msg = 'uid=' . $id . ' ' . $e->getMessage();
+                error_log('[membership_drift.heal_all] ' . $msg);
+                $allErrors[] = $msg;
             }
         }
         api_ok([
             'users_processed' => count($ids),
             'rows_healed'     => $totalHealed,
+            'errors'          => $allErrors,
             'batch_capped_at' => 250,
         ]);
     }

@@ -235,28 +235,37 @@ if ($method === 'POST') {
     }
 
     $hash = password_hash($pwd, PASSWORD_DEFAULT);
-    // Detect whether the live `users` table has a tenant_id column (some
-    // production envs have a legacy NOT-NULL tenant_id that's not captured
-    // in /app/core/migrations/). Include it only when present, so this
-    // INSERT works against both schemas without forcing a migration.
-    $hasTenantCol = false;
-    try {
-        $col = $pdo->query("SHOW COLUMNS FROM users LIKE 'tenant_id'")->fetchColumn();
-        $hasTenantCol = (bool) $col;
-    } catch (\Throwable $_) { $hasTenantCol = false; }
 
-    $cols     = ['name', 'email', 'password', 'password_hash', 'role', 'is_active', 'created_at'];
-    $vals     = [':n',   ':e',   ':pw1',     ':pw2',         ':r',   '1',         'NOW()'];
-    $params   = ['n' => $name, 'e' => $email, 'pw1' => $hash, 'pw2' => $hash, 'r' => $newRole];
-    if ($hasTenantCol) {
-        $cols[]   = 'tenant_id';
-        $vals[]   = ':tid';
-        $params['tid'] = $tenantId;
+    // Production envs have a legacy NOT-NULL `tenant_id` column on `users`
+    // that fresh installs don't. Try-with-tenant_id first; if that fails
+    // with an "unknown column" error, retry without it. This is more
+    // robust than introspecting SHOW COLUMNS (which can be cached, lag
+    // schema changes, or fail under restricted MySQL privileges).
+    $baseCols = ['name', 'email', 'password', 'password_hash', 'role', 'is_active', 'created_at'];
+    $baseVals = [':n',   ':e',   ':pw1',     ':pw2',         ':r',   '1',         'NOW()'];
+    $baseBind = ['n' => $name, 'e' => $email, 'pw1' => $hash, 'pw2' => $hash, 'r' => $newRole];
+
+    $tryWith = function (\PDO $pdo, bool $includeTenant) use ($baseCols, $baseVals, $baseBind, $tenantId): int {
+        $cols = $baseCols; $vals = $baseVals; $bind = $baseBind;
+        if ($includeTenant) {
+            $cols[] = 'tenant_id'; $vals[] = ':tid'; $bind['tid'] = $tenantId;
+        }
+        $sql = 'INSERT INTO users (' . implode(', ', $cols) . ') VALUES (' . implode(', ', $vals) . ')';
+        $pdo->prepare($sql)->execute($bind);
+        return (int) $pdo->lastInsertId();
+    };
+
+    try {
+        $newId = $tryWith($pdo, true);
+    } catch (\PDOException $e) {
+        // 1054 = unknown column. Anything else propagates.
+        $msg = $e->getMessage();
+        if (str_contains($msg, '1054') || stripos($msg, 'unknown column') !== false) {
+            $newId = $tryWith($pdo, false);
+        } else {
+            throw $e;
+        }
     }
-    $pdo->prepare(
-        'INSERT INTO users (' . implode(', ', $cols) . ') VALUES (' . implode(', ', $vals) . ')'
-    )->execute($params);
-    $newId = (int) $pdo->lastInsertId();
 
     // Default tenant assignment — provisionMembership() dual-writes the
     // legacy user_tenants + new tenant_memberships rows.

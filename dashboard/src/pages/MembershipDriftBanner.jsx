@@ -51,10 +51,14 @@ export default function MembershipDriftBanner({ onHealed }) {
     </div>
   );
 
+  const [healErrors, setHealErrors] = useState([]);
+
   const healOne = async (userId) => {
     setBusy(true);
+    setHealErrors([]);
     try {
-      await api.post(`/api/admin/membership_drift.php?action=heal&user_id=${userId}`, {});
+      const res = await api.post(`/api/admin/membership_drift.php?action=heal&user_id=${userId}`, {});
+      if (res?.errors?.length) setHealErrors(res.errors);
       await reload();
       onHealed?.();
     } catch (e) {
@@ -67,20 +71,24 @@ export default function MembershipDriftBanner({ onHealed }) {
   const healAll = async () => {
     if (!confirm(`Heal all ${drifting} drifting account(s)? This dual-writes legacy rows into tenant_memberships and is safe to re-run.`)) return;
     setBusy(true);
+    setHealErrors([]);
     try {
       // The endpoint caps each batch at 250 users; loop until clean
       // or until the cap stops shrinking the count (defensive).
       let prev = -1, current = drifting, hops = 0;
+      const allErrors = [];
       while (current > 0 && current !== prev && hops < 20) {
         prev = current;
         // eslint-disable-next-line no-await-in-loop
-        await api.post('/api/admin/membership_drift.php?action=heal_all', {});
+        const res = await api.post('/api/admin/membership_drift.php?action=heal_all', {});
+        if (res?.errors?.length) allErrors.push(...res.errors);
         // eslint-disable-next-line no-await-in-loop
         const fresh = await api.get('/api/admin/membership_drift.php');
         current = fresh?.summary?.drifting_users ?? 0;
         setData(fresh);
         hops += 1;
       }
+      if (allErrors.length) setHealErrors(allErrors.slice(0, 20));  // cap UI list
       onHealed?.();
     } catch (e) {
       alert(e?.message || 'Heal-all failed');
@@ -138,6 +146,28 @@ export default function MembershipDriftBanner({ onHealed }) {
               {open ? ' Hide list' : ` Show list (${rows.length}${rows.length < drifting ? ` of ${drifting}` : ''})`}
             </button>
           </div>
+
+          {healErrors.length > 0 && (
+            <div
+              data-testid="drift-heal-errors"
+              style={{
+                marginTop: 10,
+                padding: 10,
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: 6,
+                fontSize: 12,
+                color: '#7f1d1d',
+              }}
+            >
+              <strong>Heal blocked — surface the real error so we can fix it:</strong>
+              <ul style={{ margin: '4px 0 0 16px', maxHeight: 200, overflowY: 'auto' }}>
+                {healErrors.map((e, i) => (
+                  <li key={i} style={{ fontFamily: 'monospace' }} data-testid={`drift-heal-error-${i}`}>{e}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {open && (
             <table className="data-table" style={{ marginTop: 12 }} data-testid="drift-table">

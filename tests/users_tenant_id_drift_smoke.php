@@ -22,16 +22,20 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-echo "\n1. /api/users.php POST guards tenant_id\n";
+echo "\n1. /api/users.php POST uses try-with-tenant_id + fallback\n";
 $src = (string) file_get_contents('/app/api/users.php');
-$a('detects tenant_id column via SHOW COLUMNS',
-    str_contains($src, "SHOW COLUMNS FROM users LIKE 'tenant_id'"));
-$a('appends :tid placeholder when column present',
-    str_contains($src, "\$cols[]   = 'tenant_id'") && str_contains($src, "\$vals[]   = ':tid'"));
-$a('binds tenantId param',
-    str_contains($src, "\$params['tid'] = \$tenantId"));
-$a('falls back to dynamic columns INSERT',
-    str_contains($src, "implode(', ', \$cols)") && str_contains($src, "implode(', ', \$vals)"));
+$a('declares try-with-fallback builder',
+    str_contains($src, '$tryWith = function (\PDO $pdo, bool $includeTenant)'));
+$a('first attempt always includes tenant_id',
+    str_contains($src, '$newId = $tryWith($pdo, true);'));
+$a('catches PDOException',
+    str_contains($src, 'catch (\PDOException $e)'));
+$a('retries without tenant_id on unknown column error',
+    str_contains($src, "str_contains(\$msg, '1054')")
+    && str_contains($src, "stripos(\$msg, 'unknown column')")
+    && str_contains($src, '$newId = $tryWith($pdo, false);'));
+$a('rethrows any other PDOException',                 str_contains($src, 'throw $e;'));
+$a('builder binds $tenantId when including the col', str_contains($src, "\$bind['tid'] = \$tenantId"));
 
 echo "\n2. /api/admin/memberships.php picks up tenant_id\n";
 $mem = (string) file_get_contents('/app/api/admin/memberships.php');
