@@ -124,7 +124,7 @@ $colSpanFiles = [
     '/app/modules/people/ui/Directory.jsx'       => 'colSpan={7}',
     '/app/modules/ap/ui/VendorsList.jsx'         => 'colSpan={9}',
     '/app/modules/ap/ui/BillsList.jsx'           => 'colSpan={10}',
-    '/app/modules/billing/ui/InvoicesList.jsx'   => 'colSpan={8}',
+    '/app/modules/billing/ui/InvoicesList.jsx'   => 'colSpan={9}',
     '/app/modules/billing/ui/PaymentsList.jsx'   => 'colSpan={8}',
     '/app/modules/people/ui/DirectoryModule.jsx' => 'colSpan={6}',
 ];

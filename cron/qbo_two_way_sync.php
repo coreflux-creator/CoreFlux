@@ -23,6 +23,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/config.php';
 require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/qbo/sync_in_arap.php';
+require_once __DIR__ . '/../core/qbo/auto_reconcile.php';
 
 $pdo = getDB();
 
@@ -56,7 +57,8 @@ if (!$rows) {
     exit(0);
 }
 
-$summary = ['tenants' => 0, 'ok' => 0, 'fail' => 0, 'drift_rows' => 0];
+$summary = ['tenants' => 0, 'ok' => 0, 'fail' => 0, 'drift_rows' => 0,
+            'auto_reconciled' => 0, 'auto_payments_created' => 0];
 
 foreach ($rows as $r) {
     $tid = (int) $r['tenant_id'];
@@ -92,6 +94,22 @@ foreach ($rows as $r) {
     $summary[$tenantOk ? 'ok' : 'fail']++;
     $summary['drift_rows'] += $tenantDrift;
 
+    // Auto-reconcile paid_out_of_band drift when the tenant has opted in.
+    // Runs AFTER drift detection so freshly-detected rows are picked up
+    // in the same pass. Best-effort: errors do NOT fail the tenant.
+    if ($tenantOk) {
+        try {
+            $arc = qboAutoReconcileTenant($tid, null);
+            $summary['auto_reconciled']        += (int) ($arc['drift_rows_closed'] ?? 0);
+            $summary['auto_payments_created']  += (int) ($arc['payments_created']  ?? 0);
+            if (!empty($arc['errors'])) {
+                fwrite(STDERR, "tenant {$tid}: auto-reconcile errors: " . implode(' | ', $arc['errors']) . "\n");
+            }
+        } catch (\Throwable $e) {
+            fwrite(STDERR, "tenant {$tid}: auto-reconcile fatal: " . substr($e->getMessage(), 0, 240) . "\n");
+        }
+    }
+
     // Upsert state row.
     $now = date('Y-m-d H:i:s');
     $pdo->prepare(
@@ -113,7 +131,8 @@ foreach ($rows as $r) {
 }
 
 fwrite(STDOUT, sprintf(
-    "qbo_two_way_sync done: tenants=%d ok=%d fail=%d drift_rows=%d\n",
-    $summary['tenants'], $summary['ok'], $summary['fail'], $summary['drift_rows']
+    "qbo_two_way_sync done: tenants=%d ok=%d fail=%d drift_rows=%d auto_reconciled=%d auto_payments=%d\n",
+    $summary['tenants'], $summary['ok'], $summary['fail'], $summary['drift_rows'],
+    $summary['auto_reconciled'], $summary['auto_payments_created']
 ));
 exit(0);

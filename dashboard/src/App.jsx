@@ -19,6 +19,7 @@ import TimeModule from '../../modules/time/ui/TimeModule';
 import StaffingModule from '../../modules/staffing/ui/StaffingModule';
 import BillingModule from '../../modules/billing/ui/BillingModule';
 import APModule from '../../modules/ap/ui/APModule';
+import EngagementsModule from '../../modules/engagements/ui/EngagementsModule';
 import PayrollModule from '../../modules/payroll/ui/PayrollModule';
 import AccountingModule from './modules/AccountingModule';
 import AccountingV1Module from '../../modules/accounting/ui/AccountingModule';
@@ -496,6 +497,7 @@ const AppContent = ({ session, usingDemo }) => {
           <Route path="/modules/time/*"       element={<TimeModule       session={session} />} />
           <Route path="/modules/billing/*"    element={<BillingModule    session={session} />} />
           <Route path="/modules/ap/*"         element={<APModule         session={session} />} />
+          <Route path="/modules/engagements/*" element={<EngagementsModule session={session} />} />
           <Route path="/modules/accounting/*" element={<AccountingV1Module session={session} />} />
           <Route path="/modules/payroll/*"    element={<PayrollModule    session={session} />} />
           <Route path="/modules/treasury/*"   element={<TreasuryModule   session={session} />} />

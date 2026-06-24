@@ -115,6 +115,22 @@ $providers = [
         // No chart-of-accounts → primitive #4 doesn't apply (null = n/a).
         'mapping_fallback' => null,
     ],
+    [
+        'id'        => 'plaid',
+        'label'     => 'Plaid',
+        'spec'      => $ROOT . '/spec/plaid_schema.json',
+        'snapshot'  => null, // OpenAPI is gigantic — we track a curated subset only
+        'contract'  => $ROOT . '/tests/plaid_payload_contract_smoke.php',
+        'freshness' => $ROOT . '/tests/plaid_spec_freshness_smoke.php',
+        'tool'      => $ROOT . '/tools/refresh_plaid_spec.sh',
+        // Plaid is read-mostly bank + transfers. #4 (CoA mapping fallback)
+        // doesn't apply. #5 (verifyCreate) is implemented as polling via
+        // plaid_transfer_sync.php — Plaid surfaces a transfer's outcome
+        // through TRANSFER_EVENTS_UPDATE webhooks (see api/plaid_transfer_webhook.php).
+        'verify_create' => true,
+        'error_surface' => true,
+        'mapping_fallback' => null,
+    ],
 ];
 
 $STALE_AFTER_DAYS = 90;

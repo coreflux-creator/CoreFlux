@@ -7,6 +7,7 @@ import CIStatusBadge from '../components/CIStatusBadge';
 import FscHealthPanel from '../components/FscHealthPanel';
 import QboSyncHealthTile from '../components/QboSyncHealthTile';
 import ApprovalMixTile from '../components/ApprovalMixTile';
+import RevenueStreamWidget from '../components/RevenueStreamWidget';
 import {
   TrendingUp, TrendingDown, Calendar, Save, Send, Sparkles, StickyNote, X,
   Eye, EyeOff, ArrowUpDown, Plus, Trash2, Loader2, FileText,
@@ -205,6 +206,8 @@ export default function CFODashboard({ session }) {
         ))}
         <CustomFormulaTiles snapshot={data} formulas={formulas.data?.formulas || []} editMode={editMode} />
       </div>
+
+      <RevenueStreamWidget />
 
       <FscHealthPanel />
 

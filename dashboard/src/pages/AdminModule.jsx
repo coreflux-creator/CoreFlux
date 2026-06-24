@@ -23,6 +23,7 @@ import RbacMembershipsAdmin from './RbacMembershipsAdmin';
 import RecentAccessChangesPanel from './RecentAccessChangesPanel';
 import RbacBridgeHealthPanel from './RbacBridgeHealthPanel';
 import IntegrationsHealthPanel from './IntegrationsHealthPanel';
+import IntegrationTriage from './IntegrationTriage';
 import LayerFiToggleCard from './LayerFiToggleCard';
 import PermissionProfileBuilder from './PermissionProfileBuilder';
 import CpaPortfolio from './CpaPortfolio';
@@ -154,6 +155,7 @@ const AdminSidebar = () => {
     { to: '/admin/audit-log',        label: 'Audit Log',        icon: ScrollText },
     { to: '/admin/rule-sandbox',     label: 'Rule Sandbox',     icon: FlaskConical },
     { to: '/admin/integrations',     label: 'Integrations',     icon: PlugZap },
+    { to: '/admin/integrations/triage', label: 'Integration triage', icon: AlertTriangle },
     { to: '/admin/accounting/outbox', label: 'Accounting outbox', icon: Inbox },
     { to: '/admin/ai-gateway',       label: 'AI Tool Gateway',  icon: Bot },
     { to: '/admin/ai-gateway/ask',   label: 'Ask AI (Slice 1)', icon: Sparkles },
@@ -241,6 +243,7 @@ const AdminModule = ({ session }) => {
           <Route path="/audit-log"         element={<AuditLogViewer session={session} />} />
           <Route path="/rule-sandbox"      element={<RuleSandbox session={session} />} />
           <Route path="/integrations"          element={<IntegrationsHub session={session} />} />
+          <Route path="/integrations/triage"   element={<IntegrationTriage session={session} />} />
           <Route path="/integrations/accounting-sync" element={<AccountingSyncDashboard session={session} />} />
           <Route path="/integrations/plaid"    element={<PlaidTransferSettings session={session} />} />
           <Route path="/integrations/mercury"  element={<MercurySettings session={session} />} />

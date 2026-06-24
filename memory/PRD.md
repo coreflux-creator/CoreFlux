@@ -1,5 +1,399 @@
 # CoreFlux Product Requirements Document
 
+## Session — 2026-02 (Timesheet Lifecycle visibility + Pay-When-Paid UI surface)
+
+### What shipped
+
+#### 1. Timesheet Lifecycle Resolver (backend)
+- **`/app/modules/staffing/lib/lifecycle.php`** — pure-function downstream cascade resolver:
+  - `staffingTimesheetLifecycle(int $tenantId, int $timesheetId)` walks the full chain:
+    1. Timesheet header + every entry (joins `placements.title` / `placements.end_client_name`)
+    2. **Approval audit** — `submitted_at` / `approved_at` + relevant `audit_log` events (`staffing.timesheet.submitted|approved|rejected|reopened`)
+    3. **Accrual JEs** — `accounting_events WHERE source_module='staffing' AND source_record_id LIKE '<ts_id>:%'` joined to `accounting_journal_entries` (catches per-engagement-type accrual rows from `_emitAccountingEvents()`)
+    4. **AR side** — `billing_invoice_lines.source_type='time_entry'/source_ref_id IN (entry_ids)` → invoice → billing JE (`source_module='billing'`) → `billing_payment_allocations` → `billing_payments`
+    5. **AP side** — `ap_bill_lines.source_type='time_entry'` → bill (with `pwp_status`, `linked_ar_invoice_id`, `pwp_released_at`) → AP JE → `ap_payment_allocations` → `ap_payments` (with `disbursement_rail`, `rail_external_ref`, `rail_status`)
+    6. **PWP audit events** — `audit_log` rows for `ap.bill.pwp.linked/cleared/released` keyed to each bill
+    7. **Summary rollups** — `revenue_billed`, `ar_collected`, `vendor_owed`, `vendor_paid`
+  - `staffingTimeEntryLifecycle(int $tenantId, int $entryId)` — same payload narrowed to AR/AP rows that referenced ONLY this entry; adds `focused_entry` block.
+  - Read-only. Tenant-scoped everywhere. Degrades gracefully when `audit_log` or `accounting_events` tables are missing (catches PDO exceptions → returns empty arrays).
+
+#### 2. Lifecycle API endpoint
+- **`/app/modules/staffing/api/lifecycle.php`** — `GET ?action=timesheet&id=N` or `?action=entry&id=N`. Auth + `staffing.timesheets.read` gated. Only-GET.
+
+#### 3. Vertical-timeline UI components
+- **`/app/dashboard/src/components/TimesheetLifecycleTimeline.jsx`** — pure-presentation timeline (4 numbered steps: Approval / Accruals / AR / AP). Renders:
+  - Summary band (`lifecycle-stat-revenue-billed/ar-collected/vendor-owed/vendor-paid`)
+  - Per-AR-invoice card with link to invoice + billing JE + each cash receipt (with QBO tag when `source_system='qbo'`)
+  - Per-AP-bill card with **inline PWP banner** (awaiting_ar amber, triggered green), AP JE link, PWP audit collapsible, and vendor disbursement rows showing rail (`mercury`/`plaid`/`nacha`), `rail_external_ref`, and `rail_status`.
+  - All elements carry `data-testid`s (`lifecycle-step-{approval|accruals|ar|ap}`, `lifecycle-ar-{id}`, `lifecycle-ap-{id}`, `lifecycle-pwp-banner-{bill_id}`, `lifecycle-ap-pay-{bill_id}-{i}`, etc.).
+- **`/app/modules/staffing/ui/TimesheetLifecycle.jsx`** — full-page wrapper at `/modules/staffing/timesheets/:id/lifecycle` (optional `?entry_id=N` for entry-narrow). Loading + error states + back link.
+
+#### 4. PWP visibility on AP Bill Detail
+- **`/app/modules/ap/ui/BillDetail.jsx`** — new banner (`ap-bill-pwp-banner`) that renders for any PWP-termed bill:
+  - **awaiting_ar** (amber, `ap-bill-pwp-awaiting`) — "Vendor disbursement blocked until AR #<id> is paid by the client (4-way match gate)" with deep-link to the AR invoice.
+  - **triggered** (green, `ap-bill-pwp-released`) — shows release timestamp + deep-link to the now-paid AR invoice.
+
+#### 5. Wire-ups
+- **`StaffingModule.jsx`** — route added: `<Route path="timesheets/:id/lifecycle" element={<TimesheetLifecycle />} />`.
+- **`TimesheetDetail.jsx`** — "View downstream cascade →" link (`timesheet-detail-view-lifecycle`) in the header action row.
+
+### Pre-existing infrastructure that already shipped (verified, no changes needed)
+- **Pay-When-Paid backend** (`/app/modules/ap/lib/pwp.php`): `apPwpReleaseForArInvoice` auto-fires from `billingAllocatePayment()` when an AR invoice flips to `paid`. `apPwpAutoLinkForArInvoice` links sibling AP bills by placement + period. The four-way-match gate is enforced at `ap/api/payments.php?action=send` AND `?action=originate_batch` via `apPwpAllocatedBillsAwaitingAr()` — vendor cash CANNOT leave on a PWP bill while AR is unpaid.
+- **Payment rails dispatch** (`/app/core/payment_rails.php` + `apExecutePaymentRun` in `ap.php`): approved AP payments route through `paymentRailsDispatch('ap', ...)` to Mercury / Plaid / Nacha drivers; the lifecycle UI surfaces every dispatched `rail_external_ref` + `rail_status` so the operator can trace cash to the external rail.
+
+### Tests
+- **New** `tests/timesheet_lifecycle_smoke.php` — **56 ✓** asserts:
+  - lib surface (resolver functions, SQL shape, rail metadata, PWP audit traversal, summary rollups)
+  - api gate (auth + `staffing.timesheets.read` + only-GET + both actions)
+  - UI wiring (route, cascade link, banner, all timeline test-ids, rail metadata rendering)
+  - **Live SQLite cascade exercise**: builds a 12-table mirror (`tenants`, `people`, `placements`, `staffing_timesheets`, `time_entries`, `billing_invoices`, `billing_invoice_lines`, `billing_payments`, `billing_payment_allocations`, `ap_bills`, `ap_bill_lines`, `ap_payments`, `ap_payment_allocations`, `accounting_journal_entries`, `accounting_events`, `audit_log`) and drives a full timesheet → AR invoice (paid via Mercury wire) → PWP-released vendor bill (paid via Mercury ACH) cascade — asserts every step resolves correctly, including the entry-narrowed view and an empty-timesheet negative case.
+  - Bundle integration check (resolves the live `/app/spa-assets/index-*.js` via `.deploy-version` and confirms `lifecycle-step-approval` testid embeds in the built bundle).
+- Schema-contract clean: corrected `billing_payments.method` (NOT `payment_method`) — surfaced by `schema_contract_smoke.php` static analyzer.
+
+### Vite build
+- Built fresh: `index-DLOTA731.js` / `index-DabV-Xbn.css` (sync_bundle.sh ran clean; `.deploy-version` updated to `spa-assets/index-DLOTA731.js`).
+
+### Suite health
+**436/444 ✓** — same 8 pre-existing sandbox-boundary failures (5 AI-gateway, accounting_phase2_a7, tenant_leak legacy `integration_triage.php:173`, treasury_csv_import). **Zero new regressions.**
+
+### Code reality (this session)
+- **New**: `/app/modules/staffing/lib/lifecycle.php`, `/app/modules/staffing/api/lifecycle.php`, `/app/dashboard/src/components/TimesheetLifecycleTimeline.jsx`, `/app/modules/staffing/ui/TimesheetLifecycle.jsx`, `/app/tests/timesheet_lifecycle_smoke.php`.
+- **Edited**: `/app/modules/staffing/ui/StaffingModule.jsx` (route + import), `/app/modules/staffing/ui/TimesheetDetail.jsx` (cascade link), `/app/modules/ap/ui/BillDetail.jsx` (PWP banner).
+
+---
+
+
+
+## Session — 2026-02 (Engagement detail + Revenue stream widget + JE-tx hygiene + RBAC persona wildcard)
+
+### What shipped — Features
+
+#### 1. Engagement detail page (`/modules/engagements/:id`)
+- **`/app/modules/engagements/ui/EngagementDetail.jsx`** — full per-engagement surface:
+  - **Editable header card**: client/project/dates/total fee/currency/description/notes → PATCH `/modules/engagements/api/detail.php?id=:id`.
+  - **Stat grid**: Total fee · Invoiced · Paid · Outstanding (computed) with dual-bar progress (invoiced/paid).
+  - **Milestones editor** (`MilestonesEditor`): full CRUD with per-row Edit button.
+    - **Add milestone** inline row → POST `/milestones.php?engagement_id=…`.
+    - **Edit milestone** swaps row to inline form with name/amount/target_date/description.
+    - **State transition CTAs** per milestone, gated by `canMarkReady` / `canInvoice` / `canMarkPaid` / `canCancel`:
+      - `pending → ready_to_invoice` via PATCH `{status: 'ready_to_invoice'}`.
+      - `pending|ready → invoiced` via POST `/invoice_milestone.php` (the bridge from the previous session).
+      - `invoiced → paid` via PATCH `{status: 'paid'}` (out-of-band escape hatch).
+      - Cancel transitions via PATCH `{status: 'cancelled'}`.
+    - `window.confirm` gates on every destructive/billing action.
+  - **Archive** button in the header (DELETE on detail.php) — engagement becomes read-only (all CTAs hidden when status='archived').
+  - **`/app/modules/engagements/ui/EngagementsModule.jsx`** — route added: `<Route path=":id" element={<EngagementDetail />} />`.
+  - **`EngagementsList.jsx`** — project_name now renders as a `<Link>` to the detail page (`engagement-link-{id}` testid).
+  - `data-testid` coverage: `engagement-detail`, `engagement-detail-back`, `engagement-detail-edit`, `engagement-detail-save`, `engagement-detail-archive`, `engagement-detail-status`, `engagement-detail-add-milestone`, `engagement-detail-milestones-table`, `engagement-detail-add-submit`, plus per-milestone IDs `milestone-detail-row-{id}`, `milestone-detail-invoice-btn-{id}`, `milestone-mark-ready-{id}`, `milestone-detail-markpaid-{id}`, `milestone-detail-cancel-{id}`, `milestone-detail-edit-{id}`, `milestone-edit-{name,amount,date,save,cancel}-{id}`.
+
+#### 2. Revenue stream widget (CFO Dashboard)
+- **`/app/api/cfo_revenue_stream.php`** — new endpoint:
+  - GET `?weeks=N` (clamped 1..26, default 4).
+  - Splits invoiced GMV into **four buckets**:
+    1. **T&M billing** — `billing_invoice_lines.source_type ∈ ('time_entry','placement','timesheet','time')`.
+    2. **Fixed-fee Engagements** — `source_type = 'engagement_milestone'`.
+    3. **Manual invoices** — everything else (operator-typed lines).
+    4. **QBO recon'd** — `billing_payments WHERE source_system='qbo'` net (payments routed around CoreFlux that we picked up via Two-Way Sync).
+  - **Weekly trend** via `YEARWEEK(issue_date, 3)` ISO mode for stacked-bar chart.
+  - Excludes `draft`/`void`/`cancelled` invoices.
+  - **Schema-defensive**: catches PDO exceptions when older pods lack `source_type` on `billing_invoice_lines` and degrades to a single "manual" bucket.
+  - RBAC gate: `api_require_cfo()` (uses new RBACResolver — see fix below).
+- **`/app/dashboard/src/components/RevenueStreamWidget.jsx`** — Vite/React component:
+  - SVG donut + legend (with $ amount + % per bucket).
+  - Stacked-bar week-over-week trend.
+  - Period picker buttons: 4w / 8w / 13w / 26w.
+  - **"% from fixed-fee" pulse banner** — green pill when ≥30%, amber otherwise with a "shift toward predictable revenue" nudge.
+  - Mounted at the top of CFO Dashboard (above FscHealthPanel).
+  - `data-testid` coverage: `cfo-revenue-stream`, `cfo-revenue-stream-weeks-{N}`, `cfo-revenue-stream-bucket-{key}`, `cfo-revenue-stream-bar-{week}`, `cfo-revenue-stream-donut`, `cfo-revenue-stream-fixed-pulse`, `cfo-revenue-stream-trend`, `cfo-revenue-stream-legend`.
+
+### What shipped — Bug fixes (regression-tested)
+
+#### 3. RBAC persona wildcard for master_admin / tenant_admin
+- **Symptom**: master_admin and tenant_admin users locked out of every action that ran through `api_can($module, $action)` → timesheets, journal entries, engagements all returned 403.
+- **Root cause**: Migration 055 created `tenant_memberships` rows for them with `persona_type='master_admin'`/`'tenant_admin'` but **no `membership_module_access` rows were backfilled**. `RBACResolver::can()` saw the membership existed (so the legacy fallback was skipped) but found no module access row → returned `false`.
+- **Fix**: `/app/core/rbac/permissions.php` — wired a persona-type shortcut in `can()` AFTER the membership-exists check but BEFORE the `moduleAccessFor` lookup. `master_admin`/`tenant_admin` get true for every (module, action) pair within their tenant. Sub-tenant scope intentionally not enforced (these personas are tenant-wide by definition).
+- **Smoke `rbac_persona_wildcard_smoke.php`** — **18 ✓** (source check, full live exercise on SQLite mirror covering master_admin/tenant_admin/employee-with-grant/employee-without-grant + cross-tenant boundary preserved).
+
+#### 4. JE "already an active transaction" error
+- **Symptom**: "any time I post a journal entry it says there's already an active transaction."
+- **Root cause**: Two un-guarded `$pdo->beginTransaction()` calls in `/app/modules/accounting/api/recurring_journal_entries.php` (lines 76 + 114). When the cron path looped over the same PHP-FPM worker without a clean exit, the stale transaction persisted into the next JE-post request, blowing up `$pdo->beginTransaction()` in `accountingPostJe`.
+- **Fix**: Added stale-tx rollback guards to both call sites — same idiom as the existing guard in `accountingPostJe()`. Static analysis sweep in the smoke test now blocks future regressions.
+- **Smoke `je_transaction_hygiene_smoke.php`** — **12 ✓** (per-call-site guard check, helper existence, shutdown handler registration, **static analyzer sweep across JE-adjacent files asserting no unguarded `beginTransaction` remain**).
+
+### Code reality (this session — added/edited)
+
+New:
+- `/app/api/cfo_revenue_stream.php`
+- `/app/dashboard/src/components/RevenueStreamWidget.jsx`
+- `/app/modules/engagements/ui/EngagementDetail.jsx`
+- `/app/tests/{rbac_persona_wildcard,je_transaction_hygiene,engagement_detail_and_revenue_stream}_smoke.php`
+
+Edited:
+- `/app/core/rbac/permissions.php` (persona-type wildcard shortcut)
+- `/app/modules/accounting/api/recurring_journal_entries.php` (stale-tx guards added to both `beginTransaction` calls)
+- `/app/modules/engagements/ui/EngagementsModule.jsx` (`:id` route)
+- `/app/modules/engagements/ui/EngagementsList.jsx` (project_name → detail Link)
+- `/app/dashboard/src/pages/CFODashboard.jsx` (RevenueStreamWidget mount)
+
+Vite bundle: `index-NDNlUUuA.js` / `index-BC5g6YJu.css` (sync_bundle.sh ran clean).
+
+### Suite health
+**435/443 ✓** — same pre-existing sandbox-boundary failures (5 AI gateway, accounting_phase2_a7, tenant_leak warning in `integration_triage.php:173`, treasury_csv_import). Zero new regressions.
+
+---
+
+
+
+## Session — 2026-02 (P2: Engagements → AR billing bridge)
+
+### What shipped
+- **`/app/modules/engagements/api/invoice_milestone.php`** — POST endpoint that converts an engagement milestone into a draft `billing_invoices` row in a single transaction:
+  1. Validates milestone belongs to caller's tenant + is in `pending`/`ready_to_invoice` + parent engagement isn't archived.
+  2. Looks up tenant tax % + payment terms (with per-client `staffing_clients.payment_terms_days` override).
+  3. Builds a single line via `billingComputeTax` and inserts via `scopedInsert('billing_invoices', …)`. Line is tagged `source_type='engagement_milestone'` for downstream filtering.
+  4. Calls `engagementsMilestoneAttachInvoice()` to flip the milestone → `invoiced` and link the new `billing_invoices.id`.
+  5. Emits `billing.invoice.created` audit with `source='engagement_milestone'` + the `engagement_id` / `milestone_id` for forensics.
+  - **Idempotent**: if the milestone is already `invoiced`/`paid`, returns the existing linked invoice (`reused: true`) instead of double-billing. Defends against double-click on the UI button + replay attacks.
+  - **Refuses** to invoice when the parent engagement is `archived` (409).
+- **`/app/modules/engagements/ui/EngagementsList.jsx`** — expandable row with inline milestones:
+  - Click the row's chevron to expand → fetches engagement detail and renders a sub-table of milestones with name / amount / target / status pill / linked invoice / actions.
+  - **"Invoice" CTA** per milestone — shows only when `status ∈ {pending, ready_to_invoice}` and `amount > 0`. Gated behind a `window.confirm` so accidental clicks don't auto-bill the customer.
+  - **"Mark paid" CTA** per `invoiced` milestone (escape hatch for out-of-band payments not flowing through CoreFlux's payment-applied path).
+  - Linked invoice id renders as a `<Link>` straight to `/modules/billing/invoices/:id`.
+  - Status pill colors: pending (amber), ready_to_invoice (blue), invoiced (indigo), paid (green), cancelled (grey).
+  - Flash banner per milestone surfaces success/error from the invoice POST inline (no toast spam).
+  - `data-testid` coverage: `engagement-expand-{id}`, `engagement-milestones-{id}`, `engagement-milestones-table-{id}`, `milestone-row-{id}`, `milestone-status-{id}`, `milestone-invoice-link-{id}`, `milestone-invoice-btn-{id}`, `milestone-markpaid-btn-{id}`, `milestone-flash-{id}`.
+- **Smoke `engagements_invoice_bridge_smoke.php`** — **37 ✓**:
+  - File shape + RBAC + transaction guard + per-client terms override.
+  - UI CTA wiring + window.confirm gate + state-machine gating.
+  - **Live SQLite exercise**: create engagement (2 milestones) → invoice the kickoff milestone → milestone flips to `invoiced` + invoice_id linked + invoiced_at stamped + rollups update → **replay returns reused=true with NO duplicate invoice** → archive lock refuses further invoicing.
+
+### Code reality (this session — added/edited)
+
+New:
+- `/app/modules/engagements/api/invoice_milestone.php`
+- `/app/tests/engagements_invoice_bridge_smoke.php`
+
+Edited:
+- `/app/modules/engagements/ui/EngagementsList.jsx` (expandable rows + `MilestoneSubTable` + `MilestoneRow`)
+
+Vite bundle: `index-J9z0JecN.js` / `index-BC5g6YJu.css` (sync_bundle.sh ran clean).
+
+### Suite health
+**431/440 ✓** — same 9 pre-existing sandbox-boundary failures. Zero new regressions.
+
+---
+
+
+
+## Session — 2026-02 (P1 Phase 5 + P2 Engagements + P2 CFO RBAC + P3 Auditor verify)
+
+### What shipped — P1 Phase 5 (Intuit hosted tokenizer in QboPaymentsCollectModal)
+
+- **`/app/modules/billing/ui/QboPaymentsCollectModal.jsx`** — two-mode collect:
+  - **Live tokenizer**: loads `https://js.intuit.com/v1/intuit-js`, calls `intuit.ipp.payments.init(publishableKey, {environment})`, then `intuit.ipp.payments.tokenize({card | bankAccount})` to obtain the opaque token client-side. Card data lives only in Intuit-controlled DOM never reaches CoreFlux.
+  - **Paste fallback**: operator pastes an off-band token (sandbox/dev). Always available.
+  - Mode picker appears only when `window.__INTUIT_PAYMENTS_KEY` is set; otherwise the modal gracefully degrades to paste mode with a helpful "register your pod's domain with Intuit" hint.
+  - Submit button is disabled until the SDK reports ready; loading + error states are surfaced via dedicated `data-testid`s (`qbo-payments-sdk-loading`, `qbo-payments-sdk-error`).
+- **`/app/spa.php`** — config bridge: reads `INTUIT_PAYMENTS_PUBLISHABLE_KEY` + `INTUIT_PAYMENTS_ENV` from server env, injects them onto `window.__INTUIT_PAYMENTS_KEY/__INTUIT_PAYMENTS_ENV` so the React bundle never has provider keys baked in.
+- **Smoke `qbo_intuit_tokenizer_smoke.php`** — **23 ✓** (modal surface, SDK URL, init/tokenize calls, card + bank payload shape, error envelope parse, SDK guards, paste fallback, spa.php bridge, **bundle integration** verified via `.deploy-version` pointer).
+
+### What shipped — P2 (Engagements module — fixed-fee project accounting)
+
+- **Migration `modules/engagements/migrations/001_init.sql`** — three tables:
+  - `engagements` — `client_name`, `project_name`, `currency`, `total_fee`, `invoiced_amount`, `paid_amount`, `status ENUM(draft, active, completed, archived)`, entity_id, start/end dates, JSON metadata, soft-delete via `archived_at`.
+  - `engagement_milestones` — `engagement_id`, denormalised `tenant_id` (leak guard), `sort_order`, `name`, `amount`, `target_date`, `status ENUM(pending, ready_to_invoice, invoiced, paid, cancelled)`, linked `invoice_id`, stage timestamps.
+  - `engagement_audit_log` — every transition with `actor_user_id` + JSON meta.
+- **`modules/engagements/lib/engagements.php`** — public surface:
+  - `engagementsList / engagementsGet / engagementsCreate / engagementsUpdate / engagementsArchive`
+  - `engagementsMilestonesList / engagementsMilestoneCreate / engagementsMilestoneUpdate / engagementsMilestoneAttachInvoice / engagementsMilestoneMarkPaid`
+  - Internal: `_engagementsRecalcRollups` (invoiced + paid amount totals; auto-flips engagement → `completed` when all non-cancelled milestones are `paid`), `_milestoneTransitionAllowed` (explicit state-machine graph rejecting illegal transitions like `pending → paid`).
+  - `engagementsAudit` — never blocks the caller.
+- **APIs** under `modules/engagements/api/`:
+  - `list.php` (GET list w/ filters & counts, POST create with bulk milestones in one round-trip)
+  - `detail.php` (GET, PATCH, DELETE = archive)
+  - `milestones.php` (POST create, PATCH update + special-cased `status=invoiced` path that attaches a `billing_invoices.id`)
+- **`modules/engagements/manifest.php`** — declares `id`, `name`, `rbac_module_key=engagements`, sidebar route. Cleanly registered in `Core\\ModuleRegistry` (validation errors → 0).
+- **Frontend**:
+  - `EngagementsList.jsx` — status tab strip (draft/active/completed/archived/all), sortable data table, dual-bar progress (invoiced / paid), inline status pills.
+  - `EngagementCreateModal` — bulk milestone editor with add/remove rows; auto-computes total fee from milestone sums.
+  - `EngagementsModule.jsx` — top-level Router wrapper.
+  - Mounted at `/modules/engagements/*` in `App.jsx`.
+  - `data-testid` coverage: `engagements-list`, `engagements-create-btn`, `engagements-tab-{key}`, `engagement-row-{id}`, `engagement-status-{id}`, `engagements-create-modal`, `engagements-create-{client,project,totalfee,currency,milestone-name-{i},milestone-amount-{i},milestone-add,submit}`, `engagements-create-error`.
+- **Smoke `engagements_module_smoke.php`** — **58 ✓** (migration shape, manifest, lib surface, API endpoints, **full lifecycle exercise**: create with 2 milestones → invoice both → mark both paid → engagement auto-flips to `completed` → archive locks edits → illegal `pending → paid` rejected → tenant isolation verified → audit log records all transitions).
+
+### What shipped — P2 (CFO Dashboard new-RBAC integration)
+
+- **`/app/session.php`** — `_buildModuleAccessMap($user, $tenantId, $membershipId)` now populates `user.module_access` keyed by module ID with the granted access level (`read | write | admin`). Pulls from `membership_module_access` for the active tenant_membership. Master admins + global admins get a wildcard map so client-side gates pass uniformly. Degrades silently to `{}` when the resolver class isn't loaded or the DB query trips on schema drift.
+- **`/app/dashboard/src/pages/CFOGuard.jsx`** — adds an explicit `module_access.cfo ∈ {read, write, admin}` check alongside the legacy role gate. Mirrors the backend `api_require_cfo()` policy (which already used `RBACResolver::moduleAccessFor`). Operators with an explicit "cfo" grant on their membership now reach the dashboard without `tenant_admin` or `master_admin`.
+- **Smoke `cfo_rbac_integration_smoke.php`** — **13 ✓** (session payload shape, helper signature, master_admin wildcard, graceful degradation, frontend guard layers, backend regression guard on `api_require_cfo()`).
+
+### What was already shipped (no action needed)
+
+- **P3 External Auditor view** — verified complete:
+  - Schema (`migrations/061_auditor_tokens.sql`), redemption flow (`/auditor.php`), admin CRUD (`/api/admin/auditor_tokens.php`), frontend admin UI (`AuditorTokensAdmin.jsx`), session enforcement (`auditor_mode` flag → `api_bootstrap.php` 403s every non-GET), site-wide read-only banner (`App.jsx:415`), audit log table, default landing on `/cfo/audit-snapshot`.
+  - Smoke `auditor_session_log_smoke.php` passes at 15/15.
+
+### Code reality (this session — added/edited)
+
+New:
+- `/app/modules/engagements/{manifest,lib/engagements,api/{list,detail,milestones},ui/{EngagementsModule,EngagementsList},migrations/001_init.sql}` (8 files)
+- `/app/tests/{engagements_module,cfo_rbac_integration,qbo_intuit_tokenizer}_smoke.php` (3 smokes)
+
+Edited:
+- `/app/modules/billing/ui/QboPaymentsCollectModal.jsx` (live tokenizer + paste fallback)
+- `/app/spa.php` (env → window bridge for Intuit publishable key)
+- `/app/session.php` (user.module_access map)
+- `/app/dashboard/src/pages/CFOGuard.jsx` (module-grant check)
+- `/app/dashboard/src/App.jsx` (Engagements route + import)
+
+Vite bundle: `index-uHQzITxY.js` / `index-BC5g6YJu.css` (sync_bundle.sh ran clean; `.deploy-version` updated).
+
+### Suite health
+**430/439 ✓** — same 9 pre-existing sandbox-boundary failures (5 AI gateway, Plaid live-curl, accounting_phase2_a7, legacy tenant_leak in `integration_triage.php:173`, treasury_csv_import). Zero new regressions.
+
+---
+
+
+
+## Session — 2026-02 (P0/P1/P2 cleanup: webhooks, polling, Plaid charter, frontend tokenizer + toggles)
+
+### What shipped — P0/P1 (Step 6 Phase 2 + Phase 4 + Phase 3)
+
+- **QBO Accounting webhook receiver** (`/app/api/webhooks/qbo.php`):
+  - Verifies `intuit-signature` header via base64(HMAC-SHA256(verifier_token, raw_body)) with `hash_equals` constant-time compare; verifier token reads from `QBO_WEBHOOK_VERIFIER_TOKEN` env or define.
+  - Walks `eventNotifications[].dataChangeEvent.entities[]`, resolves tenant by `realmId`, fires targeted pull via `qboPull{Invoices,Payments,Bills,BillPayments,Deposits}` for each touched entity.
+  - Idempotent: event_id is `sha1(realmId|name|qboId|op|lastUpdated)` with UNIQUE on `qbo_webhook_events.event_id` so retries no-op.
+  - Auto-invokes `qboAutoReconcileTenant` synchronously when an entity-update surfaces new `paid_out_of_band` drift AND the tenant has the auto-reconcile flag on.
+  - Liveness probe: non-POST returns 200 immediately so Intuit's health probe doesn't retry-storm.
+  - Allow-listed in `auth_gate_static_analyzer_smoke.php` (Intuit is the caller, not a logged-in user).
+- **QBO Payments polling cron** (`/app/cron/qbo_payments_poll.php`, hourly):
+  - SELECTs `qbo_payment_charges` rows still in pending statuses (`ISSUED/PENDING/CAPTURED/AUTHORIZED`) with `settled_at IS NULL`, scoped to tenants with active connections, within the past 30 days.
+  - Calls `qboGetCharge` per row and re-upserts via `qboRecordChargeShadow` to advance `status`/`captured_at`/`settled_at`.
+  - On poll failure, stamps `error_message` on the shadow row so the operator sees it in the IntegrationTriage.
+  - Emits structured summary `qbo_payments_poll done: tenants=N polled=N advanced=N errors=N`.
+- **Smoke `qbo_webhook_smoke.php`** — **21 ✓** (file shape, HMAC verification cryptography, idempotency key shape).
+- **Smoke `qbo_payments_poll_smoke.php`** — **20 ✓** (file shape, live SQLite mirror exercise: ISSUED→CAPTURED, CAPTURED→SETTLED, already-SETTLED skipped).
+
+### What shipped — Frontend (single Vite build)
+
+- **`QboPaymentsCollectModal.jsx`** (in `/app/modules/billing/ui/`):
+  - Modal with `card`/`echeck` type picker, amount + description + Intuit token paste, posts to `/api/admin/qbo/payments_charge.php`.
+  - Surfaces charge status, payment_id, and allocation result inline; renders allocation errors as warnings without blocking the modal.
+  - `data-testid` coverage: `qbo-payments-modal`, `qbo-payments-type-{card|echeck}`, `qbo-payments-amount`, `qbo-payments-token`, `qbo-payments-submit`, `qbo-payments-result`, `qbo-payments-error`.
+- **`InvoicesList.jsx`** — added "Accept payment" button per row when `amount_due > 0` and `status ∉ {paid,void,cancelled,draft}`. Opens the modal; on success reloads the list. New `Actions` column → `colSpan` bumped from 8 → 9 (smoke test updated to match).
+- **`MercuryWebhookCard.jsx`** (in `/app/modules/treasury/ui/`):
+  - Surfaces the canonical delivery URL with a Copy button.
+  - Lets operators paste / rotate the signing secret (last-4 echo only; AES-GCM encrypted on the backend).
+  - Pause/Resume deliveries toggle.
+  - Collapsible "Recent events" table showing verified/outcome/PI-id rollups.
+  - Mounted at the bottom of `MercurySettings` (treasury → Pay-out Rails → Mercury), only renders when `connected===true`.
+  - `data-testid` coverage: `mercury-webhook-card`, `mercury-webhook-delivery-url`, `mercury-webhook-copy-url`, `mercury-webhook-secret`, `mercury-webhook-save`, `mercury-webhook-pause-toggle`, `mercury-webhook-events-table`, `mercury-webhook-event-{i}`.
+- **`IntegrationTriage.jsx`** — added `AutoReconcileToggle` row above the filter bar. Calls GET/POST `/api/admin/qbo/auto_reconcile.php`; Run-now button executes one pass synchronously and renders `Closed N drift · created N payment(s)`.
+  - `data-testid` coverage: `qbo-auto-reconcile-toggle`, `qbo-auto-reconcile-checkbox`, `qbo-auto-reconcile-run-now`, `qbo-auto-reconcile-result`.
+
+### What shipped — P2 (Plaid charter row)
+
+- **`spec/plaid_schema.json`** — lightweight charter-style spec with `TransferCreate`, `TransferUserInRequest`, `ItemPublicTokenExchange`, `AccountsBalanceGet`, `TransfersWebhook` definitions + 7-code `errorCodes` map (`INVALID_REQUEST`, `INVALID_INPUT`, `ITEM_LOGIN_REQUIRED`, `RATE_LIMIT_EXCEEDED`, `INVALID_ACCESS_TOKEN`, `INSTITUTION_DOWN`, `INSUFFICIENT_FUNDS`). Plaid Transfer's `description.maxLength=15` constraint is captured (catches the ACH-15-byte limit at contract time).
+- **`tools/refresh_plaid_spec.sh`** — freshness probe to `plaid.com/docs/api/products/transfer/` + JSON `fetched_at` stamp (mirrors `refresh_mercury_spec.sh`).
+- **`tests/plaid_spec_freshness_smoke.php`** — **13 ✓** (definitions present, ENUM correctness, error-code mapping).
+- **`tests/plaid_payload_contract_smoke.php`** — **21 ✓** (definitions parse, transfer driver payload aligns with `writableProperties`, webhook event taxonomy, error-code completeness).
+- **`api/admin/integrations_health.php`** — Plaid row added with `verify_create=true`, `error_surface=true`, `mapping_fallback=null` (no CoA — primitive #4 is n/a).
+
+### What was actually already done (handoff hangover)
+
+- **Resend driver wire-up for `mailerSend()`** — verified done. `core/mail_bootstrap.php` registers `Core\Mail\ResendDriver` when `RESEND_API_KEY` is set (env or `config.local.php`); becomes default outbound. LogDriver kicks in as fallback. The previous handoff entry was stale.
+- **Mercury Webhooks backend** — fully built: `core/mercury_webhooks.php`, `/api/webhooks/mercury.php` (receiver), `/api/admin/treasury/mercury_webhook.php` (config). The only missing piece was the operator UI; this session adds `MercuryWebhookCard.jsx`.
+
+### Code reality (this session — added/edited)
+
+- `/app/api/webhooks/qbo.php` (new)
+- `/app/cron/qbo_payments_poll.php` (new)
+- `/app/spec/plaid_schema.json` (new) + `/app/tools/refresh_plaid_spec.sh` (new, executable)
+- `/app/api/admin/integrations_health.php` (extended — Plaid row added)
+- `/app/dashboard/src/pages/IntegrationTriage.jsx` (extended — `AutoReconcileToggle`)
+- `/app/modules/billing/ui/QboPaymentsCollectModal.jsx` (new)
+- `/app/modules/billing/ui/InvoicesList.jsx` (extended — Accept payment button + Actions column)
+- `/app/modules/treasury/ui/MercuryWebhookCard.jsx` (new)
+- `/app/modules/treasury/ui/MercurySettings.jsx` (extended — mounts the card)
+- `/app/tests/qbo_webhook_smoke.php` (new)
+- `/app/tests/qbo_payments_poll_smoke.php` (new)
+- `/app/tests/plaid_spec_freshness_smoke.php` (new)
+- `/app/tests/plaid_payload_contract_smoke.php` (new)
+- `/app/tests/auth_gate_static_analyzer_smoke.php` (allow-list qbo.php webhook)
+- `/app/tests/idbadge_product_wide_rollout_smoke.php` (colSpan bumped 8→9)
+- Vite bundle hashes: index-c2Gf0gUA.js / index-BC5g6YJu.css (sync_bundle.sh ran clean)
+
+### Suite health
+**427/436 ✓** — same 9 pre-existing sandbox-boundary failures (5 AI-gateway, Plaid live-curl, accounting_phase2_a7, legacy tenant_leak warning in `integration_triage.php:173`, treasury_csv_import). Zero new regressions.
+
+---
+
+
+
+## Session — 2026-02 (QBO Step 4: Auto-Reconcile + Step 6 Phase 1: Payments API foundation)
+
+### What shipped — Step 4 (Auto-reconciliation for `paid_out_of_band` drift)
+- **Migration 115** — adds `qbo_connections.auto_reconcile_paid_out_of_band TINYINT(1) DEFAULT 0`. Opt-in flag, off by default.
+- **`core/qbo/auto_reconcile.php`** — exposes `qboAutoReconcileTenant(int $tid)`. Per pass:
+  1. Reads OPEN drift rows where `drift_kind='paid_out_of_band'` and `entity_type IN ('invoice','bill')`.
+  2. Joins to `qbo_inbound_payments` / `qbo_inbound_billpayments` via the `linked_invoice_ids` / `linked_bill_ids` JSON arrays (portable `LIKE '"<qboId>"'` matcher works on MySQL + SQLite).
+  3. Idempotently INSERTs a `billing_payments` / `ap_payments` row keyed by `(tenant_id, source_system='qbo', external_id=qbo_payment_id)` — UNIQUE KEY from migration 096 prevents replay double-inserts.
+  4. Allocates via the canonical `billingAllocatePayment` / `apAllocatePayment` engines (same code path operators hit manually).
+  5. When the CoreFlux entity reaches `status='paid'`, stamps the drift row `status='reconciled'` with a resolution note.
+  6. Stale drift cleanup: if CoreFlux is already paid/void/cancelled, the drift row auto-closes as a no-op.
+- **`core/qbo/client.php`** — `qboConnection()` now selects the new column (with a graceful schema-fallback `try/catch` for pods still on migration 114). New helpers: `qboAutoReconcileEnabled(int $tid): bool`, `qboAutoReconcileSet(int $tid, bool, ?int $userId): bool`.
+- **`cron/qbo_two_way_sync.php`** — invokes `qboAutoReconcileTenant($tid)` after a successful pull pass; emits `auto_reconciled=N auto_payments=N` in the summary line.
+- **`/api/admin/qbo/auto_reconcile.php`** — GET returns the flag; POST sets it (with optional `run_now: true` to synchronously run one pass). RBAC: master_admin / tenant_admin / wildcard.
+- **Smoke** `tests/qbo_auto_reconcile_smoke.php` — **67 ✓** (migration, module surface, client helpers, cron wiring, admin endpoint, default-off behaviour, full end-to-end AR+AP reconciliation, idempotency on re-run, stale-drift cleanup).
+
+### What shipped — Step 6 Phase 1 (QBO Payments API foundation)
+- **Migration 116** — `qbo_payment_charges` shadow table with:
+  - `charge_type ENUM('card','echeck')`, lifecycle `status` column, monetary in cents
+  - card-specific (`card_brand`, `card_last4`, `card_exp_month/year`) and echeck-specific (`bank_name`, `account_last4`, `routing_last4`) fields
+  - links to `coreflux_invoice_id` (origin) + `coreflux_payment_id` (created on capture) + outbound `context_token`
+  - Charter primitive #6: `error_code`, `error_message`, `raw_payload` for vendor-error transparency
+  - UNIQUE `(tenant_id, qbo_charge_id)` to make webhook + cron replays safe
+- **`core/qbo/payments_client.php`** — Net-new client distinct from the Accounting client:
+  - `QBO_PAYMENTS_SCOPE = 'com.intuit.quickbooks.payment'` + `QBO_PAYMENTS_API_SANDBOX/PRODUCTION` constants
+  - `qboPaymentsConfigured(int $tid): bool` — checks the active connection's OAuth `scope` field
+  - `qboPaymentsCall(...)` — adds the `Request-Id:` idempotency header on every outbound call, auto-refreshes access tokens on 401 (one retry), parses Intuit's Payments error envelope (`errors[0].code/message`) into `QboApiException.errorCode`
+  - `qboCreateCharge` / `qboGetCharge` (cards: POST `/quickbooks/v4/payments/charges`)
+  - `qboCreateECheck` / `qboGetECheck` (ACH: POST `/quickbooks/v4/payments/echecks`)
+  - `qboRecordChargeShadow(int $tid, array $charge, array $context)` — idempotent upsert into `qbo_payment_charges`; preserves `captured_at` / `settled_at` across re-upserts; extracts card last4 from the masked PAN QBO returns.
+- **`/api/admin/qbo/payments_charge.php`** — operator endpoint to collect on an AR invoice:
+  - POST `{ invoice_id, amount, token, type:'card'|'echeck', card?, bankAccount?, description? }` → validates tenant-scoped invoice + open balance, fires `qboCreate{Charge,ECheck}`, persists the shadow, on `status='CAPTURED'` creates a `billing_payments` row (`source_system='qbo'`, `external_id=chargeId`) and allocates via `billingAllocatePayment`.
+  - GET `?charge_id=…` — returns the shadow row + a live QBO refresh, re-upserting on each poll (for the operator UI to refresh pending charges before the webhook lands).
+  - Refuses with HTTP 412 when the tenant lacks the `com.intuit.quickbooks.payment` scope.
+- **Smoke** `tests/qbo_payments_client_smoke.php` — **73 ✓** (migration shape, client surface, scope gating, end-to-end charge with stubbed transport, Request-Id round-trip, shadow upsert idempotency, status advancement CAPTURED→SETTLED, error envelope parsing, scope refusal, audit trail).
+
+### Code reality (what's in /app right now)
+- `/app/core/migrations/115_qbo_auto_reconcile.sql`
+- `/app/core/migrations/116_qbo_payments_api.sql`
+- `/app/core/qbo/auto_reconcile.php`
+- `/app/core/qbo/payments_client.php`
+- `/app/core/qbo/client.php` (extended: new helpers + column-aware `qboConnection()`)
+- `/app/cron/qbo_two_way_sync.php` (extended: auto-reconcile invocation + summary)
+- `/app/api/admin/qbo/auto_reconcile.php`
+- `/app/api/admin/qbo/payments_charge.php`
+- `/app/tests/qbo_auto_reconcile_smoke.php`
+- `/app/tests/qbo_payments_client_smoke.php`
+
+### Suite health
+**423/432 — same 9 pre-existing sandbox-boundary failures (5 AI gateway, Plaid, accounting_phase2_a7, tenant_leak (legacy `integration_triage.php:173`), treasury_csv_import). Zero new regressions.**
+
+### Remaining for QBO Payments (Step 6 — future phases)
+- **Phase 2**: Settlement webhook listener (`/api/webhooks/qbo_payments.php`) + signature verification + lifecycle advance.
+- **Phase 3**: Frontend tokenizer modal (Intuit hosted iframe) wired to the operator endpoint. Plus an "Accept payment" CTA on AR invoice list rows.
+- **Phase 4**: Daily reconciliation cron that polls pending ISSUED/PENDING charges via `qboGetCharge` when the webhook hasn't fired within SLA.
+
+### Frontend toggle for Auto-Reconcile (deferred)
+- Step 4 backend is complete and reachable via `/api/admin/qbo/auto_reconcile.php`. The Integration Triage page does NOT yet surface a UI switch for the flag. Future work: add a single-row "Auto-reconcile QBO drift" toggle to the IntegrationTriage header + a "Run now" button beside it.
+
+---
+
+
+
 ## Session — 2026-02 (QBO two-way sync: Phases 1-3)
 
 ### What shipped

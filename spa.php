@@ -65,6 +65,16 @@ if (empty($jsFile) || empty($cssFile)) {
     <meta name="apple-mobile-web-app-title" content="CoreFlux" />
     <script type="module" crossorigin src="/spa-assets/<?php echo $jsFile; ?>"></script>
     <link rel="stylesheet" crossorigin href="/spa-assets/<?php echo $cssFile; ?>">
+    <script>
+      // Tenant-pod config bridge to the SPA. Pulled from server env so
+      // we don't bake provider keys into the React bundle. Each value
+      // is OPTIONAL — features degrade gracefully when unset.
+      //
+      // INTUIT_PAYMENTS_PUBLISHABLE_KEY — when set, the QBO Payments
+      // collect modal switches to the live Intuit tokenizer SDK.
+      window.__INTUIT_PAYMENTS_KEY = <?php echo json_encode((string) (getenv('INTUIT_PAYMENTS_PUBLISHABLE_KEY') ?: '')); ?>;
+      window.__INTUIT_PAYMENTS_ENV = <?php echo json_encode((string) (getenv('INTUIT_PAYMENTS_ENV') ?: 'sandbox')); ?>;
+    </script>
   </head>
   <body>
     <div id="root"></div>

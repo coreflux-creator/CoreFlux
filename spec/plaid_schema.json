@@ -1,0 +1,118 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "PlaidSchema",
+    "version": "2025-12",
+    "fetched_at": "2026-06-18T07:41:04Z",
+    "definitions": {
+        "TransferCreate": {
+            "description": "Plaid Transfers \u2014 POST /transfer/authorization/create + /transfer/create",
+            "writableProperties": [
+                "access_token",
+                "account_id",
+                "type",
+                "network",
+                "amount",
+                "ach_class",
+                "user",
+                "description",
+                "metadata",
+                "iso_currency_code",
+                "idempotency_key"
+            ],
+            "constraints": {
+                "type.allowed": [
+                    "debit",
+                    "credit"
+                ],
+                "network.allowed": [
+                    "ach",
+                    "same-day-ach",
+                    "rtp"
+                ],
+                "ach_class.allowed": [
+                    "ppd",
+                    "ccd",
+                    "tel",
+                    "web"
+                ],
+                "amount.pattern": "^\\d+\\.\\d{2}$",
+                "description.maxLength": 15,
+                "iso_currency_code.length": 3,
+                "idempotency_key.maxLength": 50
+            }
+        },
+        "TransferUserInRequest": {
+            "description": "Plaid Transfers \u2014 user object accepted by /transfer/authorization/create",
+            "writableProperties": [
+                "legal_name",
+                "phone_number",
+                "email_address",
+                "address"
+            ],
+            "constraints": {
+                "legal_name.required": true,
+                "legal_name.maxLength": 100,
+                "email_address.format": "email"
+            }
+        },
+        "ItemPublicTokenExchange": {
+            "description": "Plaid Items \u2014 POST /item/public_token/exchange",
+            "writableProperties": [
+                "public_token"
+            ],
+            "constraints": {
+                "public_token.required": true
+            }
+        },
+        "AccountsBalanceGet": {
+            "description": "Plaid Accounts \u2014 POST /accounts/balance/get",
+            "writableProperties": [
+                "access_token",
+                "options"
+            ],
+            "constraints": {
+                "options.account_ids.maxItems": 100
+            }
+        },
+        "TransfersWebhook": {
+            "description": "Plaid Transfers webhook envelope (POST /api/plaid_transfer_webhook.php)",
+            "events": [
+                "TRANSFER_EVENTS_UPDATE",
+                "TRANSFER_EVENTS_PENDING"
+            ],
+            "headersExpected": [
+                "Plaid-Verification"
+            ]
+        }
+    },
+    "errorCodes": {
+        "INVALID_REQUEST": {
+            "category": "validation",
+            "severity": "warn"
+        },
+        "INVALID_INPUT": {
+            "category": "validation",
+            "severity": "warn"
+        },
+        "ITEM_LOGIN_REQUIRED": {
+            "category": "auth",
+            "severity": "critical"
+        },
+        "RATE_LIMIT_EXCEEDED": {
+            "category": "throttle",
+            "severity": "warn"
+        },
+        "INVALID_ACCESS_TOKEN": {
+            "category": "auth",
+            "severity": "critical"
+        },
+        "INSTITUTION_DOWN": {
+            "category": "upstream",
+            "severity": "warn"
+        },
+        "INSUFFICIENT_FUNDS": {
+            "category": "funds",
+            "severity": "critical"
+        }
+    }
+}

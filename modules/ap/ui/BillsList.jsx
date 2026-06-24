@@ -9,6 +9,7 @@ import BillFromTimeBundleModal from './BillFromTimeBundleModal';
 import BillFromTimeEntriesModal from './BillFromTimeEntriesModal';
 import SuggestPaymentRunModal from './SuggestPaymentRunModal';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
+import { QboDriftBadge, useQboDriftBadges } from '../../../dashboard/src/components/QboDriftBadge';
 import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 import ApprovedHoursReadyTile from '../../staffing/ui/ApprovedHoursReadyTile';
 
@@ -30,6 +31,11 @@ export default function BillsList() {
   );
   const rows = data?.rows ?? [];
   const sel = useBulkSelection(rows.map(r => r.id));
+
+  // Batch-fetch QBO drift snapshots for every bill in the current view.
+  // The hook collapses the ids array to a stable key so we only refetch
+  // when the list itself changes.
+  const qboDrift = useQboDriftBadges('bill', rows.map(r => r.id));
 
   const {
     items, sortKey, sortDir, search, setSearch, headerProps,
@@ -186,7 +192,7 @@ export default function BillsList() {
               <td>{fmtDate(r.due_date)}</td>
               <td style={{ textAlign: 'right' }}>{Number(r.total).toFixed(2)} {r.currency}</td>
               <td style={{ textAlign: 'right' }}>{Number(r.amount_due).toFixed(2)}</td>
-              <td><span className={`badge badge--${r.status}`}>{r.status.replace('_',' ')}</span></td>
+              <td><span className={`badge badge--${r.status}`}>{r.status.replace('_',' ')}</span><QboDriftBadge entry={qboDrift[r.id]} /></td>
             </tr>
           ))}
         </tbody>
