@@ -144,7 +144,7 @@ if (!empty($allowed) && !in_array($emailDomain, $allowed, true)) {
 
 // JIT user creation / find by email.
 try {
-    $userId = ssoFindOrCreateUser($pdo, $email, $claims);
+    $userId = ssoFindOrCreateUser($pdo, $email, $claims, (int) $cfg['tenant_id']);
     ssoEnsureTenantMembership($pdo, $userId, (int) $cfg['tenant_id']);
 } catch (\Throwable $e) { ssoCallbackError('JIT user creation failed: ' . $e->getMessage()); }
 
@@ -199,7 +199,7 @@ function ssoCallbackBaseUrl(): string {
     return $scheme . '://' . $host;
 }
 
-function ssoFindOrCreateUser(\PDO $pdo, string $email, array $claims): int {
+function ssoFindOrCreateUser(\PDO $pdo, string $email, array $claims, int $tenantId = 0): int {
     $st = $pdo->prepare('SELECT id FROM users WHERE email = :e LIMIT 1');
     $st->execute(['e' => $email]);
     $row = $st->fetch(\PDO::FETCH_ASSOC);
@@ -212,10 +212,32 @@ function ssoFindOrCreateUser(\PDO $pdo, string $email, array $claims): int {
         $given  = $parts[0] ?? '';
         $family = $parts[1] ?? '';
     }
-    $pdo->prepare(
-        "INSERT INTO users (email, first_name, last_name, role, status, created_at)
-         VALUES (:e, :fn, :ln, 'employee', 'active', NOW())"
-    )->execute(['e' => $email, 'fn' => $given, 'ln' => $family]);
+    // Schema-tolerant — production envs vary in which user columns exist
+    // (some carry a legacy NOT-NULL `tenant_id`, some only have `name`
+    // instead of first/last). Introspect and INSERT only existing cols.
+    $cols = array_map('strval', array_column(
+        $pdo->query('SHOW COLUMNS FROM users')->fetchAll(\PDO::FETCH_ASSOC) ?: [], 'Field'
+    ));
+    $row = ['email' => $email];
+    if (in_array('first_name', $cols, true)) $row['first_name'] = $given;
+    if (in_array('last_name',  $cols, true)) $row['last_name']  = $family;
+    if (in_array('name',       $cols, true)) $row['name']       = trim($given . ' ' . $family) ?: $email;
+    if (in_array('role',       $cols, true)) $row['role']       = 'employee';
+    if (in_array('status',     $cols, true)) $row['status']     = 'active';
+    if (in_array('is_active',  $cols, true)) $row['is_active']  = 1;
+    if (in_array('tenant_id',  $cols, true)) $row['tenant_id']  = $tenantId;
+    // password columns are NOT NULL on some legacy schemas — seed an
+    // unusable bcrypt placeholder (SSO is the only auth path here).
+    $ph = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
+    if (in_array('password',      $cols, true)) $row['password']      = $ph;
+    if (in_array('password_hash', $cols, true)) $row['password_hash'] = $ph;
+
+    $insertCols = []; $placeholders = []; $bind = [];
+    foreach ($row as $k => $v) { $insertCols[] = $k; $placeholders[] = ':' . $k; $bind[$k] = $v; }
+    if (in_array('created_at', $cols, true)) { $insertCols[] = 'created_at'; $placeholders[] = 'NOW()'; }
+
+    $sql = 'INSERT INTO users (' . implode(', ', $insertCols) . ') VALUES (' . implode(', ', $placeholders) . ')';
+    $pdo->prepare($sql)->execute($bind);
     return (int) $pdo->lastInsertId();
 }
 

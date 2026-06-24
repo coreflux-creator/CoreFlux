@@ -235,10 +235,27 @@ if ($method === 'POST') {
     }
 
     $hash = password_hash($pwd, PASSWORD_DEFAULT);
+    // Detect whether the live `users` table has a tenant_id column (some
+    // production envs have a legacy NOT-NULL tenant_id that's not captured
+    // in /app/core/migrations/). Include it only when present, so this
+    // INSERT works against both schemas without forcing a migration.
+    $hasTenantCol = false;
+    try {
+        $col = $pdo->query("SHOW COLUMNS FROM users LIKE 'tenant_id'")->fetchColumn();
+        $hasTenantCol = (bool) $col;
+    } catch (\Throwable $_) { $hasTenantCol = false; }
+
+    $cols     = ['name', 'email', 'password', 'password_hash', 'role', 'is_active', 'created_at'];
+    $vals     = [':n',   ':e',   ':pw1',     ':pw2',         ':r',   '1',         'NOW()'];
+    $params   = ['n' => $name, 'e' => $email, 'pw1' => $hash, 'pw2' => $hash, 'r' => $newRole];
+    if ($hasTenantCol) {
+        $cols[]   = 'tenant_id';
+        $vals[]   = ':tid';
+        $params['tid'] = $tenantId;
+    }
     $pdo->prepare(
-        "INSERT INTO users (name, email, password, password_hash, role, is_active, created_at)
-         VALUES (:n, :e, :pw1, :pw2, :r, 1, NOW())"
-    )->execute(['n' => $name, 'e' => $email, 'pw1' => $hash, 'pw2' => $hash, 'r' => $newRole]);
+        'INSERT INTO users (' . implode(', ', $cols) . ') VALUES (' . implode(', ', $vals) . ')'
+    )->execute($params);
     $newId = (int) $pdo->lastInsertId();
 
     // Default tenant assignment — provisionMembership() dual-writes the

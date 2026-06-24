@@ -60,6 +60,10 @@ if (!$userId) {
         if (in_array('role',       $cols, true)) $row['role']       = 'employee';
         if (in_array('status',     $cols, true)) $row['status']     = 'active';
         if (in_array('is_active',  $cols, true)) $row['is_active']  = 1;
+        // Schema-tolerant: legacy users tables in some prod envs have a
+        // NOT-NULL `tenant_id` column. Bind to the magic-link's tenant
+        // (or 0 sentinel if the link isn't bound) so the INSERT succeeds.
+        if (in_array('tenant_id',  $cols, true)) $row['tenant_id']  = (int) ($tenantId ?: 0);
         $placeholder = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
         if (in_array('password',      $cols, true)) $row['password']      = $placeholder;
         if (in_array('password_hash', $cols, true)) $row['password_hash'] = $placeholder;
