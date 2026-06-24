@@ -235,7 +235,33 @@ if (!function_exists('mailerSend')) {
         }
 
         if ($tenantId <= 0) {
-            return _mailer_fallback_smtp($args, $toList, $bodyHtml, $bodyText, 'no_tenant_context');
+            // No tenant context from the caller AND no session — common
+            // for cron jobs, webhooks, and public auth flows (e.g.
+            // forgot_password if it forgot to pass tenant_id). Falling
+            // back to legacy PHPMailer SMTP here is what caused the
+            // "Resend never sent a real email" regression in Feb-2026:
+            // production SMTP creds aren't valid, so emails went to
+            // /dev/null silently.
+            //
+            // Instead, resolve a SYSTEM tenant — the first active row in
+            // `tenants`. Resend doesn't care about tenant scoping, but
+            // MailService::send needs a positive tenant_id for outbox
+            // tracking + suppression. This keeps every email routing
+            // through the configured Resend driver.
+            try {
+                $pdo = function_exists('getDB') ? getDB() : null;
+                if ($pdo) {
+                    $sysTid = (int) $pdo->query(
+                        'SELECT id FROM tenants WHERE COALESCE(is_active,1) = 1 ORDER BY id ASC LIMIT 1'
+                    )->fetchColumn();
+                    if ($sysTid > 0) $tenantId = $sysTid;
+                }
+            } catch (\Throwable $_) { /* fall through */ }
+            if ($tenantId <= 0) {
+                // Last-resort: SMTP. Logs the reason so we can audit
+                // any leak past the system-tenant fallback.
+                return _mailer_fallback_smtp($args, $toList, $bodyHtml, $bodyText, 'no_tenant_context_no_system_tenant');
+            }
         }
 
         try {
