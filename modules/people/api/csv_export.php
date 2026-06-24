@@ -13,12 +13,39 @@
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/RBAC.php';
 require_once __DIR__ . '/../../../core/CsvExportService.php';
+require_once __DIR__ . '/../../../core/export_service.php';
 
 use Core\CsvExportService;
 
 $ctx  = api_require_auth();
 $user = $ctx['user'];
+$tenantId = (int) $ctx['tenant_id'];
+$userId = (int) ($user['id'] ?? 0);
 rbac_legacy_require($user, 'people.view');
+
+$datasetOptions = [
+    'status' => (string) ($_GET['status'] ?? ''),
+    'classification' => (string) ($_GET['classification'] ?? ''),
+];
+
+$tplId = (int) ($_GET['template_id'] ?? 0);
+if ($tplId > 0) {
+    try {
+        exportTemplateStreamDatasetCsv(
+            $tenantId,
+            'people_directory',
+            $tplId,
+            $datasetOptions,
+            'people-directory',
+            $userId ?: null,
+            null,
+            ['filename_parts' => [date('Y-m-d')]]
+        );
+        exit;
+    } catch (ExportServiceException $e) {
+        api_error($e->getMessage(), 422);
+    }
+}
 
 $where  = ['tenant_id = :tenant_id', 'deleted_at IS NULL'];
 $params = [];
@@ -35,6 +62,13 @@ $rows = scopedQuery(
       ORDER BY last_name, first_name',
     $params
 );
+
+exportDatasetAudit($tenantId, $userId ?: null, 'people.directory.exported', null, exportDatasetAuditMeta([
+    'dataset' => 'people_directory',
+    'format' => 'csv',
+    'mode' => 'raw',
+    'rows' => count($rows),
+], $datasetOptions));
 
 (new CsvExportService([
     'first_name'           => 'First name',

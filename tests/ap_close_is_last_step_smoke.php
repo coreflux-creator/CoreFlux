@@ -34,8 +34,9 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$apLib   = (string) file_get_contents('/app/modules/ap/lib/ap.php');
-$apModal = (string) file_get_contents('/app/modules/ap/ui/BillFromTimeBundleModal.jsx');
+$ROOT = dirname(__DIR__);
+$apLib   = (string) file_get_contents($ROOT . '/modules/ap/lib/ap.php');
+$apModal = (string) file_get_contents($ROOT . '/modules/ap/ui/BillFromTimeBundleModal.jsx');
 
 echo "\n1. ap/lib/ap.php — cross-tenant JOIN drift fixed\n";
 $a('lib loads core/sub_tenants.php',
@@ -54,7 +55,7 @@ $a('old t.tenant_id-style binds removed',
 
 echo "\n2. ap/ui/BillFromTimeBundleModal — no longer forces closed period\n";
 $a('useApi path drops status=closed filter',
-   str_contains($apModal, "'/modules/time/api/periods.php?per_page=20'")
+   str_contains($apModal, "'/api/v1/time/periods?per_page=20'")
    && !str_contains($apModal, '?status=closed'));
 $a('default-selects most recent OPEN period',
    str_contains($apModal, "rows.find(p => p.status === 'open') || rows[0]"));
@@ -64,7 +65,7 @@ $a('Create-bills button NOT disabled merely because period is closed (drafts all
    str_contains($apModal, 'disabled={busy || !periodId || selected.size === 0}')
    && !str_contains($apModal, 'selected.size === 0 || isClosed'));
 $a('build-bundles handler POSTs to shared backend endpoint',
-   str_contains($apModal, '/modules/time/api/periods.php?action=build_bundles&id=${periodId}'));
+   str_contains($apModal, '/api/v1/time/periods?action=build_bundles&id=${periodId}'));
 $a('build-bundles CTA gated to non-closed periods with empty bundles',
    str_contains($apModal, '{periodId && bundles.length === 0 && !isClosed && ('))
    && str_contains($apModal, 'data-testid="ap-from-time-build-bundles"');
@@ -75,8 +76,8 @@ $a('closed-empty hint nudges toward reopen / manual bill',
    && str_contains($apModal, 'reopen the period to rebuild bundles, or post a manual bill'));
 
 echo "\n3. Payroll — confirmed clean (no time_period gating)\n";
-$payrollRuns = (string) file_get_contents('/app/modules/payroll/api/runs.php');
-$payrollPref = (string) file_get_contents('/app/modules/payroll/api/preflight.php');
+$payrollRuns = (string) file_get_contents($ROOT . '/modules/payroll/api/runs.php');
+$payrollPref = (string) file_get_contents($ROOT . '/modules/payroll/api/preflight.php');
 $a('payroll/api/runs.php does NOT gate on time_periods.status',
    !preg_match('/time_periods.*?status.*?(open|locked|closed)/s', $payrollRuns));
 $a('payroll/api/preflight.php does NOT gate on time_periods.status',
@@ -84,8 +85,8 @@ $a('payroll/api/preflight.php does NOT gate on time_periods.status',
 
 echo "\n4. PHP syntax\n";
 $out = []; $rc = 0;
-exec('php -l /app/modules/ap/lib/ap.php 2>&1', $out, $rc);
-$a("php -l /app/modules/ap/lib/ap.php", $rc === 0, implode("\n", $out));
+exec('php -l ' . escapeshellarg($ROOT . '/modules/ap/lib/ap.php') . ' 2>&1', $out, $rc);
+$a('php -l modules/ap/lib/ap.php', $rc === 0, implode("\n", $out));
 
 echo "\n=========================================\n";
 echo "AP close-is-last-step + JOIN drift smoke: {$pass} ✓ / {$fail} ✗\n";

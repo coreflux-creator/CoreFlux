@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 
+const DIMENSIONS_API = '/api/v1/accounting/dimensions';
+
 /**
  * DimensionsAdmin — tenant-configurable accounting dimensions
  * (Sprint 2 / B2). The platform ships zero hardcoded dimensions; each
@@ -8,14 +10,14 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
  * worker_class …) and per-account requirement rules.
  *
  * Endpoints:
- *   GET    /modules/accounting/api/dimensions.php
- *   POST   /modules/accounting/api/dimensions.php          (upsert)
- *   DELETE /modules/accounting/api/dimensions.php?id=N    (deactivate)
- *   GET    /modules/accounting/api/dimensions.php?action=values&id=N
- *   POST   /modules/accounting/api/dimensions.php?action=add_value
+ *   GET    /api/v1/accounting/dimensions
+ *   POST   /api/v1/accounting/dimensions          (upsert)
+ *   DELETE /api/v1/accounting/dimensions?id=N    (deactivate)
+ *   GET    /api/v1/accounting/dimensions?action=values&id=N
+ *   POST   /api/v1/accounting/dimensions?action=add_value
  */
 export default function DimensionsAdmin() {
-  const { data, loading, error, reload } = useApi('/modules/accounting/api/dimensions.php');
+  const { data, loading, error, reload } = useApi(DIMENSIONS_API);
   const dims = data?.dimensions ?? [];
   const [createOpen, setCreateOpen] = useState(false);
   const [activeDim, setActiveDim]   = useState(null);
@@ -31,7 +33,7 @@ export default function DimensionsAdmin() {
     e?.preventDefault?.();
     setBusy(true); setActErr(null);
     try {
-      await api.post('/modules/accounting/api/dimensions.php', draft);
+      await api.post(DIMENSIONS_API, draft);
       setCreateOpen(false);
       setDraft({ dim_key: '', label: '', data_type: 'text', required_default: false, sort_order: 0 });
       await reload();
@@ -42,7 +44,7 @@ export default function DimensionsAdmin() {
     if (!confirm('Deactivate this dimension? Existing JE history is preserved; new postings will skip it.')) return;
     setBusy(true); setActErr(null);
     try {
-      await api.delete(`/modules/accounting/api/dimensions.php?id=${id}`);
+      await api.delete(`${DIMENSIONS_API}?id=${id}`);
       await reload();
     } catch (e) { setActErr(e); } finally { setBusy(false); }
   };
@@ -152,7 +154,7 @@ export default function DimensionsAdmin() {
 }
 
 function DimensionValuesPanel({ dim, onClose }) {
-  const { data, loading, error, reload } = useApi(`/modules/accounting/api/dimensions.php?action=values&id=${dim.id}`);
+  const { data, loading, error, reload } = useApi(`${DIMENSIONS_API}?action=values&id=${dim.id}`);
   const values = data?.values ?? [];
   const [draft, setDraft] = useState({ value_code: '', value_label: '' });
   const [busy, setBusy] = useState(false);
@@ -162,7 +164,7 @@ function DimensionValuesPanel({ dim, onClose }) {
     e?.preventDefault?.();
     setBusy(true); setErr2(null);
     try {
-      await api.post('/modules/accounting/api/dimensions.php?action=add_value', {
+      await api.post(`${DIMENSIONS_API}?action=add_value`, {
         dimension_id: dim.id,
         value_code:   draft.value_code,
         value_label:  draft.value_label,

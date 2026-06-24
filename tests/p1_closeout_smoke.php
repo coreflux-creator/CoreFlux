@@ -49,7 +49,10 @@ $api = file_get_contents(__DIR__ . '/../modules/ap/api/expenses.php');
 $assert('action=export_selected handler', strpos($api, "action === 'export_selected'") !== false);
 $assert('rejects empty ids',            strpos($api, "api_error('ids required'") !== false);
 $assert('caps batch at 500',            strpos($api, 'too many ids') !== false);
-$assert('streams CSV header',           strpos($api, 'Content-Type: text/csv') !== false);
+$assert('streams CSV through shared service',
+                                        strpos($api, 'Core\\CsvExportService') !== false);
+$assert('uses governed expenses dataset',
+                                        strpos($api, 'exportDatasetFetchExpenses') !== false);
 $assert('audits ap.expense.export_selected',
                                         strpos($api, 'ap.expense.export_selected') !== false);
 $assert('PHP parses cleanly',           $lint(__DIR__ . '/../modules/ap/api/expenses.php'));

@@ -21,6 +21,36 @@ People is the staffing agency's **talent system of record**. It answers:
 
 It does **not** answer "who is currently billing $X/hr to client Y?" — that's `placements/`.
 
+### 1.1 People Graph platform addendum
+
+People also exposes the People Graph namespace for the platform authority layer.
+People Graph is not the same thing as the talent-pool record. It links people,
+users, companies, organizations, teams, roles, external actors, and AI workers
+so other modules can ask:
+
+- Who owns this object?
+- Who approves this object?
+- Who reviews AI-created output?
+- Who supervises an AI worker?
+- Who should be notified or escalated?
+- Who is acting through delegated authority?
+
+The implementation lives in `core/people_graph.php`, is persisted by
+`core/migrations/112_people_graph.sql`, and is exposed through
+`/api/v1/people/graph/...`. Domain modules should consume this resolver rather
+than creating local owner, approver, reviewer, notification, delegation,
+permission-grant, or approval-policy tables.
+
+The graph API also owns contextual authority checks and approval resolution:
+
+- Permission grants answer whether an actor can perform an action against a
+  resource, scope, and condition set.
+- Approval policies and rules resolve approvers by role, relationship,
+  responsibility, named actor, or manager chain.
+- AI workers are valid actors, but human-only verbs such as approve, post,
+  release, file, override, and permission grant are denied by the graph
+  permission check.
+
 ---
 
 ## 2. Scope boundaries (what's in / what's out)

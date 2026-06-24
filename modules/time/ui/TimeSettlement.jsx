@@ -73,7 +73,7 @@ function SettlementBoard({ target }) {
     return p.toString();
   }, [target, from, to, placementId]);
 
-  const { data, loading, error, reload } = useApi(`/modules/time/api/settlement.php?${qs}`);
+  const { data, loading, error, reload } = useApi(`/api/v1/time/settlement?${qs}`);
   const blocks = data?.blocks ?? [];
 
   // Each "id" here is the day-block's flat list of entry ids — collected as
@@ -108,7 +108,7 @@ function SettlementBoard({ target }) {
     setBusy(true); setErr(null); setSuccess(null);
     try {
       const res = await api.post(
-        '/modules/time/api/settlement.php?action=extract',
+        '/api/v1/time/settlement?action=extract',
         { entry_ids: selectedEntryIds, target, target_ref: Number(targetRef) }
       );
       setSuccess(`✓ Extracted ${res.extracted_count} entries (${selectedEntryIds.length} days) → ${targetMeta.refLabel} #${targetRef}`);
@@ -126,7 +126,7 @@ function SettlementBoard({ target }) {
     setBusy(true); setErr(null); setSuccess(null);
     try {
       const res = await api.post(
-        '/modules/time/api/settlement.php?action=auto_extract',
+        '/api/v1/time/settlement?action=auto_extract',
         { entry_ids: selectedEntryIds, target }
       );
       const created = res.created || {};
@@ -144,7 +144,7 @@ function SettlementBoard({ target }) {
     setAiBusy(true); setAiErr(null); setAiSugs(null);
     try {
       const res = await api.post(
-        '/modules/time/api/settlement.php?action=ai_suggest',
+        '/api/v1/time/settlement?action=ai_suggest',
         { target, from: from || undefined, to: to || undefined, placement_id: placementId ? Number(placementId) : undefined }
       );
       setAiSugs(res);

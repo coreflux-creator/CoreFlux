@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import TokenIssueModal from './TokenIssueModal';
+import ExportTemplatePicker from '../../../dashboard/src/components/ExportTemplatePicker';
 
 /**
  * Review Queue — pending_review entries, grouped by source; inline approve/reject
@@ -8,7 +9,7 @@ import TokenIssueModal from './TokenIssueModal';
  * Two-eye: approver must NOT be the creator (enforced server-side).
  */
 export default function ReviewQueue() {
-  const path = '/modules/time/api/entries.php?status=pending_review&per_page=500';
+  const path = '/api/v1/time/entries?status=pending_review&per_page=500';
   const { data, loading, error, reload } = useApi(path);
   const rows = data?.rows ?? [];
 
@@ -20,14 +21,14 @@ export default function ReviewQueue() {
 
   const approve = async (id) => {
     setBusy(id); setUiError(null);
-    try { await api.post(`/modules/time/api/entries.php?action=approve&id=${id}`, {}); reload(); }
+    try { await api.post(`/api/v1/time/entries?action=approve&id=${id}`, {}); reload(); }
     catch (e) { setUiError(e); } finally { setBusy(null); }
   };
   const reject = async (id) => {
     const reason = prompt('Reject reason (required):');
     if (!reason) return;
     setBusy(id); setUiError(null);
-    try { await api.post(`/modules/time/api/entries.php?action=reject&id=${id}`, { reason }); reload(); }
+    try { await api.post(`/api/v1/time/entries?action=reject&id=${id}`, { reason }); reload(); }
     catch (e) { setUiError(e); } finally { setBusy(null); }
   };
 
@@ -66,6 +67,10 @@ export default function ReviewQueue() {
   };
 
   const bySource = rows.reduce((acc, r) => { (acc[r.source] = acc[r.source] || []).push(r); return acc; }, {});
+  const buildTemplateExportHref = (tplId) => {
+    const params = new URLSearchParams({ status: 'pending_review', template_id: String(tplId) });
+    return `/api/v1/time/csv-export?${params.toString()}`;
+  };
 
   return (
     <section className="people-directory" data-testid="time-review-queue">
@@ -74,7 +79,15 @@ export default function ReviewQueue() {
           <h2>Review Queue</h2>
           <p style={{ color: 'var(--cf-text-secondary)' }}>Pending entries grouped by source. Two-eye control: you cannot approve your own entries.</p>
         </div>
-        <a className="btn" href="/modules/time/api/csv_export.php?status=pending_review" data-testid="time-review-export-csv">Export CSV</a>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <a className="btn" href="/api/v1/time/csv-export?status=pending_review" data-testid="time-review-export-csv">Export CSV</a>
+          <ExportTemplatePicker
+            dataset="time_entries"
+            buildHref={buildTemplateExportHref}
+            label="Export via template"
+            testid="time-entries-export-template"
+          />
+        </div>
       </div>
 
       {selected.size > 0 && (

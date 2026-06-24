@@ -88,7 +88,7 @@ function exportTemplateCreate(int $tenantId, array $args, int $actorUserId, stri
     $name = trim((string) ($args['name'] ?? ''));
     if ($name === '') throw new ExportTemplateException('name is required');
 
-    $mappings = _exportTplValidateMappings($args['column_mappings'] ?? [], $dataset);
+    $mappings = _exportTplValidateMappings($args['column_mappings'] ?? [], $dataset, $tenantId);
 
     $pdo = getDB();
     $stmt = $pdo->prepare(
@@ -121,7 +121,7 @@ function exportTemplateUpdate(int $id, array $args, int $actorUserId, int $tenan
     }
 
     $mappings = array_key_exists('column_mappings', $args)
-        ? _exportTplValidateMappings($args['column_mappings'], $row['dataset'])
+        ? _exportTplValidateMappings($args['column_mappings'], $row['dataset'], $tenantId)
         : $row['column_mappings'];
 
     $pdo = getDB();
@@ -259,10 +259,10 @@ function exportTemplateDefault(int $tenantId, string $dataset): ?array {
 
 // ───────── Validation ─────────
 
-function _exportTplValidateMappings($raw, string $dataset): array {
+function _exportTplValidateMappings($raw, string $dataset, ?int $tenantId = null): array {
     if (!is_array($raw) || !$raw) throw new ExportTemplateException('column_mappings must be a non-empty array');
     $ds = exportDatasetGet($dataset);
-    $validFields = $ds ? array_keys($ds['fields']) : [];
+    $validFields = $ds ? array_keys(exportDatasetFieldRegistry($dataset, $tenantId)) : [];
 
     $out = [];
     foreach ($raw as $i => $m) {

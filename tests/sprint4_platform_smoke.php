@@ -49,7 +49,7 @@ foreach (['workflowDefine','workflowStart','workflowAct','workflowGetPendingForU
     $assert("exports {$fn}", stripos($src, "function {$fn}(") !== false);
 }
 $assert('parses', $lint(__DIR__ . '/../core/workflow_engine.php'));
-$assert('audits to audit_log', stripos($src, 'INSERT INTO audit_log') !== false);
+$assert('audits via shared writer', stripos($src, 'platformAuditLogWrite(') !== false);
 $assert('fires push to approvers', stripos($src, 'pushSendToUser(') !== false);
 $assert('idempotent start (returns prior pending)', stripos($src, 'workflow_instances') !== false && stripos($src, 'WHERE i.tenant_id') !== false);
 $assert('versioned definitions',  stripos($src, "SELECT id, version FROM workflow_definitions") !== false);
@@ -105,12 +105,22 @@ echo "\nA3 — Audit-log API\n";
 $alApi = (string) file_get_contents(__DIR__ . '/../api/audit_log.php');
 $assert('API parses',           $lint(__DIR__ . '/../api/audit_log.php'));
 $assert('tenant-scoped where',  stripos($alApi, 'tenant_id = :t') !== false);
-$assert('event filter',         stripos($alApi, "event LIKE :e") !== false);
-$assert('user filter',          stripos($alApi, "user_id = :u") !== false);
+$assert('event filter',         stripos($alApi, 'LIKE :e') !== false && stripos($alApi, 'auditLogCoalesce') !== false);
+$assert('actor/user filter',    stripos($alApi, 'actor_user_id') !== false && stripos($alApi, 'user_id') !== false && stripos($alApi, '= :u') !== false);
+$assert('object/request/source filters',
+    stripos($alApi, 'object_type') !== false
+    && stripos($alApi, 'request_id') !== false
+    && stripos($alApi, 'source') !== false
+    && stripos($alApi, 'ip_address LIKE :ip') !== false);
 $assert('date range filters',   stripos($alApi, 'created_at >= :f') !== false && stripos($alApi, 'created_at < :to') !== false);
 $assert('CSV format support',   stripos($alApi, "format === 'csv'") !== false);
 $assert('CSV header includes meta', stripos($alApi, "'meta'") !== false);
-$assert('admin-only role guard', stripos($alApi, "['master_admin', 'tenant_admin', 'admin']") !== false);
+$assert('admin/auditor role guard',
+    stripos($alApi, "'master_admin'") !== false
+    && stripos($alApi, "'tenant_admin'") !== false
+    && stripos($alApi, "'admin'") !== false
+    && stripos($alApi, "'auditor'") !== false
+    && stripos($alApi, "'external_auditor'") !== false);
 
 echo "\nE1 — Foreman sweep\n";
 $grepCmd = "cd " . escapeshellarg(__DIR__ . '/..') . " && grep -rln --include='*.php' --include='*.jsx' --include='*.js' --include='*.tsx' "

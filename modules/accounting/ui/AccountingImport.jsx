@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { api } from '../../../dashboard/src/lib/api';
 
+const ACCOUNTING_IMPORT_API = '/api/v1/accounting/import';
+
 /**
  * Accounting ledger CSV import.
  *  1. Pick type (COA / Journal Entries / Periods)
@@ -23,14 +25,14 @@ export default function AccountingImport() {
 
   const download = () => {
     const a = document.createElement('a');
-    a.href = `/modules/accounting/api/import.php?action=template&type=${type}`;
+    a.href = `${ACCOUNTING_IMPORT_API}?action=template&type=${type}`;
     a.download = `accounting-${type}-template.csv`;
     document.body.appendChild(a); a.click(); a.remove();
   };
 
   const runDry = async () => {
     setBusy(true); setErr(null); setResult(null);
-    try { setDry(await api.post(`/modules/accounting/api/import.php?action=dry_run&type=${type}`, { csv })); }
+    try { setDry(await api.post(`${ACCOUNTING_IMPORT_API}?action=dry_run&type=${type}`, { csv })); }
     catch (e) { setErr(e.message); }
     finally { setBusy(false); }
   };
@@ -39,7 +41,7 @@ export default function AccountingImport() {
     setBusy(true); setErr(null); setResult(null);
     try {
       setResult(await api.post(
-        `/modules/accounting/api/import.php?action=commit&type=${type}${skipInvalid ? '&skip_invalid=1' : ''}`,
+        `${ACCOUNTING_IMPORT_API}?action=commit&type=${type}${skipInvalid ? '&skip_invalid=1' : ''}`,
         { csv }));
     } catch (e) { setErr(e.message); }
     finally { setBusy(false); }

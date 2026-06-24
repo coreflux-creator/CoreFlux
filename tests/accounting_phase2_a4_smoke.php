@@ -42,14 +42,16 @@ echo "\napi/export.php — CSV exports\n";
 $ex = (string) file_get_contents(__DIR__ . '/../modules/accounting/api/export.php');
 $a('requires auth bootstrap + RBAC',            $contains($ex, "require_once __DIR__ . '/../../../core/api_bootstrap.php'") && $contains($ex, "require_once __DIR__ . '/../../../core/RBAC.php'"));
 $a('gates on accounting.reports.export',        $contains($ex, "'accounting.reports.export'"));
-$a('type=coa handler',                          $contains($ex, "\$type === 'coa'"));
-$a('type=je handler',                           $contains($ex, "\$type === 'je'"));
-$a('type=je_lines / gl_detail handler',         $contains($ex, "\$type === 'je_lines' || \$type === 'gl_detail'"));
+$a('uses shared export service',                $contains($ex, 'Core\\CsvExportService') && $contains($ex, 'exportDatasetFetchRows'));
+$a('supports template_id for governed accounting exports', $contains($ex, 'template_id') && $contains($ex, 'exportTemplateStreamDatasetCsv'));
+$a('type=coa handler',                          $contains($ex, "'coa' => [") && $contains($ex, 'accounting_chart_of_accounts'));
+$a('type=je handler',                           $contains($ex, "'je' => [") && $contains($ex, 'accounting_journal_entries'));
+$a('type=je_lines / gl_detail handler',         $contains($ex, "'je_lines' => [") && $contains($ex, "'gl_detail' => [") && $contains($ex, 'accounting_gl_detail'));
 $a('type=tb (trial balance) handler',           $contains($ex, "\$type === 'tb'") && $contains($ex, 'accountingTrialBalance('));
-$a('type=periods handler',                      $contains($ex, "\$type === 'periods'"));
-$a('type=bank_statements handler',              $contains($ex, "\$type === 'bank_statements'"));
-$a('type=unposted_jes handler',                 $contains($ex, "\$type === 'unposted_jes'"));
-$a('type=approval_queue handler',               $contains($ex, "\$type === 'approval_queue'"));
+$a('type=periods handler',                      $contains($ex, "'periods' => [") && $contains($ex, 'accounting_periods'));
+$a('type=bank_statements handler',              $contains($ex, "'bank_statements' => [") && $contains($ex, 'accounting_bank_statement_lines'));
+$a('type=unposted_jes handler',                 $contains($ex, "'unposted_jes' => [") && $contains($ex, "'exclude_status' => 'posted'"));
+$a('type=approval_queue handler',               $contains($ex, "'approval_queue' => [") && $contains($ex, "'status' => 'draft'"));
 $a('type=audit_log handler',                    $contains($ex, "\$type === 'audit_log'"));
 $a('type=account_activity with running balance',$contains($ex, "\$type === 'account_activity'") && $contains($ex, 'running_balance'));
 $a('streams text/csv + Content-Disposition',    $contains($ex, "header('Content-Type: text/csv")  && $contains($ex, 'Content-Disposition: attachment'));
@@ -140,6 +142,19 @@ $a('packet/:id route',                          $contains($br, 'path="packet/:id
 $a('reconciliations-list test-id',              $contains($br, 'data-testid="accounting-reconciliations-list"'));
 $a('recon-open button test-id',                 $contains($br, 'accounting-recon-open'));
 $a('recon packet link test-id',                 $contains($br, 'accounting-recon-packet-'));
+$a('bank rec routes through v1 API',
+    $contains($br, '/api/v1/accounting/bank-accounts') &&
+    $contains($br, '/api/v1/accounting/bank-statements') &&
+    $contains($br, '/api/v1/accounting/reconciliations') &&
+    $contains($br, '/api/v1/accounting/bank-ai') &&
+    $contains($br, '/api/v1/accounting/account-transactions') &&
+    $contains($br, '/api/v1/accounting/bank-rules') &&
+    !$contains($br, '/modules/accounting/api/bank_accounts.php') &&
+    !$contains($br, '/modules/accounting/api/bank_statements.php') &&
+    !$contains($br, '/modules/accounting/api/reconciliations.php') &&
+    !$contains($br, '/modules/accounting/api/bank_ai.php') &&
+    !$contains($br, '/modules/accounting/api/account_transactions.php') &&
+    !$contains($br, '/modules/accounting/api/bank_rules.php'));
 
 echo "\nStandardReports.jsx — test-ids\n";
 $ui = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/StandardReports.jsx');
@@ -162,6 +177,11 @@ $a('Approval queue table',                      $contains($ui, 'accounting-repor
 $a('Audit log table',                           $contains($ui, 'accounting-report-audit-table'));
 $a('Account activity table',                    $contains($ui, 'accounting-report-account-table'));
 $a('account activity requires code',            $contains($ui, 'accounting-report-account-code'));
+$a('standard reports route through v1 API',
+    $contains($ui, '/api/v1/accounting/standard-reports') &&
+    $contains($ui, '/api/v1/accounting/export') &&
+    !$contains($ui, '/modules/accounting/api/standard_reports.php') &&
+    !$contains($ui, '/modules/accounting/api/export.php'));
 
 echo "\nAccountingImport.jsx — test-ids\n";
 $ai = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/AccountingImport.jsx');
@@ -174,12 +194,18 @@ $a('commit button',                             $contains($ai, 'accounting-impor
 $a('skip-invalid checkbox',                     $contains($ai, 'accounting-import-skip-invalid'));
 $a('dry result panel',                          $contains($ai, 'accounting-import-dry-result'));
 $a('commit result panel',                       $contains($ai, 'accounting-import-commit-result'));
+$a('accounting import routes through v1 API',
+    $contains($ai, '/api/v1/accounting/import') &&
+    !$contains($ai, '/modules/accounting/api/import.php'));
 
 echo "\nReconciliationPacket.jsx — test-ids\n";
 $rp = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/ReconciliationPacket.jsx');
 $a('root test-id',                              $contains($rp, 'data-testid="accounting-reconciliation-packet"'));
 $a('print button',                              $contains($rp, 'accounting-packet-print'));
 $a('csv download link',                         $contains($rp, 'accounting-packet-csv'));
+$a('packet CSV export routes through v1 API',
+    $contains($rp, '/api/v1/accounting/export?type=bank_statements') &&
+    !$contains($rp, '/modules/accounting/api/export.php'));
 $a('summary table',                             $contains($rp, 'accounting-packet-summary'));
 $a('matched + unmatched tables',
     $contains($rp, 'accounting-packet-matched-table') &&
@@ -194,6 +220,9 @@ $a('AISuggestion wired with featureKey + subject',
     $contains($rp, 'subjectType="accounting_reconciliation"'));
 $a('onAccepted persists via save_ai_narrative',
     $contains($rp, 'action=save_ai_narrative'));
+$a('packet workflow routes through v1 API',
+    $contains($rp, '/api/v1/accounting/reconciliations') &&
+    !$contains($rp, '/modules/accounting/api/reconciliations.php'));
 $a('close button',                              $contains($rp, 'accounting-packet-close'));
 $a('reopen button + reason input',
     $contains($rp, 'accounting-packet-reopen-reason') &&

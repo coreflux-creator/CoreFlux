@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 
 export default function Categories() {
-  const path = '/modules/time/api/categories.php';
+  const path = '/api/v1/time/categories';
   const { data, loading, error, reload } = useApi(path);
   const rows = data?.rows ?? [];
   const [form, setForm] = useState({ code: '', label: '', parent_bucket: 'billable', is_overtime: false });

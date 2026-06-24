@@ -229,6 +229,10 @@ Same shape as `billing_aging_snapshots`.
 ### 5.4 Expense reports
 - `GET|POST|PATCH /api/ap/expenses`
 - `POST /api/ap/expenses/{id}/submit` / `.../approve` / `.../reject`.
+- Approving an expense report records the expense approval, then creates a
+  source=`expense_report` AP bill in `pending_approval` and routes that bill
+  through the common AP approval workflow. Expense approval does not mark the
+  payable approved.
 
 ### 5.5 1099
 - `GET /api/ap/1099/ledger?tax_year=YYYY`

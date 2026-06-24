@@ -9,7 +9,7 @@
 declare(strict_types=1);
 
 /**
- * Parse a CoreFlux API request into (module_id, endpoint, subpath).
+ * Parse a CoreFlux API request into (api_version, module_id, endpoint, subpath).
  *
  * Inputs are taken explicitly so this function is pure and testable:
  *   - $pathInfo:   what Apache / PHP-FPM put in $_SERVER['PATH_INFO']
@@ -17,11 +17,11 @@ declare(strict_types=1);
  *
  * Either source can drive the parse. PATH_INFO wins if non-empty, else we
  * extract from REQUEST_URI by stripping the `/api/` (and optional `index.php/`)
- * prefix.
+ * prefix. An optional version segment (`v1`) is accepted before the module id.
  *
  * Returns:
- *   ['ok' => true,  'module_id' => 'people', 'endpoint' => 'employees',
- *    'subpath' => ['123']]
+ *   ['ok' => true,  'api_version' => 'v1', 'module_id' => 'people',
+ *    'endpoint' => 'employees', 'subpath' => ['123']]
  * or
  *   ['ok' => false, 'error' => 'human-readable message', 'status' => 400]
  *
@@ -39,11 +39,16 @@ function apiRouterParse(string $pathInfo, string $requestUri): array {
     $path = '/' . trim($path, '/');
     $segments = $path === '/' ? [] : array_values(array_filter(explode('/', $path), 'strlen'));
 
+    $apiVersion = null;
+    if (isset($segments[0]) && preg_match('/^v[1-9][0-9]*$/', $segments[0])) {
+        $apiVersion = array_shift($segments);
+    }
+
     if (count($segments) < 2) {
         return [
             'ok'     => false,
             'status' => 400,
-            'error'  => 'expected /api/<module>/<endpoint>',
+            'error'  => 'expected /api/<module>/<endpoint> or /api/v1/<module>/<resource>',
         ];
     }
 
@@ -60,11 +65,87 @@ function apiRouterParse(string $pathInfo, string $requestUri): array {
     }
 
     return [
-        'ok'        => true,
-        'module_id' => $moduleId,
-        'endpoint'  => $endpoint,
-        'subpath'   => $segments,
+        'ok'          => true,
+        'api_version' => $apiVersion,
+        'module_id'   => $moduleId,
+        'endpoint'    => $endpoint,
+        'subpath'     => $segments,
     ];
+}
+
+/**
+ * Normalize v1 resource/action paths into legacy query keys for endpoint
+ * compatibility during the migration window.
+ *
+ * Examples:
+ *   /api/v1/time/entries/123         -> $_GET['id'] = 123
+ *   /api/v1/time/entries/123/approve -> $_GET['id'] = 123, $_GET['action'] = approve
+ *   /api/v1/reports/saved-reports/delete/123 -> $_GET['action'] = delete, $_GET['id'] = 123
+ *   /api/v1/reports/report-builder/run -> $_GET['action'] = run
+ *
+ * Explicit query-string values win so old callers remain stable.
+ */
+function apiRouterApplyV1Compatibility(array $parsed): void {
+    if (($parsed['api_version'] ?? null) !== 'v1') return;
+    $moduleId = (string) ($parsed['module_id'] ?? '');
+    $endpoint = (string) ($parsed['endpoint'] ?? '');
+    $subpath = $parsed['subpath'] ?? [];
+
+    if ($moduleId === 'platform' && $endpoint === 'workflow') {
+        if (!is_array($subpath) || $subpath === []) return;
+        $first = (string) ($subpath[0] ?? '');
+        if ($first === 'inbox') {
+            if (!isset($_GET['path']) && !isset($_GET['action'])) $_GET['path'] = 'inbox';
+            return;
+        }
+        if ($first === 'instances') {
+            $id = (string) ($subpath[1] ?? '');
+            if ($id !== '' && ctype_digit($id) && !isset($_GET['id'])) $_GET['id'] = $id;
+            $action = (string) ($subpath[2] ?? '');
+            if ($action !== '' && preg_match('/^[a-z][a-z0-9_-]*$/', $action) && !isset($_GET['action'])) {
+                $_GET['action'] = str_replace('-', '_', $action);
+            }
+            return;
+        }
+        if ($first !== '' && preg_match('/^[a-z][a-z0-9_-]*$/', $first) && !isset($_GET['action'])) {
+            $_GET['action'] = str_replace('-', '_', $first);
+        }
+        return;
+    }
+
+    $customFieldEndpoints = [
+        'custom-field-definitions' => true,
+        'custom-field-values' => true,
+        'custom-field-layouts' => true,
+    ];
+    if (isset($customFieldEndpoints[$endpoint]) && $moduleId !== '' && !isset($_GET['entity_type'])) {
+        $_GET['entity_type'] = $moduleId;
+    }
+
+    if (!is_array($subpath) || $subpath === []) return;
+
+    $first = (string) ($subpath[0] ?? '');
+    if ($first !== '' && ctype_digit($first) && !isset($_GET['id'])) {
+        $_GET['id'] = $first;
+    }
+    if ($endpoint === 'custom-field-values' && $first !== '' && ctype_digit($first) && !isset($_GET['record_id'])) {
+        $_GET['record_id'] = $first;
+    }
+    if ($endpoint === 'custom-field-layouts' && $first !== '' && preg_match('/^[a-z][a-z0-9_-]*$/', $first) && !isset($_GET['surface'])) {
+        $_GET['surface'] = str_replace('-', '_', $first);
+    }
+
+    $second = (string) ($subpath[1] ?? '');
+    if ($second !== '' && preg_match('/^[a-z][a-z0-9_-]*$/', $second) && !isset($_GET['action'])) {
+        $_GET['action'] = str_replace('-', '_', $second);
+    }
+
+    if ($first !== '' && !ctype_digit($first) && preg_match('/^[a-z][a-z0-9_-]*$/', $first) && !isset($_GET['action'])) {
+        $_GET['action'] = str_replace('-', '_', $first);
+    }
+    if ($first !== '' && !ctype_digit($first) && $second !== '' && ctype_digit($second) && !isset($_GET['id'])) {
+        $_GET['id'] = $second;
+    }
 }
 
 /**
@@ -78,8 +159,31 @@ function apiRouterParse(string $pathInfo, string $requestUri): array {
  * Caller is expected to have already loaded ModuleRegistry.
  */
 function apiRouterResolveFile(string $moduleId, string $endpoint, ?string $modulesDir = null): ?string {
+    $root = dirname(__DIR__);
+    $aliasKey = $moduleId . '/' . $endpoint;
+    $aliases = [
+        'platform/audit-log' => $root . '/api/audit_log.php',
+        'platform/workflow' => $root . '/api/workflow.php',
+        'people/graph' => $root . '/api/people_graph.php',
+        'people/access-reviews' => $root . '/api/access_reviews.php',
+        'reports/export-templates' => $root . '/api/export_templates.php',
+        'reports/report-builder' => $root . '/api/report_builder.php',
+    ];
+    if (isset($aliases[$aliasKey]) && file_exists($aliases[$aliasKey])) {
+        return $aliases[$aliasKey];
+    }
+
     $registry = ModuleRegistry::getInstance();
     if (!$registry->hasModule($moduleId)) return null;
+
+    $platformAliases = [
+        'custom-field-definitions' => $root . '/api/custom_field_definitions.php',
+        'custom-field-values' => $root . '/api/custom_field_values.php',
+        'custom-field-layouts' => $root . '/api/custom_field_layouts.php',
+    ];
+    if (isset($platformAliases[$endpoint]) && file_exists($platformAliases[$endpoint])) {
+        return $platformAliases[$endpoint];
+    }
 
     $modulesDir = $modulesDir ?? dirname(__DIR__) . '/modules';
     $candidates = [
@@ -92,4 +196,21 @@ function apiRouterResolveFile(string $moduleId, string $endpoint, ?string $modul
         if (file_exists($c)) return $c;
     }
     return null;
+}
+
+/**
+ * Base permission enforced by /api/index.php before dispatch.
+ *
+ * Most module routes require `<module>.view`. Platform aliases dispatch to
+ * governed direct-file endpoints whose own guards are more specific than a
+ * synthetic `platform.view` permission, so the router does not add a second
+ * base gate for those compatibility paths.
+ */
+function apiRouterBasePermission(array $parsed): ?string {
+    $moduleId = (string) ($parsed['module_id'] ?? '');
+    $endpoint = (string) ($parsed['endpoint'] ?? '');
+    if ($moduleId === 'platform' && in_array($endpoint, ['audit-log', 'workflow'], true)) {
+        return null;
+    }
+    return $moduleId !== '' ? $moduleId . '.view' : null;
 }

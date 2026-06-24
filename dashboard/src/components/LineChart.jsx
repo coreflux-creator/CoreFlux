@@ -119,12 +119,11 @@ export default function LineChart({ series = [], format = (n) => Math.round(n).t
             <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <span style={{
                 display: 'inline-block', width: 14, height: 2,
-                background: s.color || '#2563eb',
+                backgroundColor: s.dashed ? 'transparent' : (s.color || '#2563eb'),
                 borderTop: s.dashed ? `2px dashed ${s.color || '#2563eb'}` : 'none',
                 backgroundImage: s.dashed
                   ? `repeating-linear-gradient(90deg, ${s.color || '#2563eb'} 0 4px, transparent 4px 8px)`
                   : undefined,
-                background: s.dashed ? 'transparent' : (s.color || '#2563eb'),
               }} />
               {s.name}
             </span>

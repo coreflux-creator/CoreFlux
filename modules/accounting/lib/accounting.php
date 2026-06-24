@@ -19,6 +19,7 @@
  */
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/audit.php';
 require_once __DIR__ . '/../../../core/financial_state_cache.php';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -297,6 +298,10 @@ function accountingPostJe(int $tenantId, array $je, ?int $actorUserId = null, bo
             'posted_at'         => $post ? date('Y-m-d H:i:s') : null,
             'posted_by_user_id' => $post ? $actorUserId : null,
             'created_by_user_id'=> $actorUserId,
+            'approval_state'    => $post ? 'approved' : 'draft',
+            'requires_approval' => 0,
+            'approved_by_user_id' => $post ? $actorUserId : null,
+            'approved_at'       => $post ? date('Y-m-d H:i:s') : null,
         ]);
 
         foreach ($resolved as $l) {
@@ -488,24 +493,34 @@ function accountingTrialBalance(int $tenantId, string $asOf, ?int $entityId = nu
 // ─────────────────────────────────────────────────────────────────────────
 // Audit helper
 // ─────────────────────────────────────────────────────────────────────────
-function accountingAudit(string $event, array $meta = [], ?int $targetId = null): void
+function accountingAudit(string $event, array $meta = [], ?int $targetId = null, array $opts = []): void
 {
     try {
         $ctx = function_exists('currentTenantContext') ? currentTenantContext() : null;
-        getDB()->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:tenant_id, :actor, :event, :target_id, :meta_json, :ip, NOW())'
-        )->execute([
-            'tenant_id' => $ctx['tenant_id'] ?? null,
-            'actor'     => $ctx['user']['id'] ?? null,
-            'event'     => $event,
-            'target_id' => $targetId,
-            'meta_json' => json_encode($meta),
-            'ip'        => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        $tenantId = isset($ctx['tenant_id']) ? (int) $ctx['tenant_id'] : currentTenantId();
+        $actorUserId = isset($ctx['user']['id']) ? (int) $ctx['user']['id'] : null;
+        platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, array_merge([
+            'object_type' => accountingAuditObjectType($event),
+            'source' => $meta['source'] ?? 'accounting',
+        ], $opts));
     } catch (\Throwable $e) {
         error_log('[accounting.audit] ' . $event . ' write-failed: ' . $e->getMessage());
     }
+}
+
+function accountingAuditObjectType(string $event): string
+{
+    if (str_contains($event, '.je.')) return 'accounting_journal_entry';
+    if (str_contains($event, '.journal_entry.')) return 'accounting_journal_entry';
+    if (str_contains($event, '.period.')) return 'accounting_period';
+    if (str_contains($event, '.account.')) return 'accounting_account';
+    if (str_contains($event, '.bank.')) return 'accounting_bank';
+    if (str_contains($event, '.reconciliation.')) return 'accounting_reconciliation';
+    if (str_contains($event, '.intercompany.')) return 'accounting_intercompany';
+    if (str_contains($event, '.recurring_je.')) return 'accounting_recurring_journal_entry';
+    if (str_contains($event, '.consolidation.')) return 'accounting_consolidation';
+    if (str_contains($event, '.ledger.')) return 'accounting_ledger';
+    return 'accounting';
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -798,5 +813,217 @@ function accountingPromoteDraftToPosted(int $tenantId, int $jeId, array $opts = 
         'total_credit'      => (float) $row['total_credit'],
         'idempotent_replay' => false,
         'approval_id'       => $approvalId,
+    ];
+}
+
+/**
+ * Promote a manually drafted JE after WorkflowGraph approval.
+ *
+ * This is the human-facing companion to accountingPromoteDraftToPosted().
+ * The AI/tool gateway still uses workflow_approvals; manual JE approvals use
+ * WorkflowGraph + People Graph and sync the durable approval_state columns.
+ */
+function accountingPostApprovedDraftJe(int $tenantId, int $jeId, ?int $actorUserId = null): array
+{
+    if ($jeId <= 0) throw new \InvalidArgumentException('je_id required');
+
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'SELECT id, tenant_id, entity_id, period_id, je_number,
+                posting_date, currency, status, total_debit, total_credit, memo,
+                approval_state, requires_approval, workflow_instance_id,
+                created_by_user_id, approved_by_user_id
+           FROM accounting_journal_entries
+          WHERE id = :id AND tenant_id = :t LIMIT 1'
+    );
+    $stmt->execute(['id' => $jeId, 't' => $tenantId]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$row) throw new \RuntimeException("draft JE #{$jeId} not found");
+
+    if ($row['status'] === 'posted') {
+        return [
+            'je_id'             => (int) $row['id'],
+            'je_number'         => (string) $row['je_number'],
+            'status'            => 'posted',
+            'approval_state'    => (string) ($row['approval_state'] ?? 'approved'),
+            'total_debit'       => (float) $row['total_debit'],
+            'total_credit'      => (float) $row['total_credit'],
+            'idempotent_replay' => true,
+            'workflow_instance_id' => isset($row['workflow_instance_id']) ? (int) $row['workflow_instance_id'] : null,
+        ];
+    }
+    if ($row['status'] !== 'draft') {
+        throw new \RuntimeException("JE #{$jeId} is status='{$row['status']}', not 'draft'");
+    }
+    if ((string) ($row['approval_state'] ?? 'draft') !== 'approved' || (int) ($row['workflow_instance_id'] ?? 0) <= 0) {
+        throw new \RuntimeException('Workflow approval required before posting this journal entry');
+    }
+    if (
+        (int) ($row['requires_approval'] ?? 0) === 1
+        && $actorUserId !== null
+        && (int) ($row['approved_by_user_id'] ?? 0) > 0
+        && (int) $row['approved_by_user_id'] === $actorUserId
+    ) {
+        throw new \RuntimeException('Separation of duties: approver cannot post the same journal entry');
+    }
+
+    // tenant-leak-allow: parent JE was fetched tenant-scoped above; lines join by je_id
+    $lstmt = $pdo->prepare(
+        'SELECT l.line_no, l.debit, l.credit, l.memo, l.dim_json,
+                a.id AS account_id, a.code AS account_code, a.active, a.is_postable
+           FROM accounting_journal_entry_lines l
+           JOIN accounting_accounts a ON a.id = l.account_id
+          WHERE l.je_id = :je
+          ORDER BY l.line_no ASC'
+    );
+    $lstmt->execute(['je' => $jeId]);
+    $lineRows = $lstmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    $linesForValidate = array_map(fn ($r) => [
+        'account_id' => (int) $r['account_id'],
+        'debit'      => (float) $r['debit'],
+        'credit'     => (float) $r['credit'],
+        'memo'       => $r['memo'] ?? null,
+        'dims'       => $r['dim_json'] ? (json_decode((string) $r['dim_json'], true) ?: []) : [],
+    ], $lineRows);
+
+    $report = accountingValidateJe($tenantId, [
+        'entity_id'    => (int) $row['entity_id'],
+        'posting_date' => (string) $row['posting_date'],
+        'currency'     => (string) $row['currency'],
+        'lines'        => $linesForValidate,
+    ]);
+    if (!$report['ok']) {
+        throw new \RuntimeException('posting refused: ' . implode('; ', $report['errors'] ?: ['validation failed at posting']));
+    }
+
+    if ($pdo->inTransaction()) {
+        error_log('[accounting/post-approved-draft] rolling back stale active transaction before begin');
+        $pdo->rollBack();
+    }
+    $pdo->beginTransaction();
+    try {
+        $update = $pdo->prepare(
+            "UPDATE accounting_journal_entries
+                SET status = 'posted',
+                    approval_state = 'approved',
+                    posted_at = NOW(),
+                    posted_by_user_id = :u
+              WHERE id = :id
+                AND tenant_id = :t
+                AND status = 'draft'
+                AND approval_state = 'approved'
+                AND workflow_instance_id IS NOT NULL"
+        );
+        $update->execute(['u' => $actorUserId, 'id' => $jeId, 't' => $tenantId]);
+        if ($update->rowCount() === 0) {
+            throw new \RuntimeException("JE #{$jeId} was not eligible for approved posting");
+        }
+
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+
+    try {
+        fscMarkDirty($tenantId, FSC_SCOPE_PERIOD, (string) $row['period_id'], 'je_posted', $actorUserId);
+    } catch (\Throwable $_) { /* never block */ }
+
+    try {
+        require_once __DIR__ . '/../../../core/accounting/command_service.php';
+        accountingTryEnqueueDraft($tenantId, 'journal', [
+            'id'           => (int) $row['id'],
+            'entity_id'    => (int) $row['entity_id'],
+            'je_number'    => (string) $row['je_number'],
+            'posting_date' => (string) $row['posting_date'],
+            'currency'     => (string) $row['currency'],
+            'total_debit'  => (float) $row['total_debit'],
+            'total_credit' => (float) $row['total_credit'],
+            'memo'         => $row['memo'] ?? null,
+            'lines'        => $lineRows,
+            'updated_at'   => date('Y-m-d H:i:s'),
+        ], $actorUserId);
+    } catch (\Throwable $_) { /* never block */ }
+
+    return [
+        'je_id'             => (int) $row['id'],
+        'je_number'         => (string) $row['je_number'],
+        'status'            => 'posted',
+        'approval_state'    => 'approved',
+        'total_debit'       => (float) $row['total_debit'],
+        'total_credit'      => (float) $row['total_credit'],
+        'idempotent_replay' => false,
+        'workflow_instance_id' => (int) $row['workflow_instance_id'],
+    ];
+}
+
+function accountingVoidDraftJe(int $tenantId, int $jeId, string $reason = '', ?int $actorUserId = null): array
+{
+    if ($jeId <= 0) throw new \InvalidArgumentException('je_id required');
+
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'SELECT id, je_number, status, approval_state, workflow_instance_id, total_debit, total_credit
+           FROM accounting_journal_entries
+          WHERE tenant_id = :t AND id = :id LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'id' => $jeId]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    if (!$row) throw new \RuntimeException("JE #{$jeId} not found");
+    if ((string) $row['status'] === 'void') {
+        return [
+            'je_id' => (int) $row['id'],
+            'je_number' => (string) $row['je_number'],
+            'status' => 'void',
+            'approval_state' => (string) ($row['approval_state'] ?? 'draft'),
+            'total_debit' => (float) $row['total_debit'],
+            'total_credit' => (float) $row['total_credit'],
+            'idempotent_replay' => true,
+        ];
+    }
+    if ((string) $row['status'] !== 'draft') {
+        throw new \RuntimeException("Can only void draft JEs (was {$row['status']})");
+    }
+
+    if ($pdo->inTransaction()) {
+        error_log('[accounting/void-draft] rolling back stale active transaction before begin');
+        $pdo->rollBack();
+    }
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare(
+            "UPDATE accounting_journal_entries
+                SET status = 'void',
+                    rejection_reason = COALESCE(NULLIF(:reason, ''), rejection_reason)
+              WHERE tenant_id = :t AND id = :id AND status = 'draft'"
+        )->execute(['reason' => $reason, 't' => $tenantId, 'id' => $jeId]);
+
+        if ((int) ($row['workflow_instance_id'] ?? 0) > 0) {
+            $pdo->prepare(
+                "UPDATE workflow_instances
+                    SET status = 'cancelled',
+                        completed_at = NOW(),
+                        last_activity_at = NOW()
+                  WHERE tenant_id = :t
+                    AND id = :w
+                    AND subject_type = 'accounting_journal_entry'
+                    AND status = 'pending'"
+            )->execute(['t' => $tenantId, 'w' => (int) $row['workflow_instance_id']]);
+        }
+
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+
+    return [
+        'je_id' => (int) $row['id'],
+        'je_number' => (string) $row['je_number'],
+        'status' => 'void',
+        'approval_state' => (string) ($row['approval_state'] ?? 'draft'),
+        'total_debit' => (float) $row['total_debit'],
+        'total_credit' => (float) $row['total_credit'],
+        'idempotent_replay' => false,
     ];
 }

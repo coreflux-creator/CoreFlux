@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 
+const ACCOUNTING_ENTITIES_API = '/api/v1/accounting/entities';
+const ACCOUNTING_ACCOUNTS_API = '/api/v1/accounting/accounts';
+const INTERCOMPANY_API = '/api/v1/accounting/intercompany';
+
 /**
  * Intercompany mappings settings — one screen lists every (from_entity →
  * to_entity) directional mapping with its due-from / due-to account codes.
@@ -9,9 +13,9 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
  * accounts. Ad-hoc override is allowed at post time via `ic_override`.
  */
 export default function IntercompanyMappings() {
-  const { data, loading, error, reload } = useApi('/modules/accounting/api/intercompany.php');
-  const entitiesApi = useApi('/modules/accounting/api/entities.php?scope=hierarchy');
-  const accountsApi = useApi('/modules/accounting/api/accounts.php');
+  const { data, loading, error, reload } = useApi(INTERCOMPANY_API);
+  const entitiesApi = useApi(`${ACCOUNTING_ENTITIES_API}?scope=hierarchy`);
+  const accountsApi = useApi(ACCOUNTING_ACCOUNTS_API);
   const [form, setForm] = useState({ from_entity_id: '', to_entity_id: '', due_from_account_code: '', due_to_account_code: '', notes: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState(null);
@@ -23,7 +27,7 @@ export default function IntercompanyMappings() {
     e.preventDefault();
     setBusy(true); setErr(null);
     try {
-      await api.post('/modules/accounting/api/intercompany.php', {
+      await api.post(INTERCOMPANY_API, {
         from_entity_id: Number(form.from_entity_id),
         to_entity_id: Number(form.to_entity_id),
         due_from_account_code: form.due_from_account_code,
@@ -38,7 +42,7 @@ export default function IntercompanyMappings() {
 
   const remove = async (id) => {
     if (!window.confirm('Deactivate this mapping?')) return;
-    try { await api.delete(`/modules/accounting/api/intercompany.php?id=${id}`); reload(); }
+    try { await api.delete(`${INTERCOMPANY_API}?id=${id}`); reload(); }
     catch (e) { alert(e.message); }
   };
 

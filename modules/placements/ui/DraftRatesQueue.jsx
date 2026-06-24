@@ -10,9 +10,9 @@ import IdBadge from '../../../dashboard/src/components/IdBadge';
  * draft rates and approve them in one pass, instead of opening each
  * placement → Rates tab.
  *
- * Approve semantics are IDENTICAL to single-row approve (margin
- * snapshot, prior-row supersede, audit trail) because the bulk API
- * shares the `placementsRateApproveOne` helper.
+ * Approve semantics are IDENTICAL to single-row approve because the
+ * bulk API routes every row through the Placement Rate WorkflowGraph
+ * bridge before the snapshot can be locked.
  *
  * Corrections (is_correction=true) are intentionally NOT supported
  * here — they require an operator note per row and the per-row
@@ -56,7 +56,7 @@ export default function DraftRatesQueue() {
 
   const approveSelected = async () => {
     if (selected.size === 0) return;
-    if (!confirm(`Approve ${selected.size} draft rate${selected.size === 1 ? '' : 's'}? Each approval locks the snapshot — corrections require a separate per-row workflow.`)) return;
+    if (!confirm(`Route ${selected.size} draft rate${selected.size === 1 ? '' : 's'} for approval? Completed workflow approvals lock the snapshot; corrections require the per-row workflow.`)) return;
     setBusy(true); setResult(null);
     try {
       const res = await api.post(
@@ -108,7 +108,11 @@ export default function DraftRatesQueue() {
         >
           {result.error
             ? <>Bulk approve failed: {result.error}</>
-            : <>Approved <strong>{result.approved}</strong>{result.failed ? <>, {result.failed} failed (open each placement to see why)</> : null}.</>
+            : <>
+                Approved <strong>{result.approved}</strong>
+                {result.pending ? <>, {result.pending} pending workflow</> : null}
+                {result.failed ? <>, {result.failed} failed (open each placement to see why)</> : null}.
+              </>
           }
         </div>
       )}

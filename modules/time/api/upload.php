@@ -45,6 +45,7 @@ if ($method === 'GET' && $action === 'upload_url') {
 // ─── extract ───
 if ($method === 'POST' && $action === 'extract') {
     rbac_legacy_require($user, 'time.entry.create');
+    rbac_legacy_require($user, 'ai.use');
     require_once __DIR__ . '/../../../core/StorageService.php';
     require_once __DIR__ . '/../../../core/storage_register.php';
     require_once __DIR__ . '/../../../core/ai_service.php';

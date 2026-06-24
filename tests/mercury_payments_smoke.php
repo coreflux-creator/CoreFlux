@@ -83,6 +83,7 @@ $a('service file exists', is_file($svcPath));
 $svc = (string) file_get_contents($svcPath);
 $a('requires mercury_adapter',                   $c($svc, "require_once __DIR__ . '/mercury_adapter.php'"));
 $a('requires mercury_recipients',                $c($svc, "require_once __DIR__ . '/mercury_recipients.php'"));
+$a('requires mercury_audit platform helper',     $c($svc, "require_once __DIR__ . '/mercury_audit.php'"));
 
 // CRUD + actions
 $a('mpCreate() validates recipient kind=vendor',
@@ -141,12 +142,17 @@ $a('Failed is soft-terminal — only Approved (admin requeue) + Cancelled allowe
 
 // mpTransition
 $a('mpTransition uses SELECT FOR UPDATE lock',
-    $c($svc, 'SELECT state FROM payment_instructions WHERE tenant_id = :t AND id = :id FOR UPDATE'));
+    $c($svc, 'SELECT * FROM payment_instructions WHERE tenant_id = :t AND id = :id FOR UPDATE'));
 $a('mpTransition refuses illegal transitions',   $c($svc, 'Illegal transition'));
 $a('mpTransition is idempotent on same-state',   $c($svc, '$from === $toState') && $c($svc, 'return false'));
 $a('mpTransition writes audit row',              $c($svc, 'INSERT INTO payment_instruction_audit'));
 $a('mpTransition emits mercury.payment.transition audit',
-    $c($svc, 'mercury.payment.transition'));
+    $c($svc, 'mercury.payment.transition') && $c($svc, 'mercuryAuditLogWrite($tenantId, $actorUserId'));
+$a('mpTransition snapshots before/after payment instruction rows',
+    $c($svc, '$before = $cur->fetch') &&
+    $c($svc, '$after = mercuryAuditPaymentInstructionRow($tenantId, $instructionId)') &&
+    $c($svc, "'before' => \$before") &&
+    $c($svc, "'after' => \$after"));
 $a('mpTransition patch column allowlist (anti-injection)',
     $c($svc, "preg_match('/^[a-z0-9_]+\$/'"));
 $a('mpTransition wrapped in transaction with rollback',

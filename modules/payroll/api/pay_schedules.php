@@ -12,9 +12,11 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../lib/payroll.php';
 
 $ctx = api_require_auth();
+$user = $ctx['user'];
 
 switch (api_method()) {
     case 'GET': {
+        rbac_legacy_require($user, 'payroll.view');
         $id = (int) (api_query('id') ?? 0);
         if ($id) {
             $row = scopedFind(
@@ -33,6 +35,7 @@ switch (api_method()) {
     }
 
     case 'POST': {
+        rbac_legacy_require($user, 'payroll.schedules.manage');
         $body = api_json_body();
         api_require_fields($body, ['name','frequency','period_start_anchor']);
         $id = scopedInsert('payroll_pay_schedules', [
@@ -46,11 +49,16 @@ switch (api_method()) {
         ]);
         // Auto-generate the first 6 periods
         payrollGenerateNextPeriods($id, 6);
+        payrollAudit('payroll.schedule.created', [
+            'schedule_id' => $id,
+            'frequency' => $body['frequency'],
+        ], $id);
         api_ok(['id' => $id], 201);
     }
 
     case 'PUT':
     case 'PATCH': {
+        rbac_legacy_require($user, 'payroll.schedules.manage');
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
         $body = api_json_body();
@@ -58,13 +66,19 @@ switch (api_method()) {
         $data = [];
         foreach ($allowed as $f) if (array_key_exists($f, $body)) $data[$f] = $body[$f];
         scopedUpdate('payroll_pay_schedules', $id, $data);
+        payrollAudit('payroll.schedule.updated', [
+            'schedule_id' => $id,
+            'changed_fields' => array_keys($data),
+        ], $id);
         api_ok(['ok' => true]);
     }
 
     case 'DELETE': {
+        rbac_legacy_require($user, 'payroll.schedules.manage');
         $id = (int) (api_query('id') ?? 0);
         if (!$id) api_error('Missing id', 422);
         scopedUpdate('payroll_pay_schedules', $id, ['active' => 0]);
+        payrollAudit('payroll.schedule.deactivated', ['schedule_id' => $id], $id);
         api_ok(['ok' => true]);
     }
 }

@@ -51,6 +51,7 @@ if ($action === 'list') {
 
 if ($action === 'run') {
     if (api_method() !== 'POST') api_error('Method not allowed', 405);
+    rbac_legacy_require($user, 'ai.use');
     $agentKey = (string) (api_query('agent') ?? '');
     if ($agentKey === '') api_error('agent required', 422);
     if (!isset(AI_AGENTS[$agentKey])) api_error('Unknown agent: ' . $agentKey, 404);

@@ -126,7 +126,7 @@ export default function PaymentsList() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Link to="csv_import" className="btn" data-testid="ap-payments-import-csv">Import CSV</Link>
-          <a className="btn" href="/modules/ap/api/payments_csv_export.php" data-testid="ap-payments-export-all-csv">Export all (CSV)</a>
+          <a className="btn" href="/api/v1/ap/payments-csv-export" data-testid="ap-payments-export-all-csv">Export all (CSV)</a>
           <button className="btn btn--primary" onClick={() => setShowRecord(true)} data-testid="ap-record-payment">Record payment</button>
         </div>
       </div>
@@ -137,7 +137,7 @@ export default function PaymentsList() {
           <span><strong>{sel.size}</strong> selected</span>
           <ExportTemplatePicker
             dataset="ap_payments"
-            buildHref={(tplId) => `/modules/ap/api/payments.php?action=export_template&template_id=${tplId}&ids=${sel.ids.join(',')}`}
+            buildHref={(tplId) => `/api/v1/ap/payments/export-template?template_id=${tplId}&ids=${sel.ids.join(',')}`}
             disabled={!sel.size}
             label="Export via template"
             testid="ap-payments-export-template"

@@ -15,10 +15,13 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/ai_service.php';
 
 $ctx    = api_require_auth();
+$user   = $ctx['user'];
 $method = api_method();
 $action = $_GET['action'] ?? '';
 
 if ($method !== 'GET' || $action !== 'weekly_memo') api_error('Unknown action', 404);
+rbac_legacy_require($user, 'staffing.reports.view');
+rbac_legacy_require($user, 'ai.use');
 
 $ps = (string) ($_GET['period_start'] ?? date('Y-m-d', strtotime('monday -1 week')));
 $pe = (string) ($_GET['period_end']   ?? date('Y-m-d', strtotime('sunday')));

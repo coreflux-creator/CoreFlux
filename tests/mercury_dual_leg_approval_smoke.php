@@ -18,15 +18,16 @@
  */
 declare(strict_types=1);
 
+$root = dirname(__DIR__);
 $pass = 0; $fail = 0;
 $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) {
     if ($ok) { echo "  ✓ {$msg}\n"; $pass++; }
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$svc = (string) file_get_contents('/app/core/mercury_payments.php');
-$api = (string) file_get_contents('/app/api/mercury_payments.php');
-$ui  = (string) file_get_contents('/app/modules/treasury/ui/MercuryPayments.jsx');
+$svc = (string) file_get_contents($root . '/core/mercury_payments.php');
+$api = (string) file_get_contents($root . '/api/mercury_payments.php');
+$ui  = (string) file_get_contents($root . '/modules/treasury/ui/MercuryPayments.jsx');
 
 echo "\n1. mpApprove() — dual-leg auto-trigger contract\n";
 $a('mpApprove signature accepts \$opts array',
@@ -111,7 +112,7 @@ echo "\n6. Backwards-compat: legacy callers without opts still work\n";
 $a('mpCreateFromApPayment path unchanged',
     str_contains($svc, 'function mpCreateFromApPayment'));
 $a('cron worker continues to drive states one step at a time',
-    str_contains((string) file_get_contents('/app/cron/mercury_payment_worker.php'),
+    str_contains((string) file_get_contents($root . '/cron/mercury_payment_worker.php'),
                  'state IN ("Approved", "Funding", "Submitted")'));
 
 echo "\n6b. mpList attaches inline approval counts (UI list-view badge)\n";
@@ -136,8 +137,8 @@ $a('InlineApprovalBadge flips to "ready" tone when collected >= required',
 
 echo "\n7. PHP syntax\n";
 foreach ([
-    '/app/core/mercury_payments.php',
-    '/app/api/mercury_payments.php',
+    $root . '/core/mercury_payments.php',
+    $root . '/api/mercury_payments.php',
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);

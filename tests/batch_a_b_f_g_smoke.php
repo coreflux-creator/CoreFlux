@@ -6,8 +6,8 @@
  *   (a) Auto-built CoreFlux Assignment-screen clone — placement_schema
  *       endpoint + AssignmentSchemaPreview React page.
  *   (b) Reports Overhaul (minimal first pass) — reusable
- *       GlDetailDrilldown component wired against the existing
- *       /api/gl_detail.php endpoint.
+ *       GlDetailDrilldown component wired against the v1 Accounting
+ *       /api/v1/accounting/gl-detail endpoint.
  *   (f) mailerSend → Resend driver — wiring was already complete;
  *       added /api/admin/mail_status.php diagnostic endpoint so the
  *       operator can verify the driver is recognised without sending
@@ -86,8 +86,8 @@ $a('component file exists', file_exists($drill));
 $drillSrc = (string) @file_get_contents($drill);
 $a('component default-exports a single function',
     str_contains($drillSrc, 'export default function GlDetailDrilldown('));
-$a('component fetches /api/gl_detail.php with account + dates',
-    str_contains($drillSrc, '/api/gl_detail.php')
+$a('component fetches v1 gl-detail with account + dates',
+    str_contains($drillSrc, "GL_DETAIL_API = '/api/v1/accounting/gl-detail'")
     && str_contains($drillSrc, 'account_id')
     && str_contains($drillSrc, 'account_code'));
 $a('component exposes stable testids for opening/total/ending',

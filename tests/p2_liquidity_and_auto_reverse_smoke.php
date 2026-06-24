@@ -93,7 +93,7 @@ echo "\nUI — LiquidityForecast.jsx page\n";
 $pgPath = "{$ROOT}/dashboard/src/pages/LiquidityForecast.jsx";
 $pg = (string) file_get_contents($pgPath);
 $assert('default export',                          strpos($pg, 'export default function LiquidityForecast') !== false);
-$assert('reads /api/liquidity_forecast.php',       strpos($pg, "/api/liquidity_forecast.php?days=") !== false);
+$assert('reads /api/v1/treasury/liquidity-forecast', strpos($pg, "/api/v1/treasury/liquidity-forecast?days=") !== false);
 $assert('window selector testid + 4 horizons',
     strpos($pg, 'data-testid="liquidity-window-select"') !== false
     && strpos($pg, '<option value={30}>') !== false
@@ -111,6 +111,26 @@ $assert('5 KPI tiles wired',
     && strpos($pg, 'liquidity-tile-lowest') !== false);
 $assert('per-day bar testid template',             strpos($pg, 'data-testid={`liquidity-daily-bar-${i}`}') !== false);
 $assert('no-banks operator nudge',                 strpos($pg, 'data-testid="liquidity-no-banks"') !== false);
+$assert('forecast accuracy panel reads variance endpoint',
+    strpos($pg, "useApi('/api/v1/treasury/liquidity-forecast-variance?days=30')") !== false
+    && strpos($pg, 'data-testid="liquidity-forecast-accuracy"') !== false
+    && strpos($pg, 'data-testid="liquidity-accuracy-metrics"') !== false);
+
+echo "\nLiquidity Forecast Variance\n";
+$variancePath = "{$ROOT}/api/liquidity_forecast_variance.php";
+$varianceApi = (string) file_get_contents($variancePath);
+$assert('variance endpoint parses',                $lint($variancePath));
+$assert('variance endpoint uses shared projection replay + posted actuals',
+    strpos($varianceApi, 'liquidityProjectionEvidence($tid, $startDate, $endDate, $days, $datasets)') !== false
+    && strpos($varianceApi, 'function liquidityForecastVarianceActuals(') !== false
+    && strpos($varianceApi, "je.status = 'posted'") !== false);
+$assert('variance endpoint emits WAPE and bias metrics',
+    strpos($varianceApi, "'wape' => \$wape") !== false
+    && strpos($varianceApi, "'bias' => \$bias") !== false
+    && strpos($varianceApi, "'accuracy_score'") !== false);
+$varianceAlias = "{$ROOT}/modules/treasury/api/liquidity_forecast_variance.php";
+$assert('variance alias delegates',                is_readable($varianceAlias)
+    && strpos((string) file_get_contents($varianceAlias), '/../../../api/liquidity_forecast_variance.php') !== false);
 
 echo "\nRouting — TreasuryModule\n";
 $tm = (string) file_get_contents("{$ROOT}/modules/treasury/ui/TreasuryModule.jsx");

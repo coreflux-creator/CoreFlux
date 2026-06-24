@@ -9,7 +9,7 @@ import {
 /**
  * BookkeepingOverview — Layer-style single-screen books snapshot.
  *
- * Hits GET /api/books_health.php once and renders:
+ * Hits GET /api/v1/accounting/books-health once and renders:
  *  - Books Health badge (0..100, label, reasons)
  *  - 6-month P&L bar chart
  *  - Tasks list (clickable counts → relevant pages)
@@ -17,8 +17,10 @@ import {
  *  - Recent engine activity (last 10 posted accounting_events)
  *  - Connect-a-bank CTA when no active connections
  */
+const BOOKS_HEALTH_API = '/api/v1/accounting/books-health';
+
 export default function BookkeepingOverview() {
-  const { data, error, refetch } = useApi('/api/books_health.php');
+  const { data, error, refetch } = useApi(BOOKS_HEALTH_API);
 
   const monthlyMax = useMemo(() => {
     const rows = data?.pl_monthly || [];

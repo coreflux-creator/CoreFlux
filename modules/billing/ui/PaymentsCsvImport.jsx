@@ -6,12 +6,12 @@ import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
  *
  * Bulk-loads historical AR payments. Invoice allocations stay out of
  * scope (done via the Payment Detail UI). Powered by
- * Core\CsvImportService via /api/billing/payments_csv_import.php.
+ * Core\CsvImportService via /api/v1/billing/payments-csv-import.
  */
 export default function PaymentsCsvImport() {
   return (
     <CsvImportPage
-      endpoint="/modules/billing/api/payments_csv_import.php"
+      endpoint="/api/v1/billing/payments-csv-import"
       entityLabel="Billing Payments"
       backTo="../payments"
       backLabel="← Payments"

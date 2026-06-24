@@ -75,7 +75,7 @@ export default function InvoicesList() {
             New from approved hours (day-level)
           </button>
           <Link to="csv_import" className="btn" data-testid="billing-invoices-import-csv">Import CSV</Link>
-          <a className="btn" href={`/modules/billing/api/csv_export.php${status !== 'all' ? `?status=${status}` : ''}`} data-testid="billing-invoices-export-csv">Export CSV</a>
+          <a className="btn" href={`/api/v1/billing/csv-export${status !== 'all' ? `?status=${status}` : ''}`} data-testid="billing-invoices-export-csv">Export CSV</a>
         </div>
       </div>
 

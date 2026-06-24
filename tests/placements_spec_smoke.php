@@ -20,6 +20,8 @@ $reg = ModuleRegistry::reset(__DIR__ . '/../modules');
 $pl = $reg->getModule('placements');
 $assert('module registered',                        $pl !== null);
 $assert('depends_on people',                        in_array('people', $pl['depends_on'] ?? [], true));
+$actionRoutes = array_column($pl['actions'] ?? [], 'route');
+$assert('action route: custom_fields',              in_array('custom_fields', $actionRoutes, true));
 
 $expectedPerms = [
     'placements.view','placements.manage','placements.financials.view',
@@ -40,7 +42,7 @@ $expectedEvents = [
     'placement.commission.removed','placement.referral.added','placement.referral.updated',
     'placement.financials.viewed','placement.corp.viewed','placement.corp.updated',
     'placement.document.uploaded','placement.document.deleted','placement.approval_contact.updated',
-    'placement.csv_imported',
+    'placement.csv_imported','placement.exported',
 ];
 foreach ($expectedEvents as $ev) {
     $assert("audit event: {$ev}", in_array($ev, $pl['audit_events'] ?? [], true));
@@ -81,7 +83,7 @@ foreach ($apiFiles as $f) {
 
 echo "\nUI components exist\n";
 $uiFiles = ['PlacementsModule.jsx','List.jsx','Expiring.jsx','PlacementCreate.jsx',
-            'PlacementDetail.jsx','Reports.jsx','CsvImport.jsx'];
+            'PlacementDetail.jsx','Reports.jsx','CsvImport.jsx','CustomFields.jsx'];
 foreach ($uiFiles as $f) $assert("ui/{$f}",  is_file(__DIR__ . "/../modules/placements/ui/{$f}"));
 
 echo "\nLib contract + Margin formula (SPEC §4)\n";

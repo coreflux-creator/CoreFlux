@@ -2182,14 +2182,17 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
     // Locate the current rate row (effective_to IS NULL). If multiple
     // exist (data anomaly), update the most recent one.
     $existing = $pdo->prepare(
-        'SELECT id FROM placement_rates
+        'SELECT id, approved_at, bill_rate, bill_rate_unit, pay_rate, pay_rate_unit,
+                currency, ot_multiplier, dt_multiplier
+           FROM placement_rates
           WHERE tenant_id = :t AND placement_id = :p AND effective_to IS NULL
           ORDER BY effective_from DESC, id DESC LIMIT 1'
     );
     $existing->execute(['t' => $tid, 'p' => $placementId]);
-    $rateId = (int) $existing->fetchColumn();
+    $existingRate = $existing->fetch(PDO::FETCH_ASSOC) ?: null;
+    $rateId = (int) ($existingRate['id'] ?? 0);
 
-    if ($rateId > 0) {
+    if ($rateId > 0 && empty($existingRate['approved_at'])) {
         // tenant-leak-allow: id was just fetched under tenant scope above
         $pdo->prepare(
             'UPDATE placement_rates
@@ -2205,7 +2208,22 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
             'ot'  => $otMul, 'dt' => $dtMul,
             'id'  => $rateId,
         ]);
+        try {
+            require_once __DIR__ . '/../../modules/placements/lib/workflow.php';
+            placementsRateWorkflowStart($tid, $rateId, null);
+        } catch (\Throwable $_) { /* best-effort workflow catch-up */ }
         return true;
+    }
+
+    if ($rateId > 0 && !empty($existingRate['approved_at'])) {
+        $same = abs((float) $existingRate['bill_rate'] - $billRate) < 0.0001
+             && abs((float) $existingRate['pay_rate'] - $payRate) < 0.0001
+             && (string) $existingRate['bill_rate_unit'] === $billRateUnit
+             && (string) $existingRate['pay_rate_unit'] === $payRateUnit
+             && (string) $existingRate['currency'] === $currency
+             && abs((float) $existingRate['ot_multiplier'] - $otMul) < 0.0001
+             && abs((float) $existingRate['dt_multiplier'] - $dtMul) < 0.0001;
+        if ($same) return true;
     }
 
     $pdo->prepare(
@@ -2221,6 +2239,11 @@ function jobdivaSyncUpsertPlacementRates(int $tid, int $placementId, string $sta
         'cur' => $currency,
         'ot'  => $otMul, 'dt' => $dtMul,
     ]);
+    $newRateId = (int) $pdo->lastInsertId();
+    try {
+        require_once __DIR__ . '/../../modules/placements/lib/workflow.php';
+        placementsRateWorkflowStart($tid, $newRateId, null);
+    } catch (\Throwable $_) { /* best-effort workflow catch-up */ }
     return true;
 }
 

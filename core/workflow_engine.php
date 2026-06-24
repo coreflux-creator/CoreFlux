@@ -22,7 +22,15 @@
  *       "step": 1,
  *       "label": "Manager",
  *       "approver_user_ids": [12, 17],
+ *       "approver_resolution": {
+ *         "strategy": "responsibility|approval_policy|role|relationship|named_actor|manager_chain",
+ *         "object_module": "ap",
+ *         "object_type": "bill",
+ *         "object_id": "123"
+ *       },
  *       "quorum": 1,                  // # of approvals needed before advancing
+ *       "separation_of_duties_required": true,
+ *       "sod_blocked_user_ids": [44],  // optional explicit maker/preparer ids
  *       "allow_email": true,          // expose tokenized email link
  *       "sla_hours": 24,              // escalate after N hours
  *       "escalate_to_user_id": 3      // who gets the escalation push
@@ -36,7 +44,9 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/audit.php';
 require_once __DIR__ . '/push_service.php';
+require_once __DIR__ . '/people_graph.php';
 
 const WORKFLOW_STATUS_PENDING   = 'pending';
 const WORKFLOW_STATUS_APPROVED  = 'approved';
@@ -108,6 +118,8 @@ function workflowStart(int $tenantId, string $defKey, string $subjectType, int $
     $exist = $pdo->prepare(
         "SELECT * FROM workflow_instances
           WHERE tenant_id = :t AND subject_type = :st AND subject_id = :si
+            AND status = 'pending'
+          ORDER BY id DESC
           LIMIT 1"
     );
     $exist->execute(['t' => $tenantId, 'st' => $subjectType, 'si' => $subjectId]);
@@ -150,6 +162,9 @@ function workflowStart(int $tenantId, string $defKey, string $subjectType, int $
 
     _workflowAuditEvent($tenantId, $startedByUserId, 'workflow.started', $instanceId, [
         'def_key' => $defKey, 'subject_type' => $subjectType, 'subject_id' => $subjectId,
+        'request_id' => _workflowRequestId($payload),
+        'source' => 'workflow',
+        'after_json' => ['status' => WORKFLOW_STATUS_PENDING, 'current_step' => 1],
     ]);
 
     // Fire push to step-1 approvers, unless the caller (e.g. the AP
@@ -220,6 +235,15 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
     $defStmt->execute(['id' => (int) $instance['definition_id']]);
     $def = $defStmt->fetch(PDO::FETCH_ASSOC);
     $steps = json_decode((string) $def['steps_json'], true) ?: [];
+    $payload = json_decode((string) ($instance['payload_json'] ?? '{}'), true) ?: [];
+    $currentStepDef = $steps[(int) $instance['current_step'] - 1] ?? null;
+
+    if (in_array($action, ['approve', 'reject', 'skip', 'delegate', 'escalate'], true) && is_array($currentStepDef)) {
+        _workflowAssertCurrentApprover($tenantId, $instance, $currentStepDef, $payload, $userId);
+    }
+    if (in_array($action, ['approve', 'reject', 'skip'], true) && is_array($currentStepDef)) {
+        _workflowEnforceSeparationOfDuties($tenantId, $instance, $currentStepDef, $payload, $userId);
+    }
 
     // Record the action.
     $pdo->prepare(
@@ -238,11 +262,23 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
         'c'  => $comment,
         'v'  => $via,
     ]);
+    _workflowAuditEvent($tenantId, $userId, "workflow.action.{$action}", $instanceId, [
+        'subject_type' => (string) $instance['subject_type'],
+        'subject_id' => (int) $instance['subject_id'],
+        'step_no' => (int) $instance['current_step'],
+        'action' => $action,
+        'via' => $via,
+        'actor_email' => $actorEmail,
+        'delegated_to_user_id' => $delegatedTo,
+        'comment_present' => $comment !== null && trim((string) $comment) !== '',
+        'request_id' => _workflowRequestId($payload),
+        'source' => 'workflow',
+    ]);
 
     if ($action === 'reject') {
         $result = _workflowComplete($tenantId, $instanceId, WORKFLOW_STATUS_REJECTED, $userId, $comment);
         _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
-                             $action, $userId, WORKFLOW_STATUS_REJECTED);
+                             $action, $userId, WORKFLOW_STATUS_REJECTED, $comment);
         return $result;
     }
     if ($action === 'comment') {
@@ -259,7 +295,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
 
     // Approve / skip — check quorum on the current step.
     $stepIdx  = (int) $instance['current_step'] - 1;
-    $stepDef  = $steps[$stepIdx] ?? null;
+    $stepDef  = $currentStepDef ?? ($steps[$stepIdx] ?? null);
     if (!$stepDef) {
         return _workflowComplete($tenantId, $instanceId, WORKFLOW_STATUS_APPROVED, $userId, $comment);
     }
@@ -280,7 +316,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
         // (e.g. ap_bill_approvals) even when the workflow itself hasn't
         // advanced yet, so per-approver rows flip 'pending' → 'approved'.
         _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
-                             $action, $userId, WORKFLOW_STATUS_PENDING);
+                             $action, $userId, WORKFLOW_STATUS_PENDING, $comment);
         return _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
     }
 
@@ -289,7 +325,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
     if (!isset($steps[$nextIdx])) {
         $result = _workflowComplete($tenantId, $instanceId, WORKFLOW_STATUS_APPROVED, $userId, $comment);
         _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
-                             $action, $userId, WORKFLOW_STATUS_APPROVED);
+                             $action, $userId, WORKFLOW_STATUS_APPROVED, $comment);
         return $result;
     }
     $nextStep = $steps[$nextIdx];
@@ -304,6 +340,12 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
 
     _workflowAuditEvent($tenantId, $userId, 'workflow.advanced', $instanceId, [
         'from_step' => $stepIdx + 1, 'to_step' => $nextIdx + 1,
+        'subject_type' => (string) $instance['subject_type'],
+        'subject_id' => (int) $instance['subject_id'],
+        'request_id' => _workflowRequestId($payload),
+        'source' => 'workflow',
+        'before_json' => ['status' => WORKFLOW_STATUS_PENDING, 'current_step' => $stepIdx + 1],
+        'after_json' => ['status' => WORKFLOW_STATUS_PENDING, 'current_step' => $nextIdx + 1],
     ]);
 
     _workflowPushApprovers($tenantId, $instanceId,
@@ -313,7 +355,7 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
 
     // Sync the per-approver decision that caused the advance.
     _workflowSubjectSync($tenantId, (string) $instance['subject_type'], (int) $instance['subject_id'],
-                         $action, $userId, WORKFLOW_STATUS_PENDING);
+                         $action, $userId, WORKFLOW_STATUS_PENDING, $comment);
 
     return _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
 }
@@ -324,17 +366,271 @@ function workflowAct(int $tenantId, int $instanceId, ?int $userId, string $actio
  * of the engine so the core stays vertical-agnostic — each vertical
  * owns its own sync file under its module.
  */
-function _workflowSubjectSync(int $tenantId, string $subjectType, int $subjectId, string $action, ?int $userId, string $instanceStatus): void {
+function _workflowSubjectSync(int $tenantId, string $subjectType, int $subjectId, string $action, ?int $userId, string $instanceStatus, ?string $comment = null): void {
     try {
         if ($subjectType === 'ap_bill') {
             require_once __DIR__ . '/../modules/ap/lib/workflow_sync.php';
             if (function_exists('apSyncFromWorkflow')) {
-                apSyncFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus);
+                apSyncFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
+            }
+        }
+        if ($subjectType === 'time_timesheet') {
+            require_once __DIR__ . '/../modules/time/lib/workflow_sync.php';
+            if (function_exists('timeSyncTimesheetFromWorkflow')) {
+                timeSyncTimesheetFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
+            }
+        }
+        if ($subjectType === 'payroll_run') {
+            require_once __DIR__ . '/../modules/payroll/lib/workflow_sync.php';
+            if (function_exists('payrollSyncRunFromWorkflow')) {
+                payrollSyncRunFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
+            }
+        }
+        if ($subjectType === 'placement_rate') {
+            require_once __DIR__ . '/../modules/placements/lib/workflow_sync.php';
+            if (function_exists('placementsSyncRateFromWorkflow')) {
+                placementsSyncRateFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
+            }
+        }
+        if ($subjectType === 'billing_invoice') {
+            require_once __DIR__ . '/../modules/billing/lib/workflow_sync.php';
+            if (function_exists('billingSyncInvoiceFromWorkflow')) {
+                billingSyncInvoiceFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
+            }
+        }
+        if ($subjectType === 'accounting_journal_entry') {
+            require_once __DIR__ . '/../modules/accounting/lib/workflow_sync.php';
+            if (function_exists('accountingSyncJournalEntryFromWorkflow')) {
+                accountingSyncJournalEntryFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
+            }
+        }
+        if ($subjectType === 'treasury_payment') {
+            require_once __DIR__ . '/../modules/treasury/lib/workflow_sync.php';
+            if (function_exists('treasurySyncPaymentFromWorkflow')) {
+                treasurySyncPaymentFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
+            }
+        }
+        if ($subjectType === 'treasury_transfer') {
+            require_once __DIR__ . '/../modules/treasury/lib/workflow_sync.php';
+            if (function_exists('treasurySyncTransferFromWorkflow')) {
+                treasurySyncTransferFromWorkflow($tenantId, $subjectId, $action, $userId, $instanceStatus, $comment);
             }
         }
     } catch (\Throwable $_) {
         // Absolutely non-fatal.
     }
+}
+
+/** @internal */
+function _workflowAssertCurrentApprover(int $tenantId, array $instance, array $stepDef, array $payload, ?int $userId): void {
+    if ($userId === null) return;
+    $approvers = _workflowResolveStepApproverUserIds(
+        $tenantId,
+        (int) $instance['id'],
+        (string) $instance['subject_type'],
+        (int) $instance['subject_id'],
+        $stepDef,
+        $payload
+    );
+    if (!$approvers || !in_array($userId, $approvers, true)) {
+        _workflowAuditEvent($tenantId, $userId, 'workflow.approver_blocked', (int) $instance['id'], [
+            'subject_type' => (string) $instance['subject_type'],
+            'subject_id' => (int) $instance['subject_id'],
+            'current_step' => (int) $instance['current_step'],
+            'reason' => $approvers ? 'not_current_step_approver' : 'no_current_step_approvers',
+            'request_id' => _workflowRequestId($payload),
+            'source' => 'workflow',
+        ]);
+        throw new \RuntimeException($approvers
+            ? 'Workflow actor is not an approver for the current step'
+            : 'Workflow step has no current approvers');
+    }
+}
+
+/** @internal */
+function _workflowEnforceSeparationOfDuties(int $tenantId, array $instance, array $stepDef, array $payload, ?int $userId): void {
+    if ($userId === null) return;
+    if (!_workflowStepRequiresSeparationOfDuties($tenantId, $instance, $stepDef, $payload)) return;
+
+    $blockers = _workflowSeparationOfDutiesBlockedUsers($instance, $stepDef, $payload);
+    if (!isset($blockers[$userId])) return;
+
+    _workflowAuditEvent($tenantId, $userId, 'workflow.sod_blocked', (int) $instance['id'], [
+        'subject_type' => (string) $instance['subject_type'],
+        'subject_id' => (int) $instance['subject_id'],
+        'current_step' => (int) $instance['current_step'],
+        'blocked_user_id' => $userId,
+        'sources' => $blockers[$userId],
+        'request_id' => _workflowRequestId($payload),
+        'source' => 'workflow',
+    ]);
+    throw new \RuntimeException('Separation of duties: actor cannot approve this workflow step because they originated, prepared, requested, or submitted the item');
+}
+
+/** @internal */
+function _workflowStepRequiresSeparationOfDuties(int $tenantId, array $instance, array $stepDef, array $payload): bool {
+    foreach ([$stepDef, $stepDef['approver_resolution'] ?? [], $stepDef['people_graph_resolution'] ?? [], $payload, $payload['context'] ?? []] as $source) {
+        if (is_array($source) && _workflowBoolFlag($source, [
+            'separation_of_duties_required',
+            'requires_separation_of_duties',
+            'sod_required',
+            'two_eye_required',
+        ]) === true) {
+            return true;
+        }
+    }
+    return _workflowApprovalPolicyRequiresSeparationOfDuties(
+        $tenantId,
+        (int) $instance['id'],
+        (string) $instance['subject_type'],
+        (int) $instance['subject_id'],
+        $stepDef,
+        $payload
+    );
+}
+
+/** @internal */
+function _workflowApprovalPolicyRequiresSeparationOfDuties(
+    int $tenantId,
+    int $instanceId,
+    string $subjectType,
+    int $subjectId,
+    array $stepDef,
+    array $payload
+): bool {
+    $resolution = $stepDef['approver_resolution']
+        ?? $stepDef['assignee_resolution']
+        ?? $stepDef['people_graph_resolution']
+        ?? null;
+    if (!is_array($resolution) || (string) ($resolution['strategy'] ?? '') !== 'approval_policy') return false;
+
+    try {
+        $object = _workflowPeopleGraphObjectRef($subjectType, $subjectId, $resolution, $payload);
+        $context = is_array($resolution['context'] ?? null) ? $resolution['context'] : [];
+        $context = array_merge(is_array($payload['context'] ?? null) ? $payload['context'] : [], $context);
+        $resolved = peopleGraphResolveApprovers($tenantId, [
+            'resource_module' => $resolution['resource_module'] ?? $object['object_module'],
+            'resource_type' => $resolution['resource_type'] ?? $object['object_type'],
+            'resource_id' => $resolution['resource_id'] ?? $object['object_id'],
+            'scope_type' => $resolution['scope_type'] ?? null,
+            'scope_id' => $resolution['scope_id'] ?? null,
+            'context' => $context,
+        ]);
+        foreach ((array) ($resolved['requirements'] ?? []) as $requirement) {
+            $rule = is_array($requirement['rule'] ?? null) ? $requirement['rule'] : [];
+            if (!empty($rule['separation_of_duties_required'])) {
+                _workflowAuditEvent($tenantId, null, 'workflow.sod_policy_required', $instanceId, [
+                    'subject_type' => $subjectType,
+                    'subject_id' => $subjectId,
+                    'policy_id' => $requirement['policy']['id'] ?? null,
+                    'rule_id' => $rule['id'] ?? null,
+                    'request_id' => _workflowRequestId($payload),
+                    'source' => 'workflow',
+                ]);
+                return true;
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log('[workflow.sod] policy check skipped: ' . $e->getMessage());
+    }
+    return false;
+}
+
+/**
+ * @internal
+ * @return array<int, list<string>> blocked_user_id => evidence labels
+ */
+function _workflowSeparationOfDutiesBlockedUsers(array $instance, array $stepDef, array $payload): array {
+    $blocked = [];
+    _workflowAddSodUser($blocked, $instance['started_by_user_id'] ?? null, 'instance.started_by_user_id');
+    _workflowCollectSodUsers($blocked, $stepDef, 'step');
+    _workflowCollectSodUsers($blocked, $stepDef['approver_resolution'] ?? [], 'step.approver_resolution');
+    _workflowCollectSodUsers($blocked, $stepDef['people_graph_resolution'] ?? [], 'step.people_graph_resolution');
+    _workflowCollectSodUsers($blocked, $payload, 'payload');
+    _workflowCollectSodUsers($blocked, $payload['context'] ?? [], 'payload.context');
+    _workflowCollectSodUsers($blocked, $payload['sod'] ?? [], 'payload.sod');
+    _workflowCollectSodUsers($blocked, $payload['separation_of_duties'] ?? [], 'payload.separation_of_duties');
+    foreach ($blocked as &$sources) {
+        $sources = array_values(array_unique($sources));
+    }
+    unset($sources);
+    ksort($blocked);
+    return $blocked;
+}
+
+/** @internal */
+function _workflowCollectSodUsers(array &$blocked, mixed $source, string $prefix): void {
+    if (!is_array($source)) return;
+    foreach ([
+        'started_by_user_id',
+        'created_by_user_id',
+        'computed_by_user_id',
+        'prepared_by_user_id',
+        'preparer_user_id',
+        'submitted_by_user_id',
+        'submitter_user_id',
+        'requested_by_user_id',
+        'requester_user_id',
+        'originator_user_id',
+        'initiator_user_id',
+        'maker_user_id',
+        'builder_user_id',
+        'drafted_by_user_id',
+        'imported_by_user_id',
+    ] as $key) {
+        _workflowAddSodUser($blocked, $source[$key] ?? null, "{$prefix}.{$key}");
+    }
+    foreach ([
+        'sod_blocked_user_ids',
+        'blocked_user_ids',
+        'blocked_actor_user_ids',
+        'blocked_approver_user_ids',
+        'originator_user_ids',
+        'preparer_user_ids',
+        'submitter_user_ids',
+        'requester_user_ids',
+    ] as $key) {
+        _workflowAddSodUser($blocked, $source[$key] ?? null, "{$prefix}.{$key}");
+    }
+    foreach ([
+        ['source_actor_type', 'source_actor_id'],
+        ['originator_actor_type', 'originator_actor_id'],
+        ['preparer_actor_type', 'preparer_actor_id'],
+        ['requester_actor_type', 'requester_actor_id'],
+        ['submitter_actor_type', 'submitter_actor_id'],
+    ] as [$typeKey, $idKey]) {
+        if (($source[$typeKey] ?? null) === 'user') {
+            _workflowAddSodUser($blocked, $source[$idKey] ?? null, "{$prefix}.{$idKey}");
+        }
+    }
+}
+
+/** @internal */
+function _workflowAddSodUser(array &$blocked, mixed $value, string $source): void {
+    if (is_array($value)) {
+        foreach ($value as $item) _workflowAddSodUser($blocked, $item, $source);
+        return;
+    }
+    $id = (int) $value;
+    if ($id <= 0) return;
+    $blocked[$id] = $blocked[$id] ?? [];
+    $blocked[$id][] = $source;
+}
+
+/** @internal */
+function _workflowBoolFlag(array $source, array $keys): ?bool {
+    foreach ($keys as $key) {
+        if (!array_key_exists($key, $source)) continue;
+        $value = $source[$key];
+        if (is_bool($value)) return $value;
+        if (is_int($value) || is_float($value)) return ((int) $value) !== 0;
+        if (is_string($value)) {
+            $v = strtolower(trim($value));
+            if (in_array($v, ['1', 'true', 'yes', 'on', 'required'], true)) return true;
+            if (in_array($v, ['0', 'false', 'no', 'off', 'none'], true)) return false;
+        }
+    }
+    return null;
 }
 
 /**
@@ -359,7 +655,17 @@ function workflowGetPendingForUser(int $tenantId, int $userId, ?string $subjectT
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
         $steps = json_decode((string) $r['steps_json'], true) ?: [];
         $stepDef = $steps[(int) $r['current_step'] - 1] ?? null;
-        $approvers = (array) ($stepDef['approver_user_ids'] ?? []);
+        $payload = json_decode((string) ($r['payload_json'] ?? '{}'), true) ?: [];
+        $approvers = $stepDef
+            ? _workflowResolveStepApproverUserIds(
+                $tenantId,
+                (int) $r['id'],
+                (string) $r['subject_type'],
+                (int) $r['subject_id'],
+                $stepDef,
+                $payload
+            )
+            : [];
         if (in_array($userId, $approvers, true)) {
             $out[] = _workflowHydrate($r);
         }
@@ -370,6 +676,34 @@ function workflowGetPendingForUser(int $tenantId, int $userId, ?string $subjectT
 function workflowGetInstance(int $tenantId, int $instanceId): ?array {
     $row = _workflowFetchRow($tenantId, $instanceId);
     return $row ? _workflowHydrate($row) : null;
+}
+
+function workflowCanViewInstance(int $tenantId, int $instanceId, array $ctx): bool {
+    $row = _workflowFetchRow($tenantId, $instanceId);
+    return $row ? _workflowCanViewRow($tenantId, $row, $ctx) : false;
+}
+
+/**
+ * Resolve the current step's approver users, including People Graph-backed
+ * dynamic routing when the step declares approver_resolution.
+ *
+ * @return list<int>
+ */
+function workflowResolveCurrentStepApprovers(int $tenantId, int $instanceId): array {
+    $row = _workflowFetchRow($tenantId, $instanceId);
+    if (!$row) return [];
+    $steps = json_decode((string) $row['steps_json'], true) ?: [];
+    $stepDef = $steps[(int) $row['current_step'] - 1] ?? null;
+    if (!$stepDef) return [];
+    $payload = json_decode((string) ($row['payload_json'] ?? '{}'), true) ?: [];
+    return _workflowResolveStepApproverUserIds(
+        $tenantId,
+        $instanceId,
+        (string) $row['subject_type'],
+        (int) $row['subject_id'],
+        $stepDef,
+        $payload
+    );
 }
 
 /* ---------------------------------------------------------------------- */
@@ -408,6 +742,107 @@ function _workflowHydrate(array $row): array {
 }
 
 /** @internal */
+function _workflowCanViewRow(int $tenantId, array $row, array $ctx): bool {
+    if (_workflowContextCanAudit($ctx)) return true;
+    $user = is_array($ctx['user'] ?? null) ? $ctx['user'] : $ctx;
+    $userId = (int) ($user['id'] ?? $ctx['user_id'] ?? 0);
+    if ($userId <= 0) return false;
+
+    if ((int) ($row['started_by_user_id'] ?? 0) === $userId) return true;
+
+    $payload = $row['payload_json'] ? (json_decode((string) $row['payload_json'], true) ?: []) : [];
+    if (_workflowPayloadReferencesUser($payload, $userId)) return true;
+
+    $steps = $row['steps_json'] ? (json_decode((string) $row['steps_json'], true) ?: []) : [];
+    $stepDef = $steps[(int) $row['current_step'] - 1] ?? null;
+    if (is_array($stepDef)) {
+        $approvers = _workflowResolveStepApproverUserIds(
+            $tenantId,
+            (int) $row['id'],
+            (string) $row['subject_type'],
+            (int) $row['subject_id'],
+            $stepDef,
+            $payload
+        );
+        if (in_array($userId, $approvers, true)) return true;
+    }
+
+    return _workflowStepActionsReferenceUser($tenantId, (int) $row['id'], $userId);
+}
+
+/** @internal */
+function _workflowContextCanAudit(array $ctx): bool {
+    $user = is_array($ctx['user'] ?? null) ? $ctx['user'] : $ctx;
+    $role = (string) ($ctx['role'] ?? $user['role'] ?? '');
+    $globalRole = (string) ($ctx['global_role'] ?? $user['global_role'] ?? $role);
+    if ($globalRole === 'master_admin' || (bool) ($ctx['is_global_admin'] ?? $user['is_global_admin'] ?? false)) {
+        return true;
+    }
+    if (in_array($role, ['master_admin', 'tenant_admin', 'admin', 'auditor', 'external_auditor'], true)) {
+        return true;
+    }
+    return function_exists('rbac_legacy_can') && rbac_legacy_can($user, 'tenant.manage');
+}
+
+/** @internal */
+function _workflowPayloadReferencesUser(array $payload, int $userId): bool {
+    $userIdKeys = [
+        'actor_user_id',
+        'approved_by_user_id',
+        'created_by_user_id',
+        'computed_by_user_id',
+        'paid_by_user_id',
+        'prepared_by_user_id',
+        'preparer_user_id',
+        'requested_by_user_id',
+        'requester_user_id',
+        'started_by_user_id',
+        'submitted_by_user_id',
+        'submitter_user_id',
+        'user_id',
+        'worker_user_id',
+    ];
+    foreach ($payload as $key => $value) {
+        if (in_array((string) $key, $userIdKeys, true) && (int) $value === $userId) {
+            return true;
+        }
+        if (in_array((string) $key, ['actor_id', 'source_actor_id'], true)
+            && (int) $value === $userId
+            && (string) ($payload['actor_type'] ?? $payload['source_actor_type'] ?? '') === 'user') {
+            return true;
+        }
+        if (is_array($value) && _workflowPayloadReferencesUser($value, $userId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** @internal */
+function _workflowStepActionsReferenceUser(int $tenantId, int $instanceId, int $userId): bool {
+    $pdo = getDB();
+    if (!$pdo) return false;
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT 1
+               FROM workflow_step_actions
+              WHERE tenant_id = :tenant_id
+                AND instance_id = :instance_id
+                AND (actor_user_id = :user_id OR delegated_to_user_id = :user_id)
+              LIMIT 1'
+        );
+        $stmt->execute([
+            'tenant_id' => $tenantId,
+            'instance_id' => $instanceId,
+            'user_id' => $userId,
+        ]);
+        return (bool) $stmt->fetchColumn();
+    } catch (\Throwable $_) {
+        return false;
+    }
+}
+
+/** @internal */
 function _workflowComplete(int $tenantId, int $instanceId, string $status, ?int $actorUserId, ?string $comment): array {
     $pdo = getDB();
     // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
@@ -417,13 +852,16 @@ function _workflowComplete(int $tenantId, int $instanceId, string $status, ?int 
 
     _workflowAuditEvent($tenantId, $actorUserId, 'workflow.completed', $instanceId, [
         'status' => $status, 'comment' => $comment,
+        'source' => 'workflow',
+        'before_json' => ['status' => WORKFLOW_STATUS_PENDING],
+        'after_json' => ['status' => $status],
     ]);
     return _workflowHydrate(_workflowFetchRow($tenantId, $instanceId));
 }
 
 /** @internal */
 function _workflowPushApprovers(int $tenantId, int $instanceId, string $subjectType, int $subjectId, array $stepDef, array $payload): void {
-    $userIds = array_map('intval', (array) ($stepDef['approver_user_ids'] ?? []));
+    $userIds = _workflowResolveStepApproverUserIds($tenantId, $instanceId, $subjectType, $subjectId, $stepDef, $payload);
     if (!$userIds) return;
     $title = (string) ($payload['title'] ?? "Approval needed: {$subjectType} #{$subjectId}");
     $body  = (string) ($payload['body']  ?? "Open to review and approve.");
@@ -450,20 +888,330 @@ function _workflowPushApprovers(int $tenantId, int $instanceId, string $subjectT
 }
 
 /** @internal */
-function _workflowAuditEvent(int $tenantId, ?int $userId, string $event, int $targetId, array $meta): void {
-    $pdo = getDB();
-    if (!$pdo) return;
+function _workflowResolveStepApproverUserIds(
+    int $tenantId,
+    int $instanceId,
+    string $subjectType,
+    int $subjectId,
+    array $stepDef,
+    array $payload
+): array {
+    $explicit = array_values(array_unique(array_filter(array_map('intval', (array) ($stepDef['approver_user_ids'] ?? [])))));
+    $resolution = $stepDef['approver_resolution']
+        ?? $stepDef['assignee_resolution']
+        ?? $stepDef['people_graph_resolution']
+        ?? null;
+    if (!is_array($resolution) || !$resolution) return $explicit;
+
+    $actors = _workflowResolvePeopleGraphActors($tenantId, $instanceId, $subjectType, $subjectId, $resolution, $payload);
+    $resolved = [];
+    foreach ($actors as $actor) {
+        $resolved = array_merge($resolved, _workflowPeopleGraphActorToUserIds($tenantId, $actor));
+    }
+    $resolved = array_values(array_unique(array_filter(array_map('intval', $resolved))));
+
+    $fallback = array_values(array_unique(array_filter(array_map(
+        'intval',
+        (array) ($stepDef['fallback_approver_user_ids'] ?? $explicit)
+    ))));
+    return $resolved ?: $fallback;
+}
+
+/** @internal */
+function _workflowResolvePeopleGraphActors(
+    int $tenantId,
+    int $instanceId,
+    string $subjectType,
+    int $subjectId,
+    array $resolution,
+    array $payload
+): array {
+    $strategy = (string) ($resolution['strategy'] ?? 'responsibility');
+    $object = _workflowPeopleGraphObjectRef($subjectType, $subjectId, $resolution, $payload);
+    $context = is_array($resolution['context'] ?? null) ? $resolution['context'] : [];
+    $context = array_merge(is_array($payload['context'] ?? null) ? $payload['context'] : [], $context);
+
     try {
-        $pdo->prepare(
-            "INSERT INTO audit_log (tenant_id, user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:t, :u, :e, :ti, :m, :ip, NOW())"
-        )->execute([
-            't'  => $tenantId,
-            'u'  => $userId,
-            'e'  => $event,
-            'ti' => $targetId,
-            'm'  => json_encode($meta, JSON_UNESCAPED_SLASHES),
-            'ip' => substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 64),
-        ]);
+        if ($strategy === 'approval_policy') {
+            $request = [
+                'resource_module' => $resolution['resource_module'] ?? $object['object_module'],
+                'resource_type' => $resolution['resource_type'] ?? $object['object_type'],
+                'resource_id' => $resolution['resource_id'] ?? $object['object_id'],
+                'scope_type' => $resolution['scope_type'] ?? null,
+                'scope_id' => $resolution['scope_id'] ?? null,
+                'context' => $context,
+            ];
+            foreach (['source_actor_type','source_actor_id'] as $key) {
+                if (!empty($resolution[$key])) {
+                    $request[$key] = $resolution[$key];
+                } elseif (!empty($payload[$key])) {
+                    $request[$key] = $payload[$key];
+                } elseif (!empty($payload['context'][$key])) {
+                    $request[$key] = $payload['context'][$key];
+                }
+            }
+            $resolved = peopleGraphResolveApprovers($tenantId, $request);
+            $actors = [];
+            foreach (($resolved['requirements'] ?? []) as $requirement) {
+                foreach (($requirement['approvers'] ?? []) as $approver) {
+                    $actors[] = [
+                        'actor_type' => (string) ($approver['actor_type'] ?? $approver['type'] ?? ''),
+                        'actor_id' => (int) ($approver['actor_id'] ?? $approver['id'] ?? 0),
+                    ];
+                }
+            }
+            _workflowAuditEvent($tenantId, null, 'workflow.people_graph_resolved', $instanceId, [
+                'strategy' => $strategy,
+                'object' => $object,
+                'count' => count($actors),
+                'source' => 'workflow',
+            ]);
+            return _workflowValidActorRefs($actors);
+        }
+
+        if ($strategy === 'responsibility' || !empty($resolution['question'])) {
+            $question = (string) ($resolution['question'] ?? _workflowQuestionForResponsibility((string) ($resolution['responsibility_type'] ?? 'approver')));
+            $resolved = peopleGraphResolve($tenantId, $question, $object, ['limit' => $resolution['limit'] ?? 100]);
+            $actors = array_map(static fn($row) => [
+                'actor_type' => (string) ($row['actor_type'] ?? ''),
+                'actor_id' => (int) ($row['actor_id'] ?? 0),
+            ], (array) ($resolved['assignments'] ?? []));
+            _workflowAuditEvent($tenantId, null, 'workflow.people_graph_resolved', $instanceId, [
+                'strategy' => $strategy,
+                'question' => $question,
+                'object' => $object,
+                'count' => count($actors),
+                'source' => 'workflow',
+            ]);
+            return _workflowValidActorRefs($actors);
+        }
+
+        if ($strategy === 'named_actor') {
+            return _workflowValidActorRefs([[
+                'actor_type' => (string) ($resolution['actor_type'] ?? $resolution['approver_actor_type'] ?? ''),
+                'actor_id' => (int) ($resolution['actor_id'] ?? $resolution['approver_actor_id'] ?? 0),
+            ]]);
+        }
+
+        if ($strategy === 'role') {
+            $roleId = (int) ($resolution['role_id'] ?? $resolution['approver_role_id'] ?? 0);
+            if ($roleId <= 0 && !empty($resolution['role_key'])) {
+                $role = peopleGraphFindByKey('people_graph_roles', 'role_key', $tenantId, (string) $resolution['role_key']);
+                $roleId = (int) ($role['id'] ?? 0);
+            }
+            return $roleId > 0 ? [['actor_type' => 'role', 'actor_id' => $roleId]] : [];
+        }
+
+        if ($strategy === 'relationship' || $strategy === 'manager_chain') {
+            $filters = [
+                'relationship_type' => $strategy === 'manager_chain'
+                    ? 'reports_to'
+                    : (string) ($resolution['relationship_type'] ?? 'reports_to'),
+            ];
+            foreach (['source_actor_type','source_actor_id','target_actor_type','target_actor_id','context_module','context_entity_type','context_entity_id'] as $key) {
+                if (!empty($resolution[$key])) $filters[$key] = $resolution[$key];
+            }
+            $returnActor = (string) ($resolution['return_actor'] ?? ($strategy === 'manager_chain' ? 'target' : 'target'));
+            $rows = peopleGraphListRelationships($tenantId, $filters);
+            $actors = array_map(static fn($row) => [
+                'actor_type' => (string) ($row["{$returnActor}_actor_type"] ?? ''),
+                'actor_id' => (int) ($row["{$returnActor}_actor_id"] ?? 0),
+            ], $rows);
+            return _workflowValidActorRefs($actors);
+        }
+    } catch (\Throwable $e) {
+        error_log('[workflow.people_graph] resolution failed: ' . $e->getMessage());
+    }
+
+    return [];
+}
+
+/** @internal */
+function _workflowPeopleGraphObjectRef(string $subjectType, int $subjectId, array $resolution, array $payload): array {
+    $module = (string) (
+        $resolution['object_module']
+        ?? $resolution['resource_module']
+        ?? $payload['object_module']
+        ?? $payload['resource_module']
+        ?? strtok($subjectType, '_')
+        ?: 'workflow'
+    );
+    return [
+        'object_module' => $module,
+        'object_type' => (string) ($resolution['object_type'] ?? $resolution['resource_type'] ?? $payload['object_type'] ?? $payload['resource_type'] ?? $subjectType),
+        'object_id' => (string) ($resolution['object_id'] ?? $resolution['resource_id'] ?? $payload['object_id'] ?? $payload['resource_id'] ?? $subjectId),
+    ];
+}
+
+/** @internal */
+function _workflowQuestionForResponsibility(string $responsibilityType): string {
+    return match ($responsibilityType) {
+        'owner', 'accountable' => 'who_owns',
+        'reviewer' => 'who_reviews',
+        'ai_supervisor' => 'who_reviews_ai',
+        'notifier' => 'who_notifies',
+        'escalation_contact' => 'who_escalates',
+        'operator' => 'who_operates',
+        'viewer' => 'who_can_view',
+        default => 'who_approves',
+    };
+}
+
+/** @internal */
+function _workflowValidActorRefs(array $actors): array {
+    $out = [];
+    foreach ($actors as $actor) {
+        $type = (string) ($actor['actor_type'] ?? $actor['type'] ?? '');
+        $id = (int) ($actor['actor_id'] ?? $actor['id'] ?? 0);
+        if ($type !== '' && $id > 0) $out[] = ['actor_type' => $type, 'actor_id' => $id];
+    }
+    return $out;
+}
+
+/** @internal */
+function _workflowPeopleGraphActorToUserIds(int $tenantId, array $actor, array $seen = []): array {
+    $type = (string) ($actor['actor_type'] ?? $actor['type'] ?? '');
+    $id = (int) ($actor['actor_id'] ?? $actor['id'] ?? 0);
+    if ($type === '' || $id <= 0) return [];
+    $key = "{$type}:{$id}";
+    if (isset($seen[$key])) return [];
+    $seen[$key] = true;
+    if ($type === 'user') return [$id];
+
+    try {
+        $pdo = getDB();
+        if (!$pdo) return [];
+
+        $link = function (string $actorType, int $actorId) use ($pdo, $tenantId): ?array {
+            $stmt = $pdo->prepare(
+                'SELECT * FROM people_graph_actor_links
+                  WHERE tenant_id = :tenant_id AND actor_type = :actor_type AND actor_id = :actor_id AND status = "active"
+                  LIMIT 1'
+            );
+            $stmt->execute(['tenant_id' => $tenantId, 'actor_type' => $actorType, 'actor_id' => $actorId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $row ?: null;
+        };
+
+        if ($type === 'person') {
+            $row = $link($type, $id);
+            if (!empty($row['user_id'])) return [(int) $row['user_id']];
+            try {
+                $stmt = $pdo->prepare('SELECT id FROM users WHERE person_id = :person_id LIMIT 1');
+                $stmt->execute(['person_id' => $id]);
+                $uid = (int) $stmt->fetchColumn();
+                return $uid > 0 ? [$uid] : [];
+            } catch (\Throwable $_) {
+                return [];
+            }
+        }
+
+        if ($type === 'team') {
+            $stmt = $pdo->prepare(
+                'SELECT member_actor_type, member_actor_id
+                   FROM people_graph_team_memberships
+                  WHERE tenant_id = :tenant_id AND team_id = :team_id AND status = "active"
+                    AND (starts_at IS NULL OR starts_at <= NOW())
+                    AND (ends_at IS NULL OR ends_at >= NOW())'
+            );
+            $stmt->execute(['tenant_id' => $tenantId, 'team_id' => $id]);
+            $users = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $users = array_merge($users, _workflowPeopleGraphActorToUserIds($tenantId, [
+                    'actor_type' => (string) $row['member_actor_type'],
+                    'actor_id' => (int) $row['member_actor_id'],
+                ], $seen));
+            }
+            return array_values(array_unique($users));
+        }
+
+        if ($type === 'role') {
+            $stmt = $pdo->prepare(
+                'SELECT actor_type, actor_id
+                   FROM people_graph_role_assignments
+                  WHERE tenant_id = :tenant_id AND role_id = :role_id AND status = "active"
+                    AND (starts_at IS NULL OR starts_at <= NOW())
+                    AND (ends_at IS NULL OR ends_at >= NOW())'
+            );
+            $stmt->execute(['tenant_id' => $tenantId, 'role_id' => $id]);
+            $users = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $users = array_merge($users, _workflowPeopleGraphActorToUserIds($tenantId, [
+                    'actor_type' => (string) $row['actor_type'],
+                    'actor_id' => (int) $row['actor_id'],
+                ], $seen));
+            }
+            return array_values(array_unique($users));
+        }
+
+        $row = $link($type, $id);
+        if (!empty($row['user_id'])) return [(int) $row['user_id']];
+        if (!empty($row['person_id'])) {
+            return _workflowPeopleGraphActorToUserIds($tenantId, ['actor_type' => 'person', 'actor_id' => (int) $row['person_id']], $seen);
+        }
+    } catch (\Throwable $_) {
+        return [];
+    }
+
+    return [];
+}
+
+/** @internal */
+function _workflowAuditEvent(int $tenantId, ?int $userId, string $event, int $targetId, array $meta): void {
+    try {
+        $actorEmail = _workflowAuditScalar($meta['actor_email'] ?? null, 255);
+        $actorType = _workflowAuditScalar(
+            $meta['actor_type'] ?? ($userId ? 'user' : ($actorEmail ? 'external_approver' : 'system')),
+            40
+        );
+        $objectType = _workflowAuditScalar($meta['object_type'] ?? 'workflow_instance', 80);
+        $requestId = _workflowRequestId($meta);
+        $source = _workflowAuditScalar($meta['source'] ?? 'workflow', 80);
+        platformAuditLogWrite(
+            $tenantId,
+            $userId,
+            $event,
+            $targetId,
+            $meta,
+            [
+                'actor_email' => $actorEmail,
+                'actor_type' => $actorType,
+                'object_type' => $objectType,
+                'request_id' => $requestId,
+                'source' => $source,
+                'before' => $meta['before_json'] ?? $meta['before'] ?? null,
+                'after' => $meta['after_json'] ?? $meta['after'] ?? null,
+                'ip_address' => _workflowAuditScalar($_SERVER['REMOTE_ADDR'] ?? null, 45),
+                'user_agent' => _workflowAuditScalar($_SERVER['HTTP_USER_AGENT'] ?? null, 255),
+            ]
+        );
     } catch (\Throwable $_) { /* audit best-effort */ }
+}
+
+/** @internal */
+function _workflowAuditScalar(mixed $value, int $maxLength): ?string {
+    if ($value === null) return null;
+    if (is_bool($value)) $value = $value ? '1' : '0';
+    if (is_array($value) || is_object($value)) return null;
+    $text = trim((string) $value);
+    if ($text === '') return null;
+    return substr($text, 0, $maxLength);
+}
+
+/** @internal */
+function _workflowRequestId(array $source = []): ?string {
+    $context = is_array($source['context'] ?? null) ? $source['context'] : [];
+    $meta = is_array($source['meta'] ?? null) ? $source['meta'] : [];
+    foreach ([
+        $source['request_id'] ?? null,
+        $context['request_id'] ?? null,
+        $meta['request_id'] ?? null,
+        $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
+        $_SERVER['HTTP_X_CORRELATION_ID'] ?? null,
+        $_SERVER['REQUEST_ID'] ?? null,
+    ] as $candidate) {
+        $requestId = _workflowAuditScalar($candidate, 80);
+        if ($requestId !== null) return $requestId;
+    }
+    return null;
 }

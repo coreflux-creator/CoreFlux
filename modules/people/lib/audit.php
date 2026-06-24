@@ -2,46 +2,43 @@
 /**
  * People Module — Audit logger
  *
- * Thin wrapper around the platform audit_log mechanism. Modules call
+ * Thin wrapper around the shared platform audit writer. Modules call
  * peopleAudit('people.created', ['id' => 123, ...]) and the helper writes
- * a row to `audit_log` (or, if the table does not exist yet on a fresh
- * install, falls back to error_log). All people.* event slugs are declared
- * in /app/modules/people/manifest.php.
+ * canonical `audit_log` evidence with People-specific source/object metadata.
+ * All people.* event slugs are declared in /app/modules/people/manifest.php.
  *
  * SPEC: /app/modules/people/SPEC.md §7
  */
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
+require_once __DIR__ . '/../../../core/audit.php';
 
-function peopleAudit(string $event, array $meta = [], ?int $targetId = null): void
+function peopleAudit(string $event, array $meta = [], ?int $targetId = null, array $opts = []): void
 {
-    $pdo = getDB();
-    if (!$pdo) {
-        error_log("[people.audit] {$event} target={$targetId} meta=" . json_encode($meta));
-        return;
-    }
+    platformAuditLogWrite(
+        currentTenantId(),
+        isset($_SESSION['user']['id']) ? (int) $_SESSION['user']['id'] : null,
+        $event,
+        $targetId,
+        $meta,
+        array_merge([
+            'object_type' => peopleAuditObjectType($event, $meta),
+            'source' => 'people',
+        ], $opts)
+    );
+}
 
-    $row = [
-        'tenant_id'   => currentTenantId(),
-        'actor_user_id' => $_SESSION['user']['id'] ?? null,
-        'event'       => $event,
-        'target_id'   => $targetId,
-        'meta_json'   => $meta ? json_encode($meta, JSON_UNESCAPED_SLASHES) : null,
-        'ip_address'  => $_SERVER['REMOTE_ADDR'] ?? null,
-        'request_id'  => $_SERVER['HTTP_X_REQUEST_ID'] ?? null,
-    ];
-
-    try {
-        $stmt = $pdo->prepare(
-            'INSERT INTO audit_log
-             (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, request_id, created_at)
-             VALUES (:tenant_id, :actor_user_id, :event, :target_id, :meta_json, :ip_address, :request_id, NOW())'
-        );
-        $stmt->execute($row);
-    } catch (\Throwable $e) {
-        // Audit table may not exist on fresh install; never block the
-        // calling request because audit failed.
-        error_log("[people.audit] db-write-failed: " . $e->getMessage()
-                . " event={$event} meta=" . json_encode($meta));
-    }
+function peopleAuditObjectType(string $event, array $meta = []): string
+{
+    if (str_contains($event, '.banking.')) return 'people_banking';
+    if (str_contains($event, '.tax.')) return 'people_tax';
+    if (str_contains($event, '.pii.')) return 'people_pii';
+    if (str_contains($event, '.comp.')) return 'people_compensation';
+    if (str_contains($event, '.employee.')) return 'people_employee';
+    if (str_contains($event, '.document.')) return 'people_document';
+    if (str_contains($event, '.custom_field.')) return 'people_custom_field';
+    if (str_contains($event, '.graph.')) return 'people_graph';
+    if (str_contains($event, '.access_review.')) return 'access_review';
+    if (($meta['resource'] ?? null) === 'i9') return 'people_i9';
+    return 'people_person';
 }

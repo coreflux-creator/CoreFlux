@@ -10,7 +10,7 @@ import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
 export default function CsvImport() {
   return (
     <CsvImportPage
-      endpoint="/modules/people/api/csv_import.php"
+      endpoint="/api/v1/people/csv-import"
       entityLabel="People"
       backTo=".."
       backLabel="← Directory"

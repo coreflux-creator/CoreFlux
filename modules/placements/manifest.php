@@ -22,6 +22,7 @@ return [
         ['name' => 'New Placement',     'route' => 'new',          'permission' => 'placements.manage'],
         ['name' => 'Commissions',       'route' => 'commissions',  'permission' => 'placements.commissions.view'],
         ['name' => 'Referrals',         'route' => 'referrals',    'permission' => 'placements.referrals.manage'],
+        ['name' => 'Custom Fields',     'route' => 'custom_fields', 'permission' => 'placements.custom_fields.manage'],
         ['name' => 'Reports',           'route' => 'reports',      'permission' => 'placements.financials.view'],
     ],
 
@@ -47,6 +48,8 @@ return [
         'placement.created',
         'placement.updated',
         'placement.status_changed',
+        'placement.activation_rate_verified',
+        'placement.activation_blocked_missing_rate',
         'placement.ended',
         'placement.chain.updated',
         'placement.chain.portal.set',
@@ -54,8 +57,15 @@ return [
         'placement.chain.portal.viewed',
         'placement.chain.contract_extracted',
         'placement.rate.drafted',
+        'placement.rate.workflow_started',
+        'placement.rate.workflow_start_failed',
+        'placement.rate.workflow_approved',
+        'placement.rate.workflow_snapshot_locked',
+        'placement.rate.approval_blocked',
+        'placement.rate.approval_rejected',
         'placement.rate.approved',
         'placement.rate.superseded',
+        'placement.rate.auto_approve_pending_workflow',
         'placement.commission.added',
         'placement.commission.updated',
         'placement.commission.removed',
@@ -70,9 +80,73 @@ return [
         'placement.document.deleted',
         'placement.approval_contact.updated',
         'placement.csv_imported',
+        'placement.exported',
     ],
 
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
+
+    'custom_field_entities' => [
+        [
+            'entity_type'       => 'placements',
+            'label'             => 'Placements',
+            'definition_table'  => 'custom_fields',
+            'value_table'       => 'custom_values',
+            'record_id_key'     => 'placement_id',
+            'view_permission'   => 'placements.view',
+            'manage_permission' => 'placements.custom_fields.manage',
+            'surfaces'          => ['forms', 'detail', 'lists', 'exports', 'reports'],
+        ],
+    ],
+
+    'custom_field_layouts' => [
+        'placements' => [
+            'form_sections' => ['assignment', 'client', 'compliance'],
+            'list_columns'  => ['field_label', 'field_type', 'is_required'],
+        ],
+    ],
+
+    'export_datasets' => [
+        'placements_directory' => [
+            'dataset'               => 'placements_directory',
+            'label'                 => 'Placements',
+            'permission'            => 'placements.view',
+            'formats'               => ['csv'],
+            'audit_event'           => 'placement.exported',
+            'custom_field_entities' => ['placements'],
+        ],
+    ],
+
+    'report_datasets' => [
+        'placements_directory' => [
+            'dataset'               => 'placements_directory',
+            'label'                 => 'Placements',
+            'permission'            => 'placements.view',
+            'source'                => 'export_dataset',
+            'custom_field_entities' => ['placements'],
+        ],
+    ],
+
+    'people_graph' => [
+        'consumes' => true,
+        'mode' => 'source_module_consumer',
+        'object_types' => [
+            'placement' => [
+                'responsibilities' => ['owner', 'accountable', 'preparer', 'reviewer', 'approver', 'notifier', 'escalation_contact'],
+                'approval_resource' => 'placements.placement',
+            ],
+            'rate_snapshot' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver'],
+                'approval_resource' => 'placements.rate_snapshot',
+            ],
+            'commission_plan' => [
+                'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver'],
+                'approval_resource' => 'placements.commission_plan',
+            ],
+            'approval_contact' => [
+                'responsibilities' => ['owner', 'recipient', 'notifier'],
+            ],
+        ],
+    ],
 
     'depends_on' => ['people'],
 ];

@@ -2,7 +2,7 @@
  * Overtime Watch — Reports Overhaul Pass 2 (Tier-2).
  *
  * OT exposure + cost leakage. Wraps the existing
- * /modules/reports/api/overtime_watch.php response in ReportShell with
+ * /api/v1/reports/overtime-watch response in ReportShell with
  * a 6-KPI band (OT hrs, total hrs, OT%, OT revenue, OT cost, OT margin)
  * plus three drill tables (weekly OT, top employees, top clients).
  *
@@ -18,7 +18,7 @@ import { fmtMoney } from '../../../dashboard/src/lib/format';
 export default function OvertimeWatch() {
   const [period, setPeriod] = useState('4w');
   const { data, loading, error } = useApi(
-    `/modules/reports/api/overtime_watch.php?period=${period}`
+    `/api/v1/reports/overtime-watch?period=${period}`
   );
 
   const t = data?.totals || {};

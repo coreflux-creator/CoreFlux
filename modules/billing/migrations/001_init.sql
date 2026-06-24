@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS billing_invoices (
     created_by_user_id BIGINT UNSIGNED NULL,
     approved_by_user_id BIGINT UNSIGNED NULL,
     approved_at DATETIME NULL,
+    workflow_instance_id BIGINT UNSIGNED NULL,
     sent_at DATETIME NULL,
     voided_at DATETIME NULL,
     voided_by_user_id BIGINT UNSIGNED NULL,
@@ -33,7 +34,8 @@ CREATE TABLE IF NOT EXISTS billing_invoices (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_bi_tenant_number (tenant_id, invoice_number),
     INDEX idx_bi_tenant_status_due (tenant_id, status, due_date),
-    INDEX idx_bi_tenant_client (tenant_id, client_name)
+    INDEX idx_bi_tenant_client (tenant_id, client_name),
+    INDEX idx_bi_workflow (tenant_id, workflow_instance_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS billing_invoice_lines (

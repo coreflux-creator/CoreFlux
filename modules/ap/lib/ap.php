@@ -15,6 +15,7 @@
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
+require_once __DIR__ . '/../../../core/audit.php';
 require_once __DIR__ . '/../../../core/encryption.php';
 
 /**
@@ -1079,23 +1080,33 @@ function apPlaidConfigured(): bool
     return is_string($id) && $id !== '' && is_string($sec) && $sec !== '';
 }
 
-function apAudit(string $event, array $meta = [], ?int $targetId = null): void
+function apAudit(string $event, array $meta = [], ?int $targetId = null, array $opts = []): void
 {
     try {
         $ctx  = function_exists('currentTenantContext') ? currentTenantContext() : null;
-        $pdo  = getDB();
-        $pdo->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, ip_address, created_at)
-             VALUES (:tenant_id, :actor, :event, :target_id, :meta_json, :ip, NOW())'
-        )->execute([
-            'tenant_id' => $ctx['tenant_id'] ?? null,
-            'actor'     => $ctx['user']['id'] ?? null,
-            'event'     => $event,
-            'target_id' => $targetId,
-            'meta_json' => json_encode($meta),
-            'ip'        => $_SERVER['REMOTE_ADDR'] ?? null,
-        ]);
+        $tenantId = isset($ctx['tenant_id']) ? (int) $ctx['tenant_id'] : (function_exists('currentTenantId') ? currentTenantId() : null);
+        if ($tenantId === null && isset($meta['tenant_id'])) $tenantId = (int) $meta['tenant_id'];
+        $actorUserId = isset($ctx['user']['id']) ? (int) $ctx['user']['id'] : null;
+        if ($actorUserId === null && isset($meta['actor_user_id'])) $actorUserId = (int) $meta['actor_user_id'];
+        platformAuditLogWrite($tenantId, $actorUserId, $event, $targetId, $meta, array_merge([
+            'object_type' => apAuditObjectType($event),
+            'source' => $meta['source'] ?? 'ap',
+        ], $opts));
     } catch (\Throwable $e) {
         error_log('[ap.audit] ' . $event . ' write-failed: ' . $e->getMessage());
     }
+}
+
+function apAuditObjectType(string $event): string
+{
+    if (str_contains($event, '.payment.') || str_contains($event, '.payments.')) return 'ap_payment';
+    if (str_contains($event, '.bill.') || str_contains($event, '.bills.')) return 'ap_bill';
+    if (str_contains($event, '.expense.')) return 'ap_expense_report';
+    if (str_contains($event, '.vendor.')) return 'ap_vendor';
+    if (str_contains($event, '.po.')) return 'ap_purchase_order';
+    if (str_contains($event, '.recurring.')) return 'ap_recurring_bill';
+    if (str_contains($event, '.1099.')) return 'ap_1099';
+    if (str_contains($event, '.settings.')) return 'ap_settings';
+    if (str_contains($event, '.export.')) return 'ap_export';
+    return 'ap';
 }

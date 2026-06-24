@@ -75,8 +75,12 @@ $assert('alias delegates',
 
 echo "\nFrontend — DimensionalPnL.jsx\n";
 $jsx = (string) file_get_contents("{$ROOT}/modules/accounting/ui/DimensionalPnL.jsx");
-$assert('reads dimensions list',                 strpos($jsx, "/modules/accounting/api/dimensions.php") !== false);
-$assert('hits dimensional_pnl endpoint',         strpos($jsx, '/api/dimensional_pnl.php?dim_key=') !== false);
+$assert('reads dimensions list through v1 API',
+    strpos($jsx, "/api/v1/accounting/dimensions") !== false
+    && strpos($jsx, "/modules/accounting/api/dimensions.php") === false);
+$assert('hits dimensional_pnl through v1 API',
+    strpos($jsx, '/api/v1/accounting/dimensional-pnl') !== false
+    && strpos($jsx, '/api/dimensional_pnl.php?dim_key=') === false);
 $assert('groups accounts by family',
     strpos($jsx, "['revenue', 'other_income', 'contra_revenue', 'cost_of_goods_sold', 'expense', 'other_expense']") !== false);
 foreach ([

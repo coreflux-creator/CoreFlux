@@ -83,6 +83,16 @@ $assert('returns events (echoed back)',           strpos($api, "'events'      =>
 $assert('returns baseline + simulated',
     strpos($api, "'baseline'    => [") !== false
     && strpos($api, "'simulated'   => [") !== false);
+$assert('returns source detail for baseline + simulated',
+    strpos($api, '$baselineSourceDetail = liquidityProjectionSourceDetail($datasets);') !== false
+    && strpos($api, '$simulatedSourceDetail = liquidityProjectionSourceDetail($datasets, [') !== false
+    && strpos($api, "'source_detail'        => \$baselineSourceDetail") !== false
+    && strpos($api, "'source_detail'        => \$simulatedSourceDetail") !== false);
+$assert('daily rows include attached source detail',
+    strpos($api, '$baselineDaily = liquidityAttachDailySourceDetail(') !== false
+    && strpos($api, '$simulatedDaily = liquidityAttachDailySourceDetail(') !== false
+    && strpos($api, "'daily'               => \$baselineDaily") !== false
+    && strpos($api, "'daily'               => \$simulatedDaily") !== false);
 $assert('returns delta envelope',                 strpos($api, "'delta'       => [") !== false);
 $assert('delta includes net_event_impact',        strpos($api, "'net_event_impact'") !== false);
 $assert('delta includes inflow_total + outflow_total',
@@ -106,7 +116,7 @@ $pgPath = "{$ROOT}/dashboard/src/pages/TreasuryScenario.jsx";
 $assert('page file exists',                       is_readable($pgPath));
 $pg = (string) file_get_contents($pgPath);
 $assert('imports api client',                     strpos($pg, "import { api, useApi } from '../lib/api'") !== false);
-$assert('posts to /api/treasury_scenario.php',    strpos($pg, "api.post('/api/treasury_scenario.php'") !== false);
+$assert('posts to /api/v1/treasury/scenario',     strpos($pg, "api.post('/api/v1/treasury/scenario'") !== false);
 $assert('page root testid',                       strpos($pg, 'data-testid="treasury-scenario-page"') !== false);
 $assert('window selector testid',                 strpos($pg, 'data-testid="scenario-window-select"') !== false);
 $assert('event composer testid',                  strpos($pg, 'data-testid="scenario-event-composer"') !== false);
@@ -118,6 +128,11 @@ $assert('event add button testid',                strpos($pg, 'data-testid="scen
 $assert('per-event row testid template',          strpos($pg, 'data-testid={`scenario-event-row-${idx}`}') !== false);
 $assert('per-event remove testid template',       strpos($pg, 'data-testid={`scenario-event-remove-${idx}`}') !== false);
 $assert('summary tiles testid',                   strpos($pg, 'data-testid="scenario-summary-tiles"') !== false);
+$assert('source detail panel testids',
+    strpos($pg, 'data-testid="scenario-source-detail"') !== false
+    && strpos($pg, 'testid="scenario-source-baseline"') !== false
+    && strpos($pg, 'testid="scenario-source-simulated"') !== false
+    && strpos($pg, 'function SourceDetailPanel(') !== false);
 $assert('chart testid',                           strpos($pg, 'data-testid="scenario-chart"') !== false);
 $assert('runway alert testid',                    strpos($pg, 'data-testid="scenario-runway-alert"') !== false);
 $assert('safe banner testid',                     strpos($pg, 'data-testid="scenario-safe-banner"') !== false);

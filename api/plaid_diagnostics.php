@@ -169,7 +169,11 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill') 
             'liability_accounts_created' => $createdLiab,
             'skipped'                    => $skipped,
             'errors'                     => $errors,
-        ], null);
+        ], null, [
+            'tenant_id' => $tenantId,
+            'actor_user_id' => (int) ($ctx['user']['id'] ?? 0),
+            'source' => 'plaid_diagnostics',
+        ]);
     }
 
     api_ok([
@@ -221,7 +225,11 @@ if (api_method() === 'POST' && (string) ($_GET['action'] ?? '') === 'backfill_gl
     if (function_exists('plaidAudit')) {
         plaidAudit('accounting.coa.bank_backfill', [
             'created'  => $created, 'errors' => $errs,
-        ], null);
+        ], null, [
+            'tenant_id' => $tenantId,
+            'actor_user_id' => (int) ($ctx['user']['id'] ?? 0),
+            'source' => 'plaid_diagnostics',
+        ]);
     }
     api_ok([
         'missing_count'   => count($missing),

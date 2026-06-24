@@ -75,7 +75,7 @@ $assert('CSV emits per-line totals',             strpos($ep, "fputcsv(\$out, [\n
 $assert('CSV emits UNMAPPED row when present',   strpos($ep, "'UNMAPPED', 'Revenue/expense not yet mapped to a form line'") !== false);
 $assert('exits after CSV stream',                strpos($ep, "fclose(\$out);\n    exit;") !== false);
 
-echo "\nModule alias — /api/accounting/tax-export\n";
+echo "\nModule alias — /api/v1/accounting/tax-form-export\n";
 $alias = "{$ROOT}/modules/accounting/api/tax_form_export.php";
 $assert('alias exists', is_file($alias));
 $assert('alias parses', $lint($alias));
@@ -84,9 +84,11 @@ $assert('alias delegates',
 
 echo "\nFrontend — TaxExport.jsx\n";
 $jsx = (string) file_get_contents("{$ROOT}/modules/accounting/ui/TaxExport.jsx");
-$assert('hits export endpoint for preview',      strpos($jsx, "/api/tax_form_export.php?tax_form_code=") !== false);
-$assert('reads available_forms from tax_mappings.php',
-    strpos($jsx, "useApi('/api/tax_mappings.php')") !== false
+$assert('hits v1 export endpoint for preview',
+    strpos($jsx, "const TAX_EXPORT_API = '/api/v1/accounting/tax-form-export'") !== false);
+$assert('reads available_forms from v1 tax-mappings',
+    strpos($jsx, "const TAX_MAPPINGS_API = '/api/v1/accounting/tax-mappings'") !== false
+    && strpos($jsx, 'useApi(TAX_MAPPINGS_API)') !== false
     && strpos($jsx, 'available_forms') !== false);
 $assert('CSV download via window.location',
     strpos($jsx, '&format=csv') !== false

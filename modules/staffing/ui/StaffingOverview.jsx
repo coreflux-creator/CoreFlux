@@ -32,7 +32,7 @@ export default function StaffingOverview({ session }) {
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))', gap:'var(--cf-space-3)', marginBottom:'var(--cf-space-4)' }}>
         <QuickCard to="/modules/staffing/timesheets" title="My Weekly Timesheet" subtitle="Enter hours, submit the week" testId="staffing-card-timesheets" />
-        <QuickCard to="/modules/staffing/placements" title="Placements"          subtitle="Active engagements + rates" testId="staffing-card-placements" />
+        <QuickCard to="/modules/placements/list" title="Placements"          subtitle="Active engagements + rates" testId="staffing-card-placements" />
         <QuickCard to="/modules/staffing/approvals"  title="Approvals Queue"     subtitle="Review submitted timesheets" testId="staffing-card-approvals" />
         <QuickCard to="/modules/staffing/settings"   title="Settings"            subtitle="Week start, contracted hours" testId="staffing-card-settings" />
       </div>

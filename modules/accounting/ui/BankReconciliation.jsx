@@ -6,6 +6,13 @@ import ReconciliationPacket from './ReconciliationPacket';
 import IntercompanySplitDialog from '../../../dashboard/src/components/IntercompanySplitDialog';
 import PlaidLinkButton from '../../../dashboard/src/components/PlaidLinkButton';
 
+const BANK_ACCOUNTS_API = '/api/v1/accounting/bank-accounts';
+const BANK_STATEMENTS_API = '/api/v1/accounting/bank-statements';
+const RECONCILIATIONS_API = '/api/v1/accounting/reconciliations';
+const BANK_AI_API = '/api/v1/accounting/bank-ai';
+const ACCOUNT_TRANSACTIONS_API = '/api/v1/accounting/account-transactions';
+const BANK_RULES_API = '/api/v1/accounting/bank-rules';
+
 /**
  * Bank Reconciliation module.
  *  - /modules/accounting/bank-rec                            → list of bank accounts
@@ -26,7 +33,7 @@ export default function BankReconciliation() {
 
 function ReconciliationsList() {
   const { id } = useParams();
-  const { data, loading, error, reload } = useApi(`/modules/accounting/api/reconciliations.php?bank_account_id=${id}`);
+  const { data, loading, error, reload } = useApi(`${RECONCILIATIONS_API}?bank_account_id=${id}`);
   const [form, setForm] = useState({ period_end: new Date().toISOString().slice(0,10), statement_balance: '', gl_balance: '', notes: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -34,7 +41,7 @@ function ReconciliationsList() {
     e.preventDefault();
     setBusy(true); setErr(null);
     try {
-      await api.post('/modules/accounting/api/reconciliations.php?action=open', {
+      await api.post(`${RECONCILIATIONS_API}?action=open`, {
         bank_account_id: Number(id),
         period_end: form.period_end,
         statement_balance: parseFloat(form.statement_balance) || 0,
@@ -86,7 +93,7 @@ function ReconciliationsList() {
 
 function AccountsList() {
   const [showClosed, setShowClosed] = useState(false);
-  const apiUrl = '/modules/accounting/api/bank_accounts.php' + (showClosed ? '?include_closed=1' : '');
+  const apiUrl = BANK_ACCOUNTS_API + (showClosed ? '?include_closed=1' : '');
   const { data, loading, error, reload } = useApi(apiUrl);
   const [showNew, setShow] = useState(false);
   const [busy, setBusy] = useState(null);
@@ -94,13 +101,13 @@ function AccountsList() {
   const close = async (id) => {
     if (!confirm('Close this bank account? It will be hidden from the active list (and from Treasury). You can reopen it later.')) return;
     setBusy(id);
-    try { await api.post(`/modules/accounting/api/bank_accounts.php?action=close&id=${id}`); await reload(); }
+    try { await api.post(`${BANK_ACCOUNTS_API}?action=close&id=${id}`); await reload(); }
     catch (e) { alert('Could not close: ' + e.message); }
     finally { setBusy(null); }
   };
   const reopen = async (id) => {
     setBusy(id);
-    try { await api.post(`/modules/accounting/api/bank_accounts.php?action=reopen&id=${id}`); await reload(); }
+    try { await api.post(`${BANK_ACCOUNTS_API}?action=reopen&id=${id}`); await reload(); }
     catch (e) { alert('Could not reopen: ' + e.message); }
     finally { setBusy(null); }
   };
@@ -187,7 +194,7 @@ function NewAccountForm({ onDone, onCancel }) {
   const [err, setErr]   = useState(null);
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr(null);
-    try { await api.post('/modules/accounting/api/bank_accounts.php', form); onDone(); }
+    try { await api.post(BANK_ACCOUNTS_API, form); onDone(); }
     catch (e2) { setErr(e2.message); }
     finally { setBusy(false); }
   };
@@ -211,8 +218,8 @@ function NewAccountForm({ onDone, onCancel }) {
 
 function AccountDetail() {
   const { id } = useParams();
-  const accountApi = useApi(`/modules/accounting/api/bank_accounts.php?id=${id}`);
-  const { data, loading, error, reload } = useApi(`/modules/accounting/api/bank_statements.php?bank_account_id=${id}&match_status=unmatched`);
+  const accountApi = useApi(`${BANK_ACCOUNTS_API}?id=${id}`);
+  const { data, loading, error, reload } = useApi(`${BANK_STATEMENTS_API}?bank_account_id=${id}&match_status=unmatched`);
   const [csv, setCsv]       = useState('');
   const [busy, setBusy]     = useState(null);
   const [actErr, setErr]    = useState(null);
@@ -222,7 +229,7 @@ function AccountDetail() {
     e.preventDefault();
     setBusy('import'); setErr(null);
     try {
-      await api.post(`/modules/accounting/api/bank_statements.php?action=import_csv&bank_account_id=${id}`, { csv });
+      await api.post(`${BANK_STATEMENTS_API}?action=import_csv&bank_account_id=${id}`, { csv });
       setCsv('');
       reload();
     } catch (e2) { setErr(e2.message); }
@@ -230,7 +237,7 @@ function AccountDetail() {
   };
   const applyRules = async () => {
     setBusy('apply'); setErr(null);
-    try { await api.post(`/modules/accounting/api/bank_statements.php?action=apply_rules&bank_account_id=${id}`); reload(); }
+    try { await api.post(`${BANK_STATEMENTS_API}?action=apply_rules&bank_account_id=${id}`); reload(); }
     catch (e2) { setErr(e2.message); }
     finally { setBusy(null); }
   };
@@ -306,7 +313,7 @@ function BankLineRow({ line, reload, bankAccount }) {
   const callAi = async (action) => {
     setBusy(action); setErr(null);
     try {
-      const res = await api.post(`/modules/accounting/api/bank_ai.php?action=${action}&line_id=${line.id}`);
+      const res = await api.post(`${BANK_AI_API}?action=${action}&line_id=${line.id}`);
       setAi({ action, ...res });
     } catch (e) { setErr(e.message); }
     finally { setBusy(null); }
@@ -398,7 +405,7 @@ function AiResultPanel({ line, ai, onDismiss, onAccepted }) {
     setBusy(true); setErr(null);
     try {
       if (isCategorize && suggestedAccountId) {
-        await api.post('/modules/accounting/api/account_transactions.php?action=categorize_and_post', {
+        await api.post(`${ACCOUNT_TRANSACTIONS_API}?action=categorize_and_post`, {
           line_id:                line.id,
           counterpart_account_id: suggestedAccountId,
           type:                   'deposit',
@@ -489,20 +496,20 @@ function AiResultPanel({ line, ai, onDismiss, onAccepted }) {
 
 function RulesList() {
   const { id } = useParams();
-  const { data, loading, error, reload } = useApi(`/modules/accounting/api/bank_rules.php?bank_account_id=${id}`);
+  const { data, loading, error, reload } = useApi(`${BANK_RULES_API}?bank_account_id=${id}`);
   const [learnBusy, setLearnBusy] = useState(false);
   const [learnRes, setLearnRes]   = useState(null);
   const [learnErr, setLearnErr]   = useState(null);
 
   const flip = async (ruleId, action) => {
-    try { await api.post(`/modules/accounting/api/bank_rules.php?action=${action}&id=${ruleId}`); reload(); }
+    try { await api.post(`${BANK_RULES_API}?action=${action}&id=${ruleId}`); reload(); }
     catch (e) { alert(e.message); }
   };
 
   const learn = async () => {
     setLearnBusy(true); setLearnErr(null); setLearnRes(null);
     try {
-      const res = await api.post('/modules/accounting/api/bank_rules.php?action=learn');
+      const res = await api.post(`${BANK_RULES_API}?action=learn`);
       setLearnRes(res);
       reload();
     } catch (e) { setLearnErr(e.message); }

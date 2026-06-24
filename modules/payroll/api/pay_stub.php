@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../lib/payroll.php';
 
 $ctx = api_require_auth();
+rbac_legacy_require($ctx['user'], 'payroll.view');
 
 if (api_method() !== 'GET') api_error('Method not allowed', 405);
 

@@ -82,7 +82,7 @@ $assert('bulk accept iterates eligible',
     strpos($jsx, '(s.confidence ?? 0) >= aiThreshold') !== false
     && strpos($jsx, "for (const s of eligible)") !== false);
 $assert('bulk accept POSTs each suggestion',
-    strpos($jsx, "api.post('/api/tax_mappings.php', {") !== false
+    strpos($jsx, 'api.post(TAX_MAPPINGS_API, {') !== false
     && strpos($jsx, 'tax_form_code:  form') !== false);
 $assert('pre-populates draft from suggestions',
     strpos($jsx, 'd[s.account_id] = { line: s.line, label: s.label, notes:') !== false);

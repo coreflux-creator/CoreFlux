@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { api, useApi } from '../lib/api';
-import { Wallet, GitCompare, AlertTriangle, ArrowRight, Share2, Copy, Check } from 'lucide-react';
+import { Wallet, GitCompare, AlertTriangle, ArrowRight, Share2, Copy, Check, FileSearch } from 'lucide-react';
 
 /**
  * Treasury Scenario Compare — A/B two saved scenarios on one chart.
@@ -40,7 +40,7 @@ export default function TreasuryScenarioCompare() {
   const [shareError, setShareError] = useState(null);
   const [copied, setCopied] = useState(false);
 
-  const savedQuery = useApi('/api/treasury_scenario_presets.php');
+  const savedQuery = useApi('/api/v1/treasury/scenario-presets');
   const presets = savedQuery.data?.presets ?? [];
 
   // Default to the two most-recently-updated presets when the library
@@ -66,7 +66,7 @@ export default function TreasuryScenarioCompare() {
     if (a.id === b.id) return; // same scenario picked twice — useless comparison
     let cancelled = false;
     setLoading(true); setError(null);
-    api.post('/api/treasury_scenario_compare.php', {
+    api.post('/api/v1/treasury/scenario-compare', {
       days,
       scenario_a: { label: a.name, events: a.events },
       scenario_b: { label: b.name, events: b.events },
@@ -97,7 +97,7 @@ export default function TreasuryScenarioCompare() {
       return;
     }
     try {
-      const res = await api.post('/api/treasury_scenario_share.php?action=create', {
+      const res = await api.post('/api/v1/treasury/scenario-share?action=create', {
         kind: 'compare',
         preset_a_id: a.id,
         preset_b_id: b.id,
@@ -193,6 +193,15 @@ export default function TreasuryScenarioCompare() {
           <DeltaCard testid="scenario-compare-delta-a-vs-b"
                      title={`A vs B`}
                      accent="#475569" delta={data.deltas.a_vs_b} />
+        </div>
+      )}
+
+      {data && (
+        <div data-testid="scenario-compare-source-detail"
+             style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+          <SourceDetailPanel title="Baseline sources" detail={data.baseline?.source_detail} testid="scenario-compare-source-baseline" />
+          <SourceDetailPanel title={`${data.scenario_a.label} sources`} detail={data.scenario_a?.source_detail} testid="scenario-compare-source-a" />
+          <SourceDetailPanel title={`${data.scenario_b.label} sources`} detail={data.scenario_b?.source_detail} testid="scenario-compare-source-b" />
         </div>
       )}
 
@@ -341,6 +350,51 @@ function DeltaCard({ title, accent, delta, testid }) {
           Runway: +{Math.abs(delta.runway_days_lost)} days (improvement)
         </div>
       )}
+    </div>
+  );
+}
+
+function SourceDetailPanel({ title, detail, testid }) {
+  const classes = detail?.classification_totals || {};
+  const sourceRows = [
+    ...(detail?.summary?.inflows || []).map((row) => ({ ...row, direction: 'In' })),
+    ...(detail?.summary?.outflows || []).map((row) => ({ ...row, direction: 'Out' })),
+  ].slice(0, 6);
+  return (
+    <div data-testid={testid}
+         style={{ padding: 14, border: '1px solid #e2e8f0', borderRadius: 10, background: '#fff', display: 'grid', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <FileSearch size={14} color="#0f766e" />
+        <strong style={{ fontSize: 13 }}>{title}</strong>
+      </div>
+      <div data-testid={`${testid}-classes`}
+           style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+        {['scheduled', 'expected', 'forecasted', 'actual'].map((key) => {
+          const row = classes[key] || {};
+          return (
+            <div key={key} data-testid={`${testid}-class-${key}`}
+                 style={{ padding: 8, background: '#f8fafc', borderRadius: 8, fontSize: 11, color: '#475569' }}>
+              <div style={{ textTransform: 'uppercase', letterSpacing: 0.4, color: '#64748b' }}>{key}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginTop: 4 }}>
+                <span style={{ color: '#047857' }}>{fmt(row.inflows || 0)}</span>
+                <span style={{ color: '#b91c1c' }}>{fmt(row.outflows || 0)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div data-testid={`${testid}-sources`} style={{ display: 'grid', gap: 4 }}>
+        {sourceRows.length === 0 ? (
+          <span style={{ color: '#94a3b8', fontSize: 12 }}>No source movements.</span>
+        ) : sourceRows.map((row) => (
+          <div key={`${row.direction}-${row.source}`}
+               style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 8, fontSize: 12, color: '#475569' }}>
+            <span style={{ color: row.direction === 'In' ? '#047857' : '#b91c1c', fontWeight: 700 }}>{row.direction}</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.source}</span>
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(row.amount)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

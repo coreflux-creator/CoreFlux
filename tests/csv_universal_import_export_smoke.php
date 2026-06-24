@@ -65,7 +65,8 @@ $a('client template action',                 str_contains($cli, "action === 'tem
 $a('client dry_run action',                  str_contains($cli, "action === 'dry_run'") && str_contains($cli, "dryRun('staffing_clients'"));
 $a('client commit action',                   str_contains($cli, "action === 'commit'") && str_contains($cli, "commit('staffing_clients'"));
 $a('client duplicate-name rejection',        str_contains($cli, "already exists"));
-$a('client RBAC gate staffing.view',         str_contains($cli, "'staffing.view'"));
+$a('client read/import prep gates staffing.view', str_contains($cli, "'staffing.view'"));
+$a('client commit gate staffing.clients.manage',  str_contains($cli, "'staffing.clients.manage'"));
 
 echo "\nCSV export endpoints\n";
 foreach ([
@@ -82,7 +83,10 @@ foreach ([
     $a("{$name} uses CsvExportService",      str_contains($body, 'Core\\CsvExportService'));
     $a("{$name} streams as attachment",      str_contains($body, '->stream('));
     $a("{$name} enforces RBAC",              str_contains($body, 'rbac_legacy_require'));
-    $a("{$name} scoped to tenant",           str_contains($body, ':tenant_id'));
+    $a("{$name} scoped to tenant",
+        str_contains($body, ':tenant_id') ||
+        str_contains($body, 'exportDatasetFetch') ||
+        str_contains($body, 'exportTemplateStreamDatasetCsv'));
 }
 
 echo "\nShared CSV Import React component\n";
@@ -98,17 +102,40 @@ $a('preview table renders errors',           str_contains($cmp, 'errorsByRow'));
 $a('test ids are prefix-driven',             str_contains($cmp, '${testidPrefix}'));
 
 echo "\nVendor + Client import pages\n";
-$vp = $read(__DIR__ . '/../modules/ap/ui/VendorsCsvImport.jsx');
-$a('VendorsCsvImport.jsx exists',            $vp !== '');
-$a('VendorsCsvImport uses shared component', str_contains($vp, 'CsvImportPage'));
-$a('VendorsCsvImport points at /ap',         str_contains($vp, '/modules/ap/api/csv_import.php'));
-$a('VendorsCsvImport test prefix',           str_contains($vp, 'ap-vendors-csv-import'));
+$importPages = [
+    'VendorsCsvImport'         => ['../modules/ap/ui/VendorsCsvImport.jsx', '/api/v1/ap/csv-import', 'ap-vendors-csv-import'],
+    'BillsCsvImport'           => ['../modules/ap/ui/BillsCsvImport.jsx', '/api/v1/ap/bills-csv-import', 'ap-bills-csv-import'],
+    'PaymentsCsvImport'        => ['../modules/ap/ui/PaymentsCsvImport.jsx', '/api/v1/ap/payments-csv-import', 'ap-payments-csv-import'],
+    'InvoicesCsvImport'        => ['../modules/billing/ui/InvoicesCsvImport.jsx', '/api/v1/billing/csv-import', 'billing-invoices-csv-import'],
+    'BillingPaymentsCsvImport' => ['../modules/billing/ui/PaymentsCsvImport.jsx', '/api/v1/billing/payments-csv-import', 'billing-payments-csv-import'],
+    'PeopleCsvImport'          => ['../modules/people/ui/CsvImport.jsx', '/api/v1/people/csv-import', 'people-csv-import'],
+    'PlacementsCsvImport'      => ['../modules/placements/ui/CsvImport.jsx', '/api/v1/placements/csv-import', 'placements-csv-import'],
+    'ClientsCsvImport'         => ['../modules/staffing/ui/ClientsCsvImport.jsx', '/api/v1/staffing/csv-import', 'staffing-clients-csv-import'],
+    'TimeCsvImport'            => ['../modules/time/ui/CsvImport.jsx', '/api/v1/time/csv-import', 'time-csv-import'],
+];
+foreach ($importPages as $name => [$rel, $route, $prefix]) {
+    $src = $read(__DIR__ . '/' . $rel);
+    $a("{$name}.jsx exists",                  $src !== '');
+    $a("{$name} uses shared component",       str_contains($src, 'CsvImportPage'));
+    $a("{$name} uses v1 import route",        str_contains($src, $route) && !preg_match('#/modules/[a-z]+/api/#', $src));
+    $a("{$name} test prefix",                 str_contains($src, $prefix));
+}
 
-$cp = $read(__DIR__ . '/../modules/staffing/ui/ClientsCsvImport.jsx');
-$a('ClientsCsvImport.jsx exists',            $cp !== '');
-$a('ClientsCsvImport uses shared component', str_contains($cp, 'CsvImportPage'));
-$a('ClientsCsvImport points at /staffing',   str_contains($cp, '/modules/staffing/api/csv_import.php'));
-$a('ClientsCsvImport test prefix',           str_contains($cp, 'staffing-clients-csv-import'));
+$bulk = $read(__DIR__ . '/../dashboard/src/pages/CsvBulkImport.jsx');
+foreach ([
+    '/api/v1/people/csv-import',
+    '/api/v1/ap/csv-import',
+    '/api/v1/staffing/csv-import',
+    '/api/v1/placements/csv-import',
+    '/api/v1/time/csv-import',
+    '/api/v1/ap/bills-csv-import',
+    '/api/v1/billing/csv-import',
+    '/api/v1/ap/payments-csv-import',
+    '/api/v1/billing/payments-csv-import',
+] as $route) {
+    $a("CsvBulkImport uses {$route}",         str_contains($bulk, $route));
+}
+$a('CsvBulkImport hides module api paths',    !str_contains($bulk, '/modules/'));
 
 echo "\nModule router wiring\n";
 $apm = $read(__DIR__ . '/../modules/ap/ui/APModule.jsx');
@@ -122,26 +149,37 @@ $a('StaffingModule mounts clients/csv_import', str_contains($stm, 'path="clients
 echo "\nList-page Export/Import wiring\n";
 $vl = $read(__DIR__ . '/../modules/ap/ui/VendorsList.jsx');
 $a('VendorsList Import CSV link',            str_contains($vl, 'data-testid="ap-vendors-import-csv"'));
-$a('VendorsList Export CSV link',            str_contains($vl, 'data-testid="ap-vendors-export-csv"'));
+$a('VendorsList Export CSV link',            str_contains($vl, 'data-testid="ap-vendors-export-csv"')
+                                             && str_contains($vl, '/api/v1/ap/csv-export'));
 
 $cl = $read(__DIR__ . '/../modules/staffing/ui/Clients.jsx');
 $a('Clients Import CSV link',                str_contains($cl, 'data-testid="staffing-clients-import-csv"'));
-$a('Clients Export CSV link',                str_contains($cl, 'data-testid="staffing-clients-export-csv"'));
+$a('Clients Export CSV link',                str_contains($cl, 'data-testid="staffing-clients-export-csv"')
+                                             && str_contains($cl, '/api/v1/staffing/csv-export'));
 
 $pd = $read(__DIR__ . '/../modules/people/ui/Directory.jsx');
-$a('Directory Export CSV link',              str_contains($pd, 'data-testid="people-csv-export-btn"'));
+$a('Directory Export CSV link',              str_contains($pd, 'data-testid="people-csv-export-btn"')
+                                             && str_contains($pd, '/api/v1/people/csv-export'));
 
 $pl = $read(__DIR__ . '/../modules/placements/ui/List.jsx');
-$a('Placements Export CSV link',             str_contains($pl, 'data-testid="placements-csv-export-btn"'));
+$a('Placements Export CSV link',             str_contains($pl, 'data-testid="placements-csv-export-btn"')
+                                             && str_contains($pl, '/api/v1/placements/csv-export'));
 
 $bl = $read(__DIR__ . '/../modules/ap/ui/BillsList.jsx');
-$a('BillsList Export-all CSV link',          str_contains($bl, 'data-testid="ap-bills-export-all-csv"'));
+$a('BillsList Export-all CSV link',          str_contains($bl, 'data-testid="ap-bills-export-all-csv"')
+                                             && str_contains($bl, '/api/v1/ap/bills-csv-export'));
 
 $il = $read(__DIR__ . '/../modules/billing/ui/InvoicesList.jsx');
-$a('InvoicesList Export CSV link',           str_contains($il, 'data-testid="billing-invoices-export-csv"'));
+$a('InvoicesList Export CSV link',           str_contains($il, 'data-testid="billing-invoices-export-csv"')
+                                             && str_contains($il, '/api/v1/billing/csv-export'));
+
+$bp = $read(__DIR__ . '/../modules/billing/ui/PaymentsList.jsx');
+$a('Billing PaymentsList Export CSV link',   str_contains($bp, 'data-testid="billing-payments-export-csv"')
+                                             && str_contains($bp, '/api/v1/billing/payments-csv-export'));
 
 $rq = $read(__DIR__ . '/../modules/time/ui/ReviewQueue.jsx');
-$a('Time ReviewQueue Export CSV link',       str_contains($rq, 'data-testid="time-review-export-csv"'));
+$a('Time ReviewQueue Export CSV link',       str_contains($rq, 'data-testid="time-review-export-csv"')
+                                             && str_contains($rq, '/api/v1/time/csv-export'));
 
 echo "\n--- {$pass} passed, {$fail} failed ---\n";
 exit($fail === 0 ? 0 : 1);

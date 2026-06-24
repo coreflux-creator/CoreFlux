@@ -18,7 +18,7 @@ export default function PeriodCloseWizard({ period, onClose, onClosed }) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setError(null);
-    api.get(`/modules/time/api/periods.php?action=preview_close&id=${period.id}`)
+    api.get(`/api/v1/time/periods?action=preview_close&id=${period.id}`)
       .then(r => { if (!cancelled) setPreview(r); })
       .catch(e => { if (!cancelled) setError(e); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -37,7 +37,7 @@ export default function PeriodCloseWizard({ period, onClose, onClosed }) {
   const confirm = async () => {
     setBusy(true); setError(null);
     try {
-      const res = await api.post(`/modules/time/api/periods.php?action=close&id=${period.id}`, {});
+      const res = await api.post(`/api/v1/time/periods?action=close&id=${period.id}`, {});
       onClosed?.(res);
     } catch (e) {
       setError(e);

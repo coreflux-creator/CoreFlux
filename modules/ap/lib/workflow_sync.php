@@ -13,6 +13,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/db.php';
+require_once __DIR__ . '/ap.php';
 
 /**
  * Sync a workflow step action back into ap_bill_approvals + ap_bills.
@@ -26,10 +27,11 @@ require_once __DIR__ . '/../../../core/db.php';
  * Best-effort: a schema drift or missing row MUST NOT cascade a failure
  * back into the workflow engine. All exceptions are swallowed.
  */
-function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $userId, string $instanceStatus): void {
+function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $userId, string $instanceStatus, ?string $comment = null): void {
     try {
         $pdo = getDB();
         if (!$pdo) return;
+        $beforeBill = apSyncBillRow($tenantId, $billId) ?? ['id' => $billId];
 
         if (in_array($action, ['approve', 'skip'], true) && $userId) {
             // Mark this approver's row as approved (first pending one they own for this bill).
@@ -40,6 +42,9 @@ function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $us
                   LIMIT 1"
             );
             $upd->execute(['t' => $tenantId, 'b' => $billId, 'u' => $userId]);
+            if ($instanceStatus === 'pending') {
+                apSyncPendingWorkflowStepApprovers($pdo, $tenantId, $billId);
+            }
         }
 
         if ($action === 'reject' && $userId) {
@@ -55,18 +60,105 @@ function apSyncFromWorkflow(int $tenantId, int $billId, string $action, ?int $us
                 "UPDATE ap_bills SET status = 'disputed', updated_at = NOW()
                   WHERE tenant_id = :t AND id = :b AND status = 'pending_approval'"
             )->execute(['t' => $tenantId, 'b' => $billId]);
+            $updated = apSyncBillRow($tenantId, $billId) ?? $beforeBill;
+            apAudit('ap.bill.approval_rejected', [
+                'bill_id' => $billId,
+                'rejected_by_user_id' => $userId,
+                'reason' => $comment ?: 'Rejected through workflow',
+                'source' => 'workflow',
+                'workflow_instance_status' => $instanceStatus,
+            ], $billId, [
+                'before' => $beforeBill,
+                'after' => $updated,
+            ]);
             return;
         }
 
         // If the workflow instance as a whole just flipped to approved, mark the bill.
         if ($instanceStatus === 'approved') {
-            $pdo->prepare(
-                "UPDATE ap_bills SET status = 'approved', approved_at = NOW(), updated_at = NOW()
+            $upd = $pdo->prepare(
+                "UPDATE ap_bills
+                    SET status = 'approved',
+                        approved_by_user_id = COALESCE(approved_by_user_id, :u),
+                        approved_at = COALESCE(approved_at, NOW()),
+                        updated_at = NOW()
                   WHERE tenant_id = :t AND id = :b AND status = 'pending_approval'"
-            )->execute(['t' => $tenantId, 'b' => $billId]);
+            );
+            $upd->execute(['u' => $userId, 't' => $tenantId, 'b' => $billId]);
+            if ($upd->rowCount() > 0) {
+                $updated = apSyncBillRow($tenantId, $billId) ?? ['id' => $billId];
+                $bill = $updated;
+                apAudit('ap.bill.approved', [
+                    'bill_id' => $billId,
+                    'internal_ref' => $updated['internal_ref'] ?? null,
+                    'approved_by_user_id' => $userId,
+                    'source' => 'workflow',
+                    'workflow_instance_status' => $instanceStatus,
+                ], $billId, [
+                    'before' => $beforeBill,
+                    'after' => $updated,
+                ]);
+                try {
+                    require_once __DIR__ . '/../../../core/accounting/command_service.php';
+                    accountingTryEnqueueDraft($tenantId, 'bill', $bill, $userId);
+                } catch (\Throwable $_) { /* never block workflow sync */ }
+            }
         }
     } catch (\Throwable $_) {
         // Silently drop — workflow_engine must not break because legacy
         // schema is missing a column. Surface via audit_log instead.
+    }
+}
+
+/** @internal */
+function apSyncBillRow(int $tenantId, int $billId): ?array {
+    $pdo = getDB();
+    if (!$pdo) return null;
+    $stmt = $pdo->prepare(
+        'SELECT * FROM ap_bills
+          WHERE tenant_id = :t AND id = :b
+          LIMIT 1'
+    );
+    $stmt->execute(['t' => $tenantId, 'b' => $billId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+/** @internal */
+function apSyncPendingWorkflowStepApprovers(\PDO $pdo, int $tenantId, int $billId): void {
+    if (!function_exists('workflowResolveCurrentStepApprovers')) return;
+    $instance = $pdo->prepare(
+        "SELECT id, current_step FROM workflow_instances
+          WHERE tenant_id = :t AND subject_type = 'ap_bill' AND subject_id = :b AND status = 'pending'
+          ORDER BY id DESC LIMIT 1"
+    );
+    $instance->execute(['t' => $tenantId, 'b' => $billId]);
+    $row = $instance->fetch(PDO::FETCH_ASSOC);
+    if (!$row) return;
+
+    $stepNo = (int) ($row['current_step'] ?? 0);
+    if ($stepNo <= 0) return;
+    $existing = $pdo->prepare(
+        "SELECT COUNT(*) FROM ap_bill_approvals
+          WHERE tenant_id = :t AND bill_id = :b AND step_no = :s AND state = 'pending'"
+    );
+    $existing->execute(['t' => $tenantId, 'b' => $billId, 's' => $stepNo]);
+    if ((int) $existing->fetchColumn() > 0) return;
+
+    $approverIds = array_values(array_unique(array_filter(array_map(
+        'intval',
+        workflowResolveCurrentStepApprovers($tenantId, (int) $row['id'])
+    ))));
+    if (!$approverIds) return;
+
+    $insert = $pdo->prepare(
+        "INSERT INTO ap_bill_approvals
+            (tenant_id, bill_id, approver_user_id, step_no, state, created_at)
+         VALUES (:t, :b, :u, :s, 'pending', NOW())"
+    );
+    foreach ($approverIds as $uid) {
+        try {
+            $insert->execute(['t' => $tenantId, 'b' => $billId, 'u' => $uid, 's' => $stepNo]);
+        } catch (\Throwable $_) { /* duplicate / schema drift: non-fatal */ }
     }
 }

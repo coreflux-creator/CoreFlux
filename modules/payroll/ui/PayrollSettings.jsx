@@ -28,7 +28,7 @@ export default function PayrollSettings() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    api.get('/modules/payroll/api/settings.php').then((d) => {
+    api.get('/api/v1/payroll/settings').then((d) => {
       if (d.settings) setForm({ ...form, ...d.settings, disbursement_rail: d.settings.disbursement_rail || 'nacha' });
       setLoaded(true);
     }).catch((e) => { setError(e.message); setLoaded(true); });
@@ -38,7 +38,7 @@ export default function PayrollSettings() {
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setError(null); setMsg(null);
     try {
-      await api.put('/modules/payroll/api/settings.php', form);
+      await api.put('/api/v1/payroll/settings', form);
       setMsg('Saved');
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }

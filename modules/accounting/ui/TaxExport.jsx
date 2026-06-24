@@ -2,6 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useApi } from '../../../dashboard/src/lib/api';
 
+const TAX_MAPPINGS_API = '/api/v1/accounting/tax-mappings';
+const TAX_EXPORT_API = '/api/v1/accounting/tax-form-export';
+
 /**
  * Tax-form export — preview + one-click CSV download.
  *
@@ -17,15 +20,15 @@ export default function TaxExport() {
   const [start, setStart] = useState(yearStart);
   const [end, setEnd]     = useState(today);
 
-  const formsApi = useApi('/api/tax_mappings.php');
+  const formsApi = useApi(TAX_MAPPINGS_API);
   const previewUrl = form
-    ? `/api/tax_form_export.php?tax_form_code=${encodeURIComponent(form)}&start=${start}&end=${end}`
+    ? `${TAX_EXPORT_API}?tax_form_code=${encodeURIComponent(form)}&start=${start}&end=${end}`
     : null;
   const { data, error, loading, reload } = useApi(previewUrl);
 
   const downloadCsv = () => {
     if (!form) return;
-    const url = `/api/tax_form_export.php?tax_form_code=${encodeURIComponent(form)}&start=${start}&end=${end}&format=csv`;
+    const url = `${TAX_EXPORT_API}?tax_form_code=${encodeURIComponent(form)}&start=${start}&end=${end}&format=csv`;
     // Use window.location so the browser handles the download via Content-Disposition.
     window.location.href = url;
   };

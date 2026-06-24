@@ -11,6 +11,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/tenant_scope.php';
 require_once __DIR__ . '/../../../core/db.php';
+require_once __DIR__ . '/../../../core/domain_people_graph.php';
+require_once __DIR__ . '/../../../core/workflow_engine.php';
+require_once __DIR__ . '/../../time/lib/time.php';
 
 const STAFFING_HOUR_TYPES = [
     'regular','overtime','doubletime','holiday','pto','sick','bereavement','unpaid','nonbillable',
@@ -39,6 +42,174 @@ function staffingSettings(): array {
         'contracted_hours_per_week'  => (float) ($row['contracted_hours_per_week'] ?? 40.0),
         'overtime_threshold'         => (float) ($row['overtime_threshold'] ?? 40.0),
     ];
+}
+
+/** @internal */
+function staffingTimesheetWorkflowSteps(int $timesheetId): array {
+    $resolution = domainPeopleGraphWorkflowApproverResolution('time', 'timesheet', $timesheetId, [
+        'workflow_step' => 1,
+        'workflow_step_label' => 'Timesheet approval',
+        'separation_of_duties_required' => true,
+    ], ['strategy' => 'approval_policy']);
+    unset($resolution['resource_id'], $resolution['object_id']);
+    $resolution['object_module'] = 'time';
+    $resolution['object_type'] = 'timesheet';
+    $resolution['separation_of_duties_required'] = true;
+
+    return [[
+        'step' => 1,
+        'label' => 'Timesheet approval',
+        'approver_resolution' => $resolution,
+        'approver_user_ids' => [],
+        'fallback_approver_user_ids' => [],
+        'quorum' => 1,
+        'separation_of_duties_required' => true,
+        'allow_email' => true,
+    ]];
+}
+
+/** @internal */
+function staffingTimesheetWorkflowContext(array $header, ?int $actorUserId = null): array {
+    $timesheetId = (int) ($header['id'] ?? 0);
+    $context = [
+        'resource_module' => 'time',
+        'resource_type' => 'timesheet',
+        'resource_id' => (string) $timesheetId,
+        'object_module' => 'time',
+        'object_type' => 'timesheet',
+        'object_id' => (string) $timesheetId,
+        'approval_resource' => 'time.timesheet',
+        'timesheet_id' => $timesheetId,
+        'person_id' => isset($header['person_id']) ? (int) $header['person_id'] : null,
+        'period_start' => $header['period_start'] ?? null,
+        'period_end' => $header['period_end'] ?? null,
+        'total_hours' => isset($header['total_hours']) ? (float) $header['total_hours'] : null,
+        'separation_of_duties_required' => true,
+    ];
+
+    if (!empty($header['worker_user_id'])) {
+        $context['requester_user_id'] = (int) $header['worker_user_id'];
+        $context['submitter_user_id'] = (int) $header['worker_user_id'];
+    }
+    if ($actorUserId !== null && $actorUserId > 0) {
+        $context['source_actor_type'] = 'user';
+        $context['source_actor_id'] = $actorUserId;
+        $context['submitted_by_user_id'] = $actorUserId;
+    }
+
+    return $context;
+}
+
+/** @internal */
+function staffingTimesheetWorkflowSodBlockedUserIds(array $header, ?int $actorUserId = null): array {
+    $ids = [];
+    foreach ([$actorUserId, $header['worker_user_id'] ?? null] as $id) {
+        if ((int) $id > 0) $ids[] = (int) $id;
+    }
+    return array_values(array_unique($ids));
+}
+
+/** @internal */
+function staffingTimesheetWorkflowStart(int $tenantId, array $header, ?int $actorUserId = null): ?int {
+    $timesheetId = (int) ($header['id'] ?? 0);
+    if ($timesheetId <= 0) return null;
+
+    $defKey = 'time_timesheet_approval';
+    workflowEnsureDefinition(
+        $tenantId,
+        $defKey,
+        'time_timesheet',
+        'Time timesheet approval',
+        staffingTimesheetWorkflowSteps($timesheetId)
+    );
+    $context = staffingTimesheetWorkflowContext($header, $actorUserId);
+    $blocked = staffingTimesheetWorkflowSodBlockedUserIds($header, $actorUserId);
+    $instance = workflowStart($tenantId, $defKey, 'time_timesheet', $timesheetId, [
+        'title' => 'Timesheet needs approval',
+        'body' => sprintf(
+            'Timesheet #%d for %s to %s (%s hours).',
+            $timesheetId,
+            (string) ($header['period_start'] ?? ''),
+            (string) ($header['period_end'] ?? ''),
+            number_format((float) ($header['total_hours'] ?? 0), 2)
+        ),
+        'deep_link' => '/modules/staffing/timesheets/' . $timesheetId,
+        'object_module' => 'time',
+        'object_type' => 'timesheet',
+        'object_id' => (string) $timesheetId,
+        'resource_module' => 'time',
+        'resource_type' => 'timesheet',
+        'resource_id' => (string) $timesheetId,
+        'context' => $context,
+        'source_actor_type' => $actorUserId !== null && $actorUserId > 0 ? 'user' : null,
+        'source_actor_id' => $actorUserId,
+        'sod_required' => true,
+        'separation_of_duties_required' => true,
+        'sod_blocked_user_ids' => $blocked,
+        'started_by_user_id' => $actorUserId,
+    ], $actorUserId);
+
+    $instanceId = (int) ($instance['id'] ?? 0);
+    if ($instanceId > 0) {
+        $beforeHeader = timeTimesheetAuditRowForTenant($tenantId, $timesheetId) ?? $header;
+        try {
+            getDB()->prepare(
+                'UPDATE staffing_timesheets SET workflow_instance_id = :w WHERE tenant_id = :t AND id = :id'
+            )->execute(['w' => $instanceId, 't' => $tenantId, 'id' => $timesheetId]);
+        } catch (\Throwable $_) { /* schema drift: workflow instance still exists */ }
+        timeAudit('time.timesheet.workflow_started', [
+            'timesheet_id' => $timesheetId,
+            'workflow_instance_id' => $instanceId,
+        ], $timesheetId, [
+            'tenant_id' => $tenantId,
+            'actor_user_id' => $actorUserId,
+            'before' => $beforeHeader,
+            'after' => timeTimesheetAuditRowForTenant($tenantId, $timesheetId),
+        ]);
+    }
+    return $instanceId > 0 ? $instanceId : null;
+}
+
+/** @internal */
+function staffingTimesheetWorkflowAct(int $tenantId, array $header, int $userId, string $action, ?string $note = null): array {
+    $timesheetId = (int) ($header['id'] ?? 0);
+    if ($timesheetId <= 0) throw new \InvalidArgumentException('timesheet.id required');
+    try {
+        $instanceId = (int) ($header['workflow_instance_id'] ?? 0);
+        if ($instanceId <= 0) {
+            $row = getDB()->prepare(
+                "SELECT id FROM workflow_instances
+                  WHERE tenant_id = :t AND subject_type = 'time_timesheet' AND subject_id = :s AND status = 'pending'
+                  ORDER BY id DESC LIMIT 1"
+            );
+            $row->execute(['t' => $tenantId, 's' => $timesheetId]);
+            $instanceId = (int) ($row->fetchColumn() ?: 0);
+        }
+        if ($instanceId <= 0) {
+            $instanceId = (int) (staffingTimesheetWorkflowStart($tenantId, $header, null) ?? 0);
+        }
+        if ($instanceId <= 0) {
+            throw new \RuntimeException('No pending WorkflowEngine approval exists for this timesheet');
+        }
+        $result = workflowAct($tenantId, $instanceId, $userId, $action, $note ?: null, 'app');
+        return [
+            'workflow_instance_id' => $instanceId,
+            'workflow_status' => (string) ($result['status'] ?? 'pending'),
+        ];
+    } catch (\Throwable $e) {
+        timeAudit('time.timesheet.approval_blocked', [
+            'timesheet_id' => $timesheetId,
+            'action' => $action,
+            'control' => 'workflow_engine',
+            'reason' => $e->getMessage(),
+        ], $timesheetId, [
+            'tenant_id' => $tenantId,
+            'actor_user_id' => $userId,
+            'before' => timeTimesheetAuditRowForTenant($tenantId, $timesheetId) ?? $header,
+            'after' => timeTimesheetAuditRowForTenant($tenantId, $timesheetId) ?? $header,
+        ]);
+        throw $e;
+    }
 }
 
 /** Get-or-create the timesheet header for (person, week). */
@@ -233,13 +404,17 @@ function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart
         throw new \RuntimeException("Cannot submit a {$header['status']} timesheet");
     }
     $headerId = (int) $header['id'];
+    $tenantId = (int) currentTenantId();
+    $beforeHeader = timeTimesheetAuditRowForTenant($tenantId, $headerId) ?? $header;
+    $beforeEntries = timeEntryAuditRowsForTimesheet($tenantId, $headerId);
 
     $pdo = getDB();
     $ownsTxn = cf_tx_begin($pdo);
     try {
+        $submittedAt = date('Y-m-d H:i:s');
         scopedUpdate('staffing_timesheets', $headerId, [
             'status'       => 'submitted',
-            'submitted_at' => date('Y-m-d H:i:s'),
+            'submitted_at' => $submittedAt,
         ]);
         // Flip every non-superseded row to pending_review.
         $upd = $pdo->prepare(
@@ -253,6 +428,23 @@ function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart
         cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
+
+    timeAudit('time.timesheet.submitted', [
+        'timesheet_id' => $headerId,
+        'submitted_by_user_id' => $userId,
+        'workflow_instance_id' => $workflowInstanceId,
+    ], $headerId, [
+        'tenant_id' => $tenantId,
+        'actor_user_id' => $userId,
+        'before' => [
+            'timesheet' => $beforeHeader,
+            'entries' => $beforeEntries,
+        ],
+        'after' => [
+            'timesheet' => timeTimesheetAuditRowForTenant($tenantId, $headerId),
+            'entries' => timeEntryAuditRowsForTimesheet($tenantId, $headerId),
+        ],
+    ]);
 
     return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
 }
@@ -446,7 +638,7 @@ function staffingEmitWorkerHoursApprovedEvent(int $tenantId, int $headerId): voi
 // the moment its first entry is touched, so the downstream
 // billing/payroll/journal pipeline re-evaluates on the next submission.
 //
-// Anyone with `staffing.timesheets.write` (enforced at the API layer)
+// Anyone with `time.entry.create` or legacy `staffing.time.create` (enforced at the API layer)
 // may edit any timesheet — original worker OR a manager fixing it
 // in-place, per product direction (2026-02).
 
@@ -638,4 +830,3 @@ function staffingTimeEntryDelete(int $userId, int $entryId): array {
     scopedUpdate('staffing_timesheets', $tsId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
     return ['deleted' => $entryId, 'timesheet_id' => $tsId];
 }
-

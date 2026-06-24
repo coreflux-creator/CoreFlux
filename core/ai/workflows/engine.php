@@ -49,6 +49,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../db.php';
+require_once __DIR__ . '/../../audit.php';
 
 /**
  * Sentinel thrown by a node to halt and request human approval.
@@ -391,6 +392,26 @@ function _workflowInsertApproval(int $tenantId, string $runId, string $node, Wor
     return (int) $pdo->lastInsertId();
 }
 
+function _aiWorkflowAuditEvent(int $tenantId, ?int $userId, string $event, int $targetId, array $meta): void
+{
+    try {
+        platformAuditLogWrite(
+            $tenantId,
+            $userId,
+            $event,
+            $targetId,
+            $meta,
+            [
+                'source' => 'workflow',
+                'object_type' => 'workflow_run',
+                'ip_address' => substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 64),
+            ]
+        );
+    } catch (\Throwable $e) {
+        error_log('[_aiWorkflowAuditEvent] ' . $e->getMessage());
+    }
+}
+
 function _workflowMarkFailed(int $tenantId, string $runId, string $code, string $msg, array $state, ?string $node): void
 {
     try {
@@ -622,6 +643,12 @@ function workflowDecideApproval(int $tenantId, int $approvalId, string $decision
         's'  => $decision,
         'dp' => json_encode($decisionPayload, JSON_UNESCAPED_SLASHES) ?: null,
         'u'  => $userId, 'id' => $approvalId, 't' => $tenantId,
+    ]);
+    _aiWorkflowAuditEvent($tenantId, $userId, "ai.workflow.approval_{$decision}", $approvalId, [
+        'approval_id' => $approvalId,
+        'workflow_run_id' => (string) $row['workflow_run_id'],
+        'decision' => $decision,
+        'decision_payload_keys' => array_values(array_keys($decisionPayload)),
     ]);
     return ['approval_id' => $approvalId,
             'workflow_run_id' => (string) $row['workflow_run_id'],

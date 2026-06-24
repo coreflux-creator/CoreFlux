@@ -20,7 +20,7 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 export default function BillFromTimeBundleModal({ onClose, onCreated }) {
   // Drop the status filter — closing the period is the LAST step in
   // the AP cycle, not a prerequisite for booking a payable.
-  const { data: periods } = useApi('/modules/time/api/periods.php?per_page=20');
+  const { data: periods } = useApi('/api/v1/time/periods?per_page=20');
   const [periodId, setPeriodId] = useState(null);
   const [aggregation, setAggregation] = useState('per_vendor');
   const [bundles, setBundles] = useState([]);
@@ -47,7 +47,7 @@ export default function BillFromTimeBundleModal({ onClose, onCreated }) {
 
   const loadBundles = (pid) => {
     if (!pid) { setBundles([]); return; }
-    return api.get(`/modules/time/api/feed.php?period_id=${pid}&bundle_type=ap&status=ready`)
+    return api.get(`/api/v1/time/feed?period_id=${pid}&bundle_type=ap&status=ready`)
       .then(r => {
         setBundles(r.rows || []);
         setSelected(new Set((r.rows || []).map(b => b.placement_id)));
@@ -73,7 +73,7 @@ export default function BillFromTimeBundleModal({ onClose, onCreated }) {
       // Shared endpoint with the billing modal — one helper builds AR
       // *and* AP bundles in the same pass, since they read from the
       // same approved-hours source.
-      const r = await api.post(`/modules/time/api/periods.php?action=build_bundles&id=${periodId}`, {});
+      const r = await api.post(`/api/v1/time/periods?action=build_bundles&id=${periodId}`, {});
       setInfo(`Built ${r.bundles_built} bundle${r.bundles_built === 1 ? '' : 's'} for this period.`);
       await loadBundles(periodId);
     } catch (e) { setError(e); }

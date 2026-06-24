@@ -33,7 +33,7 @@ $a('tenant-leak-allow annotation present on hierarchy branch',
 // Frontend --------------------------------------------------------------------
 $ui = (string) file_get_contents($ROOT . '/modules/accounting/ui/Consolidation.jsx');
 $a('Consolidation.jsx requests scope=hierarchy in BOTH places',
-    substr_count($ui, "entities.php?scope=hierarchy") === 2);
+    substr_count($ui, 'ACCOUNTING_ENTITIES_API}?scope=hierarchy') === 2);
 $a('Consolidation parent/child dropdowns show tenant_name suffix',
     substr_count($ui, "en.tenant_name") >= 2);
 $a('Consolidated report entity picker shows a tenant chip for sub-tenants',
@@ -41,7 +41,7 @@ $a('Consolidated report entity picker shows a tenant chip for sub-tenants',
 
 $ic = (string) file_get_contents($ROOT . '/modules/accounting/ui/IntercompanyMappings.jsx');
 $a('IntercompanyMappings.jsx requests scope=hierarchy',
-    str_contains($ic, 'entities.php?scope=hierarchy'));
+    str_contains($ic, 'ACCOUNTING_ENTITIES_API}?scope=hierarchy'));
 $a('IntercompanyMappings From/To dropdowns show tenant_name suffix',
     str_contains($ic, 'en.tenant_name'));
 

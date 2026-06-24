@@ -57,6 +57,8 @@ $assert("assoc-map shape: placements.financials.approve harvested",
     in_array('placements.financials.approve', $perms, true));
 $assert("assoc-map shape: time.tokenized_email.issue harvested",
     in_array('time.tokenized_email.issue', $perms, true));
+$assert("assoc-map shape: staffing.export.run harvested",
+    in_array('staffing.export.run', $perms, true));
 
 $descs = $reg->getAllPermissionsWithDescriptions();
 $assert("permission descriptions for accounting are populated",
@@ -69,6 +71,78 @@ $assert("people has 'views' field even though not declared",
     is_array($people['views'] ?? null));
 $assert("people has 'audit_events' field populated from spec",
     isset($people['audit_events']) && is_array($people['audit_events']) && count($people['audit_events']) > 0);
+$assert("people has export_datasets field",
+    is_array($people['export_datasets'] ?? null));
+$assert("people has report_datasets field",
+    is_array($people['report_datasets'] ?? null));
+
+echo "\nDataset declarations\n";
+$exportDatasets = $reg->getExportDatasetDeclarations();
+$reportDatasets = $reg->getReportDatasetDeclarations();
+$assert("people_directory export dataset declared by people",
+    ($exportDatasets['people_directory']['module_id'] ?? null) === 'people');
+$assert("placements_directory export dataset declared by placements",
+    ($exportDatasets['placements_directory']['module_id'] ?? null) === 'placements');
+$assert("payroll_disbursements export dataset declared by payroll",
+    ($exportDatasets['payroll_disbursements']['module_id'] ?? null) === 'payroll');
+$assert("ap_payments export dataset declared by ap",
+    ($exportDatasets['ap_payments']['module_id'] ?? null) === 'ap');
+$assert("ap_bills export dataset declared by ap",
+    ($exportDatasets['ap_bills']['module_id'] ?? null) === 'ap');
+$assert("ap_vendors export dataset declared by ap",
+    ($exportDatasets['ap_vendors']['module_id'] ?? null) === 'ap');
+$assert("expenses export dataset declared by ap",
+    ($exportDatasets['expenses']['module_id'] ?? null) === 'ap');
+$assert("billing_invoices export dataset declared by billing",
+    ($exportDatasets['billing_invoices']['module_id'] ?? null) === 'billing');
+$assert("billing_payments export dataset declared by billing",
+    ($exportDatasets['billing_payments']['module_id'] ?? null) === 'billing');
+$assert("time_entries export dataset declared by time",
+    ($exportDatasets['time_entries']['module_id'] ?? null) === 'time');
+$assert("staffing_clients export dataset declared by staffing",
+    ($exportDatasets['staffing_clients']['module_id'] ?? null) === 'staffing');
+$assert("accounting COA export dataset declared by accounting",
+    ($exportDatasets['accounting_chart_of_accounts']['module_id'] ?? null) === 'accounting');
+$assert("accounting JE export dataset declared by accounting",
+    ($exportDatasets['accounting_journal_entries']['module_id'] ?? null) === 'accounting');
+$assert("accounting GL detail export dataset declared by accounting",
+    ($exportDatasets['accounting_gl_detail']['module_id'] ?? null) === 'accounting');
+$assert("accounting periods export dataset declared by accounting",
+    ($exportDatasets['accounting_periods']['module_id'] ?? null) === 'accounting');
+$assert("accounting bank statement lines export dataset declared by accounting",
+    ($exportDatasets['accounting_bank_statement_lines']['module_id'] ?? null) === 'accounting');
+$assert("people_directory report dataset declared by people",
+    ($reportDatasets['people_directory']['module_id'] ?? null) === 'people');
+$assert("placements_directory report dataset declared by placements",
+    ($reportDatasets['placements_directory']['module_id'] ?? null) === 'placements');
+$assert("payroll report dataset preserves sensitive field metadata",
+    in_array('bank_account_number', $reportDatasets['payroll_disbursements']['sensitive_fields'] ?? [], true));
+$assert("ap_payments report dataset declared by ap",
+    ($reportDatasets['ap_payments']['module_id'] ?? null) === 'ap');
+$assert("ap_bills report dataset declared by ap",
+    ($reportDatasets['ap_bills']['module_id'] ?? null) === 'ap');
+$assert("ap_vendors report dataset declared by ap",
+    ($reportDatasets['ap_vendors']['module_id'] ?? null) === 'ap');
+$assert("ap vendors report dataset preserves sensitive field metadata",
+    in_array('payment_account_last4', $reportDatasets['ap_vendors']['sensitive_fields'] ?? [], true));
+$assert("billing invoice report dataset declared by billing",
+    ($reportDatasets['billing_invoices']['module_id'] ?? null) === 'billing');
+$assert("billing payment report dataset declared by billing",
+    ($reportDatasets['billing_payments']['module_id'] ?? null) === 'billing');
+$assert("time entries report dataset declared by time",
+    ($reportDatasets['time_entries']['module_id'] ?? null) === 'time');
+$assert("staffing clients report dataset declared by staffing",
+    ($reportDatasets['staffing_clients']['module_id'] ?? null) === 'staffing');
+$assert("accounting COA report dataset declared by accounting",
+    ($reportDatasets['accounting_chart_of_accounts']['module_id'] ?? null) === 'accounting');
+$assert("accounting JE report dataset declared by accounting",
+    ($reportDatasets['accounting_journal_entries']['module_id'] ?? null) === 'accounting');
+$assert("accounting GL detail report dataset declared by accounting",
+    ($reportDatasets['accounting_gl_detail']['module_id'] ?? null) === 'accounting');
+$assert("accounting periods report dataset declared by accounting",
+    ($reportDatasets['accounting_periods']['module_id'] ?? null) === 'accounting');
+$assert("accounting bank statement lines report dataset declared by accounting",
+    ($reportDatasets['accounting_bank_statement_lines']['module_id'] ?? null) === 'accounting');
 
 echo "\nDependencies declared\n";
 $placements = $reg->getModule('placements');

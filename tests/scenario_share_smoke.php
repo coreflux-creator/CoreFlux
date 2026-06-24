@@ -99,6 +99,14 @@ $assert('audit update wrapped in try/catch (never blocks read)',
     preg_match("/try \{\s*(?:\/\/[^\n]*\n\s*)?\\\$upd = \\\$pdo->prepare\([\s\S]+?catch \(\\\\Throwable/", $api) === 1);
 $assert('compare-kind link projects scenario_b too',
     strpos($api, "if (\$row['kind'] === 'compare' && \$row['preset_b_id'])") !== false);
+$assert('view action returns source detail and enriched daily rows',
+    strpos($api, '$baselineSourceDetail = liquidityProjectionSourceDetail($datasets);') !== false
+    && strpos($api, '$sourceDetailA = liquidityProjectionSourceDetail($datasets, [') !== false
+    && strpos($api, '$sourceDetailB = liquidityProjectionSourceDetail($datasets, [') !== false
+    && strpos($api, '$baselineDaily = liquidityAttachDailySourceDetail(') !== false
+    && strpos($api, '$dailyA = liquidityAttachDailySourceDetail(') !== false
+    && strpos($api, '$dailyB = liquidityAttachDailySourceDetail(') !== false
+    && strpos($api, "'source_detail'        => \$sourceDetailA") !== false);
 
 echo "\ncreate action — RBAC + cross-tenant leak guard\n";
 $assert('create requires treasury.payment.manage',
@@ -167,6 +175,12 @@ $assert('error testid',                           strpos($pg, 'data-testid="scen
 $assert('chart testid',                           strpos($pg, 'data-testid="scenario-share-chart"') !== false);
 $assert('tiles testid',                           strpos($pg, 'data-testid="scenario-share-tiles"') !== false);
 $assert('events container testid',                strpos($pg, 'data-testid="scenario-share-events"') !== false);
+$assert('source detail panel testids',
+    strpos($pg, 'data-testid="scenario-share-source-detail"') !== false
+    && strpos($pg, 'testid="scenario-share-source-baseline"') !== false
+    && strpos($pg, 'testid="scenario-share-source-a"') !== false
+    && strpos($pg, 'testid="scenario-share-source-b"') !== false
+    && strpos($pg, 'function SourceDetailPanel(') !== false);
 $assert('shows expiry warning copy in error state',
     strpos($pg, 'Share links expire 7 days after creation') !== false);
 $assert('renders second scenario only when present',
@@ -185,7 +199,7 @@ $assert('share-result url testid',                strpos($cmp, 'data-testid="sce
 $assert('share-copy button testid',               strpos($cmp, 'data-testid="scenario-compare-share-copy"') !== false);
 $assert('share-error testid',                     strpos($cmp, 'data-testid="scenario-compare-share-error"') !== false);
 $assert('createShareLink POSTs to share endpoint',
-    strpos($cmp, "api.post('/api/treasury_scenario_share.php?action=create'") !== false
+    strpos($cmp, "api.post('/api/v1/treasury/scenario-share?action=create'") !== false
     && strpos($cmp, "kind: 'compare'") !== false);
 $assert('createShareLink blocks self-comparison',
     strpos($cmp, '!a || !b || a.id === b.id') !== false);
