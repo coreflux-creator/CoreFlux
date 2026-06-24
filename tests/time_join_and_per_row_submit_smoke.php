@@ -28,8 +28,9 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$timeLib = (string) file_get_contents('/app/modules/time/lib/time.php');
-$myTime  = (string) file_get_contents('/app/modules/time/ui/MyTime.jsx');
+$ROOT = realpath(__DIR__ . '/..');
+$timeLib = (string) file_get_contents("{$ROOT}/modules/time/lib/time.php");
+$myTime  = (string) file_get_contents("{$ROOT}/modules/time/ui/MyTime.jsx");
 
 echo "\n1. timeEntriesList JOIN uses effective module tenant\n";
 $a('lib loads core/sub_tenants.php',
@@ -56,10 +57,10 @@ $a('derives drafts from entries.filter(status === draft)',
 $a('submitBusy state guards both single and bulk paths',
    str_contains($myTime, 'const [submitBusy, setSubmitBusy] = useState(null);'));
 $a('submitOne POSTs to per-entry submit action',
-   str_contains($myTime, 'api.post(`/modules/time/api/entries.php?action=submit&id=${entryId}`, {})'));
+   str_contains($myTime, 'api.post(`/api/v1/time/entries?action=submit&id=${entryId}`, {})'));
 $a('submitAll loops via Promise.allSettled (partial-failure tolerant)',
    str_contains($myTime, 'Promise.allSettled(')
-   && str_contains($myTime, 'drafts.map(e => api.post(`/modules/time/api/entries.php?action=submit&id=${e.id}`'));
+   && str_contains($myTime, 'drafts.map(e => api.post(`/api/v1/time/entries?action=submit&id=${e.id}`'));
 $a('submitAll requires confirmation',
    str_contains($myTime, 'if (!confirm(`Submit all ${drafts.length} draft entr'));
 $a('drafts panel only renders when drafts > 0',
@@ -78,7 +79,7 @@ $a('drafts row falls back to "Placement #N" when placement title is null',
 
 echo "\n4. PHP syntax\n";
 $out = []; $rc = 0;
-exec('php -l /app/modules/time/lib/time.php 2>&1', $out, $rc);
+exec('php -l ' . escapeshellarg("{$ROOT}/modules/time/lib/time.php") . ' 2>&1', $out, $rc);
 $a("php -l modules/time/lib/time.php", $rc === 0, implode("\n", $out));
 
 echo "\n=========================================\n";

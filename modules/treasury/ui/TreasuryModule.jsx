@@ -11,6 +11,7 @@ import SweepRulesAdmin        from './SweepRulesAdmin';
 import SweepDestinations      from './SweepDestinations';
 import MercuryWebhookConfig   from './MercuryWebhookConfig';
 import LiquidityForecast        from '../../../dashboard/src/pages/LiquidityForecast';
+import TreasuryRecommendations  from '../../../dashboard/src/pages/TreasuryRecommendations';
 import TreasuryScenario         from '../../../dashboard/src/pages/TreasuryScenario';
 import TreasuryScenarioCompare  from '../../../dashboard/src/pages/TreasuryScenarioCompare';
 
@@ -32,6 +33,7 @@ export default function TreasuryModule({ session }) {
       >
         <TreasuryTab to="overview"    label="Overview" />
         <TreasuryTab to="forecast"    label="Liquidity Forecast" />
+        <TreasuryTab to="recommendations" label="Recommendations" />
         <TreasuryTab to="scenario"    label="What-If Scenario" />
         <TreasuryTab to="compare"     label="Compare Scenarios" />
         <TreasuryTab to="deposits"    label="Deposit Accounts" />
@@ -48,6 +50,7 @@ export default function TreasuryModule({ session }) {
         <Route index                element={<Navigate to="overview" replace />} />
         <Route path="overview"      element={<TreasuryOverview session={session} />} />
         <Route path="forecast"      element={<LiquidityForecast />} />
+        <Route path="recommendations" element={<TreasuryRecommendations />} />
         <Route path="scenario"      element={<TreasuryScenario />} />
         <Route path="compare"       element={<TreasuryScenarioCompare />} />
         <Route path="deposits/*"    element={<DepositAccounts session={session} />} />

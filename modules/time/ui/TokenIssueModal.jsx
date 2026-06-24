@@ -17,7 +17,7 @@ export default function TokenIssueModal({ entries, onClose, onIssued }) {
   const submit = async () => {
     setBusy(true); setError(null);
     try {
-      const res = await api.post('/modules/time/api/approval_tokens.php?action=issue', {
+      const res = await api.post('/api/v1/time/approval-tokens?action=issue', {
         placement_id: first.placement_id,
         period_id: first.period_id,
         entry_ids: entries.map(e => e.id),

@@ -5,6 +5,8 @@ import { useActiveEntity } from '../../../dashboard/src/lib/useActiveEntity';
 import { fmtMoney, fmtRelative } from '../../../dashboard/src/lib/format';
 import AccountTransactions from './AccountTransactions';
 
+const DEPOSIT_ACCOUNTS_API = '/api/v1/treasury/deposit-accounts';
+
 export default function DepositAccounts() {
   return (
     <Routes>
@@ -16,7 +18,7 @@ export default function DepositAccounts() {
 
 function DepositList() {
   const { activeEntityId, activeEntity, entityQuery } = useActiveEntity();
-  const { data, loading, reload } = useApi('/modules/treasury/api/deposit_accounts.php' + entityQuery('?'));
+  const { data, loading, reload } = useApi(DEPOSIT_ACCOUNTS_API + entityQuery('?'));
   const rows = data?.rows || [];
   const [showNew, setShowNew] = useState(false);
   const navigate = useNavigate();
@@ -109,7 +111,7 @@ function DepositRow({ row: r, onChanged, navigate }) {
     if (!confirm(`Hide "${r.name}"? It will be removed from the list but historical transactions remain.`)) return;
     setBusy('hide'); setErr(null);
     try {
-      await api.delete(`/modules/treasury/api/deposit_accounts.php?id=${r.id}&mode=hide`);
+      await api.delete(`${DEPOSIT_ACCOUNTS_API}/${r.id}?mode=hide`);
       onChanged && onChanged();
     } catch (e) { setErr(e.message || 'Hide failed'); }
     finally { setBusy(null); }
@@ -120,7 +122,7 @@ function DepositRow({ row: r, onChanged, navigate }) {
     if (!confirm(`Permanently DELETE "${r.name}" and all its imported statement lines?\n\nThis cannot be undone. (Allowed only when no posted journal entries reference this account.)`)) return;
     setBusy('delete'); setErr(null);
     try {
-      await api.delete(`/modules/treasury/api/deposit_accounts.php?id=${r.id}&mode=delete`);
+      await api.delete(`${DEPOSIT_ACCOUNTS_API}/${r.id}?mode=delete`);
       onChanged && onChanged();
     } catch (e) { setErr(e.message || 'Delete failed'); }
     finally { setBusy(null); }
@@ -211,7 +213,7 @@ function NewDepositForm({ onDone }) {
   const [err, setErr]   = useState(null);
   const submit = async () => {
     setBusy(true); setErr(null);
-    try { await api.post('/modules/treasury/api/deposit_accounts.php', f); onDone(); }
+    try { await api.post(DEPOSIT_ACCOUNTS_API, f); onDone(); }
     catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
   return (
@@ -254,7 +256,7 @@ function DepositDetail() {
   // table, sync button, and per-row Categorize/Ignore/Match all live below.
   const { id } = useParams();
   const accountId = Number(id);
-  const { data: listData } = useApi('/modules/treasury/api/deposit_accounts.php');
+  const { data: listData } = useApi(DEPOSIT_ACCOUNTS_API);
   const account = (listData?.rows || []).find((r) => r.id === accountId);
   const label = account
     ? `${account.name}${account.last4 ? ` · ····${account.last4}` : ''}`

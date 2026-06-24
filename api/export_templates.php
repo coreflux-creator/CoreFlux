@@ -1,18 +1,19 @@
 <?php
 /**
- * /api/export_templates.php — tenant + platform export template CRUD.
+ * /api/export_templates.php - tenant + platform export template CRUD.
  *
- *   GET    /api/export_templates.php?dataset=…   list visible templates
+ *   GET    /api/export_templates.php?dataset=...   list visible templates
  *   GET    /api/export_templates.php?action=datasets           dataset registry
  *   GET    /api/export_templates.php?id=N                      fetch one
  *   POST   /api/export_templates.php                            create
  *   PATCH  /api/export_templates.php?id=N                      update
  *   DELETE /api/export_templates.php?id=N                      delete (soft for system)
  *   POST   /api/export_templates.php?action=clone&id=N         clone to tenant
- *   POST   /api/export_templates.php?action=parse_headers      (multipart file=…)
+ *   POST   /api/export_templates.php?action=parse_headers      (multipart file=...)
  *
  * Platform-scoped CRUD requires master_admin; tenant-scoped requires
- * `admin.export_templates.manage` (falls back to tenant_admin).
+ * admin.export_templates.manage, with tenant_admin/admin as a compatibility
+ * fallback while the membership grid catches up.
  */
 
 declare(strict_types=1);
@@ -30,21 +31,27 @@ $tenantId  = (int) $ctx['tenant_id'];
 $method = api_method();
 $action = api_query('action', '');
 
-// ───── Dataset registry (read-only, any auth'd user) ─────
+// Dataset registry: read-only and filtered to datasets the user can access.
 if ($method === 'GET' && $action === 'datasets') {
-    $reg = exportDatasetRegistry();
+    $reg = exportDatasetAccessibleRegistry($user);
     $out = [];
     foreach ($reg as $key => $ds) {
         $out[$key] = [
-            'key'    => $key,
-            'label'  => $ds['label'],
-            'fields' => $ds['fields'],
+            'key'                   => $key,
+            'label'                 => $ds['label'],
+            'module_id'             => $ds['module_id'] ?? null,
+            'permission'            => $ds['permission'] ?? null,
+            'formats'               => $ds['formats'] ?? ['csv'],
+            'audit_event'           => $ds['audit_event'] ?? null,
+            'sensitive_fields'      => $ds['sensitive_fields'] ?? [],
+            'custom_field_entities' => $ds['custom_field_entities'] ?? [],
+            'fields'                => exportDatasetFieldRegistryForUser($key, $user, $tenantId),
         ];
     }
     api_ok(['datasets' => $out]);
 }
 
-// ───── Sample CSV header parser ─────
+// Sample CSV header parser.
 if ($method === 'POST' && $action === 'parse_headers') {
     if (empty($_FILES['file']['tmp_name'])) api_error('file upload required', 422);
     if (($_FILES['file']['size'] ?? 0) > 262144) api_error('Sample must be < 256 KB', 413);
@@ -58,35 +65,57 @@ if ($method === 'POST' && $action === 'parse_headers') {
     api_ok(['headers' => $headers]);
 }
 
-// ───── Clone ─────
+// Clone an existing visible template into the tenant namespace.
 if ($method === 'POST' && $action === 'clone') {
-    _xtplRequireManage($role);
+    _xtplRequireManage($user, $role);
     $id = (int) api_query('id', 0);
     if (!$id) api_error('id required', 422);
-    try {
-        $newId = exportTemplateClone($id, $tenantId, $userId);
+        try {
+            $src = exportTemplateGet($id, $tenantId);
+            _xtplRequireDatasetAccess($user, (string) ($src['dataset'] ?? ''));
+            _xtplRequireMappingsVisible($user, $tenantId, (string) ($src['dataset'] ?? ''), $src['column_mappings'] ?? []);
+            $newId = exportTemplateClone($id, $tenantId, $userId);
     } catch (ExportTemplateException $e) {
         api_error($e->getMessage(), 422);
     }
     api_ok(['id' => $newId]);
 }
 
-// ───── List / single ─────
+// List / single template fetch.
 if ($method === 'GET') {
     $id = (int) api_query('id', 0);
     if ($id) {
-        try { api_ok(['template' => exportTemplateGet($id, $tenantId)]); }
-        catch (ExportTemplateException $e) { api_error($e->getMessage(), 404); }
+        try {
+            $template = exportTemplateGet($id, $tenantId);
+            _xtplRequireDatasetAccess($user, (string) ($template['dataset'] ?? ''));
+            _xtplRequireMappingsVisible($user, $tenantId, (string) ($template['dataset'] ?? ''), $template['column_mappings'] ?? []);
+            api_ok(['template' => $template]);
+        } catch (ExportTemplateException $e) {
+            api_error($e->getMessage(), 404);
+        }
     }
     $dataset = api_query('dataset', null);
+    if ($dataset !== null && $dataset !== '') _xtplRequireDatasetAccess($user, (string) $dataset);
     $rows = exportTemplateList($tenantId, $dataset);
-    api_ok(['templates' => $rows, 'datasets' => array_keys(exportDatasetRegistry())]);
+    $accessible = exportDatasetAccessibleRegistry($user);
+    if ($dataset === null || $dataset === '') {
+        $rows = array_values(array_filter($rows, static fn($row) => isset($accessible[(string) ($row['dataset'] ?? '')])));
+    }
+    $rows = array_values(array_filter($rows, static fn($row) => _xtplTemplateMappingsVisible(
+        $user,
+        $tenantId,
+        (string) ($row['dataset'] ?? ''),
+        $row['column_mappings'] ?? []
+    )));
+    api_ok(['templates' => $rows, 'datasets' => array_keys($accessible)]);
 }
 
-// ───── Create ─────
+// Create.
 if ($method === 'POST') {
-    _xtplRequireManage($role);
+    _xtplRequireManage($user, $role);
     $body = api_json_body();
+    _xtplRequireDatasetAccess($user, (string) ($body['dataset'] ?? ''));
+    _xtplRequireMappingsVisible($user, $tenantId, (string) ($body['dataset'] ?? ''), $body['column_mappings'] ?? []);
     try {
         $id = exportTemplateCreate($tenantId, $body, $userId, $role);
     } catch (ExportTemplateException $e) {
@@ -95,13 +124,21 @@ if ($method === 'POST') {
     api_ok(['id' => $id, 'template' => exportTemplateGet($id, $tenantId)], 201);
 }
 
-// ───── Update ─────
+// Update.
 if ($method === 'PATCH') {
-    _xtplRequireManage($role);
+    _xtplRequireManage($user, $role);
     $id = (int) api_query('id', 0);
     if (!$id) api_error('id required', 422);
     $body = api_json_body();
     try {
+        $existing = exportTemplateGet($id, $tenantId);
+        _xtplRequireDatasetAccess($user, (string) ($existing['dataset'] ?? ''));
+        _xtplRequireMappingsVisible(
+            $user,
+            $tenantId,
+            (string) ($existing['dataset'] ?? ''),
+            $body['column_mappings'] ?? ($existing['column_mappings'] ?? [])
+        );
         exportTemplateUpdate($id, $body, $userId, $tenantId, $role);
     } catch (ExportTemplateException $e) {
         api_error($e->getMessage(), 422);
@@ -109,12 +146,14 @@ if ($method === 'PATCH') {
     api_ok(['template' => exportTemplateGet($id, $tenantId)]);
 }
 
-// ───── Delete ─────
+// Delete.
 if ($method === 'DELETE') {
-    _xtplRequireManage($role);
+    _xtplRequireManage($user, $role);
     $id = (int) api_query('id', 0);
     if (!$id) api_error('id required', 422);
     try {
+        $existing = exportTemplateGet($id, $tenantId);
+        _xtplRequireDatasetAccess($user, (string) ($existing['dataset'] ?? ''));
         exportTemplateDelete($id, $userId, $tenantId, $role);
     } catch (ExportTemplateException $e) {
         api_error($e->getMessage(), 422);
@@ -122,9 +161,42 @@ if ($method === 'DELETE') {
     api_ok(['id' => $id]);
 }
 
+function _xtplRequireDatasetAccess(array $user, string $datasetKey): void {
+    if ($datasetKey === '') api_error('dataset required', 422);
+    $dataset = exportDatasetGet($datasetKey);
+    if (!$dataset) api_error('Unknown dataset: ' . $datasetKey, 422);
+    if (!exportDatasetUserCanAccess($user, $dataset)) {
+        api_error('Forbidden', 403, ['required' => $dataset['permission'] ?? null]);
+    }
+}
+
+function _xtplTemplateMappingsVisible(array $user, int $tenantId, string $datasetKey, $mappings): bool {
+    if ($datasetKey === '') return false;
+    if (!is_array($mappings)) return true;
+    $visibleFields = exportDatasetFieldRegistryForUser($datasetKey, $user, $tenantId);
+    if (!$visibleFields) return true;
+    foreach ($mappings as $mapping) {
+        if (!is_array($mapping) || (($mapping['kind'] ?? 'field') === 'fixed')) continue;
+        $field = (string) ($mapping['source_field'] ?? '');
+        if ($field !== '' && !isset($visibleFields[$field])) return false;
+    }
+    return true;
+}
+
+function _xtplRequireMappingsVisible(array $user, int $tenantId, string $datasetKey, $mappings): void {
+    if (_xtplTemplateMappingsVisible($user, $tenantId, $datasetKey, $mappings)) return;
+    api_error('Forbidden: export template references a custom field hidden from the current user', 403, [
+        'required' => 'custom_field.visible_to',
+        'dataset' => $datasetKey,
+    ]);
+}
+
 api_error('Method not allowed', 405);
 
-function _xtplRequireManage(string $role): void {
+function _xtplRequireManage(array $user, string $role): void {
+    if (rbac_legacy_can($user, 'admin.export_templates.manage')) return;
     if (in_array($role, ['master_admin', 'tenant_admin', 'admin'], true)) return;
-    api_error('Forbidden — tenant_admin or master_admin required', 403);
+    api_error('Forbidden - missing permission admin.export_templates.manage', 403, [
+        'required' => 'admin.export_templates.manage',
+    ]);
 }

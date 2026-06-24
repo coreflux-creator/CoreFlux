@@ -333,6 +333,7 @@ Manifest actions:
 | `new` | New Placement | `placements.manage` |
 | `commissions` | Commissions | `placements.commissions.view` |
 | `referrals` | Referrals | `placements.referrals.manage` |
+| `custom_fields` | Custom Fields | `placements.custom_fields.manage` |
 | `reports` | Reports | `placements.financials.view` |
 
 ### Detail page tabs

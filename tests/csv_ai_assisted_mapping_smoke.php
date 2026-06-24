@@ -7,9 +7,9 @@
  * lives in ai_platform_smoke.php (expected-skip without keys).
  *
  * Validates:
- *   1. core/ai_csv_mapper.php exists and routes through aiCallOpenAI.
- *   2. aiSuggestColumnMap enforces tenant + classification feature gate.
- *   3. Helper uses JSON response format + AI_MODEL_CLASSIFICATION.
+ *   1. core/ai_csv_mapper.php exists and routes through aiExtractJson.
+ *   2. aiSuggestColumnMap uses the shared classification gate/audit helper.
+ *   3. Helper requests strict JSON + AI_MODEL_CLASSIFICATION.
  *   4. Helper sanitises output (rejects invented field keys; preserves
  *      already-mapped pairs; coerces empty string to null).
  *   5. Each of the 7 csv_import endpoints exposes ?action=ai_suggest_map
@@ -32,16 +32,17 @@ $h = $read(__DIR__ . '/../core/ai_csv_mapper.php');
 $a('ai_csv_mapper.php exists',                $h !== '');
 $a('includes ai_service.php',                 str_contains($h, "require_once __DIR__ . '/ai_service.php'"));
 $a('declares aiSuggestColumnMap',             str_contains($h, 'function aiSuggestColumnMap'));
-$a('enforces tenant gate',                    str_contains($h, 'aiGateForTenant'));
+$a('routes through aiExtractJson',            str_contains($h, 'aiExtractJson(['));
+$a('uses shared classification gate',         str_contains($h, "'feature_class'     => 'classification'"));
 $a('uses classification feature class',       str_contains($h, "'classification'"));
 $a('uses AI_MODEL_CLASSIFICATION',            str_contains($h, 'AI_MODEL_CLASSIFICATION'));
-$a('requests json_object response format',    str_contains($h, "'response_format' => ['type' => 'json_object']"));
-$a('falls back to AI_FALLBACK_MODEL',         str_contains($h, "\$model !== AI_FALLBACK_MODEL"));
+$a('requires suggestions key from JSON helper', str_contains($h, "'required_keys'     => ['suggestions']"));
+$a('inherits JSON response + fallback from ai_service', !str_contains($h, 'aiCallOpenAI('));
 $a('sanitises against allowed field keys',    str_contains($h, "in_array(\$raw, \$allowedKeys, true)"));
 $a('preserves already-mapped pairs',          str_contains($h, '$alreadyMap as $h => $k'));
 $a('coerces empty string to null',            str_contains($h, "\$raw === ''") || str_contains($h, "\$raw === '' || \$raw === false"));
-$a('audit-writes on success',                 str_contains($h, "'status' => 'ok'"));
-$a('audit-writes on non-JSON',                str_contains($h, "AIContractException"));
+$a('uses shared audit chokepoint',            str_contains($h, "'interaction_id'=> \$auditId"));
+$a('rejects non-conformant JSON',             str_contains($h, "AIContractException"));
 $a('truncates long sample cell values',       str_contains($h, "substr((string) \$v, 0, 60)"));
 $a('uses guardrail-style system message',     str_contains($h, 'HARD RULES'));
 $a('json-only output requirement',            str_contains($h, 'Return ONLY a JSON object'));

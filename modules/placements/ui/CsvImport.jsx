@@ -10,7 +10,7 @@ import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
 export default function CsvImport() {
   return (
     <CsvImportPage
-      endpoint="/modules/placements/api/csv_import.php"
+      endpoint="/api/v1/placements/csv-import"
       entityLabel="Placements"
       backTo=".."
       backLabel="← Placements"

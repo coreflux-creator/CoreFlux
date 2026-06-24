@@ -1,13 +1,17 @@
 <?php
 /**
- * CoreFlux AI Service — single chokepoint for LLM calls.
+ * CoreFlux AI Service — legacy advisory/extraction chokepoint for LLM calls.
  *
  * PHP calls OpenAI directly via cURL. No sidecar.
  *
- * Modules MUST go through aiAsk() — never call OpenAI directly. That keeps
+ * Modules MUST go through aiAsk(), aiExtract(), aiExtractJson(), or the
+ * AI Gateway in core/ai/gateway.php — never call OpenAI directly. That keeps
  *   - the response-shape contract enforced in one place
  *   - tenant + per-feature toggles enforced in one place
  *   - the audit log honest
+ *
+ * Agentic/tool/worker AI belongs to core/ai/gateway.php. This service remains
+ * the module-facing adapter for advisory prose and structured extraction.
  *
  * Configuration (in core/config.local.php on each host):
  *     define('OPENAI_API_KEY', 'sk-proj-...');     // required
@@ -378,6 +382,128 @@ function aiAuditWrite(array $data): int {
         error_log('[ai_audit] ' . $e->getMessage());
         return 0;
     }
+}
+
+
+/**
+ * Text-only structured-JSON sibling of aiExtract().
+ *
+ * Use this for classification/mapping/grouping jobs where the model must
+ * return a reviewed JSON draft but no document image is involved. It preserves
+ * the tenant/feature gate, provider fallback, JSON-only response format, and
+ * ai_interactions audit contract in the same place as aiAsk()/aiExtract().
+ */
+function aiExtractJson(array $args): array {
+    $featureClass = (string) ($args['feature_class'] ?? 'classification');
+    $featureKey   = (string) ($args['feature_key']   ?? ($featureClass . '.json'));
+    $kind         = (string) ($args['kind']          ?? 'classification');
+    $system       = trim((string) ($args['system']   ?? ''));
+    $prompt       = trim((string) ($args['prompt']   ?? ($args['instruction'] ?? '')));
+    $schemaHint   = trim((string) ($args['schema_hint'] ?? ''));
+    $context      = $args['context'] ?? null;
+    $requiredKeys = array_values(array_filter(array_map('strval', (array) ($args['required_keys'] ?? []))));
+    $maxTokens    = max(1, (int) ($args['max_output_tokens'] ?? ($args['max_tokens'] ?? 1200)));
+
+    if ($prompt === '') throw new InvalidArgumentException('aiExtractJson: prompt is required');
+
+    $tenantId = currentTenantId();
+    $userId   = $_SESSION['user']['id'] ?? null;
+
+    $gate = aiGateForTenant($tenantId, $featureClass);
+    if (!$gate['tenant_enabled'])  throw new AIDisabledException('AI is disabled for this tenant');
+    if (!$gate['feature_enabled']) throw new AIDisabledException("AI feature class '$featureClass' is disabled for this tenant");
+    $logFullContent = (bool) $gate['full_content_logging'];
+
+    $modelConst = AI_FEATURE_CLASS_TO_MODEL_CONST[$featureClass] ?? null;
+    $primaryModel = isset($args['model']) && trim((string) $args['model']) !== ''
+        ? (string) $args['model']
+        : ($modelConst && defined($modelConst) ? constant($modelConst) : AI_FALLBACK_MODEL);
+
+    $systemMsg = $system !== ''
+        ? $system
+        : 'You are a precise JSON extraction assistant inside CoreFlux. Return ONLY a single JSON object. No prose, no markdown fences.';
+
+    $userMsg = $prompt;
+    if ($schemaHint !== '') {
+        $userMsg .= "\n\nReturn JSON shaped like:\n" . $schemaHint;
+    }
+    if ($context !== null) {
+        $userMsg .= "\n\n[context data]\n"
+                  . substr(json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 0, 8000);
+    }
+
+    $payload = [
+        'model' => $primaryModel,
+        'messages' => [
+            ['role' => 'system', 'content' => $systemMsg],
+            ['role' => 'user',   'content' => $userMsg],
+        ],
+        'max_completion_tokens' => $maxTokens,
+        'response_format' => ['type' => 'json_object'],
+    ];
+    if (array_key_exists('temperature', $args)) {
+        $payload['temperature'] = (float) $args['temperature'];
+    }
+
+    [$content, $latencyMs, $usedModel, $http, $rawErr] = aiCallOpenAI($payload);
+    if ($content === null && $primaryModel !== AI_FALLBACK_MODEL) {
+        $payload['model'] = AI_FALLBACK_MODEL;
+        [$content, $latencyMs, $usedModel, $http, $rawErr] = aiCallOpenAI($payload);
+    }
+    if ($content === null) {
+        aiAuditWrite([
+            'tenant_id' => $tenantId, 'user_id' => $userId,
+            'feature_class' => $featureClass, 'feature_key' => $featureKey,
+            'kind' => $kind, 'status' => 'error',
+            'http_status' => $http, 'error' => substr((string) $rawErr, 0, 1000),
+        ]);
+        throw new RuntimeException("AI JSON extraction failed ($http): " . substr((string) $rawErr, 0, 300));
+    }
+
+    $cleaned = preg_replace('/^\s*```(?:json)?\s*|\s*```\s*$/m', '', trim($content));
+    $data = json_decode((string) $cleaned, true);
+    $missing = [];
+    if (is_array($data)) {
+        foreach ($requiredKeys as $key) {
+            if (!array_key_exists($key, $data)) $missing[] = $key;
+        }
+    }
+    if (!is_array($data) || $missing) {
+        aiAuditWrite([
+            'tenant_id' => $tenantId, 'user_id' => $userId,
+            'feature_class' => $featureClass, 'feature_key' => $featureKey,
+            'kind' => $kind, 'status' => 'error',
+            'http_status' => $http, 'model' => $usedModel, 'latency_ms' => $latencyMs,
+            'error' => !is_array($data)
+                ? 'Non-JSON response: ' . substr($content, 0, 200)
+                : 'Missing required JSON keys: ' . implode(', ', $missing),
+            'response' => $logFullContent ? $content : null,
+        ]);
+        throw new AIContractException(!is_array($data)
+            ? 'AI JSON extraction returned non-JSON'
+            : 'AI JSON extraction missing keys: ' . implode(', ', $missing));
+    }
+
+    $promptHash   = hash('sha256', $systemMsg . $userMsg);
+    $responseHash = hash('sha256', $content);
+    $auditId = aiAuditWrite([
+        'tenant_id' => $tenantId, 'user_id' => $userId,
+        'feature_class' => $featureClass, 'feature_key' => $featureKey,
+        'kind' => $kind, 'status' => 'ok',
+        'http_status' => $http, 'model' => $usedModel, 'latency_ms' => $latencyMs,
+        'prompt_hash' => $promptHash, 'response_hash' => $responseHash,
+        'prompt'   => $logFullContent ? ($systemMsg . "\n\n" . $userMsg) : null,
+        'response' => $logFullContent ? $content : null,
+    ]);
+
+    return [
+        'data'           => $data,
+        'model'          => $usedModel,
+        'latency_ms'     => $latencyMs,
+        'raw'            => $content,
+        'interaction_id' => $auditId,
+        'http_status'    => $http,
+    ];
 }
 
 

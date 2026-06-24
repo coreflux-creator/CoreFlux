@@ -78,6 +78,11 @@ $assert('emits delta envelope (lowest shift, runway lost, crosses_zero)',
     && strpos($api, "'lowest_date_shift_days'") !== false
     && strpos($api, "'runway_days_lost'") !== false
     && strpos($api, "'crosses_zero'") !== false);
+$assert('returns source detail for baseline + simulated payment overlay',
+    strpos($api, '$baselineSourceDetail = liquidityProjectionSourceDetail($datasets);') !== false
+    && strpos($api, '$simulatedSourceDetail = liquidityProjectionSourceDetail($datasets, [') !== false
+    && strpos($api, "'source_detail'        => \$baselineSourceDetail") !== false
+    && strpos($api, "'source_detail'        => \$simulatedSourceDetail") !== false);
 $assert('response includes baseline + simulated + delta keys',
     strpos($api, "'baseline'      => [") !== false
     && strpos($api, "'simulated'     => [") !== false
@@ -102,6 +107,11 @@ $assert('panel root testid',                     strpos($bd, 'data-testid="ap-bi
 $assert('renders baseline → simulated shift',    strpos($bd, 'data-testid="ap-bill-liquidity-impact-shift"') !== false);
 $assert('runway warning testid',                 strpos($bd, 'data-testid="ap-bill-liquidity-impact-runway"') !== false);
 $assert('"balance stays positive" affirmation',  strpos($bd, 'data-testid="ap-bill-liquidity-impact-safe"') !== false);
+$assert('source detail panel testids',
+    strpos($bd, 'data-testid="ap-bill-liquidity-impact-source-detail"') !== false
+    && strpos($bd, 'testid="ap-bill-liquidity-source-baseline"') !== false
+    && strpos($bd, 'testid="ap-bill-liquidity-source-simulated"') !== false
+    && strpos($bd, 'function LiquiditySourceMini(') !== false);
 $assert('loading + error states',
     strpos($bd, 'data-testid="ap-bill-liquidity-impact-loading"') !== false
     && strpos($bd, 'data-testid="ap-bill-liquidity-impact-error"') !== false);

@@ -7,19 +7,19 @@ import { attachCsvToImportRun } from '../../../dashboard/src/lib/csvAuditAttach'
  * Shared CSV Import flow — built on Core\CsvImportService.
  *
  * Per HARD_RULES (2026-02-XX): every primary-entity module exposes a CSV
- * import via /api/<module>/csv_import.php with the three actions
+ * import via /api/v1/<module>/<resource>-csv-import with the three actions
  *   ?action=template | ?action=dry_run | ?action=commit
  *
  * To avoid duplicating 170 lines of UI per entity, this component is
  * parameterized by:
- *   - endpoint:       e.g. '/modules/ap/api/csv_import.php'  (or '/api/ap/csv_import')
+ *   - endpoint:       e.g. '/api/v1/ap/csv-import'
  *   - entityLabel:    'Vendors' (used in headings + filename)
  *   - previewColumns: [{ key, label }]   how to render the dry-run preview table
  *   - backTo:         react-router path for the "back" link
  *   - testidPrefix:   data-testid prefix, e.g. 'ap-vendors-csv-import'
  *
  * Usage:
- *   <CsvImportPage endpoint="/modules/ap/api/csv_import.php"
+ *   <CsvImportPage endpoint="/api/v1/ap/csv-import"
  *                  entityLabel="Vendors"
  *                  backTo=".."
  *                  testidPrefix="ap-vendors-csv-import"

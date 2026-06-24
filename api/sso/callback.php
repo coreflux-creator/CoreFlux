@@ -22,6 +22,7 @@ require_once __DIR__ . '/../../core/auth.php';
 require_once __DIR__ . '/../../core/modules.php';
 require_once __DIR__ . '/../../core/encryption.php';
 require_once __DIR__ . '/../../core/oidc.php';
+require_once __DIR__ . '/../../core/audit.php';
 
 header('X-Robots-Tag: noindex, nofollow');
 header('Cache-Control: no-store, no-cache, must-revalidate, private');
@@ -177,12 +178,18 @@ $returnPath = ($sess['return_path'] && str_starts_with($sess['return_path'], '/'
 
 // Best-effort audit
 try {
-    $pdo->prepare('INSERT INTO audit_log (tenant_id, actor_user_id, event, meta_json, ip_address, created_at)
-                   VALUES (:t, :a, :e, :m, :ip, NOW())')->execute([
-        't' => (int) $cfg['tenant_id'], 'a' => $userId, 'e' => 'auth.sso.login',
-        'm' => json_encode(['provider' => $cfg['provider_type'], 'sub' => $claims['sub'] ?? null, 'email' => $email]),
-        'ip'=> $_SERVER['REMOTE_ADDR'] ?? null,
-    ]);
+    platformAuditLogWrite(
+        (int) $cfg['tenant_id'],
+        $userId,
+        'auth.sso.login',
+        null,
+        ['provider' => $cfg['provider_type'], 'sub' => $claims['sub'] ?? null, 'email' => $email],
+        [
+            'source' => 'sso',
+            'object_type' => 'auth_session',
+            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]
+    );
 } catch (\Throwable $_) { /* swallow */ }
 
 header('Location: ' . $base . $returnPath, true, 302);

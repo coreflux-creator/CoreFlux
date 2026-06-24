@@ -3,6 +3,10 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 import { fmtMoney, fmtDate } from '../../../dashboard/src/lib/format';
 import CsvUploadWidget from '../../../dashboard/src/components/CsvUploadWidget';
 
+const ACCOUNT_TRANSACTIONS_API = '/api/v1/treasury/account-transactions';
+const ACCOUNTING_ACCOUNTS_API = '/api/v1/accounting/accounts';
+const ACCOUNTING_BANK_AI_API = '/api/v1/accounting/bank-ai';
+
 const fmtMoneyOriginal = (n) =>
   (n || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 // Keep backwards compatibility for inline calls; prefer the imported fmtMoney
@@ -16,11 +20,11 @@ const fmtMoneyOriginal = (n) =>
  */
 export default function AccountTransactions({ accountId, type, accountLabel }) {
   const { data, loading, reload } = useApi(
-    `/modules/treasury/api/account_transactions.php?account_id=${accountId}&type=${type}&limit=200`
+    `${ACCOUNT_TRANSACTIONS_API}?account_id=${accountId}&type=${type}&limit=200`
   );
   // Postable expense / revenue accounts for the categorize dropdown. Filtered
   // to is_postable=1 (no header rows) when the API supplies it.
-  const { data: coa } = useApi('/modules/accounting/api/accounts.php?action=tree');
+  const { data: coa } = useApi(`${ACCOUNTING_ACCOUNTS_API}?action=tree`);
 
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState(null);
@@ -35,7 +39,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
   const fetchAiCat = async (lineId) => {
     setAiBusyId(lineId); setRowError(null);
     try {
-      const res = await api.post(`/modules/accounting/api/bank_ai.php?action=suggest_categorize&line_id=${lineId}`);
+      const res = await api.post(`${ACCOUNTING_BANK_AI_API}/suggest-categorize?line_id=${lineId}`);
       setAiPanelByLine(prev => ({ ...prev, [lineId]: { action: 'suggest_categorize', ...res } }));
     } catch (e) {
       setRowError(`AI suggestion failed: ${e.message}`);
@@ -60,7 +64,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
     setRowError(null);
     try {
       await api.post(
-        `/modules/treasury/api/account_transactions.php?action=${action}`,
+        `${ACCOUNT_TRANSACTIONS_API}/${action}`,
         { line_id: lineId, type, ...extra }
       );
       setCategorizingId(null);
@@ -155,7 +159,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
       {type === 'deposit' && (
         <CsvUploadWidget
           testIdPrefix={`treasury-${type}-csv`}
-          endpoint="/api/treasury/import_csv.php"
+          endpoint="/api/v1/treasury/import-csv"
           extraFields={{ bank_account_id: accountId }}
           accept=".csv,text/csv"
           label={plaidItemExternalId
@@ -364,7 +368,7 @@ export default function AccountTransactions({ accountId, type, accountLabel }) {
                         accounts={eligibleAccounts}
                         onSubmit={async (splits) => {
                           try {
-                            await api.post('/modules/treasury/api/account_transactions.php?action=split_categorize', {
+                            await api.post(`${ACCOUNT_TRANSACTIONS_API}/split-categorize`, {
                               line_id: r.id, type, splits,
                             });
                             setSplitId(null); reload();

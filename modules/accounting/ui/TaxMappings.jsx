@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { api, useApi } from '../../../dashboard/src/lib/api';
 import { Sparkles } from 'lucide-react';
 
+const TAX_MAPPINGS_API = '/api/v1/accounting/tax-mappings';
+
 /**
  * Tax mappings — map each postable expense / revenue account onto a
  * line of a standard tax form (Schedule C, 1120-S, etc.). Powers
@@ -15,7 +17,7 @@ import { Sparkles } from 'lucide-react';
  */
 export default function TaxMappings() {
   const [form, setForm] = useState('');
-  const url = `/api/tax_mappings.php${form ? `?tax_form_code=${encodeURIComponent(form)}` : ''}`;
+  const url = `${TAX_MAPPINGS_API}${form ? `?tax_form_code=${encodeURIComponent(form)}` : ''}`;
   const { data, error, loading, reload } = useApi(url);
 
   const [draft, setDraft] = useState({});       // accountId → { line, label, notes }
@@ -37,7 +39,7 @@ export default function TaxMappings() {
     if (!d.line || !d.line.trim()) { setErr('Line is required.'); return; }
     setBusy(b => ({ ...b, [accountId]: true })); setErr(null);
     try {
-      await api.post('/api/tax_mappings.php', {
+      await api.post(TAX_MAPPINGS_API, {
         account_id:     accountId,
         tax_form_code:  form,
         tax_form_line:  d.line.trim(),
@@ -53,7 +55,7 @@ export default function TaxMappings() {
   const removeMapping = async (id) => {
     setBusy(b => ({ ...b, [`del_${id}`]: true })); setErr(null);
     try {
-      await api.delete(`/api/tax_mappings.php?id=${id}`);
+      await api.delete(`${TAX_MAPPINGS_API}/${id}`);
       reload();
     } catch (e) { setErr(e.message); }
     finally    { setBusy(b => ({ ...b, [`del_${id}`]: false })); }
@@ -88,7 +90,7 @@ export default function TaxMappings() {
     try {
       // Sequential to keep audit log readable.
       for (const s of eligible) {
-        await api.post('/api/tax_mappings.php', {
+        await api.post(TAX_MAPPINGS_API, {
           account_id:     s.account_id,
           tax_form_code:  form,
           tax_form_line:  s.line,

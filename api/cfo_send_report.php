@@ -20,6 +20,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../core/api_bootstrap.php';
+require_once __DIR__ . '/../core/audit.php';
 
 $ctx       = api_require_cfo();
 $user      = $ctx['user'];
@@ -112,21 +113,23 @@ foreach ($recipients as $em) {
 
 // Audit trail.
 try {
-    $pdo = getDB();
-    $pdo->prepare(
-        "INSERT INTO audit_log (tenant_id, user_id, event, target_id, meta_json, created_at)
-              VALUES (:t, :u, 'cfo.report_sent', NULL, :m, NOW())"
-    )->execute([
-        't' => $tenantId,
-        'u' => (int) ($user['id'] ?? 0),
-        'm' => json_encode([
+    platformAuditLogWrite(
+        $tenantId,
+        (int) ($user['id'] ?? 0) ?: null,
+        'cfo.report_sent',
+        null,
+        [
             'recipients_sent'   => $sent,
             'recipients_failed' => $failed,
             'subject'           => $subject,
             'range'             => $range,
             'widget_count'      => count($widgets),
-        ]),
-    ]);
+        ],
+        [
+            'source' => 'cfo',
+            'object_type' => 'dashboard_report',
+        ]
+    );
 } catch (\Throwable $_) { /* audit best-effort */ }
 
 api_ok([

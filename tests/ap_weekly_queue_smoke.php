@@ -40,8 +40,9 @@ $a('mint actions = [approve, reject]',              str_contains($emailLib, "['a
 $a('72h default TTL',                               str_contains($emailLib, 'int $ttlHours = 72'));
 $a('consume validates subject_type=ap_bill',       str_contains($emailLib, "(\$row['subject_type'] ?? '') !== 'ap_bill'"));
 $a('consume blocks earlier-step bypass',            str_contains($emailLib, "WHERE tenant_id = :t AND bill_id = :b AND step_no < :s AND state = 'pending'"));
-$a('consume mirrors disputed on reject',            str_contains($emailLib, "UPDATE ap_bills SET status = 'disputed'"));
-$a('consume rolls bill to approved on final step', str_contains($emailLib, "UPDATE ap_bills SET status = 'approved'"));
+$a('consume delegates decision to WorkflowEngine bridge', str_contains($emailLib, 'apWorkflowActBillApproval($tenantId, $bill, $userId, $action, $note, true)'));
+$a('consume audits workflow-blocked email decisions', str_contains($emailLib, "apAudit('ap.bill.approval_blocked'") && str_contains($emailLib, "'via' => 'email_approval'"));
+$a('consume never directly flips AP bill state',    !str_contains($emailLib, "UPDATE ap_bills SET status = 'disputed'") && !str_contains($emailLib, "UPDATE ap_bills SET status = 'approved'"));
 $a('body builder has Approve + Reject buttons',     str_contains($emailLib, '>Approve in one click<') && str_contains($emailLib, '>Reject<'));
 $a('body builder warns about 72h expiry',           str_contains($emailLib, 'expire in 72 hours'));
 
@@ -78,8 +79,9 @@ $a("GET requires ap.bill.view",                     preg_match("/\\\$method === 
 $a("POST ?action=finalize",                         str_contains($apiSrc, "\$method === 'POST' && \$action === 'finalize'"));
 $a("POST ?action=send_approver_email",              str_contains($apiSrc, "\$method === 'POST' && \$action === 'send_approver_email'"));
 $a('finalize refuses PWP awaiting_ar bills',        str_contains($apiSrc, "Awaiting client payment (PWP) — auto-finalizes when AR clears"));
-$a('finalize creates ap_bill_approvals rows',       str_contains($apiSrc, 'INSERT INTO ap_bill_approvals'));
-$a('finalize transitions to pending_approval',      str_contains($apiSrc, "UPDATE ap_bills SET status = 'pending_approval'"));
+$a('finalize delegates to WorkflowEngine bridge',   str_contains($apiSrc, 'apWorkflowSubmitBillForApproval('));
+$a('finalize returns workflow routing evidence',    str_contains($apiSrc, "'workflow_instance_id' => \$routing['workflow_instance_id']")
+                                                       && str_contains($apiSrc, "'policy_id' => \$routing['policy_id']"));
 $a('finalize emails first step with tokens',        str_contains($apiSrc, 'apEmailApprovalMint($tenantId, $billId, (int) $a[\'id\']'));
 $a('finalize idempotency keyed per (bill, approver, step)', str_contains($apiSrc, "'idempotency_key' => 'ap-approval-' . \$billId . '-' . \$a['id'] . '-' . \$minStep"));
 

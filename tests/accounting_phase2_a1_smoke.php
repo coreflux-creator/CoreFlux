@@ -117,6 +117,10 @@ $a('balance check sum(debit) === sum(credit)',
     strpos($jc, 'totals.debit - totals.credit') !== false);
 $a('only valid lines posted',
     strpos($jc, "l.account_code && (parseFloat(l.debit) > 0 || parseFloat(l.credit) > 0)") !== false);
+$a('uses v1 journal entries API constant',
+    strpos($jc, "const JOURNAL_ENTRIES_API = '/api/v1/accounting/journal-entries'") !== false);
+$a('uses v1 accounts API constant',
+    strpos($jc, "const ACCOUNTS_API = '/api/v1/accounting/accounts'") !== false);
 
 echo "\nJournalEntryDetail.jsx\n";
 $jd = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/JournalEntryDetail.jsx');
@@ -126,6 +130,9 @@ $a('source-link drill-through',                        strpos($jd, 'accounting-j
 $a('maps ap_bills source',                             strpos($jd, 'ap_bills:') !== false || strpos($jd, "'ap_bills'") !== false);
 $a('maps payroll_runs source',                         strpos($jd, "'payroll_runs'") !== false);
 $a('status pill renders',                              strpos($jd, 'accounting-je-status-') !== false);
+$a('uses v1 journal detail and reverse routes',
+    strpos($jd, "const JOURNAL_ENTRIES_API = '/api/v1/accounting/journal-entries'") !== false &&
+    strpos($jd, '${JOURNAL_ENTRIES_API}/${id}/reverse') !== false);
 
 echo "\nIS / BS drill-through (Reports Overhaul Pass 2 — slide-over not route)\n";
 $is = (string) file_get_contents(__DIR__ . '/../modules/accounting/ui/IncomeStatement.jsx');
@@ -149,6 +156,7 @@ $a('reads from / to from URL',
 $a('forwards filters to API call',                     strpos($jl, "qs.set('account_code', accountCode)") !== false);
 $a('renders filter pill when active',                  strpos($jl, 'accounting-journal-filter-pill') !== false);
 $a('clear-filter button',                              strpos($jl, 'accounting-journal-filter-clear') !== false);
+$a('uses v1 journal list API',                         strpos($jl, 'const apiUrl = JOURNAL_ENTRIES_API') !== false);
 
 echo PHP_EOL . "Total: $pass passed, $fail failed" . PHP_EOL;
 exit($fail === 0 ? 0 : 1);

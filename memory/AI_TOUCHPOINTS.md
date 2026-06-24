@@ -6,7 +6,7 @@ A complete map of where AI / LLM extraction can save user time across the platfo
 - **Cost**: 💰 (cheap / mini-model) · 💰💰 (vision or larger) · 💰💰💰 (deep reasoning)
 - **Trust level**: 🔒 review-mandatory (suggestions only) · ✅ auto-apply (high-confidence + reversible)
 
-Architecture rule: **all AI calls go through `aiAsk()` (narrative) or `aiExtract()` (structured) in `core/ai_service.php`.** Tenant + feature-class gates apply. Audit log retains hash + (optionally) full prompt/response.
+Architecture rule: **all AI calls go through a governed CoreFlux AI surface.** Agentic/tool/worker AI goes through the AI Gateway, Tool Gateway, Workflow Graph, and worker queue. Module-level advisory/extraction features go through `aiAsk()` (prose), `aiExtract()` (document/image JSON), or `aiExtractJson()` (text JSON) in `core/ai_service.php`. Tenant + feature-class gates apply. Audit log retains hash + (optionally) full prompt/response.
 
 ---
 

@@ -17,7 +17,7 @@
  *      enforce=true UNLESS three_way_match_override=true AND a
  *      mandatory three_way_match_override_reason is supplied.
  *   4. Override is audit-logged via apAudit('ap.bill.three_way_match_override').
- *   5. Gate fires BEFORE the UPDATE that flips bill status to 'approved'.
+ *   5. Gate fires BEFORE the WorkflowEngine approval handoff.
  *   6. PHP syntax stays clean.
  */
 declare(strict_types=1);
@@ -28,17 +28,16 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$m   = (string) file_get_contents('/app/core/migrations/079_three_way_match_hard_default.sql');
-$lib = (string) file_get_contents('/app/modules/ap/lib/three_way_match.php');
-$api = (string) file_get_contents('/app/modules/ap/api/bills.php');
+$ROOT = realpath(__DIR__ . '/..');
+$m   = (string) file_get_contents("{$ROOT}/core/migrations/079_three_way_match_hard_default.sql");
+$lib = (string) file_get_contents("{$ROOT}/modules/ap/lib/three_way_match.php");
+$api = (string) file_get_contents("{$ROOT}/modules/ap/api/bills.php");
 
 echo "\n1. Migration 079 — flips default + lifts existing tenants\n";
 $a('alters column default to 1',
     str_contains($m, 'MODIFY COLUMN ap_three_way_match_enforce TINYINT(1) NOT NULL DEFAULT 1'));
 $a('bulk-lifts existing tenants',
-    str_contains($m, 'UPDATE tenants
-   SET ap_three_way_match_enforce = 1
- WHERE ap_three_way_match_enforce = 0;'));
+    preg_match('/UPDATE\s+tenants\s+SET\s+ap_three_way_match_enforce\s*=\s*1\s+WHERE\s+ap_three_way_match_enforce\s*=\s*0\s*;/i', $m) === 1);
 
 echo "\n2. Library default fallback flipped to enforce=1\n";
 $a('fallback row defaults ap_three_way_match_enforce to 1',
@@ -69,15 +68,15 @@ $a('override is audit-logged with reason + warnings',
     && str_contains($api, "'warnings'  => \$match['warnings']")
     && str_contains($api, "'reason'    => \$overrideReason"));
 
-echo "\n4. Gate fires before the bill status flips to 'approved'\n";
-$a('match check appears BEFORE the UPDATE',
+echo "\n4. Gate fires before workflow approval handoff\n";
+$a('match check appears BEFORE the WorkflowEngine handoff',
     strpos($api, '$match = apThreeWayMatch($tid, $id);')
-    < strpos($api, 'UPDATE ap_bills SET status = "approved"'));
+    < strpos($api, 'apWorkflowActBillApproval('));
 
 echo "\n5. PHP syntax\n";
 foreach ([
-    '/app/modules/ap/lib/three_way_match.php',
-    '/app/modules/ap/api/bills.php',
+    "{$ROOT}/modules/ap/lib/three_way_match.php",
+    "{$ROOT}/modules/ap/api/bills.php",
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);

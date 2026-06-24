@@ -9,9 +9,11 @@ require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../lib/payroll.php';
 
 $ctx = api_require_auth();
+$user = $ctx['user'];
 
 switch (api_method()) {
     case 'GET': {
+        rbac_legacy_require($user, 'payroll.settings.view');
         $row = scopedFind(
             'SELECT * FROM payroll_settings WHERE tenant_id = :tenant_id LIMIT 1'
         );
@@ -20,6 +22,7 @@ switch (api_method()) {
 
     case 'PUT':
     case 'POST': {
+        rbac_legacy_require($user, 'payroll.settings.manage');
         $body = api_json_body();
         $existing = scopedFind('SELECT id FROM payroll_settings WHERE tenant_id = :tenant_id LIMIT 1');
 
@@ -35,10 +38,18 @@ switch (api_method()) {
 
         if ($existing) {
             scopedUpdate('payroll_settings', (int) $existing['id'], $data);
+            payrollAudit('payroll.settings.updated', [
+                'settings_id' => (int) $existing['id'],
+                'changed_fields' => array_keys($data),
+            ], (int) $existing['id']);
             api_ok(['id' => (int) $existing['id']]);
         } else {
             api_require_fields($body, ['legal_name']);
             $id = scopedInsert('payroll_settings', $data + ['legal_name' => $body['legal_name']]);
+            payrollAudit('payroll.settings.created', [
+                'settings_id' => $id,
+                'changed_fields' => array_keys($data + ['legal_name' => $body['legal_name']]),
+            ], $id);
             api_ok(['id' => $id], 201);
         }
     }

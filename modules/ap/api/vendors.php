@@ -35,6 +35,7 @@ if ($method === 'POST' && $action === 'extract_w9') {
     // AI-assist for vendor onboarding — read a W-9 / W-8BEN form and return
     // a suggested vendor draft. User reviews + saves via normal POST.
     rbac_legacy_require($user, 'ap.bill.create');
+    rbac_legacy_require($user, 'ai.use');
     require_once __DIR__ . '/../../../core/StorageService.php';
     require_once __DIR__ . '/../../../core/ai_service.php';
     $body = api_json_body();

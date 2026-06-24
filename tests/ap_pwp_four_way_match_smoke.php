@@ -31,8 +31,9 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
     else     { echo "  ✗ {$msg}" . ($detail !== '' ? " — {$detail}" : '') . "\n"; $fail++; }
 };
 
-$lib  = (string) file_get_contents('/app/modules/ap/lib/pwp.php');
-$api  = (string) file_get_contents('/app/modules/ap/api/payments.php');
+$ROOT = realpath(__DIR__ . '/..');
+$lib  = (string) file_get_contents("{$ROOT}/modules/ap/lib/pwp.php");
+$api  = (string) file_get_contents("{$ROOT}/modules/ap/api/payments.php");
 
 echo "\n1. apPwpAllocatedBillsAwaitingAr() helper exists & is shaped right\n";
 $a('helper function declared',
@@ -52,28 +53,30 @@ $a('payments.php requires the pwp lib',
     str_contains($api, "require_once __DIR__ . '/../lib/pwp.php'"));
 
 echo "\n3. Single-action `send` blocks when allocations are awaiting AR\n";
-$a('send-action calls apPwpAllocatedBillsAwaitingAr(tid, id)',
-    str_contains($api, '$pwpBlocked = apPwpAllocatedBillsAwaitingAr($tid, $id);'));
+$a('release helper calls apPwpAllocatedBillsAwaitingAr',
+    str_contains($api, '$pwpBlocked = apPwpAllocatedBillsAwaitingAr($tenantId, $paymentId);'));
 $a('returns HTTP 409 with structured pwp_awaiting_ar code',
     str_contains($api, "'code' => 'pwp_awaiting_ar'")
     && str_contains($api, "'blocked_bill_refs' => \$refs")
-    && (bool) preg_match("/api_error\(\s*'Pay-when-paid gate:/", $api));
-$a('PWP gate check sits AFTER the SoD check and disputed/void check',
-    strpos($api, "Segregation of duties: you cannot release your own payment.")
+    && str_contains($api, "'message' => 'Pay-when-paid gate: bill '"));
+$a('release helper checks SoD and disputed/void before PWP',
+    strpos($api, "'code' => 'sod_created_by'")
+    < strpos($api, 'b.status IN ("disputed","void")')
+    && strpos($api, 'b.status IN ("disputed","void")')
     < strpos($api, '$pwpBlocked = apPwpAllocatedBillsAwaitingAr'));
-$a('PWP gate fires BEFORE the UPDATE that flips payment to "sent"',
-    strpos($api, '$pwpBlocked = apPwpAllocatedBillsAwaitingAr')
+$a('shared release gate fires BEFORE the UPDATE that flips payment to "sent"',
+    strpos($api, 'apPaymentReleaseGateOrError($tid, $row')
     < strpos($api, 'SET status = "sent"'));
 
 echo "\n4. Batch `originate_batch` blocks the WHOLE batch on any awaiting-AR bill\n";
 $a('batch path iterates rows and collects pwpBatchBlocked',
-    str_contains($api, '$pwpBatchBlocked = [];')
-    && str_contains($api, '$blocked = apPwpAllocatedBillsAwaitingAr($tid, (int) $r[\'id\']);'));
+    str_contains($api, '$releaseBlocked = [];')
+    && str_contains($api, 'apPaymentReleaseIssue($tid, $r'));
 $a('batch refuses with 409 + pwp_awaiting_ar code + per-payment detail',
     str_contains($api, 'payment(s) in this batch have bills awaiting AR collection')
-    && str_contains($api, "'code' => 'pwp_awaiting_ar', 'blocked' => \$pwpBatchBlocked"));
+    && str_contains($api, "'code' => \$topCode, 'blocked' => \$releaseBlocked"));
 $a('batch gate fires BEFORE paymentRailsBuildItem (no bank decrypt for a blocked batch)',
-    strpos($api, '$pwpBatchBlocked = [];')
+    strpos($api, '$releaseBlocked = [];')
     < strpos($api, 'paymentRailsBuildItem'));
 
 echo "\n5. GET list attaches pwp_blocked + pwp_blocked_count per row\n";
@@ -88,8 +91,8 @@ $a('list degrades gracefully on PDO error (sets pwp_blocked=false)',
     (bool) preg_match("/catch \(\\\\Throwable \\\$e\) \{\s*\/\/ Non-fatal/", $api));
 
 echo "\n6. End-to-end traceability proof — release path still in place\n";
-$billingLib = (string) file_get_contents('/app/modules/billing/lib/billing.php');
-$invoicesApi = (string) file_get_contents('/app/modules/billing/api/invoices.php');
+$billingLib = (string) file_get_contents("{$ROOT}/modules/billing/lib/billing.php");
+$invoicesApi = (string) file_get_contents("{$ROOT}/modules/billing/api/invoices.php");
 $a('AR cash receipt path (billing.php) still calls apPwpReleaseForArInvoice',
     str_contains($billingLib, 'apPwpReleaseForArInvoice($tenantId, (int) $a[\'invoice_id\']'));
 $a('AR invoice issuance still calls apPwpAutoLinkForArInvoice',
@@ -97,8 +100,8 @@ $a('AR invoice issuance still calls apPwpAutoLinkForArInvoice',
 
 echo "\n7. PHP syntax\n";
 foreach ([
-    '/app/modules/ap/api/payments.php',
-    '/app/modules/ap/lib/pwp.php',
+    "{$ROOT}/modules/ap/api/payments.php",
+    "{$ROOT}/modules/ap/lib/pwp.php",
 ] as $f) {
     $out = []; $rc = 0;
     exec('php -l ' . escapeshellarg($f) . ' 2>&1', $out, $rc);

@@ -81,6 +81,10 @@ if ($payDate > $endDate) $payDate = $endDate;
 // due in window would be double-counted on its due_date AND on $payDate.
 $datasets = liquidityBaselineDatasets($tid, $today, $endDate, null, $billId);
 $buckets  = liquidityBucketDatasets($datasets);
+$baselineSourceDetail = liquidityProjectionSourceDetail($datasets);
+$simulatedSourceDetail = liquidityProjectionSourceDetail($datasets, [
+    'extra_outflows_by_date' => [$payDate => $billAmount],
+]);
 
 $baseline  = liquidityWalkProjection(
     $datasets['starting_cash'], $days, $today,
@@ -91,6 +95,10 @@ $simulated = liquidityWalkProjection(
     $buckets['inflows_by_date'], $buckets['outflows_by_date'],
     [], [$payDate => $billAmount]
 );
+$baselineProjection = liquidityProjectionEvidence($tid, $today, $endDate, $days, $datasets);
+$simulatedProjection = liquidityProjectionEvidence($tid, $today, $endDate, $days, $datasets, [
+    'extra_outflows_by_date' => [$payDate => $billAmount],
+]);
 
 $lowestShift     = round($simulated['lowest_balance'] - $baseline['lowest_balance'], 2);
 $baselineRunway  = $baseline['runway_days_to_zero'];
@@ -117,12 +125,17 @@ api_ok([
     'bill_amount'   => $billAmount,
     'pay_date'      => $payDate,
     'days_horizon'  => $days,
+    'projection'    => $simulatedProjection,
     'baseline'      => [
+        'projection'           => $baselineProjection,
+        'source_detail'        => $baselineSourceDetail,
         'lowest_balance'      => $baseline['lowest_balance'],
         'lowest_balance_date' => $baseline['lowest_balance_date'],
         'runway_days_to_zero' => $baseline['runway_days_to_zero'],
     ],
     'simulated'     => [
+        'projection'           => $simulatedProjection,
+        'source_detail'        => $simulatedSourceDetail,
         'lowest_balance'      => $simulated['lowest_balance'],
         'lowest_balance_date' => $simulated['lowest_balance_date'],
         'runway_days_to_zero' => $simulated['runway_days_to_zero'],

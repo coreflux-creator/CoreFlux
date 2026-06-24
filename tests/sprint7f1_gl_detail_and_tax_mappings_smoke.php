@@ -56,7 +56,7 @@ $assert('returns totals envelope',
     && strpos($gl, "'net'") !== false);
 $assert('returns count',                         strpos($gl, "'count'           => count(\$out)") !== false);
 
-echo "\nModule alias — /api/accounting/gl-detail\n";
+echo "\nModule alias — /api/v1/accounting/gl-detail\n";
 $glAlias = "{$ROOT}/modules/accounting/api/gl_detail.php";
 $assert('alias exists', is_file($glAlias));
 $assert('alias parses', $lint($glAlias));
@@ -91,7 +91,7 @@ $assert('unmapped query restricted to rev/exp families',
 $assert('DELETE by id verifies tenant scope',
     strpos($tm, 'DELETE FROM accounting_tax_mappings WHERE tenant_id = :t AND id = :id') !== false);
 
-echo "\nModule alias — /api/accounting/tax-mappings\n";
+echo "\nModule alias — /api/v1/accounting/tax-mappings\n";
 $tmAlias = "{$ROOT}/modules/accounting/api/tax_mappings.php";
 $assert('alias exists', is_file($tmAlias));
 $assert('alias parses', $lint($tmAlias));
@@ -101,7 +101,8 @@ $assert('alias delegates',
 echo "\nFrontend — GLDetail.jsx\n";
 $glJsx = (string) file_get_contents("{$ROOT}/modules/accounting/ui/GLDetail.jsx");
 $assert('reads URL params',                      strpos($glJsx, 'useSearchParams') !== false);
-$assert('hits gl_detail endpoint',               strpos($glJsx, '/api/gl_detail.php') !== false);
+$assert('hits v1 gl-detail endpoint',
+    strpos($glJsx, "const GL_DETAIL_API = '/api/v1/accounting/gl-detail'") !== false);
 $assert('drills into JE detail',                 strpos($glJsx, '/modules/accounting/journal-entries/${l.je_id}') !== false);
 foreach ([
     'page','refresh','account','start','end','include-unposted',
@@ -120,7 +121,8 @@ $assert('row testid template',
 
 echo "\nFrontend — TaxMappings.jsx\n";
 $txJsx = (string) file_get_contents("{$ROOT}/modules/accounting/ui/TaxMappings.jsx");
-$assert('hits tax_mappings endpoint',            strpos($txJsx, '/api/tax_mappings.php') !== false);
+$assert('hits v1 tax-mappings endpoint',
+    strpos($txJsx, "const TAX_MAPPINGS_API = '/api/v1/accounting/tax-mappings'") !== false);
 $assert('uses api.delete (not api.del)',         strpos($txJsx, 'api.delete(') !== false
                                               && strpos($txJsx, 'api.del(')    === false);
 foreach ([

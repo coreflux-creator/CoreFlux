@@ -8,8 +8,10 @@ import { AlertTriangle, ArrowLeft } from 'lucide-react';
  * Lists posted JE lines whose account requires a dimension value the entry
  * is missing. Each row deep-links to the parent JE detail.
  */
+const MISSING_DIMENSIONS_API = '/api/v1/accounting/missing-dimensions';
+
 export default function MissingDimensions() {
-  const { data, loading, error } = useApi('/api/missing_dimensions.php?days=90&limit=200');
+  const { data, loading, error } = useApi(`${MISSING_DIMENSIONS_API}?days=90&limit=200`);
 
   if (loading) return <p data-testid="missing-dims-loading">Loading…</p>;
   if (error)   return <p className="error" data-testid="missing-dims-error">{error.message}</p>;

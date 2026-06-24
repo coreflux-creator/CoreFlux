@@ -20,6 +20,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../core/api_bootstrap.php';
 require_once __DIR__ . '/../../../core/sub_tenants.php';
+require_once __DIR__ . '/../../../core/audit.php';
 
 $ctx    = api_require_auth();
 $user   = $ctx['user'];
@@ -37,6 +38,7 @@ $peopleTid     = effectiveTenantIdForModule('people')     ?? currentTenantId();
 $placementsTid = effectiveTenantIdForModule('placements') ?? currentTenantId();
 
 if ($method === 'GET' && $action === 'payroll') {
+    rbac_legacy_require_any($user, ['payroll.view', 'staffing.payroll.view']);
     $ps = (string) ($_GET['period_start'] ?? date('Y-m-d', strtotime('-14 days')));
     $pe = (string) ($_GET['period_end']   ?? date('Y-m-d'));
 
@@ -76,6 +78,7 @@ if ($method === 'GET' && $action === 'payroll') {
 }
 
 if ($method === 'GET' && $action === 'billing') {
+    rbac_legacy_require_any($user, ['billing.view', 'staffing.billing.view']);
     $ps = (string) ($_GET['period_start'] ?? date('Y-m-d', strtotime('-14 days')));
     $pe = (string) ($_GET['period_end']   ?? date('Y-m-d'));
 
@@ -133,6 +136,12 @@ if ($method === 'GET' && $action === 'billing') {
 }
 
 if ($method === 'POST' && in_array($action, ['mark_payroll_pushed','mark_billing_invoiced'], true)) {
+    rbac_legacy_require_any(
+        $user,
+        $action === 'mark_payroll_pushed'
+            ? ['payroll.run.create', 'staffing.payroll.manage']
+            : ['billing.invoice.draft', 'staffing.billing.manage']
+    );
     $b   = api_json_body();
     $ids = array_map('intval', $b['timesheet_ids'] ?? []);
     if (!$ids) api_error('timesheet_ids required', 422);
@@ -142,7 +151,38 @@ if ($method === 'POST' && in_array($action, ['mark_payroll_pushed','mark_billing
     $in  = implode(',', array_fill(0, count($ids), '?'));
     $upd = $pdo->prepare("UPDATE staffing_timesheets SET status = ? WHERE tenant_id = ? AND status = 'approved' AND id IN ($in)");
     $upd->execute(array_merge([$target, currentTenantId()], $ids));
+    staffingReadinessAudit(
+        currentTenantId(),
+        (int) ($user['id'] ?? 0),
+        $action === 'mark_payroll_pushed' ? 'staffing.readiness.payroll_marked' : 'staffing.readiness.billing_marked',
+        [
+            'target' => $target,
+            'timesheet_ids' => $ids,
+            'updated' => $upd->rowCount(),
+            'invoice_id' => $b['invoice_id'] ?? null,
+        ]
+    );
     api_ok(['ok' => true, 'updated' => $upd->rowCount(), 'target' => $target]);
 }
 
 api_error('Unknown action', 404);
+
+function staffingReadinessAudit(int $tenantId, ?int $actorUserId, string $event, array $meta): void
+{
+    try {
+        platformAuditLogWrite(
+            $tenantId,
+            $actorUserId,
+            $event,
+            null,
+            $meta,
+            [
+                'source' => 'staffing',
+                'object_type' => 'staffing_readiness',
+                'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+            ]
+        );
+    } catch (\Throwable $e) {
+        error_log('[staffing.readiness.audit] ' . $event . ' failed: ' . $e->getMessage());
+    }
+}

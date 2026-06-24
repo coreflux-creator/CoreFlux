@@ -29,6 +29,7 @@ $action   = (string) (api_query('action') ?? '');
 if ($method !== 'POST' || $action !== 'summarize') {
     api_error('Unknown method/action', 405);
 }
+rbac_legacy_require($ctx['user'], 'ai.use');
 
 $instanceId = (int) (api_query('id') ?? 0);
 if (!$instanceId) api_error('id required', 422);

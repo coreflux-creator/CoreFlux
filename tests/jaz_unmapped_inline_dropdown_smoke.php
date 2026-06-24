@@ -70,7 +70,8 @@ ok('savingId state to disable select while in flight',
 ok('saveMapping helper exists',
    str_contains($ui, 'const saveMapping = async'));
 ok('saveMapping POSTs to account_mapping_save with provider=jaz',
-   str_contains($ui, "/api/accounting.php?action=account_mapping_save&provider=jaz"));
+   str_contains($ui, 'ACCOUNTING_INTEGRATIONS_API')
+   && str_contains($ui, '?action=account_mapping_save&provider=jaz'));
 ok('saveMapping body uses source=manual, confidence=100',
    str_contains($ui, "source:                'manual'") && str_contains($ui, "confidence:            100"));
 ok('Resolved rows render "✓ Mapped → {name}"',
@@ -96,7 +97,8 @@ ok('Success flash on per-row save mentions Step 4',
 ok('Error flash on per-row save mentions failing row name',
    str_contains($ui, 'Failed to save mapping for'));
 ok('Section is gated on chart_of_accounts entity (not invoices etc.)',
-   str_contains($ui, "entity === 'chart_of_accounts'\n                            && Array.isArray(r.pull?.unmapped_sample)"));
+   str_contains($ui, "entity === 'chart_of_accounts'")
+   && str_contains($ui, 'Array.isArray(r.pull?.unmapped_sample)'));
 ok('Resolver only renders when unmapped_sample non-empty',
    str_contains($ui, 'r.pull.unmapped_sample.length > 0'));
 

@@ -36,7 +36,7 @@ $a('detects resend configuration (env OR define)',
     $c($ep, "getenv('RESEND_API_KEY') !== ''")
     && $c($ep, "defined('RESEND_API_KEY')"));
 $a('delegates to mailerSend()',                          $c($ep, 'mailerSend(['));
-$a('writes audit_log row on send attempt',               $c($ep, 'mail.test_send') && $c($ep, 'INSERT INTO audit_log'));
+$a('writes audit event on send attempt',                 $c($ep, 'mail.test_send') && $c($ep, 'platformAuditLogWrite('));
 $a('returns ok/driver/message_id/error',                 $c($ep, "'ok'") && $c($ep, "'driver'")
                                                          && $c($ep, "'message_id'") && $c($ep, "'error'"));
 $a('returns resend_configured flag',                     $c($ep, "'resend_configured'"));

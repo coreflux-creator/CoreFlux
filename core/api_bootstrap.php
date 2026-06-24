@@ -559,7 +559,7 @@ function cf_self_heal_known_column(string $colRef): bool {
             'created_by_user_id'    => 'ADD COLUMN created_by_user_id BIGINT UNSIGNED NULL',
             'approved_by_user_id'   => 'ADD COLUMN approved_by_user_id BIGINT UNSIGNED NULL',
             'approved_at'           => 'ADD COLUMN approved_at DATETIME NULL',
-            'approved_via'          => "ADD COLUMN approved_via ENUM('manual','tokenized_client_email','bulk_pre_approved') NULL",
+            'approved_via'          => "ADD COLUMN approved_via ENUM('manual','tokenized_client_email','bulk_pre_approved','external_email') NULL",
             'rejected_reason'       => 'ADD COLUMN rejected_reason VARCHAR(500) NULL',
             'rate_snapshot_id'      => 'ADD COLUMN rate_snapshot_id BIGINT UNSIGNED NULL',
             'timesheet_id'          => 'ADD COLUMN timesheet_id BIGINT UNSIGNED NULL',
@@ -572,6 +572,28 @@ function cf_self_heal_known_column(string $colRef): bool {
             'external_approver_email' => 'ADD COLUMN external_approver_email VARCHAR(255) NULL',
             'external_approver_name'  => 'ADD COLUMN external_approver_name VARCHAR(255) NULL',
             'approval_note'           => 'ADD COLUMN approval_note VARCHAR(1000) NULL',
+        ],
+        'placement_rates' => [
+            'workflow_instance_id' => 'ADD COLUMN workflow_instance_id BIGINT UNSIGNED NULL AFTER approved_at',
+        ],
+        'billing_invoices' => [
+            'workflow_instance_id' => 'ADD COLUMN workflow_instance_id BIGINT UNSIGNED NULL AFTER approved_at',
+        ],
+        'accounting_journal_entries' => [
+            'approval_state' => "ADD COLUMN approval_state ENUM('draft','pending_approval','approved','rejected') NOT NULL DEFAULT 'draft' AFTER created_by_user_id",
+            'workflow_instance_id' => 'ADD COLUMN workflow_instance_id BIGINT UNSIGNED NULL',
+        ],
+        'treasury_payments' => [
+            'workflow_instance_id' => 'ADD COLUMN workflow_instance_id BIGINT UNSIGNED NULL AFTER status',
+        ],
+        'treasury_transfers' => [
+            'workflow_instance_id' => 'ADD COLUMN workflow_instance_id BIGINT UNSIGNED NULL AFTER status',
+        ],
+        'payroll_runs' => [
+            'created_by_user_id'   => 'ADD COLUMN created_by_user_id INT UNSIGNED NULL AFTER run_type',
+            'computed_by_user_id'  => 'ADD COLUMN computed_by_user_id INT UNSIGNED NULL AFTER computed_at',
+            'workflow_instance_id' => 'ADD COLUMN workflow_instance_id BIGINT UNSIGNED NULL AFTER approved_by',
+            'paid_by_user_id'      => 'ADD COLUMN paid_by_user_id INT UNSIGNED NULL AFTER paid_at',
         ],
     ];
     // Resolve alias prefix (te.person_id → person_id, but we still need the table).

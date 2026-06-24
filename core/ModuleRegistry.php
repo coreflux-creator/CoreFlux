@@ -159,18 +159,28 @@ class ModuleRegistry {
             'audit_events'          => [],
             'workflows'             => [],
             'exports'               => [],
+            'export_datasets'       => [],
+            'report_datasets'       => [],
+            'custom_field_layouts'   => [],
             'default_roles'         => [],
             'depends_on'            => [],
             'custom_field_entities' => [],
+            'people_graph'          => [],
         ], $raw);
 
         // Type-check the most-used fields. Non-fatal; just warn and coerce.
         foreach (['actions', 'views', 'nav_sections', 'permissions',
-                  'audit_events', 'default_roles', 'depends_on'] as $listField) {
+                  'audit_events', 'default_roles', 'depends_on',
+                  'custom_field_entities', 'custom_field_layouts',
+                  'export_datasets', 'report_datasets'] as $listField) {
             if (!is_array($manifest[$listField])) {
                 $this->validationErrors[$id][] = "field '$listField' must be an array; coerced to []";
                 $manifest[$listField] = [];
             }
+        }
+        if (!is_array($manifest['people_graph'])) {
+            $this->validationErrors[$id][] = "field 'people_graph' must be an array; coerced to []";
+            $manifest['people_graph'] = [];
         }
 
         return $manifest;
@@ -249,6 +259,172 @@ class ModuleRegistry {
             }
         }
         return array_values(array_unique($perms));
+    }
+
+    /**
+     * Return every custom-field entity declared by module manifests.
+     *
+     * Each row is normalized to a common platform shape. Manifests may declare
+     * either strings:
+     *   'people'
+     * or maps:
+     *   ['entity_type' => 'people', 'label' => 'People', ...]
+     *
+     * @return array<string, array> entity_type => metadata
+     */
+    public function getCustomFieldEntities(): array {
+        $out = [];
+        $defaultSurfaces = ['forms', 'detail', 'lists', 'exports', 'reports'];
+        $allowedSurfaces = array_flip($defaultSurfaces);
+        foreach ($this->modules as $moduleId => $m) {
+            $layouts = is_array($m['custom_field_layouts'] ?? null) ? $m['custom_field_layouts'] : [];
+            foreach (($m['custom_field_entities'] ?? []) as $entry) {
+                $raw = is_array($entry) ? $entry : ['entity_type' => (string) $entry];
+                $entityType = (string) ($raw['entity_type'] ?? $raw['id'] ?? '');
+                if ($entityType === '') continue;
+                if (isset($out[$entityType])) {
+                    $owner = (string) ($out[$entityType]['module_id'] ?? 'unknown');
+                    $this->validationErrors[$moduleId][] = "custom field entity '$entityType' already owned by '$owner'; duplicate ignored";
+                    continue;
+                }
+
+                $surfaceRaw = $raw['surfaces'] ?? $defaultSurfaces;
+                if (!is_array($surfaceRaw)) {
+                    $this->validationErrors[$moduleId][] = "custom field entity '$entityType' surfaces must be an array; defaulted";
+                    $surfaceRaw = $defaultSurfaces;
+                }
+                $surfaces = [];
+                foreach ($surfaceRaw as $surface) {
+                    $surface = strtolower(trim((string) $surface));
+                    if ($surface === '' || !isset($allowedSurfaces[$surface])) continue;
+                    $surfaces[] = $surface;
+                }
+                $surfaces = array_values(array_unique($surfaces));
+                if ($surfaces === []) {
+                    $this->validationErrors[$moduleId][] = "custom field entity '$entityType' surfaces were empty/invalid; defaulted";
+                    $surfaces = $defaultSurfaces;
+                }
+
+                $layoutDecl = $raw['layouts'] ?? ($layouts[$entityType] ?? []);
+                if (!is_array($layoutDecl)) {
+                    $this->validationErrors[$moduleId][] = "custom field entity '$entityType' layouts must be an array; coerced to []";
+                    $layoutDecl = [];
+                }
+
+                $out[$entityType] = array_merge([
+                    'entity_type'       => $entityType,
+                    'module_id'         => $moduleId,
+                    'label'             => ucfirst(str_replace('_', ' ', $entityType)),
+                    'view_permission'   => $moduleId . '.view',
+                    'manage_permission' => $moduleId . '.custom_fields.manage',
+                    'pii_permission'    => null,
+                    'pii_manage_permission' => null,
+                    'definition_table'  => null,
+                    'value_table'       => null,
+                    'record_id_key'     => 'record_id',
+                    'surfaces'          => $defaultSurfaces,
+                    'layouts'           => $layoutDecl,
+                ], $raw, [
+                    'entity_type' => $entityType,
+                    'module_id'   => $moduleId,
+                    'surfaces'    => $surfaces,
+                    'layouts'     => $layoutDecl,
+                ]);
+            }
+        }
+        return $out;
+    }
+
+    public function getCustomFieldEntity(string $entityType): ?array {
+        $all = $this->getCustomFieldEntities();
+        return $all[$entityType] ?? null;
+    }
+
+    /**
+     * Return export datasets declared by module manifests.
+     *
+     * The execution registry still lives in core/export_datasets.php; this
+     * manifest view makes dataset ownership, permissions, and audit events
+     * discoverable without loading export execution code.
+     *
+     * @return array<string, array> dataset key => metadata
+     */
+    public function getExportDatasetDeclarations(): array {
+        return $this->getDatasetDeclarations('export_datasets');
+    }
+
+    /**
+     * Return report-builder datasets declared by module manifests.
+     *
+     * @return array<string, array> dataset key => metadata
+     */
+    public function getReportDatasetDeclarations(): array {
+        return $this->getDatasetDeclarations('report_datasets');
+    }
+
+    /** @internal */
+    private function getDatasetDeclarations(string $field): array {
+        $out = [];
+        foreach ($this->modules as $moduleId => $manifest) {
+            foreach (($manifest[$field] ?? []) as $key => $entry) {
+                $raw = is_array($entry) ? $entry : ['dataset' => (string) $entry];
+                $dataset = (string) ($raw['dataset'] ?? $raw['key'] ?? (is_string($key) ? $key : ''));
+                if ($dataset === '') continue;
+                if (isset($out[$dataset])) {
+                    $owner = (string) ($out[$dataset]['module_id'] ?? 'unknown');
+                    $this->validationErrors[$moduleId][] = "{$field} dataset '$dataset' already declared by '$owner'; duplicate ignored";
+                    continue;
+                }
+                $out[$dataset] = array_merge([
+                    'dataset' => $dataset,
+                    'module_id' => $moduleId,
+                    'label' => ucwords(str_replace('_', ' ', $dataset)),
+                    'permission' => null,
+                    'formats' => [],
+                    'audit_event' => null,
+                    'custom_field_entities' => [],
+                    'sensitive_fields' => [],
+                    'source' => $field === 'report_datasets' ? 'export_dataset' : 'registry',
+                ], $raw, [
+                    'dataset' => $dataset,
+                    'module_id' => $moduleId,
+                    'formats' => array_values((array) ($raw['formats'] ?? [])),
+                    'custom_field_entities' => array_values((array) ($raw['custom_field_entities'] ?? [])),
+                    'sensitive_fields' => array_values((array) ($raw['sensitive_fields'] ?? [])),
+                ]);
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Return People Graph consumption contracts declared by module manifests.
+     *
+     * The contract is intentionally manifest-owned so domain modules can state
+     * which object types consume shared authority/responsibility routing.
+     *
+     * @return array<string, array> module_id => people_graph contract
+     */
+    public function getPeopleGraphContracts(): array {
+        $out = [];
+        foreach ($this->modules as $moduleId => $m) {
+            $contract = $m['people_graph'] ?? [];
+            if (!is_array($contract) || $contract === []) continue;
+            $out[$moduleId] = array_merge([
+                'module_id'    => $moduleId,
+                'consumes'     => false,
+                'mode'         => 'source_module_consumer',
+                'object_types' => [],
+            ], $contract, [
+                'module_id' => $moduleId,
+            ]);
+        }
+        return $out;
+    }
+
+    public function getPeopleGraphContract(string $moduleId): ?array {
+        $contracts = $this->getPeopleGraphContracts();
+        return $contracts[$moduleId] ?? null;
     }
 
     /**

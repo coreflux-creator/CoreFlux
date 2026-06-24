@@ -41,8 +41,8 @@ $assert('9 categories + custom enum',
     strpos($sql, "ENUM('regular_billable','regular_nonbillable','OT_billable','OT_nonbillable','holiday','vacation','sick','bereavement','unpaid_leave','custom')") !== false);
 $assert('entry status 5 values',
     strpos($sql, "ENUM('draft','pending_review','approved','rejected','superseded')") !== false);
-$assert('approved_via 3 values',
-    strpos($sql, "ENUM('manual','tokenized_client_email','bulk_pre_approved')") !== false);
+$assert('approved_via includes external email channel',
+    strpos($sql, "ENUM('manual','tokenized_client_email','bulk_pre_approved','external_email')") !== false);
 $assert('bundle_type 4 values',
     strpos($sql, "ENUM('ar','ap','payroll','revrec')") !== false);
 

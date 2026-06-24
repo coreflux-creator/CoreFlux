@@ -38,6 +38,7 @@ $item = scopedFind(
     ['iid' => $itemIdExt]
 );
 if (!$item) api_error('Item not found', 404);
+$itemBefore = plaidItemAuditRow((int) $ctx['tenant_id'], (int) $item['id']) ?? plaidAuditScrubTokenRow($item);
 
 $perm = match ($item['purpose']) {
     'bank_feed'        => 'accounting.bank.manage',
@@ -54,7 +55,12 @@ if (!$accessToken) api_error('Could not decrypt access token', 500);
 try {
     $authResp = plaidGetAuth($accessToken);
 } catch (PlaidApiException $e) {
-    plaidAudit('core.plaid.auth_failed', ['item_id' => $itemIdExt, 'error_code' => $e->errorCode], (int) $item['id']);
+    plaidAudit('core.plaid.auth_failed', ['item_id' => $itemIdExt, 'error_code' => $e->errorCode], (int) $item['id'], [
+        'tenant_id' => (int) $ctx['tenant_id'],
+        'actor_user_id' => (int) ($user['id'] ?? 0),
+        'before' => $itemBefore,
+        'after' => plaidItemAuditRow((int) $ctx['tenant_id'], (int) $item['id']) ?? $itemBefore,
+    ]);
     api_error('Plaid auth failed: ' . $e->getMessage(), 502, ['plaid_error_code' => $e->errorCode]);
 }
 
@@ -113,7 +119,12 @@ if ($item['purpose'] === 'vendor_banking') {
     $updated = $stmt->rowCount();
     plaidAudit('core.plaid.auth_persisted_vendor', [
         'vendor_id' => $vendorId, 'item_id' => $itemIdExt, 'routing_last4' => $routingL4, 'account_last4' => $accountL4,
-    ], (int) $item['id']);
+    ], (int) $item['id'], [
+        'tenant_id' => (int) $ctx['tenant_id'],
+        'actor_user_id' => (int) ($user['id'] ?? 0),
+        'before' => $itemBefore,
+        'after' => plaidItemAuditRow((int) $ctx['tenant_id'], (int) $item['id']) ?? $itemBefore,
+    ]);
 } elseif ($item['purpose'] === 'employee_banking') {
     $employeeId = (int) $item['employee_id'];
     if ($employeeId <= 0) api_error('plaid_items.employee_id missing', 422);
@@ -138,7 +149,12 @@ if ($item['purpose'] === 'vendor_banking') {
     plaidAudit('core.plaid.auth_persisted_employee', [
         'employee_id' => $employeeId, 'item_id' => $itemIdExt,
         'routing_last4' => $routingL4, 'account_last4' => $accountL4,
-    ], (int) $item['id']);
+    ], (int) $item['id'], [
+        'tenant_id' => (int) $ctx['tenant_id'],
+        'actor_user_id' => (int) ($user['id'] ?? 0),
+        'before' => $itemBefore,
+        'after' => plaidItemAuditRow((int) $ctx['tenant_id'], (int) $item['id']) ?? $itemBefore,
+    ]);
 } else {
     api_error('auth_pull is only valid for vendor_banking or employee_banking purposes', 422);
 }

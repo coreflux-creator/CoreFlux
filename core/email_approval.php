@@ -8,7 +8,7 @@
  *
  * Token TTL: 72h. Each token is bound to a specific (approver_user_id,
  * bill_id) pair and one of {approve, reject}. Consuming the token runs the
- * existing `bill_approvals.php?action=approve|reject` logic by reusing
+ * AP WorkflowEngine bridge by reusing
  * the user record from the token row — no session needed.
  *
  * Tokens are hashed at rest; the raw token only lives in the email body
@@ -20,6 +20,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/approval_tokens.php';
+require_once __DIR__ . '/../modules/ap/lib/ap.php';
+require_once __DIR__ . '/../modules/ap/lib/workflow_bridge.php';
 
 /**
  * Mint a pair of single-use approve+reject tokens for a given approver +
@@ -55,8 +57,9 @@ function apEmailApprovalMint(int $tenantId, int $billId, int $approverUserId, st
  *   ['ok' => bool, 'state' => 'approved'|'rejected'|'already_acted'|'expired'|'invalid',
  *    'bill_id' => N, 'message' => string].
  *
- * Wraps the legacy `ap_bill_approvals` write path so all auditing and
- * downstream workflow mirror behaviour stays identical to the in-app path.
+ * Token validation is local, but the state-changing decision is delegated to
+ * the AP WorkflowEngine bridge so People Graph routing, SoD, audit, and final
+ * AP side effects stay identical to the in-app path.
  */
 function apEmailApprovalConsume(string $rawToken, string $action, ?string $note = null, ?string $ip = null): array {
     if (!in_array($action, ['approve', 'reject'], true)) {
@@ -122,48 +125,34 @@ function apEmailApprovalConsume(string $rawToken, string $action, ?string $note 
     }
 
     $newState = $action === 'approve' ? 'approved' : 'rejected';
-    $pdo->beginTransaction();
+    $workflow = null;
     try {
-        $pdo->prepare(
-            "UPDATE ap_bill_approvals
-                SET state = :ns, decision_at = NOW(), decision_note = :n
-              WHERE tenant_id = :t AND id = :id"
-        )->execute(['ns' => $newState, 'n' => $note, 't' => $tenantId, 'id' => (int) $step['id']]);
-
-        if ($newState === 'rejected') {
-            $pdo->prepare("UPDATE ap_bills SET status = 'disputed' WHERE tenant_id = :t AND id = :id")
-                ->execute(['t' => $tenantId, 'id' => $billId]);
-        } else {
-            $pending = $pdo->prepare(
-                "SELECT COUNT(*) FROM ap_bill_approvals
-                  WHERE tenant_id = :t AND bill_id = :b AND state = 'pending'"
-            );
-            $pending->execute(['t' => $tenantId, 'b' => $billId]);
-            if ((int) $pending->fetchColumn() === 0) {
-                $pdo->prepare(
-                    "UPDATE ap_bills SET status = 'approved', approved_at = NOW(), approved_by_user_id = :u
-                      WHERE tenant_id = :t AND id = :id"
-                )->execute(['u' => $userId, 't' => $tenantId, 'id' => $billId]);
-            }
-        }
-        $pdo->commit();
+        $workflow = apWorkflowActBillApproval($tenantId, $bill, $userId, $action, $note, true);
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
-        return ['ok' => false, 'state' => 'invalid', 'bill_id' => $billId, 'message' => 'DB write failed: ' . $e->getMessage()];
-    }
-
-    // Audit log via apAudit() if available (loaded by AP API entry points).
-    @require_once __DIR__ . '/../modules/ap/lib/ap.php';
-    if (function_exists('apAudit')) {
         try {
-            apAudit("ap.bill.approval_{$newState}", [
+            apAudit('ap.bill.approval_blocked', [
                 'bill_id' => $billId,
                 'step' => (int) $step['step_no'],
+                'action' => $action,
+                'control' => 'workflow_engine',
                 'via' => 'email_approval',
                 'token_id' => (int) ($row['id'] ?? 0),
+                'reason' => $e->getMessage(),
             ], $billId);
         } catch (\Throwable $_) { /* non-fatal */ }
+        return ['ok' => false, 'state' => 'invalid', 'bill_id' => $billId, 'message' => 'Workflow decision failed: ' . $e->getMessage()];
     }
+
+    try {
+        apAudit("ap.bill.approval_{$newState}", [
+            'bill_id' => $billId,
+            'step' => (int) $step['step_no'],
+            'via' => 'email_approval',
+            'token_id' => (int) ($row['id'] ?? 0),
+            'workflow_instance_id' => $workflow['workflow_instance_id'] ?? null,
+            'workflow_status' => $workflow['workflow_status'] ?? null,
+        ], $billId);
+    } catch (\Throwable $_) { /* non-fatal */ }
 
     return [
         'ok' => true, 'state' => $newState, 'bill_id' => $billId,

@@ -64,7 +64,7 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 
 ## 2. Full permission → tuple table
 
-108 strings. Sorted by module.
+108 original strings plus AI-native additions. Sorted by module.
 
 ### accounting
 | Legacy permission | New tuple |
@@ -86,8 +86,12 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 | `accounting.entities.view` | `(accounting, read)` |
 | `accounting.intercompany.manage` | `(accounting, admin)` |
 | `accounting.je.create` | `(accounting, write)` |
+| `accounting.je.edit_draft` | `(accounting, write)` |
+| `accounting.je.submit` | `(accounting, write)` |
+| `accounting.je.approve` | `(accounting, admin)` |
 | `accounting.je.post` | `(accounting, admin)` |
 | `accounting.je.reverse` | `(accounting, admin)` |
+| `accounting.je.void` | `(accounting, admin)` |
 | `accounting.je.view` | `(accounting, read)` |
 | `accounting.manage_posting_rules` | `(accounting, admin)` |
 | `accounting.period.view` | `(accounting, read)` |
@@ -98,6 +102,11 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 | Legacy permission | New tuple |
 |---|---|
 | `ai.config.manage` | `(ai, admin)` |
+| `ai.use` | `(ai, read)` |
+| `ai.audit.view` | `(ai, read)` |
+| `ai.gateway.invoke` | `(ai, write)` |
+| `ai.workflow.approve` | `(ai, admin)` |
+| `platform.ai.admin` | `(ai, admin)` |
 
 ### ap
 | Legacy permission | New tuple |
@@ -127,6 +136,7 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 | `billing.invoice.approve` | `(billing, admin)` |
 | `billing.invoice.create` | `(billing, write)` |
 | `billing.invoice.draft` | `(billing, write)` |
+| `billing.invoice.post` | `(billing, admin)` |
 | `billing.invoice.send` | `(billing, admin)` |
 | `billing.invoice.void` | `(billing, admin)` |
 | `billing.payments.record` | `(billing, write)` |
@@ -143,6 +153,9 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 ### payroll
 | Legacy permission | New tuple |
 |---|---|
+| `payroll.anomalies.detect` | `(payroll, write)` |
+| `payroll.settings.manage` | `(payroll, admin)` |
+| `payroll.settings.view` | `(payroll, read)` |
 | `payroll.runs.approve` | `(payroll, admin)` |
 
 ### people
@@ -150,9 +163,14 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 |---|---|
 | `people.banking.manage` | `(people, admin)` *(banking PII)* |
 | `people.banking.view` | `(people, admin)` *(banking PII)* |
+| `people.comp.manage` | `(people, admin)` *(legacy comp history)* |
+| `people.comp.view` | `(people, read)` *(legacy comp history)* |
 | `people.custom_fields.manage` | `(people, write)` |
 | `people.docs.manage` | `(people, write)` |
 | `people.docs.view` | `(people, read)` |
+| `people.graph.delegate` | `(people, admin)` *(authority delegation)* |
+| `people.graph.manage` | `(people, admin)` *(authority/responsibility model)* |
+| `people.graph.view` | `(people, read)` |
 | `people.manage` | `(people, write)` |
 | `people.merge` | `(people, admin)` |
 | `people.pii.audit.view` | `(people, admin)` |
@@ -185,11 +203,28 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 ### reports
 | Legacy permission | New tuple |
 |---|---|
+| `admin.export_templates.manage` | `(reports, admin)` |
+| `reports.custom.build` | `(reports, write)` |
+| `reports.custom.share` | `(reports, admin)` |
+| `reports.export` | `(reports, write)` |
 | `reports.view` | `(reports, read)` |
 
 ### staffing
 | Legacy permission | New tuple |
 |---|---|
+| `staffing.billing.manage` | `(billing, write)` |
+| `staffing.billing.view` | `(billing, read)` |
+| `staffing.clients.manage` | `(staffing, write)` |
+| `staffing.payroll.manage` | `(payroll, write)` |
+| `staffing.payroll.view` | `(payroll, read)` |
+| `staffing.export.run` | `(staffing, write)` |
+| `staffing.reports.view` | `(reports, read)` |
+| `staffing.settings.manage` | `(staffing, admin)` |
+| `staffing.time.approve` | `(time, admin)` |
+| `staffing.time.create` | `(time, write)` |
+| `staffing.time.reject` | `(time, admin)` |
+| `staffing.time.submit` | `(time, write)` |
+| `staffing.time.view` | `(time, read)` |
 | `staffing.view` | `(staffing, read)` |
 
 ### tenant *(NOT migrated — platform gate)*
@@ -222,6 +257,7 @@ The legacy permission strings have no sub-tenant dimension. We pass `null` to `a
 | `treasury.create_payment` | `(treasury, admin)` *(releases funds path)* |
 | `treasury.create_transfer` | `(treasury, write)` |
 | `treasury.execute_payment` | `(treasury, admin)` |
+| `treasury.manage_forecast` | `(treasury, write)` |
 | `treasury.payment.manage` | `(treasury, admin)` |
 | `treasury.payment.view` | `(treasury, read)` |
 | `treasury.view_bank_balances` | `(treasury, read)` |

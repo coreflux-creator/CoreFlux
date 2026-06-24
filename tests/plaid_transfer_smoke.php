@@ -266,9 +266,10 @@ $a('rail override mutates row.disbursement_rail before dispatch',
 echo "\ncore/payment_rails/originate_helpers.php — tenant_id passthrough\n";
 $oh = (string) file_get_contents(__DIR__ . '/../core/payment_rails/originate_helpers.php');
 $a("dispatch opts['tenant_id'] populated for driver",
-    $c($oh, "'tenant_id'       => isset(\$sourceRow['tenant_id'])"));
-$a('falls back to currentTenantContext when missing',
-    $c($oh, 'currentTenantContext'));
+    $c($oh, "'tenant_id'       => \$tenantId"));
+$a('fails closed when tenant_id is missing',
+    $c($oh, 'Payment rail dispatch requires tenant_id') &&
+    !$c($oh, 'currentTenantContext'));
 
 // ----------------------------------------------------------------- API: payments.php returns flag
 echo "\nAPI — modules/ap/api/payments.php\n";

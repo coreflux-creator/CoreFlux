@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS accounting_entity_relationships (
     child_entity_id    BIGINT UNSIGNED NOT NULL,
     ownership_pct      DECIMAL(7,4) NOT NULL DEFAULT 100.0000,
     relationship_type  ENUM('subsidiary','affiliate','branch','jv','other') NOT NULL DEFAULT 'subsidiary',
-    consolidation_method ENUM('full','equity','cost','none') NOT NULL DEFAULT 'full',
+    consolidation_method ENUM('full','proportionate','equity','cost','none') NOT NULL DEFAULT 'full',
     effective_from     DATE NOT NULL,
     effective_to       DATE NULL,
     notes              VARCHAR(255) NULL,
@@ -28,6 +28,11 @@ CREATE TABLE IF NOT EXISTS accounting_entity_relationships (
     INDEX idx_aer_tenant (tenant_id, active),
     INDEX idx_aer_child  (child_entity_id, active)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Existing tenants created before proportionate consolidation shipped need
+-- the enum widened even if the table already exists.
+ALTER TABLE accounting_entity_relationships
+    MODIFY COLUMN consolidation_method ENUM('full','proportionate','equity','cost','none') NOT NULL DEFAULT 'full';
 
 -- billing_invoices.entity_id
 SET @col := (SELECT COUNT(*) FROM information_schema.COLUMNS

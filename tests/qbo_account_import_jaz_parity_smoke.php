@@ -21,12 +21,13 @@ $a = function (string $msg, bool $cond) use (&$pass, &$fail) {
     else       { echo "  ✗ $msg\n"; $fail++; }
 };
 $c = function (string $hay, string $needle): bool { return strpos($hay, $needle) !== false; };
+$ROOT = dirname(__DIR__);
 
 // ──────────────────────────────────────────────────────────────────────
 // 1) account_import.php — importer + manual mapping
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── core/qbo/account_import.php ──\n";
-$imp = (string) file_get_contents('/app/core/qbo/account_import.php');
+$imp = (string) file_get_contents($ROOT . '/core/qbo/account_import.php');
 $a('file exists',                       $imp !== '');
 $a('strict types',                      $c($imp, 'declare(strict_types=1);'));
 $a('declares qboImportUnmappedAccounts', $c($imp, 'function qboImportUnmappedAccounts'));
@@ -87,7 +88,7 @@ $a('manual mapping writes manual_account_map audit',
 // 2) sync_accounts.php — third pass + richer envelope
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── core/qbo/sync_accounts.php — import pass ──\n";
-$sync = (string) file_get_contents('/app/core/qbo/sync_accounts.php');
+$sync = (string) file_get_contents($ROOT . '/core/qbo/sync_accounts.php');
 $a('reads opts.import_unmapped flag',     $c($sync, "!empty(\$opts['import_unmapped'])"));
 $a('lazy-requires account_import on import path',
     $c($sync, "require_once __DIR__ . '/account_import.php'"));
@@ -121,7 +122,7 @@ $a('audit row still slices samples to first 20',
 // 3) api/qbo.php — import_unmapped flag + account_map_manual
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── api/qbo.php ──\n";
-$api = (string) file_get_contents('/app/api/qbo.php');
+$api = (string) file_get_contents($ROOT . '/api/qbo.php');
 $a('sync_accounts accepts import_unmapped body flag',
     $c($api, "isset(\$body['import_unmapped'])")
     && $c($api, "\$opts['import_unmapped'] = (bool) \$body['import_unmapped']"));
@@ -144,7 +145,7 @@ $a('account_map_manual maps RuntimeException → 409',
 // 4) QboSettings.jsx — Pull & import CTA + UnmappedQboAccountsCard
 // ──────────────────────────────────────────────────────────────────────
 echo "\n── QboSettings.jsx ──\n";
-$ui = (string) file_get_contents('/app/dashboard/src/pages/QboSettings.jsx');
+$ui = (string) file_get_contents($ROOT . '/dashboard/src/pages/QboSettings.jsx');
 
 // Pull-and-import CTA.
 $a('Pull & import unmapped button present',
@@ -166,16 +167,17 @@ $a('handleImportOneAccount POSTs sync_accounts with import_unmapped',
     $c($ui, "const handleImportOneAccount = async")
     && substr_count(substr($ui, strpos($ui, 'const handleImportOneAccount'), 800),
         'import_unmapped: true') >= 1);
-$a('handleRemoveCfAccount POSTs to /api/accounting.php?action=account_delete',
-    $c($ui, '/api/accounting.php?action=account_delete'));
+$a('handleRemoveCfAccount POSTs to v1 accounting integrations account_delete',
+    $c($ui, 'ACCOUNTING_INTEGRATIONS_API')
+    && $c($ui, '?action=account_delete'));
 $a('handleRemoveCfAccount falls back to account_deactivate on 409',
-    $c($ui, '/api/accounting.php?action=account_deactivate'));
+    $c($ui, '?action=account_deactivate'));
 
 // Card mounted + lookups + per-row testids.
 $a('UnmappedQboAccountsCard component declared',
     $c($ui, 'function UnmappedQboAccountsCard'));
 $a('Card uses CF accounts list endpoint',
-    $c($ui, "useApi('/modules/accounting/api/accounts.php?active=1')"));
+    $c($ui, 'ACCOUNTING_ACCOUNTS_API') && $c($ui, '?active=1'));
 $a('Card mounts only after a pull (coaPullResult)',
     preg_match('/UnmappedQboAccountsCard[\s\S]{0,300}result=\{coaPullResult\}/', $ui) === 1);
 foreach ([

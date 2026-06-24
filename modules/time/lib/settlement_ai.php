@@ -57,35 +57,28 @@ function timeSettlementAiSuggest(string $target, array $blocks): array
         "\"entry_ids\": [<int>...], \"total_hours\": <float>, \"flags\": [\"weekend\"|\"long_day\"|\"cycle_drift\"|...] } ], " .
         "\"advisories\": [\"short tip\"] }";
 
-    [$resp, $latencyMs, $model, $http, $err] = aiCallOpenAI([
-        'model'           => 'gpt-4o-mini',
-        'messages'        => [
-            ['role' => 'system', 'content' => $sys],
-            ['role' => 'user',   'content' => $userMsg],
-        ],
-        'temperature'     => 0.2,
-        'max_tokens'      => 2000,
-        'response_format' => ['type' => 'json_object'],
-    ]);
-    aiAuditWrite([
-        'tenant_id' => function_exists('currentTenantId') ? currentTenantId() : null,
-        'feature'   => 'time.settlement.ai_suggest',
-        'model'     => $model,
-        'latency_ms'=> $latencyMs,
-        'http_code' => $http,
-        'success'   => is_string($resp) && empty($err),
-        'error'     => !is_string($resp) ? (is_string($err) ? substr((string) $err, 0, 500) : null) : null,
-        'meta_json' => json_encode(['target' => $target, 'block_count' => count($compact), 'truncated' => $truncated]),
-    ]);
-
-    // Fallback: rules-based grouping (per placement, by cycle window).
-    if (!is_string($resp)) {
+    try {
+        $json = aiExtractJson([
+            'feature_class'     => 'classification',
+            'feature_key'       => 'time.settlement.ai_suggest',
+            'kind'              => 'classification',
+            'system'            => $sys,
+            'prompt'            => $userMsg,
+            'model'             => 'gpt-4o-mini',
+            'temperature'       => 0.2,
+            'max_output_tokens' => 2000,
+            'required_keys'     => ['suggestions'],
+            'context'           => ['target' => $target, 'block_count' => count($compact), 'truncated' => $truncated],
+        ]);
+        $parsed = $json['data'];
+        $model = $json['model'];
+    } catch (\Throwable $e) {
         $fallback = _settlementFallbackGroup($compact, $target);
         $fallback['ai_used'] = false;
-        $fallback['advisories'][] = 'AI unavailable — using rule-based grouping.';
+        $fallback['advisories'][] = 'AI unavailable - using rule-based grouping.';
         return $fallback;
     }
-    $parsed = json_decode($resp, true);
+    // Fallback: rules-based grouping (per placement, by cycle window).
     if (!is_array($parsed) || !isset($parsed['suggestions'])) {
         $fallback = _settlementFallbackGroup($compact, $target);
         $fallback['ai_used'] = false;

@@ -111,12 +111,24 @@ CREATE TABLE IF NOT EXISTS accounting_journal_entries (
     posted_at DATETIME NULL,
     posted_by_user_id BIGINT UNSIGNED NULL,
     created_by_user_id BIGINT UNSIGNED NULL,
+    approval_state ENUM('draft','pending_approval','approved','rejected') NOT NULL DEFAULT 'draft',
+    requires_approval TINYINT(1) NOT NULL DEFAULT 0,
+    workflow_instance_id BIGINT UNSIGNED NULL,
+    submitted_by_user_id BIGINT UNSIGNED NULL,
+    submitted_at DATETIME NULL,
+    approved_by_user_id BIGINT UNSIGNED NULL,
+    approved_at DATETIME NULL,
+    rejected_by_user_id BIGINT UNSIGNED NULL,
+    rejected_at DATETIME NULL,
+    rejection_reason VARCHAR(500) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq_aje_tenant_number (tenant_id, je_number),
     INDEX idx_aje_tenant_period_status (tenant_id, period_id, status),
     INDEX idx_aje_tenant_source (tenant_id, source_module, source_ref_type, source_ref_id),
-    INDEX idx_aje_tenant_idempotency (tenant_id, idempotency_key)
+    INDEX idx_aje_tenant_idempotency (tenant_id, idempotency_key),
+    INDEX idx_aje_tenant_approval_state (tenant_id, approval_state),
+    INDEX idx_aje_workflow (tenant_id, workflow_instance_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS accounting_journal_entry_lines (

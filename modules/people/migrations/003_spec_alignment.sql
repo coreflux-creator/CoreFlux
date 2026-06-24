@@ -218,6 +218,8 @@ CREATE TABLE IF NOT EXISTS people_custom_field_defs (
     options_json TEXT NULL,
     required BOOLEAN NOT NULL DEFAULT 0,
     pii BOOLEAN NOT NULL DEFAULT 0,
+    visible_to_roles_json TEXT NULL,
+    editable_by_roles_json TEXT NULL,
     order_index INT NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at DATETIME NULL,

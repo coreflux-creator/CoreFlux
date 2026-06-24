@@ -5,13 +5,15 @@ import { api, useApi } from '../../../dashboard/src/lib/api';
 import LineItemEditor, { blankLine } from '../../../dashboard/src/components/LineItemEditor';
 import CompanyTypeahead from '../../people/ui/CompanyTypeahead';
 
+const ACCOUNTING_ACCOUNTS_API = '/api/v1/accounting/accounts';
+
 /**
  * Manual Billing invoice creator — supports any item_type. Time-bundle-driven
  * invoices go through InvoiceFromTimeBundleModal instead.
  */
 export default function InvoiceCreate() {
   const nav = useNavigate();
-  const accountsApi = useApi('/modules/accounting/api/accounts.php?type=revenue&active=1');
+  const accountsApi = useApi(`${ACCOUNTING_ACCOUNTS_API}?type=revenue&active=1`);
   const revenueAccounts = accountsApi.data?.rows ?? [];
 
   const [client, setClient]   = useState(null);

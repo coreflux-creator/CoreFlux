@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS workflow_instances (
     completed_at DATETIME NULL,
     sla_due_at DATETIME NULL,
     last_activity_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_wfi_subject (tenant_id, subject_type, subject_id),
+    INDEX idx_wfi_subject_status (tenant_id, subject_type, subject_id, status, started_at),
     INDEX idx_wfi_tenant_status (tenant_id, status, sla_due_at),
     INDEX idx_wfi_definition (definition_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

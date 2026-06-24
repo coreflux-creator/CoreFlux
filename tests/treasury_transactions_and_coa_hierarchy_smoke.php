@@ -125,7 +125,7 @@ $assert('accounts.php parses cleanly',       $lint(__DIR__ . '/../modules/accoun
 echo "Treasury UI (deposit + liability detail pages)\n";
 $at_ui = file_get_contents(__DIR__ . '/../modules/treasury/ui/AccountTransactions.jsx');
 $assert('AccountTransactions component',     strpos($at_ui, 'export default function AccountTransactions(') !== false);
-$assert('loads from account_transactions.php', strpos($at_ui, '/modules/treasury/api/account_transactions.php?account_id=') !== false);
+$assert('loads from account-transactions v1 route', strpos($at_ui, '/api/v1/treasury/account-transactions') !== false);
 $assert('Sync from Plaid button',            strpos($at_ui, 'treasury-${type}-sync-btn') !== false);
 $assert('Sync calls real endpoint directly (no proxy)',
                                              strpos($at_ui, "/api/plaid_sync_transactions.php") !== false
@@ -143,6 +143,8 @@ $assert('CategorizeRow groups by expense/asset/revenue',
 $assert('CategorizeRow links matched JE',    strpos($at_ui, 'treasury-txn-je-${r.id}') !== false);
 $assert('CategorizeRow shows live JE preview',
                                              strpos($at_ui, "Will create a balanced JE") !== false);
+$assert('CSV import uses v1 treasury route',
+                                             strpos($at_ui, 'endpoint="/api/v1/treasury/import-csv"') !== false);
 
 $dep_ui = file_get_contents(__DIR__ . '/../modules/treasury/ui/DepositAccounts.jsx');
 $assert('Deposit row labels Transactions (not Open reconciliation)',

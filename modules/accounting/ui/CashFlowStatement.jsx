@@ -15,6 +15,8 @@ import GlDetailDrilldown from '../../../dashboard/src/components/GlDetailDrilldo
 import { fmtMoney } from '../../../dashboard/src/lib/format';
 import { useReportPeriod } from '../../../dashboard/src/lib/useReportPeriod';
 
+const ACCOUNTING_REPORTS_API = '/api/v1/accounting/reports';
+
 export default function CashFlowStatement() {
   const period = useReportPeriod();
 
@@ -243,7 +245,7 @@ function Section({ title, testIdPrefix, data, columns }) {
 }
 
 function url(from, to) {
-  return `/modules/accounting/api/reports.php?type=cash_flow_indirect&from=${from}&to=${to}`;
+  return `${ACCOUNTING_REPORTS_API}?type=cash_flow_indirect&from=${from}&to=${to}`;
 }
 
 const sectionHeadingStyle = {

@@ -566,18 +566,18 @@ Rules:
 - Keep reasoning under 140 chars.
 PROMPT;
 
-    [$content, $latencyMs, $modelUsed, $http, $error] = aiCallOpenAI([
-        'model'    => AI_CATEGORIZATION_MODEL,
-        'messages' => [
-            ['role' => 'system', 'content' => 'You are a precise bookkeeping classifier. Reply with STRICT JSON only.'],
-            ['role' => 'user',   'content' => $prompt],
-        ],
-        'response_format' => ['type' => 'json_object'],
-        'temperature'     => 0.1,
-        'max_tokens'      => 200,
+    $json = aiExtractJson([
+        'feature_class'     => 'classification',
+        'feature_key'       => AI_CATEGORIZATION_FEATURE_KEY,
+        'kind'              => 'classification',
+        'system'            => 'You are a precise bookkeeping classifier. Reply with STRICT JSON only.',
+        'prompt'            => $prompt,
+        'model'             => AI_CATEGORIZATION_MODEL,
+        'temperature'       => 0.1,
+        'max_output_tokens' => 200,
+        'required_keys'     => ['account_id'],
     ]);
-    if (!$content || $http < 200 || $http >= 300) return null;
-    $j = json_decode($content, true);
+    $j = $json['data'];
     if (!is_array($j) || !isset($j['account_id'])) return null;
 
     $accId = (int) $j['account_id'];

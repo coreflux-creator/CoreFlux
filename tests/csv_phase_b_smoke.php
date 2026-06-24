@@ -60,19 +60,34 @@ echo "\nPayments CSV export\n";
 $apx = $read(__DIR__ . '/../modules/ap/api/payments_csv_export.php');
 $a('ap payments csv_export exists',          $apx !== '');
 $a('ap payments uses CsvExportService',      str_contains($apx, 'Core\\CsvExportService'));
-$a('ap payments RBAC gate ap.view',          str_contains($apx, "'ap.view'"));
-$a('ap payments status/from/to/vendor filters',
-    str_contains($apx, 'pay_date >= :f') &&
-    str_contains($apx, 'pay_date <= :t') &&
-    str_contains($apx, 'vendor_name = :v'));
+$a('ap payments RBAC gate ap.export.run',    str_contains($apx, "'ap.export.run'"));
+$a('ap payments uses governed dataset export',
+    str_contains($apx, 'exportTemplateStreamDatasetCsv') &&
+    str_contains($apx, 'ap_payments') &&
+    str_contains($apx, 'exportDatasetFetchApPayments'));
+$a('ap payments raw export audits dataset',
+    str_contains($apx, 'ap.payments.exported') &&
+    str_contains($apx, "mode' => 'raw'"));
+$a('ap payments status/from/to/vendor options',
+    str_contains($apx, "'status'") &&
+    str_contains($apx, "'from'") &&
+    str_contains($apx, "'to'") &&
+    str_contains($apx, "'vendor_name'"));
 
 $blx = $read(__DIR__ . '/../modules/billing/api/payments_csv_export.php');
 $a('billing payments csv_export exists',     $blx !== '');
 $a('billing payments uses CsvExportService', str_contains($blx, 'Core\\CsvExportService'));
 $a('billing payments RBAC gate billing.view', str_contains($blx, "'billing.view'"));
-$a('billing payments received_at filters',
-    str_contains($blx, 'received_at >= :f') &&
-    str_contains($blx, 'received_at <= :t'));
+$a('billing payments uses governed dataset export',
+    str_contains($blx, 'exportTemplateStreamDatasetCsv') &&
+    str_contains($blx, 'billing_payments') &&
+    str_contains($blx, 'exportDatasetFetchBillingPayments'));
+$a('billing payments raw export audits dataset',
+    str_contains($blx, 'billing.payment.exported') &&
+    str_contains($blx, "mode' => 'raw'"));
+$a('billing payments received_at options',
+    str_contains($blx, "'from'") &&
+    str_contains($blx, "'to'"));
 
 echo "\nUpdate-if-exists mode\n";
 $pc = $read(__DIR__ . '/../modules/people/api/csv_import.php');

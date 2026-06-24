@@ -156,6 +156,7 @@ if ($action === 'auto_extract') {
 // Falls back to rules-based grouping if AI is unavailable.
 if ($action === 'ai_suggest') {
     rbac_legacy_require($user, "time.settlement.view.$target");
+    rbac_legacy_require($user, 'ai.use');
     $blocks = $body['blocks'] ?? null;
     if (!is_array($blocks)) {
         // Build server-side from the same query so the FE doesn't have to send all data.

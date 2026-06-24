@@ -11,8 +11,8 @@ import { useApi, api } from '../../../dashboard/src/lib/api';
  * cycle whose newest period has ended.
  */
 export default function PayCyclesPanel() {
-  const cyclesApi    = useApi('/modules/payroll/api/cycles.php');
-  const schedulesApi = useApi('/modules/payroll/api/pay_schedules.php');
+  const cyclesApi    = useApi('/api/v1/payroll/cycles');
+  const schedulesApi = useApi('/api/v1/payroll/pay-schedules');
   const cycles       = cyclesApi.data?.cycles ?? [];
   const schedules    = schedulesApi.data?.schedules ?? [];
 
@@ -46,7 +46,7 @@ export default function PayCyclesPanel() {
         payload.pay_date_offset_days_override = parseInt(form.pay_date_offset_days_override, 10);
       }
       if (form.notes) payload.notes = form.notes;
-      await api.post('/modules/payroll/api/cycles.php', payload);
+      await api.post('/api/v1/payroll/cycles', payload);
       setShowForm(false);
       setForm({ ...form, name: '', cohort_filter_json: '', anchor_date_override: '',
                 pay_date_offset_days_override: '', notes: '' });
@@ -57,7 +57,7 @@ export default function PayCyclesPanel() {
   const advance = async (cycleId) => {
     setBusy('advance-' + cycleId); setErr(null);
     try {
-      await api.post('/modules/payroll/api/cycles.php?action=advance', { cycle_id: cycleId });
+      await api.post('/api/v1/payroll/cycles?action=advance', { cycle_id: cycleId });
       cyclesApi.reload();
     } catch (e2) { setErr(e2.message); } finally { setBusy(null); }
   };
@@ -65,14 +65,14 @@ export default function PayCyclesPanel() {
   const autoAdvance = async () => {
     setBusy('auto'); setErr(null);
     try {
-      await api.post('/modules/payroll/api/cycles.php?action=auto_advance', {});
+      await api.post('/api/v1/payroll/cycles?action=auto_advance', {});
       cyclesApi.reload();
     } catch (e2) { setErr(e2.message); } finally { setBusy(null); }
   };
 
   const toggleActive = async (c) => {
-    if (c.active) await api.delete(`/modules/payroll/api/cycles.php?id=${c.id}`);
-    else          await api.put(`/modules/payroll/api/cycles.php?id=${c.id}`, { active: 1 });
+    if (c.active) await api.delete(`/api/v1/payroll/cycles?id=${c.id}`);
+    else          await api.put(`/api/v1/payroll/cycles?id=${c.id}`, { active: 1 });
     cyclesApi.reload();
   };
 

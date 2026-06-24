@@ -5,6 +5,8 @@ import {
   ArrowRight, ArrowLeft, ArrowLeftRight, MinusCircle, Send,
 } from 'lucide-react';
 
+const ACCOUNTING_INTEGRATIONS_API = '/api/v1/accounting/integrations';
+
 /**
  * ZohoBooksSettings — Zoho Books OAuth connection + per-entity sync
  * direction picker + per-entity account mapping. Mounted at
@@ -607,7 +609,7 @@ function parseFlashFromUrl() {
 
 /* ---------------------------------------------------------------
    Account mapping card — reuses the provider-neutral
-   accounting_account_mappings table via /api/accounting.php
+   accounting_account_mappings table via the v1 accounting integrations API
    with provider=zoho_books. Mirrors the Jaz UI verbatim so
    operators have one mental model across destinations.
 --------------------------------------------------------------- */
@@ -623,7 +625,7 @@ function ZohoAccountMappingCard({ subTenantId, onFlash }) {
     if (!subTenantId) return;
     setLoading(true); setError(null);
     try {
-      const r = await api.get(`/api/accounting.php?action=account_mappings&sub_tenant_id=${subTenantId}&provider=zoho_books`);
+      const r = await api.get(`${ACCOUNTING_INTEGRATIONS_API}?action=account_mappings&sub_tenant_id=${subTenantId}&provider=zoho_books`);
       setMappings(r.mappings || []);
       setUnmapped(r.unmapped || []);
     } catch (e) { setError(e.message || 'Failed to load'); }
@@ -634,7 +636,7 @@ function ZohoAccountMappingCard({ subTenantId, onFlash }) {
   const handleAutoMap = async () => {
     setBusy(true); setError(null);
     try {
-      const r = await api.post('/api/accounting.php?action=account_mapping_auto&provider=zoho_books', {
+      const r = await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=account_mapping_auto&provider=zoho_books`, {
         sub_tenant_id: subTenantId,
       });
       const created = r.mapped ?? r.new_mappings?.length ?? 0;
@@ -652,7 +654,7 @@ function ZohoAccountMappingCard({ subTenantId, onFlash }) {
     if (!window.confirm('Remove this mapping?')) return;
     setBusy(true);
     try {
-      await api.post('/api/accounting.php?action=account_mapping_delete&provider=zoho_books', {
+      await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=account_mapping_delete&provider=zoho_books`, {
         sub_tenant_id: subTenantId, mapping_id: mappingId,
       });
       reload();
@@ -665,7 +667,7 @@ function ZohoAccountMappingCard({ subTenantId, onFlash }) {
     if (!addRow || !addRow.coreflux_account_id || !addRow.provider_account_id) return;
     setBusy(true); setError(null);
     try {
-      await api.post('/api/accounting.php?action=account_mapping_save&provider=zoho_books', {
+      await api.post(`${ACCOUNTING_INTEGRATIONS_API}?action=account_mapping_save&provider=zoho_books`, {
         sub_tenant_id:         subTenantId,
         coreflux_account_id:   addRow.coreflux_account_id,
         provider_account_id:   addRow.provider_account_id,

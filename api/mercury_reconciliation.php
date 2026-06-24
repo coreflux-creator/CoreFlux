@@ -15,6 +15,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../core/api_bootstrap.php';
 require_once __DIR__ . '/../core/RBAC.php';
 require_once __DIR__ . '/../core/mercury_reconciliation.php';
+require_once __DIR__ . '/../core/mercury_audit.php';
 
 $ctx      = api_require_auth();
 $user     = $ctx['user'];
@@ -62,12 +63,8 @@ if ($method === 'POST' && $action === 'run') {
     $out = mercuryReconcileTenant($tenantId);
     // Best-effort audit
     try {
-        $pdo = getDB();
-        $pdo->prepare(
-            'INSERT INTO audit_log (tenant_id, actor_user_id, event, target_id, meta_json, created_at)
-             VALUES (:t, :u, "mercury.reconciliation.run", NULL, :m, NOW())'
-        )->execute([
-            't' => $tenantId, 'u' => $user['id'] ?? null, 'm' => json_encode($out),
+        mercuryAuditLogWrite($tenantId, isset($user['id']) ? (int) $user['id'] : null, 'mercury.reconciliation.run', null, $out, [
+            'after' => $out,
         ]);
     } catch (\Throwable $e) {}
     api_ok(['ok' => true] + $out);

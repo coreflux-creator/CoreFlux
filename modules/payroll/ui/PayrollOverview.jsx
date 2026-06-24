@@ -7,10 +7,10 @@ const fmtMoney = (cents) =>
   ((cents || 0) / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 
 export default function PayrollOverview() {
-  const runsApi    = useApi('/modules/payroll/api/runs.php');
-  const periodsApi = useApi('/modules/payroll/api/pay_periods.php');
-  const profilesApi = useApi('/modules/payroll/api/profiles.php');
-  const anomApi    = useApi('/modules/payroll/api/anomalies.php?dashboard=1&limit=10');
+  const runsApi    = useApi('/api/v1/payroll/runs');
+  const periodsApi = useApi('/api/v1/payroll/pay-periods');
+  const profilesApi = useApi('/api/v1/payroll/profiles');
+  const anomApi    = useApi('/api/v1/payroll/anomalies?dashboard=1&limit=10');
 
   const recentRuns = runsApi.data?.runs ?? [];
   const upcomingPeriods = (periodsApi.data?.periods ?? [])

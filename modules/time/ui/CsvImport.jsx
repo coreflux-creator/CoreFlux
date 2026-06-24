@@ -9,19 +9,19 @@ import CsvImportPage from '../../../dashboard/src/components/CsvImportPage';
  * module:
  *   • Interactive column mapping (auto-detect + manual overrides)
  *   • AI-assisted mapping suggestions (uses Time's ai_suggest_map
- *     endpoint if /modules/time/api/ai_suggest_map.php exists; safe
+ *     endpoint through the v1 module API when available; safe
  *     fallback to auto_map if not).
  *   • Saved mapping presets (header signature → one-click re-import)
  *   • CSV Import History recording (audit trail on every commit)
  *   • Cross-links: + Bulk Import, View History
  *   • The Time-specific "Pre-approved" toggle survives as an
  *     extraToggle so the same `?already_approved=1` query string still
- *     reaches /modules/time/api/csv_import.php.
+ *     reaches /api/v1/time/csv-import.
  */
 export default function CsvImport() {
   return (
     <CsvImportPage
-      endpoint="/modules/time/api/csv_import.php"
+      endpoint="/api/v1/time/csv-import"
       entityLabel="Time Entries"
       backTo="../entries"
       backLabel="← My Time"

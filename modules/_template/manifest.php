@@ -29,4 +29,16 @@ return [
 
     // Roles that get module access by default (on top of explicit tenant_modules rows)
     'default_roles' => ['master_admin', 'tenant_admin', 'admin'],
+
+    // Optional: declare source objects that consume the shared People Graph
+    // authority layer for owners, preparers, reviewers, approvers, and routing.
+    'people_graph' => [
+        'consumes' => false,
+        'mode' => 'source_module_consumer',
+        'object_types' => [
+            // 'record' => [
+            //     'responsibilities' => ['owner', 'preparer', 'reviewer', 'approver'],
+            // ],
+        ],
+    ],
 ];

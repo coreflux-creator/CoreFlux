@@ -35,7 +35,7 @@
  *     ]
  *   }
  *
- * Permission: payroll.run.create (same as building a run).
+ * Permission: payroll.run.create (readiness check before draft run creation).
  */
 declare(strict_types=1);
 

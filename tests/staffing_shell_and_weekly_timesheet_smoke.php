@@ -40,8 +40,12 @@ $a('manifest name is Staffing',                  ($m['name'] ?? null) === 'Staff
 $a('actions include Timesheets',                 in_array('Timesheets', array_column($m['actions'] ?? [], 'name'), true));
 $a('actions include Placements',                 in_array('Placements', array_column($m['actions'] ?? [], 'name'), true));
 $a('actions include Approvals',                  in_array('Approvals',  array_column($m['actions'] ?? [], 'name'), true));
+$actionPerms = array_column($m['actions'] ?? [], 'permission', 'name');
+$a('source permission: Placements action',        ($actionPerms['Placements'] ?? null) === 'placements.view');
+$a('source permission: Timesheets action',        ($actionPerms['Timesheets'] ?? null) === 'time.view');
+$a('source permission: Approvals action',         ($actionPerms['Approvals'] ?? null) === 'time.approve');
 $a('permissions list defines staffing.view',     isset($m['permissions']['staffing.view']));
-$a('permissions list defines staffing.time.approve', isset($m['permissions']['staffing.time.approve']));
+$a('permissions list keeps legacy staffing.time.approve alias', isset($m['permissions']['staffing.time.approve']));
 
 echo "\nMigration 001_timesheets.sql — header table contract\n";
 $mig1 = $read(__DIR__ . '/../modules/staffing/migrations/001_timesheets.sql');
@@ -63,6 +67,7 @@ $a('uses one-statement-per-line PREPARE',        preg_match('/PREPARE stmt FROM 
 
 echo "\nLib /modules/staffing/lib/timesheets.php\n";
 $lib = $read(__DIR__ . '/../modules/staffing/lib/timesheets.php');
+$timeSync = $read(__DIR__ . '/../modules/time/lib/workflow_sync.php');
 $a('STAFFING_HOUR_TYPES constant declared',      str_contains($lib, "const STAFFING_HOUR_TYPES"));
 $a('STAFFING_HOUR_TYPE_TO_CATEGORY map present', str_contains($lib, 'STAFFING_HOUR_TYPE_TO_CATEGORY'));
 $a('staffingTimesheetUpsert idempotent on (person, period_start)', str_contains($lib, 'staffingTimesheetUpsert') && str_contains($lib, 'period_start = :ps') && str_contains($lib, 'staffing_timesheets'));
@@ -75,7 +80,7 @@ $a('still hard-blocks edits on truly locked sheets (downstream JEs)',
    str_contains($lib, "Timesheet is locked"));
 $a('submit() flips header + cascades rows',      str_contains($lib, "scopedUpdate('staffing_timesheets', \$headerId, [") && str_contains($lib, "'submitted'") && str_contains($lib, "status = 'pending_review'"));
 $a('approve() guards two-eye control',           str_contains($lib, 'Two-eye control'));
-$a('reject() requires reason on header',         str_contains($lib, "'rejection_reason'    => \$reason"));
+$a('workflow reject writes reason on header',    str_contains($timeSync, 'rejection_reason = :r'));
 
 echo "\nAPI /modules/staffing/api/timesheets.php\n";
 $api = $read(__DIR__ . '/../modules/staffing/api/timesheets.php');
@@ -96,12 +101,17 @@ $a('App.jsx keeps /modules/time/* back-compat',  str_contains($app, '<Route path
 $a('App.jsx keeps /modules/placements/* back-compat', str_contains($app, '<Route path="/modules/placements/*"'));
 
 $sm = $read(__DIR__ . '/../modules/staffing/ui/StaffingModule.jsx');
+$overview = $read(__DIR__ . '/../modules/staffing/ui/StaffingOverview.jsx');
+$profitability = $read(__DIR__ . '/../modules/staffing/ui/StaffingProfitability.jsx');
 $a('StaffingModule routes timesheets (list/detail/week sub-routes — Batch 2 rebuild)',
     str_contains($sm, 'path="timesheets"')
     && str_contains($sm, 'path="timesheets/week"')
     && str_contains($sm, 'path="timesheets/:id"'));
 $a('StaffingModule routes approvals',            str_contains($sm, 'path="approvals/*"'));
-$a('StaffingModule routes placements (umbrella)', str_contains($sm, 'path="placements/*"'));
+$a('StaffingModule routes placements workbench shortcut', str_contains($sm, 'path="placements/*"'));
+$a('StaffingModule describes placements as source-module shortcut', str_contains($sm, 'source Placements module') && !str_contains($sm, 're-homing'));
+$a('Staffing profitability describes Reports as source module', str_contains($profitability, 'Reports-module analytics') && !str_contains($profitability, 'under the Staffing umbrella'));
+$a('Overview placements card links to canonical Placements', str_contains($overview, 'to="/modules/placements/list"'));
 $a('StaffingModule has settings page',           str_contains($sm, 'path="settings"'));
 $a('Overview default route',                     str_contains($sm, 'Navigate to="overview"'));
 
@@ -117,6 +127,7 @@ $a('TimesheetWeek Copy-last-week button',         str_contains($tw, 'data-testid
 $a('TimesheetWeek auto-prefill on empty week',    str_contains($tw, 'prefill_from_last_week') && str_contains($tw, 'prefillBanner'));
 $a('TimesheetWeek prefill banner with clear btn', str_contains($tw, 'data-testid="ts-prefill-banner"') && str_contains($tw, 'data-testid="ts-prefill-clear"'));
 $a('TimesheetWeek copy doesn\'t overwrite filled cells', str_contains($tw, "(c.hours || 0) > 0)) continue"));
+$a('TimesheetWeek empty state links to canonical Placement create', str_contains($tw, 'href="/modules/placements/new"'));
 
 $a('Lib has prior-week template builder',         str_contains($lib, 'staffingTimesheetPriorWeekTemplate'));
 $a('Prior-week template shifts dates +7 days',    str_contains($lib, "strtotime(\$r['work_date'] . ' +7 day')"));

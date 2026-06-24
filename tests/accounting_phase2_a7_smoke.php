@@ -16,7 +16,7 @@ $mig = (string) file_get_contents(__DIR__ . '/../modules/accounting/migrations/0
 $a('creates accounting_entity_relationships table',  $c($mig, 'CREATE TABLE IF NOT EXISTS accounting_entity_relationships'));
 $a('ownership_pct DECIMAL(7,4)',                     $c($mig, 'ownership_pct      DECIMAL(7,4)'));
 $a('relationship_type enum',                         $c($mig, "ENUM('subsidiary','affiliate','branch','jv','other')"));
-$a('consolidation_method enum (full/equity/cost/none)', $c($mig, "ENUM('full','equity','cost','none')"));
+$a('consolidation_method enum (full/proportionate/equity/cost/none)', $c($mig, "ENUM('full','proportionate','equity','cost','none')"));
 $a('effective_from + effective_to (dated edges)',    $c($mig, 'effective_from') && $c($mig, 'effective_to'));
 $a('unique on (tenant, parent, child, effective_from)', $c($mig, 'UNIQUE KEY uq_aer (tenant_id, parent_entity_id, child_entity_id, effective_from)'));
 $a('adds entity_id on billing_invoices (idempotent)',$c($mig, 'billing_invoices') && $c($mig, 'ADD COLUMN entity_id BIGINT'));
@@ -33,7 +33,7 @@ $a('consolidateTrialBalance',                        $c($lib, 'function consolid
 $a('consolidateIncomeStatement',                     $c($lib, 'function consolidateIncomeStatement'));
 $a('consolidateBalanceSheet',                        $c($lib, 'function consolidateBalanceSheet'));
 $a('validates relationship_type whitelist',          $c($lib, "['subsidiary','affiliate','branch','jv','other']"));
-$a('validates consolidation_method whitelist',       $c($lib, "['full','equity','cost','none']"));
+$a('validates consolidation_method whitelist',       $c($lib, "['full','proportionate','equity','cost','none']"));
 $a('validates ownership_pct 0..100',                 $c($lib, 'ownership_pct must be 0..100'));
 $a('descendants respect effective_from/to',
     $c($lib, 'effective_from <= :asof_lo') && $c($lib, '(effective_to IS NULL OR effective_to >= :asof_hi)'));
@@ -93,6 +93,7 @@ $a('form test-ids (parent/child/pct/type/method)',
     $c($ui, 'accounting-consol-type')   &&
     $c($ui, 'accounting-consol-method') &&
     $c($ui, 'accounting-consol-save'));
+$a('method selector exposes proportionate consolidation', $c($ui, 'value="proportionate"'));
 $a('edges table',                                    $c($ui, 'accounting-consol-edges-table'));
 $a('consolidated report block',                      $c($ui, 'accounting-consol-report'));
 $a('report type selector (IS/BS/TB)',                $c($ui, 'accounting-consol-report-type'));

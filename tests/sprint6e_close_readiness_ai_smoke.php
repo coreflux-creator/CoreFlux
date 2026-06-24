@@ -1,6 +1,6 @@
 <?php
 /**
- * Sprint 6e — Treasury entity-scope + AP legacy reverse-mirror + Period
+ * Sprint 6e — Treasury entity-scope + AP WorkflowEngine bridge + Period
  * Close Readiness AI narrative — static smoke.
  *
  *   php -d zend.assertions=1 /app/tests/sprint6e_close_readiness_ai_smoke.php
@@ -30,20 +30,17 @@ $assert('DepositList imports useActiveEntity',          stripos($tUI, 'useActive
 $assert('DepositList appends entityQuery to URL',       stripos($tUI, "entityQuery('?')") !== false);
 $assert('DepositList shows scope notice testid',        stripos($tUI, 'data-testid="treasury-deposits-entity-scope"') !== false);
 
-echo "\nAP legacy → workflow_instances reverse mirror\n";
+echo "\nAP legacy approval API delegates to WorkflowEngine\n";
 $ba = (string) file_get_contents("{$ROOT}/modules/ap/api/bill_approvals.php");
+$bridge = (string) file_get_contents("{$ROOT}/modules/ap/lib/workflow_bridge.php");
 $assert('bill_approvals.php parses',                    $lint("{$ROOT}/modules/ap/api/bill_approvals.php"));
-$assert('defines apMirrorToWorkflow',                   stripos($ba, 'function apMirrorToWorkflow') !== false);
-$assert('mirror requires workflow_engine',              stripos($ba, "/core/workflow_engine.php") !== false);
-$assert('mirror finds latest pending instance for bill',preg_match('#FROM workflow_instances\s+WHERE\s+tenant_id\s*=\s*:t\s+AND\s+subject_type\s*=\s*[\'"]ap_bill[\'"]\s+AND\s+subject_id\s*=\s*:s#i', $ba) === 1);
-$assert('mirror calls workflowAct',                     stripos($ba, 'workflowAct(') !== false);
-$assert('mirror swallows throwables (best-effort)',     preg_match("#catch\\s*\\(\\s*\\\\Throwable#", $ba) === 1);
-$assert('mirror invoked from approve/reject path',
-    preg_match('#apMirrorToWorkflow\s*\(\s*\$tenantId\s*,\s*\$billId\s*,\s*\$userId\s*,\s*\$action\s*,\s*\$note\s*\)\s*;#', $ba) === 1);
-$assert('mirror only runs for pending instances',
-    preg_match('#status[\'"]\\]\\s*!==\\s*[\'"]pending[\'"]#', $ba) === 1
-    || stripos($ba, "\$row['status'] !== 'pending'") !== false);
-
+$assert('bill_approvals loads workflow_bridge',         stripos($ba, "../lib/workflow_bridge.php") !== false);
+$assert('approve/reject path calls bridge action gate', stripos($ba, 'apWorkflowActBillApproval($tenantId, $bill, $userId, $action, $note, true)') !== false);
+$assert('blocked decisions use shared status mapping',  stripos($ba, 'apWorkflowDecisionHttpStatus($e)') !== false);
+$assert('old reverse mirror helper removed',            stripos($ba, 'function apMirrorToWorkflow') === false);
+$assert('bridge finds latest pending instance for bill',preg_match('#FROM workflow_instances\s+WHERE\s+tenant_id\s*=\s*:t\s+AND\s+subject_type\s*=\s*[\'\"]ap_bill[\'\"]\s+AND\s+subject_id\s*=\s*:s#i', $bridge) === 1);
+$assert('bridge calls workflowAct',                     stripos($bridge, 'workflowAct(') !== false);
+$assert('bridge only acts on pending instances',        stripos($bridge, "status = 'pending'") !== false);
 echo "\nPeriod Close Readiness AI endpoint\n";
 $ai = (string) file_get_contents("{$ROOT}/modules/accounting/api/close_ai.php");
 $assert('close_ai.php parses',                          $lint("{$ROOT}/modules/accounting/api/close_ai.php"));
@@ -64,7 +61,9 @@ $assert('404 on unknown period',                        preg_match("#api_error\\
 
 echo "\nPeriodCloseWorkflow UI — readiness affordance\n";
 $pcw = (string) file_get_contents("{$ROOT}/modules/accounting/ui/PeriodCloseWorkflow.jsx");
-$assert('hits /modules/accounting/api/close_ai.php',    stripos($pcw, '/modules/accounting/api/close_ai.php?action=readiness&period_id=') !== false);
+$assert('hits v1 close readiness API',                  stripos($pcw, '/api/v1/accounting/close-ai') !== false
+                                                        && stripos($pcw, 'action=readiness') !== false
+                                                        && stripos($pcw, '/modules/accounting/api/close_ai.php') === false);
 $assert('readiness ask button testid',                  stripos($pcw, 'data-testid="close-readiness-ask"') !== false);
 $assert('readiness card testid',                        stripos($pcw, 'data-testid="close-readiness-card"') !== false);
 $assert('readiness summary testid',                     stripos($pcw, 'data-testid="close-readiness-summary"') !== false);
