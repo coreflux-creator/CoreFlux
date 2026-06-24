@@ -125,7 +125,7 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
     $beforeRows = [];
     $afterRows = [];
 
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         // Lock + validate the batch.
         $stmt = $pdo->prepare(
@@ -158,10 +158,9 @@ function timeSettlementExtract(array $entryIds, string $target, int $targetRef, 
              WHERE tenant_id = ? AND id IN ($place)"
         );
         $upd->execute(array_merge([$targetRef, $actorUserId, $tenantId], $entryIds));
-        $afterRows = timeSettlementAuditRowsForTenant($tenantId, $entryIds);
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 
@@ -193,7 +192,7 @@ function timeSettlementUnExtract(array $entryIds, string $target, string $reason
     $beforeRows = [];
     $afterRows = [];
 
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         $stmt = $pdo->prepare(
             "SELECT id, {$cols['at']} AS already_at FROM time_entries
@@ -216,10 +215,9 @@ function timeSettlementUnExtract(array $entryIds, string $target, string $reason
              WHERE tenant_id = ? AND id IN ($place)"
         );
         $upd->execute(array_merge([$tenantId], $entryIds));
-        $afterRows = timeSettlementAuditRowsForTenant($tenantId, $entryIds);
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 

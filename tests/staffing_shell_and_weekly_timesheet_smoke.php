@@ -72,7 +72,7 @@ $a('STAFFING_HOUR_TYPES constant declared',      str_contains($lib, "const STAFF
 $a('STAFFING_HOUR_TYPE_TO_CATEGORY map present', str_contains($lib, 'STAFFING_HOUR_TYPE_TO_CATEGORY'));
 $a('staffingTimesheetUpsert idempotent on (person, period_start)', str_contains($lib, 'staffingTimesheetUpsert') && str_contains($lib, 'period_start = :ps') && str_contains($lib, 'staffing_timesheets'));
 $a('staffingTimesheetWeek joins placements + reads end_client_name', str_contains($lib, 'LEFT JOIN placements') && str_contains($lib, 'end_client_name'));
-$a('staffingTimesheetBulkSave wraps in transaction', str_contains($lib, '$pdo->beginTransaction()'));
+$a('staffingTimesheetBulkSave wraps in transaction', str_contains($lib, '$pdo->beginTransaction()') || str_contains($lib, 'cf_tx_begin($pdo)'));
 $a('zero hours → delete existing row',           str_contains($lib, '$hours <= 0 && !empty($r[\'id\'])') && str_contains($lib, "scopedDelete('time_entries'"));
 $a('auto-reopens when status is submitted/approved/rejected/payroll_ready/billing_ready',
    str_contains($lib, "in_array(\$header['status'] ?? 'draft', ['submitted','approved','rejected','payroll_ready','billing_ready']"));

@@ -304,7 +304,7 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
     }
 
     $pdo = getDB();
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         foreach ($rows as $r) {
             $hourType = $r['hour_type'] ?? 'regular';
@@ -388,9 +388,9 @@ function staffingTimesheetBulkSave(int $userId, array $payload): array {
         );
         scopedUpdate('staffing_timesheets', $headerId, ['total_hours' => (float) ($sum['h'] ?? 0)]);
 
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 
@@ -409,8 +409,7 @@ function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart
     $beforeEntries = timeEntryAuditRowsForTimesheet($tenantId, $headerId);
 
     $pdo = getDB();
-    $workflowInstanceId = null;
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         $submittedAt = date('Y-m-d H:i:s');
         scopedUpdate('staffing_timesheets', $headerId, [
@@ -423,17 +422,10 @@ function staffingTimesheetSubmit(int $userId, int $personId, string $periodStart
                 SET status = 'pending_review'
               WHERE tenant_id = :t AND timesheet_id = :tid AND status IN ('draft','rejected')"
         );
-        $upd->execute(['t' => $tenantId, 'tid' => $headerId]);
-        $workflowInstanceId = staffingTimesheetWorkflowStart($tenantId, array_merge($header, [
-            'status' => 'submitted',
-            'submitted_at' => $submittedAt,
-        ]), $userId);
-        if (!$workflowInstanceId) {
-            throw new \RuntimeException('Could not start timesheet approval workflow');
-        }
-        $pdo->commit();
+        $upd->execute(['t' => currentTenantId(), 'tid' => $headerId]);
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 
@@ -463,7 +455,28 @@ function staffingTimesheetReject(int $userId, int $personId, string $periodStart
     if ($header['status'] !== 'submitted') {
         throw new \RuntimeException("Cannot reject a {$header['status']} timesheet");
     }
-    staffingTimesheetWorkflowAct(currentTenantId(), $header, $userId, 'reject', $reason);
+    $headerId = (int) $header['id'];
+
+    $pdo = getDB();
+    $ownsTxn = cf_tx_begin($pdo);
+    try {
+        scopedUpdate('staffing_timesheets', $headerId, [
+            'status'              => 'rejected',
+            'rejected_at'         => date('Y-m-d H:i:s'),
+            'rejected_by_user_id' => $userId,
+            'rejection_reason'    => $reason,
+        ]);
+        $upd = $pdo->prepare(
+            "UPDATE time_entries
+                SET status = 'rejected', rejected_reason = :r
+              WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'pending_review'"
+        );
+        $upd->execute(['t' => currentTenantId(), 'tid' => $headerId, 'r' => $reason]);
+        cf_tx_commit($pdo, $ownsTxn);
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTxn);
+        throw $e;
+    }
 
     return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
 }
@@ -522,7 +535,30 @@ function staffingTimesheetApprove(int $userId, int $personId, string $periodStar
         throw new \RuntimeException('Two-eye control: cannot approve your own timesheet');
     }
 
-    staffingTimesheetWorkflowAct(currentTenantId(), $header, $userId, 'approve');
+    $headerId = (int) $header['id'];
+    $pdo = getDB();
+    $ownsTxn = cf_tx_begin($pdo);
+    try {
+        scopedUpdate('staffing_timesheets', $headerId, [
+            'status'              => 'approved',
+            'approved_at'         => date('Y-m-d H:i:s'),
+            'approved_by_user_id' => $userId,
+        ]);
+        $upd = $pdo->prepare(
+            "UPDATE time_entries
+                SET status = 'approved', approved_at = NOW(), approved_by_user_id = :u, approved_via = 'manual'
+              WHERE tenant_id = :t AND timesheet_id = :tid AND status = 'pending_review'"
+        );
+        $upd->execute(['t' => currentTenantId(), 'tid' => $headerId, 'u' => $userId]);
+        cf_tx_commit($pdo, $ownsTxn);
+    } catch (\Throwable $e) {
+        cf_tx_rollback($pdo, $ownsTxn);
+        throw $e;
+    }
+
+    // Best-effort: emit the accounting event so the GL gets the staffing
+    // labor revenue / cost / GP journal. Failures don't roll back approval.
+    staffingEmitWorkerHoursApprovedEvent(currentTenantId(), $headerId);
 
     return staffingTimesheetWeek($personId, $periodStart, $periodEnd);
 }
@@ -626,7 +662,7 @@ function staffingTimesheetReopen(int $userId, int $timesheetId, string $reason =
     // existing settlement code and the journal_entry_lines reference
     // them by id.  Operators must reverse the JE first.
     $pdo = getDB();
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         scopedUpdate('staffing_timesheets', $timesheetId, [
             'status'           => 'draft',
@@ -641,9 +677,9 @@ function staffingTimesheetReopen(int $userId, int $timesheetId, string $reason =
                 AND status IN ('pending_review','approved','rejected','payroll_ready','billing_ready')"
         );
         $upd->execute(['t' => currentTenantId(), 'tid' => $timesheetId]);
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
     return scopedFind(

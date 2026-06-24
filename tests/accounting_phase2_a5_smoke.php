@@ -54,7 +54,7 @@ $a('rejects offset <= 0',                       $contains($lib, 'offset amount m
 $a('validates side whitelist',                  $contains($lib, "in_array(\$side, ['credit','debit']"));
 $a('resolver prefers override over mapping',    $contains($lib, "'source'                => 'override'"));
 $a('resolver throws when mapping missing',      $contains($lib, 'No intercompany mapping from entity'));
-$a('wraps post in a transaction (atomic)',      $contains($lib, 'beginTransaction()') && $contains($lib, 'rollBack()'));
+$a('wraps post in a transaction (atomic)',      ($contains($lib, 'beginTransaction()') || $contains($lib, 'cf_tx_begin(')) && ($contains($lib, 'rollBack()') || $contains($lib, 'cf_tx_rollback(')));
 $a('writes intercompany_group_id onto every JE',
     substr_count($lib, "UPDATE accounting_journal_entries SET intercompany_group_id") >= 1);
 $a('auto-marks bank_statement_line matched',    $contains($lib, "UPDATE accounting_bank_statement_lines") && $contains($lib, "match_status = 'matched'"));

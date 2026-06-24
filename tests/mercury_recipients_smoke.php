@@ -89,7 +89,7 @@ $a('account length 4-17 validation',
 $a('encrypts both routing + account via encryptField',
     $c($svc, '$rCt = encryptField($routing)') && $c($svc, '$aCt = encryptField($account)'));
 $a('insert is transactional (beginTransaction/commit/rollBack)',
-    $c($svc, '$pdo->beginTransaction()') && $c($svc, '$pdo->commit()') && $c($svc, '$pdo->rollBack()'));
+    ($c($svc, '$pdo->beginTransaction()') || $c($svc, 'cf_tx_begin($pdo)')) && ($c($svc, '$pdo->commit()') || $c($svc, 'cf_tx_commit(')) && ($c($svc, '$pdo->rollBack()') || $c($svc, 'cf_tx_rollback(')));
 $a('soft-revoke via deleted_at',                 $c($svc, "deleted_at = NOW()"));
 $a('list excludes soft-deleted rows',            $c($svc, 'deleted_at IS NULL'));
 $a('get returns bank_method (last4 only, no plaintext)',

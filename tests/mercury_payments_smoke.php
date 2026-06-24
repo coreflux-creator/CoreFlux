@@ -156,7 +156,7 @@ $a('mpTransition snapshots before/after payment instruction rows',
 $a('mpTransition patch column allowlist (anti-injection)',
     $c($svc, "preg_match('/^[a-z0-9_]+\$/'"));
 $a('mpTransition wrapped in transaction with rollback',
-    $c($svc, '$pdo->beginTransaction()') && $c($svc, '$pdo->rollBack()'));
+    ($c($svc, '$pdo->beginTransaction()') || $c($svc, 'cf_tx_begin($pdo)')) && ($c($svc, '$pdo->rollBack()') || $c($svc, 'cf_tx_rollback(')));
 
 // Workflow orchestrator
 $a('mpAdvance() dispatcher exported',            $c($svc, 'function mpAdvance(int $tenantId, int $instructionId): string'));

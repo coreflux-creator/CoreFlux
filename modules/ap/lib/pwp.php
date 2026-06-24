@@ -95,7 +95,10 @@ function apPwpAutoLinkForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorU
     $candidates = $st->fetchAll(\PDO::FETCH_ASSOC);
 
     $linked = [];
-    $pdo->beginTransaction();
+    // Nested-safe — invoked from inside billingAllocatePayment() during
+    // the PWP auto-link cascade; outer caller may already own the tx.
+    $ownsTxn = !$pdo->inTransaction();
+    if ($ownsTxn) $pdo->beginTransaction();
     try {
         foreach ($candidates as $b) {
             $parsed = apPwpParseTerms($b['payment_terms']);
@@ -127,9 +130,9 @@ function apPwpAutoLinkForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorU
                 'auto'    => true,
             ], (int) $b['id']);
         }
-        $pdo->commit();
+        if ($ownsTxn) $pdo->commit();
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
     return ['linked' => $linked];
@@ -231,7 +234,10 @@ function apPwpReleaseForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorUs
           FOR UPDATE'
     );
     $released = [];
-    $pdo->beginTransaction();
+    // Nested-safe — apPwpReleaseForArInvoice is auto-fired from inside
+    // billingAllocatePayment(); that handler already holds a tx.
+    $ownsTxn = !$pdo->inTransaction();
+    if ($ownsTxn) $pdo->beginTransaction();
     try {
         $st->execute(['t' => $tenantId, 'ar' => $arInvoiceId]);
         $bills = $st->fetchAll(\PDO::FETCH_ASSOC);
@@ -277,9 +283,9 @@ function apPwpReleaseForArInvoice(int $tenantId, int $arInvoiceId, ?int $actorUs
                 'new_due_date' => $newDue,
             ];
         }
-        $pdo->commit();
+        if ($ownsTxn) $pdo->commit();
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
     return ['released' => $released];

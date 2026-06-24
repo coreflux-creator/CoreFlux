@@ -191,7 +191,7 @@ function payrollImportRunCsv(
     // Create the payroll_runs row in a single transaction with the
     // line-item inserts so a failure leaves no half-state.
     $now = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? "datetime('now')" : 'NOW()';
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         $insRun = $pdo->prepare(
             'INSERT INTO payroll_runs
@@ -321,10 +321,10 @@ function payrollImportRunCsv(
             't'  => $tenantId,
         ]);
 
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
         $summary['run_id'] = $runId;
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         $summary['errors'][] = 'transaction failed: ' . $e->getMessage();
     }
 

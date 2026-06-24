@@ -281,7 +281,7 @@ function companiesMerge(int $tenantId, int $survivorId, int $victimId, ?int $act
         if ($r['deleted_at'] !== null)           throw new \RuntimeException("Company {$r['id']} is already soft-deleted");
     }
 
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         $redir = [];
 
@@ -328,9 +328,9 @@ function companiesMerge(int $tenantId, int $survivorId, int $victimId, ?int $act
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $pdo->prepare('UPDATE companies SET deleted_at = NOW() WHERE id = :v')->execute(['v' => $victimId]);
 
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 

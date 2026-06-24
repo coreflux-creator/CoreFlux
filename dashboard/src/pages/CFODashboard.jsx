@@ -8,6 +8,7 @@ import FscHealthPanel from '../components/FscHealthPanel';
 import QboSyncHealthTile from '../components/QboSyncHealthTile';
 import ApprovalMixTile from '../components/ApprovalMixTile';
 import RevenueStreamWidget from '../components/RevenueStreamWidget';
+import PwpReleasedNudge from '../components/PwpReleasedNudge';
 import {
   TrendingUp, TrendingDown, Calendar, Save, Send, Sparkles, StickyNote, X,
   Eye, EyeOff, ArrowUpDown, Plus, Trash2, Loader2, FileText,
@@ -208,6 +209,10 @@ export default function CFODashboard({ session }) {
       </div>
 
       <RevenueStreamWidget />
+
+      {/* P2.3 — auto-suggest a payment run when PWP just released bills.
+          Renders nothing when there's nothing to nudge about. */}
+      <PwpReleasedNudge variant="tile" days={7} />
 
       <FscHealthPanel />
 

@@ -25,7 +25,12 @@ require_once __DIR__ . '/../../../core/encryption.php';
 function apNextInternalRef(int $tenantId): string
 {
     $pdo = getDB();
-    $pdo->beginTransaction();
+    // Nested-safe: do not re-open a transaction the caller already owns.
+    // The Create-Bill endpoint wraps this call in cf_begin_transaction();
+    // a raw beginTransaction() here would throw "There is already an
+    // active transaction" (Feb-2026 regression).
+    $ownsTxn = !$pdo->inTransaction();
+    if ($ownsTxn) $pdo->beginTransaction();
     try {
         $row = $pdo->prepare(
             'SELECT ap_bill_prefix, ap_next_bill_seq
@@ -39,11 +44,11 @@ function apNextInternalRef(int $tenantId): string
 
         $pdo->prepare('UPDATE tenants SET ap_next_bill_seq = :n WHERE id = :id')
             ->execute(['n' => $seq + 1, 'id' => $tenantId]);
-        $pdo->commit();
+        if ($ownsTxn) $pdo->commit();
 
         return sprintf('%s-%s-%04d', $prefix, date('Y'), $seq);
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
 }
@@ -879,7 +884,10 @@ function apExecutePaymentRun(int $tenantId, string $rail, array $groups, ?int $u
 function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = null): array
 {
     $pdo = getDB();
-    $pdo->beginTransaction();
+    // Nested-safe — apAllocatePayment is also invoked from inside a
+    // billing/PWP cascade where the outer txn is already open.
+    $ownsTxn = !$pdo->inTransaction();
+    if ($ownsTxn) $pdo->beginTransaction();
     try {
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $payStmt = $pdo->prepare('SELECT * FROM ap_payments WHERE id = :id FOR UPDATE');
@@ -967,10 +975,10 @@ function apAllocatePayment(int $paymentId, array $request, ?int $actorUserId = n
         $pdo->prepare('UPDATE ap_payments SET unallocated_amount = :u WHERE id = :id')
             ->execute(['u' => $newUnalloc, 'id' => $paymentId]);
 
-        $pdo->commit();
+        if ($ownsTxn) $pdo->commit();
         return ['applied' => $applied, 'unallocated_remaining' => $newUnalloc];
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
 }

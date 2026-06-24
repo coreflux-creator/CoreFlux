@@ -141,7 +141,22 @@ export default function BillDetail() {
           {lines.map(l => (
             <tr key={l.id} data-testid={`ap-bill-line-${l.id}`}>
               <td>{l.line_no}</td>
-              <td>{l.description}</td>
+              <td>
+                {l.description}
+                {(l.source_type === 'time_entry' || l.source_type === 'time') && l.source_ref_id && l.source_timesheet_id && (
+                  <>
+                    {' '}
+                    <Link
+                      to={`/modules/staffing/timesheets/${l.source_timesheet_id}/lifecycle?entry_id=${l.source_ref_id}`}
+                      data-testid={`ap-bill-line-time-entry-${l.id}`}
+                      style={{ fontSize: 11, marginLeft: 4, color: '#6b7280' }}
+                      title={`Trace back to time entry #${l.source_ref_id}${l.source_work_date ? ' (' + l.source_work_date + ')' : ''}`}
+                    >
+                      ↳ time entry #{l.source_ref_id}
+                    </Link>
+                  </>
+                )}
+              </td>
               <td style={{textAlign:'right'}}>{Number(l.quantity).toFixed(2)}</td>
               <td>{l.unit}</td>
               <td style={{textAlign:'right'}}>{Number(l.unit_price).toFixed(4)}</td>

@@ -171,6 +171,10 @@ if ($method === 'POST' && (string) (api_query('action') ?? '') === 'invite') {
         if (in_array('status',    $cols, true)) $row['status']    = 'active';
         if (in_array('is_active', $cols, true)) $row['is_active'] = 1;
         if (in_array('created_at', $cols, true)) $row['__created_at_now'] = true;
+        // Some production envs still carry a legacy NOT-NULL `tenant_id`
+        // column on `users` (added manually, not via a tracked migration).
+        // Bind to the inviting tenant so the INSERT doesn't trip on it.
+        if (in_array('tenant_id', $cols, true)) $row['tenant_id'] = $tenantId;
         // password/password_hash are NOT NULL in the legacy schema. Seed a
         // placeholder bcrypt of a 32-byte random secret so the row is valid
         // but unusable for password login (invitee must complete magic-link

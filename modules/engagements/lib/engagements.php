@@ -96,7 +96,7 @@ function engagementsCreate(int $tenantId, array $input, ?int $actorUserId = null
     if (empty($input['project_name'])) throw new \InvalidArgumentException('project_name required');
 
     $pdo = getDB();
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         $pdo->prepare(
             'INSERT INTO engagements
@@ -152,10 +152,10 @@ function engagementsCreate(int $tenantId, array $input, ?int $actorUserId = null
         ], $actorUserId);
 
         _engagementsRecalcRollups($tenantId, $id);
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
         return $id;
     } catch (\Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 }

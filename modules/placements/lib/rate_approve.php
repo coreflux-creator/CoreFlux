@@ -57,7 +57,8 @@ if (!function_exists('placementsRateApproveOneForTenant')) {
             $rateId
         );
 
-        $pdo->beginTransaction();
+        $pdo = getDB();
+        $ownsTxn = cf_tx_begin($pdo);
         try {
             // Close prior approved row covering this effective_from.
             $stmt = $pdo->prepare(
@@ -101,9 +102,9 @@ if (!function_exists('placementsRateApproveOneForTenant')) {
                 'tenant_id' => $tenantId,
                 'id'        => $rateId,
             ]);
-            $pdo->commit();
+            cf_tx_commit($pdo, $ownsTxn);
         } catch (\Throwable $e) {
-            $pdo->rollBack();
+            cf_tx_rollback($pdo, $ownsTxn);
             throw $e;
         }
 

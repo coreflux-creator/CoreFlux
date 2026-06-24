@@ -15,6 +15,7 @@
  * Run: php -d zend.assertions=1 /app/tests/engagements_module_smoke.php
  */
 declare(strict_types=1);
+require_once '/app/core/tx_helpers.php';
 
 $passes = 0; $failures = [];
 function check(string $label, bool $cond) {

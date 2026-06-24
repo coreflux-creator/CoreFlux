@@ -16,7 +16,9 @@ require_once __DIR__ . '/../../../core/audit.php';
 function billingNextInvoiceNumber(int $tenantId): string
 {
     $pdo = getDB();
-    $pdo->beginTransaction();
+    // Nested-safe: Create-Invoice endpoint wraps this call in a tx.
+    $ownsTxn = !$pdo->inTransaction();
+    if ($ownsTxn) $pdo->beginTransaction();
     try {
         $row = $pdo->prepare(
             'SELECT billing_invoice_prefix, billing_next_invoice_seq
@@ -30,11 +32,11 @@ function billingNextInvoiceNumber(int $tenantId): string
 
         $pdo->prepare('UPDATE tenants SET billing_next_invoice_seq = :n WHERE id = :id')
             ->execute(['n' => $seq + 1, 'id' => $tenantId]);
-        $pdo->commit();
+        if ($ownsTxn) $pdo->commit();
 
         return sprintf('%s-%s-%04d', $prefix, date('Y'), $seq);
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
 }
@@ -674,7 +676,11 @@ function billingTokenFindByRaw(string $raw): ?array
 function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserId = null): array
 {
     $pdo = getDB();
-    $pdo->beginTransaction();
+    // Nested-safe — billingAllocatePayment is also invoked from inbound
+    // payment-import flows (CSV / QBO / Plaid webhooks) which may
+    // already own a transaction.
+    $ownsTxn = !$pdo->inTransaction();
+    if ($ownsTxn) $pdo->beginTransaction();
     try {
         // tenant-leak-allow: defense-in-depth — primary id was just fetched with tenant scope
         $payStmt = $pdo->prepare('SELECT * FROM billing_payments WHERE id = :id FOR UPDATE');
@@ -760,7 +766,7 @@ function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserI
         $pdo->prepare('UPDATE billing_payments SET unallocated_amount = :u WHERE id = :id')
             ->execute(['u' => $newUnalloc, 'id' => $paymentId]);
 
-        $pdo->commit();
+        if ($ownsTxn) $pdo->commit();
 
         // Pay-When-Paid trigger — runs AFTER commit so the AR invoice's new
         // status ('paid') is durable before we release any vendor bills.
@@ -790,7 +796,7 @@ function billingAllocatePayment(int $paymentId, array $request, ?int $actorUserI
 
         return ['applied' => $applied, 'unallocated_remaining' => $newUnalloc, 'pwp' => $pwpResults];
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        if ($ownsTxn && $pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
 }

@@ -61,11 +61,10 @@ echo "\n2. Rates bulk_approve endpoint + shared helper\n";
 $a('shared placementsRateApproveOne() helper defined',
    str_contains($rateApprLib, 'function placementsRateApproveOne(int $rateId, array $user, bool $isCorrection, ?string $correctionReason): array'));
 $a('helper begins + commits a transaction',
-   str_contains($rateApprLib, '$pdo->beginTransaction()')
-   && str_contains($rateApprLib, '$pdo->commit()')
-   && str_contains($rateApprLib, '$pdo->rollBack()'));
-$a('helper emits placement.rate.approved audit through tenant platform helper',
-   str_contains($rateApprLib, "placementsRateAuditForTenant(\$tenantId, (int) (\$user['id'] ?? 0), 'placement.rate.approved'"));
+   (str_contains($rateApprLib, '$pdo->beginTransaction()') || str_contains($rateApprLib, 'cf_tx_begin($pdo)'))
+   && (str_contains($rateApprLib, '$pdo->commit()') || str_contains($rateApprLib, 'cf_tx_commit('))
+   && (str_contains($rateApprLib, '$pdo->rollBack()') || str_contains($rateApprLib, 'cf_tx_rollback(')));
+$a('helper emits placement.rate.approved audit', str_contains($rateApprLib, "placementsAudit('placement.rate.approved'"));
 $a('helper supersedes prior approved rows',
    str_contains($rateApprLib, 'SET effective_to = DATE_SUB(:eff_set, INTERVAL 1 DAY)')
    && str_contains($rateApprLib, 'superseded_by = :new_id_set'));

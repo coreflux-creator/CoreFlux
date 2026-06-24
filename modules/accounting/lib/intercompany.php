@@ -231,7 +231,7 @@ function intercompanyPostSplit(int $tenantId, array $payload, ?int $actorUserId 
     }
 
     $db = getDB();
-    $db->beginTransaction();
+    $ownsTxn = cf_tx_begin($db);
     $posted = [];
     try {
         // ── Build + post the SOURCE entity's JE ────────────────────────
@@ -328,9 +328,9 @@ function intercompanyPostSplit(int $tenantId, array $payload, ?int $actorUserId 
             ]);
         }
 
-        $db->commit();
+        cf_tx_commit($db, $ownsTxn);
     } catch (\Throwable $e) {
-        $db->rollBack();
+        cf_tx_rollback($db, $ownsTxn);
         throw $e;
     }
 

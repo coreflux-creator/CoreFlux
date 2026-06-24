@@ -72,23 +72,21 @@ function mpTransition(int $tenantId, int $instructionId, string $toState, ?strin
     $pdo = getDB();
     $cur = $pdo->prepare('SELECT * FROM payment_instructions WHERE tenant_id = :t AND id = :id FOR UPDATE');
     // Wrap in a transaction so the SELECT FOR UPDATE locks the row.
-    $before = null;
-    $after = null;
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         $cur->execute(['t' => $tenantId, 'id' => $instructionId]);
-        $before = $cur->fetch(\PDO::FETCH_ASSOC);
-        if (!$before) {
-            $pdo->rollBack();
+        $from = $cur->fetchColumn();
+        if ($from === false) {
+            cf_tx_rollback($pdo, $ownsTxn);
             throw new \RuntimeException('payment_instruction not found');
         }
         $from = (string) $before['state'];
         if ($from === $toState) {
-            $pdo->rollBack();
+            cf_tx_rollback($pdo, $ownsTxn);
             return false;
         }
         if (!mpTransitionAllowed((string) $from, $toState)) {
-            $pdo->rollBack();
+            cf_tx_rollback($pdo, $ownsTxn);
             throw new \RuntimeException("Illegal transition {$from} → {$toState}");
         }
 
@@ -119,10 +117,9 @@ function mpTransition(int $tenantId, int $instructionId, string $toState, ?strin
             'mt' => $meta ? json_encode($meta) : null,
         ]);
 
-        $after = mercuryAuditPaymentInstructionRow($tenantId, $instructionId);
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
     } catch (\Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 

@@ -127,7 +127,7 @@ function subTenantProvision(int $parentTenantId, array $opts, ?int $actorUserId 
     // when they need a distinct subdomain.
     $subdomain = trim((string)($opts['subdomain'] ?? '')) ?: $slug;
 
-    $pdo->beginTransaction();
+    $ownsTxn = cf_tx_begin($pdo);
     try {
         $stmt = $pdo->prepare(
             "INSERT INTO tenants (name, slug, subdomain, parent_id, tenant_type, is_active,
@@ -240,10 +240,10 @@ function subTenantProvision(int $parentTenantId, array $opts, ?int $actorUserId 
             // even if the inline seed failed.
         }
 
-        $pdo->commit();
+        cf_tx_commit($pdo, $ownsTxn);
         return $newId;
     } catch (Throwable $e) {
-        $pdo->rollBack();
+        cf_tx_rollback($pdo, $ownsTxn);
         throw $e;
     }
 }
