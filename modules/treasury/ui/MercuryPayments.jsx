@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApi, api } from '../../../dashboard/src/lib/api';
 import IdBadge from '../../../dashboard/src/components/IdBadge';
 
@@ -608,6 +608,20 @@ function fmtCoolOff(secs) {
  * or transient lookup failure — never breaks the modal).
  */
 function ApprovalProgressPanel({ progress }) {
+  // Live-tick cool-off countdown without re-fetching by leaning on the
+  // server-supplied seconds and decrementing client-side. Re-mounts
+  // each modal open get a fresh count.
+  //
+  // MUST be declared BEFORE the early null-progress return below
+  // (rules-of-hooks). Inputs are nullable-safe.
+  const [tick, setTick] = useState(progress?.cool_off_seconds_remaining || 0);
+  useEffect(() => {
+    setTick(progress?.cool_off_seconds_remaining || 0);
+    if (!progress?.cool_off_seconds_remaining) return;
+    const h = setInterval(() => setTick(t => Math.max(0, t - 1)), 1000);
+    return () => clearInterval(h);
+  }, [progress?.cool_off_seconds_remaining]);
+
   if (!progress || !progress.acks_required) return null;
   const {
     policy_name, required_approver_role,
@@ -618,17 +632,6 @@ function ApprovalProgressPanel({ progress }) {
 
   const complete = acks_remaining === 0;
   const ringColor = complete ? '#16a34a' : '#7c3aed';
-
-  // Live-tick cool-off countdown without re-fetching by leaning on the
-  // server-supplied seconds and decrementing client-side. Re-mounts
-  // each modal open get a fresh count.
-  const [tick, setTick] = useState(cool_off_seconds_remaining || 0);
-  React.useEffect(() => {
-    setTick(cool_off_seconds_remaining || 0);
-    if (!cool_off_seconds_remaining) return;
-    const h = setInterval(() => setTick(t => Math.max(0, t - 1)), 1000);
-    return () => clearInterval(h);
-  }, [cool_off_seconds_remaining]);
 
   const eligHint = !can_approve && (() => {
     if (can_approve_reason?.startsWith('role-mismatch:')) {

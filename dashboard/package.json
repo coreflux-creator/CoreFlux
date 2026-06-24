@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "vite",
+    "lint:hooks": "cd .. && node dashboard/node_modules/eslint/bin/eslint.js 'dashboard/src/**/*.{js,jsx}' 'modules/**/ui/**/*.{js,jsx}'",
+    "prebuild": "yarn lint:hooks",
     "build": "vite build",
     "postbuild": "bash ../scripts/sync_bundle.sh",
     "preview": "vite preview"
@@ -17,6 +19,9 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.0.3",
+    "eslint": "^9",
+    "eslint-plugin-react-hooks": "^5",
+    "globals": "^17.7.0",
     "vite": "^5.2.0"
   }
 }

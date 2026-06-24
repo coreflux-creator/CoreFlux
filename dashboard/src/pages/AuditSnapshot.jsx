@@ -127,7 +127,6 @@ export default function AuditSnapshot({ session }) {
           </p>
         </div>
         {tenant.logo_url && (
-          // eslint-disable-next-line jsx-a11y/img-redundant-alt
           <img src={tenant.logo_url} alt={`${tenant.name} logo`}
                style={{ maxHeight: 56, maxWidth: 180, objectFit: 'contain' }} />
         )}

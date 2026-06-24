@@ -188,13 +188,15 @@ function AuditRow({ row }) {
 }
 
 function HistoryRow({ row }) {
+  // Hooks must precede any conditional return (rules-of-hooks).
+  const [open, setOpen] = useState(false);
+  const changes = useMemo(() => diffPayloads(row.payload_before, row.payload_after), [row]);
+
   const isAudit = row.kind === 'audit';
   // Audit rows render a different shape: no payload diff, just the
   // event label + meta-json fields rendered inline.
   if (isAudit) return <AuditRow row={row} />;
 
-  const [open, setOpen] = useState(false);
-  const changes = useMemo(() => diffPayloads(row.payload_before, row.payload_after), [row]);
   const sourceLabel = SOURCE_LABEL[row.source_system] || row.source_system;
   const actorLabel = row.actor?.email || (row.actor_user_id ? `User #${row.actor_user_id}` : 'system (cron)');
 

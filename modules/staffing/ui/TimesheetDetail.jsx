@@ -130,6 +130,36 @@ export default function TimesheetDetail({ session }) {
   // is loaded (don't wipe pending edits on optimistic patches).
   useEffect(() => { setEdits({}); setBulkResult(null); }, [data?.timesheet?.id]);
 
+  // Per-placement summary (only when timesheet spans multiple placements).
+  // Computed over the MERGED rows so unsaved edits flow into the totals
+  // live — operators see the impact of each cell change before committing.
+  //
+  // Must be declared BEFORE the early returns below (rules-of-hooks). Inputs
+  // (entries from line 56, edits from line 117) are already in scope here.
+  const { byPlacement, liveTotal, liveByCategory, liveByHourType } = useMemo(() => {
+    const m = {};
+    let total = 0;
+    const byCat = { billable: 0, nonbillable: 0 };
+    const byHt = {};
+    entries.forEach(e => {
+      const row = { ...e, ...(edits[e.id] || {}) };
+      const h = Number(row.hours || 0);
+      const k = row.placement_id;
+      if (!m[k]) m[k] = { title: e.placement_title || `Placement #${k}`, client: e.client_name, hours: 0 };
+      m[k].hours += h;
+      total += h;
+      const ht = HOUR_TYPES.find(t => t.v === row.hour_type) || HOUR_TYPES[0];
+      byCat[ht.billable ? 'billable' : 'nonbillable'] += h;
+      byHt[row.hour_type] = (byHt[row.hour_type] || 0) + h;
+    });
+    return {
+      byPlacement: m,
+      liveTotal: total,
+      liveByCategory: byCat,
+      liveByHourType: byHt,
+    };
+  }, [entries, edits]);
+
   if (loading) return <p data-testid="timesheet-detail-loading">Loading timesheet…</p>;
   if (error)   return <p className="error" data-testid="timesheet-detail-error">Error: {error.message}</p>;
   if (!ts)     return <p data-testid="timesheet-detail-empty">Timesheet not found.</p>;
@@ -296,30 +326,6 @@ export default function TimesheetDetail({ session }) {
       setBulkSaving(false);
     }
   };
-
-  // Per-placement summary (only when timesheet spans multiple placements).
-  // Computed over the MERGED rows so unsaved edits flow into the totals
-  // live — operators see the impact of each cell change before committing.
-  const { byPlacement, liveTotal, liveByCategory, liveByHourType } = useMemo(() => {
-    const m = {};
-    let total = 0;
-    const byCat = { billable: 0, nonbillable: 0 };
-    const byHt = {};
-    entries.forEach(e => {
-      const row = { ...e, ...(edits[e.id] || {}) };
-      const h = Number(row.hours || 0);
-      const k = row.placement_id;
-      if (!m[k]) m[k] = { title: e.placement_title || `Placement #${k}`, client: e.client_name, hours: 0 };
-      m[k].hours += h;
-      total += h;
-      // Billable flag follows hour_type per STAFFING_HOUR_TYPE_TO_CATEGORY
-      // rules — keep the UI in sync with what the backend will compute.
-      const ht = HOUR_TYPES.find(t => t.v === row.hour_type) || HOUR_TYPES[0];
-      byCat[ht.billable ? 'billable' : 'nonbillable'] += h;
-      byHt[row.hour_type] = (byHt[row.hour_type] || 0) + h;
-    });
-    return { byPlacement: m, liveTotal: total, liveByCategory: byCat, liveByHourType: byHt };
-  }, [entries, edits]);
 
   const serverTotal = Number(ts.total_hours || 0);
   const delta = liveTotal - serverTotal;

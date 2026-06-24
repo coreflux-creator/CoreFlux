@@ -381,7 +381,7 @@ export default function FieldMappingStudio() {
   };
 
   // Apply an inspected path to the mapping form (closes inspector, pre-selects).
-  const useInspectedPath = (path) => {
+  const applyInspectedPath = (path) => {
     if (inspectorEntity !== entityType) {
       // Switch the main pane to the entity the user is browsing, then
       // select the path after `reload()` repopulates `paths`. Setting
@@ -1814,7 +1814,7 @@ export default function FieldMappingStudio() {
                               data-entity={p._et}
                               onClick={() => {
                                 setInspectorEntity(p._et);
-                                useInspectedPath(p);
+                                applyInspectedPath(p);
                               }}
                               style={{ borderTop: '1px solid #f1f5f9', cursor: 'pointer' }}
                               onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
@@ -1871,7 +1871,7 @@ export default function FieldMappingStudio() {
                         {visible.map((p, i) => (
                           <tr key={i}
                               data-testid={`fms-inspector-row-${i}`}
-                              onClick={() => useInspectedPath(p)}
+                              onClick={() => applyInspectedPath(p)}
                               style={{ borderTop: '1px solid #f1f5f9', cursor: 'pointer' }}
                               onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
                               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
