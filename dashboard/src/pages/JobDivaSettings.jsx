@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../lib/api';
 import {
-  Activity, AlertCircle, CheckCircle2, Copy, Link2,
-  PlugZap, RefreshCw, ShieldCheck, Sparkles, X, XCircle,
+  Activity, AlertCircle, AlertTriangle, CheckCircle2, Copy, Database, GitBranch, Link2,
+  PlugZap, RefreshCw, ShieldCheck, Sparkles, Wrench, X, XCircle,
 } from 'lucide-react';
 
 /**
@@ -27,9 +27,44 @@ export default function JobDivaSettings() {
   const [err, setErr]   = useState(null);
   const [showPwd, setShowPwd] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const [alignment, setAlignment] = useState(null);
+  const [alignmentLoading, setAlignmentLoading] = useState(false);
+  const [alignmentError, setAlignmentError] = useState(null);
+  const [repairResult, setRepairResult] = useState(null);
 
   const set = (k, v) => setForm(s => ({ ...s, [k]: v }));
   const clear = () => { setMsg(null); setErr(null); };
+
+  const loadAlignment = useCallback(async () => {
+    setAlignmentLoading(true);
+    setAlignmentError(null);
+    try {
+      const r = await api.get('/api/admin/integrations/jobdiva_mapping_alignment.php');
+      setAlignment(r);
+    } catch (e) {
+      setAlignmentError(e.message || 'Failed to load JobDiva mapping alignment');
+    } finally {
+      setAlignmentLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAlignment();
+  }, [loadAlignment]);
+
+  const onRepairClientLinks = async () => {
+    clear(); setRepairResult(null); setBusy(b => ({ ...b, repairClientLinks: true }));
+    try {
+      const r = await api.post('/api/admin/integrations/jobdiva_mapping_alignment.php?action=repair_client_links', {});
+      setRepairResult(r.repair || r);
+      await loadAlignment();
+      setMsg(`Client links repaired: ${r.repair?.repaired ?? 0}.`);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(b => ({ ...b, repairClientLinks: false }));
+    }
+  };
 
   const onConnect = async (e) => {
     e?.preventDefault?.();
@@ -84,6 +119,7 @@ export default function JobDivaSettings() {
       });
       if (!counts) setMsg(r.note || 'Sync triggered.');
       reload();
+      loadAlignment();
     } catch (e) { setErr(e.message); }
     finally    { setBusy(b => ({ ...b, sync: false })); }
   };
@@ -191,6 +227,16 @@ export default function JobDivaSettings() {
       {error   && <p data-testid="jobdiva-settings-error" className="error">Error: {error.message}</p>}
       {msg     && <p data-testid="jobdiva-settings-msg"  style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: 10, borderRadius: 8, color: '#065f46', fontSize: 13 }}>{msg}</p>}
       {err     && <p data-testid="jobdiva-settings-err"  style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: 10, borderRadius: 8, color: '#7f1d1d', fontSize: 13 }}>{err}</p>}
+
+      <JobDivaMappingAlignmentCard
+        data={alignment}
+        loading={alignmentLoading}
+        error={alignmentError}
+        onRefresh={loadAlignment}
+        onRepairClientLinks={onRepairClientLinks}
+        repairing={!!busy.repairClientLinks}
+        repairResult={repairResult}
+      />
 
       {/* Status / connection summary */}
       {data && (
@@ -556,6 +602,198 @@ export default function JobDivaSettings() {
       )}
     </section>
   );
+}
+
+function JobDivaMappingAlignmentCard({
+  data,
+  loading,
+  error,
+  onRefresh,
+  onRepairClientLinks,
+  repairing,
+  repairResult,
+}) {
+  const counts = data?.mapping_counts || {};
+  const fields = data?.field_coverage || {};
+  const layers = data?.relationships?.mapping_layers || {};
+  const issues = Array.isArray(data?.issues) ? data.issues : [];
+  const critical = issues.filter(i => i.severity === 'critical').length;
+  const warn = issues.filter(i => i.severity === 'warn').length;
+  const objectMap = data?.object_map || {};
+  const canonicalKeys = ['placement', 'person', 'jobdiva_customer', 'company', 'contact', 'time_entry'];
+  const mirrorKeys = ['jobdiva_job', 'jobdiva_candidate', 'jobdiva_contact', 'jobdiva_assignment'];
+
+  const countFor = (key) => Number(counts[key] || 0);
+  const fieldFor = (key) => Number(fields[key] || 0);
+
+  return (
+    <div data-testid="jobdiva-mapping-alignment-card"
+         style={{ padding: 16, background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: 15 }}>
+            <GitBranch size={16} color="#0f766e" /> JobDiva data alignment
+          </h3>
+          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 12, maxWidth: 820 }}>
+            Canonical mappings are the records workflows consume. Mirror-only rows are source evidence for inspection and field mapping.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn--ghost" onClick={onRefresh}
+                  data-testid="jobdiva-mapping-alignment-refresh" disabled={loading}
+                  style={{ fontSize: 12 }}>
+            <RefreshCw size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+            {loading ? 'Checking...' : 'Refresh'}
+          </button>
+          <button type="button" className="btn btn--primary" onClick={onRepairClientLinks}
+                  data-testid="jobdiva-mapping-alignment-repair-client-links" disabled={repairing}
+                  style={{ fontSize: 12 }}>
+            <Wrench size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+            {repairing ? 'Repairing...' : 'Repair client links'}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <p data-testid="jobdiva-mapping-alignment-error"
+           style={{ margin: '10px 0 0', padding: 10, border: '1px solid #fecaca', background: '#fef2f2', color: '#991b1b', borderRadius: 6, fontSize: 12 }}>
+          {error}
+        </p>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 8, marginTop: 12 }}>
+        <AlignmentMetric label="Canonical" value={layers.canonical_mappings ?? canonicalKeys.reduce((s, k) => s + countFor(k), 0)} tone="ok" testid="canonical" />
+        <AlignmentMetric label="Mirror-only" value={layers.mirror_only_rows ?? mirrorKeys.reduce((s, k) => s + countFor(k), 0)} tone="neutral" testid="mirror-only" />
+        <AlignmentMetric label="Field paths" value={layers.field_map_buckets ?? Object.values(fields).reduce((s, n) => s + Number(n || 0), 0)} tone="neutral" testid="field-paths" />
+        <AlignmentMetric label="Critical issues" value={critical} tone={critical ? 'bad' : 'ok'} testid="critical" />
+        <AlignmentMetric label="Warnings" value={warn} tone={warn ? 'warn' : 'ok'} testid="warnings" />
+      </div>
+
+      {repairResult && (
+        <p data-testid="jobdiva-mapping-alignment-repair-result"
+           style={{ margin: '10px 0 0', padding: 10, border: '1px solid #a7f3d0', background: '#ecfdf5', color: '#065f46', borderRadius: 6, fontSize: 12 }}>
+          Checked {repairResult.checked ?? 0}; repaired {repairResult.repaired ?? 0}; skipped {repairResult.skipped ?? 0}; failed {repairResult.failed ?? 0}.
+        </p>
+      )}
+
+      {issues.length > 0 ? (
+        <div data-testid="jobdiva-mapping-alignment-issues" style={{ marginTop: 12 }}>
+          {issues.slice(0, 6).map(issue => (
+            <div key={issue.code} data-testid={`jobdiva-mapping-alignment-issue-${issue.code}`}
+                 style={{ display: 'grid', gridTemplateColumns: '90px 70px minmax(0,1fr)', gap: 8,
+                          alignItems: 'start', padding: '8px 0', borderTop: '1px solid #e2e8f0', fontSize: 12 }}>
+              <span style={severityStyle(issue.severity)}>
+                <AlertTriangle size={11} /> {issue.severity}
+              </span>
+              <strong style={{ color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>{issue.count}</strong>
+              <span style={{ color: '#334155' }}>
+                {issue.summary}
+                <span style={{ display: 'block', color: '#64748b', marginTop: 2 }}>{issue.action}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div data-testid="jobdiva-mapping-alignment-no-issues"
+             style={{ marginTop: 12, padding: 10, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#166534', borderRadius: 6, fontSize: 12 }}>
+          No critical JobDiva mapping alignment issues detected.
+        </div>
+      )}
+
+      <details data-testid="jobdiva-mapping-alignment-object-map" style={{ marginTop: 12 }}>
+        <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#0f766e' }}>
+          Canonical object map
+        </summary>
+        <table className="data-table" style={{ width: '100%', marginTop: 8, fontSize: 12 }}>
+          <thead>
+            <tr><th>JobDiva object</th><th>CoreFlux destination</th><th>Mappings</th><th>Field paths</th></tr>
+          </thead>
+          <tbody>
+            {canonicalKeys.map(key => (
+              <tr key={key} data-testid={`jobdiva-mapping-alignment-canonical-${key}`}>
+                <td><code>{key}</code><div style={{ color: '#64748b' }}>{objectMap[key]?.source_object}</div></td>
+                <td>{objectMap[key]?.core_owner}<div style={{ color: '#64748b' }}>{objectMap[key]?.core_table}</div></td>
+                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{countFor(key)}</td>
+                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{fieldFor(key)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+
+      <details data-testid="jobdiva-mapping-alignment-mirror-only" style={{ marginTop: 8 }}>
+        <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#475569' }}>
+          Mirror-only payloads
+        </summary>
+        <table className="data-table" style={{ width: '100%', marginTop: 8, fontSize: 12 }}>
+          <thead>
+            <tr><th>Mirror row</th><th>Purpose</th><th>Rows</th><th>Field paths</th></tr>
+          </thead>
+          <tbody>
+            {mirrorKeys.map(key => (
+              <tr key={key} data-testid={`jobdiva-mapping-alignment-mirror-${key}`}>
+                <td><code>{key}</code></td>
+                <td>{objectMap[key]?.identity_rule}</td>
+                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{countFor(key)}</td>
+                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{fieldFor(key)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+
+      {Array.isArray(data?.known_tensions) && data.known_tensions.length > 0 && (
+        <div data-testid="jobdiva-mapping-alignment-known-tensions"
+             style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {data.known_tensions.map(t => (
+            <div key={t.code} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, color: '#64748b', fontSize: 11 }}>
+              <Database size={11} style={{ marginTop: 2, flexShrink: 0 }} />
+              <span><code>{t.code}</code>: {t.summary}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AlignmentMetric({ label, value, tone, testid }) {
+  const palette = {
+    ok: { bg: '#ecfdf5', border: '#a7f3d0', fg: '#065f46' },
+    warn: { bg: '#fffbeb', border: '#fde68a', fg: '#92400e' },
+    bad: { bg: '#fef2f2', border: '#fecaca', fg: '#991b1b' },
+    neutral: { bg: '#f8fafc', border: '#e2e8f0', fg: '#334155' },
+  }[tone] || { bg: '#f8fafc', border: '#e2e8f0', fg: '#334155' };
+  return (
+    <div data-testid={`jobdiva-mapping-alignment-metric-${testid}`}
+         style={{ border: `1px solid ${palette.border}`, background: palette.bg, color: palette.fg,
+                  borderRadius: 8, padding: '10px 12px' }}>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0 }}>{label}</div>
+      <strong style={{ fontSize: 20, lineHeight: 1.2, fontVariantNumeric: 'tabular-nums' }}>{value ?? 0}</strong>
+    </div>
+  );
+}
+
+function severityStyle(severity) {
+  const p = {
+    critical: { bg: '#fee2e2', fg: '#991b1b', border: '#fecaca' },
+    warn: { bg: '#fef3c7', fg: '#92400e', border: '#fde68a' },
+    info: { bg: '#dbeafe', fg: '#1e40af', border: '#bfdbfe' },
+  }[severity] || { bg: '#f1f5f9', fg: '#475569', border: '#e2e8f0' };
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    justifyContent: 'center',
+    padding: '2px 6px',
+    borderRadius: 999,
+    background: p.bg,
+    color: p.fg,
+    border: `1px solid ${p.border}`,
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+  };
 }
 
 const lbl  = { fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.4 };

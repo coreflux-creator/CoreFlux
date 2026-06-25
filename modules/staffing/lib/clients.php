@@ -86,12 +86,30 @@ function staffingClientEnsureForCompany(int $tenantId, ?int $companyId, string $
             }
         }
         if ($patch) {
-            scopedUpdate('staffing_clients', (int) $existing['id'], $patch);
+            $sets = [];
+            $params = ['tenant_id' => $tenantId, 'id' => (int) $existing['id']];
+            foreach ($patch as $key => $value) {
+                $sets[] = "`{$key}` = :{$key}";
+                $params[$key] = $value;
+            }
+            $params['updated_at'] = date('Y-m-d H:i:s');
+            $sets[] = 'updated_at = :updated_at';
+            $pdo->prepare(
+                'UPDATE staffing_clients SET ' . implode(', ', $sets) . ' WHERE tenant_id = :tenant_id AND id = :id'
+            )->execute($params);
         }
         return ['client_id' => (int) $existing['id'], 'company_id' => $companyId, 'name' => $name];
     }
 
-    $clientId = scopedInsert('staffing_clients', array_filter($payload, static fn($v) => $v !== null));
+    $payload = array_filter($payload, static fn($v) => $v !== null);
+    $payload['tenant_id'] = $tenantId;
+    $payload['created_at'] = date('Y-m-d H:i:s');
+    $cols = array_keys($payload);
+    $placeholders = array_map(static fn($c) => ":{$c}", $cols);
+    $pdo->prepare(
+        'INSERT INTO staffing_clients (`' . implode('`, `', $cols) . '`) VALUES (' . implode(', ', $placeholders) . ')'
+    )->execute($payload);
+    $clientId = (int) $pdo->lastInsertId();
     return ['client_id' => $clientId, 'company_id' => $companyId, 'name' => $name];
 }
 

@@ -29,6 +29,7 @@ require_once __DIR__ . '/client.php';
 require_once __DIR__ . '/../integrations/entity_mappings.php';
 require_once __DIR__ . '/../integrations/payload_field_index.php';
 require_once __DIR__ . '/../../modules/people/lib/companies.php';
+require_once __DIR__ . '/../../modules/staffing/lib/clients.php';
 
 /**
  * JobDiva V2 BI endpoints — verified 2026-02 from
@@ -933,7 +934,7 @@ function jobdivaSyncPlacements(int $tid, ?int $userId, array $opts = []): array
                 }
             }
 
-            $internalId = jobdivaSyncUpsertPlacement($tid, $personId, $endClientCompanyId, $jd, $extId);
+            $internalId = jobdivaSyncUpsertPlacement($tid, $personId, $endClientCompanyId, $jd, $extId, $userId);
             mappingUpsert($tid, 'jobdiva', 'placement', $extId, $internalId, $jd, 'pull', $userId);
 
             // Side-effect: index every joined sub-record (_jd_candidate,
@@ -1681,7 +1682,7 @@ function jobdivaResolveOrAutoCreateEndClient(
     return $newId;
 }
 
-function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientCompanyId, array $jd, string $extId): int
+function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientCompanyId, array $jd, string $extId, ?int $userId = null): int
 {
     require_once __DIR__ . '/../integrations/field_map.php';
     $pdo = getDB();
@@ -1749,6 +1750,37 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'customerName', 'customer name', 'name',
         ])
     );
+    $clientId = null;
+    $clientBridgeName = trim($endClientName);
+    if ($clientBridgeName === '' && $endClientCompanyId !== null && $endClientCompanyId > 0) {
+        try {
+            $nameStmt = $pdo->prepare(
+                'SELECT name FROM companies
+                  WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL
+                  LIMIT 1'
+            );
+            $nameStmt->execute(['t' => $tid, 'id' => $endClientCompanyId]);
+            $clientBridgeName = trim((string) ($nameStmt->fetchColumn() ?: ''));
+        } catch (\Throwable $e) {
+            error_log('[jobdiva placement sync] client bridge company-name lookup failed: ' . $e->getMessage());
+        }
+    }
+    if ($clientBridgeName !== '') {
+        try {
+            $clientRef = staffingClientEnsureForCompany($tid, $endClientCompanyId, $clientBridgeName, [
+                'created_by_user_id' => $userId,
+            ]);
+            $clientId = (int) ($clientRef['client_id'] ?? 0) ?: null;
+            if (!empty($clientRef['company_id'])) {
+                $endClientCompanyId = (int) $clientRef['company_id'];
+            }
+            if ($endClientName === '' && !empty($clientRef['name'])) {
+                $endClientName = (string) $clientRef['name'];
+            }
+        } catch (\Throwable $e) {
+            error_log('[jobdiva placement sync] staffing client bridge failed: ' . $e->getMessage());
+        }
+    }
     $statusRaw = (string) tenantIntegrationFieldMapPluckInternal(
         $tid, 'jobdiva', 'placement', 'status', $jd,
         static fn() => jobdivaPluckFieldDeep($jd, ['status', 'startStatus', 'placementStatus'])
@@ -1964,6 +1996,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
             'notes'                => ['notes', $notes ?: null],
             'end_client_name'      => ['ecn',   $endClientName ?: null],
             'end_client_company_id' => ['ecc',  $endClientCompanyId],
+            'client_id'            => ['cli',   $clientId],
             'client_approver_name' => ['can',   $approverName ?: null],
             'client_approver_email'=> ['cae',   $approverEmail ?: null],
             'title'                => ['ti',    $title],
@@ -1994,6 +2027,10 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
                 $skipped[] = $col;
                 continue;
             }
+            if ($val === null && $col === 'client_id') {
+                $skipped[] = $col;
+                continue;
+            }
             $assignments[] = "{$col} = :{$bind}";
             $bindings[$bind] = $val;
         }
@@ -2012,14 +2049,14 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
     $pdo->prepare(
         'INSERT INTO placements (tenant_id, person_id, external_id, jobdiva_job_id, status, start_date, end_date,
                                   actual_end_date, due_date, engagement_type, worksite_state, worksite_country,
-                                  remote_policy, notes, end_client_name, end_client_company_id,
+                                  remote_policy, notes, end_client_name, end_client_company_id, client_id,
                                   client_approver_name, client_approver_email, title,
                                   recruiter_name, recruiter_email,
                                   account_manager_name, account_manager_email,
                                   client_bill_cycle, client_bill_cycle_anchor,
                                   vendor_pay_cycle, vendor_pay_cycle_anchor)
          VALUES (:t, :p, :ext, :jji, :st, :sd, :ed, :aed, :dd, :eng, :ws, :wc,
-                 :rp, :notes, :ecn, :ecc, :can, :cae, :ti,
+                 :rp, :notes, :ecn, :ecc, :cli, :can, :cae, :ti,
                  :rn, :re, :amn, :ame,
                  :cbc, :cbca, :vpc, :vpca)'
     )->execute([
@@ -2039,6 +2076,7 @@ function jobdivaSyncUpsertPlacement(int $tid, int $personId, ?int $endClientComp
         'notes' => $notes ?: null,
         'ecn'   => $endClientName ?: null,
         'ecc'   => $endClientCompanyId,
+        'cli'   => $clientId,
         'can'   => $approverName ?: null,
         'cae'   => $approverEmail ?: null,
         'ti'    => $title,
