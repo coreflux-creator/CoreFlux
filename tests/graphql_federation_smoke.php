@@ -67,23 +67,42 @@ $findPort = function (): int {
 $portCF = $findPort();
 $portJD = $findPort();
 
-$env = [
+$baseEnv = getenv();
+if (!is_array($baseEnv)) $baseEnv = [];
+$env = array_merge($baseEnv, [
     'JWT_SECRET'           => 'smoke-jwt-secret',
     'INTERNAL_HMAC_SECRET' => 'smoke-hmac-secret',
     'COREFLUX_API_BASE'    => 'http://localhost:9',  // never reached in this smoke
     'PATH'                 => getenv('PATH') ?: '/usr/bin:/bin',
-];
+]);
 $descr = [0 => ['pipe','r'], 1 => ['pipe','w'], 2 => ['pipe','w']];
 
-$envCF = $env + ['PORT' => (string) $portCF];
-$envJD = $env + ['PORT' => (string) $portJD];
+$envCF = array_merge($env, ['PORT' => (string) $portCF]);
+$envJD = array_merge($env, ['PORT' => (string) $portJD]);
+
+$terminateProc = function (&$proc, ?array &$pipes = null): void {
+    if (is_array($pipes)) {
+        foreach ($pipes as $pipe) {
+            if (is_resource($pipe)) @fclose($pipe);
+        }
+    }
+    if (is_resource($proc)) {
+        $status = @proc_get_status($proc);
+        if (DIRECTORY_SEPARATOR === '\\' && is_array($status) && !empty($status['pid'])) {
+            @exec('taskkill /F /T /PID ' . (int) $status['pid'] . ' 2>NUL');
+        } else {
+            @proc_terminate($proc);
+        }
+        @proc_close($proc);
+    }
+    $proc = null;
+};
 
 $procCF = proc_open('node dist/index.js', $descr, $p1, "{$ROOT}/subgraph-coreflux", $envCF);
 $procJD = proc_open('node dist/index.js', $descr, $p2, "{$ROOT}/subgraph-jobdiva",  $envJD);
-register_shutdown_function(function () use (&$procCF, &$procJD) {
-    foreach ([$procCF, $procJD] as $p) {
-        if (is_resource($p)) { proc_terminate($p); proc_close($p); }
-    }
+register_shutdown_function(function () use (&$procCF, &$procJD, &$p1, &$p2, $terminateProc) {
+    $terminateProc($procCF, $p1);
+    $terminateProc($procJD, $p2);
 });
 
 // Wait up to 6s for both to listen.
@@ -140,12 +159,15 @@ $assert('coreflux serves _service { sdl }', $status === 200 && str_contains($bod
 [$status, $body] = $post($portJD, json_encode(['query' => '{ _service { sdl } }']));
 $assert('jobdiva  serves _service { sdl }', $status === 200 && str_contains($body, 'type JobDivaAssignment'));
 
+$terminateProc($procCF, $p1);
+$terminateProc($procJD, $p2);
+
 echo "\nGraphQL MCP server — smoke boot (stdio transport)\n";
 // Spawn the MCP server in stdio mode, send it the initialize RPC, expect
 // a JSON-RPC response back on stdout, then kill it. This is the minimum
 // to prove the server protocol layer works without depending on a router.
 $mcpDescr = [0 => ['pipe','r'], 1 => ['pipe','w'], 2 => ['pipe','w']];
-$mcpEnv   = $env + ['ROUTER_URL' => "http://127.0.0.1:{$portCF}/"];
+$mcpEnv   = array_merge($env, ['ROUTER_URL' => "http://127.0.0.1:{$portCF}/"]);
 $mcpProc  = proc_open('node dist/index.js', $mcpDescr, $mcpPipes, "{$ROOT}/mcp-server", $mcpEnv);
 $assert('mcp-server process started', is_resource($mcpProc));
 if (is_resource($mcpProc)) {
@@ -172,8 +194,7 @@ if (is_resource($mcpProc)) {
         }
         usleep(100_000);
     }
-    proc_terminate($mcpProc);
-    proc_close($mcpProc);
+    $terminateProc($mcpProc, $mcpPipes);
     $assert('mcp-server responded to initialize over stdio', str_contains($stdout, '"jsonrpc"') && str_contains($stdout, '"result"'), 'stdout=' . substr($stdout, 0, 300));
     $assert('mcp-server announced server name "coreflux-graphql"', str_contains($stdout, 'coreflux-graphql'));
 }

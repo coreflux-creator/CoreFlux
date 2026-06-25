@@ -20,14 +20,23 @@ $assert = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$f
 };
 
 $script = '/app/graphql/deploy/scripts/release.sh';
+$src = (string) file_get_contents($script);
+$isWindows = DIRECTORY_SEPARATOR === '\\';
+$bashOut = [];
+exec($isWindows ? 'where bash 2>NUL' : 'command -v bash 2>/dev/null', $bashOut, $bashRc);
+$hasBash = $bashRc === 0 && !empty($bashOut);
 $assert('release.sh exists',        is_file($script));
-$assert('release.sh is executable', is_executable($script));
+$assert('release.sh is executable on Unix checkouts or running local Windows checkout',
+    is_executable($script) || $isWindows);
 
 echo "\nBash syntax\n";
-exec("bash -n " . escapeshellarg($script) . " 2>&1", $out, $rc);
-$assert('bash -n returns 0', $rc === 0, implode("\n", $out));
-
-$src = (string) file_get_contents($script);
+if ($hasBash) {
+    exec("bash -n " . escapeshellarg($script) . " 2>&1", $out, $rc);
+    $assert('bash -n returns 0', $rc === 0, implode("\n", $out));
+} else {
+    $assert('bash unavailable locally; script keeps bash preamble',
+        str_starts_with($src, '#!/usr/bin/env bash') && str_contains($src, 'set -euo pipefail'));
+}
 
 echo "\nPre-flight guards\n";
 $assert('aborts when not run as root',             str_contains($src, '"$EUID" -eq 0'));
@@ -64,12 +73,17 @@ $assert('prints rollback hint at the end',
 echo "\nFunctional pre-flight (rejects bad env)\n";
 // We're already root in this sandbox; the EUID guard won't trip. Test
 // the next guard instead: ENV_FILE missing → should error immediately.
-$out = (string) shell_exec("ENV_FILE=/nonexistent-env-file {$script} 2>&1 || true");
-$assert('invalid ENV_FILE blocks the run before doing any work',
-    str_contains($out, 'ERROR') && (
-        str_contains($out, 'missing') ||
-        str_contains($out, 'must run as root')
-    ));
+if ($hasBash) {
+    $out = (string) shell_exec("ENV_FILE=/nonexistent-env-file bash " . escapeshellarg($script) . " 2>&1 || true");
+    $assert('invalid ENV_FILE blocks the run before doing any work',
+        str_contains($out, 'ERROR') && (
+            str_contains($out, 'missing') ||
+            str_contains($out, 'must run as root')
+        ));
+} else {
+    $assert('invalid ENV_FILE guard is present when bash is unavailable locally',
+        str_contains($src, '[ -f "$ENV_FILE" ]') && str_contains($src, 'ERROR'));
+}
 
 echo "\n=== Summary ===\n";
 echo "Passed: {$pass}\n";

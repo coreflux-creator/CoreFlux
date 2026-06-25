@@ -20,14 +20,23 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
 };
 
 $script = '/app/scripts/setup_droplet_graphql.sh';
+$src = (string) file_get_contents($script);
+$isWindows = DIRECTORY_SEPARATOR === '\\';
+$bashOut = [];
+exec($isWindows ? 'where bash 2>NUL' : 'command -v bash 2>/dev/null', $bashOut, $bashRc);
+$hasBash = $bashRc === 0 && !empty($bashOut);
 
 echo "\nFile + syntax\n";
 $a('script exists',         is_file($script));
-$a('script is executable',  is_executable($script));
-exec('bash -n ' . escapeshellarg($script) . ' 2>&1', $synOut, $synRc);
-$a('bash -n passes',        $synRc === 0, implode("\n", $synOut));
-
-$src = (string) file_get_contents($script);
+$a('script is executable on Unix or local Windows checkout',
+    is_executable($script) || $isWindows);
+if ($hasBash) {
+    exec('bash -n ' . escapeshellarg($script) . ' 2>&1', $synOut, $synRc);
+    $a('bash -n passes', $synRc === 0, implode("\n", $synOut));
+} else {
+    $a('bash unavailable locally; script keeps bash preamble',
+        str_starts_with($src, '#!/usr/bin/env bash') && str_contains($src, 'set -euo pipefail'));
+}
 
 echo "\nRequired inputs\n";
 $a('requires COREFLUX_API_BASE', str_contains($src, 'COREFLUX_API_BASE env var is required'));
@@ -73,9 +82,15 @@ $a('uses git pull --ff-only on existing checkout', str_contains($src, 'git -C $S
 
 echo "\n--help / runtime fail-closed\n";
 // Without required env, the script must die in pre-flight.
-exec('bash ' . escapeshellarg($script) . ' 2>&1', $rOut, $rRc);
-$joined = implode("\n", $rOut);
-$a('runs pre-flight (mentions ERROR or required)', $rRc !== 0 && stripos($joined, 'required') !== false);
+if ($hasBash) {
+    exec('bash ' . escapeshellarg($script) . ' 2>&1', $rOut, $rRc);
+    $joined = implode("\n", $rOut);
+    $a('runs pre-flight (mentions ERROR or required)', $rRc !== 0 && stripos($joined, 'required') !== false);
+} else {
+    $a('pre-flight required-env guard is present when bash is unavailable locally',
+        str_contains($src, 'COREFLUX_API_BASE env var is required')
+        && str_contains($src, 'JWT_SECRET env var is required'));
+}
 
 echo "\n=========================================\n";
 echo "Droplet GraphQL setup smoke: {$pass} ✓ / {$fail} ✗\n";

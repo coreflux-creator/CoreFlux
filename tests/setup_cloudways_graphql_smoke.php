@@ -23,14 +23,23 @@ $a = function (string $msg, bool $ok, string $detail = '') use (&$pass, &$fail) 
 };
 
 $script = '/app/scripts/setup_cloudways_graphql.sh';
+$src = (string) file_get_contents($script);
+$isWindows = DIRECTORY_SEPARATOR === '\\';
+$bashOut = [];
+exec($isWindows ? 'where bash 2>NUL' : 'command -v bash 2>/dev/null', $bashOut, $bashRc);
+$hasBash = $bashRc === 0 && !empty($bashOut);
 
 echo "\nFile + syntax\n";
 $a('script exists',         is_file($script));
-$a('script is executable',  is_executable($script));
-exec('bash -n ' . escapeshellarg($script) . ' 2>&1', $synOut, $synRc);
-$a('bash -n passes',        $synRc === 0, implode("\n", $synOut));
-
-$src = (string) file_get_contents($script);
+$a('script is executable on Unix or local Windows checkout',
+    is_executable($script) || $isWindows);
+if ($hasBash) {
+    exec('bash -n ' . escapeshellarg($script) . ' 2>&1', $synOut, $synRc);
+    $a('bash -n passes', $synRc === 0, implode("\n", $synOut));
+} else {
+    $a('bash unavailable locally; script keeps bash preamble',
+        str_starts_with($src, '#!/usr/bin/env bash') && str_contains($src, 'set -euo pipefail'));
+}
 
 echo "\nDocumented flags + env vars\n";
 $a('handles --dry-run',     str_contains($src, '--dry-run'));
@@ -64,9 +73,14 @@ echo "\nRun-time pre-flight\n";
 $a('root check appears before any side effect',
     (bool) preg_match('/Pre-flight.*?EUID.*?must run as root/s', $src));
 
-exec('bash ' . escapeshellarg($script) . ' --help 2>&1', $hOut, $hRc);
-$a('--help exits 0',          $hRc === 0);
-$a('--help shows REPO_URL',   stripos(implode("\n", $hOut), 'REPO_URL') !== false);
+if ($hasBash) {
+    exec('bash ' . escapeshellarg($script) . ' --help 2>&1', $hOut, $hRc);
+    $a('--help exits 0',        $hRc === 0);
+    $a('--help shows REPO_URL', stripos(implode("\n", $hOut), 'REPO_URL') !== false);
+} else {
+    $a('--help path documented when bash is unavailable locally',
+        str_contains($src, '--help') && str_contains($src, 'REPO_URL'));
+}
 
 echo "\nDEPLOYMENT.md references this script\n";
 $docs = (string) @file_get_contents('/app/graphql/deploy/DEPLOYMENT.md');
